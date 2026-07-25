@@ -4889,17 +4889,20 @@ textarea,
   opacity: 0.88;
 }
 
+/* A single flexible row rather than a fixed two-column grid: the match count
+   and the partial-list badge appear only while searching, and a fixed grid
+   wrapped the upload control onto its own line as soon as either showed. */
 .file-tree-toolbar {
   flex: 0 0 auto;
   min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
   align-items: center;
   gap: 8px;
   padding: 0;
 }
 
 .file-tree-search {
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 34px;
   display: flex;
@@ -4957,7 +4960,7 @@ textarea,
 }
 
 .file-tree-search-count {
-  min-width: 68px;
+  flex: 0 0 auto;
   overflow: hidden;
   text-align: right;
   color: #667085;
