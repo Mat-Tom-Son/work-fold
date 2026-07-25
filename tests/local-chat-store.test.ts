@@ -7,6 +7,7 @@ import test, { after } from "node:test";
 import {
   appendMessage,
   conversationsDir,
+  createConversation,
   listConversations,
   readConversation,
   renameConversation,
@@ -159,6 +160,43 @@ test("chat store prefers generated landing title in conversation summaries", asy
 
   const summaries = await listConversations(workspaceRoot);
   assert.equal(summaries[0]?.title, "Workspace Notes Review");
+});
+
+test("new Chat placeholder does not override its generated landing title", async (t) => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-created-title-"));
+  t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+
+  const created = await createConversation(workspaceRoot);
+  await appendMessage(workspaceRoot, created.id, message("1", "Plan a garden event rain fallback."));
+  await appendMessage(workspaceRoot, created.id, {
+    id: "assistant-1",
+    role: "assistant",
+    content: "The rain plan is ready.",
+    createdAt: "2026-01-01T00:00:02Z",
+    landing: {
+      summary: "The agent prepared a rain plan.",
+      nextActions: [],
+      followUpPrompt: null,
+      conversationTitle: "Garden Event Rain Plan",
+      generatedAt: "2026-01-01T00:00:03Z",
+      provider: "openrouter",
+      model: "z-ai/glm-5.2",
+    },
+  });
+
+  const summaries = await listConversations(workspaceRoot);
+  assert.equal(summaries[0]?.title, "Garden Event Rain Plan");
+});
+
+test("an intentional later rename to New Chat remains authoritative", async (t) => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-new-chat-rename-"));
+  t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+
+  const created = await createConversation(workspaceRoot);
+  await appendMessage(workspaceRoot, created.id, message("1", "Review this draft."));
+  const renamed = await renameConversation(workspaceRoot, created.id, "New Chat");
+
+  assert.equal(renamed.title, "New Chat");
 });
 
 test("chat store manual conversation title overrides generated landing title", async (t) => {

@@ -3,7 +3,7 @@ import { Search } from "lucide-react";
 import { commandPaletteGroupCap, commandPaletteGroupOrder, commandPaletteOverallCap } from "../../constants";
 import { desktopShortcutKeyLabel, desktopShortcutModifierKey } from "../../lib/keyboard";
 import { normalizeSearchQuery } from "../../lib/format";
-import { useEscapeKeyDismiss } from "../../hooks/useEscapeKeyDismiss";
+import { useModalDialog } from "../../hooks/useModalDialog";
 import type { CommandPaletteGroupId } from "../../types";
 
 interface CommandPaletteCommand {
@@ -46,6 +46,7 @@ function CommandPaletteHost({
   onClose: (options?: { restoreFocus?: boolean }) => void;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const dialogRef = useModalDialog({ onClose, initialFocusRef: inputRef, restoreFocus: false });
   const [query, setQuery] = useState("");
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const { groups, flatResults } = useMemo(() => {
@@ -55,15 +56,6 @@ function CommandPaletteHost({
   const activeResult = flatResults[highlightedIndex] ?? null;
   const activeOptionId = activeResult ? `command-palette-option-${highlightedIndex}` : undefined;
   const modifier = desktopShortcutModifierKey();
-
-  useEffect(() => {
-    window.requestAnimationFrame(() => inputRef.current?.focus());
-  }, []);
-
-  useEscapeKeyDismiss((event) => {
-    event.preventDefault();
-    onClose();
-  });
 
   useEffect(() => {
     setHighlightedIndex(0);
@@ -109,6 +101,8 @@ function CommandPaletteHost({
   return (
     <div className="modal-backdrop command-palette-backdrop" role="presentation" onMouseDown={() => onClose()}>
       <section
+        ref={dialogRef}
+        tabIndex={-1}
         className="command-palette-modal"
         role="dialog"
         aria-modal="true"

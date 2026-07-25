@@ -14,7 +14,7 @@ import {
   WeatherSunny20Regular,
 } from "@fluentui/react-icons";
 import { textSizeOptions, typographyFontOptionsForPlatform } from "../../constants";
-import { useEscapeKeyDismiss } from "../../hooks/useEscapeKeyDismiss";
+import { useModalDialog } from "../../hooks/useModalDialog";
 import { errorText } from "../../lib/api";
 import type { AgentStatus, AppTheme, AppThemePreference, AppTypographyPreference, DesktopUpdateStatus, WorkspaceSummary } from "../../types";
 import { AssistantSetupPane } from "../panes/workspacePanes";
@@ -42,8 +42,8 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
   const [closeToTrayBusy, setCloseToTrayBusy] = useState(false);
   const [closeToTrayError, setCloseToTrayError] = useState<string | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useModalDialog({ onClose, initialFocusRef: closeRef });
 
-  useEffect(() => { closeRef.current?.focus(); }, []);
   useEffect(() => { setPage(initialPage); }, [initialPage]);
   useEffect(() => {
     let cancelled = false;
@@ -54,8 +54,6 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
       .catch(() => { if (!cancelled) setCloseToTray(null); });
     return () => { cancelled = true; };
   }, []);
-  useEscapeKeyDismiss((event) => { event.preventDefault(); onClose(); });
-
   async function updateCloseToTray(enabled: boolean) {
     const desktopWindow = window.workspaceDesktop?.window;
     if (!desktopWindow?.setCloseToTray || !closeToTray || closeToTrayBusy || closeToTray.enabled === enabled) return;
@@ -82,7 +80,7 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
 
   return (
     <div className="modal-backdrop settings-backdrop" role="presentation" onMouseDown={onClose}>
-      <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}>
+      <section ref={dialogRef} tabIndex={-1} className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-title settings-title">
           <div className="settings-title-copy">
             <span className="settings-title-mark" aria-hidden="true"><Settings20Regular /></span>

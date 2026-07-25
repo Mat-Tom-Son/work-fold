@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createElement, useRef, type ReactElement } from "react";
+import { createElement, StrictMode, useRef, type ReactElement } from "react";
 
 import { useModalDialog } from "../web-local/src/hooks/useModalDialog.js";
 import { createDomHarness } from "./support/dom.js";
@@ -105,4 +105,17 @@ test("an open dialog hides the background and restores it on close", async (t) =
 
   await dom.settle();
   assert.equal(document.activeElement?.id, "opener", "focus returns to the control that opened the dialog");
+});
+
+test("focus restoration survives React Strict Mode effect replay", async (t) => {
+  const dom = await createDomHarness();
+  t.after(() => dom.cleanup());
+
+  await dom.render(createElement(StrictMode, null, createElement(Screen, { open: false, onClose: () => {} })));
+  document.getElementById("opener")?.focus();
+  await dom.render(createElement(StrictMode, null, createElement(Screen, { open: true, onClose: () => {} })));
+  await dom.render(createElement(StrictMode, null, createElement(Screen, { open: false, onClose: () => {} })));
+  await dom.settle();
+
+  assert.equal(document.activeElement?.id, "opener");
 });

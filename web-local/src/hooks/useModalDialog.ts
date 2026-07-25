@@ -27,6 +27,7 @@ export interface ModalDialogOptions {
   onClose: () => void;
   blocked?: boolean;
   initialFocusRef?: RefObject<HTMLElement | null>;
+  restoreFocus?: boolean;
 }
 
 /**
@@ -34,8 +35,15 @@ export interface ModalDialogOptions {
  * a portal-backed dialog: focus enters the modal, cannot escape it, and returns
  * to the invoking control after close.
  */
-export function useModalDialog({ onClose, blocked = false, initialFocusRef }: ModalDialogOptions): RefObject<HTMLElement | null> {
+export function useModalDialog({ onClose, blocked = false, initialFocusRef, restoreFocus = true }: ModalDialogOptions): RefObject<HTMLElement | null> {
   const dialogRef = useRef<HTMLElement>(null);
+  // Capture during the opening render. In development, React Strict Mode
+  // replays effects after the first isolation pass has already moved focus to
+  // <body>; retaining the render-time target keeps restoration correct there
+  // as well as in production.
+  const returnFocusRef = useRef<HTMLElement | null>(
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
   const onCloseRef = useRef(onClose);
   const blockedRef = useRef(blocked);
   onCloseRef.current = onClose;
@@ -45,7 +53,7 @@ export function useModalDialog({ onClose, blocked = false, initialFocusRef }: Mo
     const mountedDialog = dialogRef.current;
     if (!mountedDialog) return;
     const dialog: HTMLElement = mountedDialog;
-    const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const returnFocus = returnFocusRef.current;
     activeDialogs.push(dialog);
     focusDialogEntry(dialog, initialFocusRef);
     const releaseBackground = isolateDialogBackground(dialog);
@@ -87,12 +95,12 @@ export function useModalDialog({ onClose, blocked = false, initialFocusRef }: Mo
       const stackIndex = activeDialogs.lastIndexOf(dialog);
       if (stackIndex >= 0) activeDialogs.splice(stackIndex, 1);
       releaseBackground();
-      if (!returnFocus?.isConnected) return;
+      if (!restoreFocus || !returnFocus?.isConnected) return;
       window.requestAnimationFrame(() => {
         if (returnFocus.isConnected && !returnFocus.inert) returnFocus.focus();
       });
     };
-  }, [initialFocusRef]);
+  }, [initialFocusRef, restoreFocus]);
 
   return dialogRef;
 }

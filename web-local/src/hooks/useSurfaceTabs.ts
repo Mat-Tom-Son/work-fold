@@ -126,7 +126,7 @@ export function useSurfaceTabs({
     }));
   }
 
-  function openChatSurfaceTab(targetWorkspace: WorkspaceSummary, conversation: ConversationSummary | null = null): void {
+  function openChatSurfaceTab(targetWorkspace: WorkspaceSummary, conversation: ConversationSummary | null = null): string {
     if (conversation) {
       const existingTab = surfaceTabs.find((tab) => tab.kind === "chat" && tab.workspaceId === targetWorkspace.id && tab.conversationId === conversation.id);
       if (existingTab) {
@@ -134,12 +134,13 @@ export function useSurfaceTabs({
           tab.id === existingTab.id ? { ...tab, title: chatDisplayTitle({ serverTitle: conversation.title }) } : tab
         )));
         setActiveSurfaceTabId(existingTab.id);
-        return;
+        return existingTab.id;
       }
     }
     const tab = conversation ? chatSurfaceTab(targetWorkspace, conversation) : newChatSurfaceTab(targetWorkspace, { fresh: true });
     setSurfaceTabs((current) => conversation ? upsertSurfaceTab(current, tab) : [...current, tab]);
     setActiveSurfaceTabId(tab.id);
+    return tab.id;
   }
 
   function openHistorySurfaceTab(targetWorkspace: WorkspaceSummary, checkpointId?: string, title = "History"): void {

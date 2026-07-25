@@ -438,9 +438,15 @@ function conversationLifecycle(messages: ChatMessage[]): { archivedAt: string | 
 }
 
 function manualConversationTitle(messages: ChatMessage[]): string | null {
-  for (const message of [...messages].reverse()) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
     if (message.role !== "system" || message.kind !== "conversation_title") continue;
     const title = normalizeConversationTitle(message.content);
+    // createConversation historically seeded every transcript with a manual
+    // "New Chat" title. Treat only that first seed as a placeholder so an
+    // Assistant-generated landing title can win, while a later intentional
+    // rename to "New Chat" remains authoritative.
+    if (index === 0 && title === "New Chat") continue;
     if (title) return title;
   }
   return null;

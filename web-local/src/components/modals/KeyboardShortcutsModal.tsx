@@ -1,11 +1,12 @@
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { desktopShortcutKeyLabel, desktopShortcutModifierKey } from "../../lib/keyboard";
 import { isMacOS } from "../../lib/platform";
-import { useEscapeKeyDismiss } from "../../hooks/useEscapeKeyDismiss";
+import { useModalDialog } from "../../hooks/useModalDialog";
 import type { ShortcutGroup } from "../../types";
 
 function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useModalDialog({ onClose, initialFocusRef: closeButtonRef });
   const modifier = desktopShortcutModifierKey();
   const macOS = isMacOS();
   const shortcutGroups: ShortcutGroup[] = [
@@ -59,18 +60,11 @@ function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
     });
   }
 
-  useEffect(() => {
-    closeButtonRef.current?.focus();
-  }, []);
-
-  useEscapeKeyDismiss((event) => {
-    event.preventDefault();
-    onClose();
-  });
-
   return (
     <div className="modal-backdrop keyboard-shortcuts-backdrop" role="presentation" onMouseDown={onClose}>
       <section
+        ref={dialogRef}
+        tabIndex={-1}
         className="keyboard-shortcuts-modal"
         role="dialog"
         aria-modal="true"

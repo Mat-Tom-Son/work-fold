@@ -139,7 +139,12 @@ export interface ContextAttachment {
   userLabel: string;
   detail: string;
 }
-export interface ChatContextPathRequest { id: number; path: string }
+export interface ChatContextPathRequest {
+  id: number;
+  path: string;
+  workspaceId: string;
+  surfaceTabId: string;
+}
 export interface PendingChatSend {
   conversation: ConversationSummary;
   content: string;

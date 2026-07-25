@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { History, Loader2, Undo2, X } from "lucide-react";
 import { api, errorText } from "../../lib/api";
 import { formatBytes, formatDateTime, formatTimeAgo, splitConfirmMessage } from "../../lib/format";
-import { useEscapeKeyDismiss } from "../../hooks/useEscapeKeyDismiss";
+import { useModalDialog } from "../../hooks/useModalDialog";
 import { requestConfirm, showToast } from "../../ui/feedback";
 import type { FileVersionEntry, FileVersionRestoreOutcome, WorkspaceSummary } from "../../types";
 
@@ -30,6 +30,9 @@ function FileVersionHistoryModal({
   const [notice, setNotice] = useState<string | null>(null);
   const [undoRestorePointId, setUndoRestorePointId] = useState<string | null>(null);
   const loadRequestRef = useRef(0);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const busy = restoringHash !== null || undoing;
+  const dialogRef = useModalDialog({ onClose, blocked: busy, initialFocusRef: closeButtonRef });
 
   const loadVersions = useCallback(async (): Promise<void> => {
     const requestId = loadRequestRef.current + 1;
@@ -54,11 +57,6 @@ function FileVersionHistoryModal({
     setUndoRestorePointId(null);
     void loadVersions();
   }, [loadVersions]);
-
-  // capture keeps dismissal ahead of keydown handlers in the pane underneath.
-  useEscapeKeyDismiss(onClose, true, { capture: true });
-
-  const busy = restoringHash !== null || undoing;
 
   async function restoreVersion(version: FileVersionEntry): Promise<void> {
     const restoreConfirm = splitConfirmMessage(
@@ -115,7 +113,9 @@ function FileVersionHistoryModal({
         if (!busy) onClose();
       }}
     >
-      <div
+      <section
+        ref={dialogRef}
+        tabIndex={-1}
         className="publish-review-modal file-history-modal"
         role="dialog"
         aria-modal="true"
@@ -128,7 +128,7 @@ function FileVersionHistoryModal({
             <strong id="file-history-title">Version history</strong>
             <small>{filePath}</small>
           </span>
-          <button className="minimal-icon-button" type="button" disabled={busy} onClick={onClose} aria-label="Close version history">
+          <button ref={closeButtonRef} className="minimal-icon-button" type="button" disabled={busy} onClick={onClose} aria-label="Close version history">
             <X size={15} />
           </button>
         </div>
@@ -177,7 +177,7 @@ function FileVersionHistoryModal({
         <p className="file-history-footnote">
           Restoring writes the older contents back to this file. If it is open in Word, Excel, or PowerPoint, close and reopen it to see the restored version.
         </p>
-      </div>
+      </section>
     </div>
   );
 }

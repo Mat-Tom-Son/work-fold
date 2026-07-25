@@ -31,6 +31,7 @@ import {
   MoreHorizontal16Regular,
 } from "@fluentui/react-icons";
 import { api, apiForm, errorText } from "../../lib/api";
+import { resolveAssistantModelSelection } from "../../lib/assistant-model-selection";
 import { chatActivityKey, chatSnoozeTimeLabel, conversationLifecycleView, isRecentlyResurfaced } from "../../lib/chat-lifecycle";
 import { formatChatListTime, formatItemCount } from "../../lib/format";
 import { workspaceIdentityFor, workspaceIdentityStyle } from "../../lib/workspace-identity";
@@ -509,10 +510,16 @@ export function AssistantSetupPane({ workspace, status, fixtureMode = false, emb
     void api<{ models: AgentModel[] }>(`/api/agent/models?workspaceId=${encodeURIComponent(workspace.id)}`)
       .then((result) => {
         setModels(result.models);
-        const first = result.models.find((item) => item.provider === provider) ?? result.models.find((item) => item.provider === "openrouter") ?? result.models[0];
+        const first = result.models.find((item) => item.provider === status.provider)
+          ?? result.models.find((item) => item.provider === "openrouter")
+          ?? result.models[0];
         if (first) {
           setProvider(first.provider);
-          setModel((current) => result.models.some((item) => item.provider === first.provider && item.id === current) ? current : first.id);
+          setModel((current) => resolveAssistantModelSelection(
+            result.models,
+            first.provider,
+            current || status.model || "",
+          ));
         }
       })
       .catch((caught) => setError(errorText(caught)))
@@ -527,8 +534,9 @@ export function AssistantSetupPane({ workspace, status, fixtureMode = false, emb
   const subscriptionNote = oauthSupported ? providerSubscriptionNote(provider) : null;
 
   useEffect(() => {
-    if (!providerModels.some((item) => item.id === model)) setModel(providerModels[0]?.id ?? "");
-  }, [provider]);
+    if (!models.length) return;
+    setModel((current) => resolveAssistantModelSelection(models, provider, current));
+  }, [models, provider]);
 
   async function configure(oauth = false) {
     if (fixtureMode) { onConfigured({ ...status, configured: true, provider, model }); return; }
@@ -560,7 +568,7 @@ export function AssistantSetupPane({ workspace, status, fixtureMode = false, emb
             {error ? <div className="inline-error" role="alert">{error}</div> : null}
             <label className="professional-field">
               <span className="professional-field-label">Provider</span>
-              <select value={provider} onChange={(event) => { setProvider(event.target.value); setModel(""); }}>{providers.map((item) => <option value={item} key={item}>{providerDisplayName(models, item)}</option>)}</select>
+              <select value={provider} onChange={(event) => setProvider(event.target.value)}>{providers.map((item) => <option value={item} key={item}>{providerDisplayName(models, item)}</option>)}</select>
             </label>
             <label className="professional-field">
               <span className="professional-field-label">Model</span>

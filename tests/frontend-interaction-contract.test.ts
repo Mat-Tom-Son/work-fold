@@ -9,12 +9,18 @@ import { nextMenuItemIndex } from "../web-local/src/lib/menu-navigation.js";
 import { createWorkspaceOperationGate } from "../web-local/src/lib/workspace-operation-gate.js";
 
 const root = process.cwd();
-const [capabilities, textInputModal, messages, tabBar, indexHtml] = await Promise.all([
+const [capabilities, textInputModal, messages, tabBar, indexHtml, app, ...desktopDialogs] = await Promise.all([
   read("web-local/src/components/panes/CapabilitiesPane.tsx"),
   read("web-local/src/components/modals/TextInputModal.tsx"),
   read("web-local/src/components/chat/messages.tsx"),
   read("web-local/src/components/chat/WorkspaceSurfaceTabBar.tsx"),
   read("web-local/index.html"),
+  read("web-local/src/App.tsx"),
+  read("web-local/src/components/modals/DesktopSettingsModal.tsx"),
+  read("web-local/src/components/modals/KeyboardShortcutsModal.tsx"),
+  read("web-local/src/components/modals/CreateSpaceModal.tsx"),
+  read("web-local/src/components/modals/FileVersionHistoryModal.tsx"),
+  read("web-local/src/components/modals/CommandPaletteHost.tsx"),
 ]);
 
 test("modal focus wrapping handles both boundaries and an escaped focus target", () => {
@@ -36,6 +42,16 @@ test("in-tree dialogs are wired to the shared dialog contract", () => {
   assert.match(capabilities, /initialFocusRef:\s*cancelRef/);
   assert.match(textInputModal, /useModalDialog\(\{\s*onClose,\s*blocked:\s*saving,\s*initialFocusRef:\s*inputRef\s*\}\)/);
   assert.match(textInputModal, /ref=\{dialogRef\}\s+tabIndex=\{-1\}/);
+  for (const dialog of desktopDialogs) {
+    assert.match(dialog, /useModalDialog\(\{/);
+    assert.match(dialog, /ref=\{dialogRef\}\s+tabIndex=\{-1\}/);
+  }
+});
+
+test("file attachment requests stay bound to one Space-owned Chat tab", () => {
+  assert.match(app, /setContextRequest\(\{\s*id:[^}]+workspaceId:\s*workspace\.id,\s*surfaceTabId\s*\}\)/);
+  assert.match(app, /contextPathRequest=\{chatContextRequestForTab\(contextRequest,\s*targetWorkspace\.id,\s*tab\.id\)\}/);
+  assert.doesNotMatch(app, /contextPathRequest=\{active\s*&&\s*targetWorkspace\.id\s*===\s*workspace\.id\s*\?\s*contextRequest/);
 });
 
 test("Markdown image policy embeds only CSP-compatible sources and links remote HTTPS images", () => {
@@ -61,6 +77,8 @@ test("Markdown image policy embeds only CSP-compatible sources and links remote 
   assert.match(messages, /message-image-unavailable/);
   assert.match(indexHtml, /img-src 'self' data: blob:/);
   assert.doesNotMatch(indexHtml, /img-src[^;]*https:/);
+  assert.doesNotMatch(indexHtml, /frame-ancestors/, "frame-ancestors is ignored in a meta CSP and should not create console noise");
+  assert.match(indexHtml, /<link rel="icon" href="data:image\/svg\+xml,/);
 });
 
 test("workspace operation tokens reject stale completions even after switching back", () => {
