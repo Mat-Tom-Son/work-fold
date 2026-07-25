@@ -1,4 +1,4 @@
-export type WorkspacePane = "files" | "capabilities" | "chats" | "library" | "history";
+export type WorkspacePane = "files" | "chats" | "library" | "history";
 export type WorkspaceExtensionRailMode = `app:${string}`;
 export type WorkspaceRailMode = "workspaces" | WorkspacePane | WorkspaceExtensionRailMode;
 export type AppTheme = "light" | "dark";
@@ -163,6 +163,8 @@ export interface WorkspaceFixtureConversation extends ConversationSummary {
   contextAttachments?: ContextAttachment[];
 }
 
+export type AssistantToolsView = "installed" | "discover";
+
 interface WorkspaceSurfaceTabBase {
   id: string;
   workspaceId: string;
@@ -175,6 +177,7 @@ export type WorkspaceSurfaceTab =
   | (WorkspaceSurfaceTabBase & { kind: "history"; checkpointId?: string })
   | (WorkspaceSurfaceTabBase & { kind: "appearance" })
   | (WorkspaceSurfaceTabBase & { kind: "app-studio" })
+  | (WorkspaceSurfaceTabBase & { kind: "assistant-tools"; view: AssistantToolsView })
   | (WorkspaceSurfaceTabBase & { kind: "extension"; surfaceId: string; surfaceExecution: "full-trust-pi"; viewId: string })
   | (WorkspaceSurfaceTabBase & {
     kind: "restricted-app";

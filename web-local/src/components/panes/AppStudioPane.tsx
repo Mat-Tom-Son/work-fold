@@ -564,7 +564,7 @@ export function AppStudioPane({
                 ) : (
                   <div className="app-studio-empty-row">
                     <Box16Regular aria-hidden="true" />
-                    <div><strong>No development previews</strong><p>Review and add a sandboxed app in Capabilities before preparing a Release.</p></div>
+                    <div><strong>No development previews</strong><p>Review and add a sandboxed app in Assistant tools before preparing a Release.</p></div>
                   </div>
                 )}
                 <form className="app-studio-release-form" onSubmit={(event) => void prepareRelease(event)}>

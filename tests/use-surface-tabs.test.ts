@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 
 const surfaceTabsModuleUrl = pathToFileURL(join(process.cwd(), "web-local/src/hooks/useSurfaceTabs.ts")).href;
 const {
+  assistantToolsSurfaceTab,
   appStudioSurfaceTab,
   closeFileSurfaceTabs,
   fileSurfaceTab,
@@ -30,7 +31,7 @@ interface SpaceSummary {
 
 interface SurfaceTab {
   id: string;
-  kind: "chat" | "file" | "history" | "appearance" | "app-studio" | "extension" | "restricted-app";
+  kind: "chat" | "file" | "history" | "appearance" | "app-studio" | "assistant-tools" | "extension" | "restricted-app";
   workspaceId: string;
   conversationId?: string | null;
   path?: string;
@@ -38,6 +39,7 @@ interface SurfaceTab {
   surfaceId?: string;
   surfaceExecution?: "full-trust-pi";
   viewId?: string;
+  view?: "installed" | "discover";
   appId?: string;
   digest?: string;
   appTabId?: string;
@@ -47,6 +49,7 @@ interface SurfaceTab {
 }
 
 interface SurfaceTabsExports {
+  assistantToolsSurfaceTab: (space: SpaceSummary, view?: "installed" | "discover") => SurfaceTab;
   appStudioSurfaceTab: (space: SpaceSummary) => SurfaceTab;
   closeFileSurfaceTabs: (tabs: SurfaceTab[], workspaceId: string, deletedPaths: Set<string>) => SurfaceTab[];
   fileSurfaceTab: (space: SpaceSummary, path: string) => SurfaceTab;
@@ -138,6 +141,8 @@ test("tab restore accepts only known, well-formed surface types", () => {
       { id: "file:space-1", kind: "file", workspaceId: "space-1", path: "Notes.md", title: "Notes.md", ignored: "yes" },
       { id: "history:space-1", kind: "history", workspaceId: "space-1", title: "History" },
       { id: "spoofed-studio", kind: "app-studio", workspaceId: "space-1", title: "Renamed Studio" },
+      { id: "spoofed-tools", kind: "assistant-tools", workspaceId: "space-1", view: "discover", title: "Renamed Tools" },
+      { id: "broken-tools", kind: "assistant-tools", workspaceId: "space-1", view: "packages", title: "Broken Tools" },
       { id: "extension:space-1:inbox:overview", kind: "extension", workspaceId: "space-1", surfaceId: "inbox", viewId: "overview", title: "Overview", ignored: true },
       { id: "restricted:bad", kind: "restricted-app", workspaceId: "space-1", appId: "mail", digest: "bad", appTabId: "message:release", route: "/message/release", title: "Bad app tab" },
       { id: "app-controlled-spoof", kind: "restricted-app", workspaceId: "space-1", appId: "mail", digest: "a".repeat(64), appTabId: "message:release", route: "/message/release", state: { selected: true }, title: "Release checklist" },
@@ -150,6 +155,7 @@ test("tab restore accepts only known, well-formed surface types", () => {
       { id: "file:space-1", kind: "file", workspaceId: "space-1", path: "Notes.md", title: "Notes.md" },
       { id: "history:space-1", kind: "history", workspaceId: "space-1", checkpointId: undefined, title: "History" },
       { id: "app-studio:space-1", kind: "app-studio", workspaceId: "space-1", title: "Renamed Studio" },
+      { id: "assistant-tools:space-1", kind: "assistant-tools", workspaceId: "space-1", view: "discover", title: "Assistant tools" },
       { id: "extension:space-1:inbox:overview", kind: "extension", workspaceId: "space-1", surfaceId: "inbox", surfaceExecution: "full-trust-pi", viewId: "overview", title: "Overview" },
       { id: restrictedAppSurfaceTabId("space-1", "mail", "a".repeat(64), "message:release"), kind: "restricted-app", workspaceId: "space-1", appId: "mail", digest: "a".repeat(64), appTabId: "message:release", route: "/message/release", state: { selected: true }, title: "Release checklist" },
     ],
@@ -215,6 +221,20 @@ test("App Studio uses one canonical persistent tab per Space", () => {
     title: "App Studio",
   });
   assert.deepEqual(upsertSurfaceTab(upsertSurfaceTab([], first), second), [second]);
+});
+
+test("Assistant tools uses one canonical persistent tab per Space and updates its view", () => {
+  const installed = assistantToolsSurfaceTab(space);
+  const discover = assistantToolsSurfaceTab({ ...space, name: "Renamed Space" }, "discover");
+
+  assert.deepEqual(installed, {
+    id: "assistant-tools:space-1",
+    kind: "assistant-tools",
+    workspaceId: "space-1",
+    view: "installed",
+    title: "Assistant tools",
+  });
+  assert.deepEqual(upsertSurfaceTab(upsertSurfaceTab([], installed), discover), [discover]);
 });
 
 test("switching Spaces activates the recent tab, then draft, then creates a draft", () => {

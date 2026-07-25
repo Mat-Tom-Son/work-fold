@@ -35,7 +35,7 @@ Packages are distribution plumbing, not a separate top-level user concept. The i
 
 ## Restricted Space apps are not Pi resources
 
-A restricted app is package-shaped because the Assistant needs a portable set of completed web assets, but it is not a Pi package, Skill, Extension, or catalog item. Workspace inspects its `agent-app.json` and files without invoking npm or importing JavaScript, stages the exact reviewed digest in application data, and runs it only through the separate sandbox hosts. Its grants, encrypted connections, storage, background state, notifications, and lifecycle are managed in **Capabilities → Apps in this Space** and are intentionally absent from `workspace capabilities list` protocol v1.
+A restricted app is package-shaped because the Assistant needs a portable set of completed web assets, but it is not a Pi package, Skill, Extension, or catalog item. Workspace inspects its `agent-app.json` and files without invoking npm or importing JavaScript, stages the exact reviewed digest in application data, and runs it only through the separate sandbox hosts. Its grants, encrypted connections, storage, background state, notifications, and lifecycle are managed in **Assistant tools → Installed → Apps in this Space** and are intentionally absent from `workspace capabilities list` protocol v1.
 
 Use [Restricted app authoring](restricted-app-authoring.md) for the package and bridge contract and [Restricted app runtime](restricted-app-runtime.md) for the security boundary. Never add `pi.extensions` to a restricted package or route it through Pi's package manager merely to make it visible to the model; `propose_space_app` is the host-owned review path.
 

@@ -6,7 +6,7 @@ Workspace uses a quiet desktop-tool aesthetic. The interface should feel native,
 
 - A **Space** is a root folder. It is selected or switched; it is not a peer navigation surface.
 - **Files** is the first working surface inside the selected Space.
-- Primary surfaces are Files, Capabilities, Chats, Library, and History.
+- Primary rail surfaces are Files, Chats, Library, and History. Add, Shortcuts, and Settings stay at the bottom; Skills, Extensions, and app authority open in the Space-owned Assistant tools work tab.
 - Provider, model, and authentication controls live in Settings under Assistant; Assistant is not a rail group.
 - The first rail item opens the Space manager and identifies the selected root folder. The persistent header above the left pane repeats that Space identity; the selected rail item identifies the current surface.
 
@@ -30,7 +30,7 @@ Workspace uses a quiet desktop-tool aesthetic. The interface should feel native,
 ## Layout
 
 - Desktop rail navigation is icon-only: centered square targets (44–48px) with 24px Fluent icons, tooltips and accessible names carrying the labels, and one subtle selected state (soft fill plus a small accent pill). Narrow layouts return to horizontal rows with text labels.
-- Every left-pane surface begins with the same 90px identity band in the same position. Its centered, name-only lockup represents the selected Space, not the active page. The desktop root Space selector is a compact icon-only tile centered in that band while the adjacent pane header carries the full Space name; narrow layouts return the selector to a horizontal icon-and-name lockup. Files, Capabilities, Chats, Library, and History keep the quick Space switcher, while the Spaces-management surface omits that redundant switcher.
+- Every left-pane surface begins with the same 90px identity band in the same position. Its centered, name-only lockup represents the selected Space, not the active page. The desktop root Space selector is a compact icon-only tile centered in that band while the adjacent pane header carries the full Space name; narrow layouts return the selector to a horizontal icon-and-name lockup. Files, Chats, Library, and History keep the quick Space switcher, while the Spaces-management surface omits that redundant switcher. Assistant tools uses the full work canvas and normal Space-bound tab chrome instead of the navigator.
 - Space banners stay inside the identity header and appearance previews. They do not wallpaper the right work surface or recolor structural borders; interaction color and shell structure remain part of the global application system.
 - Color and icon identity inherit through Space-bound cards, chat groups, tabs, surfaces, and chat empty states. Content belonging to another Space carries that Space's own identity rather than the currently selected one.
 - User Chat bubbles use one solid primary Space accent, never a gradient between accent colors. Assistant message headers are text-only and do not repeat a decorative Assistant avatar.
@@ -48,10 +48,10 @@ Workspace uses a quiet desktop-tool aesthetic. The interface should feel native,
 
 ## Restricted Space app surfaces
 
-- Installed Space apps occupy the contributed rail region below the five stable primary destinations. They never replace or reorder Files, Capabilities, Chats, Library, or History.
+- Installed Space apps occupy the contributed rail region below the four stable primary destinations. They never replace or reorder Files, Chats, Library, or History.
 - Workspace owns the rail target, Space identity header, navigator frame, tab chrome, loading/unavailable states, theme context, and permission/lifecycle UI. The app owns only the sandboxed canvas inside its navigator or work-tab placeholder.
 - A restricted app may render any reviewed local HTML/CSS/JavaScript that fits its task, but it must adapt to both compact navigator and full work-tab placements. Use `workspaceRestrictedApp.context` rather than viewport guesses to select the layout.
-- Permission prompts and connection forms stay in Capabilities, not inside app-controlled pixels. App UI may explain why a power is useful and handle denial, but it must not imitate a Workspace grant dialog or claim access before the host confirms it.
+- Permission prompts and connection forms stay in Assistant tools, not inside app-controlled pixels. App UI may explain why a power is useful and handle denial, but it must not imitate a Workspace grant dialog or claim access before the host confirms it.
 - App-requested tabs use the same Space-bound tab strip, focus, restore, close, and cross-Space behavior as built-in tabs. Titles should describe the current object or view, not repeat the app name on every tab.
 - Host theme changes are delivered through app context. App content must remain legible in both themes, but it cannot make the shell transparent, recolor structural chrome, or draw over native menus and modals.
 
@@ -60,7 +60,7 @@ Workspace uses a quiet desktop-tool aesthetic. The interface should feel native,
 - Use the hidden-inset native macOS title bar, traffic lights, application menu, and Window menu. Do not render the Windows custom title bar on macOS.
 - Keep Settings and About in the application menu, standard editing roles in Edit, and minimize/zoom/front roles in Window.
 - Use sidebar vibrancy only for structural chrome when reduced transparency is off. Keep work surfaces opaque and fall back to theme-matched solid chrome.
-- Use the macOS system font, system accent color, shortcut glyphs, and native overlay scrollbars without changing the shared Space, Files, Capabilities, Chats, Library, and History interaction contract.
+- Use the macOS system font, system accent color, shortcut glyphs, and native overlay scrollbars without changing the shared Space, Files, Chats, Library, History, Add, and Assistant tools interaction contract.
 - Support Finder-oriented file behavior: Show in Finder, Quick Look, represented Space folders, and recent Space documents. Keep all host actions path-confined to the owning Space.
 
 ## Visual acceptance

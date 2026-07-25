@@ -1341,7 +1341,7 @@ export function ChatPanel({
       const app = await installRestrictedAppProposal(workspace.id, proposal.conversationId, proposal.id);
       setAppProposal(null);
       onRestrictedAppInstalled?.(app);
-      showToast({ text: `${app.manifest.title} installed. Review its access in Capabilities when you are ready to connect it.`, tone: "success" });
+      showToast({ text: `${app.manifest.title} installed. Review its access in Assistant tools when you are ready to connect it.`, tone: "success" });
     } catch (caught) {
       setError(errorText(caught));
     } finally {

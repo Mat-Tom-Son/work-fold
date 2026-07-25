@@ -143,7 +143,7 @@ results terminate the worker. The worker is optional so a UI-only app does not
 need executable worker code.
 
 Automations are first-class host jobs, not one app-wide background switch.
-Every declared job starts disabled and is enabled separately in Capabilities.
+Every declared job starts disabled and is enabled separately in Assistant tools.
 The worker exports `handleAutomation(event)` and dispatches using the reviewed
 `automationId` and `handler`. Intervals are whole minutes from 15 through
 1,440. `catchUp: "latest"` permits at most one deterministically staggered run
@@ -230,7 +230,7 @@ or occluded views, minimized windows,
 or a view owned by another Space. Apps re-read storage after a hint; event data
 is not a second state channel.
 
-A file declaration grants nothing by itself. In Capabilities, the person maps
+A file declaration grants nothing by itself. In Assistant tools, the person maps
 it to a relative file or folder inside that app's Space. The sandbox sends only
 the grant id and a grant-relative path; the host derives Runtime Instance,
 Feature Installation, exact revision, current authority, and the selected root.
@@ -254,7 +254,7 @@ Workspace-only skill.
 Human approval adds the receipt's exact revision as a Local preview in the
 source Space's Development Instance, with network, file, and notification
 access off and every automation disabled. Source changes require a new review.
-**Capabilities → Installed → Apps in this Space** manages destination, file,
+**Assistant tools → Installed → Apps in this Space** manages destination, file,
 and notification grants, connections, each automation's schedule and run
 history, local data, and removal; advanced
 local preview remains a recovery/developer path. A reviewed update preserves

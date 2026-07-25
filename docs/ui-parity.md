@@ -51,7 +51,7 @@ The translation is intentionally narrow. It does not justify replacing the shell
 
 - Preserve conversation history, rename, drafts, streaming activity, tool/runtime detail, stop behavior, context attachments, copy actions, suggested prompts, and extension UI requests.
 - Preserve the command palette, keyboard shortcuts, toast/confirm feedback, onboarding, Space creation/linking, themes, typography, and resizable layout.
-- A dedicated Space selector chooses the root-folder entity. Primary navigation uses `Files`, `Capabilities`, `Chats`, `Library`, and `History`. Capabilities combines Installed and Discover views for Skills and Extensions while retaining scope, provenance, load state, diagnostics, and package lifecycle. Provider, model, API-key, and OAuth setup lives in `Settings → Assistant`.
+- A dedicated Space selector chooses the root-folder entity. Primary navigation uses `Files`, `Chats`, `Library`, and `History`; the bottom-rail Add menu opens Library materials, Assistant-tool discovery/management, or app building. The Space-owned Assistant tools work tab combines Installed and Discover views for Skills and Extensions while retaining scope, provenance, load state, diagnostics, and package lifecycle. Provider, model, API-key, and OAuth setup lives in `Settings → Assistant`.
 
 ### Management layer and CLI
 

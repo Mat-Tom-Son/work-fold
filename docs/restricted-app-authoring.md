@@ -32,11 +32,11 @@ The normal product path begins in a Chat belonging to the target Space:
 4. Review and add that digest in the owning Chat as a **Local preview** in
    the Space's Development Instance. Proposal does not add a preview, grant a
    permission, or collect a credential.
-5. Manage the preview under **Capabilities → Installed → Apps in this
+5. Manage the preview under **Assistant tools → Installed → Apps in this
    Space**. Network destinations, file targets, notification categories,
    connections, and each named automation are separate controls.
 
-**Advanced local preview** in that Capabilities section is the developer and
+**Advanced local preview** in that Assistant tools section is the developer and
 recovery path for a completed package already inside the current Space. It
 does not replace the Chat-bound proposal and review flow for agent-created
 apps.
@@ -59,7 +59,7 @@ Use **Open App Studio** when the reviewed preview is ready to install as an App:
    with the same id, and only one instance of this Project can be attached to
    that Space.
 5. Configure the Installed Release's destinations, file roots, notifications,
-   connections, and named automations in Capabilities. None transfer from the
+   connections, and named automations in Assistant tools. None transfer from the
    preview and all begin off.
 
 The v2 Release is a closed local artifact: it contains the prebuilt package
@@ -481,7 +481,7 @@ Workspace is running. One scheduler is shared across all Spaces and apps, with
 a two-run global limit, FIFO admission, same-job non-overlap, and at most one
 staggered latest catch-up when requested. **Run now** is a one-off execution:
 it works while the schedule is disabled and does not move the recurring
-cadence. Every attempt receives a durable receipt visible in Capabilities.
+cadence. Every attempt receives a durable receipt visible in Assistant tools.
 
 At launch, the worker sees only current app grants also named by that
 automation's `permissions` subset. `notifications.show({ permissionId })`
@@ -502,9 +502,9 @@ accepts. It never contains a credential:
 | Kind | Manifest shape | Host behavior |
 |---|---|---|
 | None | `{ "kind": "none" }` | No connection is stored. It must be the destination's only auth declaration and is the only kind allowed for numeric loopback. |
-| API key | `{ "kind": "api-key", "header": "x-api-key" }` | Capabilities collects the value and the broker injects it through the reviewed non-sensitive header name. |
-| Bearer | `{ "kind": "bearer" }` | Capabilities stores the token and the broker writes `Authorization: Bearer …`. |
-| Basic | `{ "kind": "basic" }` | Capabilities stores username/password and the broker creates the Basic authorization header. |
+| API key | `{ "kind": "api-key", "header": "x-api-key" }` | Assistant tools collects the value and the broker injects it through the reviewed non-sensitive header name. |
+| Bearer | `{ "kind": "bearer" }` | Assistant tools stores the token and the broker writes `Authorization: Bearer …`. |
+| Basic | `{ "kind": "basic" }` | Assistant tools stores username/password and the broker creates the Basic authorization header. |
 | OAuth PKCE | `{ "kind": "oauth2-pkce", "issuer": "https://identity.example.com", "clientId": "public-native-client", "scopes": ["records.read"] }` | Workspace performs public-issuer discovery, S256, system-browser authorization, one-shot loopback callback, encrypted storage, and refresh. |
 
 A public destination may accept multiple credential kinds, but `none` cannot
@@ -513,7 +513,7 @@ public HTTPS issuer that supports public clients without a client secret, plus
 scopes that exclude `openid`. Workspace cannot verify who owns that client
 registration. Client secrets, device-code flow, and package-supplied
 authorization or token endpoints are rejected. Connections are configured per
-exact Feature revision and reviewed destination in Capabilities. The host also
+exact Feature revision and reviewed destination in Assistant tools. The host also
 binds each secret to its Tenant, Runtime Instance, Feature Installation,
 declaration digest, target identity, and current Runtime Instance owner. The
 portable contract reserves Principal-owned connection consent and job delegation
@@ -551,8 +551,8 @@ asking for secrets inside the app:
 try {
   await bridge.request({ destinationId: "records-api", method: "GET", path: "/v1/records" });
 } catch (error) {
-  if (error?.code === "NETWORK_DENIED") showStatus("Allow this destination in Capabilities.");
-  else if (error?.code === "AUTH_REQUIRED") showStatus("Connect this destination in Capabilities.");
+  if (error?.code === "NETWORK_DENIED") showStatus("Allow this destination in Assistant tools.");
+  else if (error?.code === "AUTH_REQUIRED") showStatus("Connect this destination in Assistant tools.");
   else showStatus(error?.message || "The connection is unavailable.");
 }
 ```
@@ -588,7 +588,7 @@ The Connected inbox package includes a project-service panel. To test it:
    node examples/services/restricted-app-demo-service.mjs
    ```
 
-4. In Capabilities, allow the app's **project-service** destination.
+4. In Assistant tools, allow the app's **project-service** destination.
 5. Open the app's **Project service** tab and use **Check health** or **Run
    refresh job**.
 

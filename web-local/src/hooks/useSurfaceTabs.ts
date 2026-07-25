@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { chatDisplayTitle } from "../lib/format";
 import { readStoredJsonValue, writeStoredJsonValue } from "../lib/storage";
 import { retargetMovedPath } from "../lib/tree";
-import type { AgentExtensionSurfaceView, CapabilitySurface, ConversationSummary, WorkspaceSummary, WorkspaceSurfaceTab } from "../types";
+import type { AgentExtensionSurfaceView, AssistantToolsView, CapabilitySurface, ConversationSummary, WorkspaceSummary, WorkspaceSurfaceTab } from "../types";
 
 const surfaceTabsStorageKey = "workspace.surfaceTabs.v1";
 
@@ -167,6 +167,12 @@ export function useSurfaceTabs({
     setActiveSurfaceTabId(tab.id);
   }
 
+  function openAssistantToolsSurfaceTab(targetWorkspace: WorkspaceSummary, view: AssistantToolsView = "installed"): void {
+    const tab = assistantToolsSurfaceTab(targetWorkspace, view);
+    setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
+    setActiveSurfaceTabId(tab.id);
+  }
+
   function openExtensionSurfaceTab(
     targetWorkspace: WorkspaceSummary,
     surface: CapabilitySurface,
@@ -269,6 +275,7 @@ export function useSurfaceTabs({
     openFileSurfaceTab,
     openAppearanceSurfaceTab,
     openAppStudioSurfaceTab,
+    openAssistantToolsSurfaceTab,
     openExtensionSurfaceTab,
     openRestrictedAppSurfaceTab,
     updateRestrictedAppSurfaceTab,
@@ -387,6 +394,16 @@ function normalizeStoredSurfaceTab(value: unknown): WorkspaceSurfaceTab | null {
       kind: "app-studio",
       workspaceId: record.workspaceId,
       title: record.title,
+    };
+  }
+  if (record.kind === "assistant-tools") {
+    if (record.view !== "installed" && record.view !== "discover") return null;
+    return {
+      id: `assistant-tools:${record.workspaceId}`,
+      kind: "assistant-tools",
+      workspaceId: record.workspaceId,
+      view: record.view,
+      title: "Assistant tools",
     };
   }
   if (record.kind === "extension") {
@@ -547,6 +564,16 @@ export function appStudioSurfaceTab(workspace: WorkspaceSummary): WorkspaceSurfa
     kind: "app-studio",
     workspaceId: workspace.id,
     title: "App Studio",
+  };
+}
+
+export function assistantToolsSurfaceTab(workspace: WorkspaceSummary, view: AssistantToolsView = "installed"): WorkspaceSurfaceTab {
+  return {
+    id: `assistant-tools:${workspace.id}`,
+    kind: "assistant-tools",
+    workspaceId: workspace.id,
+    view,
+    title: "Assistant tools",
   };
 }
 

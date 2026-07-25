@@ -268,7 +268,7 @@ jobs.
 
 ### Implemented local product boundary
 
-The local milestone above is exposed through Capabilities and the Space-bound
+The local milestone above is exposed through Assistant tools and the Space-bound
 App Studio tab. It includes language-neutral declaration and artifact vectors
 checked by two code-independent executables, strict opaque identities and
 seven-domain authority, registry migration to

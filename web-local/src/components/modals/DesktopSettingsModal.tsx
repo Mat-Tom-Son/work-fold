@@ -188,7 +188,7 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
               <div className="settings-tab-panel" id="settings-panel-about" role="tabpanel" aria-labelledby="settings-tab-about">
                 <section className="settings-section">
                   <div className="settings-section-heading"><h3>About Workspace</h3></div>
-                  <p>A local-first place for files, Chats, reusable materials, and Assistant Capabilities.</p>
+                  <p>A local-first place for files, Chats, reusable materials, and Assistant tools.</p>
                   <dl className="context-meta-grid"><div><dt>Version</dt><dd>{window.workspaceDesktop?.app.version ?? "Development"}</dd></div><div><dt>Storage</dt><dd>Local</dd></div><div><dt>License</dt><dd>MIT</dd></div></dl>
                 </section>
               </div>

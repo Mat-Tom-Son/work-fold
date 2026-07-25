@@ -41,6 +41,7 @@ import type {
   AgentStatus,
   AgentTool,
   AgentToolManagement,
+  AssistantToolsView,
   CapabilityDiscoverItem,
   CapabilityDiscoverDetailsItem,
   CapabilityDiscoverDetailsResponse,
@@ -50,7 +51,6 @@ import type {
 } from "../../types";
 import { requestConfirm, showToast } from "../../ui/feedback";
 
-type CapabilityView = "installed" | "discover";
 type CapabilityTypeFilter = "all" | "skill" | "extension";
 type CapabilityScopeFilter = "all" | AgentCapabilityScope;
 type InstalledSort = "name" | "type" | "scope" | "source";
@@ -94,6 +94,7 @@ type PendingInstall = {
 export function CapabilitiesPane({
   workspace,
   status,
+  view,
   fixtureMode = false,
   restrictedApps,
   restrictedAppsLoading = false,
@@ -104,9 +105,11 @@ export function CapabilitiesPane({
   onRestrictedAppRemoved,
   onBuildApp,
   onOpenAppStudio,
+  onViewChange,
 }: {
   workspace: WorkspaceSummary;
   status: AgentStatus;
+  view: AssistantToolsView;
   fixtureMode?: boolean;
   restrictedApps: RestrictedAppInstalled[];
   restrictedAppsLoading?: boolean;
@@ -117,9 +120,9 @@ export function CapabilitiesPane({
   onRestrictedAppRemoved: (appId: string) => void;
   onBuildApp: () => void;
   onOpenAppStudio: (workspaceId?: string) => void;
+  onViewChange: (view: AssistantToolsView) => void;
 }) {
   const [catalog, setCatalog] = useState<AgentCatalog | null>(null);
-  const [view, setView] = useState<CapabilityView>("installed");
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<CapabilityTypeFilter>("all");
   const [scopeFilter, setScopeFilter] = useState<CapabilityScopeFilter>("all");
@@ -232,8 +235,8 @@ export function CapabilitiesPane({
   );
   const catalogHref = safeExternalHref(discoverCatalogUrl);
 
-  function selectView(nextView: CapabilityView) {
-    setView(nextView);
+  function selectView(nextView: AssistantToolsView) {
+    onViewChange(nextView);
     setQuery("");
     setAddOpen(false);
     window.requestAnimationFrame(() => {
@@ -365,17 +368,26 @@ export function CapabilitiesPane({
   }
 
   return (
-    <div className="workspace-pane-content capabilities-pane professional-surface professional-assistant">
+    <div className="workspace-pane-content capabilities-pane assistant-tools-pane professional-surface professional-assistant">
       {!status.configured ? (
         <CapabilityNotice
           icon={<Info20Regular />}
           title="Assistant not set up yet"
-          detail="You can organize capabilities now and choose a provider when you are ready."
+          detail="You can organize Assistant tools now and choose a provider when you are ready."
           action={<button className="professional-button professional-button-secondary" type="button" onClick={onOpenSettings}>Open Settings</button>}
         />
       ) : null}
 
-      <div className="capabilities-view-tabs" role="tablist" aria-label="Capabilities view">
+      <header className="assistant-tools-header">
+        <div>
+          <span className="professional-kicker">Assistant</span>
+          <h1>Assistant tools</h1>
+          <p>Manage what the Assistant can use in {workspace.name}, with scope and execution boundaries kept visible.</p>
+        </div>
+        <button className="professional-button professional-button-primary capabilities-add-trigger" type="button" onClick={() => setAddOpen(true)}><Add16Regular />Add Skill or Extension</button>
+      </header>
+
+      <div className="capabilities-view-tabs" role="tablist" aria-label="Assistant tools view">
         <button id="capabilities-installed-tab" type="button" role="tab" tabIndex={view === "installed" ? 0 : -1} aria-controls="capabilities-installed-panel" aria-selected={view === "installed"} className={view === "installed" ? "active" : ""} onKeyDown={handleViewTabKeyDown} onClick={() => selectView("installed")}>Installed</button>
         <button id="capabilities-discover-tab" type="button" role="tab" tabIndex={view === "discover" ? 0 : -1} aria-controls="capabilities-discover-panel" aria-selected={view === "discover"} className={view === "discover" ? "active" : ""} onKeyDown={handleViewTabKeyDown} onClick={() => selectView("discover")}>Discover</button>
       </div>
@@ -383,22 +395,8 @@ export function CapabilitiesPane({
       {view === "installed" ? (
         <section ref={installedViewRef} id="capabilities-installed-panel" className="capabilities-view-content" role="tabpanel" aria-labelledby="capabilities-installed-tab" tabIndex={-1}>
           <div className="capabilities-view-heading">
-            <div><h2>Installed capabilities</h2><p>Review Skills and Extensions available in this Space, manage their packages, and inspect core tools.</p></div>
-            <button className="professional-button professional-button-primary capabilities-add-trigger" type="button" onClick={() => setAddOpen(true)}><Add16Regular />Add capability</button>
+            <div><h2>Installed</h2><p>Apps belong to this Space. Skills and Extensions may be installed here or available from your Personal scope.</p></div>
           </div>
-          <CapabilityToolbar
-            view="installed"
-            query={query}
-            typeFilter={typeFilter}
-            scopeFilter={scopeFilter}
-            installedSort={installedSort}
-            discoverSort={discoverSort}
-            onQueryChange={setQuery}
-            onTypeChange={setTypeFilter}
-            onScopeChange={setScopeFilter}
-            onInstalledSortChange={setInstalledSort}
-            onDiscoverSortChange={setDiscoverSort}
-          />
           <RestrictedAppsSection
             workspace={workspace}
             apps={restrictedApps}
@@ -410,20 +408,38 @@ export function CapabilitiesPane({
             onRemoveApp={onRestrictedAppRemoved}
             onError={onError}
           />
-          <InstalledCapabilities
-            catalog={catalog}
-            resources={visibleResources}
-            totalResources={resources.length}
-            packageBusy={packageBusy}
-            onSelect={setSelectedCapability}
-            onPackageAction={(item, action) => void mutatePackage(item, action)}
-          />
+          <section className="capabilities-resource-section" aria-labelledby="skills-extensions-title">
+            <div className="capabilities-section-heading">
+              <div><h3 id="skills-extensions-title">Skills &amp; Extensions</h3><p>{resources.filter((item) => item.scope === "project").length} in this Space · {resources.filter((item) => item.scope === "global").length} Personal</p></div>
+            </div>
+            <CapabilityToolbar
+              view="installed"
+              query={query}
+              typeFilter={typeFilter}
+              scopeFilter={scopeFilter}
+              installedSort={installedSort}
+              discoverSort={discoverSort}
+              onQueryChange={setQuery}
+              onTypeChange={setTypeFilter}
+              onScopeChange={setScopeFilter}
+              onInstalledSortChange={setInstalledSort}
+              onDiscoverSortChange={setDiscoverSort}
+            />
+            <InstalledCapabilities
+              catalog={catalog}
+              resources={visibleResources}
+              totalResources={resources.length}
+              packageBusy={packageBusy}
+              onSelect={setSelectedCapability}
+              onPackageAction={(item, action) => void mutatePackage(item, action)}
+            />
+          </section>
         </section>
       ) : (
         <section ref={discoverViewRef} id="capabilities-discover-panel" className="capabilities-view-content" role="tabpanel" aria-labelledby="capabilities-discover-tab" tabIndex={-1}>
           <div className="capabilities-view-heading">
-            <div><h2>Discover capabilities</h2><p>{discoverTotal ? `${discoverTotal.toLocaleString()} catalog entries` : "Browse Pi packages and first-party Skills."}</p></div>
-            <div className="capabilities-view-actions">{catalogHref ? <a href={catalogHref} target="_blank" rel="noreferrer">Open source catalog</a> : null}<button className="professional-button professional-button-secondary capabilities-add-trigger" type="button" onClick={() => setAddOpen(true)}><Add16Regular />Add manually</button></div>
+            <div><h2>Discover Skills &amp; Extensions</h2><p>{discoverTotal ? `${discoverTotal.toLocaleString()} catalog entries` : "Browse Pi packages and first-party Skills."}</p></div>
+            <div className="capabilities-view-actions">{catalogHref ? <a href={catalogHref} target="_blank" rel="noreferrer">Open source catalog</a> : null}</div>
           </div>
           <CapabilityToolbar
             view="discover"
@@ -492,7 +508,7 @@ function CapabilityToolbar({
   onInstalledSortChange,
   onDiscoverSortChange,
 }: {
-  view: CapabilityView;
+  view: AssistantToolsView;
   query: string;
   typeFilter: CapabilityTypeFilter;
   scopeFilter: CapabilityScopeFilter;
@@ -505,11 +521,11 @@ function CapabilityToolbar({
   onDiscoverSortChange: (value: DiscoverSort) => void;
 }) {
   return (
-    <section className="capabilities-toolbar" aria-label={`${view === "installed" ? "Installed" : "Discover"} capability filters`}>
-      <label className="capabilities-search"><Search20Regular aria-hidden="true" /><input type="search" value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={view === "installed" ? "Search installed capabilities" : "Search the catalog"} /></label>
+    <section className="capabilities-toolbar" aria-label={`${view === "installed" ? "Installed" : "Discover"} tool filters`}>
+      <label className="capabilities-search"><Search20Regular aria-hidden="true" /><input type="search" value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={view === "installed" ? "Search installed tools" : "Search the catalog"} /></label>
       <div className="capabilities-filter-row">
-        <SegmentedFilter label="Capability type" value={typeFilter} options={[{ value: "all", label: "All" }, { value: "skill", label: "Skills" }, { value: "extension", label: "Extensions" }]} onChange={onTypeChange} />
-        {view === "installed" ? <SegmentedFilter label="Capability scope" value={scopeFilter} options={[{ value: "all", label: "All scopes" }, { value: "global", label: "Personal" }, { value: "project", label: "This Space" }]} onChange={onScopeChange} /> : null}
+        <label className="capabilities-filter-select"><span>Type</span><select aria-label="Tool type" value={typeFilter} onChange={(event) => onTypeChange(event.target.value as CapabilityTypeFilter)}><option value="all">All types</option><option value="skill">Skills</option><option value="extension">Extensions</option></select></label>
+        {view === "installed" ? <label className="capabilities-filter-select"><span>Scope</span><select aria-label="Tool scope" value={scopeFilter} onChange={(event) => onScopeChange(event.target.value as CapabilityScopeFilter)}><option value="all">All scopes</option><option value="project">This Space</option><option value="global">Personal</option></select></label> : null}
         <label className="capabilities-sort"><span>Sort</span>{view === "installed" ? (
           <select value={installedSort} onChange={(event) => onInstalledSortChange(event.target.value as InstalledSort)}><option value="name">Name</option><option value="type">Type</option><option value="scope">Scope</option><option value="source">Source</option></select>
         ) : (
@@ -528,12 +544,12 @@ function InstalledCapabilities({ catalog, resources, totalResources, packageBusy
   onSelect: (item: InstalledCapability) => void;
   onPackageAction: (item: AgentPackage, action: "update" | "remove") => void;
 }) {
-  if (!catalog) return <div className="professional-loading-row" role="status"><ArrowSync16Regular className="spin" />Loading capabilities</div>;
+  if (!catalog) return <div className="professional-loading-row" role="status"><ArrowSync16Regular className="spin" />Loading Assistant tools</div>;
   return (
     <div className="capabilities-installed-stack">
       {catalog.diagnostics.length ? <div className="professional-diagnostics" role="status">{catalog.diagnostics.map((item, index) => <span className={item.type} key={`${item.message}-${index}`}>{item.message}</span>)}</div> : null}
       <p className="capabilities-results-summary">{resources.length === totalResources ? `${resources.length} installed Skills & Extensions` : `Showing ${resources.length} of ${totalResources} installed Skills & Extensions`}</p>
-      {resources.length ? <div className="capabilities-resource-list">{resources.map((item) => <InstalledCapabilityCard key={item.id} item={item} onSelect={() => onSelect(item)} />)}</div> : <CapabilityEmpty title={totalResources ? "No matching capabilities" : "No capabilities installed"} detail={totalResources ? "Change the search or filters to see more." : "Use Add capability to import a Skill or install a Pi package."} />}
+      {resources.length ? <div className="capabilities-resource-list">{resources.map((item) => <InstalledCapabilityCard key={item.id} item={item} onSelect={() => onSelect(item)} />)}</div> : <CapabilityEmpty title={totalResources ? "No matching tools" : "No Skills or Extensions installed"} detail={totalResources ? "Change the search or filters to see more." : "Use Add Skill or Extension to import a Skill or install a Pi package."} />}
       {catalog.packages.length ? (
         <section className="capabilities-management-section" aria-labelledby="capabilities-packages-title">
           <div className="capabilities-management-heading"><div><Box16Regular aria-hidden="true" /><h3 id="capabilities-packages-title">Packages</h3></div><span>{catalog.packages.length}</span></div>
@@ -596,7 +612,7 @@ function DiscoverCapabilities({ items, total, loading, error, diagnostics, trunc
       {diagnostics.length || truncated ? <div className="professional-diagnostics" role="status">{diagnostics.map((message) => <span key={message}>{message}</span>)}{truncated ? <span>npm reported additional matches beyond this bounded catalog window.</span> : null}</div> : null}
       {error ? <div className="inline-error" role="alert">{error}</div> : null}
       {loading && !items.length ? <div className="professional-loading-row" role="status"><ArrowSync16Regular className="spin" />Loading the full Pi catalog. The first load can take about 20 seconds.</div> : null}
-      {items.length ? <div className="capabilities-discover-list">{items.map((item) => <DiscoverCapabilityCard key={item.id} item={item} busy={reviewingItemId === item.id} disabled={Boolean(reviewingItemId) || !canInstallDiscoverItem(item)} onInstall={() => onInstall(item)} />)}</div> : !loading && !error ? <CapabilityEmpty title="No catalog matches" detail="Try a broader search or a different capability type." /> : null}
+      {items.length ? <div className="capabilities-discover-list">{items.map((item) => <DiscoverCapabilityCard key={item.id} item={item} busy={reviewingItemId === item.id} disabled={Boolean(reviewingItemId) || !canInstallDiscoverItem(item)} onInstall={() => onInstall(item)} />)}</div> : !loading && !error ? <CapabilityEmpty title="No catalog matches" detail="Try a broader search or a different item type." /> : null}
       {items.length < total ? <button className="professional-button professional-button-secondary capabilities-load-more" type="button" disabled={loading} onClick={onLoadMore}>{loading ? <ArrowSync16Regular className="spin" /> : null}Load more</button> : null}
     </div>
   );
@@ -637,7 +653,7 @@ function AddCapabilityDialog({
   return (
     <div className="modal-backdrop capability-dialog-backdrop" role="presentation" onMouseDown={onClose}>
       <section ref={dialogRef} tabIndex={-1} className="capability-dialog capability-add-dialog" role="dialog" aria-modal="true" aria-labelledby="capabilities-add-title" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="modal-title"><div><h2 id="capabilities-add-title">Add capability</h2><p>Import a Skill bundle or install a Pi package from a source you choose.</p></div><button className="minimal-icon-button" type="button" onClick={onClose} disabled={busy} aria-label="Close add capability"><Dismiss20Regular /></button></div>
+        <div className="modal-title"><div><h2 id="capabilities-add-title">Add Skill or Extension</h2><p>Import a Skill bundle or install a Pi package from a source you choose.</p></div><button className="minimal-icon-button" type="button" onClick={onClose} disabled={busy} aria-label="Close Assistant tool setup"><Dismiss20Regular /></button></div>
         <div className="capability-dialog-body capabilities-add-panel">
           <div className="capabilities-add-heading">
             <div><strong>Installation location</strong><p>Keep it personal or store it with this Space.</p></div>
@@ -721,10 +737,6 @@ function CapabilityPackageContents({ item }: { item: CapabilityDiscoverDetailsIt
 
 function ScopeToggle({ value, onChange, label }: { value: AgentCapabilityScope; onChange: (value: AgentCapabilityScope) => void; label: string }) {
   return <div className="professional-scope-toggle" role="group" aria-label={label}><button className={value === "global" ? "active" : ""} type="button" onClick={() => onChange("global")} aria-pressed={value === "global"}>Personal</button><button className={value === "project" ? "active" : ""} type="button" onClick={() => onChange("project")} aria-pressed={value === "project"}>This Space</button></div>;
-}
-
-function SegmentedFilter<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: Array<{ value: T; label: string }>; onChange: (value: T) => void }) {
-  return <div className="capabilities-segmented-filter" role="group" aria-label={label}>{options.map((option) => <button className={value === option.value ? "active" : ""} type="button" aria-pressed={value === option.value} onClick={() => onChange(option.value)} key={option.value}>{option.label}</button>)}</div>;
 }
 
 function CapabilityNotice({ icon, title, detail, action, tone = "neutral" }: { icon: ReactNode; title: string; detail: string; action?: ReactNode; tone?: "neutral" | "success" }) {

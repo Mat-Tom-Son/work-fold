@@ -37,8 +37,9 @@ test("Files is the first primary surface and Space remains the root selector", (
   const primaryItems = constArrayBody(workspaceChromeSource, "primaryItems");
   const primaryModes = [...primaryItems.matchAll(/mode:\s*"([^"]+)"/g)].map((match) => match[1]);
 
-  assert.deepEqual(primaryModes, ["files", "capabilities", "chats", "library", "history"]);
+  assert.deepEqual(primaryModes, ["files", "chats", "library", "history"]);
   assert.doesNotMatch(primaryItems, /mode:\s*"workspaces"/);
+  assert.doesNotMatch(primaryItems, /mode:\s*"capabilities"/, "infrequent tool administration must not occupy the primary rail");
 
   const selectorIndex = workspaceChromeSource.indexOf("workspace-rail-space-selector");
   const primaryRenderIndex = workspaceChromeSource.indexOf("primaryItems.map");
@@ -65,7 +66,6 @@ test("pane navigation uses one Fluent icon contract", () => {
     "ChatMultiple24",
     "Library24",
     "History24",
-    "BookToolbox24",
   ];
   for (const icon of requiredNavPairs) {
     assert.match(workspaceChromeSource, new RegExp(`\\b${icon}Regular\\b`), `${icon} needs a regular state`);
@@ -73,19 +73,25 @@ test("pane navigation uses one Fluent icon contract", () => {
   }
 
   assert.match(workspaceChromeSource, /professional-workspace-rail/);
+  assert.match(workspaceChromeSource, /Add24Regular/);
+  assert.match(workspaceChromeSource, /aria-label="Add to Workspace"/);
+  assert.match(workspaceChromeSource, /workspace-rail-add-anchor[\s\S]*?onBlurCapture=/);
   assert.doesNotMatch(workspaceChromeSource, /aria-label="Assistant"/);
   assert.doesNotMatch(workspaceChromeSource, /mode:\s*"setup"/);
   assert.doesNotMatch(workspaceChromeSource, /<Bot\w*[^>]*>.*Assistant/s);
 });
 
-test("Skills and Extensions share one styled Capabilities destination", () => {
+test("Skills, Extensions, and apps open as an on-demand Assistant tools work tab", () => {
   const primaryItems = constArrayBody(workspaceChromeSource, "primaryItems");
-  assert.match(primaryItems, /mode:\s*"capabilities"[\s\S]*?label:\s*"Capabilities"/);
+  assert.doesNotMatch(primaryItems, /mode:\s*"capabilities"/);
   assert.doesNotMatch(primaryItems, /mode:\s*"skills"|mode:\s*"extensions"/);
-  assert.match(appSource, /value === "skills" \|\| value === "extensions"\) return "capabilities"/);
-  assert.match(appSource, /activeMode === "capabilities"[\s\S]*?<CapabilitiesPane/);
+  assert.match(workspaceChromeSource, /Browse Skills &amp; Extensions/);
+  assert.match(workspaceChromeSource, /Manage Assistant tools/);
+  assert.match(appSource, /openAssistantToolsSurfaceTab\(workspace,\s*"installed"\)/);
+  assert.match(appSource, /tab\.kind === "assistant-tools"[\s\S]*?<CapabilitiesPane/);
+  assert.doesNotMatch(appSource, /activeMode === "capabilities"[\s\S]*?<CapabilitiesPane/);
   assert.match(capabilitiesSource, /Installed[\s\S]*Discover/);
-  assert.match(capabilitiesSource, /Search installed capabilities/);
+  assert.match(capabilitiesSource, /Search installed tools/);
   assert.match(capabilitiesSource, /Skills[\s\S]*Extensions/);
   assert.match(capabilitiesSource, /Personal[\s\S]*This Space/);
   assert.match(capabilitiesSource, /capabilities\/details\?id=/);
@@ -105,6 +111,8 @@ test("Skills and Extensions share one styled Capabilities destination", () => {
 
   for (const className of [
     "capabilities-pane",
+    "assistant-tools-pane",
+    "assistant-tools-header",
     "capabilities-view-tabs",
     "capabilities-view-content",
     "capabilities-add-panel",
@@ -116,12 +124,14 @@ test("Skills and Extensions share one styled Capabilities destination", () => {
     "capability-review-facts",
     "capability-code-warning",
     "capabilities-core-tools",
+    "capabilities-resource-section",
   ]) {
     assert.equal(hasClassSelector(surfacesCss, className), true, `Capabilities class .${className} must be styled`);
   }
   for (const className of [...staticClassTokens(capabilitiesSource)].filter((name) => /^capabilit(?:y|ies)-/.test(name))) {
     assert.equal(hasClassSelector(surfacesCss, className), true, `Static Capabilities class .${className} must be styled`);
   }
+  assert.match(surfacesCss, /\.workspace-surface-body:has\(> \.assistant-tools-pane\)[\s\S]*?container-type:\s*inline-size/);
   assert.match(surfacesCss, /@container workspace-pane \(max-width: 520px\)[\s\S]*?\.capabilities-resource-card/);
   assert.match(surfacesCss, /@media \(max-width: 600px\)[\s\S]*?\.capability-dialog/);
 });

@@ -2,7 +2,7 @@
 
 Workspace has three runtime responsibility layers, one shared in-process management plane, and a separate restricted-app execution lane:
 
-1. The React renderer presents a Space selector plus Files, Capabilities, Chats, Library, and History surfaces, with Assistant configuration in Settings.
+1. The React renderer presents a Space selector plus Files, Chats, Library, and History rail surfaces, an on-demand Assistant tools work tab, and Assistant configuration in Settings.
 2. The local Node host owns filesystem access, conversations, resource import, Pi sessions, and the domain services that authorize mutations.
 3. Electron supplies native windows, menus, dialogs, secure storage, lifecycle, and packaging.
 
@@ -40,7 +40,7 @@ The public `workspace` command uses a compact adapter that omits content. Its pr
 The Space selector establishes the active root-folder entity; a Space is not itself a peer navigation surface. The primary information architecture is:
 
 - **Files** — the ordinary folder contents of the selected Space.
-- **Capabilities** — one Installed/Discover surface for Skills and Extensions, available personally or from a registered Space. Package provenance and lifecycle live here without becoming another top-level concept.
+- **Assistant tools** — one on-demand Space-owned Installed/Discover work tab for Skills and Extensions, available personally or from a registered Space. Package provenance and lifecycle live here without becoming another top-level concept.
 - **Chats** — conversations associated with the selected Space.
 - **Library** — reusable personal materials available across Spaces.
 - **History** — checkpoints and recoverable changes for the selected Space.
@@ -76,7 +76,7 @@ Restricted apps run beside, not inside, the Pi capability catalog and management
 ```mermaid
 flowchart LR
   chat["Space Chat and propose_space_app"] --> review["Host inspection and digest-pinned review"]
-  capabilities["Capabilities grants, connections, lifecycle"] --> service["RestrictedAppService"]
+  capabilities["Assistant tools grants, connections, lifecycle"] --> service["RestrictedAppService"]
   studio["Space-bound App Studio"] --> service
   review --> service
   service --> staged["Content-addressed reviewed Feature assets"]

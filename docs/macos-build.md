@@ -54,7 +54,7 @@ WORKSPACE_DESKTOP_STATE_DIR=/tmp/workspace-macos-smoke \
   out/builder/mac-arm64/Workspace.app/Contents/MacOS/Workspace
 ```
 
-That production-name path exists only after `npm run desktop:make:mac:release`; the ad hoc executable is `out/builder/mac-arm64/Workspace Local Smoke.app/Contents/MacOS/Workspace Local Smoke`. Exercise onboarding, Space creation/registration, Files, Capabilities, Chats, Library, History, Settings, native file actions, restricted apps, menus, window close/reopen, and sleep/wake continuity. The profile override isolates CLI requests, app files, restricted-app state, and preferences, but it is not a Keychain boundary. A separate disposable macOS account is the alternative for interactive ad hoc testing.
+That production-name path exists only after `npm run desktop:make:mac:release`; the ad hoc executable is `out/builder/mac-arm64/Workspace Local Smoke.app/Contents/MacOS/Workspace Local Smoke`. Exercise onboarding, Space creation/registration, Files, Chats, Library, History, Add, Assistant tools, Settings, native file actions, restricted apps, menus, window close/reopen, and sleep/wake continuity. The profile override isolates CLI requests, app files, restricted-app state, and preferences, but it is not a Keychain boundary. A separate disposable macOS account is the alternative for interactive ad hoc testing.
 
 The packaged CLI can be tested directly:
 

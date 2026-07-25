@@ -32,7 +32,7 @@ test("review prioritizes requested access and visible contribution over collapse
   assert.match(apps, /Adding the preview grants no network destinations, Space files, notifications, or scheduled execution/);
 });
 
-test("Capabilities owns access, connection, and lifecycle management without credential-erasure jargon", () => {
+test("Assistant tools owns access, connection, and lifecycle management without credential-erasure jargon", () => {
   const access = apps.indexOf("Access & connections");
   const runtime = apps.indexOf("Package & runtime");
   const lifecycle = apps.indexOf("Lifecycle");

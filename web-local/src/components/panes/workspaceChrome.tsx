@@ -2,10 +2,9 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSPropert
 import {
   ArrowClockwise20Regular,
   ArrowReset20Regular,
+  Add24Regular,
   Apps24Filled,
   Apps24Regular,
-  BookToolbox24Filled,
-  BookToolbox24Regular,
   ChatMultiple24Filled,
   ChatMultiple24Regular,
   Checkmark16Regular,
@@ -25,9 +24,10 @@ import {
 import { filterWorkspaceIconOptions, workspaceIconOptionFor, workspaceIconOptions } from "../../workspace-icons";
 import { workspaceBannerOptions } from "../../constants";
 import { errorText } from "../../lib/api";
+import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
 import { normalizeWorkspaceColor, processWorkspaceBannerImageFile, workspaceColorOptions, workspaceIdentityFor, workspaceIdentityStyle, type WorkspaceIdentity } from "../../lib/workspace-identity";
 import { surfaceDomIdSuffix, workspaceHeaderSourceBadgeLabel } from "../../lib/workspace-ui";
-import type { CapabilitySurface, RestrictedAppInstalled, WorkspaceCustomization, WorkspaceCustomizationMap, WorkspaceCustomizationPatch, WorkspaceRailMode, WorkspaceSummary } from "../../types";
+import type { AssistantToolsView, CapabilitySurface, RestrictedAppInstalled, WorkspaceCustomization, WorkspaceCustomizationMap, WorkspaceCustomizationPatch, WorkspaceRailMode, WorkspaceSummary } from "../../types";
 import { WorkspaceIconGlyph } from "../chrome/common";
 
 function WorkspaceModeRail({
@@ -37,6 +37,8 @@ function WorkspaceModeRail({
   surfaces,
   apps,
   onModeChange,
+  onOpenAssistantTools,
+  onBuildApp,
   accountControl,
   onOpenKeyboardShortcuts,
   updateControl,
@@ -47,23 +49,64 @@ function WorkspaceModeRail({
   surfaces: CapabilitySurface[];
   apps: RestrictedAppInstalled[];
   onModeChange: (mode: WorkspaceRailMode) => void;
+  onOpenAssistantTools: (view: AssistantToolsView) => void;
+  onBuildApp: () => void;
   accountControl: ReactNode;
   onOpenKeyboardShortcuts: () => void;
   updateControl?: ReactNode;
 }) {
+  const [addOpen, setAddOpen] = useState(false);
+  const addAnchorRef = useRef<HTMLDivElement | null>(null);
+  const addButtonRef = useRef<HTMLButtonElement | null>(null);
+  const addMenuRef = useRef<HTMLDivElement | null>(null);
   const FilesIcon = activeMode === "files" ? DocumentFolder24Filled : DocumentFolder24Regular;
-  const CapabilitiesIcon = activeMode === "capabilities" ? BookToolbox24Filled : BookToolbox24Regular;
   const ChatsIcon = activeMode === "chats" ? ChatMultiple24Filled : ChatMultiple24Regular;
   const LibraryIcon = activeMode === "library" ? Library24Filled : Library24Regular;
   const HistoryIcon = activeMode === "history" ? History24Filled : History24Regular;
   const workspaceLabel = workspace.name.trim() || "Space";
   const primaryItems: Array<{ mode: WorkspaceRailMode; label: string; ariaLabel: string; title: string; icon: ReactNode }> = [
     { mode: "files", label: "Files", ariaLabel: "Files", title: "Files in this Space", icon: <FilesIcon className="fluent-rail-icon" /> },
-    { mode: "capabilities", label: "Capabilities", ariaLabel: "Capabilities", title: "Skills, Extensions, and Pi packages", icon: <CapabilitiesIcon className="fluent-rail-icon" /> },
     { mode: "chats", label: "Chats", ariaLabel: "Chats", title: "Chats", icon: <ChatsIcon className="fluent-rail-icon" /> },
     { mode: "library", label: "Library", ariaLabel: "Library", title: "Reusable files for any Space", icon: <LibraryIcon className="fluent-rail-icon" /> },
     { mode: "history", label: "History", ariaLabel: "History", title: "Restore points and recent activity", icon: <HistoryIcon className="fluent-rail-icon" /> },
   ];
+
+  useEffect(() => {
+    if (!addOpen) return;
+    window.requestAnimationFrame(() => addMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus());
+    function closeFromOutside(event: PointerEvent): void {
+      if (addAnchorRef.current?.contains(event.target as Node)) return;
+      setAddOpen(false);
+    }
+    function closeFromEscape(event: KeyboardEvent): void {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setAddOpen(false);
+      window.requestAnimationFrame(() => addButtonRef.current?.focus());
+    }
+    document.addEventListener("pointerdown", closeFromOutside, true);
+    document.addEventListener("keydown", closeFromEscape, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeFromOutside, true);
+      document.removeEventListener("keydown", closeFromEscape, true);
+    };
+  }, [addOpen]);
+
+  function chooseAddAction(action: () => void): void {
+    setAddOpen(false);
+    action();
+  }
+
+  function handleAddMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const items = Array.from(addMenuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+    const currentIndex = items.findIndex((item) => item === document.activeElement);
+    const nextIndex = nextMenuItemIndex(currentIndex, items.length, event.key as MenuNavigationKey);
+    if (nextIndex === null) return;
+    event.preventDefault();
+    items[nextIndex]?.focus();
+  }
+
   return (
     <nav className="workspace-mode-rail professional-workspace-rail" aria-label="Workspace navigation">
       <div className="workspace-rail-nav">
@@ -146,6 +189,32 @@ function WorkspaceModeRail({
       <div className="workspace-rail-account">
         <div className="workspace-rail-tools">
           {updateControl ? <div className="workspace-rail-update">{updateControl}</div> : null}
+          <div className="workspace-rail-add-anchor" ref={addAnchorRef} onBlurCapture={(event) => { if (addOpen && !event.currentTarget.contains(event.relatedTarget as Node | null)) setAddOpen(false); }}>
+            <button
+              ref={addButtonRef}
+              className="workspace-rail-quiet-button workspace-rail-add-button"
+              type="button"
+              onClick={() => setAddOpen((current) => !current)}
+              aria-label="Add to Workspace"
+              aria-haspopup="menu"
+              aria-expanded={addOpen}
+              aria-controls="workspace-add-menu"
+              data-rail-tooltip="Add or manage"
+            >
+              <Add24Regular aria-hidden="true" />
+              <span>Add</span>
+            </button>
+            {addOpen ? (
+              <div ref={addMenuRef} id="workspace-add-menu" className="workspace-rail-add-menu" role="menu" aria-label={`Add to ${workspaceLabel}`} onKeyDown={handleAddMenuKeyDown}>
+                <span className="workspace-rail-add-menu-heading">Add to {workspaceLabel}</span>
+                <button type="button" role="menuitem" onClick={() => chooseAddAction(() => onModeChange("library"))}><strong>Library materials</strong><span>Copy reusable files into this Space</span></button>
+                <button type="button" role="menuitem" onClick={() => chooseAddAction(() => onOpenAssistantTools("discover"))}><strong>Browse Skills &amp; Extensions</strong><span>Review tools before installing them</span></button>
+                <button type="button" role="menuitem" onClick={() => chooseAddAction(() => onBuildApp())}><strong>Build an app</strong><span>Start with the Assistant in this Space</span></button>
+                <span className="workspace-rail-add-menu-divider" aria-hidden="true" />
+                <button type="button" role="menuitem" onClick={() => chooseAddAction(() => onOpenAssistantTools("installed"))}><strong>Manage Assistant tools</strong><span>Inspect scope, source, and access</span></button>
+              </div>
+            ) : null}
+          </div>
           <button
             className="workspace-rail-quiet-button"
             type="button"

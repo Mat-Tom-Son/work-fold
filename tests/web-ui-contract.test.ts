@@ -6,7 +6,6 @@ import { primaryNavigation, welcomeActions } from "../web-local/src/ui-contract.
 test("Workspace navigation separates the active Space from its surfaces", () => {
   assert.deepEqual(primaryNavigation.map(({ id, label }) => [id, label]), [
     ["files", "Files"],
-    ["capabilities", "Capabilities"],
     ["chats", "Chats"],
     ["library", "Library"],
     ["history", "History"],

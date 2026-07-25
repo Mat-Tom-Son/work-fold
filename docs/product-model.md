@@ -21,7 +21,7 @@ Workspace is for general computer work. Coding is one valid use, not the organiz
 | **Library** | Personal materials worth reusing across Spaces. | Items are passive and are copied explicitly; they are not prompt context. |
 | **History** | Checkpoints and recoverable changes associated with a Space. | It should remain distinct from chat history. |
 | **Assistant** | The Pi-powered helper. | Its provider and model are configured in Settings, independently from Space content. |
-| **Capabilities** | One place to discover and manage what the Assistant can do. | It groups Skills and Extensions; it is not another runtime or package format. |
+| **Assistant tools** | One on-demand work tab to discover and manage what the Assistant can do. | It groups Skills, Extensions, and Space-app management without making executable tools look like passive Library materials. |
 | **Skill** | A reusable way of working that helps the Assistant approach a task. | A Skill may contain executable scripts and is not merely a document. |
 | **Extension** | An executable capability or connection available to the Assistant. | It has a stronger trust implication than a Library item. |
 | **App Project** | An optional build-and-publication identity declared for one Space. | Its 0.4 presentation and identity are machine-local application state, not another portable file or cloud ownership record. |
@@ -29,15 +29,14 @@ Workspace is for general computer work. Coding is one valid use, not the organiz
 | **Release** | An immutable content-addressed snapshot of reviewed Features and App presentation. | Preparing, publishing, and installing it are separate local acts; a display version is not executable identity. |
 | **App Instance** | One published Release installed into a chosen Space with its own runtime, data, grants, connections, jobs, and receipts. | It is distinct from the source-bound Development preview and does not live in or own the Space folder. |
 
-The Space switcher chooses the active root-folder entity. The stable primary navigation then follows these surface nouns:
+The Space switcher chooses the active root-folder entity. The stable primary navigation then follows these everyday surface nouns:
 
 - **Files**
-- **Capabilities**
 - **Chats**
 - **Library**
 - **History**
 
-The Assistant's model provider, model, API key, and supported provider OAuth connection live in **Settings → Assistant**, rather than adding a setup destination to the primary rail. A restricted Space app's connection is a different, app-scoped object managed with that app in **Capabilities**.
+The bottom-rail **Add** action opens a short menu for Library materials, Skills and Extensions, or building an app. Skills, Extensions, packages, core tools, and installed-app authority are managed in a Space-owned **Assistant tools** work tab so infrequent administration does not occupy a permanent rail destination or get compressed into the navigator. The Assistant's model provider, model, API key, and supported provider OAuth connection live in **Settings → Assistant**. A restricted Space app's connection is a different, app-scoped object managed with that app in **Assistant tools**.
 
 Each open tab belongs to one Space. Selecting a tab takes the user back to that Space and its identity; selecting a Space restores its most recent tab. A Chat that is working remains alive when another tab is selected, when Workspace is minimized, when the Windows window is hidden to the tray, and when the last macOS window is closed and later recreated from the Dock.
 
@@ -100,7 +99,7 @@ There are two capability scopes:
 - **Personal:** available across Spaces from the user's Pi agent directory.
 - **This Space:** portable configuration stored under the Space's `.pi/` directory and authorized while the folder is registered as a Space.
 
-The **Capabilities** surface unifies discovery and management without erasing the distinctions that matter. It identifies whether an item is a Skill or Extension, Personal or This Space, active or merely available, direct-imported or package-provided, and healthy or diagnostic-failing. Installed items can be searched, filtered by type and scope, and sorted by name, type, scope, or source. Discover results can be searched, filtered, and sorted by first-party/reference status, downloads, recency, or name.
+The **Assistant tools** work tab unifies discovery and management without erasing the distinctions that matter. It identifies whether an item is a Skill or Extension, Personal or This Space, active or merely available, direct-imported or package-provided, and healthy or diagnostic-failing. Installed items can be searched, filtered by type and scope, and sorted by name, type, scope, or source. Discover results can be searched, filtered, and sorted by first-party/reference status, downloads, recency, or name.
 
 Packages can distribute Skills, Extensions, prompts, themes, and related Pi resources. They remain installation and lifecycle plumbing; the primary UI should describe the capability a person is gaining, show inspected resource types and lifecycle scripts when registry metadata is available, and label unavailable details as unknown rather than absent. A package that includes Extensions or install scripts is a code-execution decision and must not be presented as a harmless Skill-only import. See [Assistant capabilities](assistant-capabilities.md) for the complete compatibility and safety model.
 
@@ -149,7 +148,7 @@ is explicitly a **Local preview** in the source Space's Development Instance.
 App Studio separately declares Project presentation, prepares, publishes, and
 deletes unused Releases, installs one into a chosen registered Space, and
 manages update, rollback, uninstall, retained data, and purge. App Studio is a Space-bound work
-tab reached from Capabilities, not a sixth top-level rail destination.
+tab reached from Assistant tools, not a fifth top-level rail destination.
 
 ## Management layer
 
@@ -183,7 +182,7 @@ When a design is ambiguous, prefer the option that best preserves these properti
 - Restore content-addressed History checkpoints created around file mutations and Assistant turns.
 - Configure a Pi provider/model with an API key or an advertised Pi provider OAuth flow and use Pi's built-in tools.
 - Discover installed Skills, prompts, Extension commands, and supported built-ins from the Chat composer, and inspect the active model and context-window pressure during a conversation.
-- Discover and search Personal and registered-Space Skills and Extensions in one Capabilities surface, with accurate source, scope, load state, and diagnostics.
+- Discover and search Personal and registered-Space Skills and Extensions in one Assistant tools work tab, with accurate source, scope, load state, and diagnostics.
 - Browse curated first-party/reference Skills and Extensions alongside community Pi packages, with type filters and explicit provenance.
 - Import standard Skills and compatible skill bundles while preserving their supporting files.
 - Install, update, and remove Pi packages at Personal or registered-Space scope.
@@ -192,7 +191,7 @@ When a design is ambiguous, prefer the option that best preserves these properti
 - Drive one real Pi turn through the local API with the harness-neutral `workspace:drive` test driver.
 - Render validated declarative `surface.json` contributions from loaded Pi Extensions as a contributed rail destination, left-pane navigator, and Space-bound view tabs without injecting Extension code into the renderer.
 - Let the Assistant submit a completed, Space-relative restricted-app package through a host-owned proposal tool. Workspace persists a Space-and-Chat-bound, digest-pinned review without evaluating JavaScript; only a later human approval installs it, with network, Space-file, and notification access off, no saved connection, and every automation disabled.
-- Give each installed Space app arbitrary reviewed web UI in a sandboxed rail navigator and host-derived persistent Space-owned right tabs, plus optional bounded Assistant actions and named automations in a separate worker sandbox. A machine-wide scheduler shared across Spaces provides two execution slots, FIFO admission, same-job non-overlap, durable cadence, bounded catch-up, and run receipts. Capabilities manages each job independently alongside exact network/file/notification grants, host-owned encrypted connections, local data, reviewed updates, removal, and the secondary advanced local-package path.
+- Give each installed Space app arbitrary reviewed web UI in a sandboxed rail navigator and host-derived persistent Space-owned right tabs, plus optional bounded Assistant actions and named automations in a separate worker sandbox. A machine-wide scheduler shared across Spaces provides two execution slots, FIFO admission, same-job non-overlap, durable cadence, bounded catch-up, and run receipts. Assistant tools manages each job independently alongside exact network/file/notification grants, host-owned encrypted connections, local data, reviewed updates, removal, and the secondary advanced local-package path.
 - Provide bounded host-owned JSON storage with active-visible-view invalidation hints, History-covered Space-file grants, exact public-HTTPS or numeric-loopback requests, API-key/bearer/basic/OAuth PKCE connection adapters, and static reviewed system notifications from enabled automation runs.
 - Carry host-owned local App Project, Development Instance, Feature Installation,
   Data Namespace, canonical Feature Revision, and seven-domain authority identity

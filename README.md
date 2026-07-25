@@ -22,7 +22,7 @@ The core idea is simple: the folder stays ordinary; Workspace makes it feel like
 | **Space** | Everything associated with one activity, backed by an ordinary folder. |
 | **Files** | The ordinary folder contents of the selected Space. |
 | **Library** | Reusable personal materials that can be brought into any Space. |
-| **Capabilities** | The place to discover and manage what the Assistant can do. |
+| **Assistant tools** | A Space-owned work tab for discovering and managing what the Assistant can do. |
 | **Skill** | A reusable way of working that guides the Assistant. |
 | **Extension** | A capability or connection the Assistant can use. |
 | **App Project** | An optional, machine-local build and publication identity declared for one Space. |
@@ -33,12 +33,11 @@ The core idea is simple: the folder stays ordinary; Workspace makes it feel like
 The Space switcher selects the root-folder entity a person is working in. The primary navigation then opens surfaces for that selected Space and the surrounding product:
 
 - **Files**
-- **Capabilities**
 - **Chats**
 - **Library**
 - **History**
 
-Provider, model, API-key, and provider OAuth setup—when a provider flow is supported—lives under **Settings → Assistant**. Connections used by a restricted Space app are configured separately with that app in **Capabilities**.
+The bottom-rail **Add** menu opens Library materials, Assistant-tool discovery and management, or app building without adding an administration destination to the primary rail. Provider, model, API-key, and provider OAuth setup—when a provider flow is supported—lives under **Settings → Assistant**. Connections used by a restricted Space app are configured separately with that app in **Assistant tools**.
 
 The folder is an implementation detail, but never a proprietary boundary. Space files remain ordinary files that can be opened in other apps, synchronized by desktop storage tools, backed up, or revealed in the operating system.
 
@@ -53,7 +52,7 @@ Workspace reserves two hidden support directories inside a Space: `.workspace/` 
 - Pi's normal built-in tools, provider/model selection, API-key and supported provider OAuth authentication, prompt templates, context files, and packages.
 - Chat composer discovery for installed Skills, prompts, Extension commands, and supported built-ins, plus active-model and context-window visibility.
 - Active, snoozed, and archived Chat views with automatic resurfacing, undoable lifecycle actions, read-only deferred transcripts, and quiet running/finished indicators for background work.
-- One Capabilities surface for installed Skills and Extensions, official/reference sources, community Pi packages, provenance, scope, diagnostics, update, and removal.
+- One Space-owned Assistant tools work tab for installed Skills and Extensions, official/reference sources, community Pi packages, provenance, scope, diagnostics, update, and removal, opened on demand from Add, the command palette, or the desktop shortcut.
 - Global and registered-Space Pi Extensions. Native Pi Extensions run with the current user's permissions.
 - Validated declarative Extension surfaces that can contribute an app rail destination, navigator pane, and Space-bound data views without injecting Extension code into the renderer.
 - A [full-trust Connected inbox Pi Extension example](examples/packages/connected-inbox/README.md) and a separate, runnable [restricted Connected inbox Space app](examples/packages/restricted-connected-inbox/README.md).
@@ -78,7 +77,7 @@ The normal creation path begins in a Space Chat:
 1. The Assistant writes a complete, already-built package inside the Space and calls the host-owned `propose_space_app` tool with only its Space-relative folder.
 2. Workspace inspects the package without evaluating JavaScript and returns a digest-pinned review to that owning Chat.
 3. The person chooses whether to add that exact revision as a **Local preview** in the source Space's Development Instance. Adding it grants only bounded app storage; network destinations, files, notification categories, saved connections, and every automation remain off.
-4. **Capabilities → Apps in this Space** manages each authority separately. The app itself opens from the contributed rail and may create normal Space-owned tabs in the work area.
+4. **Assistant tools → Installed → Apps in this Space** manages each authority separately. The app itself opens from the contributed rail and may create normal Space-owned tabs in the work area.
 
 Revoking a destination stops brokered requests but does not silently delete a saved credential; **Disconnect** removes the machine-local encrypted record. Provider-side token or API-key revocation remains the provider's responsibility. Updating a Development preview preserves its explicit data lineage but resets grants, connections, notification access, and automation settings so a new revision cannot inherit old powers. Predecessor run receipts remain durable audit lineage even though the current-revision run view starts empty.
 
@@ -194,7 +193,7 @@ The user-facing **Library** contains personal materials. Separately, Workspace f
 
 - User resources: the configured Pi agent directory (normally `~/.pi/agent`).
 - Portable project resources: `.pi/` inside a folder the user has registered as a Space. Registration itself is Workspace's authorization to load that exact local Pi configuration.
-- Packages: npm, git, HTTPS, and local package sources supported by Pi, managed as provenance and lifecycle records inside Capabilities.
+- Packages: npm, git, HTTPS, and local package sources supported by Pi, managed as provenance and lifecycle records inside Assistant tools.
 
 Npm and git package sources use the corresponding command-line tools on `PATH`; local package paths and Skill imports do not require them. The packaged app uses Pi's normal global agent directory (typically `~/.pi/agent`) for packages and resources, while provider credentials are encrypted by the operating system for Workspace. Internal APIs and code may retain terms such as `workspace`, `project`, and `resource` where they identify existing Pi or storage concepts; those names do not change the user-facing Space, Library, Skill, and Extension model.
 

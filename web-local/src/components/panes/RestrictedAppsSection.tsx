@@ -150,15 +150,14 @@ export function RestrictedAppsSection({
   }
 
   return (
-    <section className="restricted-apps-section capabilities-management-section" aria-labelledby="restricted-apps-title">
+    <section className="restricted-apps-section" aria-labelledby="restricted-apps-title">
       <div className="restricted-apps-heading">
         <div>
-          <span className="professional-icon-tile" aria-hidden="true"><ShieldCheckmark20Regular /></span>
-          <div><h3 id="restricted-apps-title">Apps in this Space</h3><p>Apps the Assistant creates can add an interactive navigator, persistent work tabs, and connected actions. Each runs in Workspace’s restricted browser; you decide what it may connect to.</p></div>
+          <div className="restricted-apps-title-line"><h3 id="restricted-apps-title">Apps in this Space</h3><span>{apps.length}</span></div>
+          <p>Interactive tools built for {workspace.name}. Network, files, notifications, and automations start off.</p>
         </div>
-        <div className="restricted-apps-heading-actions"><button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={() => onOpenAppStudio(workspace.id)}>Open App Studio</button>{apps.length ? <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={onBuildApp}><Add16Regular />Build with Assistant</button> : null}</div>
+        {apps.length ? <div className="restricted-apps-heading-actions"><button className="professional-button professional-button-quiet" type="button" disabled={busy} onClick={() => onOpenAppStudio(workspace.id)}>App Studio</button><button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onBuildApp}><Add16Regular />Build another</button></div> : null}
       </div>
-      <p className="restricted-apps-note"><Info20Regular aria-hidden="true" />Adding a local preview gives it bounded local storage, but no network, Space-file, notification, or scheduled execution. You approve those powers separately.</p>
       {loading && !apps.length ? <div className="restricted-apps-loading"><ArrowSync16Regular className="spin" />Loading sandboxed apps</div> : null}
       {apps.length ? (
         <div className="restricted-app-list">
@@ -174,7 +173,7 @@ export function RestrictedAppsSection({
             </article>
           ))}
         </div>
-      ) : !loading ? <div className="restricted-app-empty"><strong>Build something for this Space</strong><span>Ask the Assistant for an inbox, dashboard, tracker, or connection. It will create the package here and bring the exact revision back for review.</span><button className="professional-button professional-button-primary" type="button" onClick={onBuildApp}><Add16Regular />Build with Assistant</button></div> : null}
+      ) : !loading ? <div className="restricted-app-empty"><div><strong>No apps in this Space</strong><span>Ask the Assistant to build an inbox, dashboard, tracker, or connection, then review the exact revision before it runs.</span></div><div className="restricted-app-empty-actions"><button className="professional-button professional-button-primary" type="button" onClick={onBuildApp}><Add16Regular />Build with Assistant</button><button className="professional-button professional-button-quiet" type="button" onClick={() => onOpenAppStudio(workspace.id)}>Open App Studio</button></div></div> : null}
       <details className="restricted-app-advanced"><summary>Advanced local preview</summary><p>Review a restricted app package folder that already exists in this Space.</p><button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={() => setSourceOpen(true)}>Add local preview…</button></details>
 
       {sourceOpen ? <RestrictedAppSourceDialog sourcePath={sourcePath} busy={busy} onSourcePathChange={setSourcePath} onSubmit={inspect} onClose={() => { if (!busy) setSourceOpen(false); }} /> : null}

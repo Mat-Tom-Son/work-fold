@@ -376,7 +376,7 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
     if (!desktopAction) return;
     if (desktopAction.command === "new-chat") openChat(workspace, null);
     else if (desktopAction.command === "reload-workspace-state") void refreshWorkspaceState();
-    else if (desktopAction.command === "open-capabilities" || desktopAction.command === "open-skills" || desktopAction.command === "open-extensions") setActiveMode("capabilities");
+    else if (desktopAction.command === "open-capabilities" || desktopAction.command === "open-skills" || desktopAction.command === "open-extensions") tabs.openAssistantToolsSurfaceTab(workspace, "installed");
     else if (desktopAction.command === "open-command-palette") openCommandPalette();
   }, [desktopAction?.id, openCommandPalette]);
   useEffect(() => {
@@ -823,7 +823,9 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
   }
 
   const commands = useMemo<CommandPaletteCommand[]>(() => [
-    ...(["files", "capabilities", "chats", "library", "history"] as WorkspacePane[]).map((mode) => ({ id: `go:${mode}`, groupId: "go-to" as const, groupLabel: "Go to", label: mode[0]!.toUpperCase() + mode.slice(1), defaultVisible: true, run: () => selectRailMode(mode) })),
+    ...(["files", "chats", "library", "history"] as WorkspacePane[]).map((mode) => ({ id: `go:${mode}`, groupId: "go-to" as const, groupLabel: "Go to", label: mode[0]!.toUpperCase() + mode.slice(1), defaultVisible: true, run: () => selectRailMode(mode) })),
+    { id: "go:assistant-tools", groupId: "go-to" as const, groupLabel: "Go to", label: "Assistant tools", detail: "Installed Skills, Extensions, and apps", defaultVisible: true, run: () => tabs.openAssistantToolsSurfaceTab(workspace, "installed") },
+    { id: "action:discover-assistant-tools", groupId: "actions" as const, groupLabel: "Actions", label: "Browse Skills & Extensions", keywords: ["capabilities", "discover", "install", "tools"], run: () => tabs.openAssistantToolsSurfaceTab(workspace, "discover") },
     ...surfaces.map((surface) => ({ id: `app:${surface.key}`, groupId: "go-to" as const, groupLabel: "Go to", label: surface.title, detail: surface.scope === "project" ? "Pi Extension · This Space" : "Pi Extension · Personal", run: () => selectRailMode(`app:${surface.key}`) })),
     ...restrictedApps.map((app) => ({ id: `restricted-app:${app.manifest.id}`, groupId: "go-to" as const, groupLabel: "Go to", label: app.manifest.title, detail: "Sandboxed app · This Space", run: () => selectRailMode(restrictedAppRailMode(workspace.id, app.manifest.id)) })),
     ...workspaces.map((item) => ({ id: `space:${item.id}`, groupId: "switch-workspace" as const, groupLabel: "Switch Space", label: item.name, detail: workspaceHeaderSourceBadgeLabel(item), matchTargets: [item.rootPath], run: () => onSwitchWorkspace(item) })),
@@ -857,7 +859,7 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
   const layoutStyle = { ...(workspaceIdentityStyle(identity)), ...(paneResize.sidebarWidth ? { "--workspace-sidebar-width": `${paneResize.sidebarWidth}px` } : {}) } as CSSProperties;
 
   return <main className={paneResize.sidebarResizing ? "workspace-layout resizing" : "workspace-layout"} ref={paneResize.workspaceLayoutRef} style={layoutStyle}>
-    <WorkspaceModeRail activeMode={activeMode} workspace={workspace} workspaceIdentity={identity} surfaces={surfaces} apps={restrictedApps} onModeChange={selectRailMode} accountControl={<button className="workspace-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings" data-rail-tooltip="Settings"><Settings24Regular aria-hidden="true" /></button>} onOpenKeyboardShortcuts={onOpenShortcuts} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
+    <WorkspaceModeRail activeMode={activeMode} workspace={workspace} workspaceIdentity={identity} surfaces={surfaces} apps={restrictedApps} onModeChange={selectRailMode} onOpenAssistantTools={(view) => tabs.openAssistantToolsSurfaceTab(workspace, view)} onBuildApp={() => openChat(workspace, null)} accountControl={<button className="workspace-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings" data-rail-tooltip="Settings"><Settings24Regular aria-hidden="true" /></button>} onOpenKeyboardShortcuts={onOpenShortcuts} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
     <section className={`workspace-mode-pane workspace-mode-pane-${activeMode}`} id="workspace-file-panel">
       <WorkspacePaneHeader workspace={workspace} identity={identity} workspaces={workspaces} workspaceCustomizations={customizations} onSwitchWorkspace={onSwitchWorkspace} switchable={activeMode !== "workspaces"} action={activeMode === "files" ? <button className="minimal-icon-button" type="button" disabled={uploadingFiles || tree.status === "refreshing"} onClick={() => void tree.refresh(false)} aria-label="Refresh files" title="Refresh files"><ArrowSync16Regular className={tree.status === "refreshing" ? "spin" : undefined} /></button> : undefined} />
       {activeMode === "workspaces" ? <SpacesPane workspace={workspace} workspaces={workspaces} identities={customizations} onSwitch={onSwitchWorkspace} onCreate={onCreateSpace} onOpenFolder={onOpenFolder} onCustomize={(target) => tabs.openAppearanceSurfaceTab(target)} onRename={renameSpace} onRemove={(target) => void removeSpace(target)} /> : null}
@@ -921,7 +923,6 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
       {activeMode === "chats" ? <ChatsPane workspace={workspace} workspaces={workspaces} conversations={conversationGroups} customizations={customizations} activityStatuses={chatActivity.statuses} activeConversationId={activeTab?.kind === "chat" ? activeTab.conversationId ?? undefined : undefined} onOpen={(target, conversation) => openChat(target, conversation)} onNew={(target) => openChat(target, null)} onActions={openChatActions} /> : null}
       {activeMode === "library" ? <LibraryPane workspace={workspace} fixtureTree={fixture?.library} onError={onError} /> : null}
       {activeMode === "history" ? <HistoryPane workspace={workspace} fixtureItems={fixture?.checkpoints[workspace.id]} refreshRequest={historyRefreshRequest} onOpen={(item) => tabs.openHistorySurfaceTab(workspace, item.checkpointId, item.label || "Restore point")} onError={onError} /> : null}
-      {activeMode === "capabilities" ? <CapabilitiesPane workspace={workspace} status={agent} fixtureMode={Boolean(fixture)} restrictedApps={restrictedApps} restrictedAppsLoading={restrictedAppsState.loadingWorkspaceIds.has(workspace.id)} onOpenSettings={() => onOpenSettings("assistant")} onError={onError} onCatalogChanged={(catalog) => updateSurfaceCatalog(workspace.id, catalog)} onRestrictedAppChanged={restrictedAppsState.upsertApp} onRestrictedAppRemoved={(appId) => restrictedAppsState.removeApp(workspace.id, appId)} onBuildApp={() => openChat(workspace, null)} onOpenAppStudio={(sourceWorkspaceId) => tabs.openAppStudioSurfaceTab(workspaces.find((item) => item.id === sourceWorkspaceId) ?? workspace)} /> : null}
       {activeSurface ? <ExtensionSurfacePane surface={activeSurface} activeViewId={activeTab?.kind === "extension" && surfaceMatchesTab(activeSurface, activeTab) ? activeTab.viewId : null} onOpenView={(view) => tabs.openExtensionSurfaceTab(workspace, activeSurface, view)} /> : null}
       {activeRestrictedApp ? <RestrictedAppViewport app={activeRestrictedApp} placement="navigator" route="/" active /> : null}
     </section>
@@ -941,6 +942,23 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
           <div className="workspace-surface-body" role="tabpanel" id={surfacePanelDomId(tab.id)} aria-labelledby={surfaceTabDomId(tab.id)} hidden={!active} key={tab.id} style={workspaceIdentityStyle(targetIdentity)}>
             {tab.kind === "file" && tab.path ? (
               <FileDetailsPane workspace={targetWorkspace} path={tab.path} entry={targetWorkspace.id === workspace.id ? findTreeEntry(tree.tree, tab.path) : null} fixtureMode={Boolean(fixture)} onOpenLocal={(path, action) => openLocalPath(path, action, targetWorkspace)} onAddToChatContext={attachToChat} onShowVersionHistory={(path) => openVersionHistory(targetWorkspace, path)} onRename={targetWorkspace.id === workspace.id ? renameEntry : undefined} />
+            ) : tab.kind === "assistant-tools" ? (
+              <CapabilitiesPane
+                workspace={targetWorkspace}
+                status={agent}
+                view={tab.view}
+                fixtureMode={Boolean(fixture)}
+                restrictedApps={restrictedAppsState.appsByWorkspace[targetWorkspace.id] ?? []}
+                restrictedAppsLoading={restrictedAppsState.loadingWorkspaceIds.has(targetWorkspace.id)}
+                onViewChange={(view) => tabs.openAssistantToolsSurfaceTab(targetWorkspace, view)}
+                onOpenSettings={() => onOpenSettings("assistant")}
+                onError={onError}
+                onCatalogChanged={(catalog) => updateSurfaceCatalog(targetWorkspace.id, catalog)}
+                onRestrictedAppChanged={restrictedAppsState.upsertApp}
+                onRestrictedAppRemoved={(appId) => restrictedAppsState.removeApp(targetWorkspace.id, appId)}
+                onBuildApp={() => openChat(targetWorkspace, null)}
+                onOpenAppStudio={(sourceWorkspaceId) => tabs.openAppStudioSurfaceTab(workspaces.find((item) => item.id === sourceWorkspaceId) ?? targetWorkspace)}
+              />
             ) : tab.kind === "app-studio" ? (
               <AppStudioPane
                 workspace={targetWorkspace}
@@ -970,7 +988,7 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
               <HistoryPane workspace={targetWorkspace} fixtureItems={fixture?.checkpoints[targetWorkspace.id]} refreshRequest={targetWorkspace.id === workspace.id ? historyRefreshRequest : 0} selectedCheckpointId={tab.checkpointId} onOpen={(item) => tabs.openHistorySurfaceTab(targetWorkspace, item.checkpointId, item.label || "Restore point")} onError={onError} />
             ) : tab.kind === "extension" ? (() => {
               const targetSurfaceInventoryKnown = Object.prototype.hasOwnProperty.call(surfaceCatalogs, targetWorkspace.id);
-              if (!targetSurfaceInventoryKnown) return <CenteredState icon={<Loader2 className="spin" size={24} />} title="Loading app view" text="Checking the capabilities installed for this Space." />;
+              if (!targetSurfaceInventoryKnown) return <CenteredState icon={<Loader2 className="spin" size={24} />} title="Loading app view" text="Checking the tools installed for this Space." />;
               const targetSurfaces = contributedSurfaces(targetWorkspace.id, surfaceCatalogs[targetWorkspace.id] ?? []);
               const surface = targetSurfaces.find((item) => surfaceMatchesTab(item, tab));
               const view = surface?.views.find((item) => item.id === tab.viewId);
@@ -1141,9 +1159,9 @@ function joinDropPath(...segments: string[]) {
 function fixtureConversationGroups(fixture: WorkspaceUiFixture): Record<string, ConversationSummary[]> { return Object.fromEntries(Object.entries(fixture.conversations).map(([id, conversations]) => [id, conversations.map(({ messages: _messages, ...summary }) => summary)])); }
 function normalizeMode(value: string | null): WorkspaceRailMode {
   if (value === "space" || value === "workspaces") return "files";
-  if (value === "skills" || value === "extensions") return "capabilities";
+  if (value === "capabilities" || value === "skills" || value === "extensions") return "files";
   if (value?.startsWith("app:") && /^[a-z0-9][a-z0-9:_-]{0,255}$/i.test(value.slice(4))) return value as WorkspaceRailMode;
-  return (["files", "capabilities", "chats", "library", "history"] as WorkspaceRailMode[]).includes(value as WorkspaceRailMode) ? value as WorkspaceRailMode : "files";
+  return (["files", "chats", "library", "history"] as WorkspaceRailMode[]).includes(value as WorkspaceRailMode) ? value as WorkspaceRailMode : "files";
 }
 
 function extensionSurfaceIdForMode(mode: WorkspaceRailMode): string | null {
