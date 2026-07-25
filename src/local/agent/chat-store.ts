@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync } from "node:fs";
-import { appendFile, copyFile, mkdir, open, readFile, readdir, unlink, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, mkdir, open, readFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
-import { legacyWorkspaceConversationDir, workspaceConversationDir } from "../state-paths.js";
+import { legacyWorkspaceConversationDir, workspaceConversationDir, workspaceStateDir } from "../state-paths.js";
 
 export interface ChatMessage {
   id: string;
@@ -46,17 +46,36 @@ export async function listConversations(workspaceRoot: string): Promise<Conversa
     if (!existsSync(dir)) continue;
     for (const file of await readdir(dir)) if (file.endsWith(".jsonl")) files.add(file);
   }
+  const cachedIndex = await readConversationIndex(workspaceRoot);
+  const nextIndex = new Map<string, ConversationIndexEntry>();
   const summaries: ConversationSummary[] = [];
+  let recomputed = 0;
   for (const file of files) {
     const conversationId = file.replace(/\.jsonl$/, "");
     if (!isValidConversationId(conversationId)) continue;
+    // A transcript is append-only, so an unchanged size and modification time
+    // cannot describe a different summary. Only transcripts that actually moved
+    // are read and parsed again.
+    const info = await stat(existingConversationPath(workspaceRoot, conversationId)).catch(() => null);
+    const cached = info ? cachedIndex.get(conversationId) : undefined;
+    if (info && cached && cached.sizeBytes === info.size && cached.modifiedAt === info.mtime.toISOString()) {
+      nextIndex.set(conversationId, cached);
+      summaries.push(cached.summary);
+      continue;
+    }
     const { messages, malformedLineCount } = await readConversationFile(workspaceRoot, conversationId);
     if (!messages.some((message) => message.role !== "system")) {
       if (malformedLineCount === 0) await unlink(existingConversationPath(workspaceRoot, conversationId));
       continue;
     }
-    summaries.push(conversationSummary(conversationId, messages));
+    recomputed += 1;
+    const summary = conversationSummary(conversationId, messages);
+    if (info) nextIndex.set(conversationId, { sizeBytes: info.size, modifiedAt: info.mtime.toISOString(), summary });
+    summaries.push(summary);
   }
+  // Rebuilding the map from scratch drops entries for transcripts that no
+  // longer exist, so the cache cannot outgrow the Space it describes.
+  if (recomputed || nextIndex.size !== cachedIndex.size) await writeConversationIndex(workspaceRoot, nextIndex);
   return summaries.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
@@ -149,6 +168,86 @@ export async function appendMessage(workspaceRoot: string, conversationId: strin
 
 export function conversationsDir(workspaceRoot: string): string {
   return workspaceConversationDir(workspaceRoot);
+}
+
+interface ConversationIndexEntry {
+  sizeBytes: number;
+  modifiedAt: string;
+  summary: ConversationSummary;
+}
+
+const conversationIndexVersion = 1;
+
+function conversationIndexFile(workspaceRoot: string): string {
+  return join(workspaceStateDir(workspaceRoot), "conversation-index.json");
+}
+
+/**
+ * A derived summary cache for the Chat list. It lives in machine-local
+ * application state rather than the Space's portable `.workspace/` records
+ * because it can always be rebuilt from the transcripts themselves, and every
+ * failure path here falls back to doing exactly that.
+ */
+async function readConversationIndex(workspaceRoot: string): Promise<Map<string, ConversationIndexEntry>> {
+  const entries = new Map<string, ConversationIndexEntry>();
+  try {
+    const parsed = JSON.parse(await readFile(conversationIndexFile(workspaceRoot), "utf8")) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return entries;
+    const record = parsed as { version?: unknown; entries?: unknown };
+    if (record.version !== conversationIndexVersion) return entries;
+    if (!record.entries || typeof record.entries !== "object" || Array.isArray(record.entries)) return entries;
+    for (const [conversationId, value] of Object.entries(record.entries as Record<string, unknown>)) {
+      if (!isValidConversationId(conversationId)) continue;
+      const entry = parseConversationIndexEntry(conversationId, value);
+      if (entry) entries.set(conversationId, entry);
+    }
+  } catch {
+    // A missing, unreadable, or malformed cache is not an error.
+  }
+  return entries;
+}
+
+/**
+ * Cache records are ordinary local files, so a summary is rebuilt from the
+ * transcript unless every field it claims is well formed and self-consistent.
+ */
+function parseConversationIndexEntry(conversationId: string, value: unknown): ConversationIndexEntry | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as { sizeBytes?: unknown; modifiedAt?: unknown; summary?: unknown };
+  if (typeof record.sizeBytes !== "number" || !Number.isInteger(record.sizeBytes) || record.sizeBytes < 0) return null;
+  if (typeof record.modifiedAt !== "string") return null;
+  if (!record.summary || typeof record.summary !== "object" || Array.isArray(record.summary)) return null;
+  const summary = record.summary as Partial<ConversationSummary>;
+  if (summary.id !== conversationId) return null;
+  if (typeof summary.title !== "string" || typeof summary.createdAt !== "string" || typeof summary.updatedAt !== "string") return null;
+  if (summary.archivedAt !== null && typeof summary.archivedAt !== "string") return null;
+  if (summary.snoozedUntil !== null && typeof summary.snoozedUntil !== "string") return null;
+  return {
+    sizeBytes: record.sizeBytes,
+    modifiedAt: record.modifiedAt,
+    summary: {
+      id: conversationId,
+      title: summary.title,
+      createdAt: summary.createdAt,
+      updatedAt: summary.updatedAt,
+      archivedAt: summary.archivedAt,
+      snoozedUntil: summary.snoozedUntil,
+    },
+  };
+}
+
+async function writeConversationIndex(workspaceRoot: string, entries: Map<string, ConversationIndexEntry>): Promise<void> {
+  const path = conversationIndexFile(workspaceRoot);
+  const temporary = `${path}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
+  try {
+    await mkdir(workspaceStateDir(workspaceRoot), { recursive: true });
+    const payload = { version: conversationIndexVersion, entries: Object.fromEntries(entries) };
+    await writeFile(temporary, `${JSON.stringify(payload)}\n`, "utf8");
+    await rename(temporary, path);
+  } catch {
+    // Losing the cache only costs a rebuild on the next listing.
+    await unlink(temporary).catch(() => undefined);
+  }
 }
 
 function conversationPath(workspaceRoot: string, conversationId: string): string {

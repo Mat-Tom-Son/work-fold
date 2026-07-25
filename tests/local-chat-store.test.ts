@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after } from "node:test";
@@ -13,7 +13,7 @@ import {
   updateConversationLifecycle,
   type ChatMessage,
 } from "../src/local/agent/chat-store.js";
-import { configureWorkspaceStateRoot, legacyWorkspaceConversationDir } from "../src/local/state-paths.js";
+import { configureWorkspaceStateRoot, legacyWorkspaceConversationDir, workspaceStateDir } from "../src/local/state-paths.js";
 
 const chatStateRoot = await mkdtemp(join(tmpdir(), "workspace-chat-state-"));
 configureWorkspaceStateRoot(chatStateRoot);
@@ -265,4 +265,49 @@ test("chat store keeps messages when landing metadata is malformed", async (t) =
       createdAt: "2026-01-01T00:00:01Z",
     },
   ]);
+});
+
+test("chat listing reuses cached summaries and rebuilds them when a transcript changes", async (t) => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-index-"));
+  t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+  await appendMessage(workspaceRoot, "chat-indexed", message("1", "alpha"));
+
+  assert.equal((await listConversations(workspaceRoot))[0]?.title, "alpha");
+
+  // Same size, same mtime, different bytes. Only a listing that skipped the
+  // transcript can still report the original title, so this pins the cache
+  // itself rather than an incidental re-read producing the same answer.
+  const transcript = join(conversationsDir(workspaceRoot), "chat-indexed.jsonl");
+  const before = await stat(transcript);
+  await writeFile(transcript, (await readFile(transcript, "utf8")).replace("alpha", "bravo"), "utf8");
+  await utimes(transcript, before.atime, before.mtime);
+  assert.equal((await stat(transcript)).size, before.size, "rewrite must preserve size for this assertion to mean anything");
+  assert.equal((await listConversations(workspaceRoot))[0]?.title, "alpha", "an unchanged size and mtime reuses the cached summary");
+
+  // Appending moves both size and mtime, so the summary must be rebuilt.
+  await appendMessage(workspaceRoot, "chat-indexed", message("2", "charlie"));
+  assert.equal((await listConversations(workspaceRoot))[0]?.title, "bravo", "a changed transcript is parsed again");
+});
+
+test("chat listing ignores cache records that do not describe their own transcript", async (t) => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-index-invalid-"));
+  t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+  await appendMessage(workspaceRoot, "chat-guarded", message("1", "genuine"));
+  await listConversations(workspaceRoot);
+
+  const indexFile = join(workspaceStateDir(workspaceRoot), "conversation-index.json");
+  const transcript = await stat(join(conversationsDir(workspaceRoot), "chat-guarded.jsonl"));
+  await writeFile(indexFile, `${JSON.stringify({
+    version: 1,
+    entries: {
+      "chat-guarded": {
+        sizeBytes: transcript.size,
+        modifiedAt: transcript.mtime.toISOString(),
+        // Claims to summarize a different conversation than its own key.
+        summary: { id: "chat-other", title: "injected", createdAt: "x", updatedAt: "x", archivedAt: null, snoozedUntil: null },
+      },
+    },
+  })}\n`, "utf8");
+
+  assert.equal((await listConversations(workspaceRoot))[0]?.title, "genuine", "a self-inconsistent cache record is discarded");
 });
