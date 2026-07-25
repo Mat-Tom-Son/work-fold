@@ -50,6 +50,7 @@ import { FileTypeIcon } from "../tree/FileTree";
 import { TextInputModal } from "../modals/TextInputModal";
 import { requestConfirm } from "../../ui/feedback";
 import { WorkspaceRenameEditor } from "./workspaceChrome";
+import { ChatContentSearch } from "./ChatContentSearch";
 
 export function SpacesPane({
   workspace,
@@ -153,6 +154,7 @@ export function ChatsPane({
   const [view, setView] = useState<ChatLifecycleView>("active");
   const [now, setNow] = useState(() => Date.now());
   const normalized = query.trim().toLocaleLowerCase();
+  const orderedWorkspaces = [workspace, ...workspaces.filter((item) => item.id !== workspace.id)];
   const allConversations = Object.values(conversations).flat();
   const counts = {
     active: allConversations.filter((chat) => conversationLifecycleView(chat, now) === "active").length,
@@ -226,7 +228,7 @@ export function ChatsPane({
         ))}
       </div>
       <div className="chat-workspace-groups">
-        {[workspace, ...workspaces.filter((item) => item.id !== workspace.id)].map((item) => {
+        {orderedWorkspaces.map((item) => {
           const list = (conversations[item.id] ?? []).filter((chat) =>
             conversationLifecycleView(chat, now) === view
             && (!normalized || chat.title.toLocaleLowerCase().includes(normalized)));
@@ -282,13 +284,21 @@ export function ChatsPane({
                 })}
                 {!list.length ? (
                   <span className="chat-workspace-empty">
-                    {normalized ? `No ${view} Chats match` : chatViewEmptyLabel(view)}
+                    {normalized ? `No ${view} Chat titles match` : chatViewEmptyLabel(view)}
                   </span>
                 ) : null}
               </div>
             </section>
           );
         })}
+        <ChatContentSearch
+          workspaces={orderedWorkspaces}
+          conversations={conversations}
+          query={query}
+          view={view}
+          now={now}
+          onOpen={onOpen}
+        />
       </div>
     </div>
   );

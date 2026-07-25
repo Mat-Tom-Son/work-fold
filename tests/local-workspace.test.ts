@@ -30,6 +30,7 @@ import {
   writeUploadedFiles,
   writeWorkspaceTextFile,
 } from "../src/local/workspace.js";
+import { setWorkspaceIgnoreState } from "../src/local/workspace-ignore.js";
 
 let sandbox = "";
 let stateRoot = "";
@@ -544,6 +545,29 @@ test("the Space tree stops at its entry budget and reports a partial listing", a
   const whole = await scanWorkspaceTree(sandbox, 5);
   assert.equal(whole.truncated, false);
   assert.equal(countTreeEntries(whole.entries), 17, "8 top files + nested folder + 8 nested files");
+});
+
+test("the Space tree applies its budget to a stable visible ordering", async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), "workspace-tree-visible-budget-"));
+  const previous = process.env.WORKSPACE_TREE_MAX_ENTRIES;
+  process.env.WORKSPACE_TREE_MAX_ENTRIES = "2";
+  t.after(async () => {
+    if (previous === undefined) delete process.env.WORKSPACE_TREE_MAX_ENTRIES;
+    else process.env.WORKSPACE_TREE_MAX_ENTRIES = previous;
+    await rm(sandbox, { recursive: true, force: true });
+  });
+
+  await Promise.all([
+    writeFile(join(sandbox, "zulu.txt"), "z", "utf8"),
+    writeFile(join(sandbox, "alpha.txt"), "a", "utf8"),
+    writeFile(join(sandbox, "ignored-a.txt"), "i", "utf8"),
+    writeFile(join(sandbox, "ignored-b.txt"), "i", "utf8"),
+  ]);
+  await setWorkspaceIgnoreState(sandbox, ["ignored-a.txt", "ignored-b.txt"], true);
+
+  const capped = await scanWorkspaceTree(sandbox, 0, "", { includeIgnored: false });
+  assert.deepEqual(capped.entries.map((entry) => entry.name), ["alpha.txt", "zulu.txt"]);
+  assert.equal(capped.truncated, false, "ignored entries do not consume the visible entry budget");
 });
 
 function countTreeEntries(entries: Awaited<ReturnType<typeof scanWorkspaceTree>>["entries"]): number {

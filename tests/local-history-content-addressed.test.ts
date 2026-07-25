@@ -139,7 +139,7 @@ test("history migrates legacy copied snapshots and enforces manifest retention",
   assert.equal((await listObjectFiles(workspaceHistoryRoot(root))).length, 2, "unreferenced objects are collected with pruned manifests");
 });
 
-test("capture reuses recorded digests for settled files and re-reads everything else", async (t) => {
+test("capture hashes current bytes even when external tools preserve file metadata", async (t) => {
   const sandbox = await mkdtemp(join(tmpdir(), "workspace-history-incremental-"));
   const root = join(sandbox, "space");
   const state = join(sandbox, "state");
@@ -153,24 +153,23 @@ test("capture reuses recorded digests for settled files and re-reads everything 
   });
 
   const first = await createWorkspaceCheckpoint(root, { reason: "manual", label: "First" });
-  const settledDigest = digestOf(first, "settled.txt");
-  assert.ok(settledDigest);
-
-  // Same path, same size, same mtime, different bytes. Only a capture that
-  // skipped the read can still report the original digest, so this pins the
-  // reuse path itself rather than an incidental blob-store hit.
+  // Same path, same size, same mtime, different bytes. History is a recovery
+  // boundary, so filesystem metadata cannot stand in for reading the bytes.
   const settledStat = await stat(join(root, "settled.txt"));
   await writeFile(join(root, "settled.txt"), "bbbb", "utf8");
   await utimes(join(root, "settled.txt"), settledStat.atime, settledStat.mtime);
   await writeFile(join(root, "edited.txt"), "changed", "utf8");
 
   const second = await createWorkspaceCheckpoint(root, { reason: "manual", label: "Second" });
-  assert.equal(digestOf(second, "settled.txt"), settledDigest, "an unchanged path/size/mtime triple reuses its recorded digest");
+  assert.notEqual(
+    digestOf(second, "settled.txt"),
+    digestOf(first, "settled.txt"),
+    "a metadata-preserving rewrite is still captured as new content",
+  );
   assert.notEqual(digestOf(second, "edited.txt"), digestOf(first, "edited.txt"), "a changed file is re-read and re-hashed");
 
-  // A recorded mtime that is not strictly older than its own checkpoint never
-  // seeds the index, so the next capture has to hash that file again even
-  // though its path, size, and mtime all still match.
+  // Future mtimes are not special-cased either: the checkpoint always records
+  // the bytes it observed.
   const unsettled = new Date(Date.now() + 60_000);
   await writeFile(join(root, "racing.txt"), "first", "utf8");
   await utimes(join(root, "racing.txt"), unsettled, unsettled);

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, lstatSync } from "node:fs";
+import { existsSync, lstatSync, type Stats } from "node:fs";
 import { appendFile, copyFile, mkdir, open, readFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
@@ -53,12 +53,13 @@ export async function listConversations(workspaceRoot: string): Promise<Conversa
   for (const file of files) {
     const conversationId = file.replace(/\.jsonl$/, "");
     if (!isValidConversationId(conversationId)) continue;
-    // A transcript is append-only, so an unchanged size and modification time
-    // cannot describe a different summary. Only transcripts that actually moved
-    // are read and parsed again.
+    // Workspace writes are append-only, but transcripts remain ordinary files
+    // that sync tools and editors may replace. Include filesystem change
+    // identity as well as size and mtime so a metadata-preserving rewrite
+    // cannot leave the Chat list indefinitely stale.
     const info = await stat(existingConversationPath(workspaceRoot, conversationId)).catch(() => null);
     const cached = info ? cachedIndex.get(conversationId) : undefined;
-    if (info && cached && cached.sizeBytes === info.size && cached.modifiedAt === info.mtime.toISOString()) {
+    if (info && cached && conversationIndexMatches(cached, info)) {
       nextIndex.set(conversationId, cached);
       summaries.push(cached.summary);
       continue;
@@ -70,7 +71,7 @@ export async function listConversations(workspaceRoot: string): Promise<Conversa
     }
     recomputed += 1;
     const summary = conversationSummary(conversationId, messages);
-    if (info) nextIndex.set(conversationId, { sizeBytes: info.size, modifiedAt: info.mtime.toISOString(), summary });
+    if (info) nextIndex.set(conversationId, conversationIndexEntry(info, summary));
     summaries.push(summary);
   }
   // Rebuilding the map from scratch drops entries for transcripts that no
@@ -82,7 +83,13 @@ export async function listConversations(workspaceRoot: string): Promise<Conversa
 export async function createConversation(workspaceRoot: string, title = "New Chat"): Promise<ConversationSummary> {
   const now = new Date().toISOString();
   const id = `chat-${randomUUID()}`;
-  await appendMessage(workspaceRoot, id, { id: randomUUID(), role: "system", content: title, createdAt: now });
+  await appendMessage(workspaceRoot, id, {
+    id: randomUUID(),
+    role: "system",
+    kind: "conversation_title",
+    content: title,
+    createdAt: now,
+  });
   return { id, title, createdAt: now, updatedAt: now, archivedAt: null, snoozedUntil: null };
 }
 
@@ -173,10 +180,13 @@ export function conversationsDir(workspaceRoot: string): string {
 interface ConversationIndexEntry {
   sizeBytes: number;
   modifiedAt: string;
+  changedAt: string;
+  device: string;
+  inode: string;
   summary: ConversationSummary;
 }
 
-const conversationIndexVersion = 1;
+const conversationIndexVersion = 2;
 
 function conversationIndexFile(workspaceRoot: string): string {
   return join(workspaceStateDir(workspaceRoot), "conversation-index.json");
@@ -213,9 +223,17 @@ async function readConversationIndex(workspaceRoot: string): Promise<Map<string,
  */
 function parseConversationIndexEntry(conversationId: string, value: unknown): ConversationIndexEntry | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const record = value as { sizeBytes?: unknown; modifiedAt?: unknown; summary?: unknown };
+  const record = value as {
+    sizeBytes?: unknown;
+    modifiedAt?: unknown;
+    changedAt?: unknown;
+    device?: unknown;
+    inode?: unknown;
+    summary?: unknown;
+  };
   if (typeof record.sizeBytes !== "number" || !Number.isInteger(record.sizeBytes) || record.sizeBytes < 0) return null;
-  if (typeof record.modifiedAt !== "string") return null;
+  if (typeof record.modifiedAt !== "string" || typeof record.changedAt !== "string"
+    || typeof record.device !== "string" || typeof record.inode !== "string") return null;
   if (!record.summary || typeof record.summary !== "object" || Array.isArray(record.summary)) return null;
   const summary = record.summary as Partial<ConversationSummary>;
   if (summary.id !== conversationId) return null;
@@ -225,6 +243,9 @@ function parseConversationIndexEntry(conversationId: string, value: unknown): Co
   return {
     sizeBytes: record.sizeBytes,
     modifiedAt: record.modifiedAt,
+    changedAt: record.changedAt,
+    device: record.device,
+    inode: record.inode,
     summary: {
       id: conversationId,
       title: summary.title,
@@ -233,6 +254,31 @@ function parseConversationIndexEntry(conversationId: string, value: unknown): Co
       archivedAt: summary.archivedAt,
       snoozedUntil: summary.snoozedUntil,
     },
+  };
+}
+
+function conversationIndexMatches(
+  entry: ConversationIndexEntry,
+  info: Stats,
+): boolean {
+  return entry.sizeBytes === info.size
+    && entry.modifiedAt === info.mtime.toISOString()
+    && entry.changedAt === info.ctime.toISOString()
+    && entry.device === String(info.dev)
+    && entry.inode === String(info.ino);
+}
+
+function conversationIndexEntry(
+  info: Stats,
+  summary: ConversationSummary,
+): ConversationIndexEntry {
+  return {
+    sizeBytes: info.size,
+    modifiedAt: info.mtime.toISOString(),
+    changedAt: info.ctime.toISOString(),
+    device: String(info.dev),
+    inode: String(info.ino),
+    summary,
   };
 }
 

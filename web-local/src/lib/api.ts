@@ -8,7 +8,10 @@ export class ApiError extends Error {
   }
 }
 
-export async function api<T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
+export async function api<T>(
+  path: string,
+  options: { method?: string; body?: unknown; signal?: AbortSignal } = {},
+): Promise<T> {
   const method = (options.method ?? "GET").toUpperCase();
   const response = await fetchApiWithRetry(
     path,
@@ -16,6 +19,7 @@ export async function api<T>(path: string, options: { method?: string; body?: un
       method,
       headers: await apiHeaders(options.body === undefined ? undefined : { "content-type": "application/json" }),
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: options.signal,
     }),
     method === "GET" ? [...apiGetRetryDelaysMs] : [],
   );

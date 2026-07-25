@@ -9,12 +9,12 @@ import { createDomHarness } from "./support/dom.js";
  * request shaping and its stale-result handling are the parts worth pinning.
  */
 
-interface FetchCall { url: string }
+interface FetchCall { url: string; signal?: AbortSignal | null }
 
 function stubSearch(calls: FetchCall[], respond: (url: string) => unknown): void {
-  (globalThis as unknown as { fetch: unknown }).fetch = async (input: unknown) => {
+  (globalThis as unknown as { fetch: unknown }).fetch = async (input: unknown, init?: RequestInit) => {
     const url = String(input);
-    calls.push({ url });
+    calls.push({ url, signal: init?.signal });
     return new Response(JSON.stringify(respond(url)), { status: 200, headers: { "content-type": "application/json" } });
   };
 }
@@ -39,12 +39,12 @@ test("content search stays silent until there is a query, then reports matches",
   assert.equal(calls.length, 0);
 
   await mountSearch(dom, { workspaceId: "space-1", query: "quarterly" });
-  await waitFor(() => calls.length > 0);
+  await dom.waitFor(() => calls.length > 0);
   assert.match(calls[0]?.url ?? "", /scope=files/, "the tree already covers filenames, so this asks only for contents");
   assert.match(calls[0]?.url ?? "", /q=quarterly/);
   assert.match(calls[0]?.url ?? "", /\/api\/workspaces\/space-1\/search/);
 
-  await waitFor(() => Boolean(dom.container.querySelector(".file-content-search-preview")));
+  await dom.waitFor(() => Boolean(dom.container.querySelector(".file-content-search-preview")));
   assert.match(dom.container.textContent ?? "", /notes\/plan\.md/);
   assert.match(dom.container.textContent ?? "", /the quarterly budget/);
 });
@@ -56,7 +56,7 @@ test("content search opens the file a match belongs to", async (t) => {
 
   const opened: string[] = [];
   await mountSearch(dom, { workspaceId: "space-1", query: "match", onOpenFile: (path) => opened.push(path) });
-  await waitFor(() => Boolean(dom.container.querySelector(".file-content-search li button")));
+  await dom.waitFor(() => Boolean(dom.container.querySelector(".file-content-search li button")));
 
   dom.container.querySelector<HTMLButtonElement>(".file-content-search li button")?.click();
   assert.deepEqual(opened, ["notes/plan.md"]);
@@ -68,19 +68,45 @@ test("content search discloses a truncated result and surfaces failures", async 
 
   stubSearch([], () => ({ files: [{ path: "a.txt", line: 1, preview: "x" }], truncated: true }));
   await mountSearch(dom, { workspaceId: "space-1", query: "x" });
-  await waitFor(() => Boolean(dom.container.querySelector(".file-content-search-note")));
+  await dom.waitFor(() => Boolean(dom.container.querySelector(".file-content-search-note")));
   assert.match(dom.container.textContent ?? "", /Showing the first/, "a bounded search says so rather than implying completeness");
 
   (globalThis as unknown as { fetch: unknown }).fetch = async () => new Response("{}", { status: 500 });
   await mountSearch(dom, { workspaceId: "space-2", query: "boom" });
-  await waitFor(() => (dom.container.textContent ?? "").includes("search this Space"));
+  await dom.waitFor(() => (dom.container.textContent ?? "").includes("search this Space"));
   assert.match(dom.container.textContent ?? "", /Couldn\u2019t search this Space/);
 });
 
-async function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!predicate()) {
-    if (Date.now() >= deadline) throw new Error("Timed out waiting for the search section to settle.");
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
+test("content search clears stale matches and aborts superseded disk work", async (t) => {
+  const dom = await createDomHarness();
+  t.after(() => dom.cleanup());
+  const calls: FetchCall[] = [];
+  const responses: Array<(response: Response) => void> = [];
+  (globalThis as unknown as { fetch: unknown }).fetch = (input: unknown, init?: RequestInit) => {
+    calls.push({ url: String(input), signal: init?.signal });
+    return new Promise<Response>((resolve) => responses.push(resolve));
+  };
+
+  await mountSearch(dom, { workspaceId: "space-1", query: "first" });
+  await dom.waitFor(() => calls.length === 1);
+  await dom.act(() => {
+    responses[0]?.(new Response(JSON.stringify({
+      files: [{ path: "old.txt", line: 1, preview: "stale first result" }],
+      truncated: false,
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+  });
+  await dom.waitFor(() => (dom.container.textContent ?? "").includes("stale first result"));
+
+  await mountSearch(dom, { workspaceId: "space-1", query: "second" });
+  assert.doesNotMatch(dom.container.textContent ?? "", /stale first result/, "the prior query disappears immediately");
+  assert.equal(calls[0]?.signal?.aborted, true, "the superseded request is cancelled");
+
+  await dom.waitFor(() => calls.length === 2);
+  await dom.act(() => {
+    responses[1]?.(new Response(JSON.stringify({
+      files: [{ path: "new.txt", line: 2, preview: "fresh second result" }],
+      truncated: false,
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+  });
+  await dom.waitFor(() => (dom.container.textContent ?? "").includes("fresh second result"));
+});

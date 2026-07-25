@@ -73,7 +73,6 @@ export interface StoredBlobRef {
 
 const checkpointIdPattern = /^cp-[A-Za-z0-9-]{10,80}$/;
 const versionScopeSkippedSegments = new Set([".git", ".pi", ".workspace", "node_modules"]);
-const maxCaptureReuseManifests = 20;
 const legacyMetadataName = "checkpoint.json";
 const legacySnapshotDirName = "files";
 
@@ -184,82 +183,76 @@ export async function restoreWorkspaceCheckpoint(workspaceRoot: string, checkpoi
   const checkpoint = await getWorkspaceCheckpoint(root, checkpointId);
   if (!checkpoint) throw notFound("Restore point not found.");
   validateCheckpointPaths(root, checkpoint);
+  const staged = await stageCheckpointContent(root, checkpoint);
+  try {
+    await preflightRestore(root, checkpoint);
 
-  // Verifying every object up front preserves the promise that a restore point
-  // with missing content changes nothing. The bytes are deliberately not
-  // retained: a full checkpoint can describe far more content than fits in
-  // memory, so each object is read again when it is actually written.
-  const missing: string[] = [];
-  for (const file of checkpoint.files) {
-    if (!await readWorkspaceBlob(root, file.hashSha256)) missing.push(file.path);
-  }
-  if (missing.length) throw new Error(`Restore point is missing saved content for ${missing.sort().join(", ")}. No files were changed.`);
-  await preflightRestore(root, checkpoint);
+    const safety = checkpoint.scope === "full"
+      ? await createWorkspaceCheckpoint(root, { reason: "pre_restore", label: `Before restoring ${checkpointId}` })
+      : await createTargetedRestoreSafety(root, checkpoint);
 
-  const safety = checkpoint.scope === "full"
-    ? await createWorkspaceCheckpoint(root, { reason: "pre_restore", label: `Before restoring ${checkpointId}` })
-    : await createTargetedRestoreSafety(root, checkpoint);
-
-  const movedEntries: CheckpointMove[] = [];
-  for (const move of checkpoint.movesOnRestore) {
-    const from = canonicalPath(root, move.fromPath, false).absolutePath;
-    const to = canonicalPath(root, move.toPath, true).absolutePath;
-    await mkdir(dirname(to), { recursive: true });
-    await rename(from, to);
-    movedEntries.push(move);
-  }
-
-  const deletedFiles: string[] = [];
-  for (const path of collapsePaths(checkpoint.deleteOnRestore)) {
-    const target = canonicalPath(root, path, true).absolutePath;
-    if (!existsSync(target)) continue;
-    await rm(target, { recursive: true, force: true });
-    deletedFiles.push(path);
-  }
-
-  for (const directory of checkpoint.directories) {
-    await mkdir(canonicalPath(root, directory, true).absolutePath, { recursive: true });
-  }
-
-  const current = checkpoint.scope === "full"
-    ? new Map(safety.files.map((file) => [file.path, file]))
-    : new Map<string, CheckpointFileEntry>();
-  const restoredFiles: string[] = [];
-  let unchangedFiles = 0;
-  for (const file of checkpoint.files) {
-    if (current.get(file.path)?.hashSha256 === file.hashSha256) {
-      unchangedFiles += 1;
-      continue;
+    const movedEntries: CheckpointMove[] = [];
+    for (const move of checkpoint.movesOnRestore) {
+      const from = canonicalPath(root, move.fromPath, false).absolutePath;
+      const to = canonicalPath(root, move.toPath, true).absolutePath;
+      await mkdir(dirname(to), { recursive: true });
+      await rename(from, to);
+      movedEntries.push(move);
     }
-    const bytes = await readWorkspaceBlob(root, file.hashSha256);
-    if (!bytes) throw new Error(`Restore point content for ${file.path} became unavailable during the restore.`);
-    const target = canonicalPath(root, file.path, true).absolutePath;
-    await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, bytes);
-    restoredFiles.push(file.path);
-  }
 
-  if (checkpoint.scope === "full") {
-    const selectedPaths = new Set(checkpoint.files.map((file) => file.path));
-    const selectedSkipped = new Set(checkpoint.skippedFiles.map((file) => file.path));
-    for (const file of safety.files) {
-      if (selectedPaths.has(file.path) || selectedSkipped.has(file.path)) continue;
-      const target = canonicalPath(root, file.path, false).absolutePath;
-      await rm(target, { force: true });
-      deletedFiles.push(file.path);
+    const deletedFiles: string[] = [];
+    for (const path of collapsePaths(checkpoint.deleteOnRestore)) {
+      const target = canonicalPath(root, path, true).absolutePath;
+      if (!existsSync(target)) continue;
+      await rm(target, { recursive: true, force: true });
+      deletedFiles.push(path);
     }
-  }
 
-  return {
-    restored: true,
-    checkpointId,
-    safetyCheckpointId: safety.checkpointId,
-    restoredFiles: restoredFiles.sort(),
-    deletedFiles: [...new Set(deletedFiles)].sort(),
-    movedEntries,
-    unchangedFiles,
-    skippedLargeFiles: checkpoint.skippedLargeFiles,
-  };
+    for (const directory of checkpoint.directories) {
+      await mkdir(canonicalPath(root, directory, true).absolutePath, { recursive: true });
+    }
+
+    const current = checkpoint.scope === "full"
+      ? new Map(safety.files.map((file) => [file.path, file]))
+      : new Map<string, CheckpointFileEntry>();
+    const restoredFiles: string[] = [];
+    let unchangedFiles = 0;
+    for (const file of checkpoint.files) {
+      if (current.get(file.path)?.hashSha256 === file.hashSha256) {
+        unchangedFiles += 1;
+        continue;
+      }
+      const bytes = await readFile(staged.pathsByHash.get(file.hashSha256)!);
+      const target = canonicalPath(root, file.path, true).absolutePath;
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, bytes);
+      restoredFiles.push(file.path);
+    }
+
+    if (checkpoint.scope === "full") {
+      const selectedPaths = new Set(checkpoint.files.map((file) => file.path));
+      const selectedSkipped = new Set(checkpoint.skippedFiles.map((file) => file.path));
+      for (const file of safety.files) {
+        if (selectedPaths.has(file.path) || selectedSkipped.has(file.path)) continue;
+        const target = canonicalPath(root, file.path, false).absolutePath;
+        await rm(target, { force: true });
+        deletedFiles.push(file.path);
+      }
+    }
+
+    return {
+      restored: true,
+      checkpointId,
+      safetyCheckpointId: safety.checkpointId,
+      restoredFiles: restoredFiles.sort(),
+      deletedFiles: [...new Set(deletedFiles)].sort(),
+      movedEntries,
+      unchangedFiles,
+      skippedLargeFiles: checkpoint.skippedLargeFiles,
+    };
+  } finally {
+    await rm(staged.root, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 export async function listFileVersions(
@@ -328,11 +321,6 @@ async function capturePaths(root: string, requestedPaths: string[], full: boolea
   const directories = new Set<string>();
   const files = new Map<string, CheckpointFileEntry>();
   const skipped = new Map<string, CheckpointSkippedFile>();
-  // Only a whole-Space capture amortizes the index across enough files to be
-  // worth reading manifests for. A targeted capture already touches a handful
-  // of paths, and building an index for it would make every ordinary file
-  // mutation parse a manifest describing the entire Space.
-  const reusableDigests = full ? await buildCaptureReuseIndex(root) : new Map<string, string>();
   const visit = async (absolutePath: string): Promise<void> => {
     const info = await lstat(absolutePath).catch(() => null);
     if (!info) return;
@@ -359,16 +347,10 @@ async function capturePaths(root: string, requestedPaths: string[], full: boolea
       skipped.set(path, { path, sizeBytes: info.size, reason: "too_large" });
       return;
     }
-    // A settled path/size/mtime triple that an earlier checkpoint already
-    // hashed cannot describe different bytes, so its digest is reused instead
-    // of reading the file again. A miss always falls back to a full read, so
-    // the manifest stays byte-identical either way.
     const modifiedAt = info.mtime.toISOString();
-    const reusedDigest = reusableDigests.get(captureReuseKey(path, info.size, modifiedAt));
-    if (reusedDigest && await hasWorkspaceBlob(root, reusedDigest)) {
-      files.set(path, { path, hashSha256: reusedDigest, sizeBytes: info.size, modifiedAt });
-      return;
-    }
+    // History is a recovery boundary, so metadata is never treated as proof of
+    // content identity. External tools can preserve both size and mtime while
+    // replacing bytes; every capture hashes what is actually on disk.
     const bytes = await readFile(absolutePath).catch(() => null);
     if (!bytes) {
       skipped.set(path, { path, sizeBytes: info.size, reason: "unreadable" });
@@ -581,42 +563,34 @@ async function garbageCollectObjects(root: string, retained: WorkspaceCheckpoint
   }
 }
 
-function captureReuseKey(path: string, sizeBytes: number, modifiedAt: string): string {
-  return `${path}\u0000${sizeBytes}\u0000${modifiedAt}`;
-}
-
-/**
- * Digests recorded by recent checkpoints, keyed by the exact path, size, and
- * modification time they described. Capture uses this to skip re-reading and
- * re-hashing files a previous checkpoint already covered, which is what keeps
- * a per-turn checkpoint proportional to what changed rather than to the size
- * of the whole Space.
- *
- * Scanning stops at the newest full-scope manifest because everything older is
- * already represented there. An entry seeds the index only when its file had
- * settled strictly before that checkpoint was taken, so a write sharing a
- * timestamp tick with its own capture can never be trusted as a cache source.
- */
-async function buildCaptureReuseIndex(root: string): Promise<Map<string, string>> {
-  const names = (await readdir(checkpointsDir(root)).catch(() => [] as string[]))
-    .filter((name) => name.endsWith(".json"))
-    .sort((left, right) => right.localeCompare(left));
-  const index = new Map<string, string>();
-  let scanned = 0;
-  for (const name of names) {
-    if (scanned >= maxCaptureReuseManifests) break;
-    const checkpoint = await readCheckpointManifest(join(checkpointsDir(root), name));
-    if (!checkpoint) continue;
-    scanned += 1;
-    const capturedAt = Date.parse(checkpoint.createdAt);
+async function stageCheckpointContent(
+  root: string,
+  checkpoint: WorkspaceCheckpoint,
+): Promise<{ root: string; pathsByHash: Map<string, string> }> {
+  const stagingRoot = join(workspaceHistoryRoot(root), "restore-staging", randomUUID());
+  const pathsByHash = new Map<string, string>();
+  const missing: string[] = [];
+  await mkdir(stagingRoot, { recursive: true });
+  try {
     for (const file of checkpoint.files) {
-      if (!(Date.parse(file.modifiedAt) < capturedAt)) continue;
-      const key = captureReuseKey(file.path, file.sizeBytes, file.modifiedAt);
-      if (!index.has(key)) index.set(key, file.hashSha256);
+      if (pathsByHash.has(file.hashSha256)) continue;
+      const bytes = await readWorkspaceBlob(root, file.hashSha256);
+      if (!bytes) {
+        missing.push(file.path);
+        continue;
+      }
+      const path = join(stagingRoot, normalizeHash(file.hashSha256));
+      await writeFile(path, bytes);
+      pathsByHash.set(file.hashSha256, path);
     }
-    if (checkpoint.scope === "full") break;
+    if (missing.length) {
+      throw new Error(`Restore point is missing saved content for ${missing.sort().join(", ")}. No files were changed.`);
+    }
+    return { root: stagingRoot, pathsByHash };
+  } catch (error) {
+    await rm(stagingRoot, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
   }
-  return index;
 }
 
 async function readCheckpointManifests(root: string): Promise<WorkspaceCheckpoint[]> {

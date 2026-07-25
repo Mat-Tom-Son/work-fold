@@ -518,6 +518,21 @@ test("network broker fails over to the next approved address and stops on cancel
   );
   assert.deepEqual(afterCancel, [ipv6.address], "cancellation stops the walk instead of consuming candidates");
 
+  const mutatingAttempts: string[] = [];
+  await assert.rejects(
+    () => firstReachableAddress(
+      [ipv6, ipv4],
+      () => false,
+      async (selected) => {
+        mutatingAttempts.push(selected.address);
+        throw new Error("socket reset after request dispatch");
+      },
+      { retryAfterFailure: false },
+    ),
+    /socket reset/,
+  );
+  assert.deepEqual(mutatingAttempts, [ipv6.address], "a mutation is never replayed against a second address");
+
   await assert.rejects(
     () => firstReachableAddress([], () => false, async () => "unreachable"),
     (error: unknown) => error instanceof RestrictedAppError && error.code === "NETWORK_DENIED",
@@ -559,7 +574,10 @@ test("network broker sends reviewed per-destination headers and still denies und
 });
 
 test("reviewed request headers cannot carry routing, hop-by-hop, or credential names", async () => {
-  for (const header of ["authorization", "host", "cookie", "content-length", "transfer-encoding", "x-forwarded-for"]) {
+  for (const header of [
+    "authorization", "host", "cookie", "content-length", "transfer-encoding",
+    "forwarded", "x-forwarded-for", "x-forwarded-port", "proxy-connection",
+  ]) {
     assert.throws(() => manifest({ requestHeaders: [header] }), /request header is not allowed/, header);
   }
   assert.throws(() => manifest({ requestHeaders: ["X Api Version"] }), /request header is not allowed/);

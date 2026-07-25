@@ -244,10 +244,12 @@ and description are reviewed, bounded, plain single-line text.
 Network methods are limited to `GET`, `POST`, `PUT`, `PATCH`, and `DELETE`.
 Public targets are exact HTTPS origins. Loopback targets are numeric
 `127.0.0.1` or `::1` addresses and cannot receive credentials or follow
-redirects. A public destination resolving to several addresses is tried in
-resolver order until one connects, so a dual-stack service stays reachable from
-a single-stack network; every candidate has already passed the same
-public-address check.
+redirects. A public destination resolving to several addresses may try `GET`
+requests in resolver order, so a dual-stack service stays reachable from a
+single-stack network; every candidate has already passed the same
+public-address check. Mutating requests use one approved address only because
+retrying after an ambiguous connection failure could apply the same operation
+twice.
 
 A request may always set `accept`, `content-type`, `if-modified-since`, and
 `if-none-match`. Anything else must be named in that destination's optional
@@ -339,11 +341,12 @@ const value = JSON.parse(response.body);
 Requests name a reviewed destination, allowed method, and origin-relative
 path. `GET` and `DELETE` cannot include a body. Request bodies default to a
 128 KiB limit; responses default to 256 KiB and a 15-second deadline. App-set
-headers are limited to `accept`, `content-type`, `if-modified-since`, and
-`if-none-match`. The response contains `status`, a small safe header map,
-`body`, and `encoding` (`utf8` for recognized text types, otherwise `base64`).
-The host injects credentials after validation; app code never sets or reads an
-authorization secret.
+headers may use `accept`, `content-type`, `if-modified-since`, and
+`if-none-match`. A destination may also accept the exact additional names in
+its reviewed `requestHeaders` declaration. The response contains `status`, a
+small safe header map, `body`, and `encoding` (`utf8` for recognized text
+types, otherwise `base64`). The host injects credentials after validation; app
+code never sets or reads an authorization secret.
 
 ### App storage and invalidation hints
 

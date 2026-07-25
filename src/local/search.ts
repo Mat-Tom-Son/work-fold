@@ -35,6 +35,7 @@ export interface WorkspaceSearchOptions {
   maxMatches?: number;
   maxScannedFiles?: number;
   maxFileBytes?: number;
+  signal?: AbortSignal;
 }
 
 const defaultMaxMatches = 200;
@@ -64,6 +65,7 @@ export async function searchWorkspace(
   if (query.length > maxQueryLength) throw Object.assign(new Error("Search text is too long."), { statusCode: 400 });
 
   const root = ensureSafeWorkspaceRoot(workspaceRoot);
+  throwIfSearchAborted(options.signal);
   const needle = query.toLocaleLowerCase();
   const maxMatches = boundedCount(options.maxMatches, defaultMaxMatches, 1_000);
   const maxScannedFiles = boundedCount(options.maxScannedFiles, defaultMaxScannedFiles, 50_000);
@@ -72,10 +74,11 @@ export async function searchWorkspace(
   const state = { files: [] as WorkspaceFileMatch[], scannedFiles: 0, truncated: false };
   if (options.includeFiles !== false) {
     const ignorePatterns = (await readWorkspaceIgnoreState(root)).patterns;
-    await searchFiles(root, root, needle, ignorePatterns, { maxMatches, maxScannedFiles, maxFileBytes }, state);
+    await searchFiles(root, root, needle, ignorePatterns, { maxMatches, maxScannedFiles, maxFileBytes }, state, options.signal);
   }
 
-  const chats = options.includeChats === false ? [] : await searchChats(root, needle, maxMatches, state);
+  const chats = options.includeChats === false ? [] : await searchChats(root, needle, maxMatches, state, options.signal);
+  throwIfSearchAborted(options.signal);
   return { query, files: state.files, chats, truncated: state.truncated, scannedFiles: state.scannedFiles };
 }
 
@@ -102,15 +105,19 @@ async function searchFiles(
   ignorePatterns: string[],
   bounds: SearchBounds,
   state: SearchState,
+  signal?: AbortSignal,
   depth = 0,
 ): Promise<void> {
+  throwIfSearchAborted(signal);
   if (searchExhausted(bounds, state)) return;
   if (depth > maxSearchDepth) {
     state.truncated = true;
     return;
   }
-  const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
+  const entries = (await readdir(directory, { withFileTypes: true }).catch(() => []))
+    .sort((left, right) => left.name.localeCompare(right.name));
   for (const entry of entries) {
+    throwIfSearchAborted(signal);
     // Checked per entry, not just per directory: a bound reached deep in one
     // subtree must stop the whole walk rather than let every sibling folder
     // rediscover it.
@@ -125,7 +132,7 @@ async function searchFiles(
     // the Files surface, so an excluded dependency tree stays excluded here.
     if (isWorkspaceIgnored(relativePath, ignorePatterns)) continue;
     if (entry.isDirectory()) {
-      await searchFiles(root, path, needle, ignorePatterns, bounds, state, depth + 1);
+      await searchFiles(root, path, needle, ignorePatterns, bounds, state, signal, depth + 1);
       continue;
     }
     if (!entry.isFile()) continue;
@@ -158,22 +165,27 @@ async function searchChats(
   needle: string,
   maxMatches: number,
   state: SearchState,
+  signal?: AbortSignal,
 ): Promise<WorkspaceChatMatch[]> {
   const matches: WorkspaceChatMatch[] = [];
   // Chat search has to read transcripts, which is exactly the work the Chat
   // list was changed to avoid. Newest Chats are searched first and the rest
   // are disclosed as unsearched rather than read without limit.
   const conversations = await listConversations(root).catch(() => []);
+  throwIfSearchAborted(signal);
   if (conversations.length > maxSearchedConversations) state.truncated = true;
   for (const conversation of conversations.slice(0, maxSearchedConversations)) {
+    throwIfSearchAborted(signal);
     if (matches.length >= maxMatches) {
       state.truncated = true;
       break;
     }
     for (const message of await readConversation(root, conversation.id).catch(() => [])) {
+      throwIfSearchAborted(signal);
       // Lifecycle and title bookkeeping are not conversation content.
-      if (message.kind === "conversation_lifecycle") continue;
-      const at = message.content.toLocaleLowerCase().indexOf(needle);
+      if (message.kind === "conversation_lifecycle" || message.kind === "conversation_title") continue;
+      const normalizedContent = message.content.replace(/\s+/g, " ");
+      const at = normalizedContent.toLocaleLowerCase().indexOf(needle);
       if (at < 0) continue;
       if (matches.length >= maxMatches) {
         state.truncated = true;
@@ -184,7 +196,7 @@ async function searchChats(
         title: conversation.title,
         role: message.role,
         createdAt: message.createdAt,
-        preview: preview(message.content.replace(/\s+/g, " "), at, needle.length),
+        preview: preview(normalizedContent, at, needle.length),
       });
     }
   }
@@ -209,6 +221,11 @@ function looksBinary(bytes: Buffer): boolean {
 function boundedCount(value: number | undefined, fallback: number, maximum: number): number {
   if (value === undefined || !Number.isFinite(value)) return fallback;
   return Math.min(Math.max(Math.floor(value), 1), maximum);
+}
+
+function throwIfSearchAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw Object.assign(new Error("Search cancelled."), { name: "AbortError" });
 }
 
 function toPosix(path: string): string {

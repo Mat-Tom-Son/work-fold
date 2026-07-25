@@ -498,6 +498,7 @@ export async function firstReachableAddress<T>(
   addresses: Array<{ address: string; family: 4 | 6 }>,
   isCancelled: () => boolean,
   attempt: (selected: { address: string; family: 4 | 6 }) => Promise<T>,
+  options: { retryAfterFailure?: boolean } = {},
 ): Promise<T> {
   if (!addresses.length) throw new RestrictedAppError("NETWORK_DENIED", "The network destination has no approved public address.");
   let lastError: unknown;
@@ -508,6 +509,10 @@ export async function firstReachableAddress<T>(
       // A cancelled or timed-out request is the caller's decision, not an
       // unreachable address, so it must not consume the remaining candidates.
       if (isCancelled()) throw error;
+      // Once a mutating request has been dispatched, a reset before response
+      // headers does not reveal whether the destination applied it. Retrying
+      // against another address could duplicate the side effect.
+      if (options.retryAfterFailure === false) throw error;
       lastError = error;
     }
   }
@@ -523,6 +528,7 @@ function pinnedHttpsFetch(
     addresses,
     () => init.signal?.aborted === true,
     (selected) => httpsRequestToAddress(url, init, selected),
+    { retryAfterFailure: (init.method ?? "GET").toUpperCase() === "GET" },
   );
 }
 

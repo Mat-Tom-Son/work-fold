@@ -16,7 +16,9 @@ export interface DomHarness {
   container: HTMLElement;
   render: (node: ReactNode) => Promise<void>;
   press: (key: string, options?: KeyboardEventInit) => Promise<void>;
+  act: (task: () => void | Promise<void>) => Promise<void>;
   settle: () => Promise<void>;
+  waitFor: (predicate: () => boolean, timeoutMs?: number) => Promise<void>;
   cleanup: () => Promise<void>;
 }
 
@@ -66,7 +68,17 @@ export async function createDomHarness(): Promise<DomHarness> {
         target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...options }));
       });
     },
+    act: async (task) => { await act(task); },
     settle,
+    waitFor: async (predicate, timeoutMs = 3_000) => {
+      const deadline = Date.now() + timeoutMs;
+      while (!predicate()) {
+        if (Date.now() >= deadline) throw new Error("Timed out waiting for renderer state to settle.");
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        });
+      }
+    },
     // Tests register cleanup with t.after and may also tear down mid-test to
     // start a second harness, so this has to be safe to call twice.
     cleanup: async () => {

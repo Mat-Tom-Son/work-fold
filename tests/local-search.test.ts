@@ -35,6 +35,12 @@ test("search finds file contents and Chat messages with locating detail", async 
     content: "can you check the quarterly budget spreadsheet",
     createdAt: "2026-07-01T00:00:00.000Z",
   });
+  await appendMessage(root, "chat-1", {
+    id: "m2",
+    role: "assistant",
+    content: `${"context\n".repeat(40)}the quarterly budget is ready`,
+    createdAt: "2026-07-01T00:01:00.000Z",
+  });
 
   const result = await searchWorkspace(root, "quarterly budget");
   assert.deepEqual(result.files, [{
@@ -43,10 +49,11 @@ test("search finds file contents and Chat messages with locating detail", async 
     preview: "the Quarterly budget is due",
   }], "a file match carries the path and line needed to open it");
   assert.equal(result.files.length, 1, "unrelated files do not match");
-  assert.equal(result.chats.length, 1);
+  assert.equal(result.chats.length, 2);
   assert.equal(result.chats[0]?.conversationId, "chat-1");
   assert.equal(result.chats[0]?.role, "user");
   assert.match(result.chats[0]?.preview ?? "", /quarterly budget spreadsheet/);
+  assert.match(result.chats[1]?.preview ?? "", /quarterly budget is ready/, "preview indices are computed after whitespace normalization");
   assert.equal(result.truncated, false);
 });
 
@@ -87,4 +94,16 @@ test("search rejects an empty or oversized query", async (t) => {
   t.after(dispose);
   await assert.rejects(() => searchWorkspace(root, "   "), /Enter something to search for/);
   await assert.rejects(() => searchWorkspace(root, "x".repeat(201)), /Search text is too long/);
+});
+
+test("search stops immediately when its caller is cancelled", async (t) => {
+  const { root, dispose } = await space("cancelled");
+  t.after(dispose);
+  await writeFile(join(root, "note.txt"), "needle", "utf8");
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    () => searchWorkspace(root, "needle", { signal: controller.signal }),
+    (error: unknown) => error instanceof Error && error.name === "AbortError",
+  );
 });

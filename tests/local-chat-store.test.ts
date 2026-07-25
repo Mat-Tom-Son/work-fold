@@ -274,19 +274,18 @@ test("chat listing reuses cached summaries and rebuilds them when a transcript c
 
   assert.equal((await listConversations(workspaceRoot))[0]?.title, "alpha");
 
-  // Same size, same mtime, different bytes. Only a listing that skipped the
-  // transcript can still report the original title, so this pins the cache
-  // itself rather than an incidental re-read producing the same answer.
+  // Same size, same mtime, different bytes. The filesystem change identity
+  // still moves, so an external rewrite must invalidate the derived cache.
   const transcript = join(conversationsDir(workspaceRoot), "chat-indexed.jsonl");
   const before = await stat(transcript);
   await writeFile(transcript, (await readFile(transcript, "utf8")).replace("alpha", "bravo"), "utf8");
   await utimes(transcript, before.atime, before.mtime);
   assert.equal((await stat(transcript)).size, before.size, "rewrite must preserve size for this assertion to mean anything");
-  assert.equal((await listConversations(workspaceRoot))[0]?.title, "alpha", "an unchanged size and mtime reuses the cached summary");
+  assert.equal((await listConversations(workspaceRoot))[0]?.title, "bravo", "a metadata-preserving rewrite invalidates the cached summary");
 
   // Appending moves both size and mtime, so the summary must be rebuilt.
   await appendMessage(workspaceRoot, "chat-indexed", message("2", "charlie"));
-  assert.equal((await listConversations(workspaceRoot))[0]?.title, "bravo", "a changed transcript is parsed again");
+  assert.equal((await listConversations(workspaceRoot))[0]?.title, "bravo", "a later append keeps the updated title");
 });
 
 test("chat listing ignores cache records that do not describe their own transcript", async (t) => {
@@ -298,11 +297,14 @@ test("chat listing ignores cache records that do not describe their own transcri
   const indexFile = join(workspaceStateDir(workspaceRoot), "conversation-index.json");
   const transcript = await stat(join(conversationsDir(workspaceRoot), "chat-guarded.jsonl"));
   await writeFile(indexFile, `${JSON.stringify({
-    version: 1,
+    version: 2,
     entries: {
       "chat-guarded": {
         sizeBytes: transcript.size,
         modifiedAt: transcript.mtime.toISOString(),
+        changedAt: transcript.ctime.toISOString(),
+        device: String(transcript.dev),
+        inode: String(transcript.ino),
         // Claims to summarize a different conversation than its own key.
         summary: { id: "chat-other", title: "injected", createdAt: "x", updatedAt: "x", archivedAt: null, snoozedUntil: null },
       },

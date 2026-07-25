@@ -37,15 +37,18 @@ export function FileContentSearch({ workspaceId, query, onOpenFile }: {
       setState({ status: "idle", result: null });
       return;
     }
-    let cancelled = false;
-    setState((current) => ({ status: "searching", result: current.result }));
+    const controller = new AbortController();
+    setState({ status: "searching", result: null });
     const timer = window.setTimeout(() => {
-      void api<SearchResponse>(`/api/workspaces/${workspaceId}/search?scope=files&q=${encodeURIComponent(trimmed)}`)
-        .then((result) => { if (!cancelled) setState({ status: "ready", result }); })
-        .catch(() => { if (!cancelled) setState({ status: "error", result: null }); });
+      void api<SearchResponse>(
+        `/api/workspaces/${workspaceId}/search?scope=files&q=${encodeURIComponent(trimmed)}`,
+        { signal: controller.signal },
+      )
+        .then((result) => { if (!controller.signal.aborted) setState({ status: "ready", result }); })
+        .catch(() => { if (!controller.signal.aborted) setState({ status: "error", result: null }); });
     }, searchDebounceMs);
     return () => {
-      cancelled = true;
+      controller.abort();
       window.clearTimeout(timer);
     };
   }, [query, workspaceId]);
@@ -59,7 +62,7 @@ export function FileContentSearch({ workspaceId, query, onOpenFile }: {
       <h3>
         In file contents
         <span aria-live="polite">
-          {state.status === "searching" && !state.result ? "Searching"
+          {state.status === "searching" ? "Searching"
             : state.status === "error" ? "Unavailable"
               : `${matches.length}${state.result?.truncated ? "+" : ""}`}
         </span>

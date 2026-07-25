@@ -14,9 +14,9 @@ const allowedAuthKinds = new Set<RestrictedAppAuthKind>([
   "basic",
   "oauth2-pkce",
 ]);
-const forbiddenAuthHeaders = new Set([
+const forbiddenRequestHeaders = new Set([
   "authorization", "connection", "content-length", "cookie", "host", "proxy-authorization",
-  "set-cookie", "te", "trailer", "transfer-encoding", "upgrade", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto",
+  "set-cookie", "te", "trailer", "transfer-encoding", "upgrade", "forwarded", "via", "x-real-ip",
 ]);
 
 export type RestrictedAppAuthKind =
@@ -358,7 +358,7 @@ function parseNetworkDestination(value: unknown, index: number): RestrictedAppNe
     }
     if (declaration.kind === "api-key") {
       const header = stringValue(declaration.header, `${label} API-key header`, 80).toLowerCase();
-      if (!/^[a-z][a-z0-9-]*$/.test(header) || forbiddenAuthHeaders.has(header)) throw new Error(`${label} API-key header is not allowed.`);
+      if (!/^[a-z][a-z0-9-]*$/.test(header) || isForbiddenRequestHeader(header)) throw new Error(`${label} API-key header is not allowed.`);
       return { kind: "api-key" as const, header };
     }
     if (declaration.kind === "oauth2-pkce") {
@@ -399,7 +399,7 @@ function parseNetworkDestination(value: unknown, index: number): RestrictedAppNe
     ? []
     : arrayValue(destination.requestHeaders, `${label} request headers`, 1, 16).map((item) => {
       const header = stringValue(item, `${label} request header`, 80).toLowerCase();
-      if (!/^[a-z][a-z0-9-]*$/.test(header) || forbiddenAuthHeaders.has(header)) {
+      if (!/^[a-z][a-z0-9-]*$/.test(header) || isForbiddenRequestHeader(header)) {
         throw new Error(`${label} request header is not allowed.`);
       }
       return header;
@@ -418,6 +418,12 @@ function parseNetworkDestination(value: unknown, index: number): RestrictedAppNe
     auth,
     ...(requestHeaders.length ? { requestHeaders } : {}),
   };
+}
+
+function isForbiddenRequestHeader(header: string): boolean {
+  return forbiddenRequestHeaders.has(header)
+    || header.startsWith("x-forwarded-")
+    || header.startsWith("proxy-");
 }
 
 function parseJsonSchema(value: unknown, label: string, depth: number): RestrictedAppJsonSchema {

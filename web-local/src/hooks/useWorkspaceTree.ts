@@ -115,10 +115,11 @@ export function useWorkspaceTree(workspace: WorkspaceSummary, onError: (message:
     try {
       const root = await api<{ tree: TreeEntry[]; truncated?: boolean }>(treeApiPath(workspaceId, "", 0));
       if (request !== requestRef.current || activeWorkspaceIdRef.current !== workspaceId) return;
-      const next = existing.length
+      const refreshed = existing.length
         ? await refreshLoadedChildren(workspaceId, root.tree, existing, collapsedPathsRef.current, options.eventPaths)
-        : root.tree;
-      setTreeTruncated(Boolean(root.truncated));
+        : { tree: root.tree, truncated: false };
+      const next = refreshed.tree;
+      setTreeTruncated(Boolean(root.truncated) || refreshed.truncated);
       if (request !== requestRef.current || activeWorkspaceIdRef.current !== workspaceId) return;
       treeCacheRef.current.set(workspaceId, next);
       setTreeState(next);
@@ -137,6 +138,7 @@ export function useWorkspaceTree(workspace: WorkspaceSummary, onError: (message:
       const result = await api<{ tree: TreeEntry[]; truncated?: boolean }>(treeApiPath(workspaceId, path, 0));
       if (activeWorkspaceIdRef.current !== workspaceId) return;
       setTree((current) => setTreeEntryChildren(current, path, result.tree));
+      if (result.truncated) setTreeTruncated(true);
     } catch (caught) {
       if (activeWorkspaceIdRef.current !== workspaceId) return;
       const message = errorText(caught);
@@ -211,25 +213,32 @@ export function useWorkspaceTree(workspace: WorkspaceSummary, onError: (message:
 async function refreshLoadedChildren(workspaceId: string, root: TreeEntry[], cached: TreeEntry[], collapsed: Set<string>, eventPaths?: string[]) {
   const loaded = collectLoadedFolderPaths(cached, collapsed, eventPaths);
   let next = root;
+  let truncated = false;
   for (const paths of groupTreePathsByDepth(loaded)) {
     const refreshable = paths.filter((path) => findTreeEntry(next, path));
-    const results = await refreshFolderBatch(workspaceId, refreshable);
-    for (const result of results) if (result && findTreeEntry(next, result.path)) next = setTreeEntryChildren(next, result.path, result.children);
+    const batch = await refreshFolderBatch(workspaceId, refreshable);
+    truncated ||= batch.truncated;
+    for (const result of batch.results) if (result && findTreeEntry(next, result.path)) next = setTreeEntryChildren(next, result.path, result.children);
   }
-  return next;
+  return { tree: next, truncated };
 }
 
 async function refreshFolderBatch(workspaceId: string, paths: string[]) {
   const results = new Array<{ path: string; children: TreeEntry[] } | null>(paths.length).fill(null);
+  let truncated = false;
   let index = 0;
   await Promise.all(Array.from({ length: Math.min(loadedTreeRefreshConcurrency, paths.length) }, async () => {
     while (index < paths.length) {
       const current = index++; const path = paths[current]; if (!path) continue;
-      try { results[current] = { path, children: (await api<{ tree: TreeEntry[]; truncated?: boolean }>(treeApiPath(workspaceId, path, 0))).tree }; }
+      try {
+        const response = await api<{ tree: TreeEntry[]; truncated?: boolean }>(treeApiPath(workspaceId, path, 0));
+        results[current] = { path, children: response.tree };
+        truncated ||= Boolean(response.truncated);
+      }
       catch (caught) { if (!workspaceTreePathMissing(errorText(caught))) throw caught; }
     }
   }));
-  return results;
+  return { results, truncated };
 }
 
 function treeApiPath(workspaceId: string, path: string, maxDepth: number) {

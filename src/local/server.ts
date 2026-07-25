@@ -858,10 +858,23 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const workspace = await getWorkspace(searchMatch[1]);
     const scope = url.searchParams.get("scope") ?? "all";
     if (scope !== "all" && scope !== "files" && scope !== "chats") throw badRequest("Search scope is unsupported.");
-    sendJson(res, await searchWorkspace(workspace.rootPath, url.searchParams.get("q") ?? "", {
-      includeFiles: scope !== "chats",
-      includeChats: scope !== "files",
-    }));
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    req.once("aborted", abort);
+    res.once("close", abort);
+    try {
+      const result = await searchWorkspace(workspace.rootPath, url.searchParams.get("q") ?? "", {
+        includeFiles: scope !== "chats",
+        includeChats: scope !== "files",
+        signal: controller.signal,
+      });
+      if (!controller.signal.aborted && !res.destroyed) sendJson(res, result);
+    } catch (error) {
+      if (!controller.signal.aborted) throw error;
+    } finally {
+      req.off("aborted", abort);
+      res.off("close", abort);
+    }
     return;
   }
 
