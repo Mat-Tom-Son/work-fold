@@ -4,10 +4,11 @@ import { join } from "node:path";
 import test from "node:test";
 
 const root = process.cwd();
-const [app, tabBar, chatPanel, messages, activity, panes, chrome, styles, identity, desktopMain] = await Promise.all([
+const [app, tabBar, chatPanel, chatActions, messages, activity, panes, chrome, styles, identity, desktopMain, localServer] = await Promise.all([
   read("web-local/src/App.tsx"),
   read("web-local/src/components/chat/WorkspaceSurfaceTabBar.tsx"),
   read("web-local/src/components/chat/ChatPanel.tsx"),
+  read("web-local/src/components/chat/ChatActionsPopover.tsx"),
   read("web-local/src/components/chat/messages.tsx"),
   read("web-local/src/components/chat/activity.tsx"),
   read("web-local/src/components/panes/workspacePanes.tsx"),
@@ -15,6 +16,7 @@ const [app, tabBar, chatPanel, messages, activity, panes, chrome, styles, identi
   read("web-local/src/styles.css"),
   read("web-local/src/lib/workspace-identity.ts"),
   read("desktop/src/main.ts"),
+  read("src/local/server.ts"),
 ]);
 
 test("Files removes unsupported create controls and naming uses in-app UI", () => {
@@ -33,6 +35,23 @@ test("one Space menu trigger can create a Chat in every Space", () => {
   const tabBarCall = app.match(/<WorkspaceSurfaceTabBar[\s\S]*?\/>/)?.[0] ?? "";
   assert.doesNotMatch(tabBarCall, /newChatWorkspaceName=|onNewChat=\{/);
   assert.doesNotMatch(app, /fixtureConversations=\{[^}]*:\s*\[\]\s*\}/, "blank fixture tabs must not receive a fresh array on every render");
+});
+
+test("Chat work can be deferred, found again, and resumed without interrupting active turns", () => {
+  for (const view of ["active", "snoozed", "archived"]) {
+    assert.match(panes, new RegExp(`"${view}"`));
+  }
+  assert.match(panes, /role="tablist"\s+aria-label="Chat view"/);
+  assert.match(panes, /aria-label=\{`Actions for \$\{chat\.title\}`\}/);
+  assert.match(chatActions, />Snooze</);
+  assert.match(chatActions, />Resume now</);
+  assert.match(chatActions, /Restore to Active/);
+  assert.match(app, /actionLabel:\s*"Undo"/);
+  assert.match(localServer, /state\.runningTurns\.has\(key\)/);
+  assert.match(app, /chatActivity\.setAttention/);
+  assert.match(tabBar, /surface-tab-chat-status/);
+  assert.match(chatPanel, /onRunningChangeRef\.current/);
+  assert.match(chatPanel, /reportChatSettled\(conversationId\)/);
 });
 
 test("surface tab labels use crisp shell typography", () => {

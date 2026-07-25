@@ -28,7 +28,7 @@ npm test
 npm run desktop:make:mac
 ```
 
-`desktop:make:mac` is the unsigned/ad hoc structural smoke lane. It performs desktop preparation, Pi and restricted-app smoke checks, Electron Builder DMG/ZIP assembly, packaged-asset and fuse verification, updater-manifest verification, mounted-DMG inspection, checksum generation, and release-manifest generation. It is not distributable and must not be renamed or installed over the production app.
+`desktop:make:mac` is the unsigned/ad hoc structural smoke lane. It performs desktop preparation, Pi and restricted-app smoke checks, Electron Builder DMG/ZIP assembly, packaged-asset and fuse verification, updater-manifest verification, mounted-DMG inspection, checksum generation, and release-manifest generation. Installer-only DMG artwork is generated under ignored `out/generated-assets` so Windows and macOS image encoders cannot rewrite tracked source bytes or make the guarded publisher reject its own build. The smoke build is not distributable and must not be renamed or installed over the production app.
 
 Expected Apple silicon outputs:
 
@@ -118,6 +118,7 @@ Do not diagnose this with `security find-generic-password ... -g`: `-g` requests
 ## Code map
 
 - `electron-builder.desktop.cjs`: shared targets, platform-selected feeds, Mac identity, entitlements, icon, and DMG layout.
+- `scripts/generate-dmg-background.mjs`: installer-only DMG artwork under ignored build output.
 - `scripts/build-mac-desktop.mjs`: unsigned-smoke and signed-release orchestrator.
 - `scripts/finalize-mac-release-artifacts.mjs`: final DMG signing, notarization, stapling, and post-signing metadata refresh.
 - `scripts/write-mac-release-manifest.mjs`: release evidence and artifact hashes.

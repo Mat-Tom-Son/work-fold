@@ -10,7 +10,8 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   createdAt: string;
-  kind?: "conversation_title";
+  kind?: "conversation_title" | "conversation_lifecycle";
+  lifecycle?: ConversationLifecyclePatch;
   landing?: ChatMessageLanding;
 }
 
@@ -19,6 +20,13 @@ export interface ConversationSummary {
   title: string;
   createdAt: string;
   updatedAt: string;
+  archivedAt: string | null;
+  snoozedUntil: string | null;
+}
+
+export interface ConversationLifecyclePatch {
+  archived?: boolean;
+  snoozedUntil?: string | null;
 }
 
 export interface ChatMessageLanding {
@@ -56,7 +64,7 @@ export async function createConversation(workspaceRoot: string, title = "New Cha
   const now = new Date().toISOString();
   const id = `chat-${randomUUID()}`;
   await appendMessage(workspaceRoot, id, { id: randomUUID(), role: "system", content: title, createdAt: now });
-  return { id, title, createdAt: now, updatedAt: now };
+  return { id, title, createdAt: now, updatedAt: now, archivedAt: null, snoozedUntil: null };
 }
 
 export async function renameConversation(workspaceRoot: string, conversationId: string, title: string): Promise<ConversationSummary> {
@@ -75,8 +83,44 @@ export async function renameConversation(workspaceRoot: string, conversationId: 
   return conversationSummary(conversationId, messages);
 }
 
+export async function updateConversationLifecycle(
+  workspaceRoot: string,
+  conversationId: string,
+  patch: ConversationLifecyclePatch,
+): Promise<ConversationSummary> {
+  const messages = await readConversation(workspaceRoot, conversationId);
+  if (!messages.length) throw new Error("Conversation not found.");
+  const current = conversationSummary(conversationId, messages);
+  if (typeof patch.snoozedUntil === "string" && Date.parse(patch.snoozedUntil) <= Date.now()) {
+    throw new Error("Choose a future snooze time.");
+  }
+  const lifecycle = normalizeLifecyclePatch(patch);
+  if (lifecycle.snoozedUntil && current.archivedAt && lifecycle.archived !== false) {
+    throw new Error("Unarchive this Chat before snoozing it.");
+  }
+  if (lifecycle.archived === true) lifecycle.snoozedUntil = null;
+  const now = new Date().toISOString();
+  await appendMessage(workspaceRoot, conversationId, {
+    id: randomUUID(),
+    role: "system",
+    kind: "conversation_lifecycle",
+    content: lifecycleMessage(lifecycle),
+    lifecycle,
+    createdAt: now,
+  });
+  return conversationSummary(conversationId, await readConversation(workspaceRoot, conversationId));
+}
+
 export async function readConversation(workspaceRoot: string, conversationId: string): Promise<ChatMessage[]> {
   return (await readConversationFile(workspaceRoot, conversationId)).messages;
+}
+
+export async function readConversationSummary(
+  workspaceRoot: string,
+  conversationId: string,
+): Promise<ConversationSummary | null> {
+  const messages = await readConversation(workspaceRoot, conversationId);
+  return messages.length ? conversationSummary(conversationId, messages) : null;
 }
 
 async function readConversationFile(workspaceRoot: string, conversationId: string): Promise<{ messages: ChatMessage[]; malformedLineCount: number }> {
@@ -192,6 +236,11 @@ function parseChatMessage(line: string): ChatMessage | null {
       createdAt: parsed.createdAt,
     };
     if (parsed.kind === "conversation_title") message.kind = parsed.kind;
+    if (parsed.kind === "conversation_lifecycle") {
+      if (!isConversationLifecyclePatch(parsed.lifecycle)) return null;
+      message.kind = parsed.kind;
+      message.lifecycle = normalizeLifecyclePatch(parsed.lifecycle);
+    }
     if (isChatMessageLanding(parsed.landing)) message.landing = parsed.landing;
     return message;
   } catch {
@@ -216,13 +265,31 @@ function isChatMessageLanding(value: unknown): value is ChatMessageLanding {
 
 function conversationSummary(conversationId: string, messages: ChatMessage[]): ConversationSummary {
   const firstUser = messages.find((message) => message.role === "user");
-  const last = messages[messages.length - 1];
+  const lastActivity = [...messages].reverse().find((message) => message.kind !== "conversation_lifecycle");
+  const lifecycle = conversationLifecycle(messages);
   return {
     id: conversationId,
     title: manualConversationTitle(messages) || generatedConversationTitle(messages) || firstUser?.content.slice(0, 70) || "New Chat",
     createdAt: messages[0]?.createdAt ?? new Date().toISOString(),
-    updatedAt: last?.createdAt ?? new Date().toISOString(),
+    updatedAt: lastActivity?.createdAt ?? new Date().toISOString(),
+    archivedAt: lifecycle.archivedAt,
+    snoozedUntil: lifecycle.snoozedUntil,
   };
+}
+
+function conversationLifecycle(messages: ChatMessage[]): { archivedAt: string | null; snoozedUntil: string | null } {
+  let archivedAt: string | null = null;
+  let snoozedUntil: string | null = null;
+  for (const message of messages) {
+    if (message.kind !== "conversation_lifecycle" || !message.lifecycle) continue;
+    if (message.lifecycle.archived !== undefined) {
+      archivedAt = message.lifecycle.archived ? message.createdAt : null;
+    }
+    if (message.lifecycle.snoozedUntil !== undefined) {
+      snoozedUntil = message.lifecycle.snoozedUntil;
+    }
+  }
+  return { archivedAt, snoozedUntil };
 }
 
 function manualConversationTitle(messages: ChatMessage[]): string | null {
@@ -244,6 +311,46 @@ function generatedConversationTitle(messages: ChatMessage[]): string | null {
 
 function normalizeConversationTitle(title: string): string {
   return title.replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
+function normalizeLifecyclePatch(patch: ConversationLifecyclePatch): ConversationLifecyclePatch {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+    throw new Error("Chat lifecycle update is required.");
+  }
+  const lifecycle: ConversationLifecyclePatch = {};
+  if (patch.archived !== undefined) {
+    if (typeof patch.archived !== "boolean") throw new Error("Archived state must be true or false.");
+    lifecycle.archived = patch.archived;
+  }
+  if (patch.snoozedUntil !== undefined) {
+    if (patch.snoozedUntil === null) {
+      lifecycle.snoozedUntil = null;
+    } else {
+      const time = Date.parse(patch.snoozedUntil);
+      if (!Number.isFinite(time)) throw new Error("Snooze time is invalid.");
+      lifecycle.snoozedUntil = new Date(time).toISOString();
+    }
+  }
+  if (lifecycle.archived === undefined && lifecycle.snoozedUntil === undefined) {
+    throw new Error("Choose an archive or snooze change.");
+  }
+  return lifecycle;
+}
+
+function isConversationLifecyclePatch(value: unknown): value is ConversationLifecyclePatch {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const patch = value as ConversationLifecyclePatch;
+  const keys = Object.keys(patch);
+  if (!keys.length || keys.some((key) => key !== "archived" && key !== "snoozedUntil")) return false;
+  return (patch.archived === undefined || typeof patch.archived === "boolean")
+    && (patch.snoozedUntil === undefined || patch.snoozedUntil === null || typeof patch.snoozedUntil === "string");
+}
+
+function lifecycleMessage(patch: ConversationLifecyclePatch): string {
+  if (patch.archived === true) return "Chat archived.";
+  if (patch.archived === false) return "Chat restored.";
+  if (patch.snoozedUntil === null) return "Chat snooze cleared.";
+  return `Chat snoozed until ${patch.snoozedUntil}.`;
 }
 
 function assertValidConversationId(conversationId: string): void {

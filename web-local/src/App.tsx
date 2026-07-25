@@ -3,8 +3,8 @@ import { ArrowSync16Regular, Color20Regular, Settings24Regular } from "@fluentui
 import { AlertTriangle, CirclePlus, Download, FolderOpen, Loader2, Search, Upload, X } from "lucide-react";
 
 import { defaultTypographyPreference, productName, textSizeValues, themePreferenceKey, typographyFontValues, typographyPreferenceKey, workspaceCustomizationStorageKey, workspacePathDragType } from "./constants";
+import { ChatActionsPopover } from "./components/chat/ChatActionsPopover";
 import { ChatPanel } from "./components/chat/ChatPanel";
-import { ChatRenamePopover } from "./components/chat/ChatRenamePopover";
 import { WorkspaceSurfaceTabBar } from "./components/chat/WorkspaceSurfaceTabBar";
 import { Banner, CenteredState, EmptyInline, WorkspaceIconGlyph } from "./components/chrome/common";
 import { DesktopTitleBar } from "./components/chrome/DesktopTitleBar";
@@ -26,10 +26,12 @@ import { FileContextMenu } from "./components/tree/FileContextMenu";
 import { FileTree, FileTreeLoadingState } from "./components/tree/FileTree";
 import type { WorkspaceUiFixture } from "./fixtures/workspace-fixture";
 import { usePaneResize } from "./hooks/usePaneResize";
+import { useChatActivity } from "./hooks/useChatActivity";
 import { useRestrictedApps } from "./hooks/useRestrictedApps";
 import { useSurfaceTabs } from "./hooks/useSurfaceTabs";
 import { useWorkspaceTree } from "./hooks/useWorkspaceTree";
 import { api, apiForm, apiUrl, errorText } from "./lib/api";
+import { chatActivityKey, conversationLifecycleView } from "./lib/chat-lifecycle";
 import { contributedSurfaces, resolveSurfaceForKey, surfaceMatchesTab } from "./lib/capability-surfaces";
 import { canOpenDirectly, hasNativeFiles, hasWorkspacePathDrag, nativeOpenLabel } from "./lib/file-actions";
 import { formatItemCount } from "./lib/format";
@@ -41,7 +43,7 @@ import { collectLoadedFileEntries, findTreeEntry, isInsideFolder, moveTreeEntry,
 import { normalizeWorkspaceCustomizations } from "./lib/workspace-customization";
 import { workspaceIdentityFor, workspaceIdentityStyle } from "./lib/workspace-identity";
 import { removeWorkspaceConfirmText, surfacePanelDomId, surfaceTabDomId, workspaceHeaderSourceBadgeLabel } from "./lib/workspace-ui";
-import type { AgentCatalog, AgentExtensionSurface, AppTheme, AppThemePreference, AppTypographyFont, AppTypographyPreference, BootstrapResponse, ChatContextPathRequest, ChatRenameState, ConversationSummary, DesktopUpdateStatus, FileContextMenuState, RestrictedAppInstalled, TreeEntry, WorkspaceCustomizationMap, WorkspaceCustomizationPatch, WorkspacePane, WorkspaceRailMode, WorkspaceSummary } from "./types";
+import type { AgentCatalog, AgentExtensionSurface, AppTheme, AppThemePreference, AppTypographyFont, AppTypographyPreference, BootstrapResponse, ChatActionsState, ChatContextPathRequest, ConversationSummary, DesktopUpdateStatus, FileContextMenuState, RestrictedAppInstalled, TreeEntry, WorkspaceCustomizationMap, WorkspaceCustomizationPatch, WorkspacePane, WorkspaceRailMode, WorkspaceSummary } from "./types";
 import { ConfirmDialogHost, requestConfirm, showToast, ToastHost } from "./ui/feedback";
 import { workspaceIconOptions } from "./workspace-icons";
 
@@ -237,9 +239,10 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
   const [conversationGroups, setConversationGroups] = useState<Record<string, ConversationSummary[]>>(() => fixture ? fixtureConversationGroups(fixture) : {});
   const [surfaceCatalogs, setSurfaceCatalogs] = useState<Record<string, AgentExtensionSurface[]>>(() => fixture ? fixture.surfaces : {});
   const surfaceCatalogRequestRef = useRef(0);
+  const chatActivity = useChatActivity(Boolean(fixture));
   const [fileContextMenu, setFileContextMenu] = useState<FileContextMenuState | null>(null);
   const [renameEntryRequest, setRenameEntryRequest] = useState<{ path: string; name: string } | null>(null);
-  const [chatRename, setChatRename] = useState<ChatRenameState | null>(null);
+  const [chatActions, setChatActions] = useState<ChatActionsState | null>(null);
   const [versionHistory, setVersionHistory] = useState<{ workspace: WorkspaceSummary; path: string; name: string } | null>(null);
   const [contextRequest, setContextRequest] = useState<ChatContextPathRequest | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -495,7 +498,29 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
     } catch (caught) { onError(errorText(caught)); }
   }
 
-  function openChat(targetWorkspace: WorkspaceSummary, conversation: ConversationSummary | null) { tabs.openChatSurfaceTab(targetWorkspace, conversation); }
+  function openChat(targetWorkspace: WorkspaceSummary, conversation: ConversationSummary | null) {
+    if (conversation) chatActivity.setAttention(chatActivityKey(targetWorkspace.id, conversation.id), false);
+    tabs.openChatSurfaceTab(targetWorkspace, conversation);
+  }
+
+  function openChatActions(
+    targetWorkspace: WorkspaceSummary,
+    conversation: ConversationSummary,
+    event: React.MouseEvent<HTMLElement>,
+  ): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const returnFocusTarget = event.currentTarget;
+    const rect = returnFocusTarget.getBoundingClientRect();
+    const invokedFromKeyboard = event.clientX === 0 && event.clientY === 0;
+    setChatActions({
+      workspace: targetWorkspace,
+      conversation,
+      x: invokedFromKeyboard ? Math.round(rect.right - 8) : Math.round(event.clientX),
+      y: invokedFromKeyboard ? Math.round(rect.bottom + 4) : Math.round(event.clientY),
+      returnFocusTarget,
+    });
+  }
   function attachToChat(path: string) {
     const existing = tabs.surfaceTabs.find((tab) => tab.kind === "chat" && tab.workspaceId === workspace.id && (!tab.conversationId || tab.id === tabs.activeSurfaceTabId));
     if (existing) tabs.setActiveSurfaceTabId(existing.id); else tabs.openChatSurfaceTab(workspace, null);
@@ -716,9 +741,60 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
   }
 
   async function renameChat(targetWorkspace: WorkspaceSummary, conversation: ConversationSummary, title: string) {
-    if (fixture) { const updated = { ...conversation, title }; setConversationGroups((current) => ({ ...current, [targetWorkspace.id]: (current[targetWorkspace.id] ?? []).map((item) => item.id === conversation.id ? updated : item) })); tabs.updateSurfaceTabConversationTitle(targetWorkspace.id, updated); setChatRename(null); return; }
+    if (fixture) { const updated = { ...conversation, title }; replaceConversationSummary(targetWorkspace.id, updated); tabs.updateSurfaceTabConversationTitle(targetWorkspace.id, updated); return; }
     const result = await api<{ conversation: ConversationSummary }>(`/api/workspaces/${targetWorkspace.id}/conversations/${conversation.id}`, { method: "PATCH", body: { title } });
-    setConversationGroups((current) => ({ ...current, [targetWorkspace.id]: (current[targetWorkspace.id] ?? []).map((item) => item.id === conversation.id ? result.conversation : item) })); tabs.updateSurfaceTabConversationTitle(targetWorkspace.id, result.conversation); setChatRename(null);
+    replaceConversationSummary(targetWorkspace.id, result.conversation);
+    tabs.updateSurfaceTabConversationTitle(targetWorkspace.id, result.conversation);
+  }
+
+  function replaceConversationSummary(workspaceId: string, conversation: ConversationSummary): void {
+    setConversationGroups((current) => ({
+      ...current,
+      [workspaceId]: (current[workspaceId] ?? []).map((item) => item.id === conversation.id ? conversation : item),
+    }));
+  }
+
+  async function updateChatLifecycle(
+    targetWorkspace: WorkspaceSummary,
+    conversation: ConversationSummary,
+    patch: { archived?: boolean; snoozedUntil?: string | null },
+    options: { announce?: boolean } = {},
+  ): Promise<ConversationSummary> {
+    const previous = conversation;
+    const updated = fixture
+      ? applyFixtureChatLifecycle(conversation, patch)
+      : (await api<{ conversation: ConversationSummary }>(
+          `/api/workspaces/${targetWorkspace.id}/conversations/${conversation.id}`,
+          { method: "PATCH", body: patch },
+        )).conversation;
+    replaceConversationSummary(targetWorkspace.id, updated);
+
+    const lifecycle = conversationLifecycleView(updated);
+    const openTab = tabs.surfaceTabs.find((tab) =>
+      tab.kind === "chat"
+      && tab.workspaceId === targetWorkspace.id
+      && tab.conversationId === conversation.id);
+    if (lifecycle !== "active") {
+      if (openTab) tabs.closeSurfaceTab(openTab.id);
+      chatActivity.setRunning(chatActivityKey(targetWorkspace.id, conversation.id), false);
+      chatActivity.setAttention(chatActivityKey(targetWorkspace.id, conversation.id), false);
+    }
+    if (options.announce === false) return updated;
+
+    const feedback = chatLifecycleFeedback(previous, updated);
+    showToast({
+      text: feedback.text,
+      tone: "success",
+      actionLabel: "Undo",
+      durationMs: 6500,
+      onAction: () => {
+        const latest = (conversationGroups[targetWorkspace.id] ?? []).find((item) => item.id === conversation.id) ?? updated;
+        void updateChatLifecycle(targetWorkspace, latest, feedback.undo, { announce: false })
+          .then((restored) => { if (openTab) openChat(targetWorkspace, restored); })
+          .catch((caught) => onError(errorText(caught)));
+      },
+    });
+    return updated;
   }
 
   function selectRailMode(mode: WorkspaceRailMode): void {
@@ -748,7 +824,17 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
     ...surfaces.map((surface) => ({ id: `app:${surface.key}`, groupId: "go-to" as const, groupLabel: "Go to", label: surface.title, detail: surface.scope === "project" ? "Pi Extension · This Space" : "Pi Extension · Personal", run: () => selectRailMode(`app:${surface.key}`) })),
     ...restrictedApps.map((app) => ({ id: `restricted-app:${app.manifest.id}`, groupId: "go-to" as const, groupLabel: "Go to", label: app.manifest.title, detail: "Sandboxed app · This Space", run: () => selectRailMode(restrictedAppRailMode(workspace.id, app.manifest.id)) })),
     ...workspaces.map((item) => ({ id: `space:${item.id}`, groupId: "switch-workspace" as const, groupLabel: "Switch Space", label: item.name, detail: workspaceHeaderSourceBadgeLabel(item), matchTargets: [item.rootPath], run: () => onSwitchWorkspace(item) })),
-    ...Object.entries(conversationGroups).flatMap(([workspaceId, conversations]) => conversations.map((conversation) => ({ id: `chat:${workspaceId}:${conversation.id}`, groupId: "chats" as const, groupLabel: "Chats", label: conversation.title, run: () => { const target = workspaces.find((item) => item.id === workspaceId); if (target) openChat(target, conversation); } }))),
+    ...Object.entries(conversationGroups).flatMap(([workspaceId, conversations]) => conversations.map((conversation) => {
+      const lifecycle = conversationLifecycleView(conversation);
+      return {
+        id: `chat:${workspaceId}:${conversation.id}`,
+        groupId: "chats" as const,
+        groupLabel: "Chats",
+        label: conversation.title,
+        detail: lifecycle === "archived" ? "Archived" : lifecycle === "snoozed" ? "Snoozed" : undefined,
+        run: () => { const target = workspaces.find((item) => item.id === workspaceId); if (target) openChat(target, conversation); },
+      };
+    })),
     ...collectLoadedFileEntries(tree.tree).flatMap((entry) => {
       const matchTargets = [entry.name, entry.path];
       return [
@@ -821,7 +907,7 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
           {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <EmptyInline text="Couldn't load this Space. Refresh to try again." /> : <FileTree entries={tree.visibleEntries} collapsedPaths={tree.query ? new Set() : tree.collapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} movingTreePath={tree.movingTreePath} dropTargetFolderPath={tree.dropTargetFolderPath} searchQuery={tree.query} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workspace, path); }} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} />}
         </div>
       </div> : null}
-      {activeMode === "chats" ? <ChatsPane workspace={workspace} workspaces={workspaces} conversations={conversationGroups} customizations={customizations} activeConversationId={activeTab?.kind === "chat" ? activeTab.conversationId ?? undefined : undefined} onOpen={(target, conversation) => openChat(target, conversation)} onNew={(target) => openChat(target, null)} onRename={(target, conversation, event) => setChatRename({ workspace: target, conversation, x: event.clientX, y: event.clientY })} /> : null}
+      {activeMode === "chats" ? <ChatsPane workspace={workspace} workspaces={workspaces} conversations={conversationGroups} customizations={customizations} activityStatuses={chatActivity.statuses} activeConversationId={activeTab?.kind === "chat" ? activeTab.conversationId ?? undefined : undefined} onOpen={(target, conversation) => openChat(target, conversation)} onNew={(target) => openChat(target, null)} onActions={openChatActions} /> : null}
       {activeMode === "library" ? <LibraryPane workspace={workspace} fixtureTree={fixture?.library} onError={onError} /> : null}
       {activeMode === "history" ? <HistoryPane workspace={workspace} fixtureItems={fixture?.checkpoints[workspace.id]} refreshRequest={historyRefreshRequest} onOpen={(item) => tabs.openHistorySurfaceTab(workspace, item.checkpointId, item.label || "Restore point")} onError={onError} /> : null}
       {activeMode === "capabilities" ? <CapabilitiesPane workspace={workspace} status={agent} fixtureMode={Boolean(fixture)} restrictedApps={restrictedApps} restrictedAppsLoading={restrictedAppsState.loadingWorkspaceIds.has(workspace.id)} onOpenSettings={() => onOpenSettings("assistant")} onError={onError} onCatalogChanged={(catalog) => updateSurfaceCatalog(workspace.id, catalog)} onRestrictedAppChanged={restrictedAppsState.upsertApp} onRestrictedAppRemoved={(appId) => restrictedAppsState.removeApp(workspace.id, appId)} onBuildApp={() => openChat(workspace, null)} onOpenAppStudio={(sourceWorkspaceId) => tabs.openAppStudioSurfaceTab(workspaces.find((item) => item.id === sourceWorkspaceId) ?? workspace)} /> : null}
@@ -830,12 +916,16 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
     </section>
     <button className="workspace-resizer" type="button" role="separator" aria-label="Resize the navigation pane and work area" aria-controls="workspace-file-panel workspace-chat-panel" aria-orientation="vertical" aria-valuemin={Math.round(paneResize.sidebarResizeBounds.min)} aria-valuemax={Math.round(paneResize.sidebarResizeBounds.max)} aria-valuenow={paneResize.sidebarResizeValue} title="Resize panes" onPointerDown={paneResize.startSidebarResize} onDoubleClick={paneResize.resetWorkspaceSidebarWidth} onKeyDown={paneResize.handleSidebarResizeKeyDown}><span className="sr-only">Resize panes</span></button>
     <aside className="right-rail" id="workspace-chat-panel">
-      <WorkspaceSurfaceTabBar tabs={tabs.surfaceTabs} workspaces={workspaces} workspaceCustomizations={customizations} activeTabId={tabs.activeSurfaceTabId} newChatWorkspaceId={workspace.id} onActivate={tabs.setActiveSurfaceTabId} onClose={tabs.closeSurfaceTab} onNewChatInWorkspace={(target) => openChat(target, null)} onRenameChat={(target, conversation, event) => setChatRename({ workspace: target, conversation, x: event.clientX, y: event.clientY })} />
+      <WorkspaceSurfaceTabBar tabs={tabs.surfaceTabs} workspaces={workspaces} workspaceCustomizations={customizations} conversations={conversationGroups} chatActivityStatuses={chatActivity.statuses} activeTabId={tabs.activeSurfaceTabId} newChatWorkspaceId={workspace.id} onActivate={tabs.setActiveSurfaceTabId} onClose={tabs.closeSurfaceTab} onNewChatInWorkspace={(target) => openChat(target, null)} onChatActions={openChatActions} />
       {tabs.surfaceTabs.length ? tabs.surfaceTabs.map((tab) => {
         const targetWorkspace = workspaces.find((item) => item.id === tab.workspaceId);
         if (!targetWorkspace) return null;
         const active = tab.id === tabs.activeSurfaceTabId;
         const targetIdentity = workspaceIdentityFor(targetWorkspace, customizations);
+        const targetConversation = tab.kind === "chat" && tab.conversationId
+          ? conversationGroups[targetWorkspace.id]?.find((conversation) => conversation.id === tab.conversationId) ?? null
+          : null;
+        const targetConversationLifecycle = targetConversation ? conversationLifecycleView(targetConversation) : "active";
         return (
           <div className="workspace-surface-body" role="tabpanel" id={surfacePanelDomId(tab.id)} aria-labelledby={surfaceTabDomId(tab.id)} hidden={!active} key={tab.id} style={workspaceIdentityStyle(targetIdentity)}>
             {tab.kind === "file" && tab.path ? (
@@ -881,7 +971,7 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
                 ? <RestrictedAppViewport app={app} placement="tab" appTabId={tab.appTabId} route={tab.route} state={tab.state} active={active} />
                 : <CenteredState icon={<AlertTriangle size={24} />} title="App unavailable" text="This tab belongs to an app revision that is no longer installed in this Space." />;
             })() : tab.kind === "chat" ? (
-              <ChatPanel surfaceTabId={tab.id} workspace={targetWorkspace} workspaceCustomizations={customizations} active={active} targetConversationId={tab.conversationId ?? null} targetConversationTitle={tab.conversationId ? tab.title : null} contextPathRequest={active && targetWorkspace.id === workspace.id ? contextRequest : null} onAddPathToChatContext={active && targetWorkspace.id === workspace.id ? attachToChat : undefined} onOpenWorkspaceFile={active && targetWorkspace.id === workspace.id ? (path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workspace, path); } : undefined} selectedPath={active && targetWorkspace.id === workspace.id ? tree.selectedPath : null} onConversationActivated={(conversation) => tabs.handleTabConversationActivated(tab.id, targetWorkspace, conversation)} onConversationsChanged={(conversations) => setConversationGroups((current) => ({ ...current, [targetWorkspace.id]: conversations }))} onAgentFinished={() => targetWorkspace.id === workspace.id ? tree.refresh() : undefined} onRestrictedAppProposalRequested={() => tabs.setActiveSurfaceTabId(tab.id)} onRestrictedAppInstalled={(app) => openInstalledRestrictedApp(targetWorkspace, app)} fixtureMode={Boolean(fixture)} fixtureConversations={fixture && (tab.conversationId || tab.id === `chat:${targetWorkspace.id}:new`) ? fixture.conversations[targetWorkspace.id] : undefined} fixtureTreeEntries={fixture?.trees[targetWorkspace.id]} />
+              <ChatPanel surfaceTabId={tab.id} workspace={targetWorkspace} workspaceCustomizations={customizations} active={active} targetConversationId={tab.conversationId ?? null} targetConversationTitle={tab.conversationId ? tab.title : null} lifecycleView={targetConversationLifecycle} onResumeConversation={targetConversation ? () => updateChatLifecycle(targetWorkspace, targetConversation, targetConversationLifecycle === "archived" ? { archived: false } : { snoozedUntil: null }).then(() => {}).catch((caught) => onError(errorText(caught))) : undefined} contextPathRequest={active && targetWorkspace.id === workspace.id ? contextRequest : null} onAddPathToChatContext={active && targetWorkspace.id === workspace.id ? attachToChat : undefined} onOpenWorkspaceFile={active && targetWorkspace.id === workspace.id ? (path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workspace, path); } : undefined} selectedPath={active && targetWorkspace.id === workspace.id ? tree.selectedPath : null} onConversationActivated={(conversation) => tabs.handleTabConversationActivated(tab.id, targetWorkspace, conversation)} onConversationsChanged={(conversations) => setConversationGroups((current) => ({ ...current, [targetWorkspace.id]: conversations }))} onRunningChange={(conversationId, running) => chatActivity.setRunning(chatActivityKey(targetWorkspace.id, conversationId), running)} onSettled={(conversationId, needsAttention) => chatActivity.setAttention(chatActivityKey(targetWorkspace.id, conversationId), needsAttention)} onViewed={(conversationId) => chatActivity.setAttention(chatActivityKey(targetWorkspace.id, conversationId), false)} onAgentFinished={() => targetWorkspace.id === workspace.id ? tree.refresh() : undefined} onRestrictedAppProposalRequested={() => tabs.setActiveSurfaceTabId(tab.id)} onRestrictedAppInstalled={(app) => openInstalledRestrictedApp(targetWorkspace, app)} fixtureMode={Boolean(fixture)} fixtureConversations={fixture && (tab.conversationId || tab.id === `chat:${targetWorkspace.id}:new`) ? fixture.conversations[targetWorkspace.id] : undefined} fixtureTreeEntries={fixture?.trees[targetWorkspace.id]} />
             ) : null}
           </div>
         );
@@ -889,7 +979,7 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
     </aside>
     {fileContextMenu ? <FileContextMenu state={fileContextMenu} onSelect={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workspace, path); }} onOpenLocal={openLocalPath} onAddToChatContext={attachToChat} onCopyPath={copyPath} onShowVersionHistory={(path) => openVersionHistory(workspace, path)} onRename={fileContextMenu.entry.path ? renameEntry : undefined} onUploadHere={chooseUpload} onDelete={deleteEntry} onClose={() => setFileContextMenu(null)} /> : null}
     {renameEntryRequest ? <TextInputModal title={`Rename ${renameEntryRequest.name}`} description="Choose a new name. The item stays in the same folder." label="Name" initialValue={renameEntryRequest.name} confirmLabel="Rename" onSubmit={submitEntryRename} onClose={() => setRenameEntryRequest(null)} /> : null}
-    {chatRename ? <ChatRenamePopover state={chatRename} onRename={renameChat} onClose={() => setChatRename(null)} /> : null}
+    {chatActions ? <ChatActionsPopover state={chatActions} onRename={renameChat} onLifecycle={(target, conversation, patch) => updateChatLifecycle(target, conversation, patch).then(() => {})} onClose={() => setChatActions(null)} /> : null}
     {versionHistory ? <FileVersionHistoryModal workspace={versionHistory.workspace} filePath={versionHistory.path} fileName={versionHistory.name} onClose={() => setVersionHistory(null)} onRestored={() => void tree.refresh()} /> : null}
     {commandPaletteOpen ? <CommandPaletteHost commands={commands} onClose={closeCommandPalette} /> : null}
   </main>;
@@ -897,6 +987,41 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
 
 function WorkspaceSurfaceEmptyState({ workspace, identity, onNewChat }: { workspace: WorkspaceSummary; identity: ReturnType<typeof workspaceIdentityFor>; onNewChat: () => void }) {
   return <div className="workspace-surface-body workspace-surface-body-empty"><div className="workspace-surface-empty" style={workspaceIdentityStyle(identity)}><span className="workspace-surface-empty-icon"><WorkspaceIconGlyph icon={identity.Icon} size={24} /></span><h2>{workspace.name}</h2><p>Open a file, Chat, restore point, or appearance tab here.</p><button className="primary-button" type="button" onClick={onNewChat}><CirclePlus size={16} />New Chat</button></div></div>;
+}
+
+function applyFixtureChatLifecycle(
+  conversation: ConversationSummary,
+  patch: { archived?: boolean; snoozedUntil?: string | null },
+): ConversationSummary {
+  if (patch.archived !== undefined) {
+    return {
+      ...conversation,
+      archivedAt: patch.archived ? new Date().toISOString() : null,
+      snoozedUntil: patch.archived ? null : conversation.snoozedUntil ?? null,
+    };
+  }
+  return { ...conversation, snoozedUntil: patch.snoozedUntil ?? null };
+}
+
+function chatLifecycleFeedback(
+  previous: ConversationSummary,
+  updated: ConversationSummary,
+): {
+  text: string;
+  undo: { archived?: boolean; snoozedUntil?: string | null };
+} {
+  const before = conversationLifecycleView(previous);
+  const after = conversationLifecycleView(updated);
+  if (after === "archived") return { text: "Chat archived", undo: { archived: false } };
+  if (after === "snoozed") {
+    return {
+      text: updated.snoozedUntil ? `Chat snoozed until ${new Date(updated.snoozedUntil).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}` : "Chat snoozed",
+      undo: before === "archived" ? { archived: true } : { snoozedUntil: previous.snoozedUntil ?? null },
+    };
+  }
+  if (before === "archived") return { text: "Chat restored to Active", undo: { archived: true } };
+  if (before === "snoozed") return { text: "Chat resumed", undo: { snoozedUntil: previous.snoozedUntil ?? null } };
+  return { text: "Chat updated", undo: { snoozedUntil: previous.snoozedUntil ?? null } };
 }
 
 function DesktopUpdateButton({ status, onClick }: { status: DesktopUpdateStatus; onClick: () => void }) {

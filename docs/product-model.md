@@ -41,6 +41,10 @@ The Assistant's model provider, model, API key, and supported provider OAuth con
 
 Each open tab belongs to one Space. Selecting a tab takes the user back to that Space and its identity; selecting a Space restores its most recent tab. A Chat that is working remains alive when another tab is selected, when Workspace is minimized, when the Windows window is hidden to the tray, and when the last macOS window is closed and later recreated from the Dock.
 
+Chats have a lightweight lifecycle for keeping a growing conversation list usable. **Active** is current work, **Snoozed** is deferred until a future local time, and **Archived** is retained reference material. A due snooze resurfaces automatically in Active. Snoozing or archiving a Chat closes its open tab but never deletes or rewrites its transcript; the state is an append-only lifecycle event in that Chat's portable `.workspace/conversations/` log. A snoozed or archived Chat may be opened for reading, but it must be resumed or restored before another message can be sent. Lifecycle changes are unavailable while its Assistant turn or compaction is active.
+
+Background state is quieter and machine-local: a small running marker follows an accepted Assistant turn across the Chat navigator and tab strip, and becomes an attention marker only when the turn settles out of view. Viewing the Chat clears that marker. This acknowledgement state is an app preference on the current computer, not portable conversation content.
+
 ## A Space is a view of a folder, not a new file format
 
 There are two honest ways to create a Space:
@@ -176,7 +180,8 @@ When a design is ambiguous, prefer the option that best preserves these properti
 - Rename a Space, remove a linked-folder registration without deleting its files, or delete a managed Space with an explicit destructive warning.
 - Browse and upload Space files, run Space-scoped Chats, use the Library, and view History.
 - Restore content-addressed History checkpoints created around file mutations and Assistant turns.
-- Configure a Pi provider/model with an API key and use Pi's built-in tools.
+- Configure a Pi provider/model with an API key or an advertised Pi provider OAuth flow and use Pi's built-in tools.
+- Discover installed Skills, prompts, Extension commands, and supported built-ins from the Chat composer, and inspect the active model and context-window pressure during a conversation.
 - Discover and search Personal and registered-Space Skills and Extensions in one Capabilities surface, with accurate source, scope, load state, and diagnostics.
 - Browse curated first-party/reference Skills and Extensions alongside community Pi packages, with type filters and explicit provenance.
 - Import standard Skills and compatible skill bundles while preserving their supporting files.
@@ -236,7 +241,7 @@ When a design is ambiguous, prefer the option that best preserves these properti
 - Add per-resource enable/disable and package filtering controls without confusing availability with activation.
 - Add receipts and safe removal for directly imported Skills, independently from package lifecycle.
 - Add named-pack selection for Anthropic marketplace bundles instead of importing every discovered Skill in an archive.
-- Make “what this Chat can see and use” visible before and during a conversation.
+- Extend the Chat's current attachment, command, Skill, model, and context visibility into a complete “what this Chat can see and use” inspector.
 - Add an authenticated, versioned mutation surface with explicit Personal, Space, and Chat scopes, replay protection, confirmations, revocation, and durable action receipts.
 - Add event subscriptions and a scoped cross-Space Assistant that can manage the product only through those authorized contracts.
 - Add restricted-app remote subscriptions and arbitrary push adapters, finer web-runtime resource controls, and a verified Space-service registry backed by a trusted launcher, per-instance challenge, and process-generation lifecycle. Raw numeric loopback grants remain useful for development but do not prove which process owns a port.
@@ -247,7 +252,7 @@ When a design is ambiguous, prefer the option that best preserves these properti
 - Prove one private hosted-web App Instance end to end—publish, deploy, explicit
   destination and connection grant, named automation and receipt, update, and
   revocation—before public discovery, an App Store, or generalized sync.
-- Add native provider OAuth only with a complete desktop callback/device-code experience and verified credential handling.
+- Verify and document supported provider OAuth flows account tier by account tier in packaged desktop releases; do not turn Pi's generic OAuth hook support into a blanket compatibility claim.
 - Add direct cloud-storage integrations behind a provider-neutral model with stable remote IDs, offline behavior, explicit conflicts, and no surprise deletion.
 - Move from personal or unsigned Windows artifacts to a publicly trusted code-signing identity.
 - Consider additional Windows architectures after the x64 release lane is stable.

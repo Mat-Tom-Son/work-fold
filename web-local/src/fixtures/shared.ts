@@ -1,7 +1,14 @@
 import type { AgentActivityEvent, ContextAttachment, ConversationSummary, WorkspaceFixtureConversation } from "../types";
 
 export function fixtureConversationSummary(conversation: WorkspaceFixtureConversation): ConversationSummary {
-  return { id: conversation.id, title: conversation.title, createdAt: conversation.createdAt, updatedAt: conversation.updatedAt };
+  return {
+    id: conversation.id,
+    title: conversation.title,
+    createdAt: conversation.createdAt,
+    updatedAt: conversation.updatedAt,
+    archivedAt: conversation.archivedAt ?? null,
+    snoozedUntil: conversation.snoozedUntil ?? null,
+  };
 }
 
 export function createFixtureContextAttachment(path: string): ContextAttachment {

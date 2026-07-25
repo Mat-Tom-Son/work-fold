@@ -1,6 +1,6 @@
 {
   "name": "workspace-desktop",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "type": "module",
   "description": "A local-first desktop workspace powered by Pi.",
@@ -20,6 +20,7 @@
     "node": ">=22.19.0"
   },
   "scripts": {
+    "postinstall": "node scripts/normalize-pi-dependencies.mjs",
     "build": "npm run desktop:prepare",
     "check": "npm run local:check && npm run desktop:check",
     "test": "node scripts/run-tests.mjs",
@@ -53,8 +54,10 @@
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.80.6",
+    "brace-expansion": "5.0.8",
     "electron-updater": "6.8.9",
-    "jszip": "^3.10.1"
+    "jszip": "^3.10.1",
+    "protobufjs": "7.6.5"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.2",
@@ -77,14 +80,17 @@
     "react-dom": "^19.2.5",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.3",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vite": "^8.1.4"
   },
   "overrides": {
-    "fast-uri": "3.1.2",
-    "tar": "7.5.19",
+    "brace-expansion": "5.0.8",
+    "fast-uri": "3.1.4",
+    "postcss": "8.5.23",
+    "protobufjs": "7.6.5",
+    "tar": "7.5.22",
     "tmp": "0.2.7",
     "form-data": "4.0.6",
     "shell-quote": "1.9.0",

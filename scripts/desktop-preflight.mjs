@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -26,10 +27,11 @@ assertPath("desktop/assets/icon.ico");
 assertPath("desktop/assets/icon.png");
 if (desktopReleasePlatform() === "darwin") {
   assertPath("desktop/assets/icon.icns");
-  assertPath("desktop/assets/dmg-background.png");
+  assertPath("out/generated-assets/dmg-background.png");
   assertPath("desktop/cli/workspace-cli.jxa.js");
 }
 
+verifyPiDependencyNormalization();
 await verifyNativePiResources();
 
 if (failures.length) {
@@ -54,6 +56,25 @@ function assertPath(relativePath) {
 function desktopReleasePlatform() {
   const configured = process.env.WORKSPACE_DESKTOP_RELEASE_PLATFORM?.trim();
   return configured || process.platform;
+}
+
+function verifyPiDependencyNormalization() {
+  const piDir = join(rootDir, "node_modules", "@earendil-works", "pi-coding-agent");
+  const expectedVersions = new Map([
+    ["brace-expansion", "5.0.8"],
+    ["protobufjs", "7.6.5"],
+  ]);
+  for (const [name, expectedVersion] of expectedVersions) {
+    try {
+      const piRequire = createRequire(join(piDir, "package.json"));
+      const resolvedPackage = piRequire(`${name}/package.json`);
+      if (resolvedPackage.version !== expectedVersion) {
+        failures.push(`Pi resolves ${name} ${resolvedPackage.version}; expected the reviewed ${expectedVersion} fix.`);
+      }
+    } catch (error) {
+      failures.push(`Pi ${name} normalization check failed: ${formatError(error)}`);
+    }
+  }
 }
 
 async function verifyNativePiResources() {

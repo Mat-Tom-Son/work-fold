@@ -14,6 +14,7 @@ export interface WorkspaceUiFixture {
 
 export function buildWorkspaceFixture(): WorkspaceUiFixture {
   const now = "2026-07-10T18:30:00.000Z";
+  const snoozedUntil = new Date(Date.now() + 22 * 60 * 60 * 1_000).toISOString();
   const home: WorkspaceSummary = { id: "fixture-home", name: "Home projects", rootPath: "C:\\Users\\you\\Documents\\Home projects", location: { kind: "local", storage: "linked" }, createdAt: now, updatedAt: now };
   const trip: WorkspaceSummary = { id: "fixture-trip", name: "Japan trip", rootPath: "G:\\My Drive\\Japan trip", location: { kind: "local", storage: "linked", providerHint: "google-drive" }, createdAt: now, updatedAt: now };
   return {
@@ -53,9 +54,9 @@ export function buildWorkspaceFixture(): WorkspaceUiFixture {
           "Decision: wait for the cabinetry clarification, then choose the fixed-price quote if scope is equivalent.",
           "```",
         ].join("\n"), createdAt: now }] },
-        { id: "fixture-chat-2", title: "Plan this weekend", createdAt: now, updatedAt: "2026-07-09T16:00:00.000Z", messages: [{ id: "u2", role: "user", content: "Turn my checklist into a realistic Saturday plan.", createdAt: now }] },
+        { id: "fixture-chat-2", title: "Plan this weekend", createdAt: now, updatedAt: "2026-07-09T16:00:00.000Z", archivedAt: null, snoozedUntil, messages: [{ id: "u2", role: "user", content: "Turn my checklist into a realistic Saturday plan.", createdAt: now }] },
       ],
-      [trip.id]: [{ id: "fixture-chat-3", title: "Build a relaxed itinerary", createdAt: now, updatedAt: now, messages: [{ id: "u3", role: "user", content: "Use the bookings and make a relaxed seven-day itinerary.", createdAt: now }] }],
+      [trip.id]: [{ id: "fixture-chat-3", title: "Build a relaxed itinerary", createdAt: now, updatedAt: now, archivedAt: "2026-07-11T12:00:00.000Z", snoozedUntil: null, messages: [{ id: "u3", role: "user", content: "Use the bookings and make a relaxed seven-day itinerary.", createdAt: now }] }],
     },
     checkpoints: {
       [home.id]: [{ checkpointId: "cp-home-1", createdAt: now, label: "Before reorganizing project notes", reason: "before_turn", fileCount: 5 }],

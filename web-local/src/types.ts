@@ -70,6 +70,8 @@ export interface ConversationSummary {
   title: string;
   createdAt?: string;
   updatedAt: string;
+  archivedAt?: string | null;
+  snoozedUntil?: string | null;
 }
 
 export interface ChatMessageLanding {
@@ -88,7 +90,8 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   createdAt: string;
-  kind?: "conversation_title";
+  kind?: "conversation_title" | "conversation_lifecycle";
+  lifecycle?: { archived?: boolean; snoozedUntil?: string | null };
   landing?: ChatMessageLanding;
 }
 
@@ -110,12 +113,16 @@ export interface RuntimePreviewEntry {
 }
 export interface RuntimeThinkingSection { id: string; title: string; text: string; pending?: boolean }
 
-export interface ChatRenameState {
+export interface ChatActionsState {
   workspace: WorkspaceSummary;
   conversation: ConversationSummary;
   x: number;
   y: number;
+  returnFocusTarget?: HTMLElement | null;
 }
+
+export type ChatActivityStatus = "running" | "attention";
+export type ChatLifecycleView = "active" | "snoozed" | "archived";
 
 export type ContextAttachmentMode = "full_original_text" | "full_extracted_text" | "path_only_reference";
 export interface ContextAttachment {
@@ -185,11 +192,34 @@ export interface AgentStatus {
 
 export interface AgentModel {
   provider: string;
+  providerName?: string;
   id: string;
   name: string;
   authConfigured: boolean;
   oauthSupported: boolean;
   contextWindow?: number;
+}
+
+export interface AgentCommand {
+  name: string;
+  description?: string;
+  source: "builtin" | "extension" | "prompt" | "skill";
+}
+
+export interface ConversationRuntime {
+  sessionId: string;
+  model?: { provider: string; id: string; name: string };
+  usage: {
+    contextTokens: number | null;
+    contextWindow: number | null;
+    contextPercent: number | null;
+    totalTokens: number;
+    cost: number;
+  };
+  thinkingLevel: string;
+  activeTools: string[];
+  isStreaming: boolean;
+  isCompacting: boolean;
 }
 
 export interface AgentSkill {
@@ -651,6 +681,7 @@ export interface AgentCatalog {
   extensions: AgentExtension[];
   packages: AgentPackage[];
   tools: AgentTool[];
+  commands?: AgentCommand[];
   toolManagement?: AgentToolManagement;
   diagnostics: AgentDiagnostic[];
   surfaces?: AgentExtensionSurface[];

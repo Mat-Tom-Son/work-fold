@@ -18,7 +18,7 @@ import {
   type PiExtensionUiRequest,
   type PiExtensionUiSettled,
 } from "./agent/extension-ui.js";
-import { appendMessage, createConversation, listConversations, readConversation, renameConversation } from "./agent/chat-store.js";
+import { appendMessage, createConversation, listConversations, readConversation, readConversationSummary, renameConversation, updateConversationLifecycle } from "./agent/chat-store.js";
 import {
   RemoteCapabilityRegistry,
   type CapabilityRegistryService,
@@ -1144,7 +1144,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
   if (method === "POST" && url.pathname === "/api/agent/oauth") {
-    if (!state.piOAuthHooks) throw unavailable("OAuth sign-in requires the Workspace desktop integration. You can use an API key for this provider instead.");
+    if (!state.piOAuthHooks) throw unavailable("Provider account sign-in requires the Workspace desktop app. You can use an API key for this provider instead.");
     const body = await readJsonBody<{ workspaceId?: string; provider?: string; model?: string }>(state, req);
     const workspace = await configuredWorkspace(body.workspaceId, body.provider, body.model);
     await loginPiOAuth(workspace.rootPath, body.provider!, state.piOAuthHooks, state.runtimeProvider);
@@ -1289,10 +1289,43 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   const conversationMatch = match(url.pathname, /^\/api\/workspaces\/([^/]+)\/conversations\/([^/]+)$/);
   if (conversationMatch && (method === "PUT" || method === "PATCH")) {
     const workspace = await getWorkspace(conversationMatch[1]);
-    const body = await readJsonBody<{ title?: string }>(state, req);
-    const conversation = await renameConversation(workspace.rootPath, conversationMatch[2], body.title ?? "");
-    state.clients.get(clientKey(workspace.id, conversationMatch[2]))?.setSessionName(conversation.title);
+    const conversationId = conversationMatch[2];
+    const body = await readJsonBody<{ title?: string; archived?: boolean; snoozedUntil?: string | null }>(state, req);
+    const changes = [
+      body.title !== undefined,
+      body.archived !== undefined,
+      body.snoozedUntil !== undefined,
+    ].filter(Boolean).length;
+    if (changes !== 1) throw badRequest("Change exactly one Chat title, archive state, or snooze time.");
+    if (body.title !== undefined && typeof body.title !== "string") throw badRequest("Chat title must be text.");
+    if (body.archived !== undefined && typeof body.archived !== "boolean") throw badRequest("Archived state must be true or false.");
+    if (body.snoozedUntil !== undefined && body.snoozedUntil !== null) {
+      if (typeof body.snoozedUntil !== "string" || !Number.isFinite(Date.parse(body.snoozedUntil))) {
+        throw badRequest("Snooze time is invalid.");
+      }
+      if (Date.parse(body.snoozedUntil) <= Date.now()) throw badRequest("Choose a future snooze time.");
+    }
+    const key = clientKey(workspace.id, conversationId);
+    if (state.runningTurns.has(key)) throw httpError(409, "Wait for the current Assistant turn to finish.");
+    if (state.compactingConversations.has(key)) throw httpError(409, "Wait for the current Chat compaction to finish.");
+    const conversation = body.title !== undefined
+      ? await renameConversation(workspace.rootPath, conversationId, body.title)
+      : await updateConversationLifecycle(workspace.rootPath, conversationId, {
+          ...(body.archived !== undefined ? { archived: body.archived } : {}),
+          ...(body.snoozedUntil !== undefined ? { snoozedUntil: body.snoozedUntil } : {}),
+        });
+    if (body.title !== undefined) state.clients.get(key)?.setSessionName(conversation.title);
     sendJson(res, { conversation });
+    return;
+  }
+
+  const conversationRuntimeMatch = match(url.pathname, /^\/api\/workspaces\/([^/]+)\/conversations\/([^/]+)\/runtime$/);
+  if (conversationRuntimeMatch && method === "GET") {
+    const workspace = await getWorkspace(conversationRuntimeMatch[1]);
+    const conversationId = conversationRuntimeMatch[2];
+    if (!(await readConversation(workspace.rootPath, conversationId)).length) throw notFound("Conversation not found.");
+    const client = await getClient(state, workspace.id, workspace.rootPath, conversationId);
+    sendJson(res, { runtime: await client.getState() });
     return;
   }
 
@@ -1322,8 +1355,12 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     if (!content) throw badRequest("Message content is required.");
     const selectedPath = normalizeSelectedPath(workspace.rootPath, body.selectedPath);
     const contextPaths = normalizeContextPaths(workspace.rootPath, body.contextPaths);
-    const existing = await readConversation(workspace.rootPath, conversationId);
-    if (!existing.length) throw notFound("Conversation not found.");
+    const existing = await readConversationSummary(workspace.rootPath, conversationId);
+    if (!existing) throw notFound("Conversation not found.");
+    if (existing.archivedAt) throw httpError(409, "Restore this Chat before sending another message.");
+    if (existing.snoozedUntil && Date.parse(existing.snoozedUntil) > Date.now()) {
+      throw httpError(409, "Resume this Chat before sending another message.");
+    }
     assertNoCapabilityMutationForTurn(state, workspace.id);
     if (state.compactingConversations.has(turnKey)) throw httpError(409, "Wait for the current Chat compaction to finish.");
     if (state.runningTurns.has(turnKey)) throw httpError(409, "Wait for the current agent turn to finish.");

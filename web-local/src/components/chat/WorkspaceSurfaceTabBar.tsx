@@ -2,32 +2,37 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, 
 import { ChevronDown16Regular, Dismiss12Regular } from "@fluentui/react-icons";
 
 import { chatDisplayTitle } from "../../lib/format";
+import { chatActivityKey } from "../../lib/chat-lifecycle";
 import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
 import { workspaceIdentityFor, workspaceIdentityStyle } from "../../lib/workspace-identity";
 import { surfacePanelDomId, surfaceTabDomId } from "../../lib/workspace-ui";
-import type { ConversationSummary, WorkspaceCustomizationMap, WorkspaceSummary, WorkspaceSurfaceTab } from "../../types";
+import type { ChatActivityStatus, ConversationSummary, WorkspaceCustomizationMap, WorkspaceSummary, WorkspaceSurfaceTab } from "../../types";
 import { FluentGlyph, NewChatIcon, WorkspaceIconGlyph } from "../chrome/common";
 
 export function WorkspaceSurfaceTabBar({
   tabs,
   workspaces,
   workspaceCustomizations,
+  conversations,
+  chatActivityStatuses,
   activeTabId,
   newChatWorkspaceId,
   onActivate,
   onClose,
   onNewChatInWorkspace,
-  onRenameChat,
+  onChatActions,
 }: {
   tabs: WorkspaceSurfaceTab[];
   workspaces: WorkspaceSummary[];
   workspaceCustomizations: WorkspaceCustomizationMap;
+  conversations: Record<string, ConversationSummary[]>;
+  chatActivityStatuses: Record<string, ChatActivityStatus>;
   activeTabId: string | null;
   newChatWorkspaceId: string;
   onActivate: (tabId: string) => void;
   onClose: (tabId: string) => void;
   onNewChatInWorkspace: (workspace: WorkspaceSummary) => void;
-  onRenameChat: (workspace: WorkspaceSummary, conversation: ConversationSummary, event: ReactMouseEvent) => void;
+  onChatActions: (workspace: WorkspaceSummary, conversation: ConversationSummary, event: ReactMouseEvent<HTMLElement>) => void;
 }) {
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const menuAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -114,15 +119,22 @@ export function WorkspaceSurfaceTabBar({
           const identity = workspaceIdentityFor(resolvedWorkspace, workspaceCustomizations);
           const Icon = identity.Icon;
           const style = workspaceIdentityStyle(identity);
+          const activity = tab.kind === "chat" && tab.conversationId
+            ? chatActivityStatuses[chatActivityKey(tab.workspaceId, tab.conversationId)]
+            : undefined;
+          const conversation = tab.kind === "chat" && tab.conversationId
+            ? conversations[tab.workspaceId]?.find((item) => item.id === tab.conversationId)
+            : undefined;
+          const activityLabel = activity === "running" ? "Assistant working" : activity === "attention" ? "Assistant finished" : "";
           return (
             <span
-              className={tab.id === activeTabId ? "surface-tab active" : "surface-tab"}
+              className={["surface-tab", tab.id === activeTabId ? "active" : "", activity ? `chat-${activity}` : ""].filter(Boolean).join(" ")}
               key={tab.id}
               style={style}
-              title={`${tab.title} - ${workspaceName}`}
+              title={`${tab.title} - ${workspaceName}${activityLabel ? ` · ${activityLabel}` : ""}`}
               onContextMenu={(event) => {
                 if (tab.kind !== "chat" || !tab.conversationId) return;
-                onRenameChat(resolvedWorkspace, {
+                onChatActions(resolvedWorkspace, conversation ?? {
                   id: tab.conversationId,
                   title: chatDisplayTitle({ serverTitle: tab.title }),
                   updatedAt: new Date().toISOString(),
@@ -141,7 +153,7 @@ export function WorkspaceSurfaceTabBar({
                 role="tab"
                 aria-selected={tab.id === activeTabId}
                 aria-controls={surfacePanelDomId(tab.id)}
-                aria-label={`${tab.title} in ${workspaceName}`}
+                aria-label={`${tab.title} in ${workspaceName}${activityLabel ? `, ${activityLabel}` : ""}`}
                 tabIndex={tab.id === activeTabId ? 0 : -1}
                 onClick={() => onActivate(tab.id)}
               >
@@ -149,6 +161,7 @@ export function WorkspaceSurfaceTabBar({
                 <span className="surface-tab-copy">
                   <span className="surface-tab-title">{tab.title}</span>
                 </span>
+                {activity ? <span className={`surface-tab-chat-status ${activity}`} aria-hidden="true" /> : null}
               </button>
               <button
                 className="surface-tab-close"

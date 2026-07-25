@@ -20,6 +20,7 @@ Do not export or commit the certificate, private key, app-specific password, or 
    npm ci
    npm run check
    npm test
+   npm audit --audit-level=high
    ```
 
 3. Confirm the worktree is clean and `HEAD` is pushed to `origin/main`.
@@ -38,7 +39,7 @@ Do not export or commit the certificate, private key, app-specific password, or 
 
 7. Open Workspace normally and check **Settings > About** and **Workspace > Check for Updates...**.
 
-The publisher refuses a dirty/unpushed source tree, a source tag that does not point at the exact release commit, a missing/draft/incomplete Windows source release, a private Mac feed, an existing Mac tag, an unsigned manifest, a missing asset, or any remote size/digest mismatch. It uploads a draft first and publishes only after every Mac asset's GitHub SHA-256 matches the local file.
+The publisher refuses a dirty/unpushed source tree, a source tag that does not point at the exact release commit, a missing/draft/incomplete Windows source release, a private Mac feed, an existing Mac tag, an unsigned manifest, a missing asset, or any remote size/digest mismatch. Installer-only artwork is generated under ignored `out/` build output so the release build cannot dirty its own source checkout. The publisher uploads a draft first and publishes only after every Mac asset's GitHub SHA-256 matches the local file.
 
 ## Updater evidence
 

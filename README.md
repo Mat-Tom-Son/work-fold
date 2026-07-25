@@ -49,7 +49,9 @@ Workspace reserves two hidden support directories inside a Space: `.workspace/` 
 - Creating a new Space or turning an existing local folder into a Space, including folders synchronized by tools such as Google Drive for desktop.
 - Space file browsing, uploads, previews, chat attachments, and ordinary-folder access.
 - A personal Library for organizing reusable files and copying them into Spaces when needed.
-- Pi's normal built-in tools, provider/model selection, authentication, prompt templates, context files, and packages.
+- Pi's normal built-in tools, provider/model selection, API-key and supported provider OAuth authentication, prompt templates, context files, and packages.
+- Chat composer discovery for installed Skills, prompts, Extension commands, and supported built-ins, plus active-model and context-window visibility.
+- Active, snoozed, and archived Chat views with automatic resurfacing, undoable lifecycle actions, read-only deferred transcripts, and quiet running/finished indicators for background work.
 - One Capabilities surface for installed Skills and Extensions, official/reference sources, community Pi packages, provenance, scope, diagnostics, update, and removal.
 - Global and registered-Space Pi Extensions. Native Pi Extensions run with the current user's permissions.
 - Validated declarative Extension surfaces that can contribute an app rail destination, navigator pane, and Space-bound data views without injecting Extension code into the renderer.
@@ -62,7 +64,7 @@ Workspace reserves two hidden support directories inside a Space: `.workspace/` 
 
 Workspace does not bundle organization-specific tools, instructions, document libraries, or cloud accounts.
 
-Current desktop boundaries: Google Drive works through a Drive-for-desktop folder rather than native cloud mirroring, and first-run model-provider setup uses API keys. General native provider OAuth and direct Drive API sync are intentionally left for later provider-adapter releases. Restricted apps already have a separate, app-scoped OAuth PKCE connection lane for providers that publish compatible public-client metadata.
+Current desktop boundaries: Google Drive works through a Drive-for-desktop folder rather than native cloud mirroring. Settings offers API-key setup and Pi's OAuth flow for providers that advertise one, but account-tier, billing, and packaged-flow support remain provider-specific claims that require release verification. Direct Drive API sync is intentionally left for a later provider-adapter release. Restricted apps have a separate, app-scoped OAuth PKCE connection lane for providers that publish compatible public-client metadata.
 
 For the durable design rationale, context rules, and roadmap, see [Product model and roadmap](docs/product-model.md). For the shared control plane, CLI, and real-agent driver, see [Workspace management layer](docs/management-layer.md). For scopes, trust, Skill packs, Extensions, and packages, see [Assistant capabilities](docs/assistant-capabilities.md). The [desktop experience parity contract](docs/ui-parity.md) records the mature interactions this extraction must preserve, while the [visual system](docs/visual-design.md) defines the restrained shell, typography, icon, and layout rules.
 
@@ -200,6 +202,7 @@ See [Assistant capabilities](docs/assistant-capabilities.md) for the product-fac
 ## Documentation map
 
 - [Product model and roadmap](docs/product-model.md) — durable nouns, context rules, product rails, and future direction.
+- [T3 Code reference audit](docs/t3code-reference-audit.md) — transferable workbench ideas, overlap, and the ranked adaptation plan.
 - [Architecture](docs/architecture.md) and [management layer](docs/management-layer.md) — runtime boundaries, shared kernel, CLI, and agent harness.
 - [Assistant capabilities](docs/assistant-capabilities.md), [Extension surfaces](docs/extension-surfaces.md), [restricted app authoring](docs/restricted-app-authoring.md), [restricted app runtime](docs/restricted-app-runtime.md), and [Pi compatibility](docs/pi-resources.md) — Skills, full-trust Extensions, restricted apps, packages, scopes, authoring, and authorization.
 - [Workspace 0.2.11 release notes](docs/releases/0.2.11.md) — first-request native Mac Quit behavior, the deferred graceful-shutdown coordinator, updater safety, and upgrade guidance.

@@ -181,6 +181,50 @@ test("local API exposes path-safe file operations, undo checkpoints, chat rename
   assert.equal(renamed.conversation.title, "Planning notes");
   assert.equal(existsSync(join(workspaceConversationDir(rootPath), `${conversation.conversation.id}.jsonl`)), true);
 
+  const archived = await json(`${api.origin}/api/workspaces/${id}/conversations/${conversation.conversation.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ archived: true }),
+  }) as { conversation: { archivedAt: string | null; snoozedUntil: string | null } };
+  assert.ok(archived.conversation.archivedAt);
+  assert.equal(archived.conversation.snoozedUntil, null);
+
+  const restored = await json(`${api.origin}/api/workspaces/${id}/conversations/${conversation.conversation.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ archived: false }),
+  }) as { conversation: { archivedAt: string | null } };
+  assert.equal(restored.conversation.archivedAt, null);
+
+  const snoozedUntil = new Date(Date.now() + 60 * 60 * 1_000).toISOString();
+  const snoozed = await json(`${api.origin}/api/workspaces/${id}/conversations/${conversation.conversation.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ snoozedUntil }),
+  }) as { conversation: { snoozedUntil: string | null } };
+  assert.equal(snoozed.conversation.snoozedUntil, snoozedUntil);
+
+  const rejectedSnoozedTurn = await fetch(`${api.origin}/api/workspaces/${id}/conversations/${conversation.conversation.id}/messages`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ content: "Do not continue this deferred Chat yet.", contextPaths: [] }),
+  });
+  assert.equal(rejectedSnoozedTurn.status, 409);
+  assert.match(await rejectedSnoozedTurn.text(), /Resume this Chat/);
+
+  const invalidLifecycleMutation = await fetch(`${api.origin}/api/workspaces/${id}/conversations/${conversation.conversation.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ archived: true, snoozedUntil: null }),
+  });
+  assert.equal(invalidLifecycleMutation.status, 400);
+
+  await ok(`${api.origin}/api/workspaces/${id}/conversations/${conversation.conversation.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ snoozedUntil: null }),
+  });
+
   const rejectedTurn = await fetch(`${api.origin}/api/workspaces/${id}/conversations/${conversation.conversation.id}/messages`, {
     method: "POST",
     headers: { "content-type": "application/json" },

@@ -67,6 +67,7 @@ import {
   workspaceStartupRecoveryPlan,
   type WorkspaceStartupRecoveryPlan,
 } from "./startup-recovery.js";
+import { createDesktopPiOAuthHooks } from "./pi-oauth.js";
 import { AppLifetimeResource } from "./app-lifetime-resource.js";
 import {
   nativeFileMenuItems,
@@ -528,6 +529,13 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
       sessionToken: apiSessionToken,
       allowedOrigins: [`${appProtocol}://app`],
       piRuntimeProvider: host.runtime,
+      piOAuthHooks: createDesktopPiOAuthHooks({
+        openExternal,
+        readClipboard: () => clipboard.readText(),
+        writeClipboard: (value) => clipboard.writeText(value),
+        showMessageBox: (options) => dialog.showMessageBox(options),
+        onError: (error) => console.warn(`${productName} provider sign-in UI failed: ${errorMessage(error)}`),
+      }),
       spaceTrustAuthority: host.spaceTrustAuthority,
       extensionUiBridge: host.extensionUi,
       kernel: host.kernel,

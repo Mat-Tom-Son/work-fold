@@ -100,7 +100,7 @@ module.exports = {
     artifactName: "Workspace-${version}-mac-${arch}.${ext}",
     title: "Workspace ${version}",
     icon: path.join(root, "desktop", "assets", "icon.icns"),
-    background: path.join(root, "desktop", "assets", "dmg-background.png"),
+    background: path.join(root, "out", "generated-assets", "dmg-background.png"),
     iconSize: 112,
     iconTextSize: 14,
     window: {

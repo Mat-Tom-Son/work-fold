@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type * as React from "react";
 import { ArrowDown20Regular, ArrowUp20Regular } from "@fluentui/react-icons";
-import { AlertTriangle, CircleCheck, Loader2, Square, X } from "lucide-react";
+import { AlertTriangle, Archive, CircleCheck, Clock3, Loader2, Square, X } from "lucide-react";
 
 import { agentActivityLogLimit, assistantName, chatDraftDebounceMs, genericChatEmptyGreetings, workspacePathDragType } from "../../constants";
 import { createFixtureContextAttachment, fixtureAgentActivityEvents, fixtureConversationSummary } from "../../fixtures/shared";
@@ -11,15 +11,36 @@ import { chatDisplayTitle, chatDraftStorageKey, clearStoredChatDraft, formatByte
 import { dismissRestrictedAppProposal, installRestrictedAppProposal } from "../../lib/restricted-apps";
 import { resolveFixtureWorkspacePathCandidates } from "../../lib/workspace-path-links";
 import { workspaceIdentityFor, workspaceIdentityStyle, type WorkspaceIdentity } from "../../lib/workspace-identity";
-import type { AgentActivityEvent, AgentActivityLogEntry, ChatContextPathRequest, ChatMessage, ChatStreamEvent, ContextAttachment, ConversationSummary, ExtensionUiRequest, PendingChatSend, RestrictedAppInstalled, RestrictedAppProposal, RuntimePreviewEntry, TreeEntry, WorkspaceCustomizationMap, WorkspaceFixtureConversation, WorkspaceSummary } from "../../types";
+import type { AgentActivityEvent, AgentActivityLogEntry, AgentCatalog, AgentCommand, ChatContextPathRequest, ChatLifecycleView, ChatMessage, ChatStreamEvent, ContextAttachment, ConversationRuntime, ConversationSummary, ExtensionUiRequest, PendingChatSend, RestrictedAppInstalled, RestrictedAppProposal, RuntimePreviewEntry, TreeEntry, WorkspaceCustomizationMap, WorkspaceFixtureConversation, WorkspaceSummary } from "../../types";
 import { Banner, FluentGlyph, WorkspaceIconGlyph } from "../chrome/common";
 import { RestrictedAppReviewDialog } from "../panes/RestrictedAppsSection";
 import { FileTypeIcon } from "../tree/FileTree";
 import { AgentActivityLog, AgentActivityTicker, RuntimeContextPreview, activityRecapKey, normalizeAgentActivityEvent, shouldKeepActivityRecap } from "./activity";
+import { composerCommandQuery, composerCommandValue, matchingComposerCommands } from "./command-menu";
 import { ChatMessageRow, MarkdownMessage, copyMarkdownToClipboard } from "./messages";
 import { showToast } from "../../ui/feedback";
 
 const emptyFixtureTreeEntries: TreeEntry[] = [];
+const fixtureComposerCommands: AgentCommand[] = [
+  { name: "skill:trip-planner", description: "Plan a trip from confirmed details and preferences", source: "skill" },
+  { name: "compact", description: "Compact this Chat's working context", source: "builtin" },
+  { name: "model", description: "Choose the model for this Chat", source: "builtin" },
+];
+const fixtureConversationRuntime: ConversationRuntime = {
+  sessionId: "fixture-session",
+  model: { provider: "fixture", id: "workspace-assistant", name: "Workspace Assistant" },
+  usage: {
+    contextTokens: 18_400,
+    contextWindow: 128_000,
+    contextPercent: 14.375,
+    totalTokens: 26_700,
+    cost: 0,
+  },
+  thinkingLevel: "medium",
+  activeTools: [],
+  isStreaming: false,
+  isCompacting: false,
+};
 
 export function ChatPanel({
   surfaceTabId,
@@ -34,6 +55,11 @@ export function ChatPanel({
   selectedPath,
   onConversationActivated,
   onConversationsChanged,
+  onRunningChange,
+  onSettled,
+  onViewed,
+  lifecycleView = "active",
+  onResumeConversation,
   onAgentFinished,
   onRestrictedAppInstalled,
   onRestrictedAppProposalRequested,
@@ -53,6 +79,11 @@ export function ChatPanel({
   selectedPath: string | null;
   onConversationActivated?: (conversation: ConversationSummary | null) => void;
   onConversationsChanged?: (conversations: ConversationSummary[]) => void;
+  onRunningChange?: (conversationId: string, running: boolean) => void;
+  onSettled?: (conversationId: string, needsAttention: boolean) => void;
+  onViewed?: (conversationId: string) => void;
+  lifecycleView?: ChatLifecycleView;
+  onResumeConversation?: () => void | Promise<void>;
   onAgentFinished: () => void | Promise<void>;
   onRestrictedAppInstalled?: (app: RestrictedAppInstalled) => void;
   onRestrictedAppProposalRequested?: () => void;
@@ -61,6 +92,14 @@ export function ChatPanel({
   fixtureTreeEntries?: TreeEntry[];
 }) {
   const [conversation, setConversation] = useState<ConversationSummary | null>(null);
+  const activeRef = useRef(active);
+  const onRunningChangeRef = useRef(onRunningChange);
+  const onSettledRef = useRef(onSettled);
+  const onViewedRef = useRef(onViewed);
+  activeRef.current = active;
+  onRunningChangeRef.current = onRunningChange;
+  onSettledRef.current = onSettled;
+  onViewedRef.current = onViewed;
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const conversationsRef = useRef<ConversationSummary[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -79,6 +118,10 @@ export function ChatPanel({
   const [activeContextPath, setActiveContextPath] = useState<string | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [commands, setCommands] = useState<AgentCommand[]>([]);
+  const [activeCommandIndex, setActiveCommandIndex] = useState(0);
+  const [dismissedCommandDraft, setDismissedCommandDraft] = useState<string | null>(null);
+  const [conversationRuntime, setConversationRuntime] = useState<ConversationRuntime | null>(null);
   const [extensionRequest, setExtensionRequest] = useState<ExtensionUiRequest | null>(null);
   const [appProposal, setAppProposal] = useState<RestrictedAppProposal | null>(null);
   const [appProposalBusy, setAppProposalBusy] = useState(false);
@@ -88,6 +131,14 @@ export function ChatPanel({
     () => workspaceIdentityFor(workspace, workspaceCustomizations),
     [workspace, workspaceCustomizations],
   );
+
+  useEffect(() => {
+    if (conversation?.id) onRunningChangeRef.current?.(conversation.id, running);
+  }, [conversation?.id, running]);
+
+  useEffect(() => {
+    if (active && conversation?.id) onViewedRef.current?.(conversation.id);
+  }, [active, conversation?.id]);
   const [userPinnedToBottom, setUserPinnedToBottom] = useState(true);
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
@@ -124,6 +175,14 @@ export function ChatPanel({
     () => runtimePreviews.map((entry) => `${entry.id}:${entry.phase ?? ""}:${entry.text.length}`).join("|"),
     [runtimePreviews],
   );
+  const commandQuery = useMemo(() => composerCommandQuery(draft), [draft]);
+  const commandSuggestions = useMemo(
+    () => commandQuery === null ? [] : matchingComposerCommands(commands, commandQuery),
+    [commandQuery, commands],
+  );
+  const commandMenuOpen = commandQuery !== null
+    && dismissedCommandDraft !== draft
+    && commandSuggestions.length > 0;
   runningRef.current = running;
 
   function commitConversations(next: ConversationSummary[] | ((current: ConversationSummary[]) => ConversationSummary[])): void {
@@ -183,6 +242,53 @@ export function ChatPanel({
     if (fixtureMode) return;
     void loadConversationList();
   }, [workspace.id, fixtureMode]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCommands([]);
+    if (fixtureMode) {
+      setCommands(fixtureComposerCommands);
+      return;
+    }
+    void api<AgentCatalog>(`/api/workspaces/${workspace.id}/agent/catalog`)
+      .then((catalog) => {
+        if (!cancelled) setCommands(catalog.commands ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setCommands([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspace.id, fixtureMode]);
+
+  useEffect(() => {
+    setActiveCommandIndex(0);
+  }, [commandQuery, commands]);
+
+  useEffect(() => {
+    setConversationRuntime(null);
+  }, [workspace.id, conversation?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const conversationId = conversation?.id;
+    if (!conversationId || messages.length === 0) {
+      setConversationRuntime(null);
+      return;
+    }
+    if (running) return;
+    if (fixtureMode) {
+      setConversationRuntime(fixtureConversationRuntime);
+      return;
+    }
+    void loadConversationRuntime(conversationId).then((runtime) => {
+      if (!cancelled) setConversationRuntime(runtime);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspace.id, conversation?.id, messages.length, running, fixtureMode]);
 
   useEffect(() => {
     if (!fixtureMode) return;
@@ -319,6 +425,7 @@ export function ChatPanel({
           setConversation(null);
           commitConversations((current) => current.filter((item) => item.id !== conversationId));
         }
+        reportChatSettled(conversationId);
       } else {
         setError(errorText(streamError));
       }
@@ -344,6 +451,7 @@ export function ChatPanel({
           runningRef.current = false;
           void loadMessages(conversationId, false, { settleStreamingTurn: true });
           void onAgentFinished();
+          reportChatSettled(conversationId);
         }
       }
       if (data.type === "tool") {
@@ -397,6 +505,7 @@ export function ChatPanel({
         runningRef.current = false;
         setRunning(false);
         scheduleEventClear();
+        reportChatSettled(conversationId);
       }
       if (data.type === "done") {
         runningRef.current = false;
@@ -407,6 +516,7 @@ export function ChatPanel({
         // arrives, then swap in one commit so the reply never blinks out.
         void loadMessages(conversationId, false, { settleStreamingTurn: true });
         void onAgentFinished();
+        reportChatSettled(conversationId);
       }
     };
     return () => {
@@ -615,6 +725,10 @@ export function ChatPanel({
     eventClearTimerRef.current = null;
   }
 
+  function reportChatSettled(conversationId: string): void {
+    onSettledRef.current?.(conversationId, !activeRef.current);
+  }
+
   function cancelScriptPlayback() {
     if (scriptPlaybackTimerRef.current !== null) {
       window.clearTimeout(scriptPlaybackTimerRef.current);
@@ -685,6 +799,7 @@ export function ChatPanel({
       setActivityRecap(seededEvents);
       setRuntimePreviews(conversation.runtimePreviews ?? []);
       scriptPlaybackStateRef.current = "done";
+      reportChatSettled(conversation.id);
     };
 
     const streamChunk = (index: number) => {
@@ -837,6 +952,17 @@ export function ChatPanel({
   const hasRuntimePreview = runtimePreviews.length > 0;
   const hasTranscript = messages.length > 0 || Boolean(streamingAssistant) || hasRuntimePreview || running;
 
+  async function loadConversationRuntime(conversationId: string): Promise<ConversationRuntime | null> {
+    try {
+      const result = await api<{ runtime: ConversationRuntime }>(
+        `/api/workspaces/${workspace.id}/conversations/${conversationId}/runtime`,
+      );
+      return result.runtime;
+    } catch {
+      return null;
+    }
+  }
+
   async function loadMessages(conversationId: string, pinToBottom = false, options: { settleStreamingTurn?: boolean } = {}) {
     const settleStreamingTurn = options.settleStreamingTurn ?? false;
     try {
@@ -944,6 +1070,7 @@ export function ChatPanel({
           },
         ]);
         setRunning(false);
+        reportChatSettled(fixtureConversation.id);
       }, 240);
       return;
     }
@@ -1070,6 +1197,7 @@ export function ChatPanel({
     try {
       await api<{ compacted: boolean }>(`/api/workspaces/${workspace.id}/conversations/${conversation.id}/compact`, { method: "POST" });
       setRunning(false);
+      setConversationRuntime(await loadConversationRuntime(conversation.id));
       addAgentEvent({ message: "Chat context compacted", phase: "complete" });
       scheduleEventClear();
     } catch (compactError) {
@@ -1244,6 +1372,30 @@ export function ChatPanel({
     });
   }
 
+  function chooseComposerCommand(command: AgentCommand): void {
+    const value = composerCommandValue(command);
+    setDraft(value);
+    setDismissedCommandDraft(value);
+    window.requestAnimationFrame(() => {
+      composerTextareaRef.current?.focus();
+      composerTextareaRef.current?.setSelectionRange(value.length, value.length);
+    });
+  }
+
+  function toggleComposerCommands(): void {
+    if (commandMenuOpen) {
+      setDismissedCommandDraft(draft);
+      return;
+    }
+    if (draft && commandQuery === null) {
+      composerTextareaRef.current?.focus();
+      return;
+    }
+    setDraft("/");
+    setDismissedCommandDraft(null);
+    window.requestAnimationFrame(() => composerTextareaRef.current?.focus());
+  }
+
   return (
     <section
       className="panel chat-panel"
@@ -1306,8 +1458,23 @@ export function ChatPanel({
           </button>
         ) : null}
       </div>
+      {lifecycleView !== "active" ? (
+        <div className={`chat-lifecycle-gate ${lifecycleView}`} role="note">
+          <span className="chat-lifecycle-gate-icon" aria-hidden="true">
+            {lifecycleView === "archived" ? <Archive size={16} /> : <Clock3 size={16} />}
+          </span>
+          <span>
+            <strong>{lifecycleView === "archived" ? "This Chat is archived" : "This Chat is snoozed"}</strong>
+            <small>{lifecycleView === "archived" ? "Restore it before continuing the conversation." : "Resume it now to continue before its scheduled return."}</small>
+          </span>
+          <button type="button" onClick={() => void onResumeConversation?.()}>
+            {lifecycleView === "archived" ? "Restore" : "Resume now"}
+          </button>
+        </div>
+      ) : null}
       <form
         className={dragActive ? "composer composer-drop-active" : "composer"}
+        hidden={lifecycleView !== "active"}
         onDragEnter={handleComposerDragEnter}
         onDragOver={handleComposerDragOver}
         onDragLeave={handleComposerDragLeave}
@@ -1391,13 +1558,61 @@ export function ChatPanel({
           </div>
         ) : null}
         <div className="composer-input-shell">
+          {commandMenuOpen ? (
+            <div className="composer-command-menu" role="listbox" aria-label="Assistant commands">
+              <div className="composer-command-menu-heading">
+                <span>Commands and Skills</span>
+                <kbd>Enter</kbd>
+              </div>
+              {commandSuggestions.map((command, index) => (
+                <button
+                  className={index === activeCommandIndex ? "active" : ""}
+                  type="button"
+                  role="option"
+                  aria-selected={index === activeCommandIndex}
+                  key={`${command.source}:${command.name}`}
+                  onMouseEnter={() => setActiveCommandIndex(index)}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => chooseComposerCommand(command)}
+                >
+                  <span className="composer-command-name">/{command.name}</span>
+                  <span className="composer-command-description">{command.description || commandSourceLabel(command.source)}</span>
+                  <span className={`composer-command-source ${command.source}`}>{commandSourceLabel(command.source)}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
           <textarea
             ref={composerTextareaRef}
             aria-label="Message Assistant"
             rows={2}
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              if (event.target.value !== dismissedCommandDraft) setDismissedCommandDraft(null);
+            }}
             onKeyDown={(event) => {
+              if (commandMenuOpen && event.key === "ArrowDown") {
+                event.preventDefault();
+                setActiveCommandIndex((current) => (current + 1) % commandSuggestions.length);
+                return;
+              }
+              if (commandMenuOpen && event.key === "ArrowUp") {
+                event.preventDefault();
+                setActiveCommandIndex((current) => (current - 1 + commandSuggestions.length) % commandSuggestions.length);
+                return;
+              }
+              if (commandMenuOpen && (event.key === "Enter" || event.key === "Tab")) {
+                event.preventDefault();
+                const command = commandSuggestions[activeCommandIndex];
+                if (command) chooseComposerCommand(command);
+                return;
+              }
+              if (commandMenuOpen && event.key === "Escape") {
+                event.preventDefault();
+                setDismissedCommandDraft(draft);
+                return;
+              }
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
                 if (draft.trim() && !running) void sendMessage();
@@ -1405,6 +1620,19 @@ export function ChatPanel({
             }}
             placeholder="Message Assistant"
           />
+          <div className="composer-capability-bar">
+            <button
+              className={commandMenuOpen ? "composer-command-trigger active" : "composer-command-trigger"}
+              type="button"
+              onClick={toggleComposerCommands}
+              aria-expanded={commandMenuOpen}
+              title="Browse Assistant commands and Skills"
+            >
+              <span aria-hidden="true">/</span>
+              <span>Commands</span>
+            </button>
+            {conversationRuntime ? <ConversationContextMeter runtime={conversationRuntime} /> : null}
+          </div>
           {running ? (
             <button className="send-button stop-send-button" type="button" onClick={() => void abortTurn()} aria-label="Stop Assistant" title="Stop Assistant">
               <Square size={15} />
@@ -1420,6 +1648,52 @@ export function ChatPanel({
       {appProposal ? <RestrictedAppReviewDialog review={appProposal.review} sourcePath={appProposal.sourcePath} updating={false} busy={appProposalBusy} installDisabled={running} closeLabel="Decline" onInstall={() => void installAppProposal()} onClose={() => void dismissAppProposal()} /> : null}
     </section>
   );
+}
+
+function ConversationContextMeter({ runtime }: { runtime: ConversationRuntime }) {
+  const percent = runtime.usage.contextPercent === null
+    ? null
+    : Math.max(0, Math.min(100, runtime.usage.contextPercent));
+  const contextLabel = runtime.usage.contextTokens === null
+    ? "Context recalculates after the next reply"
+    : `${formatTokenCount(runtime.usage.contextTokens)} of ${formatTokenCount(runtime.usage.contextWindow)} context`;
+  const modelLabel = runtime.model?.name ?? runtime.model?.id ?? "Assistant";
+  const title = [
+    modelLabel,
+    contextLabel,
+    `${formatTokenCount(runtime.usage.totalTokens)} processed this Chat`,
+  ].join(" · ");
+  return (
+    <div
+      className={`conversation-context-meter${percent !== null && percent >= 85 ? " warning" : ""}`}
+      role="status"
+      aria-label={title}
+      title={title}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle className="track" cx="12" cy="12" r="9" pathLength="100" />
+        {percent !== null ? <circle className="value" cx="12" cy="12" r="9" pathLength="100" strokeDasharray={`${percent} 100`} /> : null}
+      </svg>
+      <span className="conversation-context-model">{modelLabel}</span>
+      <span className="conversation-context-value">
+        {percent === null ? "Context —" : `${Math.round(percent)}%`}
+      </span>
+    </div>
+  );
+}
+
+function commandSourceLabel(source: AgentCommand["source"]): string {
+  if (source === "skill") return "Skill";
+  if (source === "prompt") return "Prompt";
+  if (source === "extension") return "Extension";
+  return "Built-in";
+}
+
+function formatTokenCount(value: number | null): string {
+  if (value === null) return "unknown";
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1).replace(/\.0$/, "")}m`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1).replace(/\.0$/, "")}k`;
+  return value.toLocaleString();
 }
 
 function ExtensionRequestDialog({ request, onRespond }: { request: ExtensionUiRequest; onRespond: (value: unknown, cancelled?: boolean) => Promise<void> }) {

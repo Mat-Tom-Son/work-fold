@@ -1,6 +1,6 @@
 # Privacy
 
-Last updated: July 16, 2026
+Last updated: July 25, 2026
 
 Workspace is a local-first desktop application. It does not require a Workspace account, and the current application does not include first-party analytics, advertising, or usage telemetry.
 
@@ -11,8 +11,8 @@ This document describes the behavior of the open-source Workspace application. M
 By default, Workspace stores:
 
 - Space files in the ordinary folders the user creates or registers.
-- A hidden `.workspace/` directory inside each Space. Its `space.json` file stores the portable Space identity, and its `conversations/` directory stores that Space's Chat records.
-- Library materials, the Space registry, History objects, ignore rules, and application settings under the local Workspace application-data directory.
+- A hidden `.workspace/` directory inside each Space. Its `space.json` file stores the portable Space identity, and its `conversations/` directory stores that Space's append-only Chat records, including title, archive, and snooze lifecycle events.
+- Library materials, the Space registry, History objects, ignore rules, application settings, and machine-local Chat attention acknowledgements under the local Workspace application-data directory or browser-backed application storage.
 - Pi settings, sessions, Pi's independent trust decisions, personal Skills, Extensions, and packages under the configured Pi agent directory, normally `~/.pi/agent`.
 - Provider credentials in an application-scoped file encrypted through Electron's operating-system-backed `safeStorage`. Workspace refuses credential operations when that encryption is unavailable.
 - Restricted-app Development-preview receipts and package snapshots; machine-local App Project identity and presentation; immutable content-addressed Release envelopes; prepared/published state; install/update operation journals; local App Instance records; per-automation enablement/cadence state and bounded run receipts; retained-data records; and Tenant-and-Data-Namespace-owned JSON storage under the application-data `restricted-apps` directory. Separately encrypted restricted-app connections bind their exact runtime and installation identities in `restricted-app-connections.bin`.

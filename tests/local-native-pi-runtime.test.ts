@@ -283,7 +283,11 @@ test("native Pi host discovers trusted project extensions, skills, context, comm
   assert.equal(uiEvent.message, "pong");
   assert.match(await client.prompt("/trust no"), /Remove the Space from Workspace to revoke it/);
   assert.equal(new ProjectTrustStore(agentDir).get(workspaceRoot), true, "hosted /trust must not mutate Space trust mid-turn");
-  const sessionBefore = (await client.getState()).sessionId;
+  const runtimeState = await client.getState();
+  const sessionBefore = runtimeState.sessionId;
+  assert.equal(Number.isFinite(runtimeState.usage.totalTokens), true);
+  assert.equal(Number.isFinite(runtimeState.usage.cost), true);
+  assert.equal(runtimeState.usage.contextWindow === null || runtimeState.usage.contextWindow > 0, true);
   assert.match(await client.prompt("/new"), /unavailable because Workspace keeps the visible chat transcript synchronized/);
   assert.equal((await client.getState()).sessionId, sessionBefore);
 });

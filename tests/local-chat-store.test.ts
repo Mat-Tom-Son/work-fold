@@ -10,6 +10,7 @@ import {
   listConversations,
   readConversation,
   renameConversation,
+  updateConversationLifecycle,
   type ChatMessage,
 } from "../src/local/agent/chat-store.js";
 import { configureWorkspaceStateRoot, legacyWorkspaceConversationDir } from "../src/local/state-paths.js";
@@ -187,6 +188,52 @@ test("chat store manual conversation title overrides generated landing title", a
   const summaries = await listConversations(workspaceRoot);
   assert.equal(summaries[0]?.title, "Manual Document Rename");
   assert.ok((await readConversation(workspaceRoot, "chat-manual-title")).some((item) => item.kind === "conversation_title" && item.content === "Manual Document Rename"));
+});
+
+test("chat store persists archive and snooze state as append-only lifecycle events", async (t) => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-lifecycle-"));
+  t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+
+  await appendMessage(workspaceRoot, "chat-lifecycle", message("1", "Review the launch checklist."));
+  const before = (await listConversations(workspaceRoot))[0]!;
+  const archived = await updateConversationLifecycle(workspaceRoot, "chat-lifecycle", { archived: true });
+  assert.ok(archived.archivedAt);
+  assert.equal(archived.snoozedUntil, null);
+  assert.equal(archived.updatedAt, before.updatedAt, "lifecycle bookkeeping must not make a Chat look newly active");
+
+  const restored = await updateConversationLifecycle(workspaceRoot, "chat-lifecycle", { archived: false });
+  assert.equal(restored.archivedAt, null);
+  const snoozedUntil = new Date(Date.now() + 60 * 60 * 1_000).toISOString();
+  const snoozed = await updateConversationLifecycle(workspaceRoot, "chat-lifecycle", { snoozedUntil });
+  assert.equal(snoozed.snoozedUntil, snoozedUntil);
+  assert.equal(snoozed.updatedAt, before.updatedAt);
+
+  const resumed = await updateConversationLifecycle(workspaceRoot, "chat-lifecycle", { snoozedUntil: null });
+  assert.equal(resumed.snoozedUntil, null);
+  const lifecycleEvents = (await readConversation(workspaceRoot, "chat-lifecycle"))
+    .filter((item) => item.kind === "conversation_lifecycle");
+  assert.deepEqual(lifecycleEvents.map((item) => item.lifecycle), [
+    { archived: true, snoozedUntil: null },
+    { archived: false },
+    { snoozedUntil },
+    { snoozedUntil: null },
+  ]);
+});
+
+test("chat store rejects past snoozes and snoozing archived Chats", async (t) => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-lifecycle-invalid-"));
+  t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+
+  await appendMessage(workspaceRoot, "chat-lifecycle-invalid", message("1", "Keep this for later."));
+  await assert.rejects(
+    () => updateConversationLifecycle(workspaceRoot, "chat-lifecycle-invalid", { snoozedUntil: "2020-01-01T00:00:00.000Z" }),
+    /future snooze time/,
+  );
+  await updateConversationLifecycle(workspaceRoot, "chat-lifecycle-invalid", { archived: true });
+  await assert.rejects(
+    () => updateConversationLifecycle(workspaceRoot, "chat-lifecycle-invalid", { snoozedUntil: new Date(Date.now() + 3_600_000).toISOString() }),
+    /Unarchive this Chat/,
+  );
 });
 
 test("chat store keeps messages when landing metadata is malformed", async (t) => {

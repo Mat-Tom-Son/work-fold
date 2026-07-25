@@ -22,6 +22,21 @@ test("Electron Builder packages executable CLI shims outside ASAR and includes P
   assert.equal(builder.electronFuses.runAsNode, false);
 });
 
+test("macOS DMG artwork is generated outside the tracked source tree", async () => {
+  assert.equal(
+    builder.dmg.background,
+    join(rootDir, "out", "generated-assets", "dmg-background.png"),
+  );
+
+  const [generator, preflight] = await Promise.all([
+    read("scripts/generate-dmg-background.mjs"),
+    read("scripts/desktop-preflight.mjs"),
+  ]);
+  assert.match(generator, /join\(rootDir, "out", "generated-assets"\)/);
+  assert.doesNotMatch(generator, /join\(assetsDir, "dmg-background\.png"\)/);
+  assert.match(preflight, /out\/generated-assets\/dmg-background\.png/);
+});
+
 test("retained Forge packaging mirrors the package-root CLI bin layout", async () => {
   const hooks = forge.packagerConfig.afterComplete;
   assert.equal(Array.isArray(hooks), true);

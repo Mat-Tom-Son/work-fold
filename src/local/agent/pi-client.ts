@@ -72,6 +72,13 @@ export interface PiConversationState {
   sessionFile?: string;
   sessionName?: string;
   model?: { provider: string; id: string; name: string };
+  usage: {
+    contextTokens: number | null;
+    contextWindow: number | null;
+    contextPercent: number | null;
+    totalTokens: number;
+    cost: number;
+  };
   thinkingLevel: string;
   activeTools: string[];
   isStreaming: boolean;
@@ -184,6 +191,9 @@ export class PiConversationClient extends EventEmitter {
 
   async getState(): Promise<PiConversationState> {
     const session = await this.ensureSession();
+    const stats = session.getSessionStats();
+    const contextUsage = stats.contextUsage;
+    const modelContextWindow = session.model?.contextWindow;
     return {
       sessionId: session.sessionId,
       ...(session.sessionFile ? { sessionFile: session.sessionFile } : {}),
@@ -191,6 +201,14 @@ export class PiConversationClient extends EventEmitter {
       ...(session.model ? {
         model: { provider: session.model.provider, id: session.model.id, name: session.model.name },
       } : {}),
+      usage: {
+        contextTokens: contextUsage?.tokens ?? null,
+        contextWindow: contextUsage?.contextWindow
+          ?? (modelContextWindow && modelContextWindow > 0 ? modelContextWindow : null),
+        contextPercent: contextUsage?.percent ?? null,
+        totalTokens: stats.tokens.total,
+        cost: stats.cost,
+      },
       thinkingLevel: session.thinkingLevel,
       activeTools: session.getActiveToolNames(),
       isStreaming: session.isStreaming,

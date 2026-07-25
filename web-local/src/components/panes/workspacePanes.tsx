@@ -17,6 +17,7 @@ import {
   Color16Regular,
   Copy16Regular,
   Delete16Regular,
+  Dismiss16Regular,
   Edit16Regular,
   Folder16Regular,
   Folder20Regular,
@@ -27,13 +28,17 @@ import {
   History20Regular,
   Library20Regular,
   ShieldCheckmark16Regular,
+  MoreHorizontal16Regular,
 } from "@fluentui/react-icons";
 import { api, apiForm, errorText } from "../../lib/api";
+import { chatActivityKey, chatSnoozeTimeLabel, conversationLifecycleView, isRecentlyResurfaced } from "../../lib/chat-lifecycle";
 import { formatChatListTime, formatItemCount } from "../../lib/format";
 import { workspaceIdentityFor, workspaceIdentityStyle } from "../../lib/workspace-identity";
 import type {
   AgentModel,
   AgentStatus,
+  ChatActivityStatus,
+  ChatLifecycleView,
   ConversationSummary,
   TreeEntry,
   WorkspaceCheckpoint,
@@ -131,7 +136,8 @@ export function ChatsPane({
   activeConversationId,
   onOpen,
   onNew,
-  onRename,
+  onActions,
+  activityStatuses,
 }: {
   workspace: WorkspaceSummary;
   workspaces: WorkspaceSummary[];
@@ -140,22 +146,91 @@ export function ChatsPane({
   activeConversationId?: string | null;
   onOpen: (workspace: WorkspaceSummary, conversation: ConversationSummary) => void;
   onNew: (workspace: WorkspaceSummary) => void;
-  onRename: (workspace: WorkspaceSummary, conversation: ConversationSummary, event: React.MouseEvent) => void;
+  onActions: (workspace: WorkspaceSummary, conversation: ConversationSummary, event: React.MouseEvent<HTMLElement>) => void;
+  activityStatuses: Record<string, ChatActivityStatus>;
 }) {
   const [query, setQuery] = useState("");
+  const [view, setView] = useState<ChatLifecycleView>("active");
+  const [now, setNow] = useState(() => Date.now());
   const normalized = query.trim().toLocaleLowerCase();
+  const allConversations = Object.values(conversations).flat();
+  const counts = {
+    active: allConversations.filter((chat) => conversationLifecycleView(chat, now) === "active").length,
+    snoozed: allConversations.filter((chat) => conversationLifecycleView(chat, now) === "snoozed").length,
+    archived: allConversations.filter((chat) => conversationLifecycleView(chat, now) === "archived").length,
+  };
+
+  useEffect(() => {
+    if (!allConversations.some((chat) => conversationLifecycleView(chat, now) === "snoozed")) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, [allConversations.map((chat) => chat.snoozedUntil ?? "").join("|"), now]);
 
   return (
     <div className="workspace-pane-content chats-pane professional-surface professional-chats">
       <div className="file-tree-toolbar professional-pane-toolbar">
         <label className="file-tree-search">
           <Chat16Regular />
-          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Chats" aria-label="Search Chats" />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && query) {
+                event.preventDefault();
+                setQuery("");
+              }
+            }}
+            placeholder="Search Chats"
+            aria-label="Search Chats"
+          />
+          {query ? <button type="button" onClick={() => setQuery("")} aria-label="Clear Chat search" title="Clear Chat search"><Dismiss16Regular /></button> : null}
         </label>
+      </div>
+      <div
+        className="chat-lifecycle-tabs"
+        role="tablist"
+        aria-label="Chat view"
+        onKeyDown={(event) => {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          const views: ChatLifecycleView[] = ["active", "snoozed", "archived"];
+          const currentIndex = views.indexOf(view);
+          const nextIndex = event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? views.length - 1
+              : event.key === "ArrowRight"
+                ? (currentIndex + 1) % views.length
+                : (currentIndex - 1 + views.length) % views.length;
+          const tablist = event.currentTarget;
+          event.preventDefault();
+          setView(views[nextIndex]!);
+          window.requestAnimationFrame(() => {
+            tablist.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus();
+          });
+        }}
+      >
+        {(["active", "snoozed", "archived"] as ChatLifecycleView[]).map((item) => (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === item}
+            tabIndex={view === item ? 0 : -1}
+            className={view === item ? "active" : ""}
+            key={item}
+            onClick={() => setView(item)}
+          >
+            <span>{item[0]!.toUpperCase() + item.slice(1)}</span>
+            <small>{counts[item]}</small>
+          </button>
+        ))}
       </div>
       <div className="chat-workspace-groups">
         {[workspace, ...workspaces.filter((item) => item.id !== workspace.id)].map((item) => {
-          const list = (conversations[item.id] ?? []).filter((chat) => !normalized || chat.title.toLocaleLowerCase().includes(normalized));
+          const list = (conversations[item.id] ?? []).filter((chat) =>
+            conversationLifecycleView(chat, now) === view
+            && (!normalized || chat.title.toLocaleLowerCase().includes(normalized)));
+          if (!list.length && item.id !== workspace.id) return null;
           const identity = workspaceIdentityFor(item, customizations);
           return (
             <section className="chat-workspace-group" key={item.id} style={workspaceIdentityStyle(identity)}>
@@ -165,13 +240,51 @@ export function ChatsPane({
                 <button className="minimal-icon-button" type="button" onClick={() => onNew(item)} aria-label={`New Chat in ${item.name}`} title="New Chat"><Chat16Regular /></button>
               </div>
               <div className={item.id === workspace.id ? "chat-workspace-list chat-workspace-list-current" : "chat-workspace-list"}>
-                {list.map((chat) => (
-                  <button className={chat.id === activeConversationId ? "chat-workspace-row active" : "chat-workspace-row"} type="button" key={chat.id} onClick={() => onOpen(item, chat)} onContextMenu={(event) => { event.preventDefault(); onRename(item, chat, event); }}>
-                    <span className="chat-workspace-row-title">{chat.title}</span>
-                    <span className="chat-workspace-row-time">{formatChatListTime(chat.updatedAt)}</span>
-                  </button>
-                ))}
-                {!list.length ? <span className="chat-workspace-empty">{normalized ? "No matching Chats" : "No Chats yet"}</span> : null}
+                {list.map((chat) => {
+                  const status = activityStatuses[chatActivityKey(item.id, chat.id)];
+                  const resurfaced = view === "active" && isRecentlyResurfaced(chat, now);
+                  const secondary = view === "snoozed" && chat.snoozedUntil
+                    ? chatSnoozeTimeLabel(chat.snoozedUntil)
+                    : view === "archived" && chat.archivedAt
+                      ? `Archived ${formatChatListTime(chat.archivedAt)}`
+                      : resurfaced
+                        ? "Back now"
+                        : formatChatListTime(chat.updatedAt);
+                  return (
+                    <div
+                      className={[
+                        "chat-workspace-row-shell",
+                        chat.id === activeConversationId ? "active" : "",
+                        status ? `status-${status}` : "",
+                        resurfaced ? "resurfaced" : "",
+                      ].filter(Boolean).join(" ")}
+                      key={chat.id}
+                      onContextMenu={(event) => { event.preventDefault(); onActions(item, chat, event); }}
+                    >
+                      <button className="chat-workspace-row" type="button" onClick={() => onOpen(item, chat)}>
+                        <span className="chat-workspace-row-title">{chat.title}</span>
+                        <span className="chat-workspace-row-meta">
+                          {status ? <ChatActivityIndicator status={status} /> : null}
+                          <span className="chat-workspace-row-time">{secondary}</span>
+                        </span>
+                      </button>
+                      <button
+                        className="chat-workspace-row-actions"
+                        type="button"
+                        aria-label={`Actions for ${chat.title}`}
+                        title="Chat actions"
+                        onClick={(event) => onActions(item, chat, event)}
+                      >
+                        <MoreHorizontal16Regular />
+                      </button>
+                    </div>
+                  );
+                })}
+                {!list.length ? (
+                  <span className="chat-workspace-empty">
+                    {normalized ? `No ${view} Chats match` : chatViewEmptyLabel(view)}
+                  </span>
+                ) : null}
               </div>
             </section>
           );
@@ -179,6 +292,21 @@ export function ChatsPane({
       </div>
     </div>
   );
+}
+
+function ChatActivityIndicator({ status }: { status: ChatActivityStatus }) {
+  return (
+    <span className={`chat-activity-indicator ${status}`} role="status">
+      <span aria-hidden="true" />
+      <span className="sr-only">{status === "running" ? "Assistant working" : "New Assistant response"}</span>
+    </span>
+  );
+}
+
+function chatViewEmptyLabel(view: ChatLifecycleView): string {
+  if (view === "snoozed") return "No snoozed Chats";
+  if (view === "archived") return "No archived Chats";
+  return "No active Chats yet";
 }
 
 export function LibraryPane({ workspace, fixtureTree, onError }: { workspace: WorkspaceSummary; fixtureTree?: TreeEntry[]; onError: (message: string | null) => void }) {
@@ -381,10 +509,12 @@ export function AssistantSetupPane({ workspace, status, fixtureMode = false, emb
       .finally(() => setLoading(false));
   }, [fixtureMode, workspace.id]);
 
-  const providers = unique(models.map((item) => item.provider)).sort();
+  const providers = unique(models.map((item) => item.provider)).sort((left, right) =>
+    providerDisplayName(models, left).localeCompare(providerDisplayName(models, right)));
   const providerModels = models.filter((item) => item.provider === provider);
   const oauthSupported = providerModels.some((item) => item.oauthSupported);
   const authConfigured = providerModels.some((item) => item.authConfigured);
+  const subscriptionNote = oauthSupported ? providerSubscriptionNote(provider) : null;
 
   useEffect(() => {
     if (!providerModels.some((item) => item.id === model)) setModel(providerModels[0]?.id ?? "");
@@ -420,7 +550,7 @@ export function AssistantSetupPane({ workspace, status, fixtureMode = false, emb
             {error ? <div className="inline-error" role="alert">{error}</div> : null}
             <label className="professional-field">
               <span className="professional-field-label">Provider</span>
-              <select value={provider} onChange={(event) => { setProvider(event.target.value); setModel(""); }}>{providers.map((item) => <option key={item}>{item}</option>)}</select>
+              <select value={provider} onChange={(event) => { setProvider(event.target.value); setModel(""); }}>{providers.map((item) => <option value={item} key={item}>{providerDisplayName(models, item)}</option>)}</select>
             </label>
             <label className="professional-field">
               <span className="professional-field-label">Model</span>
@@ -435,8 +565,9 @@ export function AssistantSetupPane({ workspace, status, fixtureMode = false, emb
               <button className="professional-button professional-button-primary" type="submit" disabled={saving || !model || (!authConfigured && !apiKey.trim())}>
                 {saving ? <ArrowSync16Regular className="spin" /> : <Checkmark16Regular />}Save setup
               </button>
-              {oauthSupported ? <button className="professional-button professional-button-secondary" type="button" onClick={() => void configure(true)} disabled={saving}>Connect with OAuth</button> : null}
+              {oauthSupported ? <button className="professional-button professional-button-secondary" type="button" onClick={() => void configure(true)} disabled={saving}>{authConfigured ? "Reconnect account" : "Connect account"}</button> : null}
             </div>
+            {subscriptionNote ? <p className="security-note professional-field-wide"><ShieldCheckmark16Regular />{subscriptionNote}</p> : null}
             <p className="security-note professional-field-wide"><ShieldCheckmark16Regular />Creating or registering a Space allows its local Pi configuration. Review packages separately before installing them.</p>
           </form>
         )}
@@ -475,6 +606,10 @@ function LoadingRow({ label }: { label: string }) {
 }
 
 function unique<T>(items: T[]) { return [...new Set(items)]; }
+function providerDisplayName(models: AgentModel[], provider: string) { return models.find((item) => item.provider === provider)?.providerName || provider; }
+function providerSubscriptionNote(_provider: string) {
+  return "Workspace opens the provider's sign-in flow in your system browser and stores the resulting tokens in its encrypted desktop credential store. Availability and billing follow that provider's current account terms.";
+}
 function formatDate(value: string) { return new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); }
 function findTreeEntry(entries: TreeEntry[], path: string): TreeEntry | null { for (const entry of entries) { if (entry.path === path) return entry; const child = entry.children ? findTreeEntry(entry.children, path) : null; if (child) return child; } return null; }
 function filterTree(entries: TreeEntry[], query: string): TreeEntry[] { return entries.flatMap((entry) => { const children = entry.children ? filterTree(entry.children, query) : []; return entry.name.toLocaleLowerCase().includes(query) || children.length ? [{ ...entry, children }] : []; }); }

@@ -4,8 +4,9 @@ import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const outDir = join(rootDir, "desktop", "assets");
-const iconPath = join(outDir, "icon.png");
+const assetsDir = join(rootDir, "desktop", "assets");
+const outDir = join(rootDir, "out", "generated-assets");
+const iconPath = join(assetsDir, "icon.png");
 
 await mkdir(outDir, { recursive: true });
 
@@ -37,4 +38,4 @@ await sharp(background)
   .png()
   .toFile(join(outDir, "dmg-background.png"));
 
-console.log(`Generated Workspace DMG background in ${outDir}`);
+console.log(`Generated Workspace DMG background at ${join(outDir, "dmg-background.png")}`);

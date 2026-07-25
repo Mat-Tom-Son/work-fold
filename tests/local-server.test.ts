@@ -73,6 +73,58 @@ test("local API covers Space files, the Library, and external restore points", a
   }
 });
 
+test("conversation runtime snapshots expose model and context state without transcript contents", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "workspace-runtime-snapshot-test-"));
+  const api = await startLocalApi({
+    port: 0,
+    stateBase: join(sandbox, "state"),
+    workspaceBase: join(sandbox, "content"),
+    loadEnv: false,
+    piRuntimeProvider: {
+      async resolveRuntime() {
+        return { agentDir: join(sandbox, "agent") };
+      },
+    },
+  });
+  try {
+    const created = await json(`${api.origin}/api/workspaces`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Runtime Space" }),
+    }) as { workspace: { id: string } };
+    const conversation = await json(`${api.origin}/api/workspaces/${created.workspace.id}/conversations`, {
+      method: "POST",
+    }) as { conversation: { id: string } };
+    const result = await json(
+      `${api.origin}/api/workspaces/${created.workspace.id}/conversations/${conversation.conversation.id}/runtime`,
+    ) as {
+      runtime: {
+        sessionId: string;
+        usage: {
+          contextTokens: number | null;
+          contextWindow: number | null;
+          contextPercent: number | null;
+          totalTokens: number;
+          cost: number;
+        };
+      };
+    };
+
+    assert.ok(result.runtime.sessionId);
+    assert.deepEqual(Object.keys(result.runtime.usage).sort(), [
+      "contextPercent",
+      "contextTokens",
+      "contextWindow",
+      "cost",
+      "totalTokens",
+    ]);
+    assert.equal(result.runtime.usage.totalTokens, 0);
+  } finally {
+    await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
 test("desktop linked folders require the exact one-shot picker grant", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "workspace-desktop-grant-test-"));
   const linkedRoot = join(sandbox, "linked");
