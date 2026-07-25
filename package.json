@@ -1,6 +1,6 @@
 {
   "name": "workspace-desktop",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "type": "module",
   "description": "A local-first desktop workspace powered by Pi.",
@@ -35,7 +35,7 @@
     "desktop:prepare": "npm run desktop:icons && npm run local:build && npm run desktop:compile && npm run desktop:restricted-app:smoke && npm run desktop:preflight",
     "desktop:package": "npm run desktop:prepare && electron-forge package && node scripts/verify-packaged-app-assets.mjs --package-dir out/Workspace-win32-x64",
     "desktop:package:smoke": "npm run desktop:prepare && electron-builder --config electron-builder.desktop.cjs --win --x64 --dir --publish never && npm run desktop:verify:packaged-assets -- --package-dir out/builder/win-unpacked",
-    "desktop:make": "npm run desktop:prepare && electron-builder --config electron-builder.desktop.cjs --win nsis --publish never && npm run desktop:verify:release",
+    "desktop:make": "npm run desktop:prepare && electron-builder --config electron-builder.desktop.cjs --win nsis --x64 --publish never && npm run desktop:verify:release",
     "desktop:make:mac": "node scripts/build-mac-desktop.mjs --unsigned-smoke",
     "desktop:make:mac:release": "node scripts/build-mac-desktop.mjs --release",
     "desktop:publish:mac": "node scripts/publish-mac-release.mjs",

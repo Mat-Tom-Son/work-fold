@@ -299,7 +299,11 @@ async function runSmoke() {
       await storage.get(storageOwner, "active-storage-event") === true
       && await storage.get(storageOwner, "reset-storage-event") === true
       && await storage.get(storageOwner, "automation-storage-event-count") === 1
-    ), "the active app view did not receive its coalesced storage event");
+    ), async () => `the active app view did not receive its coalesced storage event: ${JSON.stringify({
+      active: await storage.get(storageOwner, "active-storage-event"),
+      reset: await storage.get(storageOwner, "reset-storage-event"),
+      count: await storage.get(storageOwner, "automation-storage-event-count"),
+    })}`, 15_000);
     assert.equal(await storage.get(storageOwner, "active-storage-event"), true, "automation storage changes reach the active owning UI");
     assert.equal(await storage.get(storageOwner, "reset-storage-event"), true, "more than 128 coalesced keys produce a bounded reset hint");
     assert.equal(await storage.get(storageOwner, "automation-storage-event-count"), 1, "coalesced automation mutations emit once");
@@ -359,7 +363,7 @@ async function waitFor(predicate, message, timeoutMs = 5_000) {
     if (await predicate()) return;
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
   }
-  assert.fail(message);
+  assert.fail(typeof message === "function" ? await message() : message);
 }
 
 async function writeSmokePackage(root, loopbackPort) {

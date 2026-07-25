@@ -33,6 +33,8 @@ test("Windows release configuration points at the public Workspace update feed",
   assert.equal(packageJson.repository.url, "https://github.com/Mat-Tom-Son/workspace.git");
   assert.equal(packageJson.dependencies["electron-updater"], "6.8.9");
   assert.match(packageJson.scripts["desktop:make"], /electron-builder/);
+  assert.match(packageJson.scripts["desktop:make"], /--win nsis --x64/, "the NSIS target and x64 architecture must use Electron Builder's supported argument order");
+  assert.match(packageJson.scripts["desktop:make"], /--x64/, "the Windows release candidate must not inherit the build host architecture");
   assert.doesNotMatch(packageJson.scripts["desktop:make"], /prepackaged/);
   assert.deepEqual(builder.publish, [{
     provider: "github",
