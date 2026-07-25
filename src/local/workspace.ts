@@ -403,18 +403,33 @@ export async function workspaceRemovalPendingResult(
   };
 }
 
+export interface WorkspaceTreeScan {
+  entries: TreeEntry[];
+  /** True when the entry budget stopped the walk before the folder was exhausted. */
+  truncated: boolean;
+}
+
+interface TreeScanBudget {
+  remaining: number;
+  truncated: boolean;
+}
+
 export async function scanWorkspaceTree(
   rootPath: string,
   maxDepth = 20,
   relativePath = "",
   options: WorkspaceTreeOptions = {},
-): Promise<TreeEntry[]> {
+): Promise<WorkspaceTreeScan> {
   const safeRoot = ensureSafeWorkspaceRoot(rootPath);
   const scanRoot = resolveWorkspacePath(safeRoot, relativePath || ".");
   const info = await stat(scanRoot).catch(() => null);
   if (!info?.isDirectory()) throw new Error("Requested Space tree path is not a folder.");
   const ignoreState = await readWorkspaceIgnoreState(safeRoot);
-  return scanDirectory(
+  // A Space is an arbitrary folder and may hold far more entries than a
+  // navigator can present. The walk stops at a total entry budget and says so,
+  // so a partial tree is never mistaken for the whole Space.
+  const budget: TreeScanBudget = { remaining: maxTreeEntries(), truncated: false };
+  const entries = await scanDirectory(
     safeRoot,
     scanRoot,
     0,
@@ -422,7 +437,14 @@ export async function scanWorkspaceTree(
     ignoreState.patterns,
     options.includeIgnored !== false,
     createFilesystemLimiter(treeScanConcurrency),
+    budget,
   );
+  return { entries, truncated: budget.truncated };
+}
+
+function maxTreeEntries(): number {
+  const configured = Number(process.env.WORKSPACE_TREE_MAX_ENTRIES);
+  return Number.isFinite(configured) && configured >= 1 ? Math.floor(configured) : 20_000;
 }
 
 export async function readWorkspaceTextFile(rootPath: string, relativePath: string): Promise<{ text: string }> {
@@ -1047,7 +1069,12 @@ async function scanDirectory(
   ignorePatterns: string[],
   includeIgnored: boolean,
   limit: FilesystemLimiter,
+  budget: TreeScanBudget,
 ): Promise<TreeEntry[]> {
+  if (budget.remaining <= 0) {
+    budget.truncated = true;
+    return [];
+  }
   const entries = (await limit(() => readdir(directory, { withFileTypes: true })))
     .filter((entry) => !entry.isSymbolicLink() && !isAlwaysHiddenWorkspaceEntry(entry.name) && !isOfficeLockFileName(entry.name))
     .filter((entry) => entry.isDirectory() || entry.isFile());
@@ -1070,11 +1097,20 @@ async function scanDirectory(
   const result: TreeEntry[] = [];
   for (const item of inspected) {
     if (!item) continue;
+    if (budget.remaining <= 0) {
+      budget.truncated = true;
+      break;
+    }
+    budget.remaining -= 1;
     if (item.entry.isDirectory()) {
       const childrenLoaded = depth < maxDepth;
       const children = childrenLoaded
-        ? await scanDirectory(root, item.path, depth + 1, maxDepth, ignorePatterns, includeIgnored, limit)
+        ? await scanDirectory(root, item.path, depth + 1, maxDepth, ignorePatterns, includeIgnored, limit, budget)
         : [];
+      // An empty child list means "no children" only when the walk was free to
+      // look. If the budget ran out first, the folder has to be probed, or a
+      // folder that does have contents would present as an empty one.
+      const childrenAreComplete = childrenLoaded && budget.remaining > 0;
       const descendantIgnoredCount = children.reduce((total, child) => total + (child.ignored ? 1 : 0) + (child.descendantIgnoredCount ?? 0), 0);
       result.push({
         name: item.entry.name,
@@ -1083,9 +1119,9 @@ async function scanDirectory(
         updatedAt: item.info.mtime.toISOString(),
         ...(item.ignored ? { ignored: true } : {}),
         ...(descendantIgnoredCount ? { descendantIgnoredCount } : {}),
-        hasChildren: childrenLoaded
+        hasChildren: childrenAreComplete
           ? children.length > 0
-          : await directoryHasVisibleEntries(root, item.path, ignorePatterns, includeIgnored, limit),
+          : children.length > 0 || await directoryHasVisibleEntries(root, item.path, ignorePatterns, includeIgnored, limit),
         children,
       });
     } else {
@@ -1130,13 +1166,18 @@ function createFilesystemLimiter(limit: number): FilesystemLimiter {
   let active = 0;
   const waiting: Array<() => void> = [];
   return async <T>(task: () => Promise<T>): Promise<T> => {
+    // A finished task hands its slot directly to the next waiter instead of
+    // releasing it and waking one. Releasing first lets a fresh caller claim
+    // the free slot before the woken waiter resumes, so both proceed and the
+    // cap is exceeded.
     if (active >= limit) await new Promise<void>((resolve) => waiting.push(resolve));
-    active += 1;
+    else active += 1;
     try {
       return await task();
     } finally {
-      active -= 1;
-      waiting.shift()?.();
+      const next = waiting.shift();
+      if (next) next();
+      else active -= 1;
     }
   };
 }

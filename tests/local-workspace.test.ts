@@ -60,7 +60,7 @@ test("managed Spaces keep portable identity metadata inside a hidden .workspace 
 
   assert.equal(uploaded[0]?.path, "Notes/notes.txt");
   assert.equal((await readWorkspaceTextFile(workspace.rootPath, "Notes/notes.txt")).text, "hello workspace\n");
-  assert.equal((await scanWorkspaceTree(workspace.rootPath))[0]?.name, "Notes");
+  assert.equal((await scanWorkspaceTree(workspace.rootPath)).entries[0]?.name, "Notes");
   const currentWorkspace = (await listWorkspaces()).find((item) => item.id === workspace.id);
   assert.ok(currentWorkspace);
   assert.equal(existsSync(workspaceManifestFile(workspace.rootPath)), true);
@@ -89,7 +89,7 @@ test("linked Google Drive folders keep portable metadata hidden from Files", asy
   assert.equal(workspace.location.providerHint, "google-drive");
   assert.equal(await readFile(existingFile, "utf8"), "original");
   assert.equal(existsSync(workspaceManifestFile(linkedRoot)), true);
-  assert.equal((await scanWorkspaceTree(linkedRoot))[0]?.path, "existing.txt");
+  assert.equal((await scanWorkspaceTree(linkedRoot)).entries[0]?.path, "existing.txt");
 });
 
 test("a moved linked folder preserves its manifest identity when it is relinked", async () => {
@@ -494,7 +494,7 @@ test("the Space tree keeps a stable order under batched inspection and survives 
   await Promise.all(names.map((name) => writeFile(join(sandbox, name), name, "utf8")));
   await mkdir(join(sandbox, "zeta-folder"), { recursive: true });
 
-  const tree = await scanWorkspaceTree(sandbox, 2);
+  const tree = (await scanWorkspaceTree(sandbox, 2)).entries;
   assert.deepEqual(
     tree.map((entry) => entry.name),
     ["zeta-folder", ...names],
@@ -511,9 +511,41 @@ test("the Space tree keeps a stable order under batched inspection and survives 
     return;
   }
 
-  const degraded = await scanWorkspaceTree(sandbox, 2);
+  const degraded = (await scanWorkspaceTree(sandbox, 2)).entries;
   const unreadable = degraded.find((entry) => entry.name === "unreadable");
   assert.equal(unreadable?.kind, "folder");
   assert.deepEqual(unreadable?.children, [], "children that cannot be inspected are skipped");
   assert.equal(degraded.filter((entry) => entry.kind === "file").length, names.length, "the rest of the Space still lists");
 });
+
+test("the Space tree stops at its entry budget and reports a partial listing", async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), "workspace-tree-budget-"));
+  const previous = process.env.WORKSPACE_TREE_MAX_ENTRIES;
+  process.env.WORKSPACE_TREE_MAX_ENTRIES = "5";
+  t.after(async () => {
+    if (previous === undefined) delete process.env.WORKSPACE_TREE_MAX_ENTRIES;
+    else process.env.WORKSPACE_TREE_MAX_ENTRIES = previous;
+    await rm(sandbox, { recursive: true, force: true });
+  });
+
+  await mkdir(join(sandbox, "nested"), { recursive: true });
+  await Promise.all([
+    ...Array.from({ length: 8 }, (_, index) => writeFile(join(sandbox, `top-${index}.txt`), "x", "utf8")),
+    ...Array.from({ length: 8 }, (_, index) => writeFile(join(sandbox, "nested", `deep-${index}.txt`), "x", "utf8")),
+  ]);
+
+  const capped = await scanWorkspaceTree(sandbox, 5);
+  assert.equal(capped.truncated, true, "reaching the budget is disclosed rather than silently trimming");
+  assert.ok(countTreeEntries(capped.entries) <= 5, `budget must bound total entries, saw ${countTreeEntries(capped.entries)}`);
+
+  // The budget spans the whole walk, not each folder, so a deep Space cannot
+  // multiply it by depth.
+  process.env.WORKSPACE_TREE_MAX_ENTRIES = "1000";
+  const whole = await scanWorkspaceTree(sandbox, 5);
+  assert.equal(whole.truncated, false);
+  assert.equal(countTreeEntries(whole.entries), 17, "8 top files + nested folder + 8 nested files");
+});
+
+function countTreeEntries(entries: Awaited<ReturnType<typeof scanWorkspaceTree>>["entries"]): number {
+  return entries.reduce((total, entry) => total + 1 + countTreeEntries(entry.children ?? []), 0);
+}

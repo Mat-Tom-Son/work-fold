@@ -42,6 +42,7 @@ export async function createDomHarness(): Promise<DomHarness> {
   const { act } = await import("react");
   const { createRoot } = await import("react-dom/client");
 
+  let disposed = false;
   const container = dom.window.document.createElement("div");
   dom.window.document.body.append(container);
   const root = createRoot(container);
@@ -66,7 +67,11 @@ export async function createDomHarness(): Promise<DomHarness> {
       });
     },
     settle,
+    // Tests register cleanup with t.after and may also tear down mid-test to
+    // start a second harness, so this has to be safe to call twice.
     cleanup: async () => {
+      if (disposed) return;
+      disposed = true;
       await act(async () => { root.unmount(); });
       container.remove();
       dom.window.close();

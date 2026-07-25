@@ -870,14 +870,13 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const workspace = await getWorkspace(treeMatch[1]);
     const maxDepthValue = Number(url.searchParams.get("maxDepth") ?? 20);
     const maxDepth = Number.isFinite(maxDepthValue) ? Math.min(Math.max(Math.floor(maxDepthValue), 0), 50) : 20;
-    sendJson(res, {
-      tree: await scanWorkspaceTree(
-        workspace.rootPath,
-        maxDepth,
-        url.searchParams.get("path") ?? "",
-        { includeIgnored: url.searchParams.get("includeIgnored") !== "0" },
-      ),
-    });
+    const scan = await scanWorkspaceTree(
+      workspace.rootPath,
+      maxDepth,
+      url.searchParams.get("path") ?? "",
+      { includeIgnored: url.searchParams.get("includeIgnored") !== "0" },
+    );
+    sendJson(res, { tree: scan.entries, truncated: scan.truncated });
     return;
   }
 

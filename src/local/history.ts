@@ -325,7 +325,11 @@ async function capturePaths(root: string, requestedPaths: string[], full: boolea
   const directories = new Set<string>();
   const files = new Map<string, CheckpointFileEntry>();
   const skipped = new Map<string, CheckpointSkippedFile>();
-  const reusableDigests = await buildCaptureReuseIndex(root);
+  // Only a whole-Space capture amortizes the index across enough files to be
+  // worth reading manifests for. A targeted capture already touches a handful
+  // of paths, and building an index for it would make every ordinary file
+  // mutation parse a manifest describing the entire Space.
+  const reusableDigests = full ? await buildCaptureReuseIndex(root) : new Map<string, string>();
   const visit = async (absolutePath: string): Promise<void> => {
     const info = await lstat(absolutePath).catch(() => null);
     if (!info) return;

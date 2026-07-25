@@ -13,7 +13,7 @@ import {
 
 export async function listResourceTree(): Promise<TreeEntry[]> {
   const root = await ensureResourceRoot();
-  return scanWorkspaceTree(root);
+  return (await scanWorkspaceTree(root)).entries;
 }
 
 export async function createResourceFolder(parentPath: string, name: string): Promise<{ path: string }> {

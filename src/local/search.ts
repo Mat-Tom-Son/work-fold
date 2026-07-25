@@ -41,6 +41,8 @@ const defaultMaxMatches = 200;
 const defaultMaxScannedFiles = 5_000;
 const defaultMaxFileBytes = 1024 * 1024;
 const maxQueryLength = 200;
+const maxSearchDepth = 32;
+const maxSearchedConversations = 500;
 const previewRadius = 80;
 const maxPreviewLength = 240;
 
@@ -89,6 +91,10 @@ interface SearchState {
   truncated: boolean;
 }
 
+function searchExhausted(bounds: SearchBounds, state: SearchState): boolean {
+  return state.files.length >= bounds.maxMatches || state.scannedFiles >= bounds.maxScannedFiles;
+}
+
 async function searchFiles(
   root: string,
   directory: string,
@@ -96,11 +102,22 @@ async function searchFiles(
   ignorePatterns: string[],
   bounds: SearchBounds,
   state: SearchState,
+  depth = 0,
 ): Promise<void> {
-  if (state.files.length >= bounds.maxMatches) return;
+  if (searchExhausted(bounds, state)) return;
+  if (depth > maxSearchDepth) {
+    state.truncated = true;
+    return;
+  }
   const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
   for (const entry of entries) {
-    if (state.files.length >= bounds.maxMatches) return;
+    // Checked per entry, not just per directory: a bound reached deep in one
+    // subtree must stop the whole walk rather than let every sibling folder
+    // rediscover it.
+    if (searchExhausted(bounds, state)) {
+      state.truncated = true;
+      return;
+    }
     if (entry.isSymbolicLink() || isAlwaysHiddenWorkspaceEntry(entry.name) || isOfficeLockFileName(entry.name)) continue;
     const path = join(directory, entry.name);
     const relativePath = toPosix(relative(root, path));
@@ -108,14 +125,10 @@ async function searchFiles(
     // the Files surface, so an excluded dependency tree stays excluded here.
     if (isWorkspaceIgnored(relativePath, ignorePatterns)) continue;
     if (entry.isDirectory()) {
-      await searchFiles(root, path, needle, ignorePatterns, bounds, state);
+      await searchFiles(root, path, needle, ignorePatterns, bounds, state, depth + 1);
       continue;
     }
     if (!entry.isFile()) continue;
-    if (state.scannedFiles >= bounds.maxScannedFiles) {
-      state.truncated = true;
-      return;
-    }
     const info = await stat(path).catch(() => null);
     if (!info?.isFile()) continue;
     if (info.size > bounds.maxFileBytes) continue;
@@ -147,7 +160,12 @@ async function searchChats(
   state: SearchState,
 ): Promise<WorkspaceChatMatch[]> {
   const matches: WorkspaceChatMatch[] = [];
-  for (const conversation of await listConversations(root).catch(() => [])) {
+  // Chat search has to read transcripts, which is exactly the work the Chat
+  // list was changed to avoid. Newest Chats are searched first and the rest
+  // are disclosed as unsearched rather than read without limit.
+  const conversations = await listConversations(root).catch(() => []);
+  if (conversations.length > maxSearchedConversations) state.truncated = true;
+  for (const conversation of conversations.slice(0, maxSearchedConversations)) {
     if (matches.length >= maxMatches) {
       state.truncated = true;
       break;

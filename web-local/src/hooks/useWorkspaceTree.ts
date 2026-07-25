@@ -24,6 +24,7 @@ export function useWorkspaceTree(workspace: WorkspaceSummary, onError: (message:
   const [loadingFolderPaths, setLoadingFolderPaths] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const [searchHydrating, setSearchHydrating] = useState(false);
+  const [treeTruncated, setTreeTruncated] = useState(false);
   const [movingTreePath, setMovingTreePath] = useState<string | null>(null);
   const [dropTargetFolderPath, setDropTargetFolderPath] = useState<string | null>(null);
   const requestRef = useRef(0);
@@ -57,6 +58,7 @@ export function useWorkspaceTree(workspace: WorkspaceSummary, onError: (message:
     setDropTargetFolderPath(null);
     setQuery("");
     setSearchHydrating(false);
+    setTreeTruncated(false);
     clearScheduledRefresh();
     if (fixtureTree) {
       treeCacheRef.current.set(workspace.id, fixtureTree);
@@ -111,11 +113,12 @@ export function useWorkspaceTree(workspace: WorkspaceSummary, onError: (message:
     setStatus(existing.length ? "refreshing" : "loading");
     searchHydratedWorkspaceIdsRef.current.delete(workspaceId);
     try {
-      const root = await api<{ tree: TreeEntry[] }>(treeApiPath(workspaceId, "", 0));
+      const root = await api<{ tree: TreeEntry[]; truncated?: boolean }>(treeApiPath(workspaceId, "", 0));
       if (request !== requestRef.current || activeWorkspaceIdRef.current !== workspaceId) return;
       const next = existing.length
         ? await refreshLoadedChildren(workspaceId, root.tree, existing, collapsedPathsRef.current, options.eventPaths)
         : root.tree;
+      setTreeTruncated(Boolean(root.truncated));
       if (request !== requestRef.current || activeWorkspaceIdRef.current !== workspaceId) return;
       treeCacheRef.current.set(workspaceId, next);
       setTreeState(next);
@@ -131,7 +134,7 @@ export function useWorkspaceTree(workspace: WorkspaceSummary, onError: (message:
     const workspaceId = workspace.id;
     setLoadingFolderPaths((current) => new Set(current).add(path));
     try {
-      const result = await api<{ tree: TreeEntry[] }>(treeApiPath(workspaceId, path, 0));
+      const result = await api<{ tree: TreeEntry[]; truncated?: boolean }>(treeApiPath(workspaceId, path, 0));
       if (activeWorkspaceIdRef.current !== workspaceId) return;
       setTree((current) => setTreeEntryChildren(current, path, result.tree));
     } catch (caught) {
@@ -151,11 +154,12 @@ export function useWorkspaceTree(workspace: WorkspaceSummary, onError: (message:
     const workspaceId = workspace.id;
     setSearchHydrating(true);
     try {
-      const result = await api<{ tree: TreeEntry[] }>(treeApiPath(workspaceId, "", 6));
+      const result = await api<{ tree: TreeEntry[]; truncated?: boolean }>(treeApiPath(workspaceId, "", 6));
       if (activeWorkspaceIdRef.current !== workspaceId) return;
       searchHydratedWorkspaceIdsRef.current.add(workspaceId);
       treeCacheRef.current.set(workspaceId, result.tree);
       setTreeState(result.tree);
+      setTreeTruncated(Boolean(result.truncated));
     } catch (caught) { if (activeWorkspaceIdRef.current === workspaceId) onError(errorText(caught)); }
     finally { if (activeWorkspaceIdRef.current === workspaceId) setSearchHydrating(false); }
   }
@@ -200,7 +204,7 @@ export function useWorkspaceTree(workspace: WorkspaceSummary, onError: (message:
   return {
     tree, setTree, status, refresh, selectedPath, setSelectedPath, collapsedPaths,
     loadingFolderPaths, query, setQuery, visibleEntries: search.entries, matchCount: search.matchCount,
-    searchHydrating, toggleFolder, movingTreePath, setMovingTreePath, dropTargetFolderPath, setDropTargetFolderPath,
+    searchHydrating, treeTruncated, toggleFolder, movingTreePath, setMovingTreePath, dropTargetFolderPath, setDropTargetFolderPath,
   };
 }
 
@@ -221,7 +225,7 @@ async function refreshFolderBatch(workspaceId: string, paths: string[]) {
   await Promise.all(Array.from({ length: Math.min(loadedTreeRefreshConcurrency, paths.length) }, async () => {
     while (index < paths.length) {
       const current = index++; const path = paths[current]; if (!path) continue;
-      try { results[current] = { path, children: (await api<{ tree: TreeEntry[] }>(treeApiPath(workspaceId, path, 0))).tree }; }
+      try { results[current] = { path, children: (await api<{ tree: TreeEntry[]; truncated?: boolean }>(treeApiPath(workspaceId, path, 0))).tree }; }
       catch (caught) { if (!workspaceTreePathMissing(errorText(caught))) throw caught; }
     }
   }));
