@@ -290,6 +290,9 @@ async function runSmoke() {
       },
     }]);
     assert.equal(await storage.get(storageOwner, "ui-notification-denied"), true);
+    await storage.transaction(storageOwner, {
+      set: Array.from({ length: 128 }, (_, index) => ({ key: "seed-" + String(index).padStart(3, "0"), value: index })),
+    });
     await host.runAutomation(descriptor, automationEvent("2026-07-13T00:01:00.000Z", "scheduled", {
       principalId: descriptor.servicePrincipalId,
       kind: "service",
@@ -299,14 +302,14 @@ async function runSmoke() {
       await storage.get(storageOwner, "active-storage-event") === true
       && await storage.get(storageOwner, "reset-storage-event") === true
       && await storage.get(storageOwner, "automation-storage-event-count") === 1
-    ), async () => `the active app view did not receive its coalesced storage event: ${JSON.stringify({
+    ), async () => `the active app view did not receive its bounded storage event: ${JSON.stringify({
       active: await storage.get(storageOwner, "active-storage-event"),
       reset: await storage.get(storageOwner, "reset-storage-event"),
       count: await storage.get(storageOwner, "automation-storage-event-count"),
     })}`, 15_000);
     assert.equal(await storage.get(storageOwner, "active-storage-event"), true, "automation storage changes reach the active owning UI");
-    assert.equal(await storage.get(storageOwner, "reset-storage-event"), true, "more than 128 coalesced keys produce a bounded reset hint");
-    assert.equal(await storage.get(storageOwner, "automation-storage-event-count"), 1, "coalesced automation mutations emit once");
+    assert.equal(await storage.get(storageOwner, "reset-storage-event"), true, "more than 128 changed keys produce a bounded reset hint");
+    assert.equal(await storage.get(storageOwner, "automation-storage-event-count"), 1, "one automation mutation emits once");
     host.layoutUi(parent.webContents.id, {
       mountId,
       placement: "navigator",
@@ -491,11 +494,13 @@ export async function handleAutomation(event) {
     await globalThis.workspaceRestrictedApp.notifications.show({ permissionId: "suspend-probe" });
     return;
   }
-  await globalThis.workspaceRestrictedApp.storage.set("automation", event);
   if (event.scheduledAt === "2026-07-13T00:01:00.000Z") {
     await globalThis.workspaceRestrictedApp.storage.transaction({
-      set: Array.from({ length: 128 }, (_, index) => ({ key: "bulk-" + String(index).padStart(3, "0"), value: index })),
+      clear: true,
+      set: [{ key: "automation", value: event }],
     });
+  } else {
+    await globalThis.workspaceRestrictedApp.storage.set("automation", event);
   }
   await globalThis.workspaceRestrictedApp.notifications.show({ permissionId: "automation-update" });
   await new Promise((resolve) => setTimeout(resolve, 120));
