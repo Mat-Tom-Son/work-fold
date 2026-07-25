@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 
 const surfaceTabsModuleUrl = pathToFileURL(join(process.cwd(), "web-local/src/hooks/useSurfaceTabs.ts")).href;
 const {
+  activeTabAfterConversationActivation,
   assistantToolsSurfaceTab,
   appStudioSurfaceTab,
   closeFileSurfaceTabs,
@@ -51,6 +52,7 @@ interface SurfaceTab {
 }
 
 interface SurfaceTabsExports {
+  activeTabAfterConversationActivation: (currentActiveTabId: string | null, sourceTabId: string, duplicateTabId: string) => string | null;
   assistantToolsSurfaceTab: (space: SpaceSummary, view?: "installed" | "discover") => SurfaceTab;
   appStudioSurfaceTab: (space: SpaceSummary) => SurfaceTab;
   closeFileSurfaceTabs: (tabs: SurfaceTab[], workspaceId: string, deletedPaths: Set<string>) => SurfaceTab[];
@@ -198,6 +200,21 @@ test("each Space remembers its most recently active tab", () => {
 
   assert.equal(recent.get("space-1"), "chat:space-1:old");
   assert.equal(recent.get("space-2"), "history:space-2");
+});
+
+test("activating a draft conversation never steals focus from another surface", () => {
+  assert.equal(
+    activeTabAfterConversationActivation("library:space-1", "chat:space-1:new", "chat:space-1:existing"),
+    "library:space-1",
+  );
+  assert.equal(
+    activeTabAfterConversationActivation("chat:space-1:new", "chat:space-1:new", "chat:space-1:existing"),
+    "chat:space-1:existing",
+  );
+  assert.equal(
+    activeTabAfterConversationActivation(null, "chat:space-1:new", "chat:space-1:existing"),
+    null,
+  );
 });
 
 test("activating a cross-Space tab switches to the tab's Space", () => {

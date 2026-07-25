@@ -238,7 +238,7 @@ export function useSurfaceTabs({
     const duplicate = surfaceTabs.find((tab) => tab.kind === "chat" && tab.id !== tabId && tab.workspaceId === tabWorkspace.id && tab.conversationId === conversation.id);
     if (duplicate) {
       setSurfaceTabs((current) => current.filter((tab) => tab.id !== tabId));
-      setActiveSurfaceTabId(duplicate.id);
+      setActiveSurfaceTabId((current) => activeTabAfterConversationActivation(current, tabId, duplicate.id));
       return;
     }
     const nextTab: WorkspaceSurfaceTab = {
@@ -251,7 +251,6 @@ export function useSurfaceTabs({
     setSurfaceTabs((current) => {
       return current.map((tab) => tab.id === tabId ? nextTab : tab);
     });
-    setActiveSurfaceTabId(tabId);
   }
 
   function removeWorkspaceSurfaceTabs(workspaceId: string): void {
@@ -484,6 +483,10 @@ function recordActiveSurfaceTabWorkspaceRecency(recentTabIdsByWorkspace: Map<str
   recentTabIdsByWorkspace.set(activeTab.workspaceId, activeTab.id);
 }
 
+function activeTabAfterConversationActivation(currentActiveTabId: string | null, sourceTabId: string, duplicateTabId: string): string | null {
+  return currentActiveTabId === sourceTabId ? duplicateTabId : currentActiveTabId;
+}
+
 function surfaceTabWorkspaceSwitchTarget({
   activeTabId,
   activeWorkspaceId,
@@ -684,6 +687,7 @@ function closeFileSurfaceTabs(tabs: WorkspaceSurfaceTab[], workspaceId: string, 
 }
 
 export {
+  activeTabAfterConversationActivation,
   closeFileSurfaceTabs,
   fileSurfaceTab,
   fileSurfaceTabId,
