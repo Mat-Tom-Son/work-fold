@@ -80,7 +80,7 @@ Use Node 22.19.0 or newer. On the primary development workstation, `build-signed
 ## Packaged QA checklist
 
 - Launch the exact `win-unpacked` binary rather than an older installed copy and confirm **About Workspace** reports the candidate version. It must use `%APPDATA%\Workspace Development` even when the release candidate contains `app-update.yml`; install through NSIS for any test that intentionally requires production state.
-- Exercise Files, Chats, Library, History, Add, Assistant tools, Settings, tabs, native menus, close-to-tray, and background-turn continuity.
+- Exercise Files, Chats, History, Add, the Space-owned Library and Assistant tools tabs, Settings, native menus, close-to-tray, and background-turn continuity.
 - Confirm the `desktop:prepare` output reports a passing restricted-app Electron smoke. Treat a skipped, mocked, or Node-only substitute as a failed release gate.
 - In a disposable Space, add the checked-in restricted Connected inbox example through the advanced local-preview path. Confirm adding it grants no network destination, Space file, notification category, connection, or automation schedule; then exercise its rail navigator, persistent Space-owned tab, storage refresh, and explicit grant/revoke controls.
 - Enable **Refresh inbox** and its reviewed notification category separately, then run it once. Confirm the durable receipt and app result reach the active view, inactive views recover app state from storage when reopened, and clicking a Windows notification targets the exact owning Space and app. Disable the automation and confirm **Run now** still works but cannot notify. Windows Focus Assist may suppress presentation, but the host-accepted versus denied outcome must remain honest.

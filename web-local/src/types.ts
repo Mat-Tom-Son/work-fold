@@ -1,4 +1,4 @@
-export type WorkspacePane = "files" | "chats" | "library" | "history";
+export type WorkspacePane = "files" | "chats" | "history";
 export type WorkspaceExtensionRailMode = `app:${string}`;
 export type WorkspaceRailMode = "workspaces" | WorkspacePane | WorkspaceExtensionRailMode;
 export type AppTheme = "light" | "dark";
@@ -175,6 +175,7 @@ export type WorkspaceSurfaceTab =
   | (WorkspaceSurfaceTabBase & { kind: "chat"; conversationId: string | null })
   | (WorkspaceSurfaceTabBase & { kind: "file"; path: string })
   | (WorkspaceSurfaceTabBase & { kind: "history"; checkpointId?: string })
+  | (WorkspaceSurfaceTabBase & { kind: "library" })
   | (WorkspaceSurfaceTabBase & { kind: "appearance" })
   | (WorkspaceSurfaceTabBase & { kind: "app-studio" })
   | (WorkspaceSurfaceTabBase & { kind: "assistant-tools"; view: AssistantToolsView })

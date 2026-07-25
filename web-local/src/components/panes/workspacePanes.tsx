@@ -320,54 +320,74 @@ function chatViewEmptyLabel(view: ChatLifecycleView): string {
   return "No active Chats yet";
 }
 
-export function LibraryPane({ workspace, fixtureTree, onError }: { workspace: WorkspaceSummary; fixtureTree?: TreeEntry[]; onError: (message: string | null) => void }) {
-  const [tree, setTree] = useState<TreeEntry[]>(fixtureTree ?? []);
+export function LibraryPane({
+  workspace,
+  workspaces,
+  tree,
+  fixtureMode,
+  destinationResetRequest,
+  onRefresh,
+  onError,
+}: {
+  workspace: WorkspaceSummary;
+  workspaces: WorkspaceSummary[];
+  tree: TreeEntry[];
+  fixtureMode: boolean;
+  destinationResetRequest: number;
+  onRefresh: () => Promise<void>;
+  onError: (message: string | null) => void;
+}) {
   const [selected, setSelected] = useState<string | null>(null);
+  const [destinationWorkspaceId, setDestinationWorkspaceId] = useState(workspace.id);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
   const selectedEntry = selected ? findTreeEntry(tree, selected) : null;
+  const destinationWorkspace = workspaces.find((item) => item.id === destinationWorkspaceId) ?? workspace;
 
-  useEffect(() => { if (!fixtureTree) void load(); }, [fixtureTree]);
-
-  async function load() {
-    try { setTree((await api<{ tree: TreeEntry[] }>("/api/resources/tree")).tree); }
-    catch (caught) { onError(errorText(caught)); }
-  }
+  useEffect(() => {
+    setDestinationWorkspaceId(workspace.id);
+    setNotice("");
+  }, [destinationResetRequest, workspace.id]);
+  useEffect(() => {
+    if (workspaces.some((item) => item.id === destinationWorkspaceId)) return;
+    setDestinationWorkspaceId(workspace.id);
+    setNotice("");
+  }, [destinationWorkspaceId, workspace.id, workspaces]);
 
   async function upload(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
-    if (!files.length || fixtureTree) return;
+    if (!files.length || fixtureMode) return;
     const form = new FormData();
-    form.set("targetFolderPath", selectedEntry?.kind === "folder" ? selectedEntry.path : "");
+    form.set("targetFolderPath", "");
     form.set("relativePaths", JSON.stringify(files.map((file) => file.webkitRelativePath || file.name)));
     files.forEach((file) => form.append("files", file, file.name));
     setBusy(true);
-    try { await apiForm("/api/resources/upload", form); await load(); }
+    try { await apiForm("/api/resources/upload", form); await onRefresh(); }
     catch (caught) { onError(errorText(caught)); }
     finally { setBusy(false); }
   }
 
   async function createFolder(name: string) {
-    if (fixtureTree) return;
+    if (fixtureMode) return;
     setBusy(true);
     try {
-      await api("/api/resources/folders", { method: "POST", body: { parentPath: selectedEntry?.kind === "folder" ? selectedEntry.path : "", name } });
-      await load();
+      await api("/api/resources/folders", { method: "POST", body: { parentPath: "", name } });
+      await onRefresh();
     } finally { setBusy(false); }
   }
 
   async function copyToSpace() {
     if (!selected) return;
-    if (fixtureTree) { setNotice(`Preview: ${selectedEntry?.name ?? "item"} would be copied to ${workspace.name}.`); return; }
+    if (fixtureMode) { setNotice(`Preview: ${selectedEntry?.name ?? "item"} would be copied to ${destinationWorkspace.name}.`); return; }
     setBusy(true);
     setNotice("");
     try {
-      const result = await api<{ copied: string[] }>("/api/resources/copy-to-workspace", { method: "POST", body: { workspaceId: workspace.id, paths: [selected], targetFolder: "From Library" } });
-      setNotice(`Added ${result.copied[0] ?? selectedEntry?.name ?? "item"} to ${workspace.name}.`);
+      const result = await api<{ copied: string[] }>("/api/resources/copy-to-workspace", { method: "POST", body: { workspaceId: destinationWorkspace.id, paths: [selected], targetFolder: "From Library" } });
+      setNotice(`Added ${result.copied[0] ?? selectedEntry?.name ?? "item"} to ${destinationWorkspace.name}.`);
     } catch (caught) { onError(errorText(caught)); }
     finally { setBusy(false); }
   }
@@ -379,15 +399,22 @@ export function LibraryPane({ workspace, fixtureTree, onError }: { workspace: Wo
 
   return (
     <div className="workspace-pane-content library-pane professional-surface professional-library">
+      <header className="library-tab-header">
+        <div>
+          <span className="professional-kicker">Personal · available across Spaces</span>
+          <h1>Library</h1>
+          <p>Keep reusable files here once, then choose any registered Space when you need a copy.</p>
+        </div>
+        <div className="library-tab-actions">
+          <button className="professional-button professional-button-primary" type="button" disabled={busy || fixtureMode} onClick={() => uploadRef.current?.click()}><ArrowUpload16Regular />Add files to Library</button>
+          <button className="professional-button professional-button-secondary" type="button" disabled={busy || fixtureMode} onClick={() => setFolderDialogOpen(true)}><FolderAdd16Regular />New Library folder</button>
+        </div>
+      </header>
       <div className="file-tree-toolbar professional-library-toolbar">
         <label className="file-tree-search">
           <Library20Regular />
-          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Library" aria-label="Search Library" />
+          <input type="search" value={query} disabled={busy} onChange={(event) => setQuery(event.target.value)} placeholder="Search Library" aria-label="Search Library" />
         </label>
-        <div className="professional-toolbar-actions">
-          <button className="minimal-icon-button" type="button" disabled={busy || Boolean(fixtureTree)} onClick={() => uploadRef.current?.click()} aria-label="Add files" title="Add files"><ArrowUpload16Regular /></button>
-          <button className="minimal-icon-button" type="button" disabled={busy || Boolean(fixtureTree)} onClick={() => setFolderDialogOpen(true)} aria-label="New folder" title="New folder"><FolderAdd16Regular /></button>
-        </div>
         <input hidden ref={uploadRef} type="file" multiple onChange={(event) => void upload(event)} />
       </div>
 
@@ -401,7 +428,7 @@ export function LibraryPane({ workspace, fixtureTree, onError }: { workspace: Wo
         </div>
       ) : (
         <div className="library-split professional-library-split">
-          <div className="library-tree"><LibraryTree entries={visible} selected={selected} onSelect={setSelected} /></div>
+          <div className="library-tree"><LibraryTree entries={visible} selected={selected} onSelect={setSelected} disabled={busy} /></div>
           <div className="library-detail">
             {selectedEntry ? (
               <div className="professional-resource-selection">
@@ -411,20 +438,27 @@ export function LibraryPane({ workspace, fixtureTree, onError }: { workspace: Wo
                 </div>
                 <code className="professional-resource-path">{selectedEntry.path}</code>
                 <p>Workspace makes an independent copy under <strong>From Library</strong>. It is not automatically included in a Chat.</p>
+                <label className="professional-field library-destination-field">
+                  <span className="professional-field-label">Add a copy to</span>
+                  <select value={destinationWorkspace.id} disabled={busy} onChange={(event) => { setDestinationWorkspaceId(event.target.value); setNotice(""); }}>
+                    {workspaces.map((item) => <option value={item.id} key={item.id}>{libraryDestinationLabel(item, workspaces)}</option>)}
+                  </select>
+                  <span className="professional-field-hint">Your Library stays unchanged; only the new copy belongs to the selected Space.</span>
+                </label>
                 <div className="professional-actions">
                   <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={() => void copyToSpace()}>
-                    {busy ? <ArrowSync16Regular className="spin" /> : <Copy16Regular />}Add to {workspace.name}
+                    {busy ? <ArrowSync16Regular className="spin" /> : <Copy16Regular />}Add to {destinationWorkspace.name}
                   </button>
                 </div>
                 {notice ? <p className="professional-status" role="status"><Checkmark16Regular />{notice}</p> : null}
               </div>
             ) : (
-              <EmptyState icon={<Library20Regular />} title="Choose a Library item" detail="Select a file or folder to see where it lives and add a copy to this Space." />
+              <EmptyState icon={<Library20Regular />} title="Choose a Library item" detail="Select a file or folder to see where it lives and add a copy to any registered Space." />
             )}
           </div>
         </div>
       )}
-      {folderDialogOpen ? <TextInputModal title="New Library folder" description="Create a folder in the selected Library location." label="Folder name" confirmLabel="Create folder" onSubmit={createFolder} onClose={() => setFolderDialogOpen(false)} /> : null}
+      {folderDialogOpen ? <TextInputModal title="New Library folder" description="Create a folder at the top level of your Library." label="Folder name" confirmLabel="Create folder" onSubmit={createFolder} onClose={() => setFolderDialogOpen(false)} /> : null}
     </div>
   );
 }
@@ -594,16 +628,16 @@ export function AssistantSetupPane({ workspace, status, fixtureMode = false, emb
   );
 }
 
-function LibraryTree({ entries, selected, onSelect, level = 0 }: { entries: TreeEntry[]; selected: string | null; onSelect: (path: string) => void; level?: number }) {
+function LibraryTree({ entries, selected, onSelect, disabled = false, level = 0 }: { entries: TreeEntry[]; selected: string | null; onSelect: (path: string) => void; disabled?: boolean; level?: number }) {
   return (
     <div className="file-tree">
       {entries.map((entry) => (
         <div className="file-tree-item" key={entry.path}>
-          <button className={selected === entry.path ? "file-row selected" : "file-row"} style={{ paddingLeft: 12 + level * 16 }} type="button" onClick={() => onSelect(entry.path)}>
+          <button className={selected === entry.path ? "file-row selected" : "file-row"} style={{ paddingLeft: 12 + level * 16 }} type="button" disabled={disabled} onClick={() => onSelect(entry.path)}>
             {entry.kind === "folder" ? <Folder16Regular /> : <FileTypeIcon path={entry.path} />}
             <span className="file-name">{entry.name}</span>
           </button>
-          {entry.children?.length ? <LibraryTree entries={entry.children} selected={selected} onSelect={onSelect} level={level + 1} /> : null}
+          {entry.children?.length ? <LibraryTree entries={entry.children} selected={selected} onSelect={onSelect} disabled={disabled} level={level + 1} /> : null}
         </div>
       ))}
     </div>
@@ -627,6 +661,10 @@ function unique<T>(items: T[]) { return [...new Set(items)]; }
 function providerDisplayName(models: AgentModel[], provider: string) { return models.find((item) => item.provider === provider)?.providerName || provider; }
 function providerSubscriptionNote(_provider: string) {
   return "Workspace opens the provider's sign-in flow in your system browser and stores the resulting tokens in its encrypted desktop credential store. Availability and billing follow that provider's current account terms.";
+}
+function libraryDestinationLabel(workspace: WorkspaceSummary, workspaces: WorkspaceSummary[]) {
+  const duplicateName = workspaces.some((item) => item.id !== workspace.id && item.name.localeCompare(workspace.name, undefined, { sensitivity: "base" }) === 0);
+  return duplicateName ? `${workspace.name} — ${workspace.rootPath}` : workspace.name;
 }
 function formatDate(value: string) { return new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); }
 function findTreeEntry(entries: TreeEntry[], path: string): TreeEntry | null { for (const entry of entries) { if (entry.path === path) return entry; const child = entry.children ? findTreeEntry(entry.children, path) : null; if (child) return child; } return null; }

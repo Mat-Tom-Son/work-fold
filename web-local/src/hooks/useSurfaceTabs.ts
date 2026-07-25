@@ -11,6 +11,7 @@ export function useSurfaceTabs({
   workspace,
   workspaces,
   fixtureMode = false,
+  migrateLegacyLibraryMode = false,
   openChatWorkspaceId,
   onOpenChatWorkspaceConsumed,
   onSwitchWorkspace,
@@ -18,20 +19,22 @@ export function useSurfaceTabs({
   workspace: WorkspaceSummary;
   workspaces: WorkspaceSummary[];
   fixtureMode?: boolean;
+  migrateLegacyLibraryMode?: boolean;
   openChatWorkspaceId?: string | null;
   onOpenChatWorkspaceConsumed?: () => void;
   onSwitchWorkspace?: (workspace: WorkspaceSummary) => void;
 }) {
   const initialStateRef = useRef<SurfaceTabsState | null>(null);
-  const skipNextPersistRef = useRef(!fixtureMode);
+  const skipNextPersistRef = useRef(!fixtureMode && !migrateLegacyLibraryMode);
   const recentSurfaceTabIdsByWorkspaceRef = useRef<Map<string, string>>(new Map());
   const previousActiveSurfaceTabIdRef = useRef<string | null | undefined>(undefined);
   const previousWorkspaceCountRef = useRef(workspaces.length);
   const previousWorkspaceIdRef = useRef(workspace.id);
   if (!initialStateRef.current) {
-    initialStateRef.current = fixtureMode
+    const initialState = fixtureMode
       ? defaultSurfaceTabsState(workspace)
       : readStoredSurfaceTabsState(workspace, workspaces);
+    initialStateRef.current = migrateLegacyLibrarySurfaceTabState(initialState, workspace, migrateLegacyLibraryMode);
   }
   const [surfaceTabs, setSurfaceTabs] = useState<WorkspaceSurfaceTab[]>(() => initialStateRef.current?.tabs ?? [newChatSurfaceTab(workspace)]);
   const [activeSurfaceTabId, setActiveSurfaceTabId] = useState<string | null>(() => initialStateRef.current?.activeTabId ?? newChatSurfaceTabId(workspace.id));
@@ -145,6 +148,12 @@ export function useSurfaceTabs({
 
   function openHistorySurfaceTab(targetWorkspace: WorkspaceSummary, checkpointId?: string, title = "History"): void {
     const tab = historySurfaceTab(targetWorkspace, checkpointId, title);
+    setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
+    setActiveSurfaceTabId(tab.id);
+  }
+
+  function openLibrarySurfaceTab(targetWorkspace: WorkspaceSummary): void {
+    const tab = librarySurfaceTab(targetWorkspace);
     setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
     setActiveSurfaceTabId(tab.id);
   }
@@ -272,6 +281,7 @@ export function useSurfaceTabs({
     syncSurfaceTabConversationTitles,
     openChatSurfaceTab,
     openHistorySurfaceTab,
+    openLibrarySurfaceTab,
     openFileSurfaceTab,
     openAppearanceSurfaceTab,
     openAppStudioSurfaceTab,
@@ -378,6 +388,14 @@ function normalizeStoredSurfaceTab(value: unknown): WorkspaceSurfaceTab | null {
       workspaceId: record.workspaceId,
       checkpointId: typeof record.checkpointId === "string" ? record.checkpointId : undefined,
       title: record.title,
+    };
+  }
+  if (record.kind === "library") {
+    return {
+      id: `library:${record.workspaceId}`,
+      kind: "library",
+      workspaceId: record.workspaceId,
+      title: "Library",
     };
   }
   if (record.kind === "appearance") {
@@ -528,6 +546,28 @@ function historySurfaceTab(workspace: WorkspaceSummary, checkpointId?: string, t
     workspaceId: workspace.id,
     checkpointId,
     title,
+  };
+}
+
+export function librarySurfaceTab(workspace: WorkspaceSummary): WorkspaceSurfaceTab {
+  return {
+    id: `library:${workspace.id}`,
+    kind: "library",
+    workspaceId: workspace.id,
+    title: "Library",
+  };
+}
+
+export function migrateLegacyLibrarySurfaceTabState(
+  state: SurfaceTabsState,
+  workspace: WorkspaceSummary,
+  shouldMigrate: boolean,
+): SurfaceTabsState {
+  if (!shouldMigrate) return state;
+  const tab = librarySurfaceTab(workspace);
+  return {
+    tabs: upsertSurfaceTab(state.tabs, tab),
+    activeTabId: tab.id,
   };
 }
 

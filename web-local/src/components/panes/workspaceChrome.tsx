@@ -17,8 +17,6 @@ import {
   History24Regular,
   ImageAdd20Regular,
   Keyboard24Regular,
-  Library24Filled,
-  Library24Regular,
   Search20Regular,
 } from "@fluentui/react-icons";
 import { filterWorkspaceIconOptions, workspaceIconOptionFor, workspaceIconOptions } from "../../workspace-icons";
@@ -37,6 +35,7 @@ function WorkspaceModeRail({
   surfaces,
   apps,
   onModeChange,
+  onOpenLibrary,
   onOpenAssistantTools,
   onBuildApp,
   accountControl,
@@ -49,6 +48,7 @@ function WorkspaceModeRail({
   surfaces: CapabilitySurface[];
   apps: RestrictedAppInstalled[];
   onModeChange: (mode: WorkspaceRailMode) => void;
+  onOpenLibrary: () => void;
   onOpenAssistantTools: (view: AssistantToolsView) => void;
   onBuildApp: () => void;
   accountControl: ReactNode;
@@ -61,13 +61,11 @@ function WorkspaceModeRail({
   const addMenuRef = useRef<HTMLDivElement | null>(null);
   const FilesIcon = activeMode === "files" ? DocumentFolder24Filled : DocumentFolder24Regular;
   const ChatsIcon = activeMode === "chats" ? ChatMultiple24Filled : ChatMultiple24Regular;
-  const LibraryIcon = activeMode === "library" ? Library24Filled : Library24Regular;
   const HistoryIcon = activeMode === "history" ? History24Filled : History24Regular;
   const workspaceLabel = workspace.name.trim() || "Space";
   const primaryItems: Array<{ mode: WorkspaceRailMode; label: string; ariaLabel: string; title: string; icon: ReactNode }> = [
     { mode: "files", label: "Files", ariaLabel: "Files", title: "Files in this Space", icon: <FilesIcon className="fluent-rail-icon" /> },
     { mode: "chats", label: "Chats", ariaLabel: "Chats", title: "Chats", icon: <ChatsIcon className="fluent-rail-icon" /> },
-    { mode: "library", label: "Library", ariaLabel: "Library", title: "Reusable files for any Space", icon: <LibraryIcon className="fluent-rail-icon" /> },
     { mode: "history", label: "History", ariaLabel: "History", title: "Restore points and recent activity", icon: <HistoryIcon className="fluent-rail-icon" /> },
   ];
 
@@ -195,7 +193,7 @@ function WorkspaceModeRail({
               className="workspace-rail-quiet-button workspace-rail-add-button"
               type="button"
               onClick={() => setAddOpen((current) => !current)}
-              aria-label="Add to Workspace"
+              aria-label="Add or manage"
               aria-haspopup="menu"
               aria-expanded={addOpen}
               aria-controls="workspace-add-menu"
@@ -205,9 +203,9 @@ function WorkspaceModeRail({
               <span>Add</span>
             </button>
             {addOpen ? (
-              <div ref={addMenuRef} id="workspace-add-menu" className="workspace-rail-add-menu" role="menu" aria-label={`Add to ${workspaceLabel}`} onKeyDown={handleAddMenuKeyDown}>
-                <span className="workspace-rail-add-menu-heading">Add to {workspaceLabel}</span>
-                <button type="button" role="menuitem" onClick={() => chooseAddAction(() => onModeChange("library"))}><strong>Library materials</strong><span>Copy reusable files into this Space</span></button>
+              <div ref={addMenuRef} id="workspace-add-menu" className="workspace-rail-add-menu" role="menu" aria-label="Add or manage" onKeyDown={handleAddMenuKeyDown}>
+                <span className="workspace-rail-add-menu-heading">Add or manage</span>
+                <button type="button" role="menuitem" onClick={() => chooseAddAction(onOpenLibrary)}><strong>Open Library</strong><span>Reuse files across your Spaces</span></button>
                 <button type="button" role="menuitem" onClick={() => chooseAddAction(() => onOpenAssistantTools("discover"))}><strong>Browse Skills &amp; Extensions</strong><span>Review tools before installing them</span></button>
                 <button type="button" role="menuitem" onClick={() => chooseAddAction(() => onBuildApp())}><strong>Build an app</strong><span>Start with the Assistant in this Space</span></button>
                 <span className="workspace-rail-add-menu-divider" aria-hidden="true" />

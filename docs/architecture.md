@@ -2,7 +2,7 @@
 
 Workspace has three runtime responsibility layers, one shared in-process management plane, and a separate restricted-app execution lane:
 
-1. The React renderer presents a Space selector plus Files, Chats, Library, and History rail surfaces, an on-demand Assistant tools work tab, and Assistant configuration in Settings.
+1. The React renderer presents a Space selector plus Files, Chats, and History rail surfaces; on-demand Space-owned Library and Assistant tools tabs; and Assistant configuration in Settings.
 2. The local Node host owns filesystem access, conversations, resource import, Pi sessions, and the domain services that authorize mutations.
 3. Electron supplies native windows, menus, dialogs, secure storage, lifecycle, and packaging.
 
@@ -40,10 +40,10 @@ The public `workspace` command uses a compact adapter that omits content. Its pr
 The Space selector establishes the active root-folder entity; a Space is not itself a peer navigation surface. The primary information architecture is:
 
 - **Files** — the ordinary folder contents of the selected Space.
-- **Assistant tools** — one on-demand Space-owned Installed/Discover work tab for Skills and Extensions, available personally or from a registered Space. Package provenance and lifecycle live here without becoming another top-level concept.
 - **Chats** — conversations associated with the selected Space.
-- **Library** — reusable personal materials available across Spaces.
 - **History** — checkpoints and recoverable changes for the selected Space.
+- **Library** — reusable personal materials shared across Spaces, opened on demand as a persistent Space-owned tab whose explicit destination selector can copy to any registered Space.
+- **Assistant tools** — one on-demand Space-owned Installed/Discover work tab for Skills and Extensions, available personally or from a registered Space. Package provenance and lifecycle live here without becoming another rail destination.
 
 Provider, model, and authentication configuration for the Pi-powered Assistant lives under **Settings → Assistant**.
 
@@ -51,7 +51,7 @@ The concepts have deliberately different scopes and trust levels. Library materi
 
 Surface tabs are Space-bound rather than global views of the currently selected folder. Activating a tab activates its owning Space, and switching Spaces restores that Space's most recent tab. All open Chat panels remain mounted while the window exists; an accepted Pi turn continues in the app-owned local API while its tab is inactive, the window is minimized, the Windows window is hidden to the system tray, or the last macOS window is closed and later recreated from the Dock. Event-stream reconnects use server turn-state snapshots and persisted transcript rehydration so renderer sleep, window recreation, or wake does not lose the result.
 
-Loaded Pi Extensions may contribute a validated declarative surface through a bounded `surface.json` file beside their entry point. The capability catalog carries this metadata to the renderer, which keeps the five primary destinations fixed, places contributed apps in a separate rail region, renders their navigator and content with host-owned components, and opens each view as a Space-bound tab. This contract carries no HTML or executable renderer code. Invalid manifests remain diagnostics on the owning capability. See [Extension surfaces](extension-surfaces.md).
+Loaded Pi Extensions may contribute a validated declarative surface through a bounded `surface.json` file beside their entry point. The capability catalog carries this metadata to the renderer, which keeps the three primary rail destinations fixed, places contributed apps in a separate rail region, renders their navigator and content with host-owned components, and opens each view as a Space-bound tab. This contract carries no HTML or executable renderer code. Invalid manifests remain diagnostics on the owning capability. See [Extension surfaces](extension-surfaces.md).
 
 Technical types, routes, and storage paths may continue to use `workspace`, `project`, or `resource` for API stability and compatibility with Pi. User-facing copy should use **Space** for the working context and **Library** for reusable personal materials. Pi's own “resource” terminology remains appropriate when describing Pi runtime discovery rather than the Library.
 

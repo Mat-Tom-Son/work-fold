@@ -631,12 +631,21 @@ test("extension UI events retain the portable Space id after its folder moves", 
 
 test("chat streams snapshot running state and survive a throwing desktop activity observer", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "workspace-background-chat-test-"));
+  const agentDir = join(sandbox, "agent");
+  await mkdir(join(agentDir, "extensions"), { recursive: true });
+  await writeFile(join(agentDir, "extensions", "complete.ts"), `export default function (pi) {
+    pi.registerCommand("complete", {
+      description: "Complete a deterministic test turn",
+      handler: async () => await new Promise((resolve) => setTimeout(resolve, 25)),
+    });
+  }\n`, "utf8");
   const activityCounts: number[] = [];
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
     workspaceBase: join(sandbox, "content"),
     loadEnv: false,
+    piRuntimeProvider: { async resolveRuntime() { return { agentDir }; } },
     onAgentTurnActivity(activeTurns) {
       activityCounts.push(activeTurns);
       throw new Error("simulated desktop observer failure");
@@ -667,7 +676,7 @@ test("chat streams snapshot running state and survive a throwing desktop activit
     const firstPost = await fetch(`${api.origin}/api/workspaces/${created.workspace.id}/conversations/${conversationId}/messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ content: "Reply briefly." }),
+      body: JSON.stringify({ content: "/complete" }),
     });
     assert.equal(firstPost.status, 202, await firstPost.text());
     await waitFor(() => streamEvents.some((event) => event.type === "turn_state" && event.running === true));
@@ -679,7 +688,7 @@ test("chat streams snapshot running state and survive a throwing desktop activit
     const secondPost = await fetch(`${api.origin}/api/workspaces/${created.workspace.id}/conversations/${conversationId}/messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ content: "Try once more." }),
+      body: JSON.stringify({ content: "/complete" }),
     });
     assert.equal(secondPost.status, 202, await secondPost.text());
     await waitFor(() => activityCounts.length >= 4 && activityCounts.at(-1) === 0);

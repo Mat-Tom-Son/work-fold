@@ -7,7 +7,6 @@ test("Workspace navigation separates the active Space from its surfaces", () => 
   assert.deepEqual(primaryNavigation.map(({ id, label }) => [id, label]), [
     ["files", "Files"],
     ["chats", "Chats"],
-    ["library", "Library"],
     ["history", "History"],
   ]);
   assert.deepEqual(welcomeActions, {

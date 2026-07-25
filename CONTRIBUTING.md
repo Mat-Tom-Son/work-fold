@@ -40,7 +40,7 @@ Keep changes focused and avoid committing generated `dist/`, `out/`, user-data, 
 
 ## Codex and Claude Code parity
 
-Codex reads the root `AGENTS.md` directly. Claude Code reads the tracked root `CLAUDE.md`, which imports `AGENTS.md` with `@AGENTS.md`. Update shared rules only in `AGENTS.md`; do not create a parallel harness-specific build, test, release, terminology, or architecture contract.
+Codex reads the root `AGENTS.md` directly. Claude Code reads the tracked root `CLAUDE.md`, which imports `AGENTS.md` with `@AGENTS.md`. Update shared rules only in `AGENTS.md`; do not create a parallel harness-specific build, test, release, terminology, architecture, Skill, Extension, or tool contract. Both harnesses work against the same Pi-owned capability catalog and the same product documentation.
 
 Both harnesses can inspect an installed app through `workspace ... --json`. To drive one real Assistant turn through the development local API and native Pi runtime:
 

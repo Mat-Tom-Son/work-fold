@@ -33,10 +33,9 @@ The Space switcher chooses the active root-folder entity. The stable primary nav
 
 - **Files**
 - **Chats**
-- **Library**
 - **History**
 
-The bottom-rail **Add** action opens a short menu for Library materials, Skills and Extensions, or building an app. Skills, Extensions, packages, core tools, and installed-app authority are managed in a Space-owned **Assistant tools** work tab so infrequent administration does not occupy a permanent rail destination or get compressed into the navigator. The Assistant's model provider, model, API key, and supported provider OAuth connection live in **Settings → Assistant**. A restricted Space app's connection is a different, app-scoped object managed with that app in **Assistant tools**.
+The bottom-rail **Add** action opens a short menu for Library materials, Skills and Extensions, or building an app. Library opens as one persistent tab per Space without turning the passive personal collection into Space content; all of those tabs read the same collection. The owning Space is the default copy target, while a destination selector can explicitly send an independent copy to any registered Space. Skills, Extensions, packages, core tools, and installed-app authority are managed in a separate Space-owned **Assistant tools** work tab so infrequent administration does not occupy a permanent rail destination or get compressed into the navigator. The Assistant's model provider, model, API key, and supported provider OAuth connection live in **Settings → Assistant**. A restricted Space app's connection is a different, app-scoped object managed with that app in **Assistant tools**.
 
 Each open tab belongs to one Space. Selecting a tab takes the user back to that Space and its identity; selecting a Space restores its most recent tab. A Chat that is working remains alive when another tab is selected, when Workspace is minimized, when the Windows window is hidden to the tray, and when the last macOS window is closed and later recreated from the Dock.
 

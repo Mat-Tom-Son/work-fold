@@ -14,7 +14,29 @@ test("Claude Code imports the canonical Codex contributor contract", async () =>
   assert.match(claude, /^@AGENTS\.md$/m);
   assert.match(claude, /canonical contributor contract/i);
   assert.match(agents, /Harness parity/);
+  assert.match(agents, /Native full-trust Skills, Extensions, built-in tools, and their catalog\/runtime remain Pi-owned/);
+  assert.match(agents, /Workspace owns the product documentation and restricted-app lane, but both remain harness-neutral/);
   assert.doesNotMatch(claude, /npm run desktop:make/);
+});
+
+test("canonical product docs keep Library and Assistant tools in Space-owned tabs", async () => {
+  const files = [
+    "README.md",
+    "AGENTS.md",
+    "docs/product-model.md",
+    "docs/architecture.md",
+    "docs/ui-parity.md",
+    "docs/visual-design.md",
+  ];
+  const contents = await Promise.all(files.map((file) => readFile(join(root, file), "utf8")));
+  for (const content of contents) {
+    assert.match(content, /Files[\s\S]*Chats[\s\S]*History/);
+    assert.match(content, /Library[\s\S]*Space-owned[\s\S]*tab/i);
+    assert.doesNotMatch(content, /primary (?:rail )?(?:navigation|surfaces?)[^\n.]{0,80}Files[^\n.]{0,20}Chats[^\n.]{0,20}Library[^\n.]{0,20}History/i);
+  }
+  const assistantCapabilities = await readFile(join(root, "docs/assistant-capabilities.md"), "utf8");
+  assert.match(assistantCapabilities, /one persistent Library tab per Space/i);
+  assert.match(assistantCapabilities, /same passive personal collection/i);
 });
 
 test("public and contributor docs route management behavior to one guide", async () => {

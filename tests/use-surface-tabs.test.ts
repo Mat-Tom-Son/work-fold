@@ -9,6 +9,8 @@ const {
   appStudioSurfaceTab,
   closeFileSurfaceTabs,
   fileSurfaceTab,
+  librarySurfaceTab,
+  migrateLegacyLibrarySurfaceTabState,
   normalizeStoredSurfaceTabsValue,
   recordActiveSurfaceTabWorkspaceRecency,
   readStoredSurfaceTabsState,
@@ -31,7 +33,7 @@ interface SpaceSummary {
 
 interface SurfaceTab {
   id: string;
-  kind: "chat" | "file" | "history" | "appearance" | "app-studio" | "assistant-tools" | "extension" | "restricted-app";
+  kind: "chat" | "file" | "history" | "library" | "appearance" | "app-studio" | "assistant-tools" | "extension" | "restricted-app";
   workspaceId: string;
   conversationId?: string | null;
   path?: string;
@@ -53,6 +55,12 @@ interface SurfaceTabsExports {
   appStudioSurfaceTab: (space: SpaceSummary) => SurfaceTab;
   closeFileSurfaceTabs: (tabs: SurfaceTab[], workspaceId: string, deletedPaths: Set<string>) => SurfaceTab[];
   fileSurfaceTab: (space: SpaceSummary, path: string) => SurfaceTab;
+  librarySurfaceTab: (space: SpaceSummary) => SurfaceTab;
+  migrateLegacyLibrarySurfaceTabState: (
+    state: { tabs: SurfaceTab[]; activeTabId: string | null },
+    space: SpaceSummary,
+    shouldMigrate: boolean,
+  ) => { tabs: SurfaceTab[]; activeTabId: string | null };
   normalizeStoredSurfaceTabsValue: (parsed: unknown) => { tabs: SurfaceTab[]; activeTabId: string | null };
   recordActiveSurfaceTabWorkspaceRecency: (recent: Map<string, string>, tabs: SurfaceTab[], activeTabId: string | null) => void;
   readStoredSurfaceTabsState: (space: SpaceSummary, spaces: SpaceSummary[]) => { tabs: SurfaceTab[]; activeTabId: string | null };
@@ -140,6 +148,7 @@ test("tab restore accepts only known, well-formed surface types", () => {
       { id: 4, kind: "file", workspaceId: "space-1", path: "Notes.md", title: "Notes.md" },
       { id: "file:space-1", kind: "file", workspaceId: "space-1", path: "Notes.md", title: "Notes.md", ignored: "yes" },
       { id: "history:space-1", kind: "history", workspaceId: "space-1", title: "History" },
+      { id: "spoofed-library", kind: "library", workspaceId: "space-1", title: "Renamed Library" },
       { id: "spoofed-studio", kind: "app-studio", workspaceId: "space-1", title: "Renamed Studio" },
       { id: "spoofed-tools", kind: "assistant-tools", workspaceId: "space-1", view: "discover", title: "Renamed Tools" },
       { id: "broken-tools", kind: "assistant-tools", workspaceId: "space-1", view: "packages", title: "Broken Tools" },
@@ -154,6 +163,7 @@ test("tab restore accepts only known, well-formed surface types", () => {
       { id: "chat:space-1:new", kind: "chat", workspaceId: "space-1", conversationId: null, title: "New chat" },
       { id: "file:space-1", kind: "file", workspaceId: "space-1", path: "Notes.md", title: "Notes.md" },
       { id: "history:space-1", kind: "history", workspaceId: "space-1", checkpointId: undefined, title: "History" },
+      { id: "library:space-1", kind: "library", workspaceId: "space-1", title: "Library" },
       { id: "app-studio:space-1", kind: "app-studio", workspaceId: "space-1", title: "Renamed Studio" },
       { id: "assistant-tools:space-1", kind: "assistant-tools", workspaceId: "space-1", view: "discover", title: "Assistant tools" },
       { id: "extension:space-1:inbox:overview", kind: "extension", workspaceId: "space-1", surfaceId: "inbox", surfaceExecution: "full-trust-pi", viewId: "overview", title: "Overview" },
@@ -221,6 +231,32 @@ test("App Studio uses one canonical persistent tab per Space", () => {
     title: "App Studio",
   });
   assert.deepEqual(upsertSurfaceTab(upsertSurfaceTab([], first), second), [second]);
+});
+
+test("Library uses one canonical persistent tab per Space", () => {
+  const first = librarySurfaceTab(space);
+  const second = librarySurfaceTab({ ...space, name: "Renamed Space" });
+
+  assert.deepEqual(first, {
+    id: "library:space-1",
+    kind: "library",
+    workspaceId: "space-1",
+    title: "Library",
+  });
+  assert.deepEqual(upsertSurfaceTab(upsertSurfaceTab([], first), second), [second]);
+});
+
+test("a legacy Library rail selection migrates once to the owning Space tab", () => {
+  const initial = {
+    tabs: [appStudioSurfaceTab(space)],
+    activeTabId: "app-studio:space-1",
+  };
+  const migrated = migrateLegacyLibrarySurfaceTabState(initial, space, true);
+
+  assert.equal(migrated.activeTabId, "library:space-1");
+  assert.deepEqual(migrated.tabs.map((tab) => tab.id), ["app-studio:space-1", "library:space-1"]);
+  assert.deepEqual(migrateLegacyLibrarySurfaceTabState(migrated, space, true), migrated);
+  assert.equal(migrateLegacyLibrarySurfaceTabState(initial, space, false), initial);
 });
 
 test("Assistant tools uses one canonical persistent tab per Space and updates its view", () => {

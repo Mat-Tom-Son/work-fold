@@ -18,6 +18,7 @@ const [
   customizationCss,
   desktopSettingsSource,
   capabilitiesSource,
+  surfaceTabsSource,
 ] = await Promise.all([
   readRenderer("App.tsx"),
   readRenderer("main.tsx"),
@@ -31,14 +32,16 @@ const [
   readRenderer("professional-customization.css"),
   readRenderer("components/modals/DesktopSettingsModal.tsx"),
   readRenderer("components/panes/CapabilitiesPane.tsx"),
+  readRenderer("hooks/useSurfaceTabs.ts"),
 ]);
 
 test("Files is the first primary surface and Space remains the root selector", () => {
   const primaryItems = constArrayBody(workspaceChromeSource, "primaryItems");
   const primaryModes = [...primaryItems.matchAll(/mode:\s*"([^"]+)"/g)].map((match) => match[1]);
 
-  assert.deepEqual(primaryModes, ["files", "chats", "library", "history"]);
+  assert.deepEqual(primaryModes, ["files", "chats", "history"]);
   assert.doesNotMatch(primaryItems, /mode:\s*"workspaces"/);
+  assert.doesNotMatch(primaryItems, /mode:\s*"library"/, "Library belongs in the Space-owned tab canvas, not the permanent rail");
   assert.doesNotMatch(primaryItems, /mode:\s*"capabilities"/, "infrequent tool administration must not occupy the primary rail");
 
   const selectorIndex = workspaceChromeSource.indexOf("workspace-rail-space-selector");
@@ -64,7 +67,6 @@ test("pane navigation uses one Fluent icon contract", () => {
   const requiredNavPairs = [
     "DocumentFolder24",
     "ChatMultiple24",
-    "Library24",
     "History24",
   ];
   for (const icon of requiredNavPairs) {
@@ -74,11 +76,33 @@ test("pane navigation uses one Fluent icon contract", () => {
 
   assert.match(workspaceChromeSource, /professional-workspace-rail/);
   assert.match(workspaceChromeSource, /Add24Regular/);
-  assert.match(workspaceChromeSource, /aria-label="Add to Workspace"/);
+  assert.match(workspaceChromeSource, /aria-label="Add or manage"/);
   assert.match(workspaceChromeSource, /workspace-rail-add-anchor[\s\S]*?onBlurCapture=/);
   assert.doesNotMatch(workspaceChromeSource, /aria-label="Assistant"/);
   assert.doesNotMatch(workspaceChromeSource, /mode:\s*"setup"/);
   assert.doesNotMatch(workspaceChromeSource, /<Bot\w*[^>]*>.*Assistant/s);
+});
+
+test("Library opens from Add as a persistent Space-owned work tab", () => {
+  const primaryItems = constArrayBody(workspaceChromeSource, "primaryItems");
+  assert.doesNotMatch(primaryItems, /mode:\s*"library"/);
+  assert.match(workspaceChromeSource, /Open Library/);
+  assert.match(workspaceChromeSource, /chooseAddAction\(onOpenLibrary\)/);
+  assert.match(appSource, /onOpenLibrary=\{\(\) => openLibrary\(workspace\)\}/);
+  assert.match(surfaceTabsSource, /skipNextPersistRef = useRef\(!fixtureMode && !migrateLegacyLibraryMode\)/);
+  assert.match(appSource, /tab\.kind === "library"[\s\S]*?<LibraryPane/);
+  assert.doesNotMatch(appSource, /activeMode === "library"[\s\S]*?<LibraryPane/);
+  assert.match(appSource, /const \[libraryTree, setLibraryTree\]/);
+  assert.match(appSource, /tree=\{libraryTree\}[\s\S]*?onRefresh=\{refreshLibraryTree\}/);
+  assert.doesNotMatch(workspacePanesSource, /const \[tree, setTree\]/);
+  assert.match(workspacePanesSource, /Personal · available across Spaces/);
+  assert.match(workspacePanesSource, /Add a copy to[\s\S]*?workspaces\.map/);
+  assert.match(workspacePanesSource, /Your Library stays unchanged; only the new copy belongs to the selected Space/);
+  assert.match(workspacePanesSource, /targetFolderPath", ""/);
+  assert.match(workspacePanesSource, /parentPath: ""/);
+  assert.match(surfacesCss, /\.workspace-surface-body:has\(> \.library-pane\)[\s\S]*?container-type:\s*inline-size/);
+  assert.match(surfacesCss, /\.library-tab-header[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/);
+  assert.match(surfacesCss, /@container workspace-pane \(max-width: 760px\)[\s\S]*?\.library-tab-header[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/);
 });
 
 test("Skills, Extensions, and apps open as an on-demand Assistant tools work tab", () => {

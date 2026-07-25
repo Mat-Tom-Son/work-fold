@@ -34,10 +34,9 @@ The Space switcher selects the root-folder entity a person is working in. The pr
 
 - **Files**
 - **Chats**
-- **Library**
 - **History**
 
-The bottom-rail **Add** menu opens Library materials, Assistant-tool discovery and management, or app building without adding an administration destination to the primary rail. Provider, model, API-key, and provider OAuth setup—when a provider flow is supported—lives under **Settings → Assistant**. Connections used by a restricted Space app are configured separately with that app in **Assistant tools**.
+The bottom-rail **Add** menu opens one persistent Library tab for the selected Space, Assistant-tool discovery and management, or app building without adding occasional destinations to the primary rail. Every Space may own one Library tab, and all of those tabs read the same passive personal collection. The owning Space is the default copy target, and a destination selector can send an independent copy to any registered Space. Provider, model, API-key, and provider OAuth setup—when a provider flow is supported—lives under **Settings → Assistant**. Connections used by a restricted Space app are configured separately with that app in **Assistant tools**.
 
 The folder is an implementation detail, but never a proprietary boundary. Space files remain ordinary files that can be opened in other apps, synchronized by desktop storage tools, backed up, or revealed in the operating system.
 
@@ -147,7 +146,7 @@ CI runs `check`, `test`, and `desktop:package:smoke`, so every branch verifies t
 
 ### Developing with Codex or Claude Code
 
-The repository has one contributor contract: [AGENTS.md](AGENTS.md). Codex reads it directly. The tracked [CLAUDE.md](CLAUDE.md) uses Claude Code's `@AGENTS.md` import so both harnesses receive the same product rails, commands, test expectations, and release rules without duplicated prose.
+The repository has one contributor contract: [AGENTS.md](AGENTS.md). Codex reads it directly. The tracked [CLAUDE.md](CLAUDE.md) uses Claude Code's `@AGENTS.md` import so both harnesses receive the same product rails, commands, test expectations, release rules, and Pi Skill/Extension/tool boundaries without duplicated prose. Product tools remain the same native Pi catalog regardless of which development harness edits the repository.
 
 To exercise one real Assistant turn through the same local API, Pi runtime, tools, Skills, Extensions, persistence, and event stream as the desktop app:
 
@@ -185,7 +184,7 @@ See [Windows builds](docs/windows-build.md) and [Windows releases and signing](d
 
 ## macOS status
 
-`npm run desktop:make:mac` builds the non-interactive, separately identified `Workspace Local Smoke` Apple silicon structural candidate. `npm run desktop:release:mac` builds, Developer ID-signs, notarizes, staples, verifies, and draft-first publishes the production artifacts to the separate public Mac feed. Packaged production Mac builds update from that feed; signed installed updates through 0.3.0 have passed end to end. See [macOS build and release lane](docs/macos-build.md) and [macOS release runbook](docs/macos-release.md).
+`npm run desktop:make:mac` builds the non-interactive, separately identified `Workspace Local Smoke` Apple silicon structural candidate. `npm run desktop:release:mac` builds, Developer ID-signs, notarizes, staples, verifies, and draft-first publishes the production artifacts to the separate public Mac feed. Packaged production Mac builds update from that feed; signed installed updates through 0.4.4 have passed end to end. See [macOS build and release lane](docs/macos-build.md) and [macOS release runbook](docs/macos-release.md).
 
 ## Pi integration resources
 
@@ -205,14 +204,17 @@ See [Assistant capabilities](docs/assistant-capabilities.md) for the product-fac
 - [T3 Code reference audit](docs/t3code-reference-audit.md) — transferable workbench ideas, overlap, and the ranked adaptation plan.
 - [Architecture](docs/architecture.md) and [management layer](docs/management-layer.md) — runtime boundaries, shared kernel, CLI, and agent harness.
 - [Assistant capabilities](docs/assistant-capabilities.md), [Extension surfaces](docs/extension-surfaces.md), [restricted app authoring](docs/restricted-app-authoring.md), [restricted app runtime](docs/restricted-app-runtime.md), and [Pi compatibility](docs/pi-resources.md) — Skills, full-trust Extensions, restricted apps, packages, scopes, authoring, and authorization.
+- [Workspace 0.4.5 release notes](docs/releases/0.4.5.md) — Library tabs, cross-Space copy clarity, legacy navigation migration, and Codex/Claude contributor parity.
+- [Workspace 0.4.4 release notes](docs/releases/0.4.4.md) — Assistant tools in the work area, the Add menu, responsive capability management, and upgrade guidance.
+- [Workspace 0.4.3 release notes](docs/releases/0.4.3.md) — Space-bound Chat context, model stability, generated titles, modal accessibility, and upgrade guidance.
 - [Workspace 0.4.2 release notes](docs/releases/0.4.2.md) — cross-Space content search, large-Space performance, History correctness, restricted-network hardening, and upgrade guidance.
 - [Workspace 0.4.1 release notes](docs/releases/0.4.1.md) — Chat lifecycle, background-work visibility, composer discovery, provider setup, and upgrade guidance.
+- [Workspace 0.4.0 release notes](docs/releases/0.4.0.md) — Local App Studio, immutable Releases, release-backed App Instances, deterministic update/rollback, and explicit data removal.
+- [Workspace 0.3.0 release notes](docs/releases/0.3.0.md) — the local App-platform foundation, authority hardening, upgrade behavior, and hosted semantic-core boundary.
 - [Workspace 0.2.11 release notes](docs/releases/0.2.11.md) — first-request native Mac Quit behavior, the deferred graceful-shutdown coordinator, updater safety, and upgrade guidance.
 - [Workspace 0.2.10 release notes](docs/releases/0.2.10.md) — native macOS chrome, menus, Finder and Quick Look workflows, close/reopen continuity, security boundaries, and upgrade guidance.
 - [Workspace 0.2.9 release notes](docs/releases/0.2.9.md) — named Space-app automations, per-job authority, durable cadence, run receipts, and upgrade guidance.
 - [Workspace 0.2.8 release notes](docs/releases/0.2.8.md) — the shipped Space-app foundation, security boundary, example, verification, and known limits.
-- [Workspace 0.3.0 release notes](docs/releases/0.3.0.md) — the local App-platform foundation, authority hardening, upgrade behavior, and hosted semantic-core boundary.
-- [Workspace 0.4.0 release notes](docs/releases/0.4.0.md) — Local App Studio, immutable Releases, release-backed App Instances, deterministic update/rollback, and explicit data removal.
 - [Desktop parity](docs/ui-parity.md) and [visual system](docs/visual-design.md) — required interactions and design rules.
 - [Windows build](docs/windows-build.md), [Windows release runbook](docs/windows-release.md), [macOS build lane](docs/macos-build.md), and [macOS release runbook](docs/macos-release.md) — verification, signing, updater, and publishing boundaries.
 - [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), and [Privacy](PRIVACY.md) — repository and user-data policies.

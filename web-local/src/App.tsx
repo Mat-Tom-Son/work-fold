@@ -233,7 +233,8 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
   onOpenShortcuts: () => void;
   onError: (message: string | null) => void;
 }) {
-  const [activeMode, setActiveMode] = useState<WorkspaceRailMode>(() => fixture ? "files" : normalizeMode(localStorage.getItem("workspace.mode")));
+  const initialStoredModeRef = useRef(fixture ? null : localStorage.getItem("workspace.mode"));
+  const [activeMode, setActiveMode] = useState<WorkspaceRailMode>(() => fixture ? "files" : normalizeMode(initialStoredModeRef.current));
   const [customizations, setCustomizations] = useState<WorkspaceCustomizationMap>(() => fixture ? fixture.customizations : readStoredJsonValue(workspaceCustomizationStorageKey, (value) => normalizeWorkspaceCustomizations(value, undefined, supportedWorkspaceIconNames), {}));
   const customizationsRef = useRef(customizations);
   const appearanceStorageWarningShownRef = useRef(false);
@@ -250,6 +251,9 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const commandPaletteReturnFocusRef = useRef<HTMLElement | null>(null);
   const [historyRefreshRequest, setHistoryRefreshRequest] = useState(0);
+  const [libraryTree, setLibraryTree] = useState<TreeEntry[]>(() => fixture?.library ?? []);
+  const [libraryOpenRequests, setLibraryOpenRequests] = useState<Record<string, number>>({});
+  const libraryTreeRequestRef = useRef(0);
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [uploadTargetPath, setUploadTargetPath] = useState("");
   const uploadRef = useRef<HTMLInputElement>(null);
@@ -261,7 +265,13 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
   const selectedPathRef = useRef(tree.selectedPath);
   selectedPathRef.current = tree.selectedPath;
   const paneResize = usePaneResize(Boolean(fixture));
-  const tabs = useSurfaceTabs({ workspace, workspaces, fixtureMode: Boolean(fixture), onSwitchWorkspace });
+  const tabs = useSurfaceTabs({
+    workspace,
+    workspaces,
+    fixtureMode: Boolean(fixture),
+    migrateLegacyLibraryMode: initialStoredModeRef.current === "library",
+    onSwitchWorkspace,
+  });
   const handleRestrictedAppError = useCallback((caught: unknown) => onError(errorText(caught)), [onError]);
   const restrictedAppsState = useRestrictedApps({
     activeWorkspaceId: workspace.id,
@@ -295,8 +305,30 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
     window.requestAnimationFrame(() => { if (returnFocus?.isConnected) returnFocus.focus(); });
   }, []);
 
+  const refreshLibraryTree = useCallback(async () => {
+    const requestId = ++libraryTreeRequestRef.current;
+    if (fixture) {
+      setLibraryTree(fixture.library);
+      return;
+    }
+    try {
+      const result = await api<{ tree: TreeEntry[] }>("/api/resources/tree");
+      if (libraryTreeRequestRef.current === requestId) setLibraryTree(result.tree);
+    } catch (caught) {
+      if (libraryTreeRequestRef.current === requestId) onError(errorText(caught));
+    }
+  }, [fixture, onError]);
+
+  function openLibrary(targetWorkspace: WorkspaceSummary): void {
+    setLibraryOpenRequests((current) => ({
+      ...current,
+      [targetWorkspace.id]: (current[targetWorkspace.id] ?? 0) + 1,
+    }));
+    tabs.openLibrarySurfaceTab(targetWorkspace);
+  }
 
   useEffect(() => { if (!fixture) localStorage.setItem("workspace.mode", activeMode); }, [activeMode, fixture]);
+  useEffect(() => { void refreshLibraryTree(); }, [refreshLibraryTree]);
   useEffect(() => { setActiveMode((current) => current === "workspaces" ? "files" : current); }, [workspace.id]);
   useEffect(() => {
     if (!isMacOS() || !window.workspaceDesktop?.workspace.previewFile) return;
@@ -419,7 +451,7 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
       return;
     }
     onError(null);
-    await Promise.all([onRefreshBootstrap(), tree.refresh(false), loadConversationGroups()]);
+    await Promise.all([onRefreshBootstrap(), tree.refresh(false), loadConversationGroups(), refreshLibraryTree()]);
     setHistoryRefreshRequest((current) => current + 1);
     showToast({ text: `${workspace.name} refreshed`, tone: "success" });
   }
@@ -823,7 +855,8 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
   }
 
   const commands = useMemo<CommandPaletteCommand[]>(() => [
-    ...(["files", "chats", "library", "history"] as WorkspacePane[]).map((mode) => ({ id: `go:${mode}`, groupId: "go-to" as const, groupLabel: "Go to", label: mode[0]!.toUpperCase() + mode.slice(1), defaultVisible: true, run: () => selectRailMode(mode) })),
+    ...(["files", "chats", "history"] as WorkspacePane[]).map((mode) => ({ id: `go:${mode}`, groupId: "go-to" as const, groupLabel: "Go to", label: mode[0]!.toUpperCase() + mode.slice(1), defaultVisible: true, run: () => selectRailMode(mode) })),
+    { id: "go:library", groupId: "go-to" as const, groupLabel: "Go to", label: "Library", detail: "Reusable personal files", defaultVisible: true, run: () => openLibrary(workspace) },
     { id: "go:assistant-tools", groupId: "go-to" as const, groupLabel: "Go to", label: "Assistant tools", detail: "Installed Skills, Extensions, and apps", defaultVisible: true, run: () => tabs.openAssistantToolsSurfaceTab(workspace, "installed") },
     { id: "action:discover-assistant-tools", groupId: "actions" as const, groupLabel: "Actions", label: "Browse Skills & Extensions", keywords: ["capabilities", "discover", "install", "tools"], run: () => tabs.openAssistantToolsSurfaceTab(workspace, "discover") },
     ...surfaces.map((surface) => ({ id: `app:${surface.key}`, groupId: "go-to" as const, groupLabel: "Go to", label: surface.title, detail: surface.scope === "project" ? "Pi Extension · This Space" : "Pi Extension · Personal", run: () => selectRailMode(`app:${surface.key}`) })),
@@ -859,7 +892,7 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
   const layoutStyle = { ...(workspaceIdentityStyle(identity)), ...(paneResize.sidebarWidth ? { "--workspace-sidebar-width": `${paneResize.sidebarWidth}px` } : {}) } as CSSProperties;
 
   return <main className={paneResize.sidebarResizing ? "workspace-layout resizing" : "workspace-layout"} ref={paneResize.workspaceLayoutRef} style={layoutStyle}>
-    <WorkspaceModeRail activeMode={activeMode} workspace={workspace} workspaceIdentity={identity} surfaces={surfaces} apps={restrictedApps} onModeChange={selectRailMode} onOpenAssistantTools={(view) => tabs.openAssistantToolsSurfaceTab(workspace, view)} onBuildApp={() => openChat(workspace, null)} accountControl={<button className="workspace-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings" data-rail-tooltip="Settings"><Settings24Regular aria-hidden="true" /></button>} onOpenKeyboardShortcuts={onOpenShortcuts} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
+    <WorkspaceModeRail activeMode={activeMode} workspace={workspace} workspaceIdentity={identity} surfaces={surfaces} apps={restrictedApps} onModeChange={selectRailMode} onOpenLibrary={() => openLibrary(workspace)} onOpenAssistantTools={(view) => tabs.openAssistantToolsSurfaceTab(workspace, view)} onBuildApp={() => openChat(workspace, null)} accountControl={<button className="workspace-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings" data-rail-tooltip="Settings"><Settings24Regular aria-hidden="true" /></button>} onOpenKeyboardShortcuts={onOpenShortcuts} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
     <section className={`workspace-mode-pane workspace-mode-pane-${activeMode}`} id="workspace-file-panel">
       <WorkspacePaneHeader workspace={workspace} identity={identity} workspaces={workspaces} workspaceCustomizations={customizations} onSwitchWorkspace={onSwitchWorkspace} switchable={activeMode !== "workspaces"} action={activeMode === "files" ? <button className="minimal-icon-button" type="button" disabled={uploadingFiles || tree.status === "refreshing"} onClick={() => void tree.refresh(false)} aria-label="Refresh files" title="Refresh files"><ArrowSync16Regular className={tree.status === "refreshing" ? "spin" : undefined} /></button> : undefined} />
       {activeMode === "workspaces" ? <SpacesPane workspace={workspace} workspaces={workspaces} identities={customizations} onSwitch={onSwitchWorkspace} onCreate={onCreateSpace} onOpenFolder={onOpenFolder} onCustomize={(target) => tabs.openAppearanceSurfaceTab(target)} onRename={renameSpace} onRemove={(target) => void removeSpace(target)} /> : null}
@@ -921,7 +954,6 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
         )}
       </div> : null}
       {activeMode === "chats" ? <ChatsPane workspace={workspace} workspaces={workspaces} conversations={conversationGroups} customizations={customizations} activityStatuses={chatActivity.statuses} activeConversationId={activeTab?.kind === "chat" ? activeTab.conversationId ?? undefined : undefined} onOpen={(target, conversation) => openChat(target, conversation)} onNew={(target) => openChat(target, null)} onActions={openChatActions} /> : null}
-      {activeMode === "library" ? <LibraryPane workspace={workspace} fixtureTree={fixture?.library} onError={onError} /> : null}
       {activeMode === "history" ? <HistoryPane workspace={workspace} fixtureItems={fixture?.checkpoints[workspace.id]} refreshRequest={historyRefreshRequest} onOpen={(item) => tabs.openHistorySurfaceTab(workspace, item.checkpointId, item.label || "Restore point")} onError={onError} /> : null}
       {activeSurface ? <ExtensionSurfacePane surface={activeSurface} activeViewId={activeTab?.kind === "extension" && surfaceMatchesTab(activeSurface, activeTab) ? activeTab.viewId : null} onOpenView={(view) => tabs.openExtensionSurfaceTab(workspace, activeSurface, view)} /> : null}
       {activeRestrictedApp ? <RestrictedAppViewport app={activeRestrictedApp} placement="navigator" route="/" active /> : null}
@@ -942,6 +974,16 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
           <div className="workspace-surface-body" role="tabpanel" id={surfacePanelDomId(tab.id)} aria-labelledby={surfaceTabDomId(tab.id)} hidden={!active} key={tab.id} style={workspaceIdentityStyle(targetIdentity)}>
             {tab.kind === "file" && tab.path ? (
               <FileDetailsPane workspace={targetWorkspace} path={tab.path} entry={targetWorkspace.id === workspace.id ? findTreeEntry(tree.tree, tab.path) : null} fixtureMode={Boolean(fixture)} onOpenLocal={(path, action) => openLocalPath(path, action, targetWorkspace)} onAddToChatContext={attachToChat} onShowVersionHistory={(path) => openVersionHistory(targetWorkspace, path)} onRename={targetWorkspace.id === workspace.id ? renameEntry : undefined} />
+            ) : tab.kind === "library" ? (
+              <LibraryPane
+                workspace={targetWorkspace}
+                workspaces={workspaces}
+                tree={libraryTree}
+                fixtureMode={Boolean(fixture)}
+                destinationResetRequest={libraryOpenRequests[targetWorkspace.id] ?? 0}
+                onRefresh={refreshLibraryTree}
+                onError={onError}
+              />
             ) : tab.kind === "assistant-tools" ? (
               <CapabilitiesPane
                 workspace={targetWorkspace}
@@ -1015,7 +1057,7 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
 }
 
 function WorkspaceSurfaceEmptyState({ workspace, identity, onNewChat }: { workspace: WorkspaceSummary; identity: ReturnType<typeof workspaceIdentityFor>; onNewChat: () => void }) {
-  return <div className="workspace-surface-body workspace-surface-body-empty"><div className="workspace-surface-empty" style={workspaceIdentityStyle(identity)}><span className="workspace-surface-empty-icon"><WorkspaceIconGlyph icon={identity.Icon} size={24} /></span><h2>{workspace.name}</h2><p>Open a file, Chat, restore point, or appearance tab here.</p><button className="primary-button" type="button" onClick={onNewChat}><CirclePlus size={16} />New Chat</button></div></div>;
+  return <div className="workspace-surface-body workspace-surface-body-empty"><div className="workspace-surface-empty" style={workspaceIdentityStyle(identity)}><span className="workspace-surface-empty-icon"><WorkspaceIconGlyph icon={identity.Icon} size={24} /></span><h2>{workspace.name}</h2><p>Open a file, Chat, Library, restore point, or appearance tab here.</p><button className="primary-button" type="button" onClick={onNewChat}><CirclePlus size={16} />New Chat</button></div></div>;
 }
 
 function applyFixtureChatLifecycle(
@@ -1159,9 +1201,9 @@ function joinDropPath(...segments: string[]) {
 function fixtureConversationGroups(fixture: WorkspaceUiFixture): Record<string, ConversationSummary[]> { return Object.fromEntries(Object.entries(fixture.conversations).map(([id, conversations]) => [id, conversations.map(({ messages: _messages, ...summary }) => summary)])); }
 function normalizeMode(value: string | null): WorkspaceRailMode {
   if (value === "space" || value === "workspaces") return "files";
-  if (value === "capabilities" || value === "skills" || value === "extensions") return "files";
+  if (value === "library" || value === "capabilities" || value === "skills" || value === "extensions") return "files";
   if (value?.startsWith("app:") && /^[a-z0-9][a-z0-9:_-]{0,255}$/i.test(value.slice(4))) return value as WorkspaceRailMode;
-  return (["files", "chats", "library", "history"] as WorkspaceRailMode[]).includes(value as WorkspaceRailMode) ? value as WorkspaceRailMode : "files";
+  return (["files", "chats", "history"] as WorkspaceRailMode[]).includes(value as WorkspaceRailMode) ? value as WorkspaceRailMode : "files";
 }
 
 function extensionSurfaceIdForMode(mode: WorkspaceRailMode): string | null {

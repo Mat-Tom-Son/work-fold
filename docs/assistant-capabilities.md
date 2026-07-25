@@ -2,7 +2,7 @@
 
 Workspace uses Pi's native capability system for full-trust Skills and Extensions and includes a separate restricted-app package lane for agent-created browser apps. This guide explains how Skills, Extensions, packages, scopes, and authorization fit the product without confusing them with the user-facing Library.
 
-The rail's **Add** menu opens one Space-owned **Assistant tools** work tab. Its **Installed** view answers what is present, where it came from, which scope owns it, and whether Pi loaded it. Its **Discover** view searches first-party/reference sources and community Pi packages. Skills and Extensions remain distinct item types inside both views because their behavior and risk are different. Library remains a separate primary destination because its materials are passive files; executable tools are never mixed into the Library tree or install flow.
+The rail's **Add** menu opens one Space-owned **Assistant tools** work tab. Its **Installed** view answers what is present, where it came from, which scope owns it, and whether Pi loaded it. Its **Discover** view searches first-party/reference sources and community Pi packages. Skills and Extensions remain distinct item types inside both views because their behavior and risk are different. Add also opens one persistent Library tab per Space, all backed by the same passive personal collection. Its explicit destination selector copies to any registered Space. Executable tools are never mixed into its tree or install path.
 
 ## Management visibility
 
