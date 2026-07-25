@@ -9,8 +9,7 @@ import { nextMenuItemIndex } from "../web-local/src/lib/menu-navigation.js";
 import { createWorkspaceOperationGate } from "../web-local/src/lib/workspace-operation-gate.js";
 
 const root = process.cwd();
-const [modalHook, capabilities, textInputModal, messages, tabBar, indexHtml] = await Promise.all([
-  read("web-local/src/hooks/useModalDialog.ts"),
+const [capabilities, textInputModal, messages, tabBar, indexHtml] = await Promise.all([
   read("web-local/src/components/panes/CapabilitiesPane.tsx"),
   read("web-local/src/components/modals/TextInputModal.tsx"),
   read("web-local/src/components/chat/messages.tsx"),
@@ -27,19 +26,16 @@ test("modal focus wrapping handles both boundaries and an escaped focus target",
   assert.equal(nextDialogTabIndex(-1, 0, false), null);
 });
 
-test("all new in-tree dialogs use the shared focus and background isolation contract", () => {
+// What the shared dialog contract actually does — focus entry and containment,
+// Tab wrapping, Escape handling, background isolation, and focus restoration —
+// is asserted against a real DOM in renderer-modal-dialog.test.ts. Matching the
+// hook's source here would pass whether or not that behaviour survives.
+test("in-tree dialogs are wired to the shared dialog contract", () => {
   assert.equal((capabilities.match(/useModalDialog\(\{/g) ?? []).length, 3);
   assert.equal((capabilities.match(/ref=\{dialogRef\}\s+tabIndex=\{-1\}/g) ?? []).length, 3);
   assert.match(capabilities, /initialFocusRef:\s*cancelRef/);
   assert.match(textInputModal, /useModalDialog\(\{\s*onClose,\s*blocked:\s*saving,\s*initialFocusRef:\s*inputRef\s*\}\)/);
   assert.match(textInputModal, /ref=\{dialogRef\}\s+tabIndex=\{-1\}/);
-
-  assert.match(modalHook, /document\.addEventListener\("focusin",\s*containFocus,\s*true\)/);
-  assert.match(modalHook, /nextDialogTabIndex\(currentIndex,\s*focusable\.length,\s*event\.shiftKey\)/);
-  assert.match(modalHook, /element\.inert\s*=\s*true/);
-  assert.match(modalHook, /element\.setAttribute\("aria-hidden",\s*"true"\)/);
-  assert.match(modalHook, /element\.inert\s*=\s*state\.inert/);
-  assert.match(modalHook, /returnFocus\.isConnected[\s\S]*?returnFocus\.focus\(\)/);
 });
 
 test("Markdown image policy embeds only CSP-compatible sources and links remote HTTPS images", () => {
