@@ -61,6 +61,8 @@ Workspace 0.2.10 to 0.2.11 passed the same proof on July 15, 2026. The installed
 
 Workspace 0.2.11 to 0.3.0 passed the same proof on July 16, 2026. The installed 0.2.11 app offered 0.3.0 from **Workspace > Check for Updates...**, downloaded a ZIP whose SHA-256 matched the published GitHub digest `d8bb801498c2823f54b10340395b0ee2428b3154c33c0b4b49658106c269bcea`, replaced itself, and relaunched as 0.3.0. Installed-bundle verification passed; the registered Space retained the same identity and its 25-capability projection remained unchanged. Native About reported 0.3.0, the update command reported the app current, application-menu Quit, Command-Q, and the Dock/system termination path exited, and closing then reopening the last window reused the same process. No SecurityAgent or Keychain dialog appeared.
 
+Workspace 0.4.0 to 0.4.1 passed the same proof on July 25, 2026. The installed, Developer ID-signed and notarized 0.4.0 app exposed a visible frontend button labeled **Download Workspace 0.4.1**. One click advanced through live download progress, entered the updater shutdown handoff, replaced `/Applications/Workspace.app`, and relaunched as 0.4.1. Both cached updater ZIPs and the local release ZIP matched the published GitHub digest `b2735c92f0a1cf73fb7e6abef8a413beeea7fd45c19d2e188d9de5b656396044`. Installed-bundle verification passed with bundle id `io.github.mattomson.workspace`, Team ID `464JD5K8DC`, the public Mac feed, and Gatekeeper acceptance. A full quit and normal reopen kept 0.4.1 running and produced no SecurityAgent or Keychain dialog.
+
 ## Recovery rules
 
 - Never replace assets in a published release. Correct a bad release with a higher shared version.
