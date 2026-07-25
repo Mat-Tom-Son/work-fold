@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -138,6 +138,56 @@ test("history migrates legacy copied snapshots and enforces manifest retention",
   assert.equal((await listWorkspaceCheckpoints(root, 20)).length, 2);
   assert.equal((await listObjectFiles(workspaceHistoryRoot(root))).length, 2, "unreferenced objects are collected with pruned manifests");
 });
+
+test("capture reuses recorded digests for settled files and re-reads everything else", async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), "workspace-history-incremental-"));
+  const root = join(sandbox, "space");
+  const state = join(sandbox, "state");
+  configureWorkspaceStateRoot(state);
+  await mkdir(root, { recursive: true });
+  await writeFile(join(root, "settled.txt"), "aaaa", "utf8");
+  await writeFile(join(root, "edited.txt"), "keep", "utf8");
+  t.after(async () => {
+    configureWorkspaceStateRoot(undefined);
+    await rm(sandbox, { recursive: true, force: true });
+  });
+
+  const first = await createWorkspaceCheckpoint(root, { reason: "manual", label: "First" });
+  const settledDigest = digestOf(first, "settled.txt");
+  assert.ok(settledDigest);
+
+  // Same path, same size, same mtime, different bytes. Only a capture that
+  // skipped the read can still report the original digest, so this pins the
+  // reuse path itself rather than an incidental blob-store hit.
+  const settledStat = await stat(join(root, "settled.txt"));
+  await writeFile(join(root, "settled.txt"), "bbbb", "utf8");
+  await utimes(join(root, "settled.txt"), settledStat.atime, settledStat.mtime);
+  await writeFile(join(root, "edited.txt"), "changed", "utf8");
+
+  const second = await createWorkspaceCheckpoint(root, { reason: "manual", label: "Second" });
+  assert.equal(digestOf(second, "settled.txt"), settledDigest, "an unchanged path/size/mtime triple reuses its recorded digest");
+  assert.notEqual(digestOf(second, "edited.txt"), digestOf(first, "edited.txt"), "a changed file is re-read and re-hashed");
+
+  // A recorded mtime that is not strictly older than its own checkpoint never
+  // seeds the index, so the next capture has to hash that file again even
+  // though its path, size, and mtime all still match.
+  const unsettled = new Date(Date.now() + 60_000);
+  await writeFile(join(root, "racing.txt"), "first", "utf8");
+  await utimes(join(root, "racing.txt"), unsettled, unsettled);
+  const third = await createWorkspaceCheckpoint(root, { reason: "manual", label: "Third" });
+  await writeFile(join(root, "racing.txt"), "fresh", "utf8");
+  await utimes(join(root, "racing.txt"), unsettled, unsettled);
+  const fourth = await createWorkspaceCheckpoint(root, { reason: "manual", label: "Fourth" });
+  assert.notEqual(
+    digestOf(fourth, "racing.txt"),
+    digestOf(third, "racing.txt"),
+    "a capture sharing its file's timestamp tick is not trusted as a reuse source",
+  );
+});
+
+function digestOf(checkpoint: { files: Array<{ path: string; hashSha256: string }> }, path: string): string | undefined {
+  return checkpoint.files.find((file) => file.path === path)?.hashSha256;
+}
 
 async function listObjectFiles(historyRoot: string): Promise<string[]> {
   const objectsRoot = join(historyRoot, "objects");

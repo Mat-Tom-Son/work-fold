@@ -73,6 +73,7 @@ export interface StoredBlobRef {
 
 const checkpointIdPattern = /^cp-[A-Za-z0-9-]{10,80}$/;
 const versionScopeSkippedSegments = new Set([".git", ".pi", ".workspace", "node_modules"]);
+const maxCaptureReuseManifests = 20;
 const legacyMetadataName = "checkpoint.json";
 const legacySnapshotDirName = "files";
 
@@ -324,6 +325,7 @@ async function capturePaths(root: string, requestedPaths: string[], full: boolea
   const directories = new Set<string>();
   const files = new Map<string, CheckpointFileEntry>();
   const skipped = new Map<string, CheckpointSkippedFile>();
+  const reusableDigests = await buildCaptureReuseIndex(root);
   const visit = async (absolutePath: string): Promise<void> => {
     const info = await lstat(absolutePath).catch(() => null);
     if (!info) return;
@@ -350,13 +352,23 @@ async function capturePaths(root: string, requestedPaths: string[], full: boolea
       skipped.set(path, { path, sizeBytes: info.size, reason: "too_large" });
       return;
     }
+    // A settled path/size/mtime triple that an earlier checkpoint already
+    // hashed cannot describe different bytes, so its digest is reused instead
+    // of reading the file again. A miss always falls back to a full read, so
+    // the manifest stays byte-identical either way.
+    const modifiedAt = info.mtime.toISOString();
+    const reusedDigest = reusableDigests.get(captureReuseKey(path, info.size, modifiedAt));
+    if (reusedDigest && await hasWorkspaceBlob(root, reusedDigest)) {
+      files.set(path, { path, hashSha256: reusedDigest, sizeBytes: info.size, modifiedAt });
+      return;
+    }
     const bytes = await readFile(absolutePath).catch(() => null);
     if (!bytes) {
       skipped.set(path, { path, sizeBytes: info.size, reason: "unreadable" });
       return;
     }
     const blob = await storeWorkspaceBlob(root, bytes);
-    files.set(path, { path, hashSha256: blob.hashSha256, sizeBytes: blob.sizeBytes, modifiedAt: info.mtime.toISOString() });
+    files.set(path, { path, hashSha256: blob.hashSha256, sizeBytes: blob.sizeBytes, modifiedAt });
   };
 
   if (full) await visit(root);
@@ -560,6 +572,44 @@ async function garbageCollectObjects(root: string, retained: WorkspaceCheckpoint
     }
     if (!(await readdir(directory).catch(() => [])).length) await rm(directory, { recursive: true, force: true });
   }
+}
+
+function captureReuseKey(path: string, sizeBytes: number, modifiedAt: string): string {
+  return `${path}\u0000${sizeBytes}\u0000${modifiedAt}`;
+}
+
+/**
+ * Digests recorded by recent checkpoints, keyed by the exact path, size, and
+ * modification time they described. Capture uses this to skip re-reading and
+ * re-hashing files a previous checkpoint already covered, which is what keeps
+ * a per-turn checkpoint proportional to what changed rather than to the size
+ * of the whole Space.
+ *
+ * Scanning stops at the newest full-scope manifest because everything older is
+ * already represented there. An entry seeds the index only when its file had
+ * settled strictly before that checkpoint was taken, so a write sharing a
+ * timestamp tick with its own capture can never be trusted as a cache source.
+ */
+async function buildCaptureReuseIndex(root: string): Promise<Map<string, string>> {
+  const names = (await readdir(checkpointsDir(root)).catch(() => [] as string[]))
+    .filter((name) => name.endsWith(".json"))
+    .sort((left, right) => right.localeCompare(left));
+  const index = new Map<string, string>();
+  let scanned = 0;
+  for (const name of names) {
+    if (scanned >= maxCaptureReuseManifests) break;
+    const checkpoint = await readCheckpointManifest(join(checkpointsDir(root), name));
+    if (!checkpoint) continue;
+    scanned += 1;
+    const capturedAt = Date.parse(checkpoint.createdAt);
+    for (const file of checkpoint.files) {
+      if (!(Date.parse(file.modifiedAt) < capturedAt)) continue;
+      const key = captureReuseKey(file.path, file.sizeBytes, file.modifiedAt);
+      if (!index.has(key)) index.set(key, file.hashSha256);
+    }
+    if (checkpoint.scope === "full") break;
+  }
+  return index;
 }
 
 async function readCheckpointManifests(root: string): Promise<WorkspaceCheckpoint[]> {
