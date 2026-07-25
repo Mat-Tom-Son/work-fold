@@ -146,6 +146,7 @@ interface PortableSpaceManifest {
 }
 
 const maxPreviewBytes = 2 * 1024 * 1024;
+const treeScanConcurrency = 64;
 
 export async function listWorkspaces(): Promise<WorkspaceSummary[]> {
   const registry = await readRegistry();
@@ -413,7 +414,15 @@ export async function scanWorkspaceTree(
   const info = await stat(scanRoot).catch(() => null);
   if (!info?.isDirectory()) throw new Error("Requested Space tree path is not a folder.");
   const ignoreState = await readWorkspaceIgnoreState(safeRoot);
-  return scanDirectory(safeRoot, scanRoot, 0, Math.min(Math.max(maxDepth, 0), 50), ignoreState.patterns, options.includeIgnored !== false);
+  return scanDirectory(
+    safeRoot,
+    scanRoot,
+    0,
+    Math.min(Math.max(maxDepth, 0), 50),
+    ignoreState.patterns,
+    options.includeIgnored !== false,
+    createFilesystemLimiter(treeScanConcurrency),
+  );
 }
 
 export async function readWorkspaceTextFile(rootPath: string, relativePath: string): Promise<{ text: string }> {
@@ -1037,40 +1046,56 @@ async function scanDirectory(
   maxDepth: number,
   ignorePatterns: string[],
   includeIgnored: boolean,
+  limit: FilesystemLimiter,
 ): Promise<TreeEntry[]> {
-  const entries = await readdir(directory, { withFileTypes: true });
-  const result: TreeEntry[] = [];
-  for (const entry of entries) {
-    if (entry.isSymbolicLink() || isAlwaysHiddenWorkspaceEntry(entry.name) || isOfficeLockFileName(entry.name)) continue;
+  const entries = (await limit(() => readdir(directory, { withFileTypes: true })))
+    .filter((entry) => !entry.isSymbolicLink() && !isAlwaysHiddenWorkspaceEntry(entry.name) && !isOfficeLockFileName(entry.name))
+    .filter((entry) => entry.isDirectory() || entry.isFile());
+
+  // Every entry needs its own stat for size and modification time. Inspecting a
+  // folder's entries together turns one round trip per entry into one bounded
+  // batch per folder, which is what a Space with a large flat folder pays for.
+  const inspected = await Promise.all(entries.map(async (entry) => {
     const path = join(directory, entry.name);
-    const info = await stat(path);
+    // A tree walk races ordinary file activity, so an entry that disappears
+    // between readdir and stat is skipped rather than failing the whole Space.
+    const info = await limit(() => stat(path).catch(() => null));
+    if (!info) return null;
     const relativePath = normalizeRelative(relative(root, path));
     const ignored = isWorkspaceIgnored(relativePath, ignorePatterns);
-    if (ignored && !includeIgnored) continue;
-    if (entry.isDirectory()) {
+    if (ignored && !includeIgnored) return null;
+    return { entry, path, info, relativePath, ignored };
+  }));
+
+  const result: TreeEntry[] = [];
+  for (const item of inspected) {
+    if (!item) continue;
+    if (item.entry.isDirectory()) {
       const childrenLoaded = depth < maxDepth;
-      const children = childrenLoaded ? await scanDirectory(root, path, depth + 1, maxDepth, ignorePatterns, includeIgnored) : [];
+      const children = childrenLoaded
+        ? await scanDirectory(root, item.path, depth + 1, maxDepth, ignorePatterns, includeIgnored, limit)
+        : [];
       const descendantIgnoredCount = children.reduce((total, child) => total + (child.ignored ? 1 : 0) + (child.descendantIgnoredCount ?? 0), 0);
       result.push({
-        name: entry.name,
-        path: relativePath,
+        name: item.entry.name,
+        path: item.relativePath,
         kind: "folder",
-        updatedAt: info.mtime.toISOString(),
-        ...(ignored ? { ignored: true } : {}),
+        updatedAt: item.info.mtime.toISOString(),
+        ...(item.ignored ? { ignored: true } : {}),
         ...(descendantIgnoredCount ? { descendantIgnoredCount } : {}),
         hasChildren: childrenLoaded
           ? children.length > 0
-          : await directoryHasVisibleEntries(root, path, ignorePatterns, includeIgnored),
+          : await directoryHasVisibleEntries(root, item.path, ignorePatterns, includeIgnored, limit),
         children,
       });
-    } else if (entry.isFile()) {
+    } else {
       result.push({
-        name: entry.name,
-        path: relativePath,
+        name: item.entry.name,
+        path: item.relativePath,
         kind: "file",
-        sizeBytes: info.size,
-        updatedAt: info.mtime.toISOString(),
-        ...(ignored ? { ignored: true } : {}),
+        sizeBytes: item.info.size,
+        updatedAt: item.info.mtime.toISOString(),
+        ...(item.ignored ? { ignored: true } : {}),
       });
     }
   }
@@ -1082,8 +1107,9 @@ async function directoryHasVisibleEntries(
   directory: string,
   ignorePatterns: string[],
   includeIgnored: boolean,
+  limit: FilesystemLimiter,
 ): Promise<boolean> {
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
+  for (const entry of await limit(() => readdir(directory, { withFileTypes: true }).catch(() => []))) {
     if (entry.isSymbolicLink() || isAlwaysHiddenWorkspaceEntry(entry.name) || isOfficeLockFileName(entry.name)) continue;
     if (!entry.isDirectory() && !entry.isFile()) continue;
     const relativePath = normalizeRelative(relative(root, join(directory, entry.name)));
@@ -1091,6 +1117,28 @@ async function directoryHasVisibleEntries(
     return true;
   }
   return false;
+}
+
+type FilesystemLimiter = <T>(task: () => Promise<T>) => Promise<T>;
+
+/**
+ * Caps how many filesystem calls the tree walk keeps in flight. Only leaf
+ * operations pass through the limiter; recursion never holds a slot while
+ * waiting for one, so a deep Space cannot deadlock its own walk.
+ */
+function createFilesystemLimiter(limit: number): FilesystemLimiter {
+  let active = 0;
+  const waiting: Array<() => void> = [];
+  return async <T>(task: () => Promise<T>): Promise<T> => {
+    if (active >= limit) await new Promise<void>((resolve) => waiting.push(resolve));
+    active += 1;
+    try {
+      return await task();
+    } finally {
+      active -= 1;
+      waiting.shift()?.();
+    }
+  };
 }
 
 async function visitWorkspaceFiles(root: string, directory: string, visitor: (relativePath: string, name: string) => void): Promise<void> {

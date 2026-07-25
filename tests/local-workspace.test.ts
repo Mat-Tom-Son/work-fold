@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, mkdir, readFile, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
@@ -480,4 +480,40 @@ test("restore points live externally and can restore workspace files", async () 
   assert.equal(result.restored, true);
   assert.equal(await readFile(file, "utf8"), "version one");
   assert.equal(existsSync(join(workspace.rootPath, "history")), false);
+});
+
+test("the Space tree keeps a stable order under batched inspection and survives unreadable entries", async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), "workspace-tree-scan-"));
+  t.after(async () => {
+    await chmod(join(sandbox, "unreadable"), 0o755).catch(() => undefined);
+    await rm(sandbox, { recursive: true, force: true });
+  });
+
+  // Wide enough to span several inspection batches.
+  const names = Array.from({ length: 200 }, (_, index) => `file-${String(index).padStart(3, "0")}.txt`);
+  await Promise.all(names.map((name) => writeFile(join(sandbox, name), name, "utf8")));
+  await mkdir(join(sandbox, "zeta-folder"), { recursive: true });
+
+  const tree = await scanWorkspaceTree(sandbox, 2);
+  assert.deepEqual(
+    tree.map((entry) => entry.name),
+    ["zeta-folder", ...names],
+    "folders sort before files and batching does not disturb the order",
+  );
+
+  // A directory that can be listed but not traversed makes stat fail for every
+  // child. That must degrade to an empty folder, not break the whole Space.
+  await mkdir(join(sandbox, "unreadable"), { recursive: true });
+  await writeFile(join(sandbox, "unreadable", "hidden.txt"), "x", "utf8");
+  await chmod(join(sandbox, "unreadable"), 0o444);
+  if ((await stat(join(sandbox, "unreadable", "hidden.txt")).catch(() => null)) !== null) {
+    t.skip("filesystem does not enforce directory traversal permission");
+    return;
+  }
+
+  const degraded = await scanWorkspaceTree(sandbox, 2);
+  const unreadable = degraded.find((entry) => entry.name === "unreadable");
+  assert.equal(unreadable?.kind, "folder");
+  assert.deepEqual(unreadable?.children, [], "children that cannot be inspected are skipped");
+  assert.equal(degraded.filter((entry) => entry.kind === "file").length, names.length, "the rest of the Space still lists");
 });
