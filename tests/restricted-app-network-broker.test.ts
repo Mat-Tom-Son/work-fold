@@ -15,6 +15,7 @@ import {
 } from "../src/local/agent/app-platform-contract.js";
 import {
   assertRestrictedAppEffectAuthority,
+  firstReachableAddress,
   normalizeRestrictedAppCredential,
   RestrictedAppError,
   RestrictedAppNetworkBroker,
@@ -90,6 +91,7 @@ function manifest(options: {
   auth?: RestrictedAppAuthDeclaration[];
   methods?: string[];
   origin?: string;
+  requestHeaders?: string[];
 } = {}): RestrictedAppManifest {
   return parseRestrictedAppManifest({
     version: 2,
@@ -105,6 +107,7 @@ function manifest(options: {
         target: { kind: "public-https", origin: options.origin ?? "https://mail.example.com" },
         methods: options.methods ?? ["GET", "POST"],
         auth: options.auth ?? [{ kind: "none" }],
+        ...(options.requestHeaders ? { requestHeaders: options.requestHeaders } : {}),
       }],
     },
   });
@@ -483,4 +486,87 @@ test("network broker reaches an exact loopback service and denies its redirects"
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
+});
+
+test("network broker fails over to the next approved address and stops on cancellation", async () => {
+  const ipv6 = { address: "2001:4860:4860::8888", family: 6 as const };
+  const ipv4 = { address: "142.250.72.0", family: 4 as const };
+
+  const tried: string[] = [];
+  const reached = await firstReachableAddress([ipv6, ipv4], () => false, async (selected) => {
+    tried.push(selected.address);
+    if (selected.family === 6) throw new Error("connect ENETUNREACH");
+    return "ok";
+  });
+  assert.equal(reached, "ok");
+  assert.deepEqual(tried, [ipv6.address, ipv4.address], "an unreachable family does not strand a dual-stack destination");
+
+  await assert.rejects(
+    () => firstReachableAddress([ipv6, ipv4], () => false, async () => { throw new Error("connect ECONNREFUSED"); }),
+    /ECONNREFUSED/,
+    "exhausting every candidate surfaces the last connection failure",
+  );
+
+  // A deadline or an explicit stop must not be spent retrying other addresses.
+  const afterCancel: string[] = [];
+  await assert.rejects(
+    () => firstReachableAddress([ipv6, ipv4], () => true, async (selected) => {
+      afterCancel.push(selected.address);
+      throw new Error("The network request timed out.");
+    }),
+    /timed out/,
+  );
+  assert.deepEqual(afterCancel, [ipv6.address], "cancellation stops the walk instead of consuming candidates");
+
+  await assert.rejects(
+    () => firstReachableAddress([], () => false, async () => "unreachable"),
+    (error: unknown) => error instanceof RestrictedAppError && error.code === "NETWORK_DENIED",
+  );
+});
+
+test("network broker sends reviewed per-destination headers and still denies undeclared ones", async () => {
+  const sent: Headers[] = [];
+  const broker = new RestrictedAppNetworkBroker({
+    credentials: new MemoryConnections(),
+    fetch: successfulFetch((_url, init) => { sent.push(new Headers(init?.headers)); }),
+  });
+  const app = manifest({ methods: ["GET"], requestHeaders: ["x-api-version"] });
+
+  await broker.request(owner, app, {
+    destinationId: "mail-api",
+    method: "GET",
+    path: "/messages",
+    headers: { "x-api-version": "2026-07-01", accept: "application/json" },
+  });
+  assert.equal(sent[0]?.get("x-api-version"), "2026-07-01", "a reviewed header reaches the destination");
+  assert.equal(sent[0]?.get("accept"), "application/json", "the always-allowed set still applies");
+
+  // Declaring one header grants exactly that header, not a header channel.
+  await assert.rejects(
+    broker.request(owner, app, { destinationId: "mail-api", method: "GET", path: "/messages", headers: { "x-tracing": "1" } }),
+    isRestrictedError("NETWORK_DENIED"),
+  );
+  // A header reviewed for one destination is not granted to another.
+  await assert.rejects(
+    broker.request(owner, manifest({ methods: ["GET"] }), {
+      destinationId: "mail-api",
+      method: "GET",
+      path: "/messages",
+      headers: { "x-api-version": "2026-07-01" },
+    }),
+    isRestrictedError("NETWORK_DENIED"),
+  );
+});
+
+test("reviewed request headers cannot carry routing, hop-by-hop, or credential names", async () => {
+  for (const header of ["authorization", "host", "cookie", "content-length", "transfer-encoding", "x-forwarded-for"]) {
+    assert.throws(() => manifest({ requestHeaders: [header] }), /request header is not allowed/, header);
+  }
+  assert.throws(() => manifest({ requestHeaders: ["X Api Version"] }), /request header is not allowed/);
+  assert.throws(() => manifest({ requestHeaders: ["x-dup", "X-DUP"] }), /request header/);
+  assert.throws(
+    () => manifest({ auth: [{ kind: "api-key", header: "x-api-key" }], requestHeaders: ["x-api-key"] }),
+    /cannot declare its own credential header/,
+    "an app cannot reuse the slot its injected credential occupies",
+  );
 });

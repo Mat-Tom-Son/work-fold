@@ -184,6 +184,7 @@ template exercises every current section:
           "origin": "https://api.example.com"
         },
         "methods": ["GET", "POST"],
+        "requestHeaders": ["x-api-version"],
         "auth": [
           { "kind": "api-key", "header": "x-api-key" },
           { "kind": "bearer" }
@@ -243,7 +244,19 @@ and description are reviewed, bounded, plain single-line text.
 Network methods are limited to `GET`, `POST`, `PUT`, `PATCH`, and `DELETE`.
 Public targets are exact HTTPS origins. Loopback targets are numeric
 `127.0.0.1` or `::1` addresses and cannot receive credentials or follow
-redirects.
+redirects. A public destination resolving to several addresses is tried in
+resolver order until one connects, so a dual-stack service stays reachable from
+a single-stack network; every candidate has already passed the same
+public-address check.
+
+A request may always set `accept`, `content-type`, `if-modified-since`, and
+`if-none-match`. Anything else must be named in that destination's optional
+`requestHeaders` array, which is reviewed with the rest of the package. Header
+names are lowercase, at most 16 per destination, and may not be routing,
+hop-by-hop, or credential-bearing names such as `authorization`, `host`,
+`cookie`, `content-length`, `transfer-encoding`, or `x-forwarded-*`. A
+destination may not name the header its own `api-key` credential occupies, and
+a header reviewed for one destination grants nothing to another.
 
 ## Visible UI and content policy
 

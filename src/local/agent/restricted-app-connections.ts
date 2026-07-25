@@ -215,6 +215,10 @@ export class RestrictedAppNetworkBroker {
     if (!destination.methods.includes(request.method)) {
       throw new RestrictedAppError("NETWORK_DENIED", "This HTTP method is not granted for the destination.");
     }
+    for (const name of Object.keys(request.headers ?? {})) {
+      if (allowedRequestHeaders.has(name) || destination.requestHeaders?.includes(name)) continue;
+      throw new RestrictedAppError("NETWORK_DENIED", `Network header is not allowed: ${name}`);
+    }
     const origin = restrictedAppNetworkOrigin(destination);
     const url = destinationUrl(origin, request.path);
     const headers = new Headers(request.headers);
@@ -363,7 +367,13 @@ function parseNetworkRequest(value: unknown, maxRequestBytes: number): Restricte
     const rawHeaders = strictObject(record.headers, "Network headers", undefined, 16);
     for (const [rawName, rawValue] of Object.entries(rawHeaders)) {
       const name = rawName.toLowerCase();
-      if (!allowedRequestHeaders.has(name) || typeof rawValue !== "string" || rawValue.length > 1_000 || /[\r\n\0]/.test(rawValue)) {
+      // Shape only. Which names this destination may actually set depends on
+      // its reviewed declaration, so that check runs once the destination and
+      // its grant are resolved.
+      if (!/^[a-z][a-z0-9-]*$/.test(name) || name.length > 80) {
+        throw new RestrictedAppError("NETWORK_DENIED", `Network header is not allowed: ${rawName}`);
+      }
+      if (typeof rawValue !== "string" || rawValue.length > 1_000 || /[\r\n\0]/.test(rawValue)) {
         throw new RestrictedAppError("NETWORK_DENIED", `Network header is not allowed: ${rawName}`);
       }
       headers[name] = rawValue;
@@ -477,13 +487,50 @@ async function publicAddresses(
   return addresses;
 }
 
+/**
+ * Tries each approved address in resolver order until one connects. A
+ * dual-stack destination advertises both families, and only one of them may be
+ * reachable from the current network, so committing to the first record would
+ * strand the app on an otherwise healthy service. Every candidate has already
+ * cleared the public-address check, so failing over never widens authority.
+ */
+export async function firstReachableAddress<T>(
+  addresses: Array<{ address: string; family: 4 | 6 }>,
+  isCancelled: () => boolean,
+  attempt: (selected: { address: string; family: 4 | 6 }) => Promise<T>,
+): Promise<T> {
+  if (!addresses.length) throw new RestrictedAppError("NETWORK_DENIED", "The network destination has no approved public address.");
+  let lastError: unknown;
+  for (const selected of addresses) {
+    try {
+      return await attempt(selected);
+    } catch (error) {
+      // A cancelled or timed-out request is the caller's decision, not an
+      // unreachable address, so it must not consume the remaining candidates.
+      if (isCancelled()) throw error;
+      lastError = error;
+    }
+  }
+  throw lastError ?? new RestrictedAppError("NETWORK_FAILED", "The network destination could not be reached.");
+}
+
 function pinnedHttpsFetch(
   url: URL,
   init: RequestInit,
   addresses: Array<{ address: string; family: 4 | 6 }>,
 ): Promise<Response> {
-  const selected = addresses[0];
-  if (!selected) return Promise.reject(new RestrictedAppError("NETWORK_DENIED", "The network destination has no approved public address."));
+  return firstReachableAddress(
+    addresses,
+    () => init.signal?.aborted === true,
+    (selected) => httpsRequestToAddress(url, init, selected),
+  );
+}
+
+function httpsRequestToAddress(
+  url: URL,
+  init: RequestInit,
+  selected: { address: string; family: 4 | 6 },
+): Promise<Response> {
   return new Promise<Response>((resolvePromise, reject) => {
     const headers = new Headers(init.headers);
     headers.set("host", url.host);

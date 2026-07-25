@@ -62,6 +62,8 @@ export interface RestrictedAppNetworkDeclaration {
     | { kind: "loopback-http"; host: "127.0.0.1" | "::1"; port: number };
   methods: Array<"GET" | "POST" | "PUT" | "PATCH" | "DELETE">;
   auth: RestrictedAppAuthDeclaration[];
+  /** Reviewed request header names this destination may set, beyond the always-allowed content negotiation set. */
+  requestHeaders?: string[];
 }
 
 export interface RestrictedAppFileDeclaration {
@@ -342,7 +344,7 @@ function parseTool(value: unknown, index: number): RestrictedAppToolDeclaration 
 
 function parseNetworkDestination(value: unknown, index: number): RestrictedAppNetworkDeclaration {
   const label = `Restricted app network permission ${index + 1}`;
-  const destination = objectValue(value, label, ["id", "target", "methods", "auth"]);
+  const destination = objectValue(value, label, ["id", "target", "methods", "auth", "requestHeaders"]);
   const target = parseNetworkTarget(destination.target, `${label} target`);
   const methods = arrayValue(destination.methods, `${label} methods`, 1, 5).map((method) => {
     if (typeof method !== "string" || !allowedMethods.has(method)) throw new Error(`${label} method is unsupported.`);
@@ -389,11 +391,32 @@ function parseNetworkDestination(value: unknown, index: number): RestrictedAppNe
   if (target.kind === "loopback-http" && (auth.length !== 1 || auth[0]?.kind !== "none")) {
     throw new Error(`${label} loopback services cannot receive saved credentials.`);
   }
+  // Extra request headers are reviewed per destination so an app can satisfy an
+  // ordinary API contract without gaining a general header channel. The
+  // forbidden set keeps hop-by-hop, routing, and credential-bearing names out,
+  // and a destination may not name the header its own credential occupies.
+  const requestHeaders = destination.requestHeaders === undefined
+    ? []
+    : arrayValue(destination.requestHeaders, `${label} request headers`, 1, 16).map((item) => {
+      const header = stringValue(item, `${label} request header`, 80).toLowerCase();
+      if (!/^[a-z][a-z0-9-]*$/.test(header) || forbiddenAuthHeaders.has(header)) {
+        throw new Error(`${label} request header is not allowed.`);
+      }
+      return header;
+    });
+  assertUnique(requestHeaders, `${label} request header`);
+  const credentialHeader = auth
+    .find((item): item is Extract<RestrictedAppAuthDeclaration, { kind: "api-key" }> => item.kind === "api-key")
+    ?.header;
+  if (credentialHeader !== undefined && requestHeaders.includes(credentialHeader)) {
+    throw new Error(`${label} cannot declare its own credential header as a request header.`);
+  }
   return {
     id: idValue(destination.id, `${label} id`),
     target,
     methods,
     auth,
+    ...(requestHeaders.length ? { requestHeaders } : {}),
   };
 }
 
