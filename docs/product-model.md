@@ -179,6 +179,7 @@ When a design is ambiguous, prefer the option that best preserves these properti
 - Create a folder-backed Space or register an existing folder without conversion.
 - Rename a Space, remove a linked-folder registration without deleting its files, or delete a managed Space with an explicit destructive warning.
 - Browse and upload Space files, run Space-scoped Chats, use the Library, and view History.
+- Search a Space by content as well as by name: matches inside ordinary files and inside Chat transcripts, honouring the Space's ignore rules, skipping binary and oversized files, and disclosing when a bound stopped the search rather than implying a complete answer.
 - Restore content-addressed History checkpoints created around file mutations and Assistant turns.
 - Configure a Pi provider/model with an API key or an advertised Pi provider OAuth flow and use Pi's built-in tools.
 - Discover installed Skills, prompts, Extension commands, and supported built-ins from the Chat composer, and inspect the active model and context-window pressure during a conversation.

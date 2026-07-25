@@ -47,6 +47,7 @@ Workspace reserves two hidden support directories inside a Space: `.workspace/` 
 ## What it supports
 
 - Creating a new Space or turning an existing local folder into a Space, including folders synchronized by tools such as Google Drive for desktop.
+- Searching a Space by file contents and Chat transcripts as well as by name, within bounds that are disclosed when they are reached.
 - Space file browsing, uploads, previews, chat attachments, and ordinary-folder access.
 - A personal Library for organizing reusable files and copying them into Spaces when needed.
 - Pi's normal built-in tools, provider/model selection, API-key and supported provider OAuth authentication, prompt templates, context files, and packages.
