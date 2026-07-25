@@ -1079,10 +1079,16 @@ async function scanDirectory(
     .filter((entry) => !entry.isSymbolicLink() && !isAlwaysHiddenWorkspaceEntry(entry.name) && !isOfficeLockFileName(entry.name))
     .filter((entry) => entry.isDirectory() || entry.isFile());
 
+  // The budget is applied before inspection, not after. A folder can hold far
+  // more entries than the whole walk is allowed to return, and statting all of
+  // them to then discard most is the cost this bound exists to avoid.
+  const considered = entries.length > budget.remaining ? entries.slice(0, budget.remaining) : entries;
+  if (considered.length < entries.length) budget.truncated = true;
+
   // Every entry needs its own stat for size and modification time. Inspecting a
   // folder's entries together turns one round trip per entry into one bounded
   // batch per folder, which is what a Space with a large flat folder pays for.
-  const inspected = await Promise.all(entries.map(async (entry) => {
+  const inspected = await Promise.all(considered.map(async (entry) => {
     const path = join(directory, entry.name);
     // A tree walk races ordinary file activity, so an entry that disappears
     // between readdir and stat is skipped rather than failing the whole Space.

@@ -185,12 +185,13 @@ export async function restoreWorkspaceCheckpoint(workspaceRoot: string, checkpoi
   if (!checkpoint) throw notFound("Restore point not found.");
   validateCheckpointPaths(root, checkpoint);
 
-  const blobs = new Map<string, Buffer>();
+  // Verifying every object up front preserves the promise that a restore point
+  // with missing content changes nothing. The bytes are deliberately not
+  // retained: a full checkpoint can describe far more content than fits in
+  // memory, so each object is read again when it is actually written.
   const missing: string[] = [];
   for (const file of checkpoint.files) {
-    const bytes = await readWorkspaceBlob(root, file.hashSha256);
-    if (bytes) blobs.set(file.hashSha256, bytes);
-    else missing.push(file.path);
+    if (!await readWorkspaceBlob(root, file.hashSha256)) missing.push(file.path);
   }
   if (missing.length) throw new Error(`Restore point is missing saved content for ${missing.sort().join(", ")}. No files were changed.`);
   await preflightRestore(root, checkpoint);
@@ -230,9 +231,11 @@ export async function restoreWorkspaceCheckpoint(workspaceRoot: string, checkpoi
       unchangedFiles += 1;
       continue;
     }
+    const bytes = await readWorkspaceBlob(root, file.hashSha256);
+    if (!bytes) throw new Error(`Restore point content for ${file.path} became unavailable during the restore.`);
     const target = canonicalPath(root, file.path, true).absolutePath;
     await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, blobs.get(file.hashSha256)!);
+    await writeFile(target, bytes);
     restoredFiles.push(file.path);
   }
 
