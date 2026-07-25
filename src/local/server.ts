@@ -66,6 +66,7 @@ import {
   listResourceTree,
   uploadResourceFiles,
 } from "./resources.js";
+import { searchWorkspace } from "./search.js";
 import { configureWorkspaceStateRoot, restrictedAppRoot } from "./state-paths.js";
 import { WorkspaceKernel } from "./workspace-kernel.js";
 import {
@@ -849,6 +850,18 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       }) };
     });
     sendJson(res, result);
+    return;
+  }
+
+  const searchMatch = match(url.pathname, /^\/api\/workspaces\/([^/]+)\/search$/);
+  if (method === "GET" && searchMatch) {
+    const workspace = await getWorkspace(searchMatch[1]);
+    const scope = url.searchParams.get("scope") ?? "all";
+    if (scope !== "all" && scope !== "files" && scope !== "chats") throw badRequest("Search scope is unsupported.");
+    sendJson(res, await searchWorkspace(workspace.rootPath, url.searchParams.get("q") ?? "", {
+      includeFiles: scope !== "chats",
+      includeChats: scope !== "files",
+    }));
     return;
   }
 

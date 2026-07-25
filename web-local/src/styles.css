@@ -15675,3 +15675,85 @@ textarea,
 .app-shell[data-theme="dark"] .workspace-surface-empty p { color: #a8b2c1; }
 .app-shell[data-theme="dark"] .global-error { color: #ffd8dd; border-color: #7f3942; background: #371f24; }
 .app-shell[data-theme="dark"] .context-menu-separator { background: #3a424f; }
+
+.file-content-search {
+  border-top: 1px solid var(--ui-border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 40%;
+  overflow-y: auto;
+  padding: 8px 4px 4px;
+}
+
+.file-content-search h3 {
+  align-items: baseline;
+  color: var(--ui-text-muted);
+  display: flex;
+  font-size: 11px;
+  font-weight: 600;
+  justify-content: space-between;
+  letter-spacing: 0.04em;
+  margin: 0 6px 2px;
+  text-transform: uppercase;
+}
+
+.file-content-search h3 span {
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.file-content-search ul {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.file-content-search li button {
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 6px;
+  text-align: left;
+  width: 100%;
+}
+
+.file-content-search li button:hover,
+.file-content-search li button:focus-visible {
+  background: var(--ui-surface-hover);
+}
+
+.file-content-search-path {
+  color: var(--ui-text-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-content-search-path span {
+  opacity: 0.7;
+}
+
+.file-content-search-preview {
+  color: var(--ui-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-content-search-note {
+  color: var(--ui-text-muted);
+  font-size: 11px;
+  margin: 2px 6px 0;
+}
