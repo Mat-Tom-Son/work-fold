@@ -5787,7 +5787,7 @@ textarea,
   width: 24px;
   height: 24px;
   display: block;
-  background: var(--workspace-custom-color);
+  background: var(--workspace-picker-color);
   border: 3px solid #ffffff;
   border-radius: 999px;
   box-shadow: 0 0 0 1px rgba(24, 42, 70, 0.18);
@@ -6501,7 +6501,7 @@ textarea,
 
 .workspace-color-picker.secondary.matched .workspace-color-wheel-current {
   background:
-    linear-gradient(135deg, var(--workspace-custom-color) 0 50%, transparent 50%),
+    linear-gradient(135deg, var(--workspace-picker-color) 0 50%, transparent 50%),
     repeating-linear-gradient(135deg, #e2e8f0 0 3px, #ffffff 3px 6px);
 }
 
@@ -8495,9 +8495,9 @@ textarea,
 
 .message-copy-button:hover,
 .message-copy-button:focus-visible {
-  color: var(--workspace-custom-color, var(--workspace-blue-700));
-  background: var(--workspace-custom-color-soft, rgba(236, 245, 252, 0.76));
-  border-color: color-mix(in srgb, var(--workspace-custom-color, var(--workspace-blue-500)) 24%, transparent);
+  color: var(--workspace-accent-text-ui, var(--workspace-custom-color));
+  background: var(--workspace-accent-soft-fill, var(--workspace-custom-color-soft));
+  border-color: var(--workspace-accent-border-state, var(--workspace-custom-color));
   outline: 0;
 }
 
@@ -8513,15 +8513,15 @@ textarea,
 }
 
 .message.user .message-copy-button {
-  color: color-mix(in srgb, var(--workspace-on-primary-accent, #ffffff) 78%, transparent);
-  background: color-mix(in srgb, var(--workspace-on-primary-accent, #ffffff) 9%, transparent);
+  color: var(--workspace-on-accent-muted, var(--workspace-on-primary-accent, #ffffff));
+  background: color-mix(in srgb, var(--workspace-on-accent-solid, var(--workspace-on-primary-accent, #ffffff)) 9%, transparent);
 }
 
 .message.user .message-copy-button:hover,
 .message.user .message-copy-button:focus-visible {
-  color: var(--workspace-on-primary-accent, #ffffff);
-  background: color-mix(in srgb, var(--workspace-on-primary-accent, #ffffff) 16%, transparent);
-  border-color: color-mix(in srgb, var(--workspace-on-primary-accent, #ffffff) 20%, transparent);
+  color: var(--workspace-on-accent-solid, var(--workspace-on-primary-accent, #ffffff));
+  background: color-mix(in srgb, var(--workspace-on-accent-solid, var(--workspace-on-primary-accent, #ffffff)) 16%, transparent);
+  border-color: color-mix(in srgb, var(--workspace-on-accent-solid, var(--workspace-on-primary-accent, #ffffff)) 20%, transparent);
 }
 
 .turn-landing {
@@ -8531,7 +8531,7 @@ textarea,
   margin-top: 13px;
   padding: 11px 0 0 13px;
   border-top: 1px solid #e3ebf4;
-  border-left: 3px solid var(--workspace-custom-color, #7aa7c7);
+  border-left: 3px solid var(--workspace-accent-indicator, var(--workspace-custom-color));
   color: #3b4759;
   animation: turn-landing-enter 0.32s var(--workspace-ease-smooth) 0.1s backwards;
 }
@@ -8561,7 +8561,7 @@ textarea,
   align-items: center;
   gap: 7px;
   overflow: hidden;
-  color: var(--workspace-custom-color, #315b78);
+  color: var(--workspace-accent-text-ui, var(--workspace-custom-color));
   font-size: 0.7rem;
   font-weight: var(--workspace-font-weight-heavy);
   text-overflow: ellipsis;
@@ -8618,7 +8618,7 @@ textarea,
   position: absolute;
   inset: 0 auto 0 0;
   width: 3px;
-  background: linear-gradient(180deg, var(--workspace-custom-color, #60a5fa), var(--workspace-selection-accent2, #2563eb));
+  background: linear-gradient(180deg, var(--workspace-accent-indicator, var(--workspace-custom-color)), var(--workspace-banner-secondary, var(--workspace-selection-accent2)));
 }
 
 .runtime-preview-item.streaming {
@@ -8639,7 +8639,7 @@ textarea,
   align-items: center;
   gap: 7px;
   overflow: hidden;
-  color: var(--workspace-custom-color, #1d3f78);
+  color: var(--workspace-accent-text-ui, var(--workspace-custom-color));
   font-size: 0.72rem;
   font-weight: 800;
   text-overflow: ellipsis;
@@ -8673,7 +8673,7 @@ textarea,
   align-items: center;
   gap: 7px;
   margin: 0;
-  color: var(--workspace-custom-color, #1d3f78);
+  color: var(--workspace-accent-text-ui, var(--workspace-custom-color));
   font-size: 0.82rem;
   font-weight: 800;
   line-height: 1.3;
@@ -8911,7 +8911,7 @@ textarea,
 }
 
 .message-body li::marker {
-  color: var(--workspace-custom-color, var(--workspace-blue-600));
+  color: var(--workspace-accent-text-body, var(--workspace-custom-color));
 }
 
 .message-body .contains-task-list {
@@ -8936,7 +8936,7 @@ textarea,
 .message-body blockquote {
   padding: 3px 0 3px 13px;
   color: #526072;
-  border-left: 3px solid var(--workspace-custom-color, var(--workspace-blue-300));
+  border-left: 3px solid var(--workspace-accent-border-decor, var(--workspace-custom-color));
 }
 
 .message-body blockquote > :last-child {
@@ -8955,7 +8955,7 @@ textarea,
   border: 1px solid #d8e0e8;
   border-radius: 4px;
   background: #f6f8fb;
-  color: var(--workspace-custom-color, var(--workspace-blue-700));
+  color: var(--workspace-accent-text-body, var(--workspace-custom-color));
   font-size: 0.9em;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -9066,7 +9066,7 @@ textarea,
 }
 
 .message-body a {
-  color: var(--workspace-custom-color, var(--workspace-blue-600));
+  color: var(--workspace-accent-text-body, var(--workspace-custom-color));
   font-weight: 700;
   text-underline-offset: 2px;
 }
@@ -9077,7 +9077,7 @@ textarea,
   padding: 0;
   margin: 0;
   background: transparent;
-  color: var(--workspace-custom-color, var(--workspace-blue-600));
+  color: var(--workspace-accent-text-body, var(--workspace-custom-color));
   font: inherit;
   font-weight: 700;
   text-decoration: underline;
@@ -9086,7 +9086,7 @@ textarea,
 }
 
 .message-body .workspace-file-link:hover {
-  color: color-mix(in srgb, var(--workspace-custom-color, var(--workspace-blue-700)) 82%, #101828);
+  color: var(--workspace-accent-text-body, var(--workspace-custom-color));
 }
 
 .message-body .workspace-file-link-code {
@@ -9122,9 +9122,9 @@ textarea,
   display: inline-flex;
   align-items: center;
   padding: 0 10px;
-  color: var(--workspace-custom-color, var(--workspace-blue-600));
-  background: var(--workspace-custom-color-soft, var(--workspace-blue-50));
-  border: 1px solid color-mix(in srgb, var(--workspace-custom-color, var(--workspace-blue-500)) 24%, #d8e0e8);
+  color: var(--workspace-accent-text-body, var(--workspace-custom-color));
+  background: var(--workspace-accent-soft-fill, var(--workspace-custom-color-soft));
+  border: 1px solid var(--workspace-accent-border-decor, #d8e0e8);
   border-radius: 6px;
   font-weight: 650;
 }
@@ -9144,8 +9144,8 @@ textarea,
 }
 
 .message-image-external {
-  color: var(--workspace-custom-color, var(--workspace-blue-600));
-  background: var(--workspace-custom-color-soft, var(--workspace-blue-50));
+  color: var(--workspace-accent-text-body, var(--workspace-custom-color));
+  background: var(--workspace-accent-soft-fill, var(--workspace-custom-color-soft));
   text-underline-offset: 2px;
 }
 
@@ -9156,9 +9156,9 @@ textarea,
 
 .message.user .message-image-external,
 .message.user .message-image-unavailable {
-  color: var(--workspace-on-primary-accent, #ffffff);
-  background: color-mix(in srgb, var(--workspace-on-primary-accent, #ffffff) 10%, transparent);
-  border-color: color-mix(in srgb, var(--workspace-on-primary-accent, #ffffff) 28%, transparent);
+  color: var(--workspace-on-accent-solid, var(--workspace-on-primary-accent, #ffffff));
+  background: color-mix(in srgb, var(--workspace-on-accent-solid, var(--workspace-on-primary-accent, #ffffff)) 10%, transparent);
+  border-color: color-mix(in srgb, var(--workspace-on-accent-solid, var(--workspace-on-primary-accent, #ffffff)) 28%, transparent);
 }
 
 .message.user {
@@ -9166,8 +9166,8 @@ textarea,
   width: fit-content;
   max-width: min(88%, 590px);
   padding: 14px 16px;
-  color: var(--workspace-on-primary-accent, #ffffff);
-  background: var(--workspace-custom-color, var(--workspace-blue-600));
+  color: var(--workspace-on-accent-solid, var(--workspace-on-primary-accent, #ffffff));
+  background: var(--workspace-accent-solid, var(--workspace-custom-color, var(--workspace-blue-600)));
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
@@ -9179,11 +9179,11 @@ textarea,
 .message.user .message-body h4,
 .message.user .message-body h5,
 .message.user .message-body h6 {
-  color: var(--workspace-on-primary-accent, #ffffff);
+  color: var(--workspace-on-accent-solid, var(--workspace-on-primary-accent, #ffffff));
 }
 
 .message.user .message-author {
-  color: color-mix(in srgb, var(--workspace-on-primary-accent, #ffffff) 76%, transparent);
+  color: var(--workspace-on-accent-muted, var(--workspace-on-primary-accent, #ffffff));
 }
 
 .message.user .message-body a {
@@ -9192,9 +9192,9 @@ textarea,
 }
 
 .message.user .message-body code {
-  border-color: color-mix(in srgb, var(--workspace-on-primary-accent, #ffffff) 20%, transparent);
+  border-color: color-mix(in srgb, var(--workspace-on-accent-solid, var(--workspace-on-primary-accent, #ffffff)) 20%, transparent);
   color: inherit;
-  background: color-mix(in srgb, var(--workspace-on-primary-accent, #ffffff) 12%, transparent);
+  background: transparent;
 }
 
 .message.assistant {
@@ -11522,7 +11522,7 @@ textarea,
 }
 
 .app-shell[data-theme="dark"] .runtime-preview {
-  color: color-mix(in srgb, var(--workspace-custom-color, #60a5fa) 40%, #ffffff);
+  color: var(--workspace-accent-text-ui, var(--workspace-custom-color));
   background: transparent;
   box-shadow: none;
 }
@@ -11556,7 +11556,7 @@ textarea,
 
 .app-shell[data-theme="dark"] .runtime-preview-item-title,
 .app-shell[data-theme="dark"] .runtime-preview-section-title {
-  color: color-mix(in srgb, var(--workspace-custom-color, #60a5fa) 54%, #ffffff);
+  color: var(--workspace-accent-text-ui, var(--workspace-custom-color));
 }
 
 .app-shell[data-theme="dark"] .turn-landing {
@@ -11566,7 +11566,7 @@ textarea,
 }
 
 .app-shell[data-theme="dark"] .turn-landing-heading span {
-  color: color-mix(in srgb, var(--workspace-custom-color, #60a5fa) 54%, #ffffff);
+  color: var(--workspace-accent-text-ui, var(--workspace-custom-color));
 }
 
 .app-shell[data-theme="dark"] .turn-landing p,
@@ -12206,7 +12206,7 @@ textarea,
 
 .app-shell[data-theme="dark"] .workspace-color-picker.secondary.matched .workspace-color-wheel-current {
   background:
-    linear-gradient(135deg, var(--workspace-custom-color) 0 50%, transparent 50%),
+    linear-gradient(135deg, var(--workspace-picker-color) 0 50%, transparent 50%),
     repeating-linear-gradient(135deg, #334155 0 3px, #0f172a 3px 6px);
 }
 
@@ -13341,7 +13341,7 @@ textarea,
 
 .app-shell[data-theme="dark"] .new-chat-button,
 .app-shell[data-theme="dark"] .jump-to-latest {
-  color: color-mix(in srgb, var(--workspace-custom-color, #60a5fa) 56%, #ffffff);
+  color: var(--workspace-accent-text-ui, var(--workspace-custom-color));
 }
 
 .app-shell[data-theme="dark"] .chat-empty-workspace {
@@ -13381,7 +13381,7 @@ textarea,
 .app-shell[data-theme="dark"] .new-chat-button,
 .app-shell[data-theme="dark"] .jump-to-latest,
 .app-shell[data-theme="dark"] .context-chip {
-  color: color-mix(in srgb, var(--workspace-custom-color, #60a5fa) 56%, #ffffff);
+  color: var(--workspace-accent-text-ui, var(--workspace-custom-color));
   background: rgba(15, 23, 42, 0.84);
   border-color: rgba(148, 163, 184, 0.24);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
@@ -13411,9 +13411,9 @@ textarea,
 }
 
 .app-shell[data-theme="dark"] .message.user {
-  color: var(--workspace-on-primary-accent, #ffffff);
-  background: var(--workspace-custom-color, var(--workspace-blue-600));
-  border: 1px solid color-mix(in srgb, var(--workspace-custom-color, #60a5fa) 56%, rgba(255, 255, 255, 0.2));
+  color: var(--workspace-on-accent-solid, var(--workspace-on-primary-accent, #ffffff));
+  background: var(--workspace-accent-solid, var(--workspace-custom-color, var(--workspace-blue-600)));
+  border: 1px solid var(--workspace-accent-border-state, var(--workspace-custom-color));
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
@@ -13423,21 +13423,21 @@ textarea,
 }
 
 .app-shell[data-theme="dark"] .message.user .message-body code {
-  border-color: color-mix(in srgb, var(--workspace-on-primary-accent, #ffffff) 24%, transparent);
-  background: color-mix(in srgb, var(--workspace-on-primary-accent, #ffffff) 12%, transparent);
+  border-color: color-mix(in srgb, var(--workspace-on-accent-solid, var(--workspace-on-primary-accent, #ffffff)) 24%, transparent);
+  background: transparent;
   color: inherit;
 }
 
 .app-shell[data-theme="dark"] .message-body a {
-  color: color-mix(in srgb, var(--workspace-custom-color, #60a5fa) 56%, #ffffff);
+  color: var(--workspace-accent-text-body, var(--workspace-custom-color));
 }
 
 .app-shell[data-theme="dark"] .message-body .workspace-file-link {
-  color: color-mix(in srgb, var(--workspace-custom-color, #60a5fa) 56%, #ffffff);
+  color: var(--workspace-accent-text-body, var(--workspace-custom-color));
 }
 
 .app-shell[data-theme="dark"] .message-body .workspace-file-link:hover {
-  color: color-mix(in srgb, var(--workspace-custom-color, #93c5fd) 36%, #ffffff);
+  color: var(--workspace-accent-text-body, var(--workspace-custom-color));
 }
 
 .app-shell[data-theme="dark"] .message-body blockquote {
@@ -13468,16 +13468,16 @@ textarea,
 
 .app-shell[data-theme="dark"] .message-image-external,
 .app-shell[data-theme="dark"] .message-image-unavailable {
-  color: color-mix(in srgb, var(--workspace-custom-color, #60a5fa) 54%, #ffffff);
+  color: var(--workspace-accent-text-body, var(--workspace-custom-color));
   background: rgba(30, 41, 59, 0.72);
   border-color: rgba(148, 163, 184, 0.3);
 }
 
 .app-shell[data-theme="dark"] .message.user .message-image-external,
 .app-shell[data-theme="dark"] .message.user .message-image-unavailable {
-  color: var(--workspace-on-primary-accent, #ffffff);
-  background: color-mix(in srgb, var(--workspace-on-primary-accent, #ffffff) 10%, transparent);
-  border-color: color-mix(in srgb, var(--workspace-on-primary-accent, #ffffff) 28%, transparent);
+  color: var(--workspace-on-accent-solid, var(--workspace-on-primary-accent, #ffffff));
+  background: color-mix(in srgb, var(--workspace-on-accent-solid, var(--workspace-on-primary-accent, #ffffff)) 10%, transparent);
+  border-color: color-mix(in srgb, var(--workspace-on-accent-solid, var(--workspace-on-primary-accent, #ffffff)) 28%, transparent);
 }
 
 .app-shell[data-theme="dark"] .message-body pre {
@@ -13520,14 +13520,14 @@ textarea,
 }
 
 .app-shell[data-theme="dark"] .suggested-prompt-button {
-  color: color-mix(in srgb, var(--workspace-custom-color, #60a5fa) 54%, #ffffff);
+  color: var(--workspace-accent-text-ui, var(--workspace-custom-color));
   border-color: rgba(var(--workspace-selection-accent-rgb, 96, 165, 250), 0.32);
   background: rgba(var(--workspace-selection-accent-rgb, 30, 64, 175), 0.16);
 }
 
 .app-shell[data-theme="dark"] .suggested-prompt-button:hover,
 .app-shell[data-theme="dark"] .suggested-prompt-button:focus-visible {
-  color: color-mix(in srgb, var(--workspace-custom-color, #60a5fa) 34%, #ffffff);
+  color: var(--workspace-accent-text-ui, var(--workspace-custom-color));
   border-color: rgba(var(--workspace-selection-accent-rgb, 96, 165, 250), 0.48);
   background: rgba(var(--workspace-selection-accent-rgb, 30, 64, 175), 0.24);
   box-shadow: 0 0 0 3px rgba(var(--workspace-selection-accent-rgb, 96, 165, 250), 0.14);
@@ -13539,7 +13539,7 @@ textarea,
 
 .app-shell[data-theme="dark"] .agent-activity-toggle.has-activity span,
 .app-shell[data-theme="dark"] .agent-activity-toggle.open span {
-  color: color-mix(in srgb, var(--workspace-custom-color, #60a5fa) 54%, #ffffff);
+  color: var(--workspace-accent-text-ui, var(--workspace-custom-color));
 }
 
 .app-shell[data-theme="dark"] .agent-activity-toggle.has-error span {
@@ -13548,13 +13548,13 @@ textarea,
 
 .app-shell[data-theme="dark"] .agent-activity-toggle:hover span,
 .app-shell[data-theme="dark"] .agent-activity-toggle:focus-visible span {
-  color: color-mix(in srgb, var(--workspace-custom-color, #60a5fa) 34%, #ffffff);
+  color: var(--workspace-accent-text-ui, var(--workspace-custom-color));
 }
 
 .app-shell[data-theme="dark"] .agent-activity-toggle:hover,
 .app-shell[data-theme="dark"] .agent-activity-toggle:focus-visible,
 .app-shell[data-theme="dark"] .agent-activity-toggle.open {
-  color: color-mix(in srgb, var(--workspace-custom-color, #60a5fa) 34%, #ffffff);
+  color: var(--workspace-accent-text-ui, var(--workspace-custom-color));
   border-color: rgba(var(--workspace-selection-accent-rgb, 96, 165, 250), 0.46);
   background: rgba(var(--workspace-selection-accent-rgb, 30, 64, 175), 0.18);
 }
@@ -13571,7 +13571,7 @@ textarea,
 }
 
 .app-shell[data-theme="dark"] .agent-activity-log code {
-  color: color-mix(in srgb, var(--workspace-custom-color, #60a5fa) 54%, #ffffff);
+  color: var(--workspace-accent-text-body, var(--workspace-custom-color));
   background: rgba(30, 41, 59, 0.84);
   border-color: rgba(148, 163, 184, 0.24);
 }

@@ -1,4 +1,11 @@
 import type { CSSProperties } from "react";
+import {
+  primaryAccentIdentity,
+  resolveSpaceAppearance,
+  secondaryAccentIdentity,
+  type ResolvedSpaceAppearance,
+  type SpaceAppearanceMode,
+} from "../../../src/shared/space-appearance";
 import { maxWorkspaceBannerImageDataUrlLength, maxWorkspaceBannerImageFileBytes } from "../constants";
 import { workspaceIconOptionFor, type WorkspaceIconOption } from "../workspace-icons";
 import type { WorkspaceBannerImagePosition, WorkspaceColorOption, WorkspaceCustomizationMap, WorkspaceSummary } from "../types";
@@ -70,6 +77,7 @@ interface WorkspaceIdentity {
   hasCustomSecondary: boolean;
   onAccentColor: string;
   onPrimaryAccentColor: string;
+  resolved: ResolvedSpaceAppearance;
   bannerName: string;
   bannerImage: string | null;
   bannerImagePosition: WorkspaceBannerImagePosition;
@@ -81,11 +89,20 @@ interface WorkspaceIdentity {
 function workspaceIdentityFor(workspace: WorkspaceSummary, customizations: WorkspaceCustomizationMap): WorkspaceIdentity {
   const defaultColor = defaultWorkspaceColor(workspace.id);
   const custom = customizations[workspace.id] ?? {};
-  const colorOption = custom.color ? workspaceColor("Custom", normalizeWorkspaceColor(custom.color, defaultColor.color)) : defaultColor;
-  const hasCustomSecondary = Boolean(custom.color2);
-  const secondaryColor = hasCustomSecondary ? normalizeWorkspaceColor(custom.color2 ?? "", colorOption.color) : colorOption.color;
+  const primaryIdentity = primaryAccentIdentity(custom, defaultColor.color);
+  const secondaryIdentity = secondaryAccentIdentity(custom, primaryIdentity);
+  const colorOption = workspaceColor("Custom", primaryIdentity.referenceHex);
+  const hasCustomSecondary = Boolean(custom.secondary || custom.color2);
+  const secondaryColor = secondaryIdentity.referenceHex;
   const iconOption = workspaceIconOptionFor(custom.iconName ?? defaultWorkspaceIconName(workspace));
   const bannerImage = normalizeWorkspaceBannerImage(custom.bannerImage);
+  const bannerName = workspaceBannerOptionFor(custom.bannerName).name;
+  const resolved = resolveSpaceAppearance({
+    primary: primaryIdentity,
+    secondary: secondaryIdentity,
+    bannerName,
+    hasBannerImage: Boolean(bannerImage),
+  });
   return {
     color: colorOption.color,
     softColor: colorOption.soft,
@@ -96,7 +113,8 @@ function workspaceIdentityFor(workspace: WorkspaceSummary, customizations: Works
     hasCustomSecondary,
     onAccentColor: readableTextColorOn(blendHexColors(colorOption.color, secondaryColor)),
     onPrimaryAccentColor: readableTextColorOn(colorOption.color),
-    bannerName: workspaceBannerOptionFor(custom.bannerName).name,
+    resolved,
+    bannerName,
     bannerImage,
     bannerImagePosition: normalizeWorkspaceBannerImagePosition(custom.bannerImagePosition),
     iconName: iconOption.name,
@@ -105,10 +123,29 @@ function workspaceIdentityFor(workspace: WorkspaceSummary, customizations: Works
   };
 }
 
-function workspaceIdentityStyle(identity: WorkspaceIdentity): CSSProperties {
+function workspaceIdentityStyle(identity: WorkspaceIdentity, mode?: SpaceAppearanceMode): CSSProperties {
+  const role = <K extends keyof ResolvedSpaceAppearance["light"]>(name: K): ResolvedSpaceAppearance["light"][K] => (
+    mode ? identity.resolved[mode][name] : `light-dark(${identity.resolved.light[name]}, ${identity.resolved.dark[name]})`
+  ) as ResolvedSpaceAppearance["light"][K];
   return {
+    "--workspace-accent-text-body": role("textBody"),
+    "--workspace-accent-text-ui": role("textUi"),
+    "--workspace-accent-glyph": role("glyph"),
+    "--workspace-accent-solid": role("solid"),
+    "--workspace-on-accent-solid": role("onSolid"),
+    "--workspace-on-accent-muted": role("onSolidMuted"),
+    "--workspace-accent-soft-fill": role("softFill"),
+    "--workspace-accent-border-state": role("borderState"),
+    "--workspace-accent-border-decor": role("borderDecor"),
+    "--workspace-accent-focus-ring": role("focusRing"),
+    "--workspace-accent-indicator": role("indicator"),
+    "--workspace-banner-secondary": identity.resolved.light.bannerSecondary,
+    "--workspace-banner-primary-rgb": identity.accentRgb,
+    "--workspace-banner-secondary-rgb": identity.secondaryRgb,
     "--surface-tab-accent": identity.color,
     "--surface-tab-accent-soft": identity.softColor,
+    // Transitional aliases retain their v1 rendering semantics until every
+    // remaining call site has been assigned a semantic role.
     "--workspace-custom-color": identity.color,
     "--workspace-custom-color-soft": identity.softColor,
     "--workspace-selection-accent": identity.color,
@@ -119,6 +156,7 @@ function workspaceIdentityStyle(identity: WorkspaceIdentity): CSSProperties {
     "--workspace-selection-surface": identity.softColor,
     "--workspace-on-accent": identity.onAccentColor,
     "--workspace-on-primary-accent": identity.onPrimaryAccentColor,
+    "--workspace-picker-color": identity.color,
   } as CSSProperties;
 }
 

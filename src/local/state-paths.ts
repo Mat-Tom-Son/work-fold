@@ -30,6 +30,11 @@ export function workspaceRegistryFile(): string {
   return join(workspaceStateRoot(), "workspace-registry.json");
 }
 
+/** Machine-local Space identity and appearance preferences. */
+export function workspaceAppearanceFile(): string {
+  return join(workspaceStateRoot(), "appearance.json");
+}
+
 /** Machine-local staged code and lifecycle receipts for restricted apps. */
 export function restrictedAppRoot(): string {
   return join(workspaceStateRoot(), "restricted-apps");

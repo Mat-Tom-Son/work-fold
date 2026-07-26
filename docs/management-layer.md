@@ -122,6 +122,12 @@ Useful options include `--prompt-file`, repeatable `--context`, `--conversation`
 
 Use the CLI to assert management snapshots. Use `workspace:drive` to test actual Assistant behavior end to end.
 
+`workspace:appearance` is a third, deliberately inert development primitive. It creates and validates
+a bounded Space-appearance proposal that Codex or Claude Code can hand to a person for import in the
+frontend. It does not contact the running product or mutate state, so it is not a protocol-v1 command
+and does not weaken the authenticated-mutation requirements below. See
+[Space customization](space-customization.md).
+
 ## Direction, not shipped authority
 
 This read-only layer is the first primitive for a broader Workspace operating layer. It can support a future cross-Space Assistant and controlled Space runtimes because they can start from one semantic inventory instead of scraping UI state.

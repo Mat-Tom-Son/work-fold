@@ -67,6 +67,8 @@ import {
   uploadResourceFiles,
 } from "./resources.js";
 import { searchWorkspace } from "./search.js";
+import { SpaceAppearanceStore } from "./space-appearance-store.js";
+import { spaceAppearanceBannerNames } from "../shared/space-appearance.js";
 import { configureWorkspaceStateRoot, restrictedAppRoot } from "./state-paths.js";
 import { WorkspaceKernel } from "./workspace-kernel.js";
 import {
@@ -122,6 +124,8 @@ export interface LocalApiOptions {
   /** Separate from Pi packages: reviewed, staged apps that execute only in the desktop sandbox host. */
   restrictedAppService?: RestrictedAppService;
   restrictedAppProposalHost?: RoutedRestrictedAppProposalHost;
+  /** Machine-local Space appearance state, shared by the renderer and test harnesses. */
+  appearanceStore?: SpaceAppearanceStore;
   /** A supplied kernel must use a provider wrapped by the same spaceTrustAuthority. */
   kernel?: WorkspaceKernel;
   /** Shared with the desktop kernel so registry trust changes apply everywhere. */
@@ -162,6 +166,7 @@ interface LocalApiState {
   capabilityRegistry: CapabilityRegistryService;
   restrictedApps: RestrictedAppService;
   restrictedAppProposals: RoutedRestrictedAppProposalHost;
+  appearance: SpaceAppearanceStore;
   kernel: WorkspaceKernel;
   spaceTrustAuthority: RegisteredSpaceTrustAuthority;
   localFolderGrantProvider?: LocalFolderGrantProvider;
@@ -233,6 +238,9 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     options.workspaceRemovalIo ?? {},
   );
   const pendingWorkspaceIds = (await listPendingWorkspaceRemovals()).map((intent) => intent.workspaceId);
+  const appearance = options.appearanceStore ?? await SpaceAppearanceStore.create({
+    normalize: { allowedBannerNames: new Set(spaceAppearanceBannerNames) },
+  });
   const spaceTrustAuthority = options.spaceTrustAuthority
     ?? new RegisteredSpaceTrustAuthority((await listWorkspaces()).map((workspace) => workspace.rootPath));
   for (const rootPath of recoveredWorkspaceRoots) spaceTrustAuthority.revoke(rootPath);
@@ -250,6 +258,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     capabilityRegistry: options.capabilityRegistry ?? new RemoteCapabilityRegistry(),
     restrictedApps,
     restrictedAppProposals,
+    appearance,
     kernel,
     spaceTrustAuthority,
     localFolderGrantProvider: options.localFolderGrantProvider,
@@ -308,6 +317,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       for (const streams of state.chatStreams.values()) for (const response of streams) response.end();
       for (const close of [...state.fileStreams]) close();
       for (const client of state.clients.values()) await client.stop().catch(() => undefined);
+      await state.appearance.flush();
       await state.restrictedApps.close();
       await closeServer(server);
     },
@@ -333,7 +343,20 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   if (method === "GET" && url.pathname === "/api/bootstrap") {
     const workspaces = (await state.kernel.getSpaces({ kind: "renderer" })).spaces;
     const agent = workspaces[0] ? await safeAgentStatus(workspaces[0].rootPath, state.runtimeProvider) : emptyAgentStatus();
-    sendJson(res, { workspaces, agent });
+    sendJson(res, { workspaces, agent, appearance: state.appearance.snapshot() });
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/api/appearance") {
+    sendJson(res, { appearance: state.appearance.snapshot() });
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/api/appearance/migrate") {
+    const body = await readJsonBody<{ customizations?: unknown }>(state, req);
+    const workspaceIds = new Set((await state.kernel.getSpaces({ kind: "renderer" })).spaces.map((workspace) => workspace.id));
+    const appearance = await state.appearance.importLegacy(body.customizations, workspaceIds);
+    sendJson(res, { appearance });
     return;
   }
 
@@ -402,10 +425,31 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
         return workspaceRemovalPendingResult(intent);
       }
       const result = await finalizeWorkspaceRemoval(intent.workspaceId, state.workspaceRemovalIo);
+      if (!result.cleanupPending) await state.appearance.removeWorkspace(workspace.id);
       if (!result.cleanupPending) state.restrictedApps.releaseWorkspaceRemovalFence(workspace.id);
       return result;
     }, { requiredWorkspaceIds: [workspace.id] });
     sendJson(res, removal);
+    return;
+  }
+
+  const workspaceAppearanceMatch = match(url.pathname, /^\/api\/workspaces\/([^/]+)\/appearance$/);
+  if (workspaceAppearanceMatch && method === "PUT") {
+    const workspace = await getWorkspace(workspaceAppearanceMatch[1]);
+    const body = await readJsonBody<{ customization?: unknown }>(state, req);
+    if (!body.customization || typeof body.customization !== "object" || Array.isArray(body.customization)) {
+      throw badRequest("A Space appearance object is required.");
+    }
+    const appearance = await state.appearance.replaceWorkspace(
+      workspace.id,
+      body.customization,
+    );
+    sendJson(res, { appearance });
+    return;
+  }
+  if (workspaceAppearanceMatch && method === "DELETE") {
+    const workspace = await getWorkspace(workspaceAppearanceMatch[1]);
+    sendJson(res, { appearance: await state.appearance.removeWorkspace(workspace.id) });
     return;
   }
 

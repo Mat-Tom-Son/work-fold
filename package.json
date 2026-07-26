@@ -1,6 +1,6 @@
 {
   "name": "workspace-desktop",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "private": true,
   "type": "module",
   "description": "A local-first desktop workspace powered by Pi.",
@@ -26,6 +26,7 @@
     "test": "node scripts/run-tests.mjs",
     "local:api": "tsx src/local/server-dev.ts",
     "workspace:drive": "tsx scripts/workspace-drive.ts",
+    "workspace:appearance": "tsx scripts/workspace-appearance.ts",
     "local:dev": "concurrently -k -n api,ui -c cyan,green \"npm run local:api\" \"vite --config vite.local.config.ts\"",
     "local:check": "tsc --noEmit -p tsconfig.web.json",
     "local:build": "vite build --config vite.local.config.ts",

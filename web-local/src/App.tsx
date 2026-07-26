@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ArrowSync16Regular, Color20Regular, Settings24Regular } from "@fluentui/react-icons";
 import { AlertTriangle, CirclePlus, Download, FolderOpen, Loader2, Search, Upload, X } from "lucide-react";
+import {
+  accentIdentityFromHex,
+  normalizeSpaceAppearanceCustomization,
+  upgradeSpaceAppearanceCustomization,
+  type SpaceAppearanceState,
+} from "../../src/shared/space-appearance";
 
 import { defaultTypographyPreference, productName, textSizeValues, themePreferenceKey, typographyFontValues, typographyPreferenceKey, workspaceCustomizationStorageKey, workspacePathDragType } from "./constants";
 import { ChatActionsPopover } from "./components/chat/ChatActionsPopover";
@@ -45,7 +51,7 @@ import { collectLoadedFileEntries, findTreeEntry, isInsideFolder, moveTreeEntry,
 import { normalizeWorkspaceCustomizations } from "./lib/workspace-customization";
 import { workspaceIdentityFor, workspaceIdentityStyle } from "./lib/workspace-identity";
 import { removeWorkspaceConfirmText, surfacePanelDomId, surfaceTabDomId, workspaceHeaderSourceBadgeLabel } from "./lib/workspace-ui";
-import type { AgentCatalog, AgentExtensionSurface, AppTheme, AppThemePreference, AppTypographyFont, AppTypographyPreference, BootstrapResponse, ChatActionsState, ChatContextPathRequest, ConversationSummary, DesktopUpdateStatus, FileContextMenuState, RestrictedAppInstalled, TreeEntry, WorkspaceCustomizationMap, WorkspaceCustomizationPatch, WorkspacePane, WorkspaceRailMode, WorkspaceSummary } from "./types";
+import type { AgentCatalog, AgentExtensionSurface, AppTheme, AppThemePreference, AppTypographyFont, AppTypographyPreference, BootstrapResponse, ChatActionsState, ChatContextPathRequest, ConversationSummary, DesktopUpdateStatus, FileContextMenuState, RestrictedAppInstalled, TreeEntry, WorkspaceCustomization, WorkspaceCustomizationMap, WorkspaceCustomizationPatch, WorkspacePane, WorkspaceRailMode, WorkspaceSummary } from "./types";
 import { ConfirmDialogHost, requestConfirm, showToast, ToastHost } from "./ui/feedback";
 import { workspaceIconOptions } from "./workspace-icons";
 
@@ -206,7 +212,7 @@ export function App() {
 
   return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>
     {showDesktopTitleBar ? <DesktopTitleBar /> : null}
-    {activeWorkspace ? <WorkspaceView workspace={activeWorkspace} workspaces={boot.workspaces} agent={boot.agent} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchWorkspace={(workspace) => setActiveWorkspaceId(workspace.id)} onRefreshBootstrap={refreshBootstrap} onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} /> : <OnboardingFlow onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} />}
+    {activeWorkspace ? <WorkspaceView workspace={activeWorkspace} workspaces={boot.workspaces} agent={boot.agent} appearance={boot.appearance} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchWorkspace={(workspace) => setActiveWorkspaceId(workspace.id)} onRefreshBootstrap={refreshBootstrap} onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} /> : <OnboardingFlow onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} />}
     {error ? <div className="global-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="Dismiss"><X size={15} /></button></div> : null}
     {createSpaceOpen ? <CreateSpaceModal onClose={() => setCreateSpaceOpen(false)} onCreate={createSpace} /> : null}
     {settingsOpen ? <DesktopSettingsModal theme={theme} themePreference={themePreference} onThemePreferenceChange={setThemePreference} typography={typography} onTypographyChange={setTypography} workspace={activeWorkspace} agentStatus={boot.agent} fixtureMode={Boolean(fixture)} initialPage={settingsInitialPage} onAgentConfigured={(agent) => setBoot((current) => current ? { ...current, agent } : current)} updateStatus={updateStatus} onUpdateAction={() => void runUpdateAction()} onClose={() => setSettingsOpen(false)} /> : null}
@@ -215,10 +221,11 @@ export function App() {
   </div>;
 }
 
-function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, updateStatus, themePreference, onThemePreferenceChange, onUpdateAction, onSwitchWorkspace, onRefreshBootstrap, onCreateSpace, onOpenFolder, onOpenSettings, onOpenShortcuts, onError }: {
+function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desktopAction, updateStatus, themePreference, onThemePreferenceChange, onUpdateAction, onSwitchWorkspace, onRefreshBootstrap, onCreateSpace, onOpenFolder, onOpenSettings, onOpenShortcuts, onError }: {
   workspace: WorkspaceSummary;
   workspaces: WorkspaceSummary[];
   agent: BootstrapResponse["agent"];
+  appearance?: SpaceAppearanceState;
   fixture: WorkspaceUiFixture | null;
   desktopAction: { id: number; command: DesktopActionCommand } | null;
   updateStatus: DesktopUpdateStatus | null;
@@ -235,10 +242,49 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
 }) {
   const initialStoredModeRef = useRef(fixture ? null : localStorage.getItem("workspace.mode"));
   const [activeMode, setActiveMode] = useState<WorkspaceRailMode>(() => fixture ? "files" : normalizeMode(initialStoredModeRef.current));
-  const [customizations, setCustomizations] = useState<WorkspaceCustomizationMap>(() => fixture ? fixture.customizations : readStoredJsonValue(workspaceCustomizationStorageKey, (value) => normalizeWorkspaceCustomizations(value, undefined, supportedWorkspaceIconNames), {}));
+  const legacyCustomizationsRef = useRef<WorkspaceCustomizationMap>(fixture ? {} : readStoredJsonValue(
+    workspaceCustomizationStorageKey,
+    (value) => normalizeWorkspaceCustomizations(value, undefined, supportedWorkspaceIconNames),
+    {},
+  ));
+  const [customizations, setCustomizations] = useState<WorkspaceCustomizationMap>(() => fixture
+    ? fixture.customizations
+    : normalizeWorkspaceCustomizations(
+      { ...legacyCustomizationsRef.current, ...(appearance?.customizations ?? {}) },
+      undefined,
+      supportedWorkspaceIconNames,
+    ));
   const customizationsRef = useRef(customizations);
   const appearanceStorageWarningShownRef = useRef(false);
+  const appearanceWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const appearanceHistoryRef = useRef(new Map<string, WorkspaceCustomization[]>());
+  const [, setAppearanceHistoryVersion] = useState(0);
   customizationsRef.current = customizations;
+  useEffect(() => {
+    if (fixture || !Object.keys(legacyCustomizationsRef.current).length) return;
+    let cancelled = false;
+    appearanceWriteQueueRef.current = appearanceWriteQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const result = await api<{ appearance: SpaceAppearanceState }>("/api/appearance/migrate", {
+          method: "POST",
+          body: { customizations: legacyCustomizationsRef.current },
+        });
+        legacyCustomizationsRef.current = {};
+        localStorage.removeItem(workspaceCustomizationStorageKey);
+        if (!cancelled) {
+          customizationsRef.current = result.appearance.customizations;
+          setCustomizations(result.appearance.customizations);
+        }
+      })
+      .catch((caught) => {
+        if (!cancelled && !appearanceStorageWarningShownRef.current) {
+          appearanceStorageWarningShownRef.current = true;
+          showToast({ text: `Workspace could not migrate the saved Space appearance. ${errorText(caught)}`, tone: "info" });
+        }
+      });
+    return () => { cancelled = true; };
+  }, [fixture]);
   const [conversationGroups, setConversationGroups] = useState<Record<string, ConversationSummary[]>>(() => fixture ? fixtureConversationGroups(fixture) : {});
   const [surfaceCatalogs, setSurfaceCatalogs] = useState<Record<string, AgentExtensionSurface[]>>(() => fixture ? fixture.surfaces : {});
   const surfaceCatalogRequestRef = useRef(0);
@@ -379,7 +425,10 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
     // explicit Space removal. Keep appearance keyed by the portable Space id
     // so relinking that folder restores its identity on this computer.
     const next = normalizeWorkspaceCustomizations(customizationsRef.current, undefined, supportedWorkspaceIconNames);
-    if (JSON.stringify(next) !== JSON.stringify(customizationsRef.current)) persistWorkspaceCustomizations(next);
+    if (JSON.stringify(next) !== JSON.stringify(customizationsRef.current)) {
+      customizationsRef.current = next;
+      setCustomizations(next);
+    }
   }, [workspaces.map((item) => item.id).join("|")]);
   useEffect(() => { if (fixture) { setConversationGroups(fixtureConversationGroups(fixture)); return; } void loadConversationGroups(); }, [fixture, workspaces.map((item) => item.id).join("|")]);
   useEffect(() => {
@@ -456,27 +505,86 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
     showToast({ text: `${workspace.name} refreshed`, tone: "success" });
   }
 
-  function persistWorkspaceCustomizations(next: WorkspaceCustomizationMap) {
+  function rememberWorkspaceAppearance(workspaceId: string) {
+    const history = appearanceHistoryRef.current.get(workspaceId) ?? [];
+    history.push(structuredClone(customizationsRef.current[workspaceId] ?? {}));
+    if (history.length > 20) history.shift();
+    appearanceHistoryRef.current.set(workspaceId, history);
+    setAppearanceHistoryVersion((current) => current + 1);
+  }
+
+  function persistWorkspaceCustomization(
+    workspaceId: string,
+    customization: WorkspaceCustomization | undefined,
+    options: { remember?: boolean } = {},
+  ) {
+    if (options.remember !== false) rememberWorkspaceAppearance(workspaceId);
+    const next = { ...customizationsRef.current };
+    if (customization && Object.keys(customization).length) next[workspaceId] = customization;
+    else delete next[workspaceId];
     customizationsRef.current = next;
     setCustomizations(next);
-    if (fixture || writeStoredJsonValue(workspaceCustomizationStorageKey, next) || appearanceStorageWarningShownRef.current) return;
-    appearanceStorageWarningShownRef.current = true;
-    showToast({ text: "This appearance change works for this session, but Workspace could not save it on this computer.", tone: "info" });
+    if (fixture) return;
+    appearanceWriteQueueRef.current = appearanceWriteQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const result = customization && Object.keys(customization).length
+          ? await api<{ appearance: SpaceAppearanceState }>(`/api/workspaces/${workspaceId}/appearance`, {
+            method: "PUT",
+            body: { customization },
+          })
+          : await api<{ appearance: SpaceAppearanceState }>(`/api/workspaces/${workspaceId}/appearance`, { method: "DELETE" });
+      })
+      .catch((caught) => {
+        if (appearanceStorageWarningShownRef.current) return;
+        appearanceStorageWarningShownRef.current = true;
+        showToast({ text: `This appearance works for this session, but Workspace could not save it on this computer. ${errorText(caught)}`, tone: "info" });
+      });
   }
 
   function customizeWorkspace(workspaceId: string, patch: WorkspaceCustomizationPatch) {
-    const next = normalizeWorkspaceCustomizations(
-      { ...customizationsRef.current, [workspaceId]: { ...(customizationsRef.current[workspaceId] ?? {}), ...patch } },
-      new Set(workspaces.map((item) => item.id)),
+    const current = upgradeSpaceAppearanceCustomization(customizationsRef.current[workspaceId] ?? {});
+    const merged: WorkspaceCustomization = { ...current, ...patch, schema: 2 };
+    if (Object.prototype.hasOwnProperty.call(patch, "color")) {
+      delete merged.color;
+      if (patch.color) merged.primary = accentIdentityFromHex(patch.color);
+      else delete merged.primary;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "color2")) {
+      delete merged.color2;
+      if (patch.color2) merged.secondary = accentIdentityFromHex(patch.color2);
+      else delete merged.secondary;
+    }
+    const normalized = normalizeWorkspaceCustomizations(
+      { [workspaceId]: normalizeSpaceAppearanceCustomization(merged) },
+      new Set([workspaceId]),
       supportedWorkspaceIconNames,
-    );
-    persistWorkspaceCustomizations(next);
+    )[workspaceId];
+    persistWorkspaceCustomization(workspaceId, normalized);
+  }
+
+  function replaceWorkspaceCustomization(workspaceId: string, customization: WorkspaceCustomization) {
+    const normalized = normalizeWorkspaceCustomizations(
+      { [workspaceId]: upgradeSpaceAppearanceCustomization(customization) },
+      new Set([workspaceId]),
+      supportedWorkspaceIconNames,
+    )[workspaceId];
+    persistWorkspaceCustomization(workspaceId, normalized);
+    showToast({ text: "Appearance proposal applied to this Space.", tone: "success" });
+  }
+
+  function undoWorkspaceCustomization(workspaceId: string) {
+    const history = appearanceHistoryRef.current.get(workspaceId) ?? [];
+    const previous = history.pop();
+    appearanceHistoryRef.current.set(workspaceId, history);
+    setAppearanceHistoryVersion((current) => current + 1);
+    if (!previous) return;
+    persistWorkspaceCustomization(workspaceId, Object.keys(previous).length ? previous : undefined, { remember: false });
+    showToast({ text: "Undid the last appearance change.", tone: "success" });
   }
 
   function resetWorkspaceCustomization(workspaceId: string) {
-    const next = { ...customizationsRef.current };
-    delete next[workspaceId];
-    persistWorkspaceCustomizations(next);
+    persistWorkspaceCustomization(workspaceId, undefined);
     showToast({ text: "Space appearance reset to defaults.", tone: "success" });
   }
 
@@ -516,7 +624,8 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
       const removal = await api<{ cleanupPending: boolean; deleted: boolean }>(`/api/workspaces/${target.id}`, { method: "DELETE" });
       const nextCustomizations = { ...customizationsRef.current };
       delete nextCustomizations[target.id];
-      persistWorkspaceCustomizations(nextCustomizations);
+      customizationsRef.current = nextCustomizations;
+      setCustomizations(nextCustomizations);
       tabs.removeWorkspaceSurfaceTabs(target.id);
       await onRefreshBootstrap();
       showToast({
@@ -1024,7 +1133,16 @@ function WorkspaceView({ workspace, workspaces, agent, fixture, desktopAction, u
                   <span className="workspace-appearance-surface-icon" aria-hidden="true"><Color20Regular /></span>
                   <div><h2>Customize {targetWorkspace.name}</h2><p>Give this Space a recognizable identity without changing the rest of Workspace.</p></div>
                 </div>
-                <WorkspaceAppearancePanel workspace={targetWorkspace} identity={targetIdentity} customization={customizations[targetWorkspace.id]} onCustomizeWorkspace={customizeWorkspace} onResetWorkspace={resetWorkspaceCustomization} />
+                <WorkspaceAppearancePanel
+                  workspace={targetWorkspace}
+                  identity={targetIdentity}
+                  customization={customizations[targetWorkspace.id]}
+                  canUndo={(appearanceHistoryRef.current.get(targetWorkspace.id)?.length ?? 0) > 0}
+                  onCustomizeWorkspace={customizeWorkspace}
+                  onReplaceWorkspace={replaceWorkspaceCustomization}
+                  onUndoWorkspace={undoWorkspaceCustomization}
+                  onResetWorkspace={resetWorkspaceCustomization}
+                />
               </div>
             ) : tab.kind === "history" ? (
               <HistoryPane workspace={targetWorkspace} fixtureItems={fixture?.checkpoints[targetWorkspace.id]} refreshRequest={targetWorkspace.id === workspace.id ? historyRefreshRequest : 0} selectedCheckpointId={tab.checkpointId} onOpen={(item) => tabs.openHistorySurfaceTab(targetWorkspace, item.checkpointId, item.label || "Restore point")} onError={onError} />

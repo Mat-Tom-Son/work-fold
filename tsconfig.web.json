@@ -11,6 +11,7 @@
     "types": ["vite/client"]
   },
   "include": [
+    "src/shared/**/*.ts",
     "web-local/src/**/*.ts",
     "web-local/src/**/*.tsx",
     "vite.local.config.ts"

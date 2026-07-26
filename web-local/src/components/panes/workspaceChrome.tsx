@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import {
+  ArrowDownload20Regular,
   ArrowClockwise20Regular,
   ArrowReset20Regular,
+  ArrowUndo20Regular,
+  ArrowUpload20Regular,
   Add24Regular,
   Apps24Filled,
   Apps24Regular,
@@ -18,11 +21,20 @@ import {
   ImageAdd20Regular,
   Keyboard24Regular,
   Search20Regular,
+  ShieldCheckmark20Regular,
+  Warning20Regular,
 } from "@fluentui/react-icons";
+import {
+  accentIdentityFromHex,
+  createSpaceAppearanceProposal,
+  parseSpaceAppearanceProposal,
+  upgradeSpaceAppearanceCustomization,
+} from "../../../../src/shared/space-appearance";
 import { filterWorkspaceIconOptions, workspaceIconOptionFor, workspaceIconOptions } from "../../workspace-icons";
 import { workspaceBannerOptions } from "../../constants";
 import { errorText } from "../../lib/api";
 import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
+import { normalizeWorkspaceCustomizations } from "../../lib/workspace-customization";
 import { normalizeWorkspaceColor, processWorkspaceBannerImageFile, workspaceColorOptions, workspaceIdentityFor, workspaceIdentityStyle, type WorkspaceIdentity } from "../../lib/workspace-identity";
 import { surfaceDomIdSuffix, workspaceHeaderSourceBadgeLabel } from "../../lib/workspace-ui";
 import type { AssistantToolsView, CapabilitySurface, RestrictedAppInstalled, WorkspaceCustomization, WorkspaceCustomizationMap, WorkspaceCustomizationPatch, WorkspaceRailMode, WorkspaceSummary } from "../../types";
@@ -496,20 +508,28 @@ function WorkspaceAppearancePanel({
   workspace,
   identity,
   customization,
+  canUndo,
   onCustomizeWorkspace,
+  onReplaceWorkspace,
+  onUndoWorkspace,
   onResetWorkspace,
 }: {
   workspace: WorkspaceSummary;
   identity: WorkspaceIdentity;
   customization?: WorkspaceCustomization;
+  canUndo: boolean;
   onCustomizeWorkspace: (workspaceId: string, patch: WorkspaceCustomizationPatch) => void;
+  onReplaceWorkspace: (workspaceId: string, customization: WorkspaceCustomization) => void;
+  onUndoWorkspace: (workspaceId: string) => void;
   onResetWorkspace: (workspaceId: string) => void;
 }) {
   const [iconSearchQuery, setIconSearchQuery] = useState("");
   const [showAllIcons, setShowAllIcons] = useState(false);
   const [bannerUploadBusy, setBannerUploadBusy] = useState(false);
   const [bannerUploadError, setBannerUploadError] = useState<string | null>(null);
+  const [proposalImportError, setProposalImportError] = useState<string | null>(null);
   const bannerFileInputRef = useRef<HTMLInputElement>(null);
+  const proposalFileInputRef = useRef<HTMLInputElement>(null);
   const workspaceId = workspace.id;
   const filteredWorkspaceIconOptions = useMemo(() => {
     const matches = filterWorkspaceIconOptions(iconSearchQuery);
@@ -523,7 +543,11 @@ function WorkspaceAppearancePanel({
     setShowAllIcons(false);
     setBannerUploadBusy(false);
     setBannerUploadError(null);
+    setProposalImportError(null);
   }, [workspaceId]);
+
+  const appearancePasses = identity.resolved.passes;
+  const uncertified = identity.resolved.uncertified.length > 0;
 
   async function handleBannerFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
@@ -541,22 +565,112 @@ function WorkspaceAppearancePanel({
     }
   }
 
+  function exportAppearanceProposal() {
+    setProposalImportError(null);
+    const upgraded = upgradeSpaceAppearanceCustomization(customization ?? {});
+    const proposal = createSpaceAppearanceProposal({
+      name: `${workspace.name} appearance`,
+      description: "A safe, code-free Workspace Space appearance preset.",
+      target: { workspaceId: workspace.id, workspaceName: workspace.name },
+      customization: {
+        ...upgraded,
+        schema: 2,
+        primary: upgraded.primary ?? accentIdentityFromHex(identity.color),
+        ...(identity.hasCustomSecondary
+          ? { secondary: upgraded.secondary ?? accentIdentityFromHex(identity.secondaryColor) }
+          : {}),
+      },
+      createdBy: "human",
+    });
+    const blob = new Blob([`${JSON.stringify(proposal, null, 2)}\n`], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${workspace.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "space"}-appearance.workspace.json`;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  async function importAppearanceProposal(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+    setProposalImportError(null);
+    try {
+      if (file.size > 850_000) throw new Error("Appearance proposal is too large.");
+      const proposal = parseSpaceAppearanceProposal(JSON.parse(await file.text()));
+      const normalized = normalizeWorkspaceCustomizations(
+        { [workspaceId]: proposal.customization },
+        new Set([workspaceId]),
+        new Set(workspaceIconOptions.flatMap((option) => [option.name, ...(option.aliases ?? [])])),
+      )[workspaceId];
+      if (!normalized) throw new Error("The proposal does not contain a supported appearance.");
+      onReplaceWorkspace(workspaceId, normalized);
+    } catch (caught) {
+      setProposalImportError(errorText(caught));
+    }
+  }
+
   return (
     <div className="workspace-appearance-inner">
       <div className="workspace-appearance-toolbar">
         <div>
           <strong>Space appearance</strong>
-          <span>Saved on this computer and applied anywhere this Space appears.</span>
+          <span>Saved on this computer. Importing a preset never runs code.</span>
         </div>
-        <button className="workspace-appearance-reset" type="button" disabled={!customized} onClick={() => onResetWorkspace(workspaceId)}>
-          <ArrowReset20Regular />
-          Reset
-        </button>
+        <div className="workspace-appearance-toolbar-actions">
+          <button type="button" disabled={!canUndo} onClick={() => onUndoWorkspace(workspaceId)} title="Undo the last appearance change">
+            <ArrowUndo20Regular />
+            Undo
+          </button>
+          <button type="button" onClick={() => proposalFileInputRef.current?.click()} title="Apply a Workspace appearance proposal">
+            <ArrowUpload20Regular />
+            Import
+          </button>
+          <button type="button" onClick={exportAppearanceProposal} title="Save a code-free appearance proposal">
+            <ArrowDownload20Regular />
+            Export
+          </button>
+          <button className="workspace-appearance-reset" type="button" disabled={!customized} onClick={() => onResetWorkspace(workspaceId)}>
+            <ArrowReset20Regular />
+            Reset
+          </button>
+          <input
+            ref={proposalFileInputRef}
+            className="workspace-banner-file-input"
+            type="file"
+            accept=".json,application/json"
+            onChange={(event) => void importAppearanceProposal(event)}
+            tabIndex={-1}
+            aria-hidden="true"
+          />
+        </div>
       </div>
-      <div className={["workspace-appearance-preview", "workspace-banner-surface", `banner-${identity.bannerName}`, identity.bannerImage ? "has-banner-image" : ""].filter(Boolean).join(" ")} style={workspaceIdentityStyle(identity)} aria-label="Live Space banner preview">
-        {identity.bannerImage ? <span className="workspace-appearance-preview-image" aria-hidden="true"><img src={identity.bannerImage} alt="" draggable={false} style={{ objectPosition: `center ${identity.bannerImagePosition}` }} /><span /></span> : null}
-        <span className="workspace-appearance-preview-copy"><strong>{workspace.name}</strong><small className="sr-only">{workspaceHeaderSourceBadgeLabel(workspace)}</small></span>
-        <span className="workspace-appearance-preview-label">Live preview</span>
+      {proposalImportError ? <div className="workspace-appearance-import-error" role="alert"><Warning20Regular aria-hidden="true" /><span>{proposalImportError}</span></div> : null}
+      <div className="workspace-appearance-previews" aria-label="Light and dark Space previews">
+        {(["light", "dark"] as const).map((mode) => (
+          <div
+            className={["workspace-appearance-preview", "workspace-banner-surface", `preview-${mode}`, `banner-${identity.bannerName}`, identity.bannerImage ? "has-banner-image" : ""].filter(Boolean).join(" ")}
+            style={{ ...workspaceIdentityStyle(identity, mode), colorScheme: mode }}
+            data-preview-mode={mode}
+            key={mode}
+          >
+            {identity.bannerImage ? <span className="workspace-appearance-preview-image" aria-hidden="true"><img src={identity.bannerImage} alt="" draggable={false} style={{ objectPosition: `center ${identity.bannerImagePosition}` }} /><span /></span> : null}
+            <span className="workspace-appearance-preview-copy"><strong>{workspace.name}</strong><small className="sr-only">{workspaceHeaderSourceBadgeLabel(workspace)}</small></span>
+            <span className="workspace-appearance-preview-label">{mode === "light" ? "Light" : "Dark"}</span>
+          </div>
+        ))}
+      </div>
+      <div className={appearancePasses ? "workspace-appearance-audit passes" : "workspace-appearance-audit warning"}>
+        {appearancePasses ? <ShieldCheckmark20Regular aria-hidden="true" /> : <Warning20Regular aria-hidden="true" />}
+        <span>
+          <strong>{appearancePasses ? "Readable in light and dark" : "Some roles need attention"}</strong>
+          <small>
+            {appearancePasses
+              ? `The generated text, icon, active-border, and marker roles meet their contrast targets.${uncertified ? " Decorative banners stay advisory." : ""}`
+              : "Choose a different accent to restore readable text and controls."}
+          </small>
+        </span>
       </div>
       <div className="workspace-appearance-row colors">
         <span className="workspace-appearance-label"><strong>Accent</strong><small>Identify this Space without recoloring the app.</small></span>
@@ -592,7 +706,7 @@ function WorkspaceAppearancePanel({
             </label>
             <label
               className={identity.hasCustomSecondary ? "workspace-color-picker secondary" : "workspace-color-picker secondary matched"}
-              style={{ ...workspaceIdentityStyle(identity), "--workspace-custom-color": identity.secondaryColor } as CSSProperties}
+              style={{ ...workspaceIdentityStyle(identity), "--workspace-picker-color": identity.secondaryColor } as CSSProperties}
               title="Second banner color"
             >
               <span className="workspace-color-wheel" aria-hidden="true">

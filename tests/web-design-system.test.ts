@@ -331,12 +331,23 @@ test("Space customization is visible, compact, and separate from structural chro
   assert.match(colorWheelRule, /width:\s*28px/);
   assert.match(colorPairClearRule, /padding:\s*0/, "the paired-color clear icon must not overflow its control group");
   assert.match(workspaceChromeSource, /onInput=[\s\S]*?aria-label="Choose second banner color"/);
-  assert.match(customizationCss, /\.workspace-banner-surface\.banner-classic[\s\S]*?--workspace-selection-accent2-rgb/, "the second color must affect the default banner");
+  assert.match(customizationCss, /\.workspace-banner-surface\.banner-classic[\s\S]*?--workspace-banner-secondary-rgb/, "the second color must affect the default banner through its dedicated role");
   const activeRailMarkerRule = cssRuleBody(customizationCss, ".app-shell .professional-workspace-rail .workspace-rail-button.active::before");
-  assert.match(activeRailMarkerRule, /background:\s*var\(--workspace-custom-color\)/, "Space color must drive the compact active pill");
+  assert.match(activeRailMarkerRule, /background:\s*var\(--workspace-accent-indicator\)/, "the contrast-solved indicator role must drive the compact active pill");
   assert.doesNotMatch(activeRailMarkerRule, /box-shadow/, "the active pill must not resurrect the legacy full-row shadow");
-  assert.match(customizationCss, /\.professional-spaces \.workspace-card-shell\.active[\s\S]*?background:\s*var\(--workspace-custom-color-soft\)/);
-  assert.match(customizationCss, /\.professional-chats \.chat-workspace-heading > span:first-child[\s\S]*?color:\s*var\(--workspace-custom-color\)/);
+  assert.match(customizationCss, /\.professional-spaces \.workspace-card-shell\.active[\s\S]*?background:\s*var\(--workspace-accent-soft-fill\)/);
+  assert.match(customizationCss, /\.professional-chats \.chat-workspace-heading > span:first-child[\s\S]*?color:\s*var\(--workspace-accent-glyph\)/);
+  assert.match(legacyCss, /\.message\.user\s*\{[\s\S]*?background:\s*var\(--workspace-accent-solid/, "user messages must use the resolved solid role");
+  assert.match(legacyCss, /\.message\.user \.message-author\s*\{[\s\S]*?color:\s*var\(--workspace-on-accent-muted/, "muted author text must use its audited composite role");
+  assert.match(workspaceIdentitySource, /"--workspace-selection-accent":\s*identity\.color/, "transitional aliases must preserve the v1 accent until their consumers are assigned roles");
+  assert.match(workspaceIdentitySource, /"--workspace-selection-border":\s*identity\.borderColor/);
+  assert.match(workspaceIdentitySource, /"--workspace-selection-surface":\s*identity\.softColor/);
+  assert.doesNotMatch(workspaceIdentitySource, /"--workspace-banner-(?:primary|base)":/, "unused banner string tokens must not be injected at every identity scope");
+  assert.match(workspaceChromeSource, /\(\["light", "dark"\] as const\)\.map/, "the editor must preview both modes together");
+  assert.match(customizationCss, /\.app-shell \.workspace-appearance-preview\.preview-light\s*\{[\s\S]*?--workspace-banner-base-rgb:\s*255,\s*255,\s*255/, "the light preview must beat the surrounding app theme");
+  assert.match(customizationCss, /\.app-shell \.workspace-appearance-preview\.preview-dark\s*\{[\s\S]*?--workspace-banner-base-rgb:\s*23,\s*26,\s*33/, "the dark preview must beat the surrounding app theme");
+  assert.match(workspaceChromeSource, /parseSpaceAppearanceProposal/, "the editor must import the shared bounded proposal");
+  assert.match(workspaceChromeSource, /createSpaceAppearanceProposal/, "the editor must export the shared bounded proposal");
   assert.doesNotMatch(
     appSource,
     /normalizeWorkspaceCustomizations\(customizationsRef\.current,\s*new Set\(workspaces/,

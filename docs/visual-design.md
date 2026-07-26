@@ -85,7 +85,11 @@ For Electron-integrated changes, repeat a packaged-app pass that confirms the pl
 - **Customize Space** controls one Space's accent, compact banner, and Fluent identity icon.
 - Customize Space is opened from the Space card and lives in one right-side appearance tab per Space. Changes repaint every identity consumer immediately.
 - Per-Space appearance is personal application state. It is not written into the user's ordinary folder and does not travel with shared files.
-- A custom image is resized and compressed before local storage. Unsafe image formats and malformed stored values are rejected.
-- Every Space appearance control updates a live preview, saves immediately, and offers a single Reset action.
+- The editor shows light and dark previews together and reports the semantic contrast audit without claiming that arbitrary images or gradients are statically certified.
+- A custom image is resized and compressed before machine-local service storage. Unsafe image formats and malformed stored values are rejected.
+- Every Space appearance control updates the preview, saves immediately, and offers Undo and Reset. Import/export uses the same typed, code-free proposal format as the agent harness.
+- Layout order, native chrome, permission UI, target sizes, and non-colour state indicators are invariants, not customization options.
 
-See [Desktop experience parity](ui-parity.md) for the complete interaction contract and [Architecture](architecture.md) for the native/renderer boundary.
+See [Space customization](space-customization.md) for the resolver, persistence, and harness contract,
+[Desktop experience parity](ui-parity.md) for the complete interaction contract, and
+[Architecture](architecture.md) for the native/renderer boundary.

@@ -51,6 +51,7 @@ Workspace reserves two hidden support directories inside a Space: `.workspace/` 
 - Pi's normal built-in tools, provider/model selection, API-key and supported provider OAuth authentication, prompt templates, context files, and packages.
 - Chat composer discovery for installed Skills, prompts, Extension commands, and supported built-ins, plus active-model and context-window visibility.
 - Active, snoozed, and archived Chat views with automatic resurfacing, undoable lifecycle actions, read-only deferred transcripts, and quiet running/finished indicators for background work.
+- Per-Space identity customization with semantic light/dark colour roles, paired banner colours, safe images, searchable Fluent icons, dual previews, contrast auditing, undo/reset, and code-free proposal import/export.
 - One Space-owned Assistant tools work tab for installed Skills and Extensions, official/reference sources, community Pi packages, provenance, scope, diagnostics, update, and removal, opened on demand from Add, the command palette, or the desktop shortcut.
 - Global and registered-Space Pi Extensions. Native Pi Extensions run with the current user's permissions.
 - Validated declarative Extension surfaces that can contribute an app rail destination, navigator pane, and Space-bound data views without injecting Extension code into the renderer.
@@ -148,6 +149,17 @@ CI runs `check`, `test`, and `desktop:package:smoke`, so every branch verifies t
 
 The repository has one contributor contract: [AGENTS.md](AGENTS.md). Codex reads it directly. The tracked [CLAUDE.md](CLAUDE.md) uses Claude Code's `@AGENTS.md` import so both harnesses receive the same product rails, commands, test expectations, release rules, and Pi Skill/Extension/tool boundaries without duplicated prose. Product tools remain the same native Pi catalog regardless of which development harness edits the repository.
 
+Both harnesses can author and audit the exact same inert Space-appearance proposal:
+
+```bash
+npm run --silent workspace:appearance -- create --name "Client work" --color "#0d74ce" --icon briefcase --banner aurora --created-by codex --out client-work.workspace.json
+npm run --silent workspace:appearance -- validate client-work.workspace.json --json
+```
+
+Use `--created-by claude-code` in Claude Code. The command never applies a mutation; import the
+proposal in Customize Space after reviewing the light/dark preview. See
+[Space customization](docs/space-customization.md).
+
 To exercise one real Assistant turn through the same local API, Pi runtime, tools, Skills, Extensions, persistence, and event stream as the desktop app:
 
 ```powershell
@@ -204,6 +216,7 @@ See [Assistant capabilities](docs/assistant-capabilities.md) for the product-fac
 - [T3 Code reference audit](docs/t3code-reference-audit.md) — transferable workbench ideas, overlap, and the ranked adaptation plan.
 - [Architecture](docs/architecture.md) and [management layer](docs/management-layer.md) — runtime boundaries, shared kernel, CLI, and agent harness.
 - [Assistant capabilities](docs/assistant-capabilities.md), [Extension surfaces](docs/extension-surfaces.md), [restricted app authoring](docs/restricted-app-authoring.md), [restricted app runtime](docs/restricted-app-runtime.md), and [Pi compatibility](docs/pi-resources.md) — Skills, full-trust Extensions, restricted apps, packages, scopes, authoring, and authorization.
+- [Workspace 0.4.7 release notes](docs/releases/0.4.7.md) — semantic Space appearance, dual previews, contrast auditing, durable local storage, and shared Codex/Claude proposal tooling.
 - [Workspace 0.4.6 release notes](docs/releases/0.4.6.md) — quiet background Chat continuity and active-tab focus preservation.
 - [Workspace 0.4.5 release notes](docs/releases/0.4.5.md) — Library tabs, cross-Space copy clarity, legacy navigation migration, and Codex/Claude contributor parity.
 - [Workspace 0.4.4 release notes](docs/releases/0.4.4.md) — Assistant tools in the work area, the Add menu, responsive capability management, and upgrade guidance.

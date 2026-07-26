@@ -1,3 +1,4 @@
+import { maxSpaceAppearanceBannerImageDataUrlLength, spaceAppearanceBannerNames } from "../../src/shared/space-appearance";
 import type { AppTextSize, AppTypographyFont, AppTypographyPreference, CommandPaletteGroupId, WorkspaceBannerOption } from "./types";
 
 export const productName = "Workspace";
@@ -65,17 +66,9 @@ export const genericChatEmptyGreetings = [
 ];
 export const workspaceCustomizationStorageKey = "workspace.appearance.v1";
 export const defaultWorkspaceBannerName = "classic";
-export const maxWorkspaceBannerImageDataUrlLength = 700_000;
+export const maxWorkspaceBannerImageDataUrlLength = maxSpaceAppearanceBannerImageDataUrlLength;
 export const maxWorkspaceBannerImageFileBytes = 12 * 1024 * 1024;
-export const workspaceBannerOptions: WorkspaceBannerOption[] = [
-  { name: "none", label: "None" },
-  { name: "classic", label: "Classic" },
-  { name: "mist", label: "Mist" },
-  { name: "horizon", label: "Horizon" },
-  { name: "aurora", label: "Aurora" },
-  { name: "halftone", label: "Halftone" },
-  { name: "blueprint", label: "Blueprint" },
-  { name: "pinstripe", label: "Pinstripe" },
-  { name: "ribbon", label: "Ribbon" },
-  { name: "bold", label: "Bold" },
-];
+export const workspaceBannerOptions: WorkspaceBannerOption[] = spaceAppearanceBannerNames.map((name) => ({
+  name,
+  label: name[0]!.toUpperCase() + name.slice(1),
+}));

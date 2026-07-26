@@ -9,6 +9,7 @@ Workspace is a local-first Electron shell around ordinary folders and the native
 - Both harnesses use the same checked-in npm scripts, documentation, test suites, and release lanes. Do not create alternate Claude-only or Codex-only build or release commands.
 - Native full-trust Skills, Extensions, built-in tools, and their catalog/runtime remain Pi-owned. Workspace owns the product documentation and restricted-app lane, but both remain harness-neutral. Do not create a Codex-only or Claude-only catalog, wrapper format, prompt copy, or tool policy.
 - `workspace <command> --json`—for example, `workspace context --json`—is the stable installed-product inspection surface for any shell-capable harness. `npm run workspace:drive` is the separate real-Pi-turn test driver; do not conflate it with the read-only management CLI.
+- `npm run --silent workspace:appearance` is the shared Codex/Claude Code primitive for creating, resolving, and validating inert Space-appearance proposals. It never applies a mutation; the person imports the typed file in Customize Space. Keep its schema and safety boundary aligned with [Space customization](docs/space-customization.md).
 - The harness-loading conventions are documented by [Codex](https://developers.openai.com/codex/guides/agents-md) and [Claude Code](https://code.claude.com/docs/en/memory). Repository behavior is defined here.
 
 ## Product boundaries

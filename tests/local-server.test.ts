@@ -28,6 +28,7 @@ test("local API covers Space files, the Library, and external restore points", a
     assert.deepEqual(await json(`${api.origin}/api/bootstrap`), {
       workspaces: [],
       agent: { ready: true, configured: false, provider: null, model: null, piVersion: null, projectTrusted: false, error: null },
+      appearance: { version: 2, revision: 0, customizations: {} },
     });
 
     const created = await json(`${api.origin}/api/workspaces`, {

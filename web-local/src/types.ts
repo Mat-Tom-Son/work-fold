@@ -1,3 +1,5 @@
+import type { AccentIdentity, SpaceAppearanceState } from "../../src/shared/space-appearance";
+
 export type WorkspacePane = "files" | "chats" | "history";
 export type WorkspaceExtensionRailMode = `app:${string}`;
 export type WorkspaceRailMode = "workspaces" | WorkspacePane | WorkspaceExtensionRailMode;
@@ -27,8 +29,11 @@ export interface WorkspaceSummary {
 }
 
 export interface WorkspaceCustomization {
+  schema?: 1 | 2;
   color?: string;
   color2?: string;
+  primary?: AccentIdentity;
+  secondary?: AccentIdentity;
   iconName?: string;
   bannerName?: string;
   bannerImage?: string | null;
@@ -804,7 +809,7 @@ export interface ChatStreamEvent {
   editorMode?: "replace" | "append";
 }
 
-export interface BootstrapResponse { workspaces: WorkspaceSummary[]; agent: AgentStatus }
+export interface BootstrapResponse { workspaces: WorkspaceSummary[]; agent: AgentStatus; appearance?: SpaceAppearanceState }
 export interface DesktopUpdateStatus {
   supported: boolean;
   phase: "unsupported" | "idle" | "checking" | "available" | "not_available" | "downloading" | "ready" | "installing" | "error";

@@ -74,9 +74,18 @@ test("assistant rendering has complete Markdown chrome and Space-aware accents",
   const userRule = styles.match(/(?:^|\n)\.message\.user\s*\{([\s\S]*?)\}/)?.[1] ?? "";
   const darkUserRule = styles.match(/\.app-shell\[data-theme="dark"\] \.message\.user\s*\{([\s\S]*?)\}/)?.[1] ?? "";
   for (const rule of [userRule, darkUserRule]) {
-    assert.match(rule, /background:\s*var\(--workspace-custom-color,\s*var\(--workspace-blue-600\)\)/);
-    assert.match(rule, /color:\s*var\(--workspace-on-primary-accent/);
+    assert.match(
+      rule,
+      /background:\s*var\(--workspace-accent-solid,\s*var\(--workspace-custom-color,\s*var\(--workspace-blue-600\)\)\)/,
+    );
+    assert.match(rule, /color:\s*var\(--workspace-on-accent-solid,\s*var\(--workspace-on-primary-accent/);
     assert.doesNotMatch(rule, /linear-gradient|workspace-selection-accent2/);
+  }
+  const userInlineCodeRule = styles.match(/(?:^|\n)\.message\.user \.message-body code\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+  const darkUserInlineCodeRule = styles.match(/\.app-shell\[data-theme="dark"\] \.message\.user \.message-body code\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+  for (const rule of [userInlineCodeRule, darkUserInlineCodeRule]) {
+    assert.match(rule, /background:\s*transparent/, "inline code must not reduce the audited on-accent text contrast");
+    assert.match(rule, /color:\s*inherit/);
   }
   const darkFencedCodeRule = styles.match(/\.app-shell\[data-theme="dark"\] \.message-body \.message-code-block pre code\s*\{([\s\S]*?)\}/)?.[1] ?? "";
   assert.match(darkFencedCodeRule, /background:\s*transparent/, "dark fenced code must not inherit the inline-code highlight");

@@ -185,7 +185,7 @@ When a design is ambiguous, prefer the option that best preserves these properti
 - Browse curated first-party/reference Skills and Extensions alongside community Pi packages, with type filters and explicit provenance.
 - Import standard Skills and compatible skill bundles while preserving their supporting files.
 - Install, update, and remove Pi packages at Personal or registered-Space scope.
-- Customize each Space with a compact banner, paired accent colors, and a searchable Fluent icon catalog without changing its folder.
+- Customize each Space with semantic light/dark accent roles, a compact banner, paired colours, and a searchable Fluent icon catalog without changing its folder; machine-local service storage, dual previews, contrast auditing, undo/reset, and inert proposal import/export keep the same typed contract available to people, Codex, and Claude Code.
 - Inspect Space context, registered Spaces, active Assistant/compaction tasks, and Pi capabilities through one versioned `WorkspaceKernel` and the read-only installed `workspace` CLI.
 - Drive one real Pi turn through the local API with the harness-neutral `workspace:drive` test driver.
 - Render validated declarative `surface.json` contributions from loaded Pi Extensions as a contributed rail destination, left-pane navigator, and Space-bound view tabs without injecting Extension code into the renderer.
