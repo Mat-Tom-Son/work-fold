@@ -3,7 +3,7 @@ import type * as React from "react";
 import { ArrowDown20Regular, ArrowUp20Regular } from "@fluentui/react-icons";
 import { AlertTriangle, Archive, CircleCheck, Clock3, Loader2, Square, X } from "lucide-react";
 
-import { agentActivityLogLimit, assistantName, chatDraftDebounceMs, genericChatEmptyGreetings, workspacePathDragType } from "../../constants";
+import { agentActivityLogLimit, chatDraftDebounceMs, genericChatEmptyGreetings, workspacePathDragType } from "../../constants";
 import { createFixtureContextAttachment, fixtureAgentActivityEvents, fixtureConversationSummary } from "../../fixtures/shared";
 import { api, createEventSource, errorText } from "../../lib/api";
 import { createChatTurnStateGate, observeChatTurnState } from "../../lib/chat-turn-state";
@@ -48,7 +48,6 @@ export function ChatPanel({
   workspaceCustomizations,
   active = true,
   targetConversationId = null,
-  targetConversationTitle = null,
   contextPathRequest,
   onAddPathToChatContext,
   onOpenWorkspaceFile,
@@ -72,7 +71,6 @@ export function ChatPanel({
   workspaceCustomizations: WorkspaceCustomizationMap;
   active?: boolean;
   targetConversationId?: string | null;
-  targetConversationTitle?: string | null;
   contextPathRequest: ChatContextPathRequest | null;
   onAddPathToChatContext?: (path: string) => void;
   onOpenWorkspaceFile?: (path: string) => void;
@@ -366,20 +364,6 @@ export function ChatPanel({
     const selected = conversations.find((item) => item.id === targetConversationId);
     if (selected) void switchConversation(selected);
   }, [targetConversationId, conversations, conversation?.id, fixtureMode]);
-
-  useEffect(() => {
-    if (fixtureMode || !targetConversationId || !targetConversationTitle) return;
-    setConversation((current) => (
-      current?.id === targetConversationId && current.title !== targetConversationTitle
-        ? { ...current, title: targetConversationTitle }
-        : current
-    ));
-    commitConversations((current) => current.map((item) => (
-      item.id === targetConversationId && item.title !== targetConversationTitle
-        ? { ...item, title: targetConversationTitle }
-        : item
-    )));
-  }, [targetConversationId, targetConversationTitle, fixtureMode]);
 
   useEffect(() => {
     resizeComposerTextarea();
@@ -1431,18 +1415,12 @@ export function ChatPanel({
           })}
           {running && (streamingAssistant || hasRuntimePreview) ? (
             <article className="message assistant streaming">
-              <div className="message-header">
-                <span className="message-identity"><span className="message-author">{assistantName}</span></span>
-              </div>
               {hasRuntimePreview ? <RuntimeContextPreview entries={runtimePreviews} running={running} /> : null}
               {streamingAssistant ? <MarkdownMessage content={streamingAssistant} /> : null}
             </article>
           ) : null}
           {running && !streamingAssistant && !hasRuntimePreview ? (
             <article className="message assistant streaming working-message">
-              <div className="message-header">
-                <span className="message-identity"><span className="message-author">{assistantName}</span></span>
-              </div>
               <div className="typing-line"><Loader2 className="spin" size={14} /> Working</div>
             </article>
           ) : null}

@@ -214,7 +214,12 @@ export function ChatsPane({
               key={chat.id}
               onContextMenu={(event) => { event.preventDefault(); onActions(item, chat, event); }}
             >
-              <button className="chat-workspace-row" type="button" onClick={() => onOpen(item, chat)}>
+              <button
+                className="chat-workspace-row"
+                type="button"
+                aria-current={chat.id === activeConversationId ? "page" : undefined}
+                onClick={() => onOpen(item, chat)}
+              >
                 <span className="chat-workspace-row-title">{chat.title}</span>
                 <span className="chat-workspace-row-meta">
                   {status ? <ChatActivityIndicator status={status} /> : null}

@@ -315,7 +315,7 @@ test("Space customization is visible, compact, and separate from structural chro
   assert.match(customizationCss, /\.professional-spaces \.workspace-card-shell\.active[\s\S]*?background:\s*var\(--workspace-accent-soft-fill\)/);
   assert.match(customizationCss, /\.professional-chats \.chat-workspace-heading > span:first-child[\s\S]*?color:\s*var\(--workspace-accent-glyph\)/);
   assert.match(legacyCss, /\.message\.user\s*\{[\s\S]*?background:\s*var\(--workspace-accent-solid/, "user messages must use the resolved solid role");
-  assert.match(legacyCss, /\.message\.user \.message-author\s*\{[\s\S]*?color:\s*var\(--workspace-on-accent-muted/, "muted author text must use its audited composite role");
+  assert.match(legacyCss, /\.message\.user \.message-time\s*\{[\s\S]*?color:\s*var\(--workspace-on-accent-muted/, "message footer metadata must use its audited composite role");
   assert.match(workspaceIdentitySource, /"--workspace-selection-accent":\s*identity\.color/, "transitional aliases must preserve the v1 accent until their consumers are assigned roles");
   assert.match(workspaceIdentitySource, /"--workspace-selection-border":\s*identity\.borderColor/);
   assert.match(workspaceIdentitySource, /"--workspace-selection-surface":\s*identity\.softColor/);

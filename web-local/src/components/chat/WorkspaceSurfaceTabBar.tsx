@@ -1,13 +1,17 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
-import { ChevronDown16Regular, Dismiss12Regular } from "@fluentui/react-icons";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { Checkmark16Regular, ChevronDown16Regular, Dismiss12Regular } from "@fluentui/react-icons";
 
 import { chatDisplayTitle } from "../../lib/format";
 import { chatActivityKey } from "../../lib/chat-lifecycle";
 import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
+import { readStoredValue, writeStoredValue } from "../../lib/storage";
+import { groupSurfaceTabsByWorkspace } from "../../lib/surface-tab-groups";
 import { workspaceIdentityFor, workspaceIdentityStyle } from "../../lib/workspace-identity";
 import { surfacePanelDomId, surfaceTabDomId } from "../../lib/workspace-ui";
 import type { ChatActivityStatus, ConversationSummary, WorkspaceCustomizationMap, WorkspaceSummary, WorkspaceSurfaceTab } from "../../types";
 import { FluentGlyph, NewChatIcon, WorkspaceIconGlyph } from "../chrome/common";
+
+const groupSurfaceTabsStorageKey = "workspace.surfaceTabs.groupBySpace.v1";
 
 export function WorkspaceSurfaceTabBar({
   tabs,
@@ -35,9 +39,23 @@ export function WorkspaceSurfaceTabBar({
   onChatActions: (workspace: WorkspaceSummary, conversation: ConversationSummary, event: ReactMouseEvent<HTMLElement>) => void;
 }) {
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const [groupByWorkspace, setGroupByWorkspace] = useState(() => readStoredValue(groupSurfaceTabsStorageKey) === "true");
+  const tabsRef = useRef<HTMLDivElement | null>(null);
   const menuAnchorRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const openWorkspaceCount = new Set(tabs.map((tab) => tab.workspaceId)).size;
+  const groupingActive = groupByWorkspace && openWorkspaceCount > 1;
+  const orderedTabs = useMemo(
+    () => groupingActive ? groupSurfaceTabsByWorkspace(tabs).flatMap((group) => group.tabs) : tabs,
+    [groupingActive, tabs],
+  );
+  const tabGroups = useMemo(
+    () => groupingActive
+      ? groupSurfaceTabsByWorkspace(tabs)
+      : [{ workspaceId: null, tabs }],
+    [groupingActive, tabs],
+  );
   const menuWorkspaces = [
     ...workspaces.filter((item) => item.id === newChatWorkspaceId),
     ...workspaces.filter((item) => item.id !== newChatWorkspaceId),
@@ -69,21 +87,35 @@ export function WorkspaceSurfaceTabBar({
     };
   }, [workspaceMenuOpen]);
 
+  useEffect(() => {
+    const tabStrip = tabsRef.current;
+    if (!tabStrip) return;
+    function revealActiveTab(): void {
+      const activeTab = activeTabId ? document.getElementById(surfaceTabDomId(activeTabId)) : null;
+      activeTab?.closest(".surface-tab")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+    revealActiveTab();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => revealActiveTab());
+    observer.observe(tabStrip);
+    return () => observer.disconnect();
+  }, [activeTabId, groupingActive]);
+
   function handleTabListKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
-    if (!tabs.length) return;
+    if (!orderedTabs.length) return;
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
 
-    const activeIndex = tabs.findIndex((tab) => tab.id === activeTabId);
+    const activeIndex = orderedTabs.findIndex((tab) => tab.id === activeTabId);
     const currentIndex = activeIndex >= 0 ? activeIndex : 0;
-    const lastIndex = tabs.length - 1;
+    const lastIndex = orderedTabs.length - 1;
     let nextIndex = currentIndex;
 
     if (event.key === "Home") nextIndex = 0;
     else if (event.key === "End") nextIndex = lastIndex;
-    else if (event.key === "ArrowRight") nextIndex = activeIndex >= 0 ? (currentIndex + 1) % tabs.length : 0;
-    else if (event.key === "ArrowLeft") nextIndex = activeIndex >= 0 ? (currentIndex - 1 + tabs.length) % tabs.length : lastIndex;
+    else if (event.key === "ArrowRight") nextIndex = activeIndex >= 0 ? (currentIndex + 1) % orderedTabs.length : 0;
+    else if (event.key === "ArrowLeft") nextIndex = activeIndex >= 0 ? (currentIndex - 1 + orderedTabs.length) % orderedTabs.length : lastIndex;
 
-    const nextTab = tabs[nextIndex];
+    const nextTab = orderedTabs[nextIndex];
     if (!nextTab) return;
     event.preventDefault();
     onActivate(nextTab.id);
@@ -91,7 +123,7 @@ export function WorkspaceSurfaceTabBar({
   }
 
   function workspaceMenuItems(): HTMLButtonElement[] {
-    return Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+    return Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"], [role="menuitemcheckbox"]') ?? []);
   }
 
   function handleWorkspaceMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
@@ -109,69 +141,106 @@ export function WorkspaceSurfaceTabBar({
     onNewChatInWorkspace(targetWorkspace);
   }
 
+  function toggleWorkspaceGrouping(): void {
+    const next = !groupByWorkspace;
+    setGroupByWorkspace(next);
+    writeStoredValue(groupSurfaceTabsStorageKey, next ? "true" : null);
+    setWorkspaceMenuOpen(false);
+    window.requestAnimationFrame(() => menuButtonRef.current?.focus());
+  }
+
+  function renderSurfaceTab(tab: WorkspaceSurfaceTab, grouped: boolean) {
+    const tabWorkspace = workspaces.find((item) => item.id === tab.workspaceId);
+    const workspaceName = tabWorkspace?.name ?? "Space";
+    const resolvedWorkspace = tabWorkspace ?? fallbackWorkspaceSummary(tab.workspaceId, workspaceName);
+    const identity = workspaceIdentityFor(resolvedWorkspace, workspaceCustomizations);
+    const Icon = identity.Icon;
+    const style = workspaceIdentityStyle(identity);
+    const activity = tab.kind === "chat" && tab.conversationId
+      ? chatActivityStatuses[chatActivityKey(tab.workspaceId, tab.conversationId)]
+      : undefined;
+    const conversation = tab.kind === "chat" && tab.conversationId
+      ? conversations[tab.workspaceId]?.find((item) => item.id === tab.conversationId)
+      : undefined;
+    const activityLabel = activity === "running" ? "Assistant working" : activity === "attention" ? "Assistant finished" : "";
+    return (
+      <span
+        className={["surface-tab", grouped ? "grouped" : "", tab.id === activeTabId ? "active" : "", activity ? `chat-${activity}` : ""].filter(Boolean).join(" ")}
+        key={tab.id}
+        style={style}
+        title={`${tab.title} - ${workspaceName}${activityLabel ? ` · ${activityLabel}` : ""}`}
+        onContextMenu={(event) => {
+          if (tab.kind !== "chat" || !tab.conversationId) return;
+          onChatActions(resolvedWorkspace, conversation ?? {
+            id: tab.conversationId,
+            title: chatDisplayTitle({ serverTitle: tab.title }),
+            updatedAt: new Date().toISOString(),
+          }, event);
+        }}
+        onAuxClick={(event) => {
+          if (event.button !== 1) return;
+          event.preventDefault();
+          onClose(tab.id);
+        }}
+      >
+        <button
+          id={surfaceTabDomId(tab.id)}
+          className="surface-tab-main"
+          type="button"
+          role="tab"
+          aria-selected={tab.id === activeTabId}
+          aria-controls={surfacePanelDomId(tab.id)}
+          aria-label={`${tab.title} in ${workspaceName}${activityLabel ? `, ${activityLabel}` : ""}`}
+          tabIndex={tab.id === activeTabId ? 0 : -1}
+          onClick={() => onActivate(tab.id)}
+        >
+          {grouped ? null : <span className="surface-tab-icon" aria-hidden="true"><WorkspaceIconGlyph icon={Icon} size={15} /></span>}
+          <span className="surface-tab-copy">
+            <span className="surface-tab-title">{tab.title}</span>
+          </span>
+          {activity ? <span className={`surface-tab-chat-status ${activity}`} aria-hidden="true" /> : null}
+        </button>
+        <button
+          className="surface-tab-close"
+          type="button"
+          onClick={() => onClose(tab.id)}
+          aria-label={`Close ${tab.title}`}
+          title="Close tab"
+        >
+          <Dismiss12Regular />
+        </button>
+      </span>
+    );
+  }
+
   return (
     <div className={tabs.length ? "surface-tabbar" : "surface-tabbar empty"}>
-      <div className="surface-tabs" role="tablist" aria-label="Open tabs" onKeyDown={handleTabListKeyDown}>
-        {tabs.map((tab) => {
-          const tabWorkspace = workspaces.find((item) => item.id === tab.workspaceId);
-          const workspaceName = tabWorkspace?.name ?? "Space";
-          const resolvedWorkspace = tabWorkspace ?? fallbackWorkspaceSummary(tab.workspaceId, workspaceName);
-          const identity = workspaceIdentityFor(resolvedWorkspace, workspaceCustomizations);
-          const Icon = identity.Icon;
-          const style = workspaceIdentityStyle(identity);
-          const activity = tab.kind === "chat" && tab.conversationId
-            ? chatActivityStatuses[chatActivityKey(tab.workspaceId, tab.conversationId)]
-            : undefined;
-          const conversation = tab.kind === "chat" && tab.conversationId
-            ? conversations[tab.workspaceId]?.find((item) => item.id === tab.conversationId)
-            : undefined;
-          const activityLabel = activity === "running" ? "Assistant working" : activity === "attention" ? "Assistant finished" : "";
+      <div
+        ref={tabsRef}
+        className={["surface-tabs", groupingActive ? "surface-tabs-grouped" : "", tabs.length > 8 ? "tab-count-dense" : tabs.length > 4 ? "tab-count-compact" : ""].filter(Boolean).join(" ")}
+        role="tablist"
+        aria-label="Open tabs"
+        onKeyDown={handleTabListKeyDown}
+      >
+        {tabGroups.map((group) => {
+          if (!group.workspaceId) return group.tabs.map((tab) => renderSurfaceTab(tab, false));
+          const tabWorkspace = workspaces.find((item) => item.id === group.workspaceId)
+            ?? fallbackWorkspaceSummary(group.workspaceId, "Space");
+          const identity = workspaceIdentityFor(tabWorkspace, workspaceCustomizations);
           return (
-            <span
-              className={["surface-tab", tab.id === activeTabId ? "active" : "", activity ? `chat-${activity}` : ""].filter(Boolean).join(" ")}
-              key={tab.id}
-              style={style}
-              title={`${tab.title} - ${workspaceName}${activityLabel ? ` · ${activityLabel}` : ""}`}
-              onContextMenu={(event) => {
-                if (tab.kind !== "chat" || !tab.conversationId) return;
-                onChatActions(resolvedWorkspace, conversation ?? {
-                  id: tab.conversationId,
-                  title: chatDisplayTitle({ serverTitle: tab.title }),
-                  updatedAt: new Date().toISOString(),
-                }, event);
-              }}
-              onAuxClick={(event) => {
-                if (event.button !== 1) return;
-                event.preventDefault();
-                onClose(tab.id);
-              }}
-            >
-              <button
-                id={surfaceTabDomId(tab.id)}
-                className="surface-tab-main"
-                type="button"
-                role="tab"
-                aria-selected={tab.id === activeTabId}
-                aria-controls={surfacePanelDomId(tab.id)}
-                aria-label={`${tab.title} in ${workspaceName}${activityLabel ? `, ${activityLabel}` : ""}`}
-                tabIndex={tab.id === activeTabId ? 0 : -1}
-                onClick={() => onActivate(tab.id)}
+            <span className="surface-tab-group" role="presentation" key={group.workspaceId}>
+              <span
+                className="surface-tab-group-label"
+                style={workspaceIdentityStyle(identity)}
+                title={tabWorkspace.name}
+                aria-hidden="true"
               >
-                <span className="surface-tab-icon" aria-hidden="true"><WorkspaceIconGlyph icon={Icon} size={15} /></span>
-                <span className="surface-tab-copy">
-                  <span className="surface-tab-title">{tab.title}</span>
-                </span>
-                {activity ? <span className={`surface-tab-chat-status ${activity}`} aria-hidden="true" /> : null}
-              </button>
-              <button
-                className="surface-tab-close"
-                type="button"
-                onClick={() => onClose(tab.id)}
-                aria-label={`Close ${tab.title}`}
-                title="Close tab"
-              >
-                <Dismiss12Regular />
-              </button>
+                <WorkspaceIconGlyph icon={identity.Icon} size={14} />
+                <span>{tabWorkspace.name}</span>
+              </span>
+              <span className="surface-tab-group-tabs" role="presentation">
+                {group.tabs.map((tab) => renderSurfaceTab(tab, true))}
+              </span>
             </span>
           );
         })}
@@ -204,7 +273,7 @@ export function WorkspaceSurfaceTabBar({
               id="new-chat-space-menu"
               className="surface-tab-workspace-menu"
               role="menu"
-              aria-label="Start a new Chat in Space"
+              aria-label="Tab actions"
               onClick={(event) => event.stopPropagation()}
               onContextMenu={(event) => event.preventDefault()}
               onKeyDown={handleWorkspaceMenuKeyDown}
@@ -229,6 +298,22 @@ export function WorkspaceSurfaceTabBar({
                   </button>
                 );
               })}
+              <span className="surface-tab-workspace-menu-separator" role="separator" />
+              <span className="surface-tab-workspace-menu-heading">Tab layout</span>
+              <button
+                className="surface-tab-group-toggle"
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={groupByWorkspace}
+                tabIndex={-1}
+                onClick={toggleWorkspaceGrouping}
+              >
+                <span className="surface-tab-menu-check" aria-hidden="true">{groupByWorkspace ? <Checkmark16Regular /> : null}</span>
+                <span className="surface-tab-workspace-menu-copy">
+                  <strong>Group by Space</strong>
+                  <small>{openWorkspaceCount > 1 ? "Keep each Space together" : "Applies when multiple Spaces are open"}</small>
+                </span>
+              </button>
             </div>
           ) : null}
         </div>

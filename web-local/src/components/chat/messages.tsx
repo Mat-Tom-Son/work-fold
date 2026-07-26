@@ -3,9 +3,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Checkmark20Regular, Copy20Regular, Sparkle20Regular } from "@fluentui/react-icons";
 
-import { assistantName } from "../../constants";
 import { safeExternalHref } from "../../lib/api";
-import { formatChatListTime, formatDateTime } from "../../lib/format";
+import { formatDateTime } from "../../lib/format";
 import { resolveMessageImageSource } from "../../lib/message-images";
 import { collectWorkspacePathCandidates, findWorkspacePathMentions, workspacePathCandidate } from "../../lib/workspace-path-links";
 import type { AgentActivityEvent, ChatMessage, ChatMessageLanding, RuntimePreviewEntry } from "../../types";
@@ -53,7 +52,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   const workspaceLinkCacheKey = `${workspaceId}:${message.id}`;
   const cachedWorkspaceLinks = assistantMessageWorkspacePathCache.get(workspaceLinkCacheKey);
   const workspaceLinks = cachedWorkspaceLinks?.content === message.content ? cachedWorkspaceLinks.resolved : null;
-  const messageTime = message.createdAt ? formatChatListTime(message.createdAt) : "";
+  const messageTime = message.createdAt ? formatDateTime(message.createdAt) : "";
 
   useEffect(() => {
     if (message.role !== "assistant" || !resolveWorkspacePathLinks || !onOpenWorkspaceFile) return;
@@ -71,11 +70,17 @@ export const ChatMessageRow = memo(function ChatMessageRow({
 
   return (
     <article className={`message ${message.role}${suppressEnterAnimation ? " settled" : ""}`}>
-      <div className="message-header">
-        <span className="message-identity">
-          <span className="message-author">{message.role === "user" ? "You" : assistantName}</span>
-        </span>
-        <span className="message-header-actions">
+      {showRuntimePreview ? <RuntimeContextPreview entries={runtimePreviews} /> : null}
+      <MarkdownMessage
+        content={message.content}
+        workspaceLinks={message.role === "assistant" ? workspaceLinks : null}
+        onOpenWorkspaceFile={message.role === "assistant" ? onOpenWorkspaceFile : undefined}
+        key={workspaceLinkVersion}
+      />
+      {message.role === "assistant" && showLanding && message.landing ? <TurnLanding landing={message.landing} /> : null}
+      {showRecap ? <AgentActivityRecap events={activityRecap} /> : null}
+      <footer className="message-footer">
+        <span className="message-footer-meta">
           {message.createdAt && messageTime ? (
             <time className="message-time" dateTime={message.createdAt} title={formatDateTime(message.createdAt)}>
               {messageTime}
@@ -86,16 +91,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
             onCopy={() => void onCopyMessage(message.id, message.content)}
           />
         </span>
-      </div>
-      {showRuntimePreview ? <RuntimeContextPreview entries={runtimePreviews} /> : null}
-      <MarkdownMessage
-        content={message.content}
-        workspaceLinks={message.role === "assistant" ? workspaceLinks : null}
-        onOpenWorkspaceFile={message.role === "assistant" ? onOpenWorkspaceFile : undefined}
-        key={workspaceLinkVersion}
-      />
-      {message.role === "assistant" && showLanding && message.landing ? <TurnLanding landing={message.landing} /> : null}
-      {showRecap ? <AgentActivityRecap events={activityRecap} /> : null}
+      </footer>
     </article>
   );
 }, areChatMessageRowPropsEqual);

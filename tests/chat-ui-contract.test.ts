@@ -65,6 +65,26 @@ test("Chats foreground the active Space and collapse other Spaces until requeste
   assert.match(panes, /aria-label=\{`New Chat in \$\{item\.name\}`\}/);
 });
 
+test("Chat titles flow from conversation metadata into tabs without tab labels mutating Chats", () => {
+  assert.doesNotMatch(chatPanel, /targetConversationTitle/);
+  assert.doesNotMatch(app, /targetConversationTitle=/);
+  assert.match(app, /tabs\.syncSurfaceTabConversationTitles\(conversationGroups\)/);
+  assert.match(panes, /aria-current=\{chat\.id === activeConversationId \? "page" : undefined\}/);
+});
+
+test("Chat and File selection use an immediate whole-row state without a leading stripe", () => {
+  const chatShellRule = styles.match(/\.chat-workspace-row-shell\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+  const activeChatRule = styles.match(/\.chat-workspace-row-shell\.active\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+  const selectedFileRule = styles.match(/\.file-row\.selected\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+
+  assert.doesNotMatch(chatShellRule, /transition:/);
+  for (const rule of [activeChatRule, selectedFileRule]) {
+    assert.match(rule, /workspace-accent-soft-fill/);
+    assert.doesNotMatch(rule, /inset\s+[23]px\s+0\s+0/);
+  }
+  assert.match(styles, /\.chat-workspace-row-shell:has\(> \.chat-workspace-row:active\)/);
+});
+
 test("surface tab labels use crisp shell typography", () => {
   const tabMainRule = styles.match(/\.surface-tab-main\s*\{([\s\S]*?)\}/)?.[1] ?? "";
   const tabTitleRule = styles.match(/\.surface-tab-title\s*\{([\s\S]*?)\}/)?.[1] ?? "";
@@ -75,6 +95,9 @@ test("surface tab labels use crisp shell typography", () => {
   assert.match(tabTitleRule, /font:\s*inherit/);
   assert.match(tabTitleRule, /text-shadow:\s*none/);
   assert.doesNotMatch(`${tabMainRule}\n${tabTitleRule}`, /font-weight:\s*800/);
+  assert.match(tabBar, /new ResizeObserver\(\(\) => revealActiveTab\(\)\)/);
+  assert.match(tabBar, /surface-tabs-grouped/);
+  assert.match(tabBar, /role="menuitemcheckbox"/);
 });
 
 test("assistant rendering has complete Markdown chrome and Space-aware accents", () => {
@@ -118,19 +141,18 @@ test("dark user messages keep their audited foregrounds and quiet icon-only acti
         <div class="app-shell" data-theme="dark">
           <main style="--workspace-accent-solid:#fafafa;--workspace-on-accent-solid:#182846;--workspace-on-accent-muted:#4e5a71">
             <article class="message user">
-              <div class="message-header">
-                <span class="message-author">You</span>
-                <span class="message-header-actions">
+              <div class="message-body">
+                <p>Plain text</p>
+                <h1>Heading</h1>
+              </div>
+              <footer class="message-footer">
+                <span class="message-footer-meta">
                   <time class="message-time">now</time>
                   <div class="message-actions">
                     <button class="message-copy-button" aria-label="Copy message"></button>
                   </div>
                 </span>
-              </div>
-              <div class="message-body">
-                <p>Plain text</p>
-                <h1>Heading</h1>
-              </div>
+              </footer>
             </article>
           </main>
         </div>
@@ -148,7 +170,7 @@ test("dark user messages keep their audited foregrounds and quiet icon-only acti
       `${selector} must retain the foreground audited against the user bubble`,
     );
   }
-  for (const selector of [".message.user .message-author", ".message.user .message-time", ".message.user .message-copy-button"]) {
+  for (const selector of [".message.user .message-time", ".message.user .message-copy-button"]) {
     assert.match(
       styleFor(selector).color,
       /--workspace-on-accent-muted/,
@@ -159,9 +181,10 @@ test("dark user messages keep their audited foregrounds and quiet icon-only acti
   const copyStyle = styleFor(".message.user .message-copy-button");
   assert.equal(copyStyle.width, "24px");
   assert.equal(copyStyle.height, "24px");
-  assert.equal(copyStyle.opacity, "0");
+  assert.equal(copyStyle.opacity, "0.42");
   assert.equal(copyStyle.backgroundColor, "rgba(0, 0, 0, 0)");
-  assert.match(messages, /<span className="message-header-actions">[\s\S]*?<MessageActions/);
+  assert.match(messages, /<MarkdownMessage[\s\S]*?<footer className="message-footer">[\s\S]*?<MessageActions/);
+  assert.doesNotMatch(`${messages}\n${chatPanel}`, /message-author|>You<|assistantName/);
   const messageActionsSource = messages.match(/export function MessageActions[\s\S]*?(?=\nexport function TurnLanding)/)?.[0] ?? "";
   assert.doesNotMatch(messageActionsSource, /<span>\{copied \? "Copied" : "Copy"\}<\/span>/);
 });
