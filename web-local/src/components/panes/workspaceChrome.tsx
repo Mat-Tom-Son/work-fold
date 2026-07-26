@@ -16,6 +16,8 @@ import {
   Dismiss20Regular,
   DocumentFolder24Filled,
   DocumentFolder24Regular,
+  FolderAdd20Regular,
+  FolderOpen20Regular,
   History24Filled,
   History24Regular,
   ImageAdd20Regular,
@@ -36,6 +38,7 @@ import { errorText } from "../../lib/api";
 import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
 import { normalizeWorkspaceCustomizations } from "../../lib/workspace-customization";
 import { normalizeWorkspaceColor, processWorkspaceBannerImageFile, workspaceColorOptions, workspaceIdentityFor, workspaceIdentityStyle, type WorkspaceIdentity } from "../../lib/workspace-identity";
+import { workspaceLookOptions } from "../../lib/workspace-looks";
 import { surfaceDomIdSuffix, workspaceHeaderSourceBadgeLabel } from "../../lib/workspace-ui";
 import type { AssistantToolsView, CapabilitySurface, RestrictedAppInstalled, WorkspaceCustomization, WorkspaceCustomizationMap, WorkspaceCustomizationPatch, WorkspaceRailMode, WorkspaceSummary } from "../../types";
 import { WorkspaceIconGlyph } from "../chrome/common";
@@ -43,7 +46,6 @@ import { WorkspaceIconGlyph } from "../chrome/common";
 function WorkspaceModeRail({
   activeMode,
   workspace,
-  workspaceIdentity,
   surfaces,
   apps,
   onModeChange,
@@ -56,7 +58,6 @@ function WorkspaceModeRail({
 }: {
   activeMode: WorkspaceRailMode;
   workspace: WorkspaceSummary;
-  workspaceIdentity: WorkspaceIdentity;
   surfaces: CapabilitySurface[];
   apps: RestrictedAppInstalled[];
   onModeChange: (mode: WorkspaceRailMode) => void;
@@ -74,7 +75,6 @@ function WorkspaceModeRail({
   const FilesIcon = activeMode === "files" ? DocumentFolder24Filled : DocumentFolder24Regular;
   const ChatsIcon = activeMode === "chats" ? ChatMultiple24Filled : ChatMultiple24Regular;
   const HistoryIcon = activeMode === "history" ? History24Filled : History24Regular;
-  const workspaceLabel = workspace.name.trim() || "Space";
   const primaryItems: Array<{ mode: WorkspaceRailMode; label: string; ariaLabel: string; title: string; icon: ReactNode }> = [
     { mode: "files", label: "Files", ariaLabel: "Files", title: "Files in this Space", icon: <FilesIcon className="fluent-rail-icon" /> },
     { mode: "chats", label: "Chats", ariaLabel: "Chats", title: "Chats", icon: <ChatsIcon className="fluent-rail-icon" /> },
@@ -120,17 +120,6 @@ function WorkspaceModeRail({
   return (
     <nav className="workspace-mode-rail professional-workspace-rail" aria-label="Workspace navigation">
       <div className="workspace-rail-nav">
-        <button
-          className={["workspace-rail-button", "workspace-rail-workspace", "workspace-rail-space-selector", activeMode === "workspaces" ? "active" : ""].filter(Boolean).join(" ")}
-          type="button"
-          onClick={() => onModeChange("workspaces")}
-          aria-label={`Select or manage Space: ${workspaceLabel}`}
-          aria-current={activeMode === "workspaces" ? "page" : undefined}
-          data-rail-tooltip={`Select or manage Space: ${workspaceLabel}`}
-        >
-          <span className="workspace-rail-icon workspace-rail-space-avatar" aria-hidden="true" data-space-icon={workspaceIdentity.iconName} style={workspaceIdentityStyle(workspaceIdentity)}><WorkspaceIconGlyph icon={workspaceIdentity.Icon} size={26} filled /></span>
-          <span className="workspace-rail-space-copy"><strong>{workspaceLabel}</strong></span>
-        </button>
         {primaryItems.map((item) => (
           <button
             className={[
@@ -250,6 +239,10 @@ function WorkspacePaneHeader({
   workspaces,
   workspaceCustomizations,
   onSwitchWorkspace,
+  onCreateSpace,
+  onOpenFolder,
+  onManageSpaces,
+  managingSpaces = false,
   switchable = true,
   action,
 }: {
@@ -258,13 +251,17 @@ function WorkspacePaneHeader({
   workspaces: WorkspaceSummary[];
   workspaceCustomizations: WorkspaceCustomizationMap;
   onSwitchWorkspace: (workspace: WorkspaceSummary) => void;
+  onCreateSpace: () => void;
+  onOpenFolder: () => void;
+  onManageSpaces: () => void;
+  managingSpaces?: boolean;
   switchable?: boolean;
   action?: ReactNode;
 }) {
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const headerRef = useRef<HTMLDivElement>(null);
   const switchTriggerRef = useRef<HTMLButtonElement>(null);
-  const switcherEnabled = switchable && Boolean(workspaces.length > 1 && workspaceCustomizations && onSwitchWorkspace);
+  const switcherEnabled = switchable && Boolean(workspaceCustomizations && onSwitchWorkspace);
   const switcherId = `space-header-switcher-${surfaceDomIdSuffix(workspace.id)}`;
   const detail = workspaceHeaderSourceBadgeLabel(workspace);
   const headerClassName = [
@@ -358,7 +355,20 @@ function WorkspacePaneHeader({
           </span>
         ) : null}
       </div>
-      {switcherEnabled && switcherOpen ? <WorkspaceHeaderSwitcher id={switcherId} currentWorkspace={workspace} workspaces={workspaces} workspaceCustomizations={workspaceCustomizations} onSwitchWorkspace={onSwitchWorkspace} onClose={() => setSwitcherOpen(false)} /> : null}
+      {switcherEnabled && switcherOpen ? (
+        <WorkspaceHeaderSwitcher
+          id={switcherId}
+          currentWorkspace={workspace}
+          workspaces={workspaces}
+          workspaceCustomizations={workspaceCustomizations}
+          onSwitchWorkspace={onSwitchWorkspace}
+          onCreateSpace={onCreateSpace}
+          onOpenFolder={onOpenFolder}
+          onManageSpaces={onManageSpaces}
+          managingSpaces={managingSpaces}
+          onClose={() => setSwitcherOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -369,6 +379,10 @@ function WorkspaceHeaderSwitcher({
   workspaces,
   workspaceCustomizations,
   onSwitchWorkspace,
+  onCreateSpace,
+  onOpenFolder,
+  onManageSpaces,
+  managingSpaces,
   onClose,
 }: {
   id: string;
@@ -376,18 +390,34 @@ function WorkspaceHeaderSwitcher({
   workspaces: WorkspaceSummary[];
   workspaceCustomizations: WorkspaceCustomizationMap;
   onSwitchWorkspace: (workspace: WorkspaceSummary) => void;
+  onCreateSpace: () => void;
+  onOpenFolder: () => void;
+  onManageSpaces: () => void;
+  managingSpaces: boolean;
   onClose: () => void;
 }) {
   const switcherRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    switcherRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus();
+    switcherRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
   }, []);
 
+  function handleMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const items = Array.from(switcherRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+    const currentIndex = items.findIndex((item) => item === document.activeElement);
+    const nextIndex = nextMenuItemIndex(currentIndex, items.length, event.key as MenuNavigationKey);
+    if (nextIndex === null) return;
+    event.preventDefault();
+    items[nextIndex]?.focus();
+  }
+
   return (
-    <div className="workspace-header-switcher professional-space-switcher" id={id} role="menu" aria-label="Switch Space" ref={switcherRef}>
+    <div className="workspace-header-switcher professional-space-switcher" id={id} role="menu" aria-label="Space menu" data-native-view-occluder="true" ref={switcherRef} onKeyDown={handleMenuKeyDown}>
       <div className="workspace-header-switcher-list">
-        {workspaces.map((item) => {
+        {[currentWorkspace, ...workspaces
+          .filter((item) => item.id !== currentWorkspace.id)
+          .sort((left, right) => left.name.localeCompare(right.name))].map((item) => {
           const active = item.id === currentWorkspace.id;
           const itemIdentity = workspaceIdentityFor(item, workspaceCustomizations);
           return (
@@ -396,12 +426,11 @@ function WorkspaceHeaderSwitcher({
               type="button"
               role="menuitem"
               key={item.id}
-              disabled={active}
               aria-current={active ? "page" : undefined}
               style={workspaceIdentityStyle(itemIdentity)}
               onClick={() => {
                 onClose();
-                onSwitchWorkspace(item);
+                if (!active) onSwitchWorkspace(item);
               }}
             >
               <span className="workspace-header-switcher-icon" aria-hidden="true" data-space-icon={itemIdentity.iconName}><WorkspaceIconGlyph icon={itemIdentity.Icon} size={17} filled /></span>
@@ -411,6 +440,45 @@ function WorkspaceHeaderSwitcher({
             </button>
           );
         })}
+      </div>
+      <div className="workspace-header-switcher-actions" aria-label="Space actions">
+        <button
+          className="workspace-header-switcher-action"
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            onClose();
+            onOpenFolder();
+          }}
+        >
+          <FolderOpen20Regular aria-hidden="true" />
+          <span>Use existing folder</span>
+        </button>
+        <button
+          className="workspace-header-switcher-action"
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            onClose();
+            onCreateSpace();
+          }}
+        >
+          <FolderAdd20Regular aria-hidden="true" />
+          <span>Create new Space</span>
+        </button>
+        <button
+          className={managingSpaces ? "workspace-header-switcher-action workspace-header-switcher-manage active" : "workspace-header-switcher-action workspace-header-switcher-manage"}
+          type="button"
+          role="menuitem"
+          aria-current={managingSpaces ? "page" : undefined}
+          onClick={() => {
+            onClose();
+            onManageSpaces();
+          }}
+        >
+          <Apps24Regular aria-hidden="true" />
+          <span>Manage Spaces</span>
+        </button>
       </div>
     </div>
   );
@@ -536,6 +604,19 @@ function WorkspaceAppearancePanel({
     if (iconSearchQuery.trim() || showAllIcons) return matches;
     return matches.filter((option) => recommendedWorkspaceIconNames.has(option.name));
   }, [iconSearchQuery, showAllIcons]);
+  const looks = useMemo(() => workspaceLookOptions.map((look) => ({
+    ...look,
+    identity: workspaceIdentityFor(workspace, {
+      [workspace.id]: { color: look.primary, color2: look.secondary, bannerName: look.bannerName },
+    }),
+  })), [workspace]);
+  const activeLook = looks.find((look) => (
+    !identity.bannerImage
+    && identity.hasCustomSecondary
+    && identity.color === look.primary
+    && identity.secondaryColor === look.secondary
+    && identity.bannerName === look.bannerName
+  ));
   const customized = Boolean(customization && Object.values(customization).some((value) => value !== undefined && value !== null && value !== ""));
 
   useEffect(() => {
@@ -667,10 +748,47 @@ function WorkspaceAppearancePanel({
           <strong>{appearancePasses ? "Readable in light and dark" : "Some roles need attention"}</strong>
           <small>
             {appearancePasses
-              ? `The generated text, icon, active-border, and marker roles meet their contrast targets.${uncertified ? " Decorative banners stay advisory." : ""}`
+              ? `${activeLook ? `${activeLook.name} is pre-checked. ` : ""}The generated text, icon, active-border, and marker roles meet their contrast targets.${uncertified ? " Decorative banners stay advisory." : ""}`
               : "Choose a different accent to restore readable text and controls."}
           </small>
         </span>
+      </div>
+      <div className="workspace-appearance-row looks">
+        <span className="workspace-appearance-label">
+          <strong>Looks</strong>
+          <small>{activeLook ? `${activeLook.name} selected. Fine-tune anything below.` : "Start with a balanced color pair and finish."}</small>
+        </span>
+        <div className="workspace-look-gallery" role="group" aria-label="Curated Space looks">
+          {looks.map((look) => {
+            const active = activeLook?.name === look.name;
+            return (
+              <button
+                className={active ? "workspace-look-card active" : "workspace-look-card"}
+                key={look.name}
+                type="button"
+                style={workspaceIdentityStyle(look.identity)}
+                onClick={() => onCustomizeWorkspace(workspaceId, {
+                  color: look.primary,
+                  color2: look.secondary,
+                  bannerName: look.bannerName,
+                  bannerImage: undefined,
+                })}
+                aria-label={`Use ${look.name} look: ${look.hint}`}
+                aria-pressed={active}
+                title={`${look.name} · ${look.hint}`}
+              >
+                <span className={["workspace-look-swatch", "workspace-banner-surface", `banner-${look.bannerName}`].join(" ")} aria-hidden="true">
+                  {active ? <Checkmark16Regular /> : null}
+                </span>
+                <span className="workspace-look-copy"><strong>{look.name}</strong><small>{look.hint}</small></span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="workspace-appearance-fine-tune">
+        <strong>Fine tune</strong>
+        <span>Adjust one part without losing the rest of the look.</span>
       </div>
       <div className="workspace-appearance-row colors">
         <span className="workspace-appearance-label"><strong>Accent</strong><small>Identify this Space without recoloring the app.</small></span>
@@ -808,7 +926,7 @@ function WorkspaceAppearancePanel({
         </div>
       </div>
       <div className="workspace-appearance-row icons">
-        <span className="workspace-appearance-label"><strong>Icon</strong><small>Shown in the Space selector and tabs.</small></span>
+        <span className="workspace-appearance-label"><strong>Icon</strong><small>Shown in the Space menu and tabs.</small></span>
         <div className="workspace-icon-picker">
           <label className="workspace-icon-search">
             <Search20Regular aria-hidden="true" />

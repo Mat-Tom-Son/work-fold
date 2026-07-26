@@ -9,11 +9,12 @@ import { nextMenuItemIndex } from "../web-local/src/lib/menu-navigation.js";
 import { createWorkspaceOperationGate } from "../web-local/src/lib/workspace-operation-gate.js";
 
 const root = process.cwd();
-const [capabilities, textInputModal, messages, tabBar, indexHtml, app, ...desktopDialogs] = await Promise.all([
+const [capabilities, textInputModal, messages, tabBar, workspaceChrome, indexHtml, app, ...desktopDialogs] = await Promise.all([
   read("web-local/src/components/panes/CapabilitiesPane.tsx"),
   read("web-local/src/components/modals/TextInputModal.tsx"),
   read("web-local/src/components/chat/messages.tsx"),
   read("web-local/src/components/chat/WorkspaceSurfaceTabBar.tsx"),
+  read("web-local/src/components/panes/workspaceChrome.tsx"),
   read("web-local/index.html"),
   read("web-local/src/App.tsx"),
   read("web-local/src/components/modals/DesktopSettingsModal.tsx"),
@@ -115,6 +116,14 @@ test("new-Chat Space menu has deterministic roving keyboard navigation", () => {
   assert.match(tabBar, /onBlurCapture=/);
   assert.match(tabBar, /event\.key !== "Escape"[\s\S]*?menuButtonRef\.current\?\.focus\(\)/);
   assert.match(tabBar, /nextMenuItemIndex\(currentIndex,\s*items\.length/);
+});
+
+test("persistent Space menu has deterministic roving keyboard navigation", () => {
+  assert.match(workspaceChrome, /aria-controls=\{switcherId\}/);
+  assert.match(workspaceChrome, /onBlurCapture=/);
+  assert.match(workspaceChrome, /aria-label="Space menu"/);
+  assert.match(workspaceChrome, /nextMenuItemIndex\(currentIndex,\s*items\.length/);
+  assert.match(workspaceChrome, /event\.key !== "Escape"[\s\S]*?switchTriggerRef\.current\?\.focus\(\)/);
 });
 
 function functionBody(source: string, name: string): string {

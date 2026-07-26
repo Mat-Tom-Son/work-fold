@@ -8,15 +8,15 @@ Workspace uses a quiet desktop-tool aesthetic. The interface should feel native,
 - **Files** is the first working surface inside the selected Space.
 - Primary rail surfaces are Files, Chats, and History. Add, Shortcuts, and Settings stay at the bottom; Library and Assistant tools open as persistent Space-owned work tabs.
 - Provider, model, and authentication controls live in Settings under Assistant; Assistant is not a rail group.
-- The first rail item opens the Space manager and identifies the selected root folder. The persistent header above the left pane repeats that Space identity; the selected rail item identifies the current surface.
+- The persistent header above the left pane identifies the selected root folder. Its compact menu switches, creates, registers, or manages Spaces; the selected rail item identifies the current surface.
 
 ## Iconography
 
 - Use Fluent System Icons for shell navigation, commands, status, and empty states.
 - Use regular icons at rest and the matching filled icon for a selected navigation item.
-- Use 16px icons for inline actions, 24px for the icon-only rail navigation, 20px for section markers, and no more than 24px for empty states. The root Space identity glyph is a deliberate 26px exception because it anchors the larger 90px identity band rather than an ordinary navigation row.
+- Use 16px icons for inline actions, 24px for the icon-only rail navigation, 20px for section markers, and no more than 24px for empty states.
 - Material file-type icons are the one deliberate exception because file recognition benefits from familiar type colors.
-- Do not mix icon libraries within one control group. The Space glyph may repeat only where it communicates inherited root context: the root selector, switcher, cards, and Space-bound tabs. The banner itself is name-first and does not repeat the rail glyph.
+- Do not mix icon libraries within one control group. The Space glyph may repeat only where it communicates inherited root context: the header switcher, cards, Chat groups, and Space-bound tabs. The banner itself is name-first.
 - Space color may appear as a small avatar accent or active indicator, never as a frame around the application.
 
 ## Typography and spacing
@@ -30,9 +30,10 @@ Workspace uses a quiet desktop-tool aesthetic. The interface should feel native,
 ## Layout
 
 - Desktop rail navigation is icon-only: centered square targets (44–48px) with 24px Fluent icons, tooltips and accessible names carrying the labels, and one subtle selected state (soft fill plus a small accent pill). Narrow layouts return to horizontal rows with text labels.
-- Every left-pane surface begins with the same 90px identity band in the same position. Its centered, name-only lockup represents the selected Space, not the active page. The desktop root Space selector is a compact icon-only tile centered in that band while the adjacent pane header carries the full Space name; narrow layouts return the selector to a horizontal icon-and-name lockup. Files, Chats, and History keep the quick Space switcher, while the Spaces-management surface omits that redundant switcher. Library and Assistant tools use the full work canvas and normal Space-bound tab chrome instead of the navigator.
+- Every left-pane surface begins with the same 90px identity band in the same position. Its centered, name-only lockup represents the selected Space, not the active page, and opens the same Space menu on built-in, management, and contributed-app surfaces. The menu keeps Space rows and the three compact management actions on one-line row geometry. Library and Assistant tools use the full work canvas and normal Space-bound tab chrome instead of the navigator.
 - Space banners stay inside the identity header and appearance previews. They do not wallpaper the right work surface or recolor structural borders; interaction color and shell structure remain part of the global application system.
 - Color and icon identity inherit through Space-bound cards, chat groups, tabs, surfaces, and chat empty states. Content belonging to another Space carries that Space's own identity rather than the currently selected one.
+- Chats in the selected Space remain visually primary. Other Spaces appear afterward as compact, collapsed disclosure rows with count and aggregate activity; opening one reveals its matching Chats without making it look like another permanent navigation level.
 - The Library tab uses its owning Space as the initial copy destination but keeps the shared-personal scope visible and offers a plainly labeled selector for every registered Space.
 - User Chat bubbles use one solid primary Space accent, never a gradient between accent colors. Assistant message headers are text-only and do not repeat a decorative Assistant avatar.
 - Forms use stacked labels and hints with an explicit action row.

@@ -4,11 +4,12 @@ import { join } from "node:path";
 import test from "node:test";
 
 const root = process.cwd();
-const [capabilities, apps, chat, workspaceApp, viewport, styles, professionalSurfaces] = await Promise.all([
+const [capabilities, apps, chat, workspaceApp, workspaceChrome, viewport, styles, professionalSurfaces] = await Promise.all([
   read("web-local/src/components/panes/CapabilitiesPane.tsx"),
   read("web-local/src/components/panes/RestrictedAppsSection.tsx"),
   read("web-local/src/components/chat/ChatPanel.tsx"),
   read("web-local/src/App.tsx"),
+  read("web-local/src/components/panes/workspaceChrome.tsx"),
   read("web-local/src/components/panes/RestrictedAppViewport.tsx"),
   read("web-local/src/styles.css"),
   read("web-local/src/professional-surfaces.css"),
@@ -69,6 +70,13 @@ test("notification clicks target their exact Space and stopped native views remo
   assert.match(viewport, /mountIdRef\.current = crypto\.randomUUID\(\)/);
   assert.match(viewport, /setGeneration\(\(value\) => value \+ 1\)/);
   assert.match(viewport, /disposed \|\| mountId !== mountIdRef\.current/);
+});
+
+test("the Space menu occludes native restricted-app views from the first animation frame", () => {
+  assert.match(workspaceChrome, /data-native-view-occluder="true"/);
+  assert.match(viewport, /const explicitOccluder = candidate\.dataset\.nativeViewOccluder === "true"/);
+  assert.match(viewport, /\(!explicitOccluder && Number\(style\.opacity\) === 0\)/);
+  assert.match(viewport, /style\.display === "none" \|\| style\.visibility === "hidden"/);
 });
 
 test("owning Chat renders digest review, defers install while running, and opens the installed interactive app", () => {

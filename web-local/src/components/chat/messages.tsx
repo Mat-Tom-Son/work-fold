@@ -75,11 +75,17 @@ export const ChatMessageRow = memo(function ChatMessageRow({
         <span className="message-identity">
           <span className="message-author">{message.role === "user" ? "You" : assistantName}</span>
         </span>
-        {message.createdAt && messageTime ? (
-          <time className="message-time" dateTime={message.createdAt} title={formatDateTime(message.createdAt)}>
-            {messageTime}
-          </time>
-        ) : null}
+        <span className="message-header-actions">
+          {message.createdAt && messageTime ? (
+            <time className="message-time" dateTime={message.createdAt} title={formatDateTime(message.createdAt)}>
+              {messageTime}
+            </time>
+          ) : null}
+          <MessageActions
+            copied={copied}
+            onCopy={() => void onCopyMessage(message.id, message.content)}
+          />
+        </span>
       </div>
       {showRuntimePreview ? <RuntimeContextPreview entries={runtimePreviews} /> : null}
       <MarkdownMessage
@@ -89,10 +95,6 @@ export const ChatMessageRow = memo(function ChatMessageRow({
         key={workspaceLinkVersion}
       />
       {message.role === "assistant" && showLanding && message.landing ? <TurnLanding landing={message.landing} /> : null}
-      <MessageActions
-        copied={copied}
-        onCopy={() => void onCopyMessage(message.id, message.content)}
-      />
       {showRecap ? <AgentActivityRecap events={activityRecap} /> : null}
     </article>
   );
@@ -140,7 +142,6 @@ export function MessageActions({ copied, onCopy }: { copied: boolean; onCopy: ()
         title={copied ? "Copied" : "Copy message"}
       >
         {copied ? <FluentGlyph icon={Checkmark20Regular} size={14} /> : <FluentGlyph icon={Copy20Regular} size={14} />}
-        <span>{copied ? "Copied" : "Copy"}</span>
       </button>
     </div>
   );

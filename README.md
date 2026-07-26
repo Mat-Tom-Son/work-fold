@@ -30,7 +30,7 @@ The core idea is simple: the folder stays ordinary; Workspace makes it feel like
 | **Release** | An immutable, content-addressed snapshot of an App Project's reviewed Features and presentation. |
 | **App Instance** | One Release installed into a chosen Space with its own data and authority. |
 
-The Space switcher selects the root-folder entity a person is working in. The primary navigation then opens surfaces for that selected Space and the surrounding product:
+The Space-identity header menu selects the root-folder entity a person is working in and offers compact actions to use an existing folder, create a new Space, or manage Spaces. The primary navigation then opens surfaces for that selected Space and the surrounding product:
 
 - **Files**
 - **Chats**
@@ -50,8 +50,8 @@ Workspace reserves two hidden support directories inside a Space: `.workspace/` 
 - A personal Library for organizing reusable files and copying them into Spaces when needed.
 - Pi's normal built-in tools, provider/model selection, API-key and supported provider OAuth authentication, prompt templates, context files, and packages.
 - Chat composer discovery for installed Skills, prompts, Extension commands, and supported built-ins, plus active-model and context-window visibility.
-- Active, snoozed, and archived Chat views with automatic resurfacing, undoable lifecycle actions, read-only deferred transcripts, and quiet running/finished indicators for background work.
-- Per-Space identity customization with semantic light/dark colour roles, paired banner colours, safe images, searchable Fluent icons, dual previews, contrast auditing, undo/reset, and code-free proposal import/export.
+- Active, snoozed, and archived Chat views with automatic resurfacing, undoable lifecycle actions, read-only deferred transcripts, quiet running/finished indicators for background work, and collapsed groups for Chats in other Spaces.
+- Per-Space identity customization with curated one-click Looks, semantic light/dark colour roles, paired banner colours, safe images, searchable Fluent icons, dual previews, contrast auditing, undo/reset, and code-free proposal import/export.
 - One Space-owned Assistant tools work tab for installed Skills and Extensions, official/reference sources, community Pi packages, provenance, scope, diagnostics, update, and removal, opened on demand from Add, the command palette, or the desktop shortcut.
 - Global and registered-Space Pi Extensions. Native Pi Extensions run with the current user's permissions.
 - Validated declarative Extension surfaces that can contribute an app rail destination, navigator pane, and Space-bound data views without injecting Extension code into the renderer.

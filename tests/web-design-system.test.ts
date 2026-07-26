@@ -35,7 +35,7 @@ const [
   readRenderer("hooks/useSurfaceTabs.ts"),
 ]);
 
-test("Files is the first primary surface and Space remains the root selector", () => {
+test("Files is the first primary surface and Space actions live in the persistent header menu", () => {
   const primaryItems = constArrayBody(workspaceChromeSource, "primaryItems");
   const primaryModes = [...primaryItems.matchAll(/mode:\s*"([^"]+)"/g)].map((match) => match[1]);
 
@@ -44,14 +44,13 @@ test("Files is the first primary surface and Space remains the root selector", (
   assert.doesNotMatch(primaryItems, /mode:\s*"library"/, "Library belongs in the Space-owned tab canvas, not the permanent rail");
   assert.doesNotMatch(primaryItems, /mode:\s*"capabilities"/, "infrequent tool administration must not occupy the primary rail");
 
-  const selectorIndex = workspaceChromeSource.indexOf("workspace-rail-space-selector");
-  const primaryRenderIndex = workspaceChromeSource.indexOf("primaryItems.map");
-  assert.ok(selectorIndex >= 0, "the rail must expose a distinct Space selector");
-  assert.ok(primaryRenderIndex > selectorIndex, "the Space selector must render before primary surfaces");
-  assert.match(workspaceChromeSource, /onModeChange\("workspaces"\)/);
+  assert.doesNotMatch(workspaceChromeSource, /workspace-rail-space-selector|workspace-rail-space-copy/);
+  assert.match(workspaceChromeSource, /primaryItems\.map/);
+  assert.match(workspaceChromeSource, /<span>Use existing folder<\/span>/);
+  assert.match(workspaceChromeSource, /<span>Create new Space<\/span>/);
+  assert.match(workspaceChromeSource, /<span>Manage Spaces<\/span>/);
   assert.match(workspaceChromeSource, /aria-current=\{activeMode === item\.mode \? "page" : undefined\}/, "the active icon-only destination must be announced");
   assert.match(workspaceChromeSource, /data-rail-tooltip=\{item\.title\}/, "icon-only destinations need visible hover and focus labels");
-  assert.match(workspaceChromeSource, /workspace-rail-space-copy"><strong>\{workspaceLabel\}<\/strong>/);
   assert.doesNotMatch(workspaceChromeSource, /<span>Space<\/span>|ChevronRight20Regular|workspace-rail-space-caret/);
 });
 
@@ -232,14 +231,10 @@ test("professional shell keeps compact navigation and the persistent Space ident
   const modePaneRule = cssRuleBody(shellCss, ".app-shell .workspace-layout .workspace-mode-pane");
   const railRule = cssRuleBody(shellCss, ".app-shell .professional-workspace-rail");
   const navButtonRule = cssRuleBody(shellCss, ".app-shell .professional-workspace-rail .workspace-rail-button");
-  const spaceSelectorRule = cssRuleBody(shellCss, ".app-shell .professional-workspace-rail .workspace-rail-space-selector");
   const compactShellCss = shellCss.slice(shellCss.indexOf("@media (max-width: 820px)"));
-  const compactSpaceSelectorRule = cssRuleBody(compactShellCss, ".app-shell .professional-workspace-rail .workspace-rail-space-selector");
   const compactRailRule = cssRuleBody(compactShellCss, ".app-shell .professional-workspace-rail");
   const compactNavRule = cssRuleBody(compactShellCss, ".app-shell .professional-workspace-rail .workspace-rail-nav");
   const compactAccountRule = cssRuleBody(compactShellCss, ".app-shell .professional-workspace-rail .workspace-rail-account");
-  const compactSpaceCopyRule = cssRuleBody(compactShellCss, ".app-shell .professional-workspace-rail .workspace-rail-space-copy");
-  const compactSpaceNameRule = cssRuleBody(compactShellCss, ".app-shell .professional-workspace-rail .workspace-rail-space-copy strong");
   const shortDesktopShellCss = shellCss.slice(shellCss.indexOf("@media (max-height: 720px)"));
   const shortDesktopRailRule = cssRuleBody(shortDesktopShellCss, ".app-shell .professional-workspace-rail");
   const paneHeaderRule = cssRuleBody(shellCss, ".app-shell .workspace-layout .workspace-mode-pane .professional-pane-header");
@@ -259,28 +254,10 @@ test("professional shell keeps compact navigation and the persistent Space ident
   assert.equal(pxDeclaration(navButtonRule, "width"), pxDeclaration(navButtonRule, "min-height"), "primary navigation uses square icon-only targets");
   assert.match(shellCss, /\.professional-workspace-rail \.workspace-rail-label\s*\{[\s\S]*?display:\s*none/, "the desktop rail is icon-only; labels live in tooltips and accessible names");
   assert.match(compactShellCss, /\.workspace-rail-label\s*\{[\s\S]*?display:\s*block/, "the narrow horizontal rail restores text labels");
-  assert.match(spaceSelectorRule, /height:\s*48px/, "the root Space selector is a compact 48px identity tile");
-  assert.match(spaceSelectorRule, /margin:\s*21px\s+0\s+17px/, "the identity tile stays centered within the 90px header band");
-  assert.match(shellCss, /\.professional-workspace-rail \.workspace-rail-space-copy\s*\{[^}]*display:\s*none/, "the desktop rail tile hides the Space name; the pane header carries it");
-  assert.match(spaceSelectorRule, /border-radius:\s*var\(--workspace-identity-radius\)/, "the root Space selector and banner must share a silhouette");
-  assert.match(spaceSelectorRule, /grid-template-columns:\s*minmax\(0,\s*1fr\)/, "the desktop Space identity must use a centered single-column lockup");
-  assert.match(spaceSelectorRule, /grid-template-rows:\s*1fr/, "the desktop identity tile has one visible icon row");
-  assert.match(spaceSelectorRule, /place-items:\s*center/);
-  assert.match(layoutRule, /--workspace-identity-glyph-size:\s*26px/, "the Space identity glyph should carry slightly more visual weight");
-  assert.match(layoutRule, /--workspace-identity-rail-label-size:\s*14px/);
+  assert.doesNotMatch(`${shellCss}\n${customizationCss}`, /workspace-rail-space-selector|workspace-rail-space-copy|workspace-rail-space-avatar/);
   assert.match(layoutRule, /--workspace-identity-title-size:\s*17px/);
   assert.match(layoutRule, /--workspace-identity-tracking:\s*0\.01em/);
-  assert.match(shortDesktopRailRule, /padding:\s*8px\s+6px\s+6px/, "short desktop layouts must keep the identity selector aligned with the pane banner");
-  assert.match(compactSpaceSelectorRule, /height:\s*auto/);
-  assert.match(compactSpaceSelectorRule, /min-height:\s*46px/);
-  assert.match(compactSpaceSelectorRule, /grid-template-columns:\s*28px\s+minmax\(0,\s*1fr\)/, "the narrow rail must retain its horizontal lockup");
-  assert.match(compactSpaceSelectorRule, /grid-template-rows:\s*none/);
-  assert.match(compactSpaceSelectorRule, /place-items:\s*center\s+start/);
-  assert.match(compactSpaceCopyRule, /justify-items:\s*start/);
-  assert.match(compactSpaceCopyRule, /text-align:\s*left/);
-  assert.match(compactSpaceNameRule, /white-space:\s*nowrap/);
-  assert.match(compactSpaceNameRule, /-webkit-line-clamp:\s*unset/);
-  assert.match(compactSpaceNameRule, /text-overflow:\s*ellipsis/, "the narrow Space label must truncate without colliding with navigation");
+  assert.match(shortDesktopRailRule, /padding:\s*8px\s+6px\s+6px/, "short desktop layouts must keep navigation compact");
   assert.match(compactRailRule, /overflow:\s*hidden/, "the narrow rail must contain independent scroll regions");
   assert.match(compactNavRule, /flex:\s*1\s+1\s+auto/);
   assert.match(compactNavRule, /overflow-x:\s*auto/, "narrow primary destinations must scroll instead of colliding with tools");
@@ -296,18 +273,19 @@ test("Space customization is visible, compact, and separate from structural chro
   assert.match(workspaceChromeSource, /"workspace-banner-surface"/);
   assert.match(workspaceChromeSource, /"space-identity-header"/);
   assert.match(workspaceChromeSource, /workspace-pane-banner-image/);
-  assert.match(workspaceChromeSource, /workspaceIdentityStyle\(workspaceIdentity\)/);
-  assert.match(workspaceChromeSource, /<WorkspaceIconGlyph icon=\{workspaceIdentity\.Icon\}/);
-  assert.match(workspaceChromeSource, /data-space-icon=\{workspaceIdentity\.iconName\}/);
+  assert.match(workspaceChromeSource, /workspaceIdentityStyle\(itemIdentity\)/);
+  assert.match(workspaceChromeSource, /<WorkspaceIconGlyph icon=\{itemIdentity\.Icon\}/);
+  assert.match(workspaceChromeSource, /data-space-icon=\{itemIdentity\.iconName\}/);
   assert.match(workspaceChromeSource, /workspace-appearance-preview/);
+  assert.match(workspaceChromeSource, /workspaceLookOptions\.map/);
+  assert.match(workspaceChromeSource, /aria-label="Curated Space looks"/);
+  assert.match(workspaceChromeSource, /<strong>Fine tune<\/strong>/);
   assert.match(workspaceChromeSource, /onResetWorkspace/);
   assert.match(customizationCss, /\.workspace-banner-surface\.banner-none/);
 
   const bannerHeaderRule = cssRuleBody(customizationCss, ".app-shell .workspace-layout .workspace-mode-pane .professional-pane-header.space-identity-header");
   const bannerTitleRule = cssRuleBody(customizationCss, ".app-shell .professional-pane-header.space-identity-header .workspace-pane-current-lockup strong");
   const previewTitleRule = cssRuleBody(customizationCss, ".workspace-appearance-preview-copy strong {");
-  const railIconRule = cssRuleBody(customizationCss, ".app-shell .professional-workspace-rail .workspace-rail-space-avatar");
-  const darkRailIconRule = cssRuleBody(customizationCss, ".app-shell[data-theme=\"dark\"] .professional-workspace-rail .workspace-rail-space-selector .workspace-rail-space-avatar");
   assert.match(bannerHeaderRule, /border:\s*1px\s+solid\s+var\(--ui-border\)/);
   assert.match(bannerTitleRule, /line-height:\s*1\.3/);
   assert.match(bannerTitleRule, /font-size:\s*var\(--workspace-identity-title-size\)/);
@@ -315,13 +293,12 @@ test("Space customization is visible, compact, and separate from structural chro
   assert.match(previewTitleRule, /font-size:\s*var\(--workspace-identity-title-size\)/, "the appearance preview must match the live identity title scale");
   assert.match(previewTitleRule, /letter-spacing:\s*var\(--workspace-identity-tracking\)/);
   assert.match(bannerTitleRule, /padding-block:\s*2px/, "identity titles need descender-safe line boxes");
-  for (const identityIconRule of [railIconRule, darkRailIconRule]) {
-    assert.match(identityIconRule, /background:\s*transparent/, "identity glyphs must not sit on filled tiles");
-  }
   assert.doesNotMatch(workspaceChromeSource, /space-identity-header-icon|workspace-appearance-preview-icon/);
   assert.doesNotMatch(customizationCss, /space-identity-header-icon|workspace-appearance-preview-icon/);
-  assert.match(darkRailIconRule, /box-shadow:\s*none/, "legacy dark-theme decoration must not recreate an icon tile");
+  assert.match(customizationCss, /\.professional-space-switcher \.workspace-header-switcher-icon[\s\S]*?color:\s*var\(--workspace-accent-glyph\)/);
   assert.match(customizationCss, /\.professional-appearance-surface/);
+  assert.match(customizationCss, /\.workspace-look-gallery/);
+  assert.match(customizationCss, /\.workspace-look-card\.active/);
   assert.match(customizationCss, /\.workspace-banner-position-control/);
   const colorPickerRule = cssRuleBody(customizationCss, ".app-shell .professional-appearance-surface .workspace-color-picker");
   const colorWheelRule = cssRuleBody(customizationCss, ".app-shell .professional-appearance-surface .workspace-color-wheel");
@@ -369,16 +346,18 @@ test("the left header is inherited Space identity on every mode, not a surface t
   const headerIdentityProps = headerCall.split(" action=")[0]!;
   assert.match(headerIdentityProps, /workspace=\{workspace\}/);
   assert.match(headerIdentityProps, /identity=\{identity\}/);
-  assert.match(headerIdentityProps, /switchable=\{activeMode !== "workspaces"\}/);
+  assert.doesNotMatch(headerIdentityProps, /switchable=/, "the Space menu must remain available on management and custom surfaces");
   assert.doesNotMatch(headerIdentityProps, /title=|paneTitle|onCustomize/);
 
   assert.match(workspaceChromeSource, /<strong>\{workspace\.name\}<\/strong>/);
   assert.match(workspaceChromeSource, /<span className="sr-only">\{detail\}<\/span>/);
   assert.match(workspaceChromeSource, /className="workspace-pane-switch-trigger"/);
   assert.match(workspaceChromeSource, /aria-haspopup="menu"/);
-  assert.match(workspaceChromeSource, /role="menu" aria-label="Switch Space"/);
+  assert.match(workspaceChromeSource, /role="menu" aria-label="Space menu"/);
   assert.match(workspaceChromeSource, /role="menuitem"/);
-  assert.match(workspaceChromeSource, /querySelector<HTMLButtonElement>\('\[role="menuitem"\]:not\(:disabled\)'\)\?\.focus\(\)/);
+  assert.match(workspaceChromeSource, /data-native-view-occluder="true"/);
+  assert.match(workspaceChromeSource, /aria-current=\{active \? "page" : undefined\}/);
+  assert.match(workspaceChromeSource, /querySelector<HTMLButtonElement>\('\[role="menuitem"\]'\)\?\.focus\(\)/);
   assert.doesNotMatch(workspaceChromeSource, /role=\{switcherEnabled \? "button" : undefined\}/);
   assert.doesNotMatch(workspaceChromeSource, /onClick=\{toggleSwitcher\}[\s\S]{0,180}<WorkspaceIconGlyph/);
   assert.doesNotMatch(workspaceChromeSource, /space-identity-header-icon/);

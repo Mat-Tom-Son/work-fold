@@ -2,7 +2,7 @@
 
 Workspace has three runtime responsibility layers, one shared in-process management plane, and a separate restricted-app execution lane:
 
-1. The React renderer presents a Space selector plus Files, Chats, and History rail surfaces; on-demand Space-owned Library and Assistant tools tabs; and Assistant configuration in Settings.
+1. The React renderer presents a persistent Space-identity header menu plus Files, Chats, and History rail surfaces; on-demand Space-owned Library and Assistant tools tabs; and Assistant configuration in Settings.
 2. The local Node host owns filesystem access, conversations, resource import, Pi sessions, and the domain services that authorize mutations.
 3. Electron supplies native windows, menus, dialogs, secure storage, lifecycle, and packaging.
 
@@ -37,10 +37,10 @@ The public `workspace` command uses a compact adapter that omits content. Its pr
 
 **Workspace** is the product. A **Space** is its unit of work: an understandable context for an activity, backed by one ordinary folder. Creating a Space creates a managed folder; turning an existing folder into a Space registers that folder in place. Neither path converts the user's files to an application-specific format.
 
-The Space selector establishes the active root-folder entity; a Space is not itself a peer navigation surface. The primary information architecture is:
+The persistent Space-header menu establishes the active root-folder entity and owns create/register/manage actions; a Space is not itself a peer navigation surface. The primary information architecture is:
 
 - **Files** — the ordinary folder contents of the selected Space.
-- **Chats** — conversations associated with the selected Space.
+- **Chats** — conversations associated with the selected Space, followed by collapsed groups for matching Chats in other Spaces.
 - **History** — checkpoints and recoverable changes for the selected Space.
 - **Library** — reusable personal materials shared across Spaces, opened on demand as a persistent Space-owned tab whose explicit destination selector can copy to any registered Space.
 - **Assistant tools** — one on-demand Space-owned Installed/Discover work tab for Skills and Extensions, available personally or from a registered Space. Package provenance and lifecycle live here without becoming another rail destination.

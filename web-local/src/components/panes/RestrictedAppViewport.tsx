@@ -175,7 +175,8 @@ function nativeViewOccluded(element: HTMLElement, bounds: DOMRect): boolean {
   for (const candidate of candidates) {
     if (candidate === element || candidate.contains(element) || element.contains(candidate)) continue;
     const style = getComputedStyle(candidate);
-    if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) continue;
+    const explicitOccluder = candidate.dataset.nativeViewOccluder === "true";
+    if (style.display === "none" || style.visibility === "hidden" || (!explicitOccluder && Number(style.opacity) === 0)) continue;
     const other = candidate.getBoundingClientRect();
     if (other.right > bounds.left && other.left < bounds.right && other.bottom > bounds.top && other.top < bounds.bottom) return true;
   }

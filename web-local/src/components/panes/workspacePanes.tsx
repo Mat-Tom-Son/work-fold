@@ -13,6 +13,7 @@ import {
   Chat16Regular,
   Checkmark12Regular,
   Checkmark16Regular,
+  ChevronRight16Regular,
   Clock16Regular,
   Color16Regular,
   Copy16Regular,
@@ -154,6 +155,7 @@ export function ChatsPane({
   const [query, setQuery] = useState("");
   const [view, setView] = useState<ChatLifecycleView>("active");
   const [now, setNow] = useState(() => Date.now());
+  const [expandedOtherWorkspaceIds, setExpandedOtherWorkspaceIds] = useState<Set<string>>(() => new Set());
   const normalized = query.trim().toLocaleLowerCase();
   const orderedWorkspaces = [workspace, ...workspaces.filter((item) => item.id !== workspace.id)];
   const allConversations = Object.values(conversations).flat();
@@ -168,6 +170,93 @@ export function ChatsPane({
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, [allConversations.map((chat) => chat.snoozedUntil ?? "").join("|"), now]);
+
+  useEffect(() => {
+    setExpandedOtherWorkspaceIds(new Set());
+  }, [workspace.id]);
+
+  function chatsFor(item: WorkspaceSummary): ConversationSummary[] {
+    return (conversations[item.id] ?? []).filter((chat) =>
+      conversationLifecycleView(chat, now) === view
+      && (!normalized || chat.title.toLocaleLowerCase().includes(normalized)));
+  }
+
+  function toggleOtherWorkspace(workspaceId: string): void {
+    setExpandedOtherWorkspaceIds((current) => {
+      const next = new Set(current);
+      if (next.has(workspaceId)) next.delete(workspaceId);
+      else next.add(workspaceId);
+      return next;
+    });
+  }
+
+  function renderChatList(item: WorkspaceSummary, list: ConversationSummary[], current: boolean): ReactNode {
+    return (
+      <div className={current ? "chat-workspace-list chat-workspace-list-current" : "chat-workspace-list chat-workspace-list-other"}>
+        {list.map((chat) => {
+          const status = activityStatuses[chatActivityKey(item.id, chat.id)];
+          const resurfaced = view === "active" && isRecentlyResurfaced(chat, now);
+          const secondary = view === "snoozed" && chat.snoozedUntil
+            ? chatSnoozeTimeLabel(chat.snoozedUntil)
+            : view === "archived" && chat.archivedAt
+              ? `Archived ${formatChatListTime(chat.archivedAt)}`
+              : resurfaced
+                ? "Back now"
+                : formatChatListTime(chat.updatedAt);
+          return (
+            <div
+              className={[
+                "chat-workspace-row-shell",
+                chat.id === activeConversationId ? "active" : "",
+                status ? `status-${status}` : "",
+                resurfaced ? "resurfaced" : "",
+              ].filter(Boolean).join(" ")}
+              key={chat.id}
+              onContextMenu={(event) => { event.preventDefault(); onActions(item, chat, event); }}
+            >
+              <button className="chat-workspace-row" type="button" onClick={() => onOpen(item, chat)}>
+                <span className="chat-workspace-row-title">{chat.title}</span>
+                <span className="chat-workspace-row-meta">
+                  {status ? <ChatActivityIndicator status={status} /> : null}
+                  <span className="chat-workspace-row-time">{secondary}</span>
+                </span>
+              </button>
+              <button
+                className="chat-workspace-row-actions"
+                type="button"
+                aria-label={`Actions for ${chat.title}`}
+                title="Chat actions"
+                onClick={(event) => onActions(item, chat, event)}
+              >
+                <MoreHorizontal16Regular />
+              </button>
+            </div>
+          );
+        })}
+        {!list.length ? (
+          <span className="chat-workspace-empty">
+            {normalized ? `No ${view} Chat titles match` : chatViewEmptyLabel(view)}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+
+  const currentList = chatsFor(workspace);
+  const currentIdentity = workspaceIdentityFor(workspace, customizations);
+  const otherWorkspaceGroups = workspaces
+    .filter((item) => item.id !== workspace.id)
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map((item) => {
+      const list = chatsFor(item);
+      const status = list.some((chat) => activityStatuses[chatActivityKey(item.id, chat.id)] === "running")
+        ? "running" as const
+        : list.some((chat) => activityStatuses[chatActivityKey(item.id, chat.id)] === "attention")
+          ? "attention" as const
+          : null;
+      return { item, list, status };
+    })
+    .filter(({ list }) => list.length > 0);
 
   return (
     <div className="workspace-pane-content chats-pane professional-surface professional-chats">
@@ -229,69 +318,49 @@ export function ChatsPane({
         ))}
       </div>
       <div className="chat-workspace-groups">
-        {orderedWorkspaces.map((item) => {
-          const list = (conversations[item.id] ?? []).filter((chat) =>
-            conversationLifecycleView(chat, now) === view
-            && (!normalized || chat.title.toLocaleLowerCase().includes(normalized)));
-          if (!list.length && item.id !== workspace.id) return null;
-          const identity = workspaceIdentityFor(item, customizations);
-          return (
-            <section className="chat-workspace-group" key={item.id} style={workspaceIdentityStyle(identity)}>
-              <div className="chat-workspace-heading">
-                <span className="workspace-identity-icon" aria-hidden="true"><WorkspaceIconGlyph icon={identity.Icon} size={15} /></span>
-                <strong>{item.name}</strong>
-                <button className="minimal-icon-button" type="button" onClick={() => onNew(item)} aria-label={`New Chat in ${item.name}`} title="New Chat"><Chat16Regular /></button>
-              </div>
-              <div className={item.id === workspace.id ? "chat-workspace-list chat-workspace-list-current" : "chat-workspace-list"}>
-                {list.map((chat) => {
-                  const status = activityStatuses[chatActivityKey(item.id, chat.id)];
-                  const resurfaced = view === "active" && isRecentlyResurfaced(chat, now);
-                  const secondary = view === "snoozed" && chat.snoozedUntil
-                    ? chatSnoozeTimeLabel(chat.snoozedUntil)
-                    : view === "archived" && chat.archivedAt
-                      ? `Archived ${formatChatListTime(chat.archivedAt)}`
-                      : resurfaced
-                        ? "Back now"
-                        : formatChatListTime(chat.updatedAt);
-                  return (
-                    <div
-                      className={[
-                        "chat-workspace-row-shell",
-                        chat.id === activeConversationId ? "active" : "",
-                        status ? `status-${status}` : "",
-                        resurfaced ? "resurfaced" : "",
-                      ].filter(Boolean).join(" ")}
-                      key={chat.id}
-                      onContextMenu={(event) => { event.preventDefault(); onActions(item, chat, event); }}
+        <section className="chat-workspace-group chat-workspace-group-current" style={workspaceIdentityStyle(currentIdentity)}>
+          <div className="chat-workspace-heading">
+            <span className="workspace-identity-icon" aria-hidden="true"><WorkspaceIconGlyph icon={currentIdentity.Icon} size={15} /></span>
+            <strong>{workspace.name}</strong>
+            <button className="minimal-icon-button" type="button" onClick={() => onNew(workspace)} aria-label={`New Chat in ${workspace.name}`} title="New Chat"><Chat16Regular /></button>
+          </div>
+          {renderChatList(workspace, currentList, true)}
+        </section>
+        {otherWorkspaceGroups.length ? (
+          <section className="chat-other-workspaces" aria-label="Chats in other Spaces">
+            <div className="chat-other-workspaces-heading">
+              <span>Other Spaces</span>
+              <small>{otherWorkspaceGroups.length}</small>
+            </div>
+            {otherWorkspaceGroups.map(({ item, list, status }) => {
+              const identity = workspaceIdentityFor(item, customizations);
+              const expanded = Boolean(normalized) || expandedOtherWorkspaceIds.has(item.id);
+              return (
+                <div className={expanded ? "chat-other-workspace expanded" : "chat-other-workspace"} key={item.id} style={workspaceIdentityStyle(identity)}>
+                  <div className="chat-other-workspace-header">
+                    <button
+                      className="chat-other-workspace-toggle"
+                      type="button"
+                      disabled={Boolean(normalized)}
+                      aria-label={`${expanded ? "Hide" : "Show"} chats in ${item.name}`}
+                      aria-expanded={expanded}
+                      aria-controls={`chat-other-workspace-${item.id}`}
+                      onClick={() => toggleOtherWorkspace(item.id)}
                     >
-                      <button className="chat-workspace-row" type="button" onClick={() => onOpen(item, chat)}>
-                        <span className="chat-workspace-row-title">{chat.title}</span>
-                        <span className="chat-workspace-row-meta">
-                          {status ? <ChatActivityIndicator status={status} /> : null}
-                          <span className="chat-workspace-row-time">{secondary}</span>
-                        </span>
-                      </button>
-                      <button
-                        className="chat-workspace-row-actions"
-                        type="button"
-                        aria-label={`Actions for ${chat.title}`}
-                        title="Chat actions"
-                        onClick={(event) => onActions(item, chat, event)}
-                      >
-                        <MoreHorizontal16Regular />
-                      </button>
-                    </div>
-                  );
-                })}
-                {!list.length ? (
-                  <span className="chat-workspace-empty">
-                    {normalized ? `No ${view} Chat titles match` : chatViewEmptyLabel(view)}
-                  </span>
-                ) : null}
-              </div>
-            </section>
-          );
-        })}
+                      <span className="workspace-identity-icon" aria-hidden="true"><WorkspaceIconGlyph icon={identity.Icon} size={14} /></span>
+                      <span>{item.name}</span>
+                      {status ? <ChatActivityIndicator status={status} /> : null}
+                      <small>{list.length}</small>
+                      <ChevronRight16Regular aria-hidden="true" />
+                    </button>
+                    <button className="minimal-icon-button" type="button" onClick={() => onNew(item)} aria-label={`New Chat in ${item.name}`} title="New Chat"><Chat16Regular /></button>
+                  </div>
+                  {expanded ? <div id={`chat-other-workspace-${item.id}`}>{renderChatList(item, list, false)}</div> : null}
+                </div>
+              );
+            })}
+          </section>
+        ) : null}
         <ChatContentSearch
           workspaces={orderedWorkspaces}
           conversations={conversations}

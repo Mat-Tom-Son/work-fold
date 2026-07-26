@@ -5,8 +5,6 @@
   --workspace-rail-width: 64px;
   --workspace-identity-header-height: 90px;
   --workspace-identity-radius: 12px;
-  --workspace-identity-glyph-size: 26px;
-  --workspace-identity-rail-label-size: 14px;
   --workspace-identity-title-size: 17px;
   --workspace-identity-tracking: 0.01em;
   --workspace-pane-edge-fill: var(--ui-surface);
@@ -211,82 +209,6 @@
   display: none;
 }
 
-/* The rail identity is a compact 48px tile centered in the 90px header band;
-   the pane header beside it carries the full Space name. */
-.app-shell .professional-workspace-rail .workspace-rail-space-selector,
-.app-shell .professional-workspace-rail .workspace-rail-space-selector:hover,
-.app-shell .professional-workspace-rail .workspace-rail-space-selector:focus-visible,
-.app-shell .professional-workspace-rail .workspace-rail-space-selector.active,
-.app-shell .professional-workspace-rail .workspace-rail-space-selector.active:hover,
-.app-shell .professional-workspace-rail .workspace-rail-space-selector.active:focus-visible {
-  width: 48px;
-  height: 48px;
-  min-height: 48px;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: 1fr;
-  place-items: center;
-  align-content: center;
-  justify-self: center;
-  gap: 0;
-  margin: 21px 0 17px;
-  padding: 0;
-  color: var(--ui-text);
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-border);
-  border-radius: var(--workspace-identity-radius);
-  box-shadow: none;
-  transform: none;
-}
-
-.app-shell .professional-workspace-rail .workspace-rail-space-selector:hover,
-.app-shell .professional-workspace-rail .workspace-rail-space-selector:focus-visible {
-  background: var(--ui-surface-hover);
-}
-
-
-.app-shell .professional-workspace-rail .workspace-rail-space-avatar,
-.app-shell .professional-workspace-rail .workspace-rail-space-selector:hover .workspace-rail-space-avatar,
-.app-shell .professional-workspace-rail .workspace-rail-space-selector:focus-visible .workspace-rail-space-avatar,
-.app-shell .professional-workspace-rail .workspace-rail-space-selector.active .workspace-rail-space-avatar {
-  width: var(--workspace-identity-glyph-size);
-  height: var(--workspace-identity-glyph-size);
-  color: var(--ui-text-muted);
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-}
-
-.app-shell .professional-workspace-rail .workspace-rail-space-avatar svg {
-  width: var(--workspace-identity-glyph-size);
-  height: var(--workspace-identity-glyph-size);
-}
-
-.app-shell .professional-workspace-rail .workspace-rail-space-copy {
-  width: 100%;
-  min-width: 0;
-  display: none;
-  align-content: center;
-  justify-items: center;
-  gap: 0;
-  text-align: center;
-}
-
-.app-shell .professional-workspace-rail .workspace-rail-space-copy strong {
-  min-width: 0;
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--ui-text);
-  font-size: var(--workspace-identity-rail-label-size);
-  font-weight: 650;
-  line-height: 1.2;
-  letter-spacing: var(--workspace-identity-tracking);
-  padding-block: 1px;
-  overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
 .app-shell .professional-workspace-rail .workspace-rail-account {
   width: 100%;
   display: grid;
@@ -446,14 +368,6 @@
   transform: none;
 }
 
-.app-shell .workspace-layout:has(.workspace-rail-space-selector:hover) .professional-pane-header,
-.app-shell .workspace-layout:has(.workspace-rail-space-selector:focus-visible) .professional-pane-header {
-  background: var(--ui-surface);
-  border-color: var(--ui-border);
-  box-shadow: none;
-  transform: none;
-}
-
 .app-shell .professional-pane-header .workspace-pane-page-copy {
   min-width: 0;
   display: grid;
@@ -526,27 +440,7 @@
   background: var(--ui-surface-subtle);
 }
 
-.app-shell[data-theme="dark"] .professional-workspace-rail .workspace-rail-space-selector,
-.app-shell[data-theme="dark"] .professional-workspace-rail .workspace-rail-space-selector:hover,
-.app-shell[data-theme="dark"] .professional-workspace-rail .workspace-rail-space-selector:focus-visible,
-.app-shell[data-theme="dark"] .professional-workspace-rail .workspace-rail-space-selector.active,
-.app-shell[data-theme="dark"] .professional-workspace-rail .workspace-rail-space-selector.active:hover,
-.app-shell[data-theme="dark"] .professional-workspace-rail .workspace-rail-space-selector.active:focus-visible {
-  color: var(--ui-text);
-  background: var(--ui-surface);
-  border-color: var(--ui-border);
-  box-shadow: none;
-  transform: none;
-}
-
-.app-shell[data-theme="dark"] .professional-workspace-rail .workspace-rail-space-selector:hover,
-.app-shell[data-theme="dark"] .professional-workspace-rail .workspace-rail-space-selector:focus-visible {
-  background: var(--ui-surface-hover);
-}
-
-.app-shell[data-theme="dark"] .workspace-layout .professional-pane-header,
-.app-shell[data-theme="dark"] .workspace-layout:has(.workspace-rail-space-selector:hover) .professional-pane-header,
-.app-shell[data-theme="dark"] .workspace-layout:has(.workspace-rail-space-selector:focus-visible) .professional-pane-header {
+.app-shell[data-theme="dark"] .workspace-layout .professional-pane-header {
   background: var(--ui-surface);
   border-color: var(--ui-border);
   box-shadow: none;
@@ -560,7 +454,7 @@
     padding: 8px 6px 6px;
   }
 
-  .app-shell .professional-workspace-rail .workspace-rail-button:not(.workspace-rail-space-selector),
+  .app-shell .professional-workspace-rail .workspace-rail-button,
   .app-shell .professional-workspace-rail .workspace-rail-quiet-button,
   .app-shell .professional-workspace-rail .workspace-rail-settings-control,
   .app-shell .professional-workspace-rail .workspace-rail-settings-control .workspace-rail-account-button {
@@ -632,55 +526,12 @@
     height: 20px;
   }
 
-  .app-shell .professional-workspace-rail .workspace-rail-space-avatar svg {
-    width: var(--workspace-identity-glyph-size);
-    height: var(--workspace-identity-glyph-size);
-  }
-
   .app-shell .professional-workspace-rail .workspace-rail-label {
     display: block;
     width: auto;
     max-width: 100%;
     color: inherit;
     font-weight: inherit;
-  }
-
-  .app-shell .professional-workspace-rail .workspace-rail-space-selector,
-  .app-shell .professional-workspace-rail .workspace-rail-space-selector:hover,
-  .app-shell .professional-workspace-rail .workspace-rail-space-selector:focus-visible,
-  .app-shell .professional-workspace-rail .workspace-rail-space-selector.active,
-  .app-shell .professional-workspace-rail .workspace-rail-space-selector.active:hover,
-  .app-shell .professional-workspace-rail .workspace-rail-space-selector.active:focus-visible {
-    width: min(190px, 46vw);
-    height: auto;
-    min-height: 46px;
-    min-width: 130px;
-    grid-template-columns: 28px minmax(0, 1fr);
-    grid-template-rows: none;
-    place-items: center start;
-    align-content: normal;
-    gap: 8px;
-    margin: 0 5px 0 0;
-    padding: 6px 8px;
-    border-radius: var(--ui-radius-md);
-    border-color: var(--ui-border);
-  }
-
-  .app-shell .professional-workspace-rail .workspace-rail-space-copy {
-    width: auto;
-    display: grid;
-    justify-items: start;
-    gap: 1px;
-    text-align: left;
-  }
-
-  .app-shell .professional-workspace-rail .workspace-rail-space-copy strong {
-    display: block;
-    line-height: 1.2;
-    overflow-wrap: normal;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    -webkit-line-clamp: unset;
   }
 
   .app-shell .professional-workspace-rail .workspace-rail-account {

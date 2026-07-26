@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
+import { JSDOM } from "jsdom";
 
 const root = process.cwd();
 const [app, tabBar, chatPanel, chatActions, messages, activity, panes, chrome, styles, identity, desktopMain, localServer] = await Promise.all([
@@ -54,6 +55,16 @@ test("Chat work can be deferred, found again, and resumed without interrupting a
   assert.match(chatPanel, /reportChatSettled\(conversationId\)/);
 });
 
+test("Chats foreground the active Space and collapse other Spaces until requested", () => {
+  assert.match(panes, /const \[expandedOtherWorkspaceIds, setExpandedOtherWorkspaceIds\]/);
+  assert.match(panes, /<span>Other Spaces<\/span>/);
+  assert.match(panes, /aria-label=\{`\$\{expanded \? "Hide" : "Show"\} chats in \$\{item\.name\}`\}/);
+  assert.match(panes, /aria-expanded=\{expanded\}/);
+  assert.match(panes, /const expanded = Boolean\(normalized\) \|\| expandedOtherWorkspaceIds\.has/);
+  assert.match(panes, /onClick=\{\(\) => toggleOtherWorkspace\(item\.id\)\}/);
+  assert.match(panes, /aria-label=\{`New Chat in \$\{item\.name\}`\}/);
+});
+
 test("surface tab labels use crisp shell typography", () => {
   const tabMainRule = styles.match(/\.surface-tab-main\s*\{([\s\S]*?)\}/)?.[1] ?? "";
   const tabTitleRule = styles.match(/\.surface-tab-title\s*\{([\s\S]*?)\}/)?.[1] ?? "";
@@ -98,8 +109,66 @@ test("assistant rendering has complete Markdown chrome and Space-aware accents",
   assert.doesNotMatch(activity, /Learned From/);
 });
 
+test("dark user messages keep their audited foregrounds and quiet icon-only action", () => {
+  const dom = new JSDOM(`
+    <!doctype html>
+    <html>
+      <head><style>${styles}</style></head>
+      <body>
+        <div class="app-shell" data-theme="dark">
+          <main style="--workspace-accent-solid:#fafafa;--workspace-on-accent-solid:#182846;--workspace-on-accent-muted:#4e5a71">
+            <article class="message user">
+              <div class="message-header">
+                <span class="message-author">You</span>
+                <span class="message-header-actions">
+                  <time class="message-time">now</time>
+                  <div class="message-actions">
+                    <button class="message-copy-button" aria-label="Copy message"></button>
+                  </div>
+                </span>
+              </div>
+              <div class="message-body">
+                <p>Plain text</p>
+                <h1>Heading</h1>
+              </div>
+            </article>
+          </main>
+        </div>
+      </body>
+    </html>
+  `, { pretendToBeVisual: true });
+  const window = dom.window;
+  const document = window.document;
+  const styleFor = (selector: string) => window.getComputedStyle(document.querySelector(selector)!);
+
+  for (const selector of [".message.user", ".message.user .message-body", ".message.user .message-body p", ".message.user .message-body h1"]) {
+    assert.match(
+      styleFor(selector).color,
+      /--workspace-on-accent-solid/,
+      `${selector} must retain the foreground audited against the user bubble`,
+    );
+  }
+  for (const selector of [".message.user .message-author", ".message.user .message-time", ".message.user .message-copy-button"]) {
+    assert.match(
+      styleFor(selector).color,
+      /--workspace-on-accent-muted/,
+      `${selector} must use the muted on-solid role`,
+    );
+  }
+
+  const copyStyle = styleFor(".message.user .message-copy-button");
+  assert.equal(copyStyle.width, "24px");
+  assert.equal(copyStyle.height, "24px");
+  assert.equal(copyStyle.opacity, "0");
+  assert.equal(copyStyle.backgroundColor, "rgba(0, 0, 0, 0)");
+  assert.match(messages, /<span className="message-header-actions">[\s\S]*?<MessageActions/);
+  const messageActionsSource = messages.match(/export function MessageActions[\s\S]*?(?=\nexport function TurnLanding)/)?.[0] ?? "";
+  assert.doesNotMatch(messageActionsSource, /<span>\{copied \? "Copied" : "Copy"\}<\/span>/);
+});
+
 test("audited desktop and pane controls have working destinations", () => {
-  assert.match(chrome, /workspaces\.length > 1/);
+  assert.match(chrome, /switchable = true/);
+  assert.doesNotMatch(chrome, /workspaces\.length > 1/);
   assert.match(desktopMain, /About \$\{productName\}[\s\S]*?sendRendererMenuCommand\("open-about"\)/);
   assert.doesNotMatch(desktopMain, /About \$\{productName\}[^\n]*enabled:\s*false/);
   assert.doesNotMatch(panes, /onDoubleClick=\{\(\) => onOpen\?\.\(item\)\}/);
