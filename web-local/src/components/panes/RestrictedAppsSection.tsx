@@ -154,24 +154,25 @@ export function RestrictedAppsSection({
       <div className="restricted-apps-heading">
         <div>
           <div className="restricted-apps-title-line"><h3 id="restricted-apps-title">Apps in this Space</h3><span>{apps.length}</span></div>
-          <p>Interactive tools built for {workspace.name}. Network, files, notifications, and automations start off.</p>
+          <p>Interactive tools exclusive to {workspace.name}. Review each app to manage its access, connections, and automations.</p>
         </div>
-        {apps.length ? <div className="restricted-apps-heading-actions"><button className="professional-button professional-button-quiet" type="button" disabled={busy} onClick={() => onOpenAppStudio(workspace.id)}>App Studio</button><button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onBuildApp}><Add16Regular />Build another</button></div> : null}
+        {apps.length ? <div className="restricted-apps-heading-actions"><button className="professional-button professional-button-quiet" type="button" disabled={busy} onClick={() => onOpenAppStudio(workspace.id)}>App Studio</button><button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onBuildApp}><Add16Regular />Build app</button></div> : null}
       </div>
       {loading && !apps.length ? <div className="restricted-apps-loading"><ArrowSync16Regular className="spin" />Loading sandboxed apps</div> : null}
       {apps.length ? (
         <div className="restricted-app-list">
-          {apps.map((app) => (
-            <article className="restricted-app-card" key={app.featureInstallationId}>
+          {apps.map((app) => {
+            const access = restrictedAppAccessState(app);
+            return <article className="restricted-app-card" key={app.featureInstallationId}>
               <div className="restricted-app-card-copy">
                 <div className="restricted-app-card-title"><strong>{app.manifest.title}</strong><span>{app.runtimeInstanceKind === "development" ? "Local preview" : "Installed App Feature"}</span></div>
                 <p>{app.manifest.description || "A Space-bound app running in Workspace's restricted browser runtime."}</p>
                 <div className="restricted-app-card-meta"><span>{app.runtimeInstanceKind === "development" ? "Previewing in this Space" : "Installed in this Space · Data on this device"}</span><span>{app.packageName} {app.version}</span><span>Restricted app UI</span></div>
                 <small>{app.manifest.tools.length} {app.manifest.tools.length === 1 ? "action" : "actions"} · {app.networkGrants.length}/{app.manifest.permissions.network.length} network · {app.fileGrants.length}/{app.manifest.permissions.files.length} files · {app.notificationGrants.length}/{app.manifest.permissions.notifications.length} notifications{app.manifest.automations.length ? ` · ${app.automations.filter((automation) => automation.enabled).length}/${app.manifest.automations.length} automations on` : ""}</small>
               </div>
-              <div className="restricted-app-card-actions"><span className="professional-status-badge enabled">Restricted runtime</span><button className="professional-button professional-button-secondary" type="button" onClick={() => setSelectedAppId(app.manifest.id)}>{app.manifest.permissions.network.length || app.manifest.permissions.files.length || app.manifest.permissions.notifications.length || app.manifest.automations.length ? "Manage access" : "Manage"}</button></div>
-            </article>
-          ))}
+              <div className="restricted-app-card-actions"><span className={access.enabled ? "professional-status-badge enabled" : "professional-status-badge"}>{access.label}</span><button className="professional-button professional-button-secondary" type="button" onClick={() => setSelectedAppId(app.manifest.id)}>{access.total ? "Review access" : "Details"}</button></div>
+            </article>;
+          })}
         </div>
       ) : !loading ? <div className="restricted-app-empty"><div><strong>No apps in this Space</strong><span>Ask the Assistant to build an inbox, dashboard, tracker, or connection, then review the exact revision before it runs.</span></div><div className="restricted-app-empty-actions"><button className="professional-button professional-button-primary" type="button" onClick={onBuildApp}><Add16Regular />Build with Assistant</button><button className="professional-button professional-button-quiet" type="button" onClick={() => onOpenAppStudio(workspace.id)}>Open App Studio</button></div></div> : null}
       <details className="restricted-app-advanced"><summary>Advanced local preview</summary><p>Review a restricted app package folder that already exists in this Space.</p><button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={() => setSourceOpen(true)}>Add local preview…</button></details>
@@ -181,6 +182,20 @@ export function RestrictedAppsSection({
       {selectedApp ? <RestrictedAppDetailsDialog app={selectedApp} busy={busy} fixtureMode={fixtureMode} onAppChanged={onUpsertApp} onRemove={() => void remove(selectedApp)} onOpenAppStudio={() => { setSelectedAppId(null); onOpenAppStudio(selectedApp.sourceWorkspaceId); }} onError={onError} onClose={() => { if (!busy) setSelectedAppId(null); }} /> : null}
     </section>
   );
+}
+
+function restrictedAppAccessState(app: RestrictedAppInstalled): { enabled: boolean; label: string; total: number } {
+  const total = app.manifest.permissions.network.length
+    + app.manifest.permissions.files.length
+    + app.manifest.permissions.notifications.length
+    + app.manifest.automations.length;
+  const enabled = app.networkGrants.length
+    + app.fileGrants.length
+    + app.notificationGrants.length
+    + app.automations.filter((automation) => automation.enabled).length;
+  if (!total) return { enabled: false, label: "No access requested", total };
+  if (!enabled) return { enabled: false, label: "Access off", total };
+  return { enabled: true, label: `${enabled} of ${total} enabled`, total };
 }
 
 function RestrictedAppSourceDialog({ sourcePath, busy, onSourcePathChange, onSubmit, onClose }: {

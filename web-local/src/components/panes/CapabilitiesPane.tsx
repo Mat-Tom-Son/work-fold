@@ -382,7 +382,7 @@ export function CapabilitiesPane({
         <div>
           <span className="professional-kicker">Assistant</span>
           <h1>Assistant tools</h1>
-          <p>Manage what the Assistant can use in {workspace.name}, with scope and execution boundaries kept visible.</p>
+          <p>Review what is available in {workspace.name}, where it applies, and what it can access.</p>
         </div>
         <button className="professional-button professional-button-primary capabilities-add-trigger" type="button" onClick={() => setAddOpen(true)}><Add16Regular />Add Skill or Extension</button>
       </header>
@@ -394,8 +394,13 @@ export function CapabilitiesPane({
 
       {view === "installed" ? (
         <section ref={installedViewRef} id="capabilities-installed-panel" className="capabilities-view-content" role="tabpanel" aria-labelledby="capabilities-installed-tab" tabIndex={-1}>
-          <div className="capabilities-view-heading">
-            <div><h2>Installed</h2><p>Apps belong to this Space. Skills and Extensions may be installed here or available from your Personal scope.</p></div>
+          <div className="capabilities-installed-context">
+            <ShieldCheckmark20Regular aria-hidden="true" />
+            <div>
+              <strong>Available in {workspace.name}</strong>
+              <span>{restrictedApps.length} {restrictedApps.length === 1 ? "app" : "apps"} · {scopedToolCount(resources.filter((item) => item.scope === "project").length, "Space")} · {scopedToolCount(resources.filter((item) => item.scope === "global").length, "Personal")}</span>
+            </div>
+            <p>Apps and Space tools belong here. Personal tools are available in every Space; app access is reviewed separately.</p>
           </div>
           <RestrictedAppsSection
             workspace={workspace}
@@ -550,23 +555,45 @@ function InstalledCapabilities({ catalog, resources, totalResources, packageBusy
       {catalog.diagnostics.length ? <div className="professional-diagnostics" role="status">{catalog.diagnostics.map((item, index) => <span className={item.type} key={`${item.message}-${index}`}>{item.message}</span>)}</div> : null}
       <p className="capabilities-results-summary">{resources.length === totalResources ? `${resources.length} installed Skills & Extensions` : `Showing ${resources.length} of ${totalResources} installed Skills & Extensions`}</p>
       {resources.length ? <div className="capabilities-resource-list">{resources.map((item) => <InstalledCapabilityCard key={item.id} item={item} onSelect={() => onSelect(item)} />)}</div> : <CapabilityEmpty title={totalResources ? "No matching tools" : "No Skills or Extensions installed"} detail={totalResources ? "Change the search or filters to see more." : "Use Add Skill or Extension to import a Skill or install a Pi package."} />}
-      {catalog.packages.length ? (
-        <section className="capabilities-management-section" aria-labelledby="capabilities-packages-title">
-          <div className="capabilities-management-heading"><div><Box16Regular aria-hidden="true" /><h3 id="capabilities-packages-title">Packages</h3></div><span>{catalog.packages.length}</span></div>
-          <div className="capabilities-package-list">{catalog.packages.map((item) => {
-            const updateKey = `update:${item.scope}:${item.source}`;
-            const removeKey = `remove:${item.scope}:${item.source}`;
-            return <article className="capabilities-package-row" key={`${item.scope}:${item.source}`}><div><strong>{item.displayName || item.source}</strong><span>{scopeLabel(item.scope)}{item.filtered ? " · filtered resources" : ""}{item.installedPath ? ` · ${item.installedPath}` : ""}</span></div><span className={item.updateAvailable || item.loaded ? "professional-status-badge enabled" : "professional-status-badge"}>{packageStatusLabel(item)}</span><div className="capabilities-package-actions"><button className="professional-button professional-button-secondary" type="button" disabled={Boolean(packageBusy)} onClick={() => onPackageAction(item, "update")}>{packageBusy === updateKey ? <ArrowSync16Regular className="spin" /> : null}Update</button><button className="minimal-icon-button" type="button" disabled={Boolean(packageBusy)} onClick={() => onPackageAction(item, "remove")} aria-label={`Remove ${item.displayName || item.source}`} title="Remove package">{packageBusy === removeKey ? <ArrowSync16Regular className="spin" /> : <Delete16Regular />}</button></div></article>;
-          })}</div>
+      {catalog.packages.length || catalog.tools.some(isCoreTool) ? (
+        <section className="capabilities-supporting-details" aria-labelledby="capabilities-supporting-title">
+          <div className="capabilities-supporting-heading">
+            <h3 id="capabilities-supporting-title">Supporting details</h3>
+            <p>Package sources and the tools that ship with Pi.</p>
+          </div>
+          <div className="capabilities-supporting-list">
+            {catalog.packages.length ? <PackageManagementSection packages={catalog.packages} packageBusy={packageBusy} onPackageAction={onPackageAction} /> : null}
+            <CoreToolsSection tools={catalog.tools} management={catalog.toolManagement} />
+          </div>
         </section>
       ) : null}
-      <CoreToolsSection tools={catalog.tools} management={catalog.toolManagement} />
     </div>
   );
 }
 
+function PackageManagementSection({ packages, packageBusy, onPackageAction }: {
+  packages: AgentPackage[];
+  packageBusy: string | null;
+  onPackageAction: (item: AgentPackage, action: "update" | "remove") => void;
+}) {
+  const updates = packages.filter((item) => item.updateAvailable).length;
+  return (
+    <details className="capabilities-packages capabilities-management-section">
+      <summary>
+        <span><Box16Regular aria-hidden="true" /><strong>Packages</strong></span>
+        <small>{packages.length} installed{updates ? ` · ${updates} ${updates === 1 ? "update" : "updates"}` : ""}</small>
+      </summary>
+      <div className="capabilities-package-list">{packages.map((item) => {
+        const updateKey = `update:${item.scope}:${item.source}`;
+        const removeKey = `remove:${item.scope}:${item.source}`;
+        return <article className="capabilities-package-row" key={`${item.scope}:${item.source}`}><div><strong>{item.displayName || item.source}</strong><span>{scopeLabel(item.scope)}{item.filtered ? " · filtered resources" : ""}{item.installedPath ? ` · ${item.installedPath}` : ""}</span></div><span className={item.updateAvailable || item.loaded ? "professional-status-badge enabled" : "professional-status-badge"}>{packageStatusLabel(item)}</span><div className="capabilities-package-actions"><button className="professional-button professional-button-secondary" type="button" disabled={Boolean(packageBusy)} onClick={() => onPackageAction(item, "update")}>{packageBusy === updateKey ? <ArrowSync16Regular className="spin" /> : null}Update</button><button className="minimal-icon-button" type="button" disabled={Boolean(packageBusy)} onClick={() => onPackageAction(item, "remove")} aria-label={`Remove ${item.displayName || item.source}`} title="Remove package">{packageBusy === removeKey ? <ArrowSync16Regular className="spin" /> : <Delete16Regular />}</button></div></article>;
+      })}</div>
+    </details>
+  );
+}
+
 function CoreToolsSection({ tools, management }: { tools: AgentTool[]; management?: AgentToolManagement }) {
-  const coreTools = tools.filter((tool) => tool.core === true || tool.kind === "core" || (tool.core === undefined && tool.kind === undefined && /^(?:pi|built-?in)$/i.test(tool.source.trim())));
+  const coreTools = tools.filter(isCoreTool);
   if (!coreTools.length) return null;
   return (
     <details className="capabilities-core-tools capabilities-management-section" data-management-mode={management?.mode}>
@@ -582,6 +609,10 @@ function CoreToolsSection({ tools, management }: { tools: AgentTool[]; managemen
       </div>
     </details>
   );
+}
+
+function isCoreTool(tool: AgentTool): boolean {
+  return tool.core === true || tool.kind === "core" || (tool.core === undefined && tool.kind === undefined && /^(?:pi|built-?in)$/i.test(tool.source.trim()));
 }
 
 function InstalledCapabilityCard({ item, onSelect }: { item: InstalledCapability; onSelect: () => void }) {
@@ -843,6 +874,10 @@ function productScope(value: AgentCapabilitySource["scope"] | AgentCapabilitySco
 
 function scopeLabel(scope: AgentCapabilityScope): string {
   return scope === "project" ? "This Space" : "Personal";
+}
+
+function scopedToolCount(count: number, scope: "Space" | "Personal"): string {
+  return `${count} ${scope} ${count === 1 ? "tool" : "tools"}`;
 }
 
 function humanizeToolName(name: string): string {

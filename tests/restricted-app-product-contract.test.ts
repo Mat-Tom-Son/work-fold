@@ -92,6 +92,8 @@ test("contributed app canvases share built-in spacing and native rounded corners
   assert.match(professionalSurfaces, /\.workspace-mode-pane > \.restricted-app-view\s*\{[^}]*height:\s*auto;[^}]*margin:\s*12px;/s);
   assert.match(viewport, /resolveRestrictedAppCornerRadius\(app\.manifest\.ui\.cornerRadius\)/);
   assert.match(viewport, /style=\{\{ borderRadius: cornerRadius \}\}/);
+  assert.match(viewport, /rail\.right \+ restrictedAppRailGuard/);
+  assert.match(viewport, /borderLeftWidth/);
   assert.match(desktopHost, /view\.setBorderRadius\(resolveRestrictedAppCornerRadius\(app\.manifest\.ui\.cornerRadius\)\)/);
 });
 
