@@ -21,6 +21,7 @@
 .app-shell .professional-workspace-rail {
   position: relative;
   z-index: 20;
+  isolation: isolate;
   align-items: stretch;
   gap: 8px;
   padding: 8px;

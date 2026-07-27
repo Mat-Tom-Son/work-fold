@@ -5,6 +5,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { resolveRestrictedAppCornerRadius } from "../../../../src/shared/restricted-app-presentation";
 import type { AppTheme, RestrictedAppInstalled, RestrictedAppViewRequest } from "../../types";
 
+const restrictedAppRailGuard = 12;
+
 export function RestrictedAppViewport({
   app,
   placement,
@@ -138,7 +140,8 @@ function viewRequest(
     active: boolean;
   },
 ): RestrictedAppViewRequest {
-  const bounds = element.getBoundingClientRect();
+  const elementBounds = element.getBoundingClientRect();
+  const bounds = nativeViewBounds(element, elementBounds, latest.placement);
   const active = latest.active && !element.hidden && document.visibilityState === "visible";
   return {
     workspaceId: latest.app.workspaceId,
@@ -150,11 +153,38 @@ function viewRequest(
     route: latest.route,
     ...(latest.state !== undefined ? { state: latest.state } : {}),
     sequence,
-    bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
+    bounds,
     active,
-    occluded: !active || bounds.width < 1 || bounds.height < 1 || nativeViewOccluded(element, bounds),
+    occluded: !active || bounds.width < 1 || bounds.height < 1 || nativeViewOccluded(element, elementBounds),
     theme: currentTheme(),
   };
+}
+
+function nativeViewBounds(element: HTMLElement, bounds: DOMRect, placement: "navigator" | "tab"): RestrictedAppViewRequest["bounds"] {
+  const style = getComputedStyle(element);
+  const borderLeft = cssPixelValue(style.borderLeftWidth);
+  const borderTop = cssPixelValue(style.borderTopWidth);
+  const borderRight = cssPixelValue(style.borderRightWidth);
+  const borderBottom = cssPixelValue(style.borderBottomWidth);
+  let left = bounds.left + borderLeft;
+  const top = bounds.top + borderTop;
+  const right = bounds.right - borderRight;
+  const bottom = bounds.bottom - borderBottom;
+  if (placement === "navigator") {
+    const rail = document.querySelector<HTMLElement>(".professional-workspace-rail")?.getBoundingClientRect();
+    if (rail) left = Math.max(left, rail.right + restrictedAppRailGuard);
+  }
+  return {
+    x: left,
+    y: top,
+    width: Math.max(0, right - left),
+    height: Math.max(0, bottom - top),
+  };
+}
+
+function cssPixelValue(value: string): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 }
 
 function currentTheme(): AppTheme {
