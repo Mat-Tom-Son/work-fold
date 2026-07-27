@@ -329,6 +329,12 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
   const surfaceCatalogKnown = Object.prototype.hasOwnProperty.call(surfaceCatalogs, workspace.id);
   const restrictedAppCatalogKnown = restrictedAppsState.knownWorkspaceIds.has(workspace.id);
   const restrictedApps = restrictedAppsState.appsByWorkspace[workspace.id] ?? [];
+  useEffect(() => {
+    tabs.reconcileRestrictedAppSurfaceTabs(
+      restrictedAppsState.appsByWorkspace,
+      restrictedAppsState.knownWorkspaceIds,
+    );
+  }, [restrictedAppsState.appsByWorkspace, restrictedAppsState.knownWorkspaceIds, tabs.reconcileRestrictedAppSurfaceTabs]);
   const surfaces = useMemo(() => contributedSurfaces(workspace.id, surfaceCatalogs[workspace.id] ?? []), [surfaceCatalogs, workspace.id]);
   const activeSurfaceKey = extensionSurfaceIdForMode(activeMode);
   const activeSurface = activeSurfaceKey ? resolveSurfaceForKey(surfaces, activeSurfaceKey) : null;

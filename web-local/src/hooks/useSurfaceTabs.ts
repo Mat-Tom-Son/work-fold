@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { chatDisplayTitle } from "../lib/format";
 import { readStoredJsonValue, writeStoredJsonValue } from "../lib/storage";
 import { retargetMovedPath } from "../lib/tree";
-import type { AgentExtensionSurfaceView, AssistantToolsView, CapabilitySurface, ConversationSummary, WorkspaceSummary, WorkspaceSurfaceTab } from "../types";
+import type { AgentExtensionSurfaceView, AssistantToolsView, CapabilitySurface, ConversationSummary, RestrictedAppInstalled, WorkspaceSummary, WorkspaceSurfaceTab } from "../types";
 
 const surfaceTabsStorageKey = "workspace.surfaceTabs.v1";
 
@@ -217,6 +217,23 @@ export function useSurfaceTabs({
     closeSurfaceTab(restrictedAppSurfaceTabId(workspaceId, appId, digest, appTabId));
   }
 
+  const reconcileRestrictedAppSurfaceTabs = useCallback((
+    appsByWorkspace: Record<string, RestrictedAppInstalled[]>,
+    knownWorkspaceIds: ReadonlySet<string>,
+  ): void => {
+    setSurfaceTabs((current) => {
+      const next = closeUnavailableRestrictedAppSurfaceTabs(current, appsByWorkspace, knownWorkspaceIds);
+      if (next === current) return current;
+      setActiveSurfaceTabId((currentActiveTabId) => {
+        if (currentActiveTabId && next.some((tab) => tab.id === currentActiveTabId)) return currentActiveTabId;
+        const removedActiveIndex = current.findIndex((tab) => tab.id === currentActiveTabId);
+        const fallback = next[Math.max(0, Math.min(removedActiveIndex, next.length - 1))] ?? next[0];
+        return fallback?.id ?? null;
+      });
+      return next;
+    });
+  }, []);
+
   function closeSurfaceTab(tabId: string): void {
     setSurfaceTabs((current) => {
       const index = current.findIndex((tab) => tab.id === tabId);
@@ -289,6 +306,7 @@ export function useSurfaceTabs({
     openRestrictedAppSurfaceTab,
     updateRestrictedAppSurfaceTab,
     closeRestrictedAppSurfaceTab,
+    reconcileRestrictedAppSurfaceTabs,
     closeSurfaceTab,
     handleTabConversationActivated,
     removeWorkspaceSurfaceTabs,
@@ -658,6 +676,18 @@ function restrictedAppSurfaceTabId(workspaceId: string, appId: string, digest: s
   return `restricted-app:${workspaceId}:${appId}:${digest}:${appTabId}`;
 }
 
+function closeUnavailableRestrictedAppSurfaceTabs(
+  tabs: WorkspaceSurfaceTab[],
+  appsByWorkspace: Record<string, Array<{ manifest: { id: string }; digest: string }>>,
+  knownWorkspaceIds: ReadonlySet<string>,
+): WorkspaceSurfaceTab[] {
+  const next = tabs.filter((tab) => {
+    if (tab.kind !== "restricted-app" || !knownWorkspaceIds.has(tab.workspaceId)) return true;
+    return (appsByWorkspace[tab.workspaceId] ?? []).some((app) => app.manifest.id === tab.appId && app.digest === tab.digest);
+  });
+  return next.length === tabs.length ? tabs : next;
+}
+
 function validRestrictedAppRoute(value: string): boolean {
   if (value.length > 2_048 || /[\\\0\r\n]/.test(value) || !value.startsWith("/") || value.startsWith("//")) return false;
   try {
@@ -689,6 +719,7 @@ function closeFileSurfaceTabs(tabs: WorkspaceSurfaceTab[], workspaceId: string, 
 export {
   activeTabAfterConversationActivation,
   closeFileSurfaceTabs,
+  closeUnavailableRestrictedAppSurfaceTabs,
   fileSurfaceTab,
   fileSurfaceTabId,
   historySurfaceTab,

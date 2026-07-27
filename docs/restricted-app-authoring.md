@@ -423,6 +423,10 @@ limited to 200 entries. Every write is atomic and creates a targeted History
 checkpoint. Grant-relative paths cannot traverse links, metadata roots, or the
 selected Space target.
 
+For a declaration whose target is one exact `file`, use `path: "."` to read or
+replace that selected file. Exact-file grants cannot list children or create a
+different filename; `mode: "replace"` is the only permitted write mode.
+
 ## Worker tools and automations
 
 The optional worker is a separate hidden sandbox. It has the same bridge name,

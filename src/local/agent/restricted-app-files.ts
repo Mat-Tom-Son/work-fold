@@ -286,7 +286,7 @@ export class RestrictedAppFileBroker {
     if (!parentInfo?.isDirectory() || parentInfo.isSymbolicLink()) {
       throw new RestrictedAppFileError("FILE_DENIED", "The granted file parent is not an ordinary folder.");
     }
-    await assertCanonicalContainment(prepared, parentPath);
+    await assertWriteParentContainment(prepared, parentPath);
 
     const temporary = join(parentPath, `.workspace-app-write-${randomUUID()}.tmp`);
     let temporaryPresent = false;
@@ -303,7 +303,7 @@ export class RestrictedAppFileBroker {
       // Recheck the authority boundary and destination immediately before the
       // atomic namespace operation. This also rejects a link swapped in after
       // the initial validation.
-      await assertCanonicalContainment(prepared, parentPath);
+      await assertWriteParentContainment(prepared, parentPath);
       const latest = await safeLstat(target.absolutePath);
       if (latest?.isSymbolicLink() || (latest && !latest.isFile())) {
         throw new RestrictedAppFileError("FILE_DENIED", "Restricted apps can write only ordinary files.");
@@ -404,6 +404,27 @@ async function assertCanonicalContainment(prepared: PreparedGrant, path: string)
   });
   if (!pathContains(prepared.workspaceRealRoot, resolved) || !pathContains(prepared.grantRealRoot, resolved)) {
     throw new RestrictedAppFileError("FILE_DENIED", "The app path escapes its Space file grant.");
+  }
+}
+
+async function assertWriteParentContainment(prepared: PreparedGrant, parentPath: string): Promise<void> {
+  if (prepared.declaration.target !== "file") {
+    await assertCanonicalContainment(prepared, parentPath);
+    return;
+  }
+
+  const expectedParent = resolve(prepared.grantRoot, "..");
+  if (resolve(parentPath) !== expectedParent) {
+    throw new RestrictedAppFileError("FILE_DENIED", "The app file parent escapes its grant.");
+  }
+  await assertNoLinkSegments(prepared.workspaceRoot, parentPath);
+  const resolvedParent = await realpath(parentPath).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") throw new RestrictedAppFileError("FILE_NOT_FOUND", "The granted file parent does not exist.");
+    throw fileSystemError(error, "Workspace could not resolve the granted app file parent.");
+  });
+  if (!pathContains(prepared.workspaceRealRoot, resolvedParent)
+    || resolvedParent !== resolve(prepared.grantRealRoot, "..")) {
+    throw new RestrictedAppFileError("FILE_DENIED", "The app file parent escapes its Space file grant.");
   }
 }
 

@@ -9,6 +9,7 @@ const {
   assistantToolsSurfaceTab,
   appStudioSurfaceTab,
   closeFileSurfaceTabs,
+  closeUnavailableRestrictedAppSurfaceTabs,
   fileSurfaceTab,
   librarySurfaceTab,
   migrateLegacyLibrarySurfaceTabState,
@@ -56,6 +57,11 @@ interface SurfaceTabsExports {
   assistantToolsSurfaceTab: (space: SpaceSummary, view?: "installed" | "discover") => SurfaceTab;
   appStudioSurfaceTab: (space: SpaceSummary) => SurfaceTab;
   closeFileSurfaceTabs: (tabs: SurfaceTab[], workspaceId: string, deletedPaths: Set<string>) => SurfaceTab[];
+  closeUnavailableRestrictedAppSurfaceTabs: (
+    tabs: SurfaceTab[],
+    appsByWorkspace: Record<string, Array<{ manifest: { id: string }; digest: string }>>,
+    knownWorkspaceIds: ReadonlySet<string>,
+  ) => SurfaceTab[];
   fileSurfaceTab: (space: SpaceSummary, path: string) => SurfaceTab;
   librarySurfaceTab: (space: SpaceSummary) => SurfaceTab;
   migrateLegacyLibrarySurfaceTabState: (
@@ -186,6 +192,49 @@ test("restored tabs belonging to removed Spaces are discarded", () => {
     tabs: [{ id: "chat:space-1:new", kind: "chat", workspaceId: "space-1", conversationId: null, title: "New chat" }],
     activeTabId: "chat:space-1:new",
   });
+});
+
+test("restricted app tabs close when their installed revision changes", () => {
+  const currentDigest = "a".repeat(64);
+  const staleDigest = "b".repeat(64);
+  const tabs: SurfaceTab[] = [
+    { id: "chat:space-1:new", kind: "chat", workspaceId: "space-1", conversationId: null, title: "New chat" },
+    {
+      id: restrictedAppSurfaceTabId("space-1", "trip-studio", staleDigest, "destination:lisbon"),
+      kind: "restricted-app",
+      workspaceId: "space-1",
+      appId: "trip-studio",
+      digest: staleDigest,
+      appTabId: "destination:lisbon",
+      route: "/destination/lisbon",
+      title: "Lisbon pulse",
+    },
+    {
+      id: restrictedAppSurfaceTabId("space-1", "trip-studio", currentDigest, "destination:copenhagen"),
+      kind: "restricted-app",
+      workspaceId: "space-1",
+      appId: "trip-studio",
+      digest: currentDigest,
+      appTabId: "destination:copenhagen",
+      route: "/destination/copenhagen",
+      title: "Copenhagen pulse",
+    },
+    {
+      id: restrictedAppSurfaceTabId("space-2", "unknown", staleDigest, "overview"),
+      kind: "restricted-app",
+      workspaceId: "space-2",
+      appId: "unknown",
+      digest: staleDigest,
+      appTabId: "overview",
+      route: "/",
+      title: "Still loading",
+    },
+  ];
+
+  assert.deepEqual(closeUnavailableRestrictedAppSurfaceTabs(tabs, {
+    "space-1": [{ manifest: { id: "trip-studio" }, digest: currentDigest }],
+  }, new Set(["space-1"])), [tabs[0], tabs[2], tabs[3]]);
+  assert.equal(closeUnavailableRestrictedAppSurfaceTabs(tabs, {}, new Set()), tabs);
 });
 
 test("each Space remembers its most recently active tab", () => {

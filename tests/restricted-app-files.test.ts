@@ -86,6 +86,14 @@ test("Space file broker honors safe relative grant roots and file targets", asyn
 
   const file = context(root, { root: "selected/inside.txt", target: "file" });
   assert.equal((await broker.read(file, { grantId: "selected-project-files", path: "." })).data, "inside");
+  const replaced = await broker.write(file, {
+    grantId: "selected-project-files",
+    path: ".",
+    data: "updated",
+    mode: "replace",
+  });
+  assert.equal(replaced.path, ".");
+  assert.equal(await readFile(join(root, "selected", "inside.txt"), "utf8"), "updated");
   await assert.rejects(
     broker.read(file, { grantId: "selected-project-files", path: "anything.txt" }),
     fileError("FILE_DENIED"),

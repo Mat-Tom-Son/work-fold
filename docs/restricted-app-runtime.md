@@ -186,7 +186,9 @@ those values from the sending `WebContents` and constructs
 `restricted-app:<space>:<app>:<digest>:<appTabId>`. App tabs use the same shell
 storage, cross-Space activation, close behavior, and most-recent-tab restoration
 as built-in tabs. An updated or removed revision cannot silently take over a
-persisted old tab.
+persisted old tab. Once the host has loaded the current installed-app catalog,
+it closes tabs owned by a digest that is no longer installed instead of leaving
+an unavailable or duplicate old-revision tab in the strip.
 
 ## Worker host
 
@@ -292,8 +294,11 @@ Feature Installation, exact revision, current authority, and the selected root.
 The broker rejects absolute paths, traversal, links and
 junction escapes, alternate data streams, `.workspace`, `.pi`, oversized
 operations, and authority beyond the declaration. Writes are atomic and create
-a targeted History checkpoint. Revocation or a digest update stops current app
-hosts and removes the grant; uninstall never deletes or rewrites Space files.
+a targeted History checkpoint. An exact-file grant uses the grant-relative
+path `.` and may replace only that selected file; its atomic temporary stays in
+the verified ordinary parent directory without widening sandbox authority.
+Revocation or a digest update stops current app hosts and removes the grant;
+uninstall never deletes or rewrites Space files.
 
 ## Review and lifecycle
 
