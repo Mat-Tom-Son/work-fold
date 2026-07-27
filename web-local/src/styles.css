@@ -6862,6 +6862,20 @@ textarea,
   text-align: left;
 }
 
+.chat-other-workspace-icon {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  align-self: center;
+  justify-self: center;
+  color: var(--workspace-custom-color, var(--workspace-selection-accent));
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 .chat-other-workspace-toggle > span:nth-child(2) {
   min-width: 0;
   overflow: hidden;
@@ -13176,6 +13190,12 @@ textarea,
 .app-shell[data-theme="dark"] .chat-other-workspace-toggle:focus-visible {
   color: #dbe3ee;
   background: rgba(148, 163, 184, 0.1);
+}
+
+.app-shell[data-theme="dark"] .chat-other-workspace-icon {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .app-shell[data-theme="dark"] .chat-rename-popover label > span,

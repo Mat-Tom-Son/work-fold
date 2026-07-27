@@ -352,7 +352,7 @@ export function ChatsPane({
                       aria-controls={`chat-other-workspace-${item.id}`}
                       onClick={() => toggleOtherWorkspace(item.id)}
                     >
-                      <span className="workspace-identity-icon" aria-hidden="true"><WorkspaceIconGlyph icon={identity.Icon} size={14} /></span>
+                      <span className="workspace-identity-icon chat-other-workspace-icon" aria-hidden="true"><WorkspaceIconGlyph icon={identity.Icon} size={14} /></span>
                       <span>{item.name}</span>
                       {status ? <ChatActivityIndicator status={status} /> : null}
                       <small>{list.length}</small>

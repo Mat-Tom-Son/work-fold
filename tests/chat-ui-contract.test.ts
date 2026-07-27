@@ -65,6 +65,19 @@ test("Chats foreground the active Space and collapse other Spaces until requeste
   assert.match(panes, /aria-label=\{`New Chat in \$\{item\.name\}`\}/);
 });
 
+test("Other Space identity glyphs stay centered without decorative tiles", () => {
+  assert.match(panes, /className="workspace-identity-icon chat-other-workspace-icon"/);
+  const iconRule = styles.match(/\.chat-other-workspace-icon\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+  assert.match(iconRule, /width:\s*18px/);
+  assert.match(iconRule, /height:\s*18px/);
+  assert.match(iconRule, /display:\s*grid/);
+  assert.match(iconRule, /place-items:\s*center/);
+  assert.match(iconRule, /background:\s*transparent/);
+  assert.match(iconRule, /border:\s*0/);
+  assert.match(iconRule, /box-shadow:\s*none/);
+  assert.match(styles, /\.app-shell\[data-theme="dark"\] \.chat-other-workspace-icon\s*\{[\s\S]*?background:\s*transparent/);
+});
+
 test("Chat titles flow from conversation metadata into tabs without tab labels mutating Chats", () => {
   assert.doesNotMatch(chatPanel, /targetConversationTitle/);
   assert.doesNotMatch(app, /targetConversationTitle=/);
