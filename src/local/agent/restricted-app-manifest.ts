@@ -1,6 +1,8 @@
 import { isIP } from "node:net";
 import { extname, posix } from "node:path";
 
+import { restrictedAppMaximumCornerRadius } from "../../shared/restricted-app-presentation.js";
+
 export const restrictedAppManifestVersion = 2 as const;
 export const restrictedAppRuntimeKind = "sandboxed-web" as const;
 
@@ -171,6 +173,7 @@ export interface RestrictedAppManifest {
   };
   ui: {
     icon?: string;
+    cornerRadius?: number;
   };
   tools: RestrictedAppToolDeclaration[];
   permissions: {
@@ -245,8 +248,16 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
   const worker = runtime.worker === undefined
     ? undefined
     : packagePathValue(runtime.worker, "Restricted app worker entry", [".js", ".mjs"]);
-  const ui = objectValue(manifest.ui, "Restricted app UI", ["icon"]);
+  const ui = objectValue(manifest.ui, "Restricted app UI", ["icon", "cornerRadius"]);
   const icon = optionalIdValue(ui.icon, "Restricted app UI icon");
+  const cornerRadius = ui.cornerRadius === undefined
+    ? undefined
+    : boundedIntegerValue(
+      ui.cornerRadius,
+      "Restricted app UI corner radius",
+      0,
+      restrictedAppMaximumCornerRadius,
+    );
   const tools = arrayValue(manifest.tools, "Restricted app tools", 0, 16)
     .map((tool, index) => parseTool(tool, index));
   if (tools.length && !worker) throw new Error("Restricted apps that expose Assistant tools must declare a sandboxed worker entry.");
@@ -291,7 +302,10 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
     title: notificationTextValue(manifest.title, "Restricted app title", 80),
     ...(description ? { description } : {}),
     runtime: { kind: restrictedAppRuntimeKind, entry, ...(worker ? { worker } : {}) },
-    ui: { ...(icon ? { icon } : {}) },
+    ui: {
+      ...(icon ? { icon } : {}),
+      ...(cornerRadius !== undefined ? { cornerRadius } : {}),
+    },
     tools,
     permissions: { network, files, notifications },
     automations,
@@ -356,6 +370,18 @@ function intervalMinutesValue(value: unknown, label: string): number {
   const { minimum, maximum } = restrictedAppAutomationIntervalMinutes;
   if (!Number.isInteger(value) || (value as number) < minimum || (value as number) > maximum) {
     throw new Error(`${label} must be between ${minimum} and ${maximum} minutes.`);
+  }
+  return value as number;
+}
+
+function boundedIntegerValue(
+  value: unknown,
+  label: string,
+  minimum: number,
+  maximum: number,
+): number {
+  if (!Number.isInteger(value) || (value as number) < minimum || (value as number) > maximum) {
+    throw new Error(`${label} must be a whole number between ${minimum} and ${maximum}.`);
   }
   return value as number;
 }

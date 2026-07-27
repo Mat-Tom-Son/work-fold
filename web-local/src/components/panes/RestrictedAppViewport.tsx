@@ -2,6 +2,7 @@ import { ArrowClockwise20Regular, Apps24Regular } from "@fluentui/react-icons";
 import { Loader2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { resolveRestrictedAppCornerRadius } from "../../../../src/shared/restricted-app-presentation";
 import type { AppTheme, RestrictedAppInstalled, RestrictedAppViewRequest } from "../../types";
 
 export function RestrictedAppViewport({
@@ -26,6 +27,7 @@ export function RestrictedAppViewport({
   const [generation, setGeneration] = useState(0);
   const [viewState, setViewState] = useState<"loading" | "ready" | "crashed">("loading");
   const [message, setMessage] = useState("");
+  const cornerRadius = resolveRestrictedAppCornerRadius(app.manifest.ui.cornerRadius);
   latestRef.current = { app, placement, appTabId, route, state, active };
   const desktop = window.workspaceDesktop?.restrictedApps;
 
@@ -105,11 +107,11 @@ export function RestrictedAppViewport({
   }, [active, appTabId, desktop, placement, route, state]);
 
   if (!desktop) {
-    return <div className="restricted-app-view restricted-app-view-fallback"><Apps24Regular /><strong>{app.manifest.title}</strong><span>Interactive app views run in Workspace desktop.</span></div>;
+    return <div className="restricted-app-view restricted-app-view-fallback" style={{ borderRadius: cornerRadius }}><Apps24Regular /><strong>{app.manifest.title}</strong><span>Interactive app views run in Workspace desktop.</span></div>;
   }
 
   return (
-    <div className="restricted-app-view" ref={hostRef} data-restricted-app-mount={mountIdRef.current}>
+    <div className="restricted-app-view" ref={hostRef} data-restricted-app-mount={mountIdRef.current} style={{ borderRadius: cornerRadius }}>
       {viewState === "loading" ? <div className="restricted-app-view-status"><Loader2 className="spin" /><span>Starting {app.manifest.title}</span></div> : null}
       {viewState === "crashed" ? (
         <div className="restricted-app-view-status restricted-app-view-error">

@@ -54,6 +54,7 @@ import {
   parsePrincipalId,
   type EffectivePrincipal,
 } from "../../src/local/agent/app-platform-contract.js";
+import { resolveRestrictedAppCornerRadius } from "../../src/shared/restricted-app-presentation.js";
 
 export const restrictedAppProtocol = "agent-app";
 const networkChannel = "workspace:restricted-app:network";
@@ -467,6 +468,9 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
         ],
       },
     });
+    // This clips the native pixels, not hit testing. The owning placeholder's
+    // inset keeps the rounded cutout over inert pane background.
+    view.setBorderRadius(resolveRestrictedAppCornerRadius(app.manifest.ui.cornerRadius));
     const entryPath = `/${app.manifest.runtime.entry}`;
     const instance: RestrictedAppUiInstance = {
       mountId: request.mountId,

@@ -524,7 +524,7 @@ function smokeManifest(loopbackPort) {
     id: "restricted-electron-smoke",
     title: "Restricted Electron smoke",
     runtime: { kind: "sandboxed-web", entry: "index.html", worker: "worker.js" },
-    ui: { icon: "apps" },
+    ui: { icon: "apps", cornerRadius: 24 },
     tools: [
       {
         name: "probe",

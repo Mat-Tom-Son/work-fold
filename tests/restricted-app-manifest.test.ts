@@ -5,6 +5,10 @@ import {
   parseRestrictedAppManifest,
   restrictedAppManifestVersion,
 } from "../src/local/agent/restricted-app-manifest.js";
+import {
+  restrictedAppDefaultCornerRadius,
+  restrictedAppMaximumCornerRadius,
+} from "../src/shared/restricted-app-presentation.js";
 
 function manifest(overrides: Record<string, unknown> = {}) {
   return {
@@ -79,6 +83,25 @@ test("restricted app manifests normalize a bounded sandbox, tool, and connection
   assert.deepEqual(parsed.permissions.files, [{ id: "exports", target: "directory", access: "read-write" }]);
   assert.deepEqual(parsed.permissions.notifications, [{ id: "new-mail", title: "New mail", description: "New messages are ready." }]);
   assert.equal(parsed.automations[0]?.id, "refresh-inbox");
+  assert.equal(parsed.ui.cornerRadius, undefined);
+});
+
+test("restricted app canvas corners default in the host and accept a bounded manifest override", () => {
+  assert.equal(restrictedAppDefaultCornerRadius, 12);
+  assert.equal(restrictedAppMaximumCornerRadius, 24);
+  for (const cornerRadius of [0, 12, 24]) {
+    assert.equal(parseRestrictedAppManifest(manifest({
+      ui: { icon: "mail", cornerRadius },
+    })).ui.cornerRadius, cornerRadius);
+  }
+  for (const cornerRadius of [-1, 24.5, 25, "12"]) {
+    assert.throws(() => parseRestrictedAppManifest(manifest({
+      ui: { icon: "mail", cornerRadius },
+    })), /corner radius must be a whole number between 0 and 24/);
+  }
+  assert.throws(() => parseRestrictedAppManifest(manifest({
+    ui: { icon: "mail", cornerRadius: 12, shadow: "large" },
+  })), /Restricted app UI (?:contains an unsupported field|has too many fields)/);
 });
 
 test("restricted app manifests normalize named automations with explicit permission subsets", () => {

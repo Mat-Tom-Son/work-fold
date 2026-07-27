@@ -462,7 +462,7 @@ export interface RestrictedAppManifest {
   title: string;
   description?: string;
   runtime: { kind: "sandboxed-web"; entry: string; worker?: string };
-  ui: { icon?: string };
+  ui: { icon?: string; cornerRadius?: number };
   tools: RestrictedAppTool[];
   automations: RestrictedAppAutomation[];
   permissions: {

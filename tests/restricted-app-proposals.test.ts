@@ -37,6 +37,7 @@ test("propose_space_app exposes only a Space-relative path and returns the host-
   assert.deepEqual(Object.keys((tool.parameters as any).properties), ["sourcePath"]);
   assert.equal((tool.parameters as any).additionalProperties, false);
   const guidance = tool.promptGuidelines?.join("\n") ?? "";
+  assert.match(guidance, /cornerRadius is an optional whole number from 0 through 24/);
   assert.match(guidance, /agent-app\.json version 2/);
   assert.match(guidance, /workspaceRestrictedApp/);
   assert.match(guidance, /handleAutomation/);

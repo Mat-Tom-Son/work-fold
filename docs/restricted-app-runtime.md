@@ -32,7 +32,8 @@ restricted execution boundary before the app opened.
 - a required `sandboxed-web` HTML entry;
 - an optional JavaScript worker entry for Assistant tools and named
   automations;
-- optional UI metadata such as a rail icon;
+- optional UI metadata such as a rail icon and a whole-pixel app-canvas corner
+  radius from 0 through 24;
 - bounded Assistant tool declarations using a closed JSON Schema subset; and
 - exact broker destinations, methods, and acceptable authentication modes;
 - reviewed Space-file needs (`file` or `directory`, `read` or `read-write`);
@@ -144,6 +145,14 @@ CSP permits only reviewed same-origin scripts, styles, images, and fonts. Native
 view bounds and visibility follow the owning DOM placeholder; inactive tabs,
 hidden windows, minimization, and modal occlusion detach the native view while
 leaving its renderer alive.
+
+The shell gives a navigator app the same 12px inset used by built-in pane
+content. Its placeholder and native view share a rounded 12px canvas by
+default. A reviewed manifest may override that radius from 0 through 24 pixels;
+the host clips the native view itself because renderer CSS cannot clip a
+`WebContentsView` layered above it. Electron's rounded cutout is visual only;
+the corner area still participates in hit testing, so the inset keeps it over
+inert pane background rather than trusted controls.
 
 The preload exposes only `workspaceRestrictedApp`:
 

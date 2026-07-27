@@ -131,7 +131,8 @@ template exercises every current section:
     "worker": "worker.js"
   },
   "ui": {
-    "icon": "mail"
+    "icon": "mail",
+    "cornerRadius": 12
   },
   "tools": [
     {
@@ -218,6 +219,14 @@ template exercises every current section:
   }
 }
 ```
+
+`ui.cornerRadius` is optional presentation metadata. Workspace uses a rounded
+12px app canvas when it is omitted. Apps may request a whole-pixel radius from
+0 through 24; use `0` only when the app intentionally owns a square edge. The
+host applies the reviewed value to both the HTML placeholder and the native
+`WebContentsView`, so an app cannot accidentally paint square corners over a
+rounded shell. Omit the field when targeting older Workspace builds: older
+strict manifest parsers do not recognize presentation fields added later.
 
 Manifest ids use lowercase letters, numbers, and hyphens. `ui`, `tools`, and
 `automations` are required even when they are empty (`{}`, `[]`, and `[]`).

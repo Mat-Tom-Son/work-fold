@@ -4,7 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 const root = process.cwd();
-const [capabilities, apps, chat, workspaceApp, workspaceChrome, viewport, styles, professionalSurfaces] = await Promise.all([
+const [capabilities, apps, chat, workspaceApp, workspaceChrome, viewport, styles, professionalSurfaces, desktopHost] = await Promise.all([
   read("web-local/src/components/panes/CapabilitiesPane.tsx"),
   read("web-local/src/components/panes/RestrictedAppsSection.tsx"),
   read("web-local/src/components/chat/ChatPanel.tsx"),
@@ -13,6 +13,7 @@ const [capabilities, apps, chat, workspaceApp, workspaceChrome, viewport, styles
   read("web-local/src/components/panes/RestrictedAppViewport.tsx"),
   read("web-local/src/styles.css"),
   read("web-local/src/professional-surfaces.css"),
+  read("desktop/src/restricted-app-host.ts"),
 ]);
 
 test("Apps product hierarchy starts with the Assistant and keeps local preview loading advanced", () => {
@@ -85,6 +86,13 @@ test("the Space menu occludes native restricted-app views from the first animati
   assert.match(viewport, /const explicitOccluder = candidate\.dataset\.nativeViewOccluder === "true"/);
   assert.match(viewport, /\(!explicitOccluder && Number\(style\.opacity\) === 0\)/);
   assert.match(viewport, /style\.display === "none" \|\| style\.visibility === "hidden"/);
+});
+
+test("contributed app canvases share built-in spacing and native rounded corners", () => {
+  assert.match(professionalSurfaces, /\.workspace-mode-pane > \.restricted-app-view\s*\{[^}]*height:\s*auto;[^}]*margin:\s*12px;/s);
+  assert.match(viewport, /resolveRestrictedAppCornerRadius\(app\.manifest\.ui\.cornerRadius\)/);
+  assert.match(viewport, /style=\{\{ borderRadius: cornerRadius \}\}/);
+  assert.match(desktopHost, /view\.setBorderRadius\(resolveRestrictedAppCornerRadius\(app\.manifest\.ui\.cornerRadius\)\)/);
 });
 
 test("owning Chat renders digest review, defers install while running, and opens the installed interactive app", () => {
