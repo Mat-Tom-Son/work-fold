@@ -315,7 +315,7 @@
     visibility: hidden;
     pointer-events: none;
     transform: translateY(-50%) translateX(-2px);
-    transition: opacity 80ms ease 320ms, transform 80ms ease 320ms, visibility 0s linear 400ms;
+    transition: opacity 80ms ease, transform 80ms ease, visibility 0s linear 80ms;
   }
 
   .app-shell .professional-workspace-rail [data-rail-tooltip]:hover::after,
@@ -323,11 +323,11 @@
     opacity: 1;
     visibility: visible;
     transform: translateY(-50%) translateX(0);
-    transition-delay: 320ms, 320ms, 0s;
+    transition-delay: 320ms, 320ms, 320ms;
   }
 
   .app-shell .professional-workspace-rail [data-rail-tooltip]:focus-visible::after {
-    transition-delay: 0s;
+    transition-delay: 40ms, 40ms, 40ms;
   }
 }
 
