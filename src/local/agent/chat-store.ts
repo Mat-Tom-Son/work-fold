@@ -18,6 +18,23 @@ export interface ChatMessage {
   titleSource?: "placeholder" | "generated" | "manual";
   lifecycle?: ConversationLifecyclePatch;
   landing?: ChatMessageLanding;
+  interruption?: ChatMessageInterruption;
+}
+
+export interface ChatMessageInterruption {
+  reason: "provider_error";
+  message: string;
+  retryAttempts: number;
+  provider: string | null;
+  model: string | null;
+  activities: ChatMessageInterruptionActivity[];
+}
+
+export interface ChatMessageInterruptionActivity {
+  message: string;
+  detail?: string;
+  toolName?: string;
+  phase?: "queued" | "running" | "streaming" | "complete" | "error";
 }
 
 export interface ConversationSummary {
@@ -423,10 +440,41 @@ function parseChatMessage(line: string): ChatMessage | null {
       message.lifecycle = normalizeLifecyclePatch(parsed.lifecycle);
     }
     if (isChatMessageLanding(parsed.landing)) message.landing = parsed.landing;
+    if (isChatMessageInterruption(parsed.interruption)) message.interruption = parsed.interruption;
     return message;
   } catch {
     return null;
   }
+}
+
+function isChatMessageInterruption(value: unknown): value is ChatMessageInterruption {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Partial<ChatMessageInterruption>;
+  return record.reason === "provider_error"
+    && typeof record.message === "string"
+    && typeof record.retryAttempts === "number"
+    && Number.isInteger(record.retryAttempts)
+    && record.retryAttempts >= 0
+    && (record.provider === null || typeof record.provider === "string")
+    && (record.model === null || typeof record.model === "string")
+    && Array.isArray(record.activities)
+    && record.activities.every(isChatMessageInterruptionActivity);
+}
+
+function isChatMessageInterruptionActivity(value: unknown): value is ChatMessageInterruptionActivity {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Partial<ChatMessageInterruptionActivity>;
+  return typeof record.message === "string"
+    && (record.detail === undefined || typeof record.detail === "string")
+    && (record.toolName === undefined || typeof record.toolName === "string")
+    && (
+      record.phase === undefined
+      || record.phase === "queued"
+      || record.phase === "running"
+      || record.phase === "streaming"
+      || record.phase === "complete"
+      || record.phase === "error"
+    );
 }
 
 function isChatMessageLanding(value: unknown): value is ChatMessageLanding {

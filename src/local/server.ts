@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   PiConversationClient,
+  PiTurnFailure,
   isPiTurnCancelledError,
   type PiChatEvent,
   type PiRuntimeProvider,
@@ -1567,10 +1568,39 @@ async function runAgentTurn(
     }
     broadcast(state, streamKey(workspaceId, conversationId), { type: "done", conversationId });
   } catch (error) {
-    const message = isPiTurnCancelledError(error) ? "Agent turn cancelled." : errorMessage(error);
+    let partialResponsePreserved = false;
+    if (error instanceof PiTurnFailure) {
+      const interruptedMessage = {
+        id: randomUUID(),
+        role: "assistant" as const,
+        content: error.partialText || "The Assistant was interrupted before it could finish its response.",
+        createdAt: new Date().toISOString(),
+        interruption: {
+          reason: "provider_error" as const,
+          message: error.message,
+          retryAttempts: error.retryAttempts,
+          provider: error.provider,
+          model: error.model,
+          activities: error.activities,
+        },
+      };
+      try {
+        await appendMessage(workspaceRoot, conversationId, interruptedMessage);
+        partialResponsePreserved = true;
+      } catch (preservationError) {
+        console.error(`Could not preserve an interrupted Assistant response: ${errorMessage(preservationError)}`);
+      }
+    }
+    const message = assistantTurnFailureMessage(error, partialResponsePreserved);
     broadcast(state, streamKey(workspaceId, conversationId), { type: "error", conversationId, message });
-    await client?.stop().catch(() => undefined);
-    state.clients.delete(key);
+    // A provider failure settles the Pi session cleanly after its bounded retry
+    // path. Keep that live session so the next user message can continue from
+    // completed tool results. Unexpected runtime failures still rebuild the
+    // client from the durable Pi session on the next turn.
+    if (!(error instanceof PiTurnFailure)) {
+      await client?.stop().catch(() => undefined);
+      state.clients.delete(key);
+    }
   } finally {
     if (promptStarted) await captureTurnCheckpointSafe(state, workspaceId, workspaceRoot, conversationId, "post_turn");
     state.runningTurns.delete(key);
@@ -1578,6 +1608,17 @@ async function runAgentTurn(
     broadcast(state, key, turnStateEvent(conversationId, false));
     changeTurnCount(state, -1);
   }
+}
+
+function assistantTurnFailureMessage(error: unknown, partialResponsePreserved: boolean): string {
+  if (isPiTurnCancelledError(error)) return "Assistant turn cancelled.";
+  if (!(error instanceof PiTurnFailure)) return errorMessage(error);
+  const retrySummary = error.retryAttempts > 0
+    ? ` after ${error.retryAttempts} automatic ${error.retryAttempts === 1 ? "retry" : "retries"}`
+    : "";
+  return partialResponsePreserved
+    ? `The model stopped responding${retrySummary}. Workspace preserved the partial response and completed activity below.`
+    : `The model stopped responding${retrySummary}, and Workspace could not preserve the partial response.`;
 }
 
 async function getClient(

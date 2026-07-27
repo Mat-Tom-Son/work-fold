@@ -78,7 +78,15 @@ export const ChatMessageRow = memo(function ChatMessageRow({
         key={workspaceLinkVersion}
       />
       {message.role === "assistant" && showLanding && message.landing ? <TurnLanding landing={message.landing} /> : null}
-      {showRecap ? <AgentActivityRecap events={activityRecap} /> : null}
+      {message.role === "assistant" && message.interruption ? <InterruptedTurn interruption={message.interruption} /> : null}
+      {message.role === "assistant" && message.interruption?.activities.length ? (
+        <AgentActivityRecap
+          events={message.interruption.activities.map((activity, index) => ({
+            ...activity,
+            id: `interrupted-${message.id}-${index}`,
+          }))}
+        />
+      ) : showRecap ? <AgentActivityRecap events={activityRecap} /> : null}
       <footer className="message-footer">
         <span className="message-footer-meta">
           {message.createdAt && messageTime ? (
@@ -106,6 +114,7 @@ function areChatMessageRowPropsEqual(previous: ChatMessageRowProps, next: ChatMe
     && previousMessage.createdAt === nextMessage.createdAt
     && previousMessage.kind === nextMessage.kind
     && previousMessage.landing === nextMessage.landing
+    && previousMessage.interruption === nextMessage.interruption
   );
   const sameRuntimePreview = !previous.showRuntimePreview && !next.showRuntimePreview
     ? true
@@ -158,6 +167,18 @@ export function TurnLanding({ landing }: { landing: ChatMessageLanding }) {
           {landing.nextActions.map((action) => <li key={action}>{action}</li>)}
         </ul>
       ) : null}
+    </section>
+  );
+}
+
+function InterruptedTurn({ interruption }: { interruption: NonNullable<ChatMessage["interruption"]> }) {
+  const retryText = interruption.retryAttempts > 0
+    ? `${interruption.retryAttempts} automatic ${interruption.retryAttempts === 1 ? "retry" : "retries"} were attempted.`
+    : "The provider did not identify this as safely retryable.";
+  return (
+    <section className="turn-interruption" role="status" aria-label="Interrupted Assistant response">
+      <strong>Response interrupted</strong>
+      <span>Workspace preserved the partial response. {retryText}</span>
     </section>
   );
 }

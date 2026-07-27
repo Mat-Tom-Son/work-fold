@@ -8826,6 +8826,29 @@ textarea,
   line-height: 1.35;
 }
 
+.turn-interruption {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  margin-top: 13px;
+  padding: 9px 11px;
+  border: 1px solid rgba(180, 83, 9, 0.2);
+  border-radius: 7px;
+  color: #7c2d12;
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.turn-interruption strong {
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.turn-interruption span {
+  color: #7a4a24;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
 .runtime-preview {
   min-width: 0;
   margin: 0 0 14px;
@@ -11810,6 +11833,16 @@ textarea,
 .app-shell[data-theme="dark"] .turn-landing p,
 .app-shell[data-theme="dark"] .turn-landing ul {
   color: #cbd5e1;
+}
+
+.app-shell[data-theme="dark"] .turn-interruption {
+  color: #fed7aa;
+  background: rgba(180, 83, 9, 0.14);
+  border-color: rgba(251, 146, 60, 0.25);
+}
+
+.app-shell[data-theme="dark"] .turn-interruption span {
+  color: #fdba74;
 }
 
 .app-shell[data-theme="dark"] .file-details-pane {

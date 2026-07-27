@@ -138,6 +138,35 @@ test("chat store preserves assistant landing metadata", async (t) => {
   assert.deepEqual(await readConversation(workspaceRoot, "chat-landing"), [assistantMessage]);
 });
 
+test("chat store preserves interrupted assistant output and completed activity", async (t) => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-interruption-"));
+  t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+
+  const assistantMessage: ChatMessage = {
+    id: "assistant-interrupted-1",
+    role: "assistant",
+    content: "I inspected the manuscript and found",
+    createdAt: "2026-01-01T00:00:01Z",
+    interruption: {
+      reason: "provider_error",
+      message: "Provider returned an error while streaming.",
+      retryAttempts: 3,
+      provider: "openrouter",
+      model: "z-ai/glm-5.2",
+      activities: [{
+        message: "Read complete",
+        detail: "manuscript/chapter-one.md",
+        toolName: "read",
+        phase: "complete",
+      }],
+    },
+  };
+
+  await appendMessage(workspaceRoot, "chat-interrupted", assistantMessage);
+
+  assert.deepEqual(await readConversation(workspaceRoot, "chat-interrupted"), [assistantMessage]);
+});
+
 test("chat store prefers generated landing title in conversation summaries", async (t) => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-title-"));
   t.after(() => rm(workspaceRoot, { recursive: true, force: true }));

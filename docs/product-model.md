@@ -51,6 +51,8 @@ from the portable append-only transcript.
 
 Background state is quieter and machine-local: a small running marker follows an accepted Assistant turn across the Chat navigator and tab strip, and becomes an attention marker only when the turn settles out of view. Viewing the Chat clears that marker. This acknowledgement state is an app preference on the current computer, not portable conversation content.
 
+The configured provider and model remain visible in the Chat composer before the first message is sent. Transient provider failures use Pi's bounded retry path, which removes only the failed assistant attempt and continues from completed tool results instead of replaying them. If that retry budget is exhausted, Workspace appends the latest partial response and completed activity to the portable Chat transcript with an interruption marker. The same Pi session remains available so the next user message can continue from the surviving work.
+
 ## A Space is a view of a folder, not a new file format
 
 There are two honest ways to create a Space:
@@ -189,6 +191,7 @@ When a design is ambiguous, prefer the option that best preserves these properti
 - Restore content-addressed History checkpoints created around file mutations and Assistant turns.
 - Configure a Pi provider/model with an API key or an advertised Pi provider OAuth flow and use Pi's built-in tools.
 - Discover installed Skills, prompts, Extension commands, and supported built-ins from the Chat composer, and inspect the active model and context-window pressure during a conversation.
+- Show the configured provider/model before a Chat's first send, safely retry transient provider stream failures from completed tool results, and preserve terminal partial output and activity as a resumable interruption in the portable transcript.
 - Discover and search Personal and registered-Space Skills and Extensions in one Assistant tools work tab, with accurate source, scope, load state, and diagnostics.
 - Browse curated first-party/reference Skills and Extensions alongside community Pi packages, with type filters and explicit provenance.
 - Import standard Skills and compatible skill bundles while preserving their supporting files.

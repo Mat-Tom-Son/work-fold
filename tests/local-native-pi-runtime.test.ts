@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -10,7 +12,7 @@ import { ProjectTrustStore, SettingsManager } from "@earendil-works/pi-coding-ag
 import JSZip from "jszip";
 
 import { createPersistentPiAuthStorage, type PiAuthStorageData } from "../src/local/agent/auth-storage.js";
-import { PiConversationClient } from "../src/local/agent/pi-client.js";
+import { PiConversationClient, PiTurnFailure, type PiChatEvent } from "../src/local/agent/pi-client.js";
 import { RoutedPiExtensionUiBridge, type PiExtensionUiRequest } from "../src/local/agent/extension-ui.js";
 import { importPiSkillBundle } from "../src/local/agent/skill-import.js";
 import { loadAgentSkillCatalog } from "../src/local/agent/skill-catalog.js";
@@ -290,4 +292,123 @@ test("native Pi host discovers trusted project extensions, skills, context, comm
   assert.equal(runtimeState.usage.contextWindow === null || runtimeState.usage.contextWindow > 0, true);
   assert.match(await client.prompt("/new"), /unavailable because Workspace keeps the visible chat transcript synchronized/);
   assert.equal((await client.getState()).sessionId, sessionBefore);
+});
+
+test("generic provider finish errors retry from the safe point and retain the final partial attempt", async (t) => {
+  let requestCount = 0;
+  const providerServer = createServer((_request, response) => {
+    requestCount += 1;
+    response.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      connection: "close",
+    });
+    const send = (payload: unknown) => response.write(`data: ${JSON.stringify(payload)}\n\n`);
+    const chunk = (content: string, finishReason: string | null) => ({
+      id: `completion-${requestCount}`,
+      object: "chat.completion.chunk",
+      created: 1,
+      model: "retry-model",
+      choices: [{
+        index: 0,
+        delta: content ? { role: "assistant", content } : {},
+        finish_reason: finishReason,
+      }],
+    });
+
+    if (requestCount === 1) {
+      send(chunk("Discarded partial attempt.", null));
+      send(chunk("", "error"));
+    } else if (requestCount === 2) {
+      send(chunk("Recovered answer.", null));
+      send(chunk("", "stop"));
+    } else if (requestCount === 3) {
+      send(chunk("First doomed attempt.", null));
+      send(chunk("", "error"));
+    } else {
+      send(chunk("Last durable partial.", null));
+      send(chunk("", "error"));
+    }
+    response.end("data: [DONE]\n\n");
+  });
+  await new Promise<void>((resolve, reject) => {
+    providerServer.once("error", reject);
+    providerServer.listen(0, "127.0.0.1", resolve);
+  });
+  t.after(() => new Promise<void>((resolve, reject) => {
+    providerServer.close((error) => error ? reject(error) : resolve());
+  }));
+  const port = (providerServer.address() as AddressInfo).port;
+
+  const root = await mkdtemp(join(tmpdir(), "workspace-provider-retry-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const agentDir = join(root, "agent");
+  const workspaceRoot = join(root, "workspace");
+  await mkdir(join(agentDir, "extensions"), { recursive: true });
+  await mkdir(workspaceRoot, { recursive: true });
+  await writeFile(
+    join(agentDir, "extensions", "retry-provider.ts"),
+    `export default function (pi) {
+      pi.registerProvider("retry-provider", {
+        api: "openai-completions",
+        baseUrl: "http://127.0.0.1:${port}/v1",
+        apiKey: "test-key",
+        models: [{
+          id: "retry-model",
+          name: "Retry Model",
+          reasoning: false,
+          input: ["text"],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 4096,
+          maxTokens: 1024,
+        }],
+      });
+    }\n`,
+    "utf8",
+  );
+  const settingsManager = SettingsManager.inMemory({
+    defaultProvider: "retry-provider",
+    defaultModel: "retry-model",
+    defaultThinkingLevel: "off",
+    retry: {
+      enabled: true,
+      maxRetries: 1,
+      baseDelayMs: 1,
+      provider: { maxRetries: 0 },
+    },
+  });
+  const provider: PiRuntimeProvider = {
+    async resolveRuntime() {
+      return { agentDir, settingsManager };
+    },
+  };
+  const client = new PiConversationClient("provider-retry-test", workspaceRoot, provider);
+  t.after(() => client.stop());
+  const events: PiChatEvent[] = [];
+  client.on("event", (event: PiChatEvent) => events.push(event));
+
+  assert.equal(await client.prompt("Recover this request."), "Recovered answer.");
+  assert.equal(requestCount, 2);
+  assert.equal(
+    events.some((event) => event.type === "assistant_message" && event.text === ""),
+    true,
+    "the failed attempt must be cleared before streaming the retry",
+  );
+  assert.equal(
+    events.some((event) => event.type === "status" && event.message?.includes("Retrying provider request (1/1)")),
+    true,
+  );
+
+  await assert.rejects(
+    client.prompt("Exhaust the retry budget."),
+    (error: unknown) => {
+      assert.ok(error instanceof PiTurnFailure);
+      assert.equal(error.retryAttempts, 1);
+      assert.equal(error.partialText, "Last durable partial.");
+      assert.equal(error.provider, "retry-provider");
+      assert.equal(error.model, "retry-model");
+      return true;
+    },
+  );
+  assert.equal(requestCount, 4);
 });

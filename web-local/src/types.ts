@@ -99,6 +99,23 @@ export interface ChatMessage {
   titleSource?: "placeholder" | "generated" | "manual";
   lifecycle?: { archived?: boolean; snoozedUntil?: string | null };
   landing?: ChatMessageLanding;
+  interruption?: ChatMessageInterruption;
+}
+
+export interface ChatMessageInterruption {
+  reason: "provider_error";
+  message: string;
+  retryAttempts: number;
+  provider: string | null;
+  model: string | null;
+  activities: ChatMessageInterruptionActivity[];
+}
+
+export interface ChatMessageInterruptionActivity {
+  message: string;
+  detail?: string;
+  toolName?: string;
+  phase?: AgentActivityPhase;
 }
 
 export type AgentActivityPhase = "queued" | "running" | "streaming" | "complete" | "error";

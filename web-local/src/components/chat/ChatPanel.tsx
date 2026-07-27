@@ -11,7 +11,7 @@ import { chatDisplayTitle, chatDraftStorageKey, clearStoredChatDraft, formatByte
 import { dismissRestrictedAppProposal, installRestrictedAppProposal } from "../../lib/restricted-apps";
 import { resolveFixtureWorkspacePathCandidates } from "../../lib/workspace-path-links";
 import { workspaceIdentityFor, workspaceIdentityStyle, type WorkspaceIdentity } from "../../lib/workspace-identity";
-import type { AgentActivityEvent, AgentActivityLogEntry, AgentCatalog, AgentCommand, ChatContextPathRequest, ChatLifecycleView, ChatMessage, ChatStreamEvent, ContextAttachment, ConversationRuntime, ConversationSummary, ExtensionUiRequest, PendingChatSend, RestrictedAppInstalled, RestrictedAppProposal, RuntimePreviewEntry, TreeEntry, WorkspaceCustomizationMap, WorkspaceFixtureConversation, WorkspaceSummary } from "../../types";
+import type { AgentActivityEvent, AgentActivityLogEntry, AgentCatalog, AgentCommand, AgentStatus, ChatContextPathRequest, ChatLifecycleView, ChatMessage, ChatStreamEvent, ContextAttachment, ConversationRuntime, ConversationSummary, ExtensionUiRequest, PendingChatSend, RestrictedAppInstalled, RestrictedAppProposal, RuntimePreviewEntry, TreeEntry, WorkspaceCustomizationMap, WorkspaceFixtureConversation, WorkspaceSummary } from "../../types";
 import { Banner, FluentGlyph, WorkspaceIconGlyph } from "../chrome/common";
 import { RestrictedAppReviewDialog } from "../panes/RestrictedAppsSection";
 import { FileTypeIcon } from "../tree/FileTree";
@@ -120,6 +120,7 @@ export function ChatPanel({
   const [activeCommandIndex, setActiveCommandIndex] = useState(0);
   const [dismissedCommandDraft, setDismissedCommandDraft] = useState<string | null>(null);
   const [conversationRuntime, setConversationRuntime] = useState<ConversationRuntime | null>(null);
+  const [configuredAssistant, setConfiguredAssistant] = useState<AgentStatus | null>(null);
   const [extensionRequest, setExtensionRequest] = useState<ExtensionUiRequest | null>(null);
   const [appProposal, setAppProposal] = useState<RestrictedAppProposal | null>(null);
   const [appProposalBusy, setAppProposalBusy] = useState(false);
@@ -263,6 +264,31 @@ export function ChatPanel({
   useEffect(() => {
     setActiveCommandIndex(0);
   }, [commandQuery, commands]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (fixtureMode) {
+      setConfiguredAssistant({
+        ready: true,
+        configured: true,
+        provider: fixtureConversationRuntime.model?.provider ?? null,
+        model: fixtureConversationRuntime.model?.id ?? null,
+        piVersion: null,
+        error: null,
+      });
+      return;
+    }
+    void api<{ status: AgentStatus }>(`/api/agent/status?workspaceId=${encodeURIComponent(workspace.id)}`)
+      .then(({ status }) => {
+        if (!cancelled) setConfiguredAssistant(status);
+      })
+      .catch(() => {
+        if (!cancelled) setConfiguredAssistant(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspace.id, fixtureMode]);
 
   useEffect(() => {
     setConversationRuntime(null);
@@ -489,6 +515,7 @@ export function ChatPanel({
         runningRef.current = false;
         setRunning(false);
         scheduleEventClear();
+        void loadMessages(conversationId, false, { settleStreamingTurn: true });
         reportChatSettled(conversationId);
       }
       if (data.type === "done") {
@@ -1609,7 +1636,11 @@ export function ChatPanel({
               <span aria-hidden="true">/</span>
               <span>Commands</span>
             </button>
-            {conversationRuntime ? <ConversationContextMeter runtime={conversationRuntime} /> : null}
+            {conversationRuntime
+              ? <ConversationContextMeter runtime={conversationRuntime} />
+              : configuredAssistant?.configured && configuredAssistant.provider && configuredAssistant.model
+                ? <ConfiguredAssistantModel status={configuredAssistant} />
+                : null}
           </div>
           {running ? (
             <button className="send-button stop-send-button" type="button" onClick={() => void abortTurn()} aria-label="Stop Assistant" title="Stop Assistant">
@@ -1658,6 +1689,33 @@ function ConversationContextMeter({ runtime }: { runtime: ConversationRuntime })
       </span>
     </div>
   );
+}
+
+function ConfiguredAssistantModel({ status }: { status: AgentStatus }) {
+  const provider = displayModelIdentifier(status.provider ?? "");
+  const model = displayModelIdentifier(status.model ?? "");
+  const label = provider && model ? `${provider} · ${model}` : model || provider || "Assistant";
+  return (
+    <div
+      className="conversation-context-meter configured"
+      role="status"
+      aria-label={`Selected model: ${label}`}
+      title={`Selected model for new Chats: ${label}`}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle className="track" cx="12" cy="12" r="9" pathLength="100" />
+      </svg>
+      <span className="conversation-context-model">{label}</span>
+    </div>
+  );
+}
+
+function displayModelIdentifier(value: string): string {
+  const leaf = value.split("/").filter(Boolean).at(-1) ?? value;
+  return leaf
+    .replace(/[-_]+/g, " ")
+    .replace(/\b(?:glm|gpt|ai|api)\b/gi, (part) => part.toUpperCase())
+    .replace(/\b\w/g, (part) => part.toUpperCase());
 }
 
 function commandSourceLabel(source: AgentCommand["source"]): string {

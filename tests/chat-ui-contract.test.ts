@@ -145,6 +145,16 @@ test("assistant rendering has complete Markdown chrome and Space-aware accents",
   assert.doesNotMatch(activity, /Learned From/);
 });
 
+test("provider interruptions stay visible and the configured model is disclosed before first send", () => {
+  assert.match(chatPanel, /ConfiguredAssistantModel/);
+  assert.match(chatPanel, /\/api\/agent\/status\?workspaceId=/);
+  assert.match(chatPanel, /loadMessages\(conversationId, false, \{ settleStreamingTurn: true \}\)/);
+  assert.match(messages, /Response interrupted/);
+  assert.match(messages, /Workspace preserved/);
+  assert.match(messages, /interruption\.activities/);
+  assert.match(styles, /\.turn-interruption/);
+});
+
 test("dark user messages keep their audited foregrounds and quiet icon-only action", () => {
   const dom = new JSDOM(`
     <!doctype html>

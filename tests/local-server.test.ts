@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -711,6 +713,140 @@ test("chat streams snapshot running state and survive a throwing desktop activit
   } finally {
     streamController.abort();
     await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("terminal provider failures persist partial output and leave the Chat resumable", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "workspace-provider-failure-test-"));
+  let requestCount = 0;
+  const providerServer = createServer((_request, response) => {
+    requestCount += 1;
+    response.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      connection: "close",
+    });
+    const send = (content: string, finishReason: string | null) => {
+      response.write(`data: ${JSON.stringify({
+        id: `completion-${requestCount}`,
+        object: "chat.completion.chunk",
+        created: 1,
+        model: "durability-model",
+        choices: [{
+          index: 0,
+          delta: content ? { role: "assistant", content } : {},
+          finish_reason: finishReason,
+        }],
+      })}\n\n`);
+    };
+    if (requestCount <= 2) {
+      send(`Durable partial ${requestCount}.`, null);
+      send("", "error");
+    } else {
+      send("Continued safely.", null);
+      send("", "stop");
+    }
+    response.end("data: [DONE]\n\n");
+  });
+  await new Promise<void>((resolve, reject) => {
+    providerServer.once("error", reject);
+    providerServer.listen(0, "127.0.0.1", resolve);
+  });
+  const port = (providerServer.address() as AddressInfo).port;
+  const agentDir = join(sandbox, "agent");
+  await mkdir(join(agentDir, "extensions"), { recursive: true });
+  await writeFile(join(agentDir, "extensions", "durability-provider.ts"), `export default function (pi) {
+    pi.registerProvider("durability-provider", {
+      api: "openai-completions",
+      baseUrl: "http://127.0.0.1:${port}/v1",
+      apiKey: "test-key",
+      models: [{
+        id: "durability-model",
+        name: "Durability Model",
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 4096,
+        maxTokens: 1024,
+      }],
+    });
+  }\n`, "utf8");
+  const settingsManager = SettingsManager.inMemory({
+    defaultProvider: "durability-provider",
+    defaultModel: "durability-model",
+    defaultThinkingLevel: "off",
+    retry: {
+      enabled: true,
+      maxRetries: 1,
+      baseDelayMs: 1,
+      provider: { maxRetries: 0 },
+    },
+  });
+  const api = await startLocalApi({
+    port: 0,
+    stateBase: join(sandbox, "state"),
+    workspaceBase: join(sandbox, "content"),
+    loadEnv: false,
+    piRuntimeProvider: {
+      async resolveRuntime() {
+        return { agentDir, settingsManager };
+      },
+    },
+  });
+
+  try {
+    const created = await json(`${api.origin}/api/workspaces`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Durability Space" }),
+    }) as { workspace: { id: string } };
+    const workspaceId = created.workspace.id;
+    const createdConversation = await json(`${api.origin}/api/workspaces/${workspaceId}/conversations`, {
+      method: "POST",
+    }) as { conversation: { id: string } };
+    const conversationId = createdConversation.conversation.id;
+    const conversationUrl = `${api.origin}/api/workspaces/${workspaceId}/conversations/${conversationId}`;
+    const messagesUrl = `${conversationUrl}/messages`;
+
+    const failedTurn = await fetch(messagesUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: "Start the durable turn." }),
+    });
+    assert.equal(failedTurn.status, 202, await failedTurn.text());
+    await waitForAsync(async () => {
+      const transcript = await json(conversationUrl) as any;
+      return transcript.messages.some((message: any) => message.interruption?.reason === "provider_error");
+    });
+
+    const interruptedTranscript = await json(conversationUrl) as any;
+    const interrupted = interruptedTranscript.messages.find((message: any) => message.interruption?.reason === "provider_error");
+    assert.equal(interrupted.content, "Durable partial 2.");
+    assert.equal(interrupted.interruption.retryAttempts, 1);
+    assert.equal(interrupted.interruption.provider, "durability-provider");
+    assert.equal(interrupted.interruption.model, "durability-model");
+    assert.deepEqual(interrupted.interruption.activities, []);
+    assert.equal(requestCount, 2);
+
+    const resumedTurn = await fetch(messagesUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: "Continue from what survived." }),
+    });
+    assert.equal(resumedTurn.status, 202, await resumedTurn.text());
+    await waitForAsync(async () => {
+      const transcript = await json(conversationUrl) as any;
+      return transcript.messages.some((message: any) => (
+        message.role === "assistant" && message.content === "Continued safely."
+      ));
+    });
+    assert.equal(requestCount, 3);
+  } finally {
+    await api.close();
+    await new Promise<void>((resolve, reject) => {
+      providerServer.close((error) => error ? reject(error) : resolve());
+    });
     await rm(sandbox, { recursive: true, force: true });
   }
 });

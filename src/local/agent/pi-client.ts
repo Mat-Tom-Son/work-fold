@@ -62,6 +62,38 @@ export interface PiChatEvent {
   raw?: unknown;
 }
 
+export interface PiTurnActivity {
+  message: string;
+  detail?: string;
+  toolName?: string;
+  phase?: "queued" | "running" | "streaming" | "complete" | "error";
+}
+
+export class PiTurnFailure extends Error {
+  readonly partialText: string;
+  readonly retryAttempts: number;
+  readonly provider: string | null;
+  readonly model: string | null;
+  readonly activities: PiTurnActivity[];
+
+  constructor(input: {
+    message: string;
+    partialText: string;
+    retryAttempts: number;
+    provider: string | null;
+    model: string | null;
+    activities: PiTurnActivity[];
+  }) {
+    super(input.message);
+    this.name = "PiTurnFailure";
+    this.partialText = input.partialText;
+    this.retryAttempts = input.retryAttempts;
+    this.provider = input.provider;
+    this.model = input.model;
+    this.activities = input.activities;
+  }
+}
+
 export interface PiTurnContext {
   contextAttachments?: LoadedConversationContextAttachment[];
   selectedPath?: string | null;
@@ -96,9 +128,13 @@ export class PiConversationClient extends EventEmitter {
   private resolvedRuntime: ResolvedPiRuntime | null = null;
   private unsubscribeSession: (() => void) | null = null;
   private assistantText = "";
+  private streamedAssistantText = "";
+  private assistantAttemptStartOffset = 0;
   private promptInFlight = false;
   private turnError: Error | null = null;
   private pendingAssistantError: string | null = null;
+  private retryAttempts = 0;
+  private turnActivities = new Map<string, PiTurnActivity>();
   private lastToolEventKey = "";
 
   constructor(
@@ -141,7 +177,16 @@ export class PiConversationClient extends EventEmitter {
       const messagesBefore = session.messages.length;
       await this.promptWithTimeout(session, message);
       if (this.turnError) throw this.turnError;
-      if (this.pendingAssistantError) throw new Error(this.pendingAssistantError);
+      if (this.pendingAssistantError) {
+        throw new PiTurnFailure({
+          message: this.pendingAssistantError,
+          partialText: this.streamedAssistantText.trim(),
+          retryAttempts: this.retryAttempts,
+          provider: session.model?.provider ?? null,
+          model: session.model?.id ?? null,
+          activities: [...this.turnActivities.values()],
+        });
+      }
 
       if (!this.assistantText.trim() && session.messages.length > messagesBefore) {
         this.assistantText = lastAssistantText(session.messages);
@@ -342,6 +387,7 @@ export class PiConversationClient extends EventEmitter {
 
   private async bindSession(session: AgentSession): Promise<void> {
     this.unsubscribeSession?.();
+    installRetryableProviderErrorNormalization(session);
     this.unsubscribeSession = session.subscribe((event) => this.handleSessionEvent(event));
     const resolved = this.resolvedRuntime;
     const bridge = resolved?.config.extensionUi ?? createHeadlessExtensionUiBridge();
@@ -412,6 +458,12 @@ export class PiConversationClient extends EventEmitter {
 
   private handleSessionEvent(event: AgentSessionEvent): void {
     const raw = event as any;
+    normalizeRetryableProviderError(raw.message);
+    if (raw.type === "message_start" && raw.message?.role === "assistant") {
+      this.assistantAttemptStartOffset = this.streamedAssistantText.length;
+      this.assistantText = "";
+      return;
+    }
     if (raw.type === "message_update") {
       const subtype = String(raw.assistantMessageEvent?.type ?? "");
       if (subtype.startsWith("toolcall_")) this.emitToolEvent(raw);
@@ -423,6 +475,7 @@ export class PiConversationClient extends EventEmitter {
       if (subtype === "text_delta") {
         const delta = String(raw.assistantMessageEvent.delta ?? "");
         this.assistantText += delta;
+        this.streamedAssistantText += delta;
         if (delta) this.emitEvent({ type: "assistant_delta", text: delta, raw });
       }
       this.pendingAssistantError ??= assistantError(raw.message);
@@ -439,6 +492,10 @@ export class PiConversationClient extends EventEmitter {
     if (raw.type === "agent_end") {
       if (raw.willRetry) {
         this.pendingAssistantError = null;
+        this.assistantText = "";
+        this.streamedAssistantText = this.streamedAssistantText.slice(0, this.assistantAttemptStartOffset);
+        this.emitEvent({ type: "assistant_message", text: this.streamedAssistantText, raw });
+        this.emitEvent({ type: "assistant_thinking", thinkingPhase: "end", raw });
         this.emitEvent({ type: "status", message: "Retrying after a transient provider error.", raw });
         return;
       }
@@ -453,6 +510,7 @@ export class PiConversationClient extends EventEmitter {
     }
 
     if (raw.type === "auto_retry_start") {
+      this.retryAttempts = Math.max(this.retryAttempts, Number(raw.attempt) || 0);
       this.emitEvent({ type: "status", message: `Retrying provider request (${raw.attempt}/${raw.maxAttempts}).`, raw });
       return;
     }
@@ -474,9 +532,17 @@ export class PiConversationClient extends EventEmitter {
   private emitToolEvent(raw: any): void {
     const event = toolEvent(raw);
     if (!event) return;
-    const key = [event.toolCallId, event.phase, event.detail].join("\0");
+    const toolCallId = event.toolCallId;
+    if (!toolCallId) return;
+    const key = [toolCallId, event.phase, event.detail].join("\0");
     if (key === this.lastToolEventKey) return;
     this.lastToolEventKey = key;
+    this.turnActivities.set(toolCallId, {
+      message: event.message ?? humanize(event.toolName ?? "Assistant tool"),
+      ...(event.detail ? { detail: event.detail } : {}),
+      ...(event.toolName ? { toolName: event.toolName } : {}),
+      ...(event.phase ? { phase: event.phase } : {}),
+    });
     this.emitEvent({ ...event, raw });
   }
 
@@ -654,8 +720,12 @@ export class PiConversationClient extends EventEmitter {
 
   private resetTurnState(): void {
     this.assistantText = "";
+    this.streamedAssistantText = "";
+    this.assistantAttemptStartOffset = 0;
     this.turnError = null;
     this.pendingAssistantError = null;
+    this.retryAttempts = 0;
+    this.turnActivities.clear();
     this.lastToolEventKey = "";
   }
 
@@ -893,6 +963,23 @@ function assistantError(message: any): string | null {
   return String(message.errorMessage ?? "Provider request failed.");
 }
 
+/**
+ * OpenRouter can terminate an already-started stream with
+ * `finish_reason: "error"` and a structured top-level error object. Pi 0.80.x
+ * currently drops that object and leaves only this generic fallback. Reword it
+ * before AgentSession persists/classifies the message so Pi's existing bounded
+ * retry path resumes from the last tool result instead of failing the whole
+ * user turn or replaying completed tool calls.
+ */
+function normalizeRetryableProviderError(message: any): void {
+  if (!message || message.role !== "assistant" || message.stopReason !== "error") return;
+  if (message.errorMessage === "Provider finish_reason: error") {
+    // Keep "returned error" contiguous: that is the wording recognized by
+    // Pi's transient-provider classifier in the pinned runtime.
+    message.errorMessage = "Provider returned error while streaming.";
+  }
+}
+
 function lastAssistantText(messages: any[]): string {
   for (const message of [...messages].reverse()) {
     const text = assistantText(message);
@@ -982,3 +1069,36 @@ function asError(error: unknown): Error {
 }
 
 export const piSdkVersion = PI_SDK_VERSION;
+
+const normalizedProviderStreams = new WeakSet<object>();
+
+/**
+ * Pi 0.80.6 converts an unknown OpenAI-compatible finish_reason into the
+ * generic "Provider finish_reason: error" text. That loses OpenRouter's
+ * structured upstream error before Pi's otherwise-safe retry classifier runs.
+ * Normalize the terminal stream object itself so AgentSession can remove only
+ * the failed assistant attempt and continue from completed tool results.
+ */
+function installRetryableProviderErrorNormalization(session: AgentSession): void {
+  if (normalizedProviderStreams.has(session.agent)) return;
+  normalizedProviderStreams.add(session.agent);
+  const upstreamStream = session.agent.streamFn;
+  session.agent.streamFn = async (model, context, options) => {
+    const upstream = await upstreamStream(model, context, options);
+    const wrapped = {
+      async *[Symbol.asyncIterator]() {
+        for await (const event of upstream) {
+          if (event.type === "error") normalizeRetryableProviderError(event.error);
+          if (event.type === "done") normalizeRetryableProviderError(event.message);
+          yield event;
+        }
+      },
+      async result() {
+        const result = await upstream.result();
+        normalizeRetryableProviderError(result);
+        return result;
+      },
+    };
+    return wrapped as unknown as typeof upstream;
+  };
+}
