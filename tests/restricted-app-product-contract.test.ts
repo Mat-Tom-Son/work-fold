@@ -4,7 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 const root = process.cwd();
-const [capabilities, apps, chat, workspaceApp, workspaceChrome, viewport, styles, professionalSurfaces, desktopHost] = await Promise.all([
+const [capabilities, apps, chat, workspaceApp, workspaceChrome, viewport, styles, professionalShell, professionalSurfaces, desktopHost] = await Promise.all([
   read("web-local/src/components/panes/CapabilitiesPane.tsx"),
   read("web-local/src/components/panes/RestrictedAppsSection.tsx"),
   read("web-local/src/components/chat/ChatPanel.tsx"),
@@ -12,6 +12,7 @@ const [capabilities, apps, chat, workspaceApp, workspaceChrome, viewport, styles
   read("web-local/src/components/panes/workspaceChrome.tsx"),
   read("web-local/src/components/panes/RestrictedAppViewport.tsx"),
   read("web-local/src/styles.css"),
+  read("web-local/src/professional-shell.css"),
   read("web-local/src/professional-surfaces.css"),
   read("desktop/src/restricted-app-host.ts"),
 ]);
@@ -86,6 +87,18 @@ test("the Space menu occludes native restricted-app views from the first animati
   assert.match(viewport, /const explicitOccluder = candidate\.dataset\.nativeViewOccluder === "true"/);
   assert.match(viewport, /\(!explicitOccluder && Number\(style\.opacity\) === 0\)/);
   assert.match(viewport, /style\.display === "none" \|\| style\.visibility === "hidden"/);
+});
+
+test("rail tooltips yield native app views for their complete visible lifetime", () => {
+  assert.match(viewport, /railTooltipOcclusionLeadMs = 280/);
+  assert.match(viewport, /railTooltipExitMs = 80/);
+  assert.match(viewport, /document\.addEventListener\("pointerover", handleRailPointerOver\)/);
+  assert.match(viewport, /document\.addEventListener\("pointerout", handleRailPointerOut\)/);
+  assert.match(viewport, /document\.addEventListener\("focusin", handleRailFocusIn\)/);
+  assert.match(viewport, /document\.addEventListener\("focusout", handleRailFocusOut\)/);
+  assert.match(viewport, /\.professional-workspace-rail \[data-rail-tooltip\]:hover/);
+  assert.match(viewport, /\.professional-workspace-rail \[data-rail-tooltip\]:focus-visible/);
+  assert.match(professionalShell, /transition:\s*opacity 80ms ease,\s*transform 80ms ease,\s*visibility 0s linear 80ms/);
 });
 
 test("contributed app canvases share built-in spacing and native rounded corners", () => {

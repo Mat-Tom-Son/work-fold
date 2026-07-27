@@ -6,6 +6,8 @@ import { resolveRestrictedAppCornerRadius } from "../../../../src/shared/restric
 import type { AppTheme, RestrictedAppInstalled, RestrictedAppViewRequest } from "../../types";
 
 const restrictedAppRailGuard = 12;
+const railTooltipOcclusionLeadMs = 280;
+const railTooltipExitMs = 80;
 
 export function RestrictedAppViewport({
   app,
@@ -70,6 +72,32 @@ export function RestrictedAppViewport({
     const schedule = () => {
       if (!frame) frame = window.requestAnimationFrame(update);
     };
+    let railTooltipTimer = 0;
+    const scheduleRailTooltipLayout = (delay: number) => {
+      if (railTooltipTimer) window.clearTimeout(railTooltipTimer);
+      railTooltipTimer = window.setTimeout(() => {
+        railTooltipTimer = 0;
+        schedule();
+      }, delay);
+    };
+    const handleRailPointerOver = (event: PointerEvent) => {
+      const target = railTooltipTarget(event.target);
+      if (!target || railTooltipTarget(event.relatedTarget) === target) return;
+      // Hide the native view shortly before the delayed renderer tooltip appears.
+      scheduleRailTooltipLayout(railTooltipOcclusionLeadMs);
+    };
+    const handleRailPointerOut = (event: PointerEvent) => {
+      const target = railTooltipTarget(event.target);
+      if (!target || railTooltipTarget(event.relatedTarget) === target) return;
+      // Keep the native view away until the renderer tooltip finishes fading.
+      scheduleRailTooltipLayout(railTooltipExitMs);
+    };
+    const handleRailFocusIn = (event: FocusEvent) => {
+      if (railTooltipTarget(event.target)) scheduleRailTooltipLayout(0);
+    };
+    const handleRailFocusOut = (event: FocusEvent) => {
+      if (railTooltipTarget(event.target)) scheduleRailTooltipLayout(railTooltipExitMs);
+    };
     const resizeObserver = new ResizeObserver(schedule);
     const mutationObserver = new MutationObserver(schedule);
     resizeObserver.observe(element);
@@ -77,6 +105,10 @@ export function RestrictedAppViewport({
     window.addEventListener("resize", schedule);
     window.addEventListener("scroll", schedule, true);
     document.addEventListener("visibilitychange", schedule);
+    document.addEventListener("pointerover", handleRailPointerOver);
+    document.addEventListener("pointerout", handleRailPointerOut);
+    document.addEventListener("focusin", handleRailFocusIn);
+    document.addEventListener("focusout", handleRailFocusOut);
     setViewState("loading");
     setMessage("");
     const initial = viewRequest(element, mountId, sequenceRef.current++, latestRef.current);
@@ -93,11 +125,16 @@ export function RestrictedAppViewport({
     return () => {
       disposed = true;
       if (frame) window.cancelAnimationFrame(frame);
+      if (railTooltipTimer) window.clearTimeout(railTooltipTimer);
       resizeObserver.disconnect();
       mutationObserver.disconnect();
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);
       document.removeEventListener("visibilitychange", schedule);
+      document.removeEventListener("pointerover", handleRailPointerOver);
+      document.removeEventListener("pointerout", handleRailPointerOut);
+      document.removeEventListener("focusin", handleRailFocusIn);
+      document.removeEventListener("focusout", handleRailFocusOut);
       void desktop.unmountView(mountId).catch(() => undefined);
     };
   }, [desktop, generation, app.workspaceId, app.manifest.id, app.digest]);
@@ -187,11 +224,20 @@ function cssPixelValue(value: string): number {
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 }
 
+function railTooltipTarget(target: EventTarget | null): HTMLElement | null {
+  return target instanceof Element
+    ? target.closest<HTMLElement>(".professional-workspace-rail [data-rail-tooltip]")
+    : null;
+}
+
 function currentTheme(): AppTheme {
   return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
 }
 
 function nativeViewOccluded(element: HTMLElement, bounds: DOMRect): boolean {
+  if (window.matchMedia("(min-width: 821px)").matches && document.querySelector(
+    ".professional-workspace-rail [data-rail-tooltip]:hover, .professional-workspace-rail [data-rail-tooltip]:focus-visible",
+  )) return true;
   const candidates = document.querySelectorAll<HTMLElement>([
     "[data-native-view-occluder='true']",
     ".modal-backdrop",
