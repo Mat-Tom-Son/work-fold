@@ -41,6 +41,14 @@ Each open tab belongs to one Space. Selecting a tab takes the user back to that 
 
 Chats have a lightweight lifecycle for keeping a growing conversation list usable. **Active** is current work, **Snoozed** is deferred until a future local time, and **Archived** is retained reference material. A due snooze resurfaces automatically in Active. The selected Space's Chats remain the primary list; matching Chats from other Spaces appear below as compact, collapsed groups with aggregate activity visible, and search may expand those groups to expose results. Snoozing or archiving a Chat closes its open tab but never deletes or rewrites its transcript; the state is an append-only lifecycle event in that Chat's portable `.workspace/conversations/` log. A snoozed or archived Chat may be opened for reading, but it must be resumed or restored before another message can be sent. Lifecycle changes are unavailable while its Assistant turn or compaction is active.
 
+A new Chat begins with a temporary **New Chat** label. After its first successful
+turn, Workspace persists a generated title based on the first user request so
+the title remains stable across tabs, restarts, and machines. An explicit
+person-authored rename always wins, including an intentional rename to
+**New Chat**. Title and lifecycle summaries may be cached in machine-local
+application state, but those caches are disposable and versioned independently
+from the portable append-only transcript.
+
 Background state is quieter and machine-local: a small running marker follows an accepted Assistant turn across the Chat navigator and tab strip, and becomes an attention marker only when the turn settles out of view. Viewing the Chat clears that marker. This acknowledgement state is an app preference on the current computer, not portable conversation content.
 
 ## A Space is a view of a folder, not a new file format

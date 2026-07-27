@@ -18,7 +18,16 @@ import {
   type PiExtensionUiRequest,
   type PiExtensionUiSettled,
 } from "./agent/extension-ui.js";
-import { appendMessage, createConversation, listConversations, readConversation, readConversationSummary, renameConversation, updateConversationLifecycle } from "./agent/chat-store.js";
+import {
+  appendMessage,
+  createConversation,
+  listConversations,
+  readConversation,
+  readConversationSummary,
+  renameConversation,
+  setGeneratedConversationTitle,
+  updateConversationLifecycle,
+} from "./agent/chat-store.js";
 import {
   RemoteCapabilityRegistry,
   type CapabilityRegistryService,
@@ -68,6 +77,7 @@ import {
 } from "./resources.js";
 import { searchWorkspace } from "./search.js";
 import { SpaceAppearanceStore } from "./space-appearance-store.js";
+import { conversationTitleFromFirstUserMessage } from "../shared/chat-title.js";
 import { spaceAppearanceBannerNames } from "../shared/space-appearance.js";
 import { configureWorkspaceStateRoot, restrictedAppRoot } from "./state-paths.js";
 import { WorkspaceKernel } from "./workspace-kernel.js";
@@ -1541,6 +1551,20 @@ async function runAgentTurn(
       content: finalText,
       createdAt: new Date().toISOString(),
     });
+    try {
+      const firstUserMessage = (await readConversation(workspaceRoot, conversationId))
+        .find((message) => message.role === "user")
+        ?.content;
+      const generatedTitle = conversationTitleFromFirstUserMessage(firstUserMessage);
+      if (generatedTitle) {
+        const conversation = await setGeneratedConversationTitle(workspaceRoot, conversationId, generatedTitle);
+        client.setSessionName(conversation.title);
+      }
+    } catch (error) {
+      // A derived title must never turn an otherwise persisted successful
+      // Assistant response into a failed turn.
+      console.warn(`Could not persist a generated Chat title: ${errorMessage(error)}`);
+    }
     broadcast(state, streamKey(workspaceId, conversationId), { type: "done", conversationId });
   } catch (error) {
     const message = isPiTurnCancelledError(error) ? "Agent turn cancelled." : errorMessage(error);

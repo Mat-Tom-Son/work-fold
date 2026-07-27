@@ -96,6 +96,7 @@ export interface ChatMessage {
   content: string;
   createdAt: string;
   kind?: "conversation_title" | "conversation_lifecycle";
+  titleSource?: "placeholder" | "generated" | "manual";
   lifecycle?: { archived?: boolean; snoozedUntil?: string | null };
   landing?: ChatMessageLanding;
 }

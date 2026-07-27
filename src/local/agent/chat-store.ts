@@ -4,6 +4,10 @@ import { appendFile, copyFile, mkdir, open, readFile, readdir, rename, stat, unl
 import { join, resolve } from "node:path";
 
 import { legacyWorkspaceConversationDir, workspaceConversationDir, workspaceStateDir } from "../state-paths.js";
+import {
+  normalizeConversationTitle,
+  untitledConversationTitle,
+} from "../../shared/chat-title.js";
 
 export interface ChatMessage {
   id: string;
@@ -11,6 +15,7 @@ export interface ChatMessage {
   content: string;
   createdAt: string;
   kind?: "conversation_title" | "conversation_lifecycle";
+  titleSource?: "placeholder" | "generated" | "manual";
   lifecycle?: ConversationLifecyclePatch;
   landing?: ChatMessageLanding;
 }
@@ -80,17 +85,19 @@ export async function listConversations(workspaceRoot: string): Promise<Conversa
   return summaries.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
-export async function createConversation(workspaceRoot: string, title = "New Chat"): Promise<ConversationSummary> {
+export async function createConversation(workspaceRoot: string, title = untitledConversationTitle): Promise<ConversationSummary> {
   const now = new Date().toISOString();
   const id = `chat-${randomUUID()}`;
+  const normalizedTitle = normalizeConversationTitle(title) || untitledConversationTitle;
   await appendMessage(workspaceRoot, id, {
     id: randomUUID(),
     role: "system",
     kind: "conversation_title",
-    content: title,
+    titleSource: normalizedTitle === untitledConversationTitle ? "placeholder" : "manual",
+    content: normalizedTitle,
     createdAt: now,
   });
-  return { id, title, createdAt: now, updatedAt: now, archivedAt: null, snoozedUntil: null };
+  return { id, title: normalizedTitle, createdAt: now, updatedAt: now, archivedAt: null, snoozedUntil: null };
 }
 
 export async function renameConversation(workspaceRoot: string, conversationId: string, title: string): Promise<ConversationSummary> {
@@ -102,11 +109,33 @@ export async function renameConversation(workspaceRoot: string, conversationId: 
     id: randomUUID(),
     role: "system",
     kind: "conversation_title",
+    titleSource: "manual",
     content: normalizedTitle,
     createdAt: now,
   });
   const messages = await readConversation(workspaceRoot, conversationId);
   return conversationSummary(conversationId, messages);
+}
+
+export async function setGeneratedConversationTitle(
+  workspaceRoot: string,
+  conversationId: string,
+  title: string,
+): Promise<ConversationSummary> {
+  const messages = await readConversation(workspaceRoot, conversationId);
+  if (!messages.length) throw new Error("Conversation not found.");
+  const current = conversationSummary(conversationId, messages);
+  const normalizedTitle = normalizeConversationTitle(title);
+  if (!normalizedTitle || manualConversationTitle(messages) || generatedConversationTitle(messages)) return current;
+  await appendMessage(workspaceRoot, conversationId, {
+    id: randomUUID(),
+    role: "system",
+    kind: "conversation_title",
+    titleSource: "generated",
+    content: normalizedTitle,
+    createdAt: new Date().toISOString(),
+  });
+  return conversationSummary(conversationId, await readConversation(workspaceRoot, conversationId));
 }
 
 export async function updateConversationLifecycle(
@@ -186,7 +215,9 @@ interface ConversationIndexEntry {
   summary: ConversationSummary;
 }
 
-const conversationIndexVersion = 2;
+// Bump whenever conversationSummary title or lifecycle semantics change so a
+// structurally valid cache cannot preserve an obsolete derived result.
+const conversationIndexVersion = 3;
 
 function conversationIndexFile(workspaceRoot: string): string {
   return join(workspaceStateDir(workspaceRoot), "conversation-index.json");
@@ -380,7 +411,12 @@ function parseChatMessage(line: string): ChatMessage | null {
       content: parsed.content,
       createdAt: parsed.createdAt,
     };
-    if (parsed.kind === "conversation_title") message.kind = parsed.kind;
+    if (parsed.kind === "conversation_title") {
+      message.kind = parsed.kind;
+      if (parsed.titleSource === "placeholder" || parsed.titleSource === "generated" || parsed.titleSource === "manual") {
+        message.titleSource = parsed.titleSource;
+      }
+    }
     if (parsed.kind === "conversation_lifecycle") {
       if (!isConversationLifecyclePatch(parsed.lifecycle)) return null;
       message.kind = parsed.kind;
@@ -414,7 +450,10 @@ function conversationSummary(conversationId: string, messages: ChatMessage[]): C
   const lifecycle = conversationLifecycle(messages);
   return {
     id: conversationId,
-    title: manualConversationTitle(messages) || generatedConversationTitle(messages) || firstUser?.content.slice(0, 70) || "New Chat",
+    title: manualConversationTitle(messages)
+      || generatedConversationTitle(messages)
+      || firstUser?.content.slice(0, 70)
+      || untitledConversationTitle,
     createdAt: messages[0]?.createdAt ?? new Date().toISOString(),
     updatedAt: lastActivity?.createdAt ?? new Date().toISOString(),
     archivedAt: lifecycle.archivedAt,
@@ -442,11 +481,12 @@ function manualConversationTitle(messages: ChatMessage[]): string | null {
     const message = messages[index];
     if (message.role !== "system" || message.kind !== "conversation_title") continue;
     const title = normalizeConversationTitle(message.content);
+    if (message.titleSource === "placeholder" || message.titleSource === "generated") continue;
     // createConversation historically seeded every transcript with a manual
     // "New Chat" title. Treat only that first seed as a placeholder so an
     // Assistant-generated landing title can win, while a later intentional
     // rename to "New Chat" remains authoritative.
-    if (index === 0 && title === "New Chat") continue;
+    if (index === 0 && title === untitledConversationTitle) continue;
     if (title) return title;
   }
   return null;
@@ -454,14 +494,14 @@ function manualConversationTitle(messages: ChatMessage[]): string | null {
 
 function generatedConversationTitle(messages: ChatMessage[]): string | null {
   for (const message of [...messages].reverse()) {
+    if (message.role === "system" && message.kind === "conversation_title" && message.titleSource === "generated") {
+      const title = normalizeConversationTitle(message.content);
+      if (title) return title;
+    }
     const title = message.landing?.conversationTitle?.replace(/\s+/g, " ").trim();
     if (title) return title.slice(0, 80);
   }
   return null;
-}
-
-function normalizeConversationTitle(title: string): string {
-  return title.replace(/\s+/g, " ").trim().slice(0, 80);
 }
 
 function normalizeLifecyclePatch(patch: ConversationLifecyclePatch): ConversationLifecyclePatch {

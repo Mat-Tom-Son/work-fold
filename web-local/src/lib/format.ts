@@ -1,5 +1,6 @@
 import { chatDraftKeyPrefix, chatDraftMaxStoredChars, chatDraftNewConversationId, untitledChatLabel } from "../constants";
 import type { ChangeEntry, ChangeKindCounts, ChatMessage } from "../types";
+import { conversationTitleFromFirstUserMessage } from "../../../src/shared/chat-title";
 import { readStoredValue, writeStoredValue } from "./storage";
 
 export function normalizeSearchQuery(value: string): string {
@@ -53,13 +54,7 @@ export function formatTimeAgo(value: string): string {
 }
 
 export function optimisticChatTitleFromFirstUserMessage(content: string | null | undefined): string | null {
-  const normalized = content?.replace(/\s+/g, " ").trim() ?? "";
-  if (!normalized) return null;
-  if (normalized.length <= 60) return normalized;
-  const prefix = normalized.slice(0, 60);
-  const wordBoundary = prefix.search(/\s+\S*$/);
-  const trimmed = (wordBoundary > 0 ? prefix.slice(0, wordBoundary) : prefix).trim();
-  return `${trimmed || prefix.trim()}...`;
+  return conversationTitleFromFirstUserMessage(content);
 }
 
 export function chatDisplayTitle({
@@ -78,9 +73,12 @@ export function chatDisplayTitle({
 }
 
 export function modelConversationTitle(messages: ChatMessage[]): string | null {
-  for (const message of [...messages].reverse()) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
     if (message.role !== "system" || message.kind !== "conversation_title") continue;
     const title = message.content.replace(/\s+/g, " ").trim();
+    if (message.titleSource === "placeholder") continue;
+    if (index === 0 && title === untitledChatLabel) continue;
     if (title) return title.slice(0, 80);
   }
   for (const message of [...messages].reverse()) {

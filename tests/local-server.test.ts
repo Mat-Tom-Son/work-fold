@@ -450,6 +450,17 @@ test("registry discovery installs through guarded capability mutations without s
     });
     await waitForAsync(async () => (await kernel.getTasks({ kind: "system" })).tasks.length === 0);
     assert.deepEqual((await kernel.getTasks({ kind: "system" })).tasks, []);
+    const namedTranscript = await json(`${api.origin}/api/workspaces/${workspaceId}/conversations/${conversationId}`) as any;
+    assert.equal(
+      namedTranscript.messages.some((message: any) => (
+        message.kind === "conversation_title"
+        && message.titleSource === "generated"
+        && message.content === "/hold"
+      )),
+      true,
+    );
+    const namedConversations = await json(`${api.origin}/api/workspaces/${workspaceId}/conversations`) as any;
+    assert.equal(namedConversations.conversations.find((item: any) => item.id === conversationId)?.title, "/hold");
 
     const installed = await json(`${api.origin}/api/agent/capabilities/install`, {
       method: "POST",

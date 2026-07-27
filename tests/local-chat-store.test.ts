@@ -11,6 +11,7 @@ import {
   listConversations,
   readConversation,
   renameConversation,
+  setGeneratedConversationTitle,
   updateConversationLifecycle,
   type ChatMessage,
 } from "../src/local/agent/chat-store.js";
@@ -199,6 +200,26 @@ test("an intentional later rename to New Chat remains authoritative", async (t) 
   assert.equal(renamed.title, "New Chat");
 });
 
+test("generated title persists after the first successful turn without overriding later manual renames", async (t) => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-generated-title-"));
+  t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+
+  const created = await createConversation(workspaceRoot);
+  await appendMessage(workspaceRoot, created.id, message("1", "Review the launch checklist and identify missing owners."));
+  const generated = await setGeneratedConversationTitle(workspaceRoot, created.id, "Review the launch checklist");
+  assert.equal(generated.title, "Review the launch checklist");
+  assert.equal(
+    (await readConversation(workspaceRoot, created.id)).filter((item) => item.titleSource === "generated").length,
+    1,
+  );
+
+  await setGeneratedConversationTitle(workspaceRoot, created.id, "A different generated title");
+  const renamed = await renameConversation(workspaceRoot, created.id, "Launch owner review");
+  await setGeneratedConversationTitle(workspaceRoot, created.id, "A third generated title");
+  assert.equal(renamed.title, "Launch owner review");
+  assert.equal((await listConversations(workspaceRoot))[0]?.title, "Launch owner review");
+});
+
 test("chat store manual conversation title overrides generated landing title", async (t) => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-manual-title-"));
   t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
@@ -335,7 +356,7 @@ test("chat listing ignores cache records that do not describe their own transcri
   const indexFile = join(workspaceStateDir(workspaceRoot), "conversation-index.json");
   const transcript = await stat(join(conversationsDir(workspaceRoot), "chat-guarded.jsonl"));
   await writeFile(indexFile, `${JSON.stringify({
-    version: 2,
+    version: 3,
     entries: {
       "chat-guarded": {
         sizeBytes: transcript.size,
@@ -350,4 +371,38 @@ test("chat listing ignores cache records that do not describe their own transcri
   })}\n`, "utf8");
 
   assert.equal((await listConversations(workspaceRoot))[0]?.title, "genuine", "a self-inconsistent cache record is discarded");
+});
+
+test("chat listing rebuilds a previous-version cache after title semantics change", async (t) => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-index-version-"));
+  t.after(() => rm(workspaceRoot, { recursive: true, force: true }));
+  const created = await createConversation(workspaceRoot);
+  await appendMessage(workspaceRoot, created.id, message("1", "Name this completed conversation"));
+  const transcript = await stat(join(conversationsDir(workspaceRoot), `${created.id}.jsonl`));
+
+  const indexFile = join(workspaceStateDir(workspaceRoot), "conversation-index.json");
+  await mkdir(workspaceStateDir(workspaceRoot), { recursive: true });
+  await writeFile(indexFile, `${JSON.stringify({
+    version: 2,
+    entries: {
+      [created.id]: {
+        sizeBytes: transcript.size,
+        modifiedAt: transcript.mtime.toISOString(),
+        changedAt: transcript.ctime.toISOString(),
+        device: String(transcript.dev),
+        inode: String(transcript.ino),
+        summary: {
+          id: created.id,
+          title: "New Chat",
+          createdAt: "2026-01-01T00:00:00Z",
+          updatedAt: "2026-01-01T00:00:01Z",
+          archivedAt: null,
+          snoozedUntil: null,
+        },
+      },
+    },
+  })}\n`, "utf8");
+
+  assert.equal((await listConversations(workspaceRoot))[0]?.title, "Name this completed conversation");
+  assert.equal(JSON.parse(await readFile(indexFile, "utf8")).version, 3);
 });
