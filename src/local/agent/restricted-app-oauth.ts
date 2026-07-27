@@ -15,13 +15,47 @@ import type {
   RestrictedAppConnectionBinding,
   RestrictedAppEffectAuthorizer,
 } from "./restricted-app-connections.js";
+import { isIssuerEndpointHost } from "./restricted-app-manifest.js";
 
 export type RestrictedAppOAuthBinding = RestrictedAppConnectionBinding;
+
+export type RestrictedAppOAuthDiscoveryKind =
+  | "oauth-authorization-server"
+  | "openid-configuration"
+  | "pinned";
 
 export interface RestrictedAppOAuthPkceConfiguration {
   issuer: string;
   clientId: string;
   scopes: string[];
+  /** Defaults to RFC 8414 discovery when a caller omits it. */
+  discovery?: RestrictedAppOAuthDiscoveryKind;
+  /** Required when `discovery` is `pinned`, rejected otherwise. */
+  authorizationEndpoint?: string;
+  /** Required when `discovery` is `pinned`, rejected otherwise. */
+  tokenEndpoint?: string;
+  /** Reviewed static authorization-request parameters. */
+  authorizationParameters?: Array<{ name: string; value: string }>;
+}
+
+/**
+ * Advertisement mismatches Workspace deliberately does not fail on. Every one
+ * of these describes a capability the client supplies itself: S256 is always
+ * sent, no client secret exists to send, and the authorization-code flow is the
+ * only flow implemented. Real providers under-populate these fields — neither
+ * Google nor Microsoft advertises `none` for token-endpoint auth — so gating on
+ * them rejects working providers while proving nothing about the ones it lets
+ * through.
+ */
+export type RestrictedAppOAuthDiagnosticCode =
+  | "METADATA_RESPONSE_TYPE_UNDECLARED"
+  | "METADATA_PKCE_UNDECLARED"
+  | "METADATA_PUBLIC_CLIENT_UNDECLARED";
+
+export interface RestrictedAppOAuthDiagnostic {
+  code: RestrictedAppOAuthDiagnosticCode;
+  issuer: string;
+  message: string;
 }
 
 export interface RestrictedAppOAuthConnection {
@@ -35,6 +69,8 @@ export interface RestrictedAppOAuthConnection {
   refreshToken?: string;
   expiresAt?: string;
   connectedAt: string;
+  /** Public provider-compatibility notes retained with the encrypted connection. */
+  diagnostics?: RestrictedAppOAuthDiagnostic[];
 }
 
 /**
@@ -82,6 +118,12 @@ export interface RestrictedAppOAuthPkceClientOptions {
   networkTimeoutMs?: number;
   refreshLeewayMs?: number;
   maxResponseBytes?: number;
+  /**
+   * Receives metadata mismatches that no longer block a connection. Host code
+   * should surface these where a person reviews the connection; they are never
+   * returned to app JavaScript.
+   */
+  onDiagnostic?: (diagnostic: RestrictedAppOAuthDiagnostic) => void;
 }
 
 export interface RestrictedAppOAuthConnectionStatus {
@@ -89,6 +131,7 @@ export interface RestrictedAppOAuthConnectionStatus {
   configured: true;
   scopes: string[];
   expiresAt?: string;
+  diagnostics?: RestrictedAppOAuthDiagnostic[];
 }
 
 export type RestrictedAppOAuthErrorCode =
@@ -112,6 +155,7 @@ interface AuthorizationServerMetadata {
   authorizationEndpoint: URL;
   tokenEndpoint: URL;
   authorizationResponseIssuer: boolean;
+  diagnostics: RestrictedAppOAuthDiagnostic[];
 }
 
 interface AuthorizationCallback {
@@ -141,6 +185,7 @@ export class RestrictedAppOAuthPkceClient {
   readonly #networkTimeoutMs: number;
   readonly #refreshLeewayMs: number;
   readonly #maxResponseBytes: number;
+  readonly #onDiagnostic?: (diagnostic: RestrictedAppOAuthDiagnostic) => void;
   readonly #refreshes = new Map<string, Promise<RestrictedAppOAuthConnection>>();
   readonly #generations = new Map<string, number>();
 
@@ -155,6 +200,7 @@ export class RestrictedAppOAuthPkceClient {
     this.#networkTimeoutMs = boundedDuration(options.networkTimeoutMs ?? 15_000, "OAuth network timeout", 1, maximumNetworkTimeoutMs);
     this.#refreshLeewayMs = boundedDuration(options.refreshLeewayMs ?? 60_000, "OAuth refresh leeway", 0, 10 * 60 * 1_000);
     this.#maxResponseBytes = boundedDuration(options.maxResponseBytes ?? 64 * 1024, "OAuth response byte limit", 1_024, 512 * 1024);
+    this.#onDiagnostic = options.onDiagnostic;
   }
 
   async connect(
@@ -191,6 +237,7 @@ export class RestrictedAppOAuthPkceClient {
         redirectUri: callback.redirectUri,
         state,
         challenge,
+        ...(configuration.authorizationParameters ? { parameters: configuration.authorizationParameters } : {}),
       });
       await this.#assertEffectAuthorized(binding, generation, authorizeEffect);
       try {
@@ -313,7 +360,7 @@ export class RestrictedAppOAuthPkceClient {
         connectedAt: current.connectedAt,
         refreshToken: current.refreshToken,
         scopes: current.grantedScopes,
-      });
+      }, metadata.diagnostics);
       await this.#storeMutation(
         binding,
         generation,
@@ -334,29 +381,87 @@ export class RestrictedAppOAuthPkceClient {
     cancellation: AbortSignal,
     authorizeEffect?: RestrictedAppEffectAuthorizer,
   ): Promise<AuthorizationServerMetadata> {
+    // Pinned endpoints skip the fetch entirely. The review surface renders them
+    // for transparency, but the security boundary remains the issuer-host
+    // constraint applied in normalizeConfiguration: a pinned endpoint must use
+    // the issuer's exact host, so declaring one requires the same control that
+    // declaring the issuer does.
+    //
+    // Pinned mode is genuinely weaker in one respect: with no metadata document
+    // there is nothing to tell us whether the provider supports RFC 9207, so
+    // the authorization-response `iss` check cannot be required here.
+    if (configuration.discovery === "pinned") {
+      return {
+        issuer: configuration.issuer,
+        authorizationEndpoint: publicHttpsUrl(configuration.authorizationEndpoint, "OAuth authorization endpoint"),
+        tokenEndpoint: publicHttpsUrl(configuration.tokenEndpoint, "OAuth token endpoint"),
+        authorizationResponseIssuer: false,
+        diagnostics: [],
+      };
+    }
     const issuer = new URL(configuration.issuer);
-    const metadataUrl = authorizationServerMetadataUrl(issuer);
+    const metadataUrl = authorizationServerMetadataUrl(issuer, configuration.discovery ?? "oauth-authorization-server");
     const response = await this.#getJson(binding, generation, metadataUrl, cancellation, authorizeEffect);
     const metadata = strictRecord(response, "OAuth authorization-server metadata");
+    // The issuer match stays a hard failure. It is the one assertion that binds
+    // the fetched document to the reviewed identity, and unlike the capability
+    // fields below it cannot be satisfied by anything the client does itself.
     if (metadata.issuer !== configuration.issuer) {
       throw new RestrictedAppOAuthError("PROVIDER_UNSUPPORTED", "The OAuth provider metadata does not match its declared issuer.");
     }
-    const responseTypes = stringArray(metadata.response_types_supported, "OAuth response types", 1, 32);
-    if (!responseTypes.includes("code")) unsupported("The OAuth provider does not advertise the authorization-code flow.");
     if (metadata.grant_types_supported !== undefined) {
       const grants = stringArray(metadata.grant_types_supported, "OAuth grant types", 1, 32);
       if (!grants.includes("authorization_code")) unsupported("The OAuth provider does not advertise the authorization-code grant.");
     }
-    const challengeMethods = stringArray(metadata.code_challenge_methods_supported, "OAuth PKCE methods", 1, 16);
-    if (!challengeMethods.includes("S256")) unsupported("The OAuth provider does not advertise PKCE S256.");
-    const tokenAuth = stringArray(metadata.token_endpoint_auth_methods_supported, "OAuth token authentication methods", 1, 32);
-    if (!tokenAuth.includes("none")) unsupported("The OAuth provider does not support public clients without a client secret.");
+    const diagnostics: RestrictedAppOAuthDiagnostic[] = [];
+    this.#reportAdvertisement(diagnostics, configuration.issuer, metadata, "response_types_supported", "code", 32,
+      "METADATA_RESPONSE_TYPE_UNDECLARED", "does not advertise the authorization-code response type");
+    this.#reportAdvertisement(diagnostics, configuration.issuer, metadata, "code_challenge_methods_supported", "S256", 16,
+      "METADATA_PKCE_UNDECLARED", "does not advertise PKCE S256; Workspace always sends S256");
+    this.#reportAdvertisement(diagnostics, configuration.issuer, metadata, "token_endpoint_auth_methods_supported", "none", 32,
+      "METADATA_PUBLIC_CLIENT_UNDECLARED", "does not advertise public clients; Workspace never sends a client secret");
     return {
       issuer: configuration.issuer,
       authorizationEndpoint: publicHttpsUrl(metadata.authorization_endpoint, "OAuth authorization endpoint"),
       tokenEndpoint: publicHttpsUrl(metadata.token_endpoint, "OAuth token endpoint"),
       authorizationResponseIssuer: metadata.authorization_response_iss_parameter_supported === true,
+      diagnostics,
     };
+  }
+
+  /**
+   * Reports, rather than enforces, one capability advertisement. A malformed
+   * value is still rejected: a provider that sends a non-array here is not
+   * merely under-populating its metadata.
+   */
+  #reportAdvertisement(
+    diagnostics: RestrictedAppOAuthDiagnostic[],
+    issuer: string,
+    metadata: Record<string, unknown>,
+    field: string,
+    required: string,
+    maximum: number,
+    code: RestrictedAppOAuthDiagnosticCode,
+    detail: string,
+  ): void {
+    let diagnostic: RestrictedAppOAuthDiagnostic | undefined;
+    if (metadata[field] === undefined) {
+      diagnostic = { code, issuer, message: `The OAuth provider ${detail}.` };
+    } else {
+      const values = stringArray(metadata[field], `OAuth ${field}`, 1, maximum);
+      if (!values.includes(required)) diagnostic = { code, issuer, message: `The OAuth provider ${detail}.` };
+    }
+    if (!diagnostic) return;
+    diagnostics.push(diagnostic);
+    this.#diagnostic(diagnostic);
+  }
+
+  #diagnostic(diagnostic: RestrictedAppOAuthDiagnostic): void {
+    try {
+      this.#onDiagnostic?.(diagnostic);
+    } catch {
+      // A host reporting sink must never break an otherwise valid connection.
+    }
   }
 
   async #exchangeCode(
@@ -377,7 +482,7 @@ export class RestrictedAppOAuthPkceClient {
       redirect_uri: redirectUri,
       code_verifier: verifier,
     }), cancellation, authorizeEffect);
-    return tokenConnection(response, configuration, this.#now());
+    return tokenConnection(response, configuration, this.#now(), undefined, metadata.diagnostics);
   }
 
   async #read(
@@ -534,7 +639,18 @@ export class RestrictedAppOAuthPkceClient {
 }
 
 function normalizeConfiguration(value: RestrictedAppOAuthPkceConfiguration): RestrictedAppOAuthPkceConfiguration {
-  const record = strictRecord(value, "OAuth PKCE configuration", ["issuer", "clientId", "scopes"]);
+  // `kind` is accepted and ignored because the production caller
+  // (RestrictedAppService.connectOAuth) passes the parsed manifest auth
+  // declaration verbatim, and that object always carries kind: "oauth2-pkce".
+  // Omitting it from this allow-list made every real connect and refresh fail
+  // CONFIG_INVALID; no suite caught it because the tests build kind-less
+  // configuration literals.
+  const record = strictRecord(value, "OAuth PKCE configuration", [
+    "kind", "issuer", "clientId", "scopes", "discovery", "authorizationEndpoint", "tokenEndpoint", "authorizationParameters",
+  ]);
+  if (record.kind !== undefined && record.kind !== "oauth2-pkce") {
+    configInvalid("OAuth PKCE configuration kind is unsupported.");
+  }
   const issuerUrl = publicHttpsUrl(record.issuer, "OAuth issuer", true);
   const issuer = boundedString(record.issuer, "OAuth issuer", 2_048);
   const canonicalIssuer = issuerUrl.pathname === "/" && !issuerUrl.search ? issuerUrl.origin : issuerUrl.href;
@@ -550,7 +666,85 @@ function normalizeConfiguration(value: RestrictedAppOAuthPkceConfiguration): Res
   if (new Set(scopes).size !== scopes.length) configInvalid("OAuth scopes must be unique.");
   if (scopes.includes("openid")) configInvalid("OpenID Connect scopes are not supported by this OAuth connection.");
   if (scopes.join(" ").length > 2_048) configInvalid("OAuth scopes exceed the size limit.");
-  return { issuer, clientId, scopes };
+  const discovery = record.discovery === undefined ? "oauth-authorization-server" as const : record.discovery;
+  if (discovery !== "oauth-authorization-server" && discovery !== "openid-configuration" && discovery !== "pinned") {
+    configInvalid("OAuth discovery mode is unsupported.");
+  }
+  if (discovery === "pinned") {
+    if (record.authorizationEndpoint === undefined || record.tokenEndpoint === undefined) {
+      configInvalid("Pinned OAuth discovery requires an authorization endpoint and a token endpoint.");
+    }
+  } else if (record.authorizationEndpoint !== undefined || record.tokenEndpoint !== undefined) {
+    configInvalid("OAuth endpoints may only be supplied with pinned discovery.");
+  }
+  // `true` here also refuses a query string. A pinned authorization endpoint
+  // must not arrive with parameters of its own, because the request builder
+  // would merge them with the ones it sets and no reviewer saw that combination.
+  //
+  // The issuer-host constraint is enforced again here, not only in the manifest
+  // parser. A configuration reaching this client by any other path must not be
+  // able to point the token exchange — which carries the authorization code and
+  // the PKCE verifier — at a host the issuer does not own.
+  const issuerHost = new URL(issuer).hostname;
+  const authorizationEndpoint = record.authorizationEndpoint === undefined
+    ? undefined
+    : issuerOwnedEndpoint(record.authorizationEndpoint, "OAuth authorization endpoint", issuerHost);
+  const tokenEndpoint = record.tokenEndpoint === undefined
+    ? undefined
+    : issuerOwnedEndpoint(record.tokenEndpoint, "OAuth token endpoint", issuerHost);
+  const authorizationParameters = normalizeAuthorizationParameters(record.authorizationParameters);
+  return {
+    issuer,
+    clientId,
+    scopes,
+    discovery,
+    ...(authorizationEndpoint ? { authorizationEndpoint } : {}),
+    ...(tokenEndpoint ? { tokenEndpoint } : {}),
+    ...(authorizationParameters.length ? { authorizationParameters } : {}),
+  };
+}
+
+/**
+ * Re-validates reviewed parameters at use time. The manifest parser is the
+ * first gate; this is the second, so a configuration reaching the client by any
+ * other path still cannot smuggle a protocol-owned name into the request.
+ */
+function normalizeAuthorizationParameters(value: unknown): Array<{ name: string; value: string }> {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 8) configInvalid("OAuth authorization parameters are invalid.");
+  const seen = new Set<string>();
+  return (value as unknown[]).map((entry) => {
+    const item = strictRecord(entry, "OAuth authorization parameter", ["name", "value"]);
+    const name = boundedString(item.name, "OAuth authorization parameter name", 32);
+    if (!/^[a-z][a-z0-9_]{0,31}$/.test(name)) configInvalid("OAuth authorization parameter name is invalid.");
+    if (reservedAuthorizationParameters.has(name)) {
+      configInvalid("OAuth authorization parameter is owned by the authorization request.");
+    }
+    if (seen.has(name)) configInvalid("OAuth authorization parameters must be unique.");
+    seen.add(name);
+    const text = boundedString(item.value, "OAuth authorization parameter value", 256);
+    if (!/^[\x20-\x7e]+$/.test(text)) configInvalid("OAuth authorization parameter value is invalid.");
+    return { name, value: text };
+  });
+}
+
+const reservedAuthorizationParameters = new Set([
+  "client_assertion", "client_assertion_type", "client_id", "client_secret", "code", "code_challenge",
+  "code_challenge_method", "code_verifier", "grant_type", "redirect_uri", "refresh_token",
+  // RFC 9101 request objects and OIDC `request_uri` replace the parameters of
+  // the request they appear in, so either one could restore a name this list
+  // otherwise refuses. `response_mode` chooses how the response is delivered,
+  // which the one-shot loopback listener depends on.
+  "request", "request_uri", "response_mode", "response_type",
+  "scope", "state",
+]);
+
+function issuerOwnedEndpoint(value: unknown, label: string, issuerHost: string): string {
+  const url = publicHttpsUrl(value, label, true);
+  if (!isIssuerEndpointHost(url.hostname, issuerHost)) {
+    configInvalid(`${label} must use the OAuth issuer's exact host.`);
+  }
+  return url.href;
 }
 
 function normalizeBinding(value: RestrictedAppOAuthBinding): RestrictedAppOAuthBinding {
@@ -604,7 +798,7 @@ function normalizeBinding(value: RestrictedAppOAuthBinding): RestrictedAppOAuthB
 
 export function normalizeRestrictedAppOAuthConnection(value: RestrictedAppOAuthConnection): RestrictedAppOAuthConnection {
   const record = strictRecord(value, "Stored OAuth connection", [
-    "kind", "issuer", "clientId", "requestedScopes", "grantedScopes", "tokenType", "accessToken", "refreshToken", "expiresAt", "connectedAt",
+    "kind", "issuer", "clientId", "requestedScopes", "grantedScopes", "tokenType", "accessToken", "refreshToken", "expiresAt", "connectedAt", "diagnostics",
   ]);
   if (record.kind !== "oauth2-pkce" || record.tokenType !== "Bearer") throw new Error("Stored OAuth connection kind is invalid.");
   const configuration = normalizeConfiguration({ issuer: record.issuer as string, clientId: record.clientId as string, scopes: record.requestedScopes as string[] });
@@ -616,6 +810,7 @@ export function normalizeRestrictedAppOAuthConnection(value: RestrictedAppOAuthC
   const refreshToken = record.refreshToken === undefined ? undefined : secret(record.refreshToken, "Stored OAuth refresh token");
   const expiresAt = optionalIsoDate(record.expiresAt, "Stored OAuth expiration");
   const connectedAt = isoDate(record.connectedAt, "Stored OAuth connection time");
+  const diagnostics = normalizeOAuthDiagnostics(record.diagnostics, configuration.issuer);
   return {
     kind: "oauth2-pkce",
     issuer: configuration.issuer,
@@ -627,6 +822,7 @@ export function normalizeRestrictedAppOAuthConnection(value: RestrictedAppOAuthC
     ...(refreshToken ? { refreshToken } : {}),
     ...(expiresAt ? { expiresAt } : {}),
     connectedAt,
+    ...(diagnostics.length ? { diagnostics } : {}),
   } as RestrictedAppOAuthConnection;
 }
 
@@ -635,6 +831,7 @@ function tokenConnection(
   configuration: RestrictedAppOAuthPkceConfiguration,
   now: Date,
   prior?: { connectedAt: string; refreshToken: string; scopes: string[] },
+  diagnostics: RestrictedAppOAuthDiagnostic[] = [],
 ): RestrictedAppOAuthConnection {
   const record = strictRecord(value, "OAuth token response");
   const accessToken = secret(record.access_token, "OAuth access token");
@@ -671,12 +868,46 @@ function tokenConnection(
     ...(refreshToken ? { refreshToken } : {}),
     ...(expiresAt ? { expiresAt } : {}),
     connectedAt: prior?.connectedAt ?? now.toISOString(),
+    ...(diagnostics.length ? { diagnostics: diagnostics.map((diagnostic) => ({ ...diagnostic })) } : {}),
   };
 }
 
-function authorizationServerMetadataUrl(issuer: URL): URL {
-  const result = new URL(issuer.origin);
+function normalizeOAuthDiagnostics(value: unknown, issuer: string): RestrictedAppOAuthDiagnostic[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 3) throw new Error("Stored OAuth diagnostics are invalid.");
+  const codes = new Set<RestrictedAppOAuthDiagnosticCode>([
+    "METADATA_RESPONSE_TYPE_UNDECLARED",
+    "METADATA_PKCE_UNDECLARED",
+    "METADATA_PUBLIC_CLIENT_UNDECLARED",
+  ]);
+  return value.map((entry) => {
+    const record = strictRecord(entry, "Stored OAuth diagnostic", ["code", "issuer", "message"]);
+    if (typeof record.code !== "string" || !codes.has(record.code as RestrictedAppOAuthDiagnosticCode)) {
+      throw new Error("Stored OAuth diagnostic code is invalid.");
+    }
+    const diagnosticIssuer = boundedString(record.issuer, "Stored OAuth diagnostic issuer", 2_048);
+    if (diagnosticIssuer !== issuer) throw new Error("Stored OAuth diagnostic issuer is invalid.");
+    return {
+      code: record.code as RestrictedAppOAuthDiagnosticCode,
+      issuer: diagnosticIssuer,
+      message: boundedString(record.message, "Stored OAuth diagnostic message", 500),
+    };
+  });
+}
+
+/**
+ * RFC 8414 inserts the well-known segment before the issuer path; OpenID
+ * Connect Discovery appends it after. Both documents carry the same fields this
+ * client reads, so only the URL shape differs between the two modes.
+ */
+function authorizationServerMetadataUrl(issuer: URL, discovery: RestrictedAppOAuthDiscoveryKind): URL {
   const issuerPath = issuer.pathname === "/" ? "" : issuer.pathname.replace(/\/$/, "");
+  if (discovery === "openid-configuration") {
+    const result = new URL(issuer.origin);
+    result.pathname = `${issuerPath}/.well-known/openid-configuration`;
+    return result;
+  }
+  const result = new URL(issuer.origin);
   result.pathname = `/.well-known/oauth-authorization-server${issuerPath}`;
   return result;
 }
@@ -687,8 +918,15 @@ function authorizationRequestUrl(endpoint: URL, input: {
   redirectUri: string;
   state: string;
   challenge: string;
+  parameters?: Array<{ name: string; value: string }>;
 }): URL {
   const url = new URL(endpoint);
+  // Reviewed extras are applied first so the protocol parameters below
+  // overwrite them unconditionally. The manifest parser already refuses these
+  // names; this ordering means a gap there still cannot change what is sent.
+  for (const parameter of input.parameters ?? []) {
+    url.searchParams.set(parameter.name, parameter.value);
+  }
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", input.clientId);
   url.searchParams.set("redirect_uri", input.redirectUri);
@@ -909,6 +1147,9 @@ function status(connection: RestrictedAppOAuthConnection): RestrictedAppOAuthCon
     configured: true,
     scopes: [...connection.grantedScopes],
     ...(connection.expiresAt ? { expiresAt: connection.expiresAt } : {}),
+    ...(connection.diagnostics?.length
+      ? { diagnostics: connection.diagnostics.map((diagnostic) => ({ ...diagnostic })) }
+      : {}),
   };
 }
 

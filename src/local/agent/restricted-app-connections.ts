@@ -22,6 +22,7 @@ import {
   normalizeRestrictedAppOAuthConnection,
   RestrictedAppOAuthError,
   type RestrictedAppOAuthConnection,
+  type RestrictedAppOAuthDiagnostic,
   type RestrictedAppOAuthPkceConfiguration,
 } from "./restricted-app-oauth.js";
 
@@ -72,6 +73,7 @@ export interface RestrictedAppConnectionStatus {
   owner: RestrictedAppConnectionOwner["kind"];
   kind: RestrictedAppCredential["kind"] | "none" | null;
   configured: boolean;
+  diagnostics?: RestrictedAppOAuthDiagnostic[];
 }
 
 export interface RestrictedAppConnectionStore {
@@ -133,6 +135,8 @@ export type RestrictedAppErrorCode =
   | "INPUT_INVALID"
   | "NETWORK_DENIED"
   | "NETWORK_FAILED"
+  | "NETWORK_REQUEST_TOO_LARGE"
+  | "NETWORK_RESPONSE_TOO_LARGE"
   | "OUTPUT_INVALID"
   | "REVISION_CHANGED"
   | "STORAGE_FAILED";
@@ -190,6 +194,16 @@ export class RestrictedAppNetworkBroker {
     // policy check before letting the real transport resolve the same host.
     this.#resolveHost = options.resolveHost ?? (options.fetch ? undefined : resolveHost);
     this.#oauth = options.oauth;
+  }
+
+  /** Effective bounds for this broker, published to apps through the limits bridge. */
+  get limits(): { maxRequestBytes: number; maxResponseBytes: number; timeoutMs: number; maxRedirects: number } {
+    return {
+      maxRequestBytes: this.#maxRequestBytes,
+      maxResponseBytes: this.#maxResponseBytes,
+      timeoutMs: this.#timeoutMs,
+      maxRedirects: this.#maxRedirects,
+    };
   }
 
   async request(
@@ -328,7 +342,7 @@ export class RestrictedAppNetworkBroker {
 export function normalizeRestrictedAppCredential(value: unknown): RestrictedAppCredential {
   const candidate = strictObject(value, "Connection credential", [
     "kind", "value", "token", "username", "password", "issuer", "clientId", "requestedScopes", "grantedScopes",
-    "tokenType", "accessToken", "refreshToken", "expiresAt", "connectedAt",
+    "tokenType", "accessToken", "refreshToken", "expiresAt", "connectedAt", "diagnostics",
   ]);
   const kind = candidate.kind;
   const record = kind === "api-key"
@@ -379,11 +393,21 @@ function parseNetworkRequest(value: unknown, maxRequestBytes: number): Restricte
       headers[name] = rawValue;
     }
   }
-  const body = record.body === undefined ? undefined : requiredString(record.body, "Network request body", maxRequestBytes, true);
+  // Shape only. The size decision belongs to the byte check below so it always
+  // reports the typed limit — a character bound here would shadow it and hand
+  // the app a generic failure for the one condition it can actually act on.
+  const body = record.body === undefined
+    ? undefined
+    : requiredString(record.body, "Network request body", Number.MAX_SAFE_INTEGER, true);
   if ((record.method === "GET" || record.method === "DELETE") && body !== undefined) {
     throw new RestrictedAppError("NETWORK_DENIED", `${record.method} requests cannot include a body.`);
   }
-  if (body !== undefined && Buffer.byteLength(body) > maxRequestBytes) throw new RestrictedAppError("NETWORK_DENIED", "Network request body is too large.");
+  if (body !== undefined && Buffer.byteLength(body) > maxRequestBytes) {
+    throw new RestrictedAppError(
+      "NETWORK_REQUEST_TOO_LARGE",
+      `The network request body exceeded the ${maxRequestBytes}-byte request limit.`,
+    );
+  }
   return { destinationId, path, method: record.method, ...(Object.keys(headers).length ? { headers } : {}), ...(body !== undefined ? { body } : {}) };
 }
 
@@ -432,7 +456,12 @@ async function boundedResponse(response: Response, maximum: number, controller: 
         size += item.value.byteLength;
         if (size > maximum) {
           controller.abort();
-          throw new RestrictedAppError("NETWORK_FAILED", "The network response exceeded the size limit.");
+          // Distinct from NETWORK_FAILED and carrying the number, so an app can
+          // tell "ask for less" apart from "the network broke" and act on it.
+          throw new RestrictedAppError(
+            "NETWORK_RESPONSE_TOO_LARGE",
+            `The network response exceeded the ${maximum}-byte response limit. Request a smaller page or range.`,
+          );
         }
         chunks.push(item.value);
       }

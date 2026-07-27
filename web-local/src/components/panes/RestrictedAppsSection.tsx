@@ -236,7 +236,21 @@ export function RestrictedAppReviewDialog({ review, sourcePath, updating, busy, 
 
 function ReviewDeclarations({ review }: { review: RestrictedAppReview }) {
   return <div className="restricted-app-review-groups">
-    <section><h3>Requested access</h3>{review.manifest.permissions.network.length ? <div>{review.manifest.permissions.network.map((destination) => <article key={destination.id}><strong>{destinationLabel(destination)}</strong><span>{destination.methods.join(", ")}</span><small>{destination.auth.map(authLabel).join(" · ")}</small></article>)}</div> : <p>No network access requested.</p>}{review.manifest.permissions.files.length ? <div>{review.manifest.permissions.files.map((permission) => <article key={permission.id}><strong>{permission.access === "read-write" ? "Read and write" : "Read"} a {permission.target} you choose</strong><span>{permission.id}</span></article>)}</div> : <p>No Space files requested.</p>}{review.manifest.permissions.notifications.length ? <div>{review.manifest.permissions.notifications.map((permission) => <article key={permission.id}><strong>Workspace · {review.manifest.title} — {permission.title}</strong><span>{permission.description}</span><small>Static system notification · {permission.id}</small></article>)}</div> : <p>No notifications requested.</p>}</section>
+    <section>
+      <h3>Requested access</h3>
+      {review.manifest.permissions.network.length
+        ? <div>{review.manifest.permissions.network.map((destination) => <article key={destination.id}>
+          <strong>{destinationLabel(destination)}</strong>
+          <span>{destination.methods.join(", ")}</span>
+          <small>{destination.auth.map(authLabel).join(" · ")}</small>
+          {destination.auth.map((auth) => auth.kind === "oauth2-pkce"
+            ? <OAuthDeclarationDetails auth={auth} key={`${destination.id}:${auth.kind}`} />
+            : null)}
+        </article>)}</div>
+        : <p>No network access requested.</p>}
+      {review.manifest.permissions.files.length ? <div>{review.manifest.permissions.files.map((permission) => <article key={permission.id}><strong>{permission.access === "read-write" ? "Read and write" : "Read"} a {permission.target} you choose</strong><span>{permission.id}</span></article>)}</div> : <p>No Space files requested.</p>}
+      {review.manifest.permissions.notifications.length ? <div>{review.manifest.permissions.notifications.map((permission) => <article key={permission.id}><strong>Workspace · {review.manifest.title} — {permission.title}</strong><span>{permission.description}</span><small>Static system notification · {permission.id}</small></article>)}</div> : <p>No notifications requested.</p>}
+    </section>
     <section><h3>Automations</h3>{review.manifest.automations.length ? <><p>Each reviewed schedule installs off and must be enabled separately.</p><div>{review.manifest.automations.map((automation) => <article key={automation.id}><strong>{automation.title}</strong><span>{automation.description || `Runs the ${automation.handler} handler.`}</span><small>{formatAutomationSchedule(automation)} · {automation.catchUp === "latest" ? "Runs the latest missed occurrence after resume" : "Does not catch up missed occurrences"} · Overlapping runs are skipped</small><small>Power subset: {automationPowerSummary(review.manifest, automation)}</small><code>{automation.handler}</code></article>)}</div></> : <p>No scheduled automations.</p>}</section>
     <section><h3>What it adds</h3><p>Adds an interactive app destination to this Space’s rail. The app can open, update, and close Space-owned work tabs through Workspace.</p>{review.manifest.tools.length ? <div>{review.manifest.tools.map((tool) => <article key={tool.name}><strong>{tool.name}</strong><span>{tool.description}</span><code>{tool.action}</code></article>)}</div> : <p>No Assistant actions.</p>}</section>
   </div>;
@@ -333,11 +347,26 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
   async function connectOAuth(destination: RestrictedAppNetworkDestination) {
     setActionBusy(`oauth:${destination.id}`);
     try {
-      const status = fixtureMode
-        ? { destinationId: destination.id, owner: "instance" as const, kind: "oauth2-pkce" as const, configured: true }
+      const status: RestrictedAppConnectionStatus = fixtureMode
+        ? {
+            destinationId: destination.id,
+            owner: "instance" as const,
+            kind: "oauth2-pkce" as const,
+            configured: true,
+            diagnostics: [{
+              code: "METADATA_PKCE_UNDECLARED",
+              issuer: "https://identity.example.com",
+              message: "The provider metadata did not advertise PKCE; Workspace still enforced S256 for this connection.",
+            }],
+          }
         : await connectRestrictedAppOAuth(app.workspaceId, app.manifest.id, destination.id, app.digest);
       setConnections((current) => upsertConnectionStatus(current, status));
-      showToast({ text: `Browser sign-in connected for ${destinationLabel(destination)}.`, tone: "success" });
+      showToast({
+        text: status.diagnostics?.length
+          ? `Browser sign-in connected for ${destinationLabel(destination)}. Review ${status.diagnostics.length === 1 ? "the provider note" : `${status.diagnostics.length} provider notes`} below.`
+          : `Browser sign-in connected for ${destinationLabel(destination)}.`,
+        tone: "success",
+      });
     } catch (caught) { onError(errorText(caught)); }
     finally { setActionBusy(null); }
   }
@@ -604,6 +633,12 @@ function DestinationCard({ destination, granted, status, loading, busy, activeBu
   return <article className="restricted-app-destination-card">
     <div className="restricted-app-destination-heading"><div><strong>{destinationLabel(destination)}</strong><span>{destination.methods.join(" · ")}</span></div><code>{destination.id}</code></div>
     <div className="restricted-app-destination-states"><span className={granted ? "enabled" : ""}>Access: <strong>{granted ? "Allowed" : "Off"}</strong></span><span className={status?.configured ? "enabled" : ""}>Connection: <strong>{loading ? "Checking…" : connectionLabel(destination, status, unsupportedOnly)}</strong></span></div>
+    {oauth ? <OAuthDeclarationDetails auth={oauth} /> : null}
+    {status?.diagnostics?.length ? <aside className="restricted-app-oauth-diagnostics" role="status">
+      <strong>Provider compatibility {status.diagnostics.length === 1 ? "note" : "notes"}</strong>
+      <ul>{status.diagnostics.map((diagnostic) => <li key={diagnostic.code}>{diagnostic.message}</li>)}</ul>
+      <span>Workspace enforces these requirements directly; the connection completed successfully.</span>
+    </aside> : null}
     <div className="restricted-app-destination-actions"><button className={granted ? "professional-button professional-button-secondary" : "professional-button professional-button-primary"} type="button" disabled={busy || loading} onClick={() => onGrantChange(!granted)}>{activeBusyKey === `grant:${destination.id}` ? <ArrowSync16Regular className="spin" /> : null}{granted ? "Revoke access" : "Allow access"}</button>{!loading && oauth ? <button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onOAuth}>{activeBusyKey === `oauth:${destination.id}` ? <ArrowSync16Regular className="spin" /> : null}{status?.kind === "oauth2-pkce" ? "Reconnect in browser" : "Connect in browser"}</button> : null}{!loading && status?.configured && status.kind !== "none" ? <button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onDisconnect}>{activeBusyKey === `credential:${destination.id}` || activeBusyKey === `oauth:${destination.id}` ? <ArrowSync16Regular className="spin" /> : null}Disconnect</button> : null}</div>
     {!loading && supportedAuth.length ? <details className="restricted-app-connect-details"><summary>{status?.configured ? "Replace connection" : "Connect"}</summary><CredentialForm destination={destination} supportedAuth={supportedAuth} configuredKind={status?.kind} busy={busy} onSave={onSave} /></details> : null}
     {oauth ? <p className="restricted-app-oauth-note">Uses the system browser with PKCE. The package supplies a public native-client ID; Workspace keeps callback state and tokens in the encrypted host.</p> : null}
@@ -661,6 +696,32 @@ function authLabel(auth: RestrictedAppAuthDeclaration): string {
   if (auth.kind === "basic") return "Username and password";
   if (auth.kind === "none") return "No sign-in";
   return `OAuth browser sign-in (${new URL(auth.issuer).hostname})`;
+}
+
+function OAuthDeclarationDetails({ auth }: {
+  auth: Extract<RestrictedAppAuthDeclaration, { kind: "oauth2-pkce" }>;
+}) {
+  const discovery = auth.discovery ?? "oauth-authorization-server";
+  const discoveryLabel = discovery === "oauth-authorization-server"
+    ? "OAuth server discovery"
+    : discovery === "openid-configuration"
+      ? "OpenID discovery"
+      : "Pinned endpoints";
+  return <dl className="restricted-app-oauth-contract" aria-label="OAuth request details">
+    <div><dt>Issuer</dt><dd><code>{auth.issuer}</code></dd></div>
+    <div><dt>Client</dt><dd><code>{auth.clientId}</code></dd></div>
+    <div><dt>Scopes</dt><dd className="restricted-app-oauth-values">{auth.scopes.map((scope) => <code key={scope}>{scope}</code>)}</dd></div>
+    <div><dt>Discovery</dt><dd>{discoveryLabel}</dd></div>
+    {discovery === "pinned" ? <>
+      <div><dt>Authorize at</dt><dd><code>{auth.authorizationEndpoint}</code></dd></div>
+      <div><dt>Exchange at</dt><dd><code>{auth.tokenEndpoint}</code></dd></div>
+    </> : null}
+    <div><dt>Extra parameters</dt><dd className="restricted-app-oauth-values">
+      {auth.authorizationParameters?.length
+        ? auth.authorizationParameters.map((parameter) => <code key={parameter.name}>{parameter.name}={parameter.value}</code>)
+        : <span>None</span>}
+    </dd></div>
+  </dl>;
 }
 
 function connectionLabel(destination: RestrictedAppNetworkDestination, status: RestrictedAppConnectionStatus | undefined, unsupportedOnly: boolean): string {
@@ -802,7 +863,25 @@ function fixtureReview(): RestrictedAppReview {
         overlap: "skip",
       }],
       permissions: {
-        network: [{ id: "mail-api", target: { kind: "public-https", origin: "https://mail.example.com" }, methods: ["GET"], auth: [{ kind: "api-key", header: "x-api-key" }, { kind: "bearer" }] }],
+        network: [{
+          id: "mail-api",
+          target: { kind: "public-https", origin: "https://mail.example.com" },
+          methods: ["GET"],
+          auth: [
+            { kind: "api-key", header: "x-api-key" },
+            { kind: "bearer" },
+            {
+              kind: "oauth2-pkce",
+              issuer: "https://identity.example.com",
+              clientId: "workspace-connected-inbox",
+              scopes: ["mail.read", "mail.send"],
+              discovery: "pinned",
+              authorizationEndpoint: "https://identity.example.com/oauth/authorize",
+              tokenEndpoint: "https://identity.example.com/oauth/token",
+              authorizationParameters: [{ name: "access_type", value: "offline" }],
+            },
+          ],
+        }],
         files: [{ id: "export-folder", target: "directory", access: "read-write" }],
         notifications: [{ id: "new-messages", title: "New messages", description: "New messages are ready in your connected inbox." }],
       },

@@ -1770,6 +1770,9 @@ export class RestrictedAppService {
         owner: binding.owner.kind,
         kind: credential?.kind ?? null,
         configured: Boolean(credential),
+        ...(credential?.kind === "oauth2-pkce" && credential.diagnostics?.length
+          ? { diagnostics: credential.diagnostics.map((diagnostic) => ({ ...diagnostic })) }
+          : {}),
       };
     }));
   }
@@ -1843,7 +1846,15 @@ export class RestrictedAppService {
         undefined,
         () => this.#assertInstalledAuthority(authorized),
       );
-      return { destinationId: destination.id, owner: "instance", kind: status.kind, configured: true };
+      return {
+        destinationId: destination.id,
+        owner: "instance",
+        kind: status.kind,
+        configured: true,
+        ...(status.diagnostics?.length
+          ? { diagnostics: status.diagnostics.map((diagnostic) => ({ ...diagnostic })) }
+          : {}),
+      };
     } catch (error) {
       if (!(error instanceof RestrictedAppOAuthError)) throw error;
       throw new RestrictedAppError(

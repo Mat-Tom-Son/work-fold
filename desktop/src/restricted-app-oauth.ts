@@ -51,6 +51,12 @@ export function createRestrictedAppOAuthClient(
     store,
     transport: createOAuthTransport(),
     openExternal,
+    // Capability advertisements Workspace no longer refuses still say something
+    // about the provider, so they are recorded rather than dropped. Issuer only:
+    // no client id, scope, token, or binding detail reaches the log.
+    onDiagnostic: (diagnostic) => {
+      console.warn(`[restricted-app-oauth] ${diagnostic.code} ${diagnostic.issuer}: ${diagnostic.message}`);
+    },
   });
 }
 

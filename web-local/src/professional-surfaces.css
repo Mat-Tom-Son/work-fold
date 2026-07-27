@@ -2725,6 +2725,66 @@
   border-color: color-mix(in srgb, var(--ui-success) 35%, var(--ui-border));
 }
 
+.restricted-app-oauth-contract {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 9px 0;
+  border-block: 1px solid var(--ui-border);
+}
+
+.restricted-app-oauth-contract > div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.restricted-app-oauth-contract dt {
+  color: var(--ui-text-subtle);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.restricted-app-oauth-contract dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--ui-text-muted);
+  font-size: 10px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.restricted-app-oauth-contract dd code {
+  color: inherit;
+  font-size: inherit;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.restricted-app-oauth-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.restricted-app-oauth-diagnostics {
+  display: grid;
+  gap: 5px;
+  padding-left: 9px;
+  color: var(--ui-text-muted);
+  border-left: 2px solid var(--ui-warning);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.restricted-app-oauth-diagnostics strong { color: var(--ui-text); font-size: 10px; }
+.restricted-app-oauth-diagnostics ul { display: grid; gap: 3px; margin: 0; padding-left: 16px; }
+.restricted-app-oauth-diagnostics span { color: var(--ui-text-subtle); }
+
 .restricted-app-credential-form {
   display: grid;
   gap: 9px;
@@ -2782,6 +2842,7 @@
   .restricted-app-destination-heading,
   .restricted-app-credential-heading,
   .restricted-app-credential-form > div:last-child { align-items: stretch; flex-direction: column; }
+  .restricted-app-oauth-contract > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }
 .extension-surface-pane {
   display: flex;

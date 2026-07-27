@@ -84,6 +84,9 @@ async function runSmoke() {
     let lateNetworkEffects = 0;
     const productionNetworkBroker = new RestrictedAppNetworkBroker({ credentials: connections });
     const networkBroker = {
+      get limits() {
+        return productionNetworkBroker.limits;
+      },
       async request(owner, manifest, request, signal, authorizeEffect) {
         if (request?.destinationId === "principal-probe") {
           networkOwners.push(structuredClone(owner));

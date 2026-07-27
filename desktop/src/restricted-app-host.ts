@@ -19,6 +19,11 @@ import {
 } from "../../src/local/agent/restricted-app-connections.js";
 import { validateRestrictedAppValue } from "../../src/local/agent/restricted-app-manifest.js";
 import {
+  buildRestrictedAppLimits,
+  restrictedAppNetworkEnvelopeBytes,
+  restrictedAppStorageEnvelopeBytes,
+} from "../../src/local/agent/restricted-app-limits.js";
+import {
   RestrictedAppFileBroker,
   RestrictedAppFileError,
 } from "../../src/local/agent/restricted-app-files.js";
@@ -61,8 +66,6 @@ const notificationsChannel = "workspace:restricted-app:notifications";
 const indexPath = "/__workspace/index.html";
 const bootstrapPath = "/__workspace/bootstrap.js";
 const maxInvocationBytes = 256 * 1024;
-const maxNetworkEnvelopeBytes = 160 * 1024;
-const maxStorageEnvelopeBytes = 160 * 1024;
 const maxFileEnvelopeBytes = 800 * 1024;
 const maxNotificationEnvelopeBytes = 4 * 1024;
 const defaultInvocationTimeoutMs = 5_000;
@@ -192,6 +195,8 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
   readonly #network: RestrictedAppNetworkBroker;
   readonly #storage: FileRestrictedAppStorage;
   readonly #files: RestrictedAppFileBroker;
+  readonly #limitsArgument: string;
+  readonly #maxNetworkEnvelopeBytes: number;
   readonly #notifications: RestrictedAppNotificationBroker;
   readonly #resolveWorkspaceRoot: RestrictedAppHostOptions["resolveWorkspaceRoot"];
   readonly #onTabCommand?: RestrictedAppHostOptions["onTabCommand"];
@@ -220,6 +225,21 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     this.#onTabCommand = options.onTabCommand;
     this.#onUiState = options.onUiState;
     this.#onNotificationOpen = options.onNotificationOpen;
+    // Composed from the live brokers so a host that overrides a bound cannot
+    // publish a stale one. Serialized once: the values never change per mount.
+    this.#limitsArgument = rendererArgument("limits", JSON.stringify(buildRestrictedAppLimits({
+      network: {
+        maxRequestBytes: this.#network.limits.maxRequestBytes,
+        maxResponseBytes: this.#network.limits.maxResponseBytes,
+        timeoutMs: this.#network.limits.timeoutMs,
+        maxRedirects: this.#network.limits.maxRedirects,
+      },
+      files: {
+        maxReadBytes: this.#files.limits.maxReadBytes,
+        maxWriteBytes: this.#files.limits.maxWriteBytes,
+      },
+    })));
+    this.#maxNetworkEnvelopeBytes = restrictedAppNetworkEnvelopeBytes(this.#network.limits.maxRequestBytes);
     ipcMain.handle(networkChannel, (event, value) => this.#handleNetwork(event, value));
     ipcMain.handle(storageChannel, (event, value) => this.#handleStorage(event, value));
     ipcMain.handle(filesChannel, (event, value) => this.#handleFiles(event, value));
@@ -443,6 +463,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
           rendererArgument("route", request.route),
           rendererArgument("theme", request.theme),
           rendererArgument("state", request.state === undefined ? "" : JSON.stringify(request.state)),
+          this.#limitsArgument,
         ],
       },
     });
@@ -656,7 +677,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
           backgroundThrottling: true,
           disableDialogs: true,
           navigateOnDragDrop: false,
-          additionalArguments: ["--workspace-restricted-mode=worker"],
+          additionalArguments: ["--workspace-restricted-mode=worker", this.#limitsArgument],
         },
       });
       const launchedInstance: RestrictedAppInstance = {
@@ -815,7 +836,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     if (!instance) return { ok: false, error: { code: "NETWORK_DENIED", message: "The network caller is not an active restricted app." } };
     try {
       const lease = this.#captureEffectLease(instance);
-      if (typeof value !== "string" || Buffer.byteLength(value, "utf8") > maxNetworkEnvelopeBytes) {
+      if (typeof value !== "string" || Buffer.byteLength(value, "utf8") > this.#maxNetworkEnvelopeBytes) {
         throw new RestrictedAppError("NETWORK_DENIED", "The network request envelope exceeds the size limit.");
       }
       let request: unknown;
@@ -851,7 +872,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     }
     try {
       const lease = this.#captureEffectLease(instance, false);
-      const request = jsonEnvelope(value, maxStorageEnvelopeBytes, "storage");
+      const request = jsonEnvelope(value, restrictedAppStorageEnvelopeBytes, "storage");
       const owner = {
         ownerClass: "instance" as const,
         tenantId: instance.app.tenantId,

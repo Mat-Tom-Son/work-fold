@@ -365,12 +365,28 @@ export interface CapabilitySurface {
   views: AgentExtensionSurfaceView[];
 }
 
+export type RestrictedAppOAuthDiscoveryKind =
+  | "oauth-authorization-server"
+  | "openid-configuration"
+  | "pinned";
+
+export interface RestrictedAppOAuthPkceDeclaration {
+  kind: "oauth2-pkce";
+  issuer: string;
+  clientId: string;
+  scopes: string[];
+  discovery?: RestrictedAppOAuthDiscoveryKind;
+  authorizationEndpoint?: string;
+  tokenEndpoint?: string;
+  authorizationParameters?: Array<{ name: string; value: string }>;
+}
+
 export type RestrictedAppAuthDeclaration =
   | { kind: "api-key"; header: string }
   | { kind: "none" }
   | { kind: "bearer" }
   | { kind: "basic" }
-  | { kind: "oauth2-pkce"; issuer: string; clientId: string; scopes: string[] };
+  | RestrictedAppOAuthPkceDeclaration;
 
 export interface RestrictedAppJsonSchema {
   type: "object" | "array" | "string" | "number" | "integer" | "boolean" | "null";
@@ -676,6 +692,11 @@ export interface RestrictedAppConnectionStatus {
   owner: "instance" | "principal";
   kind: "api-key" | "bearer" | "basic" | "oauth2-pkce" | "none" | null;
   configured: boolean;
+  diagnostics?: Array<{
+    code: "METADATA_RESPONSE_TYPE_UNDECLARED" | "METADATA_PKCE_UNDECLARED" | "METADATA_PUBLIC_CLIENT_UNDECLARED";
+    issuer: string;
+    message: string;
+  }>;
 }
 
 export interface RestrictedAppStorageUsage {

@@ -155,6 +155,15 @@ export class RestrictedAppFileBroker {
     this.#maxListEntries = positiveBound(options.maxListEntries, defaultMaximumListEntries, "list entry limit", 1_000);
   }
 
+  /** Effective bounds for this broker, published to apps through the limits bridge. */
+  get limits(): { maxReadBytes: number; maxWriteBytes: number; maxListEntries: number } {
+    return {
+      maxReadBytes: this.#maxReadBytes,
+      maxWriteBytes: this.#maxWriteBytes,
+      maxListEntries: this.#maxListEntries,
+    };
+  }
+
   async validateGrant(context: RestrictedAppFileContext, grantId: string): Promise<void> {
     await prepareGrant(context, idValue(grantId, "App file grant id"));
   }

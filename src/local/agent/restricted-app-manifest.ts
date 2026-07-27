@@ -26,10 +26,73 @@ export type RestrictedAppAuthKind =
   | "basic"
   | "oauth2-pkce";
 
+export type RestrictedAppOAuthDiscoveryKind =
+  | "oauth-authorization-server"
+  | "openid-configuration"
+  | "pinned";
+
+export interface RestrictedAppOAuthPkceDeclaration {
+  kind: "oauth2-pkce";
+  issuer: string;
+  clientId: string;
+  scopes: string[];
+  /**
+   * How Workspace locates the authorization and token endpoints. Discovery is a
+   * convenience, not the trust root: the reviewed issuer, the public-HTTPS
+   * endpoint rules, PKCE S256, the one-shot loopback redirect, and the
+   * never-send-a-secret rule hold identically in all three modes.
+   */
+  discovery?: RestrictedAppOAuthDiscoveryKind;
+  /** Present exactly when `discovery` is `pinned`. */
+  authorizationEndpoint?: string;
+  /** Present exactly when `discovery` is `pinned`. */
+  tokenEndpoint?: string;
+  /**
+   * Reviewed static authorization-request parameters for provider dialects such
+   * as Google `access_type=offline`. Protocol-critical names are rejected at
+   * review time and the protocol layer overwrites them again at request time.
+   */
+  authorizationParameters?: Array<{ name: string; value: string }>;
+}
+
 export type RestrictedAppAuthDeclaration =
   | { kind: "api-key"; header: string }
-  | { kind: "oauth2-pkce"; issuer: string; clientId: string; scopes: string[] }
+  | RestrictedAppOAuthPkceDeclaration
   | { kind: Exclude<RestrictedAppAuthKind, "api-key" | "oauth2-pkce"> };
+
+/**
+ * Parameter names the authorization request owns. A reviewed declaration may
+ * never supply these, and `client_secret` style names are refused outright
+ * because this lane holds no client secret to begin with.
+ */
+export const restrictedAppReservedAuthorizationParameters = new Set([
+  "client_assertion",
+  "client_assertion_type",
+  "client_id",
+  "client_secret",
+  "code",
+  "code_challenge",
+  "code_challenge_method",
+  "code_verifier",
+  "grant_type",
+  "redirect_uri",
+  "refresh_token",
+  // RFC 9101 request objects and the OIDC `request_uri` both replace the
+  // parameters of the request they appear in, so either could reinstate a name
+  // this list otherwise refuses. `response_mode` selects how the authorization
+  // response is delivered, which the one-shot loopback callback depends on.
+  "request",
+  "request_uri",
+  "response_mode",
+  "response_type",
+  "scope",
+  "state",
+]);
+
+const oauthOnlyAuthFields = ["issuer", "clientId", "scopes", "discovery", "authorizationEndpoint", "tokenEndpoint", "authorizationParameters"] as const;
+
+const maximumAuthorizationParameters = 8;
+const authorizationParameterNamePattern = /^[a-z][a-z0-9_]{0,31}$/;
 
 export interface RestrictedAppJsonSchema {
   type: "object" | "array" | "string" | "number" | "integer" | "boolean" | "null";
@@ -287,9 +350,12 @@ function parseAutomationPermissionIds<T extends { id: string }>(
   return ids;
 }
 
+export const restrictedAppAutomationIntervalMinutes = { minimum: 15, maximum: 1_440 } as const;
+
 function intervalMinutesValue(value: unknown, label: string): number {
-  if (!Number.isInteger(value) || (value as number) < 15 || (value as number) > 1_440) {
-    throw new Error(`${label} must be between 15 and 1440 minutes.`);
+  const { minimum, maximum } = restrictedAppAutomationIntervalMinutes;
+  if (!Number.isInteger(value) || (value as number) < minimum || (value as number) > maximum) {
+    throw new Error(`${label} must be between ${minimum} and ${maximum} minutes.`);
   }
   return value as number;
 }
@@ -352,9 +418,17 @@ function parseNetworkDestination(value: unknown, index: number): RestrictedAppNe
   });
   assertUnique(methods, `${label} method`);
   const auth = arrayValue(destination.auth, `${label} auth`, 1, allowedAuthKinds.size).map((value, authIndex) => {
-    const declaration = objectValue(value, `${label} auth ${authIndex + 1}`, ["kind", "header", "issuer", "clientId", "scopes"]);
+    const declaration = objectValue(value, `${label} auth ${authIndex + 1}`, [
+      "kind", "header", "issuer", "clientId", "scopes",
+      "discovery", "authorizationEndpoint", "tokenEndpoint", "authorizationParameters",
+    ]);
     if (typeof declaration.kind !== "string" || !allowedAuthKinds.has(declaration.kind as RestrictedAppAuthKind)) {
       throw new Error(`${label} auth kind is unsupported.`);
+    }
+    // Checked before the api-key branch returns, so no auth kind can carry an
+    // OAuth field that is then silently dropped.
+    if (declaration.kind !== "oauth2-pkce" && oauthOnlyAuthFields.some((field) => declaration[field] !== undefined)) {
+      throw new Error(`${label} ${declaration.kind} auth cannot declare OAuth fields.`);
     }
     if (declaration.kind === "api-key") {
       const header = stringValue(declaration.header, `${label} API-key header`, 80).toLowerCase();
@@ -377,10 +451,12 @@ function parseNetworkDestination(value: unknown, index: number): RestrictedAppNe
         issuer: publicIssuerValue(declaration.issuer, `${label} OAuth issuer`),
         clientId,
         scopes,
+        ...parseOAuthEndpointResolution(declaration, label),
+        ...parseAuthorizationParameters(declaration.authorizationParameters, label),
       };
     }
-    if (declaration.header !== undefined || declaration.issuer !== undefined || declaration.clientId !== undefined || declaration.scopes !== undefined) {
-      throw new Error(`${label} ${declaration.kind} auth cannot declare OAuth or header fields.`);
+    if (declaration.header !== undefined) {
+      throw new Error(`${label} ${declaration.kind} auth cannot declare a header.`);
     }
     return { kind: declaration.kind as "none" | "bearer" | "basic" };
   });
@@ -552,6 +628,128 @@ function publicOriginValue(value: unknown, label: string): string {
     throw new Error(`${label} must name a public DNS origin; local-network destinations require a future separate permission.`);
   }
   return url.origin;
+}
+
+/**
+ * Resolves how the authorization server is located.
+ *
+ * The issuer is the trust anchor and every endpoint must be vouched for by it.
+ * Discovery does that indirectly: the endpoints are named by a document served
+ * over TLS from the issuer's own well-known path, which a package author cannot
+ * forge, so a discovered token endpoint may legitimately sit on an unrelated
+ * origin. Pinning has no such document, so it must establish the same thing
+ * structurally — a pinned endpoint has to use the issuer's exact host.
+ *
+ * Without that rule a package could declare a genuine issuer and authorization
+ * endpoint with an attacker-controlled token endpoint. The person would see a
+ * real provider consent screen, and Workspace would then post the authorization
+ * code and PKCE verifier to the attacker, who could redeem them at the real
+ * provider. PKCE cannot help when the verifier is handed to the attacker, and
+ * no Workspace surface renders the pinned endpoints for a person to check.
+ *
+ * A provider whose endpoints genuinely live on another domain must publish
+ * discovery metadata; that document is exactly how an issuer vouches for a
+ * cross-domain endpoint.
+ */
+function parseOAuthEndpointResolution(
+  declaration: Record<string, unknown>,
+  label: string,
+): { discovery?: RestrictedAppOAuthDiscoveryKind; authorizationEndpoint?: string; tokenEndpoint?: string } {
+  const discovery = declaration.discovery;
+  if (discovery !== undefined && discovery !== "oauth-authorization-server"
+    && discovery !== "openid-configuration" && discovery !== "pinned") {
+    throw new Error(`${label} OAuth discovery mode is unsupported.`);
+  }
+  if (discovery !== "pinned") {
+    if (declaration.authorizationEndpoint !== undefined || declaration.tokenEndpoint !== undefined) {
+      throw new Error(`${label} OAuth endpoints may only be declared with pinned discovery.`);
+    }
+    // Absent stays absent. The parsed declaration feeds the declaration digest
+    // that keys a saved connection, so materializing a default here would
+    // change the digest of every already-installed app and silently strand its
+    // credential behind a reconnect it does not need.
+    return discovery === undefined ? {} : { discovery };
+  }
+  const issuerHost = new URL(publicIssuerValue(declaration.issuer, `${label} OAuth issuer`)).hostname;
+  return {
+    discovery,
+    authorizationEndpoint: publicHttpsEndpointValue(declaration.authorizationEndpoint, `${label} OAuth authorization endpoint`, issuerHost),
+    tokenEndpoint: publicHttpsEndpointValue(declaration.tokenEndpoint, `${label} OAuth token endpoint`, issuerHost),
+  };
+}
+
+/**
+ * A pinned endpoint may carry a path but never a query or fragment: the
+ * authorization request owns its query string, and reviewed extras belong in
+ * `authorizationParameters` so exactly one mechanism decides what is sent. It
+ * must also use the issuer's exact host — see `parseOAuthEndpointResolution`
+ * and `isIssuerEndpointHost` for why that constraint is load-bearing.
+ */
+function publicHttpsEndpointValue(value: unknown, label: string, issuerHost: string): string {
+  const text = stringValue(value, label, 500);
+  let url: URL;
+  try { url = new URL(text); } catch { throw new Error(`${label} must be an exact public HTTPS URL.`); }
+  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || isIP(url.hostname) !== 0
+    || !url.hostname.includes(".") || url.hostname === "localhost" || url.hostname.endsWith(".localhost")
+    || url.hostname.endsWith(".local") || url.hostname.endsWith(".internal") || url.hostname.endsWith(".home.arpa")) {
+    throw new Error(`${label} must be an exact public HTTPS URL.`);
+  }
+  if (!isIssuerEndpointHost(url.hostname, issuerHost)) {
+    throw new Error(`${label} must use the OAuth issuer's exact host.`);
+  }
+  return url.href;
+}
+
+/**
+ * Exact host equality. Nothing weaker is safe here.
+ *
+ * Allowing subdomains looks reasonable and is not: it infers authority from DNS
+ * structure, and the shorter the declared issuer host the more it grants. An
+ * issuer of `https://com.` would make every `*.com.` host "owned", and an issuer
+ * of `https://us.auth0.com` would make every co-tenant `*.us.auth0.com` host
+ * owned — both restoring the exfiltration this constraint exists to prevent.
+ * Distinguishing a real registrable domain from a public suffix requires a
+ * public-suffix list, and shared-tenant platforms defeat even that.
+ *
+ * The cost is that a provider serving its authorization and token endpoints
+ * from sibling hosts (`www.example.com` and `api.example.com`) cannot use
+ * pinned mode. That provider must publish discovery metadata, which is the
+ * mechanism by which an issuer legitimately vouches for another host. Refusing
+ * a valid provider is recoverable; accepting an attacker's token endpoint is
+ * not.
+ */
+export function isIssuerEndpointHost(host: string, issuerHost: string): boolean {
+  return host.toLowerCase() === issuerHost.toLowerCase();
+}
+
+function parseAuthorizationParameters(
+  value: unknown,
+  label: string,
+): { authorizationParameters?: Array<{ name: string; value: string }> } {
+  if (value === undefined) return {};
+  const entries = arrayValue(value, `${label} OAuth authorization parameters`, 0, maximumAuthorizationParameters);
+  const parsed = entries.map((entry, index) => {
+    const item = objectValue(entry, `${label} OAuth authorization parameter ${index + 1}`, ["name", "value"]);
+    const name = stringValue(item.name, `${label} OAuth authorization parameter ${index + 1} name`, 32);
+    if (!authorizationParameterNamePattern.test(name)) {
+      throw new Error(`${label} OAuth authorization parameter ${index + 1} name is invalid.`);
+    }
+    if (restrictedAppReservedAuthorizationParameters.has(name)) {
+      throw new Error(`${label} OAuth authorization parameter ${name} is owned by the authorization request.`);
+    }
+    const text = stringValue(item.value, `${label} OAuth authorization parameter ${name} value`, 256);
+    // Printable ASCII only. Control characters and non-ASCII cannot appear in a
+    // reviewed constant without making the rendered URL hard for a person to
+    // check against the manifest they approved.
+    if (!/^[\x20-\x7e]+$/.test(text)) {
+      throw new Error(`${label} OAuth authorization parameter ${name} value is invalid.`);
+    }
+    return { name, value: text };
+  });
+  assertUnique(parsed.map((item) => item.name), `${label} OAuth authorization parameter`);
+  // An explicitly empty list is equivalent to omitting the field; keep the
+  // parsed shape — and therefore the declaration digest — identical either way.
+  return parsed.length ? { authorizationParameters: parsed } : {};
 }
 
 function publicIssuerValue(value: unknown, label: string): string {

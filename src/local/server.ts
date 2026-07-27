@@ -2205,6 +2205,8 @@ function restrictedAppErrorStatus(error: unknown): number | null {
     case "APP_TIMEOUT": return 504;
     case "APP_CRASHED":
     case "APP_ERROR": return 502;
+    case "NETWORK_REQUEST_TOO_LARGE": return 413;
+    case "NETWORK_RESPONSE_TOO_LARGE": return 502;
     case "NETWORK_FAILED":
     case "FILE_FAILED":
     case "STORAGE_FAILED":

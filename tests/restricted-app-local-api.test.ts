@@ -268,12 +268,22 @@ test("restricted app API keeps review, install, grants, connections, invocation,
     );
     assert.equal(cleared.usage.keyCount, 0);
 
-    const oauthStatus = await request<{ connection: { destinationId: string; owner: string; kind: string; configured: boolean } }>(
+    const oauthStatus = await request<{ connection: { destinationId: string; owner: string; kind: string; configured: boolean; diagnostics: Array<{ code: string; issuer: string; message: string }> } }>(
       api.origin,
       `/api/workspaces/${workspace.id}/restricted-apps/mail-app/connections/mail-api/oauth`,
       { method: "POST", body: { expectedDigest: inspected.review.digest } },
     );
-    assert.deepEqual(oauthStatus.connection, { destinationId: "mail-api", owner: "instance", kind: "oauth2-pkce", configured: true });
+    assert.deepEqual(oauthStatus.connection, {
+      destinationId: "mail-api",
+      owner: "instance",
+      kind: "oauth2-pkce",
+      configured: true,
+      diagnostics: [{
+        code: "METADATA_PKCE_UNDECLARED",
+        issuer: "https://identity.example.com",
+        message: "The provider does not advertise PKCE S256.",
+      }],
+    });
     assert.equal(oauth.connectCount, 1);
     assert.equal(oauth.configuration?.issuer, "https://identity.example.com");
 
@@ -534,10 +544,26 @@ class RuntimeHost implements RestrictedAppRuntimeHost {
 class FakeOAuth {
   connectCount = 0;
   configuration?: { issuer: string; clientId: string; scopes: string[] };
-  async connect(_binding: unknown, configuration: { issuer: string; clientId: string; scopes: string[] }): Promise<{ kind: "oauth2-pkce"; connectedAt: string; expiresAt: string }> {
+  async connect(_binding: unknown, configuration: { issuer: string; clientId: string; scopes: string[] }): Promise<{
+    kind: "oauth2-pkce";
+    configured: true;
+    scopes: string[];
+    expiresAt: string;
+    diagnostics: Array<{ code: "METADATA_PKCE_UNDECLARED"; issuer: string; message: string }>;
+  }> {
     this.connectCount += 1;
     this.configuration = structuredClone(configuration);
-    return { kind: "oauth2-pkce", connectedAt: "2026-07-13T12:00:00.000Z", expiresAt: "2026-07-13T13:00:00.000Z" };
+    return {
+      kind: "oauth2-pkce",
+      configured: true,
+      scopes: [...configuration.scopes],
+      expiresAt: "2026-07-13T13:00:00.000Z",
+      diagnostics: [{
+        code: "METADATA_PKCE_UNDECLARED",
+        issuer: configuration.issuer,
+        message: "The provider does not advertise PKCE S256.",
+      }],
+    };
   }
   async disconnect(): Promise<boolean> { return false; }
 }

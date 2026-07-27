@@ -31,6 +31,13 @@ test("review prioritizes requested access and visible contribution over collapse
   assert.match(apps, /<ReviewDeclarations review=\{review\} \/>[\s\S]*?<details className="restricted-app-package-details"><summary>Package details/);
   assert.match(apps, /Add preview, then review access/);
   assert.match(apps, /Adding the preview grants no network destinations, Space files, notifications, or scheduled execution/);
+  assert.match(apps, /<OAuthDeclarationDetails auth=\{auth\}/);
+  assert.match(apps, /<dt>Issuer<\/dt>/);
+  assert.match(apps, /<dt>Scopes<\/dt>/);
+  assert.match(apps, /<dt>Discovery<\/dt>/);
+  assert.match(apps, /<dt>Authorize at<\/dt>/);
+  assert.match(apps, /<dt>Exchange at<\/dt>/);
+  assert.match(apps, /<dt>Extra parameters<\/dt>/);
 });
 
 test("Assistant tools owns access, connection, and lifecycle management without credential-erasure jargon", () => {
@@ -52,6 +59,7 @@ test("Assistant tools owns access, connection, and lifecycle management without 
   assert.match(apps, /Allow notifications/);
   assert.match(apps, /Revoke notifications/);
   assert.doesNotMatch(apps, /Delete credential|Credential saved|Credential needed/);
+  assert.match(apps, /Provider compatibility \{status\.diagnostics\.length === 1 \? "note" : "notes"\}/);
 });
 
 test("automation confirmations render above the capability dialog that requested them", () => {

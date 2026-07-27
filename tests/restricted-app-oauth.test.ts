@@ -316,10 +316,10 @@ test("OAuth token persistence performs no encrypted-store mutation when authorit
 test("OAuth PKCE rejects untrusted provider metadata before opening a browser", async (t) => {
   const cases: Array<[string, Record<string, unknown>]> = [
     ["issuer mismatch", { issuer: "https://attacker.example.net" }],
-    ["missing S256", { code_challenge_methods_supported: ["plain"] }],
-    ["secret-only token endpoint", { token_endpoint_auth_methods_supported: ["client_secret_basic"] }],
     ["non-public token endpoint", { token_endpoint: "https://127.0.0.1/token" }],
-    ["missing code response", { response_types_supported: ["token"] }],
+    ["non-public authorization endpoint", { authorization_endpoint: "https://localhost/authorize" }],
+    ["malformed pkce advertisement", { code_challenge_methods_supported: "S256" }],
+    ["unsupported grant", { grant_types_supported: ["client_credentials"] }],
   ];
   for (const [name, override] of cases) {
     await t.test(name, async () => {
@@ -339,6 +339,244 @@ test("OAuth PKCE rejects untrusted provider metadata before opening a browser", 
       assert.equal(transport.calls.some((call) => call.method === "POST"), false);
     });
   }
+});
+
+test("under-advertised provider capabilities are reported but still connect", async (t) => {
+  // Every case here is drawn from a provider that works in practice. Google
+  // omits `none` from token_endpoint_auth_methods_supported; Microsoft omits
+  // code_challenge_methods_supported entirely. Gating on these fields rejected
+  // both while proving nothing, because Workspace supplies S256 itself and has
+  // no client secret to send.
+  const cases: Array<[string, Record<string, unknown>, string]> = [
+    ["secret-only token endpoint (Google)", { token_endpoint_auth_methods_supported: ["client_secret_post"] }, "METADATA_PUBLIC_CLIENT_UNDECLARED"],
+    ["absent pkce advertisement (Microsoft)", { code_challenge_methods_supported: undefined }, "METADATA_PKCE_UNDECLARED"],
+    ["missing S256", { code_challenge_methods_supported: ["plain"] }, "METADATA_PKCE_UNDECLARED"],
+    ["absent response types", { response_types_supported: undefined }, "METADATA_RESPONSE_TYPE_UNDECLARED"],
+    ["missing code response", { response_types_supported: ["token"] }, "METADATA_RESPONSE_TYPE_UNDECLARED"],
+  ];
+  for (const [name, override, expectedCode] of cases) {
+    await t.test(name, async () => {
+      const document = metadata();
+      for (const [key, value] of Object.entries(override)) {
+        if (value === undefined) delete document[key]; else document[key] = value;
+      }
+      const transport = new ScriptedTransport();
+      transport.getResponses = [{ status: 200, body: document }];
+      transport.postResponses = [{ status: 200, body: { access_token: "granted", token_type: "Bearer" } }];
+      const diagnostics: string[] = [];
+      const store = new MemoryEncryptedStore();
+      const client = new RestrictedAppOAuthPkceClient({
+        store,
+        transport,
+        openExternal: completeAuthorization,
+        onDiagnostic: (diagnostic) => diagnostics.push(diagnostic.code),
+      });
+      const status = await client.connect(binding, configuration);
+      assert.equal(status.configured, true);
+      assert.equal(store.connection?.accessToken, "granted");
+      assert.ok(diagnostics.includes(expectedCode), `expected ${expectedCode}, saw ${diagnostics.join(",") || "none"}`);
+      assert.ok(status.diagnostics?.some((diagnostic) => diagnostic.code === expectedCode));
+      assert.deepEqual((await client.status(binding, configuration))?.diagnostics, status.diagnostics);
+      // The client's own guarantees are unchanged by what the document claimed.
+      const exchange = transport.calls.find((call) => call.method === "POST");
+      assert.equal(exchange?.form?.get("client_secret"), null);
+      assert.equal(exchange?.form?.get("code_verifier")?.length ? true : false, true);
+    });
+  }
+});
+
+test("a diagnostic sink that throws cannot break an otherwise valid connection", async () => {
+  const transport = new ScriptedTransport();
+  transport.getResponses = [{ status: 200, body: metadata({ token_endpoint_auth_methods_supported: ["client_secret_post"] }) }];
+  transport.postResponses = [{ status: 200, body: { access_token: "granted", token_type: "Bearer" } }];
+  const store = new MemoryEncryptedStore();
+  const client = new RestrictedAppOAuthPkceClient({
+    store,
+    transport,
+    openExternal: completeAuthorization,
+    onDiagnostic: () => { throw new Error("host sink failed"); },
+  });
+  const status = await client.connect(binding, configuration);
+  assert.equal(status.configured, true);
+  assert.equal(status.diagnostics?.[0]?.code, "METADATA_PUBLIC_CLIENT_UNDECLARED");
+  assert.equal(store.connection?.accessToken, "granted");
+});
+
+test("discovery mode selects the metadata document without changing its validation", async (t) => {
+  const cases: Array<[string, RestrictedAppOAuthPkceConfiguration, string]> = [
+    ["rfc 8414 default", configuration, "https://auth.example.com/.well-known/oauth-authorization-server"],
+    ["rfc 8414 explicit", { ...configuration, discovery: "oauth-authorization-server" }, "https://auth.example.com/.well-known/oauth-authorization-server"],
+    ["openid connect", { ...configuration, discovery: "openid-configuration" }, "https://auth.example.com/.well-known/openid-configuration"],
+  ];
+  for (const [name, config, expectedUrl] of cases) {
+    await t.test(name, async () => {
+      const transport = new ScriptedTransport();
+      transport.postResponses = [{ status: 200, body: { access_token: "granted", token_type: "Bearer" } }];
+      const client = new RestrictedAppOAuthPkceClient({
+        store: new MemoryEncryptedStore(),
+        transport,
+        openExternal: completeAuthorization,
+      });
+      await client.connect(binding, config);
+      assert.equal(transport.calls.find((call) => call.method === "GET")?.url, expectedUrl);
+    });
+  }
+  await t.test("openid connect still enforces the issuer match", async () => {
+    const transport = new ScriptedTransport();
+    transport.getResponses = [{ status: 200, body: metadata({ issuer: "https://attacker.example.net" }) }];
+    const client = new RestrictedAppOAuthPkceClient({
+      store: new MemoryEncryptedStore(),
+      transport,
+      openExternal: async () => assert.fail("must not open a browser"),
+    });
+    await assert.rejects(
+      client.connect(binding, { ...configuration, discovery: "openid-configuration" }),
+      isOAuthError("PROVIDER_UNSUPPORTED"),
+    );
+  });
+});
+
+test("pinned discovery skips the metadata fetch and still refuses a non-public endpoint", async (t) => {
+  await t.test("uses the reviewed endpoints without a discovery request", async () => {
+    const transport = new ScriptedTransport();
+    transport.getResponses = [];
+    transport.postResponses = [{ status: 200, body: { access_token: "granted", token_type: "Bearer" } }];
+    let authorizationUrl = "";
+    const store = new MemoryEncryptedStore();
+    const client = new RestrictedAppOAuthPkceClient({
+      store,
+      transport,
+      openExternal: async (value) => { authorizationUrl = value; await completeAuthorization(value); },
+    });
+    await client.connect(binding, {
+      ...configuration,
+      discovery: "pinned",
+      authorizationEndpoint: "https://auth.example.com/o/oauth2/v2/auth",
+      tokenEndpoint: "https://auth.example.com/oauth2/token",
+    });
+    assert.equal(store.connection?.accessToken, "granted");
+    assert.equal(transport.calls.some((call) => call.method === "GET"), false);
+    assert.ok(authorizationUrl.startsWith("https://auth.example.com/o/oauth2/v2/auth?"));
+    // Only a document served from the issuer's own well-known path can vouch
+    // for a host other than the issuer's, which is what discovery mode is for.
+    assert.equal(transport.calls.find((call) => call.method === "POST")?.url, "https://auth.example.com/oauth2/token");
+  });
+
+  await t.test("refuses a token endpoint the issuer does not own even when the client bypasses the manifest parser", async () => {
+    // The manifest parser is the first gate; this is the second. A configuration
+    // reaching the client by any other path still cannot aim the code-and-verifier
+    // exchange at a host the issuer does not control.
+    const attacks: Array<[string, string]> = [
+      ["https://collector.attacker.example/token", "unrelated origin"],
+      ["https://evil-auth.example.com/token", "bare suffix without a dot boundary"],
+      ["https://tokens.auth.example.com/token", "subdomain of the issuer host"],
+      ["https://com./token", "bare public suffix"],
+      ["https://auth.example.net/token", "different registrable domain"],
+      ["https://example.com/token", "parent domain"],
+    ];
+    for (const [tokenEndpoint, why] of attacks) {
+      const transport = new ScriptedTransport();
+      const client = new RestrictedAppOAuthPkceClient({
+        store: new MemoryEncryptedStore(),
+        transport,
+        openExternal: async () => assert.fail("must not open a browser"),
+      });
+      await assert.rejects(
+        client.connect(binding, {
+          ...configuration,
+          discovery: "pinned",
+          authorizationEndpoint: "https://auth.example.com/o/oauth2/v2/auth",
+          tokenEndpoint,
+        }),
+        (error) => error instanceof RestrictedAppOAuthError && error.code === "CONFIG_INVALID",
+        `expected rejection: ${why}`,
+      );
+      assert.equal(transport.calls.length, 0, `${why} must not reach the network`);
+    }
+  });
+  const rejected: Array<[string, Record<string, unknown>]> = [
+    ["loopback token endpoint", { authorizationEndpoint: "https://auth.example.com/authorize", tokenEndpoint: "https://127.0.0.1/token" }],
+    ["plaintext authorization endpoint", { authorizationEndpoint: "http://auth.example.com/authorize", tokenEndpoint: "https://auth.example.com/token" }],
+    ["authorization endpoint carrying a query", { authorizationEndpoint: "https://auth.example.com/authorize?tenant=evil", tokenEndpoint: "https://auth.example.com/token" }],
+    ["missing token endpoint", { authorizationEndpoint: "https://auth.example.com/authorize" }],
+    ["endpoints without pinned discovery", { discovery: "oauth-authorization-server", authorizationEndpoint: "https://auth.example.com/authorize", tokenEndpoint: "https://auth.example.com/token" }],
+  ];
+  for (const [name, override] of rejected) {
+    await t.test(name, async () => {
+      const client = new RestrictedAppOAuthPkceClient({
+        store: new MemoryEncryptedStore(),
+        transport: new ScriptedTransport(),
+        openExternal: async () => assert.fail("must not open a browser"),
+      });
+      await assert.rejects(
+        client.connect(binding, { ...configuration, discovery: "pinned", ...override } as RestrictedAppOAuthPkceConfiguration),
+        (error) => error instanceof RestrictedAppOAuthError && error.code === "CONFIG_INVALID",
+      );
+    });
+  }
+});
+
+test("reviewed authorization parameters reach the provider and never displace the protocol", async (t) => {
+  await t.test("static parameters are merged into the authorization request", async () => {
+    const transport = new ScriptedTransport();
+    transport.postResponses = [{ status: 200, body: { access_token: "granted", token_type: "Bearer", refresh_token: "renew" } }];
+    let authorizationUrl = "";
+    const store = new MemoryEncryptedStore();
+    const client = new RestrictedAppOAuthPkceClient({
+      store,
+      transport,
+      openExternal: async (value) => { authorizationUrl = value; await completeAuthorization(value); },
+    });
+    await client.connect(binding, {
+      ...configuration,
+      authorizationParameters: [
+        { name: "access_type", value: "offline" },
+        { name: "prompt", value: "consent" },
+      ],
+    });
+    const url = new URL(authorizationUrl);
+    assert.equal(url.searchParams.get("access_type"), "offline");
+    assert.equal(url.searchParams.get("prompt"), "consent");
+    // The whole point of the Google dialect: a refresh token actually arrives.
+    assert.equal(store.connection?.refreshToken, "renew");
+  });
+
+  await t.test("a protocol-owned name is refused before any request", async () => {
+    for (const name of ["redirect_uri", "code_challenge", "client_secret", "scope", "state", "response_type", "grant_type"]) {
+      const client = new RestrictedAppOAuthPkceClient({
+        store: new MemoryEncryptedStore(),
+        transport: new ScriptedTransport(),
+        openExternal: async () => assert.fail("must not open a browser"),
+      });
+      await assert.rejects(
+        client.connect(binding, { ...configuration, authorizationParameters: [{ name, value: "attacker" }] }),
+        (error) => error instanceof RestrictedAppOAuthError && error.code === "CONFIG_INVALID",
+        `${name} must be rejected`,
+      );
+    }
+  });
+
+  await t.test("malformed parameters are refused", async () => {
+    const invalid: Array<Array<{ name: string; value: string }>> = [
+      [{ name: "Access_Type", value: "offline" }],
+      [{ name: "access-type", value: "offline" }],
+      [{ name: "access_type", value: "off\nline" }],
+      [{ name: "access_type", value: "" }],
+      [{ name: "access_type", value: "a" }, { name: "access_type", value: "b" }],
+      Array.from({ length: 9 }, (_, index) => ({ name: `p${index}`, value: "x" })),
+    ];
+    for (const authorizationParameters of invalid) {
+      const client = new RestrictedAppOAuthPkceClient({
+        store: new MemoryEncryptedStore(),
+        transport: new ScriptedTransport(),
+        openExternal: async () => assert.fail("must not open a browser"),
+      });
+      await assert.rejects(
+        client.connect(binding, { ...configuration, authorizationParameters }),
+        (error) => error instanceof RestrictedAppOAuthError && error.code === "CONFIG_INVALID",
+      );
+    }
+  });
 });
 
 test("OAuth PKCE consumes an exact callback once and rejects a mismatched state without exchanging a code", async () => {
@@ -581,3 +819,112 @@ test("OAuth configuration rejects secrets, arbitrary endpoints, and local issuer
 function isOAuthError(code: RestrictedAppOAuthError["code"]): (error: unknown) => boolean {
   return (error) => error instanceof RestrictedAppOAuthError && error.code === code;
 }
+
+// Metadata subsets captured from the live providers on 2026-07-26. They are
+// fixtures, not live requests: the point is that the exact documents Google and
+// Microsoft actually serve reach a working connection. Before this change both
+// were rejected — Google omits "none" from token_endpoint_auth_methods_supported
+// and Microsoft omits code_challenge_methods_supported entirely, and each was a
+// hard failure even though both support PKCE public clients.
+const realProviderMetadata = {
+  google: {
+    issuer: "https://accounts.google.com",
+    authorization_endpoint: "https://accounts.google.com/o/oauth2/v2/auth",
+    token_endpoint: "https://oauth2.googleapis.com/token",
+    response_types_supported: ["code", "token", "id_token", "code token", "code id_token", "token id_token", "code token id_token", "none"],
+    grant_types_supported: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code", "urn:ietf:params:oauth:grant-type:jwt-bearer"],
+    code_challenge_methods_supported: ["plain", "S256"],
+    token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic"],
+  },
+  microsoft: {
+    issuer: "https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0",
+    authorization_endpoint: "https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/oauth2/v2.0/authorize",
+    token_endpoint: "https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/oauth2/v2.0/token",
+    response_types_supported: ["code", "id_token", "code id_token", "id_token token"],
+    token_endpoint_auth_methods_supported: ["client_secret_post", "private_key_jwt", "client_secret_basic", "self_signed_tls_client_auth"],
+  },
+} as const;
+
+test("the metadata documents real providers actually serve produce a working connection", async (t) => {
+  const cases = [
+    {
+      name: "Google via RFC 8414",
+      document: realProviderMetadata.google,
+      config: {
+        issuer: "https://accounts.google.com",
+        clientId: "workspace.apps.googleusercontent.com",
+        scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+        authorizationParameters: [{ name: "access_type", value: "offline" }],
+      },
+      expectedMetadataUrl: "https://accounts.google.com/.well-known/oauth-authorization-server",
+      expectedDiagnostics: ["METADATA_PUBLIC_CLIENT_UNDECLARED"],
+    },
+    {
+      name: "Microsoft via OpenID Connect discovery",
+      document: realProviderMetadata.microsoft,
+      config: {
+        issuer: "https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0",
+        clientId: "00000000-0000-0000-0000-000000000000",
+        scopes: ["https://graph.microsoft.com/Mail.Read"],
+        discovery: "openid-configuration" as const,
+      },
+      expectedMetadataUrl: "https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0/.well-known/openid-configuration",
+      expectedDiagnostics: ["METADATA_PKCE_UNDECLARED", "METADATA_PUBLIC_CLIENT_UNDECLARED"],
+    },
+  ];
+  for (const item of cases) {
+    await t.test(item.name, async () => {
+      const transport = new ScriptedTransport();
+      transport.getResponses = [{ status: 200, body: structuredClone(item.document) as Record<string, unknown> }];
+      transport.postResponses = [{ status: 200, body: { access_token: "granted", token_type: "Bearer", refresh_token: "renew" } }];
+      const diagnostics: string[] = [];
+      const store = new MemoryEncryptedStore();
+      const client = new RestrictedAppOAuthPkceClient({
+        store,
+        transport,
+        openExternal: async (value) => {
+          const authorization = new URL(value);
+          assert.equal(authorization.searchParams.get("code_challenge_method"), "S256");
+          assert.equal(authorization.searchParams.get("client_secret"), null);
+          const callback = new URL(authorization.searchParams.get("redirect_uri")!);
+          callback.searchParams.set("code", "authorization-code");
+          callback.searchParams.set("state", authorization.searchParams.get("state")!);
+          callback.searchParams.set("iss", item.config.issuer);
+          assert.equal((await fetch(callback)).status, 200);
+        },
+        onDiagnostic: (diagnostic) => diagnostics.push(diagnostic.code),
+      });
+      await client.connect(binding, item.config as RestrictedAppOAuthPkceConfiguration);
+      assert.equal(store.connection?.accessToken, "granted");
+      assert.equal(transport.calls.find((call) => call.method === "GET")?.url, item.expectedMetadataUrl);
+      assert.deepEqual(diagnostics.sort(), [...item.expectedDiagnostics].sort());
+      assert.equal(transport.calls.find((call) => call.method === "POST")?.form?.get("client_secret"), null);
+    });
+  }
+});
+
+test("a manifest declaration reaches the client verbatim, kind field included", async () => {
+  // RestrictedAppService.connectOAuth passes the parsed manifest auth
+  // declaration straight through, and that object always carries `kind`.
+  // Rejecting it here made every real connect fail CONFIG_INVALID while the
+  // suite stayed green on kind-less literals.
+  const transport = new ScriptedTransport();
+  transport.postResponses = [{ status: 200, body: { access_token: "granted", token_type: "Bearer" } }];
+  const store = new MemoryEncryptedStore();
+  const client = new RestrictedAppOAuthPkceClient({ store, transport, openExternal: completeAuthorization });
+  const declaration = {
+    kind: "oauth2-pkce" as const,
+    issuer: configuration.issuer,
+    clientId: configuration.clientId,
+    scopes: [...configuration.scopes],
+  };
+  await client.connect(binding, declaration);
+  assert.equal(store.connection?.accessToken, "granted");
+
+  const wrongKind = { ...declaration, kind: "api-key" } as unknown as RestrictedAppOAuthPkceConfiguration;
+  await assert.rejects(
+    new RestrictedAppOAuthPkceClient({ store: new MemoryEncryptedStore(), transport: new ScriptedTransport(), openExternal: async () => assert.fail("no browser") })
+      .connect(binding, wrongKind),
+    (error) => error instanceof RestrictedAppOAuthError && error.code === "CONFIG_INVALID",
+  );
+});

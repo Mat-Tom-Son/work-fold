@@ -52,12 +52,47 @@ verify which local process owns that port; the UI states that limitation when
 access is granted.
 
 Public auth declarations can use `none`, `api-key`, `bearer`, `basic`, or
-`oauth2-pkce`. Manifests contain no secret values. OAuth declarations contain
-only a public HTTPS issuer, an existing public native-client id, and scopes.
-Workspace does not accept client secrets, arbitrary authorization/token
-endpoints, OIDC scopes, or device-code declarations in this lane. Generated
-apps cannot create a provider registration; provider-specific convenience
-connections require a future Workspace-owned adapter and registration.
+`oauth2-pkce`. Manifests contain no secret values. OAuth declarations contain a
+public HTTPS issuer, an existing public native-client id, scopes, an optional
+discovery mode, and optional reviewed authorization parameters. Workspace does
+not accept client secrets, OIDC scopes, or device-code declarations in this
+lane. Generated apps cannot create a provider registration; provider-specific
+convenience connections require a future Workspace-owned adapter and
+registration.
+
+An OAuth declaration locates its authorization server through RFC 8414
+discovery (the default), OpenID Connect discovery, or pinned endpoints. A pinned
+endpoint must use the issuer's exact host, enforced both in the manifest parser
+and again in the OAuth client. Subdomains are refused too: authority inferred
+from DNS structure grows as the issuer host shortens, and shared-tenant
+platforms make co-tenants indistinguishable from the operator. Discovery may name a token
+endpoint on an unrelated origin because that document is served over TLS from
+the issuer's own well-known path and a package author cannot forge it; a pinned
+endpoint has no such document and must therefore establish the same authority
+structurally. Otherwise a package could pair a genuine issuer and authorization
+endpoint with an attacker-controlled token endpoint and receive the
+authorization code and PKCE verifier after a real provider consent screen.
+Workspace renders the exact issuer, client id, scopes, discovery mode, pinned
+endpoints, and static authorization parameters during app review and connection
+management, but that transparency is not a substitute for structural
+validation. Pinned mode also cannot require the RFC 9207
+authorization-response `iss` check, because no metadata states whether the
+provider supports it.
+Workspace enforces what it can prove — the metadata issuer must equal the
+declared issuer, endpoints must be public HTTPS, and an advertised grant list
+must include `authorization_code` — and reports rather than refuses
+under-declared provider capabilities, because the client itself always sends
+PKCE S256 and never holds a client secret. Those bounded notes are retained
+with the encrypted connection and remain visible in its management surface.
+Gating on those advertisements
+rejected Google and Microsoft, which both support public PKCE clients without
+saying so in their metadata. Malformed metadata values still fail closed.
+
+Reviewed `authorizationParameters` carry provider dialects such as Google's
+`access_type=offline`, without which a provider need not issue a refresh token
+and an unattended automation loses its connection within the hour. They are
+bounded static text, may not use any name the authorization request owns, and
+are overwritten by the protocol layer at request time.
 
 The package inspector never invokes npm, imports package code, or runs lifecycle
 scripts. It rejects scripts, binaries, workspaces, native build flags, Pi
@@ -123,7 +158,18 @@ The preload exposes only `workspaceRestrictedApp`:
 - `files` lists, reads, or writes only through current reviewed grants; and
 - `notifications.show({ permissionId })` selects reviewed static copy, only
   during an enabled automation invocation whose permission subset includes a
-  separately granted category.
+  separately granted category; and
+- `limits.get()` returns the host's effective network, storage, file, and
+  automation bounds synchronously.
+
+The limits view is a mount argument rather than an IPC call: the values never
+change while a mount lives, are not secret, and are composed from the live
+brokers so a host enforcing non-default bounds cannot publish stale ones. It
+exists so an app — and the agent writing one — can design to the budget instead
+of discovering it by crashing into it. Each bound also has its own terminal
+error code (`NETWORK_RESPONSE_TOO_LARGE`, `NETWORK_REQUEST_TOO_LARGE`,
+`FILE_TOO_LARGE`, `STORAGE_QUOTA`) naming the limit that was hit, so an
+over-large read is distinguishable from a transport failure.
 
 An app supplies a local `appTabId`, title, route, and JSON state. It never
 supplies the owning Space, app id, digest, or shell tab id. Workspace derives

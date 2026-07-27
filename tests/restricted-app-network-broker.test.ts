@@ -318,9 +318,11 @@ test("network broker enforces request byte limits and denies private destination
     maxRequestBytes: 4,
     fetch: successfulFetch(() => { fetches += 1; }),
   });
+  // Distinct from NETWORK_DENIED — an app that asked for too much can retry
+  // smaller, whereas a denial means the grant itself does not cover the call.
   await assert.rejects(
     oversized.request(owner, manifest(), { destinationId: "mail-api", method: "POST", path: "/messages", body: "12345" }),
-    isRestrictedError("NETWORK_DENIED"),
+    (error) => error instanceof RestrictedAppError && error.code === "NETWORK_REQUEST_TOO_LARGE" && /4-byte/.test(error.message),
   );
 
   const privateDestination = new RestrictedAppNetworkBroker({
@@ -391,10 +393,13 @@ test("network broker caps redirects, response bytes, and exposed response header
     maxResponseBytes: 4,
     fetch: (async () => new Response("12345", { headers: { "content-type": "text/plain" } })) as typeof globalThis.fetch,
   });
+  // The overrun names its own bound so an app can page against it instead of
+  // guessing which generic network failure it just hit.
   await assert.rejects(
     oversized.request(owner, manifest(), { destinationId: "mail-api", method: "GET", path: "/messages" }),
-    isRestrictedError("NETWORK_FAILED"),
+    (error) => error instanceof RestrictedAppError && error.code === "NETWORK_RESPONSE_TOO_LARGE" && /4-byte/.test(error.message),
   );
+  assert.deepEqual(oversized.limits, { maxRequestBytes: 128 * 1024, maxResponseBytes: 4, timeoutMs: 15_000, maxRedirects: 3 });
 
   const filtered = new RestrictedAppNetworkBroker({
     credentials: new MemoryConnections(),

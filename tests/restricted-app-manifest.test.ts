@@ -297,3 +297,154 @@ test("restricted app tool schemas reject executable or open-ended schema feature
     tools: [baseTool({ type: "object", properties: { query: { type: "string" } }, required: ["missing"], additionalProperties: false })],
   })), /not declared/);
 });
+
+function oauthManifest(auth: Record<string, unknown>) {
+  const base = manifest();
+  const network = structuredClone(base.permissions.network) as Array<Record<string, unknown>>;
+  network[0] = { ...network[0], auth: [{ kind: "oauth2-pkce", issuer: "https://identity.example.com", clientId: "workspace-connected-inbox", scopes: ["mail.read"], ...auth }] };
+  return { ...base, permissions: { ...base.permissions, network } };
+}
+
+test("OAuth discovery mode is optional and omitted when it is the default", () => {
+  // Absent must stay absent: the parsed declaration feeds the digest that keys
+  // an already-saved credential, so materializing a default here would strand
+  // every existing connection behind a needless reconnect.
+  const parsed = parseRestrictedAppManifest(oauthManifest({}));
+  assert.deepEqual(parsed.permissions.network[0]?.auth[0], {
+    kind: "oauth2-pkce",
+    issuer: "https://identity.example.com",
+    clientId: "workspace-connected-inbox",
+    scopes: ["mail.read"],
+  });
+  const explicit = parseRestrictedAppManifest(oauthManifest({ discovery: "openid-configuration" }));
+  assert.equal((explicit.permissions.network[0]?.auth[0] as { discovery?: string }).discovery, "openid-configuration");
+  const empty = parseRestrictedAppManifest(oauthManifest({ authorizationParameters: [] }));
+  assert.equal("authorizationParameters" in (empty.permissions.network[0]?.auth[0] ?? {}), false);
+});
+
+test("pinned OAuth discovery requires exact public HTTPS endpoints the issuer owns", () => {
+  const parsed = parseRestrictedAppManifest(oauthManifest({
+    discovery: "pinned",
+    authorizationEndpoint: "https://identity.example.com/o/oauth2/v2/auth",
+    tokenEndpoint: "https://identity.example.com/oauth2/token",
+  }));
+  const auth = parsed.permissions.network[0]?.auth[0] as { authorizationEndpoint?: string; tokenEndpoint?: string };
+  assert.equal(auth.authorizationEndpoint, "https://identity.example.com/o/oauth2/v2/auth");
+  assert.equal(auth.tokenEndpoint, "https://identity.example.com/oauth2/token");
+
+  const rejected: Array<[string, Record<string, unknown>]> = [
+    // The attack this constraint exists to stop: a genuine issuer and a genuine
+    // authorization endpoint, with the token exchange — which carries the
+    // authorization code and the PKCE verifier — aimed somewhere else. No
+    // Workspace surface renders these endpoints, so nobody would see it.
+    ["token endpoint off the issuer host", { discovery: "pinned", authorizationEndpoint: "https://identity.example.com/a", tokenEndpoint: "https://collector.attacker.example/token" }],
+    ["authorization endpoint off the issuer host", { discovery: "pinned", authorizationEndpoint: "https://attacker.example/a", tokenEndpoint: "https://identity.example.com/t" }],
+    // A suffix match without the dot boundary would wrongly accept this.
+    ["issuer host as a bare suffix", { discovery: "pinned", authorizationEndpoint: "https://identity.example.com/a", tokenEndpoint: "https://evil-identity.example.com/t" }],
+    // Subdomains are refused: inferring authority from DNS structure grants
+    // more the shorter the issuer host is, and shared-tenant platforms
+    // (*.us.auth0.com, *.appspot.com) make co-tenants "owned".
+    ["subdomain of the issuer host", { discovery: "pinned", authorizationEndpoint: "https://identity.example.com/a", tokenEndpoint: "https://tokens.identity.example.com/t" }],
+    ["co-tenant on a shared platform issuer", { issuer: "https://us.auth0.com", discovery: "pinned", authorizationEndpoint: "https://us.auth0.com/authorize", tokenEndpoint: "https://attacker-tenant.us.auth0.com/oauth/token" }],
+    ["unrelated registrable domain", { discovery: "pinned", authorizationEndpoint: "https://identity.example.com/a", tokenEndpoint: "https://identity.example.net/t" }],
+    ["parent of the issuer host", { discovery: "pinned", authorizationEndpoint: "https://identity.example.com/a", tokenEndpoint: "https://example.com/t" }],
+    ["missing token endpoint", { discovery: "pinned", authorizationEndpoint: "https://identity.example.com/a" }],
+    ["missing authorization endpoint", { discovery: "pinned", tokenEndpoint: "https://identity.example.com/t" }],
+    ["plaintext", { discovery: "pinned", authorizationEndpoint: "http://identity.example.com/a", tokenEndpoint: "https://identity.example.com/t" }],
+    ["ip literal", { discovery: "pinned", authorizationEndpoint: "https://127.0.0.1/a", tokenEndpoint: "https://identity.example.com/t" }],
+    ["loopback name", { discovery: "pinned", authorizationEndpoint: "https://localhost/a", tokenEndpoint: "https://identity.example.com/t" }],
+    ["query string", { discovery: "pinned", authorizationEndpoint: "https://identity.example.com/a?tenant=x", tokenEndpoint: "https://identity.example.com/t" }],
+    ["embedded credentials", { discovery: "pinned", authorizationEndpoint: "https://user:pass@identity.example.com/a", tokenEndpoint: "https://identity.example.com/t" }],
+    ["endpoints without pinned discovery", { authorizationEndpoint: "https://identity.example.com/a", tokenEndpoint: "https://identity.example.com/t" }],
+    ["unknown discovery mode", { discovery: "device-code" }],
+  ];
+  for (const [name, auth] of rejected) {
+    assert.throws(() => parseRestrictedAppManifest(oauthManifest(auth)), `expected rejection: ${name}`);
+  }
+});
+
+test("reviewed OAuth authorization parameters exclude protocol-owned names", () => {
+  const parsed = parseRestrictedAppManifest(oauthManifest({
+    authorizationParameters: [{ name: "access_type", value: "offline" }, { name: "prompt", value: "consent" }],
+  }));
+  assert.deepEqual((parsed.permissions.network[0]?.auth[0] as { authorizationParameters?: unknown }).authorizationParameters, [
+    { name: "access_type", value: "offline" },
+    { name: "prompt", value: "consent" },
+  ]);
+
+  for (const name of [
+    "response_type", "client_id", "redirect_uri", "scope", "state", "code_challenge",
+    "code_challenge_method", "client_secret", "code_verifier", "grant_type", "code", "refresh_token",
+  ]) {
+    assert.throws(
+      () => parseRestrictedAppManifest(oauthManifest({ authorizationParameters: [{ name, value: "x" }] })),
+      `expected ${name} to be rejected`,
+    );
+  }
+  const malformed: unknown[] = [
+    [{ name: "Access_Type", value: "x" }],
+    [{ name: "access-type", value: "x" }],
+    [{ name: "_leading", value: "x" }],
+    [{ name: "access_type", value: "line\nbreak" }],
+    [{ name: "access_type", value: "café" }],
+    [{ name: "access_type", value: "a", extra: "b" }],
+    [{ name: "access_type" }],
+    [{ name: "a", value: "1" }, { name: "a", value: "2" }],
+    Array.from({ length: 9 }, (_, index) => ({ name: `p${index}`, value: "x" })),
+    "access_type=offline",
+  ];
+  for (const authorizationParameters of malformed) {
+    assert.throws(() => parseRestrictedAppManifest(oauthManifest({ authorizationParameters })));
+  }
+});
+
+test("non-OAuth auth kinds cannot carry OAuth endpoint or parameter fields", () => {
+  for (const extra of [
+    { discovery: "pinned" },
+    { authorizationEndpoint: "https://identity.example.com/a" },
+    { tokenEndpoint: "https://identity.example.com/t" },
+    { authorizationParameters: [{ name: "access_type", value: "offline" }] },
+  ]) {
+    const base = manifest();
+    const network = structuredClone(base.permissions.network) as Array<Record<string, unknown>>;
+    network[0] = { ...network[0], auth: [{ kind: "bearer", ...extra }] };
+    assert.throws(() => parseRestrictedAppManifest({ ...base, permissions: { ...base.permissions, network } }));
+  }
+});
+
+test("no auth kind may silently carry OAuth fields it does not use", () => {
+  // api-key returns early, so without an explicit check these were accepted and
+  // dropped — a manifest could appear to pin endpoints that nothing honored.
+  for (const kind of ["api-key", "bearer", "basic", "none"]) {
+    for (const extra of [
+      { discovery: "pinned" },
+      { authorizationEndpoint: "https://identity.example.com/a" },
+      { tokenEndpoint: "https://identity.example.com/t" },
+      { authorizationParameters: [{ name: "access_type", value: "offline" }] },
+      { issuer: "https://identity.example.com" },
+      { clientId: "x" },
+      { scopes: ["a"] },
+    ]) {
+      const base = manifest();
+      const network = structuredClone(base.permissions.network) as Array<Record<string, unknown>>;
+      const auth: Record<string, unknown> = { kind, ...extra };
+      if (kind === "api-key") auth.header = "x-api-key";
+      network[0] = { ...network[0], auth: [auth] };
+      assert.throws(
+        () => parseRestrictedAppManifest({ ...base, permissions: { ...base.permissions, network } }),
+        `expected ${kind} + ${Object.keys(extra)[0]} to be rejected`,
+      );
+    }
+  }
+});
+
+test("request objects and response mode cannot be reintroduced as reviewed parameters", () => {
+  // RFC 9101 `request` / OIDC `request_uri` replace the parameters of the
+  // request they appear in, so either would defeat the rest of the denylist.
+  for (const name of ["request", "request_uri", "response_mode"]) {
+    assert.throws(
+      () => parseRestrictedAppManifest(oauthManifest({ authorizationParameters: [{ name, value: "x" }] })),
+      `expected ${name} to be rejected`,
+    );
+  }
+});

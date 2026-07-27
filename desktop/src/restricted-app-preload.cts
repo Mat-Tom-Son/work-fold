@@ -7,7 +7,6 @@ const storageChannel = "workspace:restricted-app:storage";
 const storageChangedChannel = "workspace:restricted-app:storage-changed";
 const filesChannel = "workspace:restricted-app:files";
 const notificationsChannel = "workspace:restricted-app:notifications";
-const maximumEnvelopeBytes = 160 * 1024;
 const maximumFileEnvelopeBytes = 800 * 1024;
 const encoder = new TextEncoder();
 
@@ -22,6 +21,50 @@ function initialState(): unknown {
   const value = argumentValue("state");
   if (!value) return null;
   try { return JSON.parse(value); } catch { return null; }
+}
+
+/**
+ * Host-declared runtime bounds. These are constant for the lifetime of the
+ * mount, so they arrive as a launch argument and `limits.get()` stays
+ * synchronous — an app should be able to consult its budget on any code path
+ * without awaiting the host.
+ */
+function initialLimits(): unknown {
+  const value = argumentValue("limits");
+  if (!value) return null;
+  try { return deepFreeze(JSON.parse(value)); } catch { return null; }
+}
+
+function deepFreeze<T>(value: T): T {
+  if (!value || typeof value !== "object") return value;
+  for (const key of Object.keys(value as Record<string, unknown>)) {
+    deepFreeze((value as Record<string, unknown>)[key]);
+  }
+  return Object.freeze(value);
+}
+
+const limits = initialLimits();
+const networkRequestBytes = nestedPositiveInteger(limits, "network", "maxRequestBytes", 128 * 1024);
+const maximumNetworkEnvelopeBytes = networkRequestBytes * 6 + 64 * 1024;
+const maximumStorageEnvelopeBytes = nestedPositiveInteger(limits, "storage", "maxTransactionBytes", 160 * 1024) + 64 * 1024;
+
+function nestedPositiveInteger(
+  value: unknown,
+  section: string,
+  field: string,
+  fallback: number,
+): number {
+  if (!value || typeof value !== "object") return fallback;
+  const group = (value as Record<string, unknown>)[section];
+  if (!group || typeof group !== "object") return fallback;
+  const candidate = (group as Record<string, unknown>)[field];
+  return Number.isSafeInteger(candidate) && (candidate as number) > 0 ? candidate as number : fallback;
+}
+
+function codedError(code: string, message: string): Error {
+  const error = new Error(message);
+  Object.defineProperty(error, "code", { value: code, enumerable: true });
+  return error;
 }
 
 let context = Object.freeze({
@@ -69,8 +112,19 @@ async function invokeHost(channel: string, request: unknown, maximum: number, fa
   throw error;
 }
 
-const networkRequest = (request: unknown) => invokeHost(networkChannel, request, maximumEnvelopeBytes, "NETWORK_FAILED");
-const storageRequest = (operation: string, fields: Record<string, unknown> = {}) => invokeHost(storageChannel, { operation, ...fields }, maximumEnvelopeBytes, "STORAGE_FAILED");
+const networkRequest = (request: unknown) => {
+  const body = request && typeof request === "object" && !Array.isArray(request)
+    ? (request as Record<string, unknown>).body
+    : undefined;
+  if (typeof body === "string" && encoder.encode(body).byteLength > networkRequestBytes) {
+    return Promise.reject(codedError(
+      "NETWORK_REQUEST_TOO_LARGE",
+      `The network request body exceeded the ${networkRequestBytes}-byte request limit.`,
+    ));
+  }
+  return invokeHost(networkChannel, request, maximumNetworkEnvelopeBytes, "NETWORK_FAILED");
+};
+const storageRequest = (operation: string, fields: Record<string, unknown> = {}) => invokeHost(storageChannel, { operation, ...fields }, maximumStorageEnvelopeBytes, "STORAGE_FAILED");
 const fileRequest = (operation: string, request: unknown) => invokeHost(filesChannel, { operation, request }, maximumFileEnvelopeBytes, "FILE_FAILED");
 const notificationRequest = (request: unknown) => invokeHost(notificationsChannel, request, 4 * 1024, "NOTIFICATION_FAILED");
 
@@ -114,6 +168,9 @@ contextBridge.exposeInMainWorld("workspaceRestrictedApp", Object.freeze({
   }),
   notifications: Object.freeze({
     show: (request: { permissionId: string }) => notificationRequest(request),
+  }),
+  limits: Object.freeze({
+    get: () => limits,
   }),
   context: Object.freeze({
     get: () => context,

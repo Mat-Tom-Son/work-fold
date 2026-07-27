@@ -511,14 +511,126 @@ A public destination may accept multiple credential kinds, but `none` cannot
 be combined with another kind. OAuth requires a client id registered with a
 public HTTPS issuer that supports public clients without a client secret, plus
 scopes that exclude `openid`. Workspace cannot verify who owns that client
-registration. Client secrets, device-code flow, and package-supplied
-authorization or token endpoints are rejected. Connections are configured per
+registration. Client secrets and device-code flow are rejected. Connections are configured per
 exact Feature revision and reviewed destination in Assistant tools. The host also
 binds each secret to its Tenant, Runtime Instance, Feature Installation,
 declaration digest, target identity, and current Runtime Instance owner. The
 portable contract reserves Principal-owned connection consent and job delegation
 for a future product path; version-2 local apps cannot request it. There is no
 connection or secret-reading bridge.
+
+### Locating the authorization server
+
+An `oauth2-pkce` declaration may add an optional `discovery` mode:
+
+| Mode | Metadata document | Use it when |
+|---|---|---|
+| `oauth-authorization-server` (default when omitted) | `https://issuer/.well-known/oauth-authorization-server` per RFC 8414 | The provider publishes RFC 8414 metadata. |
+| `openid-configuration` | `https://issuer/.well-known/openid-configuration` | The provider publishes only an OpenID Connect discovery document. |
+| `pinned` | none; the manifest supplies `authorizationEndpoint` and `tokenEndpoint` | The provider publishes neither document, or its metadata `issuer` does not match the URL you declared. |
+
+Both discovery documents are read with the same rules. Pinned endpoints must be
+exact public HTTPS URLs with no query string or fragment, **and must use the
+issuer's exact host**.
+
+That constraint is load-bearing, not stylistic. The issuer is the trust anchor
+and every endpoint has to be vouched for by it. Discovery does that indirectly:
+the endpoints are named by a document served over TLS from the issuer's own
+well-known path, which a package author cannot forge — which is why a
+*discovered* token endpoint may legitimately live on an unrelated origin, as
+Google's does. Pinning has no such document, so it establishes the same thing
+structurally instead. Without the rule, a package could declare a genuine issuer
+and authorization endpoint alongside an attacker-controlled token endpoint: the
+person would see a real provider consent screen, and Workspace would then post
+the authorization code and PKCE verifier to the attacker. PKCE cannot help once
+the verifier is handed over. Workspace renders the endpoints for transparency,
+but review is not treated as a substitute for enforcing their authority.
+
+Subdomains are deliberately refused as well, not only unrelated domains.
+Allowing them would infer authority from DNS structure, and the shorter the
+declared issuer host the more it would grant: an issuer of `https://com.` would
+make every `*.com.` host "owned", and an issuer of `https://us.auth0.com` would
+make every co-tenant `*.us.auth0.com` host owned. Telling a registrable domain
+apart from a public suffix needs a public-suffix list, and shared-tenant
+platforms defeat even that.
+
+The cost is real and worth stating: a provider that serves authorization from
+`www.example.com` and tokens from `api.example.com` cannot use pinned mode, and
+must publish discovery metadata instead — that document is how an issuer
+vouches for another host. Refusing a valid provider is recoverable; accepting an
+attacker's token endpoint is not. Supporting split-host providers would require
+a separately reviewed authority expansion beyond today's exact-host rule.
+Pinned mode is also weaker in one further respect: with no metadata
+document, Workspace cannot tell whether the provider supports RFC 9207, so the
+authorization-response `iss` check is not required in this mode.
+
+Workspace hard-fails only on assertions it cannot supply itself: the metadata
+`issuer` must equal the declared issuer, both endpoints must be public HTTPS, and
+an advertised `grant_types_supported` must include `authorization_code`.
+Under-declared *capabilities* are reported as durable connection diagnostics
+rather than refused, because Workspace always sends PKCE S256 and never holds a
+client secret. The connection management surface keeps those notes visible.
+This matters in practice: neither Google nor Microsoft advertises `none`
+in `token_endpoint_auth_methods_supported`, and Microsoft omits
+`code_challenge_methods_supported` entirely, yet both support PKCE public
+clients. A malformed value in those fields is still rejected.
+
+### Provider dialect parameters
+
+`authorizationParameters` is an optional list of up to eight reviewed
+`{ "name": ..., "value": ... }` pairs merged into the authorization request:
+
+```json
+{
+  "kind": "oauth2-pkce",
+  "issuer": "https://accounts.google.com",
+  "clientId": "…apps.googleusercontent.com",
+  "scopes": ["https://www.googleapis.com/auth/gmail.readonly"],
+  "authorizationParameters": [
+    { "name": "access_type", "value": "offline" },
+    { "name": "prompt", "value": "consent" }
+  ]
+}
+```
+
+Google issues a refresh token only when `access_type=offline` is present, so
+without this an unattended automation loses its connection after about an hour.
+Other providers need `audience` or `resource`. Names are lowercase
+`snake_case`, values are printable ASCII constants, and no runtime interpolation
+exists. Names the authorization request owns — `response_type`, `client_id`,
+`redirect_uri`, `scope`, `state`, `code_challenge`, `code_challenge_method`,
+`grant_type`, `code`, `code_verifier`, `refresh_token`, `client_secret`, and the
+`client_assertion` pair — are rejected at review, and the protocol layer
+overwrites every reviewed extra again when it builds the request.
+
+## Runtime limits
+
+`workspaceRestrictedApp.limits.get()` returns the host's effective bounds
+synchronously. The values are constant for the mount, arrive as a launch
+argument rather than an IPC call, and are available to the worker as well:
+
+```js
+const limits = globalThis.workspaceRestrictedApp.limits.get();
+const pageSize = Math.floor(limits.network.maxResponseBytes / 2_048);
+```
+
+It reports `network` (`maxRequestBytes`, `maxResponseBytes`, `timeoutMs`,
+`maxRedirects`), `storage` (`quotaBytes`, `maxKeys`, `maxKeyBytes`,
+`maxValueBytes`, `maxTransactionBytes`, `maxTransactionOperations`), `files`
+(`maxReadBytes`, `maxWriteBytes`), and `automations`
+(`minimumIntervalMinutes`, `maximumIntervalMinutes`). They are composed from the
+live brokers, so a host running non-default bounds publishes the bounds it is
+actually enforcing.
+
+Design against these numbers instead of discovering them by failing. In
+particular, app storage is small and is the wrong home for bulk data: request a
+read-write directory permission and write large or long-lived records as
+ordinary Space files, which the person and the Assistant can also read with
+normal tools. Overruns report their own bound —
+`NETWORK_RESPONSE_TOO_LARGE`, `NETWORK_REQUEST_TOO_LARGE`, `FILE_TOO_LARGE`,
+and `STORAGE_QUOTA` are distinct from the generic `NETWORK_FAILED`,
+`FILE_FAILED`, and `STORAGE_FAILED` codes, and each message names the limit it
+hit.
 
 ## Default-off lifecycle and denial handling
 
@@ -559,7 +671,8 @@ try {
 
 Common codes are:
 
-- network: `NETWORK_DENIED`, `AUTH_REQUIRED`, `NETWORK_FAILED`;
+- network: `NETWORK_DENIED`, `AUTH_REQUIRED`, `NETWORK_FAILED`,
+  `NETWORK_REQUEST_TOO_LARGE`, `NETWORK_RESPONSE_TOO_LARGE`;
 - files: `FILE_DENIED`, `FILE_NOT_FOUND`, `FILE_CONFLICT`, `FILE_TOO_LARGE`,
   `FILE_FAILED`;
 - storage: `STORAGE_INVALID`, `STORAGE_QUOTA`, `STORAGE_CONFLICT`,
