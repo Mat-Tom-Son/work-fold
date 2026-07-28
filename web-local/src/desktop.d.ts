@@ -130,6 +130,14 @@ declare global {
       window: {
         material: "mica" | "vibrancy" | "none";
         setTheme: (theme: "light" | "dark", source?: "light" | "dark" | "system") => void;
+        railTooltip: {
+          show: (request: {
+            text: string;
+            bounds: { x: number; y: number; width: number; height: number };
+            theme: "light" | "dark";
+          }) => void;
+          hide: () => void;
+        };
         getAccentColor: () => Promise<string | null>;
         onAccentColorChanged: (listener: (accent: string | null) => void) => () => void;
         getCloseToTray: () => Promise<{ supported: boolean; enabled: boolean }>;

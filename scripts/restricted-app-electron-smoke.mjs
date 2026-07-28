@@ -10,6 +10,7 @@ import {
   RestrictedAppHost,
   restrictedAppProtocol,
 } from "../dist/desktop/desktop/src/restricted-app-host.js";
+import { RailTooltipOverlay } from "../dist/desktop/desktop/src/rail-tooltip-overlay.js";
 import { stageRestrictedAppPackage } from "../dist/desktop/src/local/agent/restricted-app-package.js";
 import { FileRestrictedAppStorage } from "../dist/desktop/src/local/agent/restricted-app-storage.js";
 import { RestrictedAppNotificationBroker } from "../dist/desktop/src/local/agent/restricted-app-notifications.js";
@@ -292,6 +293,36 @@ async function runSmoke() {
         state: { directFetchBlocked: true, stored: "visible-ui", file: "host-brokered" },
       },
     }]);
+    const tooltipOverlay = new RailTooltipOverlay(parent);
+    tooltipOverlay.show({
+      text: "Restricted Electron smoke",
+      bounds: { x: 72, y: 28, width: 170, height: 28 },
+      theme: "light",
+    });
+    await waitFor(
+      () => parent.contentView.children.length === 2,
+      "the native rail tooltip did not mount above the restricted app view",
+    );
+    assert.match(parent.contentView.children[0]?.webContents.getURL() ?? "", /^agent-app:/);
+    assert.match(parent.contentView.children.at(-1)?.webContents.getURL() ?? "", /^data:text\/html/);
+    host.layoutUi(parent.webContents.id, {
+      mountId,
+      placement: "navigator",
+      route: "/",
+      state: { escapeUrl },
+      sequence: 1,
+      bounds: { x: 0, y: 0, width: 320, height: 500 },
+      active: true,
+      occluded: false,
+      theme: "dark",
+    });
+    tooltipOverlay.raise();
+    assert.equal(parent.contentView.children.length, 2, "showing a tooltip must keep the restricted app attached");
+    assert.match(parent.contentView.children[0]?.webContents.getURL() ?? "", /^agent-app:/);
+    assert.match(parent.contentView.children.at(-1)?.webContents.getURL() ?? "", /^data:text\/html/);
+    tooltipOverlay.hide();
+    assert.equal(parent.contentView.children.length, 1, "hiding a tooltip must leave the restricted app attached");
+    assert.match(parent.contentView.children[0]?.webContents.getURL() ?? "", /^agent-app:/);
     assert.equal(await storage.get(storageOwner, "ui-notification-denied"), true);
     await storage.transaction(storageOwner, {
       set: Array.from({ length: 128 }, (_, index) => ({ key: "seed-" + String(index).padStart(3, "0"), value: index })),
@@ -318,7 +349,7 @@ async function runSmoke() {
       placement: "navigator",
       route: "/",
       state: { escapeUrl },
-      sequence: 1,
+      sequence: 2,
       bounds: { x: 0, y: 0, width: 320, height: 500 },
       active: false,
       occluded: true,
@@ -341,6 +372,7 @@ async function runSmoke() {
     assert.equal(networkOwners.at(-1)?.effectivePrincipalId, descriptor.servicePrincipalId, "resumed work reaches the broker as the service Principal");
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
     assert.equal(await storage.get(storageOwner, "inactive-storage-event"), undefined, "inactive app views receive no storage event or replay");
+    tooltipOverlay.close();
     await host.unmountUi(parent.webContents.id, mountId);
     parent.destroy();
     await mark("ui-complete");

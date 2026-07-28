@@ -77,6 +77,7 @@ import {
 } from "./file-context-menu.js";
 import { desktopWindowMaterial, shouldUseMacVibrancy, shouldUseWindowsMica } from "./window-material.js";
 import { GracefulQuitCoordinator, type QuitPreparationOutcome } from "./quit-coordinator.js";
+import { RailTooltipOverlay } from "./rail-tooltip-overlay.js";
 
 const productionProductName = "Workspace";
 const localMacSmokeProductName = "Workspace Local Smoke";
@@ -134,6 +135,7 @@ const minimumWindowState = { width: 1100, height: 760 };
 const folderGrants = new Map<string, { rootPath: string; expiresAt: number }>();
 
 let mainWindow: BrowserWindow | null = null;
+let railTooltipOverlay: RailTooltipOverlay | null = null;
 let tray: Tray | null = null;
 const localApiLifetime = new AppLifetimeResource<Awaited<ReturnType<typeof startLocalApi>>>();
 let piRuntime: PackagedPiRuntimeProvider | null = null;
@@ -598,6 +600,7 @@ async function createMainWindow(): Promise<void> {
       ],
     },
   });
+  railTooltipOverlay = new RailTooltipOverlay(mainWindow);
 
   applyNativeActiveSpaceToWindow(mainWindow);
 
@@ -609,6 +612,8 @@ async function createMainWindow(): Promise<void> {
     }
   }
   const rendererWebContentsId = mainWindow.webContents.id;
+  mainWindow.webContents.on("did-start-navigation", () => railTooltipOverlay?.hide());
+  mainWindow.webContents.on("render-process-gone", () => railTooltipOverlay?.hide());
   mainWindow.webContents.on("page-title-updated", (event) => {
     if (process.platform !== "darwin" || !activeNativeSpace) return;
     event.preventDefault();
@@ -620,6 +625,9 @@ async function createMainWindow(): Promise<void> {
   configureWindowStatePersistence(mainWindow);
   if (state?.isMaximized) mainWindow.maximize();
   mainWindow.on("ready-to-show", () => mainWindow?.show());
+  mainWindow.on("blur", () => railTooltipOverlay?.hide());
+  mainWindow.on("hide", () => railTooltipOverlay?.hide());
+  mainWindow.on("minimize", () => railTooltipOverlay?.hide());
   mainWindow.on("close", (event) => {
     if (quitting || quittingForUpdate || !quitCoordinator.shouldPreventNativeQuit()) return;
     if (!tray || !desktopPreferences.closeToTray) return;
@@ -633,6 +641,8 @@ async function createMainWindow(): Promise<void> {
     void shutdown();
   });
   mainWindow.on("closed", () => {
+    railTooltipOverlay?.close();
+    railTooltipOverlay = null;
     mainWindow = null;
     if (process.platform !== "darwin" && !quitting && !quittingForUpdate) app.quit();
   });
@@ -811,6 +821,18 @@ function registerIpc(): void {
     assertTrustedRenderer(event);
     return secureSettings?.status() ?? { encryptionAvailable: false, configuredProviders: [] };
   });
+  ipcMain.on("workspace:window:rail-tooltip-show", (event, value: unknown) => {
+    assertTrustedMainRenderer(event);
+    try {
+      railTooltipOverlay?.show(value);
+    } catch (error) {
+      console.warn(`${productName} could not show a rail tooltip: ${errorMessage(error)}`);
+    }
+  });
+  ipcMain.on("workspace:window:rail-tooltip-hide", (event) => {
+    assertTrustedMainRenderer(event);
+    railTooltipOverlay?.hide();
+  });
   ipcMain.handle("workspace:restricted-app-view:mount", async (event, value: unknown) => {
     assertTrustedMainRenderer(event);
     const window = mainWindow;
@@ -818,12 +840,17 @@ function registerIpc(): void {
     const identity = restrictedAppViewIdentity(value);
     const host = await ensureDesktopHost();
     const descriptor = await host.restrictedApps.runtimeDescriptor(identity.workspaceId, identity.appId, identity.digest);
-    return await host.restrictedAppHost.mountUi(descriptor, event.sender, window, restrictedAppViewPayload(value));
+    const mounted = await host.restrictedAppHost.mountUi(descriptor, event.sender, window, restrictedAppViewPayload(value));
+    railTooltipOverlay?.raise();
+    return mounted;
   });
   ipcMain.on("workspace:restricted-app-view:layout", (event, value: unknown) => {
     assertTrustedMainRenderer(event);
     void ensureDesktopHost()
-      .then((host) => host.restrictedAppHost.layoutUi(event.sender.id, restrictedAppViewPayload(value)))
+      .then((host) => {
+        host.restrictedAppHost.layoutUi(event.sender.id, restrictedAppViewPayload(value));
+        railTooltipOverlay?.raise();
+      })
       .catch((error) => console.warn(`${productName} could not lay out a restricted app view: ${errorMessage(error)}`));
   });
   ipcMain.handle("workspace:restricted-app-view:unmount", async (event, value: unknown) => {

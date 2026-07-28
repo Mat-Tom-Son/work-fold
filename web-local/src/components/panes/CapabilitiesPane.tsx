@@ -51,7 +51,7 @@ import type {
 } from "../../types";
 import { requestConfirm, showToast } from "../../ui/feedback";
 
-type CapabilityTypeFilter = "all" | "skill" | "extension";
+type CapabilityTypeFilter = "all" | "app" | "skill" | "extension";
 type CapabilityScopeFilter = "all" | AgentCapabilityScope;
 type InstalledSort = "name" | "type" | "scope" | "source";
 type DiscoverSort = "official" | "downloads" | "recent" | "name";
@@ -233,11 +233,23 @@ export function CapabilitiesPane({
     () => filterAndSortCapabilities(resources, query, typeFilter, scopeFilter, installedSort),
     [resources, query, typeFilter, scopeFilter, installedSort],
   );
+  const visibleRestrictedApps = useMemo(
+    () => filterRestrictedApps(restrictedApps, query, typeFilter, scopeFilter, installedSort),
+    [installedSort, query, restrictedApps, scopeFilter, typeFilter],
+  );
+  const installedTotal = resources.length + restrictedApps.length;
+  const installedVisible = visibleResources.length + visibleRestrictedApps.length;
+  const installedIssues = resources.filter((item) => ["error", "blocked", "missing"].includes(item.status)).length;
+  const hasInstalledQuery = Boolean(query.trim()) || typeFilter !== "all" || scopeFilter !== "all";
+  const showRestrictedAppsSection = (typeFilter === "all" || typeFilter === "app")
+    && scopeFilter !== "global"
+    && (visibleRestrictedApps.length > 0 || (!query.trim() && restrictedApps.length === 0));
   const catalogHref = safeExternalHref(discoverCatalogUrl);
 
   function selectView(nextView: AssistantToolsView) {
     onViewChange(nextView);
     setQuery("");
+    if (nextView === "discover" && typeFilter === "app") setTypeFilter("all");
     setAddOpen(false);
     window.requestAnimationFrame(() => {
       const panel = nextView === "installed" ? installedViewRef.current : discoverViewRef.current;
@@ -382,9 +394,9 @@ export function CapabilitiesPane({
         <div>
           <span className="professional-kicker">Assistant</span>
           <h1>Assistant tools</h1>
-          <p>Review what is available in {workspace.name}, where it applies, and what it can access.</p>
+          <p>See what the Assistant can use in {workspace.name}. Review scope, source, health, and app access.</p>
         </div>
-        <button className="professional-button professional-button-primary capabilities-add-trigger" type="button" onClick={() => setAddOpen(true)}><Add16Regular />Add Skill or Extension</button>
+        <button className="professional-button professional-button-primary capabilities-add-trigger" type="button" onClick={() => setAddOpen(true)}><Add16Regular />Add tool</button>
       </header>
 
       <div className="capabilities-view-tabs" role="tablist" aria-label="Assistant tools view">
@@ -397,48 +409,56 @@ export function CapabilitiesPane({
           <div className="capabilities-installed-context">
             <ShieldCheckmark20Regular aria-hidden="true" />
             <div>
-              <strong>Available in {workspace.name}</strong>
-              <span>{restrictedApps.length} {restrictedApps.length === 1 ? "app" : "apps"} · {scopedToolCount(resources.filter((item) => item.scope === "project").length, "Space")} · {scopedToolCount(resources.filter((item) => item.scope === "global").length, "Personal")}</span>
+              <strong>{workspace.name}</strong>
+              <span>{installedTotal} installed {installedTotal === 1 ? "tool" : "tools"} · {scopedToolCount(resources.filter((item) => item.scope === "project").length + restrictedApps.length, "Space")} · {scopedToolCount(resources.filter((item) => item.scope === "global").length, "Personal")}</span>
             </div>
-            <p>Apps and Space tools belong here. Personal tools are available in every Space; app access is reviewed separately.</p>
+            <p className={installedIssues ? "needs-attention" : "ready"}>{installedIssues ? `${installedIssues} ${installedIssues === 1 ? "tool needs" : "tools need"} attention` : "All tools healthy · App access is approved separately"}</p>
           </div>
-          <RestrictedAppsSection
-            workspace={workspace}
-            apps={restrictedApps}
-            loading={restrictedAppsLoading}
-            fixtureMode={fixtureMode}
-            onBuildApp={onBuildApp}
-            onOpenAppStudio={onOpenAppStudio}
-            onUpsertApp={onRestrictedAppChanged}
-            onRemoveApp={onRestrictedAppRemoved}
-            onError={onError}
+          <CapabilityToolbar
+            view="installed"
+            query={query}
+            typeFilter={typeFilter}
+            scopeFilter={scopeFilter}
+            installedSort={installedSort}
+            discoverSort={discoverSort}
+            onQueryChange={setQuery}
+            onTypeChange={setTypeFilter}
+            onScopeChange={setScopeFilter}
+            onInstalledSortChange={setInstalledSort}
+            onDiscoverSortChange={setDiscoverSort}
           />
-          <section className="capabilities-resource-section" aria-labelledby="skills-extensions-title">
-            <div className="capabilities-section-heading">
-              <div><h3 id="skills-extensions-title">Skills &amp; Extensions</h3><p>{resources.filter((item) => item.scope === "project").length} in this Space · {resources.filter((item) => item.scope === "global").length} Personal</p></div>
-            </div>
-            <CapabilityToolbar
-              view="installed"
-              query={query}
-              typeFilter={typeFilter}
-              scopeFilter={scopeFilter}
-              installedSort={installedSort}
-              discoverSort={discoverSort}
-              onQueryChange={setQuery}
-              onTypeChange={setTypeFilter}
-              onScopeChange={setScopeFilter}
-              onInstalledSortChange={setInstalledSort}
-              onDiscoverSortChange={setDiscoverSort}
+          <p className="capabilities-results-summary">{hasInstalledQuery ? `Showing ${installedVisible} of ${installedTotal} installed tools` : `${installedTotal} installed ${installedTotal === 1 ? "tool" : "tools"}`}</p>
+          {!installedVisible && installedTotal && !showRestrictedAppsSection ? <CapabilityEmpty title="No matching tools" detail="Change the search or filters to see more." /> : null}
+          {showRestrictedAppsSection ? (
+            <RestrictedAppsSection
+              workspace={workspace}
+              apps={visibleRestrictedApps}
+              totalApps={restrictedApps.length}
+              filtered={visibleRestrictedApps.length !== restrictedApps.length}
+              loading={restrictedAppsLoading}
+              fixtureMode={fixtureMode}
+              onBuildApp={onBuildApp}
+              onOpenAppStudio={onOpenAppStudio}
+              onUpsertApp={onRestrictedAppChanged}
+              onRemoveApp={onRestrictedAppRemoved}
+              onError={onError}
             />
-            <InstalledCapabilities
-              catalog={catalog}
-              resources={visibleResources}
-              totalResources={resources.length}
-              packageBusy={packageBusy}
-              onSelect={setSelectedCapability}
-              onPackageAction={(item, action) => void mutatePackage(item, action)}
-            />
-          </section>
+          ) : null}
+          {typeFilter !== "app" && (!query.trim() || visibleResources.length) ? (
+            <section className="capabilities-resource-section" aria-labelledby="skills-extensions-title">
+              <div className="capabilities-section-heading">
+                <div><h3 id="skills-extensions-title">Skills &amp; Extensions</h3><p>{resources.filter((item) => item.scope === "project").length} in this Space · {resources.filter((item) => item.scope === "global").length} Personal</p></div>
+              </div>
+              <InstalledCapabilities
+                catalog={catalog}
+                resources={visibleResources}
+                totalResources={resources.length}
+                packageBusy={packageBusy}
+                onSelect={setSelectedCapability}
+                onPackageAction={(item, action) => void mutatePackage(item, action)}
+              />
+            </section>
+          ) : null}
         </section>
       ) : (
         <section ref={discoverViewRef} id="capabilities-discover-panel" className="capabilities-view-content" role="tabpanel" aria-labelledby="capabilities-discover-tab" tabIndex={-1}>
@@ -529,7 +549,7 @@ function CapabilityToolbar({
     <section className="capabilities-toolbar" aria-label={`${view === "installed" ? "Installed" : "Discover"} tool filters`}>
       <label className="capabilities-search"><Search20Regular aria-hidden="true" /><input type="search" value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={view === "installed" ? "Search installed tools" : "Search the catalog"} /></label>
       <div className="capabilities-filter-row">
-        <label className="capabilities-filter-select"><span>Type</span><select aria-label="Tool type" value={typeFilter} onChange={(event) => onTypeChange(event.target.value as CapabilityTypeFilter)}><option value="all">All types</option><option value="skill">Skills</option><option value="extension">Extensions</option></select></label>
+        <label className="capabilities-filter-select"><span>Type</span><select aria-label="Tool type" value={typeFilter} onChange={(event) => onTypeChange(event.target.value as CapabilityTypeFilter)}><option value="all">All types</option>{view === "installed" ? <option value="app">Apps</option> : null}<option value="skill">Skills</option><option value="extension">Extensions</option></select></label>
         {view === "installed" ? <label className="capabilities-filter-select"><span>Scope</span><select aria-label="Tool scope" value={scopeFilter} onChange={(event) => onScopeChange(event.target.value as CapabilityScopeFilter)}><option value="all">All scopes</option><option value="project">This Space</option><option value="global">Personal</option></select></label> : null}
         <label className="capabilities-sort"><span>Sort</span>{view === "installed" ? (
           <select value={installedSort} onChange={(event) => onInstalledSortChange(event.target.value as InstalledSort)}><option value="name">Name</option><option value="type">Type</option><option value="scope">Scope</option><option value="source">Source</option></select>
@@ -553,7 +573,6 @@ function InstalledCapabilities({ catalog, resources, totalResources, packageBusy
   return (
     <div className="capabilities-installed-stack">
       {catalog.diagnostics.length ? <div className="professional-diagnostics" role="status">{catalog.diagnostics.map((item, index) => <span className={item.type} key={`${item.message}-${index}`}>{item.message}</span>)}</div> : null}
-      <p className="capabilities-results-summary">{resources.length === totalResources ? `${resources.length} installed Skills & Extensions` : `Showing ${resources.length} of ${totalResources} installed Skills & Extensions`}</p>
       {resources.length ? <div className="capabilities-resource-list">{resources.map((item) => <InstalledCapabilityCard key={item.id} item={item} onSelect={() => onSelect(item)} />)}</div> : <CapabilityEmpty title={totalResources ? "No matching tools" : "No Skills or Extensions installed"} detail={totalResources ? "Change the search or filters to see more." : "Use Add Skill or Extension to import a Skill or install a Pi package."} />}
       {catalog.packages.length || catalog.tools.some(isCoreTool) ? (
         <section className="capabilities-supporting-details" aria-labelledby="capabilities-supporting-title">
@@ -859,6 +878,7 @@ function capabilityStatus(status: AgentCapabilityStatus | undefined, enabled: bo
 function filterAndSortCapabilities(items: InstalledCapability[], query: string, type: CapabilityTypeFilter, scope: CapabilityScopeFilter, sort: InstalledSort): InstalledCapability[] {
   const needle = query.trim().toLocaleLowerCase();
   const filtered = items.filter((item) => {
+    if (type === "app") return false;
     if (type !== "all" && item.kind !== type) return false;
     if (scope !== "all" && item.scope !== scope) return false;
     if (!needle) return true;
@@ -866,6 +886,19 @@ function filterAndSortCapabilities(items: InstalledCapability[], query: string, 
   });
   const value = (item: InstalledCapability) => sort === "type" ? item.kind : sort === "scope" ? scopeLabel(item.scope) : sort === "source" ? item.source : item.name;
   return filtered.sort((left, right) => value(left).localeCompare(value(right), undefined, { sensitivity: "base", numeric: true }) || left.name.localeCompare(right.name));
+}
+
+function filterRestrictedApps(items: RestrictedAppInstalled[], query: string, type: CapabilityTypeFilter, scope: CapabilityScopeFilter, sort: InstalledSort): RestrictedAppInstalled[] {
+  if ((type !== "all" && type !== "app") || scope === "global") return [];
+  const needle = query.trim().toLocaleLowerCase();
+  const filtered = items.filter((item) => !needle || [
+      item.manifest.title,
+      item.manifest.description ?? "",
+      item.packageName,
+      item.version,
+    ].some((value) => value.toLocaleLowerCase().includes(needle)));
+  const value = (item: RestrictedAppInstalled) => sort === "source" ? item.packageName : item.manifest.title;
+  return filtered.sort((left, right) => value(left).localeCompare(value(right), undefined, { sensitivity: "base", numeric: true }) || left.manifest.title.localeCompare(right.manifest.title));
 }
 
 function productScope(value: AgentCapabilitySource["scope"] | AgentCapabilityScope | "user" | undefined): AgentCapabilityScope {
@@ -962,7 +995,7 @@ function fixtureDiscover(query: string, type: CapabilityTypeFilter, sort: Discov
     { id: "research-workbench", name: "Research workbench", description: "Skills and Extensions for collecting, organizing, and citing research.", types: ["skill", "extension"], sourceKind: "git", installSource: "git:github.com/example/research-workbench", official: false, author: "Community", version: "0.9.0", downloads: 4100, publishedAt: "2026-05-20T00:00:00.000Z", repositoryUrl: "https://github.com/example/research-workbench", license: "MIT" },
   ];
   const needle = query.trim().toLocaleLowerCase();
-  const filtered = all.filter((item) => (type === "all" || item.types.includes(type)) && (!needle || [item.name, item.description, item.author ?? ""].some((value) => value.toLocaleLowerCase().includes(needle))));
+  const filtered = all.filter((item) => (type === "all" || (type !== "app" && item.types.includes(type))) && (!needle || [item.name, item.description, item.author ?? ""].some((value) => value.toLocaleLowerCase().includes(needle))));
   filtered.sort((left, right) => sort === "downloads" ? (right.downloads ?? 0) - (left.downloads ?? 0) : sort === "recent" ? Date.parse(right.publishedAt ?? "") - Date.parse(left.publishedAt ?? "") : sort === "name" ? left.name.localeCompare(right.name) : Number(right.official) - Number(left.official) || left.name.localeCompare(right.name));
   return { items: filtered.slice(offset, offset + 24), total: filtered.length, offset, limit: 24, catalogUrl: "https://pi.dev/packages" };
 }

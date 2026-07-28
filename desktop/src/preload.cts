@@ -112,6 +112,10 @@ contextBridge.exposeInMainWorld("workspaceDesktop", {
   window: {
     material: windowMaterial,
     setTheme: (theme: "light" | "dark", source?: "light" | "dark" | "system") => ipcRenderer.send("workspace:window:set-theme", theme, source),
+    railTooltip: {
+      show: (request: unknown) => ipcRenderer.send("workspace:window:rail-tooltip-show", request),
+      hide: () => ipcRenderer.send("workspace:window:rail-tooltip-hide"),
+    },
     getAccentColor: () => ipcRenderer.invoke("workspace:window:accent-color"),
     getCloseToTray: () => ipcRenderer.invoke("workspace:window:get-close-to-tray"),
     setCloseToTray: (enabled: boolean) => ipcRenderer.invoke("workspace:window:set-close-to-tray", enabled),

@@ -146,6 +146,11 @@ view bounds and visibility follow the owning DOM placeholder; inactive tabs,
 hidden windows, minimization, and modal occlusion detach the native view while
 leaving its renderer alive.
 
+Shell UI that must cross the native-view boundary is also host-owned. Rail
+tooltips use a scriptless, bounded native overlay that is re-raised after app
+layout; showing one never hides or detaches the app view underneath it. The
+trusted renderer may supply only validated text, bounds, and theme.
+
 The shell gives a navigator app the same 12px inset used by built-in pane
 content. Its placeholder and native view share a rounded 12px canvas by
 default. A reviewed manifest may override that radius from 0 through 24 pixels;
