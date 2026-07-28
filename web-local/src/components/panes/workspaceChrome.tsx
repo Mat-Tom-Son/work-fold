@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import {
   ArrowDownload20Regular,
   ArrowClockwise20Regular,
@@ -72,6 +72,8 @@ function WorkspaceModeRail({
   const addAnchorRef = useRef<HTMLDivElement | null>(null);
   const addButtonRef = useRef<HTMLButtonElement | null>(null);
   const addMenuRef = useRef<HTMLDivElement | null>(null);
+  const railRef = useRef<HTMLElement | null>(null);
+  useNativeRailTooltips(railRef);
   const FilesIcon = activeMode === "files" ? DocumentFolder24Filled : DocumentFolder24Regular;
   const ChatsIcon = activeMode === "chats" ? ChatMultiple24Filled : ChatMultiple24Regular;
   const HistoryIcon = activeMode === "history" ? History24Filled : History24Regular;
@@ -118,7 +120,7 @@ function WorkspaceModeRail({
   }
 
   return (
-    <nav className="workspace-mode-rail professional-workspace-rail" aria-label="Workspace navigation">
+    <nav ref={railRef} className="workspace-mode-rail professional-workspace-rail" aria-label="Workspace navigation">
       <div className="workspace-rail-nav">
         {primaryItems.map((item) => (
           <button
@@ -231,6 +233,99 @@ function WorkspaceModeRail({
       </div>
     </nav>
   );
+}
+
+function useNativeRailTooltips(railRef: RefObject<HTMLElement | null>): void {
+  useEffect(() => {
+    const tooltip = window.workspaceDesktop?.window.railTooltip;
+    const rail = railRef.current;
+    if (!tooltip || !rail) return;
+    let timer = 0;
+    let target: HTMLElement | null = null;
+
+    function hide(): void {
+      if (timer) window.clearTimeout(timer);
+      timer = 0;
+      target = null;
+      tooltip?.hide();
+    }
+
+    function schedule(nextTarget: HTMLElement, delay: number): void {
+      if (timer) window.clearTimeout(timer);
+      tooltip?.hide();
+      target = nextTarget;
+      timer = window.setTimeout(() => {
+        timer = 0;
+        if (target !== nextTarget || !nextTarget.isConnected) return;
+        const text = nextTarget.dataset.railTooltip?.trim();
+        if (!text) return;
+        tooltip?.show(nativeRailTooltipRequest(nextTarget, text));
+      }, delay);
+    }
+
+    function handlePointerOver(event: PointerEvent): void {
+      const nextTarget = railTooltipTarget(event.target);
+      if (!nextTarget || railTooltipTarget(event.relatedTarget) === nextTarget) return;
+      schedule(nextTarget, 320);
+    }
+
+    function handlePointerOut(event: PointerEvent): void {
+      const previousTarget = railTooltipTarget(event.target);
+      if (!previousTarget || railTooltipTarget(event.relatedTarget) === previousTarget) return;
+      hide();
+    }
+
+    function handleFocusIn(event: FocusEvent): void {
+      const nextTarget = railTooltipTarget(event.target);
+      if (nextTarget) schedule(nextTarget, 40);
+    }
+
+    function handleFocusOut(event: FocusEvent): void {
+      const previousTarget = railTooltipTarget(event.target);
+      if (!previousTarget || railTooltipTarget(event.relatedTarget) === previousTarget) return;
+      hide();
+    }
+
+    rail.addEventListener("pointerover", handlePointerOver);
+    rail.addEventListener("pointerout", handlePointerOut);
+    rail.addEventListener("pointerdown", hide, true);
+    rail.addEventListener("focusin", handleFocusIn);
+    rail.addEventListener("focusout", handleFocusOut);
+    window.addEventListener("blur", hide);
+    window.addEventListener("resize", hide);
+    return () => {
+      rail.removeEventListener("pointerover", handlePointerOver);
+      rail.removeEventListener("pointerout", handlePointerOut);
+      rail.removeEventListener("pointerdown", hide, true);
+      rail.removeEventListener("focusin", handleFocusIn);
+      rail.removeEventListener("focusout", handleFocusOut);
+      window.removeEventListener("blur", hide);
+      window.removeEventListener("resize", hide);
+      hide();
+    };
+  }, [railRef]);
+}
+
+function nativeRailTooltipRequest(target: HTMLElement, text: string) {
+  const rect = target.getBoundingClientRect();
+  const context = document.createElement("canvas").getContext("2d");
+  if (context) context.font = '600 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  const measuredWidth = context?.measureText(text).width ?? text.length * 7;
+  const width = Math.ceil(Math.max(48, Math.min(260, measuredWidth + 16)));
+  const height = 28;
+  const x = Math.max(8, Math.min(window.innerWidth - width - 8, rect.right + 8));
+  const y = Math.max(8, Math.min(window.innerHeight - height - 8, rect.top + (rect.height - height) / 2));
+  return {
+    text,
+    bounds: { x, y, width, height },
+    theme: document.documentElement.dataset.theme === "dark" ? "dark" as const : "light" as const,
+  };
+}
+
+function railTooltipTarget(target: EventTarget | null): HTMLElement | null {
+  return target instanceof Element
+    ? target.closest<HTMLElement>(".professional-workspace-rail [data-rail-tooltip]")
+    : null;
 }
 
 function WorkspacePaneHeader({

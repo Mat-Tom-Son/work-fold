@@ -329,6 +329,10 @@
   .app-shell .professional-workspace-rail [data-rail-tooltip]:focus-visible::after {
     transition-delay: 40ms, 40ms, 40ms;
   }
+
+  :root[data-desktop="true"] .app-shell .professional-workspace-rail [data-rail-tooltip]::after {
+    content: none;
+  }
 }
 
 .app-shell .workspace-layout .workspace-pane-header-wrap {

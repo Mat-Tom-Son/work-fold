@@ -11,6 +11,8 @@ import { App } from "./App";
 const platform = window.workspaceDesktop?.app.platform;
 if (platform) document.documentElement.dataset.platform = platform;
 else delete document.documentElement.dataset.platform;
+if (window.workspaceDesktop) document.documentElement.dataset.desktop = "true";
+else delete document.documentElement.dataset.desktop;
 
 const windowMaterial = window.workspaceDesktop?.window.material;
 if (windowMaterial === "mica" || windowMaterial === "vibrancy") {

@@ -222,7 +222,7 @@ export function ChatsPane({
               >
                 <span className="chat-workspace-row-title">{chat.title}</span>
                 <span className="chat-workspace-row-meta">
-                  {status ? <ChatActivityIndicator status={status} /> : null}
+                  {status ? <ChatActivityIndicator status={status} labeled /> : null}
                   <span className="chat-workspace-row-time">{secondary}</span>
                 </span>
               </button>
@@ -379,11 +379,12 @@ export function ChatsPane({
   );
 }
 
-function ChatActivityIndicator({ status }: { status: ChatActivityStatus }) {
+function ChatActivityIndicator({ status, labeled = false }: { status: ChatActivityStatus; labeled?: boolean }) {
+  const label = status === "running" ? "Working" : "New reply";
   return (
-    <span className={`chat-activity-indicator ${status}`} role="status">
-      <span aria-hidden="true" />
-      <span className="sr-only">{status === "running" ? "Assistant working" : "New Assistant response"}</span>
+    <span className={`chat-activity-indicator ${status}${labeled ? " labeled" : ""}`} role="status">
+      <span className="chat-activity-dot" aria-hidden="true" />
+      <span className={labeled ? "chat-activity-label" : "sr-only"}>{label}</span>
     </span>
   );
 }

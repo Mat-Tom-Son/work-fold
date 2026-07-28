@@ -50,7 +50,11 @@ test("Chat work can be deferred, found again, and resumed without interrupting a
   assert.match(app, /actionLabel:\s*"Undo"/);
   assert.match(localServer, /state\.runningTurns\.has\(key\)/);
   assert.match(app, /chatActivity\.setAttention/);
+  assert.match(app, /hidden=\{!active\}/);
+  assert.match(app, /<ChatPanel[\s\S]*?active=\{active\}/);
   assert.match(tabBar, /surface-tab-chat-status/);
+  assert.match(panes, /status=\{status\} labeled/);
+  assert.match(panes, /status === "running" \? "Working" : "New reply"/);
   assert.match(chatPanel, /onRunningChangeRef\.current/);
   assert.match(chatPanel, /reportChatSettled\(conversationId\)/);
 });

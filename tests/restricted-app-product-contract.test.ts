@@ -4,7 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 const root = process.cwd();
-const [capabilities, apps, chat, workspaceApp, workspaceChrome, viewport, styles, professionalShell, professionalSurfaces, desktopHost] = await Promise.all([
+const [capabilities, apps, chat, workspaceApp, workspaceChrome, viewport, styles, professionalShell, professionalSurfaces, desktopHost, desktopMain, desktopPreload, tooltipOverlay] = await Promise.all([
   read("web-local/src/components/panes/CapabilitiesPane.tsx"),
   read("web-local/src/components/panes/RestrictedAppsSection.tsx"),
   read("web-local/src/components/chat/ChatPanel.tsx"),
@@ -15,6 +15,9 @@ const [capabilities, apps, chat, workspaceApp, workspaceChrome, viewport, styles
   read("web-local/src/professional-shell.css"),
   read("web-local/src/professional-surfaces.css"),
   read("desktop/src/restricted-app-host.ts"),
+  read("desktop/src/main.ts"),
+  read("desktop/src/preload.cts"),
+  read("desktop/src/rail-tooltip-overlay.ts"),
 ]);
 
 test("Apps product hierarchy starts with the Assistant and keeps local preview loading advanced", () => {
@@ -26,13 +29,16 @@ test("Apps product hierarchy starts with the Assistant and keeps local preview l
   assert.doesNotMatch(apps, />Add app</);
 });
 
-test("review prioritizes requested access and visible contribution over collapsed package mechanics", () => {
-  const access = apps.indexOf("Requested access");
-  const contribution = apps.indexOf("What it adds");
-  assert.ok(access >= 0 && contribution > access);
+test("review separates what is added now from access that still requires a later decision", () => {
+  const decision = apps.indexOf("One decision now");
+  const contribution = apps.indexOf("Added now");
+  const access = apps.indexOf("What you may approve later");
+  assert.ok(decision >= 0 && contribution > decision && access > contribution);
   assert.match(apps, /<ReviewDeclarations review=\{review\} \/>[\s\S]*?<details className="restricted-app-package-details"><summary>Package details/);
-  assert.match(apps, /Add preview, then review access/);
-  assert.match(apps, /Adding the preview grants no network destinations, Space files, notifications, or scheduled execution/);
+  assert.match(apps, /Add app with access off/);
+  assert.match(apps, /Network, files, notifications, and automations remain off/);
+  assert.match(apps, /restricted-app-authority-list/);
+  assert.match(apps, /Off when added/);
   assert.match(apps, /<OAuthDeclarationDetails auth=\{auth\}/);
   assert.match(apps, /<dt>Issuer<\/dt>/);
   assert.match(apps, /<dt>Scopes<\/dt>/);
@@ -55,6 +61,8 @@ test("Assistant tools owns access, connection, and lifecycle management without 
   assert.match(apps, /App writes create History checkpoints/);
   assert.match(apps, /Automations/);
   assert.match(apps, /Local app data/);
+  assert.match(apps, /App access overview/);
+  assert.match(apps, /Each destination, file choice, notification, and automation is controlled separately/);
   assert.match(apps, /<h3 id="restricted-app-notifications-title">Notifications<\/h3>/);
   assert.doesNotMatch(apps, /Windows notifications|Windows notification settings/);
   assert.match(apps, /Workspace · \{app\.manifest\.title\} — \{permission\.title\}/);
@@ -89,16 +97,15 @@ test("the Space menu occludes native restricted-app views from the first animati
   assert.match(viewport, /style\.display === "none" \|\| style\.visibility === "hidden"/);
 });
 
-test("rail tooltips yield native app views for their complete visible lifetime", () => {
-  assert.match(viewport, /railTooltipOcclusionLeadMs = 280/);
-  assert.match(viewport, /railTooltipExitMs = 80/);
-  assert.match(viewport, /document\.addEventListener\("pointerover", handleRailPointerOver\)/);
-  assert.match(viewport, /document\.addEventListener\("pointerout", handleRailPointerOut\)/);
-  assert.match(viewport, /document\.addEventListener\("focusin", handleRailFocusIn\)/);
-  assert.match(viewport, /document\.addEventListener\("focusout", handleRailFocusOut\)/);
-  assert.match(viewport, /\.professional-workspace-rail \[data-rail-tooltip\]:hover/);
-  assert.match(viewport, /\.professional-workspace-rail \[data-rail-tooltip\]:focus-visible/);
-  assert.match(professionalShell, /transition:\s*opacity 80ms ease,\s*transform 80ms ease,\s*visibility 0s linear 80ms/);
+test("rail tooltips use a topmost native overlay without blanking restricted app views", () => {
+  assert.doesNotMatch(viewport, /railTooltipOcclusionLeadMs|railTooltipTarget|data-rail-tooltip/);
+  assert.match(workspaceChrome, /useNativeRailTooltips\(railRef\)/);
+  assert.match(workspaceChrome, /window\.workspaceDesktop\?\.window\.railTooltip/);
+  assert.match(desktopPreload, /workspace:window:rail-tooltip-show/);
+  assert.match(desktopMain, /railTooltipOverlay\?\.show\(value\)/);
+  assert.match(desktopMain, /host\.restrictedAppHost\.layoutUi[\s\S]*?railTooltipOverlay\?\.raise\(\)/);
+  assert.match(tooltipOverlay, /contentView\.addChildView\(this\.#view\)/);
+  assert.match(professionalShell, /:root\[data-desktop="true"\][\s\S]*?\[data-rail-tooltip\]::after[\s\S]*?content:\s*none/);
 });
 
 test("contributed app canvases share built-in spacing and native rounded corners", () => {
