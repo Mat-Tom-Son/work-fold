@@ -14,6 +14,7 @@ export function FileTree({
   selectedPath,
   movingTreePath,
   dropTargetFolderPath,
+  checkAttentionPaths = new Set<string>(),
   searchQuery = "",
   emptyText = "This Space is empty.",
   emptyContent,
@@ -35,6 +36,7 @@ export function FileTree({
   selectedPath?: string | null;
   movingTreePath: string | null;
   dropTargetFolderPath: string | null;
+  checkAttentionPaths?: ReadonlySet<string>;
   searchQuery?: string;
   emptyText?: string;
   emptyContent?: React.ReactNode;
@@ -99,6 +101,10 @@ export function FileTree({
         const folderLoading = entry.kind === "folder" && loadingFolderPaths.has(entry.path);
         const folderCollapsed = entry.kind === "folder" && (collapsedPaths.has(entry.path) || (treeEntryNeedsLazyChildren(entry) && !folderLoading));
         const parentDropTarget = entry.kind === "file" ? parentFolderPath(entry.path) : entry.path;
+        const exactCheckAttention = checkAttentionPaths.has(entry.path);
+        const descendantCheckAttention = entry.kind === "folder" && hasAttentionDescendant(checkAttentionPaths, entry.path);
+        const checkAttention = exactCheckAttention || descendantCheckAttention;
+        const checkAttentionLabel = entry.kind === "folder" ? "contains a designated file that needs attention" : "needs attention";
         return (
           <div className="file-tree-item" key={entry.path}>
             <button
@@ -109,13 +115,16 @@ export function FileTree({
                 isInsideFolder(entry.path, dropTargetFolderPath) ? "drop-descendant" : "",
                 selectedPath === entry.path ? "selected" : "",
                 movingTreePath === entry.path ? "moving" : "",
+                exactCheckAttention ? "has-check-attention" : "",
+                descendantCheckAttention ? "contains-check-attention" : "",
               ].filter(Boolean).join(" ")}
               type="button"
               role="treeitem"
               aria-level={level}
               aria-expanded={entry.kind === "folder" ? !folderCollapsed : undefined}
               aria-selected={entry.kind === "file" ? selectedPath === entry.path : undefined}
-              title={entry.kind === "file" ? desktopFileDragHint(entry.path) : entry.path}
+              aria-label={checkAttention ? `${entry.name}, ${checkAttentionLabel}` : entry.name}
+              title={`${entry.kind === "file" ? desktopFileDragHint(entry.path) : entry.path}${checkAttention ? ` · ${checkAttentionLabel}` : ""}`}
               data-tree-row="true"
               data-tree-path={entry.path}
               draggable
@@ -152,6 +161,7 @@ export function FileTree({
               ) : (
                 <><FileTypeIcon path={entry.path} /><HighlightedFileName name={entry.name} query={searchQuery} /></>
               )}
+              {checkAttention ? <span className="file-check-attention-marker" aria-hidden="true" /> : null}
             </button>
             {entry.kind === "folder" && entry.children?.length && !folderCollapsed ? (
               <div className="file-children">
@@ -162,6 +172,7 @@ export function FileTree({
                   selectedPath={selectedPath}
                   movingTreePath={movingTreePath}
                   dropTargetFolderPath={dropTargetFolderPath}
+                  checkAttentionPaths={checkAttentionPaths}
                   searchQuery={searchQuery}
                   emptyText={emptyText}
                   level={level + 1}
@@ -202,6 +213,12 @@ function HighlightedFileName({ name, query }: { name: string; query: string }) {
 export function FileTypeIcon({ path }: { path: string }) { return <FileTreeIconFrame iconSpec={fileTreeFileIcon(path)} />; }
 function FolderTypeIcon({ name, expanded }: { name: string; expanded: boolean }) { return <FileTreeIconFrame iconSpec={fileTreeFolderIcon(name, expanded)} />; }
 function FileTreeIconFrame({ iconSpec }: { iconSpec: FileTreeIconSpec }) { return <span className={`file-icon ${fileTreeIconClassName(iconSpec)}`} title={iconSpec.label} aria-hidden="true"><img className="file-icon-asset" src={iconSpec.src} alt="" draggable={false} /></span>; }
+
+function hasAttentionDescendant(paths: ReadonlySet<string>, folderPath: string): boolean {
+  const prefix = `${folderPath}/`;
+  for (const path of paths) if (path.startsWith(prefix)) return true;
+  return false;
+}
 
 function treeRows(currentRow: HTMLButtonElement) { return [...(currentRow.closest(".file-tree-shell")?.querySelectorAll<HTMLButtonElement>("button[data-tree-row='true']") ?? [])]; }
 function focusAdjacentTreeRow(currentRow: HTMLButtonElement, direction: -1 | 1) { const rows = treeRows(currentRow); rows[rows.indexOf(currentRow) + direction]?.focus(); }

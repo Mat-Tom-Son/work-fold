@@ -182,6 +182,12 @@ export function useSurfaceTabs({
     setActiveSurfaceTabId(tab.id);
   }
 
+  function openChecksSurfaceTab(targetWorkspace: WorkspaceSummary): void {
+    const tab = checksSurfaceTab(targetWorkspace);
+    setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
+    setActiveSurfaceTabId(tab.id);
+  }
+
   function openExtensionSurfaceTab(
     targetWorkspace: WorkspaceSummary,
     surface: CapabilitySurface,
@@ -302,6 +308,7 @@ export function useSurfaceTabs({
     openAppearanceSurfaceTab,
     openAppStudioSurfaceTab,
     openAssistantToolsSurfaceTab,
+    openChecksSurfaceTab,
     openExtensionSurfaceTab,
     openRestrictedAppSurfaceTab,
     updateRestrictedAppSurfaceTab,
@@ -439,6 +446,14 @@ function normalizeStoredSurfaceTab(value: unknown): WorkspaceSurfaceTab | null {
       workspaceId: record.workspaceId,
       view: record.view,
       title: "Assistant tools",
+    };
+  }
+  if (record.kind === "checks") {
+    return {
+      id: `checks:${record.workspaceId}`,
+      kind: "checks",
+      workspaceId: record.workspaceId,
+      title: "Checks",
     };
   }
   if (record.kind === "extension") {
@@ -635,6 +650,15 @@ export function assistantToolsSurfaceTab(workspace: WorkspaceSummary, view: Assi
     workspaceId: workspace.id,
     view,
     title: "Assistant tools",
+  };
+}
+
+export function checksSurfaceTab(workspace: WorkspaceSummary): WorkspaceSurfaceTab {
+  return {
+    id: `checks:${workspace.id}`,
+    kind: "checks",
+    workspaceId: workspace.id,
+    title: "Checks",
   };
 }
 

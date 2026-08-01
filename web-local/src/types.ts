@@ -1,4 +1,12 @@
 import type { AccentIdentity, SpaceAppearanceState } from "../../src/shared/space-appearance";
+import type {
+  WorkspaceCheckDecisionKind,
+  WorkspaceCheckFinding,
+  WorkspaceCheckRendererDecorations,
+  WorkspaceCheckRendererOverview,
+  WorkspaceCheckStatusSnapshot,
+} from "../../src/local/checks/check-types";
+import type { WorkspaceCheckTaskStatus } from "../../src/local/checks/check-service";
 
 export type WorkspacePane = "files" | "chats" | "history";
 export type WorkspaceExtensionRailMode = `app:${string}`;
@@ -202,6 +210,7 @@ export type WorkspaceSurfaceTab =
   | (WorkspaceSurfaceTabBase & { kind: "appearance" })
   | (WorkspaceSurfaceTabBase & { kind: "app-studio" })
   | (WorkspaceSurfaceTabBase & { kind: "assistant-tools"; view: AssistantToolsView })
+  | (WorkspaceSurfaceTabBase & { kind: "checks" })
   | (WorkspaceSurfaceTabBase & { kind: "extension"; surfaceId: string; surfaceExecution: "full-trust-pi"; viewId: string })
   | (WorkspaceSurfaceTabBase & {
     kind: "restricted-app";
@@ -211,6 +220,13 @@ export type WorkspaceSurfaceTab =
     route: string;
     state?: unknown;
   });
+
+export type ChecksStatus = WorkspaceCheckStatusSnapshot;
+export type ChecksOverview = WorkspaceCheckRendererOverview;
+export type ChecksDecorations = WorkspaceCheckRendererDecorations;
+export type ChecksFinding = WorkspaceCheckFinding;
+export type ChecksDecisionKind = WorkspaceCheckDecisionKind;
+export type ChecksTaskStatus = WorkspaceCheckTaskStatus;
 
 export interface AgentStatus {
   ready: boolean;

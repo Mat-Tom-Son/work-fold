@@ -4835,6 +4835,73 @@ textarea,
   padding: 0;
 }
 
+.workspace-mode-pane-files {
+  container-name: files-pane;
+  container-type: inline-size;
+}
+
+.checks-toolbar-button {
+  min-width: 0;
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  padding: 0 7px;
+  color: var(--ui-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.checks-toolbar-button:hover,
+.checks-toolbar-button:focus-visible {
+  color: var(--ui-text);
+  background: var(--ui-surface-hover);
+}
+
+.checks-toolbar-button.attention {
+  color: var(--ui-attention);
+  background: var(--ui-attention-soft);
+}
+
+.checks-toolbar-button.unhealthy {
+  color: var(--ui-text-muted);
+  box-shadow: inset 0 0 0 1px var(--ui-border);
+}
+
+.checks-toolbar-button strong {
+  min-width: 16px;
+  height: 16px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 4px;
+  color: var(--ui-attention);
+  background: color-mix(in srgb, var(--ui-attention) 12%, transparent);
+  border-radius: 999px;
+  font-size: 0.66rem;
+}
+
+.checks-toolbar-dot,
+.file-check-attention-marker {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  display: block;
+  background: var(--ui-attention);
+  border-radius: 999px;
+}
+
+@container files-pane (max-width: 340px) {
+  .checks-toolbar-button > span:not(.checks-toolbar-dot) {
+    display: none;
+  }
+}
+
 .file-tree-search {
   flex: 1 1 auto;
   min-width: 0;
@@ -7998,6 +8065,19 @@ textarea,
 
 .file-row.selected.has-local-change {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--workspace-accent-border-state, #5b8fbd) 46%, transparent);
+}
+
+.file-check-attention-marker {
+  justify-self: end;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-attention) 12%, transparent);
+}
+
+.file-row.contains-check-attention .file-check-attention-marker {
+  width: 5px;
+  height: 5px;
+  flex-basis: 5px;
+  opacity: 0.72;
+  box-shadow: none;
 }
 
 .file-row-entry {

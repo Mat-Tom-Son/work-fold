@@ -8,6 +8,7 @@ const {
   activeTabAfterConversationActivation,
   assistantToolsSurfaceTab,
   appStudioSurfaceTab,
+  checksSurfaceTab,
   closeFileSurfaceTabs,
   closeUnavailableRestrictedAppSurfaceTabs,
   fileSurfaceTab,
@@ -35,7 +36,7 @@ interface SpaceSummary {
 
 interface SurfaceTab {
   id: string;
-  kind: "chat" | "file" | "history" | "library" | "appearance" | "app-studio" | "assistant-tools" | "extension" | "restricted-app";
+  kind: "chat" | "file" | "history" | "library" | "appearance" | "app-studio" | "assistant-tools" | "checks" | "extension" | "restricted-app";
   workspaceId: string;
   conversationId?: string | null;
   path?: string;
@@ -56,6 +57,7 @@ interface SurfaceTabsExports {
   activeTabAfterConversationActivation: (currentActiveTabId: string | null, sourceTabId: string, duplicateTabId: string) => string | null;
   assistantToolsSurfaceTab: (space: SpaceSummary, view?: "installed" | "discover") => SurfaceTab;
   appStudioSurfaceTab: (space: SpaceSummary) => SurfaceTab;
+  checksSurfaceTab: (space: SpaceSummary) => SurfaceTab;
   closeFileSurfaceTabs: (tabs: SurfaceTab[], workspaceId: string, deletedPaths: Set<string>) => SurfaceTab[];
   closeUnavailableRestrictedAppSurfaceTabs: (
     tabs: SurfaceTab[],
@@ -139,6 +141,15 @@ test("file tabs follow moved paths and close when their file is deleted", () => 
   );
 });
 
+test("Checks use one canonical Space-owned work tab", () => {
+  assert.deepEqual(checksSurfaceTab(space), {
+    id: "checks:space-1",
+    kind: "checks",
+    workspaceId: "space-1",
+    title: "Checks",
+  });
+});
+
 test("tab restore falls back cleanly when persisted JSON is corrupt", () => {
   withStoredTabs("{not valid json", () => {
     assert.deepEqual(readStoredSurfaceTabsState(space, [space]), {
@@ -160,6 +171,7 @@ test("tab restore accepts only known, well-formed surface types", () => {
       { id: "spoofed-studio", kind: "app-studio", workspaceId: "space-1", title: "Renamed Studio" },
       { id: "spoofed-tools", kind: "assistant-tools", workspaceId: "space-1", view: "discover", title: "Renamed Tools" },
       { id: "broken-tools", kind: "assistant-tools", workspaceId: "space-1", view: "packages", title: "Broken Tools" },
+      { id: "spoofed-checks", kind: "checks", workspaceId: "space-1", title: "All files are healthy" },
       { id: "extension:space-1:inbox:overview", kind: "extension", workspaceId: "space-1", surfaceId: "inbox", viewId: "overview", title: "Overview", ignored: true },
       { id: "restricted:bad", kind: "restricted-app", workspaceId: "space-1", appId: "mail", digest: "bad", appTabId: "message:release", route: "/message/release", title: "Bad app tab" },
       { id: "app-controlled-spoof", kind: "restricted-app", workspaceId: "space-1", appId: "mail", digest: "a".repeat(64), appTabId: "message:release", route: "/message/release", state: { selected: true }, title: "Release checklist" },
@@ -174,6 +186,7 @@ test("tab restore accepts only known, well-formed surface types", () => {
       { id: "library:space-1", kind: "library", workspaceId: "space-1", title: "Library" },
       { id: "app-studio:space-1", kind: "app-studio", workspaceId: "space-1", title: "Renamed Studio" },
       { id: "assistant-tools:space-1", kind: "assistant-tools", workspaceId: "space-1", view: "discover", title: "Assistant tools" },
+      { id: "checks:space-1", kind: "checks", workspaceId: "space-1", title: "Checks" },
       { id: "extension:space-1:inbox:overview", kind: "extension", workspaceId: "space-1", surfaceId: "inbox", surfaceExecution: "full-trust-pi", viewId: "overview", title: "Overview" },
       { id: restrictedAppSurfaceTabId("space-1", "mail", "a".repeat(64), "message:release"), kind: "restricted-app", workspaceId: "space-1", appId: "mail", digest: "a".repeat(64), appTabId: "message:release", route: "/message/release", state: { selected: true }, title: "Release checklist" },
     ],

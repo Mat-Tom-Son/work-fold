@@ -14,6 +14,8 @@
   --ui-accent-hover: #004c96;
   --ui-accent-soft: #e8f1fa;
   --ui-success: #237a3b;
+  --ui-attention: #a66300;
+  --ui-attention-soft: #fff3d6;
   --ui-danger: #b42318;
   --ui-tooltip-background: #252525;
   --ui-tooltip-text: #ffffff;
@@ -37,6 +39,8 @@
   --ui-accent-hover: #62abf5;
   --ui-accent-soft: rgba(71, 158, 245, 0.16);
   --ui-success: #72c78a;
+  --ui-attention: #efb45f;
+  --ui-attention-soft: rgba(239, 180, 95, 0.14);
   --ui-danger: #ff9b92;
   --ui-tooltip-background: #f4f4f4;
   --ui-tooltip-text: #202020;

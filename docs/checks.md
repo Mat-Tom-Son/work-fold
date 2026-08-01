@@ -24,13 +24,15 @@ justifies promotion into the stable kernel and installed-CLI snapshots.
   directory tree with bounded recursion and declared file-type filters. Hidden
   `.workspace/` and executable `.pi/` material cannot be targets.
 - Checks run only when a person or authenticated agent action requests a run.
-  Opening a future Checks surface may refresh stale status only after making
-  that behavior clear. Continuous watching and schedules are not part of the
-  first release; future schedules use the existing named-automation model.
+  Opening the Checks work tab refreshes recorded status and re-verifies saved
+  evidence, but does not run a sensor. Continuous watching and schedules are
+  not part of the first releases; future schedules use the existing
+  named-automation model.
 - Checks do not occupy the primary rail or the Add menu. The management
-  conversation and installed CLI are the first surface. A later Space-owned
-  work tab may open from an explicit command, file/folder action, or actionable
-  status.
+  conversation and installed CLI remain agent-facing surfaces. In the desktop,
+  a conditional summary at the Files edge opens one reusable Space-owned Checks
+  work tab. An unconfigured Space adds no control, badge, marker, or empty
+  destination.
 
 ## Expectations and authority
 
@@ -172,6 +174,32 @@ active finding**.
   applicable. Infrastructure errors remain inspectable without leaking their
   details into the content-free status lane.
 
+## Desktop read model and interaction
+
+- The renderer consumes the same Check service as the CLI; it does not have a
+  second runner, decision store, or definition format. Renderer requests carry
+  the per-launch desktop session token and pass the local API's allowed-origin
+  check. This trusted-renderer API is not an extension of installed CLI
+  protocol v1.
+- Files first requests the content-free aggregate status. Only when that status
+  contains current admitted findings does it request a bounded decoration
+  projection containing exact designated Space-relative paths and counts. It
+  does not request finding titles, details, or evidence for the Files tree.
+- An exact file with a current finding receives one quiet attention marker. A
+  containing folder may receive a smaller propagated marker so the designated
+  file can be found while collapsed. Filename colour, error squiggles, green
+  success badges, notifications, automatic panel opening, and layout movement
+  are deliberately absent.
+- Selecting the conditional summary opens one canonical `Checks` tab owned by
+  that Space. The work tab may show current re-verified findings, Check health,
+  bounded targets, and authority state. Its **Run Checks** action starts the
+  same internal task as `workspace checks run`; stop and decisions use the same
+  abort and fingerprint-scoped decision paths.
+- `never-run`, stale, blocked, infrastructure-error, current-clear, and
+  needs-attention states remain visually and semantically distinct. Opening the
+  tab never turns unknown into healthy and never labels a file because the
+  Check machinery itself failed.
+
 ## Hardened runner invariants
 
 - Check state is keyed by stable Space id, while every public operation also
@@ -210,16 +238,19 @@ active finding**.
   capability-mutation fence while task polling retries the exact write. If the
   process stops first, startup records `interrupted`; it never replays the run.
 
-## Initial proof and deferred work
+## Shipped proof and deferred work
 
-- The first vertical slice must cover proposal, explicit enablement, one
+- The first vertical slice covers proposal, explicit enablement, one
   deterministic sensor, bounded target resolution, evidence admission, run
-  task/receipt, finding display, a fingerprint-scoped decision, and management
-  conversation guidance.
+  task/receipt, finding display, a fingerprint-scoped decision, management
+  conversation guidance, and the quiet desktop read model above.
 - Manuscript and travel fixtures prove that the protocol is domain-neutral;
   repeated decisions in real Spaces prove that the product is useful.
-- The persistent header indicator comes only after dogfooding demonstrates
-  precision. A richer Checks work tab follows it; neither gates the engine.
+- A conditional Files-toolbar summary, exact file decorations, and the
+  Space-owned work tab remain a deliberately quiet layer over the engine. A
+  permanent header badge, primary navigation item, background watcher, or
+  proactive notification would require new precision evidence and an explicit
+  product decision.
 - Model-backed sensors, domain packs, schedules, gates that block other work,
   cache replay, hosted execution, and a Manuscript Lab migration are later
   layers. They must reuse this authority and admission model rather than widen

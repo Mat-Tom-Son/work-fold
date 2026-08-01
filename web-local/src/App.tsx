@@ -22,6 +22,7 @@ import { KeyboardShortcutsModal } from "./components/modals/KeyboardShortcutsMod
 import { TextInputModal } from "./components/modals/TextInputModal";
 import { OnboardingFlow } from "./components/onboarding/OnboardingFlow";
 import { FileDetailsPane } from "./components/panes/FileDetailsPane";
+import { ChecksPane, ChecksToolbarButton } from "./components/panes/ChecksPane";
 import { AppStudioPane } from "./components/panes/AppStudioPane";
 import { CapabilitiesPane } from "./components/panes/CapabilitiesPane";
 import { ExtensionSurfacePane, ExtensionSurfaceUnavailable, ExtensionSurfaceView } from "./components/panes/ExtensionSurface";
@@ -37,6 +38,7 @@ import { useChatActivity } from "./hooks/useChatActivity";
 import { useRestrictedApps } from "./hooks/useRestrictedApps";
 import { useSurfaceTabs } from "./hooks/useSurfaceTabs";
 import { useWorkspaceTree } from "./hooks/useWorkspaceTree";
+import { useWorkspaceChecks } from "./hooks/useWorkspaceChecks";
 import { api, apiForm, apiUrl, errorText } from "./lib/api";
 import { chatActivityKey, conversationLifecycleView } from "./lib/chat-lifecycle";
 import { chatContextRequestForTab } from "./lib/chat-context-request";
@@ -325,6 +327,7 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
     onError: handleRestrictedAppError,
   });
   const activeTab = tabs.surfaceTabs.find((tab) => tab.id === tabs.activeSurfaceTabId) ?? null;
+  const checks = useWorkspaceChecks(workspace, Boolean(fixture), activeTab?.kind !== "checks");
   const identity = workspaceIdentityFor(workspace, customizations);
   const surfaceCatalogKnown = Object.prototype.hasOwnProperty.call(surfaceCatalogs, workspace.id);
   const restrictedAppCatalogKnown = restrictedAppsState.knownWorkspaceIds.has(workspace.id);
@@ -380,6 +383,9 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
   }
 
   useEffect(() => { if (!fixture) localStorage.setItem("workspace.mode", activeMode); }, [activeMode, fixture]);
+  useEffect(() => {
+    if (tree.status === "ready" && activeTab?.kind !== "checks") void checks.refresh();
+  }, [activeTab?.kind, checks.refresh, tree.status, tree.tree]);
   useEffect(() => { void refreshLibraryTree(); }, [refreshLibraryTree]);
   useEffect(() => { setActiveMode((current) => current === "workspaces" ? "files" : current); }, [workspace.id]);
   useEffect(() => {
@@ -997,6 +1003,7 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
     ...(["files", "chats", "history"] as WorkspacePane[]).map((mode) => ({ id: `go:${mode}`, groupId: "go-to" as const, groupLabel: "Go to", label: mode[0]!.toUpperCase() + mode.slice(1), defaultVisible: true, run: () => selectRailMode(mode) })),
     { id: "go:library", groupId: "go-to" as const, groupLabel: "Go to", label: "Library", detail: "Reusable personal files", defaultVisible: true, run: () => openLibrary(workspace) },
     { id: "go:assistant-tools", groupId: "go-to" as const, groupLabel: "Go to", label: "Assistant tools", detail: "Installed Skills, Extensions, and apps", defaultVisible: true, run: () => tabs.openAssistantToolsSurfaceTab(workspace, "installed") },
+    ...(checks.status?.configured ? [{ id: "go:checks", groupId: "go-to" as const, groupLabel: "Go to", label: "Checks", detail: checks.status.needsAttention ? `${checks.status.needsAttention} need attention` : "Designated file expectations", defaultVisible: true, run: () => tabs.openChecksSurfaceTab(workspace) }] : []),
     { id: "action:discover-assistant-tools", groupId: "actions" as const, groupLabel: "Actions", label: "Browse Skills & Extensions", keywords: ["capabilities", "discover", "install", "tools"], run: () => tabs.openAssistantToolsSurfaceTab(workspace, "discover") },
     ...surfaces.map((surface) => ({ id: `app:${surface.key}`, groupId: "go-to" as const, groupLabel: "Go to", label: surface.title, detail: surface.scope === "project" ? "Pi Extension · This Space" : "Pi Extension · Personal", run: () => selectRailMode(`app:${surface.key}`) })),
     ...restrictedApps.map((app) => ({ id: `restricted-app:${app.manifest.id}`, groupId: "go-to" as const, groupLabel: "Go to", label: app.manifest.title, detail: "Sandboxed app · This Space", run: () => selectRailMode(restrictedAppRailMode(workspace.id, app.manifest.id)) })),
@@ -1026,7 +1033,7 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
     { id: "action:settings", groupId: "actions", groupLabel: "Actions", label: "Settings", defaultVisible: true, run: onOpenSettings },
     { id: "action:shortcuts", groupId: "actions", groupLabel: "Actions", label: "Keyboard shortcuts", run: onOpenShortcuts },
     ...(["light", "dark", "system"] as AppThemePreference[]).map((preference) => ({ id: `theme:${preference}`, groupId: "actions" as const, groupLabel: "Actions", label: preference === "system" ? "Use device theme" : `Use ${preference} theme`, detail: themePreference === preference ? "Current" : undefined, keywords: ["appearance", "color", "mode"], run: () => onThemePreferenceChange(preference) })),
-  ], [conversationGroups, fixture, restrictedApps, surfaces, themePreference, tree.selectedPath, tree.tree, workspaces, workspace.id]);
+  ], [checks.status, conversationGroups, fixture, restrictedApps, surfaces, themePreference, tree.selectedPath, tree.tree, workspaces, workspace.id]);
 
   const layoutStyle = { ...(workspaceIdentityStyle(identity)), ...(paneResize.sidebarWidth ? { "--workspace-sidebar-width": `${paneResize.sidebarWidth}px` } : {}) } as CSSProperties;
 
@@ -1068,6 +1075,7 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
           </label>
           {tree.query ? <span className="file-tree-search-count">{tree.searchHydrating ? "Searching" : formatItemCount(tree.matchCount, "match", "matches")}</span> : null}
           {tree.treeTruncated ? <span className="file-tree-truncated" title="This Space holds more items than Files lists at once. Open a folder to see its contents, or search by name or contents.">Partial list</span> : null}
+          <ChecksToolbarButton status={checks.status} loading={checks.loading} onClick={() => tabs.openChecksSurfaceTab(workspace)} />
           <button className="minimal-icon-button" type="button" disabled={uploadingFiles} onClick={() => chooseUpload("")} aria-label="Add files" title="Add files"><Upload size={15} /></button>
         </div>
         <div
@@ -1082,7 +1090,7 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
         >
           {uploadingFiles ? <div className="file-upload-progress" aria-live="polite"><Loader2 className="spin" size={14} />Adding files</div> : null}
           {tree.status === "refreshing" ? <div className="file-tree-refresh-progress" aria-live="polite"><Loader2 className="spin" size={14} />Updating files</div> : null}
-          {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <EmptyInline text="Couldn't load this Space. Refresh to try again." /> : <FileTree entries={tree.visibleEntries} collapsedPaths={tree.query ? new Set() : tree.collapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} movingTreePath={tree.movingTreePath} dropTargetFolderPath={tree.dropTargetFolderPath} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workspace, path); }} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} />}
+          {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <EmptyInline text="Couldn't load this Space. Refresh to try again." /> : <FileTree entries={tree.visibleEntries} collapsedPaths={tree.query ? new Set() : tree.collapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} movingTreePath={tree.movingTreePath} dropTargetFolderPath={tree.dropTargetFolderPath} checkAttentionPaths={checks.attentionPaths} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workspace, path); }} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} />}
         </div>
         {fixture ? null : (
           <FileContentSearch
@@ -1139,6 +1147,19 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
                 onRestrictedAppRemoved={(appId) => restrictedAppsState.removeApp(targetWorkspace.id, appId)}
                 onBuildApp={() => openChat(targetWorkspace, null)}
                 onOpenAppStudio={(sourceWorkspaceId) => tabs.openAppStudioSurfaceTab(workspaces.find((item) => item.id === sourceWorkspaceId) ?? targetWorkspace)}
+              />
+            ) : tab.kind === "checks" ? (
+              <ChecksPane
+                workspace={targetWorkspace}
+                active={active}
+                onOpenFile={(path) => {
+                  if (targetWorkspace.id === workspace.id) {
+                    setActiveMode("files");
+                    tree.setSelectedPath(path);
+                  }
+                  tabs.openFileSurfaceTab(targetWorkspace, path);
+                }}
+                onChecksChanged={() => targetWorkspace.id === workspace.id ? checks.refresh() : undefined}
               />
             ) : tab.kind === "app-studio" ? (
               <AppStudioPane
