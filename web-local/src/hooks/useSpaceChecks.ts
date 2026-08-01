@@ -10,10 +10,12 @@ export function useSpaceChecks(space: SpaceSummary, fixtureMode = false, autoRef
   const [unavailable, setUnavailable] = useState(false);
   const requestRef = useRef(0);
   const inFlightRef = useRef<Promise<void> | null>(null);
+  const suspendedRef = useRef(false);
   const scopeKey = `${fixtureMode ? "fixture" : "live"}:${space.id}`;
   const scopeKeyRef = useRef(scopeKey);
 
   const refresh = useCallback((): Promise<void> => {
+    if (suspendedRef.current) return Promise.resolve();
     if (fixtureMode) {
       setStatus(null);
       setAttentionPaths(new Set());
@@ -59,9 +61,21 @@ export function useSpaceChecks(space: SpaceSummary, fixtureMode = false, autoRef
     return operation;
   }, [fixtureMode, space.id]);
 
+  const suspend = useCallback(async (): Promise<void> => {
+    suspendedRef.current = true;
+    requestRef.current += 1;
+    await inFlightRef.current;
+  }, []);
+
+  const resume = useCallback((): Promise<void> => {
+    suspendedRef.current = false;
+    return refresh();
+  }, [refresh]);
+
   useEffect(() => {
     if (scopeKeyRef.current !== scopeKey) {
       scopeKeyRef.current = scopeKey;
+      suspendedRef.current = false;
       requestRef.current += 1;
       inFlightRef.current = null;
       setStatus(null);
@@ -69,7 +83,7 @@ export function useSpaceChecks(space: SpaceSummary, fixtureMode = false, autoRef
       setLoading(!fixtureMode);
       setUnavailable(false);
     }
-    if (autoRefresh) void refresh();
+    if (autoRefresh && !suspendedRef.current) void refresh();
   }, [autoRefresh, refresh, scopeKey]);
 
   useEffect(() => {
@@ -91,5 +105,5 @@ export function useSpaceChecks(space: SpaceSummary, fixtureMode = false, autoRef
     };
   }, [autoRefresh, fixtureMode, refresh]);
 
-  return { status, attentionPaths, loading, unavailable, refresh };
+  return { status, attentionPaths, loading, unavailable, refresh, suspend, resume };
 }

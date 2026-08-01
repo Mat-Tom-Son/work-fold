@@ -34,7 +34,7 @@ export interface ChatMessageAttachmentRef {
 }
 
 export interface ChatMessageInterruption {
-  reason: "provider_error";
+  reason: "provider_error" | "setup_error" | "assistant_error";
   message: string;
   retryAttempts: number;
   provider: string | null;
@@ -418,7 +418,7 @@ function isChatMessageAttachmentRef(value: unknown): value is ChatMessageAttachm
 function isChatMessageInterruption(value: unknown): value is ChatMessageInterruption {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as Partial<ChatMessageInterruption>;
-  return record.reason === "provider_error"
+  return (record.reason === "provider_error" || record.reason === "setup_error" || record.reason === "assistant_error")
     && typeof record.message === "string"
     && typeof record.retryAttempts === "number"
     && Number.isInteger(record.retryAttempts)

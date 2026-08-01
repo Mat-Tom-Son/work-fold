@@ -70,6 +70,11 @@ interface PendingDelete {
   selectedPath: string | null;
   deletedTabPaths: Set<string>;
 }
+interface SpaceChecksControl {
+  spaceId: string;
+  suspend: () => Promise<void>;
+  resume: () => Promise<void>;
+}
 
 export function App() {
   const [theme, themePreference, setThemePreference] = useThemePreference();
@@ -83,6 +88,7 @@ export function App() {
   const [settingsInitialPage, setSettingsInitialPage] = useState<SettingsPage>("appearance");
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const keyboardShortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
+  const activeChecksControlRef = useRef<SpaceChecksControl | null>(null);
   const [desktopAction, setDesktopAction] = useState<{ id: number; command: DesktopActionCommand } | null>(null);
   const [updateStatus, setUpdateStatus] = useState<DesktopUpdateStatus | null>(null);
   const showDesktopTitleBar = window.workFoldDesktop?.app.platform === "win32";
@@ -100,6 +106,11 @@ export function App() {
     setSettingsInitialPage(page);
     setSettingsOpen(true);
   }, []);
+  const updateActiveChecksControl = useCallback((control: SpaceChecksControl | null) => {
+    if (control || activeChecksControlRef.current?.spaceId === activeSpaceId) {
+      activeChecksControlRef.current = control;
+    }
+  }, [activeSpaceId]);
 
   useScrollbarActivity();
   useDesktopAccentColor();
@@ -121,6 +132,20 @@ export function App() {
       return;
     }
     void refreshBootstrap();
+  }, [refreshBootstrap]);
+
+  useEffect(() => {
+    if (fixtureRequested) return;
+    function refreshOnReturn() {
+      if (document.visibilityState !== "visible") return;
+      void refreshBootstrap();
+    }
+    window.addEventListener("focus", refreshOnReturn);
+    document.addEventListener("visibilitychange", refreshOnReturn);
+    return () => {
+      window.removeEventListener("focus", refreshOnReturn);
+      document.removeEventListener("visibilitychange", refreshOnReturn);
+    };
   }, [refreshBootstrap]);
 
   const activeSpace = useMemo(() => boot?.spaces.find((item) => item.id === activeSpaceId) ?? boot?.spaces[0] ?? null, [activeSpaceId, boot]);
@@ -180,18 +205,28 @@ export function App() {
 
   async function createSpace(name: string) {
     if (fixtureRequested) { setCreateSpaceOpen(false); showToast({ text: "Space creation is disabled in the preview", tone: "info" }); return; }
-    const result = await api<{ space: SpaceSummary }>("/api/spaces", { method: "POST", body: { name } });
-    await refreshBootstrap(); setActiveSpaceId(result.space.id); setCreateSpaceOpen(false);
+    const checksControl = activeChecksControlRef.current;
+    try {
+      await checksControl?.suspend();
+      const result = await api<{ space: SpaceSummary }>("/api/spaces", { method: "POST", body: { name } });
+      await refreshBootstrap(); setActiveSpaceId(result.space.id); setCreateSpaceOpen(false);
+    } finally {
+      void checksControl?.resume();
+    }
   }
 
   async function openFolder() {
     const picker = window.workFoldDesktop?.space;
     if (!picker) return setError("Folder selection is available in the desktop app.");
+    let checksControl: SpaceChecksControl | null = null;
     try {
       const selected = await picker.chooseFolder(); if (!selected) return;
-      const result = await api<{ space: SpaceSummary }>("/api/spaces/local-folder", { method: "POST", body: { rootPath: selected.path, folderGrantId: selected.folderGrantId } });
+      checksControl = activeChecksControlRef.current;
+      await checksControl?.suspend();
+      const result = await api<{ space: SpaceSummary }>("/api/spaces/local-folder", { method: "POST", body: { spaceRoot: selected.path, folderGrantId: selected.folderGrantId } });
       await refreshBootstrap(); setActiveSpaceId(result.space.id);
     } catch (caught) { setError(errorText(caught)); }
+    finally { void checksControl?.resume(); }
   }
 
   async function checkForUpdates() {
@@ -215,7 +250,7 @@ export function App() {
 
   return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>
     {showDesktopTitleBar ? <DesktopTitleBar /> : null}
-    {activeSpace ? <SpaceView space={activeSpace} spaces={boot.spaces} agent={boot.agent} appearance={boot.appearance} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchSpace={(space) => setActiveSpaceId(space.id)} onRefreshBootstrap={refreshBootstrap} onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} /> : <OnboardingFlow onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} />}
+    {activeSpace ? <SpaceView space={activeSpace} spaces={boot.spaces} agent={boot.agent} appearance={boot.appearance} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchSpace={(space) => setActiveSpaceId(space.id)} onRefreshBootstrap={refreshBootstrap} onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} onChecksControlChange={updateActiveChecksControl} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} /> : <OnboardingFlow onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} />}
     {error ? <div className="global-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="Dismiss"><X size={15} /></button></div> : null}
     {createSpaceOpen ? <CreateSpaceModal onClose={() => setCreateSpaceOpen(false)} onCreate={createSpace} /> : null}
     {settingsOpen ? <DesktopSettingsModal theme={theme} themePreference={themePreference} onThemePreferenceChange={setThemePreference} typography={typography} onTypographyChange={setTypography} space={activeSpace} agentStatus={boot.agent} fixtureMode={Boolean(fixture)} initialPage={settingsInitialPage} onAgentConfigured={(agent) => setBoot((current) => current ? { ...current, agent } : current)} updateStatus={updateStatus} onUpdateAction={() => void runUpdateAction()} onClose={() => setSettingsOpen(false)} /> : null}
@@ -224,7 +259,7 @@ export function App() {
   </div>;
 }
 
-function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, updateStatus, themePreference, onThemePreferenceChange, onUpdateAction, onSwitchSpace, onRefreshBootstrap, onCreateSpace, onOpenFolder, onOpenSettings, onOpenShortcuts, onError }: {
+function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, updateStatus, themePreference, onThemePreferenceChange, onUpdateAction, onSwitchSpace, onRefreshBootstrap, onCreateSpace, onOpenFolder, onChecksControlChange, onOpenSettings, onOpenShortcuts, onError }: {
   space: SpaceSummary;
   spaces: SpaceSummary[];
   agent: BootstrapResponse["agent"];
@@ -239,6 +274,7 @@ function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, u
   onRefreshBootstrap: () => Promise<void>;
   onCreateSpace: () => void;
   onOpenFolder: () => void;
+  onChecksControlChange: (control: SpaceChecksControl | null) => void;
   onOpenSettings: (page?: SettingsPage) => void;
   onOpenShortcuts: () => void;
   onError: (message: string | null) => void;
@@ -329,6 +365,11 @@ function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, u
   });
   const activeTab = tabs.surfaceTabs.find((tab) => tab.id === tabs.activeSurfaceTabId) ?? null;
   const checks = useSpaceChecks(space, Boolean(fixture), activeTab?.kind !== "checks");
+  useEffect(() => {
+    const control = { spaceId: space.id, suspend: checks.suspend, resume: checks.resume };
+    onChecksControlChange(control);
+    return () => onChecksControlChange(null);
+  }, [checks.resume, checks.suspend, onChecksControlChange, space.id]);
   const identity = spaceIdentityFor(space, customizations);
   const surfaceCatalogKnown = Object.prototype.hasOwnProperty.call(surfaceCatalogs, space.id);
   const restrictedAppCatalogKnown = restrictedAppsState.knownSpaceIds.has(space.id);
@@ -603,8 +644,10 @@ function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, u
 
   async function renameSpace(target: SpaceSummary, name: string) {
     if (fixture) { showToast({ text: "Space rename is disabled in the preview", tone: "info" }); return; }
+    await checks.suspend();
     try { await api(`/api/spaces/${target.id}`, { method: "PATCH", body: { name } }); await onRefreshBootstrap(); showToast({ text: `Renamed Space to ${name}`, tone: "success" }); }
     catch (caught) { onError(errorText(caught)); throw caught; }
+    finally { void checks.resume(); }
   }
 
   async function removeSpace(target: SpaceSummary) {
@@ -633,8 +676,12 @@ function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, u
       incomingPreparedOperationCount: appRemovalImpact.incomingPreparedOperationCount,
     }), confirmLabel: target.location.storage === "linked" ? "Remove Space" : "Delete Space", tone: "danger" });
     if (!confirmed) return;
+    const suspendedChecks = target.id === activeSpaceIdRef.current;
+    let removed = false;
     try {
+      if (suspendedChecks) await checks.suspend();
       const removal = await api<{ cleanupPending: boolean; deleted: boolean }>(`/api/spaces/${target.id}`, { method: "DELETE" });
+      removed = true;
       const nextCustomizations = { ...customizationsRef.current };
       delete nextCustomizations[target.id];
       customizationsRef.current = nextCustomizations;
@@ -651,7 +698,10 @@ function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, u
             : `${target.name} and its managed folder were deleted.`,
         tone: removal.cleanupPending ? "info" : "success",
       });
-    } catch (caught) { onError(errorText(caught)); }
+    } catch (caught) {
+      if (suspendedChecks && !removed) void checks.resume();
+      onError(errorText(caught));
+    }
   }
 
   function openChat(targetSpace: SpaceSummary, conversation: ConversationSummary | null) {
@@ -914,10 +964,12 @@ function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, u
   async function saveRestorePoint() {
     if (fixture) return;
     try {
-      await api(`/api/spaces/${space.id}/history/checkpoints`, { method: "POST", body: { label: "Manual restore point" } });
+      const result = await api<{ created: boolean }>(`/api/spaces/${space.id}/history/checkpoints`, { method: "POST", body: { label: "Manual restore point" } });
       setHistoryRefreshRequest((current) => current + 1);
       setActiveMode("history");
-      showToast({ text: "Restore point saved", tone: "success" });
+      showToast(result.created
+        ? { text: "Restore point saved", tone: "success" }
+        : { text: "Current files already match the latest restore point", tone: "info" });
     } catch (caught) { onError(errorText(caught)); }
   }
 
@@ -1381,7 +1433,7 @@ function extensionSurfaceIdForMode(mode: SpaceRailMode): string | null {
 }
 
 function useThemePreference(): [AppTheme, AppThemePreference, (value: AppThemePreference) => void] {
-  const [preference, setPreference] = useState<AppThemePreference>(() => { if (fixtureRequested) return "light"; const value = readStoredValue(themePreferenceKey); return value === "light" || value === "dark" || value === "system" ? value : "system"; });
+  const [preference, setPreference] = useState<AppThemePreference>(() => { if (fixtureRequested) return "light"; const value = readStoredValue(themePreferenceKey); return value === "light" || value === "dark" || value === "system" ? value : "dark"; });
   const [system, setSystem] = useState<AppTheme>(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   const theme = preference === "system" ? system : preference;
   useEffect(() => { const media = window.matchMedia?.("(prefers-color-scheme: dark)"); if (!media) return; const change = () => setSystem(media.matches ? "dark" : "light"); media.addEventListener("change", change); return () => media.removeEventListener("change", change); }, []);

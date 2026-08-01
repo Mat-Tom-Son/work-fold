@@ -141,8 +141,8 @@ test("the act facade drives Space, conversation, and file-addition lifecycles wi
     assert.equal(result.state, "idle");
 
     // A failing turn (no provider is configured, so a plain prompt fails)
-    // must settle as failed for its own task — even though the newest
-    // conversation-scoped assistant message is still the old success.
+    // settles as failed for its own task and saves a sanitized Assistant
+    // result instead of leaving an older success looking current.
     const failing = await facade.sendMessage({
       space: createdSpace.space.id,
       conversationId: conversation.conversation.id,
@@ -153,12 +153,15 @@ test("the act facade drives Space, conversation, and file-addition lifecycles wi
     const failedStatus = await facade.turnStatus({ space: createdSpace.space.id, taskId: failing.taskId });
     assert.equal(failedStatus.task.state, "failed");
     assert.ok(failedStatus.task.error, "a failed turn must record its error");
+    assert.ok(failedStatus.task.messageId, "a non-cancelled failure must record its durable result message");
     await assert.rejects(
       () => facade.turnResult({ space: createdSpace.space.id, taskId: failing.taskId }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "failure",
     );
-    const staleTail = await facade.conversationResult({ space: createdSpace.space.id, conversationId: conversation.conversation.id });
-    assert.equal(staleTail.lastAssistant, "Command completed.", "the stale success the task-scoped path protects against");
+    const failedTail = await facade.conversationResult({ space: createdSpace.space.id, conversationId: conversation.conversation.id });
+    assert.match(failedTail.lastAssistant ?? "", /Settings → Assistant/);
+    assert.equal(failedTail.messages.at(-1)?.interrupted, true);
+    assert.doesNotMatch(JSON.stringify(failedTail), /No API key|node_modules|providers\.md/);
     await assert.rejects(
       () => facade.conversationResult({ space: createdSpace.space.id, conversationId: "chat-missing" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",

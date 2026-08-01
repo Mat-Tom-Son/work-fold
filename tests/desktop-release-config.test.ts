@@ -16,6 +16,7 @@ test("desktop release configuration uses the isolated work-fold identities and f
   const previousPlatform = process.env.WORKFOLD_DESKTOP_RELEASE_PLATFORM;
   const previousRepo = process.env.WORKFOLD_MAC_RELEASE_REPO;
   const previousUnsignedMac = process.env.WORKFOLD_ALLOW_UNSIGNED_MAC_BUILD;
+  const previousOutput = process.env.WORKFOLD_DESKTOP_OUTPUT_DIR;
   process.env.WORKFOLD_DESKTOP_RELEASE_PLATFORM = "darwin";
   process.env.WORKFOLD_MAC_RELEASE_REPO = identity.macReleaseRepositoryName;
   delete require.cache[require.resolve(builderPath)];
@@ -23,12 +24,17 @@ test("desktop release configuration uses the isolated work-fold identities and f
   process.env.WORKFOLD_ALLOW_UNSIGNED_MAC_BUILD = "1";
   delete require.cache[require.resolve(builderPath)];
   const macSmokeBuilder = require(builderPath);
+  process.env.WORKFOLD_DESKTOP_OUTPUT_DIR = "out/mac-rc";
+  delete require.cache[require.resolve(builderPath)];
+  const macCandidateBuilder = require(builderPath);
   if (previousPlatform === undefined) delete process.env.WORKFOLD_DESKTOP_RELEASE_PLATFORM;
   else process.env.WORKFOLD_DESKTOP_RELEASE_PLATFORM = previousPlatform;
   if (previousRepo === undefined) delete process.env.WORKFOLD_MAC_RELEASE_REPO;
   else process.env.WORKFOLD_MAC_RELEASE_REPO = previousRepo;
   if (previousUnsignedMac === undefined) delete process.env.WORKFOLD_ALLOW_UNSIGNED_MAC_BUILD;
   else process.env.WORKFOLD_ALLOW_UNSIGNED_MAC_BUILD = previousUnsignedMac;
+  if (previousOutput === undefined) delete process.env.WORKFOLD_DESKTOP_OUTPUT_DIR;
+  else process.env.WORKFOLD_DESKTOP_OUTPUT_DIR = previousOutput;
   delete require.cache[require.resolve(builderPath)];
 
   assert.equal(packageJson.name, identity.packageName);
@@ -59,6 +65,8 @@ test("desktop release configuration uses the isolated work-fold identities and f
   assert.equal(macBuilder.extraMetadata.workFoldBuildChannel, "production");
   assert.equal(macSmokeBuilder.mac.executableName, identity.macSmokeProductName);
   assert.equal(macBuilder.mac.executableName, identity.productName);
+  assert.equal(builder.directories.output, "out/builder");
+  assert.equal(macCandidateBuilder.directories.output, "out/mac-rc");
   assert.equal(builder.artifactName, "work-fold-${version}-${os}-${arch}.${ext}");
   assert.equal(builder.dmg.artifactName, "work-fold-${version}-mac-${arch}.${ext}");
   assert.equal(builder.nsis.artifactName, "work-fold-Setup-${version}.${ext}");

@@ -34,6 +34,24 @@ npm test
 npm run desktop:make:mac
 ```
 
+Use the smallest lane that proves the behavior under test:
+
+| Lane | Command | Purpose |
+| --- | --- | --- |
+| UI development | `npm run local:dev` | Live renderer and local API work without packaging or Apple services. |
+| Desktop integration | `npm run desktop:smoke` | Prepared, unpackaged Electron behavior using development state. |
+| Structural package | `npm run desktop:make:mac` | Ad hoc, separately identified DMG/ZIP package and verification; never install it as production. |
+| Interactive release candidate | `npm run desktop:rc:mac` | Developer ID-signed and app-notarized production bundle without DMG/ZIP assembly, DMG notarization, updater artifacts, or publication. |
+| Distribution candidate | `npm run desktop:make:mac:release` | Complete signed/notarized DMG and ZIP set plus strict local verification. |
+| Public release | `npm run desktop:release:mac` | Fresh distribution candidate followed by guarded draft-first publication. |
+
+The app-only release-candidate lane is the normal packaged UI/desktop QA loop.
+It produces `out/mac-rc/mac-arm64/work-fold.app`, verifies the Developer ID
+signature, hardened runtime, notarization staple, Gatekeeper acceptance, and
+packaged assets, and leaves the full updater/distribution proof to the slower
+distribution lane. Electron Builder's unpacked `--dir` output has no updater
+metadata, so it cannot prove update discovery or installation.
+
 `desktop:make:mac` is the unsigned/ad hoc structural smoke lane. It performs desktop preparation, Pi and restricted-app smoke checks, Electron Builder DMG/ZIP assembly, packaged-asset and fuse verification, updater-manifest verification, mounted-DMG inspection, checksum generation, and release-manifest generation. Installer-only DMG artwork is generated under ignored `out/generated-assets` so Windows and macOS image encoders cannot rewrite tracked source bytes or make the guarded publisher reject its own build. The smoke build is not distributable and must not be renamed or installed over the production app.
 
 Expected Apple silicon outputs:
@@ -57,18 +75,18 @@ Use a Developer ID-signed candidate for interactive checks on the release workst
 
 ```bash
 WORKFOLD_DESKTOP_STATE_DIR=/tmp/work-fold-macos-smoke \
-  out/builder/mac-arm64/work-fold.app/Contents/MacOS/work-fold
+  out/mac-rc/mac-arm64/work-fold.app/Contents/MacOS/work-fold
 ```
 
-That production-name path exists only after `npm run desktop:make:mac:release`; the ad hoc executable is `out/builder/mac-arm64/work-fold Local Smoke.app/Contents/MacOS/work-fold Local Smoke`. Exercise onboarding, Space creation/registration, Files, Chats, History, Add, the Space-owned Library and Assistant tools tabs, Settings, native file actions, restricted apps, menus, window close/reopen, and sleep/wake continuity. The profile override isolates CLI requests, app files, restricted-app state, and preferences, but it is not a Keychain boundary. A separate disposable macOS account is the alternative for interactive ad hoc testing.
+That app-only path exists after `npm run desktop:rc:mac`; the complete distribution candidate remains at `out/builder/mac-arm64/work-fold.app`. The ad hoc executable is `out/builder/mac-arm64/work-fold Local Smoke.app/Contents/MacOS/work-fold Local Smoke`. Exercise onboarding, Space creation/registration, Files, Chats, History, Add, the Space-owned Library and Assistant tools tabs, Settings, native file actions, restricted apps, menus, window close/reopen, and sleep/wake continuity. The profile override isolates CLI requests, app files, restricted-app state, and preferences, but it is not a Keychain boundary. A separate disposable macOS account is the alternative for interactive ad hoc testing.
 
 The packaged CLI can be tested directly:
 
 ```bash
 WORKFOLD_DESKTOP_STATE_DIR=/tmp/work-fold-macos-smoke \
 WORKFOLD_CLI_STATE_DIR=/tmp/work-fold-macos-smoke \
-WORKFOLD_CLI_APP="$PWD/out/builder/mac-arm64/work-fold.app/Contents/MacOS/work-fold" \
-  out/builder/mac-arm64/work-fold.app/Contents/bin/work-fold context --json
+WORKFOLD_CLI_APP="$PWD/out/mac-rc/mac-arm64/work-fold.app/Contents/MacOS/work-fold" \
+  out/mac-rc/mac-arm64/work-fold.app/Contents/bin/work-fold context --json
 ```
 
 The app adds `Contents/bin` to child-process `PATH`. A DMG must not edit a person's shell profile; making `work-fold` available to unrelated Terminal sessions remains an explicit installation action.
@@ -87,13 +105,53 @@ WORKFOLD_MAC_TEAM_ID="464JD5K8DC"
 
 The notary profile name is local and arbitrary; the existing profile is valid for both products. Never commit Apple passwords, API keys, certificate private keys, or exported identities. `APPLE_KEYCHAIN_PROFILE` may be replaced by a complete App Store Connect API-key or Apple-ID environment set when needed.
 
-Build a signed candidate without publishing:
+Build the fast app-only candidate for interactive QA:
+
+```bash
+npm run desktop:rc:mac
+```
+
+Build the complete distribution candidate without publishing:
 
 ```bash
 npm run desktop:make:mac:release
 ```
 
 The release lane signs/notarizes the app, signs/notarizes/staples the final DMG, then regenerates the DMG blockmap and `latest-mac.yml` checksum after those byte-changing operations. Strict verification requires the expected Developer ID team, hardened runtime, stapling, Gatekeeper acceptance, feed, manifest, CLI, DMG layout, and exact artifact hashes.
+
+## Timings and resumable release work
+
+Every macOS candidate stage reports elapsed time. A complete signed distribution
+build writes an ignored checkpoint at
+`out/builder/work-fold-mac-release-state.json`. The checkpoint binds completed
+stages to the package version, architecture, Node version, signing identity,
+release feed, source/configuration fingerprint, signed app, and exact artifact
+hashes. It contains no signing or notarization credentials.
+
+Inspect a checkpoint without changing it:
+
+```bash
+npm run desktop:release:mac:status
+npm run desktop:release:mac:status -- --json
+```
+
+Resume an interrupted local distribution build:
+
+```bash
+npm run desktop:make:mac:release:resume
+```
+
+Resume the build and continue into guarded publication:
+
+```bash
+npm run desktop:release:mac:resume
+```
+
+Resume never means “trust whatever is in `out/`.” The command verifies the
+saved fingerprint, exact file receipts, app signature, notarization staple, and
+Gatekeeper result before skipping work. It fails closed if inputs, environment,
+or artifacts changed; run a fresh `desktop:make:mac:release` in that case. Do
+not hand-edit the state file. The full verifier still runs before publication.
 
 ## Public releases
 
@@ -135,7 +193,12 @@ Do not diagnose this with `security find-generic-password ... -g`: `-g` requests
 
 - `electron-builder.desktop.cjs`: shared targets, platform-selected feeds, Mac identity, entitlements, icon, and DMG layout.
 - `scripts/generate-dmg-background.mjs`: installer-only DMG artwork under ignored build output.
-- `scripts/build-mac-desktop.mjs`: unsigned-smoke and signed-release orchestrator.
+- `scripts/build-mac-release-candidate.mjs`: app-only signed/notarized interactive release candidate.
+- `scripts/verify-mac-release-candidate.mjs`: signature, hardened-runtime, staple, Gatekeeper, identity, version, and architecture verification for the app-only candidate.
+- `scripts/build-mac-desktop.mjs`: unsigned-smoke and checkpointed signed-distribution orchestrator.
+- `scripts/mac-release-state.mjs`: source fingerprints, artifact receipts, atomic checkpoints, and timing summaries.
+- `scripts/mac-release-status.mjs`: read-only human/JSON checkpoint inspection.
+- `.agents/skills/ship-macos-release/SKILL.md`: standard project Skill that selects and executes these same documented lanes.
 - `scripts/finalize-mac-release-artifacts.mjs`: final DMG signing, notarization, stapling, and post-signing metadata refresh.
 - `scripts/write-mac-release-manifest.mjs`: release evidence and artifact hashes.
 - `scripts/publish-mac-release.mjs`: guarded draft-first public publisher.

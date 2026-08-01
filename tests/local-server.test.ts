@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { SettingsManager } from "@earendil-works/pi-coding-agent";
+import { AuthStorage, ModelRegistry, SettingsManager } from "@earendil-works/pi-coding-agent";
 
 import type { CapabilityRegistryService } from "../src/local/agent/capability-registry.js";
 import { RoutedPiExtensionUiBridge } from "../src/local/agent/extension-ui.js";
@@ -68,8 +68,16 @@ test("local API covers Space files, the Library, and external restore points", a
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ label: "API snapshot" }),
-    }) as { checkpoint: { fileCount: number } };
+    }) as { checkpoint: { checkpointId: string; fileCount: number }; created: boolean };
     assert.equal(checkpoint.checkpoint.fileCount, 2);
+    assert.equal(checkpoint.created, true);
+    const duplicateCheckpoint = await json(`${api.origin}/api/spaces/${created.space.id}/history/checkpoints`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ label: "Same files" }),
+    }) as { checkpoint: { checkpointId: string }; created: boolean };
+    assert.equal(duplicateCheckpoint.checkpoint.checkpointId, checkpoint.checkpoint.checkpointId);
+    assert.equal(duplicateCheckpoint.created, false);
   } finally {
     await api.close();
     await rm(sandbox, { recursive: true, force: true });
@@ -915,6 +923,122 @@ test("terminal provider failures persist partial output and leave the Chat resum
   }
 });
 
+test("Assistant setup failures are sanitized, persisted, and survive an API restart", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "workspace-assistant-setup-failure-test-"));
+  const stateBase = join(sandbox, "state");
+  const spaceBase = join(sandbox, "content");
+  const rawFailure = "No API key found. Read /Users/example/private/node_modules/provider/providers.md for setup details.";
+  const piRuntimeProvider = {
+    async resolveRuntime() {
+      throw new Error(rawFailure);
+    },
+  };
+  const firstApi = await startLocalApi({ port: 0, stateBase, spaceBase, loadEnv: false, piRuntimeProvider });
+  let firstApiClosed = false;
+  try {
+    const created = await json(`${firstApi.origin}/api/spaces`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Setup Failure Space" }),
+    }) as { space: { id: string } };
+    const conversation = await json(`${firstApi.origin}/api/spaces/${created.space.id}/conversations`, {
+      method: "POST",
+    }) as { conversation: { id: string } };
+    const conversationPath = `/api/spaces/${created.space.id}/conversations/${conversation.conversation.id}`;
+    const accepted = await fetch(`${firstApi.origin}${conversationPath}/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: "Help me get started." }),
+    });
+    assert.equal(accepted.status, 202, await accepted.text());
+
+    await waitForAsync(async () => {
+      const transcript = await json(`${firstApi.origin}${conversationPath}`) as any;
+      return transcript.messages.some((message: any) => message.interruption?.reason === "setup_error");
+    });
+    const beforeRestart = await json(`${firstApi.origin}${conversationPath}`) as any;
+    const failedMessage = beforeRestart.messages.find((message: any) => message.interruption?.reason === "setup_error");
+    assert.match(failedMessage.content, /Settings → Assistant/);
+    assert.equal(failedMessage.interruption.message, failedMessage.content);
+    assert.doesNotMatch(JSON.stringify(beforeRestart), /\/Users\/example|node_modules|providers\.md|No API key found/);
+
+    await firstApi.close();
+    firstApiClosed = true;
+    const restartedApi = await startLocalApi({ port: 0, stateBase, spaceBase, loadEnv: false, piRuntimeProvider });
+    try {
+      const afterRestart = await json(`${restartedApi.origin}${conversationPath}`) as any;
+      const durableFailure = afterRestart.messages.find((message: any) => message.interruption?.reason === "setup_error");
+      assert.match(durableFailure.content, /Settings → Assistant/);
+      assert.equal(afterRestart.messages.filter((message: any) => message.role !== "system").length, 2);
+      assert.doesNotMatch(JSON.stringify(afterRestart), /\/Users\/example|node_modules|providers\.md|No API key found/);
+    } finally {
+      await restartedApi.close();
+    }
+  } finally {
+    if (!firstApiClosed) await firstApi.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("Assistant setup diagnostics are sanitized before reaching renderer event streams", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "workspace-assistant-setup-stream-test-"));
+  const agentDir = join(sandbox, "agent");
+  const authStorage = AuthStorage.inMemory();
+  const modelRegistry = ModelRegistry.inMemory(authStorage);
+  const api = await startLocalApi({
+    port: 0,
+    stateBase: join(sandbox, "state"),
+    spaceBase: join(sandbox, "content"),
+    loadEnv: false,
+    piRuntimeProvider: {
+      async resolveRuntime() {
+        return { agentDir, authStorage, modelRegistry, settingsManager: SettingsManager.inMemory() };
+      },
+    },
+  });
+  const streamController = new AbortController();
+  try {
+    const created = await json(`${api.origin}/api/spaces`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Setup Stream Space" }),
+    }) as { space: { id: string } };
+    const conversation = await json(`${api.origin}/api/spaces/${created.space.id}/conversations`, {
+      method: "POST",
+    }) as { conversation: { id: string } };
+    const conversationUrl = `${api.origin}/api/spaces/${created.space.id}/conversations/${conversation.conversation.id}`;
+    const streamResponse = await fetch(`${conversationUrl}/events`, { signal: streamController.signal });
+    assert.equal(streamResponse.ok, true);
+    const streamEvents: TestStreamEvent[] = [];
+    const pump = pumpSseEvents(streamResponse, streamEvents).catch((error: unknown) => {
+      if (!(error instanceof DOMException && error.name === "AbortError")) throw error;
+    });
+    await waitFor(() => streamEvents.some((event) => event.type === "turn_state"));
+
+    const accepted = await fetch(`${conversationUrl}/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: "Try without a configured model." }),
+    });
+    assert.equal(accepted.status, 202, await accepted.text());
+    await waitForAsync(async () => {
+      const transcript = await json(conversationUrl) as any;
+      return transcript.messages.some((message: any) => message.interruption?.reason === "setup_error");
+    });
+    await waitFor(() => streamEvents.some((event) => event.type === "error"));
+
+    const rendererEvents = JSON.stringify(streamEvents);
+    assert.match(rendererEvents, /Settings → Assistant|Assistant setup is needed/);
+    assert.doesNotMatch(rendererEvents, /No models available|No API key|\/Users\/|node_modules|providers\.md|models\.md/);
+    streamController.abort();
+    await pump;
+  } finally {
+    streamController.abort();
+    await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
 async function json(url: string, init?: RequestInit): Promise<unknown> {
   const response = await fetch(url, init);
   const text = await response.text();
@@ -931,6 +1055,7 @@ async function ok(url: string, init?: RequestInit): Promise<void> {
 interface TestStreamEvent {
   type?: string;
   running?: boolean;
+  message?: string;
   request?: { id?: string; message?: string };
 }
 

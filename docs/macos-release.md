@@ -11,6 +11,28 @@ This runbook publishes the Apple silicon work-fold artifacts to the separate pub
 
 Do not export or commit the certificate, private key, app-specific password, or notary credentials.
 
+## Release workflow and checkpoints
+
+Use `npm run desktop:rc:mac` for ordinary packaged interaction testing. It
+Developer ID-signs and notarizes only the app under `out/mac-rc`, avoiding DMG
+and ZIP compression, the second Apple notarization wait, and publication. It is
+not updater evidence because unpacked Electron Builder output does not contain
+the release updater metadata.
+
+The full distribution lane records these timed stages under ignored `out/`:
+
+1. desktop preparation;
+2. app packaging, Developer ID signing, app notarization, DMG/ZIP creation;
+3. packaged-asset verification;
+4. DMG signing, notarization, stapling, and updater-metadata refresh;
+5. release-manifest generation;
+6. strict application, DMG, updater, manifest, and checksum verification.
+
+The checkpoint is a recovery aid, not release authority. Resume validates its
+source/configuration fingerprint, non-secret release environment, signed app,
+and artifact receipts. Publication independently reruns strict verification and
+all Git/GitHub guards. Never commit or hand-edit the checkpoint.
+
 ## First work-fold release
 
 The first public work-fold release is `0.1.0`. The repository retained `0.8.0`
@@ -69,6 +91,26 @@ artifacts, or metadata.
    full remote digest audit. It skips only the already-published Windows asset
    prerequisite. The Windows workflow remains fail-closed until its signing
    secrets are configured and may be rerun later on the unchanged tag.
+
+   If a local build or pre-publication check is interrupted, inspect it first:
+
+   ```bash
+   npm run desktop:release:mac:status
+   ```
+
+   When the command reports that its inputs and artifacts still match, resume
+   the normal or Mac-first lane without repeating completed Apple work:
+
+   ```bash
+   npm run desktop:release:mac:resume
+   npm run desktop:release:mac:first:resume
+   ```
+
+   Use only the command matching the original release policy. If status reports
+   changed source, version, architecture, Node runtime, signing identity, feed,
+   or artifact bytes, start a fresh build. A draft already created on GitHub is
+   intentionally not overwritten by resume; apply the failed-draft recovery
+   rule below before retrying publication.
 
 5. Confirm the command reports a public, non-draft `v<version>` release. It must contain the DMG, ZIP, both blockmaps, `latest-mac.yml`, checksums, and both release manifests.
 6. Install or update the app, then verify the exact installed bundle:
@@ -165,7 +207,8 @@ Workspace 0.4.14 to 0.4.15 passed the same proof on July 27, 2026. Invoking the 
 
 - Never replace assets in a published release. Correct a bad release with a higher shared version.
 - A failed draft may be deleted only after confirming it was never published or consumed by an installed app.
-- If a build fails after the DMG was notarized, rerun the finalizer. It detects an already valid signed/stapled DMG and refreshes only updater metadata.
+- Use `npm run desktop:release:mac:status` before retrying. If its checkpoint is compatible, use the matching `:resume` build/release command instead of rebuilding the app and repeating notarization.
+- If a build fails inside DMG finalization before its checkpoint is written, the resumable lane reruns the finalizer. It detects an already valid signed/stapled DMG and refreshes only updater metadata.
 - Never rename or install `work-fold Local Smoke.app` over the production app. A user-data override does not isolate Keychain; use the signed candidate or a disposable macOS account for interactive testing.
 - If repeated Keychain prompts occur after replacing an old ad hoc build, quit work-fold and run `npm run desktop:reset:mac-safe-storage -- --yes --reopen`. Do not read the secret with `security ... -g`.
 - The current public lane is arm64 only. Do not publish x64 until an Intel Mac passes launch and updater smoke.

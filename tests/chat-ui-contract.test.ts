@@ -155,8 +155,19 @@ test("provider interruptions stay visible and the configured model is disclosed 
   assert.match(chatPanel, /loadMessages\(conversationId, false, \{ settleStreamingTurn: true \}\)/);
   assert.match(messages, /Response interrupted/);
   assert.match(messages, /work-fold preserved/);
+  assert.match(messages, /Assistant setup needed/);
+  assert.match(messages, /Request stopped/);
   assert.match(messages, /interruption\.activities/);
+  assert.match(chatPanel, /data\.message !== "Connected\."/);
+  assert.match(chatPanel, /configuredAssistant\?\.configured && conversationRuntime/);
+  assert.match(chatPanel, /if \(!configuredAssistant \|\| !configuredAssistant\.configured\) \{[\s\S]*?setConversationRuntime\(null\)/);
   assert.match(styles, /\.turn-interruption/);
+});
+
+test("manual restore points distinguish a new snapshot from already-covered files", () => {
+  assert.match(localServer, /const created = !existingIds\.has\(checkpoint\.checkpointId\)/);
+  assert.match(panes, /Current files already match the latest restore point\./);
+  assert.match(app, /Current files already match the latest restore point/);
 });
 
 test("dark user messages keep their audited foregrounds and quiet icon-only action", () => {

@@ -548,8 +548,9 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
 }) {
   const [items, setItems] = useState<SpaceCheckpoint[]>(fixtureItems ?? []);
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
 
-  useEffect(() => { if (!fixtureItems) void load(); }, [space.id, fixtureItems]);
+  useEffect(() => { setNotice(""); if (!fixtureItems) void load(); }, [space.id, fixtureItems]);
   useEffect(() => { if (!fixtureItems && refreshRequest > 0) void load(); }, [refreshRequest]);
 
   async function load() {
@@ -560,8 +561,12 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
   async function savePoint() {
     if (fixtureItems) return;
     setBusy(true);
-    try { await api(`/api/spaces/${space.id}/history/checkpoints`, { method: "POST", body: { label: "Manual restore point" } }); await load(); }
-    catch (caught) { onError(errorText(caught)); }
+    try {
+      const result = await api<{ created: boolean }>(`/api/spaces/${space.id}/history/checkpoints`, { method: "POST", body: { label: "Manual restore point" } });
+      setNotice(result.created ? "Restore point saved." : "Current files already match the latest restore point.");
+      await load();
+    }
+    catch (caught) { setNotice(""); onError(errorText(caught)); }
     finally { setBusy(false); }
   }
 
@@ -578,6 +583,7 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
   return (
     <div className="space-pane-content history-pane professional-surface professional-history">
       <div className="history-pane-actions">
+        {notice ? <p className="history-save-status" role="status"><Checkmark16Regular />{notice}</p> : null}
         <button className="professional-button professional-button-primary" type="button" onClick={() => void savePoint()} disabled={busy || Boolean(fixtureItems)}>
           {busy ? <ArrowSync16Regular className="spin" /> : <Clock16Regular />}Save restore point
         </button>

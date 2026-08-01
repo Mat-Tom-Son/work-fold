@@ -1,0 +1,14 @@
+{
+  "name": "@work-fold/bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Minimal public HTTPS entrypoint for the future work-fold bridge.",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test server.test.mjs"
+  }
+}

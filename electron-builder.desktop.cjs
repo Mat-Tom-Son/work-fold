@@ -9,6 +9,7 @@ const electronBuilderMacIdentity = macSignIdentity?.replace(/^Developer ID Appli
 const macReleaseOwner = process.env.WORKFOLD_MAC_RELEASE_OWNER?.trim() || identity.sourceRepositoryOwner;
 const macReleaseRepo = process.env.WORKFOLD_MAC_RELEASE_REPO?.trim() || identity.macReleaseRepositoryName;
 const macFeedBuild = process.env.WORKFOLD_DESKTOP_RELEASE_PLATFORM === "darwin";
+const outputDirectory = process.env.WORKFOLD_DESKTOP_OUTPUT_DIR?.trim() || "out/builder";
 
 module.exports = {
   appId: unsignedMacBuild ? identity.macSmokeAppId : identity.productionAppId,
@@ -40,7 +41,7 @@ module.exports = {
     grantFileProtocolExtraPrivileges: false,
   },
   directories: {
-    output: "out/builder",
+    output: outputDirectory,
     buildResources: "desktop/assets",
   },
   files: ["package.json", "LICENSE", "dist/desktop/**/*"],

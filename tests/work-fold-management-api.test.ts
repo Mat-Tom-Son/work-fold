@@ -263,7 +263,8 @@ test("management requests carry attachments, record lineage, and expose honest p
     const failedView = (await facade.manageTurnStatus({ taskId: failedParent.taskId })).request!;
     assert.equal(failedView.children.find((child) => child.taskId === failedChild.taskId)?.state, "failed");
     assert.equal(failedView.phase, "failed");
-    assert.match(failedView.error ?? "", /No API key/);
+    assert.match(failedView.error ?? "", /Settings → Assistant/);
+    assert.doesNotMatch(JSON.stringify(failedView), /No API key|node_modules|providers\.md/);
     const missingStop = await fetch(new URL("/api/management/requests/task-missing/stop", api.origin), {
       method: "POST",
       headers: { "content-type": "application/json" },

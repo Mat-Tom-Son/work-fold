@@ -227,6 +227,42 @@ test("a transient status failure preserves known configuration but marks it unav
   assert.equal(requests, 2, "polling pauses while the last known running status is unavailable");
 });
 
+test("suspending Check status drains the current request and blocks removal-time refreshes", async (t) => {
+  const dom = await createDomHarness();
+  t.after(() => dom.cleanup());
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  let requests = 0;
+  let releaseRequest: (() => void) | undefined;
+  globalThis.fetch = async () => {
+    requests += 1;
+    await new Promise<void>((resolve) => { releaseRequest = resolve; });
+    return new Response(JSON.stringify({ status: overview.status }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const { useSpaceChecks } = await import("../web-local/src/hooks/useSpaceChecks.js");
+  const space = { id: "space-checks-ui", name: "Weekend Launch", spaceRoot: "/tmp/weekend-launch" } as SpaceSummary;
+  let controls: ReturnType<typeof useSpaceChecks> | undefined;
+  function Harness() {
+    controls = useSpaceChecks(space, false, true);
+    return createElement("span", null, "Checks");
+  }
+  await dom.render(createElement(Harness));
+  await dom.waitFor(() => requests === 1 && Boolean(releaseRequest));
+
+  let suspended = false;
+  const suspension = controls?.suspend().then(() => { suspended = true; });
+  await dom.act(async () => { await Promise.resolve(); });
+  assert.equal(suspended, false, "suspension waits for the request that already reached the server");
+  releaseRequest?.();
+  await dom.act(async () => { await suspension; });
+  await controls?.refresh();
+  assert.equal(requests, 1, "a suspended hook cannot start a stale request for the removed Space");
+});
+
 test("a failed overview suppresses cached health claims and decisions", async (t) => {
   const dom = await createDomHarness();
   t.after(() => dom.cleanup());

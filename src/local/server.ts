@@ -1347,7 +1347,10 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   if (checkpointCollectionMatch && method === "POST") {
     const space = await getSpace(checkpointCollectionMatch[1]);
     const body = await readJsonBody<{ label?: string }>(state, req);
-    sendJson(res, { checkpoint: await createSpaceCheckpoint(space.spaceRoot, { label: body.label, reason: "manual" }) }, 201);
+    const existingIds = new Set((await listSpaceCheckpoints(space.spaceRoot, 1000)).map((checkpoint) => checkpoint.checkpointId));
+    const checkpoint = await createSpaceCheckpoint(space.spaceRoot, { label: body.label, reason: "manual" });
+    const created = !existingIds.has(checkpoint.checkpointId);
+    sendJson(res, { checkpoint, created }, created ? 201 : 200);
     return;
   }
   const checkpointRestoreMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/history\/checkpoints\/([^/]+)\/restore$/);
@@ -2609,32 +2612,34 @@ async function runAgentTurn(
     }
     broadcast(state, streamKey(spaceId, conversationId), { type: "done", conversationId });
   } catch (error) {
-    let partialResponsePreserved = false;
-    if (error instanceof PiTurnFailure) {
+    const cancelled = isPiTurnCancelledError(error);
+    let failureResultPreserved = false;
+    if (!cancelled) {
+      console.warn(`Assistant turn failed in ${spaceId}/${conversationId}: ${errorMessage(error)}`);
       const interruptedMessage = {
         id: randomUUID(),
         role: "assistant" as const,
-        content: error.partialText || "The Assistant was interrupted before it could finish its response.",
+        content: assistantFailureTranscriptContent(error),
         createdAt: new Date().toISOString(),
         interruption: {
-          reason: "provider_error" as const,
-          message: error.message,
-          retryAttempts: error.retryAttempts,
-          provider: error.provider,
-          model: error.model,
-          activities: error.activities,
+          reason: assistantFailureReason(error),
+          message: assistantFailurePublicDetail(error),
+          retryAttempts: error instanceof PiTurnFailure ? error.retryAttempts : 0,
+          provider: error instanceof PiTurnFailure ? error.provider : null,
+          model: error instanceof PiTurnFailure ? error.model : null,
+          activities: error instanceof PiTurnFailure ? error.activities : [],
         },
       };
       try {
         await appendMessage(spaceRoot, conversationId, interruptedMessage);
-        partialResponsePreserved = true;
+        failureResultPreserved = true;
         settledMessageId = interruptedMessage.id;
       } catch (preservationError) {
-        console.error(`Could not preserve an interrupted Assistant response: ${errorMessage(preservationError)}`);
+        console.error(`Could not preserve a failed Assistant result: ${errorMessage(preservationError)}`);
       }
     }
-    const message = assistantTurnFailureMessage(error, partialResponsePreserved);
-    settledStatus = isPiTurnCancelledError(error) ? "aborted" : "failed";
+    const message = assistantTurnFailureMessage(error, failureResultPreserved);
+    settledStatus = cancelled ? "aborted" : "failed";
     settledError = message;
     broadcast(state, streamKey(spaceId, conversationId), { type: "error", conversationId, message });
     // A provider failure settles the Pi session cleanly after its bounded retry
@@ -2680,13 +2685,46 @@ function settleTurnTask(
 
 function assistantTurnFailureMessage(error: unknown, partialResponsePreserved: boolean): string {
   if (isPiTurnCancelledError(error)) return "Assistant turn cancelled.";
-  if (!(error instanceof PiTurnFailure)) return errorMessage(error);
+  if (!(error instanceof PiTurnFailure)) return assistantFailurePublicDetail(error);
   const retrySummary = error.retryAttempts > 0
     ? ` after ${error.retryAttempts} automatic ${error.retryAttempts === 1 ? "retry" : "retries"}`
     : "";
   return partialResponsePreserved
-    ? `The model stopped responding${retrySummary}. Space preserved the partial response and completed activity below.`
-    : `The model stopped responding${retrySummary}, and Space could not preserve the partial response.`;
+    ? `The model stopped responding${retrySummary}. work-fold saved the partial response and completed activity below.`
+    : `The model stopped responding${retrySummary}, and work-fold could not save the partial response.`;
+}
+
+function assistantFailureReason(error: unknown): "provider_error" | "setup_error" | "assistant_error" {
+  if (error instanceof PiTurnFailure) return "provider_error";
+  return isAssistantSetupError(error) ? "setup_error" : "assistant_error";
+}
+
+function assistantFailureTranscriptContent(error: unknown): string {
+  if (error instanceof PiTurnFailure) {
+    return error.partialText || "The model stopped responding before it could finish a response.";
+  }
+  return assistantFailurePublicDetail(error);
+}
+
+function assistantFailurePublicDetail(error: unknown): string {
+  if (error instanceof PiTurnFailure) {
+    const retrySummary = error.retryAttempts > 0
+      ? ` after ${error.retryAttempts} automatic ${error.retryAttempts === 1 ? "retry" : "retries"}`
+      : "";
+    return `The model stopped responding${retrySummary}.`;
+  }
+  if (isAssistantSetupError(error)) {
+    return "The Assistant isn’t set up yet. Open Settings → Assistant to choose a provider and model, then try again.";
+  }
+  if (/timed?\s*out|timeout/i.test(errorMessage(error))) {
+    return "The Assistant took too long to respond. Try again when you’re ready.";
+  }
+  return "The Assistant couldn’t complete this request. Try again. If it keeps happening, check Settings → Assistant.";
+}
+
+function isAssistantSetupError(error: unknown): boolean {
+  return /api[- ]?key|credential|auth(?:entication|orization)?|no (?:available |configured )?models?|model (?:was )?not (?:found|available|configured)|select (?:a )?model|choose (?:a )?(?:provider|model)|provider .{0,40}(?:not configured|unavailable)/i
+    .test(errorMessage(error));
 }
 
 async function getClient(
@@ -2712,11 +2750,22 @@ async function getClient(
       };
   const client = new PiConversationClient(conversationId, spaceRoot, state.runtimeProvider, hostCapabilities);
   client.on("event", (event: PiChatEvent) => {
-    const { raw: _raw, ...safeEvent } = event;
-    broadcast(state, streamKey(spaceId, conversationId), safeEvent);
+    broadcast(state, streamKey(spaceId, conversationId), assistantEventForRenderer(event));
   });
   state.clients.set(key, client);
   return client;
+}
+
+function assistantEventForRenderer(event: PiChatEvent): Omit<PiChatEvent, "raw"> {
+  const { raw: _raw, ...safeEvent } = event;
+  if (!safeEvent.message) return safeEvent;
+  if (safeEvent.type === "error") {
+    return { ...safeEvent, message: assistantFailurePublicDetail(new Error(safeEvent.message)) };
+  }
+  if (safeEvent.type === "status" && isAssistantSetupError(safeEvent.message)) {
+    return { ...safeEvent, message: "Assistant setup is needed. Open Settings → Assistant." };
+  }
+  return safeEvent;
 }
 
 async function invalidateWorkFoldClients(state: LocalApiState, spaceId: string): Promise<void> {

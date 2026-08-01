@@ -111,7 +111,7 @@ export interface ChatMessage {
 }
 
 export interface ChatMessageInterruption {
-  reason: "provider_error";
+  reason: "provider_error" | "setup_error" | "assistant_error";
   message: string;
   retryAttempts: number;
   provider: string | null;

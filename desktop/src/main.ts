@@ -86,6 +86,7 @@ import { desktopWindowMaterial, shouldUseMacVibrancy, shouldUseWindowsMica } fro
 import { GracefulQuitCoordinator, type QuitPreparationOutcome } from "./quit-coordinator.js";
 import { RailTooltipOverlay } from "./rail-tooltip-overlay.js";
 import { productIdentity } from "../../src/shared/product-identity.js";
+import { resolveDesktopApplicationVersion } from "./application-version.js";
 
 const productionProductName = productIdentity.productName;
 const localMacSmokeProductName = productIdentity.macSmokeProductName;
@@ -129,6 +130,11 @@ function titleBarOverlayFor(theme: "light" | "dark"): Electron.TitleBarOverlay {
 }
 const currentFile = fileURLToPath(import.meta.url);
 const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
+const applicationVersion = resolveDesktopApplicationVersion({
+  isPackaged: app.isPackaged,
+  electronVersion: app.getVersion(),
+  developmentPackageVersion: developmentPackageVersion(),
+});
 const folderGrantTtlMs = 5 * 60 * 1000;
 const shutdownTimeoutMs = 10_000;
 const windowStateSaveDelayMs = 500;
@@ -216,6 +222,16 @@ function packagedBuildChannel(): string {
   } catch {
     // Historical production packages predate the explicit channel marker.
     return "production";
+  }
+}
+
+function developmentPackageVersion(): string | undefined {
+  if (app.isPackaged) return undefined;
+  try {
+    const metadata = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as { version?: unknown };
+    return typeof metadata.version === "string" ? metadata.version : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -416,7 +432,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       kernel: new WorkFoldCliKernelAdapter(kernel, {
         checksStatusProvider: ({ spaceId, spaceRoot }) => checks.status({ id: spaceId, spaceRoot: spaceRoot }),
       }),
-      version: app.getVersion(),
+      version: applicationVersion,
       productName,
       getActFacade: () => (actFacade && actToken ? { facade: actFacade, token: actToken } : null),
       resolveLineageParent: (taskId) => resolveManagementLineageParent?.(taskId) ?? null,
@@ -634,7 +650,7 @@ async function createMainWindow(): Promise<void> {
       additionalArguments: [
         ...productRendererArguments(),
         rendererArgument("api-base-url", api.origin),
-        rendererArgument("app-version", app.getVersion()),
+        rendererArgument("app-version", applicationVersion),
         rendererArgument("window-material", nativeWindowMaterial),
       ],
     },
@@ -952,7 +968,7 @@ function configureMenu(): void {
   if (process.platform === "darwin") {
     app.setAboutPanelOptions({
       applicationName: productName,
-      applicationVersion: app.getVersion(),
+      applicationVersion,
       copyright: "Copyright © Mat-Tom-Son",
     });
   }
@@ -1034,7 +1050,7 @@ function buildApplicationSubmenuTemplate(menuId: ApplicationMenuId): MenuItemCon
       { type: "separator" },
       { label: "Check for Updates...", click: () => sendRendererMenuCommand("check-for-updates") },
       { type: "separator" },
-      { label: `About ${productName} ${app.getVersion()}`, click: () => sendRendererMenuCommand("open-about") },
+      { label: `About ${productName} ${applicationVersion}`, click: () => sendRendererMenuCommand("open-about") },
     );
   }
   return items;
@@ -1162,7 +1178,7 @@ function getUpdateStatus(): DesktopUpdateStatus {
   return desktopUpdater?.getStatus() ?? {
     supported: false,
     phase: "unsupported",
-    currentVersion: app.getVersion(),
+    currentVersion: applicationVersion,
     availableVersion: null,
     progressPercent: null,
     checkedAt: null,
@@ -1626,7 +1642,7 @@ async function ensureManagementPopover(): Promise<ManagementPopover> {
     additionalArguments: [
       ...productRendererArguments(),
       rendererArgument("api-base-url", api.origin),
-      rendererArgument("app-version", app.getVersion()),
+      rendererArgument("app-version", applicationVersion),
       rendererArgument("window-material", process.platform === "darwin" && macVibrancySupported ? "vibrancy" : "none"),
     ],
     backgroundColor: windowBackgroundColors[nativeTheme.shouldUseDarkColors ? "dark" : "light"],

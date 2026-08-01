@@ -9,6 +9,7 @@ import { api, createEventSource, errorText } from "../../lib/api";
 import { createChatTurnStateGate, observeChatTurnState } from "../../lib/chat-turn-state";
 import { hasNativeFiles } from "../../lib/file-actions";
 import { chatDisplayTitle, chatDraftStorageKey, clearStoredChatDraft, formatBytes, latestTranscriptTime, modelConversationTitle, readStoredChatDraft, writeStoredChatDraft } from "../../lib/format";
+import { latestAssistantMessageId as findLatestAssistantMessageId, settledTurnHasNewAssistantMessage } from "../../lib/chat-turn-artifacts";
 import { dismissRestrictedAppProposal, installRestrictedAppProposal } from "../../lib/restricted-apps";
 import { resolveFixtureSpacePathCandidates } from "../../lib/space-path-links";
 import { spaceIdentityFor, spaceIdentityStyle, type SpaceIdentity } from "../../lib/space-identity";
@@ -104,6 +105,8 @@ export function ChatPanel({
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const conversationsRef = useRef<ConversationSummary[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const messagesRef = useRef<ChatMessage[]>([]);
+  const turnPreviousAssistantMessageIdRef = useRef<string | null | undefined>(undefined);
   const [draft, setDraft] = useState("");
   const [running, setRunning] = useState(false);
   const runningRef = useRef(false);
@@ -186,6 +189,16 @@ export function ChatPanel({
     && dismissedCommandDraft !== draft
     && commandSuggestions.length > 0;
   runningRef.current = running;
+  messagesRef.current = messages;
+
+  function beginTurnArtifactTracking(): void {
+    if (turnPreviousAssistantMessageIdRef.current !== undefined) return;
+    turnPreviousAssistantMessageIdRef.current = findLatestAssistantMessageId(messagesRef.current);
+  }
+
+  function resetTurnArtifactTracking(): void {
+    turnPreviousAssistantMessageIdRef.current = undefined;
+  }
 
   function commitConversations(next: ConversationSummary[] | ((current: ConversationSummary[]) => ConversationSummary[])): void {
     const nextConversations = typeof next === "function" ? next(conversationsRef.current) : next;
@@ -210,6 +223,7 @@ export function ChatPanel({
     setActivityRecap([]);
     resetActivityLog();
     clearRuntimePreviews();
+    resetTurnArtifactTracking();
     pendingSendRef.current = null;
     postingPendingSendRef.current = false;
     eventStreamReadyConversationIdRef.current = null;
@@ -304,6 +318,10 @@ export function ChatPanel({
       setConversationRuntime(null);
       return;
     }
+    if (!configuredAssistant || !configuredAssistant.configured) {
+      setConversationRuntime(null);
+      return;
+    }
     if (running) return;
     if (fixtureMode) {
       setConversationRuntime(fixtureConversationRuntime);
@@ -315,7 +333,7 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [space.id, conversation?.id, messages.length, running, fixtureMode]);
+  }, [space.id, conversation?.id, messages.length, running, fixtureMode, configuredAssistant?.configured]);
 
   useEffect(() => {
     if (!fixtureMode) return;
@@ -445,7 +463,7 @@ export function ChatPanel({
     };
     source.onmessage = (event) => {
       const data = JSON.parse(event.data) as ChatStreamEvent;
-      if (data.type === "status" && data.message) {
+      if (data.type === "status" && data.message && data.message !== "Connected.") {
         addAgentEvent({ message: data.message, phase: "running" });
       }
       if (data.type === "turn_state") {
@@ -453,6 +471,7 @@ export function ChatPanel({
           || postingPendingSendRef.current;
         const decision = observeChatTurnState(turnStateGate, data.running === true, sendTransitioning);
         if (decision === "running") {
+          beginTurnArtifactTracking();
           runningRef.current = true;
           setRunning(true);
         } else if (
@@ -468,6 +487,7 @@ export function ChatPanel({
         }
       }
       if (data.type === "tool") {
+        beginTurnArtifactTracking();
         addAgentEvent({
           message: data.message ?? "Agent activity",
           detail: data.detail,
@@ -477,6 +497,7 @@ export function ChatPanel({
         });
       }
       if (data.type === "assistant_thinking") {
+        beginTurnArtifactTracking();
         runningRef.current = true;
         setRunning(true);
         if (data.thinkingPhase === "start") startThinkingPreview();
@@ -484,11 +505,13 @@ export function ChatPanel({
         if (data.thinkingPhase === "end") finishThinkingPreview();
       }
       if (data.type === "assistant_delta" && data.text) {
+        beginTurnArtifactTracking();
         runningRef.current = true;
         setRunning(true);
         queueStreamingText(data.text);
       }
       if (data.type === "assistant_message" && typeof data.text === "string") {
+        beginTurnArtifactTracking();
         flushStreamingText();
         setStreamingAssistant(data.text);
       }
@@ -517,8 +540,11 @@ export function ChatPanel({
         setError(data.message ?? "Agent error");
         runningRef.current = false;
         setRunning(false);
+        addAgentEvent({ message: "Assistant request stopped", phase: "error" });
         scheduleEventClear();
-        void loadMessages(conversationId, false, { settleStreamingTurn: true });
+        void loadMessages(conversationId, false, { settleStreamingTurn: true })
+          .then(() => setError(null))
+          .catch((loadError) => setError(errorText(loadError)));
         reportChatSettled(conversationId);
       }
       if (data.type === "done") {
@@ -888,6 +914,7 @@ export function ChatPanel({
     setRunning(false);
     setStreamingAssistant("");
     clearRuntimePreviews();
+    resetTurnArtifactTracking();
     setEvents([]);
     setActivityRecap([]);
     resetActivityLog();
@@ -932,6 +959,7 @@ export function ChatPanel({
     resetActivityLog();
     setStreamingAssistant("");
     clearRuntimePreviews();
+    resetTurnArtifactTracking();
     setContextAttachments([]);
     setActiveContextPath(null);
     userPinnedToBottomRef.current = true;
@@ -979,10 +1007,17 @@ export function ChatPanel({
 
   async function loadMessages(conversationId: string, pinToBottom = false, options: { settleStreamingTurn?: boolean } = {}) {
     const settleStreamingTurn = options.settleStreamingTurn ?? false;
+    let keepSettledTurnArtifacts = false;
     try {
       if (fixtureMode) return;
       const result = await api<{ messages: ChatMessage[] }>(`/api/spaces/${space.id}/conversations/${conversationId}`);
       const transcript = result.messages.filter((message) => message.role !== "system");
+      if (settleStreamingTurn) {
+        keepSettledTurnArtifacts = settledTurnHasNewAssistantMessage(
+          turnPreviousAssistantMessageIdRef.current,
+          transcript,
+        );
+      }
       setMessages((current) => {
         // Rows that replace content already on screen (the streamed reply)
         // must not replay the message-enter animation when they mount.
@@ -1005,6 +1040,11 @@ export function ChatPanel({
       }
     } finally {
       if (settleStreamingTurn) {
+        if (!keepSettledTurnArtifacts) {
+          clearRuntimePreviews();
+          setActivityRecap([]);
+        }
+        resetTurnArtifactTracking();
         setStreamingAssistant("");
         setRunning(false);
       }
@@ -1054,6 +1094,7 @@ export function ChatPanel({
     // While a fixture script is replaying, the composer belongs to the playback — ignore manual sends.
     if (fixtureMode && scriptPlaybackStateRef.current === "playing") return;
     const content = draft.trim();
+    beginTurnArtifactTracking();
     const sentDraftStorageKey = draftStorageKey;
     setDraft("");
     setRunning(true);
@@ -1119,6 +1160,7 @@ export function ChatPanel({
     } catch (sendError) {
       setRunning(false);
       clearRuntimePreviews();
+      resetTurnArtifactTracking();
       setError(errorText(sendError));
       setDraft(content);
       setMessages((current) => current.filter((message) => message.id !== localUserMessage.id));
@@ -1158,6 +1200,7 @@ export function ChatPanel({
     } catch (sendError) {
       setRunning(false);
       clearRuntimePreviews();
+      resetTurnArtifactTracking();
       setError(errorText(sendError));
       setDraft(pending.content);
       setMessages((current) => current.filter((message) => message.id !== pending.localUserMessage.id));
@@ -1180,6 +1223,8 @@ export function ChatPanel({
       postingPendingSendRef.current = false;
       setRunning(false);
       clearRuntimePreviews();
+      setActivityRecap([]);
+      resetTurnArtifactTracking();
       setMessages((current) => current.filter((message) => message.id !== pending.localUserMessage.id));
       if (pending.transientConversation) {
         transientConversationIdsRef.current.delete(pending.conversation.id);
@@ -1192,6 +1237,8 @@ export function ChatPanel({
       setRunning(false);
       setStreamingAssistant("");
       clearRuntimePreviews();
+      setActivityRecap([]);
+      resetTurnArtifactTracking();
       return;
     }
     if (!conversation) return;
@@ -1668,7 +1715,7 @@ export function ChatPanel({
               <span aria-hidden="true">/</span>
               <span>Commands</span>
             </button>
-            {conversationRuntime
+            {configuredAssistant?.configured && conversationRuntime
               ? <ConversationContextMeter runtime={conversationRuntime} />
               : configuredAssistant?.configured && configuredAssistant.provider && configuredAssistant.model
                 ? <ConfiguredAssistantModel status={configuredAssistant} />

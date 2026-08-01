@@ -1,7 +1,7 @@
 # work-fold
 
 [![CI](https://github.com/Mat-Tom-Son/work-fold/actions/workflows/ci.yml/badge.svg)](https://github.com/Mat-Tom-Son/work-fold/actions/workflows/ci.yml)
-[![Latest release](https://img.shields.io/github/v/release/Mat-Tom-Son/work-fold)](https://github.com/Mat-Tom-Son/work-fold/releases/latest)
+[![Latest Mac release](https://img.shields.io/github/v/release/Mat-Tom-Son/work-fold-mac-releases?label=macOS)](https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 work-fold is a local-first Electron app that gives every kind of computer work a place, with a native [Pi](https://pi.dev) assistant built in.
@@ -12,9 +12,31 @@ The core idea is simple: the folder stays ordinary; work-fold makes it feel like
 
 ## Get work-fold
 
-[Download work-fold for Windows](https://github.com/Mat-Tom-Son/work-fold/releases/latest) or [download work-fold for Apple silicon Macs](https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/latest). Both installed apps use GitHub-hosted updates. The Mac app and DMG are Developer ID-signed, notarized, and accepted by Gatekeeper. The first public Windows release requires a valid Authenticode signature from a new work-fold or product-neutral identity. A self-signed identity does not establish public Windows trust, so Windows or SmartScreen may still warn.
+[Download work-fold for Apple silicon Macs](https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/latest). The Mac app updates from that public feed; both the app and DMG are Developer ID-signed, notarized, and accepted by Gatekeeper. The public Windows build is deliberately deferred until it can be signed with a valid Authenticode identity—work-fold does not present a self-signed installer as publicly trusted.
 
 work-fold is a clean product boundary, not an in-place rename of Workspace. It uses a new application profile, updater identity, CLI, repository, release feed, internal protocol, and `.work-fold/` Space metadata. It never imports, migrates, rewrites, wipes, or deletes legacy Workspace state or `.workspace/` content; those bytes remain preserved and inert. The old `Mat-Tom-Son/workspace` and `Mat-Tom-Son/workspace-mac-releases` repositories are frozen legacy surfaces and never receive work-fold releases.
+
+## A quick walkthrough
+
+Choose an ordinary folder—or let work-fold create one—and it becomes a Space.
+The files stay where they are. In this launch-planning Space, the Assistant used
+only the three attached source files, returned a brief with links back to the
+evidence, and wrote the requested deliverable into the same folder.
+
+![A Client Launch Space with ordinary files and a grounded Assistant brief](output/playwright/work-fold-0.1.4-space.png)
+
+Checks are optional, manual expectations over files you explicitly designate.
+Here work-fold re-verifies that the generated launch brief exists without
+inspecting unrelated files in the Space.
+
+![A successful bounded Check for the launch-brief deliverable](output/playwright/work-fold-0.1.4-checks.png)
+
+On a Mac, the fold also lives in the menu bar. Click it—or drop files, folders,
+or links on it—from anywhere, add an instruction, and let the management
+conversation work across Spaces. The popover remains available when the main
+window is closed.
+
+![The real work-fold menu-bar item and management popover above the Client Launch Space](output/playwright/work-fold-0.1.4-menubar.png)
 
 ## Product model
 
@@ -131,6 +153,23 @@ npm install
 npm run local:dev
 ```
 
+The official Railway CLI can be installed into the ignored repo-local `.tools/`
+directory. The installer verifies the release asset against the SHA-256 digest
+published by Railway's GitHub release. The wrapper reads local authentication
+from the ignored `.env.railway.local` file, and `railway link` metadata under
+`.railway/` is also ignored as machine-specific state:
+
+```bash
+npm run railway:install
+npm run railway -- --version
+npm run railway -- whoami
+npm run railway -- link
+```
+
+Use exactly one credential in `.env.railway.local`: `RAILWAY_TOKEN` for a
+project-scoped token or `RAILWAY_API_TOKEN` for an account/workspace token. The
+tooling alone does not configure or deploy a hosted work-fold service.
+
 Useful checks:
 
 ```bash
@@ -140,9 +179,10 @@ npm run desktop:prepare
 npm run desktop:package:smoke
 npm run desktop:make
 npm run desktop:make:mac
+npm run desktop:rc:mac
 ```
 
-`desktop:package:smoke` creates and verifies the canonical Windows Electron Builder unpacked app while skipping NSIS installer and updater-artifact creation. The slower `desktop:package` command retains a Forge package lane for targeted diagnostics. `desktop:make` builds the Windows NSIS candidate; `desktop:make:mac` builds the non-interactive, separately identified `work-fold Local Smoke` artifacts; `desktop:release:mac` signs, notarizes, verifies, and publishes the production Mac artifacts.
+`desktop:package:smoke` creates and verifies the canonical Windows Electron Builder unpacked app while skipping NSIS installer and updater-artifact creation. The slower `desktop:package` command retains a Forge package lane for targeted diagnostics. `desktop:make` builds the Windows NSIS candidate; `desktop:make:mac` builds the non-interactive, separately identified `work-fold Local Smoke` artifacts; `desktop:rc:mac` creates an app-only signed/notarized Mac candidate for interactive QA; and `desktop:release:mac` signs, notarizes, verifies, and publishes the complete production Mac artifacts. Interrupted full Mac builds can be inspected with `desktop:release:mac:status` and resumed only while their source-bound artifact checkpoint validates.
 
 Use `npm run local:dev` for the fast UI loop, `check` and `test` for normal implementation feedback, and `desktop:prepare` for desktop integration. See [Windows builds](docs/windows-build.md) and [macOS builds](docs/macos-build.md) for platform packaging and release gates.
 
@@ -153,6 +193,8 @@ CI runs `check`, `test`, and `desktop:package:smoke`, so every branch verifies t
 ### Developing with Codex or Claude Code
 
 The repository has one contributor contract: [AGENTS.md](AGENTS.md). Codex reads it directly. The tracked [CLAUDE.md](CLAUDE.md) uses Claude Code's `@AGENTS.md` import so both harnesses receive the same product rails, commands, test expectations, release rules, and Pi Skill/Extension/tool boundaries without duplicated prose. Product tools remain the same native Pi catalog regardless of which development harness edits the repository.
+
+The standard project Skill [Ship macOS Release](.agents/skills/ship-macos-release/SKILL.md) routes agents through the same documented candidate, checkpoint, recovery, verification, and publication lanes; it does not define a harness-specific release path.
 
 Both harnesses can author and audit the exact same inert Space-appearance proposal:
 
@@ -221,7 +263,7 @@ See [Windows builds](docs/windows-build.md) and [Windows releases and signing](d
 
 ## macOS status
 
-`npm run desktop:make:mac` builds the non-interactive, separately identified `work-fold Local Smoke` Apple silicon structural candidate. `npm run desktop:release:mac` builds, Developer ID-signs, notarizes, staples, verifies, and draft-first publishes the production artifacts to the separate public Mac feed. The legacy Workspace updater proof is retained in the [macOS release runbook](docs/macos-release.md); work-fold requires its own signed first-install proof followed by a higher-version updater proof before the lane is accepted.
+`npm run desktop:make:mac` builds the non-interactive, separately identified `work-fold Local Smoke` Apple silicon structural candidate. `npm run desktop:rc:mac` builds a faster app-only Developer ID-signed/notarized candidate for interactive QA without creating distribution media. `npm run desktop:release:mac` builds, signs, notarizes, staples, verifies, and draft-first publishes the complete production artifacts to the separate public Mac feed; timed, source-bound checkpoints let an interrupted build resume without weakening final verification. The legacy Workspace updater proof is retained in the [macOS release runbook](docs/macos-release.md); work-fold requires its own signed first-install proof followed by a higher-version updater proof before the lane is accepted.
 
 ## Pi integration resources
 

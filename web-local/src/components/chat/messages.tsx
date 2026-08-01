@@ -172,6 +172,22 @@ export function TurnLanding({ landing }: { landing: ChatMessageLanding }) {
 }
 
 function InterruptedTurn({ interruption }: { interruption: NonNullable<ChatMessage["interruption"]> }) {
+  if (interruption.reason === "setup_error") {
+    return (
+      <section className="turn-interruption" role="status" aria-label="Assistant setup needed">
+        <strong>Assistant setup needed</strong>
+        <span>Open Settings → Assistant to choose a provider and model, then try again.</span>
+      </section>
+    );
+  }
+  if (interruption.reason === "assistant_error") {
+    return (
+      <section className="turn-interruption" role="status" aria-label="Failed Assistant request">
+        <strong>Request stopped</strong>
+        <span>work-fold saved this result with your Chat. You can try again whenever you’re ready.</span>
+      </section>
+    );
+  }
   const retryText = interruption.retryAttempts > 0
     ? `${interruption.retryAttempts} automatic ${interruption.retryAttempts === 1 ? "retry" : "retries"} were attempted.`
     : "The provider did not identify this as safely retryable.";

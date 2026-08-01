@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ship macOS Release"
+  short_description: "Build, resume, verify, and publish macOS"
+  default_prompt: "Use $ship-macos-release to prepare or resume a verified work-fold macOS release."
