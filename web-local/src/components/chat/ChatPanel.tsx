@@ -7,6 +7,7 @@ import { agentActivityLogLimit, chatDraftDebounceMs, genericChatEmptyGreetings, 
 import { createFixtureContextAttachment, fixtureAgentActivityEvents, fixtureConversationSummary } from "../../fixtures/shared";
 import { api, createEventSource, errorText } from "../../lib/api";
 import { createChatTurnStateGate, observeChatTurnState } from "../../lib/chat-turn-state";
+import { hasNativeFiles } from "../../lib/file-actions";
 import { chatDisplayTitle, chatDraftStorageKey, clearStoredChatDraft, formatBytes, latestTranscriptTime, modelConversationTitle, readStoredChatDraft, writeStoredChatDraft } from "../../lib/format";
 import { dismissRestrictedAppProposal, installRestrictedAppProposal } from "../../lib/restricted-apps";
 import { resolveFixtureWorkspacePathCandidates } from "../../lib/workspace-path-links";
@@ -50,6 +51,7 @@ export function ChatPanel({
   targetConversationId = null,
   contextPathRequest,
   onAddPathToChatContext,
+  onUploadDroppedFiles,
   onOpenWorkspaceFile,
   selectedPath,
   onConversationActivated,
@@ -73,6 +75,7 @@ export function ChatPanel({
   targetConversationId?: string | null;
   contextPathRequest: ChatContextPathRequest | null;
   onAddPathToChatContext?: (path: string) => void;
+  onUploadDroppedFiles?: (dataTransfer: DataTransfer) => Promise<string[]>;
   onOpenWorkspaceFile?: (path: string) => void;
   selectedPath: string | null;
   onConversationActivated?: (conversation: ConversationSummary | null) => void;
@@ -1284,14 +1287,22 @@ export function ChatPanel({
     return Array.from(event.dataTransfer.types).includes(workspacePathDragType);
   }
 
+  function composerAcceptsWorkspacePathDrag(event: React.DragEvent<HTMLElement>): boolean {
+    return hasWorkspacePathDrag(event) && Boolean(onAddPathToChatContext);
+  }
+
+  function composerAcceptsNativeFileDrag(event: React.DragEvent<HTMLElement>): boolean {
+    return !fixtureMode && Boolean(onUploadDroppedFiles) && hasNativeFiles(event);
+  }
+
   function handleComposerDragEnter(event: React.DragEvent<HTMLFormElement>): void {
-    if (!hasWorkspacePathDrag(event) || !onAddPathToChatContext) return;
+    if (!composerAcceptsWorkspacePathDrag(event) && !composerAcceptsNativeFileDrag(event)) return;
     event.preventDefault();
     setDragActive(true);
   }
 
   function handleComposerDragOver(event: React.DragEvent<HTMLFormElement>): void {
-    if (!hasWorkspacePathDrag(event) || !onAddPathToChatContext) return;
+    if (!composerAcceptsWorkspacePathDrag(event) && !composerAcceptsNativeFileDrag(event)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
     setDragActive(true);
@@ -1302,11 +1313,32 @@ export function ChatPanel({
   }
 
   function handleComposerDrop(event: React.DragEvent<HTMLFormElement>): void {
-    if (!hasWorkspacePathDrag(event) || !onAddPathToChatContext) return;
+    const acceptsWorkspacePath = composerAcceptsWorkspacePathDrag(event);
+    if (!acceptsWorkspacePath && !composerAcceptsNativeFileDrag(event)) return;
     event.preventDefault();
-    const path = droppedWorkspacePath(event);
     setDragActive(false);
-    if (path) onAddPathToChatContext(path);
+    if (acceptsWorkspacePath) {
+      const path = droppedWorkspacePath(event);
+      if (path) onAddPathToChatContext?.(path);
+      return;
+    }
+    void attachDroppedNativeFiles(event.dataTransfer);
+  }
+
+  async function attachDroppedNativeFiles(dataTransfer: DataTransfer): Promise<void> {
+    if (!onUploadDroppedFiles) return;
+    setError(null);
+    // Start the upload callback synchronously: dropped directory entries are
+    // only readable while the drop event's DataTransfer is alive.
+    const upload = onUploadDroppedFiles(dataTransfer);
+    setAttachingPath("__dropped_files__");
+    try {
+      for (const path of await upload) await attachContextPath(path);
+    } catch (dropError) {
+      setError(errorText(dropError));
+    } finally {
+      setAttachingPath(null);
+    }
   }
 
   const activeContextAttachment = contextAttachments.find((attachment) => attachment.sourcePath === activeContextPath) ?? null;

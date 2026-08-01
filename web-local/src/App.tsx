@@ -736,6 +736,30 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
     } catch (caught) { onError(errorText(caught)); }
     finally { setUploadingFiles(false); }
   }
+  async function uploadDroppedFilesForChat(dataTransfer: DataTransfer): Promise<string[]> {
+    // Collect before the first await: dropped directory entries are only
+    // readable while the drop event's DataTransfer is alive.
+    const collected = collectDroppedUploadFiles(dataTransfer);
+    if (fixture) return [];
+    const files = await collected;
+    if (!files.length) return [];
+    const now = new Date();
+    const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const targetFolderPath = `Dropped/${localDate}`;
+    const form = new FormData();
+    form.set("targetFolderPath", targetFolderPath);
+    form.set("relativePaths", JSON.stringify(files.map((item) => item.relativePath)));
+    files.forEach((item) => form.append("files", item.file, item.file.name));
+    setUploadingFiles(true);
+    try {
+      const result = await apiForm<{ uploaded: Array<{ path: string }> }>(`/api/workspaces/${workspace.id}/upload-local-files`, form);
+      void tree.refresh();
+      showToast({ text: `${formatItemCount(files.length, "file")} added to ${targetFolderPath}`, tone: "success" });
+      return result.uploaded.map((item) => item.path);
+    } finally {
+      setUploadingFiles(false);
+    }
+  }
   function chooseUpload(targetPath = "") { setUploadTargetPath(targetPath); uploadRef.current?.click(); }
 
   async function moveEntry(sourcePath: string, targetFolderPath: string) {
@@ -1166,7 +1190,7 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
                 ? <RestrictedAppViewport app={app} placement="tab" appTabId={tab.appTabId} route={tab.route} state={tab.state} active={active} />
                 : <CenteredState icon={<AlertTriangle size={24} />} title="App unavailable" text="This tab belongs to an app revision that is no longer installed in this Space." />;
             })() : tab.kind === "chat" ? (
-              <ChatPanel surfaceTabId={tab.id} workspace={targetWorkspace} workspaceCustomizations={customizations} active={active} targetConversationId={tab.conversationId ?? null} lifecycleView={targetConversationLifecycle} onResumeConversation={targetConversation ? () => updateChatLifecycle(targetWorkspace, targetConversation, targetConversationLifecycle === "archived" ? { archived: false } : { snoozedUntil: null }).then(() => {}).catch((caught) => onError(errorText(caught))) : undefined} contextPathRequest={chatContextRequestForTab(contextRequest, targetWorkspace.id, tab.id)} onAddPathToChatContext={active && targetWorkspace.id === workspace.id ? attachToChat : undefined} onOpenWorkspaceFile={active && targetWorkspace.id === workspace.id ? (path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workspace, path); } : undefined} selectedPath={active && targetWorkspace.id === workspace.id ? tree.selectedPath : null} onConversationActivated={(conversation) => tabs.handleTabConversationActivated(tab.id, targetWorkspace, conversation)} onConversationsChanged={(conversations) => setConversationGroups((current) => ({ ...current, [targetWorkspace.id]: conversations }))} onRunningChange={(conversationId, running) => chatActivity.setRunning(chatActivityKey(targetWorkspace.id, conversationId), running)} onSettled={(conversationId, needsAttention) => chatActivity.setAttention(chatActivityKey(targetWorkspace.id, conversationId), needsAttention)} onViewed={(conversationId) => chatActivity.setAttention(chatActivityKey(targetWorkspace.id, conversationId), false)} onAgentFinished={() => targetWorkspace.id === workspace.id ? tree.refresh() : undefined} onRestrictedAppProposalRequested={() => tabs.setActiveSurfaceTabId(tab.id)} onRestrictedAppInstalled={(app) => openInstalledRestrictedApp(targetWorkspace, app)} fixtureMode={Boolean(fixture)} fixtureConversations={fixture && (tab.conversationId || tab.id === `chat:${targetWorkspace.id}:new`) ? fixture.conversations[targetWorkspace.id] : undefined} fixtureTreeEntries={fixture?.trees[targetWorkspace.id]} />
+              <ChatPanel surfaceTabId={tab.id} workspace={targetWorkspace} workspaceCustomizations={customizations} active={active} targetConversationId={tab.conversationId ?? null} lifecycleView={targetConversationLifecycle} onResumeConversation={targetConversation ? () => updateChatLifecycle(targetWorkspace, targetConversation, targetConversationLifecycle === "archived" ? { archived: false } : { snoozedUntil: null }).then(() => {}).catch((caught) => onError(errorText(caught))) : undefined} contextPathRequest={chatContextRequestForTab(contextRequest, targetWorkspace.id, tab.id)} onAddPathToChatContext={active && targetWorkspace.id === workspace.id ? attachToChat : undefined} onUploadDroppedFiles={active && targetWorkspace.id === workspace.id ? uploadDroppedFilesForChat : undefined} onOpenWorkspaceFile={active && targetWorkspace.id === workspace.id ? (path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workspace, path); } : undefined} selectedPath={active && targetWorkspace.id === workspace.id ? tree.selectedPath : null} onConversationActivated={(conversation) => tabs.handleTabConversationActivated(tab.id, targetWorkspace, conversation)} onConversationsChanged={(conversations) => setConversationGroups((current) => ({ ...current, [targetWorkspace.id]: conversations }))} onRunningChange={(conversationId, running) => chatActivity.setRunning(chatActivityKey(targetWorkspace.id, conversationId), running)} onSettled={(conversationId, needsAttention) => chatActivity.setAttention(chatActivityKey(targetWorkspace.id, conversationId), needsAttention)} onViewed={(conversationId) => chatActivity.setAttention(chatActivityKey(targetWorkspace.id, conversationId), false)} onAgentFinished={() => targetWorkspace.id === workspace.id ? tree.refresh() : undefined} onRestrictedAppProposalRequested={() => tabs.setActiveSurfaceTabId(tab.id)} onRestrictedAppInstalled={(app) => openInstalledRestrictedApp(targetWorkspace, app)} fixtureMode={Boolean(fixture)} fixtureConversations={fixture && (tab.conversationId || tab.id === `chat:${targetWorkspace.id}:new`) ? fixture.conversations[targetWorkspace.id] : undefined} fixtureTreeEntries={fixture?.trees[targetWorkspace.id]} />
             ) : null}
           </div>
         );
