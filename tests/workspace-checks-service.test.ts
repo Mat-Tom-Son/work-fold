@@ -112,12 +112,31 @@ test("optional Checks complete proposal, grant, task, evidence, decision, stale,
     decision: "resolve",
     actor: "human",
   });
+  const decisionRevision = JSON.parse(await readFile(join(machine, `${space.id}.json`), "utf8")).revision;
+  await service.decide({
+    spaceId: space.id,
+    findingId: problems.findings[0]!.id,
+    decision: "resolve",
+    actor: "human",
+  });
+  assert.equal(
+    JSON.parse(await readFile(join(machine, `${space.id}.json`), "utf8")).revision,
+    decisionRevision,
+    "an identical still-current decision does not rewrite machine state",
+  );
   assert.equal((await service.problems(space)).findings.length, 0);
   assert.equal((await service.status(space)).state, "current-clear");
 
   await mkdir(join(root, "Delivery"));
   await writeFile(join(root, "Delivery", "signed.pdf"), "%PDF arbitrary bytes");
   assert.equal((await service.status(space)).state, "stale");
+  await assert.rejects(() => service.decide({
+    spaceId: space.id,
+    findingId: problems.findings[0]!.id,
+    decision: "resolve",
+    actor: "human",
+  }), (error: unknown) => error instanceof WorkspaceCheckOperationConflictError
+    && /no longer current/.test(error.message));
 
   const rerun = await service.run({ space, checkId: enabled.declaration.id, actor: { kind: "cli", workspaceId: space.id } });
   const clear = await waitForTerminal(service, space.id, rerun.taskId);
@@ -336,13 +355,16 @@ test("admission failure makes the run and status unhealthy, and status never exe
 test("terminal persistence failure retains the task fence until task polling repairs it", async (t) => {
   const sandbox = await mkdtemp(join(tmpdir(), "workspace-check-terminal-recovery-"));
   const root = join(sandbox, "Space");
+  const otherRoot = join(sandbox, "Other Space");
   await mkdir(root);
+  await mkdir(otherRoot);
   const proposalPath = join(sandbox, "proposal.json");
   await writeFile(proposalPath, JSON.stringify({
     ...proposal,
     check: { ...proposal.check, sensor: { ...proposal.check.sensor, parameters: { expect: "absent" } } },
   }));
   const store = await WorkspaceCheckStore.create("space-recovery", { path: join(sandbox, "state.json") });
+  const otherStore = await WorkspaceCheckStore.create("space-other", { path: join(sandbox, "other-state.json") });
   const finishRun = store.finishRun.bind(store);
   let injectedFailures = 0;
   store.finishRun = async (run) => {
@@ -351,8 +373,8 @@ test("terminal persistence failure retains the task fence until task polling rep
   };
   const service = new WorkspaceCheckService({
     kernel: new WorkspaceKernel(),
-    storeFactory: async () => store,
-    listSpaces: async () => [spaceSummary("space-recovery", root)],
+    storeFactory: async (workspaceId) => workspaceId === "space-recovery" ? store : otherStore,
+    listSpaces: async () => [spaceSummary("space-recovery", root), spaceSummary("space-other", otherRoot)],
   });
   t.after(() => service.close());
   const space = { id: "space-recovery", rootPath: root };
@@ -361,9 +383,44 @@ test("terminal persistence failure retains the task fence until task polling rep
   await waitForCondition(() => injectedFailures > 0);
   assert.equal(service.hasActiveRun(space.id), true, "the capability fence remains while terminal state is not durable");
 
+  const wrongSpaceStatus = await service.taskStatus("space-other", accepted.taskId);
+  assert.equal(wrongSpaceStatus.state, "unknown");
+  assert.equal(service.hasActiveRun(space.id), true, "another Space cannot terminalize or release this recovery task");
+
   const status = await service.taskStatus(space.id, accepted.taskId);
   assert.equal(status.state, "succeeded");
   assert.equal(service.hasActiveRun(space.id), false);
+});
+
+test("run-all supports the full declaration authority ceiling", async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), "workspace-check-many-run-"));
+  const root = join(sandbox, "Space");
+  await mkdir(root);
+  const service = new WorkspaceCheckService({
+    kernel: new WorkspaceKernel(),
+    storeFactory: (workspaceId) => WorkspaceCheckStore.create(workspaceId, { path: join(sandbox, `${workspaceId}.json`) }),
+    listSpaces: async () => [spaceSummary("space-many", root)],
+  });
+  t.after(() => service.close());
+  const space = { id: "space-many", rootPath: root };
+  for (let index = 0; index < 65; index += 1) {
+    const proposalPath = join(sandbox, `proposal-${index}.json`);
+    await writeFile(proposalPath, JSON.stringify({
+      ...proposal,
+      name: `Optional file ${index}`,
+      check: {
+        ...proposal.check,
+        title: `Optional file ${index} stays absent`,
+        sensor: { ...proposal.check.sensor, parameters: { expect: "absent" } },
+        targets: [{ kind: "file", role: "primary", path: `Files/item-${index}.txt` }],
+      },
+    }));
+    await service.enable({ space, proposalPath, actor: "human" });
+  }
+
+  const accepted = await service.run({ space, actor: { kind: "renderer", workspaceId: space.id } });
+  assert.equal(accepted.checkIds.length, 65);
+  assert.equal((await waitForTerminal(service, space.id, accepted.taskId)).state, "succeeded");
 });
 
 test("run admission is synchronously reserved for every adapter", async (t) => {

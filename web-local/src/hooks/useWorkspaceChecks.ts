@@ -78,5 +78,18 @@ export function useWorkspaceChecks(workspace: WorkspaceSummary, fixtureMode = fa
     return () => window.clearInterval(timer);
   }, [autoRefresh, refresh, status?.running, unavailable]);
 
+  useEffect(() => {
+    if (!autoRefresh || fixtureMode) return;
+    const refreshOnReturn = () => {
+      if (document.visibilityState !== "hidden") void refresh();
+    };
+    window.addEventListener("focus", refreshOnReturn);
+    document.addEventListener("visibilitychange", refreshOnReturn);
+    return () => {
+      window.removeEventListener("focus", refreshOnReturn);
+      document.removeEventListener("visibilitychange", refreshOnReturn);
+    };
+  }, [autoRefresh, fixtureMode, refresh]);
+
   return { status, attentionPaths, loading, unavailable, refresh };
 }

@@ -100,7 +100,7 @@ export class WorkspaceCheckService {
   readonly #operationReservations = new Set<string>();
   readonly #spaceRemovalReservations = new Set<string>();
   #spaceRegistryMutationReserved = false;
-  readonly #terminalRecovery = new Map<string, { store: WorkspaceCheckStore; run: WorkspaceCheckRunRecord }>();
+  readonly #terminalRecovery = new Map<string, { workspaceId: string; store: WorkspaceCheckStore; run: WorkspaceCheckRunRecord }>();
 
   constructor(options: WorkspaceCheckServiceOptions) {
     this.#kernel = options.kernel;
@@ -461,7 +461,7 @@ export class WorkspaceCheckService {
 
   async #taskResult(spaceId: string, taskId: string): Promise<WorkspaceCheckRunRecord> {
     await this.#registeredSpaceId(spaceId);
-    await this.#retryTerminalRecovery(taskId);
+    await this.#retryTerminalRecovery(taskId, spaceId);
     const active = this.#active.get(taskId);
     if (active?.workspaceId === spaceId) throw new Error("The Check run is still running.");
     const run = (await this.#store(spaceId)).snapshot().runs.find((item) => item.taskId === taskId);
@@ -480,7 +480,7 @@ export class WorkspaceCheckService {
     if (!active || active.workspaceId !== spaceId) return false;
     active.controller.abort("Check run aborted.");
     await active.promise;
-    await this.#retryTerminalRecovery(taskId);
+    await this.#retryTerminalRecovery(taskId, spaceId);
     return true;
   }
 
@@ -502,7 +502,7 @@ export class WorkspaceCheckService {
     note?: string;
   }): Promise<WorkspaceCheckDecision> {
     return this.#withOperationReservation(input.spaceId, async () => {
-      await this.#registeredSpaceId(input.spaceId);
+      const space = await this.#registeredSpaceById(input.spaceId);
       const store = await this.#store(input.spaceId);
       const finding = store.snapshot().runs.flatMap((run) => run.findings).find((item) => item.id === input.findingId);
       if (!finding) throw new Error("Finding not found.");
@@ -516,14 +516,50 @@ export class WorkspaceCheckService {
           throw new Error("A deferred finding requires a future deferUntil timestamp.");
         }
       }
-      return store.decide({
-        fingerprint: finding.fingerprint,
-        decision: input.decision,
-        actor: input.actor,
-        ...(input.deferUntil ? { deferUntil: input.deferUntil } : {}),
-        ...(input.note ? { note: input.note } : {}),
-        now,
-      });
+      const discovery = await discoverWorkspaceCheckDeclarations(space.rootPath);
+      const record = discovery.declarations.find((item) => item.declaration.id === finding.checkId);
+      const state = store.snapshot();
+      const authorization = record ? exactAuthorization(state.authorizations[finding.checkId], record) : null;
+      const sensor = record
+        ? this.#resolveSensor(record.declaration.sensor.id, record.declaration.sensor.revision)
+        : null;
+      if (!record || record.digest !== finding.declarationDigest || !authorization
+        || !sensor || sensor.execution !== authorization.execution
+        || sensor.implementationDigest !== authorization.sensorDigest
+        || finding.sensorDigest !== authorization.sensorDigest) {
+        throw new WorkspaceCheckOperationConflictError("This finding is no longer current. Refresh Checks and try again.");
+      }
+      try {
+        sensor.validate(record.declaration);
+        await this.#assertNoNestedSpaceTargets(space, record.declaration);
+        if (!await reverifyWorkspaceCheckFinding(space.rootPath, record.declaration, finding)) {
+          await store.invalidateFinding(
+            finding.fingerprint,
+            "The designated evidence changed or no longer proves this finding.",
+            now,
+          );
+          throw new WorkspaceCheckOperationConflictError("This finding is no longer current. Refresh Checks and try again.");
+        }
+      } catch (error) {
+        if (error instanceof WorkspaceCheckOperationConflictError) throw error;
+        throw new WorkspaceCheckOperationConflictError("This finding could not be re-verified. Refresh Checks and try again.");
+      }
+      try {
+        return await store.decide({
+          fingerprint: finding.fingerprint,
+          findingId: finding.id,
+          decision: input.decision,
+          actor: input.actor,
+          ...(input.deferUntil ? { deferUntil: input.deferUntil } : {}),
+          ...(input.note ? { note: input.note } : {}),
+          now,
+        });
+      } catch (error) {
+        if (/no longer active/.test(errorMessage(error))) {
+          throw new WorkspaceCheckOperationConflictError("This finding is no longer current. Refresh Checks and try again.");
+        }
+        throw error;
+      }
     });
   }
 
@@ -647,7 +683,7 @@ export class WorkspaceCheckService {
       // Fail closed: retain the internal task and capability lock until the
       // exact terminal record can be made durable or process restart marks the
       // run interrupted. Polling/result calls retry this write.
-      this.#terminalRecovery.set(accepted.taskId, { store, run: terminal });
+      this.#terminalRecovery.set(accepted.taskId, { workspaceId: space.id, store, run: terminal });
     }
   }
 
@@ -755,7 +791,7 @@ export class WorkspaceCheckService {
 
   async #taskStatus(spaceId: string, taskId: string): Promise<WorkspaceCheckTaskStatus> {
     await this.#registeredSpaceId(spaceId);
-    await this.#retryTerminalRecovery(taskId);
+    await this.#retryTerminalRecovery(taskId, spaceId);
     const run = (await this.#store(spaceId)).snapshot().runs.find((item) => item.taskId === taskId);
     if (!run) return { taskId, runId: null, state: "unknown", startedAt: null, endedAt: null, error: null };
     return {
@@ -803,14 +839,19 @@ export class WorkspaceCheckService {
   }
 
   async #registeredSpaceId(workspaceId: string): Promise<void> {
-    if (!(await this.#listSpaces()).some((space) => space.id === workspaceId)) {
-      throw new Error("Registered Space not found.");
-    }
+    await this.#registeredSpaceById(workspaceId);
   }
 
-  async #retryTerminalRecovery(taskId: string): Promise<boolean> {
+  async #registeredSpaceById(workspaceId: string): Promise<WorkspaceCheckSpaceRef> {
+    const space = (await this.#listSpaces()).find((item) => item.id === workspaceId);
+    if (!space) throw new Error("Registered Space not found.");
+    return { id: space.id, rootPath: space.rootPath };
+  }
+
+  async #retryTerminalRecovery(taskId: string, workspaceId?: string): Promise<boolean> {
     const recovery = this.#terminalRecovery.get(taskId);
     if (!recovery) return true;
+    if (workspaceId && recovery.workspaceId !== workspaceId) return false;
     try {
       await recovery.store.finishRun(recovery.run);
     } catch {

@@ -122,6 +122,10 @@ active finding**.
 - A finding is re-verified before it appears in `problems`. Failed
   re-verification removes it from the active list and records it as stale,
   invalidated, or superseded in audit history.
+- A decision rebinds the finding to the exact current declaration, local
+  authority, sensor digest, and designated evidence immediately before the
+  decision is stored. A changed target returns a typed conflict instead of
+  accepting a stale resolve, reject, accept, or defer.
 - Infrastructure failures, missing capabilities, unavailable providers,
   malformed submissions, exceeded limits, and admission failures are Check
   health states. They must never be presented as failures in the person's
@@ -204,6 +208,11 @@ active finding**.
   preserves only the last known configured summary, clears content markers,
   and labels Check status unavailable; it must not silently turn that Space
   into either unconfigured or clear.
+- A failed content-bearing work-tab refresh suppresses cached health claims,
+  findings, decisions, and target details until evidence can be re-verified.
+  Returning focus or visibility to Workspace refreshes the relevant aggregate
+  or open work tab so authenticated CLI and management actions become visible
+  without a sensor run or background file watcher.
 
 ## Hardened runner invariants
 
@@ -240,8 +249,10 @@ active finding**.
   incomplete/failed. It can never reduce the finding count into a false
   `current-clear` result.
 - A terminal-state persistence failure retains the in-process task and
-  capability-mutation fence while task polling retries the exact write. If the
-  process stops first, startup records `interrupted`; it never replays the run.
+  capability-mutation fence while task polling from that exact Space retries
+  the exact write. Polling the task id through another Space is read-only and
+  cannot terminalize or release the originating task. If the process stops
+  first, startup records `interrupted`; it never replays the run.
 
 ## Shipped proof and deferred work
 

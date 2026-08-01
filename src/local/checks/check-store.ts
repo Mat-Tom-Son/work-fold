@@ -208,19 +208,21 @@ export class WorkspaceCheckStore {
 
   async decide(input: {
     fingerprint: string;
+    findingId?: string;
     decision: WorkspaceCheckDecisionKind;
     actor: WorkspaceCheckDecision["actor"];
     deferUntil?: string;
     note?: string;
     now?: Date;
   }): Promise<WorkspaceCheckDecision> {
-    const existing = this.#state.decisions[input.fingerprint];
-    if (existing && existing.decision === input.decision && existing.actor === input.actor
-      && existing.deferUntil === input.deferUntil && existing.note === input.note) {
-      return structuredClone(existing);
+    const existingDecision = this.#state.decisions[input.fingerprint];
+    if (!input.findingId && existingDecision && existingDecision.decision === input.decision
+      && existingDecision.actor === input.actor && existingDecision.deferUntil === input.deferUntil
+      && existingDecision.note === input.note) {
+      return structuredClone(existingDecision);
     }
     const now = input.now ?? new Date();
-    const decision = normalizeDecision({
+    let decision = normalizeDecision({
       fingerprint: input.fingerprint,
       decision: input.decision,
       actor: input.actor,
@@ -229,9 +231,24 @@ export class WorkspaceCheckStore {
       ...(input.note ? { note: input.note } : {}),
     });
     await this.#update((state) => {
+      if (input.findingId) {
+        const finding = state.runs
+          .flatMap((run) => run.findings)
+          .find((item) => item.id === input.findingId);
+        if (!finding || finding.fingerprint !== input.fingerprint || finding.status !== "active") {
+          throw new Error("This finding is no longer active. Refresh Checks and try again.");
+        }
+      }
+      const existing = state.decisions[input.fingerprint];
+      if (existing && existing.decision === input.decision && existing.actor === input.actor
+        && existing.deferUntil === input.deferUntil && existing.note === input.note) {
+        decision = existing;
+        return false;
+      }
       state.decisions[decision.fingerprint] = decision;
       const entries = Object.values(state.decisions).sort((left, right) => right.decidedAt.localeCompare(left.decidedAt));
       state.decisions = Object.fromEntries(entries.slice(0, maximumDecisionRecords).map((item) => [item.fingerprint, item]));
+      return true;
     });
     return structuredClone(decision);
   }
@@ -276,10 +293,10 @@ export class WorkspaceCheckStore {
     await operation;
   }
 
-  async #update(mutate: (state: WorkspaceCheckMachineState) => void): Promise<void> {
+  async #update(mutate: (state: WorkspaceCheckMachineState) => void | boolean): Promise<void> {
     const operation = this.#writeQueue.catch(() => undefined).then(async () => {
       const next = this.snapshot();
-      mutate(next);
+      if (mutate(next) === false) return;
       next.revision += 1;
       const normalized = normalizeMachineState(next);
       await writeAtomicJson(this.#path, normalized, { preserveBackup: this.#preserveBackupOnNextWrite });
@@ -410,7 +427,7 @@ function normalizeRun(value: unknown): WorkspaceCheckRunRecord {
     ["endedAt", "error", "cost"],
     "Check run",
   );
-  if (!Array.isArray(record.checkIds) || record.checkIds.length > 64) throw new Error("Check run ids are invalid.");
+  if (!Array.isArray(record.checkIds) || record.checkIds.length > maximumAuthorizationRecords) throw new Error("Check run ids are invalid.");
   if (!Array.isArray(record.inputs) || record.inputs.length > 5_000) throw new Error("Check run inputs are invalid.");
   if (!Array.isArray(record.findings) || record.findings.length > 1_000) throw new Error("Check run findings are invalid.");
   if (record.state !== "accepted" && record.state !== "running" && record.state !== "succeeded" && record.state !== "failed" && record.state !== "aborted" && record.state !== "interrupted") {

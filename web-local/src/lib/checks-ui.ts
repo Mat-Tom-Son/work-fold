@@ -57,10 +57,13 @@ export function checksToolbarPresentation(status: ChecksStatus | null, unavailab
     };
   }
   if (status.state === "stale") {
+    const mixedFreshness = status.neverRun > 0 && status.stale > 0;
     return {
       icon: "stale",
-      label: status.neverRun ? "Checks not run" : "Results not current",
-      title: "Open Checks to review results; Checks run only when requested",
+      label: status.neverRun && !mixedFreshness ? "Checks not run" : "Results not current",
+      title: mixedFreshness
+        ? `${formatItemCount(status.neverRun, "Check")} not run; ${formatItemCount(status.stale, "result")} changed since its last run`
+        : "Open Checks to review results; Checks run only when requested",
       tone: "quiet",
       count: null,
     };

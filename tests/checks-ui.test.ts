@@ -101,3 +101,16 @@ test("running work takes precedence over a previous finding count", () => {
   assert.equal(presentation?.icon, "running");
   assert.equal(presentation?.count, null);
 });
+
+test("mixed never-run and stale Checks report both kinds of uncertainty", () => {
+  const presentation = checksToolbarPresentation({
+    ...base,
+    state: "stale",
+    configured: 2,
+    enabled: 2,
+    neverRun: 1,
+    stale: 1,
+  });
+  assert.equal(presentation?.label, "Results not current");
+  assert.match(presentation?.title ?? "", /1 Check not run; 1 result changed/);
+});
