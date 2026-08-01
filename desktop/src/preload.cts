@@ -1,5 +1,4 @@
 const { contextBridge, ipcRenderer } = require("electron") as typeof import("electron");
-const productIdentity = require("../../src/shared/product-identity.json") as typeof import("../../src/shared/product-identity.json");
 
 function argumentValue(name: string): string {
   const prefix = `--work-fold-${name}=`;
@@ -14,6 +13,8 @@ function argumentValue(name: string): string {
 
 const apiBaseUrl = argumentValue("api-base-url");
 const appVersion = argumentValue("app-version");
+const productName = argumentValue("product-name");
+const internalProtocol = argumentValue("internal-protocol");
 const rawWindowMaterial = argumentValue("window-material");
 const windowMaterial = rawWindowMaterial === "mica" || rawWindowMaterial === "vibrancy" ? rawWindowMaterial : "none";
 
@@ -24,10 +25,10 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
     getSessionHeaders: () => ipcRenderer.invoke("work-fold:api:session-headers"),
   },
   app: {
-    name: productIdentity.productName,
+    name: productName,
     version: appVersion,
     platform: process.platform,
-    iconUrl: `${productIdentity.internalProtocol}://app/_desktop-assets/icon-32.png`,
+    iconUrl: internalProtocol ? `${internalProtocol}://app/_desktop-assets/icon-32.png` : "",
   },
   runtime: {
     getHealth: () => ipcRenderer.invoke("work-fold:runtime:health"),

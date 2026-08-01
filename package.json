@@ -1,6 +1,6 @@
 {
   "name": "work-fold-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "A local-first desktop app powered by Pi.",
@@ -34,7 +34,7 @@
     "desktop:icons": "node scripts/generate-desktop-icons.mjs && node scripts/generate-dmg-background.mjs",
     "desktop:check": "tsc --noEmit -p tsconfig.desktop.json",
     "desktop:compile": "node scripts/clean-desktop-dist.mjs && tsc -p tsconfig.desktop.json",
-    "desktop:prepare": "npm run desktop:icons && npm run local:build && npm run desktop:compile && npm run desktop:restricted-app:smoke && npm run desktop:preflight",
+    "desktop:prepare": "npm run desktop:icons && npm run local:build && npm run desktop:compile && npm run desktop:preload:smoke && npm run desktop:restricted-app:smoke && npm run desktop:preflight",
     "desktop:package": "npm run desktop:prepare && electron-forge package && node scripts/verify-packaged-app-assets.mjs --package-dir out/work-fold-win32-x64",
     "desktop:package:smoke": "npm run desktop:prepare && electron-builder --config electron-builder.desktop.cjs --win --x64 --dir --publish never && npm run desktop:verify:packaged-assets -- --package-dir out/builder/win-unpacked",
     "desktop:make": "npm run desktop:prepare && electron-builder --config electron-builder.desktop.cjs --win nsis --x64 --publish never && npm run desktop:verify:release",
@@ -51,6 +51,7 @@
     "desktop:smoke": "npm run desktop:prepare && electron dist/desktop/desktop/src/main.js",
     "desktop:preflight": "node scripts/desktop-preflight.mjs",
     "desktop:restricted-app:smoke": "electron scripts/restricted-app-electron-smoke.mjs",
+    "desktop:preload:smoke": "electron scripts/desktop-preload-electron-smoke.mjs",
     "desktop:verify:packaged-assets": "node scripts/verify-packaged-app-assets.mjs",
     "desktop:verify:release": "node scripts/verify-windows-release.mjs",
     "desktop:verify:release:mac": "node scripts/verify-mac-release.mjs"

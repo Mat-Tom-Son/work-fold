@@ -27,11 +27,14 @@ from the last legacy source line. It must keep `.work-fold/` hidden and inert
 and refuse managed recursive deletion when `.work-fold/` exists. Freeze both
 legacy repositories after that release and retain its signed/notarized evidence.
 
-Install and test `0.1.0` manually; Workspace is not an updater predecessor.
-After that release is public, publish a higher work-fold version and prove the
-full installed update from `0.1.0`. The legacy source and Mac-release
-repositories are frozen and must never receive work-fold tags, artifacts, or
-metadata.
+Workspace is not an updater predecessor. The signed, notarized, and stapled
+`0.1.0` Mac artifacts were published and installed on August 1, 2026. That real
+first launch exposed a sandboxed-preload module-load defect before onboarding,
+so the release was retained immutably and marked superseded. `0.1.1` is the
+corrective release and must prove the full installed update from `0.1.0` as
+well as a clean onboarding launch. The legacy source and Mac-release
+repositories are frozen after that proof and must never receive work-fold tags,
+artifacts, or metadata.
 
 ## Release procedure
 

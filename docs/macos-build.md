@@ -100,13 +100,14 @@ The release lane signs/notarizes the app, signs/notarizes/staples the final DMG,
 Normal releases use one package version across Windows and Mac, but separate artifact feeds so the two publishers cannot race to own one GitHub release:
 
 The first public work-fold version is `0.1.0`. The repository used `0.8.0` as a
-development holdover and reset it only when the final candidate, release
-commit, and tag were ready. `0.1.0` must be Developer ID-signed,
-notarized, stapled, manually installed, and tested against the new
-`com.work-fold.desktop` identity and empty work-fold profile. It is not an
-update from Workspace. A second, higher work-fold release must then prove the
-new `Mat-Tom-Son/work-fold-mac-releases` updater path from installed `0.1.0`.
-The frozen legacy release repository must never receive these artifacts.
+development holdover and reset it only when the first release commit and tag
+were ready. Its Developer ID-signed, notarized, and stapled Mac artifacts were
+installed on August 1, 2026; real first-launch QA then found a sandboxed-preload
+module-load defect before onboarding. The published assets remain immutable
+and superseded. `0.1.1` repairs that boundary and is the first higher release
+used to prove the new `Mat-Tom-Son/work-fold-mac-releases` updater path from
+installed `0.1.0`. Neither version is an update from Workspace. The frozen
+legacy release repository must never receive these artifacts.
 
 ```bash
 npm run desktop:release:mac

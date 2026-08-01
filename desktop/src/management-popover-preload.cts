@@ -1,5 +1,4 @@
 const { contextBridge, ipcRenderer, webUtils } = require("electron") as typeof import("electron");
-const productIdentity = require("../../src/shared/product-identity.json") as typeof import("../../src/shared/product-identity.json");
 
 function argumentValue(name: string): string {
   const prefix = `--work-fold-${name}=`;
@@ -14,6 +13,8 @@ function argumentValue(name: string): string {
 
 const rawWindowMaterial = argumentValue("window-material");
 const windowMaterial = rawWindowMaterial === "vibrancy" ? "vibrancy" : "none";
+const productName = argumentValue("product-name");
+const internalProtocol = argumentValue("internal-protocol");
 const maxStagedItems = 16;
 const maxStagedValueLength = 4_096;
 
@@ -27,10 +28,10 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
     getSessionHeaders: () => ipcRenderer.invoke("work-fold:api:session-headers"),
   },
   app: {
-    name: productIdentity.productName,
+    name: productName,
     version: argumentValue("app-version"),
     platform: process.platform,
-    iconUrl: `${productIdentity.internalProtocol}://app/_desktop-assets/icon-32.png`,
+    iconUrl: internalProtocol ? `${internalProtocol}://app/_desktop-assets/icon-32.png` : "",
   },
   management: {
     getPathForFile: (file: File): string => {

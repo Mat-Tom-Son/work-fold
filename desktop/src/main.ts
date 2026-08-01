@@ -632,6 +632,7 @@ async function createMainWindow(): Promise<void> {
       // paint. Let Chromium throttle hidden/occluded UI to preserve battery life.
       backgroundThrottling: true,
       additionalArguments: [
+        ...productRendererArguments(),
         rendererArgument("api-base-url", api.origin),
         rendererArgument("app-version", app.getVersion()),
         rendererArgument("window-material", nativeWindowMaterial),
@@ -1623,6 +1624,7 @@ async function ensureManagementPopover(): Promise<ManagementPopover> {
     appProtocol,
     preloadPath: resolveManagementPopoverPreloadPath(),
     additionalArguments: [
+      ...productRendererArguments(),
       rendererArgument("api-base-url", api.origin),
       rendererArgument("app-version", app.getVersion()),
       rendererArgument("window-material", process.platform === "darwin" && macVibrancySupported ? "vibrancy" : "none"),
@@ -1907,6 +1909,13 @@ function isTrustedRendererUrl(value: string): boolean {
 
 function rendererArgument(name: string, value: string): string {
   return `--work-fold-${name}=${encodeURIComponent(value)}`;
+}
+
+function productRendererArguments(): string[] {
+  return [
+    rendererArgument("product-name", productName),
+    rendererArgument("internal-protocol", appProtocol),
+  ];
 }
 
 function resolveRendererDir(): string {
