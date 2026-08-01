@@ -220,6 +220,7 @@ export class WorkspaceCheckService {
     let proposed = 0;
     let enabled = 0;
     let current = 0;
+    let neverRun = 0;
     let stale = 0;
     let blocked = 0;
     let errors = discovery.errors.length;
@@ -250,7 +251,10 @@ export class WorkspaceCheckService {
       }
       enabled += 1;
       const run = latestRunForCheck(state.runs, record.declaration.id);
-      if (!run) continue;
+      if (!run) {
+        neverRun += 1;
+        continue;
+      }
       lastRunAt = maxTimestamp(lastRunAt, run.endedAt ?? run.startedAt);
       if (run.state === "accepted" || run.state === "running") continue;
       if (run.state !== "succeeded") {
@@ -276,6 +280,7 @@ export class WorkspaceCheckService {
       configured: discovery.declarations.length,
       enabled,
       current,
+      neverRun,
       stale,
       blocked,
       errors,
@@ -290,6 +295,7 @@ export class WorkspaceCheckService {
       proposed,
       enabled,
       current,
+      neverRun,
       stale,
       blocked,
       errors,
@@ -820,6 +826,7 @@ function aggregateState(input: {
   configured: number;
   enabled: number;
   current: number;
+  neverRun: number;
   stale: number;
   blocked: number;
   errors: number;
@@ -829,7 +836,7 @@ function aggregateState(input: {
   if (input.blocked) return "blocked";
   if (!input.configured || !input.enabled) return "not-configured";
   if (input.needsAttention) return "needs-attention";
-  if (input.stale || input.current < input.enabled) return "stale";
+  if (input.neverRun || input.stale || input.current < input.enabled) return "stale";
   return "current-clear";
 }
 

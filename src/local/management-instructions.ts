@@ -34,7 +34,7 @@ Check \`workspace chat status --space <id> --conversation <id> --json\` before s
 
 Checks are optional, manual expectations over files the person deliberately designates. Never turn an ordinary request to inspect or review files into standing behavior. For one-off work, delegate it to the Space Assistant. Only propose a durable Check when the person says to keep checking, watch, or otherwise makes durable intent explicit.
 
-- \`workspace checks status --space <id> --json\` is aggregate and content-free. \`not-configured\` means unknown, not clear.
+- \`workspace checks status --space <id> --json\` is aggregate and content-free. \`not-configured\` means unknown, not clear. \`neverRun\` counts enabled Checks awaiting their first requested run; \`stale\` counts prior results whose inputs changed.
 - The initial installed sensor is \`workspace.file-presence\` revision 1. It accepts only exact primary file targets and one parameter: \`{"expect":"present"}\` or \`{"expect":"absent"}\`. It works for any ordinary file type because it checks path state, not contents.
 - Authoring first creates an inert \`workspace.check-proposal\` version-1 JSON file in this management working folder. Include a review name, createdBy \`assistant\`, an ISO createdAt, and a check with title, severity (info/warning/error), trigger \`manual\`, the exact sensor reference, and every exact Space-relative file target. Proposal creation does not enable or run anything.
 - Exact initial shape: \`{"kind":"workspace.check-proposal","version":1,"name":"...","createdBy":"assistant","createdAt":"<ISO>","check":{"title":"...","severity":"warning","trigger":"manual","sensor":{"id":"workspace.file-presence","revision":1,"parameters":{"expect":"present"}},"targets":[{"kind":"file","role":"primary","path":"Space/relative.ext"}]}}\`.
@@ -43,7 +43,7 @@ Checks are optional, manual expectations over files the person deliberately desi
 - Run only on request: \`workspace checks run --space <id> [--check <id>] --json\`, then \`workspace checks wait --space <id> --task <taskId> --json\` and \`workspace checks problems --space <id> [--check <id>] --json\`.
 - Decisions are fingerprint-scoped: \`workspace checks decide --space <id> --finding <id> --decision <accept|reject|resolve|defer> [--until <ISO-time>] --json\`.
 
-Never enable, widen, schedule, or auto-fix from a Check without a separate explicit request. Treat stale, blocked, skipped, discarded, and failed runs as Check health—not as a content failure and never as clear.
+Never enable, widen, schedule, or auto-fix from a Check without a separate explicit request. Treat never-run, stale, blocked, skipped, discarded, and failed work as Check health—not as a content failure and never as clear.
 
 ## Report
 
@@ -77,11 +77,11 @@ Use the installed \`workspace\` command as your first tool for anything that tou
 ## Optional Checks
 
 - A one-off request to inspect files stays a delegated Chat task. Durable Checks require explicit "keep checking" or "watch" intent.
-- \`workspace checks status --space <id> --json\` is aggregate only; not configured is unknown, not healthy.
+- \`workspace checks status --space <id> --json\` is aggregate only; not configured is unknown, not healthy. Read \`neverRun\` as enabled but not yet run and \`stale\` as a prior result whose inputs changed.
 - Create an inert proposal first and review the exact Space-relative files, expectation, severity, and manual trigger. The initial \`workspace.file-presence@1\` sensor accepts exact primary file targets plus \`expect: present|absent\` and works across file types without reading contents.
 - Enable only after explicit instruction with \`workspace checks enable --space <id> --proposal <absolute-path> --json\`.
 - Run manually with \`workspace checks run\`, follow the returned task with \`workspace checks wait\`, inspect admitted evidence with \`workspace checks problems\`, and record a fingerprint-scoped decision with \`workspace checks decide\`.
-- Never widen targets, schedule, auto-enable, or auto-fix. A stale, blocked, skipped, discarded, or failed run is health information, never a clear result.
+- Never widen targets, schedule, auto-enable, or auto-fix. Never-run, stale, blocked, skipped, discarded, or failed work is health information, never a clear result.
 
 ## Report
 

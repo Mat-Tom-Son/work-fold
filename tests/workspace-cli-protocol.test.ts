@@ -150,7 +150,8 @@ test("CLI Checks status emits aggregate-only JSON and human output", async () =>
       proposed: 1,
       enabled: 2,
       current: 1,
-      stale: 1,
+      neverRun: 1,
+      stale: 0,
       blocked: 0,
       errors: 0,
       needsAttention: 2,
@@ -170,6 +171,8 @@ test("CLI Checks status emits aggregate-only JSON and human output", async () =>
   );
   assert.match(human.stdout, /^Checks: needs attention/m);
   assert.match(human.stdout, /Configured: 3 \(2 enabled, 1 proposed\)/);
+  assert.match(human.stdout, /Never run: 1/);
+  assert.match(human.stdout, /Stale: 0/);
   assert.match(human.stdout, /Needs attention: 2/);
   assert.doesNotMatch(human.stdout, /title|path|evidence|decision|sensor|parameter|error text/i);
 });
@@ -220,7 +223,7 @@ test("CLI human output neutralizes terminal control sequences from host metadata
     async getChecksStatus() {
       return {
         kind: "workspace.checks.experimental", version: 0, available: true, workspaceId: hostile,
-        state: "current-clear", configured: 1, proposed: 0, enabled: 1, current: 1,
+        state: "current-clear", configured: 1, proposed: 0, enabled: 1, current: 1, neverRun: 0,
         stale: 0, blocked: 0, errors: 0, needsAttention: 0, running: 0, lastRunAt: null,
       };
     },
@@ -298,7 +301,8 @@ function fixtureKernel(calls: Array<{ method: string; actor: WorkspaceCliActor; 
         proposed: 1,
         enabled: 2,
         current: 1,
-        stale: 1,
+        neverRun: 1,
+        stale: 0,
         blocked: 0,
         errors: 0,
         needsAttention: 2,

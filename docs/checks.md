@@ -140,7 +140,10 @@ active finding**.
   time, even if the content has not changed.
 - Freshness compares current target identities with the run inputs. It is one
   of `current`, `stale`, `never-run`, `blocked`, or `error`; an old result is
-  never silently presented as current.
+  never silently presented as current. Aggregate status reports `neverRun`
+  separately from `stale`, so an enabled Check awaiting its first manual run
+  is explicit even though the Space-level state remains `stale` until work is
+  requested.
 - Aggregate states distinguish `not-configured`, `current-clear`,
   `needs-attention`, `stale`, `blocked`, and `check-error`. Unknown is never
   rendered as healthy.

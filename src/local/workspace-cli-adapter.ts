@@ -219,6 +219,7 @@ function projectChecksStatus(snapshot: WorkspaceCheckStatusSnapshot, workspaceId
     snapshot.proposed,
     snapshot.enabled,
     snapshot.current,
+    snapshot.neverRun,
     snapshot.stale,
     snapshot.blocked,
     snapshot.errors,
@@ -226,6 +227,8 @@ function projectChecksStatus(snapshot: WorkspaceCheckStatusSnapshot, workspaceId
     snapshot.running,
   ];
   if (counts.some((count) => !Number.isSafeInteger(count) || count < 0)) return null;
+  if (snapshot.current + snapshot.neverRun + snapshot.stale > snapshot.enabled) return null;
+  if (snapshot.proposed + snapshot.enabled + snapshot.blocked > snapshot.configured) return null;
   if (snapshot.lastRunAt !== null && (typeof snapshot.lastRunAt !== "string" || !Number.isFinite(Date.parse(snapshot.lastRunAt)))) return null;
   return {
     kind: "workspace.checks.experimental",
@@ -237,6 +240,7 @@ function projectChecksStatus(snapshot: WorkspaceCheckStatusSnapshot, workspaceId
     proposed: snapshot.proposed,
     enabled: snapshot.enabled,
     current: snapshot.current,
+    neverRun: snapshot.neverRun,
     stale: snapshot.stale,
     blocked: snapshot.blocked,
     errors: snapshot.errors,
@@ -257,6 +261,7 @@ function unavailableChecksStatus(workspaceId: string): WorkspaceCliCheckStatusSu
     proposed: 0,
     enabled: 0,
     current: 0,
+    neverRun: 0,
     stale: 0,
     blocked: 0,
     errors: 0,

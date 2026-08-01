@@ -54,6 +54,7 @@ test("optional Checks complete proposal, grant, task, evidence, decision, stale,
     proposed: 0,
     enabled: 0,
     current: 0,
+    neverRun: 0,
     stale: 0,
     blocked: 0,
     errors: 0,
@@ -66,7 +67,10 @@ test("optional Checks complete proposal, grant, task, evidence, decision, stale,
   const enabledAgain = await service.enable({ space, proposalPath, actor: "human" });
   assert.equal(enabledAgain.declaration.id, enabled.declaration.id, "re-enabling the same proposal is idempotent");
   assert.equal((await readdir(join(root, ".workspace", "checks"))).filter((name) => name.endsWith(".json")).length, 1);
-  assert.equal((await service.status(space)).state, "stale", "enabled but never run is not clear");
+  const neverRun = await service.status(space);
+  assert.equal(neverRun.state, "stale", "enabled but never run is not clear");
+  assert.equal(neverRun.neverRun, 1, "enabled Checks awaiting their first run remain explicit");
+  assert.equal(neverRun.stale, 0, "never-run Checks are not miscounted as changed prior results");
   const declarations = JSON.parse(await readFile(join(root, ".workspace", "checks", `${enabled.declaration.id}.json`), "utf8"));
   assert.equal(declarations.sensor.id, "workspace.file-presence");
   assert.equal("enabled" in declarations, false, "portable data must not carry machine authority");

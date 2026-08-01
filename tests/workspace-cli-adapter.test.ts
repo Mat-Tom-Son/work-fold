@@ -236,7 +236,8 @@ test("WorkspaceCliKernelAdapter resolves Check status scope and projects only ag
         configured: 4,
         proposed: 1,
         enabled: 3,
-        current: 2,
+        current: 1,
+        neverRun: 1,
         stale: 1,
         blocked: 0,
         errors: 0,
@@ -267,7 +268,8 @@ test("WorkspaceCliKernelAdapter resolves Check status scope and projects only ag
     configured: 4,
     proposed: 1,
     enabled: 3,
-    current: 2,
+    current: 1,
+    neverRun: 1,
     stale: 1,
     blocked: 0,
     errors: 0,
@@ -295,6 +297,7 @@ test("WorkspaceCliKernelAdapter reports unavailable status when no safe aggregat
     proposed: 0,
     enabled: 0,
     current: 0,
+    neverRun: 0,
     stale: 0,
     blocked: 0,
     errors: 0,
@@ -326,6 +329,7 @@ test("WorkspaceCliKernelAdapter reports unavailable status when no safe aggregat
         proposed: 0,
         enabled: 0,
         current: 0,
+        neverRun: 0,
         stale: 0,
         blocked: 0,
         errors: 0,
@@ -336,6 +340,29 @@ test("WorkspaceCliKernelAdapter reports unavailable status when no safe aggregat
     },
   });
   assert.deepEqual(await invalidProvider.getChecksStatus(actor, {}), expected);
+
+  const inconsistentProvider = new WorkspaceCliKernelAdapter(new WorkspaceKernel(spaceDependencies([workspace])), {
+    async checksStatusProvider() {
+      return {
+        kind: "workspace.checks.experimental",
+        version: 0,
+        workspaceId: workspace.id,
+        state: "stale",
+        configured: 1,
+        proposed: 0,
+        enabled: 1,
+        current: 1,
+        neverRun: 1,
+        stale: 0,
+        blocked: 0,
+        errors: 0,
+        needsAttention: 0,
+        running: 0,
+        lastRunAt: null,
+      };
+    },
+  });
+  assert.deepEqual(await inconsistentProvider.getChecksStatus(actor, {}), expected);
 });
 
 function spaceDependencies(spaces: WorkspaceSummary[]) {

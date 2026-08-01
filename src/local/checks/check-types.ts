@@ -133,6 +133,7 @@ export interface WorkspaceCheckStatusSnapshot {
   proposed: number;
   enabled: number;
   current: number;
+  neverRun: number;
   stale: number;
   blocked: number;
   errors: number;

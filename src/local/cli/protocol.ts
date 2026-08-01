@@ -123,6 +123,7 @@ export interface WorkspaceCliCheckStatusSummary {
   proposed: number;
   enabled: number;
   current: number;
+  neverRun: number;
   stale: number;
   blocked: number;
   errors: number;
