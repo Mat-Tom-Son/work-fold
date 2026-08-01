@@ -20,6 +20,9 @@ import type {
   WorkspaceCheckDecision,
   WorkspaceCheckDecisionKind,
   WorkspaceCheckFinding,
+  WorkspaceCheckRendererAuthorityState,
+  WorkspaceCheckRendererDecorations,
+  WorkspaceCheckRendererOverview,
   WorkspaceCheckRunLimits,
   WorkspaceCheckRunRecord,
   WorkspaceCheckStatusSnapshot,
@@ -65,6 +68,20 @@ export interface WorkspaceCheckTaskStatus {
   startedAt: string | null;
   endedAt: string | null;
   error: string | null;
+}
+
+interface WorkspaceCheckProblemsResult {
+  findings: WorkspaceCheckFinding[];
+  invalidated: number;
+  healthErrors: string[];
+  truncated: boolean;
+}
+
+export class WorkspaceCheckOperationConflictError extends Error {
+  constructor(message = "Wait for the current Check operation in this Space to finish.") {
+    super(message);
+    this.name = "WorkspaceCheckOperationConflictError";
+  }
 }
 
 export class WorkspaceCheckService {
@@ -214,7 +231,62 @@ export class WorkspaceCheckService {
     return this.#withOperationReservation(space.id, async () => this.#status(await this.#registeredSpace(space)));
   }
 
-  async #status(registered: WorkspaceCheckSpaceRef): Promise<WorkspaceCheckStatusSnapshot> {
+  decorations(space: WorkspaceCheckSpaceRef): Promise<WorkspaceCheckRendererDecorations> {
+    return this.#withOperationReservation(space.id, async () => {
+      const registered = await this.#registeredSpace(space);
+      const problems = await this.#problems(registered, false);
+      const counts = new Map<string, number>();
+      for (const finding of problems.findings) {
+        counts.set(finding.targetPath, (counts.get(finding.targetPath) ?? 0) + 1);
+      }
+      return {
+        kind: "workspace.checks.decorations",
+        version: workspaceCheckExperimentalSnapshotVersion,
+        workspaceId: registered.id,
+        items: [...counts.entries()]
+          .sort(([left], [right]) => left.localeCompare(right, "en-US"))
+          .map(([path, count]) => ({ path, count })),
+      };
+    });
+  }
+
+  overview(space: WorkspaceCheckSpaceRef): Promise<WorkspaceCheckRendererOverview> {
+    return this.#withOperationReservation(space.id, async () => {
+      const registered = await this.#registeredSpace(space);
+      const problems = await this.#problems(registered, true);
+      const status = await this.#status(registered, problems);
+      const discovery = await discoverWorkspaceCheckDeclarations(registered.rootPath);
+      const state = (await this.#store(registered.id)).snapshot();
+      const checks = [];
+      for (const record of discovery.declarations) {
+        checks.push({
+          id: record.declaration.id,
+          title: record.declaration.title,
+          severity: record.declaration.severity,
+          trigger: record.declaration.trigger,
+          sensor: {
+            id: record.declaration.sensor.id,
+            revision: record.declaration.sensor.revision,
+          },
+          targets: structuredClone(record.declaration.targets),
+          authority: await this.#rendererAuthorityState(registered, record, state.authorizations[record.declaration.id]),
+        });
+      }
+      return {
+        kind: "workspace.checks.renderer",
+        version: workspaceCheckExperimentalSnapshotVersion,
+        workspaceId: registered.id,
+        status,
+        checks,
+        ...problems,
+      };
+    });
+  }
+
+  async #status(
+    registered: WorkspaceCheckSpaceRef,
+    knownProblems?: WorkspaceCheckProblemsResult,
+  ): Promise<WorkspaceCheckStatusSnapshot> {
     const discovery = await discoverWorkspaceCheckDeclarations(registered.rootPath);
     const state = (await this.#store(registered.id)).snapshot();
     let proposed = 0;
@@ -271,7 +343,7 @@ export class WorkspaceCheckService {
     }
 
     try {
-      needsAttention = (await this.#problems(registered, false)).findings.length;
+      needsAttention = (knownProblems ?? await this.#problems(registered, false)).findings.length;
     } catch {
       errors += 1;
     }
@@ -647,6 +719,29 @@ export class WorkspaceCheckService {
     return { findings, invalidated, healthErrors, truncated };
   }
 
+  async #rendererAuthorityState(
+    space: WorkspaceCheckSpaceRef,
+    record: WorkspaceCheckDeclarationRecord,
+    savedAuthorization: WorkspaceCheckAuthorization | undefined,
+  ): Promise<WorkspaceCheckRendererAuthorityState> {
+    if (!savedAuthorization) return "proposed";
+    const authorization = exactAuthorization(savedAuthorization, record);
+    if (!authorization) return "blocked";
+    const sensor = this.#resolveSensor(record.declaration.sensor.id, record.declaration.sensor.revision);
+    if (!sensor
+      || sensor.execution !== authorization.execution
+      || sensor.implementationDigest !== authorization.sensorDigest) {
+      return "blocked";
+    }
+    try {
+      sensor.validate(record.declaration);
+      await this.#assertNoNestedSpaceTargets(space, record.declaration);
+      return "enabled";
+    } catch {
+      return "blocked";
+    }
+  }
+
   async #taskStatus(spaceId: string, taskId: string): Promise<WorkspaceCheckTaskStatus> {
     await this.#registeredSpaceId(spaceId);
     await this.#retryTerminalRecovery(taskId);
@@ -677,7 +772,7 @@ export class WorkspaceCheckService {
     if (this.#spaceRegistryMutationReserved
       || this.#spaceRemovalReservations.has(workspaceId)
       || this.#operationReservations.has(workspaceId)) {
-      throw new Error("Wait for the current Check operation in this Space to finish.");
+      throw new WorkspaceCheckOperationConflictError();
     }
     this.#operationReservations.add(workspaceId);
     try {

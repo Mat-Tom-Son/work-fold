@@ -86,6 +86,19 @@ test("optional Checks complete proposal, grant, task, evidence, decision, stale,
 
   const problems = await service.problems(space);
   assert.equal(problems.findings.length, 1);
+  assert.deepEqual(await service.decorations(space), {
+    kind: "workspace.checks.decorations",
+    version: 0,
+    workspaceId: space.id,
+    items: [{ path: "Delivery/signed.pdf", count: 1 }],
+  });
+  const rendererOverview = await service.overview(space);
+  assert.equal(rendererOverview.kind, "workspace.checks.renderer");
+  assert.equal(rendererOverview.status.state, "needs-attention");
+  assert.equal(rendererOverview.checks.length, 1);
+  assert.equal(rendererOverview.checks[0]?.authority, "enabled");
+  assert.deepEqual(rendererOverview.checks[0]?.targets, proposal.check.targets);
+  assert.equal(rendererOverview.findings[0]?.targetPath, "Delivery/signed.pdf");
   await assert.rejects(() => service.decide({
     spaceId: space.id,
     findingId: problems.findings[0]!.id,

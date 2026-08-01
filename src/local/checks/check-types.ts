@@ -1,4 +1,4 @@
-import type { WorkspaceCheckSeverity } from "../../shared/checks.js";
+import type { WorkspaceCheckSeverity, WorkspaceCheckTarget } from "../../shared/checks.js";
 
 export const workspaceCheckStateVersion = 1 as const;
 export const workspaceCheckExperimentalSnapshotVersion = 0 as const;
@@ -140,4 +140,39 @@ export interface WorkspaceCheckStatusSnapshot {
   needsAttention: number;
   running: number;
   lastRunAt: string | null;
+}
+
+export type WorkspaceCheckRendererAuthorityState = "enabled" | "proposed" | "blocked";
+
+/**
+ * Content-bearing projection for the authenticated desktop renderer. This is
+ * deliberately separate from the content-free CLI status snapshot: paths,
+ * titles, evidence, and decisions must never leak into protocol v1.
+ */
+export interface WorkspaceCheckRendererOverview {
+  kind: "workspace.checks.renderer";
+  version: typeof workspaceCheckExperimentalSnapshotVersion;
+  workspaceId: string;
+  status: WorkspaceCheckStatusSnapshot;
+  checks: Array<{
+    id: string;
+    title: string;
+    severity: WorkspaceCheckSeverity;
+    trigger: "manual";
+    sensor: { id: string; revision: number };
+    targets: WorkspaceCheckTarget[];
+    authority: WorkspaceCheckRendererAuthorityState;
+  }>;
+  findings: WorkspaceCheckFinding[];
+  invalidated: number;
+  healthErrors: string[];
+  truncated: boolean;
+}
+
+/** Minimal file-path projection used only for quiet Files decorations. */
+export interface WorkspaceCheckRendererDecorations {
+  kind: "workspace.checks.decorations";
+  version: typeof workspaceCheckExperimentalSnapshotVersion;
+  workspaceId: string;
+  items: Array<{ path: string; count: number }>;
 }

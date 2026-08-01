@@ -83,7 +83,8 @@ import { searchWorkspace } from "./search.js";
 import { SpaceAppearanceStore } from "./space-appearance-store.js";
 import { conversationTitleFromFirstUserMessage } from "../shared/chat-title.js";
 import { spaceAppearanceBannerNames } from "../shared/space-appearance.js";
-import { WorkspaceCheckService } from "./checks/check-service.js";
+import { WorkspaceCheckOperationConflictError, WorkspaceCheckService } from "./checks/check-service.js";
+import type { WorkspaceCheckDecisionKind } from "./checks/check-types.js";
 import { purgeWorkspaceCheckState } from "./checks/check-store.js";
 import { ensureManagementInstructions } from "./management-instructions.js";
 import {
@@ -437,6 +438,86 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const workspaceIds = new Set((await state.kernel.getSpaces({ kind: "renderer" })).spaces.map((workspace) => workspace.id));
     const appearance = await state.appearance.importLegacy(body.customizations, workspaceIds);
     sendJson(res, { appearance });
+    return;
+  }
+
+  const checksStatusMatch = match(url.pathname, /^\/api\/workspaces\/([^/]+)\/checks\/status$/);
+  if (checksStatusMatch && method === "GET") {
+    const workspace = await getWorkspace(checksStatusMatch[1]);
+    sendJson(res, { status: await state.checks.status(workspace) });
+    return;
+  }
+
+  const checksDecorationsMatch = match(url.pathname, /^\/api\/workspaces\/([^/]+)\/checks\/decorations$/);
+  if (checksDecorationsMatch && method === "GET") {
+    const workspace = await getWorkspace(checksDecorationsMatch[1]);
+    sendJson(res, { decorations: await state.checks.decorations(workspace) });
+    return;
+  }
+
+  const checksOverviewMatch = match(url.pathname, /^\/api\/workspaces\/([^/]+)\/checks\/overview$/);
+  if (checksOverviewMatch && method === "POST") {
+    const workspace = await getWorkspace(checksOverviewMatch[1]);
+    await readJsonBody<Record<string, never>>(state, req);
+    const overview = await runReservedCheckOperation(
+      state,
+      workspace.id,
+      () => state.checks.overview(workspace),
+    );
+    sendJson(res, { overview });
+    return;
+  }
+
+  const checksRunMatch = match(url.pathname, /^\/api\/workspaces\/([^/]+)\/checks\/run$/);
+  if (checksRunMatch && method === "POST") {
+    const workspace = await getWorkspace(checksRunMatch[1]);
+    const body = await readJsonBody<{ checkId?: string }>(state, req);
+    if (body.checkId !== undefined && typeof body.checkId !== "string") throw badRequest("Check id must be a string.");
+    const checkId = body.checkId?.trim();
+    const accepted = await runReservedCheckOperation(state, workspace.id, () => state.checks.run({
+      space: workspace,
+      ...(checkId ? { checkId } : {}),
+      actor: { kind: "renderer", cwd: workspace.rootPath, workspaceId: workspace.id },
+    }));
+    sendJson(res, { task: accepted }, 202);
+    return;
+  }
+
+  const checksTaskMatch = match(url.pathname, /^\/api\/workspaces\/([^/]+)\/checks\/tasks\/([^/]+)$/);
+  if (checksTaskMatch && method === "GET") {
+    const workspace = await getWorkspace(checksTaskMatch[1]);
+    sendJson(res, { task: await state.checks.taskStatus(workspace.id, checksTaskMatch[2]) });
+    return;
+  }
+
+  const checksAbortMatch = match(url.pathname, /^\/api\/workspaces\/([^/]+)\/checks\/tasks\/([^/]+)\/abort$/);
+  if (checksAbortMatch && method === "POST") {
+    const workspace = await getWorkspace(checksAbortMatch[1]);
+    await readJsonBody<Record<string, never>>(state, req);
+    const aborted = await runReservedCheckOperation(
+      state,
+      workspace.id,
+      () => state.checks.abort(workspace.id, checksAbortMatch[2]),
+    );
+    sendJson(res, { taskId: checksAbortMatch[2], aborted });
+    return;
+  }
+
+  const checksDecisionMatch = match(url.pathname, /^\/api\/workspaces\/([^/]+)\/checks\/findings\/([^/]+)\/decision$/);
+  if (checksDecisionMatch && method === "POST") {
+    const workspace = await getWorkspace(checksDecisionMatch[1]);
+    const body = await readJsonBody<{ decision?: WorkspaceCheckDecisionKind; deferUntil?: string }>(state, req);
+    const decisionKind = body.decision;
+    if (!isWorkspaceCheckDecisionKind(decisionKind)) throw badRequest("Choose a valid Check decision.");
+    if (body.deferUntil !== undefined && typeof body.deferUntil !== "string") throw badRequest("Check deferUntil must be a timestamp.");
+    const decision = await runReservedCheckOperation(state, workspace.id, () => state.checks.decide({
+      spaceId: workspace.id,
+      findingId: checksDecisionMatch[2],
+      decision: decisionKind,
+      actor: "renderer",
+      ...(body.deferUntil ? { deferUntil: body.deferUntil } : {}),
+    }));
+    sendJson(res, { findingId: checksDecisionMatch[2], decision });
     return;
   }
 
@@ -2960,11 +3041,29 @@ function sendJson(res: ServerResponse, payload: unknown, status = 200): void {
 function sendError(res: ServerResponse, error: unknown): void {
   if (res.headersSent) { res.end(); return; }
   const explicit = typeof (error as { statusCode?: unknown })?.statusCode === "number" ? (error as { statusCode: number }).statusCode : null;
-  const status = explicit ?? restrictedAppErrorStatus(error) ?? 500;
+  const status = explicit
+    ?? workspaceCliErrorStatus(error)
+    ?? (error instanceof WorkspaceCheckOperationConflictError ? 409 : null)
+    ?? restrictedAppErrorStatus(error)
+    ?? 500;
   sendJson(res, {
     error: errorMessage(error),
     ...(error instanceof RestrictedAppError ? { code: error.code } : {}),
   }, status);
+}
+
+function workspaceCliErrorStatus(error: unknown): number | null {
+  if (!(error instanceof WorkspaceCliError)) return null;
+  switch (error.code) {
+    case "usage":
+    case "protocolError": return 400;
+    case "permissionDenied": return 403;
+    case "notFound": return 404;
+    case "conflict": return 409;
+    case "unavailable": return 503;
+    case "timeout": return 504;
+    case "failure": return 500;
+  }
 }
 
 function restrictedAppErrorStatus(error: unknown): number | null {
@@ -3000,6 +3099,10 @@ function notFound(message: string): Error { return httpError(404, message); }
 function tooLarge(message: string): Error { return httpError(413, message); }
 function unavailable(message: string): Error { return httpError(503, message); }
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+
+function isWorkspaceCheckDecisionKind(value: unknown): value is WorkspaceCheckDecisionKind {
+  return value === "accept" || value === "reject" || value === "resolve" || value === "defer";
+}
 
 function match(path: string, pattern: RegExp): string[] | null {
   const result = pattern.exec(path);
