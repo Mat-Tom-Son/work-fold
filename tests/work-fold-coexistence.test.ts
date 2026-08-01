@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, posix, resolve } from "node:path";
 import test, { after, before } from "node:test";
 
 import {
@@ -132,7 +132,7 @@ test("legacy product environment variables cannot select work-fold state", () =>
     currentDirectory: sandbox,
   });
   assert.equal(options.port, 4327);
-  assert.equal(options.stateBase, join(sandbox, "home", ".config", "work-fold Development"));
+  assert.equal(options.stateBase, posix.resolve(join(sandbox, "home"), ".config", "work-fold Development"));
   assert.equal(workFoldDesktopStateOverride({
     WORKSPACE_DESKTOP_STATE_DIR: join(sandbox, "legacy-desktop-state"),
   }), undefined);
