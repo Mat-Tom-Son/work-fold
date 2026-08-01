@@ -60,7 +60,9 @@ Workspace reserves two hidden support directories inside a Space: `.workspace/` 
 - A local App Studio that declares a machine-local App Project, prepares immutable version-2 Releases from reviewed previews, publishes them as a separate local decision, installs a published Release into a chosen registered Space, and prepares deterministic updates or rollbacks before activation.
 - [Agent Skills](https://agentskills.io) from standard `SKILL.md` directories, `.skill`/ZIP bundles, and skill-only imports from compatible multi-skill packs.
 - Assisted Windows installation and a signed/notarized Apple silicon DMG, with GitHub-hosted application updates on both platforms.
-- A versioned, read-only management layer and installed `workspace` command for inspecting Space context, running work, and Pi capabilities without scraping the UI.
+- A versioned management layer and installed `workspace` command: a content-free read lane for inspecting Space context, running work, and Pi capabilities, plus a per-launch-authenticated act lane that lets a shell-capable agent create or register Spaces, copy material into a Space with a History restore point, and start, continue, await, or abort Space Chats while the app is running — every action journaled before it runs.
+- A management conversation above all Spaces (`workspace manage …`): the same full-trust Assistant runtime with a machine-local transcript, taught by app-materialized instructions to work across Spaces through the workspace CLI's read and act commands.
+- Native OS file drops on any Chat composer: dropped files upload into that Space's dated `Dropped/` folder and attach as explicit chat context.
 
 Workspace does not bundle organization-specific tools, instructions, document libraries, or cloud accounts.
 
@@ -180,9 +182,13 @@ workspace context --json
 workspace spaces list
 workspace tasks list --space "Personal Space"
 workspace capabilities list --space "Personal Space" --json
+workspace chat send --space "Home" --new --message "File the material I dropped."
+workspace chat wait --space "Home" --task <task-id> --json
+workspace files add --space "Vendor Audits" --from ./report.pdf --to "Inbox"
+workspace manage send --message "What changed across my Spaces today?"
 ```
 
-Protocol v1 is deliberately read-only. It gives people, scripts, and the Assistant a shared way to inspect the Space resolved from the terminal's current folder, the registered Spaces, host-managed running tasks, and capability inventory—including inactive tools or configured packages that are not currently loaded. The handoff trusts the current operating-system user; mutating commands will require an authenticated transport and explicit authorization in a later protocol version.
+Protocol v1 — the read lane — is deliberately read-only and content-free. It gives people, scripts, and the Assistant a shared way to inspect the Space resolved from the terminal's current folder, the registered Spaces, host-managed running tasks, and capability inventory—including inactive tools or configured packages that are not currently loaded. Mutations ride a separately versioned act lane instead: while the Workspace app is running it mints a per-launch token that authorizes `chat`, `chats list`, `spaces create/register`, and `files add` commands, reuses the same trust, conflict, and History rules as the desktop surfaces, journals every authorized action before it runs, and refuses a replayed request id instead of executing it twice. `chat send` returns a task id, and `chat wait --task` follows exactly that turn to its own success or failure. Without the running app, act commands answer "Open Workspace…". The handoff still trusts the current operating-system user — the token binds requests to one app run on this personal machine; it is not a multi-user boundary.
 
 Human-readable output is the default. Use `--json` for automation and `--space <id-or-exact-name>` when the terminal's current folder is not enough context. See [Workspace management layer](docs/management-layer.md) for snapshot fields, resolution rules, broker limits, and the distinction between this CLI and `workspace:drive`.
 
