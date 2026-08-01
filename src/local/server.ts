@@ -216,6 +216,7 @@ interface LocalApiState {
   chatStreams: Map<string, Set<ServerResponse>>;
   clients: Map<string, PiConversationClient>;
   runningTurns: Set<string>;
+  activeTurnPromises: Set<Promise<void>>;
   activeTurnTasks: Map<string, { workspaceId: string; conversationId: string }>;
   settledTurns: Map<string, SettledTurnRecord>;
   compactingConversations: Set<string>;
@@ -343,6 +344,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     chatStreams: new Map(),
     clients: new Map(),
     runningTurns: new Set(),
+    activeTurnPromises: new Set(),
     activeTurnTasks: new Map(),
     settledTurns: new Map(),
     compactingConversations: new Set(),
@@ -397,6 +399,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       for (const streams of state.chatStreams.values()) for (const response of streams) response.end();
       for (const close of [...state.fileStreams]) close();
       for (const client of state.clients.values()) await client.stop().catch(() => undefined);
+      await Promise.allSettled([...state.activeTurnPromises]);
       await state.checks.close();
       await state.appearance.flush();
       await state.restrictedApps.close();
@@ -1723,7 +1726,24 @@ async function acceptConversationTurn(
     broadcast(state, turnKey, turnStateEvent(conversationId, false));
     throw error;
   }
-  void runAgentTurn(state, workspace.id, workspace.rootPath, conversationId, input.content, input.contextPaths, input.selectedPath, task.id);
+  const turn = runAgentTurn(
+    state,
+    workspace.id,
+    workspace.rootPath,
+    conversationId,
+    input.content,
+    input.contextPaths,
+    input.selectedPath,
+    task.id,
+  );
+  state.activeTurnPromises.add(turn);
+  void turn.then(
+    () => state.activeTurnPromises.delete(turn),
+    (error) => {
+      state.activeTurnPromises.delete(turn);
+      console.error(`Accepted Assistant turn escaped its settlement path: ${errorMessage(error)}`);
+    },
+  );
   return { message, taskId: task.id };
 }
 
