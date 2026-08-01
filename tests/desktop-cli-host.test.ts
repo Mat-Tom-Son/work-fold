@@ -11,7 +11,12 @@ import {
   workspaceCliRequestIdFromArgv,
   workspaceCliRequestIdFromInstanceData,
 } from "../desktop/src/cli-host.js";
-import { createWorkspaceCliRequest, type WorkspaceCliKernel } from "../src/local/cli/index.js";
+import {
+  createWorkspaceCliActRequest,
+  createWorkspaceCliRequest,
+  type WorkspaceActFacade,
+  type WorkspaceCliKernel,
+} from "../src/local/cli/index.js";
 
 test("desktop CLI launch metadata accepts both Electron argument forms", () => {
   const id = randomUUID();
@@ -91,6 +96,108 @@ test("desktop CLI host serializes overlapping requests and exposes an idle drain
       await Promise.all(requests.map(async (request) => (await host.broker.readResponse(request.id)).exitCode)),
       [0, 0],
     );
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("desktop CLI host gates act requests on the per-launch authority and records receipts", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "workspace-desktop-cli-act-"));
+  const token = "d".repeat(64);
+  try {
+    let authority: { facade: WorkspaceActFacade; token: string } | null = null;
+    const chatCreates: string[] = [];
+    const facade = {
+      async createConversation(input: { space: string }) {
+        chatCreates.push(input.space);
+        return {
+          space: { id: "space-1", name: "Act Space", rootPath: join(stateRoot, "space") },
+          conversation: {
+            id: "chat-1",
+            title: "New Chat",
+            createdAt: "2026-07-31T00:00:00.000Z",
+            updatedAt: "2026-07-31T00:00:00.000Z",
+            archivedAt: null,
+            snoozedUntil: null,
+          },
+        };
+      },
+    } as unknown as WorkspaceActFacade;
+    const host = new WorkspaceDesktopCliHost({
+      stateRoot,
+      kernel: fixtureKernel(),
+      version: "1.0.0",
+      getActFacade: () => authority,
+    });
+    await host.initialize();
+
+    // Without the interactive app, act commands answer unavailable while v1
+    // reads in the same queue keep working.
+    const offline = createWorkspaceCliActRequest({
+      id: randomUUID(),
+      argv: ["chat", "create", "--space", "space-1", "--json"],
+      cwd: resolve("."),
+      actToken: token,
+    });
+    const read = createWorkspaceCliRequest({ id: randomUUID(), argv: ["version", "--json"], cwd: resolve(".") });
+    await host.broker.writeActRequest(offline);
+    await host.broker.writeRequest(read);
+    await host.processRequest(offline.id);
+    await host.processRequest(read.id);
+    const offlineResponse = await host.broker.readResponse(offline.id);
+    assert.equal(offlineResponse.exitCode, 6);
+    assert.match(offlineResponse.stderr, /Open Workspace/);
+    assert.equal((await host.broker.readResponse(read.id)).exitCode, 0);
+    assert.equal(chatCreates.length, 0);
+
+    // A stale or wrong token is rejected identically.
+    authority = { facade, token };
+    const wrongToken = createWorkspaceCliActRequest({
+      id: randomUUID(),
+      argv: ["chat", "create", "--space", "space-1", "--json"],
+      cwd: resolve("."),
+      actToken: "e".repeat(64),
+    });
+    await host.broker.writeActRequest(wrongToken);
+    await host.processRequest(wrongToken.id);
+    assert.equal((await host.broker.readResponse(wrongToken.id)).exitCode, 6);
+    assert.equal(chatCreates.length, 0);
+
+    // With the matching per-launch token the facade is reached and the journal
+    // records accepted-then-ok around the mutation.
+    const accepted = createWorkspaceCliActRequest({
+      id: randomUUID(),
+      argv: ["chat", "create", "--space", "space-1", "--json"],
+      cwd: resolve("."),
+      actToken: token,
+    });
+    await host.broker.writeActRequest(accepted);
+    await host.processRequest(accepted.id);
+    const acceptedResponse = await host.broker.readResponse(accepted.id);
+    assert.equal(acceptedResponse.exitCode, 0, acceptedResponse.stderr);
+    assert.match(acceptedResponse.stdout, /"chat\.create"/);
+    assert.deepEqual(chatCreates, ["space-1"]);
+
+    // Replaying the same request id after the shim has cleaned up its request
+    // and response files must be refused, not re-executed.
+    const { readFile, rm: removeFile } = await import("node:fs/promises");
+    await removeFile(host.broker.requestPaths(accepted.id).response, { force: true });
+    await host.broker.writeActRequest(accepted);
+    await host.processRequest(accepted.id);
+    const replayResponse = await host.broker.readResponse(accepted.id);
+    assert.equal(replayResponse.exitCode, 5, replayResponse.stderr);
+    assert.match(replayResponse.stderr, /already executed/);
+    assert.deepEqual(chatCreates, ["space-1"], "a replayed act request must not re-run its mutation");
+
+    const receiptLines = (await readFile(host.receipts.path, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    assert.deepEqual(
+      receiptLines.map((line) => line.outcome),
+      ["rejected", "rejected", "accepted", "ok", "rejected"],
+    );
+    assert.equal(receiptLines[3]?.command, "chat.create");
+    assert.equal(receiptLines[3]?.spaceId, "space-1");
+    assert.equal(receiptLines[3]?.conversationId, "chat-1");
+    assert.equal(receiptLines[4]?.errorCode, "conflict");
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
   }

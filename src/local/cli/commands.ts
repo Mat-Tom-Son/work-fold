@@ -144,18 +144,70 @@ export function workspaceCliHelp(productName = "Workspace", topic?: string): str
   if (normalizedTopic === "spaces" || normalizedTopic === "spaces list") return `${header}\n\nUsage: ${executable} spaces list [--space <id-or-name>] [--json]\n\nList Spaces visible to this user.\n`;
   if (normalizedTopic === "tasks" || normalizedTopic === "tasks list") return `${header}\n\nUsage: ${executable} tasks list [--space <id-or-name>] [--json]\n\nList host-managed tasks, optionally for one Space.\n`;
   if (normalizedTopic === "capabilities" || normalizedTopic === "capabilities list") return `${header}\n\nUsage: ${executable} capabilities list [--space <id-or-name>] [--json]\n\nList Personal and Space capabilities.\n`;
+  if (normalizedTopic === "chat" || normalizedTopic?.startsWith("chat ")) {
+    return [
+      header,
+      "",
+      `Usage: ${executable} chat create --space <id-or-name> [--json]`,
+      `       ${executable} chat send --space <id-or-name> (--conversation <id> | --new) (--message <text> | --message-file <path>) [--json]`,
+      `       ${executable} chat status --space <id-or-name> (--conversation <id> | --task <id>) [--json]`,
+      `       ${executable} chat result --space <id-or-name> (--conversation <id> [--messages <n>] | --task <id>) [--json]`,
+      `       ${executable} chat wait --space <id-or-name> --task <id> [--timeout <seconds>] [--json]`,
+      `       ${executable} chat abort --space <id-or-name> --conversation <id> [--json]`,
+      "",
+      "Start, continue, await, inspect, or abort a Space Chat. These act",
+      "commands need the Workspace app running and require an explicit --space.",
+      "chat send returns a task id; wait and result take it to follow exactly",
+      "that turn's outcome instead of whatever message is newest.",
+      "",
+    ].join("\n");
+  }
+  if (normalizedTopic === "chats" || normalizedTopic === "chats list") return `${header}\n\nUsage: ${executable} chats list --space <id-or-name> [--json]\n\nList a Space's Chats. Needs the Workspace app running.\n`;
+  if (normalizedTopic === "manage" || normalizedTopic?.startsWith("manage ")) {
+    return [
+      header,
+      "",
+      `Usage: ${executable} manage send [--conversation <id> | --new] (--message <text> | --message-file <path>) [--json]`,
+      `       ${executable} manage status [--conversation <id> | --task <id>] [--json]`,
+      `       ${executable} manage result [--conversation <id> [--messages <n>] | --task <id>] [--json]`,
+      `       ${executable} manage wait --task <id> [--timeout <seconds>] [--json]`,
+      `       ${executable} manage abort [--conversation <id>] [--json]`,
+      `       ${executable} manage list [--json]`,
+      "",
+      "Talk to the management conversation that sits above all Spaces. It runs",
+      "on the same Assistant runtime as Space Chats but belongs to no Space:",
+      "its transcript is machine-local application state, and it acts across",
+      "Spaces through these same workspace commands. Without a selector,",
+      "commands target the most recent active management conversation,",
+      "creating it on first send. Needs the Workspace app running.",
+      "",
+    ].join("\n");
+  }
+  if (normalizedTopic === "spaces create") return `${header}\n\nUsage: ${executable} spaces create --name <space-name> [--json]\n\nCreate a managed Space. Needs the Workspace app running.\n`;
+  if (normalizedTopic === "spaces register") return `${header}\n\nUsage: ${executable} spaces register --path <absolute-folder-path> [--json]\n\nRegister an existing folder as a Space in place. Needs the Workspace app running.\n`;
+  if (normalizedTopic === "files" || normalizedTopic === "files add") return `${header}\n\nUsage: ${executable} files add --space <id-or-name> --from <path> [--from <path>...] [--to <space-folder>] [--json]\n\nCopy outside files or folders into a Space with a History restore point. Needs the Workspace app running.\n`;
   return [
     header,
     "",
     `Usage: ${executable} [--json] <command> [--space <id-or-name>]`,
     "",
-    "Commands:",
+    "Read commands:",
     "  context             Show the resolved Space and host context",
     "  spaces list         List Spaces",
     "  tasks list          List host-managed tasks",
     "  capabilities list   List Assistant capabilities",
     "  version             Show the installed Workspace version",
     "  help [command]      Show command help",
+    "",
+    "Act commands (need the Workspace app running; Space commands take --space):",
+    "  chat create|send|status|result|wait|abort",
+    "                      Start, continue, await, or abort a Space Chat",
+    "  chats list          List a Space's Chats",
+    "  manage send|status|result|wait|abort|list",
+    "                      Talk to the management conversation above all Spaces",
+    "  spaces create       Create a managed Space (--name)",
+    "  spaces register     Register a folder as a Space (--path)",
+    "  files add           Copy outside material into a Space (--from, --to)",
     "",
     "Options:",
     "  --space <value>     Select a Space by id or exact name",

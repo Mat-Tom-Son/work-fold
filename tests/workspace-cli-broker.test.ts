@@ -10,9 +10,12 @@ import {
   WORKSPACE_CLI_PROTOCOL_VERSION,
   WorkspaceCliFileBroker,
   WorkspaceCliExitCode,
+  createWorkspaceCliActRequest,
   createWorkspaceCliRequest,
   createWorkspaceCliResponse,
+  isWorkspaceCliActRequest,
   workspaceCliBrokerPaths,
+  type WorkspaceCliBrokeredRequest,
 } from "../src/local/cli/index.js";
 
 const fixedNow = new Date("2026-07-11T12:00:00.000Z");
@@ -87,9 +90,15 @@ test("CLI broker turns stale, future, mismatched, malformed, and oversized reque
       },
       {
         id: randomUUID(),
-        value: { protocolVersion: 2, id: "placeholder", argv: [], cwd: root, createdAt: fixedNow.toISOString() },
+        value: { protocolVersion: 3, id: "placeholder", argv: [], cwd: root, createdAt: fixedNow.toISOString() },
         expectedExit: WorkspaceCliExitCode.protocolError,
         expected: /protocol version/,
+      },
+      {
+        id: randomUUID(),
+        value: { protocolVersion: 2, lane: "act", id: "placeholder", argv: [], cwd: root, createdAt: fixedNow.toISOString() },
+        expectedExit: WorkspaceCliExitCode.protocolError,
+        expected: /actToken/,
       },
       {
         id: randomUUID(),
@@ -125,7 +134,50 @@ test("CLI broker turns stale, future, mismatched, malformed, and oversized reque
     const response = await broker.processRequest(id, async () => createWorkspaceCliResponse({ id, exitCode: 0, stdout: "", stderr: "" }));
     assert.equal(response.exitCode, WorkspaceCliExitCode.protocolError);
     assert.match(response.stderr, /size limit/);
-  }, { maxRequestBytes: 256 });
+  }, { maxRequestBytes: 256, maxActRequestBytes: 256 });
+});
+
+test("CLI broker claims, executes, and replays act-lane requests without re-executing mutations", async () => {
+  await withBroker(async ({ broker, root }) => {
+    const id = randomUUID();
+    await broker.writeActRequest(createWorkspaceCliActRequest({
+      id,
+      argv: ["chat", "status", "--space", "space-1"],
+      cwd: root,
+      actToken: "0".repeat(64),
+      createdAt: fixedNow.toISOString(),
+      payload: { messageFile: "hello from a file" },
+    }));
+    let executions = 0;
+    const executor = async (request: WorkspaceCliBrokeredRequest) => {
+      executions += 1;
+      assert.ok(isWorkspaceCliActRequest(request), "the executor must receive the act-lane request");
+      assert.equal(request.actToken, "0".repeat(64));
+      assert.equal(request.payload?.messageFile, "hello from a file");
+      return createWorkspaceCliResponse({ id: request.id, exitCode: 0, stdout: "done\n", stderr: "", completedAt: fixedNow.toISOString() });
+    };
+    const first = await broker.processRequest(id, executor);
+    assert.equal(first.exitCode, 0);
+    assert.equal(executions, 1);
+
+    // A duplicated request id returns the recorded response: replayed act
+    // requests must never re-apply their mutation.
+    const replay = await broker.processRequest(id, executor);
+    assert.equal(replay.stdout, "done\n");
+    assert.equal(executions, 1);
+  });
+
+  await withBroker(async ({ broker, root }) => {
+    const oversized = createWorkspaceCliActRequest({
+      id: randomUUID(),
+      argv: ["chat", "send", "--space", "space-1", "--message-from-payload"],
+      cwd: root,
+      actToken: "0".repeat(64),
+      createdAt: fixedNow.toISOString(),
+      payload: { messageFile: "y".repeat(600) },
+    });
+    await assert.rejects(() => broker.writeActRequest(oversized), /size limit/);
+  }, { maxRequestBytes: 256, maxActRequestBytes: 512 });
 });
 
 test("CLI broker rejects symlinked request files", async (t) => {
@@ -234,7 +286,7 @@ test("CLI response writer validates schema, bounds output, and refuses overwrite
 
 async function withBroker(
   action: (context: { broker: WorkspaceCliFileBroker; sandbox: string; root: string }) => Promise<void>,
-  limits: { maxRequestBytes?: number; maxResponseBytes?: number } = {},
+  limits: { maxRequestBytes?: number; maxActRequestBytes?: number; maxResponseBytes?: number } = {},
 ): Promise<void> {
   await withSandbox(async ({ sandbox, root }) => {
     const broker = new WorkspaceCliFileBroker({ stateRoot: root, now: () => fixedNow, ...limits });

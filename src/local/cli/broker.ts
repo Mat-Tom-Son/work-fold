@@ -24,6 +24,14 @@ import {
   type WorkspaceCliRequestV1,
   type WorkspaceCliResponseV1,
 } from "./protocol.js";
+import {
+  WORKSPACE_CLI_MAX_ACT_REQUEST_BYTES,
+  isWorkspaceCliActRequest,
+  parseWorkspaceCliActRequest,
+  parseWorkspaceCliRequestEnvelope,
+  type WorkspaceCliActRequestV2,
+  type WorkspaceCliBrokeredRequest,
+} from "./act-protocol.js";
 
 export const WORKSPACE_CLI_MAX_REQUEST_BYTES = 128 * 1024;
 export const WORKSPACE_CLI_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -35,6 +43,7 @@ export interface WorkspaceCliBrokerOptions {
   stateRoot: string;
   now?: () => Date;
   maxRequestBytes?: number;
+  maxActRequestBytes?: number;
   maxResponseBytes?: number;
   maxRequestAgeMs?: number;
   maxFutureSkewMs?: number;
@@ -59,13 +68,15 @@ export interface WorkspaceCliCleanupResult {
   skippedUnsafe: string[];
 }
 
-export type WorkspaceCliRequestExecutor = (request: WorkspaceCliRequestV1) => Promise<WorkspaceCliResponseV1>;
+export type WorkspaceCliRequestExecutor = (request: WorkspaceCliBrokeredRequest) => Promise<WorkspaceCliResponseV1>;
 
 export class WorkspaceCliFileBroker {
   readonly paths: WorkspaceCliBrokerPaths;
   private readonly stateRoot: string;
   private readonly now: () => Date;
   private readonly maxRequestBytes: number;
+  private readonly maxActRequestBytes: number;
+  private readonly claimReadBytes: number;
   private readonly maxResponseBytes: number;
   private readonly maxRequestAgeMs: number;
   private readonly maxFutureSkewMs: number;
@@ -79,6 +90,10 @@ export class WorkspaceCliFileBroker {
     this.paths = workspaceCliBrokerPaths(this.stateRoot);
     this.now = options.now ?? (() => new Date());
     this.maxRequestBytes = positiveLimit(options.maxRequestBytes, WORKSPACE_CLI_MAX_REQUEST_BYTES, "maxRequestBytes");
+    this.maxActRequestBytes = positiveLimit(options.maxActRequestBytes, WORKSPACE_CLI_MAX_ACT_REQUEST_BYTES, "maxActRequestBytes");
+    // Claims are read under the larger lane bound; the exact per-lane cap is
+    // re-enforced after the envelope identifies the request's protocol.
+    this.claimReadBytes = Math.max(this.maxRequestBytes, this.maxActRequestBytes);
     this.maxResponseBytes = positiveLimit(options.maxResponseBytes, WORKSPACE_CLI_MAX_RESPONSE_BYTES, "maxResponseBytes");
     this.maxRequestAgeMs = positiveLimit(options.maxRequestAgeMs, WORKSPACE_CLI_REQUEST_MAX_AGE_MS, "maxRequestAgeMs");
     this.maxFutureSkewMs = positiveLimit(options.maxFutureSkewMs, WORKSPACE_CLI_REQUEST_FUTURE_SKEW_MS, "maxFutureSkewMs");
@@ -122,25 +137,40 @@ export class WorkspaceCliFileBroker {
     return paths.request;
   }
 
-  async claimRequest(id: string): Promise<WorkspaceCliRequestV1> {
+  async writeActRequest(request: WorkspaceCliActRequestV2): Promise<string> {
+    await this.initialize();
+    const validated = parseWorkspaceCliActRequest(request);
+    this.assertFresh(validated);
+    const paths = this.requestPaths(validated.id);
+    await assertAbsent(paths.claim, "CLI request is already claimed.");
+    await assertAbsent(paths.response, "CLI request already has a response.");
+    const bytes = Buffer.from(`${JSON.stringify(validated)}\n`, "utf8");
+    if (bytes.byteLength > this.maxActRequestBytes) throw new WorkspaceCliError("protocolError", "CLI act request exceeds the size limit.");
+    await atomicCreate(paths.request, bytes);
+    return paths.request;
+  }
+
+  async claimRequest(id: string): Promise<WorkspaceCliBrokeredRequest> {
     await this.initialize();
     const paths = this.requestPaths(id);
     const lock = await acquireLock(paths.claimLock);
     let claimed = false;
     try {
-      await assertSafeRegularFile(this.paths.root, paths.request, "CLI request", this.maxRequestBytes);
+      await assertSafeRegularFile(this.paths.root, paths.request, "CLI request", this.claimReadBytes);
       await assertAbsent(paths.claim, "CLI request is already claimed.");
       await rename(paths.request, paths.claim);
       claimed = true;
-      await assertSafeRegularFile(this.paths.root, paths.claim, "CLI claim", this.maxRequestBytes);
-      const bytes = await readBoundedFile(paths.claim, this.maxRequestBytes, "CLI request");
+      await assertSafeRegularFile(this.paths.root, paths.claim, "CLI claim", this.claimReadBytes);
+      const bytes = await readBoundedFile(paths.claim, this.claimReadBytes, "CLI request");
       let parsed: unknown;
       try {
         parsed = JSON.parse(bytes.toString("utf8"));
       } catch (error) {
         throw new WorkspaceCliError("protocolError", "CLI request is not valid JSON.", { cause: error });
       }
-      const request = parseWorkspaceCliRequest(parsed);
+      const request = parseWorkspaceCliRequestEnvelope(parsed);
+      const laneBound = isWorkspaceCliActRequest(request) ? this.maxActRequestBytes : this.maxRequestBytes;
+      if (bytes.byteLength > laneBound) throw new WorkspaceCliError("protocolError", "CLI request exceeds the size limit.");
       if (request.id !== normalizeWorkspaceCliRequestId(id)) {
         throw new WorkspaceCliError("protocolError", "CLI request id does not match its file name.");
       }
@@ -248,7 +278,7 @@ export class WorkspaceCliFileBroker {
     }
   }
 
-  private assertFresh(request: WorkspaceCliRequestV1): void {
+  private assertFresh(request: { createdAt: string }): void {
     const now = this.now().getTime();
     const createdAt = Date.parse(request.createdAt);
     if (now - createdAt > this.maxRequestAgeMs) throw new WorkspaceCliError("timeout", "CLI request expired before Workspace could process it.");

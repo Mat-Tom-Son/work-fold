@@ -3,10 +3,14 @@ import { isAbsolute, resolve } from "node:path";
 /**
  * Protocol v1 is intentionally a read-only, same-user control surface. The
  * platform application-data file exchange is not an authenticated caller boundary. Do not add
- * mutating commands without a separate authorization design and authenticated
- * transport (or equivalent per-launch request authentication).
+ * mutating commands to this version. Mutations live exclusively in the
+ * separately versioned act lane (`act-protocol.ts`), which authenticates each
+ * request with the per-launch act token the running desktop app mints.
  */
 export const WORKSPACE_CLI_PROTOCOL_VERSION = 1 as const;
+
+/** Accepted shape for per-launch act tokens carried by act-lane requests. */
+export const WORKSPACE_CLI_ACT_TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,256}$/;
 export const WORKSPACE_CLI_MAX_ARG_COUNT = 128;
 export const WORKSPACE_CLI_MAX_ARG_LENGTH = 8 * 1024;
 export const WORKSPACE_CLI_MAX_ARGV_LENGTH = 64 * 1024;
@@ -207,6 +211,11 @@ export function createWorkspaceCliRequest(input: {
 
 export function createWorkspaceCliResponse(input: Omit<WorkspaceCliResponseV1, "protocolVersion">): WorkspaceCliResponseV1 {
   return parseWorkspaceCliResponse({ protocolVersion: WORKSPACE_CLI_PROTOCOL_VERSION, ...input });
+}
+
+/** Shared bounded argv validation for both protocol lanes. */
+export function parseBoundedCliArgv(value: unknown): string[] {
+  return parseArgv(value);
 }
 
 function parseArgv(value: unknown): string[] {

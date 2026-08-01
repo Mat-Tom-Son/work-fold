@@ -48,7 +48,7 @@ export class WorkspaceCliKernelAdapter implements WorkspaceCliKernel {
     options: WorkspaceCliOptions,
   ): Promise<WorkspaceCliSpaceSummary[]> {
     const snapshot = await this.kernel.getSpaces(actor);
-    const selected = resolveSpaceSelector(snapshot.spaces, options.space);
+    const selected = resolveWorkspaceCliSpaceSelector(snapshot.spaces, options.space);
     const activeId = selected?.id ?? (await this.kernel.getContext(actor)).workspace?.id;
     const spaces = selected ? [selected] : snapshot.spaces;
     return spaces.map((space) => summarizeSpace(space, space.id === activeId));
@@ -149,14 +149,19 @@ export class WorkspaceCliKernelAdapter implements WorkspaceCliKernel {
 
   async #selectSpace(actor: WorkspaceCliActor, selector: string | undefined): Promise<WorkspaceSpaceSnapshot | undefined> {
     if (selector === undefined) return undefined;
-    return resolveSpaceSelector((await this.kernel.getSpaces(actor)).spaces, selector);
+    return resolveWorkspaceCliSpaceSelector((await this.kernel.getSpaces(actor)).spaces, selector);
   }
 }
 
-function resolveSpaceSelector(
-  spaces: WorkspaceSpaceSnapshot[],
+/**
+ * Shared "--space <id-or-exact-name>" selection: an id match wins, a unique
+ * case-folded name match is accepted, and duplicates are rejected as
+ * ambiguous. The act facade reuses this so both CLI lanes select identically.
+ */
+export function resolveWorkspaceCliSpaceSelector<T extends { id: string; name: string }>(
+  spaces: T[],
   selector: string | undefined,
-): WorkspaceSpaceSnapshot | undefined {
+): T | undefined {
   if (selector === undefined) return undefined;
   const normalized = selector.trim();
   const idMatch = spaces.find((space) => space.id === normalized);
