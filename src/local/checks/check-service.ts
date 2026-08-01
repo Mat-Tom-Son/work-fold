@@ -8,6 +8,7 @@ import {
   discoverWorkspaceCheckDeclarations,
   readWorkspaceCheckProposal,
   writeWorkspaceCheckDeclaration,
+  type WorkspaceCheckDeclarationDiscovery,
   type WorkspaceCheckDeclarationRecord,
 } from "./check-declarations.js";
 import { admitWorkspaceCheckCandidate, reverifyWorkspaceCheckFinding } from "./check-admission.js";
@@ -20,6 +21,7 @@ import type {
   WorkspaceCheckDecision,
   WorkspaceCheckDecisionKind,
   WorkspaceCheckFinding,
+  WorkspaceCheckMachineState,
   WorkspaceCheckRendererAuthorityState,
   WorkspaceCheckRendererDecorations,
   WorkspaceCheckRendererOverview,
@@ -201,7 +203,7 @@ export class WorkspaceCheckService {
     let releaseOwnReservation: (() => void) | null = null;
     if (!this.#spaceRemovalReservations.has(spaceId)) {
       releaseOwnReservation = this.tryReserveSpaceRemoval(spaceId);
-      if (!releaseOwnReservation) throw new Error("Wait for the current Check operation before removing this Space.");
+      if (!releaseOwnReservation) throw new WorkspaceCheckOperationConflictError("Wait for the current Check operation before removing this Space.");
     }
     try {
       const active = [...this.#active.entries()].filter(([, run]) => run.workspaceId === spaceId);
@@ -253,10 +255,10 @@ export class WorkspaceCheckService {
   overview(space: WorkspaceCheckSpaceRef): Promise<WorkspaceCheckRendererOverview> {
     return this.#withOperationReservation(space.id, async () => {
       const registered = await this.#registeredSpace(space);
-      const problems = await this.#problems(registered, true);
-      const status = await this.#status(registered, problems);
       const discovery = await discoverWorkspaceCheckDeclarations(registered.rootPath);
+      const problems = await this.#problems(registered, true, undefined, discovery);
       const state = (await this.#store(registered.id)).snapshot();
+      const status = await this.#status(registered, problems, { discovery, state });
       const checks = [];
       for (const record of discovery.declarations) {
         checks.push({
@@ -286,9 +288,10 @@ export class WorkspaceCheckService {
   async #status(
     registered: WorkspaceCheckSpaceRef,
     knownProblems?: WorkspaceCheckProblemsResult,
+    knownSnapshot?: { discovery: WorkspaceCheckDeclarationDiscovery; state: WorkspaceCheckMachineState },
   ): Promise<WorkspaceCheckStatusSnapshot> {
-    const discovery = await discoverWorkspaceCheckDeclarations(registered.rootPath);
-    const state = (await this.#store(registered.id)).snapshot();
+    const discovery = knownSnapshot?.discovery ?? await discoverWorkspaceCheckDeclarations(registered.rootPath);
+    const state = knownSnapshot?.state ?? (await this.#store(registered.id)).snapshot();
     let proposed = 0;
     let enabled = 0;
     let current = 0;
@@ -383,7 +386,7 @@ export class WorkspaceCheckService {
     actor: WorkspaceActor;
   }): Promise<{ taskId: string; runId: string; checkIds: string[] }> {
     if (this.#runReservations.has(input.space.id) || this.hasActiveRun(input.space.id)) {
-      throw new Error("Wait for the current Check run in this Space to finish.");
+      throw new WorkspaceCheckOperationConflictError("Wait for the current Check run in this Space to finish.");
     }
     this.#runReservations.add(input.space.id);
     try {
@@ -503,6 +506,9 @@ export class WorkspaceCheckService {
       const store = await this.#store(input.spaceId);
       const finding = store.snapshot().runs.flatMap((run) => run.findings).find((item) => item.id === input.findingId);
       if (!finding) throw new Error("Finding not found.");
+      if (finding.status !== "active") {
+        throw new WorkspaceCheckOperationConflictError("This finding is no longer active. Refresh Checks and try again.");
+      }
       const now = this.#now();
       if (input.decision === "defer") {
         const deferredUntil = input.deferUntil ? Date.parse(input.deferUntil) : Number.NaN;
@@ -660,13 +666,18 @@ export class WorkspaceCheckService {
     });
   }
 
-  async #problems(space: WorkspaceCheckSpaceRef, persistInvalidation: boolean, checkId?: string): Promise<{
+  async #problems(
+    space: WorkspaceCheckSpaceRef,
+    persistInvalidation: boolean,
+    checkId?: string,
+    knownDiscovery?: WorkspaceCheckDeclarationDiscovery,
+  ): Promise<{
     findings: WorkspaceCheckFinding[];
     invalidated: number;
     healthErrors: string[];
     truncated: boolean;
   }> {
-    const discovery = await discoverWorkspaceCheckDeclarations(space.rootPath);
+    const discovery = knownDiscovery ?? await discoverWorkspaceCheckDeclarations(space.rootPath);
     const declarations = new Map(discovery.declarations.map((record) => [record.declaration.id, record]));
     const store = await this.#store(space.id);
     const state = store.snapshot();

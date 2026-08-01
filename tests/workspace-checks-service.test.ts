@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { WorkspaceCheckService } from "../src/local/checks/check-service.js";
+import { WorkspaceCheckOperationConflictError, WorkspaceCheckService } from "../src/local/checks/check-service.js";
 import { WorkspaceCheckStore } from "../src/local/checks/check-store.js";
 import { WorkspaceKernel } from "../src/local/workspace-kernel.js";
 
@@ -124,6 +124,13 @@ test("optional Checks complete proposal, grant, task, evidence, decision, stale,
   assert.equal(clear.state, "succeeded");
   assert.equal(clear.findings.length, 0);
   assert.equal((await service.status(space)).state, "current-clear");
+  await assert.rejects(() => service.decide({
+    spaceId: space.id,
+    findingId: problems.findings[0]!.id,
+    decision: "reject",
+    actor: "human",
+  }), (error: unknown) => error instanceof WorkspaceCheckOperationConflictError
+    && /no longer active/.test(error.message));
 
   await unlink(join(root, "Delivery", "signed.pdf"));
   const recurrence = await service.run({ space, checkId: enabled.declaration.id, actor: { kind: "cli", workspaceId: space.id } });
@@ -379,11 +386,13 @@ test("run admission is synchronously reserved for every adapter", async (t) => {
   const first = service.run({ space, checkId: enabled.declaration.id, actor: { kind: "cli" } });
   await assert.rejects(
     () => service.run({ space, checkId: enabled.declaration.id, actor: { kind: "renderer" } }),
-    /current Check run/,
+    (error: unknown) => error instanceof WorkspaceCheckOperationConflictError
+      && /current Check run/.test(error.message),
   );
   await assert.rejects(
     () => service.removeSpace(space.id),
-    /current Check operation/,
+    (error: unknown) => error instanceof WorkspaceCheckOperationConflictError
+      && /current Check operation/.test(error.message),
     "a direct adapter cannot remove the Space during run admission",
   );
   const accepted = await first;

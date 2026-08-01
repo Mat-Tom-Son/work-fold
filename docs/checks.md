@@ -199,6 +199,11 @@ active finding**.
   needs-attention states remain visually and semantically distinct. Opening the
   tab never turns unknown into healthy and never labels a file because the
   Check machinery itself failed.
+- A Space that contains proposals but no enabled Check is presented as
+  proposals-only, with no result. If a later aggregate refresh fails, Files
+  preserves only the last known configured summary, clears content markers,
+  and labels Check status unavailable; it must not silently turn that Space
+  into either unconfigured or clear.
 
 ## Hardened runner invariants
 

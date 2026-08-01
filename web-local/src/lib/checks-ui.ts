@@ -9,8 +9,17 @@ export interface ChecksToolbarPresentation {
   count: number | null;
 }
 
-export function checksToolbarPresentation(status: ChecksStatus | null): ChecksToolbarPresentation | null {
+export function checksToolbarPresentation(status: ChecksStatus | null, unavailable = false): ChecksToolbarPresentation | null {
   if (!status?.configured) return null;
+  if (unavailable) {
+    return {
+      icon: "unhealthy",
+      label: "Check status unavailable",
+      title: "Workspace could not refresh Checks; this does not label your files as clear or failed",
+      tone: "unhealthy",
+      count: null,
+    };
+  }
   if (status.running > 0) {
     return {
       icon: "running",
@@ -38,11 +47,20 @@ export function checksToolbarPresentation(status: ChecksStatus | null): ChecksTo
       count: null,
     };
   }
+  if (status.state === "not-configured" || status.enabled === 0) {
+    return {
+      icon: "current",
+      label: "Check proposals",
+      title: "No Checks are enabled; open to review proposed expectations",
+      tone: "quiet",
+      count: null,
+    };
+  }
   if (status.state === "stale") {
     return {
       icon: "stale",
-      label: status.neverRun ? "Run Checks" : "Refresh Checks",
-      title: "Results are not current; Checks run only when requested",
+      label: status.neverRun ? "Checks not run" : "Results not current",
+      title: "Open Checks to review results; Checks run only when requested",
       tone: "quiet",
       count: null,
     };

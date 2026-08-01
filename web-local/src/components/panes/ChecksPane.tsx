@@ -17,13 +17,15 @@ import { requestConfirm, showToast } from "../../ui/feedback";
 export function ChecksToolbarButton({
   status,
   loading,
+  unavailable,
   onClick,
 }: {
   status: ChecksStatus | null;
   loading: boolean;
+  unavailable: boolean;
   onClick: () => void;
 }) {
-  const presentation = checksToolbarPresentation(status);
+  const presentation = checksToolbarPresentation(status, unavailable);
   if (loading || !presentation) return null;
   return (
     <button
@@ -277,10 +279,10 @@ export function ChecksPane({
                     </div>
                     {finding.detail ? <p>{finding.detail}</p> : null}
                     {finding.remediation ? <p className="checks-remediation">{finding.remediation}</p> : null}
-                    <div className="checks-finding-actions" aria-label={`Decisions for ${finding.title}`}>
-                      <button type="button" disabled={findingBusy === finding.id} onClick={() => void decide(finding, "resolve")}><Check size={13} />Mark resolved</button>
-                      <button type="button" disabled={findingBusy === finding.id} onClick={() => void decide(finding, "defer")}><Clock3 size={13} />Tomorrow</button>
-                      <button type="button" disabled={findingBusy === finding.id} onClick={() => void decide(finding, "reject")}>Not an issue</button>
+                    <div className="checks-finding-actions" role="group" aria-label={`Decisions for ${finding.title}`}>
+                      <button type="button" aria-label={`Mark ${finding.title} resolved`} disabled={findingBusy === finding.id} onClick={() => void decide(finding, "resolve")}><Check size={13} />Mark resolved</button>
+                      <button type="button" aria-label={`Defer ${finding.title} until tomorrow`} disabled={findingBusy === finding.id} onClick={() => void decide(finding, "defer")}><Clock3 size={13} />Tomorrow</button>
+                      <button type="button" aria-label={`Mark ${finding.title} as not an issue`} disabled={findingBusy === finding.id} onClick={() => void decide(finding, "reject")}>Not an issue</button>
                     </div>
                   </div>
                 </article>
@@ -325,35 +327,43 @@ export function ChecksPane({
 }
 
 function ChecksStatusLine({ status }: { status: ChecksOverview["status"] }) {
-  const copy = status.state === "needs-attention"
-    ? status.needsAttention === 1
+  let copy: string;
+  if (status.state === "needs-attention") {
+    copy = status.needsAttention === 1
       ? "1 finding needs attention."
-      : `${formatItemCount(status.needsAttention, "finding")} need attention.`
-    : status.state === "current-clear"
-      ? `No current findings from ${formatItemCount(status.enabled, "enabled Check")}.`
-      : status.state === "blocked"
-        ? status.blocked === 1
-          ? "1 Check needs review before running."
-          : `${formatItemCount(status.blocked, "Check")} need review before running.`
-        : status.state === "check-error"
-          ? "The latest Check work did not complete. Your files are not being labeled as failed."
-          : status.neverRun
-            ? status.neverRun === 1
-              ? "1 Check has not run yet."
-              : `${formatItemCount(status.neverRun, "Check")} have not run yet.`
-            : status.stale
-              ? "Designated files changed after the last run. Run Checks when you want a current result."
-              : status.configured
-                ? "Checks are configured and run only when requested."
-                : "No Checks are configured for this Space.";
+      : `${formatItemCount(status.needsAttention, "finding")} need attention.`;
+  } else if (status.state === "current-clear") {
+    copy = `No current findings from ${formatItemCount(status.enabled, "enabled Check")}.`;
+  } else if (status.state === "blocked") {
+    copy = status.blocked === 1
+      ? "1 Check needs review before running."
+      : `${formatItemCount(status.blocked, "Check")} need review before running.`;
+  } else if (status.state === "check-error") {
+    copy = "The latest Check work did not complete. Your files are not being labeled as failed.";
+  } else if (status.proposed > 0 && status.enabled === 0) {
+    copy = status.proposed === 1
+      ? "1 proposed Check is not enabled. There is no result yet."
+      : `${formatItemCount(status.proposed, "proposed Check")} are not enabled. There is no result yet.`;
+  } else if (status.neverRun) {
+    copy = status.neverRun === 1
+      ? "1 Check has not run yet."
+      : `${formatItemCount(status.neverRun, "Check")} have not run yet.`;
+  } else if (status.stale) {
+    copy = "Designated files changed after the last run. Run Checks when you want a current result.";
+  } else {
+    copy = status.configured
+      ? "Checks are configured and run only when requested."
+      : "No Checks are configured for this Space.";
+  }
   return <div className={`checks-status-line ${status.state}`}><span aria-hidden="true" /><p>{copy}</p></div>;
 }
 
 function ChecksEmptyFindings({ overview }: { overview: ChecksOverview | null }) {
   if (!overview) return null;
   if (!overview.checks.length) return <div className="checks-empty-findings"><p>No configured Checks means no result—not a clean bill of health.</p></div>;
-  if (overview.status.state === "stale") return <div className="checks-empty-findings"><p>Run Checks to get a current result for the designated files.</p></div>;
   if (overview.status.state === "blocked" || overview.status.state === "check-error") return <div className="checks-empty-findings"><p>No file finding is shown because the Check itself needs attention.</p></div>;
+  if (overview.status.proposed > 0 && overview.status.enabled === 0) return <div className="checks-empty-findings"><p>No Check has been enabled or run. Review the proposed expectations below.</p></div>;
+  if (overview.status.state === "stale") return <div className="checks-empty-findings"><p>Run Checks to get a current result for the designated files.</p></div>;
   return <div className="checks-empty-findings"><Check size={15} /><p>Nothing currently needs attention from the latest requested run.</p></div>;
 }
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -41,7 +41,7 @@ test("renderer Checks API stays explicit, Space-scoped, and task-backed", async 
     checkService,
   });
   try {
-    const created = await request<{ workspace: { id: string } }>(api.origin, "/api/workspaces", {
+    const created = await request<{ workspace: { id: string; rootPath: string } }>(api.origin, "/api/workspaces", {
       method: "POST",
       body: { name: "Checks UI Space" },
     }, 201);
@@ -119,6 +119,22 @@ test("renderer Checks API stays explicit, Space-scoped, and task-backed", async 
     );
     assert.equal(resolved.overview.findings.length, 0);
     assert.equal(resolved.overview.status.needsAttention, 0);
+
+    await mkdir(join(created.workspace.rootPath, "Delivery"), { recursive: true });
+    await writeFile(join(created.workspace.rootPath, "Delivery", "signed.pdf"), "%PDF current");
+    const clearRun = await request<{ task: { taskId: string } }>(
+      api.origin,
+      `/api/workspaces/${workspaceId}/checks/run`,
+      { method: "POST", body: {} },
+      202,
+    );
+    assert.equal((await waitForTerminal(api.origin, workspaceId, clearRun.task.taskId)).state, "succeeded");
+    const staleDecision = await fetch(`${api.origin}/api/workspaces/${workspaceId}/checks/findings/${findingId}/decision`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision: "reject" }),
+    });
+    assert.equal(staleDecision.status, 409, await staleDecision.text());
 
     const invalidDecision = await fetch(`${api.origin}/api/workspaces/${workspaceId}/checks/findings/${findingId}/decision`, {
       method: "POST",

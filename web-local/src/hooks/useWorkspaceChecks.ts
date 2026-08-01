@@ -7,6 +7,7 @@ export function useWorkspaceChecks(workspace: WorkspaceSummary, fixtureMode = fa
   const [status, setStatus] = useState<ChecksStatus | null>(null);
   const [attentionPaths, setAttentionPaths] = useState<ReadonlySet<string>>(new Set());
   const [loading, setLoading] = useState(!fixtureMode);
+  const [unavailable, setUnavailable] = useState(false);
   const requestRef = useRef(0);
   const inFlightRef = useRef<Promise<void> | null>(null);
   const scopeKey = `${fixtureMode ? "fixture" : "live"}:${workspace.id}`;
@@ -17,6 +18,7 @@ export function useWorkspaceChecks(workspace: WorkspaceSummary, fixtureMode = fa
       setStatus(null);
       setAttentionPaths(new Set());
       setLoading(false);
+      setUnavailable(false);
       return Promise.resolve();
     }
     if (inFlightRef.current) return inFlightRef.current;
@@ -29,6 +31,7 @@ export function useWorkspaceChecks(workspace: WorkspaceSummary, fixtureMode = fa
         );
         if (request !== requestRef.current) return;
         setStatus(response.status);
+        setUnavailable(false);
         if (response.status.needsAttention < 1) {
           setAttentionPaths(new Set());
           return;
@@ -44,7 +47,7 @@ export function useWorkspaceChecks(workspace: WorkspaceSummary, fixtureMode = fa
         }
       } catch {
         if (request !== requestRef.current) return;
-        setStatus(null);
+        setUnavailable(true);
         setAttentionPaths(new Set());
       } finally {
         if (request === requestRef.current) setLoading(false);
@@ -64,15 +67,16 @@ export function useWorkspaceChecks(workspace: WorkspaceSummary, fixtureMode = fa
       setStatus(null);
       setAttentionPaths(new Set());
       setLoading(!fixtureMode);
+      setUnavailable(false);
     }
     if (autoRefresh) void refresh();
   }, [autoRefresh, refresh, scopeKey]);
 
   useEffect(() => {
-    if (!autoRefresh || !status?.running) return;
+    if (!autoRefresh || unavailable || !status?.running) return;
     const timer = window.setInterval(() => void refresh(), 750);
     return () => window.clearInterval(timer);
-  }, [autoRefresh, refresh, status?.running]);
+  }, [autoRefresh, refresh, status?.running, unavailable]);
 
-  return { status, attentionPaths, loading, refresh };
+  return { status, attentionPaths, loading, unavailable, refresh };
 }
