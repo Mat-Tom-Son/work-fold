@@ -21,7 +21,7 @@ work-fold is a clean product boundary, not an in-place rename of Workspace. It u
 Choose an ordinary folder—or let work-fold create one—and it becomes a Space.
 The files stay where they are. In this launch-planning Space, the Assistant used
 only the three attached source files, returned a brief with links back to the
-evidence, and wrote the requested deliverable into the same folder.
+evidence, and kept the work beside its source material.
 
 ![A Client Launch Space with ordinary files and a grounded Assistant brief](output/playwright/work-fold-0.1.4-space.png)
 
@@ -31,12 +31,13 @@ inspecting unrelated files in the Space.
 
 ![A successful bounded Check for the launch-brief deliverable](output/playwright/work-fold-0.1.4-checks.png)
 
-On a Mac, the fold also lives in the menu bar. Click it—or drop files, folders,
-or links on it—from anywhere, add an instruction, and let the management
-conversation work across Spaces. The popover remains available when the main
-window is closed.
+On a Mac, the fold also lives in the menu bar. The example below is the real
+completed request with the main window closed: work-fold copied an attached
+handoff into the Client Launch Space and recorded a restore point. Click the
+fold—or drop files, folders, or links on it—from anywhere to start another
+request.
 
-![The real work-fold menu-bar item and management popover above the Client Launch Space](output/playwright/work-fold-0.1.4-menubar.png)
+![The real work-fold menu-bar popover showing a completed file placement with the main window closed](output/playwright/work-fold-0.1.4-menubar.png)
 
 ## Product model
 
