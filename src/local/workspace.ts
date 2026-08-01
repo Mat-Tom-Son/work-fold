@@ -640,13 +640,26 @@ export async function writeUploadedFiles(
   const targetFolder = resolveWorkspacePath(rootPath, targetFolderPath || ".");
   await mkdir(targetFolder, { recursive: true });
   const written: Array<{ path: string; sizeBytes: number }> = [];
-  for (const file of files) {
-    const uploadPath = safeUploadPath(file.relativePath || file.fileName);
-    const desired = resolveWorkspacePath(targetFolder, uploadPath);
-    await mkdir(dirname(desired), { recursive: true });
-    const destination = await nextAvailableFile(desired);
-    await writeFile(destination, file.data, { flag: "wx" });
-    written.push({ path: normalizeRelative(relative(rootPath, destination)), sizeBytes: file.data.byteLength });
+  const destinations: string[] = [];
+  let attempted: string | null = null;
+  try {
+    for (const file of files) {
+      const uploadPath = safeUploadPath(file.relativePath || file.fileName);
+      const desired = resolveWorkspacePath(targetFolder, uploadPath);
+      await mkdir(dirname(desired), { recursive: true });
+      const destination = await nextAvailableFile(desired);
+      attempted = destination;
+      await writeFile(destination, file.data, { flag: "wx" });
+      attempted = null;
+      destinations.push(destination);
+      written.push({ path: normalizeRelative(relative(rootPath, destination)), sizeBytes: file.data.byteLength });
+    }
+  } catch (error) {
+    // The upload batch is one action: a mid-batch failure must not strand the
+    // files that already landed, nor a partially written current file.
+    await Promise.all([...destinations, ...(attempted ? [attempted] : [])].map((path) =>
+      rm(path, { force: true }).catch(() => undefined)));
+    throw error;
   }
   await touchWorkspace(rootPath);
   return written;
@@ -660,7 +673,13 @@ export async function copyPathIntoWorkspace(
   const targetFolder = resolveWorkspacePath(workspaceRoot, targetFolderPath || ".");
   await mkdir(targetFolder, { recursive: true });
   const destination = await nextAvailablePath(join(targetFolder, safeFileName(basename(sourcePath))));
-  await copyVisiblePath(sourcePath, destination);
+  try {
+    await copyVisiblePath(sourcePath, destination);
+  } catch (error) {
+    // A folder copy that fails partway must not strand a partial destination.
+    await rm(destination, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
   await touchWorkspace(workspaceRoot);
   return normalizeRelative(relative(workspaceRoot, destination));
 }

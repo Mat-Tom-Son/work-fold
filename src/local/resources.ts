@@ -1,5 +1,5 @@
 import { existsSync, lstatSync } from "node:fs";
-import { mkdir, stat } from "node:fs/promises";
+import { mkdir, rm, stat } from "node:fs/promises";
 import { basename, dirname, relative } from "node:path";
 
 import { resourceLibraryRoot } from "./state-paths.js";
@@ -42,12 +42,20 @@ export async function copyResourcesToWorkspace(
   if (paths.length > 100) throw new Error("At most 100 Library items can be copied at once.");
   const root = await ensureResourceRoot();
   const copied: string[] = [];
-  for (const path of paths) {
-    const source = resolveWorkspacePath(root, path);
-    const info = await stat(source).catch(() => null);
-    if (!info) throw new Error(`Library item not found: ${path}`);
-    if (lstatSync(source).isSymbolicLink()) throw new Error("Symbolic-link Library items cannot be copied.");
-    copied.push(await copyPathIntoWorkspace(source, workspaceRoot, targetFolder));
+  try {
+    for (const path of paths) {
+      const source = resolveWorkspacePath(root, path);
+      const info = await stat(source).catch(() => null);
+      if (!info) throw new Error(`Library item not found: ${path}`);
+      if (lstatSync(source).isSymbolicLink()) throw new Error("Symbolic-link Library items cannot be copied.");
+      copied.push(await copyPathIntoWorkspace(source, workspaceRoot, targetFolder));
+    }
+  } catch (error) {
+    // The batch is one action: a mid-batch failure must not strand the items
+    // that already copied.
+    await Promise.all(copied.map((path) =>
+      rm(resolveWorkspacePath(workspaceRoot, path), { recursive: true, force: true }).catch(() => undefined)));
+    throw error;
   }
   return copied;
 }
