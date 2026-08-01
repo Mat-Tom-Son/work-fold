@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createReadStream, existsSync, watch } from "node:fs";
-import { stat } from "node:fs/promises";
-import { basename, extname, join, relative, resolve } from "node:path";
+import { lstat, rm, stat } from "node:fs/promises";
+import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -28,6 +28,8 @@ import {
   renameConversation,
   setGeneratedConversationTitle,
   updateConversationLifecycle,
+  type ChatMessage,
+  type ConversationSummary,
 } from "./agent/chat-store.js";
 import {
   RemoteCapabilityRegistry,
@@ -69,6 +71,7 @@ import {
   listWorkspaceCheckpoints,
   restoreFileVersion,
   restoreWorkspaceCheckpoint,
+  type WorkspaceCheckpoint,
 } from "./history.js";
 import {
   copyResourcesToWorkspace,
@@ -80,8 +83,24 @@ import { searchWorkspace } from "./search.js";
 import { SpaceAppearanceStore } from "./space-appearance-store.js";
 import { conversationTitleFromFirstUserMessage } from "../shared/chat-title.js";
 import { spaceAppearanceBannerNames } from "../shared/space-appearance.js";
-import { configureWorkspaceStateRoot, restrictedAppRoot } from "./state-paths.js";
+import { ensureManagementInstructions } from "./management-instructions.js";
+import {
+  configureWorkspaceStateRoot,
+  restrictedAppRoot,
+  workspaceManagementRoot,
+  workspaceManagementScopeId,
+} from "./state-paths.js";
 import { WorkspaceKernel } from "./workspace-kernel.js";
+import { WorkspaceCliError } from "./cli/protocol.js";
+import type {
+  WorkspaceActChatMessage,
+  WorkspaceActChatState,
+  WorkspaceActConversationRef,
+  WorkspaceActFacade,
+  WorkspaceActSpaceRef,
+  WorkspaceActTurnStatus,
+} from "./cli/act-facade.js";
+import { resolveWorkspaceCliSpaceSelector } from "./workspace-cli-adapter.js";
 import {
   createLocalDevelopmentApiOptions,
   loadLocalEnvironmentFile,
@@ -90,6 +109,7 @@ import { isAlwaysHiddenWorkspaceEntry, isWorkspaceIgnored, readWorkspaceIgnoreSt
 import { canonicalWorkspaceWatchRoot } from "./workspace-watch.js";
 import {
   beginWorkspaceRemoval,
+  copyPathIntoWorkspace,
   createManagedWorkspace,
   createWorkspaceFolder,
   createWorkspaceTextFile,
@@ -112,6 +132,7 @@ import {
   writeWorkspaceTextFile,
   writeUploadedFiles,
   type WorkspaceRemovalIo,
+  type WorkspaceSummary,
 } from "./workspace.js";
 
 export interface LocalFolderGrantProvider {
@@ -162,6 +183,8 @@ export interface LocalApiHandle {
   origin: string;
   port: number;
   kernel: WorkspaceKernel;
+  /** In-process authority for CLI act-lane commands; see cli/act-facade.ts. */
+  actFacade: WorkspaceActFacade;
   close: () => Promise<void>;
 }
 
@@ -186,6 +209,8 @@ interface LocalApiState {
   chatStreams: Map<string, Set<ServerResponse>>;
   clients: Map<string, PiConversationClient>;
   runningTurns: Set<string>;
+  activeTurnTasks: Map<string, { workspaceId: string; conversationId: string }>;
+  settledTurns: Map<string, SettledTurnRecord>;
   compactingConversations: Set<string>;
   capabilityMutations: Set<string>;
   workspaceIdsByRoot: Map<string, string>;
@@ -194,6 +219,22 @@ interface LocalApiState {
   activeTurns: number;
   onAgentTurnActivity?: (activeTurns: number) => void;
   onHistoryCheckpoint?: LocalApiOptions["onHistoryCheckpoint"];
+}
+
+/**
+ * Terminal outcome of one accepted Assistant turn, kept (bounded, in memory)
+ * so the CLI act lane's task-scoped wait/result can distinguish this turn's
+ * outcome from whatever happens to be the newest transcript message. Records
+ * live for the app run; the portable transcript remains the durable record.
+ */
+interface SettledTurnRecord {
+  taskId: string;
+  workspaceId: string;
+  conversationId: string;
+  status: "succeeded" | "failed" | "aborted";
+  endedAt: string;
+  messageId?: string;
+  error?: string;
 }
 
 interface MultipartFile {
@@ -255,6 +296,17 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   const spaceTrustAuthority = options.spaceTrustAuthority
     ?? new RegisteredSpaceTrustAuthority((await listWorkspaces()).map((workspace) => workspace.rootPath));
   for (const rootPath of recoveredWorkspaceRoots) spaceTrustAuthority.revoke(rootPath);
+  // The management scope's root is app-owned state, so authorizing its
+  // runtime is an application decision rather than a registration ceremony.
+  // The only project configuration under it is what Workspace itself
+  // materializes here: the management AGENTS.md context file and the
+  // manage-workspaces Skill.
+  spaceTrustAuthority.grant(workspaceManagementRoot());
+  try {
+    await ensureManagementInstructions();
+  } catch (error) {
+    console.warn(`Workspace could not materialize the management instructions; the management conversation will run uninstructed: ${errorMessage(error)}`);
+  }
   const runtimeProvider = new RegisteredSpaceRuntimeProvider(extensionRuntimeProvider, spaceTrustAuthority);
   const kernel = options.kernel ?? new WorkspaceKernel({ runtimeProvider });
   const state: LocalApiState = {
@@ -278,6 +330,8 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     chatStreams: new Map(),
     clients: new Map(),
     runningTurns: new Set(),
+    activeTurnTasks: new Map(),
+    settledTurns: new Map(),
     compactingConversations: new Set(),
     capabilityMutations: new Set(),
     workspaceIdsByRoot: new Map(),
@@ -318,6 +372,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     origin: `http://${host}:${address.port}`,
     port: address.port,
     kernel,
+    actFacade: createWorkspaceActFacade(state),
     close: async () => {
       extensionUi.off("request", requestListener);
       extensionUi.off("event", eventListener);
@@ -373,8 +428,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
 
   if (method === "POST" && url.pathname === "/api/workspaces") {
     const body = await readJsonBody<{ name?: string }>(state, req);
-    const workspace = await createManagedWorkspace(body.name ?? "Personal Space", state.workspaceBase);
-    state.spaceTrustAuthority.grant(workspace.rootPath);
+    const workspace = await createSpaceInternal(state, body.name ?? "Personal Space");
     sendJson(res, { workspace }, 201);
     return;
   }
@@ -389,8 +443,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     } else if (state.appMode === "desktop") {
       throw forbidden("A folder must be selected in the desktop app before it can become a Space.");
     }
-    const workspace = await registerLinkedWorkspace(body.rootPath, body.providerHint);
-    state.spaceTrustAuthority.grant(workspace.rootPath);
+    const workspace = await registerSpaceInternal(state, body.rootPath, body.providerHint);
     sendJson(res, { workspace }, 201);
     return;
   }
@@ -1118,7 +1171,11 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       multipart.fields.get("targetFolderPath") ?? "",
       multipart.files.map((file, index) => ({ fileName: file.fileName, relativePath: relativePaths[index], data: file.data })),
     );
-    sendJson(res, { uploaded }, 201);
+    const safety = await checkpointAdditiveWritesOrUndo(workspace.rootPath, uploaded.map((file) => file.path), {
+      reason: "pre_upload",
+      label: `Before uploading ${uploaded.length} file${uploaded.length === 1 ? "" : "s"}`,
+    });
+    sendJson(res, { uploaded, safetyCheckpointId: safety?.checkpointId ?? null, historySkippedPaths: safety?.skippedLargeFiles ?? [] }, 201);
     return;
   }
 
@@ -1147,7 +1204,11 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     if (!body.workspaceId || !Array.isArray(body.paths)) throw badRequest("A Space and Library items are required.");
     const workspace = await getWorkspace(body.workspaceId);
     const copied = await copyResourcesToWorkspace(workspace.rootPath, body.paths, body.targetFolder ?? "From Library");
-    sendJson(res, { copied });
+    const safety = await checkpointAdditiveWritesOrUndo(workspace.rootPath, copied, {
+      reason: "pre_add",
+      label: `Before adding ${copied.length} Library item${copied.length === 1 ? "" : "s"}`,
+    });
+    sendJson(res, { copied, safetyCheckpointId: safety?.checkpointId ?? null, historySkippedPaths: safety?.skippedLargeFiles ?? [] });
     return;
   }
 
@@ -1429,39 +1490,17 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   if (method === "POST" && messagesPostMatch) {
     const workspace = await getWorkspace(messagesPostMatch[1]);
     const conversationId = messagesPostMatch[2];
-    const turnKey = clientKey(workspace.id, conversationId);
     const body = await readJsonBody<{ content?: string; contextPaths?: string[]; selectedPath?: string | null }>(state, req);
     const content = body.content?.trim();
     if (!content) throw badRequest("Message content is required.");
     const selectedPath = normalizeSelectedPath(workspace.rootPath, body.selectedPath);
     const contextPaths = normalizeContextPaths(workspace.rootPath, body.contextPaths);
-    const existing = await readConversationSummary(workspace.rootPath, conversationId);
-    if (!existing) throw notFound("Conversation not found.");
-    if (existing.archivedAt) throw httpError(409, "Restore this Chat before sending another message.");
-    if (existing.snoozedUntil && Date.parse(existing.snoozedUntil) > Date.now()) {
-      throw httpError(409, "Resume this Chat before sending another message.");
-    }
-    assertNoCapabilityMutationForTurn(state, workspace.id);
-    if (state.compactingConversations.has(turnKey)) throw httpError(409, "Wait for the current Chat compaction to finish.");
-    if (state.runningTurns.has(turnKey)) throw httpError(409, "Wait for the current agent turn to finish.");
-    state.runningTurns.add(turnKey);
-    const task = state.kernel.startTask({
-      kind: "assistant_turn",
-      workspaceId: workspace.id,
-      conversationId,
-      actor: { kind: "assistant", cwd: workspace.rootPath, workspaceId: workspace.id, conversationId },
+    const { message } = await acceptConversationTurn(state, workspace, conversationId, {
+      content,
+      contextPaths,
+      selectedPath,
+      actorKind: "assistant",
     });
-    broadcast(state, turnKey, turnStateEvent(conversationId, true));
-    const message = { id: randomUUID(), role: "user" as const, content, createdAt: new Date().toISOString() };
-    try {
-      await appendMessage(workspace.rootPath, conversationId, message);
-    } catch (error) {
-      state.runningTurns.delete(turnKey);
-      state.kernel.finishTask(task.id);
-      broadcast(state, turnKey, turnStateEvent(conversationId, false));
-      throw error;
-    }
-    void runAgentTurn(state, workspace.id, workspace.rootPath, conversationId, content, contextPaths, selectedPath, task.id);
     sendJson(res, { accepted: true, message }, 202);
     return;
   }
@@ -1526,6 +1565,433 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   throw notFound("Not found.");
 }
 
+/**
+ * Shared turn-acceptance path for the renderer route and the CLI act facade.
+ * Owns the conflict checks, runningTurns bookkeeping, kernel task record, user
+ * message persistence with rollback, and the detached Pi turn start, so every
+ * caller obeys identical concurrency and persistence rules.
+ */
+async function acceptConversationTurn(
+  state: LocalApiState,
+  workspace: { id: string; rootPath: string },
+  conversationId: string,
+  input: {
+    content: string;
+    contextPaths: string[];
+    selectedPath: string | null;
+    actorKind: "assistant" | "cli";
+  },
+): Promise<{ message: { id: string; role: "user"; content: string; createdAt: string }; taskId: string }> {
+  const turnKey = clientKey(workspace.id, conversationId);
+  const existing = await readConversationSummary(workspace.rootPath, conversationId);
+  if (!existing) throw notFound("Conversation not found.");
+  if (existing.archivedAt) throw httpError(409, "Restore this Chat before sending another message.");
+  if (existing.snoozedUntil && Date.parse(existing.snoozedUntil) > Date.now()) {
+    throw httpError(409, "Resume this Chat before sending another message.");
+  }
+  assertNoCapabilityMutationForTurn(state, workspace.id);
+  if (state.compactingConversations.has(turnKey)) throw httpError(409, "Wait for the current Chat compaction to finish.");
+  if (state.runningTurns.has(turnKey)) throw httpError(409, "Wait for the current agent turn to finish.");
+  state.runningTurns.add(turnKey);
+  const task = state.kernel.startTask({
+    kind: "assistant_turn",
+    workspaceId: workspace.id,
+    conversationId,
+    actor: { kind: input.actorKind, cwd: workspace.rootPath, workspaceId: workspace.id, conversationId },
+  });
+  state.activeTurnTasks.set(task.id, { workspaceId: workspace.id, conversationId });
+  broadcast(state, turnKey, turnStateEvent(conversationId, true));
+  const message = { id: randomUUID(), role: "user" as const, content: input.content, createdAt: new Date().toISOString() };
+  try {
+    await appendMessage(workspace.rootPath, conversationId, message);
+  } catch (error) {
+    state.runningTurns.delete(turnKey);
+    state.activeTurnTasks.delete(task.id);
+    state.kernel.finishTask(task.id);
+    broadcast(state, turnKey, turnStateEvent(conversationId, false));
+    throw error;
+  }
+  void runAgentTurn(state, workspace.id, workspace.rootPath, conversationId, input.content, input.contextPaths, input.selectedPath, task.id);
+  return { message, taskId: task.id };
+}
+
+async function createSpaceInternal(state: LocalApiState, name: string): Promise<WorkspaceSummary> {
+  const workspace = await createManagedWorkspace(name, state.workspaceBase);
+  state.spaceTrustAuthority.grant(workspace.rootPath);
+  return workspace;
+}
+
+async function registerSpaceInternal(state: LocalApiState, rootPath: string, providerHint?: "google-drive"): Promise<WorkspaceSummary> {
+  const workspace = await registerLinkedWorkspace(rootPath, providerHint);
+  state.spaceTrustAuthority.grant(workspace.rootPath);
+  return workspace;
+}
+
+const maxActAddSources = 25;
+
+/**
+ * The act facade is the CLI act lane's in-process authority. Every method
+ * reuses the same route internals as the renderer (turn acceptance, trust
+ * grants, History-checkpointed additions), so a CLI-initiated action obeys
+ * identical conflict, trust, and persistence rules. Registering a folder
+ * through the act lane deliberately has no renderer folder-picker grant:
+ * possession of the per-launch act token is that caller's authorization.
+ */
+function createWorkspaceActFacade(state: LocalApiState): WorkspaceActFacade {
+  const resolveSpace = async (selector: string): Promise<WorkspaceSummary> => {
+    const resolved = resolveWorkspaceCliSpaceSelector(await listWorkspaces(), selector.trim() || undefined);
+    if (!resolved) throw new WorkspaceCliError("usage", "Act commands require an explicit --space <id-or-name>.");
+    return resolved;
+  };
+  return {
+    async createConversation(input) {
+      const workspace = await resolveSpace(input.space);
+      const conversation = await runActOperation(() => createConversation(workspace.rootPath));
+      return { space: toActSpaceRef(workspace), conversation: toActConversationRef(conversation) };
+    },
+    async listConversations(input) {
+      const workspace = await resolveSpace(input.space);
+      const conversations = await runActOperation(() => listConversations(workspace.rootPath));
+      return { space: toActSpaceRef(workspace), conversations: conversations.map(toActConversationRef) };
+    },
+    async sendMessage(input) {
+      const workspace = await resolveSpace(input.space);
+      const content = input.content.trim();
+      if (!content) throw new WorkspaceCliError("usage", "Message content is required.");
+      if (!input.conversationId && !input.newConversation) {
+        throw new WorkspaceCliError("usage", "Provide --conversation <id> or --new.");
+      }
+      return runActOperation(async () => {
+        const conversationId = input.newConversation
+          ? (await createConversation(workspace.rootPath)).id
+          : input.conversationId!;
+        const { message, taskId } = await acceptConversationTurn(state, workspace, conversationId, {
+          content,
+          contextPaths: [],
+          selectedPath: null,
+          actorKind: "cli",
+        });
+        return { space: toActSpaceRef(workspace), conversationId, messageId: message.id, taskId };
+      });
+    },
+    async conversationStatus(input) {
+      const workspace = await resolveSpace(input.space);
+      const summary = await runActOperation(() => readConversationSummary(workspace.rootPath, input.conversationId));
+      if (!summary) throw new WorkspaceCliError("notFound", "Conversation not found.");
+      return {
+        space: toActSpaceRef(workspace),
+        conversation: toActConversationRef(summary),
+        state: conversationRuntimeState(state, workspace.id, input.conversationId),
+      };
+    },
+    async conversationResult(input) {
+      const workspace = await resolveSpace(input.space);
+      const result = await conversationResultForScope(state, workspace.id, workspace.rootPath, input.conversationId, input.messages);
+      return { space: toActSpaceRef(workspace), ...result };
+    },
+    async abortTurn(input) {
+      const workspace = await resolveSpace(input.space);
+      const client = state.clients.get(clientKey(workspace.id, input.conversationId));
+      return {
+        space: toActSpaceRef(workspace),
+        conversationId: input.conversationId,
+        aborted: client ? await client.abort() : false,
+      };
+    },
+    async turnStatus(input) {
+      const workspace = await resolveSpace(input.space);
+      const taskId = input.taskId.trim();
+      if (!taskId) throw new WorkspaceCliError("usage", "Provide --task <id>.");
+      const task = turnStatusFor(state, workspace.id, taskId);
+      return { space: toActSpaceRef(workspace), task };
+    },
+    async turnResult(input) {
+      const workspace = await resolveSpace(input.space);
+      const taskId = input.taskId.trim();
+      if (!taskId) throw new WorkspaceCliError("usage", "Provide --task <id>.");
+      const result = await turnResultForScope(state, workspace.id, workspace.rootPath, taskId);
+      return { space: toActSpaceRef(workspace), ...result };
+    },
+    async createSpace(input) {
+      const name = input.name.trim();
+      if (!name) throw new WorkspaceCliError("usage", "A Space name is required.");
+      const workspace = await runActOperation(() => createSpaceInternal(state, name));
+      return { space: toActSpaceRef(workspace) };
+    },
+    async registerSpace(input) {
+      const rootPath = input.rootPath.trim();
+      if (!rootPath || !isAbsolute(rootPath)) {
+        throw new WorkspaceCliError("usage", "Provide an absolute folder path to register.");
+      }
+      const workspace = await runActOperation(() => registerSpaceInternal(state, rootPath));
+      return { space: toActSpaceRef(workspace) };
+    },
+    async addFiles(input) {
+      const workspace = await resolveSpace(input.space);
+      const result = await runActOperation(() => addExternalFilesInternal(workspace, input));
+      return { space: toActSpaceRef(workspace), ...result };
+    },
+    async manageList() {
+      const scope = managementScope();
+      const conversations = await runActOperation(() => listConversations(scope.rootPath));
+      return { conversations: conversations.map(toActConversationRef) };
+    },
+    async manageSend(input) {
+      const content = input.content.trim();
+      if (!content) throw new WorkspaceCliError("usage", "Message content is required.");
+      const scope = managementScope();
+      return runActOperation(async () => {
+        const conversationId = input.newConversation
+          ? (await createConversation(scope.rootPath)).id
+          : input.conversationId ?? (await resolveManagementConversation(true)).id;
+        const { message, taskId } = await acceptConversationTurn(state, scope, conversationId, {
+          content,
+          contextPaths: [],
+          selectedPath: null,
+          actorKind: "cli",
+        });
+        return { conversationId, messageId: message.id, taskId };
+      });
+    },
+    async manageConversationStatus(input) {
+      const scope = managementScope();
+      const conversation = input.conversationId
+        ? await runActOperation(() => readConversationSummary(scope.rootPath, input.conversationId!))
+        : await runActOperation(() => resolveManagementConversation(false).catch(() => null));
+      if (!conversation) {
+        throw new WorkspaceCliError(
+          "notFound",
+          input.conversationId ? "Conversation not found." : "No management conversation exists yet. Send a message to start one.",
+        );
+      }
+      return {
+        conversation: toActConversationRef(conversation),
+        state: conversationRuntimeState(state, scope.id, conversation.id),
+      };
+    },
+    async manageTurnStatus(input) {
+      const taskId = input.taskId.trim();
+      if (!taskId) throw new WorkspaceCliError("usage", "Provide --task <id>.");
+      return { task: turnStatusFor(state, workspaceManagementScopeId, taskId) };
+    },
+    async manageConversationResult(input) {
+      const scope = managementScope();
+      const conversationId = input.conversationId
+        ?? (await runActOperation(() => resolveManagementConversation(false).catch(() => null)))?.id;
+      if (!conversationId) {
+        throw new WorkspaceCliError("notFound", "No management conversation exists yet. Send a message to start one.");
+      }
+      return conversationResultForScope(state, scope.id, scope.rootPath, conversationId, input.messages);
+    },
+    async manageTurnResult(input) {
+      const taskId = input.taskId.trim();
+      if (!taskId) throw new WorkspaceCliError("usage", "Provide --task <id>.");
+      const scope = managementScope();
+      return turnResultForScope(state, scope.id, scope.rootPath, taskId);
+    },
+    async manageAbort(input) {
+      const scope = managementScope();
+      const conversationId = input.conversationId
+        ?? (await runActOperation(() => resolveManagementConversation(false).catch(() => null)))?.id;
+      if (!conversationId) {
+        throw new WorkspaceCliError("notFound", "No management conversation exists yet. Send a message to start one.");
+      }
+      const client = state.clients.get(clientKey(scope.id, conversationId));
+      return { conversationId, aborted: client ? await client.abort() : false };
+    },
+  };
+}
+
+/** The management scope shaped like the workspace refs the turn internals take. */
+function managementScope(): { id: string; rootPath: string } {
+  return { id: workspaceManagementScopeId, rootPath: workspaceManagementRoot() };
+}
+
+/**
+ * The default management conversation is the most recent active one; the
+ * management surface is "one conversation" unless the caller asks for more.
+ */
+async function resolveManagementConversation(create: boolean): Promise<ConversationSummary> {
+  const scope = managementScope();
+  const conversations = await listConversations(scope.rootPath);
+  const active = conversations.find((item) =>
+    !item.archivedAt && (!item.snoozedUntil || Date.parse(item.snoozedUntil) <= Date.now()));
+  if (active) return active;
+  if (!create) throw new WorkspaceCliError("notFound", "No management conversation exists yet. Send a message to start one.");
+  return createConversation(scope.rootPath);
+}
+
+async function turnResultForScope(
+  state: LocalApiState,
+  scopeId: string,
+  rootPath: string,
+  taskId: string,
+): Promise<{ conversationId: string; task: { taskId: string; state: "succeeded"; endedAt: string }; message: WorkspaceActChatMessage }> {
+  const task = turnStatusFor(state, scopeId, taskId);
+  if (task.state === "running") {
+    throw new WorkspaceCliError("conflict", "The turn is still running. Use chat wait or chat status --task.");
+  }
+  if (task.state === "unknown") {
+    throw new WorkspaceCliError("notFound", "Task not found. Turn outcomes are kept while the Workspace app stays running.");
+  }
+  if (task.state === "aborted") throw new WorkspaceCliError("conflict", "The turn was aborted before it finished.");
+  if (task.state === "failed") throw new WorkspaceCliError("failure", task.error ?? "The turn failed.");
+  const conversationId = task.conversationId!;
+  const messages = await runActOperation(() => readConversation(rootPath, conversationId));
+  const message = messages.find((item) => item.id === task.messageId);
+  if (!message) throw new WorkspaceCliError("failure", "The turn's response message could not be found in the transcript.");
+  return {
+    conversationId,
+    task: { taskId, state: "succeeded" as const, endedAt: task.endedAt! },
+    message: toActChatMessage(message),
+  };
+}
+
+async function conversationResultForScope(
+  state: LocalApiState,
+  scopeId: string,
+  rootPath: string,
+  conversationId: string,
+  messageLimit?: number,
+): Promise<{
+  conversationId: string;
+  state: WorkspaceActChatState;
+  total: number;
+  lastAssistant: string | null;
+  messages: WorkspaceActChatMessage[];
+}> {
+  const all = await runActOperation(() => readConversation(rootPath, conversationId));
+  if (!all.length) throw new WorkspaceCliError("notFound", "Conversation not found.");
+  const visible = all.filter((message) => message.role === "user" || message.role === "assistant");
+  const limit = Math.min(Math.max(Math.floor(messageLimit ?? 10), 1), 500);
+  const lastAssistant = [...visible].reverse().find((message) => message.role === "assistant")?.content ?? null;
+  return {
+    conversationId,
+    state: conversationRuntimeState(state, scopeId, conversationId),
+    total: visible.length,
+    lastAssistant,
+    messages: visible.slice(-limit).map(toActChatMessage),
+  };
+}
+
+async function addExternalFilesInternal(
+  workspace: WorkspaceSummary,
+  input: { fromPaths: string[]; toDir?: string; cwd: string },
+): Promise<{ copied: string[]; checkpointId: string | null }> {
+  if (!input.fromPaths.length) throw new WorkspaceCliError("usage", "Provide at least one --from <path> to add.");
+  if (input.fromPaths.length > maxActAddSources) {
+    throw new WorkspaceCliError("usage", `At most ${maxActAddSources} sources can be added at once.`);
+  }
+  const toDir = normalizeWorkspaceRelativePath(input.toDir ?? "");
+  const sources: string[] = [];
+  for (const raw of input.fromPaths) {
+    const trimmed = raw.trim();
+    if (!trimmed) throw new WorkspaceCliError("usage", "Source paths cannot be empty.");
+    const source = isAbsolute(trimmed) ? resolve(trimmed) : resolve(input.cwd, trimmed);
+    const info = await lstat(source).catch(() => null);
+    if (!info) throw new WorkspaceCliError("notFound", `Source not found: ${trimmed}.`);
+    if (info.isSymbolicLink()) throw new WorkspaceCliError("usage", `Symbolic-link sources cannot be added: ${trimmed}.`);
+    if (!info.isFile() && !info.isDirectory()) {
+      throw new WorkspaceCliError("usage", `Only files and folders can be added: ${trimmed}.`);
+    }
+    if (pathContainsPath(workspace.rootPath, source)) {
+      throw new WorkspaceCliError("usage", `Source is already inside this Space: ${trimmed}. Move it in Files instead.`);
+    }
+    if (pathContainsPath(source, workspace.rootPath)) {
+      throw new WorkspaceCliError("usage", `Source contains this Space and cannot be copied into it: ${trimmed}.`);
+    }
+    sources.push(source);
+  }
+  const copied: string[] = [];
+  try {
+    for (const source of sources) copied.push(await copyPathIntoWorkspace(source, workspace.rootPath, toDir));
+  } catch (error) {
+    // A mid-batch failure must not strand earlier copies without a restore
+    // point: undo them best-effort, then surface the failure.
+    await Promise.all(copied.map((path) =>
+      rm(resolveWorkspacePath(workspace.rootPath, path), { recursive: true, force: true }).catch(() => undefined)));
+    throw error;
+  }
+  const safety = await checkpointAdditiveWritesOrUndo(workspace.rootPath, copied, {
+    reason: "pre_add",
+    label: `Before adding ${copied.length} item${copied.length === 1 ? "" : "s"}`,
+  });
+  return { copied, checkpointId: safety?.checkpointId ?? null };
+}
+
+async function runActOperation<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof WorkspaceCliError) throw error;
+    const statusCode = typeof (error as { statusCode?: unknown })?.statusCode === "number"
+      ? (error as { statusCode: number }).statusCode
+      : null;
+    const message = error instanceof Error ? error.message : String(error ?? "Workspace act command failed.");
+    if (statusCode === 400) throw new WorkspaceCliError("usage", message, { cause: error });
+    if (statusCode === 403) throw new WorkspaceCliError("permissionDenied", message, { cause: error });
+    if (statusCode === 404) throw new WorkspaceCliError("notFound", message, { cause: error });
+    if (statusCode === 409) throw new WorkspaceCliError("conflict", message, { cause: error });
+    throw new WorkspaceCliError("failure", message, { cause: error });
+  }
+}
+
+function turnStatusFor(state: LocalApiState, workspaceId: string, taskId: string): WorkspaceActTurnStatus {
+  const active = state.activeTurnTasks.get(taskId);
+  if (active && active.workspaceId === workspaceId) {
+    return { taskId, state: "running", conversationId: active.conversationId, messageId: null, error: null, endedAt: null };
+  }
+  const settled = state.settledTurns.get(taskId);
+  if (settled && settled.workspaceId === workspaceId) {
+    return {
+      taskId,
+      state: settled.status,
+      conversationId: settled.conversationId,
+      messageId: settled.messageId ?? null,
+      error: settled.error ?? null,
+      endedAt: settled.endedAt,
+    };
+  }
+  return { taskId, state: "unknown", conversationId: null, messageId: null, error: null, endedAt: null };
+}
+
+function conversationRuntimeState(state: LocalApiState, workspaceId: string, conversationId: string): WorkspaceActChatState {
+  const key = clientKey(workspaceId, conversationId);
+  if (state.runningTurns.has(key)) return "running";
+  if (state.compactingConversations.has(key)) return "compacting";
+  return "idle";
+}
+
+function toActSpaceRef(workspace: WorkspaceSummary): WorkspaceActSpaceRef {
+  return { id: workspace.id, name: workspace.name, rootPath: workspace.rootPath };
+}
+
+function toActConversationRef(conversation: ConversationSummary): WorkspaceActConversationRef {
+  return {
+    id: conversation.id,
+    title: conversation.title,
+    createdAt: conversation.createdAt,
+    updatedAt: conversation.updatedAt,
+    archivedAt: conversation.archivedAt ?? null,
+    snoozedUntil: conversation.snoozedUntil ?? null,
+  };
+}
+
+function toActChatMessage(message: ChatMessage): WorkspaceActChatMessage {
+  return {
+    id: message.id,
+    role: message.role === "assistant" ? "assistant" : "user",
+    content: message.content,
+    createdAt: message.createdAt,
+    ...(message.interruption ? { interrupted: true } : {}),
+  };
+}
+
+function pathContainsPath(parent: string, candidate: string): boolean {
+  const rel = relative(resolve(parent), resolve(candidate));
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
 async function runAgentTurn(
   state: LocalApiState,
   workspaceId: string,
@@ -1539,6 +2005,9 @@ async function runAgentTurn(
   const key = clientKey(workspaceId, conversationId);
   let client: PiConversationClient | null = null;
   let promptStarted = false;
+  let settledStatus: SettledTurnRecord["status"] = "succeeded";
+  let settledMessageId: string | undefined;
+  let settledError: string | undefined;
   changeTurnCount(state, 1);
   try {
     client = await getClient(state, workspaceId, workspaceRoot, conversationId);
@@ -1546,12 +2015,14 @@ async function runAgentTurn(
     await captureTurnCheckpointSafe(state, workspaceId, workspaceRoot, conversationId, "pre_turn");
     promptStarted = true;
     const finalText = await client.prompt(content, { contextAttachments, selectedPath });
-    await appendMessage(workspaceRoot, conversationId, {
+    const assistantMessage = {
       id: randomUUID(),
-      role: "assistant",
+      role: "assistant" as const,
       content: finalText,
       createdAt: new Date().toISOString(),
-    });
+    };
+    await appendMessage(workspaceRoot, conversationId, assistantMessage);
+    settledMessageId = assistantMessage.id;
     try {
       const firstUserMessage = (await readConversation(workspaceRoot, conversationId))
         .find((message) => message.role === "user")
@@ -1587,11 +2058,14 @@ async function runAgentTurn(
       try {
         await appendMessage(workspaceRoot, conversationId, interruptedMessage);
         partialResponsePreserved = true;
+        settledMessageId = interruptedMessage.id;
       } catch (preservationError) {
         console.error(`Could not preserve an interrupted Assistant response: ${errorMessage(preservationError)}`);
       }
     }
     const message = assistantTurnFailureMessage(error, partialResponsePreserved);
+    settledStatus = isPiTurnCancelledError(error) ? "aborted" : "failed";
+    settledError = message;
     broadcast(state, streamKey(workspaceId, conversationId), { type: "error", conversationId, message });
     // A provider failure settles the Pi session cleanly after its bounded retry
     // path. Keep that live session so the next user message can continue from
@@ -1605,8 +2079,31 @@ async function runAgentTurn(
     if (promptStarted) await captureTurnCheckpointSafe(state, workspaceId, workspaceRoot, conversationId, "post_turn");
     state.runningTurns.delete(key);
     state.kernel.finishTask(taskId);
+    settleTurnTask(state, taskId, {
+      workspaceId,
+      conversationId,
+      status: settledStatus,
+      ...(settledMessageId ? { messageId: settledMessageId } : {}),
+      ...(settledError ? { error: settledError } : {}),
+    });
     broadcast(state, key, turnStateEvent(conversationId, false));
     changeTurnCount(state, -1);
+  }
+}
+
+const maxSettledTurnRecords = 500;
+
+function settleTurnTask(
+  state: LocalApiState,
+  taskId: string,
+  record: Omit<SettledTurnRecord, "taskId" | "endedAt">,
+): void {
+  state.activeTurnTasks.delete(taskId);
+  state.settledTurns.set(taskId, { taskId, endedAt: new Date().toISOString(), ...record });
+  while (state.settledTurns.size > maxSettledTurnRecords) {
+    const oldest = state.settledTurns.keys().next().value;
+    if (oldest === undefined) break;
+    state.settledTurns.delete(oldest);
   }
 }
 
@@ -1631,11 +2128,17 @@ async function getClient(
   rememberWorkspaceRoot(state, workspaceId, workspaceRoot);
   const existing = state.clients.get(key);
   if (existing) return existing;
-  const client = new PiConversationClient(conversationId, workspaceRoot, state.runtimeProvider, {
-    workspaceId,
-    restrictedAppProposals: state.restrictedAppProposals,
-    restrictedApps: state.restrictedApps,
-  });
+  // The management scope runs with personal Pi capabilities only: it belongs
+  // to no Space, so Space-bound restricted-app proposal and invocation
+  // bridges stay disconnected.
+  const hostCapabilities = workspaceId === workspaceManagementScopeId
+    ? undefined
+    : {
+        workspaceId,
+        restrictedAppProposals: state.restrictedAppProposals,
+        restrictedApps: state.restrictedApps,
+      };
+  const client = new PiConversationClient(conversationId, workspaceRoot, state.runtimeProvider, hostCapabilities);
   client.on("event", (event: PiChatEvent) => {
     const { raw: _raw, ...safeEvent } = event;
     broadcast(state, streamKey(workspaceId, conversationId), safeEvent);
@@ -2095,6 +2598,9 @@ async function captureTurnCheckpointSafe(
   conversationId: string,
   reason: "pre_turn" | "post_turn",
 ): Promise<void> {
+  // History is a Space concept. The management scope's root holds only
+  // conversation records in app state, so turn checkpoints do not apply.
+  if (workspaceId === workspaceManagementScopeId) return;
   try {
     const checkpoint = await createWorkspaceCheckpoint(workspaceRoot, {
       reason,
@@ -2129,6 +2635,29 @@ async function runWithHistorySafety<T>(workspaceRoot: string, checkpointId: stri
   } catch (error) {
     await discardWorkspaceCheckpoint(workspaceRoot, checkpointId).catch(() => undefined);
     throw error;
+  }
+}
+
+/**
+ * Uploads and copy-ins only add files, so restoring to the pre-mutation state
+ * means deleting exactly the written paths. The checkpoint is created after
+ * the write so deleteOnRestore can name collision-renamed destinations
+ * instead of intended paths that may belong to pre-existing files. Placement
+ * and its restore record succeed or fail together: when the checkpoint cannot
+ * be recorded, the written paths are removed again and the operation fails.
+ */
+async function checkpointAdditiveWritesOrUndo(
+  workspaceRoot: string,
+  writtenPaths: string[],
+  options: { reason: string; label: string },
+): Promise<WorkspaceCheckpoint | null> {
+  if (!writtenPaths.length) return null;
+  try {
+    return await createWorkspaceMutationCheckpoint(workspaceRoot, { deleteOnRestore: writtenPaths, ...options });
+  } catch (error) {
+    await Promise.all(writtenPaths.map((path) =>
+      rm(resolveWorkspacePath(workspaceRoot, path), { recursive: true, force: true }).catch(() => undefined)));
+    throw httpError(500, `The added files were removed because Workspace could not record a restore point: ${errorMessage(error)}`);
   }
 }
 

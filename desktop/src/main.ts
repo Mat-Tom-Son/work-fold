@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { basename, delimiter, isAbsolute, join, normalize, relative, resolve } from "node:path";
@@ -36,6 +36,11 @@ import {
 } from "../../src/local/agent/registered-space-runtime.js";
 import type { PiRuntimeProvider } from "../../src/local/agent/pi-runtime-config.js";
 import { startLocalApi } from "../../src/local/server.js";
+import type { WorkspaceActFacade } from "../../src/local/cli/act-facade.js";
+import {
+  removeWorkspaceCliActTokenFile,
+  writeWorkspaceCliActTokenFile,
+} from "../../src/local/cli/act-token.js";
 import { configureWorkspaceStateRoot } from "../../src/local/state-paths.js";
 import { getWorkspace, listWorkspaces } from "../../src/local/workspace.js";
 import { WorkspaceCliKernelAdapter } from "../../src/local/workspace-cli-adapter.js";
@@ -141,6 +146,8 @@ const localApiLifetime = new AppLifetimeResource<Awaited<ReturnType<typeof start
 let piRuntime: PackagedPiRuntimeProvider | null = null;
 let secureSettings: SecureSettingsStore | null = null;
 let apiSessionToken = "";
+let actFacade: WorkspaceActFacade | null = null;
+let actToken = "";
 let quitting = false;
 let quittingForUpdate = false;
 let activeAgentTurns = 0;
@@ -402,6 +409,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       kernel: new WorkspaceCliKernelAdapter(kernel),
       version: app.getVersion(),
       productName,
+      getActFacade: () => (actFacade && actToken ? { facade: actFacade, token: actToken } : null),
       });
       await cli.initialize();
       secureSettings = settings;
@@ -459,6 +467,10 @@ async function quitAfterCliRequest(): Promise<void> {
     return;
   }
   await host.restrictedApps.close();
+  // A headless boot proves no interactive app holds the single-instance lock,
+  // so any act-token file on disk is stale crash residue; removing it lets
+  // shims fail fast instead of booting another headless host per attempt.
+  await removeWorkspaceCliActTokenFile(app.getPath("userData")).catch(() => undefined);
   quitting = true;
   // Exit synchronously after the queue and host-backed auth storage are both
   // drained so a new process cannot hand work to a half-shutdown primary.
@@ -523,7 +535,7 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
     const userData = app.getPath("userData");
     const host = await ensureDesktopHost();
     apiSessionToken = randomUUID();
-    return startLocalApi({
+    const api = await startLocalApi({
       appMode: "desktop",
       port: 0,
       workspaceBase: join(userData, "workspaces"),
@@ -545,6 +557,19 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
       restrictedAppService: host.restrictedApps,
       onAgentTurnActivity: updateAgentPowerState,
     });
+    // The per-launch act token authorizes the CLI act lane for exactly this
+    // interactive run; without a readable token file, act commands stay
+    // unavailable rather than half-working.
+    actToken = randomBytes(32).toString("hex");
+    actFacade = api.actFacade;
+    try {
+      await writeWorkspaceCliActTokenFile(userData, actToken, productName);
+    } catch (error) {
+      actFacade = null;
+      actToken = "";
+      console.warn(`${productName} could not write the CLI act token; act commands will report unavailable: ${errorMessage(error)}`);
+    }
+    return api;
   });
 }
 
@@ -1407,6 +1432,10 @@ async function shutdown(): Promise<void> {
   if (shutdownPromise) return shutdownPromise;
   if (rendererRecoveryTimer) clearTimeout(rendererRecoveryTimer);
   rendererRecoveryTimer = null;
+  // Queued act requests must answer unavailable instead of racing a closing
+  // Pi runtime, so the act authority is revoked before anything else stops.
+  actFacade = null;
+  actToken = "";
   updateAgentPowerState(0);
   const runtime = piRuntime;
   piRuntime = null;
@@ -1416,6 +1445,7 @@ async function shutdown(): Promise<void> {
       withShutdownTimeout(localApiLifetime.close(), "local API"),
       withShutdownTimeout(runtime?.flush() ?? Promise.resolve(), "Pi state"),
       withShutdownTimeout(restrictedApps, "restricted apps"),
+      withShutdownTimeout(removeWorkspaceCliActTokenFile(app.getPath("userData")), "CLI act token"),
     ]);
     for (const outcome of outcomes) {
       if (outcome.status === "rejected") console.warn(`${productName} shutdown cleanup failed: ${errorMessage(outcome.reason)}`);

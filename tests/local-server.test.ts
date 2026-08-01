@@ -76,6 +76,70 @@ test("local API covers Space files, the Library, and external restore points", a
   }
 });
 
+test("uploads and Library copy-ins record additive restore points", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "workspace-additive-history-test-"));
+  const api = await startLocalApi({
+    port: 0,
+    stateBase: join(sandbox, "state"),
+    workspaceBase: join(sandbox, "content"),
+    loadEnv: false,
+  });
+  try {
+    const created = await json(`${api.origin}/api/workspaces`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Additive History Space" }),
+    }) as { workspace: { id: string } };
+
+    const files = new FormData();
+    files.set("targetFolderPath", "Dropped");
+    files.set("relativePaths", JSON.stringify(["notes.md"]));
+    files.append("files", new Blob(["dropped"]), "notes.md");
+    const uploaded = await json(`${api.origin}/api/workspaces/${created.workspace.id}/upload-local-files`, {
+      method: "POST",
+      body: files,
+    }) as { uploaded: Array<{ path: string }>; safetyCheckpointId: string | null };
+    assert.equal(uploaded.uploaded[0]?.path, "Dropped/notes.md");
+    assert.ok(uploaded.safetyCheckpointId, "uploads must record a restore point");
+
+    const resources = new FormData();
+    resources.set("targetFolderPath", "");
+    resources.set("relativePaths", JSON.stringify(["reference.txt"]));
+    resources.append("files", new Blob(["reference"]), "reference.txt");
+    await ok(`${api.origin}/api/resources/upload`, { method: "POST", body: resources });
+    const copied = await json(`${api.origin}/api/resources/copy-to-workspace`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ workspaceId: created.workspace.id, paths: ["reference.txt"] }),
+    }) as { copied: string[]; safetyCheckpointId: string | null };
+    assert.deepEqual(copied.copied, ["From Library/reference.txt"]);
+    assert.ok(copied.safetyCheckpointId, "Library copy-ins must record a restore point");
+
+    const checkpoints = await json(`${api.origin}/api/workspaces/${created.workspace.id}/history/checkpoints`) as {
+      checkpoints: Array<{ checkpointId: string; reason: string; deleteOnRestore: string[] }>;
+    };
+    const uploadCheckpoint = checkpoints.checkpoints.find((item) => item.checkpointId === uploaded.safetyCheckpointId);
+    assert.equal(uploadCheckpoint?.reason, "pre_upload");
+    assert.deepEqual(uploadCheckpoint?.deleteOnRestore, ["Dropped/notes.md"]);
+    const copyCheckpoint = checkpoints.checkpoints.find((item) => item.checkpointId === copied.safetyCheckpointId);
+    assert.equal(copyCheckpoint?.reason, "pre_add");
+    assert.deepEqual(copyCheckpoint?.deleteOnRestore, ["From Library/reference.txt"]);
+
+    const restored = await json(
+      `${api.origin}/api/workspaces/${created.workspace.id}/history/checkpoints/${uploaded.safetyCheckpointId}/restore`,
+      { method: "POST" },
+    ) as { restored: true; deletedFiles: string[] };
+    assert.deepEqual(restored.deletedFiles, ["Dropped/notes.md"]);
+    const missing = await fetch(`${api.origin}/api/workspaces/${created.workspace.id}/file?path=Dropped%2Fnotes.md`);
+    assert.equal(missing.ok, false, "restoring the upload checkpoint must remove the uploaded file");
+    const libraryPreview = await json(`${api.origin}/api/workspaces/${created.workspace.id}/file?path=From%20Library%2Freference.txt`) as { text: string };
+    assert.equal(libraryPreview.text, "reference", "restoring the upload checkpoint must not touch the Library copy");
+  } finally {
+    await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
 test("conversation runtime snapshots expose model and context state without transcript contents", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "workspace-runtime-snapshot-test-"));
   const api = await startLocalApi({

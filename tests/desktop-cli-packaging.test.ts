@@ -75,9 +75,12 @@ test("macOS CLI shim uses the same atomic bounded protocol-v1 handoff", async ()
   assert.match(jxaHelper, /fileHandleWithStandardOutput/);
   assert.match(jxaHelper, /fileHandleWithStandardError/);
   assert.match(jxaHelper, /\$\.exit\(exitCode\)/);
+  assertActLaneShimContract(jxaHelper);
   const desktopMain = await read("desktop/src/main.ts");
   assert.match(desktopMain, /process\.env\.WORKSPACE_CLI_STATE_DIR = app\.getPath\("userData"\)/);
   assert.doesNotMatch(desktopMain, /process\.env\.WORKSPACE_DESKTOP_(?:USER_DATA|STATE)_DIR\s*=/);
+  assert.match(desktopMain, /writeWorkspaceCliActTokenFile/);
+  assert.match(desktopMain, /removeWorkspaceCliActTokenFile/);
 });
 
 test("Windows CLI shim uses an atomic bounded protocol-v1 handoff", async () => {
@@ -95,12 +98,11 @@ test("Windows CLI shim uses an atomic bounded protocol-v1 handoff", async () => 
   for (const field of ["protocolVersion", "id", "argv", "cwd", "createdAt"]) {
     assert.match(powerShellShim, new RegExp(`\\b${field}\\s*=`), `request must include ${field}`);
   }
-  assert.match(powerShellShim, /\$cliRoot\s*=\s*Join-Path\s+\$stateDirectory\s+'cli'/);
+  assert.match(powerShellShim, /\$script:WorkspaceCliRoot\s*=\s*Join-Path\s+\$stateDirectory\s+'cli'/);
   assert.match(powerShellShim, /'requests'/);
   assert.match(powerShellShim, /'responses'/);
   assert.match(powerShellShim, /CurrentFileSystemLocation\.ProviderPath/);
   assert.doesNotMatch(powerShellShim, /GetCurrentDirectory/);
-  assert.match(powerShellShim, /\$temporaryRequestId\s*=\s*\[Guid\]::NewGuid\(\)/);
   assert.match(powerShellShim, /\[IO\.FileMode\]::CreateNew/);
   assert.match(powerShellShim, /\$requestStream\.Flush\(\$true\)/);
   assert.doesNotMatch(powerShellShim, /\$requestId\.\$PID\.tmp/);
@@ -111,11 +113,12 @@ test("Windows CLI shim uses an atomic bounded protocol-v1 handoff", async () => 
   assert.match(powerShellShim, /Uninstall Workspace\.exe/);
   assert.match(powerShellShim, /Workspace Development/);
   assert.match(powerShellShim, /WORKSPACE_CLI_TIMEOUT_MS/);
-  assert.match(powerShellShim, /ElapsedMilliseconds\s+-ge\s+\$timeoutMs/);
-  assert.match(powerShellShim, /\[Console\]::Out\.Write\(\[string\]\$response\.stdout\)/);
-  assert.match(powerShellShim, /\[Console\]::Error\.Write\(\[string\]\$response\.stderr\)/);
-  assert.match(powerShellShim, /\$exitCode\s*=\s*\[Convert\]::ToInt32\(\$response\.exitCode/);
+  assert.match(powerShellShim, /ElapsedMilliseconds\s+-ge\s+\$script:WorkspaceCliTimeoutMs/);
+  assert.match(powerShellShim, /\[Console\]::Out\.Write\(\[string\]\$Outcome\.Stdout\)/);
+  assert.match(powerShellShim, /\[Console\]::Error\.Write\(\[string\]\$Outcome\.Stderr\)/);
+  assert.match(powerShellShim, /ExitCode\s*=\s*\[Convert\]::ToInt32\(\$response\.exitCode/);
   assert.match(powerShellShim, /Remove-Item -LiteralPath \$path -Force/);
+  assertActLaneShimContract(powerShellShim);
 });
 
 test("NSIS manages only the current-user PATH and broadcasts changes", async () => {
@@ -147,6 +150,35 @@ test("packaged asset verification requires external CLI shims", async () => {
   assert.match(verifier, /join\(binDir, "workspace-cli\.jxa\.js"\)/);
   assert.match(verifier, /CLI shim must remain outside app\.asar/);
 });
+
+/**
+ * Shared act-lane contract both platform shims must keep: routing that never
+ * lets content-bearing chat commands fall through to protocol v1, the
+ * per-launch token file, the bounded message payload rewrite, the shim-side
+ * wait loop, and the fail-fast unavailable path.
+ */
+function assertActLaneShimContract(shim: string): void {
+  for (const routed of ["chat", "chats", "files", "manage", "spaces", "create", "register", "wait", "status", "result"]) {
+    assert.match(shim, new RegExp(`["']${routed}["']`), `act routing must reference ${routed}`);
+  }
+  assert.match(shim, /act-token\.json/);
+  assert.match(shim, /\[A-Za-z0-9_-\]\{16,256\}/);
+  assert.match(shim, /protocolVersion\s*[:=]\s*2/);
+  assert.match(shim, /lane\s*[:=]\s*["']act["']/);
+  assert.match(shim, /actToken/);
+  assert.match(shim, /payload/);
+  assert.match(shim, /messageFile/);
+  assert.match(shim, /--message-file/);
+  assert.match(shim, /--message-from-payload/);
+  assert.match(shim, /262144/);
+  assert.match(shim, /Open Workspace to run this command/);
+  assert.match(shim, /exit\s*\(?6\)?/);
+  assert.match(shim, /--task/);
+  assert.match(shim, /task\.state/);
+  assert.match(shim, /--timeout/);
+  assert.match(shim, /timed out after/);
+  assert.match(shim, /\b7\b/);
+}
 
 async function read(relativePath: string): Promise<string> {
   return readFile(join(rootDir, relativePath), "utf8");

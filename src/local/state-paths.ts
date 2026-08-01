@@ -40,6 +40,18 @@ export function restrictedAppRoot(): string {
   return join(workspaceStateRoot(), "restricted-apps");
 }
 
+/**
+ * Scope id for the management conversation that sits above all Spaces. It is
+ * a distinct conversation scope, not a Space: its records describe this
+ * machine's Space registry, so they are machine-local application state.
+ */
+export const workspaceManagementScopeId = "workspace-management";
+
+/** Machine-local root holding the management scope's conversation records. */
+export function workspaceManagementRoot(): string {
+  return join(workspaceStateRoot(), "management");
+}
+
 export function workspaceStateDir(workspaceRoot: string): string {
   const resolved = resolve(workspaceRoot);
   const key = workspaceStateKey(resolved);
