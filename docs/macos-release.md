@@ -103,6 +103,22 @@ The accepted proof must show:
 - `npm run desktop:verify:installed:mac` passes;
 - a full quit and reopen does not ask for repeated Keychain passwords.
 
+### work-fold 0.1.0 to 0.1.1
+
+The first work-fold update passed this proof on August 1, 2026. Installed 0.1.0
+discovered the public `work-fold-0.1.1-mac-arm64.zip`; an explicit user click on
+**Download and Install** completed the Squirrel.Mac shutdown, replacement, and
+relaunch under a new 0.1.1 process. Both updater-cache ZIP copies matched the
+published GitHub SHA-256
+`c01eb4a9a881efe6da54fe4e59d3a5a654736c979181b83a90d61f7ffc100fa9`.
+Installed verification passed with bundle id `com.work-fold.desktop`, Team ID
+`464JD5K8DC`, the `Mat-Tom-Son/work-fold-mac-releases` feed, a valid
+notarization staple, and Gatekeeper acceptance without reading Keychain secret
+data. A cold installed launch reached onboarding with no renderer errors; the
+menu-bar popover loaded its narrow bridge; close/reopen and full quit/cold
+launch passed. The new profile remained at zero Spaces, and a deterministic
+manifest covering all 1,939 legacy Workspace profile files was unchanged.
+
 ### Preserved legacy Workspace updater evidence
 
 The records below are historical proof for the predecessor product only. They

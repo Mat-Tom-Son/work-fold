@@ -1,8 +1,12 @@
 # work-fold rebrand and clean-break launch plan
 
-> **Status:** Planning only. This document does not authorize or implement the
-> rename, delete user data, publish a release, change an updater feed, or alter
-> an installed application identity.
+> **Mac launch status — August 1, 2026.** The public source and Mac artifact
+> repositories are live, the legacy repositories are archived with redirects,
+> and signed/notarized/stapled 0.1.1 completed the installed 0.1.0 to 0.1.1
+> update and clean-profile/coexistence gates. The canonical domain is exactly
+> [work-fold.com](https://work-fold.com); website work remains intentionally
+> outside this implementation. Windows packaging and signing were explicitly
+> deferred by the owner and remain a later platform operation.
 >
 > **Audited baseline:** `package.json` version `0.8.0` plus the current
 > in-flight working-tree changes, including management conversation
