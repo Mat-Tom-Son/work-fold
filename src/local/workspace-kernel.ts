@@ -75,6 +75,25 @@ export interface WorkspaceTaskInput {
   actor: WorkspaceActor;
 }
 
+/**
+ * Experimental internal task shape for Checks dogfooding. It is deliberately
+ * separate from WorkspaceTaskKind and must not enter workspace.tasks v1.
+ */
+export interface WorkspaceExperimentalCheckRunTaskInput {
+  id?: string;
+  workspaceId: string;
+  actor: WorkspaceActor;
+}
+
+export interface WorkspaceExperimentalCheckRunTask {
+  id: string;
+  kind: "check_run";
+  status: "running";
+  workspaceId: string;
+  actor: WorkspaceActor;
+  startedAt: string;
+}
+
 export interface WorkspaceTasksSnapshot {
   kind: "workspace.tasks";
   version: typeof workspaceKernelSnapshotVersion;
@@ -263,7 +282,7 @@ export class WorkspaceKernel {
   readonly #isProjectMutationTrusted: WorkspaceKernelOptions["isProjectMutationTrusted"] & {};
   readonly #now: () => Date;
   readonly #createTaskId: () => string;
-  readonly #tasks = new Map<string, WorkspaceTaskSnapshot>();
+  readonly #tasks = new Map<string, WorkspaceTaskSnapshot | WorkspaceExperimentalCheckRunTask>();
 
   constructor(options: WorkspaceKernelOptions = {}) {
     this.#runtimeProvider = options.runtimeProvider;
@@ -328,6 +347,7 @@ export class WorkspaceKernel {
     const context = scoped ? await this.getContext(normalizedActor) : null;
     const workspaceId = context?.workspace?.id ?? null;
     const tasks = [...this.#tasks.values()]
+      .filter((task): task is WorkspaceTaskSnapshot => task.kind !== "check_run")
       .filter((task) => !scoped || task.workspaceId === workspaceId)
       .sort((left, right) => left.startedAt.localeCompare(right.startedAt) || left.id.localeCompare(right.id))
       .map(copyTask);
@@ -374,6 +394,28 @@ export class WorkspaceKernel {
     };
     this.#tasks.set(task.id, task);
     return copyTask(task);
+  }
+
+  /**
+   * Starts a Check run in the shared internal lifecycle without promoting the
+   * experimental kind into the stable workspace.tasks v1 projection.
+   */
+  startExperimentalCheckRunTask(input: WorkspaceExperimentalCheckRunTaskInput): WorkspaceExperimentalCheckRunTask {
+    const id = input.id?.trim() || this.#createTaskId();
+    if (!id) throw new Error("Workspace task id is required.");
+    if (this.#tasks.has(id)) throw new Error(`Workspace task is already running: ${id}`);
+    const workspaceId = input.workspaceId.trim();
+    if (!workspaceId) throw new Error("Workspace task Space id is required.");
+    const task: WorkspaceExperimentalCheckRunTask = {
+      id,
+      kind: "check_run",
+      status: "running",
+      workspaceId,
+      actor: normalizeActor(input.actor),
+      startedAt: this.#now().toISOString(),
+    };
+    this.#tasks.set(task.id, task);
+    return copyExperimentalCheckRunTask(task);
   }
 
   finishTask(taskId: string): boolean {
@@ -574,6 +616,10 @@ function toSpaceSnapshot(workspace: WorkspaceSummary): WorkspaceSpaceSnapshot {
 }
 
 function copyTask(task: WorkspaceTaskSnapshot): WorkspaceTaskSnapshot {
+  return { ...task, actor: { ...task.actor } };
+}
+
+function copyExperimentalCheckRunTask(task: WorkspaceExperimentalCheckRunTask): WorkspaceExperimentalCheckRunTask {
   return { ...task, actor: { ...task.actor } };
 }
 

@@ -20,6 +20,7 @@ Workspace is for general computer work. Coding is one valid use, not the organiz
 | **Chats** | Conversations grounded in the selected Space. | A chat does not automatically receive every file in the Space. |
 | **Library** | Personal materials worth reusing across Spaces. | Items are passive and are copied explicitly; they are not prompt context. |
 | **History** | Checkpoints and recoverable changes associated with a Space. | It should remain distinct from chat history. |
+| **Checks** | Optional, manual expectations over exact files or bounded file sets a person deliberately designates. | They are not ambient scanning, a permanent rail destination, or proof that an unconfigured Space is healthy. |
 | **Assistant** | The Pi-powered helper. | Its provider and model are configured in Settings, independently from Space content. |
 | **Assistant tools** | One on-demand work tab to discover and manage what the Assistant can do. | It groups Skills, Extensions, and Space-app management without making executable tools look like passive Library materials. |
 | **Skill** | A reusable way of working that helps the Assistant approach a task. | A Skill may contain executable scripts and is not merely a document. |
@@ -82,6 +83,9 @@ Registering a folder is also the host authorization for its existing local Pi co
 | Register a folder as a Space | The folder appears in Workspace and its local Pi configuration may load. | Files are not uploaded or converted, and local code is not certified as safe. |
 | Add a Library item to a Space | An independent copy is written under `From Library`. | The original is not changed and the copy is not attached to a chat. |
 | Attach a file to a Chat | That file is made available to the conversation. | Other Space files are not included automatically. |
+| Create a Check proposal | An inert, typed expectation names one sensor and exact primary/reference targets for review. | It is not enabled, run, scheduled, or treated as executable configuration. |
+| Enable a Check | Workspace writes the portable code-free declaration and records an exact-digest, exact-sensor machine grant. | Registration, proposal discovery, and a one-off request never enable standing behavior. |
+| Run a Check | Workspace inspects only its designated targets within hard host limits and admits only independently re-verifiable evidence. | No other Space files are scanned; health failures and stale results never become content findings or a clear state. |
 | Install a personal Skill or Extension | It becomes available through the user's Pi scope. | It is not copied into every Space. |
 | Ask the Assistant to build a Space app | The Assistant may write an ordinary restricted-app package and ask Workspace to inspect it for review. | A proposal does not execute or install code, grant network access, or store a credential. |
 | Add a reviewed Space app | The exact reviewed digest becomes a Local preview in that Space's Development Instance. | It is not a Release or App Instance; network destinations, Space files, notification categories, saved connections, and every named automation remain off. |
@@ -202,6 +206,7 @@ When a design is ambiguous, prefer the option that best preserves these properti
 - Inspect Space context, registered Spaces, active Assistant/compaction tasks, and Pi capabilities through one versioned `WorkspaceKernel` and the installed `workspace` CLI's content-free read lane.
 - Operate the product from any shell-capable agent through the CLI's per-launch-authenticated act lane while the app is running: create or register Spaces, copy outside material into a Space with a History restore point, and start, continue, await, or abort Space Chats — every action journaled before it runs and every CLI-initiated turn tracked as a kernel task with a task-scoped outcome.
 - Talk to the management conversation above all Spaces through `workspace manage send|status|result|wait|abort|list`: the same Assistant runtime with personal capabilities plus Workspace's two app-owned management resources, a machine-local transcript, default single-conversation behavior, and task-scoped outcomes.
+- Define optional manual Checks over exact designated files through inert proposals and explicit machine-local enablement; run, await, inspect evidence-backed problems, and record fingerprint-scoped decisions through the installed CLI and management conversation. Unconfigured means unknown, portable declarations remain inert, and no background watcher or permanent navigation destination is introduced.
 - Drop native OS files onto any Chat composer to upload them into that Space's dated `Dropped/` folder and attach them as context in one explicit act; uploads and Library copy-ins record additive History restore points.
 - Drive one real Pi turn through the local API with the harness-neutral `workspace:drive` test driver.
 - Render validated declarative `surface.json` contributions from loaded Pi Extensions as a contributed rail destination, left-pane navigator, and Space-bound view tabs without injecting Extension code into the renderer.

@@ -62,6 +62,11 @@ test("the management conversation runs above all Spaces on the shared turn machi
       true,
       "the management AGENTS.md must load as a Pi context file",
     );
+    const managementContext = catalog.contextFiles.find((file) => file.path.endsWith("AGENTS.md"))?.content ?? "";
+    assert.match(managementContext, /Checks are optional, manual expectations/);
+    assert.match(managementContext, /Never turn an ordinary request.*standing behavior/);
+    assert.match(managementContext, /not-configured.*unknown, not clear/);
+    assert.match(managementContext, /Only after an explicit enable instruction/);
 
     // Before any send there is no conversation to inspect.
     await assert.rejects(

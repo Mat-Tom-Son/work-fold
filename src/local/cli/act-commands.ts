@@ -2,9 +2,15 @@ import { timingSafeEqual } from "node:crypto";
 
 import type {
   WorkspaceActChatMessage,
+  WorkspaceActCheckTaskStatus,
   WorkspaceActConversationRef,
   WorkspaceActFacade,
 } from "./act-facade.js";
+import type {
+  WorkspaceCheckDecisionKind,
+  WorkspaceCheckEvidence,
+  WorkspaceCheckFinding,
+} from "../checks/check-types.js";
 import type { WorkspaceCliActRequestV2 } from "./act-protocol.js";
 import type { WorkspaceCliActReceipts } from "./act-receipts.js";
 import {
@@ -28,6 +34,14 @@ export type WorkspaceCliActCommandName =
   | "manage.result"
   | "manage.abort"
   | "manage.list"
+  | "checks.enable"
+  | "checks.disable"
+  | "checks.run"
+  | "checks.task"
+  | "checks.result"
+  | "checks.abort"
+  | "checks.problems"
+  | "checks.decide"
   | "spaces.create"
   | "spaces.register"
   | "files.add";
@@ -46,6 +60,11 @@ export interface WorkspaceCliActParsedCommand {
   registerPath?: string;
   fromPaths?: string[];
   toDir?: string;
+  proposalPath?: string;
+  check?: string;
+  finding?: string;
+  decision?: WorkspaceCheckDecisionKind;
+  until?: string;
 }
 
 /** The running interactive app's act authority: the facade plus this run's token. */
@@ -63,10 +82,14 @@ export interface WorkspaceCliActExecutorOptions {
 }
 
 export const workspaceCliActUnavailableMessage =
-  "Open Workspace to run this command. Chat and Space actions need the Workspace app running.";
+  "Open Workspace to run this command. Chat, Check, and Space actions need the Workspace app running.";
 
 const maxActResultMessages = 500;
 const maxActFromPaths = 25;
+const maxChecksCliIdLength = 256;
+const maxChecksProposalPathLength = 4_096;
+const maxChecksOutputFindings = 100;
+const maxChecksOutputHealthErrors = 20;
 
 /**
  * Parses act-lane argv. Every command requires explicit selection — there is
@@ -78,7 +101,22 @@ export function parseWorkspaceCliActArgv(argv: readonly string[]): WorkspaceCliA
   const fromPaths: string[] = [];
   const positional: string[] = [];
 
-  const valueFlags = new Set(["--space", "--conversation", "--task", "--message", "--messages", "--name", "--path", "--from", "--to"]);
+  const valueFlags = new Set([
+    "--space",
+    "--conversation",
+    "--task",
+    "--message",
+    "--messages",
+    "--name",
+    "--path",
+    "--from",
+    "--to",
+    "--proposal",
+    "--check",
+    "--finding",
+    "--decision",
+    "--until",
+  ]);
   const booleanFlags = new Set(["--new", "--message-from-payload"]);
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -145,6 +183,25 @@ export function parseWorkspaceCliActArgv(argv: readonly string[]): WorkspaceCliA
   const rejectFlags = (...names: string[]) => {
     for (const name of names) if (flags.has(name)) throw usageError(`${name} cannot be used with '${command}'.`);
   };
+  const allowOnlyFlags = (...names: string[]) => {
+    const allowed = new Set(names);
+    for (const name of flags.keys()) {
+      if (!allowed.has(name)) throw usageError(`${name} cannot be used with '${command}'.`);
+    }
+  };
+  const requireBoundedFlag = (name: string, label: string, maximumLength = maxChecksCliIdLength): string => {
+    const value = stringFlag(name)?.trim();
+    if (!value) throw usageError(`Provide ${name} <${label}>.`);
+    if (value.length > maximumLength) throw usageError(`${name} must be at most ${maximumLength} characters.`);
+    if (/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(value)) {
+      throw usageError(`${name} contains unsupported control characters.`);
+    }
+    return value;
+  };
+
+  if (!command.startsWith("checks ")) {
+    rejectFlags("--proposal", "--check", "--finding", "--decision", "--until");
+  }
 
   switch (command) {
     case "chat create":
@@ -207,7 +264,101 @@ export function parseWorkspaceCliActArgv(argv: readonly string[]): WorkspaceCliA
       return { name: "chat.abort", output, space: requireSpace(), conversation: requireConversation() };
     case "chat wait":
     case "manage wait":
+    case "checks wait":
       throw usageError(`${command} runs inside the workspace shim; update the installed Workspace CLI.`);
+    case "checks enable":
+      allowOnlyFlags("--space", "--proposal");
+      return {
+        name: "checks.enable",
+        output,
+        space: requireSpace(),
+        proposalPath: requireBoundedFlag("--proposal", "proposal-path", maxChecksProposalPathLength),
+      };
+    case "checks disable":
+      allowOnlyFlags("--space", "--check");
+      return {
+        name: "checks.disable",
+        output,
+        space: requireSpace(),
+        check: requireBoundedFlag("--check", "check-id"),
+      };
+    case "checks run": {
+      allowOnlyFlags("--space", "--check");
+      const check = stringFlag("--check") === undefined
+        ? undefined
+        : requireBoundedFlag("--check", "check-id");
+      return {
+        name: "checks.run",
+        output,
+        space: requireSpace(),
+        ...(check ? { check } : {}),
+      };
+    }
+    case "checks task":
+      allowOnlyFlags("--space", "--task");
+      return {
+        name: "checks.task",
+        output,
+        space: requireSpace(),
+        task: requireBoundedFlag("--task", "task-id"),
+      };
+    case "checks result":
+      allowOnlyFlags("--space", "--task");
+      return {
+        name: "checks.result",
+        output,
+        space: requireSpace(),
+        task: requireBoundedFlag("--task", "task-id"),
+      };
+    case "checks abort":
+      allowOnlyFlags("--space", "--task");
+      return {
+        name: "checks.abort",
+        output,
+        space: requireSpace(),
+        task: requireBoundedFlag("--task", "task-id"),
+      };
+    case "checks problems": {
+      allowOnlyFlags("--space", "--check");
+      const check = stringFlag("--check") === undefined
+        ? undefined
+        : requireBoundedFlag("--check", "check-id");
+      return {
+        name: "checks.problems",
+        output,
+        space: requireSpace(),
+        ...(check ? { check } : {}),
+      };
+    }
+    case "checks decide": {
+      allowOnlyFlags("--space", "--finding", "--decision", "--until");
+      const finding = requireBoundedFlag("--finding", "finding-id");
+      const rawDecision = requireBoundedFlag("--decision", "accept|reject|resolve|defer");
+      if (!(["accept", "reject", "resolve", "defer"] as const).includes(rawDecision as WorkspaceCheckDecisionKind)) {
+        throw usageError("--decision must be accept, reject, resolve, or defer.");
+      }
+      const decision = rawDecision as WorkspaceCheckDecisionKind;
+      const rawUntil = stringFlag("--until")?.trim();
+      if (decision !== "defer" && rawUntil !== undefined) {
+        throw usageError("--until may be used only with --decision defer.");
+      }
+      if (decision === "defer" && !rawUntil) {
+        throw usageError("--decision defer requires --until <ISO-timestamp>.");
+      }
+      let until: string | undefined;
+      if (rawUntil !== undefined) {
+        if (!Number.isFinite(Date.parse(rawUntil))) throw usageError("--until must be an ISO timestamp.");
+        until = new Date(rawUntil).toISOString();
+      }
+      return {
+        name: "checks.decide",
+        output,
+        space: requireSpace(),
+        finding,
+        decision,
+        ...(until ? { until } : {}),
+      };
+    }
     case "manage send": {
       rejectFlags("--space", "--task", "--messages", "--name", "--path", "--to");
       const newConversation = flags.get("--new") === true;
@@ -386,9 +537,9 @@ export async function executeWorkspaceCliActRequest(
       exitCode: normalized.exitCode,
       stdout: "",
       stderr: json
-        ? `${JSON.stringify({ ok: false, error: { code: normalized.code, message: normalized.message } }, null, 2)}\n`
+        ? `${JSON.stringify({ ok: false, error: { code: normalized.code, message: terminalText(normalized.message) } }, null, 2)}\n`
         : `${humanActErrorMessage(normalized)}\n`,
-      result: { ok: false, error: { code: normalized.code, message: normalized.message } },
+      result: { ok: false, error: { code: normalized.code, message: terminalText(normalized.message) } },
       completedAt: completedAt(),
     });
   }
@@ -454,6 +605,49 @@ async function runActCommand(
       }));
     case "manage.list":
       return toJson(await facade.manageList());
+    case "checks.enable":
+      return toChecksJson(await facade.checksEnable({
+        space: command.space!,
+        proposalPath: command.proposalPath!,
+        cwd: request.cwd,
+      }));
+    case "checks.disable":
+      return toChecksJson(await facade.checksDisable({
+        space: command.space!,
+        checkId: command.check!,
+      }));
+    case "checks.run":
+      return toChecksJson(await facade.checksRun({
+        space: command.space!,
+        ...(command.check ? { checkId: command.check } : {}),
+      }));
+    case "checks.task":
+      return toChecksJson(await facade.checksTask({
+        space: command.space!,
+        taskId: command.task!,
+      }));
+    case "checks.result":
+      return projectChecksResult(await facade.checksResult({
+        space: command.space!,
+        taskId: command.task!,
+      }));
+    case "checks.abort":
+      return toChecksJson(await facade.checksAbort({
+        space: command.space!,
+        taskId: command.task!,
+      }));
+    case "checks.problems":
+      return projectChecksProblems(await facade.checksProblems({
+        space: command.space!,
+        ...(command.check ? { checkId: command.check } : {}),
+      }));
+    case "checks.decide":
+      return toChecksJson(await facade.checksDecide({
+        space: command.space!,
+        findingId: command.finding!,
+        decision: command.decision!,
+        ...(command.until ? { deferUntil: command.until } : {}),
+      }));
     case "spaces.create":
       return toJson(await facade.createSpace({ name: command.spaceName! }));
     case "spaces.register":
@@ -466,6 +660,112 @@ async function runActCommand(
         cwd: request.cwd,
       }));
   }
+}
+
+function projectChecksResult(
+  value: Awaited<ReturnType<WorkspaceActFacade["checksResult"]>>,
+): WorkspaceCliJson {
+  const { run } = value;
+  const findings = run.findings.slice(0, maxChecksOutputFindings).map(projectCheckFinding);
+  return toChecksJson({
+    space: value.space,
+    run: {
+      id: run.id,
+      taskId: run.taskId,
+      checkIds: run.checkIds,
+      startedAt: run.startedAt,
+      ...(run.endedAt ? { endedAt: run.endedAt } : {}),
+      state: run.state,
+      authorities: run.authorities,
+      limits: run.limits,
+      inputs: run.inputs,
+      findings,
+      findingCount: run.findings.length,
+      findingsReturned: findings.length,
+      findingsTruncated: run.findings.length > findings.length,
+      admittedCount: run.admittedCount,
+      discardedCount: run.discardedCount,
+      skippedCount: run.skippedCount,
+      ...(run.error ? { error: run.error } : {}),
+      ...(run.cost ? { cost: run.cost } : {}),
+    },
+  });
+}
+
+function projectChecksProblems(
+  value: Awaited<ReturnType<WorkspaceActFacade["checksProblems"]>>,
+): WorkspaceCliJson {
+  const findings = value.findings.slice(0, maxChecksOutputFindings).map(projectCheckFinding);
+  const healthErrors = value.healthErrors.slice(0, maxChecksOutputHealthErrors);
+  return toChecksJson({
+    space: value.space,
+    ...(value.checkId ? { checkId: value.checkId } : {}),
+    findings,
+    findingCount: value.findings.length,
+    findingsReturned: findings.length,
+    findingsTruncated: value.truncated || value.findings.length > findings.length,
+    sourceTruncated: value.truncated,
+    invalidated: value.invalidated,
+    healthErrors,
+    healthErrorCount: value.healthErrors.length,
+    healthErrorsTruncated: value.healthErrors.length > healthErrors.length,
+  });
+}
+
+function projectCheckFinding(finding: WorkspaceCheckFinding): Record<string, unknown> {
+  return {
+    id: finding.id,
+    fingerprint: finding.fingerprint,
+    checkId: finding.checkId,
+    declarationDigest: finding.declarationDigest,
+    sensorId: finding.sensorId,
+    sensorRevision: finding.sensorRevision,
+    severity: finding.severity,
+    observedAt: finding.observedAt,
+    status: finding.status,
+    title: finding.title,
+    targetPath: finding.targetPath,
+    evidence: finding.evidence.slice(0, 16).map(projectCheckEvidence),
+    ...(finding.detail ? { detail: finding.detail } : {}),
+    ...(finding.remediation ? { remediation: finding.remediation } : {}),
+    ...(finding.invalidatedAt ? { invalidatedAt: finding.invalidatedAt } : {}),
+    ...(finding.invalidationReason ? { invalidationReason: finding.invalidationReason } : {}),
+  };
+}
+
+function projectCheckEvidence(evidence: WorkspaceCheckEvidence): WorkspaceCliJson {
+  return sanitizeChecksJson(evidence);
+}
+
+function toChecksJson(value: unknown): WorkspaceCliJson {
+  return sanitizeChecksJson(value);
+}
+
+/**
+ * The facade is trusted application code, but its values can contain file and
+ * model content. Bound every collection/string and scrub terminal controls at
+ * this final adapter boundary so both JSON and human projections are safe.
+ */
+function sanitizeChecksJson(value: unknown, depth = 0): WorkspaceCliJson {
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") return boundedTerminalText(value, 8_192);
+  if (depth >= 12) return "[nested output omitted]";
+  if (Array.isArray(value)) return value.slice(0, 512).map((item) => sanitizeChecksJson(item, depth + 1));
+  if (typeof value === "object") {
+    const output: Record<string, WorkspaceCliJson> = {};
+    for (const [key, item] of Object.entries(value).slice(0, 128)) {
+      if (item === undefined || typeof item === "function" || typeof item === "symbol") continue;
+      output[terminalText(key)] = sanitizeChecksJson(item, depth + 1);
+    }
+    return output;
+  }
+  return boundedTerminalText(value, 8_192);
+}
+
+function boundedTerminalText(value: unknown, maximumLength: number): string {
+  const scrubbed = terminalText(value);
+  return scrubbed.length <= maximumLength ? scrubbed : `${scrubbed.slice(0, maximumLength - 1)}…`;
 }
 
 const manageRenderAliases: Partial<Record<WorkspaceCliActCommandName, WorkspaceCliActCommandName>> = {
@@ -482,6 +782,7 @@ function humanActOutput(name: WorkspaceCliActCommandName, data: WorkspaceCliJson
     conversation?: WorkspaceActConversationRef;
     conversations?: WorkspaceActConversationRef[];
     messages?: WorkspaceActChatMessage[];
+    task?: WorkspaceActCheckTaskStatus;
   };
   const spaceLabel = record.space ? `${terminalText(record.space.name)} [${terminalText(record.space.id)}]` : "";
   switch (manageRenderAliases[name] ?? name) {
@@ -521,6 +822,83 @@ function humanActOutput(name: WorkspaceCliActCommandName, data: WorkspaceCliJson
         return `- ${terminalText(item.title)} [${terminalText(item.id)}]${lifecycle}`;
       }).join("\n")}\n`;
     }
+    case "checks.enable": {
+      const check = record.check as { id?: string; title?: string; trigger?: string; targets?: Array<Record<string, WorkspaceCliJson>> } | undefined;
+      const targets = check?.targets ?? [];
+      const scope = targets.slice(0, 64).map((target) => {
+        const membership = target.kind === "tree"
+          ? ` (${target.recursive ? "recursive" : "one level"}; ${(Array.isArray(target.extensions) ? target.extensions : []).map(terminalText).join(", ")})`
+          : "";
+        return `- ${terminalText(target.role)} ${terminalText(target.kind)}: ${terminalText(target.path)}${membership}`;
+      });
+      return `Enabled Check ${terminalText(check?.title)} [${terminalText(check?.id)}] in ${spaceLabel}.\nTrigger: ${terminalText(check?.trigger)}\n${scope.join("\n")}\n`;
+    }
+    case "checks.disable":
+      return record.disabled
+        ? `Disabled Check ${terminalText(record.checkId)} in ${spaceLabel}.\n`
+        : `Check ${terminalText(record.checkId)} was not enabled in ${spaceLabel}.\n`;
+    case "checks.run": {
+      const checkIds = Array.isArray(record.checkIds) ? record.checkIds : [];
+      return `Accepted Check run ${terminalText(record.runId)}, task ${terminalText(record.taskId)} (${checkIds.length} Check${checkIds.length === 1 ? "" : "s"}) in ${spaceLabel}.\n`;
+    }
+    case "checks.task": {
+      const task = record.task;
+      const run = task?.runId ? ` — run ${terminalText(task.runId)}` : "";
+      const error = task?.error ? `\n${terminalText(task.error)}` : "";
+      return `Check task ${terminalText(task?.taskId)} — ${terminalText(task?.state)}${run}${error}\n`;
+    }
+    case "checks.result": {
+      const run = record.run as {
+        id?: string;
+        taskId?: string;
+        state?: string;
+        admittedCount?: number;
+        discardedCount?: number;
+        skippedCount?: number;
+        findingCount?: number;
+        findingsTruncated?: boolean;
+        error?: string;
+      } | undefined;
+      const truncated = run?.findingsTruncated ? " (output bounded)" : "";
+      const error = run?.error ? `\n${terminalText(run.error)}` : "";
+      return `Check run ${terminalText(run?.id)} — ${terminalText(run?.state)}\n${terminalText(run?.findingCount ?? 0)} finding(s) admitted; ${terminalText(run?.discardedCount ?? 0)} discarded; ${terminalText(run?.skippedCount ?? 0)} skipped${truncated}.${error}\n`;
+    }
+    case "checks.abort":
+      return record.aborted
+        ? `Aborted Check task ${terminalText(record.taskId)}.\n`
+        : `Check task ${terminalText(record.taskId)} was not running in ${spaceLabel}.\n`;
+    case "checks.problems": {
+      const findings = (Array.isArray(record.findings) ? record.findings : []) as Array<{
+        id?: string;
+        severity?: string;
+        title?: string;
+        targetPath?: string;
+        evidence?: WorkspaceCliJson[];
+      }>;
+      const shown = findings.slice(0, 20);
+      const total = typeof record.findingCount === "number" ? record.findingCount : findings.length;
+      const sourceTruncated = record.sourceTruncated === true;
+      const healthErrors = (Array.isArray(record.healthErrors) ? record.healthErrors : []).slice(0, 5);
+      const lines = shown.map((finding) => {
+        const evidence = finding.evidence?.[0];
+        const proof = evidence ? `\n  Evidence: ${humanCheckEvidence(evidence)}` : "";
+        return `- [${terminalText(finding.severity)}] ${terminalText(finding.title)} — ${terminalText(finding.targetPath)} [${terminalText(finding.id)}]${proof}`;
+      });
+      const omitted = sourceTruncated
+        ? "\nAdditional findings were omitted by the bounded service result; use a narrower --check query."
+        : total > shown.length ? `\n${total - shown.length} more finding(s) omitted from human output; use --json for the bounded structured result.` : "";
+      const health = healthErrors.length
+        ? `\nCheck health errors:\n${healthErrors.map((item) => `- ${terminalText(item)}`).join("\n")}`
+        : "";
+      if (!lines.length && !sourceTruncated) return `No active Check problems in ${spaceLabel}.${health}\n`;
+      const countLabel = sourceTruncated ? `At least ${total}` : String(total);
+      return `${countLabel} active Check problem${total === 1 && !sourceTruncated ? "" : "s"} in ${spaceLabel}:\n${lines.join("\n")}${omitted}${health}\n`;
+    }
+    case "checks.decide": {
+      const decision = record.decision as { decision?: string; deferUntil?: string } | undefined;
+      const until = decision?.deferUntil ? ` until ${terminalText(decision.deferUntil)}` : "";
+      return `Recorded ${terminalText(decision?.decision)}${until} for finding ${terminalText(record.findingId)}.\n`;
+    }
     case "spaces.create":
     case "spaces.register":
       return `Space ${spaceLabel} — ${terminalText(record.space?.rootPath)}\n`;
@@ -532,6 +910,16 @@ function humanActOutput(name: WorkspaceCliActCommandName, data: WorkspaceCliJson
     }
     default:
       return `${terminalText(name)} completed.\n`;
+  }
+}
+
+function humanCheckEvidence(value: WorkspaceCliJson): string {
+  const evidence = value as Record<string, WorkspaceCliJson>;
+  switch (evidence.kind) {
+    case "path-state":
+      return `${terminalText(evidence.path)} expected ${terminalText(evidence.expected)}, observed ${terminalText(evidence.observed)}`;
+    default:
+      return terminalText(evidence.kind ?? "verified evidence");
   }
 }
 
@@ -547,6 +935,8 @@ function receiptDetails(data: WorkspaceCliJson): {
     conversationId?: unknown;
     checkpointId?: unknown;
     taskId?: unknown;
+    task?: { taskId?: unknown };
+    run?: { taskId?: unknown };
   };
   const spaceId = typeof record.space?.id === "string" ? record.space.id : undefined;
   const conversationId = typeof record.conversationId === "string"
@@ -556,7 +946,13 @@ function receiptDetails(data: WorkspaceCliJson): {
     ...(spaceId ? { spaceId } : {}),
     ...(conversationId ? { conversationId } : {}),
     ...(typeof record.checkpointId === "string" ? { checkpointId: record.checkpointId } : {}),
-    ...(typeof record.taskId === "string" ? { taskId: record.taskId } : {}),
+    ...(typeof record.taskId === "string"
+      ? { taskId: record.taskId }
+      : typeof record.task?.taskId === "string"
+        ? { taskId: record.task.taskId }
+        : typeof record.run?.taskId === "string"
+          ? { taskId: record.run.taskId }
+          : {}),
   };
 }
 

@@ -49,6 +49,46 @@ test("the act facade drives Space, conversation, and file-addition lifecycles wi
     assert.equal(registered.space.rootPath, registeredRoot);
     await assert.rejects(() => facade.registerSpace({ rootPath: "relative/path" }), /absolute folder path/);
 
+    // Checks remain inert until an explicit enable act, operate over the exact
+    // designated file, and use their own task-scoped result lifecycle.
+    const checkProposalPath = join(sandbox, "required-delivery.workspace-check.json");
+    await writeFile(checkProposalPath, JSON.stringify({
+      kind: "workspace.check-proposal",
+      version: 1,
+      name: "Required delivery",
+      createdBy: "human",
+      createdAt: "2026-08-01T00:00:00.000Z",
+      check: {
+        title: "The signed delivery exists",
+        severity: "error",
+        trigger: "manual",
+        sensor: { id: "workspace.file-presence", revision: 1, parameters: { expect: "present" } },
+        targets: [{ kind: "file", role: "primary", path: "Delivery/signed.pdf" }],
+      },
+    }), "utf8");
+    const check = await facade.checksEnable({
+      space: createdSpace.space.id,
+      proposalPath: checkProposalPath,
+      cwd: sandbox,
+    });
+    assert.equal(check.check.targetCount, 1);
+    const checkRun = await facade.checksRun({ space: createdSpace.space.id, checkId: check.check.id });
+    await waitForAsync(async () => {
+      const status = await facade.checksTask({ space: createdSpace.space.id, taskId: checkRun.taskId });
+      return status.task.state !== "accepted" && status.task.state !== "running";
+    });
+    const checkResult = await facade.checksResult({ space: createdSpace.space.id, taskId: checkRun.taskId });
+    assert.equal(checkResult.run.state, "succeeded");
+    assert.equal(checkResult.run.findings.length, 1);
+    const checkProblems = await facade.checksProblems({ space: createdSpace.space.id, checkId: check.check.id });
+    assert.equal(checkProblems.findings.length, 1);
+    await facade.checksDecide({
+      space: createdSpace.space.id,
+      findingId: checkProblems.findings[0]!.id,
+      decision: "reject",
+    });
+    assert.equal((await facade.checksProblems({ space: createdSpace.space.id })).findings.length, 0);
+
     const conversation = await facade.createConversation({ space: createdSpace.space.id });
     await assert.rejects(
       () => facade.sendMessage({ space: createdSpace.space.id, content: "hello" }),

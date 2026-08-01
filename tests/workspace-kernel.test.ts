@@ -83,6 +83,50 @@ test("WorkspaceKernel tracks and scopes running Assistant tasks", async () => {
   assert.deepEqual((await kernel.getTasks({ kind: "cli", workspaceId: "ws-root" })).tasks, []);
 });
 
+test("WorkspaceKernel tracks experimental Check runs internally without changing workspace.tasks v1", async () => {
+  const root = join(process.cwd(), "kernel-check-tasks", "root");
+  const workspace = space("ws-root", "Root", root);
+  const kernel = new WorkspaceKernel({
+    ...spaceDependencies([workspace]),
+    now: () => new Date("2026-08-01T12:00:00.000Z"),
+    createTaskId: () => "task-generated",
+  });
+  const actor = { kind: "system" as const, workspaceId: workspace.id };
+  const before = JSON.stringify(await kernel.getTasks(actor));
+
+  const task = kernel.startExperimentalCheckRunTask({
+    id: "task-check-run",
+    workspaceId: workspace.id,
+    actor,
+  });
+  assert.deepEqual(task, {
+    id: "task-check-run",
+    kind: "check_run",
+    status: "running",
+    workspaceId: workspace.id,
+    actor,
+    startedAt: "2026-08-01T12:00:00.000Z",
+  });
+  assert.equal(
+    JSON.stringify(await kernel.getTasks(actor)),
+    before,
+    "an internal check_run must be byte-invisible to the stable workspace.tasks v1 snapshot",
+  );
+  assert.throws(
+    () => kernel.startTask({
+      id: task.id,
+      kind: "assistant_turn",
+      workspaceId: workspace.id,
+      actor: { kind: "assistant", workspaceId: workspace.id },
+    }),
+    /already running/,
+    "experimental and stable tasks must share lifecycle id ownership",
+  );
+  assert.equal(kernel.finishTask(task.id), true);
+  assert.equal(kernel.finishTask(task.id), false);
+  assert.equal(JSON.stringify(await kernel.getTasks(actor)), before);
+});
+
 test("WorkspaceKernel capability queries expose the shared stable catalog snapshot", async () => {
   const root = join(process.cwd(), "kernel-capabilities", "root");
   const workspace = space("ws-capabilities", "Capabilities", root);

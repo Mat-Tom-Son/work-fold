@@ -5,6 +5,7 @@ import {
   createWorkspaceCliResponse,
   type WorkspaceCliActor,
   type WorkspaceCliCapabilitySummary,
+  type WorkspaceCliCheckStatusSummary,
   type WorkspaceCliCommandName,
   type WorkspaceCliContextSnapshot,
   type WorkspaceCliJson,
@@ -33,6 +34,7 @@ const commandPatterns: Array<{ tokens: string[]; name: WorkspaceCliCommandName }
   { tokens: ["spaces", "list"], name: "spaces.list" },
   { tokens: ["tasks", "list"], name: "tasks.list" },
   { tokens: ["capabilities", "list"], name: "capabilities.list" },
+  { tokens: ["checks", "status"], name: "checks.status" },
 ];
 
 export function parseWorkspaceCliArgv(argv: readonly string[]): WorkspaceCliParsedCommand {
@@ -85,7 +87,7 @@ export function parseWorkspaceCliArgv(argv: readonly string[]): WorkspaceCliPars
     return { name: "version", output };
   }
   if (!positional.length) {
-    if (space !== undefined) throw usageError("--space must be used with context, spaces list, tasks list, or capabilities list.");
+    if (space !== undefined) throw usageError("--space must be used with context, spaces list, tasks list, capabilities list, or checks status.");
     return { name: "help", output };
   }
   if (positional[0] === "help") {
@@ -144,6 +146,28 @@ export function workspaceCliHelp(productName = "Workspace", topic?: string): str
   if (normalizedTopic === "spaces" || normalizedTopic === "spaces list") return `${header}\n\nUsage: ${executable} spaces list [--space <id-or-name>] [--json]\n\nList Spaces visible to this user.\n`;
   if (normalizedTopic === "tasks" || normalizedTopic === "tasks list") return `${header}\n\nUsage: ${executable} tasks list [--space <id-or-name>] [--json]\n\nList host-managed tasks, optionally for one Space.\n`;
   if (normalizedTopic === "capabilities" || normalizedTopic === "capabilities list") return `${header}\n\nUsage: ${executable} capabilities list [--space <id-or-name>] [--json]\n\nList Personal and Space capabilities.\n`;
+  if (normalizedTopic === "checks" || normalizedTopic?.startsWith("checks ")) {
+    return [
+      header,
+      "",
+      `Usage: ${executable} checks status [--space <id-or-name>] [--json]`,
+      `       ${executable} checks enable --space <id-or-name> --proposal <path> [--json]`,
+      `       ${executable} checks disable --space <id-or-name> --check <id> [--json]`,
+      `       ${executable} checks run --space <id-or-name> [--check <id>] [--json]`,
+      `       ${executable} checks task --space <id-or-name> --task <id> [--json]`,
+      `       ${executable} checks result --space <id-or-name> --task <id> [--json]`,
+      `       ${executable} checks wait --space <id-or-name> --task <id> [--timeout <seconds>] [--json]`,
+      `       ${executable} checks abort --space <id-or-name> --task <id> [--json]`,
+      `       ${executable} checks problems --space <id-or-name> [--check <id>] [--json]`,
+      `       ${executable} checks decide --space <id-or-name> --finding <id> --decision <accept|reject|resolve|defer> [--until <ISO-time>] [--json]`,
+      "",
+      "Checks are optional expectations over explicitly designated files or",
+      "bounded file sets. Status is content-free. Every mutation, run, and",
+      "contentful result uses the authenticated act lane and an explicit Space.",
+      "Nothing watches a Space or enables a portable declaration automatically.",
+      "",
+    ].join("\n");
+  }
   if (normalizedTopic === "chat" || normalizedTopic?.startsWith("chat ")) {
     return [
       header,
@@ -196,6 +220,7 @@ export function workspaceCliHelp(productName = "Workspace", topic?: string): str
     "  spaces list         List Spaces",
     "  tasks list          List host-managed tasks",
     "  capabilities list   List Assistant capabilities",
+    "  checks status       Show aggregate Check status for one Space",
     "  version             Show the installed Workspace version",
     "  help [command]      Show command help",
     "",
@@ -205,6 +230,8 @@ export function workspaceCliHelp(productName = "Workspace", topic?: string): str
     "  chats list          List a Space's Chats",
     "  manage send|status|result|wait|abort|list",
     "                      Talk to the management conversation above all Spaces",
+    "  checks enable|disable|run|task|result|wait|abort|problems|decide",
+    "                      Operate optional, explicitly scoped Space Checks",
     "  spaces create       Create a managed Space (--name)",
     "  spaces register     Register a folder as a Space (--path)",
     "  files add           Copy outside material into a Space (--from, --to)",
@@ -252,6 +279,10 @@ async function runCommand(
       return { command: command.name, data: tasksJson(await kernel.listTasks(actor, { space: command.space })) };
     case "capabilities.list":
       return { command: command.name, data: capabilitiesJson(await kernel.listCapabilities(actor, { space: command.space })) };
+    case "checks.status": {
+      if (!kernel.getChecksStatus) throw new WorkspaceCliError("unavailable", "Checks status is unavailable in this Workspace host.");
+      return { command: command.name, data: checksStatusJson(await kernel.getChecksStatus(actor, { space: command.space })) };
+    }
   }
 }
 
@@ -271,6 +302,8 @@ function humanOutput(result: WorkspaceCliCommandResult, options: WorkspaceCliExe
       return humanTasks((result.data as unknown as { tasks: WorkspaceCliTaskSummary[] }).tasks);
     case "capabilities.list":
       return humanCapabilities((result.data as unknown as { capabilities: WorkspaceCliCapabilitySummary[] }).capabilities);
+    case "checks.status":
+      return humanChecksStatus(result.data as unknown as WorkspaceCliCheckStatusSummary);
     default:
       return `${options.productName ?? "Workspace"}\n`;
   }
@@ -316,6 +349,26 @@ function capabilitiesJson(values: WorkspaceCliCapabilitySummary[]): WorkspaceCli
   };
 }
 
+function checksStatusJson(value: WorkspaceCliCheckStatusSummary): WorkspaceCliJson {
+  return {
+    kind: value.kind,
+    version: value.version,
+    available: value.available,
+    workspaceId: value.workspaceId,
+    state: value.state,
+    configured: value.configured,
+    proposed: value.proposed,
+    enabled: value.enabled,
+    current: value.current,
+    stale: value.stale,
+    blocked: value.blocked,
+    errors: value.errors,
+    needsAttention: value.needsAttention,
+    running: value.running,
+    lastRunAt: value.lastRunAt,
+  };
+}
+
 function spaceJson(value: WorkspaceCliSpaceSummary): WorkspaceCliJson {
   return {
     id: value.id,
@@ -351,6 +404,32 @@ function humanTasks(values: WorkspaceCliTaskSummary[]): string {
 function humanCapabilities(values: WorkspaceCliCapabilitySummary[]): string {
   if (!values.length) return "No capabilities found.\n";
   return `${values.map((item) => `- ${terminalText(item.name)} [${terminalText(item.kind)}, ${terminalText(item.scope)}${item.status ? `, ${terminalText(item.status)}` : ""}]${item.source ? ` — ${terminalText(item.source)}` : ""}`).join("\n")}\n`;
+}
+
+function humanChecksStatus(value: WorkspaceCliCheckStatusSummary): string {
+  if (!value.available) return `Checks: unavailable\nSpace: ${terminalText(value.workspaceId)}\n`;
+  const labels: Record<Exclude<WorkspaceCliCheckStatusSummary["state"], "unavailable">, string> = {
+    "not-configured": "not configured",
+    "current-clear": "current, no findings",
+    "needs-attention": "needs attention",
+    stale: "stale",
+    blocked: "blocked",
+    "check-error": "check error",
+  };
+  const state = value.state === "unavailable" ? "unavailable" : labels[value.state];
+  return [
+    `Checks: ${state}`,
+    `Space: ${terminalText(value.workspaceId)}`,
+    `Configured: ${value.configured} (${value.enabled} enabled, ${value.proposed} proposed)`,
+    `Current: ${value.current}`,
+    `Needs attention: ${value.needsAttention}`,
+    `Stale: ${value.stale}`,
+    `Blocked: ${value.blocked}`,
+    `Errors: ${value.errors}`,
+    `Running: ${value.running}`,
+    `Last run: ${value.lastRunAt ? terminalText(value.lastRunAt) : "never"}`,
+    "",
+  ].join("\n");
 }
 
 function terminalText(value: unknown): string {

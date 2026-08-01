@@ -27,6 +27,7 @@
     "local:api": "tsx src/local/server-dev.ts",
     "workspace:drive": "tsx scripts/workspace-drive.ts",
     "workspace:appearance": "tsx scripts/workspace-appearance.ts",
+    "workspace:checks": "tsx scripts/workspace-checks.ts",
     "local:dev": "concurrently -k -n api,ui -c cyan,green \"npm run local:api\" \"vite --config vite.local.config.ts\"",
     "local:check": "tsc --noEmit -p tsconfig.web.json",
     "local:build": "vite build --config vite.local.config.ts",

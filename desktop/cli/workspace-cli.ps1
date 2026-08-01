@@ -73,7 +73,7 @@ if ($args.Count -gt 0 -and [string]$args[0] -ceq $pathManagementFlag) {
   }
 }
 
-$script:ActUnavailableMessage = 'Open Workspace to run this command. Chat and Space actions need the Workspace app running.'
+$script:ActUnavailableMessage = 'Open Workspace to run this command. Chat, Check, and Space actions need the Workspace app running.'
 $script:ActMaxMessageFileBytes = 262144
 
 function Test-WorkspaceActCommand {
@@ -81,6 +81,7 @@ function Test-WorkspaceActCommand {
   $positional = @($CommandArguments | Where-Object { $_ -cne '--json' })
   $group = if ($positional.Count -gt 0) { [string]$positional[0] } else { '' }
   if (@('chat', 'chats', 'files', 'manage') -contains $group) { return $true }
+  if ($group -ceq 'checks') { return $positional.Count -lt 2 -or [string]$positional[1] -cne 'status' }
   if ($group -ceq 'spaces' -and $positional.Count -gt 1 -and @('create', 'register') -contains [string]$positional[1]) { return $true }
   return $false
 }
@@ -217,7 +218,7 @@ function Get-WorkspaceChatWaitPlan {
   $positional = @($CommandArguments | Where-Object { $_ -cne '--json' })
   if ($positional.Count -lt 2 -or $positional[1] -cne 'wait') { return $null }
   $group = [string]$positional[0]
-  if (@('chat', 'manage') -notcontains $group) { return $null }
+  if (@('chat', 'manage', 'checks') -notcontains $group) { return $null }
   $plan = [ordered]@{ Group = $group; Space = ''; Task = ''; TimeoutSeconds = 600; Json = $CommandArguments -ccontains '--json' }
   for ($index = 0; $index -lt $CommandArguments.Count; $index += 1) {
     $token = [string]$CommandArguments[$index]
@@ -238,9 +239,12 @@ function Get-WorkspaceChatWaitPlan {
       default { throw New-WorkspaceUsageError "Unknown option for $group wait: $token" }
     }
   }
-  if ($group -ceq 'chat' -and [string]::IsNullOrWhiteSpace($plan.Space)) { throw New-WorkspaceUsageError 'Act commands require an explicit --space <id-or-name>.' }
+  if ((@('chat', 'checks') -contains $group) -and [string]::IsNullOrWhiteSpace($plan.Space)) { throw New-WorkspaceUsageError 'Act commands require an explicit --space <id-or-name>.' }
   if ($group -ceq 'manage' -and -not [string]::IsNullOrWhiteSpace($plan.Space)) { throw New-WorkspaceUsageError 'The management scope does not take --space.' }
-  if ([string]::IsNullOrWhiteSpace($plan.Task)) { throw New-WorkspaceUsageError "Provide --task <id> from $group send." }
+  if ([string]::IsNullOrWhiteSpace($plan.Task)) {
+    $source = if ($group -ceq 'checks') { 'checks run' } else { "$group send" }
+    throw New-WorkspaceUsageError "Provide --task <id> from $source."
+  }
   return [pscustomobject]$plan
 }
 
@@ -249,8 +253,9 @@ function Invoke-WorkspaceChatWait {
   # Waiting is task-scoped: it follows the exact turn the send accepted, so
   # an older assistant message can never read as this turn's success.
   $statusArguments = [Collections.Generic.List[string]]::new()
-  $statusArguments.AddRange([string[]]@($Plan.Group, 'status'))
-  if ($Plan.Group -ceq 'chat') { $statusArguments.AddRange([string[]]@('--space', $Plan.Space)) }
+  $statusVerb = if ($Plan.Group -ceq 'checks') { 'task' } else { 'status' }
+  $statusArguments.AddRange([string[]]@($Plan.Group, $statusVerb))
+  if ((@('chat', 'checks') -contains $Plan.Group)) { $statusArguments.AddRange([string[]]@('--space', $Plan.Space)) }
   $statusArguments.AddRange([string[]]@('--task', $Plan.Task, '--json'))
   $deadline = [DateTimeOffset]::UtcNow.AddSeconds($Plan.TimeoutSeconds)
   for (;;) {
@@ -265,7 +270,7 @@ function Invoke-WorkspaceChatWait {
     } catch {
       throw 'Workspace returned an unreadable task status.'
     }
-    if ($state -cne 'running') { break }
+    if (@('accepted', 'running') -notcontains $state) { break }
     if ([DateTimeOffset]::UtcNow -ge $deadline) {
       [Console]::Error.Write("workspace: $($Plan.Group) wait timed out after $($Plan.TimeoutSeconds)s.$([Environment]::NewLine)")
       return 7
@@ -274,7 +279,7 @@ function Invoke-WorkspaceChatWait {
   }
   $resultArguments = [Collections.Generic.List[string]]::new()
   $resultArguments.AddRange([string[]]@($Plan.Group, 'result'))
-  if ($Plan.Group -ceq 'chat') { $resultArguments.AddRange([string[]]@('--space', $Plan.Space)) }
+  if ((@('chat', 'checks') -contains $Plan.Group)) { $resultArguments.AddRange([string[]]@('--space', $Plan.Space)) }
   $resultArguments.AddRange([string[]]@('--task', $Plan.Task))
   if ($Plan.Json) { $resultArguments.Add('--json') }
   $result = Invoke-WorkspaceRequest -RequestArguments $resultArguments.ToArray() -ActToken $ActToken -Payload $null

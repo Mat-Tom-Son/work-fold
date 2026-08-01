@@ -58,6 +58,21 @@ export function workspaceStateDir(workspaceRoot: string): string {
   return join(workspaceStateRoot(), "state", "workspaces", key);
 }
 
+/**
+ * Machine-local Check authority and private run state, keyed by stable Space
+ * identity rather than the folder path. Moving a registered Space therefore
+ * preserves its state, while removal can explicitly revoke the one identity.
+ */
+export function workspaceCheckStateFile(workspaceId: string): string {
+  const normalized = workspaceId.trim();
+  if (!normalized || normalized.length > 160 || /[^\x20-\x7e]/.test(normalized)) {
+    throw new Error("A valid Space id is required for Check state.");
+  }
+  const readable = safeSegment(normalized).slice(0, 48) || "space";
+  const hash = createHash("sha256").update(normalized).digest("hex").slice(0, 16);
+  return join(workspaceStateRoot(), "checks", "spaces", `${readable}-${hash}.json`);
+}
+
 export function workspaceMetadataDir(workspaceRoot: string): string {
   return portableMetadataPath(join(resolve(workspaceRoot), ".workspace"), "Space metadata directory");
 }
@@ -76,6 +91,11 @@ export function workspaceManifestFile(workspaceRoot: string): string {
 
 export function workspaceConversationDir(workspaceRoot: string): string {
   return portableMetadataPath(join(workspaceMetadataDir(workspaceRoot), "conversations"), "Space conversation directory");
+}
+
+/** Portable, inert Check declarations. Local enablement remains in app state. */
+export function workspaceCheckDeclarationDir(workspaceRoot: string): string {
+  return portableMetadataPath(join(workspaceMetadataDir(workspaceRoot), "checks"), "Space Check declaration directory");
 }
 
 /** Previous releases stored these portable records in the app-data state tree. */

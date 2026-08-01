@@ -166,7 +166,7 @@ test("management dogfood launches the dev app with the agent-facing CLI on PATH"
  * wait loop, and the fail-fast unavailable path.
  */
 function assertActLaneShimContract(shim: string): void {
-  for (const routed of ["chat", "chats", "files", "manage", "spaces", "create", "register", "wait", "status", "result"]) {
+  for (const routed of ["chat", "chats", "files", "manage", "checks", "spaces", "create", "register", "wait", "status", "task", "result"]) {
     assert.match(shim, new RegExp(`["']${routed}["']`), `act routing must reference ${routed}`);
   }
   assert.match(shim, /act-token\.json/);
@@ -183,6 +183,7 @@ function assertActLaneShimContract(shim: string): void {
   assert.match(shim, /exit\s*\(?6\)?/);
   assert.match(shim, /--task/);
   assert.match(shim, /task\.state/);
+  assert.match(shim, /accepted/);
   assert.match(shim, /--timeout/);
   assert.match(shim, /timed out after/);
   assert.match(shim, /\b7\b/);

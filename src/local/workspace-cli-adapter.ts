@@ -2,11 +2,16 @@ import {
   WorkspaceCliError,
   type WorkspaceCliActor,
   type WorkspaceCliCapabilitySummary,
+  type WorkspaceCliCheckStatusSummary,
   type WorkspaceCliContextSnapshot,
   type WorkspaceCliKernel,
   type WorkspaceCliSpaceSummary,
   type WorkspaceCliTaskSummary,
 } from "./cli/protocol.js";
+import {
+  workspaceCheckExperimentalSnapshotVersion,
+  type WorkspaceCheckStatusSnapshot,
+} from "./checks/check-types.js";
 import {
   WorkspaceContextRequiredError,
   type WorkspaceActor,
@@ -19,12 +24,29 @@ interface WorkspaceCliOptions {
   space?: string;
 }
 
+export interface WorkspaceCliCheckStatusProviderInput {
+  workspaceId: string;
+  workspaceRoot: string;
+}
+
+export type WorkspaceCliCheckStatusProvider = (
+  input: WorkspaceCliCheckStatusProviderInput,
+) => Promise<WorkspaceCheckStatusSnapshot>;
+
+export interface WorkspaceCliKernelAdapterOptions {
+  checksStatusProvider?: WorkspaceCliCheckStatusProvider;
+}
+
 /**
  * Thin CLI projection over the shared WorkspaceKernel. The adapter owns CLI
  * selection rules and deliberately emits only compact, content-free summaries.
  */
 export class WorkspaceCliKernelAdapter implements WorkspaceCliKernel {
-  constructor(readonly kernel: WorkspaceKernel) {}
+  readonly #checksStatusProvider?: WorkspaceCliCheckStatusProvider;
+
+  constructor(readonly kernel: WorkspaceKernel, options: WorkspaceCliKernelAdapterOptions = {}) {
+    this.#checksStatusProvider = options.checksStatusProvider;
+  }
 
   async getContext(
     actor: WorkspaceCliActor,
@@ -147,10 +169,101 @@ export class WorkspaceCliKernelAdapter implements WorkspaceCliKernel {
     }
   }
 
+  async getChecksStatus(
+    actor: WorkspaceCliActor,
+    options: WorkspaceCliOptions,
+  ): Promise<WorkspaceCliCheckStatusSummary> {
+    const selected = await this.#selectSpace(actor, options.space);
+    const context = await this.kernel.getContext(selected ? scopedActor(actor, selected.id) : actor);
+    if (!context.workspace) {
+      throw new WorkspaceCliError(
+        "notFound",
+        "No Space contains the current working directory. Select one with --space <id-or-name>.",
+      );
+    }
+    const unavailable = unavailableChecksStatus(context.workspace.id);
+    if (!this.#checksStatusProvider) return unavailable;
+    try {
+      const snapshot = await this.#checksStatusProvider({
+        workspaceId: context.workspace.id,
+        workspaceRoot: context.workspace.rootPath,
+      });
+      return projectChecksStatus(snapshot, context.workspace.id) ?? unavailable;
+    } catch {
+      // Provider failures may contain file paths or Check error details. The
+      // read lane exposes only the fact that aggregate status is unavailable.
+      return unavailable;
+    }
+  }
+
   async #selectSpace(actor: WorkspaceCliActor, selector: string | undefined): Promise<WorkspaceSpaceSnapshot | undefined> {
     if (selector === undefined) return undefined;
     return resolveWorkspaceCliSpaceSelector((await this.kernel.getSpaces(actor)).spaces, selector);
   }
+}
+
+const checkStates = new Set([
+  "not-configured",
+  "current-clear",
+  "needs-attention",
+  "stale",
+  "blocked",
+  "check-error",
+]);
+
+function projectChecksStatus(snapshot: WorkspaceCheckStatusSnapshot, workspaceId: string): WorkspaceCliCheckStatusSummary | null {
+  if (!snapshot || snapshot.kind !== "workspace.checks.experimental" || snapshot.version !== workspaceCheckExperimentalSnapshotVersion) return null;
+  if (snapshot.workspaceId !== workspaceId || !checkStates.has(snapshot.state)) return null;
+  const counts = [
+    snapshot.configured,
+    snapshot.proposed,
+    snapshot.enabled,
+    snapshot.current,
+    snapshot.stale,
+    snapshot.blocked,
+    snapshot.errors,
+    snapshot.needsAttention,
+    snapshot.running,
+  ];
+  if (counts.some((count) => !Number.isSafeInteger(count) || count < 0)) return null;
+  if (snapshot.lastRunAt !== null && (typeof snapshot.lastRunAt !== "string" || !Number.isFinite(Date.parse(snapshot.lastRunAt)))) return null;
+  return {
+    kind: "workspace.checks.experimental",
+    version: workspaceCheckExperimentalSnapshotVersion,
+    available: true,
+    workspaceId,
+    state: snapshot.state,
+    configured: snapshot.configured,
+    proposed: snapshot.proposed,
+    enabled: snapshot.enabled,
+    current: snapshot.current,
+    stale: snapshot.stale,
+    blocked: snapshot.blocked,
+    errors: snapshot.errors,
+    needsAttention: snapshot.needsAttention,
+    running: snapshot.running,
+    lastRunAt: snapshot.lastRunAt === null ? null : new Date(snapshot.lastRunAt).toISOString(),
+  };
+}
+
+function unavailableChecksStatus(workspaceId: string): WorkspaceCliCheckStatusSummary {
+  return {
+    kind: "workspace.checks.experimental",
+    version: workspaceCheckExperimentalSnapshotVersion,
+    available: false,
+    workspaceId,
+    state: "unavailable",
+    configured: 0,
+    proposed: 0,
+    enabled: 0,
+    current: 0,
+    stale: 0,
+    blocked: 0,
+    errors: 0,
+    needsAttention: 0,
+    running: 0,
+    lastRunAt: null,
+  };
 }
 
 /**

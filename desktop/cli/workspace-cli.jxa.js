@@ -1,7 +1,7 @@
 ObjC.import("Foundation");
 ObjC.import("stdlib");
 
-var ACT_UNAVAILABLE_MESSAGE = "Open Workspace to run this command. Chat and Space actions need the Workspace app running.";
+var ACT_UNAVAILABLE_MESSAGE = "Open Workspace to run this command. Chat, Check, and Space actions need the Workspace app running.";
 var ACT_MAX_MESSAGE_FILE_BYTES = 262144;
 
 function run(rawArguments) {
@@ -72,13 +72,14 @@ function isActCommand(argumentsList) {
   const positional = argumentsList.filter((token) => token !== "--json");
   const group = positional[0] || "";
   if (group === "chat" || group === "chats" || group === "files" || group === "manage") return true;
+  if (group === "checks") return positional[1] !== "status";
   return group === "spaces" && (positional[1] === "create" || positional[1] === "register");
 }
 
 function parseWaitCommand(argumentsList) {
   const positional = argumentsList.filter((token) => token !== "--json");
   const group = positional[0];
-  if ((group !== "chat" && group !== "manage") || positional[1] !== "wait") return null;
+  if ((group !== "chat" && group !== "manage" && group !== "checks") || positional[1] !== "wait") return null;
   const json = argumentsList.includes("--json");
   let space = "";
   let task = "";
@@ -99,17 +100,17 @@ function parseWaitCommand(argumentsList) {
       throw usageFailure(`Unknown option for ${group} wait: ${token}`);
     }
   }
-  if (group === "chat" && !space) throw usageFailure("Act commands require an explicit --space <id-or-name>.");
+  if ((group === "chat" || group === "checks") && !space) throw usageFailure("Act commands require an explicit --space <id-or-name>.");
   if (group === "manage" && space) throw usageFailure("The management scope does not take --space.");
-  if (!task) throw usageFailure(`Provide --task <id> from ${group} send.`);
+  if (!task) throw usageFailure(`Provide --task <id> from ${group === "checks" ? "checks run" : `${group} send`}.`);
   return { group, space, task, timeoutSeconds, json };
 }
 
 function runWaitLoop(context, plan, actToken) {
   // Waiting is task-scoped: it follows the exact turn the send accepted, so
   // an older assistant message can never read as this turn's success.
-  const scopeArgv = plan.group === "chat" ? ["--space", plan.space] : [];
-  const statusArgv = [plan.group, "status"].concat(scopeArgv, ["--task", plan.task, "--json"]);
+  const scopeArgv = plan.group === "chat" || plan.group === "checks" ? ["--space", plan.space] : [];
+  const statusArgv = [plan.group, plan.group === "checks" ? "task" : "status"].concat(scopeArgv, ["--task", plan.task, "--json"]);
   const deadline = Date.now() + plan.timeoutSeconds * 1000;
   for (;;) {
     const status = performRequest(context, statusArgv, actToken, null);
@@ -123,7 +124,7 @@ function runWaitLoop(context, plan, actToken) {
     } catch (error) {
       throw new Error("Workspace returned an unreadable task status.");
     }
-    if (state !== "running") break;
+    if (state !== "accepted" && state !== "running") break;
     if (Date.now() >= deadline) {
       writeHandle($.NSFileHandle.fileHandleWithStandardError, `workspace: ${plan.group} wait timed out after ${plan.timeoutSeconds}s.\n`);
       return 7;

@@ -12,8 +12,10 @@ import {
   type RestrictedAppRuntimeAuthority,
   type RestrictedAppRuntimeHost,
 } from "../src/local/agent/restricted-app-service.js";
+import { WorkspaceCheckService } from "../src/local/checks/check-service.js";
 import { startLocalApi, type LocalApiHandle } from "../src/local/server.js";
-import { configureWorkspaceStateRoot, workspaceRegistryFile } from "../src/local/state-paths.js";
+import { configureWorkspaceStateRoot, workspaceCheckStateFile, workspaceRegistryFile } from "../src/local/state-paths.js";
+import { WorkspaceKernel } from "../src/local/workspace-kernel.js";
 import {
   beginWorkspaceRemoval,
   createManagedWorkspace,
@@ -111,6 +113,195 @@ test("managed-folder deletion failure returns committed removal and startup reco
     assert.equal(existsSync(workspace.rootPath), false);
     assert.deepEqual(await listPendingWorkspaceRemovals(), []);
     assert.deepEqual((await request<{ workspaces: unknown[] }>(api, "/api/bootstrap")).workspaces, []);
+  } finally {
+    await api?.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("startup removal recovery purges damaged Check authority before finalizing the intent", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "workspace-removal-check-state-api-"));
+  const stateBase = join(sandbox, "state");
+  const workspaceBase = join(sandbox, "spaces");
+  let api: LocalApiHandle | null = null;
+  try {
+    const service = await RestrictedAppService.create({ rootPath: join(stateBase, "restricted-apps") });
+    api = await startLocalApi({
+      port: 0,
+      stateBase,
+      workspaceBase,
+      loadEnv: false,
+      restrictedAppService: service,
+    });
+    const workspace = await createAppProject(api, "Damaged Check state");
+    const intent = await beginWorkspaceRemoval(workspace.id, workspaceBase);
+    assert.equal(intent.phase, "requested");
+    const checkState = workspaceCheckStateFile(workspace.id);
+    await mkdir(dirname(checkState), { recursive: true });
+    await writeFile(checkState, "{damaged current state", "utf8");
+    await writeFile(`${checkState}.bak`, JSON.stringify({ version: 999, authorizations: { unsafe: true } }), "utf8");
+
+    await api.close();
+    api = null;
+    const recoveredService = await RestrictedAppService.create({ rootPath: join(stateBase, "restricted-apps") });
+    api = await startLocalApi({
+      port: 0,
+      stateBase,
+      workspaceBase,
+      loadEnv: false,
+      restrictedAppService: recoveredService,
+    });
+    assert.equal(existsSync(checkState), false);
+    assert.equal(existsSync(`${checkState}.bak`), false);
+    assert.deepEqual(await listPendingWorkspaceRemovals(), []);
+    assert.equal(existsSync(workspace.rootPath), false);
+  } finally {
+    await api?.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("post-intent Check cleanup failure returns committed pending removal and recovers", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "workspace-removal-check-retry-api-"));
+  const stateBase = join(sandbox, "state");
+  const workspaceBase = join(sandbox, "spaces");
+  let api: LocalApiHandle | null = null;
+  try {
+    const service = await RestrictedAppService.create({ rootPath: join(stateBase, "restricted-apps") });
+    const checks = new WorkspaceCheckService({ kernel: new WorkspaceKernel() });
+    checks.removeSpace = async () => { throw new Error("simulated Check cleanup failure"); };
+    api = await startLocalApi({
+      port: 0,
+      stateBase,
+      workspaceBase,
+      loadEnv: false,
+      restrictedAppService: service,
+      checkService: checks,
+    });
+    const workspace = await createAppProject(api, "Check cleanup retry");
+    const removal = await request<{ removed: true; deleted: boolean; cleanupPending: boolean }>(
+      api,
+      `/api/workspaces/${workspace.id}`,
+      { method: "DELETE" },
+    );
+    assert.deepEqual(removal, { removed: true, deleted: false, rootPath: workspace.rootPath, cleanupPending: true });
+    assert.equal((await listPendingWorkspaceRemovals())[0]?.phase, "requested");
+    assert.deepEqual((await request<{ workspaces: unknown[] }>(api, "/api/bootstrap")).workspaces, []);
+
+    await api.close();
+    api = null;
+    const recoveredService = await RestrictedAppService.create({ rootPath: join(stateBase, "restricted-apps") });
+    api = await startLocalApi({
+      port: 0,
+      stateBase,
+      workspaceBase,
+      loadEnv: false,
+      restrictedAppService: recoveredService,
+    });
+    assert.deepEqual(await listPendingWorkspaceRemovals(), []);
+    assert.equal(existsSync(workspace.rootPath), false);
+  } finally {
+    await api?.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("Check leases close removal and nested-Space registration races before registry mutation", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "workspace-check-registry-leases-api-"));
+  const stateBase = join(sandbox, "state");
+  const workspaceBase = join(sandbox, "spaces");
+  let api: LocalApiHandle | null = null;
+  try {
+    const initialService = await RestrictedAppService.create({ rootPath: join(stateBase, "restricted-apps") });
+    api = await startLocalApi({
+      port: 0,
+      stateBase,
+      workspaceBase,
+      loadEnv: false,
+      restrictedAppService: initialService,
+    });
+    const workspace = await createAppProject(api, "Check lease source");
+    await api.close();
+    api = null;
+
+    let statusGate: Promise<void> | null = null;
+    let signalStatusStarted: (() => void) | null = null;
+    const checks = new WorkspaceCheckService({
+      kernel: new WorkspaceKernel(),
+      listSpaces: async () => {
+        signalStatusStarted?.();
+        if (statusGate) await statusGate;
+        return [{
+          id: workspace.id,
+          name: "Check lease source",
+          rootPath: workspace.rootPath,
+          location: { kind: "local", storage: "managed" },
+          createdAt: "2026-08-01T00:00:00.000Z",
+          updatedAt: "2026-08-01T00:00:00.000Z",
+        }];
+      },
+    });
+    let releaseRevalidation!: () => void;
+    const revalidationGate = new Promise<void>((resolvePromise) => { releaseRevalidation = resolvePromise; });
+    let signalRevalidationStarted!: () => void;
+    const revalidationStarted = new Promise<void>((resolvePromise) => { signalRevalidationStarted = resolvePromise; });
+    const service = await RestrictedAppService.create({ rootPath: join(stateBase, "restricted-apps") });
+    api = await startLocalApi({
+      port: 0,
+      stateBase,
+      workspaceBase,
+      loadEnv: false,
+      restrictedAppService: service,
+      checkService: checks,
+      beforeRestrictedAppWorkspaceRevalidation: async () => {
+        signalRevalidationStarted();
+        await revalidationGate;
+      },
+    });
+
+    const removalResponsePromise = fetch(`${api.origin}/api/workspaces/${workspace.id}`, { method: "DELETE" });
+    await revalidationStarted;
+    let releaseStatus!: () => void;
+    statusGate = new Promise<void>((resolvePromise) => { releaseStatus = resolvePromise; });
+    let signalFirstStatus!: () => void;
+    const firstStatusStarted = new Promise<void>((resolvePromise) => { signalFirstStatus = resolvePromise; });
+    signalStatusStarted = signalFirstStatus;
+    const firstStatus = checks.status({ id: workspace.id, rootPath: workspace.rootPath });
+    await firstStatusStarted;
+    releaseRevalidation();
+    const removalResponse = await removalResponsePromise;
+    assert.equal(removalResponse.status, 409, "removal must refuse before committing an intent when late Check work owns the lease");
+    assert.deepEqual(await listPendingWorkspaceRemovals(), []);
+    releaseStatus();
+    statusGate = null;
+    signalStatusStarted = null;
+    await firstStatus;
+
+    let releaseSecondStatus!: () => void;
+    statusGate = new Promise<void>((resolvePromise) => { releaseSecondStatus = resolvePromise; });
+    let signalSecondStatus!: () => void;
+    const secondStatusStarted = new Promise<void>((resolvePromise) => { signalSecondStatus = resolvePromise; });
+    signalStatusStarted = signalSecondStatus;
+    const secondStatus = checks.status({ id: workspace.id, rootPath: workspace.rootPath });
+    await secondStatusStarted;
+    const childRoot = join(workspace.rootPath, "Nested");
+    await mkdir(childRoot);
+    const registrationResponse = await fetch(`${api.origin}/api/workspaces/local-folder`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ rootPath: childRoot }),
+    });
+    assert.equal(registrationResponse.status, 409, "registration cannot establish a nested boundary during evidence work");
+    releaseSecondStatus();
+    statusGate = null;
+    signalStatusStarted = null;
+    await secondStatus;
+
+    const registered = await request<{ workspace: { rootPath: string } }>(api, "/api/workspaces/local-folder", {
+      method: "POST",
+      body: { rootPath: childRoot },
+    });
+    assert.equal(registered.workspace.rootPath, childRoot);
   } finally {
     await api?.close();
     await rm(sandbox, { recursive: true, force: true });

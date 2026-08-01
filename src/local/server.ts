@@ -83,6 +83,8 @@ import { searchWorkspace } from "./search.js";
 import { SpaceAppearanceStore } from "./space-appearance-store.js";
 import { conversationTitleFromFirstUserMessage } from "../shared/chat-title.js";
 import { spaceAppearanceBannerNames } from "../shared/space-appearance.js";
+import { WorkspaceCheckService } from "./checks/check-service.js";
+import { purgeWorkspaceCheckState } from "./checks/check-store.js";
 import { ensureManagementInstructions } from "./management-instructions.js";
 import {
   configureWorkspaceStateRoot,
@@ -160,6 +162,8 @@ export interface LocalApiOptions {
   appearanceStore?: SpaceAppearanceStore;
   /** A supplied kernel must use a provider wrapped by the same spaceTrustAuthority. */
   kernel?: WorkspaceKernel;
+  /** Shared with the desktop read CLI and interactive act facade. */
+  checkService?: WorkspaceCheckService;
   /** Shared with the desktop kernel so registry trust changes apply everywhere. */
   spaceTrustAuthority?: RegisteredSpaceTrustAuthority;
   localFolderGrantProvider?: LocalFolderGrantProvider;
@@ -202,6 +206,7 @@ interface LocalApiState {
   restrictedAppProposals: RoutedRestrictedAppProposalHost;
   appearance: SpaceAppearanceStore;
   kernel: WorkspaceKernel;
+  checks: WorkspaceCheckService;
   spaceTrustAuthority: RegisteredSpaceTrustAuthority;
   managementInstructionsError: string | null;
   localFolderGrantProvider?: LocalFolderGrantProvider;
@@ -214,6 +219,7 @@ interface LocalApiState {
   settledTurns: Map<string, SettledTurnRecord>;
   compactingConversations: Set<string>;
   capabilityMutations: Set<string>;
+  checkRunReservations: Set<string>;
   workspaceIdsByRoot: Map<string, string>;
   extensionRequests: Map<string, PiExtensionUiRequest>;
   fileStreams: Set<() => void>;
@@ -312,6 +318,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   }
   const runtimeProvider = new RegisteredSpaceRuntimeProvider(extensionRuntimeProvider, spaceTrustAuthority);
   const kernel = options.kernel ?? new WorkspaceKernel({ runtimeProvider });
+  const checks = options.checkService ?? new WorkspaceCheckService({ kernel });
   const state: LocalApiState = {
     appMode,
     workspaceBase: options.workspaceBase ? resolve(options.workspaceBase) : undefined,
@@ -326,6 +333,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     restrictedAppProposals,
     appearance,
     kernel,
+    checks,
     spaceTrustAuthority,
     managementInstructionsError,
     localFolderGrantProvider: options.localFolderGrantProvider,
@@ -338,6 +346,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     settledTurns: new Map(),
     compactingConversations: new Set(),
     capabilityMutations: new Set(),
+    checkRunReservations: new Set(),
     workspaceIdsByRoot: new Map(),
     extensionRequests: new Map(),
     fileStreams: new Set(),
@@ -387,6 +396,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       for (const streams of state.chatStreams.values()) for (const response of streams) response.end();
       for (const close of [...state.fileStreams]) close();
       for (const client of state.clients.values()) await client.stop().catch(() => undefined);
+      await state.checks.close();
       await state.appearance.flush();
       await state.restrictedApps.close();
       await closeServer(server);
@@ -432,7 +442,10 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
 
   if (method === "POST" && url.pathname === "/api/workspaces") {
     const body = await readJsonBody<{ name?: string }>(state, req);
-    const workspace = await createSpaceInternal(state, body.name ?? "Personal Space");
+    const workspace = await runCheckSpaceRegistryMutation(
+      state,
+      () => createSpaceInternal(state, body.name ?? "Personal Space"),
+    );
     sendJson(res, { workspace }, 201);
     return;
   }
@@ -447,7 +460,10 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     } else if (state.appMode === "desktop") {
       throw forbidden("A folder must be selected in the desktop app before it can become a Space.");
     }
-    const workspace = await registerSpaceInternal(state, body.rootPath, body.providerHint);
+    const workspace = await runCheckSpaceRegistryMutation(
+      state,
+      () => registerSpaceInternal(state, body.rootPath!, body.providerHint),
+    );
     sendJson(res, { workspace }, 201);
     return;
   }
@@ -463,39 +479,50 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const workspace = await getWorkspace(workspaceMatch[1]);
     const affectedWorkspaceIds = await state.restrictedApps.workspaceRemovalMutationWorkspaceIds(workspace.id);
     const removal = await runRestrictedAppMutations(state, affectedWorkspaceIds, async () => {
-      const impact = await state.restrictedApps.workspaceRemovalImpact(workspace.id);
-      if (impact.activeSourceInstanceCount > 0 || impact.activeTargetInstanceCount > 0) {
-        throw badRequest("Uninstall release-backed Apps from this Space before removing it.");
-      }
-      if (impact.retainedDataCount > 0) {
-        throw badRequest("Purge this App Project's retained local data in App Studio before removing its source Space.");
-      }
-      const intent = await beginWorkspaceRemoval(workspace.id, state.workspaceBase, state.workspaceRemovalIo);
-      state.restrictedApps.fenceWorkspaceRemoval(workspace.id);
-      state.spaceTrustAuthority.revoke(workspace.rootPath);
-      state.workspaceIdsByRoot.delete(workspaceRootKey(workspace.rootPath));
-      await invalidateWorkspaceClients(state, workspace.id);
-      closeWorkspaceStreams(state, workspace.id);
-      for (const request of [...state.extensionRequests.values()]) {
-        if (request.workspaceRoot !== workspace.rootPath) continue;
-        state.extensionUi.cancel(request.id);
-        state.extensionRequests.delete(request.id);
-      }
+      const releaseCheckRemoval = state.checks.tryReserveSpaceRemoval(workspace.id);
+      if (!releaseCheckRemoval) throw httpError(409, "Wait for the current Check operation before removing this Space.");
       try {
-        await state.restrictedApps.removeWorkspace(workspace.id);
-        await state.restrictedAppProposals.removeWorkspace(workspace.id);
-      } catch {
-        return workspaceRemovalPendingResult(intent);
+        const impact = await state.restrictedApps.workspaceRemovalImpact(workspace.id);
+        if (impact.activeSourceInstanceCount > 0 || impact.activeTargetInstanceCount > 0) {
+          throw badRequest("Uninstall release-backed Apps from this Space before removing it.");
+        }
+        if (impact.retainedDataCount > 0) {
+          throw badRequest("Purge this App Project's retained local data in App Studio before removing its source Space.");
+        }
+        const intent = await beginWorkspaceRemoval(workspace.id, state.workspaceBase, state.workspaceRemovalIo);
+        state.restrictedApps.fenceWorkspaceRemoval(workspace.id);
+        state.spaceTrustAuthority.revoke(workspace.rootPath);
+        state.workspaceIdsByRoot.delete(workspaceRootKey(workspace.rootPath));
+        await invalidateWorkspaceClients(state, workspace.id);
+        closeWorkspaceStreams(state, workspace.id);
+        for (const request of [...state.extensionRequests.values()]) {
+          if (request.workspaceRoot !== workspace.rootPath) continue;
+          state.extensionUi.cancel(request.id);
+          state.extensionRequests.delete(request.id);
+        }
+        try {
+          await state.checks.removeSpace(workspace.id);
+        } catch {
+          return workspaceRemovalPendingResult(intent);
+        }
+        try {
+          await state.restrictedApps.removeWorkspace(workspace.id);
+          await state.restrictedAppProposals.removeWorkspace(workspace.id);
+        } catch {
+          return workspaceRemovalPendingResult(intent);
+        }
+        try {
+          await markWorkspaceRemovalAppStateRemoved(intent.workspaceId, state.workspaceRemovalIo);
+        } catch {
+          return workspaceRemovalPendingResult(intent);
+        }
+        const result = await finalizeWorkspaceRemoval(intent.workspaceId, state.workspaceRemovalIo);
+        if (!result.cleanupPending) await state.appearance.removeWorkspace(workspace.id);
+        if (!result.cleanupPending) state.restrictedApps.releaseWorkspaceRemovalFence(workspace.id);
+        return result;
+      } finally {
+        releaseCheckRemoval();
       }
-      try {
-        await markWorkspaceRemovalAppStateRemoved(intent.workspaceId, state.workspaceRemovalIo);
-      } catch {
-        return workspaceRemovalPendingResult(intent);
-      }
-      const result = await finalizeWorkspaceRemoval(intent.workspaceId, state.workspaceRemovalIo);
-      if (!result.cleanupPending) await state.appearance.removeWorkspace(workspace.id);
-      if (!result.cleanupPending) state.restrictedApps.releaseWorkspaceRemovalFence(workspace.id);
-      return result;
     }, { requiredWorkspaceIds: [workspace.id] });
     sendJson(res, removal);
     return;
@@ -1719,7 +1746,7 @@ function createWorkspaceActFacade(state: LocalApiState): WorkspaceActFacade {
     async createSpace(input) {
       const name = input.name.trim();
       if (!name) throw new WorkspaceCliError("usage", "A Space name is required.");
-      const workspace = await runActOperation(() => createSpaceInternal(state, name));
+      const workspace = await runActOperation(() => runCheckSpaceRegistryMutation(state, () => createSpaceInternal(state, name)));
       return { space: toActSpaceRef(workspace) };
     },
     async registerSpace(input) {
@@ -1727,13 +1754,109 @@ function createWorkspaceActFacade(state: LocalApiState): WorkspaceActFacade {
       if (!rootPath || !isAbsolute(rootPath)) {
         throw new WorkspaceCliError("usage", "Provide an absolute folder path to register.");
       }
-      const workspace = await runActOperation(() => registerSpaceInternal(state, rootPath));
+      const workspace = await runActOperation(() => runCheckSpaceRegistryMutation(state, () => registerSpaceInternal(state, rootPath)));
       return { space: toActSpaceRef(workspace) };
     },
     async addFiles(input) {
       const workspace = await resolveSpace(input.space);
       const result = await runActOperation(() => addExternalFilesInternal(workspace, input));
       return { space: toActSpaceRef(workspace), ...result };
+    },
+    async checksEnable(input) {
+      const workspace = await resolveSpace(input.space);
+      return runReservedCheckOperation(state, workspace.id, async () => {
+        const proposalPath = isAbsolute(input.proposalPath)
+          ? resolve(input.proposalPath)
+          : resolve(input.cwd, input.proposalPath);
+        const enabled = await runActOperation(() => state.checks.enable({
+          space: workspace,
+          proposalPath,
+          actor: "cli",
+        }));
+        return {
+          space: toActSpaceRef(workspace),
+          check: {
+            id: enabled.declaration.id,
+            title: enabled.declaration.title,
+            severity: enabled.declaration.severity,
+            sensorId: enabled.declaration.sensor.id,
+            sensorRevision: enabled.declaration.sensor.revision,
+            targetCount: enabled.declaration.targets.length,
+            trigger: enabled.declaration.trigger,
+            targets: enabled.declaration.targets.map((target) => ({ ...target })),
+          },
+          declarationDigest: enabled.digest,
+        };
+      });
+    },
+    async checksDisable(input) {
+      const workspace = await resolveSpace(input.space);
+      return runReservedCheckOperation(state, workspace.id, async () => ({
+        space: toActSpaceRef(workspace),
+        checkId: input.checkId,
+        disabled: await runActOperation(() => state.checks.disable(workspace, input.checkId)),
+      }));
+    },
+    async checksRun(input) {
+      const workspace = await resolveSpace(input.space);
+      return runReservedCheckOperation(state, workspace.id, async () => {
+        const accepted = await runActOperation(() => state.checks.run({
+          space: workspace,
+          ...(input.checkId ? { checkId: input.checkId } : {}),
+          actor: { kind: "cli", cwd: workspace.rootPath, workspaceId: workspace.id },
+        }));
+        return { space: toActSpaceRef(workspace), ...accepted };
+      });
+    },
+    async checksTask(input) {
+      const workspace = await resolveSpace(input.space);
+      return runReservedCheckOperation(state, workspace.id, async () => ({
+        space: toActSpaceRef(workspace),
+        task: await state.checks.taskStatus(workspace.id, input.taskId),
+      }));
+    },
+    async checksResult(input) {
+      const workspace = await resolveSpace(input.space);
+      return runReservedCheckOperation(state, workspace.id, async () => {
+        const run = await runActOperation(() => state.checks.taskResult(workspace.id, input.taskId));
+        if (run.state === "aborted" || run.state === "interrupted") {
+          throw new WorkspaceCliError("conflict", run.error ?? "The Check run did not finish.");
+        }
+        if (run.state === "failed") throw new WorkspaceCliError("failure", run.error ?? "The Check run failed.");
+        return { space: toActSpaceRef(workspace), run };
+      });
+    },
+    async checksAbort(input) {
+      const workspace = await resolveSpace(input.space);
+      return runReservedCheckOperation(state, workspace.id, async () => ({
+        space: toActSpaceRef(workspace),
+        taskId: input.taskId,
+        aborted: await state.checks.abort(workspace.id, input.taskId),
+      }));
+    },
+    async checksProblems(input) {
+      const workspace = await resolveSpace(input.space);
+      return runReservedCheckOperation(state, workspace.id, async () => {
+        const result = await runActOperation(() => state.checks.problems(workspace, input.checkId));
+        return {
+          space: toActSpaceRef(workspace),
+          ...(input.checkId ? { checkId: input.checkId } : {}),
+          ...result,
+        };
+      });
+    },
+    async checksDecide(input) {
+      const workspace = await resolveSpace(input.space);
+      return runReservedCheckOperation(state, workspace.id, async () => {
+        const decision = await runActOperation(() => state.checks.decide({
+          spaceId: workspace.id,
+          findingId: input.findingId,
+          decision: input.decision,
+          actor: "cli",
+          ...(input.deferUntil ? { deferUntil: input.deferUntil } : {}),
+        }));
+        return { space: toActSpaceRef(workspace), findingId: input.findingId, decision };
+      });
     },
     async manageList() {
       const scope = managementScope(state);
@@ -2263,6 +2386,9 @@ async function recoverPendingWorkspaceRemovals(
         await restrictedAppProposals.removeWorkspace(intent.workspaceId);
         intent = await markWorkspaceRemovalAppStateRemoved(intent.workspaceId, io);
       }
+      // The durable removal intent must remain until Check authority is gone.
+      // This removal-only path never parses possibly damaged/future state.
+      await purgeWorkspaceCheckState(intent.workspaceId);
       await finalizeWorkspaceRemoval(intent.workspaceId, io);
     } catch {
       // The durable intent keeps this Space hidden and untrusted. Recovery of
@@ -2288,8 +2414,8 @@ async function runRestrictedAppMutations<T>(
     || ids.some((workspaceId) => state.capabilityMutations.has(workspaceId))) {
     throw httpError(409, "Wait for the current capability change to finish.");
   }
-  if (ids.some((workspaceId) => hasActiveAssistantOperationForWorkspace(state, workspaceId))) {
-    throw httpError(409, "Wait for affected Assistant work to finish before changing capabilities.");
+  if (ids.some((workspaceId) => hasActiveCapabilityWorkForWorkspace(state, workspaceId))) {
+    throw httpError(409, "Wait for affected work to finish before changing capabilities.");
   }
   for (const workspaceId of ids) state.capabilityMutations.add(workspaceId);
   try {
@@ -2321,8 +2447,8 @@ function reserveCapabilityMutation(
   if (mutationConflict) throw httpError(409, "Wait for the current capability change to finish.");
 
   const runningConflict = scope === "global"
-    ? state.runningTurns.size > 0 || state.compactingConversations.size > 0
-    : hasActiveAssistantOperationForWorkspace(state, workspaceId);
+    ? state.runningTurns.size > 0 || state.compactingConversations.size > 0 || state.checkRunReservations.size > 0 || state.checks.hasActiveRun()
+    : hasActiveCapabilityWorkForWorkspace(state, workspaceId);
   if (runningConflict) {
     throw httpError(409, "Wait for affected Assistant work to finish before changing capabilities.");
   }
@@ -2335,9 +2461,48 @@ function assertNoCapabilityMutationForTurn(state: LocalApiState, workspaceId: st
   }
 }
 
-function hasActiveAssistantOperationForWorkspace(state: LocalApiState, workspaceId: string): boolean {
+function assertNoCapabilityMutationForCheck(state: LocalApiState, workspaceId: string): void {
+  if (state.capabilityMutations.has(globalCapabilityMutationKey) || state.capabilityMutations.has(workspaceId)) {
+    throw new WorkspaceCliError("conflict", "Wait for the current capability change to finish before running or changing Checks.");
+  }
+}
+
+function reserveCheckOperation(state: LocalApiState, workspaceId: string): void {
+  assertNoCapabilityMutationForCheck(state, workspaceId);
+  if (state.checkRunReservations.has(workspaceId)) {
+    throw new WorkspaceCliError("conflict", "Wait for the current Check operation to finish.");
+  }
+  state.checkRunReservations.add(workspaceId);
+}
+
+async function runReservedCheckOperation<T>(
+  state: LocalApiState,
+  workspaceId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  reserveCheckOperation(state, workspaceId);
+  try {
+    return await operation();
+  } finally {
+    state.checkRunReservations.delete(workspaceId);
+  }
+}
+
+async function runCheckSpaceRegistryMutation<T>(state: LocalApiState, operation: () => Promise<T>): Promise<T> {
+  const release = state.checks.tryReserveSpaceRegistryMutation();
+  if (!release) throw httpError(409, "Wait for current Check work to finish before changing registered Spaces.");
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
+function hasActiveCapabilityWorkForWorkspace(state: LocalApiState, workspaceId: string): boolean {
   const prefix = `${workspaceId}:`;
-  return [...state.runningTurns, ...state.compactingConversations].some((key) => key.startsWith(prefix));
+  return [...state.runningTurns, ...state.compactingConversations].some((key) => key.startsWith(prefix))
+    || state.checkRunReservations.has(workspaceId)
+    || state.checks.hasActiveRun(workspaceId);
 }
 
 function closeWorkspaceStreams(state: LocalApiState, workspaceId: string): void {

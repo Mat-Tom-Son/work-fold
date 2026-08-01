@@ -30,7 +30,7 @@ export const WorkspaceCliExitCode = {
 export type WorkspaceCliExitCode = typeof WorkspaceCliExitCode[keyof typeof WorkspaceCliExitCode];
 export type WorkspaceCliErrorCode = Exclude<keyof typeof WorkspaceCliExitCode, "success">;
 export type WorkspaceCliOutputMode = "human" | "json";
-export type WorkspaceCliCommandName = "help" | "version" | "context" | "spaces.list" | "tasks.list" | "capabilities.list";
+export type WorkspaceCliCommandName = "help" | "version" | "context" | "spaces.list" | "tasks.list" | "capabilities.list" | "checks.status";
 
 export type WorkspaceCliJson =
   | null
@@ -103,6 +103,34 @@ export interface WorkspaceCliCapabilitySummary {
   source?: string;
 }
 
+export type WorkspaceCliCheckAggregateState =
+  | "unavailable"
+  | "not-configured"
+  | "current-clear"
+  | "needs-attention"
+  | "stale"
+  | "blocked"
+  | "check-error";
+
+/** Experimental, aggregate-only Check status. It never carries content. */
+export interface WorkspaceCliCheckStatusSummary {
+  kind: "workspace.checks.experimental";
+  version: 0;
+  available: boolean;
+  workspaceId: string;
+  state: WorkspaceCliCheckAggregateState;
+  configured: number;
+  proposed: number;
+  enabled: number;
+  current: number;
+  stale: number;
+  blocked: number;
+  errors: number;
+  needsAttention: number;
+  running: number;
+  lastRunAt: string | null;
+}
+
 /**
  * The deliberately narrow adapter needed by the CLI executor. WorkspaceKernel
  * satisfies this interface through a compact projection without importing
@@ -113,6 +141,7 @@ export interface WorkspaceCliKernel {
   listSpaces(actor: WorkspaceCliActor, options: { space?: string }): Promise<WorkspaceCliSpaceSummary[]>;
   listTasks(actor: WorkspaceCliActor, options: { space?: string }): Promise<WorkspaceCliTaskSummary[]>;
   listCapabilities(actor: WorkspaceCliActor, options: { space?: string }): Promise<WorkspaceCliCapabilitySummary[]>;
+  getChecksStatus?(actor: WorkspaceCliActor, options: { space?: string }): Promise<WorkspaceCliCheckStatusSummary>;
 }
 
 export class WorkspaceCliError extends Error {

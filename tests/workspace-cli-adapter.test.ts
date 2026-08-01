@@ -217,6 +217,127 @@ test("WorkspaceCliKernelAdapter maps missing cwd capability context to notFound"
   );
 });
 
+test("WorkspaceCliKernelAdapter resolves Check status scope and projects only aggregate fields", async () => {
+  const alphaRoot = join(process.cwd(), "cli-adapter-checks", "alpha");
+  const betaRoot = join(process.cwd(), "cli-adapter-checks", "beta");
+  const spaces = [
+    space("ws-alpha", "Alpha", alphaRoot),
+    space("ws-beta", "Beta", betaRoot),
+  ];
+  const calls: Array<{ workspaceId: string; workspaceRoot: string }> = [];
+  const adapter = new WorkspaceCliKernelAdapter(new WorkspaceKernel(spaceDependencies(spaces)), {
+    async checksStatusProvider(input) {
+      calls.push(input);
+      return {
+        kind: "workspace.checks.experimental",
+        version: 0,
+        workspaceId: input.workspaceId,
+        state: "needs-attention",
+        configured: 4,
+        proposed: 1,
+        enabled: 3,
+        current: 2,
+        stale: 1,
+        blocked: 0,
+        errors: 0,
+        needsAttention: 2,
+        running: 1,
+        lastRunAt: "2026-08-01T12:00:00-04:00",
+        title: "PRIVATE CHECK TITLE",
+        path: "/private/Space/secret.txt",
+        evidence: "PRIVATE QUOTE",
+        decisions: ["accept"],
+        sensorParameters: { prompt: "PRIVATE PROMPT" },
+        errorText: "PRIVATE ERROR DETAIL",
+      } as never;
+    },
+  });
+
+  const result = await adapter.getChecksStatus(
+    { kind: "cli", cwd: join(alphaRoot, "documents") },
+    { space: "beta" },
+  );
+  assert.deepEqual(calls, [{ workspaceId: "ws-beta", workspaceRoot: betaRoot }]);
+  assert.deepEqual(result, {
+    kind: "workspace.checks.experimental",
+    version: 0,
+    available: true,
+    workspaceId: "ws-beta",
+    state: "needs-attention",
+    configured: 4,
+    proposed: 1,
+    enabled: 3,
+    current: 2,
+    stale: 1,
+    blocked: 0,
+    errors: 0,
+    needsAttention: 2,
+    running: 1,
+    lastRunAt: "2026-08-01T16:00:00.000Z",
+  });
+  const serialized = JSON.stringify(result);
+  for (const secret of ["PRIVATE CHECK TITLE", betaRoot, "PRIVATE QUOTE", "accept", "PRIVATE PROMPT", "PRIVATE ERROR DETAIL"]) {
+    assert.equal(serialized.includes(secret), false, secret);
+  }
+});
+
+test("WorkspaceCliKernelAdapter reports unavailable status when no safe aggregate provider exists", async () => {
+  const root = join(process.cwd(), "cli-adapter-checks-unavailable");
+  const workspace = space("ws-only", "Only", root);
+  const actor = { kind: "cli" as const, cwd: join(root, "documents") };
+  const expected = {
+    kind: "workspace.checks.experimental" as const,
+    version: 0 as const,
+    available: false,
+    workspaceId: workspace.id,
+    state: "unavailable" as const,
+    configured: 0,
+    proposed: 0,
+    enabled: 0,
+    current: 0,
+    stale: 0,
+    blocked: 0,
+    errors: 0,
+    needsAttention: 0,
+    running: 0,
+    lastRunAt: null,
+  };
+
+  const withoutProvider = new WorkspaceCliKernelAdapter(new WorkspaceKernel(spaceDependencies([workspace])));
+  assert.deepEqual(await withoutProvider.getChecksStatus(actor, {}), expected);
+
+  const failedProvider = new WorkspaceCliKernelAdapter(new WorkspaceKernel(spaceDependencies([workspace])), {
+    async checksStatusProvider() {
+      throw new Error(`PRIVATE CHECK FAILURE at ${join(root, "secret.txt")}`);
+    },
+  });
+  const failed = await failedProvider.getChecksStatus(actor, {});
+  assert.deepEqual(failed, expected);
+  assert.equal(JSON.stringify(failed).includes("PRIVATE CHECK FAILURE"), false);
+
+  const invalidProvider = new WorkspaceCliKernelAdapter(new WorkspaceKernel(spaceDependencies([workspace])), {
+    async checksStatusProvider() {
+      return {
+        kind: "workspace.checks.experimental",
+        version: 0,
+        workspaceId: workspace.id,
+        state: "not-configured",
+        configured: -1,
+        proposed: 0,
+        enabled: 0,
+        current: 0,
+        stale: 0,
+        blocked: 0,
+        errors: 0,
+        needsAttention: 0,
+        running: 0,
+        lastRunAt: null,
+      };
+    },
+  });
+  assert.deepEqual(await invalidProvider.getChecksStatus(actor, {}), expected);
+});
+
 function spaceDependencies(spaces: WorkspaceSummary[]) {
   return {
     async listWorkspaces() { return spaces; },

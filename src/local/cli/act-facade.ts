@@ -7,6 +7,13 @@
  * exit codes map without translation.
  */
 
+import type {
+  WorkspaceCheckDecision,
+  WorkspaceCheckDecisionKind,
+  WorkspaceCheckFinding,
+  WorkspaceCheckRunRecord,
+} from "../checks/check-types.js";
+
 export interface WorkspaceActSpaceRef {
   id: string;
   name: string;
@@ -46,6 +53,15 @@ export interface WorkspaceActChatMessage {
   content: string;
   createdAt: string;
   interrupted?: true;
+}
+
+export interface WorkspaceActCheckTaskStatus {
+  taskId: string;
+  runId: string | null;
+  state: WorkspaceCheckRunRecord["state"] | "unknown";
+  startedAt: string | null;
+  endedAt: string | null;
+  error: string | null;
 }
 
 export interface WorkspaceActFacade {
@@ -91,6 +107,75 @@ export interface WorkspaceActFacade {
     space: WorkspaceActSpaceRef;
     copied: string[];
     checkpointId: string | null;
+  }>;
+
+  /**
+   * Experimental Checks act surface. All methods resolve an explicit Space;
+   * declarations remain inert until `checksEnable` imports one proposal, and
+   * runs remain task-scoped so polling and abort never depend on ambient UI
+   * state.
+   */
+  checksEnable(input: { space: string; proposalPath: string; cwd: string }): Promise<{
+    space: WorkspaceActSpaceRef;
+    check: {
+      id: string;
+      title: string;
+      severity: WorkspaceCheckFinding["severity"];
+      sensorId: string;
+      sensorRevision: number;
+      targetCount: number;
+      trigger: "manual";
+      targets: Array<{
+        kind: "file" | "tree";
+        role: "primary" | "reference";
+        path: string;
+        recursive?: boolean;
+        extensions?: string[];
+      }>;
+    };
+    declarationDigest: string;
+  }>;
+  checksDisable(input: { space: string; checkId: string }): Promise<{
+    space: WorkspaceActSpaceRef;
+    checkId: string;
+    disabled: boolean;
+  }>;
+  checksRun(input: { space: string; checkId?: string }): Promise<{
+    space: WorkspaceActSpaceRef;
+    taskId: string;
+    runId: string;
+    checkIds: string[];
+  }>;
+  checksTask(input: { space: string; taskId: string }): Promise<{
+    space: WorkspaceActSpaceRef;
+    task: WorkspaceActCheckTaskStatus;
+  }>;
+  checksResult(input: { space: string; taskId: string }): Promise<{
+    space: WorkspaceActSpaceRef;
+    run: WorkspaceCheckRunRecord;
+  }>;
+  checksAbort(input: { space: string; taskId: string }): Promise<{
+    space: WorkspaceActSpaceRef;
+    taskId: string;
+    aborted: boolean;
+  }>;
+  checksProblems(input: { space: string; checkId?: string }): Promise<{
+    space: WorkspaceActSpaceRef;
+    checkId?: string;
+    findings: WorkspaceCheckFinding[];
+    invalidated: number;
+    healthErrors: string[];
+    truncated: boolean;
+  }>;
+  checksDecide(input: {
+    space: string;
+    findingId: string;
+    decision: WorkspaceCheckDecisionKind;
+    deferUntil?: string;
+  }): Promise<{
+    space: WorkspaceActSpaceRef;
+    findingId: string;
+    decision: WorkspaceCheckDecision;
   }>;
 
   /**

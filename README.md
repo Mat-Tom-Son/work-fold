@@ -162,6 +162,15 @@ Use `--created-by claude-code` in Claude Code. The command never applies a mutat
 proposal in Customize Space after reviewing the light/dark preview. See
 [Space customization](docs/space-customization.md).
 
+They can also author the same inert Check proposal without enabling or running it:
+
+```bash
+npm run --silent workspace:checks -- create-file-presence --title "Signed delivery exists" --file "Delivery/signed.pdf" --expect present --created-by codex --out signed-delivery.workspace-check.json
+npm run --silent workspace:checks -- validate signed-delivery.workspace-check.json --json
+```
+
+The proposal is ordinary reviewable JSON. Enablement remains a separate authenticated `workspace checks enable --space ... --proposal ...` act while the app is running.
+
 To exercise one real Assistant turn through the same local API, Pi runtime, tools, Skills, Extensions, persistence, and event stream as the desktop app:
 
 ```powershell
@@ -186,9 +195,14 @@ workspace chat send --space "Home" --new --message "File the material I dropped.
 workspace chat wait --space "Home" --task <task-id> --json
 workspace files add --space "Vendor Audits" --from ./report.pdf --to "Inbox"
 workspace manage send --message "What changed across my Spaces today?"
+workspace checks status --space "Vendor Audits" --json
+workspace checks run --space "Vendor Audits" --check <check-id> --json
+workspace checks wait --space "Vendor Audits" --task <task-id> --json
 ```
 
-Protocol v1 — the read lane — is deliberately read-only and content-free. It gives people, scripts, and the Assistant a shared way to inspect the Space resolved from the terminal's current folder, the registered Spaces, host-managed running tasks, and capability inventory—including inactive tools or configured packages that are not currently loaded. Mutations ride a separately versioned act lane instead: while the Workspace app is running it mints a per-launch token that authorizes `chat`, `chats list`, `spaces create/register`, and `files add` commands, reuses the same trust, conflict, and History rules as the desktop surfaces, journals every authorized action before it runs, and refuses a replayed request id instead of executing it twice. `chat send` returns a task id, and `chat wait --task` follows exactly that turn to its own success or failure. Without the running app, act commands answer "Open Workspace…". The handoff still trusts the current operating-system user — the token binds requests to one app run on this personal machine; it is not a multi-user boundary.
+Protocol v1 — the read lane — is deliberately read-only and content-free. It gives people, scripts, and the Assistant a shared way to inspect the Space resolved from the terminal's current folder, the registered Spaces, host-managed running tasks, capability inventory—including inactive tools or configured packages that are not currently loaded—and aggregate optional Check status. Mutations ride a separately versioned act lane instead: while the Workspace app is running it mints a per-launch token that authorizes `chat`, `chats list`, `spaces create/register`, `files add`, and Check enable/run/result/decision commands, reuses the same trust, conflict, task, and History rules as the desktop surfaces, journals every authorized action before it runs, and refuses a replayed request id instead of executing it twice. `chat send` and `checks run` return task ids; their wait commands follow exactly that work to its own success or failure. Without the running app, act commands answer "Open Workspace…". The handoff still trusts the current operating-system user — the token binds requests to one app run on this personal machine; it is not a multi-user boundary.
+
+Checks are optional and manual. An inert proposal names the exact Space-relative files and expectation; a separate `checks enable --space ... --proposal ...` act records local authority, and nothing watches an unconfigured Space. The first deterministic sensor checks whether designated files are present or absent without reading their contents, so it works across ordinary file types. Findings surface only after host re-verification; stale, blocked, skipped, discarded, or failed work is health information, never a healthy result. See [Checks](docs/checks.md).
 
 Human-readable output is the default. Use `--json` for automation and `--space <id-or-exact-name>` when the terminal's current folder is not enough context. See [Workspace management layer](docs/management-layer.md) for snapshot fields, resolution rules, broker limits, and the distinction between this CLI and `workspace:drive`.
 
@@ -220,7 +234,7 @@ See [Assistant capabilities](docs/assistant-capabilities.md) for the product-fac
 
 - [Product model and roadmap](docs/product-model.md) — durable nouns, context rules, product rails, and future direction.
 - [T3 Code reference audit](docs/t3code-reference-audit.md) — transferable workbench ideas, overlap, and the ranked adaptation plan.
-- [Architecture](docs/architecture.md) and [management layer](docs/management-layer.md) — runtime boundaries, shared kernel, CLI, and agent harness.
+- [Architecture](docs/architecture.md), [management layer](docs/management-layer.md), and [Checks](docs/checks.md) — runtime boundaries, shared kernel/CLI, agent harness, and optional evidence-backed expectations over designated files.
 - [Assistant capabilities](docs/assistant-capabilities.md), [Extension surfaces](docs/extension-surfaces.md), [restricted app authoring](docs/restricted-app-authoring.md), [restricted app runtime](docs/restricted-app-runtime.md), and [Pi compatibility](docs/pi-resources.md) — Skills, full-trust Extensions, restricted apps, packages, scopes, authoring, and authorization.
 - [Workspace 0.6.0 release notes](docs/releases/0.6.0.md) — the agent-facing act lane, the management conversation above Spaces, task-scoped outcomes, native Chat file drops, and additive-placement rollback.
 - [Workspace 0.4.7 release notes](docs/releases/0.4.7.md) — semantic Space appearance, dual previews, contrast auditing, durable local storage, and shared Codex/Claude proposal tooling.

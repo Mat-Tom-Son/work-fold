@@ -45,6 +45,7 @@ import { configureWorkspaceStateRoot } from "../../src/local/state-paths.js";
 import { getWorkspace, listWorkspaces } from "../../src/local/workspace.js";
 import { WorkspaceCliKernelAdapter } from "../../src/local/workspace-cli-adapter.js";
 import { WorkspaceKernel } from "../../src/local/workspace-kernel.js";
+import { WorkspaceCheckService } from "../../src/local/checks/check-service.js";
 import { RestrictedAppService } from "../../src/local/agent/restricted-app-service.js";
 import { FileRestrictedAppStorage } from "../../src/local/agent/restricted-app-storage.js";
 import { RestrictedAppNotificationBroker } from "../../src/local/agent/restricted-app-notifications.js";
@@ -319,6 +320,7 @@ interface DesktopHost {
   runtimeProvider: PiRuntimeProvider;
   spaceTrustAuthority: RegisteredSpaceTrustAuthority;
   kernel: WorkspaceKernel;
+  checks: WorkspaceCheckService;
   cli: WorkspaceDesktopCliHost;
   restrictedApps: RestrictedAppService;
   restrictedAppHost: RestrictedAppHost;
@@ -404,9 +406,12 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       const spaceTrustAuthority = new RegisteredSpaceTrustAuthority((await listWorkspaces()).map((workspace) => workspace.rootPath));
       const runtimeProvider = new RegisteredSpaceRuntimeProvider(runtime, spaceTrustAuthority);
       const kernel = new WorkspaceKernel({ runtimeProvider });
+      const checks = new WorkspaceCheckService({ kernel });
       const cli = new WorkspaceDesktopCliHost({
       stateRoot: userData,
-      kernel: new WorkspaceCliKernelAdapter(kernel),
+      kernel: new WorkspaceCliKernelAdapter(kernel, {
+        checksStatusProvider: ({ workspaceId, workspaceRoot }) => checks.status({ id: workspaceId, rootPath: workspaceRoot }),
+      }),
       version: app.getVersion(),
       productName,
       getActFacade: () => (actFacade && actToken ? { facade: actFacade, token: actToken } : null),
@@ -414,7 +419,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       await cli.initialize();
       secureSettings = settings;
       piRuntime = runtime;
-      return { settings, extensionUi, runtime, runtimeProvider, spaceTrustAuthority, kernel, cli, restrictedApps, restrictedAppHost: restrictedRuntime };
+      return { settings, extensionUi, runtime, runtimeProvider, spaceTrustAuthority, kernel, checks, cli, restrictedApps, restrictedAppHost: restrictedRuntime };
     } catch (error) {
       await restrictedApps.close();
       throw error;
@@ -467,6 +472,7 @@ async function quitAfterCliRequest(): Promise<void> {
     return;
   }
   await host.restrictedApps.close();
+  await host.checks.close();
   // A headless boot proves no interactive app holds the single-instance lock,
   // so any act-token file on disk is stale crash residue; removing it lets
   // shims fail fast instead of booting another headless host per attempt.
@@ -553,6 +559,7 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
       spaceTrustAuthority: host.spaceTrustAuthority,
       extensionUiBridge: host.extensionUi,
       kernel: host.kernel,
+      checkService: host.checks,
       localFolderGrantProvider: { consumeLocalFolderGrant },
       restrictedAppService: host.restrictedApps,
       onAgentTurnActivity: updateAgentPowerState,
@@ -1440,11 +1447,13 @@ async function shutdown(): Promise<void> {
   const runtime = piRuntime;
   piRuntime = null;
   const restrictedApps = desktopHostPromise?.then((host) => host.restrictedApps.close()) ?? Promise.resolve();
+  const checks = desktopHostPromise?.then((host) => host.checks.close()) ?? Promise.resolve();
   shutdownPromise = (async () => {
     const outcomes = await Promise.allSettled([
       withShutdownTimeout(localApiLifetime.close(), "local API"),
       withShutdownTimeout(runtime?.flush() ?? Promise.resolve(), "Pi state"),
       withShutdownTimeout(restrictedApps, "restricted apps"),
+      withShutdownTimeout(checks, "Checks"),
       withShutdownTimeout(removeWorkspaceCliActTokenFile(app.getPath("userData")), "CLI act token"),
     ]);
     for (const outcome of outcomes) {
