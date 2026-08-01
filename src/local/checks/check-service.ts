@@ -593,9 +593,13 @@ export class WorkspaceCheckService {
     let usedBytes = 0;
     let terminal: WorkspaceCheckRunRecord;
     try {
+      const currentRecords = new Map(
+        (await discoverWorkspaceCheckDeclarations(space.rootPath)).declarations
+          .map((record) => [record.declaration.id, record]),
+      );
       for (const record of records) {
         throwIfAborted(signal);
-        const current = (await this.#enabledRecords(space, record.declaration.id))[0];
+        const current = currentRecords.get(record.declaration.id);
         if (!current || current.digest !== record.digest) throw new Error("Check authority changed before the run started.");
         const state = store.snapshot();
         const authorization = exactAuthorization(state.authorizations[record.declaration.id], record);

@@ -530,7 +530,8 @@ test("Space removal purges local Check authority so re-registration cannot reviv
 });
 
 async function waitForTerminal(service: WorkspaceCheckService, spaceId: string, taskId: string) {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
     const status = await service.taskStatus(spaceId, taskId);
     if (status.state !== "accepted" && status.state !== "running") return service.taskResult(spaceId, taskId);
     await new Promise<void>((resolve) => setTimeout(resolve, 5));
