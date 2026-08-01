@@ -6,15 +6,15 @@ import test from "node:test";
 import { nextDialogTabIndex } from "../web-local/src/hooks/useModalDialog.js";
 import { resolveMessageImageSource } from "../web-local/src/lib/message-images.js";
 import { nextMenuItemIndex } from "../web-local/src/lib/menu-navigation.js";
-import { createWorkspaceOperationGate } from "../web-local/src/lib/workspace-operation-gate.js";
+import { createSpaceOperationGate } from "../web-local/src/lib/space-operation-gate.js";
 
 const root = process.cwd();
-const [capabilities, textInputModal, messages, tabBar, workspaceChrome, indexHtml, app, ...desktopDialogs] = await Promise.all([
+const [capabilities, textInputModal, messages, tabBar, spaceChrome, indexHtml, app, ...desktopDialogs] = await Promise.all([
   read("web-local/src/components/panes/CapabilitiesPane.tsx"),
   read("web-local/src/components/modals/TextInputModal.tsx"),
   read("web-local/src/components/chat/messages.tsx"),
-  read("web-local/src/components/chat/WorkspaceSurfaceTabBar.tsx"),
-  read("web-local/src/components/panes/workspaceChrome.tsx"),
+  read("web-local/src/components/chat/SpaceSurfaceTabBar.tsx"),
+  read("web-local/src/components/panes/spaceChrome.tsx"),
   read("web-local/index.html"),
   read("web-local/src/App.tsx"),
   read("web-local/src/components/modals/DesktopSettingsModal.tsx"),
@@ -50,16 +50,16 @@ test("in-tree dialogs are wired to the shared dialog contract", () => {
 });
 
 test("file attachment requests stay bound to one Space-owned Chat tab", () => {
-  assert.match(app, /setContextRequest\(\{\s*id:[^}]+workspaceId:\s*workspace\.id,\s*surfaceTabId\s*\}\)/);
-  assert.match(app, /contextPathRequest=\{chatContextRequestForTab\(contextRequest,\s*targetWorkspace\.id,\s*tab\.id\)\}/);
-  assert.doesNotMatch(app, /contextPathRequest=\{active\s*&&\s*targetWorkspace\.id\s*===\s*workspace\.id\s*\?\s*contextRequest/);
+  assert.match(app, /setContextRequest\(\{\s*id:[^}]+spaceId:\s*space\.id,\s*surfaceTabId\s*\}\)/);
+  assert.match(app, /contextPathRequest=\{chatContextRequestForTab\(contextRequest,\s*targetSpace\.id,\s*tab\.id\)\}/);
+  assert.doesNotMatch(app, /contextPathRequest=\{active\s*&&\s*targetSpace\.id\s*===\s*space\.id\s*\?\s*contextRequest/);
 });
 
 test("Markdown image policy embeds only CSP-compatible sources and links remote HTTPS images", () => {
-  const base = "https://workspace.local/app";
+  const base = "https://work-fold.local/app";
   assert.deepEqual(resolveMessageImageSource("/api/assets/preview.png", base), {
     kind: "embed",
-    src: "https://workspace.local/api/assets/preview.png",
+    src: "https://work-fold.local/api/assets/preview.png",
   });
   assert.deepEqual(resolveMessageImageSource("data:image/png;base64,AA==", base), {
     kind: "embed",
@@ -82,8 +82,8 @@ test("Markdown image policy embeds only CSP-compatible sources and links remote 
   assert.match(indexHtml, /<link rel="icon" href="data:image\/svg\+xml,/);
 });
 
-test("workspace operation tokens reject stale completions even after switching back", () => {
-  const gate = createWorkspaceOperationGate("space-a");
+test("space operation tokens reject stale completions even after switching back", () => {
+  const gate = createSpaceOperationGate("space-a");
   const firstA = gate.capture();
   assert.equal(gate.isCurrent(firstA), true);
   gate.activate("space-b");
@@ -94,8 +94,8 @@ test("workspace operation tokens reject stale completions even after switching b
   assert.equal(gate.isCurrent(currentB), false);
   assert.equal(gate.isCurrent(gate.capture()), true);
 
-  assert.match(capabilities, /operationGateRef\.current\.activate\(workspace\.id\)/);
-  assert.match(capabilities, /loadCatalog\(operation:\s*WorkspaceOperationToken/);
+  assert.match(capabilities, /operationGateRef\.current\.activate\(space\.id\)/);
+  assert.match(capabilities, /loadCatalog\(operation:\s*SpaceOperationToken/);
   for (const functionName of ["reviewDiscoverItem", "installPending", "mutatePackage"]) {
     const body = functionBody(capabilities, functionName);
     assert.match(body, /operationGateRef\.current\.capture\(\)/, `${functionName} must capture the active Space generation`);
@@ -119,11 +119,11 @@ test("new-Chat Space menu has deterministic roving keyboard navigation", () => {
 });
 
 test("persistent Space menu has deterministic roving keyboard navigation", () => {
-  assert.match(workspaceChrome, /aria-controls=\{switcherId\}/);
-  assert.match(workspaceChrome, /onBlurCapture=/);
-  assert.match(workspaceChrome, /aria-label="Space menu"/);
-  assert.match(workspaceChrome, /nextMenuItemIndex\(currentIndex,\s*items\.length/);
-  assert.match(workspaceChrome, /event\.key !== "Escape"[\s\S]*?switchTriggerRef\.current\?\.focus\(\)/);
+  assert.match(spaceChrome, /aria-controls=\{switcherId\}/);
+  assert.match(spaceChrome, /onBlurCapture=/);
+  assert.match(spaceChrome, /aria-label="Space menu"/);
+  assert.match(spaceChrome, /nextMenuItemIndex\(currentIndex,\s*items\.length/);
+  assert.match(spaceChrome, /event\.key !== "Escape"[\s\S]*?switchTriggerRef\.current\?\.focus\(\)/);
 });
 
 function functionBody(source: string, name: string): string {

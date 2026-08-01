@@ -1,6 +1,6 @@
 export {};
 
-interface WorkspaceDesktopUpdateStatus {
+interface WorkFoldDesktopUpdateStatus {
   supported: boolean;
   phase: "unsupported" | "idle" | "checking" | "available" | "not_available" | "downloading" | "ready" | "installing" | "error";
   currentVersion: string;
@@ -11,11 +11,11 @@ interface WorkspaceDesktopUpdateStatus {
   error: string | null;
 }
 
-type WorkspaceDesktopMenuCommand =
+type WorkFoldDesktopMenuCommand =
   | "new-space"
   | "open-local-folder"
   | "new-chat"
-  | "reload-workspace-state"
+  | "reload-space-state"
   | "check-for-updates"
   | "open-settings"
   | "open-about"
@@ -25,12 +25,12 @@ type WorkspaceDesktopMenuCommand =
   | "open-command-palette"
   | "open-keyboard-shortcuts";
 
-type WorkspaceDesktopMenuId = "file" | "edit" | "view" | "help";
-type WorkspaceDesktopPathAction = "open" | "open-native" | "reveal";
-type WorkspaceDesktopFileMenuCommand = "open" | "reveal" | "copy-path" | "attach-chat" | "version-history" | "upload-here" | "rename" | "delete";
+type WorkFoldDesktopMenuId = "file" | "edit" | "view" | "help";
+type WorkFoldDesktopPathAction = "open" | "open-native" | "reveal";
+type WorkFoldDesktopFileMenuCommand = "open" | "reveal" | "copy-path" | "attach-chat" | "version-history" | "upload-here" | "rename" | "delete";
 
-interface WorkspaceDesktopFileMenuRequest {
-  workspaceId: string;
+interface WorkFoldDesktopFileMenuRequest {
+  spaceId: string;
   path: string;
   kind: "file" | "folder";
   capabilities: {
@@ -44,8 +44,8 @@ interface WorkspaceDesktopFileMenuRequest {
   point: { x: number; y: number };
 }
 
-interface WorkspaceRestrictedAppViewRequest {
-  workspaceId: string;
+interface WorkFoldRestrictedAppViewRequest {
+  spaceId: string;
   appId: string;
   digest: string;
   mountId: string;
@@ -60,9 +60,9 @@ interface WorkspaceRestrictedAppViewRequest {
   theme: "light" | "dark";
 }
 
-interface WorkspaceRestrictedAppTabCommand {
+interface WorkFoldRestrictedAppTabCommand {
   type: "open" | "update" | "close";
-  workspaceId: string;
+  spaceId: string;
   appId: string;
   digest: string;
   sourceMountId: string;
@@ -71,14 +71,14 @@ interface WorkspaceRestrictedAppTabCommand {
   tab?: { appTabId: string; title: string; route: string; state?: unknown };
 }
 
-interface WorkspaceRestrictedAppViewState {
+interface WorkFoldRestrictedAppViewState {
   mountId: string;
   state: "loading" | "ready" | "crashed" | "stopped";
   message?: string;
 }
 
-interface WorkspaceRestrictedAppOwner {
-  workspaceId: string;
+interface WorkFoldRestrictedAppOwner {
+  spaceId: string;
   appId: string;
   digest: string;
   permissionId: string;
@@ -86,7 +86,7 @@ interface WorkspaceRestrictedAppOwner {
 
 declare global {
   interface Window {
-    workspaceDesktop?: {
+    workFoldDesktop?: {
       desktop: true;
       api: {
         baseUrl: string;
@@ -105,27 +105,33 @@ declare global {
         }>;
         onRendererRecovered: (listener: () => void) => () => void;
       };
-      workspace: {
+      space: {
         chooseFolder: () => Promise<{ path: string; folderGrantId: string } | null>;
-        revealFolder: (workspaceId: string) => Promise<void>;
-        openPath: (workspaceId: string, path: string, action?: WorkspaceDesktopPathAction) => Promise<void>;
-        startDrag: (workspaceId: string, path: string) => Promise<void>;
-        previewFile: (workspaceId: string, path: string) => Promise<boolean>;
-        popupFileMenu?: (request: WorkspaceDesktopFileMenuRequest) => Promise<WorkspaceDesktopFileMenuCommand | null>;
-        setActiveSpace: (workspaceId: string | null) => Promise<void>;
-        onOpenSpace: (listener: (workspaceId: string) => void) => () => void;
+        revealFolder: (spaceId: string) => Promise<void>;
+        openPath: (spaceId: string, path: string, action?: WorkFoldDesktopPathAction) => Promise<void>;
+        startDrag: (spaceId: string, path: string) => Promise<void>;
+        previewFile: (spaceId: string, path: string) => Promise<boolean>;
+        popupFileMenu?: (request: WorkFoldDesktopFileMenuRequest) => Promise<WorkFoldDesktopFileMenuCommand | null>;
+        setActiveSpace: (spaceId: string | null) => Promise<void>;
+        onOpenSpace: (listener: (spaceId: string) => void) => () => void;
         onOpenFolder: (listener: () => void) => () => void;
       };
       agent: {
         onOpenSettings: (listener: () => void) => () => void;
       };
+      management?: {
+        getPathForFile: (file: File) => string;
+        hide: () => void;
+        openMainWindow: () => Promise<boolean>;
+        onStaged: (listener: (items: Array<{ kind: "path" | "text"; value: string }>) => void) => () => void;
+      };
       restrictedApps: {
-        mountView: (request: WorkspaceRestrictedAppViewRequest) => Promise<{ mounted: true; digest: string }>;
-        layoutView: (request: WorkspaceRestrictedAppViewRequest) => void;
+        mountView: (request: WorkFoldRestrictedAppViewRequest) => Promise<{ mounted: true; digest: string }>;
+        layoutView: (request: WorkFoldRestrictedAppViewRequest) => void;
         unmountView: (mountId: string) => Promise<void>;
-        onTabCommand: (listener: (command: WorkspaceRestrictedAppTabCommand) => void) => () => void;
-        onViewState: (listener: (state: WorkspaceRestrictedAppViewState) => void) => () => void;
-        onOpenRequest: (listener: (owner: WorkspaceRestrictedAppOwner) => void) => () => void;
+        onTabCommand: (listener: (command: WorkFoldRestrictedAppTabCommand) => void) => () => void;
+        onViewState: (listener: (state: WorkFoldRestrictedAppViewState) => void) => () => void;
+        onOpenRequest: (listener: (owner: WorkFoldRestrictedAppOwner) => void) => () => void;
       };
       window: {
         material: "mica" | "vibrancy" | "none";
@@ -147,19 +153,19 @@ declare global {
         openExternal: (url: string) => Promise<void>;
       };
       updates: {
-        getStatus: () => Promise<WorkspaceDesktopUpdateStatus>;
-        check: () => Promise<WorkspaceDesktopUpdateStatus>;
-        install: () => Promise<WorkspaceDesktopUpdateStatus>;
-        updateNow: () => Promise<WorkspaceDesktopUpdateStatus>;
-        onStatusChanged: (listener: (status: WorkspaceDesktopUpdateStatus) => void) => () => void;
+        getStatus: () => Promise<WorkFoldDesktopUpdateStatus>;
+        check: () => Promise<WorkFoldDesktopUpdateStatus>;
+        install: () => Promise<WorkFoldDesktopUpdateStatus>;
+        updateNow: () => Promise<WorkFoldDesktopUpdateStatus>;
+        onStatusChanged: (listener: (status: WorkFoldDesktopUpdateStatus) => void) => () => void;
       };
       settings: {
         getStatus: () => Promise<{ encryptionAvailable: boolean; configuredProviders: string[] }>;
       };
       menu: {
         setState: (state: { spaceOpen: boolean }) => void;
-        popup: (menuId: WorkspaceDesktopMenuId, bounds: { x: number; y: number }) => Promise<void>;
-        onCommand: (listener: (command: WorkspaceDesktopMenuCommand) => void) => () => void;
+        popup: (menuId: WorkFoldDesktopMenuId, bounds: { x: number; y: number }) => Promise<void>;
+        onCommand: (listener: (command: WorkFoldDesktopMenuCommand) => void) => () => void;
       };
     };
   }

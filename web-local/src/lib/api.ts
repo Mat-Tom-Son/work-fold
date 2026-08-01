@@ -181,12 +181,12 @@ export function dispatchSseFrame(frame: string, source: LocalEventStream): void 
 }
 
 export function apiUrl(path: string): string {
-  const baseUrl = window.workspaceDesktop?.api.baseUrl;
+  const baseUrl = window.workFoldDesktop?.api.baseUrl;
   return baseUrl ? new URL(path, baseUrl).toString() : path;
 }
 
 async function apiHeaders(extra: HeadersInit = {}): Promise<HeadersInit> {
-  const sessionHeaders = await window.workspaceDesktop?.api.getSessionHeaders?.();
+  const sessionHeaders = await window.workFoldDesktop?.api.getSessionHeaders?.();
   return { ...extra, ...(sessionHeaders ?? {}) };
 }
 
@@ -211,7 +211,7 @@ export function rawErrorMessage(error: unknown): string {
 
 export function userFriendlyErrorText(message: string): string {
   return isTransientNetworkError(message)
-    ? "Workspace is still reconnecting. Wait a moment and try again; your local files remain available."
+    ? "work-fold is still reconnecting. Wait a moment and try again; your local files remain available."
     : message;
 }
 

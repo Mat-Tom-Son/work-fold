@@ -1,8 +1,9 @@
 import { isNewerRestrictedAppRegistryVersionError } from "../../src/local/agent/restricted-app-registry-error.js";
+import { productIdentity } from "../../src/shared/product-identity.js";
 
-export const latestWorkspaceReleaseUrl = "https://github.com/Mat-Tom-Son/workspace/releases/latest";
+export const latestWorkFoldReleaseUrl = `https://github.com/${productIdentity.sourceRepositoryOwner}/${productIdentity.sourceRepositoryName}/releases/latest`;
 
-export interface WorkspaceStartupRecoveryPlan {
+export interface WorkFoldStartupRecoveryPlan {
   reason: "newer-local-state";
   actualVersion: number;
   supportedVersion: number;
@@ -10,15 +11,15 @@ export interface WorkspaceStartupRecoveryPlan {
   message: string;
 }
 
-export type WorkspaceStartupRecoveryStage =
+export type WorkFoldStartupRecoveryStage =
   | { kind: "initial" }
   | { kind: "available"; version: string }
   | { kind: "unavailable" }
   | { kind: "check-failed" }
   | { kind: "install-failed" };
 
-export interface WorkspaceStartupRecoveryDialog {
-  stage: WorkspaceStartupRecoveryStage["kind"];
+export interface WorkFoldStartupRecoveryDialog {
+  stage: WorkFoldStartupRecoveryStage["kind"];
   type: "warning" | "error";
   title: string;
   message: string;
@@ -31,29 +32,29 @@ export interface WorkspaceStartupRecoveryDialog {
   releasesId: number;
 }
 
-export interface WorkspaceStartupRecoveryHost {
-  showDialog(dialog: WorkspaceStartupRecoveryDialog): Promise<number>;
+export interface WorkFoldStartupRecoveryHost {
+  showDialog(dialog: WorkFoldStartupRecoveryDialog): Promise<number>;
   checkForUpdate(): Promise<string | null>;
   downloadAndInstall(): Promise<boolean>;
   openReleases(): Promise<void>;
   quit(): void;
 }
 
-export function workspaceStartupRecoveryPlan(error: unknown): WorkspaceStartupRecoveryPlan | null {
+export function workFoldStartupRecoveryPlan(error: unknown): WorkFoldStartupRecoveryPlan | null {
   if (!isNewerRestrictedAppRegistryVersionError(error)) return null;
   return {
     reason: "newer-local-state",
     actualVersion: error.actualVersion,
     supportedVersion: error.supportedVersion,
-    title: "Workspace update required",
-    message: "This version of Workspace cannot safely open newer local data.",
+    title: "work-fold update required",
+    message: "This version of work-fold cannot safely open newer local data.",
   };
 }
 
-export function workspaceStartupRecoveryDialog(
-  plan: WorkspaceStartupRecoveryPlan,
-  stage: WorkspaceStartupRecoveryStage,
-): WorkspaceStartupRecoveryDialog {
+export function workFoldStartupRecoveryDialog(
+  plan: WorkFoldStartupRecoveryPlan,
+  stage: WorkFoldStartupRecoveryStage,
+): WorkFoldStartupRecoveryDialog {
   const common = { title: plan.title, checkId: null, downloadId: null } as const;
   if (stage.kind === "initial") {
     return {
@@ -61,7 +62,7 @@ export function workspaceStartupRecoveryDialog(
       stage: stage.kind,
       type: "warning",
       message: plan.message,
-      detail: "Local Workspace data was created by a newer build. Check for a compatible update before opening it. Your Spaces and app data are safe.",
+      detail: "Local work-fold data was created by a newer build. Check for a compatible update before opening it. Your Spaces and app data are safe.",
       buttons: ["Check for Updates", "Open Releases", "Quit"],
       defaultId: 0,
       cancelId: 2,
@@ -75,7 +76,7 @@ export function workspaceStartupRecoveryDialog(
       ...common,
       stage: stage.kind,
       type: "warning",
-      message: `Workspace ${version || "update"} is available.`,
+      message: `work-fold ${version || "update"} is available.`,
       detail: "Download and install it before opening the newer local data. Your Spaces and app data are safe.",
       buttons: ["Download and Install", "Open Releases", "Quit"],
       defaultId: 0,
@@ -91,10 +92,10 @@ export function workspaceStartupRecoveryDialog(
     stage: stage.kind,
     type: checkFailed || installFailed ? "error" : "warning",
     message: installFailed
-      ? "Workspace could not download and install the required update."
+      ? "work-fold could not download and install the required update."
       : checkFailed
-        ? "Workspace could not check for updates."
-        : "No compatible Workspace update was found.",
+        ? "work-fold could not check for updates."
+        : "No compatible work-fold update was found.",
     detail: "Open the public Releases page or return to the newer development build that created this data. Your Spaces and app data are safe.",
     buttons: ["Open Releases", "Quit"],
     defaultId: 0,
@@ -103,11 +104,11 @@ export function workspaceStartupRecoveryDialog(
   };
 }
 
-export async function runWorkspaceStartupRecovery(
-  plan: WorkspaceStartupRecoveryPlan,
-  host: WorkspaceStartupRecoveryHost,
+export async function runWorkFoldStartupRecovery(
+  plan: WorkFoldStartupRecoveryPlan,
+  host: WorkFoldStartupRecoveryHost,
 ): Promise<"installing" | "quit"> {
-  const initial = workspaceStartupRecoveryDialog(plan, { kind: "initial" });
+  const initial = workFoldStartupRecoveryDialog(plan, { kind: "initial" });
   const initialChoice = await host.showDialog(initial);
   if (initialChoice !== initial.checkId) return await finishRecoveryChoice(initialChoice, initial, host);
 
@@ -115,15 +116,15 @@ export async function runWorkspaceStartupRecovery(
   try {
     availableVersion = await host.checkForUpdate();
   } catch {
-    const failed = workspaceStartupRecoveryDialog(plan, { kind: "check-failed" });
+    const failed = workFoldStartupRecoveryDialog(plan, { kind: "check-failed" });
     return await finishRecoveryChoice(await host.showDialog(failed), failed, host);
   }
   if (!availableVersion?.trim()) {
-    const unavailable = workspaceStartupRecoveryDialog(plan, { kind: "unavailable" });
+    const unavailable = workFoldStartupRecoveryDialog(plan, { kind: "unavailable" });
     return await finishRecoveryChoice(await host.showDialog(unavailable), unavailable, host);
   }
 
-  const available = workspaceStartupRecoveryDialog(plan, { kind: "available", version: availableVersion });
+  const available = workFoldStartupRecoveryDialog(plan, { kind: "available", version: availableVersion });
   const availableChoice = await host.showDialog(available);
   if (availableChoice !== available.downloadId) return await finishRecoveryChoice(availableChoice, available, host);
 
@@ -134,14 +135,14 @@ export async function runWorkspaceStartupRecovery(
     installing = false;
   }
   if (installing) return "installing";
-  const failed = workspaceStartupRecoveryDialog(plan, { kind: "install-failed" });
+  const failed = workFoldStartupRecoveryDialog(plan, { kind: "install-failed" });
   return await finishRecoveryChoice(await host.showDialog(failed), failed, host);
 }
 
 async function finishRecoveryChoice(
   choice: number,
-  dialog: WorkspaceStartupRecoveryDialog,
-  host: WorkspaceStartupRecoveryHost,
+  dialog: WorkFoldStartupRecoveryDialog,
+  host: WorkFoldStartupRecoveryHost,
 ): Promise<"quit"> {
   try {
     if (choice === dialog.releasesId) await host.openReleases();

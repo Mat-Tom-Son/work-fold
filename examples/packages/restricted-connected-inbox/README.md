@@ -1,6 +1,6 @@
 # Connected inbox app example
 
-This package exercises Workspace's dynamic restricted-app runtime: a real
+This package exercises work-fold's dynamic restricted-app runtime: a real
 interactive rail navigator, persistent Space-owned tabs, brokered public
 HTTPS, a numeric loopback service panel, durable app storage, a reviewed
 Space-folder export, an optional worker, a named inbox-refresh automation, and
@@ -15,19 +15,19 @@ security architecture.
   worker, tools, schemas, and exact network destinations.
 - `index.html`, `styles.css`, and `app.js` form the sandboxed app UI. The same
   code adapts to the rail navigator and app-owned work tabs using
-  `workspaceRestrictedApp.context`.
+  `workFoldRestrictedApp.context`.
 - `worker.js` exposes an Assistant action and the `refresh-inbox` automation;
   that automation records its remote result and may select the separately
   granted `inbox-refresh-finished` notification.
 - Network calls and tab creation go through the narrow
-  `workspaceRestrictedApp` bridge; the app has no Node, filesystem, process,
+  `workFoldRestrictedApp` bridge; the app has no Node, filesystem, process,
   or direct network access. Search and automation status use the host
   storage bridge, active visible UI re-reads after bounded invalidation hints,
   and service exports use a separately granted Space folder plus History
   safety.
 
 The normal generated-app path begins in a Space Chat: the Assistant writes the
-completed Space-relative package, proposes it through Workspace's host-owned
+completed Space-relative package, proposes it through work-fold's host-owned
 tool, and the person reviews and installs the exact digest in that Chat. For
 this checked-in developer sample, register the repository as a Space or copy
 this directory into one, then use **Capabilities → Installed → Apps in this
@@ -38,7 +38,7 @@ bearer authentication. It would need both a destination grant and a host-owned
 connection configured in Capabilities; the example contains no real
 credential. The local `project-service` destination is anonymous and expects a
 service on `127.0.0.1:4317`, but still requires its own destination grant.
-Together they demonstrate that installing an app grants nothing. Workspace
+Together they demonstrate that installing an app grants nothing. work-fold
 verifies the loopback address and port, but this version does not verify
 process ownership.
 
@@ -56,13 +56,13 @@ It binds only `127.0.0.1:4317` and implements `GET /health` plus
 open **Project service**, then use **Check health** or **Run refresh job**.
 
 This helper is an ordinary developer process outside the restricted app
-package. Workspace and the sandboxed app do not execute, install, stop, or
-trust it. Workspace verifies only the reviewed numeric loopback address and
+package. work-fold and the sandboxed app do not execute, install, stop, or
+trust it. work-fold verifies only the reviewed numeric loopback address and
 port before brokering a request; it does not verify that this particular
 process owns the port. Stop the helper from its terminal when testing is done.
 
 Notifications are separately off after installation. If allowed, they can be
-shown only during an enabled automation run while Workspace is running, using
+shown only during an enabled automation run while work-fold is running, using
 the exact title and body reviewed in `agent-app.json`; app code cannot supply
 dynamic notification copy, actions, or URLs. An explicit **Run now** while the
 automation is disabled has no notification authority.

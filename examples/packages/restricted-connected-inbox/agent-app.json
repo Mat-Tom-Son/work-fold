@@ -79,7 +79,7 @@
       {
         "id": "inbox-refresh-finished",
         "title": "Inbox refresh finished",
-        "description": "The inbox refresh automation finished. Open Workspace to review the connection result."
+        "description": "The inbox refresh automation finished. Open work-fold to review the connection result."
       }
     ]
   }

@@ -1,6 +1,6 @@
 export const spaceAppearanceStateVersion = 2 as const;
 export const spaceAppearanceProposalVersion = 1 as const;
-export const spaceAppearanceProposalKind = "workspace.space-appearance" as const;
+export const spaceAppearanceProposalKind = "work-fold.space-appearance" as const;
 export const maxSpaceAppearanceBannerImageDataUrlLength = 700_000;
 export const spaceAppearanceBannerNames = [
   "none",
@@ -53,8 +53,8 @@ export interface SpaceAppearanceProposal {
   name: string;
   description?: string;
   target?: {
-    workspaceId?: string;
-    workspaceName?: string;
+    spaceId?: string;
+    spaceName?: string;
   };
   customization: SpaceAppearanceCustomization;
   createdBy?: "codex" | "claude-code" | "human" | "other";
@@ -110,7 +110,7 @@ export interface ResolvedSpaceAppearance {
 }
 
 export interface NormalizeSpaceAppearanceOptions {
-  allowedWorkspaceIds?: ReadonlySet<string>;
+  allowedSpaceIds?: ReadonlySet<string>;
   allowedIconNames?: ReadonlySet<string>;
   allowedBannerNames?: ReadonlySet<string>;
 }
@@ -186,10 +186,10 @@ export function normalizeSpaceAppearanceCustomizations(
 ): SpaceAppearanceCustomizationMap {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const normalized: SpaceAppearanceCustomizationMap = {};
-  for (const [workspaceId, candidate] of Object.entries(value)) {
-    if (!workspaceId || options.allowedWorkspaceIds && !options.allowedWorkspaceIds.has(workspaceId)) continue;
+  for (const [spaceId, candidate] of Object.entries(value)) {
+    if (!spaceId || options.allowedSpaceIds && !options.allowedSpaceIds.has(spaceId)) continue;
     const customization = normalizeSpaceAppearanceCustomization(candidate, options);
-    if (hasSpaceAppearanceCustomization(customization)) normalized[workspaceId] = customization;
+    if (hasSpaceAppearanceCustomization(customization)) normalized[spaceId] = customization;
   }
   return normalized;
 }
@@ -198,13 +198,10 @@ export function normalizeSpaceAppearanceState(
   value: unknown,
   options: NormalizeSpaceAppearanceOptions = {},
 ): SpaceAppearanceState {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return { version: spaceAppearanceStateVersion, revision: 0, customizations: {} };
-  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Space appearance state must be a JSON object.");
   const record = value as Record<string, unknown>;
-  const source = record.version === spaceAppearanceStateVersion ? record.customizations : value;
-  const revision = record.version === spaceAppearanceStateVersion
-    && typeof record.revision === "number"
+  if (record.version !== spaceAppearanceStateVersion) throw new Error("Space appearance state version is invalid.");
+  const revision = typeof record.revision === "number"
     && Number.isSafeInteger(record.revision)
     && record.revision >= 0
     ? record.revision
@@ -212,7 +209,7 @@ export function normalizeSpaceAppearanceState(
   return {
     version: spaceAppearanceStateVersion,
     revision,
-    customizations: normalizeSpaceAppearanceCustomizations(source, options),
+    customizations: normalizeSpaceAppearanceCustomizations(record.customizations, options),
   };
 }
 
@@ -277,9 +274,9 @@ export function createSpaceAppearanceProposal(input: {
   const customization = upgradeSpaceAppearanceCustomization(input.customization);
   if (!hasSpaceAppearanceCustomization(customization)) throw new Error("The appearance proposal is empty.");
   const description = normalizeShortText(input.description, 280);
-  const workspaceId = normalizeShortText(input.target?.workspaceId, 160);
-  const workspaceName = normalizeShortText(input.target?.workspaceName, 120);
-  const target = workspaceId || workspaceName ? { ...(workspaceId ? { workspaceId } : {}), ...(workspaceName ? { workspaceName } : {}) } : undefined;
+  const spaceId = normalizeShortText(input.target?.spaceId, 160);
+  const spaceName = normalizeShortText(input.target?.spaceName, 120);
+  const target = spaceId || spaceName ? { ...(spaceId ? { spaceId } : {}), ...(spaceName ? { spaceName } : {}) } : undefined;
   return {
     kind: spaceAppearanceProposalKind,
     version: spaceAppearanceProposalVersion,
@@ -292,7 +289,7 @@ export function createSpaceAppearanceProposal(input: {
 }
 
 export function parseSpaceAppearanceProposal(value: unknown): SpaceAppearanceProposal {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("This is not a Workspace appearance proposal.");
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("This is not a work-fold appearance proposal.");
   const record = value as Record<string, unknown>;
   if (record.kind !== spaceAppearanceProposalKind || record.version !== spaceAppearanceProposalVersion) {
     throw new Error("This appearance proposal uses an unsupported format.");
@@ -300,6 +297,9 @@ export function parseSpaceAppearanceProposal(value: unknown): SpaceAppearancePro
   const targetRecord = record.target && typeof record.target === "object" && !Array.isArray(record.target)
     ? record.target as Record<string, unknown>
     : undefined;
+  if (targetRecord && ("workspaceId" in targetRecord || "workspaceName" in targetRecord)) {
+    throw new Error("Legacy appearance target fields are not supported.");
+  }
   const createdBy = record.createdBy === "codex"
     || record.createdBy === "claude-code"
     || record.createdBy === "human"
@@ -310,8 +310,8 @@ export function parseSpaceAppearanceProposal(value: unknown): SpaceAppearancePro
     name: typeof record.name === "string" ? record.name : "",
     description: typeof record.description === "string" ? record.description : undefined,
     target: targetRecord ? {
-      workspaceId: typeof targetRecord.workspaceId === "string" ? targetRecord.workspaceId : undefined,
-      workspaceName: typeof targetRecord.workspaceName === "string" ? targetRecord.workspaceName : undefined,
+      spaceId: typeof targetRecord.spaceId === "string" ? targetRecord.spaceId : undefined,
+      spaceName: typeof targetRecord.spaceName === "string" ? targetRecord.spaceName : undefined,
     } : undefined,
     customization: normalizeSpaceAppearanceCustomization(record.customization),
     createdBy,

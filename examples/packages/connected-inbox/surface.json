@@ -13,7 +13,7 @@
         { "type": "heading", "text": "Connected inbox", "level": 2 },
         {
           "type": "text",
-          "text": "The package is the unit the agent creates and installs. Its Extension owns network behavior; Workspace validates and renders this adjacent surface manifest."
+          "text": "The package is the unit the agent creates and installs. Its Extension owns network behavior; work-fold validates and renders this adjacent surface manifest."
         },
         {
           "type": "metrics",

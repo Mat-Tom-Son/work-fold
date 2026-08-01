@@ -7,30 +7,33 @@ import { fileURLToPath } from "node:url";
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
-test("Windows release configuration points at the public Workspace update feed", () => {
+test("desktop release configuration uses the isolated work-fold identities and feeds", () => {
   const packageJson = JSON.parse(read("package.json"));
+  const identity = JSON.parse(read("src/shared/product-identity.json"));
   const require = createRequire(import.meta.url);
   const builderPath = join(rootDir, "electron-builder.desktop.cjs");
   const builder = require(builderPath);
-  const previousPlatform = process.env.WORKSPACE_DESKTOP_RELEASE_PLATFORM;
-  const previousRepo = process.env.WORKSPACE_MAC_RELEASE_REPO;
-  const previousUnsignedMac = process.env.WORKSPACE_ALLOW_UNSIGNED_MAC_BUILD;
-  process.env.WORKSPACE_DESKTOP_RELEASE_PLATFORM = "darwin";
-  process.env.WORKSPACE_MAC_RELEASE_REPO = "workspace-mac-releases";
+  const previousPlatform = process.env.WORKFOLD_DESKTOP_RELEASE_PLATFORM;
+  const previousRepo = process.env.WORKFOLD_MAC_RELEASE_REPO;
+  const previousUnsignedMac = process.env.WORKFOLD_ALLOW_UNSIGNED_MAC_BUILD;
+  process.env.WORKFOLD_DESKTOP_RELEASE_PLATFORM = "darwin";
+  process.env.WORKFOLD_MAC_RELEASE_REPO = identity.macReleaseRepositoryName;
   delete require.cache[require.resolve(builderPath)];
   const macBuilder = require(builderPath);
-  process.env.WORKSPACE_ALLOW_UNSIGNED_MAC_BUILD = "1";
+  process.env.WORKFOLD_ALLOW_UNSIGNED_MAC_BUILD = "1";
   delete require.cache[require.resolve(builderPath)];
   const macSmokeBuilder = require(builderPath);
-  if (previousPlatform === undefined) delete process.env.WORKSPACE_DESKTOP_RELEASE_PLATFORM;
-  else process.env.WORKSPACE_DESKTOP_RELEASE_PLATFORM = previousPlatform;
-  if (previousRepo === undefined) delete process.env.WORKSPACE_MAC_RELEASE_REPO;
-  else process.env.WORKSPACE_MAC_RELEASE_REPO = previousRepo;
-  if (previousUnsignedMac === undefined) delete process.env.WORKSPACE_ALLOW_UNSIGNED_MAC_BUILD;
-  else process.env.WORKSPACE_ALLOW_UNSIGNED_MAC_BUILD = previousUnsignedMac;
+  if (previousPlatform === undefined) delete process.env.WORKFOLD_DESKTOP_RELEASE_PLATFORM;
+  else process.env.WORKFOLD_DESKTOP_RELEASE_PLATFORM = previousPlatform;
+  if (previousRepo === undefined) delete process.env.WORKFOLD_MAC_RELEASE_REPO;
+  else process.env.WORKFOLD_MAC_RELEASE_REPO = previousRepo;
+  if (previousUnsignedMac === undefined) delete process.env.WORKFOLD_ALLOW_UNSIGNED_MAC_BUILD;
+  else process.env.WORKFOLD_ALLOW_UNSIGNED_MAC_BUILD = previousUnsignedMac;
   delete require.cache[require.resolve(builderPath)];
 
-  assert.equal(packageJson.repository.url, "https://github.com/Mat-Tom-Son/workspace.git");
+  assert.equal(packageJson.name, identity.packageName);
+  assert.equal(packageJson.productName, identity.productName);
+  assert.equal(packageJson.repository.url, "https://github.com/Mat-Tom-Son/work-fold.git");
   assert.equal(packageJson.dependencies["electron-updater"], "6.8.9");
   assert.match(packageJson.scripts["desktop:make"], /electron-builder/);
   assert.match(packageJson.scripts["desktop:make"], /--win nsis --x64/, "the NSIS target and x64 architecture must use Electron Builder's supported argument order");
@@ -39,23 +42,29 @@ test("Windows release configuration points at the public Workspace update feed",
   assert.deepEqual(builder.publish, [{
     provider: "github",
     owner: "Mat-Tom-Son",
-    repo: "workspace",
+    repo: "work-fold",
     releaseType: "release",
   }]);
   assert.deepEqual(macBuilder.publish, [{
     provider: "github",
     owner: "Mat-Tom-Son",
-    repo: "workspace-mac-releases",
+    repo: "work-fold-mac-releases",
     releaseType: "release",
   }]);
-  assert.equal(macSmokeBuilder.productName, "Workspace Local Smoke");
-  assert.equal(macSmokeBuilder.appId, "io.github.mattomson.workspace.local-smoke");
-  assert.equal(macSmokeBuilder.extraMetadata.workspaceBuildChannel, "mac-local-smoke");
-  assert.equal(macBuilder.productName, "Workspace");
-  assert.equal(macBuilder.appId, "io.github.mattomson.workspace");
-  assert.equal(macBuilder.extraMetadata.workspaceBuildChannel, "production");
-  assert.equal(macSmokeBuilder.mac.executableName, "Workspace Local Smoke");
-  assert.equal(macBuilder.mac.executableName, "Workspace");
+  assert.equal(macSmokeBuilder.productName, identity.macSmokeProductName);
+  assert.equal(macSmokeBuilder.appId, identity.macSmokeAppId);
+  assert.equal(macSmokeBuilder.extraMetadata.workFoldBuildChannel, "mac-local-smoke");
+  assert.equal(macBuilder.productName, identity.productName);
+  assert.equal(macBuilder.appId, identity.productionAppId);
+  assert.equal(macBuilder.extraMetadata.workFoldBuildChannel, "production");
+  assert.equal(macSmokeBuilder.mac.executableName, identity.macSmokeProductName);
+  assert.equal(macBuilder.mac.executableName, identity.productName);
+  assert.equal(builder.artifactName, "work-fold-${version}-${os}-${arch}.${ext}");
+  assert.equal(builder.dmg.artifactName, "work-fold-${version}-mac-${arch}.${ext}");
+  assert.equal(builder.nsis.artifactName, "work-fold-Setup-${version}.${ext}");
+  assert.equal(builder.nsis.uninstallDisplayName, identity.productName);
+  assert.equal(builder.nsis.shortcutName, identity.productName);
+  assert.equal(builder.nsis.deleteAppDataOnUninstall, false);
   assert.equal(builder.electronFuses.runAsNode, false);
   assert.equal(builder.electronFuses.onlyLoadAppFromAsar, true);
   assert.equal(builder.win.verifyUpdateCodeSignature, false);
@@ -65,6 +74,7 @@ test("Windows release configuration points at the public Workspace update feed",
   assert.match(packageJson.scripts["desktop:make:mac"], /build-mac-desktop\.mjs/);
   assert.match(packageJson.scripts["desktop:make:mac:release"], /--release/);
   assert.match(packageJson.scripts["desktop:release:mac"], /desktop:publish:mac/);
+  assert.match(packageJson.scripts["desktop:release:mac:first"], /--mac-first/);
   assert.match(packageJson.scripts["desktop:verify:installed:mac"], /verify-installed-mac-app/);
 });
 
@@ -80,7 +90,9 @@ test("Updater and release workflow keep credentials out of the application", () 
   assert.match(updaterSource, /platform === "darwin"/);
   assert.match(workflow, /tags:/);
   assert.match(workflow, /WIN_CSC_LINK/);
-  assert.match(workflow, /WORKSPACE_TRUSTED_CODE_SIGNING/);
+  assert.match(workflow, /Require Windows release signing credentials/);
+  assert.match(workflow, /WORKFOLD_REQUIRE_CODE_SIGNING: "1"/);
+  assert.match(workflow, /WORKFOLD_TRUSTED_CODE_SIGNING/);
   assert.match(workflow, /latest\.yml/);
   assert.match(workflow, /docs\/releases\/\$version\.md/);
   assert.match(workflow, /--notes-file \$notes/);
@@ -88,10 +100,26 @@ test("Updater and release workflow keep credentials out of the application", () 
   assert.match(workflow, /--draft/);
   assert.match(workflow, /--draft=false/);
   assert.match(macPublisher, /assertSourceReleasePublished\(\)/);
+  assert.match(macPublisher, /process\.argv\.includes\("--mac-first"\)/);
+  assert.match(macPublisher, /source tag and public repository are verified/);
   assert.match(macPublisher, /Source release .* must be public before publishing macOS/);
-  assert.match(macPublisher, /Workspace-Setup-\$\{version\}\.exe\.blockmap/);
+  assert.match(macPublisher, /identity\.productName}-Setup-\$\{version\}\.exe\.blockmap/);
   assert.match(macPublisher, /remote\.digest !== `sha256:\$\{localDigest\}`/);
   assert.doesNotMatch(macPublisher, /allow-dirty|allowDirty/);
+});
+
+test("the macOS Safe Storage reset can target only the work-fold identity", () => {
+  const reset = read("scripts/reset-mac-safe-storage.mjs");
+
+  assert.match(reset, /src", "shared", "product-identity\.json"/);
+  assert.match(reset, /Application Support", identity\.productName/);
+  assert.match(reset, /`\/Applications\/\$\{identity\.productName\}\.app`/);
+  assert.match(reset, /`\$\{identity\.productName\} Key`/);
+  assert.match(reset, /`\$\{identity\.productName\} Safe Storage`/);
+  assert.doesNotMatch(reset, /Application Support", "Workspace"/);
+  assert.doesNotMatch(reset, /\/Applications\/Workspace\.app/);
+  assert.doesNotMatch(reset, /["'`]Workspace (?:Key|Safe Storage)["'`]/);
+  assert.doesNotMatch(reset, /security[\s\S]{0,300}["']-g["']/);
 });
 
 function read(path: string): string {

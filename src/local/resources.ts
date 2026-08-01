@@ -4,22 +4,22 @@ import { basename, dirname, relative } from "node:path";
 
 import { resourceLibraryRoot } from "./state-paths.js";
 import {
-  copyPathIntoWorkspace,
-  resolveWorkspacePath,
-  scanWorkspaceTree,
+  copyPathIntoSpace,
+  resolveSpacePath,
+  scanSpaceTree,
   writeUploadedFiles,
   type TreeEntry,
-} from "./workspace.js";
+} from "./space.js";
 
 export async function listResourceTree(): Promise<TreeEntry[]> {
   const root = await ensureResourceRoot();
-  return (await scanWorkspaceTree(root)).entries;
+  return (await scanSpaceTree(root)).entries;
 }
 
 export async function createResourceFolder(parentPath: string, name: string): Promise<{ path: string }> {
   const root = await ensureResourceRoot();
   const folderName = safeFolderName(name);
-  const path = resolveWorkspacePath(root, [normalizePath(parentPath), folderName].filter(Boolean).join("/"));
+  const path = resolveSpacePath(root, [normalizePath(parentPath), folderName].filter(Boolean).join("/"));
   if (existsSync(path)) throw new Error("A Library folder with that name already exists.");
   await mkdir(path, { recursive: false });
   return { path: normalizePath(relative(root, path)) };
@@ -33,8 +33,8 @@ export async function uploadResourceFiles(
   return writeUploadedFiles(root, targetFolderPath, files);
 }
 
-export async function copyResourcesToWorkspace(
-  workspaceRoot: string,
+export async function copyResourcesToSpace(
+  spaceRoot: string,
   paths: string[],
   targetFolder: string,
 ): Promise<string[]> {
@@ -44,17 +44,17 @@ export async function copyResourcesToWorkspace(
   const copied: string[] = [];
   try {
     for (const path of paths) {
-      const source = resolveWorkspacePath(root, path);
+      const source = resolveSpacePath(root, path);
       const info = await stat(source).catch(() => null);
       if (!info) throw new Error(`Library item not found: ${path}`);
       if (lstatSync(source).isSymbolicLink()) throw new Error("Symbolic-link Library items cannot be copied.");
-      copied.push(await copyPathIntoWorkspace(source, workspaceRoot, targetFolder));
+      copied.push(await copyPathIntoSpace(source, spaceRoot, targetFolder));
     }
   } catch (error) {
     // The batch is one action: a mid-batch failure must not strand the items
     // that already copied.
     await Promise.all(copied.map((path) =>
-      rm(resolveWorkspacePath(workspaceRoot, path), { recursive: true, force: true }).catch(() => undefined)));
+      rm(resolveSpacePath(spaceRoot, path), { recursive: true, force: true }).catch(() => undefined)));
     throw error;
   }
   return copied;

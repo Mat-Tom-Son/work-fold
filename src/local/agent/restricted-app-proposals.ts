@@ -11,8 +11,8 @@ import {
 } from "./restricted-app-service.js";
 
 export interface RestrictedAppProposalScope {
-  workspaceId: string;
-  workspaceRoot: string;
+  spaceId: string;
+  spaceRoot: string;
   conversationId: string;
 }
 
@@ -45,13 +45,13 @@ export interface RestrictedAppProposalHost {
 }
 
 interface ProposalRegistryFile {
-  schemaVersion: 1;
+  schemaVersion: 2;
   proposals: RestrictedAppProposalReceipt[];
 }
 
 /**
  * Machine-local, conversation-bound receipts for app packages proposed by Pi.
- * The model supplies only a Space-relative folder. Workspace inspects that
+ * The model supplies only a Space-relative folder. work-fold inspects that
  * folder and owns every review field and the digest used for installation.
  */
 export class RoutedRestrictedAppProposalHost extends EventEmitter implements RestrictedAppProposalHost {
@@ -80,14 +80,14 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
     if (signal?.aborted) return { status: "cancelled" };
     const sourcePath = input.sourcePath.trim();
     const review = await this.#service.inspect({
-      workspaceId: input.workspaceId,
-      workspaceRoot: input.workspaceRoot,
+      spaceId: input.spaceId,
+      spaceRoot: input.spaceRoot,
       sourcePath,
     });
     if (signal?.aborted) return { status: "cancelled" };
     const proposal = await this.#mutate(async () => {
       const existing = this.#registry.proposals.find((item) => item.status === "pending"
-        && item.workspaceId === input.workspaceId
+        && item.spaceId === input.spaceId
         && item.conversationId === input.conversationId
         && item.sourcePath === sourcePath
         && item.review.digest === review.digest);
@@ -105,7 +105,7 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
       const proposals = [...this.#registry.proposals, receipt]
         .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt))
         .slice(-100);
-      await this.#writeRegistry({ schemaVersion: 1, proposals });
+      await this.#writeRegistry({ schemaVersion: 2, proposals });
       return copyReceipt(receipt);
     });
     this.emit("request", proposal);
@@ -118,10 +118,10 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
     return proposal ? copyReceipt(proposal) : undefined;
   }
 
-  async list(scope?: Partial<Pick<RestrictedAppProposalScope, "workspaceId" | "conversationId">>): Promise<RestrictedAppProposalReceipt[]> {
+  async list(scope?: Partial<Pick<RestrictedAppProposalScope, "spaceId" | "conversationId">>): Promise<RestrictedAppProposalReceipt[]> {
     await this.#queue.catch(() => undefined);
     return this.#registry.proposals
-      .filter((item) => (!scope?.workspaceId || item.workspaceId === scope.workspaceId)
+      .filter((item) => (!scope?.spaceId || item.spaceId === scope.spaceId)
         && (!scope?.conversationId || item.conversationId === scope.conversationId))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .map(copyReceipt);
@@ -136,8 +136,8 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
       let app: RestrictedAppInstalled;
       try {
         app = await this.#service.install({
-          workspaceId: proposal.workspaceId,
-          workspaceRoot: proposal.workspaceRoot,
+          spaceId: proposal.spaceId,
+          spaceRoot: proposal.spaceRoot,
           sourcePath: proposal.sourcePath,
           expectedDigest: proposal.review.digest,
         });
@@ -171,11 +171,11 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
     });
   }
 
-  async removeWorkspace(workspaceId: string): Promise<void> {
+  async removeSpace(spaceId: string): Promise<void> {
     await this.#mutate(async () => {
-      const proposals = this.#registry.proposals.filter((item) => item.workspaceId !== workspaceId);
+      const proposals = this.#registry.proposals.filter((item) => item.spaceId !== spaceId);
       if (proposals.length === this.#registry.proposals.length) return;
-      await this.#writeRegistry({ schemaVersion: 1, proposals });
+      await this.#writeRegistry({ schemaVersion: 2, proposals });
     });
   }
 
@@ -199,24 +199,26 @@ async function readRegistry(path: string): Promise<ProposalRegistryFile> {
     return normalizeRegistry(JSON.parse(await readFile(path, "utf8")));
   } catch (caught) {
     const code = (caught as NodeJS.ErrnoException)?.code;
-    if (code === "ENOENT" || caught instanceof SyntaxError) return { schemaVersion: 1, proposals: [] };
+    if (code === "ENOENT" || caught instanceof SyntaxError) return { schemaVersion: 2, proposals: [] };
     throw caught;
   }
 }
 
 function normalizeRegistry(value: unknown): ProposalRegistryFile {
-  const proposals = value && typeof value === "object" && Array.isArray((value as ProposalRegistryFile).proposals)
+  const proposals = value && typeof value === "object"
+    && (value as Partial<ProposalRegistryFile>).schemaVersion === 2
+    && Array.isArray((value as ProposalRegistryFile).proposals)
     ? (value as ProposalRegistryFile).proposals.filter(validReceipt).map(copyReceipt).slice(-100)
     : [];
-  return { schemaVersion: 1, proposals };
+  return { schemaVersion: 2, proposals };
 }
 
 function validReceipt(value: unknown): value is RestrictedAppProposalReceipt {
   if (!value || typeof value !== "object") return false;
   const receipt = value as Partial<RestrictedAppProposalReceipt>;
   return typeof receipt.id === "string"
-    && typeof receipt.workspaceId === "string"
-    && typeof receipt.workspaceRoot === "string"
+    && typeof receipt.spaceId === "string"
+    && typeof receipt.spaceRoot === "string"
     && typeof receipt.conversationId === "string"
     && typeof receipt.sourcePath === "string"
     && typeof receipt.createdAt === "string"

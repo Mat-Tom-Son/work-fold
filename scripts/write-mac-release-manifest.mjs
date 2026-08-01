@@ -7,14 +7,15 @@ import { fileURLToPath } from "node:url";
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const builderDir = join(rootDir, "out", "builder");
 const packageJson = JSON.parse(await readFile(join(rootDir, "package.json"), "utf8"));
+const identity = JSON.parse(await readFile(join(rootDir, "src", "shared", "product-identity.json"), "utf8"));
 const version = String(packageJson.version ?? "").trim();
-const arch = stringValue(process.env.WORKSPACE_DESKTOP_RELEASE_ARCH) || (process.arch === "x64" ? "x64" : "arm64");
-const unsignedSmokeBuild = process.env.WORKSPACE_ALLOW_UNSIGNED_MAC_BUILD === "1";
+const arch = stringValue(process.env.WORKFOLD_DESKTOP_RELEASE_ARCH) || (process.arch === "x64" ? "x64" : "arm64");
+const unsignedSmokeBuild = process.env.WORKFOLD_ALLOW_UNSIGNED_MAC_BUILD === "1";
 
-if (!existsSync(builderDir)) throw new Error("Workspace macOS builder output was not found.");
-if (!version) throw new Error("package.json does not declare a Workspace release version.");
+if (!existsSync(builderDir)) throw new Error(`${identity.productName} macOS builder output was not found.`);
+if (!version) throw new Error(`package.json does not declare a ${identity.productName} release version.`);
 
-const stem = `Workspace-${version}-mac-${arch}`;
+const stem = `${identity.productName}-${version}-mac-${arch}`;
 const expected = [
   `${stem}.dmg`,
   `${stem}.dmg.blockmap`,
@@ -24,7 +25,7 @@ const expected = [
 ];
 const available = new Set(await readdir(builderDir));
 for (const name of expected) {
-  if (!available.has(name)) throw new Error(`Missing Workspace macOS artifact ${name}.`);
+  if (!available.has(name)) throw new Error(`Missing ${identity.productName} macOS artifact ${name}.`);
 }
 
 const artifacts = [];
@@ -38,7 +39,7 @@ for (const name of expected.sort((left, right) => left.localeCompare(right))) {
 }
 
 const manifest = {
-  productName: unsignedSmokeBuild ? "Workspace Local Smoke" : packageJson.productName ?? "Workspace",
+  productName: unsignedSmokeBuild ? identity.macSmokeProductName : identity.productName,
   version,
   generatedAt: new Date().toISOString(),
   platform: "darwin",
@@ -46,14 +47,14 @@ const manifest = {
   unsignedSmokeBuild,
   buildNodeVersion: process.version,
   feed: {
-    owner: stringValue(process.env.WORKSPACE_MAC_RELEASE_OWNER) || "Mat-Tom-Son",
-    repo: stringValue(process.env.WORKSPACE_MAC_RELEASE_REPO) || "workspace-mac-releases",
+    owner: stringValue(process.env.WORKFOLD_MAC_RELEASE_OWNER) || identity.sourceRepositoryOwner,
+    repo: stringValue(process.env.WORKFOLD_MAC_RELEASE_REPO) || identity.macReleaseRepositoryName,
   },
   artifacts,
 };
 
-const jsonPath = join(builderDir, "Workspace-mac-release-manifest.json");
-const textPath = join(builderDir, "Workspace-mac-release-manifest.txt");
+const jsonPath = join(builderDir, `${identity.productName}-mac-release-manifest.json`);
+const textPath = join(builderDir, `${identity.productName}-mac-release-manifest.txt`);
 await writeFile(jsonPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 await writeFile(textPath, formatTextManifest(manifest), "utf8");
 console.log(`Wrote ${basename(jsonPath)} and ${basename(textPath)}.`);

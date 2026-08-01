@@ -27,7 +27,7 @@ const binding: RestrictedAppOAuthBinding = {
   runtimeInstanceId: parseRuntimeInstanceId("runtime-instance_one"),
   featureId: "mail-app",
   featureInstallationId: parseFeatureInstallationId("feature-installation_one"),
-  featureRevisionDigest: parseAppPlatformArtifactDigest(`workspace-artifact-v1:sha256:${"a".repeat(64)}`),
+  featureRevisionDigest: parseAppPlatformArtifactDigest(`work-fold.artifact.v1:sha256:${"a".repeat(64)}`),
   declarationId: "mail-api",
   declarationDigest: computeDeclarationDigest({ id: "mail-api" }),
   targetIdentity: "https://api.example.com",
@@ -36,7 +36,7 @@ const binding: RestrictedAppOAuthBinding = {
 
 const configuration: RestrictedAppOAuthPkceConfiguration = {
   issuer: "https://auth.example.com",
-  clientId: "workspace-public-client",
+  clientId: "work-fold-public-client",
   scopes: ["mail.read", "profile.read"],
 };
 
@@ -345,7 +345,7 @@ test("under-advertised provider capabilities are reported but still connect", as
   // Every case here is drawn from a provider that works in practice. Google
   // omits `none` from token_endpoint_auth_methods_supported; Microsoft omits
   // code_challenge_methods_supported entirely. Gating on these fields rejected
-  // both while proving nothing, because Workspace supplies S256 itself and has
+  // both while proving nothing, because work-fold supplies S256 itself and has
   // no client secret to send.
   const cases: Array<[string, Record<string, unknown>, string]> = [
     ["secret-only token endpoint (Google)", { token_endpoint_auth_methods_supported: ["client_secret_post"] }, "METADATA_PUBLIC_CLIENT_UNDECLARED"],
@@ -852,7 +852,7 @@ test("the metadata documents real providers actually serve produce a working con
       document: realProviderMetadata.google,
       config: {
         issuer: "https://accounts.google.com",
-        clientId: "workspace.apps.googleusercontent.com",
+        clientId: "work-fold.apps.googleusercontent.com",
         scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
         authorizationParameters: [{ name: "access_type", value: "offline" }],
       },

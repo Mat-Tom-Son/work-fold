@@ -1,6 +1,6 @@
 param(
-  [string]$CertificatePath = (Join-Path $HOME ".workspace-signing\Workspace-Personal-Code-Signing.pfx"),
-  [string]$PasswordFile = (Join-Path $HOME ".workspace-signing\Workspace-Personal-Code-Signing.password.dpapi")
+  [string]$CertificatePath = (Join-Path $HOME ".work-fold-signing\work-fold-Personal-Code-Signing.pfx"),
+  [string]$PasswordFile = (Join-Path $HOME ".work-fold-signing\work-fold-Personal-Code-Signing.password.dpapi")
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,22 +25,22 @@ try {
   $env:Path = "$nodeDir;$env:Path"
   $env:WIN_CSC_LINK = (Resolve-Path -LiteralPath $CertificatePath).Path
   $env:WIN_CSC_KEY_PASSWORD = $plainPassword
-  $env:WORKSPACE_REQUIRE_CODE_SIGNING = "1"
-  $env:WORKSPACE_TRUSTED_CODE_SIGNING = "0"
+  $env:WORKFOLD_REQUIRE_CODE_SIGNING = "1"
+  $env:WORKFOLD_TRUSTED_CODE_SIGNING = "0"
   $env:CSC_IDENTITY_AUTO_DISCOVERY = "false"
 
   Push-Location $repoRoot
   try {
     & $node $npmCli run desktop:make
-    if ($LASTEXITCODE -ne 0) { throw "Signed Workspace build failed with exit code $LASTEXITCODE." }
+    if ($LASTEXITCODE -ne 0) { throw "Signed work-fold build failed with exit code $LASTEXITCODE." }
   } finally {
     Pop-Location
   }
 } finally {
   Remove-Item Env:\WIN_CSC_LINK -ErrorAction SilentlyContinue
   Remove-Item Env:\WIN_CSC_KEY_PASSWORD -ErrorAction SilentlyContinue
-  Remove-Item Env:\WORKSPACE_REQUIRE_CODE_SIGNING -ErrorAction SilentlyContinue
-  Remove-Item Env:\WORKSPACE_TRUSTED_CODE_SIGNING -ErrorAction SilentlyContinue
+  Remove-Item Env:\WORKFOLD_REQUIRE_CODE_SIGNING -ErrorAction SilentlyContinue
+  Remove-Item Env:\WORKFOLD_TRUSTED_CODE_SIGNING -ErrorAction SilentlyContinue
   Remove-Item Env:\CSC_IDENTITY_AUTO_DISCOVERY -ErrorAction SilentlyContinue
   if ($pointer -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer) }
   $plainPassword = $null

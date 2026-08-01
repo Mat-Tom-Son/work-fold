@@ -16,8 +16,8 @@ import type { RestrictedAppInstalled } from "../src/local/agent/restricted-app-s
 
 const digest = "a".repeat(64);
 const installed: RestrictedAppInstalled = {
-  workspaceId: "space-one",
-  sourceWorkspaceId: "space-one",
+  spaceId: "space-one",
+  sourceSpaceId: "space-one",
   projectId: parseProjectId("project_fixture"),
   tenantId: parseTenantId("tenant_fixture"),
   principalId: parsePrincipalId("principal_fixture"),
@@ -38,7 +38,7 @@ const installed: RestrictedAppInstalled = {
   packageName: "connected-inbox",
   version: "1.0.0",
   digest,
-  artifactDigest: parseAppPlatformArtifactDigest(`workspace-artifact-v1:sha256:${"b".repeat(64)}`),
+  artifactDigest: parseAppPlatformArtifactDigest(`work-fold.artifact.v1:sha256:${"b".repeat(64)}`),
   fileCount: 4,
   totalBytes: 1024,
   networkGrants: ["mail-api"],
@@ -68,7 +68,7 @@ const installed: RestrictedAppInstalled = {
 test("installed app actions become namespaced Pi tools bound to Space, app, digest, and action", async () => {
   const calls: unknown[] = [];
   const tools = createRestrictedAppTools({
-    workspaceId: "space-one",
+    spaceId: "space-one",
     apps: [installed],
     service: {
       async invoke(input) {
@@ -81,14 +81,14 @@ test("installed app actions become namespaced Pi tools bound to Space, app, dige
   assert.match(tools[0]!.name, /^app_[a-f0-9]{8}_inbox_search$/);
   assert.match(tools[0]!.description, /Connected inbox/);
   const result = await tools[0]!.execute("call-1", { query: "release" }, undefined, undefined, {} as never);
-  assert.deepEqual(calls, [{ workspaceId: "space-one", appId: "connected-inbox", expectedDigest: digest, action: "search", input: { query: "release" } }]);
+  assert.deepEqual(calls, [{ spaceId: "space-one", appId: "connected-inbox", expectedDigest: digest, action: "search", input: { query: "release" } }]);
   assert.deepEqual(result.content, [{ type: "text", text: '{"count":3}' }]);
 });
 
 test("app tool names remain deterministic and distinct when packages reuse a declared tool name", () => {
   const other = structuredClone(installed);
   other.manifest.id = "project-mail";
-  const tools = createRestrictedAppTools({ workspaceId: "space-one", apps: [installed, other], service: { invoke: async () => ({ count: 0 }) } });
+  const tools = createRestrictedAppTools({ spaceId: "space-one", apps: [installed, other], service: { invoke: async () => ({ count: 0 }) } });
   assert.equal(new Set(tools.map((tool) => tool.name)).size, 2);
   assert.ok(tools.every((tool) => tool.name.length <= 64));
 });

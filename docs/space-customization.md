@@ -1,7 +1,7 @@
 # Space customization
 
-Workspace treats appearance as a safe, machine-local identity layer for a Space. It is deliberately
-smaller than a CSS theme engine: people and agents may choose bounded identity values, while Workspace
+work-fold treats appearance as a safe, machine-local identity layer for a Space. It is deliberately
+smaller than a CSS theme engine: people and agents may choose bounded identity values, while work-fold
 continues to own navigation, permission UI, native chrome, hit targets, accessibility, and layout
 integrity.
 
@@ -21,7 +21,7 @@ Read [the role inventory](customization-role-inventory.md) for the audited CSS c
 
 Every edit repaints that Space everywhere it appears, including foreign-Space tabs, switcher rows,
 cards, and Chat groups. Appearance remains application state on this computer. It is not written into
-the Space's `.workspace/` directory and does not travel with ordinary files.
+the Space's `.work-fold/` directory and does not travel with ordinary files.
 
 Undo keeps the latest 20 edits for the current app session. Durable state keeps the latest committed
 appearance plus a last-known-good backup; it does not present a persistent theme-history system.
@@ -45,45 +45,45 @@ for finishing that mechanical role assignment without pretending the alias censu
 Banner gradients and user images remain advisory visual cases because their contrast depends on
 position or arbitrary pixels. The UI labels that limitation instead of claiming they are certified.
 
-## Persistence and migration
+## Persistence and clean break
 
-`SpaceAppearanceStore` owns version-2 `appearance.json` beneath Workspace's platform application-data
+`SpaceAppearanceStore` owns version-2 `appearance.json` beneath work-fold's platform application-data
 root. Writes use a same-directory temporary file, restrictive file mode, file sync, atomic replacement
 where the platform supports it, and a last-known-good backup for recovery. Unsupported future versions
 fail closed rather than being rewritten. The renderer reads the snapshot from `/api/bootstrap` and
 writes through the token-authenticated local renderer API.
 
-The old `workspace.appearance.v1` local-storage value is a read-only migration source. The renderer
-imports it once into the service, and existing per-Space hex values remain schema-1 records until the
-person makes an explicit appearance edit. That edit upgrades the affected record to the typed schema.
+Legacy Workspace local-storage appearance values and profile records are not read or imported.
+work-fold begins with its own empty appearance store. Unsupported work-fold future versions fail
+closed and remain byte-for-byte untouched rather than being rewritten.
 
 ## Agent and harness workflow
 
 Codex, Claude Code, and any other shell-capable development harness use the same checked-in command:
 
 ```bash
-npm run --silent workspace:appearance -- create \
+npm run --silent work-fold:appearance -- create \
   --name "Client work" \
   --color "#0d74ce" \
   --secondary "#6550b9" \
   --icon briefcase \
   --banner aurora \
   --created-by codex \
-  --out client-work.workspace.json
+  --out client-work.work-fold.json
 
-npm run --silent workspace:appearance -- validate client-work.workspace.json --json
-npm run --silent workspace:appearance -- resolve client-work.workspace.json --json
+npm run --silent work-fold:appearance -- validate client-work.work-fold.json --json
+npm run --silent work-fold:appearance -- resolve client-work.work-fold.json --json
 ```
 
 Use `--created-by claude-code` from Claude Code. `--banner-image <path>` accepts PNG, JPEG, WebP, GIF,
 or BMP, resizes it within 1600×640, and stores a bounded WebP data URL. Run
-`npm run --silent workspace:appearance -- help` for all options.
+`npm run --silent work-fold:appearance -- help` for all options.
 
 The result is inert:
 
 ```json
 {
-  "kind": "workspace.space-appearance",
+  "kind": "work-fold.space-appearance",
   "version": 1,
   "name": "Client work",
   "customization": {
@@ -109,7 +109,7 @@ in [the management layer](management-layer.md).
 
 ## Verification
 
-The normal gates cover the shared contract, migration, store, renderer API, UI structure, and package:
+The normal gates cover the shared contract, clean-profile store, renderer API, UI structure, and package:
 
 ```bash
 npm run check

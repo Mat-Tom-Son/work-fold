@@ -34,7 +34,7 @@ import {
 } from "../../src/local/agent/pi-runtime-config.js";
 
 export interface PackagedPiRuntimeOptions {
-  /** Pi config, packages, models, and session root outside user workspaces. */
+  /** Pi config, packages, models, and session root outside registered Spaces. */
   agentDir: string;
   /** Optional Electron-safeStorage implementation; native auth.json is the fallback. */
   authStorageHost?: PiAuthStorageHost;
@@ -85,9 +85,9 @@ export class PackagedPiRuntimeProvider implements PiRuntimeProvider {
     };
   }
 
-  async health(workspaceRoot = process.cwd()): Promise<PackagedPiRuntimeHealth> {
+  async health(spaceRoot = process.cwd()): Promise<PackagedPiRuntimeHealth> {
     try {
-      const status = await this.getSetupStatus(workspaceRoot);
+      const status = await this.getSetupStatus(spaceRoot);
       return {
         ok: status.error === null,
         configured: status.configured,
@@ -104,72 +104,72 @@ export class PackagedPiRuntimeProvider implements PiRuntimeProvider {
     }
   }
 
-  getSetupStatus(workspaceRoot: string): Promise<PiSetupStatus> {
-    return getPiSetupStatus(workspaceRoot, this);
+  getSetupStatus(spaceRoot: string): Promise<PiSetupStatus> {
+    return getPiSetupStatus(spaceRoot, this);
   }
 
-  listModels(workspaceRoot: string): Promise<PiModelSummary[]> {
-    return listPiModels(workspaceRoot, this);
+  listModels(spaceRoot: string): Promise<PiModelSummary[]> {
+    return listPiModels(spaceRoot, this);
   }
 
   async saveApiKey(
-    workspaceRoot: string,
+    spaceRoot: string,
     provider: string,
     apiKey: string,
     env?: Record<string, string>,
   ): Promise<void> {
-    await savePiApiKey(workspaceRoot, provider, apiKey, { env, runtimeProvider: this });
+    await savePiApiKey(spaceRoot, provider, apiKey, { env, runtimeProvider: this });
   }
 
-  removeAuth(workspaceRoot: string, provider: string): Promise<void> {
-    return removePiProviderAuth(workspaceRoot, provider, this);
+  removeAuth(spaceRoot: string, provider: string): Promise<void> {
+    return removePiProviderAuth(spaceRoot, provider, this);
   }
 
-  loginOAuth(workspaceRoot: string, provider: string, hooks: PiOAuthHooks): Promise<void> {
-    return loginPiOAuth(workspaceRoot, provider, hooks, this);
+  loginOAuth(spaceRoot: string, provider: string, hooks: PiOAuthHooks): Promise<void> {
+    return loginPiOAuth(spaceRoot, provider, hooks, this);
   }
 
-  setDefaultModel(workspaceRoot: string, model: PiPreferredModel): Promise<void> {
-    return setPiDefaultModel(workspaceRoot, model, this);
+  setDefaultModel(spaceRoot: string, model: PiPreferredModel): Promise<void> {
+    return setPiDefaultModel(spaceRoot, model, this);
   }
 
-  setProjectTrust(workspaceRoot: string, decision: boolean | null): Promise<void> {
-    return setPiProjectTrust(workspaceRoot, decision, this);
+  setProjectTrust(spaceRoot: string, decision: boolean | null): Promise<void> {
+    return setPiProjectTrust(spaceRoot, decision, this);
   }
 
-  listPackages(workspaceRoot: string): Promise<PiConfiguredPackage[]> {
-    return listPiPackages(workspaceRoot, this);
+  listPackages(spaceRoot: string): Promise<PiConfiguredPackage[]> {
+    return listPiPackages(spaceRoot, this);
   }
 
   installPackage(
-    workspaceRoot: string,
+    spaceRoot: string,
     source: string,
     options: Omit<PiPackageMutationOptions, "runtimeProvider"> = {},
   ): Promise<void> {
-    return installPiPackage(workspaceRoot, source, { ...options, runtimeProvider: this });
+    return installPiPackage(spaceRoot, source, { ...options, runtimeProvider: this });
   }
 
   removePackage(
-    workspaceRoot: string,
+    spaceRoot: string,
     source: string,
     options: Omit<PiPackageMutationOptions, "runtimeProvider"> = {},
   ): Promise<boolean> {
-    return removePiPackage(workspaceRoot, source, { ...options, runtimeProvider: this });
+    return removePiPackage(spaceRoot, source, { ...options, runtimeProvider: this });
   }
 
   updatePackages(
-    workspaceRoot: string,
+    spaceRoot: string,
     source?: string,
     options: { onProgress?: (event: ProgressEvent) => void } = {},
   ): Promise<void> {
-    return updatePiPackages(workspaceRoot, source, { ...options, runtimeProvider: this });
+    return updatePiPackages(spaceRoot, source, { ...options, runtimeProvider: this });
   }
 
   importSkillBundle(
-    workspaceRoot: string,
+    spaceRoot: string,
     input: { fileName: string; bytes: Uint8Array; scope?: "user" | "project" },
   ): Promise<PiSkillBundleImportResult> {
-    return importPiSkillBundle(workspaceRoot, input, this);
+    return importPiSkillBundle(spaceRoot, input, this);
   }
 
   async flush(): Promise<void> {

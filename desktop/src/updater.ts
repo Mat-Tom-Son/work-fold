@@ -9,7 +9,7 @@ const defaultStartupDelayMs = 5_000;
 const defaultUpdateIntervalMs = 4 * 60 * 60 * 1_000;
 const defaultTransientRetryDelayMs = 60_000;
 
-export type WorkspaceUpdatePhase =
+export type DesktopUpdatePhase =
   | "unsupported"
   | "idle"
   | "checking"
@@ -20,9 +20,9 @@ export type WorkspaceUpdatePhase =
   | "installing"
   | "error";
 
-export interface WorkspaceUpdateStatus {
+export interface DesktopUpdateStatus {
   supported: boolean;
-  phase: WorkspaceUpdatePhase;
+  phase: DesktopUpdatePhase;
   currentVersion: string;
   availableVersion: string | null;
   progressPercent: number | null;
@@ -32,19 +32,19 @@ export interface WorkspaceUpdateStatus {
 }
 
 /** Kept as an alias for callers from the initial public release. */
-export type WorkspaceUpdateCheckResult = WorkspaceUpdateStatus;
+export type DesktopUpdateCheckResult = DesktopUpdateStatus;
 
-export interface WorkspaceUpdateInfoLike {
+export interface DesktopUpdateInfoLike {
   version: string;
 }
 
-export interface WorkspaceUpdateCheckResultLike {
+export interface DesktopUpdateCheckResultLike {
   isUpdateAvailable: boolean;
-  updateInfo: WorkspaceUpdateInfoLike;
+  updateInfo: DesktopUpdateInfoLike;
   downloadPromise?: Promise<unknown> | null;
 }
 
-export interface WorkspaceUpdaterAdapter {
+export interface DesktopUpdaterAdapter {
   autoDownload: boolean;
   autoInstallOnAppQuit: boolean;
   autoRunAppAfterInstall: boolean;
@@ -53,12 +53,12 @@ export interface WorkspaceUpdaterAdapter {
   installerPath?: string | null;
   on(event: string, listener: (...args: any[]) => void): unknown;
   off(event: string, listener: (...args: any[]) => void): unknown;
-  checkForUpdates(): Promise<WorkspaceUpdateCheckResultLike | null>;
+  checkForUpdates(): Promise<DesktopUpdateCheckResultLike | null>;
   downloadUpdate(): Promise<unknown>;
   quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean): void;
 }
 
-export interface WorkspaceUpdateMessage {
+export interface DesktopUpdateMessage {
   type: "info" | "error";
   title: string;
   message: string;
@@ -69,22 +69,22 @@ export interface WorkspaceUpdateMessage {
   noLink?: boolean;
 }
 
-export interface WorkspaceUpdaterHost {
+export interface DesktopUpdaterHost {
   isSupported(): boolean;
   platform(): NodeJS.Platform;
   currentVersion(): string;
   now(): string;
   installerExists(path: string): boolean;
-  showMessage(options: WorkspaceUpdateMessage): Promise<{ response: number }>;
+  showMessage(options: DesktopUpdateMessage): Promise<{ response: number }>;
   setProgress(value: number): void;
-  emitStatus(status: WorkspaceUpdateStatus): void;
+  emitStatus(status: DesktopUpdateStatus): void;
 }
 
-export interface WorkspaceUpdaterOptions {
+export interface DesktopUpdaterOptions {
   getWindow?: () => BrowserWindow | null;
   prepareToInstall: () => Promise<void>;
-  updater?: WorkspaceUpdaterAdapter;
-  host?: WorkspaceUpdaterHost;
+  updater?: DesktopUpdaterAdapter;
+  host?: DesktopUpdaterHost;
   automaticChecks?: boolean;
   timings?: Partial<{
     startupDelayMs: number;
@@ -119,28 +119,28 @@ export function hasDownloadedUpdatePayload(options: {
  * Mature installed-update lifecycle. The feed always comes from the packaged
  * app-update.yml; this class never overrides GitHub, signing, or publisher data.
  */
-export class WorkspaceUpdater {
-  private readonly updater: WorkspaceUpdaterAdapter;
-  private readonly host: WorkspaceUpdaterHost;
+export class DesktopUpdater {
+  private readonly updater: DesktopUpdaterAdapter;
+  private readonly host: DesktopUpdaterHost;
   private readonly prepareToInstall: () => Promise<void>;
   private readonly automaticChecks: boolean;
   private readonly startupDelayMs: number;
   private readonly updateIntervalMs: number;
   private readonly transientRetryDelayMs: number;
-  private status: WorkspaceUpdateStatus;
+  private status: DesktopUpdateStatus;
   private configured = false;
   private disposed = false;
   private backgroundCheckInFlight = false;
   private installAfterDownload = false;
   private installOnQuit = false;
   private downloadedUpdateReady = false;
-  private checkPromise: Promise<WorkspaceUpdateStatus> | null = null;
-  private installPromise: Promise<WorkspaceUpdateStatus> | null = null;
+  private checkPromise: Promise<DesktopUpdateStatus> | null = null;
+  private installPromise: Promise<DesktopUpdateStatus> | null = null;
   private retryTimer: NodeJS.Timeout | null = null;
   private intervalTimer: NodeJS.Timeout | null = null;
   private promptingForRestart = false;
 
-  constructor(options: WorkspaceUpdaterOptions) {
+  constructor(options: DesktopUpdaterOptions) {
     this.updater = options.updater ?? defaultUpdaterAdapter();
     this.host = options.host ?? defaultElectronHost(options.getWindow ?? (() => null));
     this.prepareToInstall = options.prepareToInstall;
@@ -194,7 +194,7 @@ export class WorkspaceUpdater {
     this.intervalTimer.unref();
   }
 
-  getStatus(): WorkspaceUpdateStatus {
+  getStatus(): DesktopUpdateStatus {
     return {
       ...this.status,
       supported: this.supported,
@@ -203,7 +203,7 @@ export class WorkspaceUpdater {
   }
 
   /** `interactive=false` is a silent background check with transient retry. */
-  check(interactive = true): Promise<WorkspaceUpdateStatus> {
+  check(interactive = true): Promise<DesktopUpdateStatus> {
     if (!this.supported || this.disposed) return Promise.resolve(this.getStatus());
     const current = this.getStatus();
     if (current.phase === "ready" || current.phase === "installing") return Promise.resolve(current);
@@ -217,7 +217,7 @@ export class WorkspaceUpdater {
     return this.checkPromise;
   }
 
-  async updateNow(): Promise<WorkspaceUpdateStatus> {
+  async updateNow(): Promise<DesktopUpdateStatus> {
     if (!this.supported || this.disposed) return this.getStatus();
     const current = this.getStatus();
     if (current.phase === "installing" || current.phase === "checking" || current.phase === "downloading") return current;
@@ -243,7 +243,7 @@ export class WorkspaceUpdater {
     }
   }
 
-  install(): Promise<WorkspaceUpdateStatus> {
+  install(): Promise<DesktopUpdateStatus> {
     return this.beginInstall({ forceRunAfter: true, runShutdown: true });
   }
 
@@ -251,7 +251,7 @@ export class WorkspaceUpdater {
     return this.supported && this.installOnQuit && this.status.phase === "ready";
   }
 
-  installDownloadedUpdateOnQuit(): Promise<WorkspaceUpdateStatus> {
+  installDownloadedUpdateOnQuit(): Promise<DesktopUpdateStatus> {
     if (!this.shouldInstallOnQuit()) return Promise.resolve(this.getStatus());
     return this.beginInstall({ forceRunAfter: false, runShutdown: false });
   }
@@ -273,7 +273,7 @@ export class WorkspaceUpdater {
     this.host.setProgress(-1);
   }
 
-  private async runCheck(background: boolean): Promise<WorkspaceUpdateStatus> {
+  private async runCheck(background: boolean): Promise<DesktopUpdateStatus> {
     this.backgroundCheckInFlight = background;
     try {
       this.setStatus({ phase: "checking", progressPercent: null, message: "Checking for updates...", error: null });
@@ -293,7 +293,7 @@ export class WorkspaceUpdater {
           availableVersion: result.updateInfo.version,
           progressPercent: null,
           checkedAt: this.host.now(),
-          message: `Workspace ${result.updateInfo.version} is available.`,
+          message: `work-fold ${result.updateInfo.version} is available.`,
           error: null,
         });
       }
@@ -302,7 +302,7 @@ export class WorkspaceUpdater {
         availableVersion: null,
         progressPercent: null,
         checkedAt: this.host.now(),
-        message: `Workspace ${this.host.currentVersion()} is up to date.`,
+        message: `work-fold ${this.host.currentVersion()} is up to date.`,
         error: null,
       });
     } catch (error) {
@@ -314,7 +314,7 @@ export class WorkspaceUpdater {
     }
   }
 
-  private beginInstall(options: { forceRunAfter: boolean; runShutdown: boolean }): Promise<WorkspaceUpdateStatus> {
+  private beginInstall(options: { forceRunAfter: boolean; runShutdown: boolean }): Promise<DesktopUpdateStatus> {
     if (!this.supported || this.disposed || this.status.phase !== "ready") return Promise.resolve(this.getStatus());
     if (this.installPromise) return this.installPromise;
 
@@ -356,7 +356,7 @@ export class WorkspaceUpdater {
     return this.installPromise;
   }
 
-  private restoreReadyAfterInstallFailure(message: string): WorkspaceUpdateStatus {
+  private restoreReadyAfterInstallFailure(message: string): DesktopUpdateStatus {
     this.installPromise = null;
     const installerPath = this.downloadedInstallerPath();
     if (hasDownloadedUpdatePayload({
@@ -398,8 +398,8 @@ export class WorkspaceUpdater {
     this.retryTimer.unref();
   }
 
-  private deferTransientCheck(message: string): WorkspaceUpdateStatus {
-    console.warn(`Workspace update check deferred until the network recovers: ${message}`);
+  private deferTransientCheck(message: string): DesktopUpdateStatus {
+    console.warn(`work-fold update check deferred until the network recovers: ${message}`);
     this.scheduleBackgroundCheck(this.transientRetryDelayMs);
     return this.setStatus({
       phase: "idle",
@@ -413,7 +413,7 @@ export class WorkspaceUpdater {
     this.setStatus({ phase: "checking", progressPercent: null, message: "Checking for updates...", error: null });
   };
 
-  private readonly onUpdateAvailable = (info: WorkspaceUpdateInfoLike): void => {
+  private readonly onUpdateAvailable = (info: DesktopUpdateInfoLike): void => {
     this.installOnQuit = false;
     this.downloadedUpdateReady = false;
     this.setStatus({
@@ -421,12 +421,12 @@ export class WorkspaceUpdater {
       availableVersion: info.version,
       progressPercent: null,
       checkedAt: this.host.now(),
-      message: `Workspace ${info.version} is available.`,
+      message: `work-fold ${info.version} is available.`,
       error: null,
     });
   };
 
-  private readonly onUpdateNotAvailable = (info: WorkspaceUpdateInfoLike): void => {
+  private readonly onUpdateNotAvailable = (info: DesktopUpdateInfoLike): void => {
     this.installOnQuit = false;
     this.downloadedUpdateReady = false;
     this.setStatus({
@@ -434,7 +434,7 @@ export class WorkspaceUpdater {
       availableVersion: null,
       progressPercent: null,
       checkedAt: this.host.now(),
-      message: `Workspace ${info.version || this.host.currentVersion()} is up to date.`,
+      message: `work-fold ${info.version || this.host.currentVersion()} is up to date.`,
       error: null,
     });
   };
@@ -448,14 +448,14 @@ export class WorkspaceUpdater {
     });
   };
 
-  private readonly onUpdateDownloaded = (info: WorkspaceUpdateInfoLike): void => {
+  private readonly onUpdateDownloaded = (info: DesktopUpdateInfoLike): void => {
     this.installOnQuit = true;
     this.downloadedUpdateReady = true;
     this.setStatus({
       phase: "ready",
       availableVersion: info.version,
       progressPercent: 100,
-      message: `Workspace ${info.version} is ready to install.`,
+      message: `work-fold ${info.version} is ready to install.`,
       error: null,
     });
     if (this.installAfterDownload) {
@@ -475,7 +475,7 @@ export class WorkspaceUpdater {
 
   private readonly onError = (error: Error): void => {
     const message = errorMessage(error);
-    console.warn(`Workspace updater error: ${message}`);
+    console.warn(`work-fold updater error: ${message}`);
     if (this.status.phase === "installing" || this.installPromise) {
       this.restoreReadyAfterInstallFailure(message);
       return;
@@ -498,9 +498,9 @@ export class WorkspaceUpdater {
     try {
       const result = await this.host.showMessage({
         type: "info",
-        title: "Workspace update ready",
-        message: `Workspace ${version} is ready to install.`,
-        detail: "Restart Workspace to finish updating. If you choose Later, the update will install when you quit the app.",
+        title: "work-fold update ready",
+        message: `work-fold ${version} is ready to install.`,
+        detail: "Restart work-fold to finish updating. If you choose Later, the update will install when you quit the app.",
         buttons: ["Restart now", "Later"],
         defaultId: 0,
         cancelId: 1,
@@ -515,7 +515,7 @@ export class WorkspaceUpdater {
         phase: "ready",
         availableVersion: version,
         progressPercent: 100,
-        message: `Workspace ${version} will install when you quit.`,
+        message: `work-fold ${version} will install when you quit.`,
         error: null,
       });
     } finally {
@@ -523,7 +523,7 @@ export class WorkspaceUpdater {
     }
   }
 
-  private setStatus(patch: Partial<WorkspaceUpdateStatus>): WorkspaceUpdateStatus {
+  private setStatus(patch: Partial<DesktopUpdateStatus>): DesktopUpdateStatus {
     this.status = {
       ...this.status,
       ...patch,
@@ -558,12 +558,12 @@ export function isTransientNetworkUpdateError(message: string): boolean {
   ].some((needle) => normalized.includes(needle));
 }
 
-function defaultUpdaterAdapter(): WorkspaceUpdaterAdapter {
-  const updaterModule = require("electron-updater") as { autoUpdater: WorkspaceUpdaterAdapter };
+function defaultUpdaterAdapter(): DesktopUpdaterAdapter {
+  const updaterModule = require("electron-updater") as { autoUpdater: DesktopUpdaterAdapter };
   return updaterModule.autoUpdater;
 }
 
-function defaultElectronHost(getWindow: () => BrowserWindow | null): WorkspaceUpdaterHost {
+function defaultElectronHost(getWindow: () => BrowserWindow | null): DesktopUpdaterHost {
   const electron = require("electron") as typeof import("electron");
   return {
     isSupported: () => hasPackagedDesktopUpdateFeed({
@@ -589,7 +589,7 @@ function defaultElectronHost(getWindow: () => BrowserWindow | null): WorkspaceUp
     emitStatus: (status) => {
       const window = getWindow();
       if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) {
-        window.webContents.send("workspace:updates:status-changed", status);
+        window.webContents.send("work-fold:updates:status-changed", status);
       }
     },
   };

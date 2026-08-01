@@ -9,11 +9,11 @@
 > not claim that cloud publication, a hosted product, or every candidate wire
 > record is shipped.
 
-Workspace is both a local studio and a runtime surface. A person and the
+work-fold is both a local studio and a runtime surface. A person and the
 Assistant work in an ordinary folder-backed Space, may explicitly declare an App
 Project there, and may build reviewed Features that contribute pages, actions,
 data, connections, and named automations. Publication closes selected reviewed
-material into an immutable App Release. Workspace 0.4 ships that lifecycle
+material into an immutable App Release. The current local product ships that lifecycle
 locally: prepare, separately publish, install in a chosen Space, update or roll
 back, and uninstall with an explicit data choice. It does not ship upload,
 hosted deployment, sync, accounts, discovery, or an App Store.
@@ -80,7 +80,7 @@ The complete definitions and journey tests live in
 
 1. **Ordinary folders remain the source of truth.** Declaring an App Project
    does not convert, move, upload, or make a Space proprietary. A local App
-   Instance does not need to own or live inside a project folder. In 0.4 the
+   Instance does not need to own or live inside a project folder. The
    Project identity and presentation are machine-local application state; no
    portable App Project file is introduced.
 2. **Project and runtime ownership are separate.** `projectId` is the local App
@@ -126,7 +126,7 @@ The complete definitions and journey tests live in
     partitions.
 11. **Publish is not sync.** Publication, project collaboration, instance-data
     replication, secrets, operational control, and Chat sharing are separate
-    protocols. Workspace-owned streams exclude `.pi/`, Chats, raw portable
+    protocols. work-fold-owned streams exclude `.pi/`, Chats, raw portable
     identity, Library storage, History internals, credentials, and machine
     state. Third-party folder tools may still copy ordinary hidden content under
     their own settings.
@@ -143,28 +143,33 @@ The complete definitions and journey tests live in
     cannot publish, install, approve bytes, grant a power, save a connection,
     enable a job, assign a role, migrate data, or deploy an instance. The current
     same-user CLI protocol remains read-only.
+15. **Legacy product state is outside the platform.** work-fold does not import,
+    migrate, parse, mutate, or delete the legacy Workspace profile, portable
+    metadata, registries, app storage, connections, receipts, or artifacts.
+    Those records remain preserved and inert; all work-fold platform authority
+    begins in the new profile and exact work-fold formats.
 
 The detailed publication/data rules and candidate records live in
 [App platform publication and data contracts](app-platform-publication-data.md).
 The portable broker semantics live in
 [App platform runtime contract](app-platform-runtime-contract.md).
 
-## Shipped local 0.4 boundary
+## Current local boundary
 
 The desktop implements the first complete local Project-to-Instance journey:
 
 1. One registered source Space owns one machine-local App Project and its
    Development Instance. App Studio explicitly records the App title,
    description, and icon; the first direct preview can seed those values from
-   its Feature declaration for migration and compatibility.
+   its Feature declaration during project initialization.
 2. The existing Chat-bound proposal/install and advanced local-install paths
    create reviewed **Local previews**. They remain source-Space-bound,
    release-less Development Features and never convert in place.
 3. **Prepare Release** snapshots every current reviewed preview into a verified
-   `workspace-app-release` format-version-2 envelope. Presentation, exact
+   `work-fold.app-release` format-version-2 envelope. Presentation, exact
    Feature artifacts and declarations, dependency inventory, build provenance,
    and inspection evidence are digest-covered and stored durably by
-   `releaseDigest` in Workspace application data. The local store enforces a
+   `releaseDigest` in work-fold application data. The local store enforces a
    four-GiB aggregate byte quota before accepting a new object; an idempotent
    write of an already verified digest remains safe when the quota is full.
 4. A prepared Release is not installable. **Publish** is a separate local
@@ -194,7 +199,7 @@ exists for a `(projectId, target Space)` pair, and no target Space may already
 contain a Development preview or installed Feature with the same `featureId`.
 The App Instance is attached to the target Space for navigation and file-grant
 eligibility, while its Release bytes, mutable data, grants, connections,
-schedules, operation journals, and receipts stay in Workspace application data.
+schedules, operation journals, and receipts stay in work-fold application data.
 Removing either the Project's source Space or an active Instance's target Space
 is blocked until the release-backed Instance is uninstalled. Retaining data
 keeps the source registered until that data is explicitly purged; it does not
@@ -204,7 +209,7 @@ Instance, and Release lineage, then safely reconciles unreferenced Release-store
 objects. A transient reconciliation failure is retried before later App
 mutations and at startup. Startup still fails closed when a referenced object or
 security invariant cannot be validated, but a validated orphan that is merely
-locked remains inert and pending without preventing Workspace from opening.
+locked remains inert and pending without preventing work-fold from opening.
 Removing a target cancels prepared operations aimed at that Space.
 
 App Studio may also explicitly delete an individual prepared or published
@@ -271,7 +276,7 @@ jobs.
 The local milestone above is exposed through Assistant tools and the Space-bound
 App Studio tab. It includes language-neutral declaration and artifact vectors
 checked by two code-independent executables, strict opaque identities and
-seven-domain authority, registry migration to
+seven-domain authority, an explicit registry of
 Project/Development-Instance/installation/data records, effect-time host
 fencing, restart-retried cleanup, authority-captured receipts, a durable
 immutable Release assembler/verifier/store, and deterministic local App
@@ -282,8 +287,8 @@ Release and durable plan before making authority live.
 This boundary is local only. Project presentation is machine-local, Releases
 are stored on this device, “published” means eligible for local installation,
 and the installed App Instance is attached to one registered Space. There is no
-Workspace account, upload, cloud registry, hosted runtime, public listing, App
-Store, folder sync, or cross-device App synchronization in 0.4.
+work-fold account, upload, cloud registry, hosted runtime, public listing, App
+Store, folder sync, or cross-device App synchronization in the current local milestone.
 
 The private hosted journey is implemented as an executable semantic core with
 injected durable compare-and-swap state, scheduler/lease, vault, and egress
@@ -292,7 +297,7 @@ review and publication, deployment, default-off grants, an exact instance-owned
 connection, a named job and receipt, compatible update, effect-time revocation,
 role/principal/instance data, export, delete, purge, restart, and cleanup
 recovery using Connected inbox and community-garden fixtures. It is not a
-deployed Workspace service. Production database, scheduler worker, secret
+deployed work-fold service. Production database, scheduler worker, secret
 vault, egress, authenticated transport, deployment, operations, and UI adapters
 remain future work; this first slice also rejects Feature-set, schema, or data
 policy migrations instead of pretending to support them.
@@ -316,7 +321,7 @@ for the demonstrated invariants and honest limits.
 Their acceptance criteria gate the product scope that depends on them; they are
 not a claim that every future-hosting criterion shipped in the local foundation
 release. The local milestone requires canonical digest conformance, explicit
-identity migration, effect-time stale-authority tests, offline Release and
+identity modeling, effect-time stale-authority tests, offline Release and
 migration planning, restart-safe cleanup, bounded receipts, the Connected inbox
 and community-garden subsets, and the disposable lease/clock/offline-expiry
 evidence. A production hosted product additionally requires the still-open
@@ -328,7 +333,7 @@ criteria.
 
 ## Compatibility posture
 
-Workspace remains an early App-platform product and the checked-in example is
+work-fold remains an early App-platform product and the checked-in example is
 the only first-party Space app, so preserving an accidental internal schema is
 not a product goal. We may replace registry and manifest internals when that
 materially improves the model. We still require explicit migration and

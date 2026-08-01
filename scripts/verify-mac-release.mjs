@@ -9,25 +9,26 @@ import { promisify } from "node:util";
 const run = promisify(execFile);
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const packageJson = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf8"));
+const identity = JSON.parse(readFileSync(join(rootDir, "src", "shared", "product-identity.json"), "utf8"));
 const version = packageJson.version;
-const arch = process.env.WORKSPACE_DESKTOP_RELEASE_ARCH?.trim() || (process.arch === "x64" ? "x64" : "arm64");
-const releaseBuild = process.env.WORKSPACE_MAC_RELEASE_BUILD === "1";
-const unsignedSmokeBuild = process.env.WORKSPACE_ALLOW_UNSIGNED_MAC_BUILD === "1";
+const arch = process.env.WORKFOLD_DESKTOP_RELEASE_ARCH?.trim() || (process.arch === "x64" ? "x64" : "arm64");
+const releaseBuild = process.env.WORKFOLD_MAC_RELEASE_BUILD === "1";
+const unsignedSmokeBuild = process.env.WORKFOLD_ALLOW_UNSIGNED_MAC_BUILD === "1";
 const builderDir = join(rootDir, "out", "builder");
-const expectedProductName = unsignedSmokeBuild ? "Workspace Local Smoke" : "Workspace";
-const appBundleName = unsignedSmokeBuild ? "Workspace Local Smoke.app" : "Workspace.app";
-const executableName = unsignedSmokeBuild ? "Workspace Local Smoke" : "Workspace";
-const expectedBundleId = unsignedSmokeBuild ? "io.github.mattomson.workspace.local-smoke" : "io.github.mattomson.workspace";
+const expectedProductName = unsignedSmokeBuild ? identity.macSmokeProductName : identity.productName;
+const appBundleName = `${expectedProductName}.app`;
+const executableName = expectedProductName;
+const expectedBundleId = unsignedSmokeBuild ? identity.macSmokeAppId : identity.productionAppId;
 const appPath = join(builderDir, `mac-${arch}`, appBundleName);
 const resourcesPath = join(appPath, "Contents", "Resources");
-const artifactStem = `Workspace-${version}-mac-${arch}`;
+const artifactStem = `${identity.productName}-${version}-mac-${arch}`;
 const dmgPath = join(builderDir, `${artifactStem}.dmg`);
 const zipPath = join(builderDir, `${artifactStem}.zip`);
 const updatePath = join(builderDir, "latest-mac.yml");
-const manifestPath = join(builderDir, "Workspace-mac-release-manifest.json");
-const textManifestPath = join(builderDir, "Workspace-mac-release-manifest.txt");
-const expectedFeedOwner = process.env.WORKSPACE_MAC_RELEASE_OWNER?.trim() || "Mat-Tom-Son";
-const expectedFeedRepo = process.env.WORKSPACE_MAC_RELEASE_REPO?.trim() || "workspace-mac-releases";
+const manifestPath = join(builderDir, `${identity.productName}-mac-release-manifest.json`);
+const textManifestPath = join(builderDir, `${identity.productName}-mac-release-manifest.txt`);
+const expectedFeedOwner = process.env.WORKFOLD_MAC_RELEASE_OWNER?.trim() || identity.sourceRepositoryOwner;
+const expectedFeedRepo = process.env.WORKFOLD_MAC_RELEASE_REPO?.trim() || identity.macReleaseRepositoryName;
 const failures = [];
 
 for (const [path, label] of [
@@ -51,7 +52,7 @@ if (existsSync(manifestPath)) verifyReleaseManifest();
 if (existsSync(dmgPath)) await verifyDmg();
 
 if (failures.length) {
-  console.error("Workspace macOS release verification failed:\n");
+  console.error(`${identity.productName} macOS release verification failed:\n`);
   for (const failure of failures) console.error(`- ${failure}`);
   process.exit(1);
 }
@@ -61,7 +62,7 @@ const checksumText = checksumPaths
   .map((path) => `${digest(path, "sha256", "hex")}  ${path.slice(builderDir.length + 1)}`)
   .join("\n");
 await writeFile(join(builderDir, "SHA256SUMS-mac.txt"), `${checksumText}\n`, "utf8");
-console.log(`Verified Workspace ${version} macOS ${arch} artifacts in ${builderDir}.`);
+console.log(`Verified ${identity.productName} ${version} macOS ${arch} artifacts in ${builderDir}.`);
 
 async function verifyApplication() {
   try {
@@ -122,7 +123,7 @@ function verifyEmbeddedUpdateFeed() {
   expectYamlScalar(feed, "owner", expectedFeedOwner, "embedded updater owner");
   expectYamlScalar(feed, "repo", expectedFeedRepo, "embedded updater repository");
   expectYamlScalar(feed, "releaseType", "release", "embedded updater channel");
-  expectYamlScalar(feed, "updaterCacheDirName", "workspace-desktop-updater", "embedded updater cache directory");
+  expectYamlScalar(feed, "updaterCacheDirName", identity.updaterCacheDirectoryName, "embedded updater cache directory");
 }
 
 function verifyReleaseManifest() {
@@ -147,7 +148,7 @@ function verifyReleaseManifest() {
       if (artifact.bytes !== bytes.length || artifact.sha256 !== sha256) failures.push(`Release manifest metadata does not match ${name}.`);
     }
   } catch (error) {
-    failures.push(`Could not verify the Workspace release manifest: ${errorMessage(error)}.`);
+    failures.push(`Could not verify the ${identity.productName} release manifest: ${errorMessage(error)}.`);
   }
 }
 

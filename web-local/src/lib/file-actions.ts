@@ -1,5 +1,5 @@
 import type React from "react";
-import { workspacePathDragType } from "../constants";
+import { spacePathDragType } from "../constants";
 import { desktopPlatform, type DesktopPlatform } from "./platform";
 import { fileExtension } from "./tree";
 import type { ChangeEntry, TreeEntry } from "../types";
@@ -49,22 +49,22 @@ function hasNativeFiles(event: React.DragEvent<HTMLElement>): boolean {
   return Array.from(event.dataTransfer.types).includes("Files");
 }
 
-function hasWorkspacePathDrag(event: React.DragEvent<HTMLElement>): boolean {
-  return Array.from(event.dataTransfer.types).includes(workspacePathDragType);
+function hasSpacePathDrag(event: React.DragEvent<HTMLElement>): boolean {
+  return Array.from(event.dataTransfer.types).includes(spacePathDragType);
 }
 
 function changeStatusText(change: ChangeEntry): string {
   if (change.kind === "created") return "New local file";
   if (change.kind === "modified") return "Modified locally";
-  if (change.kind === "remote_deleted") return "Deleted outside Workspace. Restore it from History or remove the local record.";
+  if (change.kind === "remote_deleted") return "Deleted outside work-fold. Restore it from History or remove the local record.";
   return "Deleted locally. You can restore it from History while a restore point is available.";
 }
 
 function treeChangeLabel(change: ChangeEntry): string {
   if (change.kind === "created") return "New local";
   if (change.kind === "modified") return "Edited local";
-  if (change.kind === "remote_deleted") return "Deleted outside Workspace";
+  if (change.kind === "remote_deleted") return "Deleted outside work-fold";
   return "Deleted local";
 }
 
-export { canOpenDirectly, changeStatusText, hasNativeFiles, hasWorkspacePathDrag, nativeOpenLabel, revealInFileManagerLabel, treeChangeLabel };
+export { canOpenDirectly, changeStatusText, hasNativeFiles, hasSpacePathDrag, nativeOpenLabel, revealInFileManagerLabel, treeChangeLabel };

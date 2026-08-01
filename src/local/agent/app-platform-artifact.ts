@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export const appPlatformArtifactFormat = "workspace-artifact-v1" as const;
+export const appPlatformArtifactFormat = "work-fold.artifact.v1" as const;
 export const appPlatformArtifactHashAlgorithm = "sha256" as const;
 
 export const appPlatformArtifactDefaultLimits = {
@@ -25,13 +25,13 @@ export interface AppPlatformArtifactLimits {
 export type AppPlatformArtifactDigest =
   `${typeof appPlatformArtifactFormat}:${typeof appPlatformArtifactHashAlgorithm}:${string}`;
 
-const artifactDigestPattern = /^workspace-artifact-v1:sha256:[0-9a-f]{64}$/;
+const artifactDigestPattern = /^work-fold.artifact.v1:sha256:[0-9a-f]{64}$/;
 
 export function parseAppPlatformArtifactDigest(value: unknown): AppPlatformArtifactDigest {
   if (typeof value !== "string" || !artifactDigestPattern.test(value)) {
     throw new AppPlatformArtifactError(
       "ARTIFACT_INVALID",
-      "Artifact digest must use workspace-artifact-v1 with a lowercase SHA-256 value.",
+      "Artifact digest must use work-fold.artifact.v1 with a lowercase SHA-256 value.",
     );
   }
   return value as AppPlatformArtifactDigest;
@@ -54,7 +54,7 @@ export class AppPlatformArtifactError extends Error {
 }
 
 const encoder = new TextEncoder();
-const artifactMagic = encoder.encode("workspace-artifact");
+const artifactMagic = encoder.encode("work-fold.artifact");
 const artifactVersion = 1;
 const maximumUint32 = 0xffff_ffff;
 
@@ -72,11 +72,11 @@ interface NormalizedLimits {
 }
 
 /**
- * Hash a complete logical artifact using the workspace-artifact-v1 framing.
+ * Hash a complete logical artifact using the work-fold.artifact.v1 framing.
  *
  * The SHA-256 preimage is exactly:
  *
- *   18 bytes  ASCII "workspace-artifact" magic
+ *   18 bytes  ASCII "work-fold.artifact" magic
  *    4 bytes  unsigned big-endian format version (1)
  *    4 bytes  unsigned big-endian file count
  *   repeated for each file in bytewise UTF-8 path order:

@@ -15,13 +15,13 @@ const {
   librarySurfaceTab,
   migrateLegacyLibrarySurfaceTabState,
   normalizeStoredSurfaceTabsValue,
-  recordActiveSurfaceTabWorkspaceRecency,
+  recordActiveSurfaceTabSpaceRecency,
   readStoredSurfaceTabsState,
-  restoreStoredSurfaceTabsForWorkspaces,
+  restoreStoredSurfaceTabsForSpaces,
   retargetFileSurfaceTabs,
   restrictedAppSurfaceTabId,
-  surfaceTabActivationForWorkspace,
-  surfaceTabWorkspaceSwitchTarget,
+  surfaceTabActivationForSpace,
+  surfaceTabSpaceSwitchTarget,
   upsertSurfaceTab,
 } = await import(surfaceTabsModuleUrl) as SurfaceTabsExports;
 
@@ -37,7 +37,7 @@ interface SpaceSummary {
 interface SurfaceTab {
   id: string;
   kind: "chat" | "file" | "history" | "library" | "appearance" | "app-studio" | "assistant-tools" | "checks" | "extension" | "restricted-app";
-  workspaceId: string;
+  spaceId: string;
   conversationId?: string | null;
   path?: string;
   checkpointId?: string;
@@ -58,11 +58,11 @@ interface SurfaceTabsExports {
   assistantToolsSurfaceTab: (space: SpaceSummary, view?: "installed" | "discover") => SurfaceTab;
   appStudioSurfaceTab: (space: SpaceSummary) => SurfaceTab;
   checksSurfaceTab: (space: SpaceSummary) => SurfaceTab;
-  closeFileSurfaceTabs: (tabs: SurfaceTab[], workspaceId: string, deletedPaths: Set<string>) => SurfaceTab[];
+  closeFileSurfaceTabs: (tabs: SurfaceTab[], spaceId: string, deletedPaths: Set<string>) => SurfaceTab[];
   closeUnavailableRestrictedAppSurfaceTabs: (
     tabs: SurfaceTab[],
-    appsByWorkspace: Record<string, Array<{ manifest: { id: string }; digest: string }>>,
-    knownWorkspaceIds: ReadonlySet<string>,
+    appsBySpace: Record<string, Array<{ manifest: { id: string }; digest: string }>>,
+    knownSpaceIds: ReadonlySet<string>,
   ) => SurfaceTab[];
   fileSurfaceTab: (space: SpaceSummary, path: string) => SurfaceTab;
   librarySurfaceTab: (space: SpaceSummary) => SurfaceTab;
@@ -72,25 +72,25 @@ interface SurfaceTabsExports {
     shouldMigrate: boolean,
   ) => { tabs: SurfaceTab[]; activeTabId: string | null };
   normalizeStoredSurfaceTabsValue: (parsed: unknown) => { tabs: SurfaceTab[]; activeTabId: string | null };
-  recordActiveSurfaceTabWorkspaceRecency: (recent: Map<string, string>, tabs: SurfaceTab[], activeTabId: string | null) => void;
+  recordActiveSurfaceTabSpaceRecency: (recent: Map<string, string>, tabs: SurfaceTab[], activeTabId: string | null) => void;
   readStoredSurfaceTabsState: (space: SpaceSummary, spaces: SpaceSummary[]) => { tabs: SurfaceTab[]; activeTabId: string | null };
-  restoreStoredSurfaceTabsForWorkspaces: (
+  restoreStoredSurfaceTabsForSpaces: (
     state: { tabs: SurfaceTab[]; activeTabId: string | null },
     spaces: SpaceSummary[],
   ) => { tabs: SurfaceTab[]; activeTabId: string | null };
-  retargetFileSurfaceTabs: (tabs: SurfaceTab[], workspaceId: string, sourcePath: string, movedPath: string) => SurfaceTab[];
-  restrictedAppSurfaceTabId: (workspaceId: string, appId: string, digest: string, appTabId: string) => string;
-  surfaceTabActivationForWorkspace: (input: {
+  retargetFileSurfaceTabs: (tabs: SurfaceTab[], spaceId: string, sourcePath: string, movedPath: string) => SurfaceTab[];
+  restrictedAppSurfaceTabId: (spaceId: string, appId: string, digest: string, appTabId: string) => string;
+  surfaceTabActivationForSpace: (input: {
     activeTabId: string | null;
-    recentTabIdsByWorkspace: Map<string, string>;
+    recentTabIdsBySpace: Map<string, string>;
     tabs: SurfaceTab[];
-    workspace: SpaceSummary;
+    space: SpaceSummary;
   }) => { tabId: string; tabToAdd?: SurfaceTab } | null;
-  surfaceTabWorkspaceSwitchTarget: (input: {
+  surfaceTabSpaceSwitchTarget: (input: {
     activeTabId: string | null;
-    activeWorkspaceId: string;
+    activeSpaceId: string;
     tabs: SurfaceTab[];
-    workspaces: SpaceSummary[];
+    spaces: SpaceSummary[];
   }) => SpaceSummary | null;
   upsertSurfaceTab: (tabs: SurfaceTab[], tab: SurfaceTab) => SurfaceTab[];
 }
@@ -120,7 +120,7 @@ test("file tabs upsert as one retargeting tab per Space", () => {
   assert.deepEqual(tabs[0], {
     id: "file:space-1",
     kind: "file",
-    workspaceId: "space-1",
+    spaceId: "space-1",
     path: "Notes/Final.md",
     title: "Final.md",
   });
@@ -129,7 +129,7 @@ test("file tabs upsert as one retargeting tab per Space", () => {
 test("file tabs follow moved paths and close when their file is deleted", () => {
   const tabs: SurfaceTab[] = [
     fileSurfaceTab(space, "Notes/Draft.md"),
-    { id: "chat:space-1:new", kind: "chat", workspaceId: "space-1", conversationId: null, title: "New chat" },
+    { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New chat" },
   ];
   const moved = retargetFileSurfaceTabs(tabs, space.id, "Notes", "Archive/Notes");
 
@@ -145,7 +145,7 @@ test("Checks use one canonical Space-owned work tab", () => {
   assert.deepEqual(checksSurfaceTab(space), {
     id: "checks:space-1",
     kind: "checks",
-    workspaceId: "space-1",
+    spaceId: "space-1",
     title: "Checks",
   });
 });
@@ -153,7 +153,7 @@ test("Checks use one canonical Space-owned work tab", () => {
 test("tab restore falls back cleanly when persisted JSON is corrupt", () => {
   withStoredTabs("{not valid json", () => {
     assert.deepEqual(readStoredSurfaceTabsState(space, [space]), {
-      tabs: [{ id: "chat:space-1:new", kind: "chat", workspaceId: "space-1", conversationId: null, title: "New chat" }],
+      tabs: [{ id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New chat" }],
       activeTabId: "chat:space-1:new",
     });
   });
@@ -162,47 +162,47 @@ test("tab restore falls back cleanly when persisted JSON is corrupt", () => {
 test("tab restore accepts only known, well-formed surface types", () => {
   assert.deepEqual(normalizeStoredSurfaceTabsValue({
     tabs: [
-      { id: "chat:space-1:new", kind: "chat", workspaceId: "space-1", conversationId: null, title: "New chat", extra: true },
-      { id: "mystery:space-1", kind: "mystery", workspaceId: "space-1", title: "Mystery" },
-      { id: 4, kind: "file", workspaceId: "space-1", path: "Notes.md", title: "Notes.md" },
-      { id: "file:space-1", kind: "file", workspaceId: "space-1", path: "Notes.md", title: "Notes.md", ignored: "yes" },
-      { id: "history:space-1", kind: "history", workspaceId: "space-1", title: "History" },
-      { id: "spoofed-library", kind: "library", workspaceId: "space-1", title: "Renamed Library" },
-      { id: "spoofed-studio", kind: "app-studio", workspaceId: "space-1", title: "Renamed Studio" },
-      { id: "spoofed-tools", kind: "assistant-tools", workspaceId: "space-1", view: "discover", title: "Renamed Tools" },
-      { id: "broken-tools", kind: "assistant-tools", workspaceId: "space-1", view: "packages", title: "Broken Tools" },
-      { id: "spoofed-checks", kind: "checks", workspaceId: "space-1", title: "All files are healthy" },
-      { id: "extension:space-1:inbox:overview", kind: "extension", workspaceId: "space-1", surfaceId: "inbox", viewId: "overview", title: "Overview", ignored: true },
-      { id: "restricted:bad", kind: "restricted-app", workspaceId: "space-1", appId: "mail", digest: "bad", appTabId: "message:release", route: "/message/release", title: "Bad app tab" },
-      { id: "app-controlled-spoof", kind: "restricted-app", workspaceId: "space-1", appId: "mail", digest: "a".repeat(64), appTabId: "message:release", route: "/message/release", state: { selected: true }, title: "Release checklist" },
-      { id: "extension:space-1:broken", kind: "extension", workspaceId: "space-1", surfaceId: "inbox", title: "Broken" },
+      { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New chat", extra: true },
+      { id: "mystery:space-1", kind: "mystery", spaceId: "space-1", title: "Mystery" },
+      { id: 4, kind: "file", spaceId: "space-1", path: "Notes.md", title: "Notes.md" },
+      { id: "file:space-1", kind: "file", spaceId: "space-1", path: "Notes.md", title: "Notes.md", ignored: "yes" },
+      { id: "history:space-1", kind: "history", spaceId: "space-1", title: "History" },
+      { id: "spoofed-library", kind: "library", spaceId: "space-1", title: "Renamed Library" },
+      { id: "spoofed-studio", kind: "app-studio", spaceId: "space-1", title: "Renamed Studio" },
+      { id: "spoofed-tools", kind: "assistant-tools", spaceId: "space-1", view: "discover", title: "Renamed Tools" },
+      { id: "broken-tools", kind: "assistant-tools", spaceId: "space-1", view: "packages", title: "Broken Tools" },
+      { id: "spoofed-checks", kind: "checks", spaceId: "space-1", title: "All files are healthy" },
+      { id: "extension:space-1:inbox:overview", kind: "extension", spaceId: "space-1", surfaceId: "inbox", viewId: "overview", title: "Overview", ignored: true },
+      { id: "restricted:bad", kind: "restricted-app", spaceId: "space-1", appId: "mail", digest: "bad", appTabId: "message:release", route: "/message/release", title: "Bad app tab" },
+      { id: "app-controlled-spoof", kind: "restricted-app", spaceId: "space-1", appId: "mail", digest: "a".repeat(64), appTabId: "message:release", route: "/message/release", state: { selected: true }, title: "Release checklist" },
+      { id: "extension:space-1:broken", kind: "extension", spaceId: "space-1", surfaceId: "inbox", title: "Broken" },
     ],
     activeTabId: "file:space-1",
   }), {
     tabs: [
-      { id: "chat:space-1:new", kind: "chat", workspaceId: "space-1", conversationId: null, title: "New chat" },
-      { id: "file:space-1", kind: "file", workspaceId: "space-1", path: "Notes.md", title: "Notes.md" },
-      { id: "history:space-1", kind: "history", workspaceId: "space-1", checkpointId: undefined, title: "History" },
-      { id: "library:space-1", kind: "library", workspaceId: "space-1", title: "Library" },
-      { id: "app-studio:space-1", kind: "app-studio", workspaceId: "space-1", title: "Renamed Studio" },
-      { id: "assistant-tools:space-1", kind: "assistant-tools", workspaceId: "space-1", view: "discover", title: "Assistant tools" },
-      { id: "checks:space-1", kind: "checks", workspaceId: "space-1", title: "Checks" },
-      { id: "extension:space-1:inbox:overview", kind: "extension", workspaceId: "space-1", surfaceId: "inbox", surfaceExecution: "full-trust-pi", viewId: "overview", title: "Overview" },
-      { id: restrictedAppSurfaceTabId("space-1", "mail", "a".repeat(64), "message:release"), kind: "restricted-app", workspaceId: "space-1", appId: "mail", digest: "a".repeat(64), appTabId: "message:release", route: "/message/release", state: { selected: true }, title: "Release checklist" },
+      { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New chat" },
+      { id: "file:space-1", kind: "file", spaceId: "space-1", path: "Notes.md", title: "Notes.md" },
+      { id: "history:space-1", kind: "history", spaceId: "space-1", checkpointId: undefined, title: "History" },
+      { id: "library:space-1", kind: "library", spaceId: "space-1", title: "Library" },
+      { id: "app-studio:space-1", kind: "app-studio", spaceId: "space-1", title: "Renamed Studio" },
+      { id: "assistant-tools:space-1", kind: "assistant-tools", spaceId: "space-1", view: "discover", title: "Assistant tools" },
+      { id: "checks:space-1", kind: "checks", spaceId: "space-1", title: "Checks" },
+      { id: "extension:space-1:inbox:overview", kind: "extension", spaceId: "space-1", surfaceId: "inbox", surfaceExecution: "full-trust-pi", viewId: "overview", title: "Overview" },
+      { id: restrictedAppSurfaceTabId("space-1", "mail", "a".repeat(64), "message:release"), kind: "restricted-app", spaceId: "space-1", appId: "mail", digest: "a".repeat(64), appTabId: "message:release", route: "/message/release", state: { selected: true }, title: "Release checklist" },
     ],
     activeTabId: "file:space-1",
   });
 });
 
 test("restored tabs belonging to removed Spaces are discarded", () => {
-  assert.deepEqual(restoreStoredSurfaceTabsForWorkspaces({
+  assert.deepEqual(restoreStoredSurfaceTabsForSpaces({
     tabs: [
-      { id: "chat:space-1:new", kind: "chat", workspaceId: "space-1", conversationId: null, title: "New chat" },
-      { id: "appearance:space-2", kind: "appearance", workspaceId: "space-2", title: "Customize Other Space" },
+      { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New chat" },
+      { id: "appearance:space-2", kind: "appearance", spaceId: "space-2", title: "Customize Other Space" },
     ],
     activeTabId: "appearance:space-2",
   }, [space]), {
-    tabs: [{ id: "chat:space-1:new", kind: "chat", workspaceId: "space-1", conversationId: null, title: "New chat" }],
+    tabs: [{ id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New chat" }],
     activeTabId: "chat:space-1:new",
   });
 });
@@ -211,11 +211,11 @@ test("restricted app tabs close when their installed revision changes", () => {
   const currentDigest = "a".repeat(64);
   const staleDigest = "b".repeat(64);
   const tabs: SurfaceTab[] = [
-    { id: "chat:space-1:new", kind: "chat", workspaceId: "space-1", conversationId: null, title: "New chat" },
+    { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New chat" },
     {
       id: restrictedAppSurfaceTabId("space-1", "trip-studio", staleDigest, "destination:lisbon"),
       kind: "restricted-app",
-      workspaceId: "space-1",
+      spaceId: "space-1",
       appId: "trip-studio",
       digest: staleDigest,
       appTabId: "destination:lisbon",
@@ -225,7 +225,7 @@ test("restricted app tabs close when their installed revision changes", () => {
     {
       id: restrictedAppSurfaceTabId("space-1", "trip-studio", currentDigest, "destination:copenhagen"),
       kind: "restricted-app",
-      workspaceId: "space-1",
+      spaceId: "space-1",
       appId: "trip-studio",
       digest: currentDigest,
       appTabId: "destination:copenhagen",
@@ -235,7 +235,7 @@ test("restricted app tabs close when their installed revision changes", () => {
     {
       id: restrictedAppSurfaceTabId("space-2", "unknown", staleDigest, "overview"),
       kind: "restricted-app",
-      workspaceId: "space-2",
+      spaceId: "space-2",
       appId: "unknown",
       digest: staleDigest,
       appTabId: "overview",
@@ -253,12 +253,12 @@ test("restricted app tabs close when their installed revision changes", () => {
 test("each Space remembers its most recently active tab", () => {
   const recent = new Map<string, string>([["space-1", "chat:space-1:old"]]);
   const tabs: SurfaceTab[] = [
-    { id: "chat:space-1:new", kind: "chat", workspaceId: "space-1", conversationId: null, title: "New chat" },
-    { id: "history:space-2", kind: "history", workspaceId: "space-2", title: "History" },
+    { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New chat" },
+    { id: "history:space-2", kind: "history", spaceId: "space-2", title: "History" },
   ];
 
-  recordActiveSurfaceTabWorkspaceRecency(recent, tabs, "history:space-2");
-  recordActiveSurfaceTabWorkspaceRecency(recent, tabs, "missing-tab");
+  recordActiveSurfaceTabSpaceRecency(recent, tabs, "history:space-2");
+  recordActiveSurfaceTabSpaceRecency(recent, tabs, "missing-tab");
 
   assert.equal(recent.get("space-1"), "chat:space-1:old");
   assert.equal(recent.get("space-2"), "history:space-2");
@@ -281,21 +281,21 @@ test("activating a draft conversation never steals focus from another surface", 
 
 test("activating a cross-Space tab switches to the tab's Space", () => {
   const tabs: SurfaceTab[] = [
-    { id: "chat:space-1:new", kind: "chat", workspaceId: "space-1", conversationId: null, title: "New chat" },
+    { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New chat" },
     appStudioSurfaceTab(otherSpace),
   ];
 
-  assert.equal(surfaceTabWorkspaceSwitchTarget({
+  assert.equal(surfaceTabSpaceSwitchTarget({
     activeTabId: "chat:space-1:new",
-    activeWorkspaceId: "space-1",
+    activeSpaceId: "space-1",
     tabs,
-    workspaces: [space, otherSpace],
+    spaces: [space, otherSpace],
   }), null);
-  assert.deepEqual(surfaceTabWorkspaceSwitchTarget({
+  assert.deepEqual(surfaceTabSpaceSwitchTarget({
     activeTabId: "app-studio:space-2",
-    activeWorkspaceId: "space-1",
+    activeSpaceId: "space-1",
     tabs,
-    workspaces: [space, otherSpace],
+    spaces: [space, otherSpace],
   }), otherSpace);
 });
 
@@ -306,7 +306,7 @@ test("App Studio uses one canonical persistent tab per Space", () => {
   assert.deepEqual(first, {
     id: "app-studio:space-1",
     kind: "app-studio",
-    workspaceId: "space-1",
+    spaceId: "space-1",
     title: "App Studio",
   });
   assert.deepEqual(upsertSurfaceTab(upsertSurfaceTab([], first), second), [second]);
@@ -319,7 +319,7 @@ test("Library uses one canonical persistent tab per Space", () => {
   assert.deepEqual(first, {
     id: "library:space-1",
     kind: "library",
-    workspaceId: "space-1",
+    spaceId: "space-1",
     title: "Library",
   });
   assert.deepEqual(upsertSurfaceTab(upsertSurfaceTab([], first), second), [second]);
@@ -345,7 +345,7 @@ test("Assistant tools uses one canonical persistent tab per Space and updates it
   assert.deepEqual(installed, {
     id: "assistant-tools:space-1",
     kind: "assistant-tools",
-    workspaceId: "space-1",
+    spaceId: "space-1",
     view: "installed",
     title: "Assistant tools",
   });
@@ -354,34 +354,34 @@ test("Assistant tools uses one canonical persistent tab per Space and updates it
 
 test("switching Spaces activates the recent tab, then draft, then creates a draft", () => {
   const tabs: SurfaceTab[] = [
-    { id: "chat:space-1:new", kind: "chat", workspaceId: "space-1", conversationId: null, title: "New chat" },
-    { id: "history:space-2", kind: "history", workspaceId: "space-2", title: "History" },
-    { id: "chat:space-2:new", kind: "chat", workspaceId: "space-2", conversationId: null, title: "New chat" },
+    { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New chat" },
+    { id: "history:space-2", kind: "history", spaceId: "space-2", title: "History" },
+    { id: "chat:space-2:new", kind: "chat", spaceId: "space-2", conversationId: null, title: "New chat" },
   ];
 
-  assert.deepEqual(surfaceTabActivationForWorkspace({
+  assert.deepEqual(surfaceTabActivationForSpace({
     activeTabId: "chat:space-1:new",
-    recentTabIdsByWorkspace: new Map([["space-2", "history:space-2"]]),
+    recentTabIdsBySpace: new Map([["space-2", "history:space-2"]]),
     tabs,
-    workspace: otherSpace,
+    space: otherSpace,
   }), { tabId: "history:space-2" });
 
-  assert.deepEqual(surfaceTabActivationForWorkspace({
+  assert.deepEqual(surfaceTabActivationForSpace({
     activeTabId: "chat:space-1:new",
-    recentTabIdsByWorkspace: new Map([["space-2", "missing-tab"]]),
+    recentTabIdsBySpace: new Map([["space-2", "missing-tab"]]),
     tabs,
-    workspace: otherSpace,
+    space: otherSpace,
   }), { tabId: "chat:space-2:new" });
 
   const thirdSpace = { ...space, id: "space-3", name: "Third Space", rootPath: "C:/Spaces/Third" };
-  assert.deepEqual(surfaceTabActivationForWorkspace({
+  assert.deepEqual(surfaceTabActivationForSpace({
     activeTabId: "chat:space-1:new",
-    recentTabIdsByWorkspace: new Map(),
+    recentTabIdsBySpace: new Map(),
     tabs,
-    workspace: thirdSpace,
+    space: thirdSpace,
   }), {
     tabId: "chat:space-3:new",
-    tabToAdd: { id: "chat:space-3:new", kind: "chat", workspaceId: "space-3", conversationId: null, title: "New chat" },
+    tabToAdd: { id: "chat:space-3:new", kind: "chat", spaceId: "space-3", conversationId: null, title: "New chat" },
   });
 });
 
@@ -391,7 +391,7 @@ function withStoredTabs(value: string, run: () => void): void {
     configurable: true,
     value: {
       localStorage: {
-        getItem: (key: string) => key === "workspace.surfaceTabs.v1" ? value : null,
+        getItem: (key: string) => key === "work-fold.space.surface-tabs.v1" ? value : null,
         removeItem: () => undefined,
         setItem: () => undefined,
       },

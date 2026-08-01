@@ -11,7 +11,7 @@
 > records labeled candidate remain design guidance until a versioned code format
 > and conformance fixture implements them. The declaration/artifact digest and
 > immutable Release-envelope subset now has versioned code plus independent
-> conformance, and Workspace 0.4 implements its local Project/Release/Instance
+> conformance, and the current work-fold build implements its local Project/Release/Instance
 > lifecycle; other candidate records remain guidance.
 
 This document defines the accepted semantic boundaries for App Project, App
@@ -54,7 +54,7 @@ ownership or authority.
 | Identifier | Meaning | Stability and security use |
 | --- | --- | --- |
 | `spaceId` | Portable identity of one ordinary folder-backed Space | Survives a folder move; is not a cloud credential, tenant id, or project role |
-| `projectId` | Local/project identity of one App Project and its App lineage | Stable across releases; machine-local in Workspace 0.4, and never a cloud credential or ownership proof; a future portable form needs explicit import/collision rules |
+| `projectId` | Local/project identity of one App Project and its App lineage | Stable across releases; machine-local in the current product, and never a cloud credential or ownership proof; a future portable form needs explicit import/collision rules |
 | `cloudProjectId` | Registry identity of one remotely registered App Project | Bound to `projectId` only through an authenticated, revocable record; excluded from the immutable release identity |
 | `featureId` | Stable logical slot for one feature within the project's App lineage | Names storage and update comparison; cannot prove code or declaration continuity |
 | `featureRevisionDigest` | Content digest of one closed feature artifact | Exact executable identity and the first continuity requirement |
@@ -76,13 +76,13 @@ an App Instance separately chooses its runtime Tenant.
 
 ### Shipped local registry and placement
 
-Workspace 0.4 implements the account-free local subset without creating the
+work-fold implements the account-free local subset without creating the
 candidate cloud binding above:
 
 - one source Space has at most one machine-local App Project and one
   Development Instance;
 - Project presentation is an explicit `{ title, description, icon }` record in
-  Workspace application data, not a new `.workspace/` file. The first reviewed
+  work-fold application data, not a new `.work-fold/` file. The first reviewed
   preview may seed it from the Feature declaration, and App Studio can update it;
 - preparing a Release snapshots all current reviewed Development Features into
   an immutable format-version-2 envelope and stores it by `releaseDigest`;
@@ -108,6 +108,12 @@ registered until its inactive Data Namespaces are explicitly purged; the former
 target may then be removed. Source removal without live or retained data clears
 the machine-local Project and its Release lineage, while target removal cancels
 prepared operations aimed at that registration.
+
+The local registry is a clean work-fold registry. Legacy Workspace profiles,
+portable `.workspace/` records, restricted-app registries, storage,
+connections, receipts, and artifacts are never opened, imported, upgraded, or
+adopted into these identities. They remain preserved and inert, and possession
+of one cannot satisfy any work-fold digest, Project, Tenant, or authority check.
 
 The shared candidate authority stamp is a typed set of independently advancing
 domains, not one global counter:
@@ -212,7 +218,7 @@ A release closure excludes:
   environment secrets;
 - machine paths, a local Space registry entry, local History objects, or runtime
   data;
-- raw `.workspace/` metadata or conversations;
+- raw `.work-fold/` metadata or conversations;
 - `.pi/` and other executable project configuration; and
 - the personal Library or a pointer that can read from it later.
 
@@ -336,7 +342,7 @@ another installation. A later reinstall receives a new `featureInstallationId`
 and new data namespace unless an administrator explicitly adopts a compatible
 retained namespace through a reviewed, receipted migration decision.
 
-Workspace 0.4 implements the no-schema subset. Its persisted planner treats an
+The current local build implements the no-schema subset. Its persisted planner treats an
 exact Feature artifact and declaration as `keep`: eligible grants,
 instance-owned connections, enabled jobs, the Feature Installation, and the Data
 Namespace can continue unless the person chooses the stricter reset policy. A
@@ -356,14 +362,14 @@ abbreviated shape remains illustrative. `releaseDigest` is outside the canonical
 manifest it identifies, avoiding a self-referential hash. Release review and
 publisher attestations are sidecars over that digest. Format version 2 adds the
 App-level presentation snapshot to the immutable manifest; the local restricted
-runtime uses `workspace-restricted-app-bridge` compatibility `2.x`.
+runtime uses `work-fold.restricted-app-bridge` compatibility `2.x`.
 
 ```json
 {
   "recordVersion": 1,
   "releaseDigest": "sha256:release-content-address",
   "manifest": {
-    "format": "workspace-app-release",
+    "format": "work-fold.app-release",
     "formatVersion": 2,
     "projectId": "project_opaque",
     "presentation": {
@@ -373,16 +379,16 @@ runtime uses `workspace-restricted-app-bridge` compatibility `2.x`.
     },
     "displayVersion": "1.2.0",
     "runtimeApi": {
-      "name": "workspace-restricted-app-bridge",
+      "name": "work-fold.restricted-app-bridge",
       "compatibleRange": "2.x"
     },
     "features": [
       {
         "featureId": "connected-inbox",
-        "featureRevisionDigest": "sha256:feature-bytes",
+        "featureRevisionDigest": "work-fold.artifact.v1:sha256:<64-lowercase-hex>",
         "declarationDigest": "sha256:canonical-declarations",
         "artifact": {
-          "mediaType": "application/vnd.workspace.feature+bundle",
+          "mediaType": "application/vnd.work-fold.feature+bundle",
           "sizeBytes": 48172
         },
         "dataSchema": {
@@ -435,7 +441,7 @@ release digest it reviewed or signed.
   "kind": "feature",
   "subject": {
     "featureId": "connected-inbox",
-    "featureRevisionDigest": "sha256:feature-bytes",
+    "featureRevisionDigest": "work-fold.artifact.v1:sha256:<64-lowercase-hex>",
     "declarationDigest": "sha256:canonical-declarations"
   },
   "projectId": "project_opaque",
@@ -468,7 +474,7 @@ different digest is produced.
 ### Gate 2 acceptance criteria
 
 The foundation accepts Gate 2 as normative semantic design. These criteria gate
-the publication product scope that depends on them. The 0.4 local product meets
+the publication product scope that depends on them. The current local product meets
 the digest/offline-closure boundary plus separately durable
 prepare/publish/install/update acts, while a public registry must satisfy all
 applicable hosted and public-distribution items before launch:
@@ -507,7 +513,7 @@ these candidate rules:
    `dataNamespaceId`; host-owned runtime data is not written into source or
    included in publication.
 4. Access to project files requires an explicit development file grant. Raw
-   `.workspace/`, conversations, `.pi/`, and other excluded metadata roots remain
+   `.work-fold/`, preserved legacy `.workspace/`, conversations, `.pi/`, and other excluded metadata roots remain
    ungrantable.
 5. A granted resource commit is serialized through the host-owned project
    mutation authority. In one crash-safe operation it writes the file, creates
@@ -535,7 +541,7 @@ running instance are the same object.
 
 ### Accepted semantic decisions
 
-1. **Do not build a Workspace-owned generic “sync the Space.”** Publication,
+1. **Do not build a work-fold-owned generic “sync the Space.”** Publication,
    project collaboration, instance-data replication, secret storage,
    operational control, and Chat sharing are separate protocols.
 2. **Each App Instance belongs to exactly one tenant in the first model.** An
@@ -647,7 +653,7 @@ Principal-owned connections never transfer with an App Instance, Tenant,
 project, or Organization. A transfer or owner removal fences them immediately
 and begins their disconnect/provider-revocation workflow according to policy.
 
-Deleting a Workspace binding is not the same as provider-side revocation. The UI
+Deleting a work-fold binding is not the same as provider-side revocation. The UI
 and receipt must say which occurred. Secret values never appear in manifests,
 exports, logs, receipts, worker inputs/results, or feature storage.
 
@@ -661,7 +667,7 @@ exports, logs, receipts, worker inputs/results, or feature storage.
   "runtimeInstanceId": "runtime-instance_opaque",
   "featureId": "connected-inbox",
   "featureInstallationId": "feature-installation_opaque",
-  "featureRevisionDigest": "sha256:feature-bytes",
+  "featureRevisionDigest": "work-fold.artifact.v1:sha256:<64-lowercase-hex>",
   "declarationId": "mail-api",
   "declarationDigest": "sha256:mail-api-declaration",
   "targetIdentity": "https://api.example.com",
@@ -701,15 +707,15 @@ and domains remain explicit.
 | Export | Snapshot | Produce a bounded portable copy of selected data and metadata without secrets |
 | Backup | Snapshot/operational | Service-controlled recovery copy with retention and restore authority, not a user collaboration stream |
 
-The following stay out of Workspace-owned publication, project collaboration,
+The following stay out of work-fold-owned publication, project collaboration,
 and instance-data synchronization streams:
 
 - `.pi/` and all other executable project configuration. A future collaboration
   path for it must be a separate full-trust act with code-execution consequences.
-- `.workspace/conversations/`, Chat attachments, compaction state, and Pi
+- `.work-fold/conversations/`, preserved legacy `.workspace/` content, Chat attachments, compaction state, and Pi
   sessions. Chat sharing requires its own consent, participant, model-provider,
   retention, and deletion contract.
-- raw `.workspace/space.json`. It can help reconcile a moved folder locally but
+- raw `.work-fold/space.json`. It can help reconcile a moved folder locally but
   cannot claim a cloud project, tenant, role, or publication right.
 - personal Library storage. Only an explicit independent copy into the Space may
   later be selected as ordinary project input.
@@ -718,12 +724,12 @@ and instance-data synchronization streams:
 - local History objects, machine registry state, cached views, run queues, and
   updater state.
 
-These exclusions govern Workspace-owned streams only. A Space remains an
+These exclusions govern work-fold-owned streams only. A Space remains an
 ordinary folder: Google Drive for desktop, source control, backup software, or
-another third-party synchronization tool may still copy `.workspace/`, its
+another third-party synchronization tool may still copy `.work-fold/`, its
 conversations, `.pi/`, and any other folder content under that tool's settings.
-Workspace must retain the current privacy warning and must not describe those
-third-party copies as native Workspace sync.
+work-fold must retain the current privacy warning and must not describe those
+third-party copies as native work-fold sync.
 
 The first source-collaboration design should explicitly select paths and either
 use an existing version-control model or define per-file base versions and
@@ -873,7 +879,7 @@ consent at activation time. It never means a publisher can force continuity.
 Lifecycle verbs remain distinct:
 
 - **suspend** stops new hosted execution while retaining declared state;
-- **disconnect** deletes a Workspace-held connection binding but may not revoke
+- **disconnect** deletes a work-fold-held connection binding but may not revoke
   the provider credential;
 - **uninstall** removes one release-backed local App Instance and applies its
   runtime-data policy without deleting project source, user-selected resource
@@ -918,11 +924,11 @@ Local behavior remains understandable without assuming that a release-backed
 local App Instance owns, lives inside, or even has a project folder. Uninstalling
 it always removes host-owned runtime authority and local connection records and
 then applies the confirmed retain-or-purge choice to each local Data Namespace;
-it never deletes separately selected ordinary resource targets. Retained 0.4
+it never deletes separately selected ordinary resource targets. Retained local
 namespaces are inactive and visible to the source Project for a later explicit
 purge; adoption and export are not implemented. Only a Development Instance is
 source-bound to an App Project and source Space, while a local App Instance is
-attached to its chosen target Space. Workspace blocks removing either
+attached to its chosen target Space. work-fold blocks removing either
 registration while that release-backed Instance remains active and directs the
 person to uninstall first. Retained data continues to bind the source Project
 until explicit purge, but not the former target. A future hosted contract must
@@ -930,7 +936,7 @@ not weaken those distinctions.
 
 ### Gate 3 risks
 
-- A Workspace-owned generic sync engine can accidentally upload Chats,
+- A work-fold-owned generic sync engine can accidentally upload Chats,
   executable `.pi` configuration, credentials, or unrelated ordinary files.
 - Incorrect tenant derivation or cache keys can create cross-tenant disclosure.
 - Principal-owned credentials can become de facto shared service accounts through
@@ -949,7 +955,7 @@ not weaken those distinctions.
 ### Gate 3 acceptance criteria
 
 The foundation accepts these as semantic design and product-launch criteria.
-The local 0.3 foundation implements only the criteria named for its scoped
+The local foundation implements only the criteria named for its scoped
 milestone; a production hosted product must satisfy every applicable item with
 real adapters and operating policy before launch:
 
@@ -1005,7 +1011,7 @@ depends on it ships:
    restore an old backup and prove tombstones, role revocation, secret deletion,
    installation incarnation, and typed Authority Stamp values prevent
    resurrection.
-5. **Excluded-content fixture:** place `.pi`, `.workspace/conversations`, local
+5. **Excluded-content fixture:** place `.pi`, `.work-fold/conversations`, preserved legacy `.workspace/`, local
    History, a Library pointer, a credential-like value, a symlink, and a mutable
    external asset near selected source; release closure must exclude or reject
    them with an understandable reason.

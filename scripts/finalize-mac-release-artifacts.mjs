@@ -8,33 +8,34 @@ import { fileURLToPath } from "node:url";
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 loadLocalReleaseEnvironment();
 const packageJson = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf8"));
+const productIdentity = JSON.parse(readFileSync(join(rootDir, "src", "shared", "product-identity.json"), "utf8"));
 const version = String(packageJson.version ?? "").trim();
-const arch = stringValue(process.env.WORKSPACE_DESKTOP_RELEASE_ARCH) || (process.arch === "x64" ? "x64" : "arm64");
+const arch = stringValue(process.env.WORKFOLD_DESKTOP_RELEASE_ARCH) || (process.arch === "x64" ? "x64" : "arm64");
 const builderDir = join(rootDir, "out", "builder");
-const dmgPath = join(builderDir, `Workspace-${version}-mac-${arch}.dmg`);
+const dmgPath = join(builderDir, `${productIdentity.productName}-${version}-mac-${arch}.dmg`);
 const blockmapPath = `${dmgPath}.blockmap`;
 const latestPath = join(builderDir, "latest-mac.yml");
 
-if (process.platform !== "darwin") throw new Error("Workspace macOS release artifacts must be finalized on a Mac host.");
+if (process.platform !== "darwin") throw new Error(`${productIdentity.productName} macOS release artifacts must be finalized on a Mac host.`);
 if (!version || !existsSync(dmgPath) || !existsSync(latestPath)) {
-  throw new Error("The Workspace DMG or latest-mac.yml is missing. Run the macOS release builder first.");
+  throw new Error(`The ${productIdentity.productName} DMG or latest-mac.yml is missing. Run the macOS release builder first.`);
 }
 
 if (isFinalizedDmg()) {
-  console.log(`Workspace DMG is already Developer ID-signed, notarized, and accepted by Gatekeeper.`);
+  console.log(`${productIdentity.productName} DMG is already Developer ID-signed, notarized, and accepted by Gatekeeper.`);
 } else {
   signDmg();
   notarizeDmg();
-  run("xcrun", ["stapler", "staple", dmgPath], "Could not staple the notarization ticket to the Workspace DMG");
+  run("xcrun", ["stapler", "staple", dmgPath], `Could not staple the notarization ticket to the ${productIdentity.productName} DMG`);
   verifyDmg();
 }
 await refreshUpdateMetadata();
-console.log(`Finalized signed and notarized Workspace ${version} macOS ${arch} installer metadata.`);
+console.log(`Finalized signed and notarized ${productIdentity.productName} ${version} macOS ${arch} installer metadata.`);
 
 function signDmg() {
-  const identity = stringValue(process.env.WORKSPACE_MAC_SIGN_IDENTITY || process.env.CSC_NAME);
-  if (!identity) throw new Error("WORKSPACE_MAC_SIGN_IDENTITY is required to sign the release DMG.");
-  run("codesign", ["--force", "--timestamp", "--sign", identity, dmgPath], "Could not Developer ID-sign the Workspace DMG");
+  const identity = stringValue(process.env.WORKFOLD_MAC_SIGN_IDENTITY || process.env.CSC_NAME);
+  if (!identity) throw new Error("WORKFOLD_MAC_SIGN_IDENTITY is required to sign the release DMG.");
+  run("codesign", ["--force", "--timestamp", "--sign", identity, dmgPath], `Could not Developer ID-sign the ${productIdentity.productName} DMG`);
 }
 
 function notarizeDmg() {
@@ -61,21 +62,21 @@ function notarizeDmg() {
   }
   args.push("--wait", "--output-format", "json");
 
-  const output = run("xcrun", args, "Apple rejected or could not process the Workspace DMG", 20 * 60_000);
+  const output = run("xcrun", args, `Apple rejected or could not process the ${productIdentity.productName} DMG`, 20 * 60_000);
   const result = JSON.parse(output.stdout.trim());
   if (result.status !== "Accepted") {
     throw new Error(`Apple notarization did not accept ${basename(dmgPath)} (status: ${result.status || "unknown"}).`);
   }
-  console.log(`Apple accepted Workspace DMG notarization submission ${result.id}.`);
+  console.log(`Apple accepted ${productIdentity.productName} DMG notarization submission ${result.id}.`);
 }
 
 function verifyDmg() {
-  run("codesign", ["--verify", "--strict", "--verbose=2", dmgPath], "Workspace DMG signature verification failed");
-  run("xcrun", ["stapler", "validate", dmgPath], "The Workspace DMG does not contain a valid stapled notarization ticket");
+  run("codesign", ["--verify", "--strict", "--verbose=2", dmgPath], `${productIdentity.productName} DMG signature verification failed`);
+  run("xcrun", ["stapler", "validate", dmgPath], `The ${productIdentity.productName} DMG does not contain a valid stapled notarization ticket`);
   run(
     "spctl",
     ["--assess", "--type", "open", "--context", "context:primary-signature", "--verbose=4", dmgPath],
-    "Gatekeeper rejected the Workspace release DMG",
+    `Gatekeeper rejected the ${productIdentity.productName} release DMG`,
   );
 }
 
@@ -106,7 +107,7 @@ async function refreshUpdateMetadata() {
   writeFileSync(latestPath, refreshed, "utf8");
 
   if (statSync(dmgPath).size !== updateInfo.size) {
-    throw new Error(`Workspace DMG blockmap size ${updateInfo.size} does not match the finalized image.`);
+    throw new Error(`${productIdentity.productName} DMG blockmap size ${updateInfo.size} does not match the finalized image.`);
   }
 }
 

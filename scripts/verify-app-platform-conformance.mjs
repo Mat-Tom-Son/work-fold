@@ -36,7 +36,7 @@ process.stdout.write(
   `verified ${fixture.declarations.length} declaration and ${fixture.artifacts.length} artifact vectors\n`,
 );
 
-// This verifier deliberately shares no Workspace implementation code. It is a
+// This verifier deliberately shares no work-fold implementation code. It is a
 // second executable reading the language-neutral vectors and normative framing.
 function canonicalize(value, stack = new Set()) {
   if (value === null || typeof value === "boolean") return JSON.stringify(value);
@@ -85,7 +85,7 @@ function hashArtifact(rawEntries) {
   }
 
   const hash = createHash("sha256");
-  hash.update(Buffer.from("workspace-artifact", "ascii"));
+  hash.update(Buffer.from("work-fold.artifact", "ascii"));
   hash.update(unsigned32(1));
   hash.update(unsigned32(entries.length));
   for (const entry of entries) {
@@ -94,7 +94,7 @@ function hashArtifact(rawEntries) {
     hash.update(unsigned64(entry.bytes.length));
     hash.update(entry.bytes);
   }
-  return `workspace-artifact-v1:sha256:${hash.digest("hex")}`;
+  return `work-fold.artifact.v1:sha256:${hash.digest("hex")}`;
 }
 
 function assertPortablePath(value) {

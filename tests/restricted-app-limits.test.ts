@@ -90,9 +90,9 @@ test("limits survive the launch-argument round trip the preload actually perform
     files: { maxReadBytes: 512 * 1024, maxWriteBytes: 512 * 1024 },
   });
 
-  const argument = `--workspace-restricted-limits=${encodeURIComponent(JSON.stringify(limits))}`;
+  const argument = `--work-fold-restricted-limits=${encodeURIComponent(JSON.stringify(limits))}`;
 
-  const prefix = "--workspace-restricted-limits=";
+  const prefix = "--work-fold-restricted-limits=";
   const found = [argument].find((value) => value.startsWith(prefix));
   assert.ok(found);
   const recovered = JSON.parse(decodeURIComponent(found.slice(prefix.length)));

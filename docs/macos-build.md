@@ -1,8 +1,8 @@
 # macOS build and release lane
 
-Workspace uses one Electron, React, local API, Pi, management-kernel, restricted-app, and versioning codebase on Windows and macOS. macOS is a platform lane in this repository, not a fork.
+work-fold uses one Electron, React, local API, Pi, management-kernel, restricted-app, and versioning codebase on Windows and macOS. macOS is a platform lane in this repository, not a fork.
 
-## Production baseline
+## Legacy Workspace baseline evidence
 
 The Apple silicon lane was verified on July 15, 2026 against Workspace 0.2.9:
 
@@ -15,7 +15,13 @@ The Apple silicon lane was verified on July 15, 2026 against Workspace 0.2.9:
 - A signed/notarized installed 0.2.8 app discovered 0.2.9, exposed the rendered `Download Workspace 0.2.9` control, downloaded the public ZIP, installed it, and relaunched as 0.2.9. The updater-cache SHA-256 matched the published asset digest exactly.
 - After removing the obsolete ad hoc `Workspace Safe Storage` item once, two cold launches under the stable Developer ID identity completed without Keychain password prompts.
 
-This proof enables automatic updates in signed production macOS builds with an embedded `app-update.yml`. The ad hoc package lane may retain the manifest for structural verification, but it uses the distinct `Workspace Local Smoke` name, `io.github.mattomson.workspace.local-smoke` bundle id, build channel, and application-data directory; its runtime never starts the updater or contacts the production feed.
+This is preserved historical evidence for the legacy product; it does not prove
+work-fold identity, clean-profile behavior, or updater compatibility. The
+work-fold ad hoc package lane may retain the manifest for structural
+verification, but it uses the distinct `work-fold Local Smoke` name,
+`com.work-fold.desktop.local-smoke` bundle id, build channel, and
+application-data directory; its runtime never starts the updater or contacts
+the production feed.
 
 ## Toolchain
 
@@ -32,51 +38,51 @@ npm run desktop:make:mac
 
 Expected Apple silicon outputs:
 
-- `out/builder/mac-arm64/Workspace Local Smoke.app`
-- `out/builder/Workspace-<version>-mac-arm64.dmg`
-- `out/builder/Workspace-<version>-mac-arm64.zip`
+- `out/builder/mac-arm64/work-fold Local Smoke.app`
+- `out/builder/work-fold-<version>-mac-arm64.dmg`
+- `out/builder/work-fold-<version>-mac-arm64.zip`
 - matching `.blockmap` files
 - `out/builder/latest-mac.yml`
 - `out/builder/SHA256SUMS-mac.txt`
-- `out/builder/Workspace-mac-release-manifest.json`
-- `out/builder/Workspace-mac-release-manifest.txt`
+- `out/builder/work-fold-mac-release-manifest.json`
+- `out/builder/work-fold-mac-release-manifest.txt`
 
 Use `-- --arch x64` after a build command when an Intel candidate is required. An Intel artifact is not releasable until it receives a real Intel launch and updater smoke.
 
 ## Interactive packaged smoke
 
-Do not interactively launch an ad hoc candidate under a normal macOS account. An ad hoc app using the production identity can invalidate Keychain access control and cause password prompts even when `WORKSPACE_DESKTOP_STATE_DIR` points at `/tmp`; the profile override does not isolate Keychain. The checked-in smoke lane's distinct name and bundle id prevent it from impersonating production, but routine ad hoc verification remains non-interactive.
+Do not interactively launch an ad hoc candidate under a normal macOS account. An ad hoc app using the production identity can invalidate Keychain access control and cause password prompts even when `WORKFOLD_DESKTOP_STATE_DIR` points at `/tmp`; the profile override does not isolate Keychain. The checked-in smoke lane's distinct name and bundle id prevent it from impersonating production, but routine ad hoc verification remains non-interactive.
 
 Use a Developer ID-signed candidate for interactive checks on the release workstation:
 
 ```bash
-WORKSPACE_DESKTOP_STATE_DIR=/tmp/workspace-macos-smoke \
-  out/builder/mac-arm64/Workspace.app/Contents/MacOS/Workspace
+WORKFOLD_DESKTOP_STATE_DIR=/tmp/work-fold-macos-smoke \
+  out/builder/mac-arm64/work-fold.app/Contents/MacOS/work-fold
 ```
 
-That production-name path exists only after `npm run desktop:make:mac:release`; the ad hoc executable is `out/builder/mac-arm64/Workspace Local Smoke.app/Contents/MacOS/Workspace Local Smoke`. Exercise onboarding, Space creation/registration, Files, Chats, History, Add, the Space-owned Library and Assistant tools tabs, Settings, native file actions, restricted apps, menus, window close/reopen, and sleep/wake continuity. The profile override isolates CLI requests, app files, restricted-app state, and preferences, but it is not a Keychain boundary. A separate disposable macOS account is the alternative for interactive ad hoc testing.
+That production-name path exists only after `npm run desktop:make:mac:release`; the ad hoc executable is `out/builder/mac-arm64/work-fold Local Smoke.app/Contents/MacOS/work-fold Local Smoke`. Exercise onboarding, Space creation/registration, Files, Chats, History, Add, the Space-owned Library and Assistant tools tabs, Settings, native file actions, restricted apps, menus, window close/reopen, and sleep/wake continuity. The profile override isolates CLI requests, app files, restricted-app state, and preferences, but it is not a Keychain boundary. A separate disposable macOS account is the alternative for interactive ad hoc testing.
 
 The packaged CLI can be tested directly:
 
 ```bash
-WORKSPACE_DESKTOP_STATE_DIR=/tmp/workspace-macos-smoke \
-WORKSPACE_CLI_STATE_DIR=/tmp/workspace-macos-smoke \
-WORKSPACE_CLI_APP="$PWD/out/builder/mac-arm64/Workspace.app/Contents/MacOS/Workspace" \
-  out/builder/mac-arm64/Workspace.app/Contents/bin/workspace context --json
+WORKFOLD_DESKTOP_STATE_DIR=/tmp/work-fold-macos-smoke \
+WORKFOLD_CLI_STATE_DIR=/tmp/work-fold-macos-smoke \
+WORKFOLD_CLI_APP="$PWD/out/builder/mac-arm64/work-fold.app/Contents/MacOS/work-fold" \
+  out/builder/mac-arm64/work-fold.app/Contents/bin/work-fold context --json
 ```
 
-The app adds `Contents/bin` to child-process `PATH`. A DMG must not edit a person's shell profile; making `workspace` available to unrelated Terminal sessions remains an explicit installation action.
+The app adds `Contents/bin` to child-process `PATH`. A DMG must not edit a person's shell profile; making `work-fold` available to unrelated Terminal sessions remains an explicit installation action.
 
 ## Signing configuration
 
 The ignored `.env.macos.local` file is the normal workstation configuration:
 
 ```dotenv
-WORKSPACE_MAC_SIGN_IDENTITY="Developer ID Application: James Thompson (464JD5K8DC)"
+WORKFOLD_MAC_SIGN_IDENTITY="Developer ID Application: James Thompson (464JD5K8DC)"
 APPLE_KEYCHAIN_PROFILE="kai-workspace-notary"
-WORKSPACE_MAC_RELEASE_OWNER="Mat-Tom-Son"
-WORKSPACE_MAC_RELEASE_REPO="workspace-mac-releases"
-WORKSPACE_MAC_TEAM_ID="464JD5K8DC"
+WORKFOLD_MAC_RELEASE_OWNER="Mat-Tom-Son"
+WORKFOLD_MAC_RELEASE_REPO="work-fold-mac-releases"
+WORKFOLD_MAC_TEAM_ID="464JD5K8DC"
 ```
 
 The notary profile name is local and arbitrary; the existing profile is valid for both products. Never commit Apple passwords, API keys, certificate private keys, or exported identities. `APPLE_KEYCHAIN_PROFILE` may be replaced by a complete App Store Connect API-key or Apple-ID environment set when needed.
@@ -93,6 +99,15 @@ The release lane signs/notarizes the app, signs/notarizes/staples the final DMG,
 
 Normal releases use one package version across Windows and Mac, but separate artifact feeds so the two publishers cannot race to own one GitHub release:
 
+The first public work-fold version is `0.1.0`. The repository used `0.8.0` as a
+development holdover and reset it only when the final candidate, release
+commit, and tag were ready. `0.1.0` must be Developer ID-signed,
+notarized, stapled, manually installed, and tested against the new
+`com.work-fold.desktop` identity and empty work-fold profile. It is not an
+update from Workspace. A second, higher work-fold release must then prove the
+new `Mat-Tom-Son/work-fold-mac-releases` updater path from installed `0.1.0`.
+The frozen legacy release repository must never receive these artifacts.
+
 ```bash
 npm run desktop:release:mac
 ```
@@ -103,15 +118,15 @@ See [macOS release runbook](macos-release.md) for the exact repeatable procedure
 
 ## Keychain behavior
 
-Provider and restricted-app credentials use Electron `safeStorage`, backed by Keychain. Stable Developer ID signing gives macOS one durable requester identity. An older ad hoc app that reused the production name may leave a Safe Storage access-control entry that repeatedly asks for a password after migration. Current local smoke builds use `Workspace Local Smoke`, a separate bundle id and application-data directory, and never start the production updater; do not rename them to `Workspace.app`.
+Provider and restricted-app credentials use Electron `safeStorage`, backed by Keychain. Stable Developer ID signing gives macOS one durable requester identity. An older ad hoc app that reused the production name may leave a Safe Storage access-control entry that repeatedly asks for a password after migration. Current local smoke builds use `work-fold Local Smoke`, a separate bundle id and application-data directory, and never start the production updater; do not rename them to `work-fold.app`.
 
-Only when repeated prompts are observed, quit Workspace and run:
+Only when repeated prompts are observed, quit work-fold and run:
 
 ```bash
 npm run desktop:reset:mac-safe-storage -- --yes --reopen
 ```
 
-The helper deletes only the `Workspace Safe Storage` key and encrypted provider/restricted-app credential blobs. Spaces, chats, History, preferences, and ordinary app data remain. Users may need to enter provider or app credentials again.
+The helper deletes only the `work-fold Safe Storage` key and encrypted provider/restricted-app credential blobs. Spaces, chats, History, preferences, and ordinary app data remain. Users may need to enter provider or app credentials again.
 
 Do not diagnose this with `security find-generic-password ... -g`: `-g` requests the secret and can itself trigger a password prompt. The installed-app verifier deliberately reads no Keychain secret data.
 
@@ -125,6 +140,6 @@ Do not diagnose this with `security find-generic-password ... -g`: `-g` requests
 - `scripts/publish-mac-release.mjs`: guarded draft-first public publisher.
 - `scripts/verify-mac-release.mjs`: bundle, signature, updater, manifest, checksum, and mounted-DMG verification.
 - `scripts/verify-installed-mac-app.mjs`: installed version/feed/signature/notarization verification without Keychain reads.
-- `scripts/reset-mac-safe-storage.mjs`: narrow ad hoc-to-Developer-ID credential migration helper.
+- `scripts/reset-mac-safe-storage.mjs`: narrow ad hoc-to-Developer-ID credential recovery helper.
 - `desktop/src/updater.ts`: shared Windows and Squirrel.Mac update state machine.
-- `desktop/cli/workspace-cli.jxa.js`: macOS protocol-v1 CLI helper.
+- `desktop/cli/work-fold-cli.jxa.js`: macOS protocol-v1 CLI helper.

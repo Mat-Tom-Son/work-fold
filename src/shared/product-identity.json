@@ -1,0 +1,16 @@
+{
+  "productName": "work-fold",
+  "packageName": "work-fold-desktop",
+  "productionAppId": "com.work-fold.desktop",
+  "developmentProductName": "work-fold Development",
+  "macSmokeProductName": "work-fold Local Smoke",
+  "macSmokeAppId": "com.work-fold.desktop.local-smoke",
+  "internalProtocol": "work-fold-desktop",
+  "updaterCacheDirectoryName": "work-fold-desktop-updater",
+  "cliCommand": "work-fold",
+  "portableMetadataDirectory": ".work-fold",
+  "managementScopeId": "work-fold-management",
+  "sourceRepositoryOwner": "Mat-Tom-Son",
+  "sourceRepositoryName": "work-fold",
+  "macReleaseRepositoryName": "work-fold-mac-releases"
+}

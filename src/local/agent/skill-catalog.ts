@@ -126,12 +126,12 @@ export type AgentSkillCatalog = PiResourceCatalog;
  * packages/extensions/skills are included only when project trust resolves.
  */
 export async function loadAgentSkillCatalog(
-  workspaceRoot: string,
+  spaceRoot: string,
   runtimeProvider?: PiRuntimeProvider,
 ): Promise<PiResourceCatalog> {
-  const runtime = await resolvePiRuntime(workspaceRoot, runtimeProvider);
+  const runtime = await resolvePiRuntime(spaceRoot, runtimeProvider);
   const services = await createAgentSessionServices({
-    cwd: workspaceRoot,
+    cwd: spaceRoot,
     agentDir: runtime.agentDir,
     authStorage: runtime.authStorage,
     settingsManager: runtime.settingsManager,
@@ -140,7 +140,7 @@ export async function loadAgentSkillCatalog(
   });
   const result = await createAgentSessionFromServices({
     services,
-    sessionManager: SessionManager.inMemory(workspaceRoot),
+    sessionManager: SessionManager.inMemory(spaceRoot),
   });
 
   try {
@@ -150,7 +150,7 @@ export async function loadAgentSkillCatalog(
         // Catalog reads must never block an HTTP request on an extension dialog.
         // Actual chat sessions bind the host bridge and expose full RPC-style UI.
         createHeadlessExtensionUiBridge(),
-        { conversationId: "catalog", workspaceRoot },
+        { conversationId: "catalog", spaceRoot },
       ),
     });
     return buildPiResourceCatalog(result.session, runtime, services.diagnostics);
@@ -292,7 +292,7 @@ export const builtInPiCommands: PiCommandCatalogItem[] = [
   ["logout", "Remove provider authentication"],
   ["compact", "Compact the session context"],
   ["reload", "Reload extensions, skills, prompts, and themes"],
-  ["quit", "Quit Workspace"],
+  ["quit", "Quit work-fold"],
 ].map(([name, description]) => ({ name, description, source: "builtin" }));
 
 function additionalResourceOptions(runtime: ResolvedPiRuntime) {

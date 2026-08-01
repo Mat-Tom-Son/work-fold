@@ -19,28 +19,32 @@ const failures = [];
 assertSupportedNode();
 assertPath("package.json");
 assertPath("dist/web-local/index.html");
+assertPath("dist/web-local/popover.html");
 assertPath("dist/desktop/desktop/src/main.js");
 assertPath("dist/desktop/desktop/src/preload.cjs");
+assertPath("dist/desktop/desktop/src/management-popover-preload.cjs");
 assertPath("dist/desktop/desktop/src/restricted-app-host.js");
 assertPath("dist/desktop/desktop/src/restricted-app-preload.cjs");
 assertPath("desktop/assets/icon.ico");
 assertPath("desktop/assets/icon.png");
+assertPath("desktop/assets/iconTemplate.png");
+assertPath("desktop/assets/iconTemplate@2x.png");
 if (desktopReleasePlatform() === "darwin") {
   assertPath("desktop/assets/icon.icns");
   assertPath("out/generated-assets/dmg-background.png");
-  assertPath("desktop/cli/workspace-cli.jxa.js");
+  assertPath("desktop/cli/work-fold-cli.jxa.js");
 }
 
 verifyPiDependencyNormalization();
 await verifyNativePiResources();
 
 if (failures.length) {
-  console.error("Workspace desktop preflight failed:\n");
+  console.error("work-fold desktop preflight failed:\n");
   for (const failure of failures) console.error(`- ${failure}`);
   process.exit(1);
 }
 
-console.log("Workspace desktop preflight passed.");
+console.log("work-fold desktop preflight passed.");
 
 function assertSupportedNode() {
   const [major = 0, minor = 0] = process.versions.node.split(".").map(Number);
@@ -54,7 +58,7 @@ function assertPath(relativePath) {
 }
 
 function desktopReleasePlatform() {
-  const configured = process.env.WORKSPACE_DESKTOP_RELEASE_PLATFORM?.trim();
+  const configured = process.env.WORKFOLD_DESKTOP_RELEASE_PLATFORM?.trim();
   return configured || process.platform;
 }
 

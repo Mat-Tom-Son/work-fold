@@ -7,15 +7,15 @@ import { isAbsolute, resolve } from "node:path";
  * separately versioned act lane (`act-protocol.ts`), which authenticates each
  * request with the per-launch act token the running desktop app mints.
  */
-export const WORKSPACE_CLI_PROTOCOL_VERSION = 1 as const;
+export const WORKFOLD_CLI_PROTOCOL_VERSION = 1 as const;
 
 /** Accepted shape for per-launch act tokens carried by act-lane requests. */
-export const WORKSPACE_CLI_ACT_TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,256}$/;
-export const WORKSPACE_CLI_MAX_ARG_COUNT = 128;
-export const WORKSPACE_CLI_MAX_ARG_LENGTH = 8 * 1024;
-export const WORKSPACE_CLI_MAX_ARGV_LENGTH = 64 * 1024;
+export const WORKFOLD_CLI_ACT_TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,256}$/;
+export const WORKFOLD_CLI_MAX_ARG_COUNT = 128;
+export const WORKFOLD_CLI_MAX_ARG_LENGTH = 8 * 1024;
+export const WORKFOLD_CLI_MAX_ARGV_LENGTH = 64 * 1024;
 
-export const WorkspaceCliExitCode = {
+export const WorkFoldCliExitCode = {
   success: 0,
   failure: 1,
   usage: 2,
@@ -27,22 +27,22 @@ export const WorkspaceCliExitCode = {
   protocolError: 8,
 } as const;
 
-export type WorkspaceCliExitCode = typeof WorkspaceCliExitCode[keyof typeof WorkspaceCliExitCode];
-export type WorkspaceCliErrorCode = Exclude<keyof typeof WorkspaceCliExitCode, "success">;
-export type WorkspaceCliOutputMode = "human" | "json";
-export type WorkspaceCliCommandName = "help" | "version" | "context" | "spaces.list" | "tasks.list" | "capabilities.list" | "checks.status";
+export type WorkFoldCliExitCode = typeof WorkFoldCliExitCode[keyof typeof WorkFoldCliExitCode];
+export type WorkFoldCliErrorCode = Exclude<keyof typeof WorkFoldCliExitCode, "success">;
+export type WorkFoldCliOutputMode = "human" | "json";
+export type WorkFoldCliCommandName = "help" | "version" | "context" | "spaces.list" | "tasks.list" | "capabilities.list" | "checks.status";
 
-export type WorkspaceCliJson =
+export type WorkFoldCliJson =
   | null
   | boolean
   | number
   | string
-  | WorkspaceCliJson[]
-  | { [key: string]: WorkspaceCliJson };
+  | WorkFoldCliJson[]
+  | { [key: string]: WorkFoldCliJson };
 
 /** Stable on-disk request contract shared by platform shims and the desktop broker. */
-export interface WorkspaceCliRequestV1 {
-  protocolVersion: typeof WORKSPACE_CLI_PROTOCOL_VERSION;
+export interface WorkFoldCliRequestV1 {
+  protocolVersion: typeof WORKFOLD_CLI_PROTOCOL_VERSION;
   id: string;
   argv: string[];
   cwd: string;
@@ -50,51 +50,51 @@ export interface WorkspaceCliRequestV1 {
 }
 
 /** Stable on-disk response contract shared by the desktop broker and platform shims. */
-export interface WorkspaceCliResponseV1 {
-  protocolVersion: typeof WORKSPACE_CLI_PROTOCOL_VERSION;
+export interface WorkFoldCliResponseV1 {
+  protocolVersion: typeof WORKFOLD_CLI_PROTOCOL_VERSION;
   id: string;
-  exitCode: WorkspaceCliExitCode;
+  exitCode: WorkFoldCliExitCode;
   stdout: string;
   stderr: string;
-  result?: WorkspaceCliJson;
+  result?: WorkFoldCliJson;
   completedAt?: string;
 }
 
-export interface WorkspaceCliParsedCommand {
-  name: WorkspaceCliCommandName;
-  output: WorkspaceCliOutputMode;
+export interface WorkFoldCliParsedCommand {
+  name: WorkFoldCliCommandName;
+  output: WorkFoldCliOutputMode;
   space?: string;
   topic?: string;
 }
 
-export interface WorkspaceCliActor {
+export interface WorkFoldCliActor {
   kind: "cli";
   cwd: string;
 }
 
-export interface WorkspaceCliSpaceSummary {
+export interface WorkFoldCliSpaceSummary {
   id: string;
   name: string;
-  rootPath?: string;
+  spaceRoot?: string;
   active?: boolean;
 }
 
-export interface WorkspaceCliContextSnapshot {
+export interface WorkFoldCliContextSnapshot {
   cwd: string;
-  space: WorkspaceCliSpaceSummary | null;
+  space: WorkFoldCliSpaceSummary | null;
   selectedPath?: string | null;
   activeSurface?: string | null;
 }
 
-export interface WorkspaceCliTaskSummary {
+export interface WorkFoldCliTaskSummary {
   id: string;
   label: string;
   status: string;
-  workspaceId?: string;
+  spaceId?: string;
   updatedAt?: string;
 }
 
-export interface WorkspaceCliCapabilitySummary {
+export interface WorkFoldCliCapabilitySummary {
   id: string;
   name: string;
   kind: "skill" | "extension" | "tool" | "package" | "other";
@@ -103,7 +103,7 @@ export interface WorkspaceCliCapabilitySummary {
   source?: string;
 }
 
-export type WorkspaceCliCheckAggregateState =
+export type WorkFoldCliCheckAggregateState =
   | "unavailable"
   | "not-configured"
   | "current-clear"
@@ -113,12 +113,12 @@ export type WorkspaceCliCheckAggregateState =
   | "check-error";
 
 /** Experimental, aggregate-only Check status. It never carries content. */
-export interface WorkspaceCliCheckStatusSummary {
-  kind: "workspace.checks.experimental";
+export interface WorkFoldCliCheckStatusSummary {
+  kind: "work-fold.checks.experimental";
   version: 0;
   available: boolean;
-  workspaceId: string;
-  state: WorkspaceCliCheckAggregateState;
+  spaceId: string;
+  state: WorkFoldCliCheckAggregateState;
   configured: number;
   proposed: number;
   enabled: number;
@@ -133,61 +133,61 @@ export interface WorkspaceCliCheckStatusSummary {
 }
 
 /**
- * The deliberately narrow adapter needed by the CLI executor. WorkspaceKernel
+ * The deliberately narrow adapter needed by the CLI executor. WorkFoldKernel
  * satisfies this interface through a compact projection without importing
  * desktop code into the reusable control plane.
  */
-export interface WorkspaceCliKernel {
-  getContext(actor: WorkspaceCliActor, options: { space?: string }): Promise<WorkspaceCliContextSnapshot>;
-  listSpaces(actor: WorkspaceCliActor, options: { space?: string }): Promise<WorkspaceCliSpaceSummary[]>;
-  listTasks(actor: WorkspaceCliActor, options: { space?: string }): Promise<WorkspaceCliTaskSummary[]>;
-  listCapabilities(actor: WorkspaceCliActor, options: { space?: string }): Promise<WorkspaceCliCapabilitySummary[]>;
-  getChecksStatus?(actor: WorkspaceCliActor, options: { space?: string }): Promise<WorkspaceCliCheckStatusSummary>;
+export interface WorkFoldCliKernel {
+  getContext(actor: WorkFoldCliActor, options: { space?: string }): Promise<WorkFoldCliContextSnapshot>;
+  listSpaces(actor: WorkFoldCliActor, options: { space?: string }): Promise<WorkFoldCliSpaceSummary[]>;
+  listTasks(actor: WorkFoldCliActor, options: { space?: string }): Promise<WorkFoldCliTaskSummary[]>;
+  listCapabilities(actor: WorkFoldCliActor, options: { space?: string }): Promise<WorkFoldCliCapabilitySummary[]>;
+  getChecksStatus?(actor: WorkFoldCliActor, options: { space?: string }): Promise<WorkFoldCliCheckStatusSummary>;
 }
 
-export class WorkspaceCliError extends Error {
-  readonly exitCode: WorkspaceCliExitCode;
+export class WorkFoldCliError extends Error {
+  readonly exitCode: WorkFoldCliExitCode;
 
   constructor(
-    readonly code: WorkspaceCliErrorCode,
+    readonly code: WorkFoldCliErrorCode,
     message: string,
     options: ErrorOptions = {},
   ) {
     super(message, options);
-    this.name = "WorkspaceCliError";
-    this.exitCode = WorkspaceCliExitCode[code];
+    this.name = "WorkFoldCliError";
+    this.exitCode = WorkFoldCliExitCode[code];
   }
 }
 
-export function normalizeWorkspaceCliRequestId(value: string): string {
+export function normalizeWorkFoldCliRequestId(value: string): string {
   const normalized = value.trim().toLocaleLowerCase();
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(normalized)) {
-    throw new WorkspaceCliError("protocolError", "CLI request id must be a UUID.");
+    throw new WorkFoldCliError("protocolError", "CLI request id must be a UUID.");
   }
   return normalized;
 }
 
-export function parseWorkspaceCliRequest(value: unknown): WorkspaceCliRequestV1 {
+export function parseWorkFoldCliRequest(value: unknown): WorkFoldCliRequestV1 {
   const record = objectRecord(value, "CLI request must be a JSON object.");
   assertExactKeys(record, ["protocolVersion", "id", "argv", "cwd", "createdAt"], "CLI request");
-  if (record.protocolVersion !== WORKSPACE_CLI_PROTOCOL_VERSION) {
-    throw new WorkspaceCliError(
+  if (record.protocolVersion !== WORKFOLD_CLI_PROTOCOL_VERSION) {
+    throw new WorkFoldCliError(
       "protocolError",
-      `Unsupported CLI protocol version: ${String(record.protocolVersion)}. Expected ${WORKSPACE_CLI_PROTOCOL_VERSION}.`,
+      `Unsupported CLI protocol version: ${String(record.protocolVersion)}. Expected ${WORKFOLD_CLI_PROTOCOL_VERSION}.`,
     );
   }
-  if (typeof record.id !== "string") throw new WorkspaceCliError("protocolError", "CLI request id must be a string.");
-  const id = normalizeWorkspaceCliRequestId(record.id);
+  if (typeof record.id !== "string") throw new WorkFoldCliError("protocolError", "CLI request id must be a string.");
+  const id = normalizeWorkFoldCliRequestId(record.id);
   const argv = parseArgv(record.argv);
   if (typeof record.cwd !== "string" || !record.cwd.trim() || !isAbsolute(record.cwd)) {
-    throw new WorkspaceCliError("protocolError", "CLI request cwd must be an absolute path.");
+    throw new WorkFoldCliError("protocolError", "CLI request cwd must be an absolute path.");
   }
-  if (record.cwd.includes("\u0000")) throw new WorkspaceCliError("protocolError", "CLI request cwd contains an invalid character.");
+  if (record.cwd.includes("\u0000")) throw new WorkFoldCliError("protocolError", "CLI request cwd contains an invalid character.");
   if (typeof record.createdAt !== "string" || !Number.isFinite(Date.parse(record.createdAt))) {
-    throw new WorkspaceCliError("protocolError", "CLI request createdAt must be an ISO timestamp.");
+    throw new WorkFoldCliError("protocolError", "CLI request createdAt must be an ISO timestamp.");
   }
   return {
-    protocolVersion: WORKSPACE_CLI_PROTOCOL_VERSION,
+    protocolVersion: WORKFOLD_CLI_PROTOCOL_VERSION,
     id,
     argv,
     cwd: resolve(record.cwd),
@@ -195,26 +195,26 @@ export function parseWorkspaceCliRequest(value: unknown): WorkspaceCliRequestV1 
   };
 }
 
-export function parseWorkspaceCliResponse(value: unknown): WorkspaceCliResponseV1 {
+export function parseWorkFoldCliResponse(value: unknown): WorkFoldCliResponseV1 {
   const record = objectRecord(value, "CLI response must be a JSON object.");
   assertExactKeys(record, ["protocolVersion", "id", "exitCode", "stdout", "stderr", "result", "completedAt"], "CLI response", true);
-  if (record.protocolVersion !== WORKSPACE_CLI_PROTOCOL_VERSION) {
-    throw new WorkspaceCliError("protocolError", `Unsupported CLI response protocol version: ${String(record.protocolVersion)}.`);
+  if (record.protocolVersion !== WORKFOLD_CLI_PROTOCOL_VERSION) {
+    throw new WorkFoldCliError("protocolError", `Unsupported CLI response protocol version: ${String(record.protocolVersion)}.`);
   }
-  if (typeof record.id !== "string") throw new WorkspaceCliError("protocolError", "CLI response id must be a string.");
-  const id = normalizeWorkspaceCliRequestId(record.id);
-  if (!isWorkspaceCliExitCode(record.exitCode)) throw new WorkspaceCliError("protocolError", "CLI response exitCode is invalid.");
+  if (typeof record.id !== "string") throw new WorkFoldCliError("protocolError", "CLI response id must be a string.");
+  const id = normalizeWorkFoldCliRequestId(record.id);
+  if (!isWorkFoldCliExitCode(record.exitCode)) throw new WorkFoldCliError("protocolError", "CLI response exitCode is invalid.");
   if (typeof record.stdout !== "string" || typeof record.stderr !== "string") {
-    throw new WorkspaceCliError("protocolError", "CLI response output must be text.");
+    throw new WorkFoldCliError("protocolError", "CLI response output must be text.");
   }
   if (record.completedAt !== undefined && (typeof record.completedAt !== "string" || !Number.isFinite(Date.parse(record.completedAt)))) {
-    throw new WorkspaceCliError("protocolError", "CLI response completedAt must be an ISO timestamp.");
+    throw new WorkFoldCliError("protocolError", "CLI response completedAt must be an ISO timestamp.");
   }
-  if (record.result !== undefined && !isWorkspaceCliJson(record.result)) {
-    throw new WorkspaceCliError("protocolError", "CLI response result must be JSON-serializable.");
+  if (record.result !== undefined && !isWorkFoldCliJson(record.result)) {
+    throw new WorkFoldCliError("protocolError", "CLI response result must be JSON-serializable.");
   }
   return {
-    protocolVersion: WORKSPACE_CLI_PROTOCOL_VERSION,
+    protocolVersion: WORKFOLD_CLI_PROTOCOL_VERSION,
     id,
     exitCode: record.exitCode,
     stdout: record.stdout,
@@ -224,14 +224,14 @@ export function parseWorkspaceCliResponse(value: unknown): WorkspaceCliResponseV
   };
 }
 
-export function createWorkspaceCliRequest(input: {
+export function createWorkFoldCliRequest(input: {
   id: string;
   argv: string[];
   cwd: string;
   createdAt?: string;
-}): WorkspaceCliRequestV1 {
-  return parseWorkspaceCliRequest({
-    protocolVersion: WORKSPACE_CLI_PROTOCOL_VERSION,
+}): WorkFoldCliRequestV1 {
+  return parseWorkFoldCliRequest({
+    protocolVersion: WORKFOLD_CLI_PROTOCOL_VERSION,
     id: input.id,
     argv: input.argv,
     cwd: input.cwd,
@@ -239,8 +239,8 @@ export function createWorkspaceCliRequest(input: {
   });
 }
 
-export function createWorkspaceCliResponse(input: Omit<WorkspaceCliResponseV1, "protocolVersion">): WorkspaceCliResponseV1 {
-  return parseWorkspaceCliResponse({ protocolVersion: WORKSPACE_CLI_PROTOCOL_VERSION, ...input });
+export function createWorkFoldCliResponse(input: Omit<WorkFoldCliResponseV1, "protocolVersion">): WorkFoldCliResponseV1 {
+  return parseWorkFoldCliResponse({ protocolVersion: WORKFOLD_CLI_PROTOCOL_VERSION, ...input });
 }
 
 /** Shared bounded argv validation for both protocol lanes. */
@@ -250,28 +250,28 @@ export function parseBoundedCliArgv(value: unknown): string[] {
 
 function parseArgv(value: unknown): string[] {
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
-    throw new WorkspaceCliError("protocolError", "CLI request argv must be an array of strings.");
+    throw new WorkFoldCliError("protocolError", "CLI request argv must be an array of strings.");
   }
-  if (value.length > WORKSPACE_CLI_MAX_ARG_COUNT) {
-    throw new WorkspaceCliError("protocolError", `CLI request has more than ${WORKSPACE_CLI_MAX_ARG_COUNT} arguments.`);
+  if (value.length > WORKFOLD_CLI_MAX_ARG_COUNT) {
+    throw new WorkFoldCliError("protocolError", `CLI request has more than ${WORKFOLD_CLI_MAX_ARG_COUNT} arguments.`);
   }
   const argv = value as string[];
   let total = 0;
   for (const argument of argv) {
-    if (argument.includes("\u0000")) throw new WorkspaceCliError("protocolError", "CLI argument contains an invalid character.");
-    if (argument.length > WORKSPACE_CLI_MAX_ARG_LENGTH) {
-      throw new WorkspaceCliError("protocolError", `CLI argument exceeds ${WORKSPACE_CLI_MAX_ARG_LENGTH} characters.`);
+    if (argument.includes("\u0000")) throw new WorkFoldCliError("protocolError", "CLI argument contains an invalid character.");
+    if (argument.length > WORKFOLD_CLI_MAX_ARG_LENGTH) {
+      throw new WorkFoldCliError("protocolError", `CLI argument exceeds ${WORKFOLD_CLI_MAX_ARG_LENGTH} characters.`);
     }
     total += argument.length;
   }
-  if (total > WORKSPACE_CLI_MAX_ARGV_LENGTH) {
-    throw new WorkspaceCliError("protocolError", `CLI arguments exceed ${WORKSPACE_CLI_MAX_ARGV_LENGTH} characters in total.`);
+  if (total > WORKFOLD_CLI_MAX_ARGV_LENGTH) {
+    throw new WorkFoldCliError("protocolError", `CLI arguments exceed ${WORKFOLD_CLI_MAX_ARGV_LENGTH} characters in total.`);
   }
   return [...argv];
 }
 
 function objectRecord(value: unknown, message: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new WorkspaceCliError("protocolError", message);
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new WorkFoldCliError("protocolError", message);
   return value as Record<string, unknown>;
 }
 
@@ -283,20 +283,20 @@ function assertExactKeys(
 ): void {
   const allowed = new Set(keys);
   const unexpected = Object.keys(record).filter((key) => !allowed.has(key));
-  if (unexpected.length) throw new WorkspaceCliError("protocolError", `${label} contains unsupported field: ${unexpected[0]}.`);
+  if (unexpected.length) throw new WorkFoldCliError("protocolError", `${label} contains unsupported field: ${unexpected[0]}.`);
   if (optional) return;
   const missing = keys.filter((key) => !(key in record));
-  if (missing.length) throw new WorkspaceCliError("protocolError", `${label} is missing required field: ${missing[0]}.`);
+  if (missing.length) throw new WorkFoldCliError("protocolError", `${label} is missing required field: ${missing[0]}.`);
 }
 
-function isWorkspaceCliExitCode(value: unknown): value is WorkspaceCliExitCode {
-  return typeof value === "number" && Object.values(WorkspaceCliExitCode).includes(value as WorkspaceCliExitCode);
+function isWorkFoldCliExitCode(value: unknown): value is WorkFoldCliExitCode {
+  return typeof value === "number" && Object.values(WorkFoldCliExitCode).includes(value as WorkFoldCliExitCode);
 }
 
-function isWorkspaceCliJson(value: unknown): value is WorkspaceCliJson {
+function isWorkFoldCliJson(value: unknown): value is WorkFoldCliJson {
   if (value === null || typeof value === "string" || typeof value === "boolean") return true;
   if (typeof value === "number") return Number.isFinite(value);
-  if (Array.isArray(value)) return value.every(isWorkspaceCliJson);
+  if (Array.isArray(value)) return value.every(isWorkFoldCliJson);
   if (!value || typeof value !== "object") return false;
-  return Object.values(value as Record<string, unknown>).every((item) => item !== undefined && isWorkspaceCliJson(item));
+  return Object.values(value as Record<string, unknown>).every((item) => item !== undefined && isWorkFoldCliJson(item));
 }

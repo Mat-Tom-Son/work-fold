@@ -3,7 +3,7 @@ import { useCallback, useMemo, useState } from "react";
 import { readStoredJsonValue, writeStoredJsonValue } from "../lib/storage";
 import type { ChatActivityStatus } from "../types";
 
-const attentionStorageKey = "workspace.chat-attention.v1";
+const attentionStorageKey = "work-fold.space.chat-attention.v1";
 
 export function useChatActivity(fixtureMode = false) {
   const [runningKeys, setRunningKeys] = useState<Set<string>>(() => new Set());

@@ -24,7 +24,7 @@ const oauthTenantId = parseTenantId("tenant_oauth-host");
 const oauthRuntimeInstanceId = parseRuntimeInstanceId("runtime-instance_oauth-host");
 const oauthFeatureInstallationId = parseFeatureInstallationId("feature-installation_oauth-host");
 const oauthPrincipalId = parsePrincipalId("principal_oauth-host");
-const oauthFeatureRevisionDigest = parseAppPlatformArtifactDigest(`workspace-artifact-v1:sha256:${"0".repeat(64)}`);
+const oauthFeatureRevisionDigest = parseAppPlatformArtifactDigest(`work-fold.artifact.v1:sha256:${"0".repeat(64)}`);
 
 export function createRestrictedAppOAuthClient(
   connections: RestrictedAppConnectionStore,
@@ -51,7 +51,7 @@ export function createRestrictedAppOAuthClient(
     store,
     transport: createOAuthTransport(),
     openExternal,
-    // Capability advertisements Workspace no longer refuses still say something
+    // Capability advertisements work-fold no longer refuses still say something
     // about the provider, so they are recorded rather than dropped. Issuer only:
     // no client id, scope, token, or binding detail reaches the log.
     onDiagnostic: (diagnostic) => {

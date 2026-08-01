@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { contributedSurfaces, resolveSurfaceForKey, surfaceMatchesTab } from "../web-local/src/lib/capability-surfaces.js";
-import type { AgentExtensionSurface, WorkspaceSurfaceTab } from "../web-local/src/types.js";
+import type { AgentExtensionSurface, SpaceSurfaceTab } from "../web-local/src/types.js";
 
 const piSurface: AgentExtensionSurface = {
   id: "inbox",
@@ -22,10 +22,10 @@ test("Pi surfaces remain in their native full-trust manifest lane", () => {
 
 test("Pi surface tabs resolve against the namespaced Space surface", () => {
   const surface = contributedSurfaces("space-1", [piSurface])[0]!;
-  const tab: WorkspaceSurfaceTab = {
+  const tab: SpaceSurfaceTab = {
     id: `extension:space-1:${surface.key}:overview`,
     kind: "extension",
-    workspaceId: "space-1",
+    spaceId: "space-1",
     surfaceId: surface.key,
     surfaceExecution: "full-trust-pi",
     viewId: "overview",

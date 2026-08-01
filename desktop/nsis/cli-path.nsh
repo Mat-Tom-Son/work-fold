@@ -1,20 +1,20 @@
 !include "LogicLib.nsh"
 !include "WinMessages.nsh"
 
-!macro WorkspaceCliBroadcastEnvironment
+!macro WorkFoldCliBroadcastEnvironment
   SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
 !macroend
 
-!macro WorkspaceCliManageUserPath ACTION
+!macro WorkFoldCliManageUserPath ACTION
   Push $0
   Push $1
-  nsExec::ExecToStack `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\bin\workspace-cli.ps1" --workspace-installer-manage-user-path ${ACTION} "$INSTDIR\bin"`
+  nsExec::ExecToStack `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\bin\work-fold-cli.ps1" --work-fold-installer-manage-user-path ${ACTION} "$INSTDIR\bin"`
   Pop $0
   Pop $1
   ${If} $0 == 0
-    !insertmacro WorkspaceCliBroadcastEnvironment
+    !insertmacro WorkFoldCliBroadcastEnvironment
   ${Else}
-    DetailPrint "Workspace CLI user PATH ${ACTION} failed: $1"
+    DetailPrint "work-fold CLI user PATH ${ACTION} failed: $1"
     SetErrors
   ${EndIf}
   Pop $1
@@ -22,9 +22,9 @@
 !macroend
 
 !macro customInstall
-  !insertmacro WorkspaceCliManageUserPath "install"
+  !insertmacro WorkFoldCliManageUserPath "install"
 !macroend
 
 !macro customUnInstall
-  !insertmacro WorkspaceCliManageUserPath "uninstall"
+  !insertmacro WorkFoldCliManageUserPath "uninstall"
 !macroend

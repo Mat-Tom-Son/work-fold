@@ -4,7 +4,7 @@ import { desktopTitleBarMenus, productName } from "../../constants";
 type DesktopTitleBarMenuId = typeof desktopTitleBarMenus[number]["id"];
 
 function DesktopTitleBar() {
-  const desktop = window.workspaceDesktop as (typeof window.workspaceDesktop & {
+  const desktop = window.workFoldDesktop as (typeof window.workFoldDesktop & {
     menu?: { popup: (menuId: DesktopTitleBarMenuId, point: { x: number; y: number }) => Promise<void> };
   }) | undefined;
   const appInfo = desktop?.app;

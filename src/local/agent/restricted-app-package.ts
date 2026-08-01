@@ -13,6 +13,7 @@ import {
   type AppPlatformArtifactDigest,
   type AppPlatformArtifactEntry,
 } from "./app-platform-artifact.js";
+import { isReservedSpacePathSegment } from "../space-path-policy.js";
 export const restrictedAppPackageLimits = {
   files: 2_048,
   bytes: 50 * 1024 * 1024,
@@ -523,7 +524,8 @@ function packagePathValue(value: unknown, label: string): string {
 function assertPortablePackagePath(value: string, label: string): void {
   const segments = value.split("/");
   if (!value || value.length > 240 || value.includes("\\") || value.includes(":") || value.includes("\0")
-    || value.startsWith("/") || segments.some((segment) => !segment || segment === "." || segment === ".." || isReservedWindowsName(segment))) {
+    || value.startsWith("/") || segments.some((segment) => !segment || segment === "." || segment === ".."
+      || isReservedSpacePathSegment(segment) || isReservedWindowsName(segment))) {
     throw new Error(`${label} must be a portable relative package path.`);
   }
 }

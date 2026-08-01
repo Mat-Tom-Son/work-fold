@@ -1,19 +1,43 @@
 # macOS release runbook
 
-This runbook publishes the Apple silicon Workspace artifacts to the separate public feed at [`Mat-Tom-Son/workspace-mac-releases`](https://github.com/Mat-Tom-Son/workspace-mac-releases). Windows artifacts continue to use the source repository's releases. Both platforms use the same `package.json` version.
+This runbook publishes the Apple silicon work-fold artifacts to the separate public feed at [`Mat-Tom-Son/work-fold-mac-releases`](https://github.com/Mat-Tom-Son/work-fold-mac-releases). Windows artifacts continue to use the source repository's releases. Both platforms use the same `package.json` version.
 
 ## One-time workstation setup
 
 1. Install the `Developer ID Application: James Thompson (464JD5K8DC)` certificate and private key in the login Keychain.
-2. Store notarization credentials with `xcrun notarytool store-credentials`. The existing local profile is `kai-workspace-notary`; profile names are not product-scoped.
+2. Store notarization credentials with `xcrun notarytool store-credentials`. The existing local profile is `kai-workspace-notary`; profile names are not product-scoped and using it does not import legacy product data.
 3. Create ignored `.env.macos.local` using the non-secret variable template in [macOS build and release lane](macos-build.md).
 4. Confirm `gh auth status` uses the `Mat-Tom-Son` account and that the Mac feed repository is public.
 
 Do not export or commit the certificate, private key, app-specific password, or notary credentials.
 
+## First work-fold release
+
+The first public work-fold release is `0.1.0`. The repository retained `0.8.0`
+as a development holdover until the complete clean-break candidate was ready,
+then reset the package version immediately before the release commit and tag.
+The signed candidate must use `com.work-fold.desktop`, the `work-fold`
+application-data profile, and only the `Mat-Tom-Son/work-fold-mac-releases`
+feed. It must start empty and must not open, import, migrate, mutate, wipe, or
+delete the legacy Workspace profile, `.workspace/` data, app platform state, or
+updater cache.
+
+Before that candidate, publish and install the final legacy containment release
+from the last legacy source line. It must keep `.work-fold/` hidden and inert
+and refuse managed recursive deletion when `.work-fold/` exists. Freeze both
+legacy repositories after that release and retain its signed/notarized evidence.
+
+Install and test `0.1.0` manually; Workspace is not an updater predecessor.
+After that release is public, publish a higher work-fold version and prove the
+full installed update from `0.1.0`. The legacy source and Mac-release
+repositories are frozen and must never receive work-fold tags, artifacts, or
+metadata.
+
 ## Release procedure
 
-1. Sync `main`, complete the shared version bump/release notes, and finish the Windows/source-repository work for that version.
+1. Sync `main`, complete the shared version bump/release notes, and finish the
+   source-repository work for that version. Ordinarily the signed Windows
+   source release is published first.
 2. Run the normal gates with Node 24:
 
    ```bash
@@ -30,6 +54,19 @@ Do not export or commit the certificate, private key, app-specific password, or 
    npm run desktop:release:mac
    ```
 
+   When Windows signing is deliberately deferred, use the explicit Mac-first
+   lane instead:
+
+   ```bash
+   npm run desktop:release:mac:first
+   ```
+
+   This exception still requires a public source repository, a source tag on
+   the exact pushed release commit, all Mac signing/notarization gates, and the
+   full remote digest audit. It skips only the already-published Windows asset
+   prerequisite. The Windows workflow remains fail-closed until its signing
+   secrets are configured and may be rerun later on the unchanged tag.
+
 5. Confirm the command reports a public, non-draft `v<version>` release. It must contain the DMG, ZIP, both blockmaps, `latest-mac.yml`, checksums, and both release manifests.
 6. Install or update the app, then verify the exact installed bundle:
 
@@ -37,9 +74,17 @@ Do not export or commit the certificate, private key, app-specific password, or 
    npm run desktop:verify:installed:mac
    ```
 
-7. Open Workspace normally and check **Settings > About** and **Workspace > Check for Updates...**.
+7. Open work-fold normally and check **Settings > About** and **work-fold > Check for Updates...**.
 
-The publisher refuses a dirty/unpushed source tree, a source tag that does not point at the exact release commit, a missing/draft/incomplete Windows source release, a private Mac feed, an existing Mac tag, an unsigned manifest, a missing asset, or any remote size/digest mismatch. Installer-only artwork is generated under ignored `out/` build output so the release build cannot dirty its own source checkout. The publisher uploads a draft first and publishes only after every Mac asset's GitHub SHA-256 matches the local file.
+The normal publisher refuses a dirty/unpushed source tree, a source tag that
+does not point at the exact release commit, a missing/draft/incomplete Windows
+source release, a private Mac feed, an existing Mac tag, an unsigned manifest,
+a missing asset, or any remote size/digest mismatch. The explicit Mac-first
+lane replaces only the Windows-release check with a public-source-repository
+check. Installer-only artwork is generated under ignored `out/` build output
+so the release build cannot dirty its own source checkout. The publisher
+uploads a draft first and publishes only after every Mac asset's GitHub
+SHA-256 matches the local file.
 
 ## Updater evidence
 
@@ -48,12 +93,18 @@ Repeat a lower-version-to-current installed update whenever updater code, Electr
 The accepted proof must show:
 
 - the lower app is Developer ID-signed, notarized, stapled, and installed under `/Applications`;
-- `Contents/Resources/app-update.yml` names `Mat-Tom-Son/workspace-mac-releases`;
-- the lower app's update command offers the expected higher version and the Settings update surface reports the same state (version 0.2.9 uses **Help > Check for Updates...**; version 0.2.10 and later use **Workspace > Check for Updates...** with a native dialog);
+- `Contents/Resources/app-update.yml` names `Mat-Tom-Son/work-fold-mac-releases`;
+- the lower app's **work-fold > Check for Updates...** command offers the expected higher version and the Settings update surface reports the same state;
 - the cached ZIP SHA-256 equals the published GitHub asset digest;
-- Workspace shuts down, replaces the app, and relaunches at the higher version;
+- work-fold shuts down, replaces the app, and relaunches at the higher version;
 - `npm run desktop:verify:installed:mac` passes;
 - a full quit and reopen does not ask for repeated Keychain passwords.
+
+### Preserved legacy Workspace updater evidence
+
+The records below are historical proof for the predecessor product only. They
+do not establish work-fold identity or authorize either product to consume the
+other's profile, metadata, artifacts, or update feed.
 
 Workspace 0.2.8 to 0.2.9 and 0.2.9 to 0.2.10 passed this proof on July 15, 2026. For 0.2.10, the installed 0.2.9 app discovered the public release, cached the final updater ZIP with SHA-256 `35f359e4042a0feaccd75feaca18ab0064d1c85b2500ee99295fdab773c62234`, replaced and relaunched `/Applications/Workspace.app`, passed installed-bundle verification, preserved the empty Space registry, survived last-window close/reopen in one process, and completed a full quit/reopen without a SecurityAgent or Keychain dialog. `updateNow()` intentionally downloads and restarts from one user action.
 
@@ -96,10 +147,10 @@ Workspace 0.4.14 to 0.4.15 passed the same proof on July 27, 2026. Invoking the 
 - Never replace assets in a published release. Correct a bad release with a higher shared version.
 - A failed draft may be deleted only after confirming it was never published or consumed by an installed app.
 - If a build fails after the DMG was notarized, rerun the finalizer. It detects an already valid signed/stapled DMG and refreshes only updater metadata.
-- Never rename or install `Workspace Local Smoke.app` over the production app. A user-data override does not isolate Keychain; use the signed candidate or a disposable macOS account for interactive testing.
-- If repeated Keychain prompts occur after replacing an old ad hoc build, quit Workspace and run `npm run desktop:reset:mac-safe-storage -- --yes --reopen`. Do not read the secret with `security ... -g`.
+- Never rename or install `work-fold Local Smoke.app` over the production app. A user-data override does not isolate Keychain; use the signed candidate or a disposable macOS account for interactive testing.
+- If repeated Keychain prompts occur after replacing an old ad hoc build, quit work-fold and run `npm run desktop:reset:mac-safe-storage -- --yes --reopen`. Do not read the secret with `security ... -g`.
 - The current public lane is arm64 only. Do not publish x64 until an Intel Mac passes launch and updater smoke.
 
 ## Release ownership
 
-The source repository owns code, Windows releases, issues, and documentation. `workspace-mac-releases` is an artifact feed only. Do not develop or hand-edit release metadata in the feed repository, and do not add a second tag workflow that competes with the Windows publisher.
+The source repository owns code, Windows releases, issues, and documentation. `work-fold-mac-releases` is an artifact feed only. Do not develop or hand-edit release metadata in the feed repository, and do not add a second tag workflow that competes with the Windows publisher.

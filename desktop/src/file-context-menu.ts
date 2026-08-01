@@ -11,7 +11,7 @@ export type NativeFileMenuCommand =
   | "delete";
 
 export interface NativeFileMenuRequest {
-  workspaceId: string;
+  spaceId: string;
   path: string;
   kind: "file" | "folder";
   capabilities: {
@@ -29,19 +29,19 @@ export type NativeFileMenuItem =
   | { type: "separator" }
   | { type: "item"; label: string; command: NativeFileMenuCommand };
 
-const requestKeys = new Set(["workspaceId", "path", "kind", "capabilities", "point"]);
+const requestKeys = new Set(["spaceId", "path", "kind", "capabilities", "point"]);
 const capabilityKeys = new Set(["open", "attach", "history", "upload", "rename", "delete"]);
 const pointKeys = new Set(["x", "y"]);
 
 export function parseNativeFileMenuRequest(value: unknown): NativeFileMenuRequest {
   if (!isRecord(value) || !hasOnlyKeys(value, requestKeys)) throw new Error("The native file menu request is invalid.");
-  const workspaceId = typeof value.workspaceId === "string" ? value.workspaceId.trim() : "";
+  const spaceId = typeof value.spaceId === "string" ? value.spaceId.trim() : "";
   if (typeof value.path !== "string") throw new Error("A safe relative Space path is required.");
   const path = value.path;
   const kind = value.kind;
   const capabilities = value.capabilities;
   const point = value.point;
-  if (!workspaceId || workspaceId.length > 512) throw new Error("A valid Space id is required.");
+  if (!spaceId || spaceId.length > 512) throw new Error("A valid Space id is required.");
   if (path.length > 4096 || path.includes("\0") || isAbsolute(path) || /(^|[\\/])\.\.([\\/]|$)/.test(path)) {
     throw new Error("A safe relative Space path is required.");
   }
@@ -54,7 +54,7 @@ export function parseNativeFileMenuRequest(value: unknown): NativeFileMenuReques
   }
   if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) throw new Error("The native file menu position is invalid.");
   return {
-    workspaceId,
+    spaceId,
     path,
     kind,
     capabilities: {

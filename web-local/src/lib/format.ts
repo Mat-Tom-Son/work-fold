@@ -16,9 +16,9 @@ export function splitConfirmMessage(message: string): { title: string; body?: st
   return body ? { title, body } : { title };
 }
 
-export function chatDraftStorageKey(workspaceId: string, conversationId: string | null, surfaceTabId?: string | null): string {
+export function chatDraftStorageKey(spaceId: string, conversationId: string | null, surfaceTabId?: string | null): string {
   const subject = conversationId ?? (surfaceTabId ? `draft:${surfaceTabId}` : chatDraftNewConversationId);
-  return `${chatDraftKeyPrefix}:${workspaceId}:${subject}`;
+  return `${chatDraftKeyPrefix}:${spaceId}:${subject}`;
 }
 
 export function readStoredChatDraft(key: string): string {
@@ -111,7 +111,7 @@ export function changeKindSummaryText(counts: ChangeKindCounts): string {
     counts.created ? formatItemCount(counts.created, "new file", "new files") : null,
     counts.modified ? formatItemCount(counts.modified, "modified file", "modified files") : null,
     counts.deleted ? formatItemCount(counts.deleted, "local deletion") : null,
-    counts.remote_deleted ? formatItemCount(counts.remote_deleted, "deleted outside Workspace") : null,
+    counts.remote_deleted ? formatItemCount(counts.remote_deleted, "deleted outside Space") : null,
   ].filter((part): part is string => Boolean(part));
   return parts.length ? parts.join(" / ") : "No pending updates";
 }

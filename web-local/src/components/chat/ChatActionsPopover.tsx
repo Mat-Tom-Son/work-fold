@@ -8,7 +8,7 @@ import {
   resolveChatSnoozePresets,
 } from "../../lib/chat-lifecycle";
 import { errorText } from "../../lib/api";
-import type { ChatActionsState, ConversationSummary, WorkspaceSummary } from "../../types";
+import type { ChatActionsState, ConversationSummary, SpaceSummary } from "../../types";
 
 type ActionView = "menu" | "rename" | "snooze";
 
@@ -19,9 +19,9 @@ export function ChatActionsPopover({
   onClose,
 }: {
   state: ChatActionsState;
-  onRename: (workspace: WorkspaceSummary, conversation: ConversationSummary, title: string) => Promise<void>;
+  onRename: (space: SpaceSummary, conversation: ConversationSummary, title: string) => Promise<void>;
   onLifecycle: (
-    workspace: WorkspaceSummary,
+    space: SpaceSummary,
     conversation: ConversationSummary,
     patch: { archived?: boolean; snoozedUntil?: string | null },
   ) => Promise<void>;
@@ -85,11 +85,11 @@ export function ChatActionsPopover({
       setError("Enter a Chat title.");
       return;
     }
-    await runAction(() => onRename(state.workspace, state.conversation, nextTitle));
+    await runAction(() => onRename(state.space, state.conversation, nextTitle));
   }
 
   async function handleLifecycle(patch: { archived?: boolean; snoozedUntil?: string | null }): Promise<void> {
-    await runAction(() => onLifecycle(state.workspace, state.conversation, patch));
+    await runAction(() => onLifecycle(state.space, state.conversation, patch));
   }
 
   async function runAction(action: () => Promise<void>): Promise<void> {
@@ -126,7 +126,7 @@ export function ChatActionsPopover({
         <div className="chat-actions-menu">
           <div className="chat-actions-heading">
             <strong>{state.conversation.title}</strong>
-            <span>{state.workspace.name}</span>
+            <span>{state.space.name}</span>
           </div>
           <button ref={firstActionRef} type="button" disabled={busy} onClick={() => setView("rename")}>
             <Pencil size={14} />

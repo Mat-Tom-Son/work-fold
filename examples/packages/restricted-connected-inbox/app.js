@@ -1,4 +1,4 @@
-const bridge = globalThis.workspaceRestrictedApp;
+const bridge = globalThis.workFoldRestrictedApp;
 const root = document.querySelector("#app");
 const automationRefreshKey = "last-automation-refresh";
 

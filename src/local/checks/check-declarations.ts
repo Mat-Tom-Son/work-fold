@@ -4,32 +4,32 @@ import { link, lstat, mkdir, open, opendir, unlink } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 import {
-  declarationFromWorkspaceCheckProposal,
-  normalizeWorkspaceCheckDeclaration,
-  normalizeWorkspaceCheckProposal,
-  type WorkspaceCheckDeclaration,
-  type WorkspaceCheckProposal,
+  declarationFromWorkFoldCheckProposal,
+  normalizeWorkFoldCheckDeclaration,
+  normalizeWorkFoldCheckProposal,
+  type WorkFoldCheckDeclaration,
+  type WorkFoldCheckProposal,
 } from "../../shared/checks.js";
-import { workspaceCheckDeclarationDir } from "../state-paths.js";
-import { workspaceCheckDigest } from "./check-integrity.js";
+import { spaceCheckDeclarationDir } from "../state-paths.js";
+import { workFoldCheckDigest } from "./check-integrity.js";
 
 const maximumDeclarationBytes = 256 * 1024;
 const maximumDeclarations = 256;
 const maximumDirectoryEntries = 4_096;
 
-export interface WorkspaceCheckDeclarationRecord {
-  declaration: WorkspaceCheckDeclaration;
+export interface WorkFoldCheckDeclarationRecord {
+  declaration: WorkFoldCheckDeclaration;
   digest: string;
   path: string;
 }
 
-export interface WorkspaceCheckDeclarationDiscovery {
-  declarations: WorkspaceCheckDeclarationRecord[];
+export interface WorkFoldCheckDeclarationDiscovery {
+  declarations: WorkFoldCheckDeclarationRecord[];
   errors: Array<{ file: string; message: string }>;
 }
 
-export async function discoverWorkspaceCheckDeclarations(workspaceRoot: string): Promise<WorkspaceCheckDeclarationDiscovery> {
-  const directory = workspaceCheckDeclarationDir(workspaceRoot);
+export async function discoverWorkFoldCheckDeclarations(spaceRoot: string): Promise<WorkFoldCheckDeclarationDiscovery> {
+  const directory = spaceCheckDeclarationDir(spaceRoot);
   const directoryInfo = await lstat(directory).catch((error: unknown) => {
     if (isMissingFile(error)) return null;
     throw error;
@@ -56,16 +56,16 @@ export async function discoverWorkspaceCheckDeclarations(workspaceRoot: string):
   if (entries.length > maximumDeclarations) {
     return { declarations: [], errors: [{ file: "checks", message: `The Space has more than ${maximumDeclarations} Check declarations.` }] };
   }
-  const declarations: WorkspaceCheckDeclarationRecord[] = [];
-  const errors: WorkspaceCheckDeclarationDiscovery["errors"] = [];
+  const declarations: WorkFoldCheckDeclarationRecord[] = [];
+  const errors: WorkFoldCheckDeclarationDiscovery["errors"] = [];
   for (const entry of entries) {
     try {
       if (entry.isSymbolicLink() || !entry.isFile()) throw new Error("Check declarations must be ordinary files, not links or special files.");
       const path = join(directory, entry.name);
       const source = await readBoundedOrdinaryFile(path);
-      const declaration = normalizeWorkspaceCheckDeclaration(JSON.parse(source));
+      const declaration = normalizeWorkFoldCheckDeclaration(JSON.parse(source));
       if (`${declaration.id}.json` !== entry.name) throw new Error("Check declaration filename must match its id.");
-      declarations.push({ declaration, digest: workspaceCheckDigest(declaration), path });
+      declarations.push({ declaration, digest: workFoldCheckDigest(declaration), path });
     } catch (error) {
       errors.push({ file: entry.name, message: errorMessage(error) });
     }
@@ -73,21 +73,21 @@ export async function discoverWorkspaceCheckDeclarations(workspaceRoot: string):
   return { declarations, errors };
 }
 
-export async function readWorkspaceCheckProposal(path: string): Promise<WorkspaceCheckProposal> {
+export async function readWorkFoldCheckProposal(path: string): Promise<WorkFoldCheckProposal> {
   const resolved = resolve(path);
-  return normalizeWorkspaceCheckProposal(JSON.parse(await readBoundedOrdinaryFile(resolved)));
+  return normalizeWorkFoldCheckProposal(JSON.parse(await readBoundedOrdinaryFile(resolved)));
 }
 
-export async function writeWorkspaceCheckDeclaration(
-  workspaceRoot: string,
-  proposal: WorkspaceCheckProposal,
-): Promise<WorkspaceCheckDeclarationRecord> {
-  const declaration = declarationFromWorkspaceCheckProposal(proposal);
-  const directory = workspaceCheckDeclarationDir(workspaceRoot);
+export async function writeWorkFoldCheckDeclaration(
+  spaceRoot: string,
+  proposal: WorkFoldCheckProposal,
+): Promise<WorkFoldCheckDeclarationRecord> {
+  const declaration = declarationFromWorkFoldCheckProposal(proposal);
+  const directory = spaceCheckDeclarationDir(spaceRoot);
   await ensureOrdinaryDirectory(directory);
   const path = join(directory, `${declaration.id}.json`);
   await writeNewAtomicJson(path, declaration);
-  return { declaration, digest: workspaceCheckDigest(declaration), path };
+  return { declaration, digest: workFoldCheckDigest(declaration), path };
 }
 
 async function ensureOrdinaryDirectory(path: string): Promise<void> {

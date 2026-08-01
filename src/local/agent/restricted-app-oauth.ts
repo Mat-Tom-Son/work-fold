@@ -39,7 +39,7 @@ export interface RestrictedAppOAuthPkceConfiguration {
 }
 
 /**
- * Advertisement mismatches Workspace deliberately does not fail on. Every one
+ * Advertisement mismatches work-fold deliberately does not fail on. Every one
  * of these describes a capability the client supplies itself: S256 is always
  * sent, no client secret exists to send, and the authorization-code flow is the
  * only flow implemented. Real providers under-populate these fields — neither
@@ -244,7 +244,7 @@ export class RestrictedAppOAuthPkceClient {
         await abortable(this.#openExternal(authorizationUrl.href), flow.signal);
       } catch (error) {
         if (error instanceof RestrictedAppOAuthError) throw error;
-        throw new RestrictedAppOAuthError("NETWORK_FAILED", "Workspace could not open the OAuth authorization page.");
+        throw new RestrictedAppOAuthError("NETWORK_FAILED", "work-fold could not open the OAuth authorization page.");
       }
       const authorization = await callback.result;
       const token = await this.#exchangeCode(
@@ -263,7 +263,7 @@ export class RestrictedAppOAuthPkceClient {
         generation,
         authorizeEffect,
         (authorizeCommit) => this.#store.set(binding, token, authorizeCommit),
-        "Workspace could not save the OAuth connection securely.",
+        "work-fold could not save the OAuth connection securely.",
       );
       return status(token);
     } finally {
@@ -310,7 +310,7 @@ export class RestrictedAppOAuthPkceClient {
       generation,
       authorizeEffect,
       (authorizeCommit) => this.#store.delete(binding, authorizeCommit),
-      "Workspace could not remove the OAuth connection securely.",
+      "work-fold could not remove the OAuth connection securely.",
     );
   }
 
@@ -366,7 +366,7 @@ export class RestrictedAppOAuthPkceClient {
         generation,
         authorizeEffect,
         (authorizeCommit) => this.#store.set(binding, refreshed, authorizeCommit),
-        "Workspace could not rotate the OAuth connection securely.",
+        "work-fold could not rotate the OAuth connection securely.",
       );
       return refreshed;
     } finally {
@@ -417,9 +417,9 @@ export class RestrictedAppOAuthPkceClient {
     this.#reportAdvertisement(diagnostics, configuration.issuer, metadata, "response_types_supported", "code", 32,
       "METADATA_RESPONSE_TYPE_UNDECLARED", "does not advertise the authorization-code response type");
     this.#reportAdvertisement(diagnostics, configuration.issuer, metadata, "code_challenge_methods_supported", "S256", 16,
-      "METADATA_PKCE_UNDECLARED", "does not advertise PKCE S256; Workspace always sends S256");
+      "METADATA_PKCE_UNDECLARED", "does not advertise PKCE S256; work-fold always sends S256");
     this.#reportAdvertisement(diagnostics, configuration.issuer, metadata, "token_endpoint_auth_methods_supported", "none", 32,
-      "METADATA_PUBLIC_CLIENT_UNDECLARED", "does not advertise public clients; Workspace never sends a client secret");
+      "METADATA_PUBLIC_CLIENT_UNDECLARED", "does not advertise public clients; work-fold never sends a client secret");
     return {
       issuer: configuration.issuer,
       authorizationEndpoint: publicHttpsUrl(metadata.authorization_endpoint, "OAuth authorization endpoint"),
@@ -493,7 +493,7 @@ export class RestrictedAppOAuthPkceClient {
     try {
       connection = await this.#store.get(binding);
     } catch {
-      throw new RestrictedAppOAuthError("STORAGE_FAILED", "Workspace could not read the OAuth connection securely.");
+      throw new RestrictedAppOAuthError("STORAGE_FAILED", "work-fold could not read the OAuth connection securely.");
     }
     if (!connection) return undefined;
     const normalized = normalizeRestrictedAppOAuthConnection(connection);
@@ -533,7 +533,7 @@ export class RestrictedAppOAuthPkceClient {
         });
       } catch (error) {
         if (error === authorityError || error instanceof RestrictedAppOAuthError) throw error;
-        throw new RestrictedAppOAuthError("NETWORK_FAILED", "Workspace could not read the OAuth provider metadata.");
+        throw new RestrictedAppOAuthError("NETWORK_FAILED", "work-fold could not read the OAuth provider metadata.");
       }
       return successfulJson(response, this.#maxResponseBytes, "OAuth provider metadata");
     } finally {
@@ -570,7 +570,7 @@ export class RestrictedAppOAuthPkceClient {
         });
       } catch (error) {
         if (error === authorityError || error instanceof RestrictedAppOAuthError) throw error;
-        throw new RestrictedAppOAuthError("NETWORK_FAILED", "Workspace could not complete the OAuth token request.");
+        throw new RestrictedAppOAuthError("NETWORK_FAILED", "work-fold could not complete the OAuth token request.");
       }
       return successfulJson(response, this.#maxResponseBytes, "OAuth token response");
     } finally {
@@ -1011,13 +1011,13 @@ async function createCallbackListener(input: {
     await listenLoopback(server);
   } catch {
     input.signal.removeEventListener("abort", abort);
-    throw new RestrictedAppOAuthError("NETWORK_FAILED", "Workspace could not open a loopback OAuth callback listener.");
+    throw new RestrictedAppOAuthError("NETWORK_FAILED", "work-fold could not open a loopback OAuth callback listener.");
   }
   const address = server.address();
   if (!address || typeof address === "string") {
     input.signal.removeEventListener("abort", abort);
     await closeServer(server);
-    throw new RestrictedAppOAuthError("NETWORK_FAILED", "Workspace could not determine the OAuth callback address.");
+    throw new RestrictedAppOAuthError("NETWORK_FAILED", "work-fold could not determine the OAuth callback address.");
   }
   return {
     redirectUri: `http://127.0.0.1:${address.port}${input.path}`,
@@ -1054,7 +1054,7 @@ function callbackResponse(response: import("node:http").ServerResponse, statusCo
     "referrer-policy": "no-referrer",
     "x-content-type-options": "nosniff",
   });
-  response.end(`<!doctype html><meta charset="utf-8"><title>Workspace sign-in</title><p>${success ? "Sign-in complete. You can return to Workspace." : "Sign-in could not be completed. You can return to Workspace."}</p>`);
+  response.end(`<!doctype html><meta charset="utf-8"><title>work-fold sign-in</title><p>${success ? "Sign-in complete. You can return to work-fold." : "Sign-in could not be completed. You can return to work-fold."}</p>`);
 }
 
 function singleParameter(url: URL, name: string): string | undefined {

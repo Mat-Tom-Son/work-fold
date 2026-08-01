@@ -1,28 +1,28 @@
 import { timingSafeEqual } from "node:crypto";
 
 import type {
-  WorkspaceActChatMessage,
-  WorkspaceActCheckTaskStatus,
-  WorkspaceActConversationRef,
-  WorkspaceActFacade,
+  WorkFoldActChatMessage,
+  WorkFoldActCheckTaskStatus,
+  WorkFoldActConversationRef,
+  WorkFoldActFacade,
 } from "./act-facade.js";
 import type {
-  WorkspaceCheckDecisionKind,
-  WorkspaceCheckEvidence,
-  WorkspaceCheckFinding,
+  WorkFoldCheckDecisionKind,
+  WorkFoldCheckEvidence,
+  WorkFoldCheckFinding,
 } from "../checks/check-types.js";
-import type { WorkspaceCliActRequestV2 } from "./act-protocol.js";
-import type { WorkspaceCliActReceipts } from "./act-receipts.js";
+import type { WorkFoldCliActRequestV2 } from "./act-protocol.js";
+import type { WorkFoldCliActReceipts } from "./act-receipts.js";
 import {
-  WorkspaceCliError,
-  WorkspaceCliExitCode,
-  createWorkspaceCliResponse,
-  type WorkspaceCliJson,
-  type WorkspaceCliOutputMode,
-  type WorkspaceCliResponseV1,
+  WorkFoldCliError,
+  WorkFoldCliExitCode,
+  createWorkFoldCliResponse,
+  type WorkFoldCliJson,
+  type WorkFoldCliOutputMode,
+  type WorkFoldCliResponseV1,
 } from "./protocol.js";
 
-export type WorkspaceCliActCommandName =
+export type WorkFoldCliActCommandName =
   | "chat.create"
   | "chat.send"
   | "chat.status"
@@ -33,6 +33,7 @@ export type WorkspaceCliActCommandName =
   | "manage.status"
   | "manage.result"
   | "manage.abort"
+  | "manage.stop"
   | "manage.list"
   | "checks.enable"
   | "checks.disable"
@@ -46,12 +47,14 @@ export type WorkspaceCliActCommandName =
   | "spaces.register"
   | "files.add";
 
-export interface WorkspaceCliActParsedCommand {
-  name: WorkspaceCliActCommandName;
-  output: WorkspaceCliOutputMode;
+export interface WorkFoldCliActParsedCommand {
+  name: WorkFoldCliActCommandName;
+  output: WorkFoldCliOutputMode;
   space?: string;
   conversation?: string;
   task?: string;
+  /** Explicit management request lineage for downstream mutation commands. */
+  parentTaskId?: string;
   newConversation?: boolean;
   message?: string;
   messageFromPayload?: boolean;
@@ -59,30 +62,34 @@ export interface WorkspaceCliActParsedCommand {
   spaceName?: string;
   registerPath?: string;
   fromPaths?: string[];
+  /** Raw --attach values for manage send: paths or http(s) links. */
+  attachments?: string[];
   toDir?: string;
   proposalPath?: string;
   check?: string;
   finding?: string;
-  decision?: WorkspaceCheckDecisionKind;
+  decision?: WorkFoldCheckDecisionKind;
   until?: string;
 }
 
 /** The running interactive app's act authority: the facade plus this run's token. */
-export interface WorkspaceCliActAuthority {
-  facade: WorkspaceActFacade;
+export interface WorkFoldCliActAuthority {
+  facade: WorkFoldActFacade;
   token: string;
 }
 
-export interface WorkspaceCliActExecutorOptions {
+export interface WorkFoldCliActExecutorOptions {
   version: string;
   productName?: string;
   now?: () => Date;
-  getActFacade: () => WorkspaceCliActAuthority | null;
-  receipts: Pick<WorkspaceCliActReceipts, "append" | "hasAccepted">;
+  getActFacade: () => WorkFoldCliActAuthority | null;
+  receipts: Pick<WorkFoldCliActReceipts, "append" | "hasAccepted">;
+  /** Resolves an explicitly named management parent only while it is active. */
+  resolveLineageParent?: (taskId: string) => { taskId: string } | null;
 }
 
-export const workspaceCliActUnavailableMessage =
-  "Open Workspace to run this command. Chat, Check, and Space actions need the Workspace app running.";
+export const workFoldCliActUnavailableMessage =
+  "Open work-fold to run this command. Chat, Check, and Space actions need the work-fold app running.";
 
 const maxActResultMessages = 500;
 const maxActFromPaths = 25;
@@ -95,21 +102,24 @@ const maxChecksOutputHealthErrors = 20;
  * Parses act-lane argv. Every command requires explicit selection — there is
  * deliberately no current-directory Space resolution for writes.
  */
-export function parseWorkspaceCliActArgv(argv: readonly string[]): WorkspaceCliActParsedCommand {
-  let output: WorkspaceCliOutputMode = "human";
+export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliActParsedCommand {
+  let output: WorkFoldCliOutputMode = "human";
   const flags = new Map<string, string | true>();
   const fromPaths: string[] = [];
+  const attachValues: string[] = [];
   const positional: string[] = [];
 
   const valueFlags = new Set([
     "--space",
     "--conversation",
     "--task",
+    "--parent-task",
     "--message",
     "--messages",
     "--name",
     "--path",
     "--from",
+    "--attach",
     "--to",
     "--proposal",
     "--check",
@@ -142,6 +152,10 @@ export function parseWorkspaceCliActArgv(argv: readonly string[]): WorkspaceCliA
         fromPaths.push(value);
         continue;
       }
+      if (flagName === "--attach") {
+        attachValues.push(value);
+        continue;
+      }
       if (flags.has(flagName)) throw usageError(`${flagName} may be provided only once.`);
       flags.set(flagName, value);
       continue;
@@ -158,6 +172,9 @@ export function parseWorkspaceCliActArgv(argv: readonly string[]): WorkspaceCliA
   const command = positional.join(" ");
   if (command !== "files add" && fromPaths.length) {
     throw usageError(`--from cannot be used with '${command || "(none)"}'.`);
+  }
+  if (command !== "manage send" && attachValues.length) {
+    throw usageError(`--attach cannot be used with '${command || "(none)"}'.`);
   }
   const stringFlag = (name: string): string | undefined => {
     const value = flags.get(name);
@@ -198,6 +215,14 @@ export function parseWorkspaceCliActArgv(argv: readonly string[]): WorkspaceCliA
     }
     return value;
   };
+  const rawParentTaskId = stringFlag("--parent-task");
+  const lineageCommands = new Set(["chat send", "spaces create", "spaces register", "files add"]);
+  if (rawParentTaskId !== undefined && !lineageCommands.has(command)) {
+    throw usageError(`--parent-task cannot be used with '${command || "(none)"}'.`);
+  }
+  const parentTaskId = rawParentTaskId === undefined
+    ? undefined
+    : requireBoundedFlag("--parent-task", "management-task-id");
 
   if (!command.startsWith("checks ")) {
     rejectFlags("--proposal", "--check", "--finding", "--decision", "--until");
@@ -230,6 +255,7 @@ export function parseWorkspaceCliActArgv(argv: readonly string[]): WorkspaceCliA
         ...(newConversation ? { newConversation } : {}),
         ...(message !== undefined ? { message } : {}),
         ...(messageFromPayload ? { messageFromPayload } : {}),
+        ...(parentTaskId ? { parentTaskId } : {}),
       };
     }
     case "chat status": {
@@ -265,7 +291,7 @@ export function parseWorkspaceCliActArgv(argv: readonly string[]): WorkspaceCliA
     case "chat wait":
     case "manage wait":
     case "checks wait":
-      throw usageError(`${command} runs inside the workspace shim; update the installed Workspace CLI.`);
+      throw usageError(`${command} runs inside the work-fold shim; update the installed work-fold CLI.`);
     case "checks enable":
       allowOnlyFlags("--space", "--proposal");
       return {
@@ -334,10 +360,10 @@ export function parseWorkspaceCliActArgv(argv: readonly string[]): WorkspaceCliA
       allowOnlyFlags("--space", "--finding", "--decision", "--until");
       const finding = requireBoundedFlag("--finding", "finding-id");
       const rawDecision = requireBoundedFlag("--decision", "accept|reject|resolve|defer");
-      if (!(["accept", "reject", "resolve", "defer"] as const).includes(rawDecision as WorkspaceCheckDecisionKind)) {
+      if (!(["accept", "reject", "resolve", "defer"] as const).includes(rawDecision as WorkFoldCheckDecisionKind)) {
         throw usageError("--decision must be accept, reject, resolve, or defer.");
       }
-      const decision = rawDecision as WorkspaceCheckDecisionKind;
+      const decision = rawDecision as WorkFoldCheckDecisionKind;
       const rawUntil = stringFlag("--until")?.trim();
       if (decision !== "defer" && rawUntil !== undefined) {
         throw usageError("--until may be used only with --decision defer.");
@@ -379,7 +405,14 @@ export function parseWorkspaceCliActArgv(argv: readonly string[]): WorkspaceCliA
         ...(newConversation ? { newConversation } : {}),
         ...(message !== undefined ? { message } : {}),
         ...(messageFromPayload ? { messageFromPayload } : {}),
+        ...(attachValues.length ? { attachments: [...attachValues] } : {}),
       };
+    }
+    case "manage stop": {
+      rejectFlags("--space", "--conversation", "--new", "--message", "--message-from-payload", "--messages", "--name", "--path", "--to");
+      const task = stringFlag("--task")?.trim();
+      if (!task) throw usageError("Provide --task <id>.");
+      return { name: "manage.stop", output, task };
     }
     case "manage status": {
       rejectFlags("--space", "--new", "--message", "--message-from-payload", "--messages", "--name", "--path", "--to");
@@ -434,13 +467,13 @@ export function parseWorkspaceCliActArgv(argv: readonly string[]): WorkspaceCliA
       rejectFlags("--space", "--conversation", "--task", "--new", "--message", "--message-from-payload", "--messages", "--path", "--to");
       const spaceName = stringFlag("--name")?.trim();
       if (!spaceName) throw usageError("Provide --name <space-name>.");
-      return { name: "spaces.create", output, spaceName };
+      return { name: "spaces.create", output, spaceName, ...(parentTaskId ? { parentTaskId } : {}) };
     }
     case "spaces register": {
       rejectFlags("--space", "--conversation", "--task", "--new", "--message", "--message-from-payload", "--messages", "--name", "--to");
       const registerPath = stringFlag("--path")?.trim();
       if (!registerPath) throw usageError("Provide --path <absolute-folder-path>.");
-      return { name: "spaces.register", output, registerPath };
+      return { name: "spaces.register", output, registerPath, ...(parentTaskId ? { parentTaskId } : {}) };
     }
     case "files add": {
       rejectFlags("--conversation", "--task", "--new", "--message", "--message-from-payload", "--messages", "--name", "--path");
@@ -453,6 +486,7 @@ export function parseWorkspaceCliActArgv(argv: readonly string[]): WorkspaceCliA
         space: requireSpace(),
         fromPaths: [...fromPaths],
         ...(toDir !== undefined ? { toDir } : {}),
+        ...(parentTaskId ? { parentTaskId } : {}),
       };
     }
     default:
@@ -460,15 +494,16 @@ export function parseWorkspaceCliActArgv(argv: readonly string[]): WorkspaceCliA
   }
 }
 
-export async function executeWorkspaceCliActRequest(
-  request: WorkspaceCliActRequestV2,
-  options: WorkspaceCliActExecutorOptions,
-): Promise<WorkspaceCliResponseV1> {
+export async function executeWorkFoldCliActRequest(
+  request: WorkFoldCliActRequestV2,
+  options: WorkFoldCliActExecutorOptions,
+): Promise<WorkFoldCliResponseV1> {
   const completedAt = () => (options.now?.() ?? new Date()).toISOString();
-  let command: WorkspaceCliActParsedCommand | undefined;
+  let command: WorkFoldCliActParsedCommand | undefined;
   let accepted = false;
+  let receiptParentTaskId: string | undefined;
   try {
-    command = parseWorkspaceCliActArgv(request.argv);
+    command = parseWorkFoldCliActArgv(request.argv);
     const authority = options.getActFacade();
     if (!authority || !tokensMatch(authority.token, request.actToken)) {
       await options.receipts.append({
@@ -477,7 +512,7 @@ export async function executeWorkspaceCliActRequest(
         outcome: "rejected",
         errorCode: "unavailable",
       });
-      throw new WorkspaceCliError("unavailable", workspaceCliActUnavailableMessage);
+      throw new WorkFoldCliError("unavailable", workFoldCliActUnavailableMessage);
     }
     // The broker's response-file dedup only covers a pending request; the
     // journal's accepted records are the durable at-most-once ledger.
@@ -489,19 +524,36 @@ export async function executeWorkspaceCliActRequest(
         errorCode: "conflict",
         detail: "duplicate act request id",
       });
-      throw new WorkspaceCliError("conflict", "This act request id was already executed. Submit a new request instead of replaying it.");
+      throw new WorkFoldCliError("conflict", "This act request id was already executed. Submit a new request instead of replaying it.");
     }
     // The accepted record lands before the mutation so a crash can never
     // leave an applied action without a journal trace; an unwritable journal
     // refuses the command entirely.
+    const lineageParent = command.parentTaskId
+      ? options.resolveLineageParent?.(command.parentTaskId) ?? null
+      : null;
+    if (command.parentTaskId && !lineageParent) {
+      await options.receipts.append({
+        requestId: request.id,
+        command: command.name,
+        outcome: "rejected",
+        errorCode: "conflict",
+        parentTaskId: command.parentTaskId,
+        detail: "inactive management parent",
+      });
+      throw new WorkFoldCliError("conflict", "The management request named by --parent-task is no longer active.");
+    }
+    receiptParentTaskId = lineageParent?.taskId;
+    const lineage = receiptParentTaskId ? { parentTaskId: receiptParentTaskId } : {};
     const acceptedRecorded = await options.receipts.append({
       requestId: request.id,
       command: command.name,
       outcome: "accepted",
+      ...lineage,
       ...(command.space ? { detail: `space ${command.space}` } : {}),
     });
     if (!acceptedRecorded) {
-      throw new WorkspaceCliError("failure", "Workspace could not record the act receipt, so the command was not run.");
+      throw new WorkFoldCliError("failure", "work-fold could not record the act receipt, so the command was not run.");
     }
     accepted = true;
     const data = await runActCommand(command, request, authority.facade);
@@ -509,15 +561,16 @@ export async function executeWorkspaceCliActRequest(
       requestId: request.id,
       command: command.name,
       outcome: "ok",
+      ...lineage,
       ...receiptDetails(data),
     });
-    return createWorkspaceCliResponse({
+    return createWorkFoldCliResponse({
       id: request.id,
-      exitCode: WorkspaceCliExitCode.success,
+      exitCode: WorkFoldCliExitCode.success,
       stdout: command.output === "json"
         ? `${JSON.stringify({ ok: true, command: command.name, data }, null, 2)}\n`
         : humanActOutput(command.name, data),
-      stderr: outcomeRecorded ? "" : "workspace: warning: the act outcome receipt could not be recorded.\n",
+      stderr: outcomeRecorded ? "" : "work-fold: warning: the act outcome receipt could not be recorded.\n",
       result: data,
       completedAt: completedAt(),
     });
@@ -529,10 +582,11 @@ export async function executeWorkspaceCliActRequest(
         command: command.name,
         outcome: "error",
         errorCode: normalized.code,
+        ...(receiptParentTaskId ? { parentTaskId: receiptParentTaskId } : {}),
       });
     }
     const json = command?.output === "json" || request.argv.includes("--json");
-    return createWorkspaceCliResponse({
+    return createWorkFoldCliResponse({
       id: request.id,
       exitCode: normalized.exitCode,
       stdout: "",
@@ -546,10 +600,10 @@ export async function executeWorkspaceCliActRequest(
 }
 
 async function runActCommand(
-  command: WorkspaceCliActParsedCommand,
-  request: WorkspaceCliActRequestV2,
-  facade: WorkspaceActFacade,
-): Promise<WorkspaceCliJson> {
+  command: WorkFoldCliActParsedCommand,
+  request: WorkFoldCliActRequestV2,
+  facade: WorkFoldActFacade,
+): Promise<WorkFoldCliJson> {
   switch (command.name) {
     case "chat.create":
       return toJson(await facade.createConversation({ space: command.space! }));
@@ -560,6 +614,7 @@ async function runActCommand(
         ...(command.conversation ? { conversationId: command.conversation } : {}),
         ...(command.newConversation ? { newConversation: true } : {}),
         content,
+        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));
     }
     case "chat.status":
@@ -584,8 +639,11 @@ async function runActCommand(
         ...(command.conversation ? { conversationId: command.conversation } : {}),
         ...(command.newConversation ? { newConversation: true } : {}),
         content,
+        ...(command.attachments?.length ? { attachments: command.attachments, cwd: request.cwd } : {}),
       }));
     }
+    case "manage.stop":
+      return toJson(await facade.manageStop({ taskId: command.task! }));
     case "manage.status":
       return command.task
         ? toJson(await facade.manageTurnStatus({ taskId: command.task }))
@@ -649,22 +707,29 @@ async function runActCommand(
         ...(command.until ? { deferUntil: command.until } : {}),
       }));
     case "spaces.create":
-      return toJson(await facade.createSpace({ name: command.spaceName! }));
+      return toJson(await facade.createSpace({
+        name: command.spaceName!,
+        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
+      }));
     case "spaces.register":
-      return toJson(await facade.registerSpace({ rootPath: command.registerPath! }));
+      return toJson(await facade.registerSpace({
+        spaceRoot: command.registerPath!,
+        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
+      }));
     case "files.add":
       return toJson(await facade.addFiles({
         space: command.space!,
         fromPaths: command.fromPaths ?? [],
         ...(command.toDir !== undefined ? { toDir: command.toDir } : {}),
         cwd: request.cwd,
+        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));
   }
 }
 
 function projectChecksResult(
-  value: Awaited<ReturnType<WorkspaceActFacade["checksResult"]>>,
-): WorkspaceCliJson {
+  value: Awaited<ReturnType<WorkFoldActFacade["checksResult"]>>,
+): WorkFoldCliJson {
   const { run } = value;
   const findings = run.findings.slice(0, maxChecksOutputFindings).map(projectCheckFinding);
   return toChecksJson({
@@ -693,8 +758,8 @@ function projectChecksResult(
 }
 
 function projectChecksProblems(
-  value: Awaited<ReturnType<WorkspaceActFacade["checksProblems"]>>,
-): WorkspaceCliJson {
+  value: Awaited<ReturnType<WorkFoldActFacade["checksProblems"]>>,
+): WorkFoldCliJson {
   const findings = value.findings.slice(0, maxChecksOutputFindings).map(projectCheckFinding);
   const healthErrors = value.healthErrors.slice(0, maxChecksOutputHealthErrors);
   return toChecksJson({
@@ -712,7 +777,7 @@ function projectChecksProblems(
   });
 }
 
-function projectCheckFinding(finding: WorkspaceCheckFinding): Record<string, unknown> {
+function projectCheckFinding(finding: WorkFoldCheckFinding): Record<string, unknown> {
   return {
     id: finding.id,
     fingerprint: finding.fingerprint,
@@ -733,11 +798,11 @@ function projectCheckFinding(finding: WorkspaceCheckFinding): Record<string, unk
   };
 }
 
-function projectCheckEvidence(evidence: WorkspaceCheckEvidence): WorkspaceCliJson {
+function projectCheckEvidence(evidence: WorkFoldCheckEvidence): WorkFoldCliJson {
   return sanitizeChecksJson(evidence);
 }
 
-function toChecksJson(value: unknown): WorkspaceCliJson {
+function toChecksJson(value: unknown): WorkFoldCliJson {
   return sanitizeChecksJson(value);
 }
 
@@ -746,14 +811,14 @@ function toChecksJson(value: unknown): WorkspaceCliJson {
  * model content. Bound every collection/string and scrub terminal controls at
  * this final adapter boundary so both JSON and human projections are safe.
  */
-function sanitizeChecksJson(value: unknown, depth = 0): WorkspaceCliJson {
+function sanitizeChecksJson(value: unknown, depth = 0): WorkFoldCliJson {
   if (value === null || typeof value === "boolean") return value;
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value === "string") return boundedTerminalText(value, 8_192);
   if (depth >= 12) return "[nested output omitted]";
   if (Array.isArray(value)) return value.slice(0, 512).map((item) => sanitizeChecksJson(item, depth + 1));
   if (typeof value === "object") {
-    const output: Record<string, WorkspaceCliJson> = {};
+    const output: Record<string, WorkFoldCliJson> = {};
     for (const [key, item] of Object.entries(value).slice(0, 128)) {
       if (item === undefined || typeof item === "function" || typeof item === "symbol") continue;
       output[terminalText(key)] = sanitizeChecksJson(item, depth + 1);
@@ -768,7 +833,7 @@ function boundedTerminalText(value: unknown, maximumLength: number): string {
   return scrubbed.length <= maximumLength ? scrubbed : `${scrubbed.slice(0, maximumLength - 1)}…`;
 }
 
-const manageRenderAliases: Partial<Record<WorkspaceCliActCommandName, WorkspaceCliActCommandName>> = {
+const manageRenderAliases: Partial<Record<WorkFoldCliActCommandName, WorkFoldCliActCommandName>> = {
   "manage.send": "chat.send",
   "manage.status": "chat.status",
   "manage.result": "chat.result",
@@ -776,13 +841,13 @@ const manageRenderAliases: Partial<Record<WorkspaceCliActCommandName, WorkspaceC
   "manage.list": "chats.list",
 };
 
-function humanActOutput(name: WorkspaceCliActCommandName, data: WorkspaceCliJson): string {
-  const record = data as Record<string, WorkspaceCliJson> & {
-    space?: { id?: string; name?: string; rootPath?: string };
-    conversation?: WorkspaceActConversationRef;
-    conversations?: WorkspaceActConversationRef[];
-    messages?: WorkspaceActChatMessage[];
-    task?: WorkspaceActCheckTaskStatus;
+function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson): string {
+  const record = data as Record<string, WorkFoldCliJson> & {
+    space?: { id?: string; name?: string; spaceRoot?: string };
+    conversation?: WorkFoldActConversationRef;
+    conversations?: WorkFoldActConversationRef[];
+    messages?: WorkFoldActChatMessage[];
+    task?: WorkFoldActCheckTaskStatus;
   };
   const spaceLabel = record.space ? `${terminalText(record.space.name)} [${terminalText(record.space.id)}]` : "";
   switch (manageRenderAliases[name] ?? name) {
@@ -795,7 +860,18 @@ function humanActOutput(name: WorkspaceCliActCommandName, data: WorkspaceCliJson
       if (task) {
         const error = typeof task.error === "string" && task.error ? `\n${terminalText(task.error)}` : "";
         const conversation = task.conversationId ? ` — Chat ${terminalText(task.conversationId)}` : "";
-        return `Task ${terminalText(task.taskId)} — ${terminalText(task.state)}${conversation}${error}\n`;
+        const request = record.request as {
+          phase?: string;
+          children?: Array<{ taskId?: string; spaceName?: string; state?: string }>;
+        } | null | undefined;
+        const requestLines = request
+          ? [
+              `Request phase: ${terminalText(request.phase)}`,
+              ...(request.children ?? []).map((child) =>
+                `- delegated task ${terminalText(child.taskId)} in ${terminalText(child.spaceName)} — ${terminalText(child.state)}`),
+            ].join("\n")
+          : "";
+        return `Task ${terminalText(task.taskId)} — ${terminalText(task.state)}${conversation}${error}${requestLines ? `\n${requestLines}` : ""}\n`;
       }
       const conversation = record.conversation;
       const lifecycle = conversation?.archivedAt ? " (archived)" : conversation?.snoozedUntil ? " (snoozed)" : "";
@@ -803,7 +879,7 @@ function humanActOutput(name: WorkspaceCliActCommandName, data: WorkspaceCliJson
     }
     case "chat.result": {
       const task = record.task as { taskId?: string; state?: string } | undefined;
-      const message = record.message as unknown as WorkspaceActChatMessage | undefined;
+      const message = record.message as unknown as WorkFoldActChatMessage | undefined;
       if (task && message) {
         return `${terminalText(message.content)}\n\n[${terminalText(task.state)}] task ${terminalText(task.taskId)} in ${terminalText(record.conversationId)}\n`;
       }
@@ -814,6 +890,16 @@ function humanActOutput(name: WorkspaceCliActCommandName, data: WorkspaceCliJson
     }
     case "chat.abort":
       return record.aborted ? "Aborted the active turn.\n" : "No active turn to abort.\n";
+    case "manage.stop": {
+      const children = (Array.isArray(record.children) ? record.children : []) as Array<{ taskId?: string; spaceId?: string; aborted?: boolean }>;
+      const managementLine = record.managementAborted
+        ? "Stopped the management turn."
+        : "The management turn was not running.";
+      if (!children.length) return `${managementLine}\nNo delegated Space turns were running.\n`;
+      const childLines = children.map((child) =>
+        `- ${child.aborted ? "Stopped" : "Could not stop"} task ${terminalText(child.taskId)} in Space ${terminalText(child.spaceId)}`);
+      return `${managementLine}\n${childLines.join("\n")}\n`;
+    }
     case "chats.list": {
       const conversations = record.conversations ?? [];
       if (!conversations.length) return "No Chats found.\n";
@@ -823,7 +909,7 @@ function humanActOutput(name: WorkspaceCliActCommandName, data: WorkspaceCliJson
       }).join("\n")}\n`;
     }
     case "checks.enable": {
-      const check = record.check as { id?: string; title?: string; trigger?: string; targets?: Array<Record<string, WorkspaceCliJson>> } | undefined;
+      const check = record.check as { id?: string; title?: string; trigger?: string; targets?: Array<Record<string, WorkFoldCliJson>> } | undefined;
       const targets = check?.targets ?? [];
       const scope = targets.slice(0, 64).map((target) => {
         const membership = target.kind === "tree"
@@ -873,7 +959,7 @@ function humanActOutput(name: WorkspaceCliActCommandName, data: WorkspaceCliJson
         severity?: string;
         title?: string;
         targetPath?: string;
-        evidence?: WorkspaceCliJson[];
+        evidence?: WorkFoldCliJson[];
       }>;
       const shown = findings.slice(0, 20);
       const total = typeof record.findingCount === "number" ? record.findingCount : findings.length;
@@ -901,7 +987,7 @@ function humanActOutput(name: WorkspaceCliActCommandName, data: WorkspaceCliJson
     }
     case "spaces.create":
     case "spaces.register":
-      return `Space ${spaceLabel} — ${terminalText(record.space?.rootPath)}\n`;
+      return `Space ${spaceLabel} — ${terminalText(record.space?.spaceRoot)}\n`;
     case "files.add": {
       const copied = Array.isArray(record.copied) ? record.copied : [];
       const lines = copied.map((path) => `- ${terminalText(path)}`);
@@ -913,8 +999,8 @@ function humanActOutput(name: WorkspaceCliActCommandName, data: WorkspaceCliJson
   }
 }
 
-function humanCheckEvidence(value: WorkspaceCliJson): string {
-  const evidence = value as Record<string, WorkspaceCliJson>;
+function humanCheckEvidence(value: WorkFoldCliJson): string {
+  const evidence = value as Record<string, WorkFoldCliJson>;
   switch (evidence.kind) {
     case "path-state":
       return `${terminalText(evidence.path)} expected ${terminalText(evidence.expected)}, observed ${terminalText(evidence.observed)}`;
@@ -923,7 +1009,7 @@ function humanCheckEvidence(value: WorkspaceCliJson): string {
   }
 }
 
-function receiptDetails(data: WorkspaceCliJson): {
+function receiptDetails(data: WorkFoldCliJson): {
   spaceId?: string;
   conversationId?: string;
   checkpointId?: string;
@@ -963,8 +1049,8 @@ function tokensMatch(expected: string, provided: string): boolean {
   return timingSafeEqual(expectedBytes, providedBytes);
 }
 
-function toJson(value: unknown): WorkspaceCliJson {
-  return JSON.parse(JSON.stringify(value)) as WorkspaceCliJson;
+function toJson(value: unknown): WorkFoldCliJson {
+  return JSON.parse(JSON.stringify(value)) as WorkFoldCliJson;
 }
 
 // Unlike the read lane's single-line values, act output legitimately spans
@@ -973,19 +1059,19 @@ function terminalText(value: unknown): string {
   return String(value).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "\uFFFD");
 }
 
-function humanActErrorMessage(error: WorkspaceCliError): string {
-  const usageHint = "\nRun 'workspace help' for usage.";
+function humanActErrorMessage(error: WorkFoldCliError): string {
+  const usageHint = "\nRun 'work-fold help' for usage.";
   if (error.code === "usage" && error.message.endsWith(usageHint)) {
     return `${terminalText(error.message.slice(0, -usageHint.length))}${usageHint}`;
   }
   return terminalText(error.message);
 }
 
-function usageError(message: string): WorkspaceCliError {
-  return new WorkspaceCliError("usage", `${message}\nRun 'workspace help' for usage.`);
+function usageError(message: string): WorkFoldCliError {
+  return new WorkFoldCliError("usage", `${message}\nRun 'work-fold help' for usage.`);
 }
 
-function normalizeActError(error: unknown): WorkspaceCliError {
-  if (error instanceof WorkspaceCliError) return error;
-  return new WorkspaceCliError("failure", error instanceof Error ? error.message : String(error ?? "Workspace act command failed."), { cause: error });
+function normalizeActError(error: unknown): WorkFoldCliError {
+  if (error instanceof WorkFoldCliError) return error;
+  return new WorkFoldCliError("failure", error instanceof Error ? error.message : String(error ?? "work-fold act command failed."), { cause: error });
 }

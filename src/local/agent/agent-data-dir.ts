@@ -6,33 +6,33 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 /**
  * Default on-disk home for the Pi SDK config directory (models.json, SDK settings).
  * Defaults to Pi's native ~/.pi/agent directory so global Pi packages, skills,
- * extensions, prompts, themes, models, and auth are available to Workspace.
- * Desktop hosts can inject a dedicated userData path with WORKSPACE_AGENT_DIR.
+ * extensions, prompts, themes, models, and auth are available to work-fold.
+ * Desktop hosts can inject an explicit test path with WORKFOLD_AGENT_DIR.
  */
 export function defaultAgentSdkDir(runtimeEnv: NodeJS.ProcessEnv = {}): string {
   const override = firstNonEmpty(
-    runtimeEnv.WORKSPACE_AGENT_DIR,
+    runtimeEnv.WORKFOLD_AGENT_DIR,
     runtimeEnv.PI_CODING_AGENT_DIR,
-    process.env.WORKSPACE_AGENT_DIR,
+    process.env.WORKFOLD_AGENT_DIR,
     process.env.PI_CODING_AGENT_DIR,
   );
   if (override) return override;
   return getAgentDir();
 }
 
-/** External session storage keyed by workspace path; never pollutes user files. */
-export function workspaceSessionDir(workspaceRoot: string, agentDir = defaultAgentSdkDir()): string {
-  return join(agentDir, "sessions", workspaceStorageKey(workspaceRoot));
+/** External session storage keyed by Space path; never pollutes user files. */
+export function spaceSessionDir(spaceRoot: string, agentDir = defaultAgentSdkDir()): string {
+  return join(agentDir, "sessions", "work-fold", spaceStorageKey(spaceRoot));
 }
 
-export function workspaceStorageKey(workspaceRoot: string): string {
-  const resolved = resolve(workspaceRoot);
+export function spaceStorageKey(spaceRoot: string): string {
+  const resolved = resolve(spaceRoot);
   return `${readableDirSegment(basename(resolved))}-${createHash("sha256").update(normalizedStoragePath(resolved)).digest("hex").slice(0, 12)}`;
 }
 
 function readableDirSegment(name: string): string {
   const cleaned = name.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
-  return cleaned || "workspace";
+  return cleaned || "space";
 }
 
 function normalizedStoragePath(value: string): string {

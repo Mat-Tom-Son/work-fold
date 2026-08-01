@@ -21,8 +21,8 @@ const visibleMatchLimit = 50;
  * request is debounced and abandoned when the query or Space changes, so
  * typing never leaves a stale result on screen.
  */
-export function FileContentSearch({ workspaceId, query, onOpenFile }: {
-  workspaceId: string;
+export function FileContentSearch({ spaceId, query, onOpenFile }: {
+  spaceId: string;
   query: string;
   onOpenFile: (path: string) => void;
 }) {
@@ -41,7 +41,7 @@ export function FileContentSearch({ workspaceId, query, onOpenFile }: {
     setState({ status: "searching", result: null });
     const timer = window.setTimeout(() => {
       void api<SearchResponse>(
-        `/api/workspaces/${workspaceId}/search?scope=files&q=${encodeURIComponent(trimmed)}`,
+        `/api/spaces/${spaceId}/search?scope=files&q=${encodeURIComponent(trimmed)}`,
         { signal: controller.signal },
       )
         .then((result) => { if (!controller.signal.aborted) setState({ status: "ready", result }); })
@@ -51,7 +51,7 @@ export function FileContentSearch({ workspaceId, query, onOpenFile }: {
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [query, workspaceId]);
+  }, [query, spaceId]);
 
   if (state.status === "idle") return null;
   const matches = state.result?.files ?? [];

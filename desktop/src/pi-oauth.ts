@@ -25,7 +25,7 @@ export interface DesktopPiOAuthHost {
  *
  * Browser callbacks complete automatically when a provider supports them.
  * Providers that return a code in the browser use an explicit
- * "Paste from clipboard" action so Workspace never reads clipboard contents
+ * "Paste from clipboard" action so work-fold never reads clipboard contents
  * without a contemporaneous user gesture.
  */
 export function createDesktopPiOAuthHooks(host: DesktopPiOAuthHost): PiOAuthHooks {
@@ -39,7 +39,7 @@ export function createDesktopPiOAuthHooks(host: DesktopPiOAuthHost): PiOAuthHook
         type: "info",
         title: "Complete provider sign-in",
         message: `Enter this code in your browser:\n\n${info.userCode}`,
-        detail: "Workspace copied the code to your clipboard and opened the provider's verification page.",
+        detail: "work-fold copied the code to your clipboard and opened the provider's verification page.",
         buttons: ["OK"],
         defaultId: 0,
         cancelId: 0,

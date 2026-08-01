@@ -4,20 +4,20 @@ import { api, errorText } from "../../lib/api";
 import { formatBytes, formatDateTime, formatTimeAgo, splitConfirmMessage } from "../../lib/format";
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { requestConfirm, showToast } from "../../ui/feedback";
-import type { FileVersionEntry, FileVersionRestoreOutcome, WorkspaceSummary } from "../../types";
+import type { FileVersionEntry, FileVersionRestoreOutcome, SpaceSummary } from "../../types";
 
 function fileVersionSourceLabel(source: FileVersionEntry["source"]): string {
   return source === "edit" ? "Saved during an edit" : "From a restore point";
 }
 
 function FileVersionHistoryModal({
-  workspace,
+  space,
   filePath,
   fileName,
   onClose,
   onRestored,
 }: {
-  workspace: WorkspaceSummary;
+  space: SpaceSummary;
   filePath: string;
   fileName: string;
   onClose: () => void;
@@ -40,7 +40,7 @@ function FileVersionHistoryModal({
     setError(null);
     try {
       const body = await api<{ path: string; versions: FileVersionEntry[] }>(
-        `/api/workspaces/${workspace.id}/history/file-versions?path=${encodeURIComponent(filePath)}`,
+        `/api/spaces/${space.id}/history/file-versions?path=${encodeURIComponent(filePath)}`,
       );
       if (loadRequestRef.current !== requestId) return;
       setVersions(body.versions);
@@ -49,7 +49,7 @@ function FileVersionHistoryModal({
       setError(errorText(loadError));
       setVersions([]);
     }
-  }, [workspace.id, filePath]);
+  }, [space.id, filePath]);
 
   useEffect(() => {
     setVersions(null);
@@ -60,7 +60,7 @@ function FileVersionHistoryModal({
 
   async function restoreVersion(version: FileVersionEntry): Promise<void> {
     const restoreConfirm = splitConfirmMessage(
-      `Restore "${fileName}" to the version from ${formatDateTime(version.capturedAt)}? Workspace saves a restore point first, so you can undo this.`,
+      `Restore "${fileName}" to the version from ${formatDateTime(version.capturedAt)}? work-fold saves a restore point first, so you can undo this.`,
     );
     const confirmed = await requestConfirm({
       ...restoreConfirm,
@@ -73,7 +73,7 @@ function FileVersionHistoryModal({
     setNotice(null);
     try {
       const body = await api<{ result: FileVersionRestoreOutcome }>(
-        `/api/workspaces/${workspace.id}/history/file-versions`,
+        `/api/spaces/${space.id}/history/file-versions`,
         { method: "POST", body: { path: filePath, hashSha256: version.hashSha256 } },
       );
       setUndoRestorePointId(body.result.safetyCheckpointId);
@@ -93,7 +93,7 @@ function FileVersionHistoryModal({
     setUndoing(true);
     setError(null);
     try {
-      await api(`/api/workspaces/${workspace.id}/history/checkpoints/${undoRestorePointId}/restore`, { method: "POST" });
+      await api(`/api/spaces/${space.id}/history/checkpoints/${undoRestorePointId}/restore`, { method: "POST" });
       setUndoRestorePointId(null);
       setNotice(`Undo complete — "${fileName}" is back to how it was.`);
       onRestored();

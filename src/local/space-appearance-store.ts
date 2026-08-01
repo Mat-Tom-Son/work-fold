@@ -10,7 +10,7 @@ import {
   type NormalizeSpaceAppearanceOptions,
   type SpaceAppearanceState,
 } from "../shared/space-appearance.js";
-import { workspaceAppearanceFile } from "./state-paths.js";
+import { spaceAppearanceFile } from "./state-paths.js";
 
 export interface SpaceAppearanceStoreOptions {
   path?: string;
@@ -24,13 +24,13 @@ export class SpaceAppearanceStore {
   #writeQueue: Promise<void> = Promise.resolve();
 
   private constructor(options: SpaceAppearanceStoreOptions, state: SpaceAppearanceState) {
-    this.#path = options.path ?? workspaceAppearanceFile();
+    this.#path = options.path ?? spaceAppearanceFile();
     this.#normalize = options.normalize ?? {};
     this.#state = state;
   }
 
   static async create(options: SpaceAppearanceStoreOptions = {}): Promise<SpaceAppearanceStore> {
-    const path = options.path ?? workspaceAppearanceFile();
+    const path = options.path ?? spaceAppearanceFile();
     const candidates = [path, backupPath(path)];
     let firstError: unknown;
     for (const candidate of candidates) {
@@ -52,7 +52,7 @@ export class SpaceAppearanceStore {
       }
     }
     if (firstError) {
-      throw new Error(`Workspace could not read Space appearance settings: ${errorMessage(firstError)}`);
+      throw new Error(`work-fold could not read Space appearance settings: ${errorMessage(firstError)}`);
     }
     return new SpaceAppearanceStore(
       { ...options, path },
@@ -64,11 +64,11 @@ export class SpaceAppearanceStore {
     return structuredClone(this.#state);
   }
 
-  async replaceWorkspace(
-    workspaceId: string,
+  async replaceSpace(
+    spaceId: string,
     value: unknown,
   ): Promise<SpaceAppearanceState> {
-    const id = normalizeWorkspaceId(workspaceId);
+    const id = normalizeSpaceId(spaceId);
     const customization = normalizeSpaceAppearanceCustomization(value, this.#normalize);
     return this.#update((customizations) => {
       if (hasSpaceAppearanceCustomization(customization)) customizations[id] = customization;
@@ -77,31 +77,12 @@ export class SpaceAppearanceStore {
     });
   }
 
-  async removeWorkspace(workspaceId: string): Promise<SpaceAppearanceState> {
-    const id = normalizeWorkspaceId(workspaceId);
+  async removeSpace(spaceId: string): Promise<SpaceAppearanceState> {
+    const id = normalizeSpaceId(spaceId);
     return this.#update((customizations) => {
       if (!customizations[id]) return false;
       delete customizations[id];
       return true;
-    });
-  }
-
-  async importLegacy(
-    legacy: unknown,
-    allowedWorkspaceIds?: ReadonlySet<string>,
-  ): Promise<SpaceAppearanceState> {
-    const imported = normalizeSpaceAppearanceState(legacy, {
-      ...this.#normalize,
-      allowedWorkspaceIds,
-    }).customizations;
-    return this.#update((customizations) => {
-      let changed = false;
-      for (const [id, customization] of Object.entries(imported)) {
-        if (customizations[id]) continue;
-        customizations[id] = customization;
-        changed = true;
-      }
-      return changed;
     });
   }
 
@@ -178,12 +159,12 @@ function assertSupportedStateVersion(value: unknown): void {
   if (typeof version === "number" && version > spaceAppearanceStateVersion) {
     throw Object.assign(
       new Error(`Space appearance settings use unsupported version ${version}.`),
-      { code: "ERR_WORKSPACE_APPEARANCE_VERSION" },
+      { code: "ERR_WORK_FOLD_APPEARANCE_VERSION" },
     );
   }
 }
 
-function normalizeWorkspaceId(value: string): string {
+function normalizeSpaceId(value: string): string {
   const normalized = value.trim();
   if (!normalized || normalized.length > 160 || /[^\x20-\x7e]/.test(normalized)) {
     throw new Error("A valid Space id is required.");
@@ -209,7 +190,7 @@ function isUnsupportedVersionError(error: unknown): boolean {
     error
     && typeof error === "object"
     && "code" in error
-    && error.code === "ERR_WORKSPACE_APPEARANCE_VERSION",
+    && error.code === "ERR_WORK_FOLD_APPEARANCE_VERSION",
   );
 }
 

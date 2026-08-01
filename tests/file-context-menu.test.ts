@@ -4,7 +4,7 @@ import test from "node:test";
 import { nativeFileMenuItems, parseNativeFileMenuRequest } from "../desktop/src/file-context-menu.js";
 
 const fileRequest = {
-  workspaceId: "space-1",
+  spaceId: "space-1",
   path: "Reports/Q3.xlsx",
   kind: "file",
   capabilities: { open: true, attach: true, history: true, upload: false, rename: true, delete: true },

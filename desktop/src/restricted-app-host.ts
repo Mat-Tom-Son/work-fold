@@ -37,7 +37,7 @@ import {
   RestrictedAppNotificationError,
   type RestrictedAppNotificationOpenRequest,
 } from "../../src/local/agent/restricted-app-notifications.js";
-import { createWorkspaceMutationCheckpoint, discardWorkspaceCheckpoint } from "../../src/local/history.js";
+import { createSpaceMutationCheckpoint, discardSpaceCheckpoint } from "../../src/local/history.js";
 import type { RestrictedAppOAuthPkceClient } from "../../src/local/agent/restricted-app-oauth.js";
 import {
   snapshotRestrictedAppPackage,
@@ -57,15 +57,15 @@ import {
 import { resolveRestrictedAppCornerRadius } from "../../src/shared/restricted-app-presentation.js";
 
 export const restrictedAppProtocol = "agent-app";
-const networkChannel = "workspace:restricted-app:network";
-const tabCommandChannel = "workspace:restricted-app:tabs";
-const contextChannel = "workspace:restricted-app:context";
-const storageChannel = "workspace:restricted-app:storage";
-const storageChangedChannel = "workspace:restricted-app:storage-changed";
-const filesChannel = "workspace:restricted-app:files";
-const notificationsChannel = "workspace:restricted-app:notifications";
-const indexPath = "/__workspace/index.html";
-const bootstrapPath = "/__workspace/bootstrap.js";
+const networkChannel = "work-fold:restricted-app:network";
+const tabCommandChannel = "work-fold:restricted-app:tabs";
+const contextChannel = "work-fold:restricted-app:context";
+const storageChannel = "work-fold:restricted-app:storage";
+const storageChangedChannel = "work-fold:restricted-app:storage-changed";
+const filesChannel = "work-fold:restricted-app:files";
+const notificationsChannel = "work-fold:restricted-app:notifications";
+const indexPath = "/__work-fold/index.html";
+const bootstrapPath = "/__work-fold/bootstrap.js";
 const maxInvocationBytes = 256 * 1024;
 const maxFileEnvelopeBytes = 800 * 1024;
 const maxNotificationEnvelopeBytes = 4 * 1024;
@@ -81,7 +81,7 @@ export interface RestrictedAppHostOptions {
   storage: FileRestrictedAppStorage;
   fileBroker?: RestrictedAppFileBroker;
   notifications: RestrictedAppNotificationBroker;
-  resolveWorkspaceRoot: (workspaceId: string) => Promise<string | null>;
+  resolveSpaceRoot: (spaceId: string) => Promise<string | null>;
   onTabCommand?: (command: RestrictedAppTabCommand) => void;
   onUiState?: (state: RestrictedAppUiState) => void;
   onNotificationOpen?: (request: RestrictedAppNotificationOpenRequest) => void;
@@ -89,7 +89,7 @@ export interface RestrictedAppHostOptions {
 
 export interface RestrictedAppTabCommand {
   type: "open" | "update" | "close";
-  workspaceId: string;
+  spaceId: string;
   appId: string;
   digest: string;
   sourceMountId: string;
@@ -148,7 +148,7 @@ interface RestrictedAppEffectLease {
 }
 
 interface RestrictedAppLaunch {
-  workspaceId: string;
+  spaceId: string;
   appId: string;
   digest: string;
   promise: Promise<RestrictedAppInstance>;
@@ -199,7 +199,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
   readonly #limitsArgument: string;
   readonly #maxNetworkEnvelopeBytes: number;
   readonly #notifications: RestrictedAppNotificationBroker;
-  readonly #resolveWorkspaceRoot: RestrictedAppHostOptions["resolveWorkspaceRoot"];
+  readonly #resolveSpaceRoot: RestrictedAppHostOptions["resolveSpaceRoot"];
   readonly #onTabCommand?: RestrictedAppHostOptions["onTabCommand"];
   readonly #onUiState?: RestrictedAppHostOptions["onUiState"];
   readonly #onNotificationOpen?: RestrictedAppHostOptions["onNotificationOpen"];
@@ -222,7 +222,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     this.#storage = options.storage;
     this.#files = options.fileBroker ?? new RestrictedAppFileBroker();
     this.#notifications = options.notifications;
-    this.#resolveWorkspaceRoot = options.resolveWorkspaceRoot;
+    this.#resolveSpaceRoot = options.resolveSpaceRoot;
     this.#onTabCommand = options.onTabCommand;
     this.#onUiState = options.onUiState;
     this.#onNotificationOpen = options.onNotificationOpen;
@@ -251,22 +251,22 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
   syncAuthority(authorities: readonly RestrictedAppRuntimeAuthority[]): void {
     const next = new Map<string, RestrictedAppRuntimeAuthority>();
     for (const authority of authorities) {
-      const key = appScopeKey(authority.workspaceId, authority.appId);
+      const key = appScopeKey(authority.spaceId, authority.appId);
       if (next.has(key)) throw new Error("Restricted app authority contains a duplicate runtime scope.");
       next.set(key, structuredClone(authority));
     }
     this.#authorities.clear();
     for (const [key, authority] of next) this.#authorities.set(key, authority);
-    const invalidatedScopes = new Map<string, { workspaceId: string; appId: string }>();
+    const invalidatedScopes = new Map<string, { spaceId: string; appId: string }>();
     for (const instance of [...this.#instances.values(), ...this.#uiInstances.values()]) {
       if (!this.#persistentAuthorityMatches(instance.app)) {
-        invalidatedScopes.set(appScopeKey(instance.app.workspaceId, instance.app.manifest.id), {
-          workspaceId: instance.app.workspaceId,
+        invalidatedScopes.set(appScopeKey(instance.app.spaceId, instance.app.manifest.id), {
+          spaceId: instance.app.spaceId,
           appId: instance.app.manifest.id,
         });
       }
     }
-    for (const scope of invalidatedScopes.values()) this.#advanceGeneration(scope.workspaceId, scope.appId);
+    for (const scope of invalidatedScopes.values()) this.#advanceGeneration(scope.spaceId, scope.appId);
     for (const instance of [...this.#instances.values()]) {
       if (!this.#persistentAuthorityMatches(instance.app)) void this.#destroy(instance);
     }
@@ -286,7 +286,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     } catch (error) {
       throw new RestrictedAppError("INPUT_INVALID", errorMessage(error));
     }
-    const generation = this.#generation(app.workspaceId, app.manifest.id);
+    const generation = this.#generation(app.spaceId, app.manifest.id);
     const instance = await this.#instance(app, generation);
     try {
       this.#assertLaunchCurrent(app, generation);
@@ -301,7 +301,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       effectivePrincipal: { principalId: app.principalId, kind: "human", realm: "local" },
     };
     const serializedInput = JSON.stringify(input);
-    const expression = `globalThis.__workspaceInvoke(${JSON.stringify(action)},JSON.parse(${JSON.stringify(serializedInput)}))`;
+    const expression = `globalThis.__workFoldInvoke(${JSON.stringify(action)},JSON.parse(${JSON.stringify(serializedInput)}))`;
     try {
       const envelope = await withDeadline(
         instance.window.webContents.executeJavaScript(expression, false),
@@ -348,7 +348,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     const effectivePrincipal = automationEffectivePrincipal(event.effectivePrincipal, event.reason, app.principalId);
     const { effectivePrincipal: _hostPrincipal, ...rendererEvent } = event;
     assertBoundedJson(rendererEvent, "Restricted app automation event", maxInvocationBytes);
-    const generation = this.#generation(app.workspaceId, app.manifest.id);
+    const generation = this.#generation(app.spaceId, app.manifest.id);
     const instance = await this.#instance(app, generation);
     if (signal?.aborted) {
       await this.#destroy(instance);
@@ -363,7 +363,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     if (instance.pendingOperation) throw new RestrictedAppError("APP_UNAVAILABLE", "This restricted app is already handling work.");
     instance.pendingOperation = { kind: "automation", id: event.runId, effectivePrincipal };
     const serializedEvent = JSON.stringify(rendererEvent);
-    const expression = `globalThis.__workspaceRunAutomation(JSON.parse(${JSON.stringify(serializedEvent)}))`;
+    const expression = `globalThis.__workFoldRunAutomation(JSON.parse(${JSON.stringify(serializedEvent)}))`;
     const abort = () => { void this.#destroy(instance); };
     signal?.addEventListener("abort", abort, { once: true });
     try {
@@ -394,11 +394,11 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
   ): Promise<{ mounted: true; digest: string }> {
     this.#assertOpen();
     const request = parseUiMountRequest(value);
-    const generation = this.#generation(app.workspaceId, app.manifest.id);
+    const generation = this.#generation(app.spaceId, app.manifest.id);
     const key = uiMountKey(owner.id, request.mountId);
     const current = this.#uiInstances.get(key);
     if (current) {
-      if (current.app.workspaceId !== app.workspaceId || current.app.manifest.id !== app.manifest.id || current.app.digest !== app.digest) {
+      if (current.app.spaceId !== app.spaceId || current.app.manifest.id !== app.manifest.id || current.app.digest !== app.digest) {
         await this.#destroyUi(current, "stopped");
       } else {
         this.#applyUiRequest(current, request);
@@ -424,7 +424,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       this.#onUiState?.({ ownerWebContentsId: owner.id, mountId: request.mountId, state: "stopped" });
       throw error;
     }
-    if (owner.isDestroyed() || parent.isDestroyed()) throw new RestrictedAppError("APP_UNAVAILABLE", "The Workspace window is not available.");
+    if (owner.isDestroyed() || parent.isDestroyed()) throw new RestrictedAppError("APP_UNAVAILABLE", "The work-fold window is not available.");
 
     const token = randomUUID().replace(/-/g, "");
     const origin = `${restrictedAppProtocol}://${token}`;
@@ -454,8 +454,8 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
         disableDialogs: true,
         navigateOnDragDrop: false,
         additionalArguments: [
-          "--workspace-restricted-mode=ui",
-          rendererArgument("workspace-id", app.workspaceId),
+          "--work-fold-restricted-mode=ui",
+          rendererArgument("space-id", app.spaceId),
           rendererArgument("app-id", app.manifest.id),
           rendererArgument("digest", app.digest),
           rendererArgument("mount-id", request.mountId),
@@ -512,7 +512,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       this.#emitUiState(instance, "ready");
       return { mounted: true, digest: app.digest };
     } catch (error) {
-      const invalidated = this.#closed || this.#generation(app.workspaceId, app.manifest.id) !== generation;
+      const invalidated = this.#closed || this.#generation(app.spaceId, app.manifest.id) !== generation;
       await this.#destroyUi(instance, invalidated ? "stopped" : "crashed", invalidated ? undefined : safeRendererError(error));
       if (error instanceof RestrictedAppError) throw error;
       throw new RestrictedAppError("APP_ERROR", `Restricted app UI could not start: ${safeRendererError(error)}`);
@@ -538,25 +538,25 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       .map((instance) => this.#destroyUi(instance, "stopped")));
   }
 
-  async stop(workspaceId: string, appId: string, digest?: string): Promise<void> {
-    this.#advanceGeneration(workspaceId, appId);
-    this.#notifications.closeApp({ workspaceId, appId }, digest);
-    this.#clearPendingStorageEvent(workspaceId, appId);
-    this.#storageLastEmittedAt.delete(storageEventKey(workspaceId, appId));
+  async stop(spaceId: string, appId: string, digest?: string): Promise<void> {
+    this.#advanceGeneration(spaceId, appId);
+    this.#notifications.closeApp({ spaceId, appId }, digest);
+    this.#clearPendingStorageEvent(spaceId, appId);
+    this.#storageLastEmittedAt.delete(storageEventKey(spaceId, appId));
     const workerDisposals: Promise<void>[] = [];
     for (const instance of [...this.#instances.values()]) {
-      if (instance.app.workspaceId !== workspaceId || instance.app.manifest.id !== appId || (digest && instance.app.digest !== digest)) continue;
+      if (instance.app.spaceId !== spaceId || instance.app.manifest.id !== appId || (digest && instance.app.digest !== digest)) continue;
       workerDisposals.push(this.#destroy(instance));
     }
     const uiDisposals: Promise<void>[] = [];
     for (const instance of [...this.#uiInstances.values()]) {
-      if (instance.app.workspaceId !== workspaceId || instance.app.manifest.id !== appId || (digest && instance.app.digest !== digest)) continue;
+      if (instance.app.spaceId !== spaceId || instance.app.manifest.id !== appId || (digest && instance.app.digest !== digest)) continue;
       uiDisposals.push(this.#destroyUi(instance, "stopped"));
     }
-    this.#clearPendingStorageEvent(workspaceId, appId);
+    this.#clearPendingStorageEvent(spaceId, appId);
     await Promise.all([...workerDisposals, ...uiDisposals]);
     const launching = [...this.#launches.values()]
-      .filter((item) => item.workspaceId === workspaceId && item.appId === appId)
+      .filter((item) => item.spaceId === spaceId && item.appId === appId)
       .map((item) => item.promise);
     await Promise.allSettled(launching);
   }
@@ -582,15 +582,15 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     this.#pendingStorageEvents.clear();
     this.#storageLastEmittedAt.clear();
     this.#notifications.dispose();
-    for (const instance of this.#instances.values()) this.#advanceGeneration(instance.app.workspaceId, instance.app.manifest.id);
+    for (const instance of this.#instances.values()) this.#advanceGeneration(instance.app.spaceId, instance.app.manifest.id);
     await Promise.allSettled([...this.#launches.values()].map((item) => item.promise));
     await Promise.allSettled([...this.#instances.values()].map((instance) => this.#destroy(instance)));
     await Promise.allSettled([...this.#uiInstances.values()].map((instance) => this.#destroyUi(instance, "stopped")));
   }
 
   async #instance(app: RestrictedAppRuntimeDescriptor, expectedGeneration: number): Promise<RestrictedAppInstance> {
-    const key = instanceKey(app.workspaceId, app.manifest.id, app.digest);
-    const scopeKey = appScopeKey(app.workspaceId, app.manifest.id);
+    const key = instanceKey(app.spaceId, app.manifest.id, app.digest);
+    const scopeKey = appScopeKey(app.spaceId, app.manifest.id);
     const existing = this.#instances.get(key);
     if (existing && !existing.crashed && !existing.window.isDestroyed() && !existing.window.webContents.isDestroyed()) {
       this.#assertLaunchCurrent(app, expectedGeneration);
@@ -604,17 +604,17 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
         this.#assertLaunchCurrent(app, expectedGeneration);
         return await launching.promise;
       }
-      this.#advanceGeneration(app.workspaceId, app.manifest.id);
+      this.#advanceGeneration(app.spaceId, app.manifest.id);
       await launching.promise.catch(() => undefined);
     }
     for (const instance of [...this.#instances.values()]) {
-      if (instance.app.workspaceId === app.workspaceId && instance.app.manifest.id === app.manifest.id) await this.#destroy(instance);
+      if (instance.app.spaceId === app.spaceId && instance.app.manifest.id === app.manifest.id) await this.#destroy(instance);
     }
     this.#assertLaunchCurrent(app, expectedGeneration);
     const promise = this.#launch(app, key, expectedGeneration).finally(() => {
       if (this.#launches.get(scopeKey)?.promise === promise) this.#launches.delete(scopeKey);
     });
-    this.#launches.set(scopeKey, { workspaceId: app.workspaceId, appId: app.manifest.id, digest: app.digest, promise });
+    this.#launches.set(scopeKey, { spaceId: app.spaceId, appId: app.manifest.id, digest: app.digest, promise });
     return await promise;
   }
 
@@ -681,7 +681,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
           backgroundThrottling: true,
           disableDialogs: true,
           navigateOnDragDrop: false,
-          additionalArguments: ["--workspace-restricted-mode=worker", this.#limitsArgument],
+          additionalArguments: ["--work-fold-restricted-mode=worker", this.#limitsArgument],
         },
       });
       const launchedInstance: RestrictedAppInstance = {
@@ -709,7 +709,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
         () => this.#crash(launchedInstance, "Restricted app document load timed out."),
       );
       const ready = await withDeadline(
-        window.webContents.executeJavaScript("globalThis.__workspaceReady", false),
+        window.webContents.executeJavaScript("globalThis.__workFoldReady", false),
         this.#invocationTimeoutMs,
         () => this.#crash(launchedInstance, "Restricted app startup timed out."),
       );
@@ -933,10 +933,10 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       const lease = this.#captureEffectLease(instance);
       const envelope = jsonEnvelope(value, maxFileEnvelopeBytes, "file");
       assertRequestKeys(envelope, ["operation", "request"]);
-      const workspaceRoot = await this.#resolveWorkspaceRoot(instance.app.workspaceId);
-      if (!workspaceRoot) throw new RestrictedAppFileError("FILE_DENIED", "The app's Space is no longer registered.");
+      const spaceRoot = await this.#resolveSpaceRoot(instance.app.spaceId);
+      if (!spaceRoot) throw new RestrictedAppFileError("FILE_DENIED", "The app's Space is no longer registered.");
       const context = {
-        workspaceRoot,
+        spaceRoot,
         declarations: instance.app.manifest.permissions.files,
         grants: instance.app.fileGrants,
         authorizeCommit: () => this.#assertEffectLease(lease),
@@ -946,7 +946,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       else if (envelope.operation === "read") result = await this.#files.read(context, envelope.request);
       else if (envelope.operation === "write") {
         const target = fileCheckpointTarget(instance.app.fileGrants, envelope.request);
-        const checkpoint = await createWorkspaceMutationCheckpoint(workspaceRoot, {
+        const checkpoint = await createSpaceMutationCheckpoint(spaceRoot, {
           ...(target.mode === "replace" ? { paths: [target.path] } : { deleteOnRestore: [target.path] }),
           reason: "restricted_app_write",
           label: `${instance.app.manifest.title} changed ${target.path}`,
@@ -954,7 +954,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
         try {
           result = await this.#files.write(context, envelope.request);
         } catch (error) {
-          await discardWorkspaceCheckpoint(workspaceRoot, checkpoint.checkpointId).catch(() => undefined);
+          await discardSpaceCheckpoint(spaceRoot, checkpoint.checkpointId).catch(() => undefined);
           throw error;
         }
       } else throw new RestrictedAppFileError("FILE_DENIED", "Restricted app file operation is unsupported.");
@@ -977,7 +977,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       const lease = this.#captureEffectLease(instance);
       const request = jsonEnvelope(value, maxNotificationEnvelopeBytes, "notification");
       const result = this.#notifications.show({
-        workspaceId: instance.app.workspaceId,
+        spaceId: instance.app.spaceId,
         appId: instance.app.manifest.id,
         digest: instance.app.digest,
         appTitle: instance.app.manifest.title,
@@ -1000,12 +1000,12 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     if (this.#closed || this.#instancesByWebContents.get(source.webContentsId) !== source) return;
     const hasActiveOwnerView = [...this.#instancesByWebContents.values()].some((instance) => (
       "view" in instance
-      && instance.app.workspaceId === source.app.workspaceId
+      && instance.app.spaceId === source.app.spaceId
       && instance.app.manifest.id === source.app.manifest.id
       && this.#uiIsActive(instance)
     ));
     if (!hasActiveOwnerView) return;
-    const key = storageEventKey(source.app.workspaceId, source.app.manifest.id);
+    const key = storageEventKey(source.app.spaceId, source.app.manifest.id);
     const pending = this.#pendingStorageEvents.get(key);
     const now = Date.now();
     if (pending) {
@@ -1024,13 +1024,13 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     if (reset) keys.clear();
     const lastEmittedAt = this.#storageLastEmittedAt.get(key) ?? 0;
     const delay = Math.max(100, lastEmittedAt + 100 - now);
-    const timer = setTimeout(() => this.#flushStorageChanged(source.app.workspaceId, source.app.manifest.id), delay);
+    const timer = setTimeout(() => this.#flushStorageChanged(source.app.spaceId, source.app.manifest.id), delay);
     timer.unref?.();
     this.#pendingStorageEvents.set(key, { revision: mutation.revision, keys, reset, timer });
   }
 
-  #flushStorageChanged(workspaceId: string, appId: string): void {
-    const key = storageEventKey(workspaceId, appId);
+  #flushStorageChanged(spaceId: string, appId: string): void {
+    const key = storageEventKey(spaceId, appId);
     const pending = this.#pendingStorageEvents.get(key);
     if (!pending) return;
     this.#pendingStorageEvents.delete(key);
@@ -1041,7 +1041,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       reset: pending.reset,
     };
     for (const instance of this.#instancesByWebContents.values()) {
-      if (!("view" in instance) || instance.app.workspaceId !== workspaceId || instance.app.manifest.id !== appId
+      if (!("view" in instance) || instance.app.spaceId !== spaceId || instance.app.manifest.id !== appId
         || !this.#uiIsActive(instance)) continue;
       const bounds = instance.view.getBounds();
       if (bounds.width <= 0 || bounds.height <= 0 || instance.view.webContents.isDestroyed()) continue;
@@ -1049,8 +1049,8 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     }
   }
 
-  #clearPendingStorageEvent(workspaceId: string, appId: string): void {
-    const key = storageEventKey(workspaceId, appId);
+  #clearPendingStorageEvent(spaceId: string, appId: string): void {
+    const key = storageEventKey(spaceId, appId);
     const pending = this.#pendingStorageEvents.get(key);
     if (!pending) return;
     clearTimeout(pending.timer);
@@ -1139,7 +1139,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       return response("Not found", 404, "text/plain");
     }
     if (url.pathname === indexPath) {
-      const html = '<!doctype html><meta charset="utf-8"><script type="module" src="/__workspace/bootstrap.js"></script>';
+      const html = '<!doctype html><meta charset="utf-8"><script type="module" src="/__work-fold/bootstrap.js"></script>';
       return response(request.method === "HEAD" ? null : html, 200, "text/html; charset=utf-8", true);
     }
     if (url.pathname === bootstrapPath) {
@@ -1156,9 +1156,9 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
         "return module;",
         "});",
         `const maximum=${maxInvocationBytes};`,
-        'Object.defineProperty(globalThis,"__workspaceReady",{value:ready.then(()=>true),writable:false,configurable:false});',
-        'Object.defineProperty(globalThis,"__workspaceInvoke",{value:async(action,input)=>{try{const module=await ready;const value=await module.handleAction(action,input);let json;try{json=stringify(value);}catch{return "E"+stringify({code:"OUTPUT_INVALID",message:"Restricted app output must be JSON-compatible."});}if(json===undefined||encode(json).byteLength>maximum)return "E"+stringify({code:"OUTPUT_INVALID",message:"Restricted app output exceeds the size limit."});return "S"+json;}catch(error){let message="Restricted app action failed.";try{message=String(error&&error.message||message).slice(0,500);}catch{}return "E"+stringify({code:"APP_ERROR",message});}},writable:false,configurable:false});',
-        'Object.defineProperty(globalThis,"__workspaceRunAutomation",{value:async(event)=>{try{const module=await ready;await module.handleAutomation(event);return "Snull";}catch(error){let message="Restricted app automation failed.";try{message=String(error&&error.message||message).slice(0,500);}catch{}return "E"+stringify({code:"APP_ERROR",message});}},writable:false,configurable:false});',
+        'Object.defineProperty(globalThis,"__workFoldReady",{value:ready.then(()=>true),writable:false,configurable:false});',
+        'Object.defineProperty(globalThis,"__workFoldInvoke",{value:async(action,input)=>{try{const module=await ready;const value=await module.handleAction(action,input);let json;try{json=stringify(value);}catch{return "E"+stringify({code:"OUTPUT_INVALID",message:"Restricted app output must be JSON-compatible."});}if(json===undefined||encode(json).byteLength>maximum)return "E"+stringify({code:"OUTPUT_INVALID",message:"Restricted app output exceeds the size limit."});return "S"+json;}catch(error){let message="Restricted app action failed.";try{message=String(error&&error.message||message).slice(0,500);}catch{}return "E"+stringify({code:"APP_ERROR",message});}},writable:false,configurable:false});',
+        'Object.defineProperty(globalThis,"__workFoldRunAutomation",{value:async(event)=>{try{const module=await ready;await module.handleAutomation(event);return "Snull";}catch(error){let message="Restricted app automation failed.";try{message=String(error&&error.message||message).slice(0,500);}catch{}return "E"+stringify({code:"APP_ERROR",message});}},writable:false,configurable:false});',
       ].join("\n");
       return response(request.method === "HEAD" ? null : source, 200, "text/javascript; charset=utf-8", true);
     }
@@ -1241,24 +1241,24 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     if (this.#closed) throw new RestrictedAppError("APP_UNAVAILABLE", "The restricted app host is closed.");
   }
 
-  #generation(workspaceId: string, appId: string): number {
-    return this.#generations.get(appScopeKey(workspaceId, appId)) ?? 0;
+  #generation(spaceId: string, appId: string): number {
+    return this.#generations.get(appScopeKey(spaceId, appId)) ?? 0;
   }
 
-  #advanceGeneration(workspaceId: string, appId: string): void {
-    const key = appScopeKey(workspaceId, appId);
+  #advanceGeneration(spaceId: string, appId: string): void {
+    const key = appScopeKey(spaceId, appId);
     this.#generations.set(key, (this.#generations.get(key) ?? 0) + 1);
   }
 
   #assertLaunchCurrent(app: RestrictedAppRuntimeDescriptor, generation: number): void {
-    if (this.#closed || this.#generation(app.workspaceId, app.manifest.id) !== generation) {
+    if (this.#closed || this.#generation(app.spaceId, app.manifest.id) !== generation) {
       throw new RestrictedAppError("APP_UNAVAILABLE", "The restricted app was stopped before startup completed.");
     }
     this.#assertPersistentAuthority(app);
   }
 
   #persistentAuthorityMatches(app: RestrictedAppRuntimeDescriptor): boolean {
-    const current = this.#authorities.get(appScopeKey(app.workspaceId, app.manifest.id));
+    const current = this.#authorities.get(appScopeKey(app.spaceId, app.manifest.id));
     return Boolean(current
       && current.digest === app.digest
       && current.runtimeInstanceId === app.runtimeInstanceId
@@ -1271,7 +1271,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     assertRestrictedAppEffectAuthority({
       hostOpen: !this.#closed,
       launchGeneration: instance.generation,
-      currentGeneration: this.#generation(app.workspaceId, app.manifest.id),
+      currentGeneration: this.#generation(app.spaceId, app.manifest.id),
       live: !instance.crashed
         && !instance.abortController.signal.aborted
         && this.#instancesByWebContents.get(instance.webContentsId) === instance,
@@ -1350,7 +1350,7 @@ function parseTabCommand(value: unknown, instance: RestrictedAppUiInstance): Res
   }
   return {
     type: record.type,
-    workspaceId: instance.app.workspaceId,
+    spaceId: instance.app.spaceId,
     appId: instance.app.manifest.id,
     digest: instance.app.digest,
     sourceMountId: instance.mountId,
@@ -1413,7 +1413,11 @@ function safeCheckpointPath(value: unknown): string {
   }
   if (value === ".") return value;
   const segments = value.split("/");
-  if (segments.some((segment) => !segment || segment === "." || segment === ".." || segment === ".workspace" || segment === ".pi")) {
+  if (segments.some((segment) => {
+    const normalized = segment.toLocaleLowerCase("en-US");
+    return !segment || segment === "." || segment === ".."
+      || normalized === ".work-fold" || normalized === ".workspace" || normalized === ".pi";
+  })) {
     throw new RestrictedAppFileError("FILE_DENIED", "App file path is invalid.");
   }
   return segments.join("/");
@@ -1490,7 +1494,7 @@ function ipcFromMainFrame(event: IpcMainInvokeEvent): boolean {
 }
 
 function rendererArgument(name: string, value: string): string {
-  return `--workspace-restricted-${name}=${encodeURIComponent(value)}`;
+  return `--work-fold-restricted-${name}=${encodeURIComponent(value)}`;
 }
 
 function sameUiDocument(instance: RestrictedAppUiInstance, value: string): boolean {
@@ -1648,16 +1652,16 @@ function automationEffectivePrincipal(
   return Object.freeze({ principalId, kind: expectedKind, realm: "local" });
 }
 
-function instanceKey(workspaceId: string, appId: string, digest: string): string {
-  return JSON.stringify([workspaceId, appId, digest]);
+function instanceKey(spaceId: string, appId: string, digest: string): string {
+  return JSON.stringify([spaceId, appId, digest]);
 }
 
-function appScopeKey(workspaceId: string, appId: string): string {
-  return JSON.stringify([workspaceId, appId]);
+function appScopeKey(spaceId: string, appId: string): string {
+  return JSON.stringify([spaceId, appId]);
 }
 
-function storageEventKey(workspaceId: string, appId: string): string {
-  return JSON.stringify([workspaceId, appId]);
+function storageEventKey(spaceId: string, appId: string): string {
+  return JSON.stringify([spaceId, appId]);
 }
 
 function safeRendererError(error: unknown): string {

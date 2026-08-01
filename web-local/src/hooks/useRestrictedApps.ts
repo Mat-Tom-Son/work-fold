@@ -6,43 +6,43 @@ import type { RestrictedAppInstalled } from "../types";
 const emptyRestrictedAppFixtures: Record<string, RestrictedAppInstalled[]> = {};
 
 export function useRestrictedApps({
-  activeWorkspaceId,
+  activeSpaceId,
   fixtureMode = false,
   fixtureApps = emptyRestrictedAppFixtures,
   onError,
 }: {
-  activeWorkspaceId: string;
+  activeSpaceId: string;
   fixtureMode?: boolean;
   fixtureApps?: Record<string, RestrictedAppInstalled[]>;
   onError: (error: unknown) => void;
 }) {
-  const [appsByWorkspace, setAppsByWorkspace] = useState<Record<string, RestrictedAppInstalled[]>>(fixtureApps);
-  const [knownWorkspaceIds, setKnownWorkspaceIds] = useState<Set<string>>(() => new Set(Object.keys(fixtureApps)));
-  const [loadingWorkspaceIds, setLoadingWorkspaceIds] = useState<Set<string>>(() => new Set());
+  const [appsBySpace, setAppsBySpace] = useState<Record<string, RestrictedAppInstalled[]>>(fixtureApps);
+  const [knownSpaceIds, setKnownSpaceIds] = useState<Set<string>>(() => new Set(Object.keys(fixtureApps)));
+  const [loadingSpaceIds, setLoadingSpaceIds] = useState<Set<string>>(() => new Set());
   const requestVersionsRef = useRef(new Map<string, number>());
 
-  const refresh = useCallback(async (workspaceId: string) => {
-    if (!workspaceId) return;
+  const refresh = useCallback(async (spaceId: string) => {
+    if (!spaceId) return;
     if (fixtureMode) {
-      setAppsByWorkspace((current) => ({ ...current, [workspaceId]: fixtureApps[workspaceId] ?? current[workspaceId] ?? [] }));
-      setKnownWorkspaceIds((current) => new Set(current).add(workspaceId));
+      setAppsBySpace((current) => ({ ...current, [spaceId]: fixtureApps[spaceId] ?? current[spaceId] ?? [] }));
+      setKnownSpaceIds((current) => new Set(current).add(spaceId));
       return;
     }
-    const requestVersion = (requestVersionsRef.current.get(workspaceId) ?? 0) + 1;
-    requestVersionsRef.current.set(workspaceId, requestVersion);
-    setLoadingWorkspaceIds((current) => new Set(current).add(workspaceId));
+    const requestVersion = (requestVersionsRef.current.get(spaceId) ?? 0) + 1;
+    requestVersionsRef.current.set(spaceId, requestVersion);
+    setLoadingSpaceIds((current) => new Set(current).add(spaceId));
     try {
-      const apps = await listRestrictedApps(workspaceId);
-      if (requestVersionsRef.current.get(workspaceId) !== requestVersion) return;
-      setAppsByWorkspace((current) => ({ ...current, [workspaceId]: apps }));
-      setKnownWorkspaceIds((current) => new Set(current).add(workspaceId));
+      const apps = await listRestrictedApps(spaceId);
+      if (requestVersionsRef.current.get(spaceId) !== requestVersion) return;
+      setAppsBySpace((current) => ({ ...current, [spaceId]: apps }));
+      setKnownSpaceIds((current) => new Set(current).add(spaceId));
     } catch (caught) {
-      if (requestVersionsRef.current.get(workspaceId) === requestVersion) onError(caught);
+      if (requestVersionsRef.current.get(spaceId) === requestVersion) onError(caught);
     } finally {
-      if (requestVersionsRef.current.get(workspaceId) === requestVersion) {
-        setLoadingWorkspaceIds((current) => {
+      if (requestVersionsRef.current.get(spaceId) === requestVersion) {
+        setLoadingSpaceIds((current) => {
           const next = new Set(current);
-          next.delete(workspaceId);
+          next.delete(spaceId);
           return next;
         });
       }
@@ -51,59 +51,59 @@ export function useRestrictedApps({
 
   useEffect(() => {
     if (fixtureMode) {
-      setAppsByWorkspace({ ...fixtureApps, [activeWorkspaceId]: fixtureApps[activeWorkspaceId] ?? [] });
-      setKnownWorkspaceIds(new Set([...Object.keys(fixtureApps), activeWorkspaceId]));
+      setAppsBySpace({ ...fixtureApps, [activeSpaceId]: fixtureApps[activeSpaceId] ?? [] });
+      setKnownSpaceIds(new Set([...Object.keys(fixtureApps), activeSpaceId]));
       return;
     }
-    void refresh(activeWorkspaceId);
-  }, [activeWorkspaceId, fixtureApps, fixtureMode, refresh]);
+    void refresh(activeSpaceId);
+  }, [activeSpaceId, fixtureApps, fixtureMode, refresh]);
 
-  const replaceApps = useCallback((workspaceId: string, apps: RestrictedAppInstalled[]) => {
-    setAppsByWorkspace((current) => ({ ...current, [workspaceId]: apps }));
-    setKnownWorkspaceIds((current) => new Set(current).add(workspaceId));
+  const replaceApps = useCallback((spaceId: string, apps: RestrictedAppInstalled[]) => {
+    setAppsBySpace((current) => ({ ...current, [spaceId]: apps }));
+    setKnownSpaceIds((current) => new Set(current).add(spaceId));
   }, []);
 
   const upsertApp = useCallback((app: RestrictedAppInstalled) => {
-    setAppsByWorkspace((current) => {
-      const existing = current[app.workspaceId] ?? [];
+    setAppsBySpace((current) => {
+      const existing = current[app.spaceId] ?? [];
       const next = existing.some((item) => item.manifest.id === app.manifest.id)
         ? existing.map((item) => item.manifest.id === app.manifest.id ? app : item)
         : [...existing, app];
-      return { ...current, [app.workspaceId]: next };
+      return { ...current, [app.spaceId]: next };
     });
-    setKnownWorkspaceIds((current) => new Set(current).add(app.workspaceId));
+    setKnownSpaceIds((current) => new Set(current).add(app.spaceId));
   }, []);
 
-  const removeApp = useCallback((workspaceId: string, appId: string) => {
-    setAppsByWorkspace((current) => ({
+  const removeApp = useCallback((spaceId: string, appId: string) => {
+    setAppsBySpace((current) => ({
       ...current,
-      [workspaceId]: (current[workspaceId] ?? []).filter((item) => item.manifest.id !== appId),
+      [spaceId]: (current[spaceId] ?? []).filter((item) => item.manifest.id !== appId),
     }));
-    setKnownWorkspaceIds((current) => new Set(current).add(workspaceId));
+    setKnownSpaceIds((current) => new Set(current).add(spaceId));
   }, []);
 
   const replaceRuntimeInstanceApps = useCallback((
-    workspaceId: string,
+    spaceId: string,
     runtimeInstanceId: string,
     apps: RestrictedAppInstalled[],
   ) => {
-    setAppsByWorkspace((current) => {
-      const preserved = (current[workspaceId] ?? []).filter((item) => item.runtimeInstanceId !== runtimeInstanceId);
+    setAppsBySpace((current) => {
+      const preserved = (current[spaceId] ?? []).filter((item) => item.runtimeInstanceId !== runtimeInstanceId);
       const replacements = apps.filter((item) => (
-        item.workspaceId === workspaceId && item.runtimeInstanceId === runtimeInstanceId
+        item.spaceId === spaceId && item.runtimeInstanceId === runtimeInstanceId
       ));
       const next = [...preserved, ...replacements].sort((left, right) => (
         left.manifest.title.localeCompare(right.manifest.title) || left.manifest.id.localeCompare(right.manifest.id)
       ));
-      return { ...current, [workspaceId]: next };
+      return { ...current, [spaceId]: next };
     });
-    setKnownWorkspaceIds((current) => new Set(current).add(workspaceId));
+    setKnownSpaceIds((current) => new Set(current).add(spaceId));
   }, []);
 
   return {
-    appsByWorkspace,
-    knownWorkspaceIds,
-    loadingWorkspaceIds,
+    appsBySpace,
+    knownSpaceIds,
+    loadingSpaceIds,
     refresh,
     replaceApps,
     replaceRuntimeInstanceApps,

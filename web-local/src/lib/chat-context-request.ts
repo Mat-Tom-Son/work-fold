@@ -2,10 +2,10 @@ import type { ChatContextPathRequest } from "../types";
 
 export function chatContextRequestForTab(
   request: ChatContextPathRequest | null,
-  workspaceId: string,
+  spaceId: string,
   surfaceTabId: string,
 ): ChatContextPathRequest | null {
-  return request?.workspaceId === workspaceId && request.surfaceTabId === surfaceTabId
+  return request?.spaceId === spaceId && request.surfaceTabId === surfaceTabId
     ? request
     : null;
 }

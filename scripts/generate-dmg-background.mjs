@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
@@ -17,25 +17,31 @@ const icon = await sharp(iconPath)
 
 const arrow = await sharp(Buffer.from(`
 <svg width="150" height="52" viewBox="0 0 150 52" xmlns="http://www.w3.org/2000/svg">
-  <path d="M13 28 H120" fill="none" stroke="#65718a" stroke-width="5" stroke-linecap="round"/>
-  <path d="M104 13 L124 28 L104 43" fill="none" stroke="#65718a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M13 28 H120" fill="none" stroke="#C84F30" stroke-width="5" stroke-linecap="round"/>
+  <path d="M104 13 L124 28 L104 43" fill="none" stroke="#C84F30" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`)).png().toBuffer();
 
 const background = Buffer.from(`
 <svg width="720" height="440" viewBox="0 0 720 440" xmlns="http://www.w3.org/2000/svg">
-  <rect width="720" height="440" fill="#f8f9fb"/>
-  <path d="M0 342 C98 305 184 314 264 343 C347 373 430 359 505 325 C582 290 651 301 720 331 L720 440 L0 440 Z" fill="#edf1f8"/>
-  <path d="M0 382 C96 346 185 356 269 385 C350 413 433 398 510 363 C587 328 655 337 720 367" fill="none" stroke="#d3dbea" stroke-width="4"/>
-  <text x="360" y="72" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" font-size="24" font-weight="700" fill="#202534">Workspace</text>
-  <text x="360" y="104" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#596174">Drag Workspace to Applications</text>
+  <rect width="720" height="440" fill="#F3F0E9"/>
+  <path d="M0 440 0 333 520 0h200v440Z" fill="#EEE9E0"/>
+  <path d="M0 379 584 0" fill="none" stroke="#FFFFFF" stroke-opacity=".58" stroke-width="2"/>
+  <path d="M720 56 119 440" fill="none" stroke="#D4CBC0" stroke-opacity=".7" stroke-width="2"/>
+  <text x="360" y="72" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" font-size="26" font-weight="650" letter-spacing="-.5" fill="#252321">work-fold</text>
+  <text x="360" y="104" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#6B655F">Drag work-fold to Applications</text>
 </svg>`);
 
-await sharp(background)
+const backgroundBytes = await sharp(background)
   .composite([
     { input: icon, left: 326, top: 124 },
     { input: arrow, left: 285, top: 233 },
   ])
   .png()
-  .toFile(join(outDir, "dmg-background.png"));
+  .toBuffer();
 
-console.log(`Generated Workspace DMG background at ${join(outDir, "dmg-background.png")}`);
+await Promise.all([
+  writeFile(join(outDir, "dmg-background.png"), backgroundBytes),
+  writeFile(join(assetsDir, "dmg-background.png"), backgroundBytes),
+]);
+
+console.log(`Generated work-fold DMG background at ${join(outDir, "dmg-background.png")}`);

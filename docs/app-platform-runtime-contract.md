@@ -47,6 +47,11 @@ The current desktop runtime already establishes useful constraints:
 
 Those are strong reference semantics. Fixed byte limits, interval vocabulary, Windows delivery, machine-wide concurrency, in-process timers, and Electron lifecycle are current local policy rather than automatically portable law.
 
+work-fold begins with a new runtime authority domain. Legacy Workspace profiles,
+portable `.workspace/` records, registries, storage, connections, receipts, and
+artifacts are never imported or adopted by either adapter and cannot authorize
+a mount, invocation, grant, data namespace, or effect.
+
 ## Vocabulary used in this memo
 
 | Term | Meaning here |
@@ -258,7 +263,7 @@ Portable guarantees:
 - cancellation or revocation is checked before commit; and
 - resource contents never become model context, network payload, or another feature's data implicitly.
 
-The Electron adapter maps `tree` grants to ordinary Space-relative files and keeps `.workspace` and `.pi` unavailable; its writes remain atomic and History-covered. A hosted adapter maps grants to a tenant-aware object/document service and records audit lineage. Local History and cloud audit are different host services even when the feature observes the same write result.
+The Electron adapter maps `tree` grants to ordinary Space-relative files and keeps `.work-fold`, preserved legacy `.workspace`, and `.pi` unavailable; its writes remain atomic and History-covered. A hosted adapter maps grants to a tenant-aware object/document service and records audit lineage. Local History and cloud audit are different host services even when the feature observes the same write result.
 
 A Development Instance may grant selected project files, but publish inputs require visible risk composition and History. When a granted resource mutation commits bytes that are selected publish inputs, the trusted project mutation service must, in one serialized crash-safe transaction, commit the file change, advance the durable project-source generation, invalidate every proposal/review over the prior source generation or digest, and commit its History/receipt metadata before reporting success. A journal or equivalent recovery record must make an interrupted commit complete or fail closed after restart; a successful file write with a still-valid stale publish proposal is forbidden.
 
@@ -323,7 +328,7 @@ Transferring a Runtime Instance to another Tenant is not connection continuity. 
 - No connection changes owner class or Principal owner during transfer. Jobs remain off until their connection, grant, role, and budget dependencies are revalidated under the new Tenant.
 - The transfer receipt names the prior and new Tenant ids, effective Principal and authorizer, connection outcomes, before/after `AuthorityStamp`, and provider-revocation status without containing secrets.
 
-Provider-side credential revocation remains a separate operation and receipt even when transfer disconnects every Workspace-held binding.
+Provider-side credential revocation remains a separate operation and receipt even when transfer disconnects every work-fold-held binding.
 
 ## Actions
 
@@ -431,7 +436,7 @@ Host-specific until deliberately standardized:
 - cost, CPU, memory, network, notification, and wall-time budgets; and
 - retention duration for detailed attempt logs.
 
-The current desktop values—15 to 1,440 minute intervals, two machine-wide FIFO slots, `skip` overlap, one latest catch-up, five-second worker deadline, and execution only while Workspace runs—remain local policy. A hosted adapter must publish its actual policy through capability/limit introspection instead of imitating those values accidentally.
+The current desktop values—15 to 1,440 minute intervals, two machine-wide FIFO slots, `skip` overlap, one latest catch-up, five-second worker deadline, and execution only while work-fold runs—remain local policy. A hosted adapter must publish its actual policy through capability/limit introspection instead of imitating those values accidentally.
 
 A manual run while a schedule is disabled requires independent interactive authority. It does not inherit schedule-only notification or unattended connection authority unless policy explicitly grants the manual invocation those powers.
 
@@ -583,7 +588,7 @@ Revocation is a sequence with observable limits:
 
 Already delivered external effects cannot be recalled. The product must state a revocation-latency objective rather than imply magic rollback.
 
-Every Runtime Instance has an internal governance-policy enum. Its possible internal states distinguish authority administered entirely by the local Workspace profile, authority requiring current cloud policy or a bounded lease, and a mixed policy that assigns those behaviors per named power. These enum labels are implementation/policy vocabulary, not user-facing modes or marketing promises.
+Every Runtime Instance has an internal governance-policy enum. Its possible internal states distinguish authority administered entirely by the local work-fold profile, authority requiring current cloud policy or a bounded lease, and a mixed policy that assigns those behaviors per named power. These enum labels are implementation/policy vocabulary, not user-facing modes or marketing promises.
 
 The UI explains concrete outcomes instead of exposing raw governance labels: whether this action can run without a connection, which powers pause and when, the lease expiry or required check-in, which data remains available locally, and when a disconnected device may not yet have received a revocation.
 
@@ -647,7 +652,7 @@ Break-glass access, if ever offered, requires a named incident/purpose, least-pr
 | Storage | Bounded local host-owned JSON namespace. | Tenant-aware database/service with the same revision/transaction contract. |
 | Resources | Explicit Space-relative file grants; atomic History-covered writes. | Explicit object/document collection grants; revisioned writes and audit. |
 | Network | Main-process public-HTTPS or development loopback broker; OS-encrypted connections. | Egress proxy/service; cloud secret/connection service; destination and tenant policy. |
-| Jobs | In-process scheduler while Workspace runs. | Durable scheduler, queue, leases, fenced workers, retries, and regional policy. |
+| Jobs | In-process scheduler while work-fold runs. | Durable scheduler, queue, leases, fenced workers, retries, and regional policy. |
 | Notifications | Static reviewed Windows notifications. | Separately configured web push/email/mobile adapters. |
 | Offline | Internal local governance policy by default; optional linked authority lease later. UI describes the resulting availability and expiry. | Online authority plane; clients may cache display data but do not become workers. |
 | Isolation | Chromium sandbox plus host broker; Electron exploit/DoS risk remains. | Browser isolation plus worker/container/process limits; platform exploit/DoS risk remains. |
@@ -690,7 +695,11 @@ Capability names should be granular, for example `storage.instance.transactions`
 
 Feature revisions record the runtime contract and declaration digests in the immutable release closure. Updates that change a required API major, data schema, resource kind, connection owner class, job identity, or permission maximum receive explicit review and migration handling.
 
-The current `agent-app.json` version and `workspaceRestrictedApp` bridge are inputs to a future adapter, not aliases for this candidate version. No compatibility promise exists until a normative contract and conformance tests are accepted.
+The current local `agent-app.json` version uses runtime API
+`work-fold.restricted-app-bridge` and the frozen `workFoldRestrictedApp` global.
+They are inputs to a future portable adapter, not aliases for this candidate
+`feature-runtime/v1` contract. No compatibility promise exists until a
+normative contract and conformance tests are accepted.
 
 ## Targeted throwaway distributed-systems spikes
 

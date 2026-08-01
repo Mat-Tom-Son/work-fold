@@ -43,7 +43,7 @@ export interface RestrictedAppFileGrant {
  * be accepted from the restricted renderer.
  */
 export interface RestrictedAppFileContext {
-  workspaceRoot: string;
+  spaceRoot: string;
   declarations: readonly RestrictedAppFileDeclaration[];
   grants: readonly RestrictedAppFileGrant[];
   authorizeCommit?: () => void | Promise<void>;
@@ -125,8 +125,8 @@ const defaultMaximumListEntries = 200;
 const noFollowFlag = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
 
 interface PreparedGrant {
-  workspaceRoot: string;
-  workspaceRealRoot: string;
+  spaceRoot: string;
+  spaceRealRoot: string;
   grantRoot: string;
   grantRealRoot: string;
   declaration: RestrictedAppFileDeclaration;
@@ -179,7 +179,7 @@ export class RestrictedAppFileBroker {
     const entries: RestrictedAppFileListEntry[] = [];
     let truncated = false;
     const directory = await opendir(target.absolutePath).catch((error) => {
-      throw fileSystemError(error, "Workspace could not list the granted folder.");
+      throw fileSystemError(error, "work-fold could not list the granted folder.");
     });
     try {
       while (true) {
@@ -210,7 +210,7 @@ export class RestrictedAppFileBroker {
       }
     } catch (error) {
       if (error instanceof RestrictedAppFileError) throw error;
-      throw fileSystemError(error, "Workspace could not list the granted folder.");
+      throw fileSystemError(error, "work-fold could not list the granted folder.");
     } finally {
       await directory.close().catch(() => undefined);
     }
@@ -225,7 +225,7 @@ export class RestrictedAppFileBroker {
     const prepared = await prepareGrant(context, request.grantId);
     const target = await resolveRequestPath(prepared, request.path, false);
     const handle = await open(target.absolutePath, constants.O_RDONLY | noFollowFlag).catch((error) => {
-      throw fileSystemError(error, "Workspace could not open the granted file.");
+      throw fileSystemError(error, "work-fold could not open the granted file.");
     });
     try {
       const info = await handle.stat();
@@ -248,7 +248,7 @@ export class RestrictedAppFileBroker {
       }
       const finalInfo = await handle.stat();
       if (!finalInfo.isFile() || finalInfo.size !== read.bytesRead) {
-        throw new RestrictedAppFileError("FILE_CONFLICT", "The granted file changed while Workspace was reading it.");
+        throw new RestrictedAppFileError("FILE_CONFLICT", "The granted file changed while work-fold was reading it.");
       }
       return {
         path: target.relativePath,
@@ -288,7 +288,7 @@ export class RestrictedAppFileBroker {
     }
     await assertWriteParentContainment(prepared, parentPath);
 
-    const temporary = join(parentPath, `.workspace-app-write-${randomUUID()}.tmp`);
+    const temporary = join(parentPath, `.work-fold-app-write-${randomUUID()}.tmp`);
     let temporaryPresent = false;
     try {
       const handle = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
@@ -313,20 +313,20 @@ export class RestrictedAppFileBroker {
         if (latest) throw new RestrictedAppFileError("FILE_CONFLICT", "A file already exists at the requested app path.");
         await link(temporary, target.absolutePath).catch((error: NodeJS.ErrnoException) => {
           if (error.code === "EEXIST") throw new RestrictedAppFileError("FILE_CONFLICT", "A file already exists at the requested app path.");
-          throw fileSystemError(error, "Workspace could not create the granted file.");
+          throw fileSystemError(error, "work-fold could not create the granted file.");
         });
         await unlink(temporary);
         temporaryPresent = false;
       } else {
         if (!latest) throw new RestrictedAppFileError("FILE_NOT_FOUND", "The requested app file no longer exists.");
         await rename(temporary, target.absolutePath).catch((error) => {
-          throw fileSystemError(error, "Workspace could not replace the granted file.");
+          throw fileSystemError(error, "work-fold could not replace the granted file.");
         });
         temporaryPresent = false;
       }
       await assertCanonicalContainment(prepared, target.absolutePath);
       const written = await stat(target.absolutePath);
-      if (!written.isFile() || written.size !== bytes.length) throw new RestrictedAppFileError("FILE_FAILED", "Workspace could not verify the written file.");
+      if (!written.isFile() || written.size !== bytes.length) throw new RestrictedAppFileError("FILE_FAILED", "work-fold could not verify the written file.");
       return {
         path: target.relativePath,
         sizeBytes: written.size,
@@ -340,11 +340,11 @@ export class RestrictedAppFileBroker {
 
 async function prepareGrant(context: RestrictedAppFileContext, grantId: string): Promise<PreparedGrant> {
   if (!context || typeof context !== "object") throw new RestrictedAppFileError("FILE_DENIED", "Restricted app file authority is unavailable.");
-  if (!isAbsolute(context.workspaceRoot)) throw new RestrictedAppFileError("FILE_DENIED", "Restricted app Space authority is invalid.");
-  const workspaceRoot = resolve(context.workspaceRoot);
-  if (workspaceRoot === parse(workspaceRoot).root) throw new RestrictedAppFileError("FILE_DENIED", "A filesystem root cannot be granted to an app.");
-  const workspaceInfo = await safeLstat(workspaceRoot);
-  if (!workspaceInfo?.isDirectory() || workspaceInfo.isSymbolicLink()) throw new RestrictedAppFileError("FILE_DENIED", "The app Space root is not an ordinary folder.");
+  if (!isAbsolute(context.spaceRoot)) throw new RestrictedAppFileError("FILE_DENIED", "Restricted app Space authority is invalid.");
+  const spaceRoot = resolve(context.spaceRoot);
+  if (spaceRoot === parse(spaceRoot).root) throw new RestrictedAppFileError("FILE_DENIED", "A filesystem root cannot be granted to an app.");
+  const spaceInfo = await safeLstat(spaceRoot);
+  if (!spaceInfo?.isDirectory() || spaceInfo.isSymbolicLink()) throw new RestrictedAppFileError("FILE_DENIED", "The app Space root is not an ordinary folder.");
   if (!Array.isArray(context.declarations) || !Array.isArray(context.grants)
     || context.declarations.length > maximumGrants || context.grants.length > maximumGrants) {
     throw new RestrictedAppFileError("FILE_DENIED", "Restricted app file authority is invalid.");
@@ -362,24 +362,24 @@ async function prepareGrant(context: RestrictedAppFileContext, grantId: string):
     throw new RestrictedAppFileError("FILE_DENIED", "The app file grant exceeds its reviewed declaration.");
   }
 
-  const workspaceRealRoot = await realpath(workspaceRoot).catch((error) => {
-    throw fileSystemError(error, "Workspace could not resolve the app Space root.");
+  const spaceRealRoot = await realpath(spaceRoot).catch((error) => {
+    throw fileSystemError(error, "work-fold could not resolve the app Space root.");
   });
   const root = safeRelativePath(grant.root, "App grant root");
-  const grantRoot = root === "." ? workspaceRoot : resolve(workspaceRoot, ...root.split("/"));
-  await assertNoLinkSegments(workspaceRoot, grantRoot);
+  const grantRoot = root === "." ? spaceRoot : resolve(spaceRoot, ...root.split("/"));
+  await assertNoLinkSegments(spaceRoot, grantRoot);
   const grantInfo = await safeLstat(grantRoot);
   if (!grantInfo || grantInfo.isSymbolicLink()
     || (declaration.target === "file" ? !grantInfo.isFile() : !grantInfo.isDirectory())) {
     throw new RestrictedAppFileError("FILE_DENIED", `The app's granted ${declaration.target} is unavailable.`);
   }
   const grantRealRoot = await realpath(grantRoot).catch((error) => {
-    throw fileSystemError(error, "Workspace could not resolve the app grant.");
+    throw fileSystemError(error, "work-fold could not resolve the app grant.");
   });
-  if (!pathContains(workspaceRealRoot, grantRealRoot)) {
+  if (!pathContains(spaceRealRoot, grantRealRoot)) {
     throw new RestrictedAppFileError("FILE_DENIED", "The app grant escapes its Space.");
   }
-  return { workspaceRoot, workspaceRealRoot, grantRoot, grantRealRoot, declaration, grant };
+  return { spaceRoot, spaceRealRoot, grantRoot, grantRealRoot, declaration, grant };
 }
 
 async function resolveRequestPath(prepared: PreparedGrant, value: string, allowMissing: boolean): Promise<ResolvedRequestPath> {
@@ -400,9 +400,9 @@ async function assertCanonicalContainment(prepared: PreparedGrant, path: string)
   await assertNoLinkSegments(prepared.grantRoot, path);
   const resolved = await realpath(path).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") throw new RestrictedAppFileError("FILE_NOT_FOUND", "The requested app path does not exist.");
-    throw fileSystemError(error, "Workspace could not resolve the granted app path.");
+    throw fileSystemError(error, "work-fold could not resolve the granted app path.");
   });
-  if (!pathContains(prepared.workspaceRealRoot, resolved) || !pathContains(prepared.grantRealRoot, resolved)) {
+  if (!pathContains(prepared.spaceRealRoot, resolved) || !pathContains(prepared.grantRealRoot, resolved)) {
     throw new RestrictedAppFileError("FILE_DENIED", "The app path escapes its Space file grant.");
   }
 }
@@ -417,12 +417,12 @@ async function assertWriteParentContainment(prepared: PreparedGrant, parentPath:
   if (resolve(parentPath) !== expectedParent) {
     throw new RestrictedAppFileError("FILE_DENIED", "The app file parent escapes its grant.");
   }
-  await assertNoLinkSegments(prepared.workspaceRoot, parentPath);
+  await assertNoLinkSegments(prepared.spaceRoot, parentPath);
   const resolvedParent = await realpath(parentPath).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") throw new RestrictedAppFileError("FILE_NOT_FOUND", "The granted file parent does not exist.");
-    throw fileSystemError(error, "Workspace could not resolve the granted app file parent.");
+    throw fileSystemError(error, "work-fold could not resolve the granted app file parent.");
   });
-  if (!pathContains(prepared.workspaceRealRoot, resolvedParent)
+  if (!pathContains(prepared.spaceRealRoot, resolvedParent)
     || resolvedParent !== resolve(prepared.grantRealRoot, "..")) {
     throw new RestrictedAppFileError("FILE_DENIED", "The app file parent escapes its Space file grant.");
   }
@@ -517,7 +517,7 @@ function safeRelativePath(value: unknown, label: string): string {
   }
   const segments = path.split("/");
   if (segments.some((segment) => !segment || segment === "." || segment === ".." || isUnsafePortableSegment(segment) || isReservedMetadataSegment(segment))) {
-    throw new RestrictedAppFileError("FILE_DENIED", `${label} must be a safe relative path outside Workspace metadata.`);
+    throw new RestrictedAppFileError("FILE_DENIED", `${label} must be a safe relative path outside work-fold metadata.`);
   }
   return segments.join("/");
 }
@@ -569,7 +569,7 @@ function positiveBound(value: number | undefined, fallback: number, label: strin
 async function safeLstat(path: string): Promise<Awaited<ReturnType<typeof lstat>> | null> {
   return await lstat(path).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") return null;
-    throw fileSystemError(error, "Workspace could not inspect the granted app path.");
+    throw fileSystemError(error, "work-fold could not inspect the granted app path.");
   });
 }
 
@@ -579,8 +579,8 @@ function pathContains(root: string, candidate: string): boolean {
 }
 
 function isReservedMetadataSegment(segment: string): boolean {
-  const value = segment.toLocaleLowerCase();
-  return value === ".workspace" || value === ".pi";
+  const value = segment.toLocaleLowerCase("en-US");
+  return value === ".work-fold" || value === ".workspace" || value === ".pi";
 }
 
 function isUnsafePortableSegment(segment: string): boolean {
@@ -595,6 +595,6 @@ function fileSystemError(error: unknown, fallback: string): RestrictedAppFileErr
   const code = error && typeof error === "object" && "code" in error ? String((error as NodeJS.ErrnoException).code ?? "") : "";
   if (code === "ENOENT") return new RestrictedAppFileError("FILE_NOT_FOUND", "The requested app path does not exist.");
   if (code === "EEXIST") return new RestrictedAppFileError("FILE_CONFLICT", "A file already exists at the requested app path.");
-  if (code === "EACCES" || code === "EPERM" || code === "ELOOP") return new RestrictedAppFileError("FILE_DENIED", "Workspace denied the restricted app file operation.");
+  if (code === "EACCES" || code === "EPERM" || code === "ELOOP") return new RestrictedAppFileError("FILE_DENIED", "work-fold denied the restricted app file operation.");
   return new RestrictedAppFileError("FILE_FAILED", fallback);
 }

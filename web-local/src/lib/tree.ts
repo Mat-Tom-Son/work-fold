@@ -24,8 +24,8 @@ export function treeEntryMatchesSearch(entry: TreeEntry, normalizedQuery: string
   return entry.name.toLocaleLowerCase().includes(normalizedQuery) || entry.path.toLocaleLowerCase().includes(normalizedQuery);
 }
 
-export function workspaceTreePathMissing(message: string): boolean {
-  return message.includes("ENOENT") || message.includes("Requested workspace tree path is not a folder");
+export function spaceTreePathMissing(message: string): boolean {
+  return message.includes("ENOENT") || message.includes("Requested space tree path is not a folder");
 }
 
 export function findTreeEntry(entries: TreeEntry[], path: string): TreeEntry | null {
@@ -120,7 +120,7 @@ export function eventPathTouchesFolder(eventPath: string, folderPath: string): b
 }
 
 export function moveTreeEntry(entries: TreeEntry[], sourcePath: string, targetFolderPath: string): { entries: TreeEntry[]; movedPath: string; name: string } {
-  if (!canMoveWorkspacePath(sourcePath, targetFolderPath)) return { entries, movedPath: sourcePath, name: sourcePath };
+  if (!canMoveSpacePath(sourcePath, targetFolderPath)) return { entries, movedPath: sourcePath, name: sourcePath };
   const sourceEntry = findTreeEntry(entries, sourcePath);
   if (!sourceEntry) return { entries, movedPath: sourcePath, name: sourcePath.split("/").pop() ?? sourcePath };
   if (targetFolderPath && !findTreeEntry(entries, targetFolderPath)) return { entries, movedPath: sourcePath, name: sourceEntry.name };
@@ -204,7 +204,7 @@ export function retargetMovedPathSet(paths: Set<string>, sourcePath: string, mov
   return new Set([...paths].map((path) => retargetMovedPath(path, sourcePath, movedPath) ?? path));
 }
 
-export function canMoveWorkspacePath(sourcePath: string, targetFolderPath: string): boolean {
+export function canMoveSpacePath(sourcePath: string, targetFolderPath: string): boolean {
   if (!sourcePath) return false;
   if (sourcePath === targetFolderPath || targetFolderPath.startsWith(`${sourcePath}/`)) return false;
   return parentFolderPath(sourcePath) !== targetFolderPath;

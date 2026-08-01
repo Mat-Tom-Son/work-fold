@@ -6,7 +6,7 @@ import { chatContextRequestForTab } from "../web-local/src/lib/chat-context-requ
 const request = {
   id: 7,
   path: "budget.csv",
-  workspaceId: "space-source",
+  spaceId: "space-source",
   surfaceTabId: "chat:space-source:new:7",
 };
 

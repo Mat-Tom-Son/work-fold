@@ -10,7 +10,7 @@ import {
   type RestrictedAppFileContext,
 } from "../src/local/agent/restricted-app-files.js";
 
-function context(workspaceRoot: string, options: {
+function context(spaceRoot: string, options: {
   declarationAccess?: "read" | "read-write";
   grantAccess?: "read" | "read-write";
   root?: string;
@@ -18,7 +18,7 @@ function context(workspaceRoot: string, options: {
   authorizeCommit?: () => void;
 } = {}): RestrictedAppFileContext {
   return {
-    workspaceRoot,
+    spaceRoot,
     declarations: [{
       id: "project-files",
       target: options.target ?? "directory",
@@ -39,12 +39,14 @@ function fileError(code: RestrictedAppFileError["code"]): (error: unknown) => bo
 }
 
 test("Space file broker lists and reads only bounded grant-relative data", async () => {
-  const root = await mkdtemp(join(tmpdir(), "workspace-app-files-"));
+  const root = await mkdtemp(join(tmpdir(), "work-fold-app-files-"));
   await mkdir(join(root, "docs"));
+  await mkdir(join(root, ".work-fold"));
   await mkdir(join(root, ".workspace"));
   await mkdir(join(root, ".pi"));
-  await writeFile(join(root, "docs", "notes.txt"), "hello Workspace", "utf8");
+  await writeFile(join(root, "docs", "notes.txt"), "hello work-fold", "utf8");
   await writeFile(join(root, "binary.bin"), Buffer.from([0, 1, 2, 255]));
+  await writeFile(join(root, ".work-fold", "space.json"), "current secret", "utf8");
   await writeFile(join(root, ".workspace", "space.json"), "secret", "utf8");
   await writeFile(join(root, ".pi", "extension.ts"), "secret", "utf8");
   const broker = new RestrictedAppFileBroker();
@@ -56,13 +58,13 @@ test("Space file broker lists and reads only bounded grant-relative data", async
   ]);
   assert.equal(listed.truncated, false);
   assert.equal(JSON.stringify(listed).includes(root), false);
-  assert.equal(JSON.stringify(listed).includes("workspaceRoot"), false);
+  assert.equal(JSON.stringify(listed).includes("spaceRoot"), false);
 
   const text = await broker.read(context(root), { grantId: "selected-project-files", path: "docs/notes.txt" });
   assert.deepEqual({ path: text.path, encoding: text.encoding, data: text.data, sizeBytes: text.sizeBytes }, {
     path: "docs/notes.txt",
     encoding: "utf8",
-    data: "hello Workspace",
+    data: "hello work-fold",
     sizeBytes: 15,
   });
   const binary = await broker.read(context(root), { grantId: "selected-project-files", path: "binary.bin", encoding: "base64" });
@@ -70,7 +72,7 @@ test("Space file broker lists and reads only bounded grant-relative data", async
 });
 
 test("Space file broker honors safe relative grant roots and file targets", async () => {
-  const root = await mkdtemp(join(tmpdir(), "workspace-app-files-"));
+  const root = await mkdtemp(join(tmpdir(), "work-fold-app-files-"));
   await mkdir(join(root, "selected"));
   await mkdir(join(root, "outside"));
   await writeFile(join(root, "selected", "inside.txt"), "inside", "utf8");
@@ -101,9 +103,11 @@ test("Space file broker honors safe relative grant roots and file targets", asyn
 });
 
 test("Space file broker rejects hidden ownership, unsafe paths, and metadata roots", async () => {
-  const root = await mkdtemp(join(tmpdir(), "workspace-app-files-"));
+  const root = await mkdtemp(join(tmpdir(), "work-fold-app-files-"));
   await writeFile(join(root, "notes.txt"), "hello", "utf8");
+  await mkdir(join(root, ".work-fold"));
   await mkdir(join(root, ".workspace"));
+  await writeFile(join(root, ".work-fold", "space.json"), "current hidden", "utf8");
   await writeFile(join(root, ".workspace", "space.json"), "hidden", "utf8");
   const broker = new RestrictedAppFileBroker();
   const authority = context(root);
@@ -113,12 +117,18 @@ test("Space file broker rejects hidden ownership, unsafe paths, and metadata roo
     { grantId: "selected-project-files", path: "/notes.txt" },
     { grantId: "selected-project-files", path: "C:/notes.txt" },
     { grantId: "selected-project-files", path: "folder\\notes.txt" },
+    { grantId: "selected-project-files", path: ".work-fold/space.json" },
+    { grantId: "selected-project-files", path: ".WORK-FOLD/space.json" },
     { grantId: "selected-project-files", path: ".workspace/space.json" },
     { grantId: "selected-project-files", path: ".PI/extension.ts" },
-    { grantId: "selected-project-files", path: "notes.txt", workspaceRoot: root },
+    { grantId: "selected-project-files", path: "notes.txt", spaceRoot: root },
     { grantId: "selected-project-files", path: "notes.txt", appId: "spoofed-app" },
   ];
   for (const request of requests) await assert.rejects(broker.read(authority, request), fileError("FILE_DENIED"));
+  await assert.rejects(
+    broker.read({ ...authority, grants: [{ ...authority.grants[0]!, root: ".work-fold" }] }, { grantId: "selected-project-files", path: "." }),
+    fileError("FILE_DENIED"),
+  );
   await assert.rejects(
     broker.read({ ...authority, grants: [{ ...authority.grants[0]!, root: ".workspace" }] }, { grantId: "selected-project-files", path: "." }),
     fileError("FILE_DENIED"),
@@ -126,7 +136,7 @@ test("Space file broker rejects hidden ownership, unsafe paths, and metadata roo
 });
 
 test("Space file broker denies links and junction escapes", async (t) => {
-  const sandbox = await mkdtemp(join(tmpdir(), "workspace-app-files-"));
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-app-files-"));
   const root = join(sandbox, "space");
   const outside = join(sandbox, "outside");
   await mkdir(root);
@@ -156,7 +166,7 @@ test("Space file broker denies links and junction escapes", async (t) => {
 });
 
 test("Space file broker requires reviewed and effective read-write authority", async () => {
-  const root = await mkdtemp(join(tmpdir(), "workspace-app-files-"));
+  const root = await mkdtemp(join(tmpdir(), "work-fold-app-files-"));
   await writeFile(join(root, "notes.txt"), "before", "utf8");
   const broker = new RestrictedAppFileBroker();
   const request = { grantId: "selected-project-files", path: "notes.txt", data: "after", mode: "replace" };
@@ -168,7 +178,7 @@ test("Space file broker requires reviewed and effective read-write authority", a
 });
 
 test("Space file broker creates and replaces bounded files without leaving partials", async () => {
-  const root = await mkdtemp(join(tmpdir(), "workspace-app-files-"));
+  const root = await mkdtemp(join(tmpdir(), "work-fold-app-files-"));
   await mkdir(join(root, "docs"));
   await writeFile(join(root, "docs", "notes.txt"), "before", "utf8");
   const broker = new RestrictedAppFileBroker({ maxWriteBytes: 32 });
@@ -195,11 +205,11 @@ test("Space file broker creates and replaces bounded files without leaving parti
     broker.write(authority, { grantId: "selected-project-files", path: "docs/new.bin", data: "duplicate", mode: "create" }),
     fileError("FILE_CONFLICT"),
   );
-  assert.deepEqual((await readdir(join(root, "docs"))).filter((name) => name.startsWith(".workspace-app-write-")), []);
+  assert.deepEqual((await readdir(join(root, "docs"))).filter((name) => name.startsWith(".work-fold-app-write-")), []);
 });
 
 test("Space file broker reauthorizes immediately before an atomic write commit", async () => {
-  const root = await mkdtemp(join(tmpdir(), "workspace-app-files-"));
+  const root = await mkdtemp(join(tmpdir(), "work-fold-app-files-"));
   await writeFile(join(root, "notes.txt"), "before", "utf8");
   const broker = new RestrictedAppFileBroker();
   let checks = 0;
@@ -229,11 +239,11 @@ test("Space file broker reauthorizes immediately before an atomic write commit",
   await assert.rejects(mutation, /authority changed/);
   assert.equal(checks, 1);
   assert.equal(await readFile(join(root, "notes.txt"), "utf8"), "before");
-  assert.deepEqual((await readdir(root)).filter((name) => name.startsWith(".workspace-app-write-")), []);
+  assert.deepEqual((await readdir(root)).filter((name) => name.startsWith(".work-fold-app-write-")), []);
 });
 
 test("Space file broker enforces read, write, and list output limits", async () => {
-  const root = await mkdtemp(join(tmpdir(), "workspace-app-files-"));
+  const root = await mkdtemp(join(tmpdir(), "work-fold-app-files-"));
   await writeFile(join(root, "large.txt"), "12345", "utf8");
   await writeFile(join(root, "one.txt"), "1", "utf8");
   await writeFile(join(root, "two.txt"), "2", "utf8");
@@ -251,7 +261,7 @@ test("Space file broker enforces read, write, and list output limits", async () 
 });
 
 test("file grants cannot exceed their reviewed declaration", async () => {
-  const root = await mkdtemp(join(tmpdir(), "workspace-app-files-"));
+  const root = await mkdtemp(join(tmpdir(), "work-fold-app-files-"));
   await writeFile(join(root, "notes.txt"), "hello", "utf8");
   const broker = new RestrictedAppFileBroker();
   await assert.rejects(

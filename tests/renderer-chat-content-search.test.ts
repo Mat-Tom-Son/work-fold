@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 
-import type { ConversationSummary, WorkspaceSummary } from "../web-local/src/types.js";
+import type { ConversationSummary, SpaceSummary } from "../web-local/src/types.js";
 import { createDomHarness } from "./support/dom.js";
 
-const workspaces: WorkspaceSummary[] = [
+const spaces: SpaceSummary[] = [
   {
     id: "space-1",
     name: "Planning",
@@ -57,13 +57,13 @@ test("Chat search reaches transcript contents across Spaces and opens the owning
   const opened: string[] = [];
   const { ChatContentSearch } = await import("../web-local/src/components/panes/ChatContentSearch.js");
   await dom.render(createElement(ChatContentSearch, {
-    workspaces,
+    spaces,
     conversations: { "space-1": [planningChat], "space-2": [] },
     query: "quarterly",
     view: "active",
     now: Date.parse("2026-07-02T00:00:00.000Z"),
-    onOpen: (workspace: WorkspaceSummary, conversation: ConversationSummary) => {
-      opened.push(`${workspace.id}:${conversation.id}`);
+    onOpen: (space: SpaceSummary, conversation: ConversationSummary) => {
+      opened.push(`${space.id}:${conversation.id}`);
     },
   }));
 

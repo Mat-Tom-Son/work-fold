@@ -15,7 +15,7 @@ test("Claude Code imports the canonical Codex contributor contract", async () =>
   assert.match(claude, /canonical contributor contract/i);
   assert.match(agents, /Harness parity/);
   assert.match(agents, /Native full-trust Skills, Extensions, built-in tools, and their catalog\/runtime remain Pi-owned/);
-  assert.match(agents, /Workspace owns the product documentation and restricted-app lane, but both remain harness-neutral/);
+  assert.match(agents, /work-fold owns the product documentation and restricted-app lane, but both remain harness-neutral/);
   assert.doesNotMatch(claude, /npm run desktop:make/);
 });
 

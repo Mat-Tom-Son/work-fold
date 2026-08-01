@@ -46,7 +46,7 @@ function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
       ],
     },
   ];
-  if (window.workspaceDesktop) {
+  if (window.workFoldDesktop) {
     shortcutGroups.splice(3, 0, {
       title: "Desktop File menu",
       rows: [

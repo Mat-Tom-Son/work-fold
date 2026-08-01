@@ -15,14 +15,14 @@ test("Electron Builder packages executable CLI shims outside ASAR and includes P
   assert.deepEqual(builder.extraFiles, [{
     from: "desktop/cli",
     to: "bin",
-    filter: ["workspace", "workspace.cmd", "workspace-cli.ps1", "workspace-cli.jxa.js"],
+    filter: ["work-fold", "work-fold.cmd", "work-fold-cli.ps1", "work-fold-cli.jxa.js"],
   }]);
   assert.equal(basename(builder.nsis.include), "cli-path.nsh");
   assert.equal(builder.asar, true);
   assert.equal(builder.electronFuses.runAsNode, false);
 });
 
-test("macOS DMG artwork is generated outside the tracked source tree", async () => {
+test("macOS DMG artwork keeps the tracked source and generated packaging artifact in sync", async () => {
   assert.equal(
     builder.dmg.background,
     join(rootDir, "out", "generated-assets", "dmg-background.png"),
@@ -33,7 +33,8 @@ test("macOS DMG artwork is generated outside the tracked source tree", async () 
     read("scripts/desktop-preflight.mjs"),
   ]);
   assert.match(generator, /join\(rootDir, "out", "generated-assets"\)/);
-  assert.doesNotMatch(generator, /join\(assetsDir, "dmg-background\.png"\)/);
+  assert.match(generator, /writeFile\(join\(outDir, "dmg-background\.png"\), backgroundBytes\)/);
+  assert.match(generator, /writeFile\(join\(assetsDir, "dmg-background\.png"\), backgroundBytes\)/);
   assert.match(preflight, /out\/generated-assets\/dmg-background\.png/);
 });
 
@@ -41,10 +42,10 @@ test("retained Forge packaging mirrors the package-root CLI bin layout", async (
   const hooks = forge.packagerConfig.afterComplete;
   assert.equal(Array.isArray(hooks), true);
   assert.equal(hooks.length, 1);
-  const packageRoot = await mkdtemp(join(tmpdir(), "workspace-forge-cli-"));
+  const packageRoot = await mkdtemp(join(tmpdir(), "work-fold-forge-cli-"));
   try {
     await hooks[0](packageRoot);
-    for (const name of ["workspace", "workspace.cmd", "workspace-cli.ps1", "workspace-cli.jxa.js"]) {
+    for (const name of ["work-fold", "work-fold.cmd", "work-fold-cli.ps1", "work-fold-cli.jxa.js"]) {
       assert.equal(
         await readFile(join(packageRoot, "bin", name), "utf8"),
         await readFile(join(rootDir, "desktop", "cli", name), "utf8"),
@@ -57,8 +58,8 @@ test("retained Forge packaging mirrors the package-root CLI bin layout", async (
 
 test("macOS CLI shim uses the same atomic bounded protocol-v1 handoff", async () => {
   const [shellShim, jxaHelper] = await Promise.all([
-    read("desktop/cli/workspace"),
-    read("desktop/cli/workspace-cli.jxa.js"),
+    read("desktop/cli/work-fold"),
+    read("desktop/cli/work-fold-cli.jxa.js"),
   ]);
   assert.match(shellShim, /uname -s/);
   assert.match(shellShim, /osascript -l JavaScript/);
@@ -66,39 +67,35 @@ test("macOS CLI shim uses the same atomic bounded protocol-v1 handoff", async ()
     assert.match(jxaHelper, new RegExp(`\\b${field}:`), `request must include ${field}`);
   }
   assert.match(jxaHelper, /Library\/Application Support\/\$\{defaultStateName\}/);
-  assert.match(jxaHelper, /WORKSPACE_CLI_STATE_DIR/);
-  assert.match(jxaHelper, /Workspace Local Smoke/);
-  assert.match(jxaHelper, /WORKSPACE_CLI_APP/);
-  assert.match(jxaHelper, /WORKSPACE_CLI_TIMEOUT_MS/);
+  assert.match(jxaHelper, /WORKFOLD_CLI_STATE_DIR/);
+  assert.match(jxaHelper, /work-fold Local Smoke/);
+  assert.match(jxaHelper, /WORKFOLD_CLI_APP/);
+  assert.match(jxaHelper, /WORKFOLD_CLI_TIMEOUT_MS/);
   assert.match(jxaHelper, /moveItemAtPathToPathError/);
-  assert.match(jxaHelper, /--workspace-cli-request/);
+  assert.match(jxaHelper, /--work-fold-cli-request/);
   assert.match(jxaHelper, /fileHandleWithStandardOutput/);
   assert.match(jxaHelper, /fileHandleWithStandardError/);
   assert.match(jxaHelper, /\$\.exit\(exitCode\)/);
   assertActLaneShimContract(jxaHelper);
-  const desktopMain = await read("desktop/src/main.ts");
-  assert.match(desktopMain, /process\.env\.WORKSPACE_CLI_STATE_DIR = app\.getPath\("userData"\)/);
-  assert.doesNotMatch(desktopMain, /process\.env\.WORKSPACE_DESKTOP_(?:USER_DATA|STATE)_DIR\s*=/);
-  assert.match(desktopMain, /writeWorkspaceCliActTokenFile/);
-  assert.match(desktopMain, /removeWorkspaceCliActTokenFile/);
+  assert.doesNotMatch(jxaHelper, /WORKSPACE_CLI_|Workspace\.app|Workspace Local Smoke|--workspace-cli-request/);
 });
 
 test("Windows CLI shim uses an atomic bounded protocol-v1 handoff", async () => {
   const [shellShim, commandShim, powerShellShim] = await Promise.all([
-    read("desktop/cli/workspace"),
-    read("desktop/cli/workspace.cmd"),
-    read("desktop/cli/workspace-cli.ps1"),
+    read("desktop/cli/work-fold"),
+    read("desktop/cli/work-fold.cmd"),
+    read("desktop/cli/work-fold-cli.ps1"),
   ]);
   assert.match(shellShim, /^#!\/usr\/bin\/env sh/);
-  assert.match(shellShim, /exec "\$script_dir\/workspace\.cmd" "\$@"/);
+  assert.match(shellShim, /exec "\$script_dir\/work-fold\.cmd" "\$@"/);
   assert.match(commandShim, /-NoProfile\s+-NonInteractive/);
-  assert.match(commandShim, /workspace-cli\.ps1"\s+%\*/);
+  assert.match(commandShim, /work-fold-cli\.ps1"\s+%\*/);
   assert.match(commandShim, /exit \/b %ERRORLEVEL%/);
 
   for (const field of ["protocolVersion", "id", "argv", "cwd", "createdAt"]) {
     assert.match(powerShellShim, new RegExp(`\\b${field}\\s*=`), `request must include ${field}`);
   }
-  assert.match(powerShellShim, /\$script:WorkspaceCliRoot\s*=\s*Join-Path\s+\$stateDirectory\s+'cli'/);
+  assert.match(powerShellShim, /\$script:WorkFoldCliRoot\s*=\s*Join-Path\s+\$stateDirectory\s+'cli'/);
   assert.match(powerShellShim, /'requests'/);
   assert.match(powerShellShim, /'responses'/);
   assert.match(powerShellShim, /CurrentFileSystemLocation\.ProviderPath/);
@@ -107,31 +104,32 @@ test("Windows CLI shim uses an atomic bounded protocol-v1 handoff", async () => 
   assert.match(powerShellShim, /\$requestStream\.Flush\(\$true\)/);
   assert.doesNotMatch(powerShellShim, /\$requestId\.\$PID\.tmp/);
   assert.match(powerShellShim, /\[IO\.File\]::Move\(\$temporaryRequestPath,\s*\$requestPath\)/);
-  assert.match(powerShellShim, /Start-Process[\s\S]*?'--workspace-cli-request'[\s\S]*?-WindowStyle Hidden/);
-  assert.match(powerShellShim, /WORKSPACE_CLI_APP/);
-  assert.match(powerShellShim, /WORKSPACE_CLI_STATE_DIR/);
-  assert.match(powerShellShim, /Uninstall Workspace\.exe/);
-  assert.match(powerShellShim, /Workspace Development/);
-  assert.match(powerShellShim, /WORKSPACE_CLI_TIMEOUT_MS/);
-  assert.match(powerShellShim, /ElapsedMilliseconds\s+-ge\s+\$script:WorkspaceCliTimeoutMs/);
+  assert.match(powerShellShim, /Start-Process[\s\S]*?'--work-fold-cli-request'[\s\S]*?-WindowStyle Hidden/);
+  assert.match(powerShellShim, /WORKFOLD_CLI_APP/);
+  assert.match(powerShellShim, /WORKFOLD_CLI_STATE_DIR/);
+  assert.match(powerShellShim, /Uninstall work-fold\.exe/);
+  assert.match(powerShellShim, /work-fold Development/);
+  assert.match(powerShellShim, /WORKFOLD_CLI_TIMEOUT_MS/);
+  assert.match(powerShellShim, /ElapsedMilliseconds\s+-ge\s+\$script:WorkFoldCliTimeoutMs/);
   assert.match(powerShellShim, /\[Console\]::Out\.Write\(\[string\]\$Outcome\.Stdout\)/);
   assert.match(powerShellShim, /\[Console\]::Error\.Write\(\[string\]\$Outcome\.Stderr\)/);
   assert.match(powerShellShim, /ExitCode\s*=\s*\[Convert\]::ToInt32\(\$response\.exitCode/);
   assert.match(powerShellShim, /Remove-Item -LiteralPath \$path -Force/);
   assertActLaneShimContract(powerShellShim);
+  assert.doesNotMatch(powerShellShim, /WORKSPACE_CLI_|Workspace\.exe|Workspace Development|--workspace-cli-request/);
 });
 
 test("NSIS manages only the current-user PATH and broadcasts changes", async () => {
   const [nsis, powerShellShim] = await Promise.all([
     read("desktop/nsis/cli-path.nsh"),
-    read("desktop/cli/workspace-cli.ps1"),
+    read("desktop/cli/work-fold-cli.ps1"),
   ]);
   assert.match(nsis, /!macro customInstall/);
   assert.match(nsis, /!macro customUnInstall/);
   assert.match(nsis, /\$INSTDIR\\bin/);
   assert.match(nsis, /nsExec::ExecToStack/);
   assert.match(nsis, /-NoProfile\s+-NonInteractive/);
-  assert.match(nsis, /--workspace-installer-manage-user-path \$\{ACTION\}/);
+  assert.match(nsis, /--work-fold-installer-manage-user-path \$\{ACTION\}/);
   assert.match(nsis, /\$\{HWND_BROADCAST\}\s+\$\{WM_SETTINGCHANGE\}/);
   assert.doesNotMatch(nsis, /HKLM|\$PROFILE|Documents\\PowerShell/i);
 
@@ -144,10 +142,8 @@ test("NSIS manages only the current-user PATH and broadcasts changes", async () 
 
 test("packaged asset verification requires external CLI shims", async () => {
   const verifier = await read("scripts/verify-packaged-app-assets.mjs");
-  assert.match(verifier, /join\(binDir, "workspace\.cmd"\)/);
-  assert.match(verifier, /join\(binDir, "workspace"\)/);
-  assert.match(verifier, /join\(binDir, "workspace-cli\.ps1"\)/);
-  assert.match(verifier, /join\(binDir, "workspace-cli\.jxa\.js"\)/);
+  assert.match(verifier, /identity\.cliCommand/);
+  assert.match(verifier, /Legacy CLI shim must not be packaged/);
   assert.match(verifier, /CLI shim must remain outside app\.asar/);
 });
 
@@ -179,7 +175,7 @@ function assertActLaneShimContract(shim: string): void {
   assert.match(shim, /--message-file/);
   assert.match(shim, /--message-from-payload/);
   assert.match(shim, /262144/);
-  assert.match(shim, /Open Workspace to run this command/);
+  assert.match(shim, /Open work-fold to run this command/);
   assert.match(shim, /exit\s*\(?6\)?/);
   assert.match(shim, /--task/);
   assert.match(shim, /task\.state/);

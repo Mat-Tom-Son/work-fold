@@ -1,7 +1,7 @@
 # Checks decision register
 
-Checks let a person teach Workspace a small, durable expectation about files
-they deliberately designate. Workspace may then verify that expectation on
+Checks let a person teach work-fold a small, durable expectation about files
+they deliberately designate. work-fold may then verify that expectation on
 request and explain current, evidence-backed problems. Checks are optional
 Space behavior, not a new container, ambient scanner, generic agent loop, or
 permanent navigation destination.
@@ -16,13 +16,14 @@ justifies promotion into the stable kernel and installed-CLI snapshots.
   evidence-backed outcome. `sensor`, `candidate`, `admission`, and `finding`
   remain implementation terms.
 - A Space with no configured Checks is **not configured**, never implicitly
-  clear. Workspace does not enumerate, inspect, or send its files to a model.
+  clear. work-fold does not enumerate, inspect, or send its files to a model.
 - Every Check names bounded targets. There is no declaration meaning “the
   whole Space” and no implicit inheritance from the selected file, current
   Chat, or working directory.
 - A target is either an exact Space-relative file or an explicitly selected
   directory tree with bounded recursion and declared file-type filters. Hidden
-  `.workspace/` and executable `.pi/` material cannot be targets.
+  `.work-fold/`, preserved legacy `.workspace/`, and executable `.pi/` material
+  cannot be targets.
 - Checks run only when a person or authenticated agent action requests a run.
   Opening the Checks work tab refreshes recorded status and re-verifies saved
   evidence, but does not run a sensor. Continuous watching and schedules are
@@ -46,7 +47,7 @@ justifies promotion into the stable kernel and installed-CLI snapshots.
   checking,” “watch this,” or a person's acceptance of a proposed Check.
 - A proposal has no apply operation in the unauthenticated read lane. Importing
   or enabling it is an explicit, receipted act-lane mutation naming one Space.
-- Portable declarations live below `.workspace/checks/`. They are code-free
+- Portable declarations live below `.work-fold/checks/`. They are code-free
   data and may contain only a sensor id and revision, typed parameters, bounded
   target selectors, presentation metadata, and gate policy.
 - Declarations may never embed prompts, instructions, source code, shell
@@ -64,17 +65,24 @@ justifies promotion into the stable kernel and installed-CLI snapshots.
   Check state files have been deleted without parsing them; damaged or
   unsupported future state therefore cannot preserve authority or block safe
   cleanup. Backup recovery itself always strips enablement grants.
+- Legacy Workspace Check kinds, sensor ids, proposal files, declarations, and
+  enablement state are never imported. They are inert bytes and cannot confer
+  work-fold Check identity or authority.
 
 ## Storage split
 
 | Record | Initial location | Reason |
 |---|---|---|
 | Inert Check proposal | Any ordinary file chosen by the person or agent | Reviewable and transferable without authority |
-| Enabled declaration | `.workspace/checks/<check-id>.json` | Portable expectation data, never executable configuration |
-| Exact-digest enablement | Workspace application state | Authority is local to the machine and installed sensor revision |
-| Run records and admitted findings | Workspace application state | May contain paths, excerpts, and other private derived content |
-| Decisions and invalidation history | Workspace application state | Avoids silently exporting personal triage; portability is a later explicit decision |
-| Raw model requests/responses and cost detail | Workspace application state | Never portable Space content |
+| Enabled declaration | `.work-fold/checks/<check-id>.json` | Portable expectation data, never executable configuration |
+| Exact-digest enablement | work-fold application state | Authority is local to the machine and installed sensor revision |
+| Run records and admitted findings | work-fold application state | May contain paths, excerpts, and other private derived content |
+| Decisions and invalidation history | work-fold application state | Avoids silently exporting personal triage; portability is a later explicit decision |
+| Raw model requests/responses and cost detail | work-fold application state | Never portable Space content |
+
+The proposal kind is `work-fold.check-proposal`, the declaration kind is
+`work-fold.check`, the initial built-in sensor is `work-fold.file-presence`,
+and the checked-in proposal helper uses the `.work-fold-check.json` suffix.
 
 Portable writes and machine-local authority updates must be atomic as one
 logical enable operation: a failure may leave an inert declaration, but must
@@ -159,7 +167,7 @@ active finding**.
 - Every run participates in the shared internal task lifecycle and capability
   mutation coordination, including error and abort cleanup. Check work must not
   become an invisible second background-work system.
-- Experimental `check_run` tasks remain out of the stable `workspace.tasks`
+- Experimental `check_run` tasks remain out of the stable `work-fold.tasks`
   version-1 projection. The Checks commands expose their own task status during
   dogfooding. Promotion requires an intentional kernel snapshot/version
   decision.
@@ -197,7 +205,7 @@ active finding**.
 - Selecting the conditional summary opens one canonical `Checks` tab owned by
   that Space. The work tab may show current re-verified findings, Check health,
   bounded targets, and authority state. Its **Run Checks** action starts the
-  same internal task as `workspace checks run`; stop and decisions use the same
+  same internal task as `work-fold checks run`; stop and decisions use the same
   abort and fingerprint-scoped decision paths.
 - `never-run`, stale, blocked, infrastructure-error, current-clear, and
   needs-attention states remain visually and semantically distinct. Opening the
@@ -210,7 +218,7 @@ active finding**.
   into either unconfigured or clear.
 - A failed content-bearing work-tab refresh suppresses cached health claims,
   findings, decisions, and target details until evidence can be re-verified.
-  Returning focus or visibility to Workspace refreshes the relevant aggregate
+  Returning focus or visibility to work-fold refreshes the relevant aggregate
   or open work tab so authenticated CLI and management actions become visible
   without a sensor run or background file watcher.
 

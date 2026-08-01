@@ -1,10 +1,10 @@
 # Desktop experience parity
 
-Workspace is a product extraction of the mature Kai Workspace desktop experience, not a new interface inspired by it. The neutral desktop interaction model from `win-kymadocs` commit `57ff910` is the behavioral baseline. Product-specific integrations and language may be replaced, but the general-purpose interaction quality should be preserved.
+work-fold is the clean-break successor to the legacy Workspace extraction of the mature Kai Workspace desktop experience, not a new interface inspired by it. The neutral desktop interaction model from `win-kymadocs` commit `57ff910` is the behavioral baseline. Product-specific integrations and language may be replaced, but the general-purpose interaction quality should be preserved.
 
 ## Product translation
 
-| Baseline concept | Workspace concept |
+| Baseline concept | work-fold concept |
 | --- | --- |
 | Workspace backed by a local SharePoint mirror | Space backed directly by an ordinary folder |
 | Kits | Skills |
@@ -34,8 +34,9 @@ The translation is intentionally narrow. It does not justify replacing the shell
 
 - Preserve the Windows custom title bar and the platform menu contract; macOS uses its native hidden-inset title bar plus application, File, Edit, View, Window, and Help menus.
 - Preserve window size, position, maximized state, theme integration, and renderer recovery behavior.
-- On Windows, closing the window may hide Workspace to the system tray when the preference is enabled. On macOS, closing the last window keeps the application host alive and the Dock icon recreates the window. Explicit Quit exits cleanly on both.
-- The tray exposes clear Show and Quit actions and does not strand an invisible process.
+- On Windows, closing the window may hide work-fold to the system tray when the preference is enabled. On macOS, closing the last window keeps the application host alive and the Dock icon recreates the window. Explicit Quit exits cleanly on both. Close-to-tray remains Windows behavior: the macOS menu-bar item never changes what closing the last macOS window means.
+- The tray exposes clear **Tell work-fold**, **Show**, and **Quit** actions and does not strand an invisible process.
+- Both platforms carry the management popover (**Tell work-fold**): a macOS menu-bar item where left click opens the popover, right click opens the menu, and files or links dropped on the icon stage as reference chips; the Windows tray offers the same popover through its menu while click still opens the main window. The popover works with the main window closed, stages drops without sending, and its Stop names the management turn and every delegated Space turn it aborts.
 - Update status and commands remain available from both the platform-appropriate desktop menu and settings surface.
 
 ### Files and folders
@@ -43,9 +44,9 @@ The translation is intentionally narrow. It does not justify replacing the shell
 - The Files rail item, resizable file pane, search, expandable tree, file-type icons, details pane, and file history remain first-class for the selected Space.
 - Right-click actions are available throughout the file tree and use native desktop context behavior where appropriate.
 - Supported actions include open, reveal in Explorer/Finder, copy path, attach to chat, rename, move, upload/import, delete, and version history. File and folder creation controls should appear only when the corresponding workflow is implemented and verified.
-- Desktop drag-out, file opening, and reveal operations use safe workspace-relative paths and never escape the Space root.
+- Desktop drag-out, file opening, and reveal operations use safe Space-relative paths and never escape the Space root.
 - Destructive actions require clear confirmation and preserve recovery/history behavior where supported.
-- Registering an existing folder as a Space never moves or converts user files. It maintains only the documented hidden `.workspace/` identity and conversation layer; that layer and native `.pi/` configuration never appear as ordinary Files.
+- Registering an existing folder as a Space never moves or converts user files. It maintains only the documented hidden `.work-fold/` identity and conversation layer; that layer, preserved legacy `.workspace/`, and native `.pi/` configuration never appear as ordinary Files. Legacy `.workspace/` content is never parsed or imported.
 
 ### Chat and navigation
 
@@ -56,7 +57,7 @@ The translation is intentionally narrow. It does not justify replacing the shell
 ### Management layer and CLI
 
 - The read-only management layer is additive infrastructure; it must not replace or weaken Space-bound tabs, background continuity, native menus, or the visible trust and capability-management surfaces.
-- The installed `workspace` command resolves the terminal's current folder to the same Space model as the renderer, can report live Assistant/compaction tasks, and exposes compact capability metadata through stable JSON.
+- The installed `work-fold` command resolves the terminal's current folder to the same Space model as the renderer, can report live Assistant/compaction tasks, and exposes compact capability metadata through stable JSON.
 - A headless CLI request must coexist with the running single-instance desktop app, return bounded stdout/stderr/exit status, and avoid opening or stealing focus from the interactive window.
 - Installer PATH integration must be reversible and must not modify shell profile files.
 
@@ -74,9 +75,9 @@ The translation is intentionally narrow. It does not justify replacing the shell
 - Microsoft/Azure organization authentication and organization-account UI.
 - SharePoint mirror, publish, readiness, and controlled-document semantics.
 - Compliance/SOP-specific review surfaces and Kymanox/Kai branding.
-- Company signing credentials and compatibility identifiers that are not needed by the separate Workspace product.
+- Company signing credentials and compatibility identifiers that are not needed by work-fold.
 
-Pi remains the agent runtime. Workspace should expose Pi's provider setup, standard built-in tools, Skills, Extensions, packages, registered-Space project authorization, and supported extension UI without inventing a second full-trust capability system. Restricted app packages are a deliberately separate sandbox lane and must never be loaded as Pi Extensions.
+Pi remains the agent runtime. work-fold should expose Pi's provider setup, standard built-in tools, Skills, Extensions, packages, registered-Space project authorization, and supported extension UI without inventing a second full-trust capability system. Restricted app packages are a deliberately separate sandbox lane and must never be loaded as Pi Extensions.
 
 ## Acceptance evidence
 
@@ -87,7 +88,7 @@ A corrective port is ready for release only when all of the following are true:
 3. File-tree context actions and native open/reveal/drag behavior have been exercised against a disposable Space.
 4. Custom menus, close-to-tray, Show, Quit, window-state restore, and updater surfaces have been exercised in packaged Electron.
 5. Type checks, tests, renderer build, desktop compile/preflight, the real-Electron restricted-app probe, and a packaged smoke build pass on the supported Node runtime.
-6. The app contains no user-facing Kai, Kymanox, Kits, Sources, SharePoint, or Microsoft-login copy except in migration or historical documentation.
+6. The app contains no user-facing Kai, Kymanox, Kits, Sources, SharePoint, Microsoft-login, or legacy Workspace copy except in historical documentation.
 7. The packaged CLI resolves context, lists Spaces/tasks/capabilities, coexists with the GUI, and cleans its request/response handoff.
 8. No public release is published until the product review is accepted and the release commit is green on main CI.
 9. The checked-in restricted Connected inbox example has been exercised in a disposable Space for default-off grants and schedules, rail and persistent-tab ownership, storage invalidation/reload, explicit named automation runs and receipts, static notification routing, revocation, suspend/resume, and teardown.
@@ -101,4 +102,4 @@ Workspace 0.2.7 at commit `db5c149` established the accepted public baseline on 
 
 The 0.2.8 development checkpoint at commit `27aa329` established the restricted-app sandbox baseline: Space-owned rail and work-tab surfaces, separate visible and worker sandboxes, default-off external authority, host-owned connections and storage, deterministic teardown, and a release-gating real-Electron probe. The current version-2 contract replaces its single-job prototype with named automations; compatibility with that unreleased manifest shape is intentionally not retained. The checkpoint notes remain in [releases/0.2.8.md](releases/0.2.8.md) as development history.
 
-Future changes must retain those behaviors while satisfying [the Workspace visual system](visual-design.md), [the management-layer contract](management-layer.md), and the current build/release gates. Browser review must cover every primary, Assistant, and restricted-app surface in light and dark themes at the true minimum window size and at a tall desktop aspect ratio. Automated checks must continue to guard the Files/Space distinction, Space-bound tabs, Fluent shell-icon contract, compact neutral chrome, JSX-to-CSS contracts, and the restricted-app runtime boundary.
+Future changes must retain those behaviors while satisfying [the work-fold visual system](visual-design.md), [the management-layer contract](management-layer.md), and the current build/release gates. Browser review must cover every primary, Assistant, and restricted-app surface in light and dark themes at the true minimum window size and at a tall desktop aspect ratio. Automated checks must continue to guard the Files/Space distinction, Space-bound tabs, Fluent shell-icon contract, compact neutral chrome, JSX-to-CSS contracts, and the restricted-app runtime boundary.

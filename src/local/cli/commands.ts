@@ -1,35 +1,35 @@
 import {
-  WORKSPACE_CLI_PROTOCOL_VERSION,
-  WorkspaceCliError,
-  WorkspaceCliExitCode,
-  createWorkspaceCliResponse,
-  type WorkspaceCliActor,
-  type WorkspaceCliCapabilitySummary,
-  type WorkspaceCliCheckStatusSummary,
-  type WorkspaceCliCommandName,
-  type WorkspaceCliContextSnapshot,
-  type WorkspaceCliJson,
-  type WorkspaceCliKernel,
-  type WorkspaceCliOutputMode,
-  type WorkspaceCliParsedCommand,
-  type WorkspaceCliRequestV1,
-  type WorkspaceCliResponseV1,
-  type WorkspaceCliSpaceSummary,
-  type WorkspaceCliTaskSummary,
+  WORKFOLD_CLI_PROTOCOL_VERSION,
+  WorkFoldCliError,
+  WorkFoldCliExitCode,
+  createWorkFoldCliResponse,
+  type WorkFoldCliActor,
+  type WorkFoldCliCapabilitySummary,
+  type WorkFoldCliCheckStatusSummary,
+  type WorkFoldCliCommandName,
+  type WorkFoldCliContextSnapshot,
+  type WorkFoldCliJson,
+  type WorkFoldCliKernel,
+  type WorkFoldCliOutputMode,
+  type WorkFoldCliParsedCommand,
+  type WorkFoldCliRequestV1,
+  type WorkFoldCliResponseV1,
+  type WorkFoldCliSpaceSummary,
+  type WorkFoldCliTaskSummary,
 } from "./protocol.js";
 
-export interface WorkspaceCliExecutorOptions {
+export interface WorkFoldCliExecutorOptions {
   version: string;
   productName?: string;
   now?: () => Date;
 }
 
-export interface WorkspaceCliCommandResult {
-  command: WorkspaceCliCommandName;
-  data: WorkspaceCliJson;
+export interface WorkFoldCliCommandResult {
+  command: WorkFoldCliCommandName;
+  data: WorkFoldCliJson;
 }
 
-const commandPatterns: Array<{ tokens: string[]; name: WorkspaceCliCommandName }> = [
+const commandPatterns: Array<{ tokens: string[]; name: WorkFoldCliCommandName }> = [
   { tokens: ["context"], name: "context" },
   { tokens: ["spaces", "list"], name: "spaces.list" },
   { tokens: ["tasks", "list"], name: "tasks.list" },
@@ -37,8 +37,8 @@ const commandPatterns: Array<{ tokens: string[]; name: WorkspaceCliCommandName }
   { tokens: ["checks", "status"], name: "checks.status" },
 ];
 
-export function parseWorkspaceCliArgv(argv: readonly string[]): WorkspaceCliParsedCommand {
-  let output: WorkspaceCliOutputMode = "human";
+export function parseWorkFoldCliArgv(argv: readonly string[]): WorkFoldCliParsedCommand {
+  let output: WorkFoldCliOutputMode = "human";
   let space: string | undefined;
   let help = false;
   let version = false;
@@ -103,20 +103,20 @@ export function parseWorkspaceCliArgv(argv: readonly string[]): WorkspaceCliPars
   return { name: matched.name, output, ...(space ? { space } : {}) };
 }
 
-export async function executeWorkspaceCliRequest(
-  request: WorkspaceCliRequestV1,
-  kernel: WorkspaceCliKernel,
-  options: WorkspaceCliExecutorOptions,
-): Promise<WorkspaceCliResponseV1> {
+export async function executeWorkFoldCliRequest(
+  request: WorkFoldCliRequestV1,
+  kernel: WorkFoldCliKernel,
+  options: WorkFoldCliExecutorOptions,
+): Promise<WorkFoldCliResponseV1> {
   const completedAt = () => (options.now?.() ?? new Date()).toISOString();
-  let command: WorkspaceCliParsedCommand | undefined;
+  let command: WorkFoldCliParsedCommand | undefined;
   try {
-    command = parseWorkspaceCliArgv(request.argv);
-    const actor: WorkspaceCliActor = { kind: "cli", cwd: request.cwd };
+    command = parseWorkFoldCliArgv(request.argv);
+    const actor: WorkFoldCliActor = { kind: "cli", cwd: request.cwd };
     const result = await runCommand(command, actor, kernel, options);
-    return createWorkspaceCliResponse({
+    return createWorkFoldCliResponse({
       id: request.id,
-      exitCode: WorkspaceCliExitCode.success,
+      exitCode: WorkFoldCliExitCode.success,
       stdout: command.output === "json" ? `${JSON.stringify({ ok: true, command: result.command, data: result.data }, null, 2)}\n` : humanOutput(result, options),
       stderr: "",
       result: result.data,
@@ -125,7 +125,7 @@ export async function executeWorkspaceCliRequest(
   } catch (error) {
     const normalized = normalizeCommandError(error);
     const json = command?.output === "json" || request.argv.includes("--json");
-    return createWorkspaceCliResponse({
+    return createWorkFoldCliResponse({
       id: request.id,
       exitCode: normalized.exitCode,
       stdout: "",
@@ -138,8 +138,8 @@ export async function executeWorkspaceCliRequest(
   }
 }
 
-export function workspaceCliHelp(productName = "Workspace", topic?: string): string {
-  const executable = "workspace";
+export function workFoldCliHelp(productName = "work-fold", topic?: string): string {
+  const executable = "work-fold";
   const normalizedTopic = topic?.trim().toLocaleLowerCase();
   const header = `${terminalText(productName)} CLI`;
   if (normalizedTopic === "context") return `${header}\n\nUsage: ${executable} context [--space <id-or-name>] [--json]\n\nShow the resolved Space and host context for this working directory.\n`;
@@ -180,36 +180,42 @@ export function workspaceCliHelp(productName = "Workspace", topic?: string): str
       `       ${executable} chat abort --space <id-or-name> --conversation <id> [--json]`,
       "",
       "Start, continue, await, inspect, or abort a Space Chat. These act",
-      "commands need the Workspace app running and require an explicit --space.",
+      "commands need the work-fold app running and require an explicit --space.",
       "chat send returns a task id; wait and result take it to follow exactly",
       "that turn's outcome instead of whatever message is newest.",
       "",
     ].join("\n");
   }
-  if (normalizedTopic === "chats" || normalizedTopic === "chats list") return `${header}\n\nUsage: ${executable} chats list --space <id-or-name> [--json]\n\nList a Space's Chats. Needs the Workspace app running.\n`;
+  if (normalizedTopic === "chats" || normalizedTopic === "chats list") return `${header}\n\nUsage: ${executable} chats list --space <id-or-name> [--json]\n\nList a Space's Chats. Needs the work-fold app running.\n`;
   if (normalizedTopic === "manage" || normalizedTopic?.startsWith("manage ")) {
     return [
       header,
       "",
-      `Usage: ${executable} manage send [--conversation <id> | --new] (--message <text> | --message-file <path>) [--json]`,
+      `Usage: ${executable} manage send [--conversation <id> | --new] (--message <text> | --message-file <path>) [--attach <path-or-link> ...] [--json]`,
       `       ${executable} manage status [--conversation <id> | --task <id>] [--json]`,
       `       ${executable} manage result [--conversation <id> [--messages <n>] | --task <id>] [--json]`,
       `       ${executable} manage wait --task <id> [--timeout <seconds>] [--json]`,
+      `       ${executable} manage stop --task <id> [--json]`,
       `       ${executable} manage abort [--conversation <id>] [--json]`,
       `       ${executable} manage list [--json]`,
       "",
       "Talk to the management conversation that sits above all Spaces. It runs",
       "on the same Assistant runtime as Space Chats but belongs to no Space:",
       "its transcript is machine-local application state, and it acts across",
-      "Spaces through these same workspace commands. Without a selector,",
+      "Spaces through these same work-fold commands. Without a selector,",
       "commands target the most recent active management conversation,",
-      "creating it on first send. Needs the Workspace app running.",
+      "creating it on first send. --attach adds reference attachments (file or",
+      "folder paths, or http(s) links); nothing is copied until the Assistant",
+      "places material with a restore point. manage status --task reports the",
+      "request's attachments, actions, delegated turns, and phase, and manage",
+      "stop --task stops the request plus every recorded delegated turn still",
+      "running. Needs the work-fold app running.",
       "",
     ].join("\n");
   }
-  if (normalizedTopic === "spaces create") return `${header}\n\nUsage: ${executable} spaces create --name <space-name> [--json]\n\nCreate a managed Space. Needs the Workspace app running.\n`;
-  if (normalizedTopic === "spaces register") return `${header}\n\nUsage: ${executable} spaces register --path <absolute-folder-path> [--json]\n\nRegister an existing folder as a Space in place. Needs the Workspace app running.\n`;
-  if (normalizedTopic === "files" || normalizedTopic === "files add") return `${header}\n\nUsage: ${executable} files add --space <id-or-name> --from <path> [--from <path>...] [--to <space-folder>] [--json]\n\nCopy outside files or folders into a Space with a History restore point. Needs the Workspace app running.\n`;
+  if (normalizedTopic === "spaces create") return `${header}\n\nUsage: ${executable} spaces create --name <space-name> [--json]\n\nCreate a managed Space. Needs the work-fold app running.\n`;
+  if (normalizedTopic === "spaces register") return `${header}\n\nUsage: ${executable} spaces register --path <absolute-folder-path> [--json]\n\nRegister an existing folder as a Space in place. Needs the work-fold app running.\n`;
+  if (normalizedTopic === "files" || normalizedTopic === "files add") return `${header}\n\nUsage: ${executable} files add --space <id-or-name> --from <path> [--from <path>...] [--to <space-folder>] [--json]\n\nCopy outside files or folders into a Space with a History restore point. Needs the work-fold app running.\n`;
   return [
     header,
     "",
@@ -221,14 +227,14 @@ export function workspaceCliHelp(productName = "Workspace", topic?: string): str
     "  tasks list          List host-managed tasks",
     "  capabilities list   List Assistant capabilities",
     "  checks status       Show aggregate Check status for one Space",
-    "  version             Show the installed Workspace version",
+    "  version             Show the installed work-fold version",
     "  help [command]      Show command help",
     "",
-    "Act commands (need the Workspace app running; Space commands take --space):",
+    "Act commands (need the work-fold app running; Space commands take --space):",
     "  chat create|send|status|result|wait|abort",
     "                      Start, continue, await, or abort a Space Chat",
     "  chats list          List a Space's Chats",
-    "  manage send|status|result|wait|abort|list",
+    "  manage send|status|result|wait|stop|abort|list",
     "                      Talk to the management conversation above all Spaces",
     "  checks enable|disable|run|task|result|wait|abort|problems|decide",
     "                      Operate optional, explicitly scoped Space Checks",
@@ -246,29 +252,29 @@ export function workspaceCliHelp(productName = "Workspace", topic?: string): str
 }
 
 async function runCommand(
-  command: WorkspaceCliParsedCommand,
-  actor: WorkspaceCliActor,
-  kernel: WorkspaceCliKernel,
-  options: WorkspaceCliExecutorOptions,
-): Promise<WorkspaceCliCommandResult> {
+  command: WorkFoldCliParsedCommand,
+  actor: WorkFoldCliActor,
+  kernel: WorkFoldCliKernel,
+  options: WorkFoldCliExecutorOptions,
+): Promise<WorkFoldCliCommandResult> {
   switch (command.name) {
     case "help":
       return {
         command: command.name,
         data: {
-          product: options.productName ?? "Workspace",
-          protocolVersion: WORKSPACE_CLI_PROTOCOL_VERSION,
+          product: options.productName ?? "work-fold",
+          protocolVersion: WORKFOLD_CLI_PROTOCOL_VERSION,
           topic: command.topic ?? null,
-          text: workspaceCliHelp(options.productName, command.topic),
+          text: workFoldCliHelp(options.productName, command.topic),
         },
       };
     case "version":
       return {
         command: command.name,
         data: {
-          name: options.productName ?? "Workspace",
+          name: options.productName ?? "work-fold",
           version: options.version,
-          protocolVersion: WORKSPACE_CLI_PROTOCOL_VERSION,
+          protocolVersion: WORKFOLD_CLI_PROTOCOL_VERSION,
         },
       };
     case "context":
@@ -280,13 +286,13 @@ async function runCommand(
     case "capabilities.list":
       return { command: command.name, data: capabilitiesJson(await kernel.listCapabilities(actor, { space: command.space })) };
     case "checks.status": {
-      if (!kernel.getChecksStatus) throw new WorkspaceCliError("unavailable", "Checks status is unavailable in this Workspace host.");
+      if (!kernel.getChecksStatus) throw new WorkFoldCliError("unavailable", "Checks status is unavailable in this work-fold host.");
       return { command: command.name, data: checksStatusJson(await kernel.getChecksStatus(actor, { space: command.space })) };
     }
   }
 }
 
-function humanOutput(result: WorkspaceCliCommandResult, options: WorkspaceCliExecutorOptions): string {
+function humanOutput(result: WorkFoldCliCommandResult, options: WorkFoldCliExecutorOptions): string {
   switch (result.command) {
     case "help":
       return `${String((result.data as { text: string }).text).trimEnd()}\n`;
@@ -295,21 +301,21 @@ function humanOutput(result: WorkspaceCliCommandResult, options: WorkspaceCliExe
       return `${terminalText(data.name)} ${terminalText(data.version)}\n`;
     }
     case "context":
-      return humanContext(result.data as unknown as WorkspaceCliContextSnapshot);
+      return humanContext(result.data as unknown as WorkFoldCliContextSnapshot);
     case "spaces.list":
-      return humanSpaces((result.data as unknown as { spaces: WorkspaceCliSpaceSummary[] }).spaces);
+      return humanSpaces((result.data as unknown as { spaces: WorkFoldCliSpaceSummary[] }).spaces);
     case "tasks.list":
-      return humanTasks((result.data as unknown as { tasks: WorkspaceCliTaskSummary[] }).tasks);
+      return humanTasks((result.data as unknown as { tasks: WorkFoldCliTaskSummary[] }).tasks);
     case "capabilities.list":
-      return humanCapabilities((result.data as unknown as { capabilities: WorkspaceCliCapabilitySummary[] }).capabilities);
+      return humanCapabilities((result.data as unknown as { capabilities: WorkFoldCliCapabilitySummary[] }).capabilities);
     case "checks.status":
-      return humanChecksStatus(result.data as unknown as WorkspaceCliCheckStatusSummary);
+      return humanChecksStatus(result.data as unknown as WorkFoldCliCheckStatusSummary);
     default:
-      return `${options.productName ?? "Workspace"}\n`;
+      return `${options.productName ?? "work-fold"}\n`;
   }
 }
 
-function contextJson(value: WorkspaceCliContextSnapshot): WorkspaceCliJson {
+function contextJson(value: WorkFoldCliContextSnapshot): WorkFoldCliJson {
   return {
     cwd: value.cwd,
     space: value.space ? spaceJson(value.space) : null,
@@ -318,24 +324,24 @@ function contextJson(value: WorkspaceCliContextSnapshot): WorkspaceCliJson {
   };
 }
 
-function spacesJson(values: WorkspaceCliSpaceSummary[]): WorkspaceCliJson {
+function spacesJson(values: WorkFoldCliSpaceSummary[]): WorkFoldCliJson {
   return { spaces: values.map(spaceJson), total: values.length };
 }
 
-function tasksJson(values: WorkspaceCliTaskSummary[]): WorkspaceCliJson {
+function tasksJson(values: WorkFoldCliTaskSummary[]): WorkFoldCliJson {
   return {
     tasks: values.map((item) => ({
       id: item.id,
       label: item.label,
       status: item.status,
-      workspaceId: item.workspaceId ?? null,
+      spaceId: item.spaceId ?? null,
       updatedAt: item.updatedAt ?? null,
     })),
     total: values.length,
   };
 }
 
-function capabilitiesJson(values: WorkspaceCliCapabilitySummary[]): WorkspaceCliJson {
+function capabilitiesJson(values: WorkFoldCliCapabilitySummary[]): WorkFoldCliJson {
   return {
     capabilities: values.map((item) => ({
       id: item.id,
@@ -349,12 +355,12 @@ function capabilitiesJson(values: WorkspaceCliCapabilitySummary[]): WorkspaceCli
   };
 }
 
-function checksStatusJson(value: WorkspaceCliCheckStatusSummary): WorkspaceCliJson {
+function checksStatusJson(value: WorkFoldCliCheckStatusSummary): WorkFoldCliJson {
   return {
     kind: value.kind,
     version: value.version,
     available: value.available,
-    workspaceId: value.workspaceId,
+    spaceId: value.spaceId,
     state: value.state,
     configured: value.configured,
     proposed: value.proposed,
@@ -370,20 +376,20 @@ function checksStatusJson(value: WorkspaceCliCheckStatusSummary): WorkspaceCliJs
   };
 }
 
-function spaceJson(value: WorkspaceCliSpaceSummary): WorkspaceCliJson {
+function spaceJson(value: WorkFoldCliSpaceSummary): WorkFoldCliJson {
   return {
     id: value.id,
     name: value.name,
-    rootPath: value.rootPath ?? null,
+    spaceRoot: value.spaceRoot ?? null,
     active: value.active ?? false,
   };
 }
 
-function humanContext(value: WorkspaceCliContextSnapshot): string {
+function humanContext(value: WorkFoldCliContextSnapshot): string {
   const lines = [`Working directory: ${terminalText(value.cwd)}`];
   if (value.space) {
     lines.push(`Space: ${terminalText(value.space.name)} [${terminalText(value.space.id)}]`);
-    if (value.space.rootPath) lines.push(`Root: ${terminalText(value.space.rootPath)}`);
+    if (value.space.spaceRoot) lines.push(`Root: ${terminalText(value.space.spaceRoot)}`);
   } else {
     lines.push("Space: none");
   }
@@ -392,24 +398,24 @@ function humanContext(value: WorkspaceCliContextSnapshot): string {
   return `${lines.join("\n")}\n`;
 }
 
-function humanSpaces(values: WorkspaceCliSpaceSummary[]): string {
+function humanSpaces(values: WorkFoldCliSpaceSummary[]): string {
   if (!values.length) return "No Spaces found.\n";
-  return `${values.map((item) => `- ${terminalText(item.name)} [${terminalText(item.id)}]${item.rootPath ? ` — ${terminalText(item.rootPath)}` : ""}${item.active ? " (active)" : ""}`).join("\n")}\n`;
+  return `${values.map((item) => `- ${terminalText(item.name)} [${terminalText(item.id)}]${item.spaceRoot ? ` — ${terminalText(item.spaceRoot)}` : ""}${item.active ? " (active)" : ""}`).join("\n")}\n`;
 }
 
-function humanTasks(values: WorkspaceCliTaskSummary[]): string {
+function humanTasks(values: WorkFoldCliTaskSummary[]): string {
   if (!values.length) return "No tasks found.\n";
-  return `${values.map((item) => `- ${terminalText(item.label)} [${terminalText(item.status)}] (${terminalText(item.id)})${item.workspaceId ? ` — Space ${terminalText(item.workspaceId)}` : ""}`).join("\n")}\n`;
+  return `${values.map((item) => `- ${terminalText(item.label)} [${terminalText(item.status)}] (${terminalText(item.id)})${item.spaceId ? ` — Space ${terminalText(item.spaceId)}` : ""}`).join("\n")}\n`;
 }
 
-function humanCapabilities(values: WorkspaceCliCapabilitySummary[]): string {
+function humanCapabilities(values: WorkFoldCliCapabilitySummary[]): string {
   if (!values.length) return "No capabilities found.\n";
   return `${values.map((item) => `- ${terminalText(item.name)} [${terminalText(item.kind)}, ${terminalText(item.scope)}${item.status ? `, ${terminalText(item.status)}` : ""}]${item.source ? ` — ${terminalText(item.source)}` : ""}`).join("\n")}\n`;
 }
 
-function humanChecksStatus(value: WorkspaceCliCheckStatusSummary): string {
-  if (!value.available) return `Checks: unavailable\nSpace: ${terminalText(value.workspaceId)}\n`;
-  const labels: Record<Exclude<WorkspaceCliCheckStatusSummary["state"], "unavailable">, string> = {
+function humanChecksStatus(value: WorkFoldCliCheckStatusSummary): string {
+  if (!value.available) return `Checks: unavailable\nSpace: ${terminalText(value.spaceId)}\n`;
+  const labels: Record<Exclude<WorkFoldCliCheckStatusSummary["state"], "unavailable">, string> = {
     "not-configured": "not configured",
     "current-clear": "current, no findings",
     "needs-attention": "needs attention",
@@ -420,7 +426,7 @@ function humanChecksStatus(value: WorkspaceCliCheckStatusSummary): string {
   const state = value.state === "unavailable" ? "unavailable" : labels[value.state];
   return [
     `Checks: ${state}`,
-    `Space: ${terminalText(value.workspaceId)}`,
+    `Space: ${terminalText(value.spaceId)}`,
     `Configured: ${value.configured} (${value.enabled} enabled, ${value.proposed} proposed)`,
     `Current: ${value.current}`,
     `Never run: ${value.neverRun}`,
@@ -438,8 +444,8 @@ function terminalText(value: unknown): string {
   return String(value).replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "�");
 }
 
-function humanErrorMessage(error: WorkspaceCliError): string {
-  const usageHint = "\nRun 'workspace help' for usage.";
+function humanErrorMessage(error: WorkFoldCliError): string {
+  const usageHint = "\nRun 'work-fold help' for usage.";
   if (error.code === "usage" && error.message.endsWith(usageHint)) {
     return `${terminalText(error.message.slice(0, -usageHint.length))}${usageHint}`;
   }
@@ -454,11 +460,11 @@ function normalizeSpaceSelector(value: string): string {
   return normalized;
 }
 
-function usageError(message: string): WorkspaceCliError {
-  return new WorkspaceCliError("usage", `${message}\nRun 'workspace help' for usage.`);
+function usageError(message: string): WorkFoldCliError {
+  return new WorkFoldCliError("usage", `${message}\nRun 'work-fold help' for usage.`);
 }
 
-function normalizeCommandError(error: unknown): WorkspaceCliError {
-  if (error instanceof WorkspaceCliError) return error;
-  return new WorkspaceCliError("failure", error instanceof Error ? error.message : String(error ?? "Workspace command failed."), { cause: error });
+function normalizeCommandError(error: unknown): WorkFoldCliError {
+  if (error instanceof WorkFoldCliError) return error;
+  return new WorkFoldCliError("failure", error instanceof Error ? error.message : String(error ?? "work-fold command failed."), { cause: error });
 }

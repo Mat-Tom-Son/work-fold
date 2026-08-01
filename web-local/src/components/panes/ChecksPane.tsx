@@ -10,7 +10,7 @@ import type {
   ChecksOverview,
   ChecksStatus,
   ChecksTaskStatus,
-  WorkspaceSummary,
+  SpaceSummary,
 } from "../../types";
 import { requestConfirm, showToast } from "../../ui/feedback";
 
@@ -47,12 +47,12 @@ export function ChecksToolbarButton({
 }
 
 export function ChecksPane({
-  workspace,
+  space,
   active,
   onOpenFile,
   onChecksChanged,
 }: {
-  workspace: WorkspaceSummary;
+  space: SpaceSummary;
   active: boolean;
   onOpenFile: (path: string) => void;
   onChecksChanged: () => void | Promise<void>;
@@ -70,8 +70,8 @@ export function ChecksPane({
   const overviewFlightRef = useRef<Promise<void> | null>(null);
   const onChecksChangedRef = useRef(onChecksChanged);
   const mutationRef = useRef<"run" | "abort" | `finding:${string}` | null>(null);
-  const workspaceId = workspace.id;
-  const workspaceIdRef = useRef(workspaceId);
+  const spaceId = space.id;
+  const spaceIdRef = useRef(spaceId);
 
   useEffect(() => {
     onChecksChangedRef.current = onChecksChanged;
@@ -85,7 +85,7 @@ export function ChecksPane({
     const operation = (async () => {
       try {
         const response = await api<{ overview: ChecksOverview }>(
-          `/api/workspaces/${encodeURIComponent(workspaceId)}/checks/overview`,
+          `/api/spaces/${encodeURIComponent(spaceId)}/checks/overview`,
           { method: "POST", body: {} },
         );
         if (request !== requestRef.current) return;
@@ -109,11 +109,11 @@ export function ChecksPane({
     });
     overviewFlightRef.current = operation;
     return operation;
-  }, [workspaceId]);
+  }, [spaceId]);
 
   useEffect(() => {
-    if (workspaceIdRef.current === workspaceId) return;
-    workspaceIdRef.current = workspaceId;
+    if (spaceIdRef.current === spaceId) return;
+    spaceIdRef.current = spaceId;
     requestRef.current += 1;
     overviewFlightRef.current = null;
     setOverview(null);
@@ -125,11 +125,11 @@ export function ChecksPane({
     setError(null);
     setOverviewUnavailable(false);
     setLoading(true);
-  }, [workspaceId]);
+  }, [spaceId]);
 
   useEffect(() => {
     if (active) void loadOverview();
-  }, [active, workspaceId]);
+  }, [active, spaceId]);
 
   useEffect(() => {
     if (!active) return;
@@ -152,7 +152,7 @@ export function ChecksPane({
     const poll = async () => {
       try {
         const response = await api<{ task: ChecksTaskStatus }>(
-          `/api/workspaces/${encodeURIComponent(workspaceId)}/checks/tasks/${encodeURIComponent(task.taskId)}`,
+          `/api/spaces/${encodeURIComponent(spaceId)}/checks/tasks/${encodeURIComponent(task.taskId)}`,
         );
         if (cancelled) return;
         setTask(response.task);
@@ -174,7 +174,7 @@ export function ChecksPane({
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [loadOverview, task, workspaceId]);
+  }, [loadOverview, task, spaceId]);
 
   useEffect(() => {
     if (!active || (task && isPendingTask(task)) || !overview?.status.running) return;
@@ -194,7 +194,7 @@ export function ChecksPane({
     setError(null);
     try {
       const response = await api<{ task: { taskId: string; runId: string; checkIds: string[] } }>(
-        `/api/workspaces/${encodeURIComponent(workspaceId)}/checks/run`,
+        `/api/spaces/${encodeURIComponent(spaceId)}/checks/run`,
         { method: "POST", body: {} },
       );
       setTask({
@@ -218,7 +218,7 @@ export function ChecksPane({
     mutationRef.current = "abort";
     setAbortSubmitting(true);
     try {
-      const response = await api<{ aborted: boolean }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/checks/tasks/${encodeURIComponent(task.taskId)}/abort`, {
+      const response = await api<{ aborted: boolean }>(`/api/spaces/${encodeURIComponent(spaceId)}/checks/tasks/${encodeURIComponent(task.taskId)}/abort`, {
         method: "POST",
         body: {},
       });
@@ -251,7 +251,7 @@ export function ChecksPane({
       const deferUntil = decision === "defer"
         ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
         : undefined;
-      await api(`/api/workspaces/${encodeURIComponent(workspaceId)}/checks/findings/${encodeURIComponent(finding.id)}/decision`, {
+      await api(`/api/spaces/${encodeURIComponent(spaceId)}/checks/findings/${encodeURIComponent(finding.id)}/decision`, {
         method: "POST",
         body: { decision, ...(deferUntil ? { deferUntil } : {}) },
       });
@@ -279,12 +279,12 @@ export function ChecksPane({
   const taskPending = Boolean(task && isPendingTask(task));
   const running = runSubmitting || taskPending || Boolean(status?.running);
   return (
-    <div className="workspace-pane-content checks-pane professional-surface">
+    <div className="space-pane-content checks-pane professional-surface">
       <header className="checks-header">
         <div>
           <span className="checks-eyebrow"><FileCheck2 size={14} />Optional · manual</span>
           <h1>Checks</h1>
-          <p>Expectations for files you explicitly chose. Workspace does not inspect anything else.</p>
+          <p>Expectations for files you explicitly chose. work-fold does not inspect anything else.</p>
         </div>
         <div className="checks-header-actions">
           {status?.lastRunAt ? <span className="checks-last-run">Last run {formatTimeAgo(status.lastRunAt)}</span> : null}
@@ -311,12 +311,12 @@ export function ChecksPane({
       {error ? <div className="checks-health-message error" role="alert"><AlertCircle size={15} /><span>{error}</span><button type="button" onClick={() => void loadOverview(true)}>Try again</button></div> : null}
       {running ? <div className="checks-running" aria-live="polite"><Loader2 className="spin" size={15} /><span>Checking only the designated files…</span></div> : null}
       {overviewUnavailable
-        ? <div className="checks-status-line check-error"><span aria-hidden="true" /><p>Current Check results are unavailable. Workspace is not labeling your files as clear or failed.</p></div>
+        ? <div className="checks-status-line check-error"><span aria-hidden="true" /><p>Current Check results are unavailable. work-fold is not labeling your files as clear or failed.</p></div>
         : status ? <ChecksStatusLine status={status} /> : null}
 
-      <section className="checks-section" aria-labelledby={`checks-findings-${workspaceId}`}>
+      <section className="checks-section" aria-labelledby={`checks-findings-${spaceId}`}>
         <div className="checks-section-heading">
-          <div><h2 id={`checks-findings-${workspaceId}`}>Needs attention</h2><p>{overviewUnavailable ? "Unavailable until Workspace can re-verify the designated evidence." : "Current findings with evidence Workspace re-verified."}</p></div>
+          <div><h2 id={`checks-findings-${spaceId}`}>Needs attention</h2><p>{overviewUnavailable ? "Unavailable until work-fold can re-verify the designated evidence." : "Current findings with evidence work-fold re-verified."}</p></div>
           {!overviewUnavailable && overview?.findings.length ? <span>{overview.findings.length}</span> : null}
         </div>
         {overviewUnavailable ? (
@@ -354,14 +354,14 @@ export function ChecksPane({
       </section>
 
       {!overviewUnavailable && overview?.healthErrors.length ? (
-        <section className="checks-section checks-health" aria-labelledby={`checks-health-${workspaceId}`}>
-          <div className="checks-section-heading"><div><h2 id={`checks-health-${workspaceId}`}>Check health</h2><p>These are Check problems, not problems in your files.</p></div></div>
+        <section className="checks-section checks-health" aria-labelledby={`checks-health-${spaceId}`}>
+          <div className="checks-section-heading"><div><h2 id={`checks-health-${spaceId}`}>Check health</h2><p>These are Check problems, not problems in your files.</p></div></div>
           <ul>{overview.healthErrors.map((message, index) => <li key={`${message}-${index}`}>{message}</li>)}</ul>
         </section>
       ) : null}
 
-      <section className="checks-section" aria-labelledby={`checks-expectations-${workspaceId}`}>
-        <div className="checks-section-heading"><div><h2 id={`checks-expectations-${workspaceId}`}>Designated expectations</h2><p>Only these bounded targets may be inspected when you run Checks.</p></div></div>
+      <section className="checks-section" aria-labelledby={`checks-expectations-${spaceId}`}>
+        <div className="checks-section-heading"><div><h2 id={`checks-expectations-${spaceId}`}>Designated expectations</h2><p>Only these bounded targets may be inspected when you run Checks.</p></div></div>
         {overviewUnavailable ? (
           <div className="checks-empty-config"><strong>Check configuration could not be refreshed.</strong><p>No Check is running automatically. Try again to verify the currently designated targets.</p></div>
         ) : overview?.checks.length ? (

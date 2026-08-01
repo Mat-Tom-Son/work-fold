@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 
+import "./brand.css";
 import "./styles.css";
 import "./professional-foundation.css";
 import "./professional-shell.css";
@@ -8,13 +9,13 @@ import "./professional-surfaces.css";
 import "./professional-customization.css";
 import { App } from "./App";
 
-const platform = window.workspaceDesktop?.app.platform;
+const platform = window.workFoldDesktop?.app.platform;
 if (platform) document.documentElement.dataset.platform = platform;
 else delete document.documentElement.dataset.platform;
-if (window.workspaceDesktop) document.documentElement.dataset.desktop = "true";
+if (window.workFoldDesktop) document.documentElement.dataset.desktop = "true";
 else delete document.documentElement.dataset.desktop;
 
-const windowMaterial = window.workspaceDesktop?.window.material;
+const windowMaterial = window.workFoldDesktop?.window.material;
 if (windowMaterial === "mica" || windowMaterial === "vibrancy") {
   document.documentElement.dataset.windowMaterial = windowMaterial;
 } else {

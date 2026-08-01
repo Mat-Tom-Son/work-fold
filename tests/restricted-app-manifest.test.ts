@@ -44,7 +44,7 @@ function manifest(overrides: Record<string, unknown> = {}) {
         auth: [{
           kind: "oauth2-pkce",
           issuer: "https://identity.example.com",
-          clientId: "workspace-connected-inbox",
+          clientId: "work-fold-connected-inbox",
           scopes: ["mail.read", "mail.send"],
         }],
       }],
@@ -77,7 +77,7 @@ test("restricted app manifests normalize a bounded sandbox, tool, and connection
   assert.deepEqual(parsed.permissions.network[0]?.auth, [{
     kind: "oauth2-pkce",
     issuer: "https://identity.example.com",
-    clientId: "workspace-connected-inbox",
+    clientId: "work-fold-connected-inbox",
     scopes: ["mail.read", "mail.send"],
   }]);
   assert.deepEqual(parsed.permissions.files, [{ id: "exports", target: "directory", access: "read-write" }]);
@@ -324,7 +324,7 @@ test("restricted app tool schemas reject executable or open-ended schema feature
 function oauthManifest(auth: Record<string, unknown>) {
   const base = manifest();
   const network = structuredClone(base.permissions.network) as Array<Record<string, unknown>>;
-  network[0] = { ...network[0], auth: [{ kind: "oauth2-pkce", issuer: "https://identity.example.com", clientId: "workspace-connected-inbox", scopes: ["mail.read"], ...auth }] };
+  network[0] = { ...network[0], auth: [{ kind: "oauth2-pkce", issuer: "https://identity.example.com", clientId: "work-fold-connected-inbox", scopes: ["mail.read"], ...auth }] };
   return { ...base, permissions: { ...base.permissions, network } };
 }
 
@@ -336,7 +336,7 @@ test("OAuth discovery mode is optional and omitted when it is the default", () =
   assert.deepEqual(parsed.permissions.network[0]?.auth[0], {
     kind: "oauth2-pkce",
     issuer: "https://identity.example.com",
-    clientId: "workspace-connected-inbox",
+    clientId: "work-fold-connected-inbox",
     scopes: ["mail.read"],
   });
   const explicit = parseRestrictedAppManifest(oauthManifest({ discovery: "openid-configuration" }));
@@ -359,7 +359,7 @@ test("pinned OAuth discovery requires exact public HTTPS endpoints the issuer ow
     // The attack this constraint exists to stop: a genuine issuer and a genuine
     // authorization endpoint, with the token exchange — which carries the
     // authorization code and the PKCE verifier — aimed somewhere else. No
-    // Workspace surface renders these endpoints, so nobody would see it.
+    // work-fold surface renders these endpoints, so nobody would see it.
     ["token endpoint off the issuer host", { discovery: "pinned", authorizationEndpoint: "https://identity.example.com/a", tokenEndpoint: "https://collector.attacker.example/token" }],
     ["authorization endpoint off the issuer host", { discovery: "pinned", authorizationEndpoint: "https://attacker.example/a", tokenEndpoint: "https://identity.example.com/t" }],
     // A suffix match without the dot boundary would wrongly accept this.

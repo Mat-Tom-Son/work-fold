@@ -42,34 +42,34 @@ import type {
   LocalAppStudioSnapshot,
   LocalAppUpdateOperation,
   RestrictedAppInstalled,
-  WorkspaceSummary,
+  SpaceSummary,
 } from "../../types";
 import { requestConfirm, showToast } from "../../ui/feedback";
-import { workspaceIconOptionFor } from "../../workspace-icons";
-import { WorkspaceIconGlyph } from "../chrome/common";
+import { spaceIconOptionFor } from "../../space-icons";
+import { SpaceIconGlyph } from "../chrome/common";
 
 type ContinuityPolicy = "eligible" | "reset";
 
 export function AppStudioPane({
-  workspace,
-  workspaces,
+  space,
+  spaces,
   active,
   previewRevision,
   fixtureMode = false,
   onAppsChanged,
   onError,
 }: {
-  workspace: WorkspaceSummary;
-  workspaces: WorkspaceSummary[];
+  space: SpaceSummary;
+  spaces: SpaceSummary[];
   active: boolean;
   previewRevision: string;
   fixtureMode?: boolean;
-  onAppsChanged?: (workspaceId: string, runtimeInstanceId: string, apps: RestrictedAppInstalled[]) => void;
+  onAppsChanged?: (spaceId: string, runtimeInstanceId: string, apps: RestrictedAppInstalled[]) => void;
   onError: (message: string) => void;
 }) {
   const ids = useId().replace(/:/g, "");
   const requestSequence = useRef(0);
-  const loadedSource = useRef<{ workspaceId: string; fixtureMode: boolean } | null>(null);
+  const loadedSource = useRef<{ spaceId: string; fixtureMode: boolean } | null>(null);
   const operationToFocus = useRef<string | null>(null);
   const [studio, setStudio] = useState<LocalAppStudioSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -79,21 +79,21 @@ export function AppStudioPane({
   const [projectDescription, setProjectDescription] = useState("");
   const [projectIcon, setProjectIcon] = useState("");
   const [releaseVersion, setReleaseVersion] = useState("");
-  const [targetWorkspaceId, setTargetWorkspaceId] = useState("");
+  const [targetSpaceId, setTargetSpaceId] = useState("");
   const [continuityPolicy, setContinuityPolicy] = useState<ContinuityPolicy>("eligible");
   const [recentlyPublished, setRecentlyPublished] = useState<string | null>(null);
 
-  const workspaceById = useMemo(
-    () => new Map(workspaces.map((item) => [item.id, item])),
-    [workspaces],
+  const spaceById = useMemo(
+    () => new Map(spaces.map((item) => [item.id, item])),
+    [spaces],
   );
-  const workspaceIdsKey = useMemo(
-    () => workspaces.map((item) => item.id).sort().join("\0"),
-    [workspaces],
+  const spaceIdsKey = useMemo(
+    () => spaces.map((item) => item.id).sort().join("\0"),
+    [spaces],
   );
   const installTargets = useMemo(
-    () => workspaces,
-    [workspaces],
+    () => spaces,
+    [spaces],
   );
   const installTargetIds = useMemo(
     () => new Set(installTargets.map((item) => item.id)),
@@ -114,27 +114,27 @@ export function AppStudioPane({
     [studio?.previews],
   );
   const selectedInstance = useMemo(
-    () => studio?.instances.find((instance) => instance.workspaceId === targetWorkspaceId) ?? null,
-    [studio?.instances, targetWorkspaceId],
+    () => studio?.instances.find((instance) => instance.spaceId === targetSpaceId) ?? null,
+    [studio?.instances, targetSpaceId],
   );
 
   useEffect(() => {
     if (!active) return;
     const sequence = ++requestSequence.current;
-    const sourceChanged = loadedSource.current?.workspaceId !== workspace.id
+    const sourceChanged = loadedSource.current?.spaceId !== space.id
       || loadedSource.current?.fixtureMode !== fixtureMode;
-    loadedSource.current = { workspaceId: workspace.id, fixtureMode };
+    loadedSource.current = { spaceId: space.id, fixtureMode };
     setLoading(true);
     if (sourceChanged) {
       setStudio(null);
       setEditingProject(false);
     }
     if (fixtureMode) {
-      if (sourceChanged) setStudio(fixtureStudio(workspace, workspaces));
+      if (sourceChanged) setStudio(fixtureStudio(space, spaces));
       setLoading(false);
       return () => { requestSequence.current += 1; };
     }
-    void getLocalAppStudio(workspace.id)
+    void getLocalAppStudio(space.id)
       .then((next) => {
         if (requestSequence.current === sequence) setStudio(next);
       })
@@ -145,7 +145,7 @@ export function AppStudioPane({
         if (requestSequence.current === sequence) setLoading(false);
     });
     return () => { requestSequence.current += 1; };
-  }, [active, fixtureMode, previewRevision, workspace.id, workspaceIdsKey]);
+  }, [active, fixtureMode, previewRevision, space.id, spaceIdsKey]);
 
   useEffect(() => {
     const project = studio?.project;
@@ -155,10 +155,10 @@ export function AppStudioPane({
   }, [studio?.project?.projectId, studio?.project?.updatedAt]);
 
   useEffect(() => {
-    if (targetWorkspaceId && installTargetIds.has(targetWorkspaceId)) return;
-    const installedTarget = studio?.instances.find((instance) => installTargetIds.has(instance.workspaceId))?.workspaceId;
-    setTargetWorkspaceId(installedTarget ?? installTargets[0]?.id ?? "");
-  }, [installTargetIds, installTargets, studio?.instances, targetWorkspaceId]);
+    if (targetSpaceId && installTargetIds.has(targetSpaceId)) return;
+    const installedTarget = studio?.instances.find((instance) => installTargetIds.has(instance.spaceId))?.spaceId;
+    setTargetSpaceId(installedTarget ?? installTargets[0]?.id ?? "");
+  }, [installTargetIds, installTargets, studio?.instances, targetSpaceId]);
 
   useEffect(() => {
     if (!recentlyPublished) return;
@@ -177,7 +177,7 @@ export function AppStudioPane({
     if (fixtureMode) return studio;
     const sequence = ++requestSequence.current;
     try {
-      const next = await getLocalAppStudio(workspace.id);
+      const next = await getLocalAppStudio(space.id);
       if (requestSequence.current === sequence) setStudio(next);
       return next;
     } catch (caught) {
@@ -216,7 +216,7 @@ export function AppStudioPane({
         updateFixture((current) => ({
           ...current,
           project: {
-            workspaceId: workspace.id,
+            spaceId: space.id,
             projectId: current.project?.projectId ?? "project_fixture-connected-inbox",
             presentation,
             createdAt: current.project?.createdAt ?? timestamp,
@@ -224,7 +224,7 @@ export function AppStudioPane({
           },
         }));
       } else {
-        await declareLocalAppProject(workspace.id, presentation);
+        await declareLocalAppProject(space.id, presentation);
         await refreshStudio();
       }
       setEditingProject(false);
@@ -241,7 +241,7 @@ export function AppStudioPane({
         const timestamp = new Date().toISOString();
         const release: LocalAppRelease = {
           projectId: studio.project!.projectId,
-          sourceWorkspaceId: workspace.id,
+          sourceSpaceId: space.id,
           releaseDigest: fixtureDigest(displayVersion),
           displayVersion,
           presentation: { ...studio.project!.presentation },
@@ -252,7 +252,7 @@ export function AppStudioPane({
         };
         updateFixture((current) => ({ ...current, releases: [release, ...current.releases] }));
       } else {
-        await prepareLocalAppRelease(workspace.id, displayVersion);
+        await prepareLocalAppRelease(space.id, displayVersion);
         await refreshStudio();
       }
       setReleaseVersion("");
@@ -271,7 +271,7 @@ export function AppStudioPane({
             : item),
         }));
       } else {
-        await publishLocalAppRelease(workspace.id, release.releaseDigest);
+        await publishLocalAppRelease(space.id, release.releaseDigest);
         await refreshStudio();
       }
       setRecentlyPublished(release.releaseDigest);
@@ -300,7 +300,7 @@ export function AppStudioPane({
           releases: current.releases.filter((item) => item.releaseDigest !== release.releaseDigest),
         }));
       } else {
-        result = await deleteLocalAppRelease(workspace.id, release.releaseDigest);
+        result = await deleteLocalAppRelease(space.id, release.releaseDigest);
         await refreshStudio();
       }
       showToast(releaseDeletionResultToast({ displayVersion: release.displayVersion, ...result }));
@@ -312,27 +312,27 @@ export function AppStudioPane({
     targetOverride?: string,
     policyOverride?: ContinuityPolicy,
   ): Promise<void> {
-    const resolvedTargetWorkspaceId = targetOverride ?? targetWorkspaceId;
-    if (!resolvedTargetWorkspaceId || !installTargetIds.has(resolvedTargetWorkspaceId)) return;
+    const resolvedTargetSpaceId = targetOverride ?? targetSpaceId;
+    if (!resolvedTargetSpaceId || !installTargetIds.has(resolvedTargetSpaceId)) return;
     const resolvedPolicy = policyOverride ?? continuityPolicy;
-    const targetInstance = studio?.instances.find((instance) => instance.workspaceId === resolvedTargetWorkspaceId) ?? null;
+    const targetInstance = studio?.instances.find((instance) => instance.spaceId === resolvedTargetSpaceId) ?? null;
     await runMutation(`operation:prepare:${release.releaseDigest}`, async () => {
       let operation: LocalAppOperation;
       if (fixtureMode) {
         operation = targetInstance
           ? fixtureUpdateOperation(studio!, targetInstance, release, resolvedPolicy)
-          : fixtureInstallOperation(studio!, resolvedTargetWorkspaceId, release);
+          : fixtureInstallOperation(studio!, resolvedTargetSpaceId, release);
         updateFixture((current) => ({ ...current, operations: [...current.operations, operation] }));
       } else if (targetInstance) {
         operation = await prepareLocalAppUpdate(
-          workspace.id,
+          space.id,
           targetInstance.runtimeInstanceId,
           release.releaseDigest,
           resolvedPolicy,
         );
         await refreshStudio();
       } else {
-        operation = await prepareLocalAppInstall(workspace.id, resolvedTargetWorkspaceId, release.releaseDigest);
+        operation = await prepareLocalAppInstall(space.id, resolvedTargetSpaceId, release.releaseDigest);
         await refreshStudio();
       }
       operationToFocus.current = operation.operationId;
@@ -354,7 +354,7 @@ export function AppStudioPane({
           const nextInstance: LocalAppInstance = {
             runtimeInstanceId: operation.runtimeInstanceId,
             projectId: operation.projectId,
-            workspaceId: operation.targetWorkspaceId,
+            spaceId: operation.targetSpaceId,
             releaseDigest: target.releaseDigest,
             displayVersion: target.displayVersion,
             presentation: { ...target.presentation },
@@ -369,13 +369,13 @@ export function AppStudioPane({
           };
         });
       } else {
-        const result = await activateLocalAppOperation(workspace.id, operation.operationId);
-        onAppsChanged?.(operation.targetWorkspaceId, result.instance.runtimeInstanceId, result.apps);
+        const result = await activateLocalAppOperation(space.id, operation.operationId);
+        onAppsChanged?.(operation.targetSpaceId, result.instance.runtimeInstanceId, result.apps);
         await refreshStudio();
       }
       showToast({
         text: operation.kind === "install"
-          ? `Installed in ${workspaceName(operation.targetWorkspaceId, workspaceById)}`
+          ? `Installed in ${spaceName(operation.targetSpaceId, spaceById)}`
           : rollback ? "Rollback activated" : "Update activated",
         tone: "success",
       });
@@ -390,7 +390,7 @@ export function AppStudioPane({
           operations: current.operations.filter((item) => item.operationId !== operation.operationId),
         }));
       } else {
-        await cancelLocalAppOperation(workspace.id, operation.operationId);
+        await cancelLocalAppOperation(space.id, operation.operationId);
         await refreshStudio();
       }
       showToast({ text: "Activation review cancelled" });
@@ -398,7 +398,7 @@ export function AppStudioPane({
   }
 
   async function uninstall(instance: LocalAppInstance, disposition: "retain" | "purge"): Promise<void> {
-    const targetName = workspaceName(instance.workspaceId, workspaceById);
+    const targetName = spaceName(instance.spaceId, spaceById);
     const retained = disposition === "retain";
     const confirmed = await requestConfirm({
       title: `Uninstall ${instance.presentation.title} from ${targetName}?`,
@@ -432,8 +432,8 @@ export function AppStudioPane({
           retainedData: [...current.retainedData, ...added],
         }));
       } else {
-        result = await uninstallLocalApp(instance.workspaceId, instance.runtimeInstanceId, disposition);
-        onAppsChanged?.(instance.workspaceId, instance.runtimeInstanceId, []);
+        result = await uninstallLocalApp(instance.spaceId, instance.runtimeInstanceId, disposition);
+        onAppsChanged?.(instance.spaceId, instance.runtimeInstanceId, []);
         await refreshStudio();
       }
       showToast(uninstallResultToast({ ...result, disposition }));
@@ -456,7 +456,7 @@ export function AppStudioPane({
           retainedData: current.retainedData.filter((entry) => entry.retainedDataId !== item.retainedDataId),
         }));
       } else {
-        result = await purgeLocalAppRetainedData(workspace.id, item.retainedDataId);
+        result = await purgeLocalAppRetainedData(space.id, item.retainedDataId);
         await refreshStudio();
       }
       showToast(retainedDataPurgeResultToast(result));
@@ -472,31 +472,31 @@ export function AppStudioPane({
 
   if (loading && !studio) {
     return (
-      <div className="workspace-pane-content professional-surface app-studio-pane">
+      <div className="space-pane-content professional-surface app-studio-pane">
         <div className="app-studio-loading" role="status"><ArrowSync16Regular className="spin" />Loading App Studio</div>
       </div>
     );
   }
 
   const project = studio?.project ?? null;
-  const projectIconOption = workspaceIconOptionFor(project?.presentation.icon ?? "apps");
-  const hasInstallTarget = Boolean(targetWorkspaceId && installTargetIds.has(targetWorkspaceId));
-  const targetName = hasInstallTarget ? workspaceName(targetWorkspaceId, workspaceById) : "";
+  const projectIconOption = spaceIconOptionFor(project?.presentation.icon ?? "apps");
+  const hasInstallTarget = Boolean(targetSpaceId && installTargetIds.has(targetSpaceId));
+  const targetName = hasInstallTarget ? spaceName(targetSpaceId, spaceById) : "";
   const pendingForTarget = hasInstallTarget
-    ? studio?.operations.find((operation) => operation.targetWorkspaceId === targetWorkspaceId) ?? null
+    ? studio?.operations.find((operation) => operation.targetSpaceId === targetSpaceId) ?? null
     : null;
 
   return (
-    <div className="workspace-pane-content professional-surface app-studio-pane">
+    <div className="space-pane-content professional-surface app-studio-pane">
       <section className="app-studio-canvas" aria-labelledby={`${ids}-title`}>
         <header className="app-studio-header">
           <div className="app-studio-project-identity">
-            <span className="app-studio-project-mark" aria-hidden="true"><WorkspaceIconGlyph icon={projectIconOption.Icon} size={24} filled /></span>
+            <span className="app-studio-project-mark" aria-hidden="true"><SpaceIconGlyph icon={projectIconOption.Icon} size={24} filled /></span>
             <div>
               <span className="professional-kicker">Local App Studio</span>
               <h1 id={`${ids}-title`}>{project?.presentation.title ?? "Create an App Project"}</h1>
-              <p>{project?.presentation.description ?? `Build and release a local App from reviewed previews in ${workspace.name}.`}</p>
-              {project ? <small>Project in {workspace.name} · Releases stay on this device</small> : null}
+              <p>{project?.presentation.description ?? `Build and release a local App from reviewed previews in ${space.name}.`}</p>
+              {project ? <small>Project in {space.name} · Releases stay on this device</small> : null}
             </div>
           </div>
           <div className="app-studio-header-actions">
@@ -600,7 +600,7 @@ export function AppStudioPane({
                 <div className="app-studio-target-bar">
                   <label htmlFor={`${ids}-target-space`}>
                     <span>Install in Space</span>
-                    <select id={`${ids}-target-space`} value={targetWorkspaceId} onChange={(event) => setTargetWorkspaceId(event.target.value)} disabled={Boolean(busyKey) || !installTargets.length}>
+                    <select id={`${ids}-target-space`} value={targetSpaceId} onChange={(event) => setTargetSpaceId(event.target.value)} disabled={Boolean(busyKey) || !installTargets.length}>
                       {installTargets.length
                         ? installTargets.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)
                         : <option value="">No Spaces registered</option>}
@@ -617,7 +617,7 @@ export function AppStudioPane({
                   ) : null}
                   <p>{!hasInstallTarget
                     ? "Add or register a Space to install this App."
-                    : targetWorkspaceId === workspace.id && Boolean(studio?.previews.length)
+                    : targetSpaceId === space.id && Boolean(studio?.previews.length)
                       ? "This is the source Space. Remove any conflicting local preview before installing a Release here."
                     : selectedInstance
                       ? `${selectedInstance.presentation.title} ${selectedInstance.displayVersion} is active in ${targetName}.`
@@ -628,10 +628,10 @@ export function AppStudioPane({
                     {studio.releases.map((release) => {
                       const active = selectedInstance?.releaseDigest === release.releaseDigest;
                       const rollback = selectedInstance ? releaseIsOlder(release, releasesByDigest.get(selectedInstance.releaseDigest)) : false;
-                      const pending = studio.operations.find((operation) => operation.targetWorkspaceId === targetWorkspaceId && operation.releaseDigest === release.releaseDigest);
+                      const pending = studio.operations.find((operation) => operation.targetSpaceId === targetSpaceId && operation.releaseDigest === release.releaseDigest);
                       const blockedByOtherPending = pending ? null : pendingForTarget;
                       const sourcePreviewCollision = !selectedInstance
-                        && targetWorkspaceId === workspace.id
+                        && targetSpaceId === space.id
                         && release.featureIds.some((featureId) => previewFeatureIds.has(featureId));
                       const deletionBlocker = releaseDeletionBlocker(studio, release);
                       return (
@@ -724,7 +724,7 @@ export function AppStudioPane({
                         operation={operation}
                         release={releasesByDigest.get(operation.releaseDigest)}
                         activeRelease={releasesByDigest.get(studio.instances.find((item) => item.runtimeInstanceId === operation.runtimeInstanceId)?.releaseDigest ?? "")}
-                        targetName={workspaceName(operation.targetWorkspaceId, workspaceById)}
+                        targetName={spaceName(operation.targetSpaceId, spaceById)}
                         busyKey={busyKey}
                         onActivate={() => void activateOperation(operation)}
                         onCancel={() => void cancelOperation(operation)}
@@ -738,36 +738,36 @@ export function AppStudioPane({
                 {studio?.instances.length ? (
                   <div className="app-studio-installation-list" aria-label="Installed App Instances">
                     {studio.instances.map((instance) => {
-                      const instanceWorkspaceName = workspaceName(instance.workspaceId, workspaceById);
+                      const instanceSpaceName = spaceName(instance.spaceId, spaceById);
                       const latest = publishedReleases[0];
                       const updateAvailable = latest && latest.releaseDigest !== instance.releaseDigest
                         && !releaseIsOlder(latest, releasesByDigest.get(instance.releaseDigest));
                       const pending = studio.operations.find((operation) => operation.runtimeInstanceId === instance.runtimeInstanceId);
                       return (
-                        <article className={`app-studio-installation-row${instance.workspaceId === targetWorkspaceId ? " selected" : ""}`} key={instance.runtimeInstanceId}>
+                        <article className={`app-studio-installation-row${instance.spaceId === targetSpaceId ? " selected" : ""}`} key={instance.runtimeInstanceId}>
                           <div className="app-studio-installation-copy">
                             <div className="app-studio-row-title">
                               <strong>{instance.presentation.title}</strong>
                               <span className="professional-status-badge enabled">{instance.displayVersion}</span>
                               {updateAvailable ? <span className="professional-status-badge">Update available</span> : null}
                             </div>
-                            <p>Installed in {instanceWorkspaceName} · Data on this device</p>
+                            <p>Installed in {instanceSpaceName} · Data on this device</p>
                             <small>{formatCount(instance.featureIds.length, "Feature")} · Updated {formatTimestamp(instance.updatedAt)} · {shortDigest(instance.releaseDigest)}</small>
                           </div>
                           <div className="app-studio-installation-actions">
-                            {instance.workspaceId !== targetWorkspaceId && !updateAvailable ? (
-                              <button className="app-studio-text-button" type="button" disabled={Boolean(busyKey)} onClick={() => setTargetWorkspaceId(instance.workspaceId)}>Choose Space</button>
+                            {instance.spaceId !== targetSpaceId && !updateAvailable ? (
+                              <button className="app-studio-text-button" type="button" disabled={Boolean(busyKey)} onClick={() => setTargetSpaceId(instance.spaceId)}>Choose Space</button>
                             ) : null}
                             {updateAvailable && !pending ? (
                               <button className="professional-button professional-button-secondary" type="button" disabled={Boolean(busyKey)} onClick={() => {
-                                setTargetWorkspaceId(instance.workspaceId);
+                                setTargetSpaceId(instance.spaceId);
                                 window.requestAnimationFrame(() => document.getElementById(`${ids}-releases-title`)?.scrollIntoView({ block: "start" }));
                               }}>
                                 Review in Releases
                               </button>
                             ) : null}
                             <button className="professional-button professional-button-secondary" type="button" disabled={Boolean(busyKey)} onClick={() => void uninstall(instance, "retain")}>Uninstall · retain data</button>
-                            <button className="app-studio-icon-button danger" type="button" disabled={Boolean(busyKey)} onClick={() => void uninstall(instance, "purge")} aria-label={`Uninstall ${instance.presentation.title} from ${instanceWorkspaceName} and purge its data`} title="Uninstall and purge data">
+                            <button className="app-studio-icon-button danger" type="button" disabled={Boolean(busyKey)} onClick={() => void uninstall(instance, "purge")} aria-label={`Uninstall ${instance.presentation.title} from ${instanceSpaceName} and purge its data`} title="Uninstall and purge data">
                               {busyKey === `uninstall:${instance.runtimeInstanceId}` ? <ArrowSync16Regular className="spin" /> : <Delete16Regular />}
                             </button>
                           </div>
@@ -1003,8 +1003,8 @@ function releaseDeletionBlocker(studio: LocalAppStudioSnapshot, release: LocalAp
   return null;
 }
 
-function workspaceName(workspaceId: string, byId: ReadonlyMap<string, WorkspaceSummary>): string {
-  return byId.get(workspaceId)?.name ?? "Unavailable Space";
+function spaceName(spaceId: string, byId: ReadonlyMap<string, SpaceSummary>): string {
+  return byId.get(spaceId)?.name ?? "Unavailable Space";
 }
 
 function formatCount(count: number, noun: string): string {
@@ -1022,9 +1022,9 @@ function shortDigest(value: string): string {
   return `${digest.slice(0, 10)}…`;
 }
 
-function fixtureStudio(workspace: WorkspaceSummary, workspaces: WorkspaceSummary[]): LocalAppStudioSnapshot {
-  const sourceTimestamp = workspace.updatedAt || "2026-07-16T14:00:00.000Z";
-  const target = workspaces.find((item) => item.id !== workspace.id) ?? null;
+function fixtureStudio(space: SpaceSummary, spaces: SpaceSummary[]): LocalAppStudioSnapshot {
+  const sourceTimestamp = space.updatedAt || "2026-07-16T14:00:00.000Z";
+  const target = spaces.find((item) => item.id !== space.id) ?? null;
   const projectId = "project_fixture-connected-inbox";
   const presentation: LocalAppPresentation = {
     title: "Connected Inbox",
@@ -1033,7 +1033,7 @@ function fixtureStudio(workspace: WorkspaceSummary, workspaces: WorkspaceSummary
   };
   const oldRelease: LocalAppRelease = {
     projectId,
-    sourceWorkspaceId: workspace.id,
+    sourceSpaceId: space.id,
     releaseDigest: fixtureDigest("0.3.0"),
     displayVersion: "0.3.0",
     presentation,
@@ -1057,11 +1057,11 @@ function fixtureStudio(workspace: WorkspaceSummary, workspaces: WorkspaceSummary
     preparedAt: "2026-07-16T13:30:00.000Z",
     publishedAt: null,
   };
-  const preview = fixturePreview(workspace.id, projectId, sourceTimestamp);
+  const preview = fixturePreview(space.id, projectId, sourceTimestamp);
   const instance: LocalAppInstance | null = target ? {
     runtimeInstanceId: "runtime_fixture-connected-inbox",
     projectId,
-    workspaceId: target.id,
+    spaceId: target.id,
     releaseDigest: oldRelease.releaseDigest,
     displayVersion: oldRelease.displayVersion,
     presentation,
@@ -1078,7 +1078,7 @@ function fixtureStudio(workspace: WorkspaceSummary, workspaces: WorkspaceSummary
     )
     : null;
   return {
-    project: { workspaceId: workspace.id, projectId, presentation, createdAt: sourceTimestamp, updatedAt: sourceTimestamp },
+    project: { spaceId: space.id, projectId, presentation, createdAt: sourceTimestamp, updatedAt: sourceTimestamp },
     previews: [preview],
     releases: [preparedRelease, currentRelease, oldRelease],
     instances: instance ? [instance] : [],
@@ -1096,11 +1096,11 @@ function fixtureStudio(workspace: WorkspaceSummary, workspaces: WorkspaceSummary
   };
 }
 
-function fixturePreview(workspaceId: string, projectId: string, timestamp: string): RestrictedAppInstalled {
+function fixturePreview(spaceId: string, projectId: string, timestamp: string): RestrictedAppInstalled {
   const generation = "00000000-0000-4000-8000-000000000001";
   return {
-    workspaceId,
-    sourceWorkspaceId: workspaceId,
+    spaceId: spaceId,
+    sourceSpaceId: spaceId,
     projectId,
     tenantId: "tenant_fixture",
     principalId: "principal_fixture",
@@ -1118,7 +1118,7 @@ function fixturePreview(workspaceId: string, projectId: string, timestamp: strin
       principalGeneration: generation,
       dataGeneration: generation,
     },
-    packageName: "@workspace-examples/connected-inbox",
+    packageName: "@work-fold-examples/connected-inbox",
     version: "0.5.0-preview.2",
     digest: fixtureDigest("preview-package"),
     artifactDigest: fixtureDigest("preview-artifact"),
@@ -1153,12 +1153,12 @@ function fixturePreview(workspaceId: string, projectId: string, timestamp: strin
   };
 }
 
-function fixtureInstallOperation(studio: LocalAppStudioSnapshot, targetWorkspaceId: string, release: LocalAppRelease): LocalAppOperation {
+function fixtureInstallOperation(studio: LocalAppStudioSnapshot, targetSpaceId: string, release: LocalAppRelease): LocalAppOperation {
   return {
     operationId: `operation_fixture_install_${Date.now()}`,
     kind: "install",
     projectId: studio.project!.projectId,
-    targetWorkspaceId,
+    targetSpaceId: targetSpaceId,
     releaseDigest: release.releaseDigest,
     runtimeInstanceId: `runtime_fixture_${Date.now()}`,
     features: release.featureIds.map((featureId, index) => ({
@@ -1183,7 +1183,7 @@ function fixtureUpdateOperation(
     operationId: `operation_fixture_update_${release.displayVersion.replace(/[^a-z0-9]/gi, "-")}`,
     kind: "update",
     projectId: studio.project?.projectId ?? instance.projectId,
-    targetWorkspaceId: instance.workspaceId,
+    targetSpaceId: instance.spaceId,
     releaseDigest: release.releaseDigest,
     runtimeInstanceId: instance.runtimeInstanceId,
     continuityPolicy,

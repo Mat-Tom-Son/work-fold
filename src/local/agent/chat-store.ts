@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, type Stats } from "node:fs";
-import { appendFile, copyFile, mkdir, open, readFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { appendFile, mkdir, open, readFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
-import { legacyWorkspaceConversationDir, workspaceConversationDir, workspaceStateDir } from "../state-paths.js";
+import { spaceConversationDir, spaceStateDir } from "../state-paths.js";
 import {
   normalizeConversationTitle,
   untitledConversationTitle,
@@ -19,6 +19,18 @@ export interface ChatMessage {
   lifecycle?: ConversationLifecyclePatch;
   landing?: ChatMessageLanding;
   interruption?: ChatMessageInterruption;
+  attachments?: ChatMessageAttachmentRef[];
+}
+
+/**
+ * Reference-style attachment metadata persisted with a user message. The
+ * management conversation records absolute paths and links here; the content
+ * itself is never copied into the transcript.
+ */
+export interface ChatMessageAttachmentRef {
+  kind: "file" | "folder" | "url";
+  target: string;
+  name: string;
 }
 
 export interface ChatMessageInterruption {
@@ -61,34 +73,33 @@ export interface ChatMessageLanding {
   model: string;
 }
 
-export async function listConversations(workspaceRoot: string): Promise<ConversationSummary[]> {
-  await prepareConversationRead(workspaceRoot);
+export async function listConversations(spaceRoot: string): Promise<ConversationSummary[]> {
   const files = new Set<string>();
-  for (const dir of conversationReadDirs(workspaceRoot)) {
-    if (!existsSync(dir)) continue;
+  const dir = conversationsDir(spaceRoot);
+  if (existsSync(dir)) {
     for (const file of await readdir(dir)) if (file.endsWith(".jsonl")) files.add(file);
   }
-  const cachedIndex = await readConversationIndex(workspaceRoot);
+  const cachedIndex = await readConversationIndex(spaceRoot);
   const nextIndex = new Map<string, ConversationIndexEntry>();
   const summaries: ConversationSummary[] = [];
   let recomputed = 0;
   for (const file of files) {
     const conversationId = file.replace(/\.jsonl$/, "");
     if (!isValidConversationId(conversationId)) continue;
-    // Workspace writes are append-only, but transcripts remain ordinary files
+    // work-fold writes are append-only, but transcripts remain ordinary files
     // that sync tools and editors may replace. Include filesystem change
     // identity as well as size and mtime so a metadata-preserving rewrite
     // cannot leave the Chat list indefinitely stale.
-    const info = await stat(existingConversationPath(workspaceRoot, conversationId)).catch(() => null);
+    const info = await stat(existingConversationPath(spaceRoot, conversationId)).catch(() => null);
     const cached = info ? cachedIndex.get(conversationId) : undefined;
     if (info && cached && conversationIndexMatches(cached, info)) {
       nextIndex.set(conversationId, cached);
       summaries.push(cached.summary);
       continue;
     }
-    const { messages, malformedLineCount } = await readConversationFile(workspaceRoot, conversationId);
+    const { messages, malformedLineCount } = await readConversationFile(spaceRoot, conversationId);
     if (!messages.some((message) => message.role !== "system")) {
-      if (malformedLineCount === 0) await unlink(existingConversationPath(workspaceRoot, conversationId));
+      if (malformedLineCount === 0) await unlink(existingConversationPath(spaceRoot, conversationId));
       continue;
     }
     recomputed += 1;
@@ -98,15 +109,15 @@ export async function listConversations(workspaceRoot: string): Promise<Conversa
   }
   // Rebuilding the map from scratch drops entries for transcripts that no
   // longer exist, so the cache cannot outgrow the Space it describes.
-  if (recomputed || nextIndex.size !== cachedIndex.size) await writeConversationIndex(workspaceRoot, nextIndex);
+  if (recomputed || nextIndex.size !== cachedIndex.size) await writeConversationIndex(spaceRoot, nextIndex);
   return summaries.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
-export async function createConversation(workspaceRoot: string, title = untitledConversationTitle): Promise<ConversationSummary> {
+export async function createConversation(spaceRoot: string, title = untitledConversationTitle): Promise<ConversationSummary> {
   const now = new Date().toISOString();
   const id = `chat-${randomUUID()}`;
   const normalizedTitle = normalizeConversationTitle(title) || untitledConversationTitle;
-  await appendMessage(workspaceRoot, id, {
+  await appendMessage(spaceRoot, id, {
     id: randomUUID(),
     role: "system",
     kind: "conversation_title",
@@ -117,12 +128,12 @@ export async function createConversation(workspaceRoot: string, title = untitled
   return { id, title: normalizedTitle, createdAt: now, updatedAt: now, archivedAt: null, snoozedUntil: null };
 }
 
-export async function renameConversation(workspaceRoot: string, conversationId: string, title: string): Promise<ConversationSummary> {
+export async function renameConversation(spaceRoot: string, conversationId: string, title: string): Promise<ConversationSummary> {
   const now = new Date().toISOString();
   const normalizedTitle = normalizeConversationTitle(title);
   if (!normalizedTitle) throw new Error("Conversation title is required.");
-  if (!(await readConversation(workspaceRoot, conversationId)).length) throw new Error("Conversation not found.");
-  await appendMessage(workspaceRoot, conversationId, {
+  if (!(await readConversation(spaceRoot, conversationId)).length) throw new Error("Conversation not found.");
+  await appendMessage(spaceRoot, conversationId, {
     id: randomUUID(),
     role: "system",
     kind: "conversation_title",
@@ -130,21 +141,21 @@ export async function renameConversation(workspaceRoot: string, conversationId: 
     content: normalizedTitle,
     createdAt: now,
   });
-  const messages = await readConversation(workspaceRoot, conversationId);
+  const messages = await readConversation(spaceRoot, conversationId);
   return conversationSummary(conversationId, messages);
 }
 
 export async function setGeneratedConversationTitle(
-  workspaceRoot: string,
+  spaceRoot: string,
   conversationId: string,
   title: string,
 ): Promise<ConversationSummary> {
-  const messages = await readConversation(workspaceRoot, conversationId);
+  const messages = await readConversation(spaceRoot, conversationId);
   if (!messages.length) throw new Error("Conversation not found.");
   const current = conversationSummary(conversationId, messages);
   const normalizedTitle = normalizeConversationTitle(title);
   if (!normalizedTitle || manualConversationTitle(messages) || generatedConversationTitle(messages)) return current;
-  await appendMessage(workspaceRoot, conversationId, {
+  await appendMessage(spaceRoot, conversationId, {
     id: randomUUID(),
     role: "system",
     kind: "conversation_title",
@@ -152,15 +163,15 @@ export async function setGeneratedConversationTitle(
     content: normalizedTitle,
     createdAt: new Date().toISOString(),
   });
-  return conversationSummary(conversationId, await readConversation(workspaceRoot, conversationId));
+  return conversationSummary(conversationId, await readConversation(spaceRoot, conversationId));
 }
 
 export async function updateConversationLifecycle(
-  workspaceRoot: string,
+  spaceRoot: string,
   conversationId: string,
   patch: ConversationLifecyclePatch,
 ): Promise<ConversationSummary> {
-  const messages = await readConversation(workspaceRoot, conversationId);
+  const messages = await readConversation(spaceRoot, conversationId);
   if (!messages.length) throw new Error("Conversation not found.");
   const current = conversationSummary(conversationId, messages);
   if (typeof patch.snoozedUntil === "string" && Date.parse(patch.snoozedUntil) <= Date.now()) {
@@ -172,7 +183,7 @@ export async function updateConversationLifecycle(
   }
   if (lifecycle.archived === true) lifecycle.snoozedUntil = null;
   const now = new Date().toISOString();
-  await appendMessage(workspaceRoot, conversationId, {
+  await appendMessage(spaceRoot, conversationId, {
     id: randomUUID(),
     role: "system",
     kind: "conversation_lifecycle",
@@ -180,24 +191,23 @@ export async function updateConversationLifecycle(
     lifecycle,
     createdAt: now,
   });
-  return conversationSummary(conversationId, await readConversation(workspaceRoot, conversationId));
+  return conversationSummary(conversationId, await readConversation(spaceRoot, conversationId));
 }
 
-export async function readConversation(workspaceRoot: string, conversationId: string): Promise<ChatMessage[]> {
-  return (await readConversationFile(workspaceRoot, conversationId)).messages;
+export async function readConversation(spaceRoot: string, conversationId: string): Promise<ChatMessage[]> {
+  return (await readConversationFile(spaceRoot, conversationId)).messages;
 }
 
 export async function readConversationSummary(
-  workspaceRoot: string,
+  spaceRoot: string,
   conversationId: string,
 ): Promise<ConversationSummary | null> {
-  const messages = await readConversation(workspaceRoot, conversationId);
+  const messages = await readConversation(spaceRoot, conversationId);
   return messages.length ? conversationSummary(conversationId, messages) : null;
 }
 
-async function readConversationFile(workspaceRoot: string, conversationId: string): Promise<{ messages: ChatMessage[]; malformedLineCount: number }> {
-  await prepareConversationRead(workspaceRoot);
-  const path = existingConversationPath(workspaceRoot, conversationId);
+async function readConversationFile(spaceRoot: string, conversationId: string): Promise<{ messages: ChatMessage[]; malformedLineCount: number }> {
+  const path = existingConversationPath(spaceRoot, conversationId);
   if (!existsSync(path)) return { messages: [], malformedLineCount: 0 };
   const messages: ChatMessage[] = [];
   let malformedLineCount = 0;
@@ -211,16 +221,15 @@ async function readConversationFile(workspaceRoot: string, conversationId: strin
   return { messages, malformedLineCount };
 }
 
-export async function appendMessage(workspaceRoot: string, conversationId: string, message: ChatMessage): Promise<void> {
-  await ensurePortableConversationStorage(workspaceRoot);
-  const path = conversationPath(workspaceRoot, conversationId);
-  await mkdir(conversationsDir(workspaceRoot), { recursive: true });
+export async function appendMessage(spaceRoot: string, conversationId: string, message: ChatMessage): Promise<void> {
+  const path = conversationPath(spaceRoot, conversationId);
+  await mkdir(conversationsDir(spaceRoot), { recursive: true });
   const prefix = await needsLineBreakBeforeAppend(path) ? "\n" : "";
   await appendFile(path, `${prefix}${JSON.stringify(message)}\n`, "utf8");
 }
 
-export function conversationsDir(workspaceRoot: string): string {
-  return workspaceConversationDir(workspaceRoot);
+export function conversationsDir(spaceRoot: string): string {
+  return spaceConversationDir(spaceRoot);
 }
 
 interface ConversationIndexEntry {
@@ -236,20 +245,20 @@ interface ConversationIndexEntry {
 // structurally valid cache cannot preserve an obsolete derived result.
 const conversationIndexVersion = 3;
 
-function conversationIndexFile(workspaceRoot: string): string {
-  return join(workspaceStateDir(workspaceRoot), "conversation-index.json");
+function conversationIndexFile(spaceRoot: string): string {
+  return join(spaceStateDir(spaceRoot), "conversation-index.json");
 }
 
 /**
  * A derived summary cache for the Chat list. It lives in machine-local
- * application state rather than the Space's portable `.workspace/` records
+ * application state rather than the Space's portable `.work-fold/` records
  * because it can always be rebuilt from the transcripts themselves, and every
  * failure path here falls back to doing exactly that.
  */
-async function readConversationIndex(workspaceRoot: string): Promise<Map<string, ConversationIndexEntry>> {
+async function readConversationIndex(spaceRoot: string): Promise<Map<string, ConversationIndexEntry>> {
   const entries = new Map<string, ConversationIndexEntry>();
   try {
-    const parsed = JSON.parse(await readFile(conversationIndexFile(workspaceRoot), "utf8")) as unknown;
+    const parsed = JSON.parse(await readFile(conversationIndexFile(spaceRoot), "utf8")) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return entries;
     const record = parsed as { version?: unknown; entries?: unknown };
     if (record.version !== conversationIndexVersion) return entries;
@@ -330,11 +339,11 @@ function conversationIndexEntry(
   };
 }
 
-async function writeConversationIndex(workspaceRoot: string, entries: Map<string, ConversationIndexEntry>): Promise<void> {
-  const path = conversationIndexFile(workspaceRoot);
+async function writeConversationIndex(spaceRoot: string, entries: Map<string, ConversationIndexEntry>): Promise<void> {
+  const path = conversationIndexFile(spaceRoot);
   const temporary = `${path}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
   try {
-    await mkdir(workspaceStateDir(workspaceRoot), { recursive: true });
+    await mkdir(spaceStateDir(spaceRoot), { recursive: true });
     const payload = { version: conversationIndexVersion, entries: Object.fromEntries(entries) };
     await writeFile(temporary, `${JSON.stringify(payload)}\n`, "utf8");
     await rename(temporary, path);
@@ -344,74 +353,17 @@ async function writeConversationIndex(workspaceRoot: string, entries: Map<string
   }
 }
 
-function conversationPath(workspaceRoot: string, conversationId: string): string {
+function conversationPath(spaceRoot: string, conversationId: string): string {
   assertValidConversationId(conversationId);
-  const path = join(conversationsDir(workspaceRoot), `${conversationId}.jsonl`);
+  const path = join(conversationsDir(spaceRoot), `${conversationId}.jsonl`);
   if (existsSync(path) && lstatSync(path).isSymbolicLink()) {
     throw new Error("Conversation logs cannot be symbolic links or junctions.");
   }
   return path;
 }
 
-function existingConversationPath(workspaceRoot: string, conversationId: string): string {
-  const portablePath = conversationPath(workspaceRoot, conversationId);
-  if (existsSync(portablePath) || existsSync(conversationMigrationMarker(workspaceRoot))) return portablePath;
-  return join(legacyWorkspaceConversationDir(workspaceRoot), `${conversationId}.jsonl`);
-}
-
-function conversationReadDirs(workspaceRoot: string): string[] {
-  const portableDir = conversationsDir(workspaceRoot);
-  const legacyDir = legacyWorkspaceConversationDir(workspaceRoot);
-  return existsSync(conversationMigrationMarker(workspaceRoot)) || !existsSync(legacyDir)
-    ? [portableDir]
-    : [portableDir, legacyDir];
-}
-
-const conversationMigrationByRoot = new Map<string, Promise<void>>();
-
-async function ensurePortableConversationStorage(workspaceRoot: string): Promise<void> {
-  const key = resolve(workspaceRoot);
-  const inFlight = conversationMigrationByRoot.get(key);
-  if (inFlight) return inFlight;
-  const migration = migrateLegacyConversations(workspaceRoot).finally(() => {
-    if (conversationMigrationByRoot.get(key) === migration) conversationMigrationByRoot.delete(key);
-  });
-  conversationMigrationByRoot.set(key, migration);
-  return migration;
-}
-
-async function prepareConversationRead(workspaceRoot: string): Promise<void> {
-  try {
-    await ensurePortableConversationStorage(workspaceRoot);
-  } catch (error) {
-    if (!existsSync(legacyWorkspaceConversationDir(workspaceRoot))) throw error;
-  }
-}
-
-async function migrateLegacyConversations(workspaceRoot: string): Promise<void> {
-  const legacyDir = legacyWorkspaceConversationDir(workspaceRoot);
-  if (!existsSync(legacyDir)) return;
-  const portableDir = conversationsDir(workspaceRoot);
-  const marker = conversationMigrationMarker(workspaceRoot);
-  if (existsSync(marker)) return;
-  await mkdir(portableDir, { recursive: true });
-  for (const file of await readdir(legacyDir)) {
-    if (!file.endsWith(".jsonl")) continue;
-    const destination = join(portableDir, file);
-    if (existsSync(destination)) continue;
-    try {
-      await copyFile(join(legacyDir, file), destination);
-    } catch (error) {
-      if (!isNodeError(error) || error.code !== "EEXIST") throw error;
-    }
-  }
-  await writeFile(marker, "Legacy app-data conversations copied non-destructively.\n", { encoding: "utf8", flag: "wx" }).catch((error: unknown) => {
-    if (!isNodeError(error) || error.code !== "EEXIST") throw error;
-  });
-}
-
-function conversationMigrationMarker(workspaceRoot: string): string {
-  return join(conversationsDir(workspaceRoot), ".external-migration-v1");
+function existingConversationPath(spaceRoot: string, conversationId: string): string {
+  return conversationPath(spaceRoot, conversationId);
 }
 
 function parseChatMessage(line: string): ChatMessage | null {
@@ -441,10 +393,26 @@ function parseChatMessage(line: string): ChatMessage | null {
     }
     if (isChatMessageLanding(parsed.landing)) message.landing = parsed.landing;
     if (isChatMessageInterruption(parsed.interruption)) message.interruption = parsed.interruption;
+    if (Array.isArray(parsed.attachments)) {
+      const attachments = parsed.attachments.filter(isChatMessageAttachmentRef).slice(0, 32);
+      if (attachments.length) message.attachments = attachments;
+    }
     return message;
   } catch {
     return null;
   }
+}
+
+function isChatMessageAttachmentRef(value: unknown): value is ChatMessageAttachmentRef {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Partial<ChatMessageAttachmentRef>;
+  return (record.kind === "file" || record.kind === "folder" || record.kind === "url")
+    && typeof record.target === "string"
+    && record.target.length > 0
+    && record.target.length <= 4_096
+    && typeof record.name === "string"
+    && record.name.length > 0
+    && record.name.length <= 512;
 }
 
 function isChatMessageInterruption(value: unknown): value is ChatMessageInterruption {

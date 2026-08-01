@@ -3,16 +3,16 @@ import { join, relative, sep } from "node:path";
 
 import { isOfficeLockFileName } from "./office-lock-files.js";
 import { listConversations, readConversation } from "./agent/chat-store.js";
-import { isAlwaysHiddenWorkspaceEntry, isWorkspaceIgnored, readWorkspaceIgnoreState } from "./workspace-ignore.js";
-import { ensureSafeWorkspaceRoot } from "./workspace.js";
+import { isAlwaysHiddenSpaceEntry, isSpaceIgnored, readSpaceIgnoreState } from "./space-ignore.js";
+import { ensureSafeSpaceRoot } from "./space.js";
 
-export interface WorkspaceFileMatch {
+export interface SpaceFileMatch {
   path: string;
   line: number;
   preview: string;
 }
 
-export interface WorkspaceChatMatch {
+export interface SpaceChatMatch {
   conversationId: string;
   title: string;
   role: "user" | "assistant" | "system";
@@ -20,16 +20,16 @@ export interface WorkspaceChatMatch {
   preview: string;
 }
 
-export interface WorkspaceSearchResult {
+export interface SpaceSearchResult {
   query: string;
-  files: WorkspaceFileMatch[];
-  chats: WorkspaceChatMatch[];
+  files: SpaceFileMatch[];
+  chats: SpaceChatMatch[];
   /** True when a bound stopped the search before the Space was exhausted. */
   truncated: boolean;
   scannedFiles: number;
 }
 
-export interface WorkspaceSearchOptions {
+export interface SpaceSearchOptions {
   includeFiles?: boolean;
   includeChats?: boolean;
   maxMatches?: number;
@@ -55,25 +55,25 @@ const maxPreviewLength = 240;
  * stops at the first bound it reaches and says so, rather than reading an
  * unbounded amount of the user's disk to answer one query.
  */
-export async function searchWorkspace(
-  workspaceRoot: string,
+export async function searchSpace(
+  spaceRoot: string,
   rawQuery: string,
-  options: WorkspaceSearchOptions = {},
-): Promise<WorkspaceSearchResult> {
+  options: SpaceSearchOptions = {},
+): Promise<SpaceSearchResult> {
   const query = rawQuery.trim();
   if (!query) throw Object.assign(new Error("Enter something to search for."), { statusCode: 400 });
   if (query.length > maxQueryLength) throw Object.assign(new Error("Search text is too long."), { statusCode: 400 });
 
-  const root = ensureSafeWorkspaceRoot(workspaceRoot);
+  const root = ensureSafeSpaceRoot(spaceRoot);
   throwIfSearchAborted(options.signal);
   const needle = query.toLocaleLowerCase();
   const maxMatches = boundedCount(options.maxMatches, defaultMaxMatches, 1_000);
   const maxScannedFiles = boundedCount(options.maxScannedFiles, defaultMaxScannedFiles, 50_000);
   const maxFileBytes = boundedCount(options.maxFileBytes, defaultMaxFileBytes, 16 * 1024 * 1024);
 
-  const state = { files: [] as WorkspaceFileMatch[], scannedFiles: 0, truncated: false };
+  const state = { files: [] as SpaceFileMatch[], scannedFiles: 0, truncated: false };
   if (options.includeFiles !== false) {
-    const ignorePatterns = (await readWorkspaceIgnoreState(root)).patterns;
+    const ignorePatterns = (await readSpaceIgnoreState(root)).patterns;
     await searchFiles(root, root, needle, ignorePatterns, { maxMatches, maxScannedFiles, maxFileBytes }, state, options.signal);
   }
 
@@ -89,7 +89,7 @@ interface SearchBounds {
 }
 
 interface SearchState {
-  files: WorkspaceFileMatch[];
+  files: SpaceFileMatch[];
   scannedFiles: number;
   truncated: boolean;
 }
@@ -125,12 +125,12 @@ async function searchFiles(
       state.truncated = true;
       return;
     }
-    if (entry.isSymbolicLink() || isAlwaysHiddenWorkspaceEntry(entry.name) || isOfficeLockFileName(entry.name)) continue;
+    if (entry.isSymbolicLink() || isAlwaysHiddenSpaceEntry(entry.name) || isOfficeLockFileName(entry.name)) continue;
     const path = join(directory, entry.name);
     const relativePath = toPosix(relative(root, path));
     // Search deliberately honours the ignore rules the person already set on
     // the Files surface, so an excluded dependency tree stays excluded here.
-    if (isWorkspaceIgnored(relativePath, ignorePatterns)) continue;
+    if (isSpaceIgnored(relativePath, ignorePatterns)) continue;
     if (entry.isDirectory()) {
       await searchFiles(root, path, needle, ignorePatterns, bounds, state, signal, depth + 1);
       continue;
@@ -166,8 +166,8 @@ async function searchChats(
   maxMatches: number,
   state: SearchState,
   signal?: AbortSignal,
-): Promise<WorkspaceChatMatch[]> {
-  const matches: WorkspaceChatMatch[] = [];
+): Promise<SpaceChatMatch[]> {
+  const matches: SpaceChatMatch[] = [];
   // Chat search has to read transcripts, which is exactly the work the Chat
   // list was changed to avoid. Newest Chats are searched first and the rest
   // are disclosed as unsearched rather than read without limit.

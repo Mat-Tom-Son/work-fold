@@ -1,20 +1,20 @@
 param(
-  [string]$Publisher = "Mat-Tom-Son Workspace",
-  [string]$OutputDirectory = (Join-Path $HOME ".workspace-signing"),
+  [string]$Publisher = "Mat-Tom-Son work-fold",
+  [string]$OutputDirectory = (Join-Path $HOME ".work-fold-signing"),
   [ValidateRange(1, 10)][int]$ValidYears = 3
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$pfxPath = Join-Path $OutputDirectory "Workspace-Personal-Code-Signing.pfx"
-$publicPath = Join-Path $OutputDirectory "Workspace-Personal-Code-Signing.cer"
-$passwordPath = Join-Path $OutputDirectory "Workspace-Personal-Code-Signing.password.dpapi"
-$metadataPath = Join-Path $OutputDirectory "Workspace-Personal-Code-Signing.json"
+$pfxPath = Join-Path $OutputDirectory "work-fold-Personal-Code-Signing.pfx"
+$publicPath = Join-Path $OutputDirectory "work-fold-Personal-Code-Signing.cer"
+$passwordPath = Join-Path $OutputDirectory "work-fold-Personal-Code-Signing.password.dpapi"
+$metadataPath = Join-Path $OutputDirectory "work-fold-Personal-Code-Signing.json"
 
 $existing = @(@($pfxPath, $publicPath, $passwordPath, $metadataPath) | Where-Object { Test-Path -LiteralPath $_ })
 if ($existing.Count -eq 4) {
-  Write-Host "Workspace personal signing certificate already exists at $OutputDirectory."
+  Write-Host "work-fold personal signing certificate already exists at $OutputDirectory."
   Get-Content -Raw -LiteralPath $metadataPath
   exit 0
 }
@@ -32,7 +32,7 @@ $securePassword = ConvertTo-SecureString -String $plainPassword -AsPlainText -Fo
 $certificate = New-SelfSignedCertificate `
   -Type CodeSigningCert `
   -Subject "CN=$Publisher" `
-  -FriendlyName "Workspace personal code signing" `
+  -FriendlyName "work-fold personal code signing" `
   -CertStoreLocation "Cert:\CurrentUser\My" `
   -KeyAlgorithm RSA `
   -KeyLength 3072 `
@@ -70,5 +70,5 @@ Set-Acl -LiteralPath $OutputDirectory -AclObject $acl
 $plainPassword = $null
 $securePassword.Dispose()
 
-Write-Host "Created Workspace personal code-signing certificate."
+Write-Host "Created work-fold personal code-signing certificate."
 $metadata | ConvertTo-Json

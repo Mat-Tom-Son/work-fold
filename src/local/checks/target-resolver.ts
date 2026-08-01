@@ -2,9 +2,10 @@ import type { Dirent, Stats } from "node:fs";
 import { lstat, opendir, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
-import type { WorkspaceCheckTarget, WorkspaceCheckTargetRole } from "../../shared/checks.js";
+import type { WorkFoldCheckTarget, WorkFoldCheckTargetRole } from "../../shared/checks.js";
+import { isReservedSpacePathSegment } from "../space-path-policy.js";
 
-export const workspaceCheckTargetHardLimits = Object.freeze({
+export const workFoldCheckTargetHardLimits = Object.freeze({
   maxSelectors: 64,
   maxVisitedEntries: 10_000,
   maxDepth: 32,
@@ -13,7 +14,7 @@ export const workspaceCheckTargetHardLimits = Object.freeze({
   maxTotalBytes: 256 * 1024 * 1024,
 });
 
-export interface WorkspaceCheckTargetLimits {
+export interface WorkFoldCheckTargetLimits {
   maxSelectors: number;
   maxVisitedEntries: number;
   maxDepth: number;
@@ -22,30 +23,30 @@ export interface WorkspaceCheckTargetLimits {
   maxTotalBytes: number;
 }
 
-export interface WorkspaceCheckResolvedFile {
+export interface WorkFoldCheckResolvedFile {
   /** Canonical Space-relative path, using `/` separators. */
   path: string;
   /** Internal filesystem path for the runner. Never expose this through a content-free projection. */
   absolutePath: string;
   sizeBytes: number;
   selectorIndexes: number[];
-  roles: WorkspaceCheckTargetRole[];
+  roles: WorkFoldCheckTargetRole[];
 }
 
-export interface WorkspaceCheckMissingExactTarget {
+export interface WorkFoldCheckMissingExactTarget {
   path: string;
   selectorIndexes: number[];
-  roles: WorkspaceCheckTargetRole[];
+  roles: WorkFoldCheckTargetRole[];
 }
 
-export interface WorkspaceCheckTargetResolution {
-  files: WorkspaceCheckResolvedFile[];
-  missingExactTargets: WorkspaceCheckMissingExactTarget[];
+export interface WorkFoldCheckTargetResolution {
+  files: WorkFoldCheckResolvedFile[];
+  missingExactTargets: WorkFoldCheckMissingExactTarget[];
   totalBytes: number;
   visitedEntries: number;
 }
 
-export type WorkspaceCheckTargetResolutionErrorCode =
+export type WorkFoldCheckTargetResolutionErrorCode =
   | "INVALID_ROOT"
   | "INVALID_LIMIT"
   | "INVALID_SELECTOR"
@@ -57,25 +58,25 @@ export type WorkspaceCheckTargetResolutionErrorCode =
   | "LIMIT_EXCEEDED"
   | "FILESYSTEM_ERROR";
 
-export class WorkspaceCheckTargetResolutionError extends Error {
-  readonly code: WorkspaceCheckTargetResolutionErrorCode;
+export class WorkFoldCheckTargetResolutionError extends Error {
+  readonly code: WorkFoldCheckTargetResolutionErrorCode;
   readonly targetPath?: string;
 
   constructor(
-    code: WorkspaceCheckTargetResolutionErrorCode,
+    code: WorkFoldCheckTargetResolutionErrorCode,
     message: string,
     options: { targetPath?: string; cause?: unknown } = {},
   ) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
-    this.name = "WorkspaceCheckTargetResolutionError";
+    this.name = "WorkFoldCheckTargetResolutionError";
     this.code = code;
     this.targetPath = options.targetPath;
   }
 }
 
-export interface ResolveWorkspaceCheckTargetsOptions {
+export interface ResolveWorkFoldCheckTargetsOptions {
   /** Callers may tighten, but never widen, the resolver's hard limits. */
-  limits?: Partial<WorkspaceCheckTargetLimits>;
+  limits?: Partial<WorkFoldCheckTargetLimits>;
   signal?: AbortSignal;
 }
 
@@ -84,19 +85,19 @@ interface PreparedRoot {
   canonicalRoot: string;
 }
 
-interface MutableResolvedFile extends Omit<WorkspaceCheckResolvedFile, "selectorIndexes" | "roles"> {
+interface MutableResolvedFile extends Omit<WorkFoldCheckResolvedFile, "selectorIndexes" | "roles"> {
   selectorIndexes: Set<number>;
-  roles: Set<WorkspaceCheckTargetRole>;
+  roles: Set<WorkFoldCheckTargetRole>;
 }
 
-interface MutableMissingTarget extends Omit<WorkspaceCheckMissingExactTarget, "selectorIndexes" | "roles"> {
+interface MutableMissingTarget extends Omit<WorkFoldCheckMissingExactTarget, "selectorIndexes" | "roles"> {
   selectorIndexes: Set<number>;
-  roles: Set<WorkspaceCheckTargetRole>;
+  roles: Set<WorkFoldCheckTargetRole>;
 }
 
 interface ResolutionState {
   root: PreparedRoot;
-  limits: WorkspaceCheckTargetLimits;
+  limits: WorkFoldCheckTargetLimits;
   files: Map<string, MutableResolvedFile>;
   missing: Map<string, MutableMissingTarget>;
   totalBytes: number;
@@ -109,21 +110,21 @@ interface ResolutionState {
  * file contents. Exact targets may remain missing; every other inability to
  * establish a bounded, link-free target set is a resolver error.
  */
-export async function resolveWorkspaceCheckTargets(
-  workspaceRoot: string,
-  targets: readonly WorkspaceCheckTarget[],
-  options: ResolveWorkspaceCheckTargetsOptions = {},
-): Promise<WorkspaceCheckTargetResolution> {
+export async function resolveWorkFoldCheckTargets(
+  root: string,
+  targets: readonly WorkFoldCheckTarget[],
+  options: ResolveWorkFoldCheckTargetsOptions = {},
+): Promise<WorkFoldCheckTargetResolution> {
   const limits = resolvedLimits(options.limits);
   if (!Array.isArray(targets) || targets.length < 1) {
-    throw new WorkspaceCheckTargetResolutionError("INVALID_SELECTOR", "At least one explicit Check target is required.");
+    throw new WorkFoldCheckTargetResolutionError("INVALID_SELECTOR", "At least one explicit Check target is required.");
   }
   if (targets.length > limits.maxSelectors) {
     throw limitError(`Check target count exceeds the ${limits.maxSelectors}-selector limit.`);
   }
 
   const state: ResolutionState = {
-    root: await prepareRoot(workspaceRoot),
+    root: await prepareRoot(root),
     limits,
     files: new Map(),
     missing: new Map(),
@@ -137,14 +138,14 @@ export async function resolveWorkspaceCheckTargets(
     const path = safeTargetPath(target?.path);
     const role = target?.role;
     if (role !== "primary" && role !== "reference") {
-      throw new WorkspaceCheckTargetResolutionError("INVALID_SELECTOR", `Check target ${selectorIndex + 1} has an invalid role.`, { targetPath: path });
+      throw new WorkFoldCheckTargetResolutionError("INVALID_SELECTOR", `Check target ${selectorIndex + 1} has an invalid role.`, { targetPath: path });
     }
     if (target.kind === "file") {
       await resolveExactFile(state, path, selectorIndex, role);
       continue;
     }
     if (target.kind !== "tree" || typeof target.recursive !== "boolean") {
-      throw new WorkspaceCheckTargetResolutionError("INVALID_SELECTOR", `Check target ${selectorIndex + 1} is invalid.`, { targetPath: path });
+      throw new WorkFoldCheckTargetResolutionError("INVALID_SELECTOR", `Check target ${selectorIndex + 1} is invalid.`, { targetPath: path });
     }
     const extensions = normalizedExtensions(target.extensions, path);
     await resolveTree(state, path, target.recursive, extensions, selectorIndex, role);
@@ -170,17 +171,17 @@ export async function resolveWorkspaceCheckTargets(
   };
 }
 
-async function prepareRoot(workspaceRoot: string): Promise<PreparedRoot> {
-  if (typeof workspaceRoot !== "string" || !workspaceRoot.trim() || !isAbsolute(workspaceRoot)) {
-    throw new WorkspaceCheckTargetResolutionError("INVALID_ROOT", "The Check resolver requires an absolute Space root.");
+async function prepareRoot(root: string): Promise<PreparedRoot> {
+  if (typeof root !== "string" || !root.trim() || !isAbsolute(root)) {
+    throw new WorkFoldCheckTargetResolutionError("INVALID_ROOT", "The Check resolver requires an absolute Space root.");
   }
-  const lexicalRoot = resolve(workspaceRoot);
+  const lexicalRoot = resolve(root);
   const info = await checkedLstat(lexicalRoot, "The Space root is unavailable.", "INVALID_ROOT");
   if (info.isSymbolicLink()) {
-    throw new WorkspaceCheckTargetResolutionError("SYMLINK", "A Space root used for Checks cannot be a symbolic link or junction.");
+    throw new WorkFoldCheckTargetResolutionError("SYMLINK", "A Space root used for Checks cannot be a symbolic link or junction.");
   }
   if (!info.isDirectory()) {
-    throw new WorkspaceCheckTargetResolutionError("INVALID_ROOT", "The Check resolver Space root must be a directory.");
+    throw new WorkFoldCheckTargetResolutionError("INVALID_ROOT", "The Check resolver Space root must be a directory.");
   }
   const canonicalRoot = await checkedRealpath(lexicalRoot, "The Space root could not be canonicalized.");
   return { lexicalRoot, canonicalRoot };
@@ -190,7 +191,7 @@ async function resolveExactFile(
   state: ResolutionState,
   path: string,
   selectorIndex: number,
-  role: WorkspaceCheckTargetRole,
+  role: WorkFoldCheckTargetRole,
 ): Promise<void> {
   const target = await inspectRelativePath(state.root, path, true);
   if (!target) {
@@ -201,7 +202,7 @@ async function resolveExactFile(
     return;
   }
   if (!target.info.isFile()) {
-    throw new WorkspaceCheckTargetResolutionError("TYPE_MISMATCH", `Exact Check target is not a regular file: ${path}`, { targetPath: path });
+    throw new WorkFoldCheckTargetResolutionError("TYPE_MISMATCH", `Exact Check target is not a regular file: ${path}`, { targetPath: path });
   }
   addFile(state, path, target.absolutePath, target.info, selectorIndex, role);
 }
@@ -212,14 +213,14 @@ async function resolveTree(
   recursive: boolean,
   extensions: ReadonlySet<string>,
   selectorIndex: number,
-  role: WorkspaceCheckTargetRole,
+  role: WorkFoldCheckTargetRole,
 ): Promise<void> {
   const target = await inspectRelativePath(state.root, path, false);
   if (!target) {
-    throw new WorkspaceCheckTargetResolutionError("TARGET_NOT_FOUND", `Check tree target does not exist: ${path}`, { targetPath: path });
+    throw new WorkFoldCheckTargetResolutionError("TARGET_NOT_FOUND", `Check tree target does not exist: ${path}`, { targetPath: path });
   }
   if (!target.info.isDirectory()) {
-    throw new WorkspaceCheckTargetResolutionError("TYPE_MISMATCH", `Check tree target is not a directory: ${path}`, { targetPath: path });
+    throw new WorkFoldCheckTargetResolutionError("TYPE_MISMATCH", `Check tree target is not a directory: ${path}`, { targetPath: path });
   }
   await visitTree(state, target.absolutePath, path, recursive, extensions, selectorIndex, role, 0);
 }
@@ -231,7 +232,7 @@ async function visitTree(
   recursive: boolean,
   extensions: ReadonlySet<string>,
   selectorIndex: number,
-  role: WorkspaceCheckTargetRole,
+  role: WorkFoldCheckTargetRole,
   depth: number,
 ): Promise<void> {
   throwIfAborted(state.signal);
@@ -252,8 +253,8 @@ async function visitTree(
       await directory.close().catch(() => undefined);
     }
   } catch (error) {
-    if (error instanceof WorkspaceCheckTargetResolutionError) throw error;
-    throw filesystemError(error, `Workspace could not enumerate Check target tree: ${relativeDirectory}`, relativeDirectory);
+    if (error instanceof WorkFoldCheckTargetResolutionError) throw error;
+    throw filesystemError(error, `work-fold could not enumerate Check target tree: ${relativeDirectory}`, relativeDirectory);
   }
 
   entries.sort((left, right) => compareText(left.name, right.name));
@@ -266,20 +267,20 @@ async function visitTree(
     const path = `${relativeDirectory}/${entry.name}`;
     const absolutePath = join(absoluteDirectory, entry.name);
     assertLexicallyInside(state.root.lexicalRoot, absolutePath, path);
-    const info = await checkedLstat(absolutePath, `Workspace could not inspect Check target: ${path}`, "FILESYSTEM_ERROR", path);
+    const info = await checkedLstat(absolutePath, `work-fold could not inspect Check target: ${path}`, "FILESYSTEM_ERROR", path);
     if (info.isSymbolicLink()) {
-      throw new WorkspaceCheckTargetResolutionError("SYMLINK", `Check target trees cannot contain symbolic links or junctions: ${path}`, { targetPath: path });
+      throw new WorkFoldCheckTargetResolutionError("SYMLINK", `Check target trees cannot contain symbolic links or junctions: ${path}`, { targetPath: path });
     }
-    if (isReservedSegment(entry.name)) continue;
+    if (isReservedSpacePathSegment(entry.name)) continue;
     if (info.isDirectory()) {
       if (!recursive) continue;
-      const canonical = await checkedRealpath(absolutePath, `Workspace could not canonicalize Check target directory: ${path}`, path);
+      const canonical = await checkedRealpath(absolutePath, `work-fold could not canonicalize Check target directory: ${path}`, path);
       assertCanonicalInside(state.root.canonicalRoot, canonical, path);
       await visitTree(state, absolutePath, path, recursive, extensions, selectorIndex, role, depth + 1);
       continue;
     }
     if (!info.isFile() || !matchesExtension(entry.name, extensions)) continue;
-    const canonical = await checkedRealpath(absolutePath, `Workspace could not canonicalize Check target file: ${path}`, path);
+    const canonical = await checkedRealpath(absolutePath, `work-fold could not canonicalize Check target file: ${path}`, path);
     assertCanonicalInside(state.root.canonicalRoot, canonical, path);
     addFile(state, path, absolutePath, info, selectorIndex, role);
   }
@@ -301,18 +302,18 @@ async function inspectRelativePath(
     } catch (error) {
       if (allowMissing && isMissingError(error)) return null;
       if (isMissingError(error)) return null;
-      throw filesystemError(error, `Workspace could not inspect Check target: ${path}`, path);
+      throw filesystemError(error, `work-fold could not inspect Check target: ${path}`, path);
     }
     if (info.isSymbolicLink()) {
-      throw new WorkspaceCheckTargetResolutionError("SYMLINK", `Check targets cannot traverse symbolic links or junctions: ${path}`, { targetPath: path });
+      throw new WorkFoldCheckTargetResolutionError("SYMLINK", `Check targets cannot traverse symbolic links or junctions: ${path}`, { targetPath: path });
     }
     const final = index === segments.length - 1;
     if (!final && !info.isDirectory()) {
-      throw new WorkspaceCheckTargetResolutionError("TYPE_MISMATCH", `Check target path traverses a non-directory: ${path}`, { targetPath: path });
+      throw new WorkFoldCheckTargetResolutionError("TYPE_MISMATCH", `Check target path traverses a non-directory: ${path}`, { targetPath: path });
     }
   }
-  const info = await checkedLstat(cursor, `Workspace could not inspect Check target: ${path}`, "FILESYSTEM_ERROR", path);
-  const canonical = await checkedRealpath(cursor, `Workspace could not canonicalize Check target: ${path}`, path);
+  const info = await checkedLstat(cursor, `work-fold could not inspect Check target: ${path}`, "FILESYSTEM_ERROR", path);
+  const canonical = await checkedRealpath(cursor, `work-fold could not canonicalize Check target: ${path}`, path);
   assertCanonicalInside(root.canonicalRoot, canonical, path);
   return { absolutePath: cursor, info };
 }
@@ -323,7 +324,7 @@ function addFile(
   absolutePath: string,
   info: Stats,
   selectorIndex: number,
-  role: WorkspaceCheckTargetRole,
+  role: WorkFoldCheckTargetRole,
 ): void {
   if (!Number.isSafeInteger(info.size) || info.size < 0 || info.size > state.limits.maxFileBytes) {
     throw limitError(`Check target exceeds the ${state.limits.maxFileBytes}-byte per-file limit: ${path}`, path);
@@ -331,7 +332,7 @@ function addFile(
   const existing = state.files.get(path);
   if (existing) {
     if (existing.sizeBytes !== info.size) {
-      throw new WorkspaceCheckTargetResolutionError("FILESYSTEM_ERROR", `Check target changed during resolution: ${path}`, { targetPath: path });
+      throw new WorkFoldCheckTargetResolutionError("FILESYSTEM_ERROR", `Check target changed during resolution: ${path}`, { targetPath: path });
     }
     existing.selectorIndexes.add(selectorIndex);
     existing.roles.add(role);
@@ -355,20 +356,20 @@ function addFile(
 
 function safeTargetPath(value: unknown): string {
   if (typeof value !== "string" || !value || value.length > 512 || value.includes("\0") || value.includes("\\")) {
-    throw new WorkspaceCheckTargetResolutionError("UNSAFE_PATH", "Check targets must use bounded Space-relative paths.");
+    throw new WorkFoldCheckTargetResolutionError("UNSAFE_PATH", "Check targets must use bounded Space-relative paths.");
   }
   if (value === "." || isAbsolute(value) || value.startsWith("/") || /^[A-Za-z]:/.test(value)) {
-    throw new WorkspaceCheckTargetResolutionError("UNSAFE_PATH", "Check targets cannot select the Space root or an absolute path.", { targetPath: value });
+    throw new WorkFoldCheckTargetResolutionError("UNSAFE_PATH", "Check targets cannot select the Space root or an absolute path.", { targetPath: value });
   }
   const segments = value.split("/");
   if (segments.some((segment) => !segment || segment === "." || segment === "..")) {
-    throw new WorkspaceCheckTargetResolutionError("UNSAFE_PATH", "Check targets must be normalized paths beneath the Space root.", { targetPath: value });
+    throw new WorkFoldCheckTargetResolutionError("UNSAFE_PATH", "Check targets must be normalized paths beneath the Space root.", { targetPath: value });
   }
-  if (segments.some(isReservedSegment)) {
-    throw new WorkspaceCheckTargetResolutionError("RESERVED_PATH", "Check targets cannot select .workspace or .pi material.", { targetPath: value });
+  if (segments.some(isReservedSpacePathSegment)) {
+    throw new WorkFoldCheckTargetResolutionError("RESERVED_PATH", "Check targets cannot select .work-fold, .workspace, or .pi material.", { targetPath: value });
   }
   if (segments.some(isUnsafeWindowsPathSegment)) {
-    throw new WorkspaceCheckTargetResolutionError("UNSAFE_PATH", "Check targets cannot contain Windows-reserved or ambiguous path segments.", { targetPath: value });
+    throw new WorkFoldCheckTargetResolutionError("UNSAFE_PATH", "Check targets cannot contain Windows-reserved or ambiguous path segments.", { targetPath: value });
   }
   return segments.join("/");
 }
@@ -382,21 +383,21 @@ function isUnsafeWindowsPathSegment(segment: string): boolean {
 
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
-    throw new WorkspaceCheckTargetResolutionError("FILESYSTEM_ERROR", String(signal.reason || "Check target resolution was aborted."));
+    throw new WorkFoldCheckTargetResolutionError("FILESYSTEM_ERROR", String(signal.reason || "Check target resolution was aborted."));
   }
 }
 
 function normalizedExtensions(value: unknown, targetPath: string): ReadonlySet<string> {
   if (!Array.isArray(value) || value.length < 1 || value.length > 24) {
-    throw new WorkspaceCheckTargetResolutionError("INVALID_SELECTOR", "Check tree targets require explicit extension filters.", { targetPath });
+    throw new WorkFoldCheckTargetResolutionError("INVALID_SELECTOR", "Check tree targets require explicit extension filters.", { targetPath });
   }
   const extensions = value.map((item) => {
     if (typeof item !== "string" || item.length > 24) {
-      throw new WorkspaceCheckTargetResolutionError("INVALID_SELECTOR", "Check tree target contains an invalid extension filter.", { targetPath });
+      throw new WorkFoldCheckTargetResolutionError("INVALID_SELECTOR", "Check tree target contains an invalid extension filter.", { targetPath });
     }
     const extension = item.toLocaleLowerCase("en-US");
     if (!/^\.[a-z0-9][a-z0-9._+-]*$/.test(extension)) {
-      throw new WorkspaceCheckTargetResolutionError("INVALID_SELECTOR", "Check tree target contains an invalid extension filter.", { targetPath });
+      throw new WorkFoldCheckTargetResolutionError("INVALID_SELECTOR", "Check tree target contains an invalid extension filter.", { targetPath });
     }
     return extension;
   });
@@ -408,42 +409,37 @@ function matchesExtension(name: string, extensions: ReadonlySet<string>): boolea
   return [...extensions].some((extension) => normalized.endsWith(extension));
 }
 
-function resolvedLimits(value: Partial<WorkspaceCheckTargetLimits> | undefined): WorkspaceCheckTargetLimits {
-  const result: WorkspaceCheckTargetLimits = { ...workspaceCheckTargetHardLimits };
+function resolvedLimits(value: Partial<WorkFoldCheckTargetLimits> | undefined): WorkFoldCheckTargetLimits {
+  const result: WorkFoldCheckTargetLimits = { ...workFoldCheckTargetHardLimits };
   if (!value) return result;
-  for (const key of Object.keys(result) as Array<keyof WorkspaceCheckTargetLimits>) {
+  for (const key of Object.keys(result) as Array<keyof WorkFoldCheckTargetLimits>) {
     const requested = value[key];
     if (requested === undefined) continue;
-    if (!Number.isSafeInteger(requested) || requested < 1 || requested > workspaceCheckTargetHardLimits[key]) {
-      throw new WorkspaceCheckTargetResolutionError("INVALID_LIMIT", `Check target ${key} must be a positive integer no greater than the hard limit.`);
+    if (!Number.isSafeInteger(requested) || requested < 1 || requested > workFoldCheckTargetHardLimits[key]) {
+      throw new WorkFoldCheckTargetResolutionError("INVALID_LIMIT", `Check target ${key} must be a positive integer no greater than the hard limit.`);
     }
     result[key] = requested;
   }
   return result;
 }
 
-function sortedRoles(roles: ReadonlySet<WorkspaceCheckTargetRole>): WorkspaceCheckTargetRole[] {
+function sortedRoles(roles: ReadonlySet<WorkFoldCheckTargetRole>): WorkFoldCheckTargetRole[] {
   return [...roles].sort((left, right) => roleOrder(left) - roleOrder(right));
 }
 
-function roleOrder(role: WorkspaceCheckTargetRole): number {
+function roleOrder(role: WorkFoldCheckTargetRole): number {
   return role === "primary" ? 0 : 1;
-}
-
-function isReservedSegment(segment: string): boolean {
-  const normalized = segment.toLocaleLowerCase("en-US");
-  return normalized === ".workspace" || normalized === ".pi";
 }
 
 function assertLexicallyInside(root: string, candidate: string, targetPath: string): void {
   if (!pathContains(root, candidate)) {
-    throw new WorkspaceCheckTargetResolutionError("UNSAFE_PATH", "Check target path escapes its Space.", { targetPath });
+    throw new WorkFoldCheckTargetResolutionError("UNSAFE_PATH", "Check target path escapes its Space.", { targetPath });
   }
 }
 
 function assertCanonicalInside(root: string, candidate: string, targetPath: string): void {
   if (!pathContains(root, candidate)) {
-    throw new WorkspaceCheckTargetResolutionError("UNSAFE_PATH", "Check target resolves outside its Space.", { targetPath });
+    throw new WorkFoldCheckTargetResolutionError("UNSAFE_PATH", "Check target resolves outside its Space.", { targetPath });
   }
 }
 
@@ -455,14 +451,14 @@ function pathContains(root: string, candidate: string): boolean {
 async function checkedLstat(
   path: string,
   fallback: string,
-  code: WorkspaceCheckTargetResolutionErrorCode,
+  code: WorkFoldCheckTargetResolutionErrorCode,
   targetPath?: string,
 ): Promise<Stats> {
   try {
     return await lstat(path);
   } catch (error) {
     if (code === "INVALID_ROOT") {
-      throw new WorkspaceCheckTargetResolutionError(code, fallback, { targetPath, cause: error });
+      throw new WorkFoldCheckTargetResolutionError(code, fallback, { targetPath, cause: error });
     }
     throw filesystemError(error, fallback, targetPath);
   }
@@ -476,13 +472,13 @@ async function checkedRealpath(path: string, fallback: string, targetPath?: stri
   }
 }
 
-function filesystemError(error: unknown, fallback: string, targetPath?: string): WorkspaceCheckTargetResolutionError {
-  if (error instanceof WorkspaceCheckTargetResolutionError) return error;
-  return new WorkspaceCheckTargetResolutionError("FILESYSTEM_ERROR", fallback, { targetPath, cause: error });
+function filesystemError(error: unknown, fallback: string, targetPath?: string): WorkFoldCheckTargetResolutionError {
+  if (error instanceof WorkFoldCheckTargetResolutionError) return error;
+  return new WorkFoldCheckTargetResolutionError("FILESYSTEM_ERROR", fallback, { targetPath, cause: error });
 }
 
-function limitError(message: string, targetPath?: string): WorkspaceCheckTargetResolutionError {
-  return new WorkspaceCheckTargetResolutionError("LIMIT_EXCEEDED", message, { targetPath });
+function limitError(message: string, targetPath?: string): WorkFoldCheckTargetResolutionError {
+  return new WorkFoldCheckTargetResolutionError("LIMIT_EXCEEDED", message, { targetPath });
 }
 
 function isMissingError(error: unknown): boolean {

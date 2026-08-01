@@ -1,8 +1,9 @@
 import { posix, win32 } from "node:path";
+import { productIdentity } from "../../src/shared/product-identity.js";
 
-const developmentUserDataName = "Workspace Development";
+const developmentUserDataName = productIdentity.developmentProductName;
 
-export interface WorkspaceDesktopUserDataPathOptions {
+export interface WorkFoldDesktopUserDataPathOptions {
   appDataPath: string;
   productName: string;
   useInstalledProductData: boolean;
@@ -11,7 +12,7 @@ export interface WorkspaceDesktopUserDataPathOptions {
   currentDirectory?: string;
 }
 
-export interface WorkspaceDesktopInstalledDataOptions {
+export interface WorkFoldDesktopInstalledDataOptions {
   executablePath: string;
   productName: string;
   isPackaged: boolean;
@@ -19,13 +20,13 @@ export interface WorkspaceDesktopInstalledDataOptions {
   platform?: NodeJS.Platform;
 }
 
-export function workspaceDesktopStateOverride(
+export function workFoldDesktopStateOverride(
   environment: Readonly<Record<string, string | undefined>>,
 ): string | undefined {
-  return environment.WORKSPACE_DESKTOP_STATE_DIR;
+  return environment.WORKFOLD_DESKTOP_STATE_DIR;
 }
 
-export function workspaceDesktopUsesInstalledProductData(options: WorkspaceDesktopInstalledDataOptions): boolean {
+export function workFoldDesktopUsesInstalledProductData(options: WorkFoldDesktopInstalledDataOptions): boolean {
   if (!options.isPackaged) return false;
   const platform = options.platform ?? process.platform;
   if (platform !== "win32") return true;
@@ -39,7 +40,7 @@ export function workspaceDesktopUsesInstalledProductData(options: WorkspaceDeskt
   return options.fileExists(win32.join(executableDirectory, `Uninstall ${options.productName}.exe`));
 }
 
-export function workspaceDesktopUserDataPath(options: WorkspaceDesktopUserDataPathOptions): string {
+export function workFoldDesktopUserDataPath(options: WorkFoldDesktopUserDataPathOptions): string {
   const platform = options.platform ?? process.platform;
   const paths = platform === "win32" ? win32 : posix;
   const override = options.override?.trim();

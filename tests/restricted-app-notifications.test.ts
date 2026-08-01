@@ -35,7 +35,7 @@ const digestTwo = "2".repeat(64);
 
 function context(overrides: Record<string, unknown> = {}) {
   return {
-    workspaceId: "ws-1111111111111111",
+    spaceId: "ws-1111111111111111",
     appId: "connected-inbox",
     digest: digestOne,
     appTitle: "Connected inbox",
@@ -57,15 +57,15 @@ test("notification broker renders only reviewed static copy during an enabled au
   const broker = new RestrictedAppNotificationBroker({ sink });
   assert.deepEqual(broker.show(context(), { permissionId: "new-mail" }, (request) => opened.push(request)), { status: "shown" });
   assert.deepEqual(sink.shown[0]?.notification, {
-    workspaceId: "ws-1111111111111111",
+    spaceId: "ws-1111111111111111",
     appId: "connected-inbox",
     digest: digestOne,
     permissionId: "new-mail",
-    title: "Workspace · Connected inbox — New mail",
+    title: "work-fold · Connected inbox — New mail",
     body: "New messages are ready.",
   });
   sink.shown[0]?.callbacks.onClick();
-  assert.deepEqual(opened, [{ workspaceId: "ws-1111111111111111", appId: "connected-inbox", digest: digestOne, permissionId: "new-mail" }]);
+  assert.deepEqual(opened, [{ spaceId: "ws-1111111111111111", appId: "connected-inbox", digest: digestOne, permissionId: "new-mail" }]);
   assert.equal(sink.shown[0]?.handle.closed, true, "clicking consumes and closes the current notification");
   sink.shown[0]?.callbacks.onClick();
   assert.equal(opened.length, 1, "a stale native click cannot reopen the app");
@@ -90,7 +90,7 @@ test("notification anti-spam quota survives close, permission churn, automation 
     assert.deepEqual(broker.show(context({ invocationId: `invocation-${index}` }), { permissionId: "new-mail" }, () => undefined), { status: "shown" });
     now += 5 * 60_000 + 1;
   }
-  broker.closeApp({ workspaceId: "ws-1111111111111111", appId: "connected-inbox" }, digestOne);
+  broker.closeApp({ spaceId: "ws-1111111111111111", appId: "connected-inbox" }, digestOne);
   const updated = context({ digest: digestTwo, invocationId: "after-update", grants: [], automationEnabled: false });
   assert.throws(() => broker.show(updated, { permissionId: "new-mail" }, () => undefined), /Enable this automation/);
   assert.deepEqual(broker.show({ ...updated, grants: ["new-mail"], automationEnabled: true }, { permissionId: "new-mail" }, () => undefined), { status: "rate-limited" });
@@ -118,7 +118,7 @@ test("notification lifecycle cleanup filters digest handles and tolerates synchr
   const broker = new RestrictedAppNotificationBroker({ sink });
   broker.show(context(), { permissionId: "new-mail" }, () => undefined);
   broker.show(context({ digest: digestTwo, invocationId: "two" }), { permissionId: "sync-error" }, () => undefined);
-  broker.closeApp({ workspaceId: "ws-1111111111111111", appId: "connected-inbox" }, digestOne);
+  broker.closeApp({ spaceId: "ws-1111111111111111", appId: "connected-inbox" }, digestOne);
   assert.equal(sink.shown[0]?.handle.closed, true);
   assert.equal(sink.shown[1]?.handle.closed, false);
   broker.closeAll();

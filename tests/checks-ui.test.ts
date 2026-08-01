@@ -7,7 +7,7 @@ import type { ChecksStatus } from "../web-local/src/types.js";
 const base: ChecksStatus = {
   kind: "workspace.checks.experimental",
   version: 0,
-  workspaceId: "space-1",
+  spaceId: "space-1",
   state: "not-configured",
   configured: 0,
   proposed: 0,

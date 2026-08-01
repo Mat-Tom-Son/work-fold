@@ -7,15 +7,15 @@ import { JSDOM } from "jsdom";
 const root = process.cwd();
 const [app, tabBar, chatPanel, chatActions, messages, activity, panes, chrome, styles, identity, desktopMain, localServer] = await Promise.all([
   read("web-local/src/App.tsx"),
-  read("web-local/src/components/chat/WorkspaceSurfaceTabBar.tsx"),
+  read("web-local/src/components/chat/SpaceSurfaceTabBar.tsx"),
   read("web-local/src/components/chat/ChatPanel.tsx"),
   read("web-local/src/components/chat/ChatActionsPopover.tsx"),
   read("web-local/src/components/chat/messages.tsx"),
   read("web-local/src/components/chat/activity.tsx"),
-  read("web-local/src/components/panes/workspacePanes.tsx"),
-  read("web-local/src/components/panes/workspaceChrome.tsx"),
+  read("web-local/src/components/panes/spacePanes.tsx"),
+  read("web-local/src/components/panes/spaceChrome.tsx"),
   read("web-local/src/styles.css"),
-  read("web-local/src/lib/workspace-identity.ts"),
+  read("web-local/src/lib/space-identity.ts"),
   read("desktop/src/main.ts"),
   read("src/local/server.ts"),
 ]);
@@ -30,11 +30,11 @@ test("Files removes unsupported create controls and naming uses in-app UI", () =
 
 test("one Space menu trigger can create a Chat in every Space", () => {
   assert.equal((tabBar.match(/aria-label="Start a new Chat"/g) ?? []).length, 1);
-  assert.match(tabBar, /menuWorkspaces\.map/);
-  assert.match(tabBar, /onNewChatInWorkspace\(targetWorkspace\)/);
+  assert.match(tabBar, /menuSpaces\.map/);
+  assert.match(tabBar, /onNewChatInSpace\(targetSpace\)/);
   assert.doesNotMatch(tabBar, /\bonNewChat:\s*\(\)\s*=>/);
-  const tabBarCall = app.match(/<WorkspaceSurfaceTabBar[\s\S]*?\/>/)?.[0] ?? "";
-  assert.doesNotMatch(tabBarCall, /newChatWorkspaceName=|onNewChat=\{/);
+  const tabBarCall = app.match(/<SpaceSurfaceTabBar[\s\S]*?\/>/)?.[0] ?? "";
+  assert.doesNotMatch(tabBarCall, /newChatSpaceName=|onNewChat=\{/);
   assert.doesNotMatch(app, /fixtureConversations=\{[^}]*:\s*\[\]\s*\}/, "blank fixture tabs must not receive a fresh array on every render");
 });
 
@@ -60,18 +60,18 @@ test("Chat work can be deferred, found again, and resumed without interrupting a
 });
 
 test("Chats foreground the active Space and collapse other Spaces until requested", () => {
-  assert.match(panes, /const \[expandedOtherWorkspaceIds, setExpandedOtherWorkspaceIds\]/);
+  assert.match(panes, /const \[expandedOtherSpaceIds, setExpandedOtherSpaceIds\]/);
   assert.match(panes, /<span>Other Spaces<\/span>/);
   assert.match(panes, /aria-label=\{`\$\{expanded \? "Hide" : "Show"\} chats in \$\{item\.name\}`\}/);
   assert.match(panes, /aria-expanded=\{expanded\}/);
-  assert.match(panes, /const expanded = Boolean\(normalized\) \|\| expandedOtherWorkspaceIds\.has/);
-  assert.match(panes, /onClick=\{\(\) => toggleOtherWorkspace\(item\.id\)\}/);
+  assert.match(panes, /const expanded = Boolean\(normalized\) \|\| expandedOtherSpaceIds\.has/);
+  assert.match(panes, /onClick=\{\(\) => toggleOtherSpace\(item\.id\)\}/);
   assert.match(panes, /aria-label=\{`New Chat in \$\{item\.name\}`\}/);
 });
 
 test("Other Space identity glyphs stay centered without decorative tiles", () => {
-  assert.match(panes, /className="workspace-identity-icon chat-other-workspace-icon"/);
-  const iconRule = styles.match(/\.chat-other-workspace-icon\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+  assert.match(panes, /className="space-identity-icon chat-other-space-icon"/);
+  const iconRule = styles.match(/\.chat-other-space-icon\s*\{([\s\S]*?)\}/)?.[1] ?? "";
   assert.match(iconRule, /width:\s*18px/);
   assert.match(iconRule, /height:\s*18px/);
   assert.match(iconRule, /display:\s*grid/);
@@ -79,7 +79,7 @@ test("Other Space identity glyphs stay centered without decorative tiles", () =>
   assert.match(iconRule, /background:\s*transparent/);
   assert.match(iconRule, /border:\s*0/);
   assert.match(iconRule, /box-shadow:\s*none/);
-  assert.match(styles, /\.app-shell\[data-theme="dark"\] \.chat-other-workspace-icon\s*\{[\s\S]*?background:\s*transparent/);
+  assert.match(styles, /\.app-shell\[data-theme="dark"\] \.chat-other-space-icon\s*\{[\s\S]*?background:\s*transparent/);
 });
 
 test("Chat titles flow from conversation metadata into tabs without tab labels mutating Chats", () => {
@@ -90,16 +90,16 @@ test("Chat titles flow from conversation metadata into tabs without tab labels m
 });
 
 test("Chat and File selection use an immediate whole-row state without a leading stripe", () => {
-  const chatShellRule = styles.match(/\.chat-workspace-row-shell\s*\{([\s\S]*?)\}/)?.[1] ?? "";
-  const activeChatRule = styles.match(/\.chat-workspace-row-shell\.active\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+  const chatShellRule = styles.match(/\.chat-space-row-shell\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+  const activeChatRule = styles.match(/\.chat-space-row-shell\.active\s*\{([\s\S]*?)\}/)?.[1] ?? "";
   const selectedFileRule = styles.match(/\.file-row\.selected\s*\{([\s\S]*?)\}/)?.[1] ?? "";
 
   assert.doesNotMatch(chatShellRule, /transition:/);
   for (const rule of [activeChatRule, selectedFileRule]) {
-    assert.match(rule, /workspace-accent-soft-fill/);
+    assert.match(rule, /space-accent-soft-fill/);
     assert.doesNotMatch(rule, /inset\s+[23]px\s+0\s+0/);
   }
-  assert.match(styles, /\.chat-workspace-row-shell:has\(> \.chat-workspace-row:active\)/);
+  assert.match(styles, /\.chat-space-row-shell:has\(> \.chat-space-row:active\)/);
 });
 
 test("surface tab labels use crisp shell typography", () => {
@@ -118,7 +118,7 @@ test("surface tab labels use crisp shell typography", () => {
 });
 
 test("assistant rendering has complete Markdown chrome and Space-aware accents", () => {
-  for (const contract of ["message-code-toolbar", "message-table-scroll", "message-image", "workspace-file-link"]) {
+  for (const contract of ["message-code-toolbar", "message-table-scroll", "message-image", "space-file-link"]) {
     assert.match(messages, new RegExp(contract));
     assert.match(styles, new RegExp(`\\.${contract}`));
   }
@@ -127,10 +127,10 @@ test("assistant rendering has complete Markdown chrome and Space-aware accents",
   for (const rule of [userRule, darkUserRule]) {
     assert.match(
       rule,
-      /background:\s*var\(--workspace-accent-solid,\s*var\(--workspace-custom-color,\s*var\(--workspace-blue-600\)\)\)/,
+      /background:\s*var\(--space-accent-solid,\s*var\(--space-custom-color,\s*var\(--work-fold-blue-600\)\)\)/,
     );
-    assert.match(rule, /color:\s*var\(--workspace-on-accent-solid,\s*var\(--workspace-on-primary-accent/);
-    assert.doesNotMatch(rule, /linear-gradient|workspace-selection-accent2/);
+    assert.match(rule, /color:\s*var\(--space-on-accent-solid,\s*var\(--space-on-primary-accent/);
+    assert.doesNotMatch(rule, /linear-gradient|space-selection-accent2/);
   }
   const userInlineCodeRule = styles.match(/(?:^|\n)\.message\.user \.message-body code\s*\{([\s\S]*?)\}/)?.[1] ?? "";
   const darkUserInlineCodeRule = styles.match(/\.app-shell\[data-theme="dark"\] \.message\.user \.message-body code\s*\{([\s\S]*?)\}/)?.[1] ?? "";
@@ -144,17 +144,17 @@ test("assistant rendering has complete Markdown chrome and Space-aware accents",
   assert.match(chatPanel, /running \? \(\s*<button className="send-button stop-send-button"/);
   assert.doesNotMatch(chatPanel, /chat-floating-actions|stop-chat-button/);
   assert.match(identity, /onPrimaryAccentColor:\s*readableTextColorOn\(colorOption\.color\)/);
-  assert.match(identity, /"--workspace-on-primary-accent":\s*identity\.onPrimaryAccentColor/);
+  assert.match(identity, /"--space-on-primary-accent":\s*identity\.onPrimaryAccentColor/);
   assert.doesNotMatch(`${messages}\n${chatPanel}\n${styles}`, /message-avatar/);
   assert.doesNotMatch(activity, /Learned From/);
 });
 
 test("provider interruptions stay visible and the configured model is disclosed before first send", () => {
   assert.match(chatPanel, /ConfiguredAssistantModel/);
-  assert.match(chatPanel, /\/api\/agent\/status\?workspaceId=/);
+  assert.match(chatPanel, /\/api\/agent\/status\?spaceId=/);
   assert.match(chatPanel, /loadMessages\(conversationId, false, \{ settleStreamingTurn: true \}\)/);
   assert.match(messages, /Response interrupted/);
-  assert.match(messages, /Workspace preserved/);
+  assert.match(messages, /work-fold preserved/);
   assert.match(messages, /interruption\.activities/);
   assert.match(styles, /\.turn-interruption/);
 });
@@ -166,7 +166,7 @@ test("dark user messages keep their audited foregrounds and quiet icon-only acti
       <head><style>${styles}</style></head>
       <body>
         <div class="app-shell" data-theme="dark">
-          <main style="--workspace-accent-solid:#fafafa;--workspace-on-accent-solid:#182846;--workspace-on-accent-muted:#4e5a71">
+          <main style="--space-accent-solid:#fafafa;--space-on-accent-solid:#182846;--space-on-accent-muted:#4e5a71">
             <article class="message user">
               <div class="message-body">
                 <p>Plain text</p>
@@ -193,14 +193,14 @@ test("dark user messages keep their audited foregrounds and quiet icon-only acti
   for (const selector of [".message.user", ".message.user .message-body", ".message.user .message-body p", ".message.user .message-body h1"]) {
     assert.match(
       styleFor(selector).color,
-      /--workspace-on-accent-solid/,
+      /--space-on-accent-solid/,
       `${selector} must retain the foreground audited against the user bubble`,
     );
   }
   for (const selector of [".message.user .message-time", ".message.user .message-copy-button"]) {
     assert.match(
       styleFor(selector).color,
-      /--workspace-on-accent-muted/,
+      /--space-on-accent-muted/,
       `${selector} must use the muted on-solid role`,
     );
   }
@@ -218,7 +218,7 @@ test("dark user messages keep their audited foregrounds and quiet icon-only acti
 
 test("audited desktop and pane controls have working destinations", () => {
   assert.match(chrome, /switchable = true/);
-  assert.doesNotMatch(chrome, /workspaces\.length > 1/);
+  assert.doesNotMatch(chrome, /spaces\.length > 1/);
   assert.match(desktopMain, /About \$\{productName\}[\s\S]*?sendRendererMenuCommand\("open-about"\)/);
   assert.doesNotMatch(desktopMain, /About \$\{productName\}[^\n]*enabled:\s*false/);
   assert.doesNotMatch(panes, /onDoubleClick=\{\(\) => onOpen\?\.\(item\)\}/);

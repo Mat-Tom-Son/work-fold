@@ -1,17 +1,17 @@
 const { contextBridge, ipcRenderer } = require("electron") as typeof import("electron");
 
-const networkChannel = "workspace:restricted-app:network";
-const tabCommandChannel = "workspace:restricted-app:tabs";
-const contextChannel = "workspace:restricted-app:context";
-const storageChannel = "workspace:restricted-app:storage";
-const storageChangedChannel = "workspace:restricted-app:storage-changed";
-const filesChannel = "workspace:restricted-app:files";
-const notificationsChannel = "workspace:restricted-app:notifications";
+const networkChannel = "work-fold:restricted-app:network";
+const tabCommandChannel = "work-fold:restricted-app:tabs";
+const contextChannel = "work-fold:restricted-app:context";
+const storageChannel = "work-fold:restricted-app:storage";
+const storageChangedChannel = "work-fold:restricted-app:storage-changed";
+const filesChannel = "work-fold:restricted-app:files";
+const notificationsChannel = "work-fold:restricted-app:notifications";
 const maximumFileEnvelopeBytes = 800 * 1024;
 const encoder = new TextEncoder();
 
 function argumentValue(name: string): string {
-  const prefix = `--workspace-restricted-${name}=`;
+  const prefix = `--work-fold-restricted-${name}=`;
   const argument = process.argv.find((value) => value.startsWith(prefix));
   if (!argument) return "";
   try { return decodeURIComponent(argument.slice(prefix.length)); } catch { return ""; }
@@ -68,7 +68,7 @@ function codedError(code: string, message: string): Error {
 }
 
 let context = Object.freeze({
-  workspaceId: argumentValue("workspace-id"),
+  spaceId: argumentValue("space-id"),
   appId: argumentValue("app-id"),
   digest: argumentValue("digest"),
   mountId: argumentValue("mount-id"),
@@ -144,7 +144,7 @@ ipcRenderer.on(storageChangedChannel, (_event, value: unknown) => {
   }
 });
 
-contextBridge.exposeInMainWorld("workspaceRestrictedApp", Object.freeze({
+contextBridge.exposeInMainWorld("workFoldRestrictedApp", Object.freeze({
   request: networkRequest,
   network: Object.freeze({ request: networkRequest }),
   storage: Object.freeze({

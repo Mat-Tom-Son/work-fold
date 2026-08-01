@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 
-export function workspaceCheckDigest(value: unknown): string {
+export function workFoldCheckDigest(value: unknown): string {
   return createHash("sha256").update(stableJson(value)).digest("hex");
 }
 
-export function workspaceCheckFingerprint(value: unknown): string {
-  return `finding-${workspaceCheckDigest(value).slice(0, 32)}`;
+export function workFoldCheckFingerprint(value: unknown): string {
+  return `finding-${workFoldCheckDigest(value).slice(0, 32)}`;
 }
 
 function stableJson(value: unknown): string {

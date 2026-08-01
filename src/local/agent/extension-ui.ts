@@ -9,7 +9,7 @@ import type {
 
 export interface PiExtensionUiScope {
   conversationId: string;
-  workspaceRoot: string;
+  spaceRoot: string;
 }
 
 export type PiExtensionUiRequest = PiExtensionUiScope & {
@@ -338,7 +338,7 @@ export function createExtensionUiContext(
       return undefined;
     },
     setTheme() {
-      return { success: false, error: "Theme switching is controlled by the Workspace renderer." };
+      return { success: false, error: "Theme switching is controlled by the work-fold renderer." };
     },
     getToolsExpanded() {
       return false;

@@ -17,7 +17,7 @@ import {
   type Sha256Digest,
 } from "./app-platform-contract.js";
 
-export const appReleaseFormat = "workspace-app-release" as const;
+export const appReleaseFormat = "work-fold.app-release" as const;
 export const appReleaseFormatVersion = 2 as const;
 export const appReleaseRecordVersion = 1 as const;
 
@@ -936,7 +936,7 @@ function computeReleaseDigest(
     artifacts: closure.artifacts.map(({ kind, digest, mediaType, sizeBytes }) => ({ kind, digest, mediaType, sizeBytes })),
   };
   return parseSha256OrReleaseError(computeDeclarationDigest({
-    domain: "workspace-app-release-root",
+    domain: "work-fold.app-release.root",
     formatVersion: appReleaseFormatVersion,
     manifest,
     closure: closureRoot,
@@ -1128,7 +1128,7 @@ function parseArtifactDigestOrReleaseError(value: unknown, label: string): AppPl
   try {
     return parseAppPlatformArtifactDigest(value);
   } catch (error) {
-    throw invalid(`${label} must be a workspace-artifact-v1 digest: ${error instanceof Error ? error.message : String(error)}`);
+    throw invalid(`${label} must be a work-fold.artifact.v1 digest: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 

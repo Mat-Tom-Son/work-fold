@@ -6,14 +6,14 @@ import { Checkmark20Regular, Copy20Regular, Sparkle20Regular } from "@fluentui/r
 import { safeExternalHref } from "../../lib/api";
 import { formatDateTime } from "../../lib/format";
 import { resolveMessageImageSource } from "../../lib/message-images";
-import { collectWorkspacePathCandidates, findWorkspacePathMentions, workspacePathCandidate } from "../../lib/workspace-path-links";
+import { collectSpacePathCandidates, findSpacePathMentions, spacePathCandidate } from "../../lib/space-path-links";
 import type { AgentActivityEvent, ChatMessage, ChatMessageLanding, RuntimePreviewEntry } from "../../types";
 import { FluentGlyph } from "../chrome/common";
 import { AgentActivityRecap, RuntimeContextPreview } from "./activity";
 
-export type WorkspacePathLinkResolver = (paths: string[]) => Promise<Map<string, string>>;
+export type SpacePathLinkResolver = (paths: string[]) => Promise<Map<string, string>>;
 
-const assistantMessageWorkspacePathCache = new Map<string, {
+const assistantMessageSpacePathCache = new Map<string, {
   content: string;
   resolved: Map<string, string>;
   promise: Promise<Map<string, string>> | null;
@@ -28,9 +28,9 @@ interface ChatMessageRowProps {
   showRuntimePreview: boolean;
   runtimePreviews: RuntimePreviewEntry[];
   activityRecap: AgentActivityEvent[];
-  workspaceId: string;
-  onOpenWorkspaceFile?: (path: string) => void;
-  resolveWorkspacePathLinks?: WorkspacePathLinkResolver;
+  spaceId: string;
+  onOpenSpaceFile?: (path: string) => void;
+  resolveSpacePathLinks?: SpacePathLinkResolver;
   onCopyMessage: (messageId: string, content: string) => void | Promise<void>;
 }
 
@@ -43,39 +43,39 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   showRuntimePreview,
   runtimePreviews,
   activityRecap,
-  workspaceId,
-  onOpenWorkspaceFile,
-  resolveWorkspacePathLinks,
+  spaceId,
+  onOpenSpaceFile,
+  resolveSpacePathLinks,
   onCopyMessage,
 }: ChatMessageRowProps) {
-  const [workspaceLinkVersion, setWorkspaceLinkVersion] = useState(0);
-  const workspaceLinkCacheKey = `${workspaceId}:${message.id}`;
-  const cachedWorkspaceLinks = assistantMessageWorkspacePathCache.get(workspaceLinkCacheKey);
-  const workspaceLinks = cachedWorkspaceLinks?.content === message.content ? cachedWorkspaceLinks.resolved : null;
+  const [spaceLinkVersion, setSpaceLinkVersion] = useState(0);
+  const spaceLinkCacheKey = `${spaceId}:${message.id}`;
+  const cachedSpaceLinks = assistantMessageSpacePathCache.get(spaceLinkCacheKey);
+  const spaceLinks = cachedSpaceLinks?.content === message.content ? cachedSpaceLinks.resolved : null;
   const messageTime = message.createdAt ? formatDateTime(message.createdAt) : "";
 
   useEffect(() => {
-    if (message.role !== "assistant" || !resolveWorkspacePathLinks || !onOpenWorkspaceFile) return;
-    const candidates = collectWorkspacePathCandidates(message.content);
+    if (message.role !== "assistant" || !resolveSpacePathLinks || !onOpenSpaceFile) return;
+    const candidates = collectSpacePathCandidates(message.content);
     if (!candidates.length) return;
     let cancelled = false;
-    void resolveMessageWorkspaceLinks(workspaceLinkCacheKey, message.content, candidates, resolveWorkspacePathLinks)
+    void resolveMessageSpaceLinks(spaceLinkCacheKey, message.content, candidates, resolveSpacePathLinks)
       .then(() => {
-        if (!cancelled) setWorkspaceLinkVersion((current) => current + 1);
+        if (!cancelled) setSpaceLinkVersion((current) => current + 1);
       });
     return () => {
       cancelled = true;
     };
-  }, [message.content, message.id, message.role, onOpenWorkspaceFile, resolveWorkspacePathLinks, workspaceLinkCacheKey]);
+  }, [message.content, message.id, message.role, onOpenSpaceFile, resolveSpacePathLinks, spaceLinkCacheKey]);
 
   return (
     <article className={`message ${message.role}${suppressEnterAnimation ? " settled" : ""}`}>
       {showRuntimePreview ? <RuntimeContextPreview entries={runtimePreviews} /> : null}
       <MarkdownMessage
         content={message.content}
-        workspaceLinks={message.role === "assistant" ? workspaceLinks : null}
-        onOpenWorkspaceFile={message.role === "assistant" ? onOpenWorkspaceFile : undefined}
-        key={workspaceLinkVersion}
+        spaceLinks={message.role === "assistant" ? spaceLinks : null}
+        onOpenSpaceFile={message.role === "assistant" ? onOpenSpaceFile : undefined}
+        key={spaceLinkVersion}
       />
       {message.role === "assistant" && showLanding && message.landing ? <TurnLanding landing={message.landing} /> : null}
       {message.role === "assistant" && message.interruption ? <InterruptedTurn interruption={message.interruption} /> : null}
@@ -130,9 +130,9 @@ function areChatMessageRowPropsEqual(previous: ChatMessageRowProps, next: ChatMe
     && previous.showRuntimePreview === next.showRuntimePreview
     && sameRuntimePreview
     && sameActivityRecap
-    && previous.workspaceId === next.workspaceId
-    && previous.onOpenWorkspaceFile === next.onOpenWorkspaceFile
-    && previous.resolveWorkspacePathLinks === next.resolveWorkspacePathLinks
+    && previous.spaceId === next.spaceId
+    && previous.onOpenSpaceFile === next.onOpenSpaceFile
+    && previous.resolveSpacePathLinks === next.resolveSpacePathLinks
     && previous.onCopyMessage === next.onCopyMessage;
 }
 
@@ -178,21 +178,21 @@ function InterruptedTurn({ interruption }: { interruption: NonNullable<ChatMessa
   return (
     <section className="turn-interruption" role="status" aria-label="Interrupted Assistant response">
       <strong>Response interrupted</strong>
-      <span>Workspace preserved the partial response. {retryText}</span>
+      <span>work-fold preserved the partial response. {retryText}</span>
     </section>
   );
 }
 
 export function MarkdownMessage({
   content,
-  workspaceLinks = null,
-  onOpenWorkspaceFile,
+  spaceLinks = null,
+  onOpenSpaceFile,
 }: {
   content: string;
-  workspaceLinks?: Map<string, string> | null;
-  onOpenWorkspaceFile?: (path: string) => void;
+  spaceLinks?: Map<string, string> | null;
+  onOpenSpaceFile?: (path: string) => void;
 }) {
-  const linkChildren = (children: ReactNode) => linkWorkspacePathText(children, workspaceLinks, onOpenWorkspaceFile);
+  const linkChildren = (children: ReactNode) => linkSpacePathText(children, spaceLinks, onOpenSpaceFile);
   return (
     <div className="message-body">
       <ReactMarkdown
@@ -207,14 +207,14 @@ export function MarkdownMessage({
           code: ({ children, className }) => {
             const text = reactNodeText(children);
             if (className || text.includes("\n")) return <code className={className}>{children}</code>;
-            const normalizedPath = workspacePathCandidate(text, { allowSpaces: true });
-            const resolvedPath = normalizedPath ? workspaceLinks?.get(normalizedPath) ?? null : null;
-            if (!resolvedPath || !onOpenWorkspaceFile) return <code>{children}</code>;
+            const normalizedPath = spacePathCandidate(text, { allowSpaces: true });
+            const resolvedPath = normalizedPath ? spaceLinks?.get(normalizedPath) ?? null : null;
+            if (!resolvedPath || !onOpenSpaceFile) return <code>{children}</code>;
             return (
               <button
-                className="workspace-file-link workspace-file-link-code"
+                className="space-file-link space-file-link-code"
                 type="button"
-                onClick={() => onOpenWorkspaceFile(resolvedPath)}
+                onClick={() => onOpenSpaceFile(resolvedPath)}
                 title={resolvedPath}
               >
                 {text}
@@ -222,19 +222,19 @@ export function MarkdownMessage({
             );
           },
           a: ({ href, children }) => {
-            const workspacePath = workspacePathCandidate(href ?? "", { allowSpaces: true });
-            const resolvedPath = workspacePath ? workspaceLinks?.get(workspacePath) ?? null : null;
-            if (resolvedPath && onOpenWorkspaceFile) {
-              return <button className="workspace-file-link" type="button" onClick={() => onOpenWorkspaceFile(resolvedPath)} title={resolvedPath}>{children}</button>;
+            const spacePath = spacePathCandidate(href ?? "", { allowSpaces: true });
+            const resolvedPath = spacePath ? spaceLinks?.get(spacePath) ?? null : null;
+            if (resolvedPath && onOpenSpaceFile) {
+              return <button className="space-file-link" type="button" onClick={() => onOpenSpaceFile(resolvedPath)} title={resolvedPath}>{children}</button>;
             }
             const safeHref = safeExternalHref(href);
             return safeHref ? <a className="message-external-link" href={safeHref} target="_blank" rel="noreferrer">{children}</a> : <>{children}</>;
           },
           img: ({ src, alt }) => {
-            const workspacePath = workspacePathCandidate(src ?? "", { allowSpaces: true });
-            const resolvedPath = workspacePath ? workspaceLinks?.get(workspacePath) ?? null : null;
-            if (resolvedPath && onOpenWorkspaceFile) {
-              return <button className="message-image-file" type="button" onClick={() => onOpenWorkspaceFile(resolvedPath)} title={resolvedPath}>{alt || resolvedPath.split("/").pop() || "Open image"}</button>;
+            const spacePath = spacePathCandidate(src ?? "", { allowSpaces: true });
+            const resolvedPath = spacePath ? spaceLinks?.get(spacePath) ?? null : null;
+            if (resolvedPath && onOpenSpaceFile) {
+              return <button className="message-image-file" type="button" onClick={() => onOpenSpaceFile(resolvedPath)} title={resolvedPath}>{alt || resolvedPath.split("/").pop() || "Open image"}</button>;
             }
             const resolution = resolveMessageImageSource(src, window.location.href);
             if (resolution.kind === "embed") return <img className="message-image" src={resolution.src} alt={alt ?? ""} loading="lazy" referrerPolicy="no-referrer" />;
@@ -282,13 +282,13 @@ function MarkdownCodeBlock({ children }: { children: ReactNode }) {
   );
 }
 
-async function resolveMessageWorkspaceLinks(
+async function resolveMessageSpaceLinks(
   cacheKey: string,
   content: string,
   candidates: string[],
-  resolver: WorkspacePathLinkResolver,
+  resolver: SpacePathLinkResolver,
 ): Promise<Map<string, string>> {
-  const cached = assistantMessageWorkspacePathCache.get(cacheKey);
+  const cached = assistantMessageSpacePathCache.get(cacheKey);
   if (cached?.content === content) {
     if (cached.promise) return cached.promise;
     return cached.resolved;
@@ -297,51 +297,51 @@ async function resolveMessageWorkspaceLinks(
     .then((resolved) => {
       // Empty results are not cached: the tree (fixture mode) or the API may simply
       // not be ready yet, and a poisoned empty entry would never be retried.
-      if (resolved.size) assistantMessageWorkspacePathCache.set(cacheKey, { content, resolved, promise: null });
-      else assistantMessageWorkspacePathCache.delete(cacheKey);
+      if (resolved.size) assistantMessageSpacePathCache.set(cacheKey, { content, resolved, promise: null });
+      else assistantMessageSpacePathCache.delete(cacheKey);
       return resolved;
     })
     .catch(() => {
-      assistantMessageWorkspacePathCache.delete(cacheKey);
+      assistantMessageSpacePathCache.delete(cacheKey);
       return new Map<string, string>();
     });
-  assistantMessageWorkspacePathCache.set(cacheKey, { content, resolved: new Map(), promise });
+  assistantMessageSpacePathCache.set(cacheKey, { content, resolved: new Map(), promise });
   return promise;
 }
 
-function linkWorkspacePathText(
+function linkSpacePathText(
   children: ReactNode,
-  workspaceLinks: Map<string, string> | null | undefined,
-  onOpenWorkspaceFile: ((path: string) => void) | undefined,
+  spaceLinks: Map<string, string> | null | undefined,
+  onOpenSpaceFile: ((path: string) => void) | undefined,
 ): ReactNode {
-  if (!workspaceLinks?.size || !onOpenWorkspaceFile) return children;
+  if (!spaceLinks?.size || !onOpenSpaceFile) return children;
   return Children.map(children, (child) => {
-    if (typeof child === "string") return linkWorkspacePathString(child, workspaceLinks, onOpenWorkspaceFile);
+    if (typeof child === "string") return linkSpacePathString(child, spaceLinks, onOpenSpaceFile);
     if (!isValidElement(child) || child.type === "a" || child.type === "code" || child.type === "button") return child;
     const element = child as ReactElement<{ children?: ReactNode }>;
     if (element.props.children === undefined) return child;
-    return cloneElement(element, undefined, linkWorkspacePathText(element.props.children, workspaceLinks, onOpenWorkspaceFile));
+    return cloneElement(element, undefined, linkSpacePathText(element.props.children, spaceLinks, onOpenSpaceFile));
   });
 }
 
-function linkWorkspacePathString(
+function linkSpacePathString(
   text: string,
-  workspaceLinks: Map<string, string>,
-  onOpenWorkspaceFile: (path: string) => void,
+  spaceLinks: Map<string, string>,
+  onOpenSpaceFile: (path: string) => void,
 ): ReactNode {
-  const mentions = findWorkspacePathMentions(text).filter((mention) => workspaceLinks.has(mention.normalizedPath));
+  const mentions = findSpacePathMentions(text).filter((mention) => spaceLinks.has(mention.normalizedPath));
   if (!mentions.length) return text;
   const parts: ReactNode[] = [];
   let cursor = 0;
   mentions.forEach((mention, index) => {
-    const resolvedPath = workspaceLinks.get(mention.normalizedPath);
+    const resolvedPath = spaceLinks.get(mention.normalizedPath);
     if (!resolvedPath) return;
     if (mention.start > cursor) parts.push(text.slice(cursor, mention.start));
     parts.push(
       <button
-        className="workspace-file-link"
+        className="space-file-link"
         type="button"
-        onClick={() => onOpenWorkspaceFile(resolvedPath)}
+        onClick={() => onOpenSpaceFile(resolvedPath)}
         title={resolvedPath}
         key={`${mention.start}:${mention.normalizedPath}:${index}`}
       >

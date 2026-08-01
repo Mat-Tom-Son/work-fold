@@ -27,7 +27,7 @@ import {
 const encoder = new TextEncoder();
 const bytes = (value: string): Uint8Array => encoder.encode(value);
 const projectId = parseProjectId("project_update-fixture");
-const supportedRuntimeApi = { name: "workspace-feature-broker", majorVersion: 1 } as const;
+const supportedRuntimeApi = { name: "work-fold.feature-broker", majorVersion: 1 } as const;
 
 type Mutable<T> = T extends string | number | boolean | null | undefined
   ? T
@@ -70,7 +70,7 @@ function migration(featureId: string, edge: MigrationEdge): AppReleaseMigrationI
     sourceSchema: migrationSchema(sourceFeatureId, edge.from),
     targetSchema: migrationSchema(targetFeatureId, edge.to),
     execution: {
-      runtimeApi: { name: "workspace-feature-broker", compatibleRange: "1.x" },
+      runtimeApi: { name: "work-fold.feature-broker", compatibleRange: "1.x" },
       mode: "maintenance",
       resourceLimits: {
         maxDurationMs: 30_000,
@@ -82,13 +82,13 @@ function migration(featureId: string, edge: MigrationEdge): AppReleaseMigrationI
       externalEffects: { network: false, connections: false, notifications: false },
       resumePolicy: "idempotent-restart",
       verification: {
-        mediaType: "application/vnd.workspace.migration-verification+json",
+        mediaType: "application/vnd.work-fold.migration-verification+json",
         value: { featureId, migrationId: edge.id, checks: ["schema", "invariants"] },
       },
       receiptStates: { success: "verified", failure: "failed", cancelled: "cancelled" },
     },
     artifact: {
-      mediaType: "application/vnd.workspace.migration+bundle",
+      mediaType: "application/vnd.work-fold.migration+bundle",
       entries: [{ path: "migrate.js", bytes: bytes(`${featureId}/${edge.id}/${edge.from}->${edge.to}`) }],
     },
   };
@@ -103,7 +103,7 @@ function releaseFeature(
   return {
     featureId,
     featureRevision: {
-      mediaType: "application/vnd.workspace.feature+bundle",
+      mediaType: "application/vnd.work-fold.feature+bundle",
       entries: [{ path: "worker.js", bytes: bytes(marker) }],
     },
     declaration: { mediaType: "application/json", value: { featureId, marker } },
@@ -129,7 +129,7 @@ function release(
       icon: null,
     },
     displayVersion: options.displayVersion ?? "1.0.0",
-    runtimeApi: { name: "workspace-feature-broker", compatibleRange: `${runtimeMajor}.x` },
+    runtimeApi: { name: "work-fold.feature-broker", compatibleRange: `${runtimeMajor}.x` },
     features,
     dependencyInventory: { mediaType: "application/json", value: { dependencies: [] } },
     buildProvenance: { mediaType: "application/json", value: { builder: "test" } },

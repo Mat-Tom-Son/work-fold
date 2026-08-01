@@ -4,8 +4,8 @@ import { lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "no
 import { dirname, join, relative, resolve, sep } from "node:path";
 
 import { isOfficeLockFileName } from "./office-lock-files.js";
-import { workspaceHistoryRoot } from "./state-paths.js";
-import { assertWorkspaceDoesNotContainState, ensureSafeWorkspaceRoot, resolveWorkspacePath } from "./workspace.js";
+import { spaceHistoryRoot } from "./state-paths.js";
+import { assertSpaceDoesNotContainState, ensureSafeSpaceRoot, resolveSpacePath } from "./space.js";
 
 export interface CheckpointFileEntry {
   path: string;
@@ -25,7 +25,7 @@ export interface CheckpointSkippedFile {
   reason: "too_large" | "unreadable" | "symbolic_link" | "excluded";
 }
 
-export interface WorkspaceCheckpoint {
+export interface SpaceCheckpoint {
   schemaVersion: "0.2.0";
   checkpointId: string;
   createdAt: string;
@@ -44,7 +44,7 @@ export interface WorkspaceCheckpoint {
   files: CheckpointFileEntry[];
 }
 
-export interface WorkspaceFileVersion {
+export interface SpaceFileVersion {
   path: string;
   hashSha256: string;
   sizeBytes: number;
@@ -55,7 +55,7 @@ export interface WorkspaceFileVersion {
   source: "checkpoint";
 }
 
-export interface WorkspaceRestoreResult {
+export interface SpaceRestoreResult {
   restored: true;
   checkpointId: string;
   safetyCheckpointId: string;
@@ -72,14 +72,12 @@ export interface StoredBlobRef {
 }
 
 const checkpointIdPattern = /^cp-[A-Za-z0-9-]{10,80}$/;
-const versionScopeSkippedSegments = new Set([".git", ".pi", ".workspace", "node_modules"]);
-const legacyMetadataName = "checkpoint.json";
-const legacySnapshotDirName = "files";
+const versionScopeSkippedSegments = new Set([".git", ".pi", ".work-fold", ".workspace", "node_modules"]);
 
-export async function storeWorkspaceBlob(workspaceRoot: string, bytes: Buffer): Promise<StoredBlobRef> {
-  const root = ensureHistoryRoot(workspaceRoot);
+export async function storeSpaceBlob(spaceRoot: string, bytes: Buffer): Promise<StoredBlobRef> {
+  const root = ensureHistoryRoot(spaceRoot);
   const hashSha256 = sha256(bytes);
-  const blobPath = workspaceBlobPath(root, hashSha256);
+  const blobPath = spaceBlobPath(root, hashSha256);
   if (!existsSync(blobPath)) {
     await mkdir(dirname(blobPath), { recursive: true });
     const stagingPath = `${blobPath}.tmp-${randomUUID().slice(0, 8)}`;
@@ -95,28 +93,28 @@ export async function storeWorkspaceBlob(workspaceRoot: string, bytes: Buffer): 
   return { hashSha256, sizeBytes: bytes.byteLength };
 }
 
-export async function captureWorkspaceBlobSafe(workspaceRoot: string, bytes: Buffer): Promise<StoredBlobRef | null> {
+export async function captureSpaceBlobSafe(spaceRoot: string, bytes: Buffer): Promise<StoredBlobRef | null> {
   if (bytes.byteLength > maxVersionedFileBytes()) return null;
   try {
-    return await storeWorkspaceBlob(workspaceRoot, bytes);
+    return await storeSpaceBlob(spaceRoot, bytes);
   } catch {
     return null;
   }
 }
 
-export async function readWorkspaceBlob(workspaceRoot: string, hashSha256: string): Promise<Buffer | null> {
-  const root = ensureHistoryRoot(workspaceRoot);
+export async function readSpaceBlob(spaceRoot: string, hashSha256: string): Promise<Buffer | null> {
+  const root = ensureHistoryRoot(spaceRoot);
   const normalized = normalizeHash(hashSha256);
-  const bytes = await readFile(workspaceBlobPath(root, normalized)).catch(() => null);
+  const bytes = await readFile(spaceBlobPath(root, normalized)).catch(() => null);
   if (!bytes || sha256(bytes) !== normalized) return null;
   return bytes;
 }
 
-export async function createWorkspaceCheckpoint(
-  workspaceRoot: string,
+export async function createSpaceCheckpoint(
+  spaceRoot: string,
   options: { label?: string; reason?: string } = {},
-): Promise<WorkspaceCheckpoint> {
-  const root = ensureHistoryRoot(workspaceRoot);
+): Promise<SpaceCheckpoint> {
+  const root = ensureHistoryRoot(spaceRoot);
   const captured = await capturePaths(root, [""], true);
   return persistCheckpoint(root, {
     reason: options.reason?.trim() || "manual",
@@ -129,8 +127,8 @@ export async function createWorkspaceCheckpoint(
   });
 }
 
-export async function createWorkspaceMutationCheckpoint(
-  workspaceRoot: string,
+export async function createSpaceMutationCheckpoint(
+  spaceRoot: string,
   options: {
     paths?: string[];
     deleteOnRestore?: string[];
@@ -138,8 +136,8 @@ export async function createWorkspaceMutationCheckpoint(
     label?: string;
     reason?: string;
   },
-): Promise<WorkspaceCheckpoint> {
-  const root = ensureHistoryRoot(workspaceRoot);
+): Promise<SpaceCheckpoint> {
+  const root = ensureHistoryRoot(spaceRoot);
   const captureRoots = collapsePaths((options.paths ?? []).map((path) => canonicalPath(root, path, true).path));
   const deleteOnRestore = collapsePaths((options.deleteOnRestore ?? []).map((path) => canonicalPath(root, path, true).path));
   const movesOnRestore = (options.movesOnRestore ?? []).map((move) => ({
@@ -158,29 +156,27 @@ export async function createWorkspaceMutationCheckpoint(
   });
 }
 
-export async function listWorkspaceCheckpoints(workspaceRoot: string, limit = 50): Promise<WorkspaceCheckpoint[]> {
-  const root = ensureHistoryRoot(workspaceRoot);
-  await migrateLegacyCheckpoints(root);
+export async function listSpaceCheckpoints(spaceRoot: string, limit = 50): Promise<SpaceCheckpoint[]> {
+  const root = ensureHistoryRoot(spaceRoot);
   return (await readCheckpointManifests(root)).slice(0, Math.min(Math.max(limit, 1), 1000));
 }
 
-export async function getWorkspaceCheckpoint(workspaceRoot: string, checkpointId: string): Promise<WorkspaceCheckpoint | null> {
+export async function getSpaceCheckpoint(spaceRoot: string, checkpointId: string): Promise<SpaceCheckpoint | null> {
   if (!checkpointIdPattern.test(checkpointId)) return null;
-  const root = ensureHistoryRoot(workspaceRoot);
-  await migrateLegacyCheckpoints(root);
+  const root = ensureHistoryRoot(spaceRoot);
   return readCheckpointManifest(join(checkpointsDir(root), `${checkpointId}.json`));
 }
 
-export async function discardWorkspaceCheckpoint(workspaceRoot: string, checkpointId: string): Promise<void> {
+export async function discardSpaceCheckpoint(spaceRoot: string, checkpointId: string): Promise<void> {
   if (!checkpointIdPattern.test(checkpointId)) return;
-  const root = ensureHistoryRoot(workspaceRoot);
+  const root = ensureHistoryRoot(spaceRoot);
   await rm(join(checkpointsDir(root), `${checkpointId}.json`), { force: true });
   await garbageCollectObjects(root, await readCheckpointManifests(root));
 }
 
-export async function restoreWorkspaceCheckpoint(workspaceRoot: string, checkpointId: string): Promise<WorkspaceRestoreResult> {
-  const root = ensureHistoryRoot(workspaceRoot);
-  const checkpoint = await getWorkspaceCheckpoint(root, checkpointId);
+export async function restoreSpaceCheckpoint(spaceRoot: string, checkpointId: string): Promise<SpaceRestoreResult> {
+  const root = ensureHistoryRoot(spaceRoot);
+  const checkpoint = await getSpaceCheckpoint(root, checkpointId);
   if (!checkpoint) throw notFound("Restore point not found.");
   validateCheckpointPaths(root, checkpoint);
   const staged = await stageCheckpointContent(root, checkpoint);
@@ -188,7 +184,7 @@ export async function restoreWorkspaceCheckpoint(workspaceRoot: string, checkpoi
     await preflightRestore(root, checkpoint);
 
     const safety = checkpoint.scope === "full"
-      ? await createWorkspaceCheckpoint(root, { reason: "pre_restore", label: `Before restoring ${checkpointId}` })
+      ? await createSpaceCheckpoint(root, { reason: "pre_restore", label: `Before restoring ${checkpointId}` })
       : await createTargetedRestoreSafety(root, checkpoint);
 
     const movedEntries: CheckpointMove[] = [];
@@ -256,17 +252,17 @@ export async function restoreWorkspaceCheckpoint(workspaceRoot: string, checkpoi
 }
 
 export async function listFileVersions(
-  workspaceRoot: string,
+  spaceRoot: string,
   relativePath: string,
   limit = 50,
-): Promise<WorkspaceFileVersion[]> {
-  const root = ensureHistoryRoot(workspaceRoot);
+): Promise<SpaceFileVersion[]> {
+  const root = ensureHistoryRoot(spaceRoot);
   const path = canonicalPath(root, relativePath, true).path;
-  const versions: WorkspaceFileVersion[] = [];
+  const versions: SpaceFileVersion[] = [];
   const seen = new Set<string>();
-  for (const checkpoint of await listWorkspaceCheckpoints(root, 1000)) {
+  for (const checkpoint of await listSpaceCheckpoints(root, 1000)) {
     const file = checkpoint.files.find((entry) => entry.path === path);
-    if (!file || seen.has(file.hashSha256) || !(await hasWorkspaceBlob(root, file.hashSha256))) continue;
+    if (!file || seen.has(file.hashSha256) || !(await hasSpaceBlob(root, file.hashSha256))) continue;
     seen.add(file.hashSha256);
     versions.push({
       path,
@@ -284,19 +280,19 @@ export async function listFileVersions(
 }
 
 export async function restoreFileVersion(
-  workspaceRoot: string,
+  spaceRoot: string,
   relativePath: string,
   hashSha256: string,
 ): Promise<{ restored: true; path: string; hashSha256: string; previousHashSha256: string | null; safetyCheckpointId: string }> {
-  const root = ensureHistoryRoot(workspaceRoot);
+  const root = ensureHistoryRoot(spaceRoot);
   const { path, absolutePath } = canonicalPath(root, relativePath, true);
   const normalizedHash = normalizeHash(hashSha256);
-  const bytes = await readWorkspaceBlob(root, normalizedHash);
+  const bytes = await readSpaceBlob(root, normalizedHash);
   if (!bytes) throw notFound("File version not found.");
   const currentInfo = await stat(absolutePath).catch(() => null);
   if (currentInfo && !currentInfo.isFile()) throw new Error("The selected path is currently a folder.");
   const currentBytes = currentInfo?.isFile() ? await readFile(absolutePath) : null;
-  const safety = await createWorkspaceMutationCheckpoint(root, {
+  const safety = await createSpaceMutationCheckpoint(root, {
     paths: currentBytes ? [path] : [],
     deleteOnRestore: currentBytes ? [] : [path],
     reason: "pre_file_restore",
@@ -325,7 +321,9 @@ async function capturePaths(root: string, requestedPaths: string[], full: boolea
     const info = await lstat(absolutePath).catch(() => null);
     if (!info) return;
     const path = toPosix(relative(root, absolutePath));
-    if (path && path.split("/").some((segment) => versionScopeSkippedSegments.has(segment))) {
+    if (path && path.split("/").some((segment) => versionScopeSkippedSegments.has(
+      process.platform === "win32" ? segment.toLocaleLowerCase("en-US") : segment,
+    ))) {
       skipped.set(path, { path, sizeBytes: info.isFile() ? info.size : 0, reason: "excluded" });
       return;
     }
@@ -356,7 +354,7 @@ async function capturePaths(root: string, requestedPaths: string[], full: boolea
       skipped.set(path, { path, sizeBytes: info.size, reason: "unreadable" });
       return;
     }
-    const blob = await storeWorkspaceBlob(root, bytes);
+    const blob = await storeSpaceBlob(root, bytes);
     files.set(path, { path, hashSha256: blob.hashSha256, sizeBytes: blob.sizeBytes, modifiedAt });
   };
 
@@ -379,7 +377,7 @@ async function persistCheckpoint(root: string, input: {
   directories: string[];
   files: CheckpointFileEntry[];
   skippedFiles: CheckpointSkippedFile[];
-}): Promise<WorkspaceCheckpoint> {
+}): Promise<SpaceCheckpoint> {
   const material = {
     scope: input.scope,
     captureRoots: input.captureRoots,
@@ -390,11 +388,11 @@ async function persistCheckpoint(root: string, input: {
     skippedFiles: input.skippedFiles,
   };
   const manifestHash = sha256(Buffer.from(stableJson(material), "utf8"));
-  const [latest] = await listWorkspaceCheckpoints(root, 1);
+  const [latest] = await listSpaceCheckpoints(root, 1);
   if (input.scope === "full" && latest?.scope === "full" && latest.manifestHash === manifestHash) return latest;
 
   const createdAt = new Date().toISOString();
-  const checkpoint: WorkspaceCheckpoint = {
+  const checkpoint: SpaceCheckpoint = {
     schemaVersion: "0.2.0",
     checkpointId: `cp-${createdAt.replace(/[-:.TZ]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`,
     createdAt,
@@ -418,7 +416,7 @@ async function persistCheckpoint(root: string, input: {
   return checkpoint;
 }
 
-async function createTargetedRestoreSafety(root: string, checkpoint: WorkspaceCheckpoint): Promise<WorkspaceCheckpoint> {
+async function createTargetedRestoreSafety(root: string, checkpoint: SpaceCheckpoint): Promise<SpaceCheckpoint> {
   const affectedRoots = collapsePaths([...checkpoint.captureRoots, ...checkpoint.deleteOnRestore]);
   const existing: string[] = [];
   const deleteOnRestore: string[] = [];
@@ -426,7 +424,7 @@ async function createTargetedRestoreSafety(root: string, checkpoint: WorkspaceCh
     if (existsSync(canonicalPath(root, path, true).absolutePath)) existing.push(path);
     else deleteOnRestore.push(path);
   }
-  return createWorkspaceMutationCheckpoint(root, {
+  return createSpaceMutationCheckpoint(root, {
     paths: existing,
     deleteOnRestore,
     movesOnRestore: checkpoint.movesOnRestore.map((move) => ({ fromPath: move.toPath, toPath: move.fromPath })),
@@ -435,7 +433,7 @@ async function createTargetedRestoreSafety(root: string, checkpoint: WorkspaceCh
   });
 }
 
-async function preflightRestore(root: string, checkpoint: WorkspaceCheckpoint): Promise<void> {
+async function preflightRestore(root: string, checkpoint: SpaceCheckpoint): Promise<void> {
   for (const move of checkpoint.movesOnRestore) {
     const from = canonicalPath(root, move.fromPath, false).absolutePath;
     const to = canonicalPath(root, move.toPath, true).absolutePath;
@@ -451,7 +449,7 @@ async function preflightRestore(root: string, checkpoint: WorkspaceCheckpoint): 
   }
 }
 
-function validateCheckpointPaths(root: string, checkpoint: WorkspaceCheckpoint): void {
+function validateCheckpointPaths(root: string, checkpoint: SpaceCheckpoint): void {
   for (const directory of checkpoint.directories) canonicalPath(root, directory, true);
   for (const file of checkpoint.files) canonicalPath(root, file.path, true);
   for (const path of checkpoint.captureRoots) canonicalPath(root, path, true);
@@ -460,83 +458,6 @@ function validateCheckpointPaths(root: string, checkpoint: WorkspaceCheckpoint):
     canonicalPath(root, move.fromPath, true);
     canonicalPath(root, move.toPath, true);
   }
-}
-
-async function migrateLegacyCheckpoints(root: string): Promise<void> {
-  const historyRoot = workspaceHistoryRoot(root);
-  const entries = await readdir(historyRoot, { withFileTypes: true }).catch(() => []);
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !checkpointIdPattern.test(entry.name)) continue;
-    const legacyDir = join(historyRoot, entry.name);
-    const metadata = await readFile(join(legacyDir, legacyMetadataName), "utf8")
-      .then((text) => JSON.parse(text) as { checkpointId?: string; createdAt?: string; label?: string; reason?: string })
-      .catch(() => null);
-    const snapshotRoot = join(legacyDir, legacySnapshotDirName);
-    if (!metadata?.checkpointId || !metadata.createdAt || !existsSync(snapshotRoot)) continue;
-    const captured = await captureLegacySnapshot(root, snapshotRoot);
-    const material = {
-      scope: "full",
-      captureRoots: [],
-      deleteOnRestore: [],
-      movesOnRestore: [],
-      directories: captured.directories,
-      files: captured.files.map(({ path, hashSha256 }) => ({ path, hashSha256 })),
-      skippedFiles: captured.skippedFiles,
-    };
-    const checkpoint: WorkspaceCheckpoint = {
-      schemaVersion: "0.2.0",
-      checkpointId: metadata.checkpointId,
-      createdAt: metadata.createdAt,
-      ...(metadata.label ? { label: metadata.label } : {}),
-      reason: metadata.reason ?? "legacy",
-      scope: "full",
-      manifestHash: sha256(Buffer.from(stableJson(material), "utf8")),
-      fileCount: captured.files.length,
-      totalBytes: captured.files.reduce((sum, file) => sum + file.sizeBytes, 0),
-      skippedLargeFiles: captured.skippedFiles.filter((file) => file.reason === "too_large").map((file) => file.path),
-      skippedFiles: captured.skippedFiles,
-      captureRoots: [],
-      deleteOnRestore: [],
-      movesOnRestore: [],
-      directories: captured.directories,
-      files: captured.files,
-    };
-    await atomicJsonWrite(join(checkpointsDir(root), `${checkpoint.checkpointId}.json`), checkpoint);
-    await rm(legacyDir, { recursive: true, force: true });
-  }
-}
-
-async function captureLegacySnapshot(root: string, snapshotRoot: string): Promise<{ directories: string[]; files: CheckpointFileEntry[]; skippedFiles: CheckpointSkippedFile[] }> {
-  const directories: string[] = [];
-  const files: CheckpointFileEntry[] = [];
-  const skippedFiles: CheckpointSkippedFile[] = [];
-  const visit = async (directory: string): Promise<void> => {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      if (entry.isSymbolicLink() || isOfficeLockFileName(entry.name)) continue;
-      const source = join(directory, entry.name);
-      if (entry.isDirectory()) {
-        directories.push(toPosix(relative(snapshotRoot, source)));
-        await visit(source);
-        continue;
-      }
-      if (!entry.isFile()) continue;
-      const path = toPosix(relative(snapshotRoot, source));
-      const info = await stat(source);
-      if (info.size > maxVersionedFileBytes()) {
-        skippedFiles.push({ path, sizeBytes: info.size, reason: "too_large" });
-        continue;
-      }
-      const bytes = await readFile(source).catch(() => null);
-      if (!bytes) {
-        skippedFiles.push({ path, sizeBytes: info.size, reason: "unreadable" });
-        continue;
-      }
-      const blob = await storeWorkspaceBlob(root, bytes);
-      files.push({ path, hashSha256: blob.hashSha256, sizeBytes: blob.sizeBytes, modifiedAt: info.mtime.toISOString() });
-    }
-  };
-  await visit(snapshotRoot);
-  return { directories: directories.sort((left, right) => left.localeCompare(right)), files: files.sort((left, right) => left.path.localeCompare(right.path)), skippedFiles };
 }
 
 async function pruneHistory(root: string): Promise<void> {
@@ -548,9 +469,9 @@ async function pruneHistory(root: string): Promise<void> {
   await garbageCollectObjects(root, retained);
 }
 
-async function garbageCollectObjects(root: string, retained: WorkspaceCheckpoint[]): Promise<void> {
+async function garbageCollectObjects(root: string, retained: SpaceCheckpoint[]): Promise<void> {
   const referenced = new Set(retained.flatMap((checkpoint) => checkpoint.files.map((file) => file.hashSha256)));
-  const objectsRoot = join(workspaceHistoryRoot(root), "objects");
+  const objectsRoot = join(spaceHistoryRoot(root), "objects");
   for (const prefix of await readdir(objectsRoot, { withFileTypes: true }).catch(() => [])) {
     if (!prefix.isDirectory()) continue;
     const directory = join(objectsRoot, prefix.name);
@@ -565,16 +486,16 @@ async function garbageCollectObjects(root: string, retained: WorkspaceCheckpoint
 
 async function stageCheckpointContent(
   root: string,
-  checkpoint: WorkspaceCheckpoint,
+  checkpoint: SpaceCheckpoint,
 ): Promise<{ root: string; pathsByHash: Map<string, string> }> {
-  const stagingRoot = join(workspaceHistoryRoot(root), "restore-staging", randomUUID());
+  const stagingRoot = join(spaceHistoryRoot(root), "restore-staging", randomUUID());
   const pathsByHash = new Map<string, string>();
   const missing: string[] = [];
   await mkdir(stagingRoot, { recursive: true });
   try {
     for (const file of checkpoint.files) {
       if (pathsByHash.has(file.hashSha256)) continue;
-      const bytes = await readWorkspaceBlob(root, file.hashSha256);
+      const bytes = await readSpaceBlob(root, file.hashSha256);
       if (!bytes) {
         missing.push(file.path);
         continue;
@@ -593,9 +514,9 @@ async function stageCheckpointContent(
   }
 }
 
-async function readCheckpointManifests(root: string): Promise<WorkspaceCheckpoint[]> {
+async function readCheckpointManifests(root: string): Promise<SpaceCheckpoint[]> {
   const entries = await readdir(checkpointsDir(root)).catch(() => [] as string[]);
-  const checkpoints: WorkspaceCheckpoint[] = [];
+  const checkpoints: SpaceCheckpoint[] = [];
   for (const name of entries) {
     if (!name.endsWith(".json")) continue;
     const checkpoint = await readCheckpointManifest(join(checkpointsDir(root), name));
@@ -604,26 +525,26 @@ async function readCheckpointManifests(root: string): Promise<WorkspaceCheckpoin
   return checkpoints.sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.checkpointId.localeCompare(left.checkpointId));
 }
 
-async function readCheckpointManifest(path: string): Promise<WorkspaceCheckpoint | null> {
+async function readCheckpointManifest(path: string): Promise<SpaceCheckpoint | null> {
   try {
-    const value = JSON.parse(await readFile(path, "utf8")) as Partial<WorkspaceCheckpoint>;
+    const value = JSON.parse(await readFile(path, "utf8")) as Partial<SpaceCheckpoint>;
     if (value.schemaVersion !== "0.2.0" || !checkpointIdPattern.test(value.checkpointId ?? "") || !Array.isArray(value.files)) return null;
-    return { ...value, directories: Array.isArray(value.directories) ? value.directories : [] } as WorkspaceCheckpoint;
+    return { ...value, directories: Array.isArray(value.directories) ? value.directories : [] } as SpaceCheckpoint;
   } catch {
     return null;
   }
 }
 
-async function hasWorkspaceBlob(root: string, hashSha256: string): Promise<boolean> {
+async function hasSpaceBlob(root: string, hashSha256: string): Promise<boolean> {
   try {
-    return existsSync(workspaceBlobPath(root, hashSha256));
+    return existsSync(spaceBlobPath(root, hashSha256));
   } catch {
     return false;
   }
 }
 
 function canonicalPath(root: string, value: string, allowMissing: boolean): { path: string; absolutePath: string } {
-  const absolutePath = resolveWorkspacePath(root, toPosix(value).replace(/^\/+/, "") || ".");
+  const absolutePath = resolveSpacePath(root, toPosix(value).replace(/^\/+/, "") || ".");
   const path = toPosix(relative(root, absolutePath));
   if (!path || path === ".") throw new Error("The Space root cannot be used as a history item.");
   if (!allowMissing && !existsSync(absolutePath)) throw notFound(`Space item not found: ${path}`);
@@ -635,25 +556,25 @@ function collapsePaths(paths: string[]): string[] {
   return sorted.filter((path, index) => !sorted.slice(0, index).some((parent) => path === parent || path.startsWith(`${parent}/`)));
 }
 
-function ensureHistoryRoot(workspaceRoot: string): string {
-  const root = ensureSafeWorkspaceRoot(workspaceRoot);
-  assertWorkspaceDoesNotContainState(root);
+function ensureHistoryRoot(spaceRoot: string): string {
+  const root = ensureSafeSpaceRoot(spaceRoot);
+  assertSpaceDoesNotContainState(root);
   return root;
 }
 
-function workspaceBlobPath(root: string, hashSha256: string): string {
+function spaceBlobPath(root: string, hashSha256: string): string {
   const normalized = normalizeHash(hashSha256);
-  return join(workspaceHistoryRoot(root), "objects", normalized.slice(0, 2), normalized.slice(2));
+  return join(spaceHistoryRoot(root), "objects", normalized.slice(0, 2), normalized.slice(2));
 }
 
 function checkpointsDir(root: string): string {
-  return join(workspaceHistoryRoot(root), "checkpoints");
+  return join(spaceHistoryRoot(root), "checkpoints");
 }
 
 async function ensureHistoryMeta(root: string): Promise<void> {
-  const path = join(workspaceHistoryRoot(root), "meta.json");
+  const path = join(spaceHistoryRoot(root), "meta.json");
   if (existsSync(path)) return;
-  await atomicJsonWrite(path, { schemaVersion: "0.2.0", rootPath: resolve(root), createdAt: new Date().toISOString() });
+  await atomicJsonWrite(path, { schemaVersion: "0.2.0", spaceRoot: resolve(root), createdAt: new Date().toISOString() });
 }
 
 async function atomicJsonWrite(path: string, value: unknown): Promise<void> {
@@ -664,12 +585,12 @@ async function atomicJsonWrite(path: string, value: unknown): Promise<void> {
 }
 
 function maxVersionedFileBytes(): number {
-  const configured = Number(process.env.WORKSPACE_HISTORY_MAX_FILE_BYTES);
+  const configured = Number(process.env.WORKFOLD_HISTORY_MAX_FILE_BYTES);
   return Number.isFinite(configured) && configured >= 1 ? Math.floor(configured) : 100 * 1024 * 1024;
 }
 
 function maxRetainedCheckpoints(): number {
-  const configured = Number(process.env.WORKSPACE_HISTORY_MAX_CHECKPOINTS);
+  const configured = Number(process.env.WORKFOLD_HISTORY_MAX_CHECKPOINTS);
   return Number.isFinite(configured) && configured >= 2 ? Math.min(Math.floor(configured), 500) : 100;
 }
 

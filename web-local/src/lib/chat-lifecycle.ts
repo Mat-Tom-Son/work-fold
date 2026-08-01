@@ -68,8 +68,8 @@ export function chatSnoozeTimeLabel(value: string, now = new Date()): string {
   return `${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${time}`;
 }
 
-export function chatActivityKey(workspaceId: string, conversationId: string): string {
-  return `${workspaceId}:${conversationId}`;
+export function chatActivityKey(spaceId: string, conversationId: string): string {
+  return `${spaceId}:${conversationId}`;
 }
 
 function preset(

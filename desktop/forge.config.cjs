@@ -2,6 +2,7 @@ const path = require("node:path");
 const { cp } = require("node:fs/promises");
 const { FusesPlugin } = require("@electron-forge/plugin-fuses");
 const { FuseV1Options, FuseVersion } = require("@electron/fuses");
+const identity = require("../src/shared/product-identity.json");
 
 const root = path.resolve(__dirname, "..");
 
@@ -15,8 +16,8 @@ async function copyCliShimsToPackage(buildPath) {
 
 module.exports = {
   packagerConfig: {
-    name: "Workspace",
-    executableName: "Workspace",
+    name: identity.productName,
+    executableName: identity.productName,
     icon: path.join(root, "desktop", "assets", "icon"),
     asar: true,
     ignore: [

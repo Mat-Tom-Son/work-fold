@@ -4,12 +4,12 @@ import { join } from "node:path";
 import test from "node:test";
 
 const root = process.cwd();
-const [capabilities, apps, chat, workspaceApp, workspaceChrome, viewport, styles, professionalShell, professionalSurfaces, desktopHost, desktopMain, desktopPreload, tooltipOverlay] = await Promise.all([
+const [capabilities, apps, chat, spaceApp, spaceChrome, viewport, styles, professionalShell, professionalSurfaces, desktopHost, desktopMain, desktopPreload, tooltipOverlay] = await Promise.all([
   read("web-local/src/components/panes/CapabilitiesPane.tsx"),
   read("web-local/src/components/panes/RestrictedAppsSection.tsx"),
   read("web-local/src/components/chat/ChatPanel.tsx"),
   read("web-local/src/App.tsx"),
-  read("web-local/src/components/panes/workspaceChrome.tsx"),
+  read("web-local/src/components/panes/spaceChrome.tsx"),
   read("web-local/src/components/panes/RestrictedAppViewport.tsx"),
   read("web-local/src/styles.css"),
   read("web-local/src/professional-shell.css"),
@@ -65,7 +65,7 @@ test("Assistant tools owns access, connection, and lifecycle management without 
   assert.match(apps, /Each destination, file choice, notification, and automation is controlled separately/);
   assert.match(apps, /<h3 id="restricted-app-notifications-title">Notifications<\/h3>/);
   assert.doesNotMatch(apps, /Windows notifications|Windows notification settings/);
-  assert.match(apps, /Workspace · \{app\.manifest\.title\} — \{permission\.title\}/);
+  assert.match(apps, /work-fold · \{app\.manifest\.title\} — \{permission\.title\}/);
   assert.match(apps, /Allow notifications/);
   assert.match(apps, /Revoke notifications/);
   assert.doesNotMatch(apps, /Delete credential|Credential saved|Credential needed/);
@@ -80,10 +80,10 @@ test("automation confirmations render above the capability dialog that requested
 });
 
 test("notification clicks target their exact Space and stopped native views remount", () => {
-  assert.match(workspaceApp, /desktop\.onOpenRequest/);
-  assert.match(workspaceApp, /resolveRestrictedAppOpenRequest\(request, workspaces\)/);
-  assert.match(workspaceApp, /onSwitchWorkspace\(target\.workspace\)/);
-  assert.match(workspaceApp, /setActiveMode\(target\.mode\)/);
+  assert.match(spaceApp, /desktop\.onOpenRequest/);
+  assert.match(spaceApp, /resolveRestrictedAppOpenRequest\(request, spaces\)/);
+  assert.match(spaceApp, /onSwitchSpace\(target\.space\)/);
+  assert.match(spaceApp, /setActiveMode\(target\.mode\)/);
   assert.match(viewport, /event\.state === "stopped"/);
   assert.match(viewport, /mountIdRef\.current = crypto\.randomUUID\(\)/);
   assert.match(viewport, /setGeneration\(\(value\) => value \+ 1\)/);
@@ -91,7 +91,7 @@ test("notification clicks target their exact Space and stopped native views remo
 });
 
 test("the Space menu occludes native restricted-app views from the first animation frame", () => {
-  assert.match(workspaceChrome, /data-native-view-occluder="true"/);
+  assert.match(spaceChrome, /data-native-view-occluder="true"/);
   assert.match(viewport, /const explicitOccluder = candidate\.dataset\.nativeViewOccluder === "true"/);
   assert.match(viewport, /\(!explicitOccluder && Number\(style\.opacity\) === 0\)/);
   assert.match(viewport, /style\.display === "none" \|\| style\.visibility === "hidden"/);
@@ -99,9 +99,9 @@ test("the Space menu occludes native restricted-app views from the first animati
 
 test("rail tooltips use a topmost native overlay without blanking restricted app views", () => {
   assert.doesNotMatch(viewport, /railTooltipOcclusionLeadMs|railTooltipTarget|data-rail-tooltip/);
-  assert.match(workspaceChrome, /useNativeRailTooltips\(railRef\)/);
-  assert.match(workspaceChrome, /window\.workspaceDesktop\?\.window\.railTooltip/);
-  assert.match(desktopPreload, /workspace:window:rail-tooltip-show/);
+  assert.match(spaceChrome, /useNativeRailTooltips\(railRef\)/);
+  assert.match(spaceChrome, /window\.workFoldDesktop\?\.window\.railTooltip/);
+  assert.match(desktopPreload, /work-fold:window:rail-tooltip-show/);
   assert.match(desktopMain, /railTooltipOverlay\?\.show\(value\)/);
   assert.match(desktopMain, /host\.restrictedAppHost\.layoutUi[\s\S]*?railTooltipOverlay\?\.raise\(\)/);
   assert.match(tooltipOverlay, /contentView\.addChildView\(this\.#view\)/);
@@ -109,7 +109,7 @@ test("rail tooltips use a topmost native overlay without blanking restricted app
 });
 
 test("contributed app canvases share built-in spacing and native rounded corners", () => {
-  assert.match(professionalSurfaces, /\.workspace-mode-pane > \.restricted-app-view\s*\{[^}]*height:\s*auto;[^}]*margin:\s*12px;/s);
+  assert.match(professionalSurfaces, /\.space-mode-pane > \.restricted-app-view\s*\{[^}]*height:\s*auto;[^}]*margin:\s*12px;/s);
   assert.match(viewport, /resolveRestrictedAppCornerRadius\(app\.manifest\.ui\.cornerRadius\)/);
   assert.match(viewport, /style=\{\{ borderRadius: cornerRadius \}\}/);
   assert.match(viewport, /rail\.right \+ restrictedAppRailGuard/);
@@ -120,16 +120,16 @@ test("contributed app canvases share built-in spacing and native rounded corners
 test("owning Chat renders digest review, defers install while running, and opens the installed interactive app", () => {
   assert.match(chat, /restricted_app_proposal/);
   assert.match(chat, /restricted_app_proposal_settled/);
-  assert.match(chat, /data\.proposal\.workspaceId === workspace\.id/);
+  assert.match(chat, /data\.proposal\.spaceId === space\.id/);
   assert.match(chat, /data\.proposal\.conversationId === conversationId/);
   assert.match(chat, /installDisabled=\{running\}/);
   assert.match(chat, /closeLabel="Decline"/);
-  assert.match(chat, /installRestrictedAppProposal\(workspace\.id, proposal\.conversationId, proposal\.id\)/);
-  assert.match(workspaceApp, /restrictedAppsState\.upsertApp\(app\)/);
-  assert.match(workspaceApp, /setActiveMode\(restrictedAppRailMode\(targetWorkspace\.id, app\.manifest\.id\)\)/);
-  assert.match(workspaceApp, /<RestrictedAppViewport app=\{activeRestrictedApp\} placement="navigator"/);
-  assert.match(workspaceApp, /tabs\.openRestrictedAppSurfaceTab/);
-  assert.doesNotMatch(workspaceApp, /surface\.execution === "restricted-app"/);
+  assert.match(chat, /installRestrictedAppProposal\(space\.id, proposal\.conversationId, proposal\.id\)/);
+  assert.match(spaceApp, /restrictedAppsState\.upsertApp\(app\)/);
+  assert.match(spaceApp, /setActiveMode\(restrictedAppRailMode\(targetSpace\.id, app\.manifest\.id\)\)/);
+  assert.match(spaceApp, /<RestrictedAppViewport app=\{activeRestrictedApp\} placement="navigator"/);
+  assert.match(spaceApp, /tabs\.openRestrictedAppSurfaceTab/);
+  assert.doesNotMatch(spaceApp, /surface\.execution === "restricted-app"/);
 });
 
 async function read(relativePath: string): Promise<string> {

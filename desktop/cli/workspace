@@ -1,8 +1,0 @@
-#!/usr/bin/env sh
-set -eu
-
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-if [ "$(uname -s)" = "Darwin" ]; then
-  exec /usr/bin/osascript -l JavaScript "$script_dir/workspace-cli.jxa.js" "$script_dir" "$@"
-fi
-exec "$script_dir/workspace.cmd" "$@"

@@ -15,36 +15,36 @@ import {
   RegisteredSpaceTrustAuthority,
 } from "../src/local/agent/registered-space-runtime.js";
 import { startLocalApi } from "../src/local/server.js";
-import { WorkspaceKernel } from "../src/local/workspace-kernel.js";
+import { WorkFoldKernel } from "../src/local/work-fold-kernel.js";
 
 test("local API covers Space files, the Library, and external restore points", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "workspace-api-test-"));
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    workspaceBase: join(sandbox, "content"),
+    spaceBase: join(sandbox, "content"),
     loadEnv: false,
   });
   try {
-    assert.ok(api.kernel instanceof WorkspaceKernel, "startLocalApi must expose its compatible default kernel");
+    assert.ok(api.kernel instanceof WorkFoldKernel, "startLocalApi must expose its compatible default kernel");
     assert.deepEqual(await json(`${api.origin}/api/bootstrap`), {
-      workspaces: [],
+      spaces: [],
       agent: { ready: true, configured: false, provider: null, model: null, piVersion: null, projectTrusted: false, error: null },
       appearance: { version: 2, revision: 0, customizations: {} },
     });
 
-    const created = await json(`${api.origin}/api/workspaces`, {
+    const created = await json(`${api.origin}/api/spaces`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "API Space" }),
-    }) as { workspace: { id: string } };
+    }) as { space: { id: string } };
 
     const files = new FormData();
     files.set("targetFolderPath", "");
     files.set("relativePaths", JSON.stringify(["Notes/readme.md"]));
     files.append("files", new Blob(["# Hello\n"]), "readme.md");
-    await ok(`${api.origin}/api/workspaces/${created.workspace.id}/upload-local-files`, { method: "POST", body: files });
-    const preview = await json(`${api.origin}/api/workspaces/${created.workspace.id}/file?path=Notes%2Freadme.md`) as { text: string };
+    await ok(`${api.origin}/api/spaces/${created.space.id}/upload-local-files`, { method: "POST", body: files });
+    const preview = await json(`${api.origin}/api/spaces/${created.space.id}/file?path=Notes%2Freadme.md`) as { text: string };
     assert.equal(preview.text, "# Hello\n");
 
     const resources = new FormData();
@@ -55,16 +55,16 @@ test("local API covers Space files, the Library, and external restore points", a
     assert.equal(uploadedLibraryItem.uploaded[0]?.path, "reference.txt");
     const libraryTree = await json(`${api.origin}/api/resources/tree`) as { tree: Array<{ path: string }> };
     assert.equal(libraryTree.tree[0]?.path, "reference.txt");
-    const copiedLibraryItem = await json(`${api.origin}/api/resources/copy-to-workspace`, {
+    const copiedLibraryItem = await json(`${api.origin}/api/resources/copy-to-space`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ workspaceId: created.workspace.id, paths: ["reference.txt"] }),
+      body: JSON.stringify({ spaceId: created.space.id, paths: ["reference.txt"] }),
     }) as { copied: string[] };
     assert.deepEqual(copiedLibraryItem.copied, ["From Library/reference.txt"]);
-    const libraryPreview = await json(`${api.origin}/api/workspaces/${created.workspace.id}/file?path=From%20Library%2Freference.txt`) as { text: string };
+    const libraryPreview = await json(`${api.origin}/api/spaces/${created.space.id}/file?path=From%20Library%2Freference.txt`) as { text: string };
     assert.equal(libraryPreview.text, "reference");
 
-    const checkpoint = await json(`${api.origin}/api/workspaces/${created.workspace.id}/history/checkpoints`, {
+    const checkpoint = await json(`${api.origin}/api/spaces/${created.space.id}/history/checkpoints`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ label: "API snapshot" }),
@@ -81,21 +81,21 @@ test("uploads and Library copy-ins record additive restore points", async () => 
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    workspaceBase: join(sandbox, "content"),
+    spaceBase: join(sandbox, "content"),
     loadEnv: false,
   });
   try {
-    const created = await json(`${api.origin}/api/workspaces`, {
+    const created = await json(`${api.origin}/api/spaces`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "Additive History Space" }),
-    }) as { workspace: { id: string } };
+    }) as { space: { id: string } };
 
     const files = new FormData();
     files.set("targetFolderPath", "Dropped");
     files.set("relativePaths", JSON.stringify(["notes.md"]));
     files.append("files", new Blob(["dropped"]), "notes.md");
-    const uploaded = await json(`${api.origin}/api/workspaces/${created.workspace.id}/upload-local-files`, {
+    const uploaded = await json(`${api.origin}/api/spaces/${created.space.id}/upload-local-files`, {
       method: "POST",
       body: files,
     }) as { uploaded: Array<{ path: string }>; safetyCheckpointId: string | null };
@@ -107,15 +107,15 @@ test("uploads and Library copy-ins record additive restore points", async () => 
     resources.set("relativePaths", JSON.stringify(["reference.txt"]));
     resources.append("files", new Blob(["reference"]), "reference.txt");
     await ok(`${api.origin}/api/resources/upload`, { method: "POST", body: resources });
-    const copied = await json(`${api.origin}/api/resources/copy-to-workspace`, {
+    const copied = await json(`${api.origin}/api/resources/copy-to-space`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ workspaceId: created.workspace.id, paths: ["reference.txt"] }),
+      body: JSON.stringify({ spaceId: created.space.id, paths: ["reference.txt"] }),
     }) as { copied: string[]; safetyCheckpointId: string | null };
     assert.deepEqual(copied.copied, ["From Library/reference.txt"]);
     assert.ok(copied.safetyCheckpointId, "Library copy-ins must record a restore point");
 
-    const checkpoints = await json(`${api.origin}/api/workspaces/${created.workspace.id}/history/checkpoints`) as {
+    const checkpoints = await json(`${api.origin}/api/spaces/${created.space.id}/history/checkpoints`) as {
       checkpoints: Array<{ checkpointId: string; reason: string; deleteOnRestore: string[] }>;
     };
     const uploadCheckpoint = checkpoints.checkpoints.find((item) => item.checkpointId === uploaded.safetyCheckpointId);
@@ -126,13 +126,13 @@ test("uploads and Library copy-ins record additive restore points", async () => 
     assert.deepEqual(copyCheckpoint?.deleteOnRestore, ["From Library/reference.txt"]);
 
     const restored = await json(
-      `${api.origin}/api/workspaces/${created.workspace.id}/history/checkpoints/${uploaded.safetyCheckpointId}/restore`,
+      `${api.origin}/api/spaces/${created.space.id}/history/checkpoints/${uploaded.safetyCheckpointId}/restore`,
       { method: "POST" },
     ) as { restored: true; deletedFiles: string[] };
     assert.deepEqual(restored.deletedFiles, ["Dropped/notes.md"]);
-    const missing = await fetch(`${api.origin}/api/workspaces/${created.workspace.id}/file?path=Dropped%2Fnotes.md`);
+    const missing = await fetch(`${api.origin}/api/spaces/${created.space.id}/file?path=Dropped%2Fnotes.md`);
     assert.equal(missing.ok, false, "restoring the upload checkpoint must remove the uploaded file");
-    const libraryPreview = await json(`${api.origin}/api/workspaces/${created.workspace.id}/file?path=From%20Library%2Freference.txt`) as { text: string };
+    const libraryPreview = await json(`${api.origin}/api/spaces/${created.space.id}/file?path=From%20Library%2Freference.txt`) as { text: string };
     assert.equal(libraryPreview.text, "reference", "restoring the upload checkpoint must not touch the Library copy");
   } finally {
     await api.close();
@@ -145,7 +145,7 @@ test("conversation runtime snapshots expose model and context state without tran
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    workspaceBase: join(sandbox, "content"),
+    spaceBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: {
       async resolveRuntime() {
@@ -154,16 +154,16 @@ test("conversation runtime snapshots expose model and context state without tran
     },
   });
   try {
-    const created = await json(`${api.origin}/api/workspaces`, {
+    const created = await json(`${api.origin}/api/spaces`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "Runtime Space" }),
-    }) as { workspace: { id: string } };
-    const conversation = await json(`${api.origin}/api/workspaces/${created.workspace.id}/conversations`, {
+    }) as { space: { id: string } };
+    const conversation = await json(`${api.origin}/api/spaces/${created.space.id}/conversations`, {
       method: "POST",
     }) as { conversation: { id: string } };
     const result = await json(
-      `${api.origin}/api/workspaces/${created.workspace.id}/conversations/${conversation.conversation.id}/runtime`,
+      `${api.origin}/api/spaces/${created.space.id}/conversations/${conversation.conversation.id}/runtime`,
     ) as {
       runtime: {
         sessionId: string;
@@ -206,7 +206,7 @@ test("desktop linked folders require the exact one-shot picker grant", async () 
     loadEnv: false,
     localFolderGrantProvider: {
       consumeLocalFolderGrant(input) {
-        assert.deepEqual(input, { rootPath: linkedRoot, grantId: "grant-1" });
+        assert.deepEqual(input, { spaceRoot: linkedRoot, grantId: "grant-1" });
         if (!available) return false;
         available = false;
         return true;
@@ -214,17 +214,17 @@ test("desktop linked folders require the exact one-shot picker grant", async () 
     },
   });
   try {
-    const headers = { "content-type": "application/json", "x-workspace-session": "desktop-session" };
-    const first = await fetch(`${api.origin}/api/workspaces/local-folder`, {
+    const headers = { "content-type": "application/json", "x-work-fold-session": "desktop-session" };
+    const first = await fetch(`${api.origin}/api/spaces/local-folder`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ rootPath: linkedRoot, folderGrantId: "grant-1" }),
+      body: JSON.stringify({ spaceRoot: linkedRoot, folderGrantId: "grant-1" }),
     });
     assert.equal(first.status, 201, await first.text());
-    const replay = await fetch(`${api.origin}/api/workspaces/local-folder`, {
+    const replay = await fetch(`${api.origin}/api/spaces/local-folder`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ rootPath: linkedRoot, folderGrantId: "grant-1" }),
+      body: JSON.stringify({ spaceRoot: linkedRoot, folderGrantId: "grant-1" }),
     });
     assert.equal(replay.status, 403);
   } finally {
@@ -239,7 +239,7 @@ test("registered Space authorization overrides Pi's independent project-trust de
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    workspaceBase: join(sandbox, "content"),
+    spaceBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: {
       async resolveRuntime() {
@@ -248,12 +248,12 @@ test("registered Space authorization overrides Pi's independent project-trust de
     },
   });
   try {
-    const created = await json(`${api.origin}/api/workspaces`, {
+    const created = await json(`${api.origin}/api/spaces`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "Default Trust Space" }),
-    }) as { workspace: { id: string } };
-    const catalog = await json(`${api.origin}/api/workspaces/${created.workspace.id}/agent/catalog`) as any;
+    }) as { space: { id: string } };
+    const catalog = await json(`${api.origin}/api/spaces/${created.space.id}/agent/catalog`) as any;
     assert.deepEqual(catalog.projectTrust, {
       required: false,
       trusted: true,
@@ -294,29 +294,29 @@ test("capability catalog and package lifecycle preserve native Pi state and prov
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    workspaceBase: join(sandbox, "content"),
+    spaceBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: { async resolveRuntime() { return { agentDir }; } },
   });
   try {
-    const created = await json(`${api.origin}/api/workspaces`, {
+    const created = await json(`${api.origin}/api/spaces`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "Capability Space" }),
-    }) as { workspace: { id: string } };
-    const workspaceId = created.workspace.id;
+    }) as { space: { id: string } };
+    const spaceId = created.space.id;
 
-    const initialCatalog = await json(`${api.origin}/api/workspaces/${workspaceId}/agent/catalog`) as any;
+    const initialCatalog = await json(`${api.origin}/api/spaces/${spaceId}/agent/catalog`) as any;
     assert.deepEqual(initialCatalog.projectTrust, { required: false, trusted: true, savedDecision: null, mutationTrusted: true });
     assert.equal(initialCatalog.projectTrusted, true, "a Space with no gated resources must not be mislabeled untrusted");
 
     await ok(`${api.origin}/api/agent/packages/install`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ workspaceId, source: packageRoot, scope: "project" }),
+      body: JSON.stringify({ spaceId, source: packageRoot, scope: "project" }),
     });
 
-    const catalog = await json(`${api.origin}/api/workspaces/${workspaceId}/agent/catalog`) as any;
+    const catalog = await json(`${api.origin}/api/spaces/${spaceId}/agent/catalog`) as any;
     assert.deepEqual(catalog.projectTrust, { required: true, trusted: true, savedDecision: null, mutationTrusted: true });
     assert.deepEqual(catalog.trust, catalog.projectTrust);
     assert.equal(catalog.projectTrusted, true);
@@ -367,15 +367,15 @@ test("capability catalog and package lifecycle preserve native Pi state and prov
     await ok(`${api.origin}/api/agent/packages/update`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ workspaceId, source: catalog.packages[0].source, scope: "project" }),
+      body: JSON.stringify({ spaceId, source: catalog.packages[0].source, scope: "project" }),
     });
     const removal = await json(`${api.origin}/api/agent/packages/remove`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ workspaceId, source: catalog.packages[0].source, scope: "project" }),
+      body: JSON.stringify({ spaceId, source: catalog.packages[0].source, scope: "project" }),
     }) as { removed: boolean };
     assert.equal(removal.removed, true);
-    const after = await json(`${api.origin}/api/workspaces/${workspaceId}/agent/catalog`) as any;
+    const after = await json(`${api.origin}/api/spaces/${spaceId}/agent/catalog`) as any;
     assert.deepEqual(after.packages, []);
     assert.equal(after.skills.some((item: any) => item.name === "catalog-skill"), false);
     assert.equal(after.extensions.some((item: any) => item.name === "catalog"), false);
@@ -447,14 +447,14 @@ test("registry discovery installs through guarded capability mutations without s
   };
   const piRuntimeProvider = { async resolveRuntime() { return { agentDir }; } };
   const spaceTrustAuthority = new RegisteredSpaceTrustAuthority();
-  const kernel = new WorkspaceKernel({
+  const kernel = new WorkFoldKernel({
     runtimeProvider: new RegisteredSpaceRuntimeProvider(piRuntimeProvider, spaceTrustAuthority),
   });
 
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    workspaceBase: join(sandbox, "content"),
+    spaceBase: join(sandbox, "content"),
     loadEnv: false,
     capabilityRegistry,
     kernel,
@@ -469,28 +469,28 @@ test("registry discovery installs through guarded capability mutations without s
     const details = await json(`${api.origin}/api/agent/capabilities/details?id=${encodeURIComponent(registryItem.id)}`) as any;
     assert.equal(details.item.installSource, packageRoot);
 
-    const created = await json(`${api.origin}/api/workspaces`, {
+    const created = await json(`${api.origin}/api/spaces`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "Registry Space" }),
-    }) as { workspace: { id: string } };
-    const workspaceId = created.workspace.id;
-    const createdConversation = await json(`${api.origin}/api/workspaces/${workspaceId}/conversations`, { method: "POST" }) as { conversation: { id: string } };
+    }) as { space: { id: string } };
+    const spaceId = created.space.id;
+    const createdConversation = await json(`${api.origin}/api/spaces/${spaceId}/conversations`, { method: "POST" }) as { conversation: { id: string } };
     const conversationId = createdConversation.conversation.id;
 
-    const activeTurn = await fetch(`${api.origin}/api/workspaces/${workspaceId}/conversations/${conversationId}/messages`, {
+    const activeTurn = await fetch(`${api.origin}/api/spaces/${spaceId}/conversations/${conversationId}/messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: "/hold" }),
     });
     assert.equal(activeTurn.status, 202, await activeTurn.text());
     const runningTasks = await kernel.getTasks({ kind: "system" });
-    assert.equal(runningTasks.tasks.some((task) => task.kind === "assistant_turn" && task.workspaceId === workspaceId && task.conversationId === conversationId), true);
+    assert.equal(runningTasks.tasks.some((task) => task.kind === "assistant_turn" && task.spaceId === spaceId && task.conversationId === conversationId), true);
 
     const blockedRegistryInstall = await fetch(`${api.origin}/api/agent/capabilities/install`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ workspaceId, id: registryItem.id, scope: "global" }),
+      body: JSON.stringify({ spaceId, id: registryItem.id, scope: "global" }),
     });
     assert.equal(blockedRegistryInstall.status, 409, await blockedRegistryInstall.text());
 
@@ -498,25 +498,25 @@ test("registry discovery installs through guarded capability mutations without s
       const blockedPackageMutation = await fetch(`${api.origin}/api/agent/packages/${action}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ workspaceId, source: packageRoot, scope: "global" }),
+        body: JSON.stringify({ spaceId, source: packageRoot, scope: "global" }),
       });
       assert.equal(blockedPackageMutation.status, 409, `${action}: ${await blockedPackageMutation.text()}`);
     }
 
     const skillImport = new FormData();
-    skillImport.set("workspaceId", workspaceId);
+    skillImport.set("spaceId", spaceId);
     skillImport.set("scope", "global");
     skillImport.append("files", new Blob(["---\nname: blocked-skill\ndescription: Blocked Skill\n---\nWait.\n"]), "SKILL.md");
     const blockedSkillImport = await fetch(`${api.origin}/api/agent/skills/import`, { method: "POST", body: skillImport });
     assert.equal(blockedSkillImport.status, 409, await blockedSkillImport.text());
 
     await waitForAsync(async () => {
-      const transcript = await json(`${api.origin}/api/workspaces/${workspaceId}/conversations/${conversationId}`) as any;
+      const transcript = await json(`${api.origin}/api/spaces/${spaceId}/conversations/${conversationId}`) as any;
       return transcript.messages.some((message: any) => message.role === "assistant" && message.content === "Command completed.");
     });
     await waitForAsync(async () => (await kernel.getTasks({ kind: "system" })).tasks.length === 0);
     assert.deepEqual((await kernel.getTasks({ kind: "system" })).tasks, []);
-    const namedTranscript = await json(`${api.origin}/api/workspaces/${workspaceId}/conversations/${conversationId}`) as any;
+    const namedTranscript = await json(`${api.origin}/api/spaces/${spaceId}/conversations/${conversationId}`) as any;
     assert.equal(
       namedTranscript.messages.some((message: any) => (
         message.kind === "conversation_title"
@@ -525,23 +525,23 @@ test("registry discovery installs through guarded capability mutations without s
       )),
       true,
     );
-    const namedConversations = await json(`${api.origin}/api/workspaces/${workspaceId}/conversations`) as any;
+    const namedConversations = await json(`${api.origin}/api/spaces/${spaceId}/conversations`) as any;
     assert.equal(namedConversations.conversations.find((item: any) => item.id === conversationId)?.title, "/hold");
 
     const installed = await json(`${api.origin}/api/agent/capabilities/install`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ workspaceId, id: registryItem.id, scope: "project" }),
+      body: JSON.stringify({ spaceId, id: registryItem.id, scope: "project" }),
     }) as any;
     assert.equal(installed.installed.kind, "package");
     assert.equal(installed.installed.source, details.item.installSource, "installation must use the exact source returned by review");
     const installedBundle = await json(`${api.origin}/api/agent/capabilities/install`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ workspaceId, id: bundleItem.id, scope: "project" }),
+      body: JSON.stringify({ spaceId, id: bundleItem.id, scope: "project" }),
     }) as any;
     assert.equal(installedBundle.installed.kind, "skill");
-    const catalog = await json(`${api.origin}/api/workspaces/${workspaceId}/agent/catalog`) as any;
+    const catalog = await json(`${api.origin}/api/spaces/${spaceId}/agent/catalog`) as any;
     assert.equal(catalog.skills.some((skill: any) => skill.name === "registry-skill" && skill.scope === "project"), true);
     assert.equal(catalog.skills.some((skill: any) => skill.name === "bundled-skill" && skill.scope === "project"), true);
   } finally {
@@ -567,7 +567,7 @@ test("capability mutations and explicit Chat compaction are mutually exclusive",
     nextRuntimeBlock = { signalEntered, released };
     return { entered, release };
   };
-  const kernel = new WorkspaceKernel();
+  const kernel = new WorkFoldKernel();
   const piRuntimeProvider = {
     async resolveRuntime() {
       const block = nextRuntimeBlock;
@@ -583,21 +583,21 @@ test("capability mutations and explicit Chat compaction are mutually exclusive",
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    workspaceBase: join(sandbox, "content"),
+    spaceBase: join(sandbox, "content"),
     loadEnv: false,
     kernel,
     piRuntimeProvider,
   });
   try {
-    const created = await json(`${api.origin}/api/workspaces`, {
+    const created = await json(`${api.origin}/api/spaces`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "Compaction Space" }),
-    }) as { workspace: { id: string } };
-    const workspaceId = created.workspace.id;
-    const createdConversation = await json(`${api.origin}/api/workspaces/${workspaceId}/conversations`, { method: "POST" }) as { conversation: { id: string } };
+    }) as { space: { id: string } };
+    const spaceId = created.space.id;
+    const createdConversation = await json(`${api.origin}/api/spaces/${spaceId}/conversations`, { method: "POST" }) as { conversation: { id: string } };
     const conversationId = createdConversation.conversation.id;
-    const compactUrl = `${api.origin}/api/workspaces/${workspaceId}/conversations/${conversationId}/compact`;
+    const compactUrl = `${api.origin}/api/spaces/${spaceId}/conversations/${conversationId}/compact`;
 
     const compactBlock = blockNextRuntimeResolution();
     const compactPromise = fetch(compactUrl, {
@@ -607,15 +607,15 @@ test("capability mutations and explicit Chat compaction are mutually exclusive",
     });
     await compactBlock.entered;
     const compactingTasks = await kernel.getTasks({ kind: "system" });
-    assert.deepEqual(compactingTasks.tasks.map((task) => ({ kind: task.kind, workspaceId: task.workspaceId, conversationId: task.conversationId })), [{
+    assert.deepEqual(compactingTasks.tasks.map((task) => ({ kind: task.kind, spaceId: task.spaceId, conversationId: task.conversationId })), [{
       kind: "compaction",
-      workspaceId,
+      spaceId,
       conversationId,
     }]);
     const mutationDuringCompact = await fetch(`${api.origin}/api/agent/packages/install`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ workspaceId, source: packageRoot, scope: "global" }),
+      body: JSON.stringify({ spaceId, source: packageRoot, scope: "global" }),
     });
     assert.equal(mutationDuringCompact.status, 409, await mutationDuringCompact.text());
     compactBlock.release();
@@ -626,7 +626,7 @@ test("capability mutations and explicit Chat compaction are mutually exclusive",
     const mutationPromise = fetch(`${api.origin}/api/agent/packages/install`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ workspaceId, source: packageRoot, scope: "global" }),
+      body: JSON.stringify({ spaceId, source: packageRoot, scope: "global" }),
     });
     await mutationBlock.entered;
     const compactDuringMutation = await fetch(compactUrl, {
@@ -653,32 +653,32 @@ test("extension UI events retain the portable Space id after its folder moves", 
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    workspaceBase: join(sandbox, "content"),
+    spaceBase: join(sandbox, "content"),
     loadEnv: false,
     extensionUiBridge: extensionUi,
   });
   const streamController = new AbortController();
   try {
-    const original = await json(`${api.origin}/api/workspaces/local-folder`, {
+    const original = await json(`${api.origin}/api/spaces/local-folder`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ rootPath: originalRoot }),
-    }) as { workspace: { id: string } };
-    const workspaceId = original.workspace.id;
-    const createdConversation = await json(`${api.origin}/api/workspaces/${workspaceId}/conversations`, { method: "POST" }) as { conversation: { id: string } };
+      body: JSON.stringify({ spaceRoot: originalRoot }),
+    }) as { space: { id: string } };
+    const spaceId = original.space.id;
+    const createdConversation = await json(`${api.origin}/api/spaces/${spaceId}/conversations`, { method: "POST" }) as { conversation: { id: string } };
     const conversationId = createdConversation.conversation.id;
 
     await rename(originalRoot, movedRoot);
-    const relinked = await json(`${api.origin}/api/workspaces/local-folder`, {
+    const relinked = await json(`${api.origin}/api/spaces/local-folder`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ rootPath: movedRoot }),
-    }) as { workspace: { id: string; rootPath: string } };
-    assert.equal(relinked.workspace.id, workspaceId);
-    assert.equal(relinked.workspace.rootPath, movedRoot);
+      body: JSON.stringify({ spaceRoot: movedRoot }),
+    }) as { space: { id: string; spaceRoot: string } };
+    assert.equal(relinked.space.id, spaceId);
+    assert.equal(relinked.space.spaceRoot, movedRoot);
 
     const streamResponse = await fetch(
-      `${api.origin}/api/workspaces/${workspaceId}/conversations/${conversationId}/events`,
+      `${api.origin}/api/spaces/${spaceId}/conversations/${conversationId}/events`,
       { signal: streamController.signal },
     );
     assert.equal(streamResponse.ok, true);
@@ -692,7 +692,7 @@ test("extension UI events retain the portable Space id after its folder moves", 
       id: "moved-space-notification",
       method: "notify",
       message: "Portable route preserved.",
-      workspaceRoot: movedRoot,
+      spaceRoot: movedRoot,
       conversationId,
     });
     await waitFor(() => streamEvents.some((event) => event.request?.id === "moved-space-notification"));
@@ -721,7 +721,7 @@ test("chat streams snapshot running state and survive a throwing desktop activit
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    workspaceBase: join(sandbox, "content"),
+    spaceBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: { async resolveRuntime() { return { agentDir }; } },
     onAgentTurnActivity(activeTurns) {
@@ -731,17 +731,17 @@ test("chat streams snapshot running state and survive a throwing desktop activit
   });
   const streamController = new AbortController();
   try {
-    const created = await json(`${api.origin}/api/workspaces`, {
+    const created = await json(`${api.origin}/api/spaces`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "Background Space" }),
-    }) as { workspace: { id: string } };
-    const createdConversation = await json(`${api.origin}/api/workspaces/${created.workspace.id}/conversations`, {
+    }) as { space: { id: string } };
+    const createdConversation = await json(`${api.origin}/api/spaces/${created.space.id}/conversations`, {
       method: "POST",
     }) as { conversation: { id: string } };
     const conversationId = createdConversation.conversation.id;
     const streamResponse = await fetch(
-      `${api.origin}/api/workspaces/${created.workspace.id}/conversations/${conversationId}/events`,
+      `${api.origin}/api/spaces/${created.space.id}/conversations/${conversationId}/events`,
       { signal: streamController.signal },
     );
     assert.equal(streamResponse.ok, true);
@@ -751,7 +751,7 @@ test("chat streams snapshot running state and survive a throwing desktop activit
     });
 
     await waitFor(() => streamEvents.some((event) => event.type === "turn_state" && event.running === false));
-    const firstPost = await fetch(`${api.origin}/api/workspaces/${created.workspace.id}/conversations/${conversationId}/messages`, {
+    const firstPost = await fetch(`${api.origin}/api/spaces/${created.space.id}/conversations/${conversationId}/messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: "/complete" }),
@@ -763,7 +763,7 @@ test("chat streams snapshot running state and survive a throwing desktop activit
 
     // If the observer exception escaped changeTurnCount, the running key would
     // remain stranded and this second turn would return 409.
-    const secondPost = await fetch(`${api.origin}/api/workspaces/${created.workspace.id}/conversations/${conversationId}/messages`, {
+    const secondPost = await fetch(`${api.origin}/api/spaces/${created.space.id}/conversations/${conversationId}/messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: "/complete" }),
@@ -850,7 +850,7 @@ test("terminal provider failures persist partial output and leave the Chat resum
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    workspaceBase: join(sandbox, "content"),
+    spaceBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: {
       async resolveRuntime() {
@@ -860,17 +860,17 @@ test("terminal provider failures persist partial output and leave the Chat resum
   });
 
   try {
-    const created = await json(`${api.origin}/api/workspaces`, {
+    const created = await json(`${api.origin}/api/spaces`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "Durability Space" }),
-    }) as { workspace: { id: string } };
-    const workspaceId = created.workspace.id;
-    const createdConversation = await json(`${api.origin}/api/workspaces/${workspaceId}/conversations`, {
+    }) as { space: { id: string } };
+    const spaceId = created.space.id;
+    const createdConversation = await json(`${api.origin}/api/spaces/${spaceId}/conversations`, {
       method: "POST",
     }) as { conversation: { id: string } };
     const conversationId = createdConversation.conversation.id;
-    const conversationUrl = `${api.origin}/api/workspaces/${workspaceId}/conversations/${conversationId}`;
+    const conversationUrl = `${api.origin}/api/spaces/${spaceId}/conversations/${conversationId}`;
     const messagesUrl = `${conversationUrl}/messages`;
 
     const failedTurn = await fetch(messagesUrl, {

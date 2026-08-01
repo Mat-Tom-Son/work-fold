@@ -102,7 +102,7 @@ const npmSearchPageSize = 250;
 /**
  * Discovery returns one bounded npm window per normalized query. The public
  * catalog is large enough that crawling every page makes the first result take
- * many seconds. npm performs the broad text match; Workspace then applies its
+ * many seconds. npm performs the broad text match; work-fold then applies its
  * type filter and exact sort within this stable, cached window. `truncated`
  * tells callers when narrowing the query can reveal matches beyond the window.
  */
@@ -504,7 +504,7 @@ export class RemoteCapabilityRegistry implements CapabilityRegistryService {
         signal: controller.signal,
         headers: {
           accept: url.host === "registry.npmjs.org" ? "application/json" : "application/vnd.github+json, text/plain;q=0.9",
-          "user-agent": "Workspace-Capability-Registry",
+          "user-agent": "work-fold-Capability-Registry",
         },
       });
       if (!response.ok) throw new Error(`Capability source returned HTTP ${response.status}: ${url.host}`);

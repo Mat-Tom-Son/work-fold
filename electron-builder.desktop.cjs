@@ -1,32 +1,31 @@
 const path = require("node:path");
+const identity = require("./src/shared/product-identity.json");
 
 const root = __dirname;
-const macReleaseBuild = process.env.WORKSPACE_MAC_RELEASE_BUILD === "1";
-const unsignedMacBuild = process.env.WORKSPACE_ALLOW_UNSIGNED_MAC_BUILD === "1";
-const macSignIdentity = process.env.WORKSPACE_MAC_SIGN_IDENTITY?.trim();
+const macReleaseBuild = process.env.WORKFOLD_MAC_RELEASE_BUILD === "1";
+const unsignedMacBuild = process.env.WORKFOLD_ALLOW_UNSIGNED_MAC_BUILD === "1";
+const macSignIdentity = process.env.WORKFOLD_MAC_SIGN_IDENTITY?.trim();
 const electronBuilderMacIdentity = macSignIdentity?.replace(/^Developer ID Application:\s*/i, "");
-const macReleaseOwner = process.env.WORKSPACE_MAC_RELEASE_OWNER?.trim() || "Mat-Tom-Son";
-const macReleaseRepo = process.env.WORKSPACE_MAC_RELEASE_REPO?.trim() || "workspace-mac-releases";
-const macFeedBuild = process.env.WORKSPACE_DESKTOP_RELEASE_PLATFORM === "darwin";
-const macSmokeProductName = "Workspace Local Smoke";
-const macSmokeAppId = "io.github.mattomson.workspace.local-smoke";
+const macReleaseOwner = process.env.WORKFOLD_MAC_RELEASE_OWNER?.trim() || identity.sourceRepositoryOwner;
+const macReleaseRepo = process.env.WORKFOLD_MAC_RELEASE_REPO?.trim() || identity.macReleaseRepositoryName;
+const macFeedBuild = process.env.WORKFOLD_DESKTOP_RELEASE_PLATFORM === "darwin";
 
 module.exports = {
-  appId: unsignedMacBuild ? macSmokeAppId : "io.github.mattomson.workspace",
-  productName: unsignedMacBuild ? macSmokeProductName : "Workspace",
+  appId: unsignedMacBuild ? identity.macSmokeAppId : identity.productionAppId,
+  productName: unsignedMacBuild ? identity.macSmokeProductName : identity.productName,
   extraMetadata: {
-    workspaceBuildChannel: unsignedMacBuild ? "mac-local-smoke" : "production",
+    workFoldBuildChannel: unsignedMacBuild ? "mac-local-smoke" : "production",
   },
   copyright: "Copyright © 2026 Mat-Tom-Son",
-  artifactName: "Workspace-${version}-${os}-${arch}.${ext}",
-  forceCodeSigning: macReleaseBuild || process.env.WORKSPACE_REQUIRE_CODE_SIGNING === "1",
+  artifactName: `${identity.productName}-\${version}-\${os}-\${arch}.\${ext}`,
+  forceCodeSigning: macReleaseBuild || process.env.WORKFOLD_REQUIRE_CODE_SIGNING === "1",
   electronUpdaterCompatibility: ">=2.16",
   generateUpdatesFilesForAllChannels: false,
   publish: [
     {
       provider: "github",
-      owner: macFeedBuild ? macReleaseOwner : "Mat-Tom-Son",
-      repo: macFeedBuild ? macReleaseRepo : "workspace",
+      owner: macFeedBuild ? macReleaseOwner : identity.sourceRepositoryOwner,
+      repo: macFeedBuild ? macReleaseRepo : identity.sourceRepositoryName,
       releaseType: "release",
     },
   ],
@@ -49,7 +48,7 @@ module.exports = {
     {
       from: "desktop/cli",
       to: "bin",
-      filter: ["workspace", "workspace.cmd", "workspace-cli.ps1", "workspace-cli.jxa.js"],
+      filter: [identity.cliCommand, `${identity.cliCommand}.cmd`, `${identity.cliCommand}-cli.ps1`, `${identity.cliCommand}-cli.jxa.js`],
     },
   ],
   extraResources: [
@@ -73,11 +72,11 @@ module.exports = {
       },
     ],
     icon: path.join(root, "desktop", "assets", "icon.ico"),
-    executableName: "Workspace",
+    executableName: identity.productName,
     // A self-signed certificate is useful for personal artifact continuity but
     // is not a public trust anchor. Enable updater Authenticode enforcement only
     // after a CA-backed publisher identity has been configured and tested.
-    verifyUpdateCodeSignature: process.env.WORKSPACE_TRUSTED_CODE_SIGNING === "1",
+    verifyUpdateCodeSignature: process.env.WORKFOLD_TRUSTED_CODE_SIGNING === "1",
     signtoolOptions: {
       signingHashAlgorithms: ["sha256"],
       rfc3161TimeStampServer: "http://timestamp.digicert.com",
@@ -89,7 +88,7 @@ module.exports = {
     category: "public.app-category.productivity",
     minimumSystemVersion: "12.0",
     darkModeSupport: true,
-    executableName: unsignedMacBuild ? macSmokeProductName : "Workspace",
+    executableName: unsignedMacBuild ? identity.macSmokeProductName : identity.productName,
     identity: macReleaseBuild ? electronBuilderMacIdentity : unsignedMacBuild ? "-" : undefined,
     hardenedRuntime: macReleaseBuild,
     notarize: macReleaseBuild,
@@ -97,8 +96,8 @@ module.exports = {
     entitlementsInherit: path.join(root, "desktop", "entitlements.plist"),
   },
   dmg: {
-    artifactName: "Workspace-${version}-mac-${arch}.${ext}",
-    title: "Workspace ${version}",
+    artifactName: `${identity.productName}-\${version}-mac-\${arch}.\${ext}`,
+    title: `${identity.productName} \${version}`,
     icon: path.join(root, "desktop", "assets", "icon.icns"),
     background: path.join(root, "out", "generated-assets", "dmg-background.png"),
     iconSize: 112,
@@ -123,9 +122,9 @@ module.exports = {
   },
   nsis: {
     include: path.join(root, "desktop", "nsis", "cli-path.nsh"),
-    artifactName: "Workspace-Setup-${version}.${ext}",
-    uninstallDisplayName: "Workspace",
-    shortcutName: "Workspace",
+    artifactName: `${identity.productName}-Setup-\${version}.\${ext}`,
+    uninstallDisplayName: identity.productName,
+    shortcutName: identity.productName,
     oneClick: false,
     perMachine: false,
     allowToChangeInstallationDirectory: true,

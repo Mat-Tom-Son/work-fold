@@ -1,31 +1,31 @@
 import { randomUUID } from "node:crypto";
 
-import type { WorkspaceCheckDeclaration } from "../../shared/checks.js";
-import { normalizeWorkspaceCheckTargetPath } from "../../shared/checks.js";
-import { workspaceCheckFingerprint } from "./check-integrity.js";
+import type { WorkFoldCheckDeclaration } from "../../shared/checks.js";
+import { normalizeWorkFoldCheckTargetPath } from "../../shared/checks.js";
+import { workFoldCheckFingerprint } from "./check-integrity.js";
 import type {
-  WorkspaceCheckCandidateFinding,
-  WorkspaceCheckEvidence,
-  WorkspaceCheckFinding,
+  WorkFoldCheckCandidateFinding,
+  WorkFoldCheckEvidence,
+  WorkFoldCheckFinding,
 } from "./check-types.js";
-import { resolveWorkspaceCheckTargets } from "./target-resolver.js";
+import { resolveWorkFoldCheckTargets } from "./target-resolver.js";
 
-export async function admitWorkspaceCheckCandidate(input: {
-  workspaceRoot: string;
-  declaration: WorkspaceCheckDeclaration;
+export async function admitWorkFoldCheckCandidate(input: {
+  root: string;
+  declaration: WorkFoldCheckDeclaration;
   declarationDigest: string;
   sensorDigest: string;
-  candidate: WorkspaceCheckCandidateFinding;
+  candidate: WorkFoldCheckCandidateFinding;
   now?: Date;
   signal?: AbortSignal;
-}): Promise<WorkspaceCheckFinding | null> {
+}): Promise<WorkFoldCheckFinding | null> {
   if (input.signal?.aborted) throw new Error(String(input.signal.reason || "Check admission was aborted."));
   let targetPath: string;
   let title: string;
   let detail: string | undefined;
   let remediation: string | undefined;
   try {
-    targetPath = normalizeWorkspaceCheckTargetPath(input.candidate.targetPath, "Finding target path");
+    targetPath = normalizeWorkFoldCheckTargetPath(input.candidate.targetPath, "Finding target path");
     title = boundedDisplayText(input.candidate.title, "Finding title", 300);
     detail = input.candidate.detail ? boundedDisplayText(input.candidate.detail, "Finding detail", 2_000) : undefined;
     remediation = input.candidate.remediation ? boundedDisplayText(input.candidate.remediation, "Finding remediation", 2_000) : undefined;
@@ -36,10 +36,10 @@ export async function admitWorkspaceCheckCandidate(input: {
   if (!Array.isArray(input.candidate.evidence) || input.candidate.evidence.length < 1 || input.candidate.evidence.length > 16) return null;
   for (const evidence of input.candidate.evidence) {
     if (input.signal?.aborted) throw new Error(String(input.signal.reason || "Check admission was aborted."));
-    if (!await verifyWorkspaceCheckEvidence(input.workspaceRoot, evidence, input.declaration)) return null;
+    if (!await verifyWorkFoldCheckEvidence(input.root, evidence, input.declaration)) return null;
   }
   const evidence = structuredClone(input.candidate.evidence);
-  const fingerprint = workspaceCheckFingerprint({
+  const fingerprint = workFoldCheckFingerprint({
     checkId: input.declaration.id,
     declarationDigest: input.declarationDigest,
     sensorId: input.declaration.sensor.id,
@@ -67,18 +67,18 @@ export async function admitWorkspaceCheckCandidate(input: {
   };
 }
 
-export async function reverifyWorkspaceCheckFinding(
-  workspaceRoot: string,
-  declaration: WorkspaceCheckDeclaration,
-  finding: WorkspaceCheckFinding,
+export async function reverifyWorkFoldCheckFinding(
+  root: string,
+  declaration: WorkFoldCheckDeclaration,
+  finding: WorkFoldCheckFinding,
 ): Promise<boolean> {
   if (finding.status !== "active" || finding.checkId !== declaration.id) return false;
   if (finding.sensorId !== declaration.sensor.id || finding.sensorRevision !== declaration.sensor.revision) return false;
   if (!declarationContainsPath(declaration, finding.targetPath)) return false;
   for (const evidence of finding.evidence) {
-    if (!await verifyWorkspaceCheckEvidence(workspaceRoot, evidence, declaration)) return false;
+    if (!await verifyWorkFoldCheckEvidence(root, evidence, declaration)) return false;
   }
-  return workspaceCheckFingerprint({
+  return workFoldCheckFingerprint({
     checkId: declaration.id,
     declarationDigest: finding.declarationDigest,
     sensorId: declaration.sensor.id,
@@ -89,26 +89,26 @@ export async function reverifyWorkspaceCheckFinding(
   }) === finding.fingerprint;
 }
 
-export async function verifyWorkspaceCheckEvidence(
-  workspaceRoot: string,
-  evidence: WorkspaceCheckEvidence,
-  declaration: WorkspaceCheckDeclaration,
+export async function verifyWorkFoldCheckEvidence(
+  root: string,
+  evidence: WorkFoldCheckEvidence,
+  declaration: WorkFoldCheckDeclaration,
 ): Promise<boolean> {
   if (evidence.kind !== "path-state") return false;
   let path: string;
   try {
-    path = normalizeWorkspaceCheckTargetPath(evidence.path, "Evidence path");
+    path = normalizeWorkFoldCheckTargetPath(evidence.path, "Evidence path");
   } catch {
     return false;
   }
   if (evidence.identity.path !== path || !declarationContainsPath(declaration, path)) return false;
   if (evidence.expected === evidence.observed || evidence.identity.state !== evidence.observed) return false;
-  const resolution = await resolveWorkspaceCheckTargets(workspaceRoot, [{ kind: "file", role: "primary", path }]);
+  const resolution = await resolveWorkFoldCheckTargets(root, [{ kind: "file", role: "primary", path }]);
   const observed = resolution.files.some((file) => file.path === path) ? "file" : "missing";
   return observed === evidence.observed;
 }
 
-function semanticEvidenceIdentity(evidence: WorkspaceCheckEvidence): unknown {
+function semanticEvidenceIdentity(evidence: WorkFoldCheckEvidence): unknown {
   return {
     kind: evidence.kind,
     path: evidence.path,
@@ -117,7 +117,7 @@ function semanticEvidenceIdentity(evidence: WorkspaceCheckEvidence): unknown {
   };
 }
 
-function declarationContainsPath(declaration: WorkspaceCheckDeclaration, path: string): boolean {
+function declarationContainsPath(declaration: WorkFoldCheckDeclaration, path: string): boolean {
   return declaration.targets.some((target) => {
     if (target.kind === "file") return target.path === path;
     if (!path.startsWith(`${target.path}/`)) return false;

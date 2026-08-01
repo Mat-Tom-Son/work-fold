@@ -6,7 +6,7 @@ import test from "node:test";
 import { typographyFontOptionsForPlatform } from "../web-local/src/constants.js";
 import { nativeOpenLabel, revealInFileManagerLabel } from "../web-local/src/lib/file-actions.js";
 import { desktopShortcutKeyLabel, desktopShortcutModifierKey } from "../web-local/src/lib/keyboard.js";
-import { desktopFileDragHint, typographyFontForPlatform, workspaceEntryNativePath } from "../web-local/src/lib/platform.js";
+import { desktopFileDragHint, typographyFontForPlatform, spaceEntryNativePath } from "../web-local/src/lib/platform.js";
 
 const root = process.cwd();
 const [app, rendererMain, styles, customization, settings, shortcuts, restrictedApps] = await Promise.all([
@@ -33,7 +33,7 @@ test("macOS typography uses the system font and omits the Windows-only Segoe cho
   ]);
   assert.equal(typographyFontForPlatform("stable", "darwin"), "default");
   assert.equal(typographyFontForPlatform("stable", "win32"), "stable");
-  assert.match(styles, /:root\[data-platform="darwin"\][\s\S]*?--workspace-font-family-default:\s*-apple-system/);
+  assert.match(styles, /:root\[data-platform="darwin"\][\s\S]*?--work-fold-font-family-default:\s*-apple-system/);
   assert.match(settings, /Match your device’s appearance/);
   assert.doesNotMatch(settings, /Match Windows/);
 });
@@ -50,8 +50,8 @@ test("macOS shortcut and file-drag labels use native notation without changing W
   assert.equal(revealInFileManagerLabel("darwin"), "Show in Finder");
   assert.equal(nativeOpenLabel({ name: "legacy.doc", path: "legacy.doc", kind: "file" }, "darwin").text, "Show in Finder");
   assert.equal(nativeOpenLabel({ name: "legacy.doc", path: "legacy.doc", kind: "file" }, "win32").text, "Show in File Explorer");
-  assert.equal(workspaceEntryNativePath("/Users/mat/Space", "notes/draft.md", "darwin"), "/Users/mat/Space/notes/draft.md");
-  assert.equal(workspaceEntryNativePath("C:\\Users\\mat\\Space", "notes/draft.md", "win32"), "C:\\Users\\mat\\Space\\notes\\draft.md");
+  assert.equal(spaceEntryNativePath("/Users/mat/Space", "notes/draft.md", "darwin"), "/Users/mat/Space/notes/draft.md");
+  assert.equal(spaceEntryNativePath("C:\\Users\\mat\\Space", "notes/draft.md", "win32"), "C:\\Users\\mat\\Space\\notes\\draft.md");
   assert.match(shortcuts, /macOS \? "Finder" : "File Explorer"/);
 });
 
@@ -66,7 +66,7 @@ test("renderer publishes platform and material before mounting and keeps Mac scr
 });
 
 test("macOS vibrancy is confined to navigation with an opaque work surface and solid fallback", () => {
-  assert.match(customization, /data-window-material="vibrancy"[\s\S]*?professional-workspace-rail[\s\S]*?background:\s*transparent/);
+  assert.match(customization, /data-window-material="vibrancy"[\s\S]*?professional-space-rail[\s\S]*?background:\s*transparent/);
   assert.match(customization, /data-window-material="vibrancy"[\s\S]*?\.right-rail[\s\S]*?background:\s*var\(--ui-surface\)/);
   assert.match(customization, /data-platform="darwin"[\s\S]*?-webkit-app-region:\s*drag/);
   assert.match(customization, /data-platform="darwin"[\s\S]*?padding-top:\s*38px/);
@@ -74,9 +74,9 @@ test("macOS vibrancy is confined to navigation with an opaque work surface and s
 });
 
 test("desktop Space state, Finder-open routing, and guarded Quick Look are wired in the renderer", () => {
-  assert.match(app, /workspace\.setActiveSpace\?\.\(activeWorkspace\?\.id \?\? null\)/);
-  assert.match(app, /desktopWorkspace\.onOpenSpace\(\(workspaceId\)/);
-  assert.match(app, /previewFile\(workspace\.id, path\)/);
+  assert.match(app, /space\.setActiveSpace\?\.\(activeSpace\?\.id \?\? null\)/);
+  assert.match(app, /desktopSpace\.onOpenSpace\(\(spaceId\)/);
+  assert.match(app, /previewFile\(space\.id, path\)/);
   assert.match(app, /activeMode !== "files"/);
   assert.match(app, /\[data-tree-row\]/);
   assert.match(app, /input, textarea, select, button/);
@@ -91,7 +91,7 @@ test("Space previews an already-selected Mac file row without changing other tre
 
 test("Darwin file-tree context menus use native command IDs while Windows keeps the React menu", () => {
   assert.match(app, /if \(isMacOS\(\) && popupFileMenu\)/);
-  assert.match(app, /popupFileMenu\(\{[\s\S]*?workspaceId: workspace\.id[\s\S]*?path: entry\.path[\s\S]*?kind: entry\.kind[\s\S]*?capabilities:/);
+  assert.match(app, /popupFileMenu\(\{[\s\S]*?spaceId: space\.id[\s\S]*?path: entry\.path[\s\S]*?kind: entry\.kind[\s\S]*?capabilities:/);
   assert.match(app, /open: entry\.kind === "folder" \|\| canOpenDirectly\(entry\.path\)/);
   for (const command of ["open", "reveal", "copy-path", "attach-chat", "version-history", "upload-here", "rename", "delete"]) {
     assert.match(app, new RegExp(`command === "${command}"`));

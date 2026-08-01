@@ -12,7 +12,7 @@ import {
 } from "../src/local/agent/restricted-app-proposals.js";
 import { RestrictedAppService } from "../src/local/agent/restricted-app-service.js";
 
-const workspaceId = "ws-proposal11111111";
+const spaceId = "ws-proposal11111111";
 
 test("propose_space_app exposes only a Space-relative path and returns the host-authored pending receipt", async () => {
   const calls: unknown[] = [];
@@ -26,8 +26,8 @@ test("propose_space_app exposes only a Space-relative path and returns the host-
     },
   };
   const tool = createRestrictedAppProposalTool({
-    workspaceId,
-    workspaceRoot: "C:\\Space",
+    spaceId,
+    spaceRoot: "C:\\Space",
     conversationId: "chat-1",
     host,
   });
@@ -39,12 +39,12 @@ test("propose_space_app exposes only a Space-relative path and returns the host-
   const guidance = tool.promptGuidelines?.join("\n") ?? "";
   assert.match(guidance, /cornerRadius is an optional whole number from 0 through 24/);
   assert.match(guidance, /agent-app\.json version 2/);
-  assert.match(guidance, /workspaceRestrictedApp/);
+  assert.match(guidance, /workFoldRestrictedApp/);
   assert.match(guidance, /handleAutomation/);
   assert.match(guidance, /oauth2-pkce/);
 
   const result = await tool.execute("call-1", { sourcePath: " apps/mail " }, undefined, undefined, {} as any);
-  assert.deepEqual(calls, [{ workspaceId, workspaceRoot: "C:\\Space", conversationId: "chat-1", sourcePath: "apps/mail" }]);
+  assert.deepEqual(calls, [{ spaceId, spaceRoot: "C:\\Space", conversationId: "chat-1", sourcePath: "apps/mail" }]);
   const text = result.content.find((item) => item.type === "text")?.text ?? "";
   assert.match(text, /human review/i);
   assert.match(text, /no code was executed or installed/i);
@@ -52,24 +52,24 @@ test("propose_space_app exposes only a Space-relative path and returns the host-
 });
 
 test("proposal receipts persist, remain Chat-bound, and install only the exact reviewed revision with grants off", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "workspace-app-proposals-"));
-  const workspaceRoot = join(sandbox, "space");
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-app-proposals-"));
+  const spaceRoot = join(sandbox, "space");
   const stateRoot = join(sandbox, "state", "restricted-apps");
   const registryPath = join(stateRoot, "proposals.json");
   try {
-    await writePackage(join(workspaceRoot, "apps", "mail"));
+    await writePackage(join(spaceRoot, "apps", "mail"));
     const service = await RestrictedAppService.create({ rootPath: stateRoot });
     const host = await RoutedRestrictedAppProposalHost.create({ service, registryPath });
     const emitted: string[] = [];
     host.on("request", (proposal) => emitted.push(proposal.id));
 
-    const result = await host.propose({ workspaceId, workspaceRoot, conversationId: "chat-1", sourcePath: "apps/mail" });
+    const result = await host.propose({ spaceId, spaceRoot, conversationId: "chat-1", sourcePath: "apps/mail" });
     assert.equal(result.status, "pending");
     assert.ok(result.proposal);
     assert.deepEqual(emitted, [result.proposal.id]);
-    assert.deepEqual(await service.list(workspaceId), [], "proposal inspection must not install the app");
-    assert.equal((await host.list({ workspaceId, conversationId: "chat-1" })).length, 1);
-    assert.equal((await host.list({ workspaceId, conversationId: "chat-2" })).length, 0);
+    assert.deepEqual(await service.list(spaceId), [], "proposal inspection must not install the app");
+    assert.equal((await host.list({ spaceId, conversationId: "chat-1" })).length, 1);
+    assert.equal((await host.list({ spaceId, conversationId: "chat-2" })).length, 0);
 
     const reopened = await RoutedRestrictedAppProposalHost.create({ service, registryPath });
     assert.equal((await reopened.get(result.proposal.id))?.review.digest, result.proposal.review.digest);
@@ -86,21 +86,21 @@ test("proposal receipts persist, remain Chat-bound, and install only the exact r
 });
 
 test("proposal installation fails closed after source changes and dismissal cannot install", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "workspace-app-proposal-change-"));
-  const workspaceRoot = join(sandbox, "space");
-  const sourceRoot = join(workspaceRoot, "apps", "mail");
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-app-proposal-change-"));
+  const spaceRoot = join(sandbox, "space");
+  const sourceRoot = join(spaceRoot, "apps", "mail");
   const stateRoot = join(sandbox, "state", "restricted-apps");
   try {
     await writePackage(sourceRoot);
     const service = await RestrictedAppService.create({ rootPath: stateRoot });
     const host = await RoutedRestrictedAppProposalHost.create({ service, registryPath: join(stateRoot, "proposals.json") });
-    const changed = await host.propose({ workspaceId, workspaceRoot, conversationId: "chat-1", sourcePath: "apps/mail" });
+    const changed = await host.propose({ spaceId, spaceRoot, conversationId: "chat-1", sourcePath: "apps/mail" });
     await writeFile(join(sourceRoot, "app.js"), "export async function handleAction() { return { count: 2 }; }\n", "utf8");
     await assert.rejects(host.install(changed.proposal!.id), /changed after review/i);
     assert.equal((await host.get(changed.proposal!.id))?.status, "revision-changed");
-    assert.deepEqual(await service.list(workspaceId), []);
+    assert.deepEqual(await service.list(spaceId), []);
 
-    const dismissed = await host.propose({ workspaceId, workspaceRoot, conversationId: "chat-1", sourcePath: "apps/mail" });
+    const dismissed = await host.propose({ spaceId, spaceRoot, conversationId: "chat-1", sourcePath: "apps/mail" });
     assert.equal(await host.dismiss(dismissed.proposal!.id), true);
     assert.equal((await host.get(dismissed.proposal!.id))?.status, "dismissed");
     assert.equal(await host.install(dismissed.proposal!.id), null);
@@ -135,7 +135,7 @@ async function writePackage(root: string): Promise<void> {
   ]);
 }
 
-function proposalFixture(input: { workspaceId: string; workspaceRoot: string; conversationId: string; sourcePath: string }) {
+function proposalFixture(input: { spaceId: string; spaceRoot: string; conversationId: string; sourcePath: string }) {
   const now = "2026-07-13T12:00:00.000Z";
   return {
     ...input,

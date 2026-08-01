@@ -13,23 +13,23 @@ import {
   type LocalAppRetainedData,
   type LocalAppStudioSnapshot,
   type LocalAppUpdatePlan,
-  type LocalAppWorkspaceRemovalImpact,
+  type LocalAppSpaceRemovalImpact,
   type RestrictedAppInstalled,
 } from "../src/local/agent/restricted-app-service.js";
 import { startLocalApi } from "../src/local/server.js";
 import {
-  beginWorkspaceRemoval,
-  finalizeWorkspaceRemoval,
-  markWorkspaceRemovalAppStateRemoved,
-} from "../src/local/workspace.js";
+  beginSpaceRemoval,
+  finalizeSpaceRemoval,
+  markSpaceRemovalAppStateRemoved,
+} from "../src/local/space.js";
 
 const featureId = "connected-inbox";
 const sourcePath = "apps/connected-inbox";
 
 test("local App Studio API keeps Project, Release, installation, update, and data authority explicit", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "workspace-local-app-studio-api-"));
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-local-app-studio-api-"));
   const stateBase = join(sandbox, "state");
-  const workspaceBase = join(sandbox, "spaces");
+  const spaceBase = join(sandbox, "spaces");
   const restrictedAppRoot = join(stateBase, "restricted-apps");
   const storage = new FileRestrictedAppStorage(join(restrictedAppRoot, "data"));
   const service = await RestrictedAppService.create({ rootPath: restrictedAppRoot, storage });
@@ -37,15 +37,15 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
   const api = await startLocalApi({
     port: 0,
     stateBase,
-    workspaceBase,
+    spaceBase,
     loadEnv: false,
     restrictedAppService: service,
-    beforeRestrictedAppWorkspaceRevalidation: async (workspaceId) => {
-      if (workspaceId === removeBeforeRevalidation) {
+    beforeRestrictedAppSpaceRevalidation: async (spaceId) => {
+      if (spaceId === removeBeforeRevalidation) {
         removeBeforeRevalidation = null;
-        const intent = await beginWorkspaceRemoval(workspaceId, workspaceBase);
-        await markWorkspaceRemovalAppStateRemoved(intent.workspaceId);
-        const removal = await finalizeWorkspaceRemoval(intent.workspaceId);
+        const intent = await beginSpaceRemoval(spaceId, spaceBase);
+        await markSpaceRemovalAppStateRemoved(intent.spaceId);
+        const removal = await finalizeSpaceRemoval(intent.spaceId);
         assert.equal(removal.cleanupPending, false, "the raced target removal must commit before validation resumes");
       }
     },
@@ -54,7 +54,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
   try {
     const source = await createSpace(api.origin, "App source");
     const target = await createSpace(api.origin, "App destination");
-    const studioPath = `/api/workspaces/${source.id}/app-studio`;
+    const studioPath = `/api/spaces/${source.id}/app-studio`;
 
     const initial = await request<{ studio: LocalAppStudioSnapshot }>(api.origin, studioPath);
     assert.deepEqual(initial.studio, {
@@ -80,7 +80,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
       rawRequest(api.origin, `${studioPath}/releases/publish`, { method: "POST", body: { releaseDigest: true } }),
       rawRequest(api.origin, `${studioPath}/installs/prepare`, {
         method: "POST",
-        body: { targetWorkspaceId: 42, releaseDigest: true },
+        body: { targetSpaceId: 42, releaseDigest: true },
       }),
       rawRequest(
         api.origin,
@@ -101,17 +101,17 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
       method: "PUT",
       body: presentation,
     });
-    assert.equal(declared.project.workspaceId, source.id);
+    assert.equal(declared.project.spaceId, source.id);
     assert.deepEqual(declared.project.presentation, presentation);
 
-    await writePackage(join(source.rootPath, ...sourcePath.split("/")), {
+    await writePackage(join(source.spaceRoot, ...sourcePath.split("/")), {
       packageVersion: "0.1.0",
       marker: "first-reviewed-revision",
     });
     const firstReview = await inspect(api.origin, source.id);
     const preview = await request<{ app: RestrictedAppInstalled }>(
       api.origin,
-      `/api/workspaces/${source.id}/restricted-apps`,
+      `/api/spaces/${source.id}/restricted-apps`,
       { method: "POST", body: { sourcePath, expectedDigest: firstReview.digest } },
     );
     assert.equal(preview.app.runtimeInstanceKind, "development");
@@ -140,7 +140,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
       /published Release/i,
       {
         method: "POST",
-        body: { targetWorkspaceId: target.id, releaseDigest: prepared.release.releaseDigest },
+        body: { targetSpaceId: target.id, releaseDigest: prepared.release.releaseDigest },
       },
     );
     assert.deepEqual(
@@ -151,7 +151,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
 
     await expectFailure(
       api.origin,
-      `/api/workspaces/${target.id}/app-studio/releases/publish`,
+      `/api/spaces/${target.id}/app-studio/releases/publish`,
       400,
       /does not belong/i,
       { method: "POST", body: { releaseDigest: prepared.release.releaseDigest } },
@@ -170,7 +170,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
       /Space not found/i,
       {
         method: "POST",
-        body: { targetWorkspaceId: "ws-0000000000000000", releaseDigest: published.release.releaseDigest },
+        body: { targetSpaceId: "space-0000000000000000", releaseDigest: published.release.releaseDigest },
       },
     );
     const racedTarget = await createSpace(api.origin, "Removed during install preparation");
@@ -182,7 +182,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
       /Space not found/i,
       {
         method: "POST",
-        body: { targetWorkspaceId: racedTarget.id, releaseDigest: published.release.releaseDigest },
+        body: { targetSpaceId: racedTarget.id, releaseDigest: published.release.releaseDigest },
       },
     );
     assert.equal(removeBeforeRevalidation, null, "the post-reservation race seam must have run");
@@ -192,22 +192,22 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
       "an install cannot become durable after its target Space removal commits",
     );
     assert.equal(
-      (await request<{ workspaces: Array<{ id: string }> }>(api.origin, "/api/bootstrap")).workspaces
-        .some((workspace) => workspace.id === racedTarget.id),
+      (await request<{ spaces: Array<{ id: string }> }>(api.origin, "/api/bootstrap")).spaces
+        .some((space) => space.id === racedTarget.id),
       false,
       "the failed install must observe the committed target removal",
     );
     const install = await request<{ operation: LocalAppInstallPlan }>(api.origin, `${studioPath}/installs/prepare`, {
       method: "POST",
-      body: { targetWorkspaceId: target.id, releaseDigest: published.release.releaseDigest },
+      body: { targetSpaceId: target.id, releaseDigest: published.release.releaseDigest },
     });
     assert.equal(install.operation.kind, "install");
-    assert.equal(install.operation.targetWorkspaceId, target.id);
+    assert.equal(install.operation.targetSpaceId, target.id);
     assert.equal(install.operation.releaseDigest, published.release.releaseDigest);
     assert.deepEqual(
-      (await request<{ impact: LocalAppWorkspaceRemovalImpact }>(
+      (await request<{ impact: LocalAppSpaceRemovalImpact }>(
         api.origin,
-        `/api/workspaces/${target.id}/app-removal-impact`,
+        `/api/spaces/${target.id}/app-removal-impact`,
       )).impact,
       {
         activeSourceInstanceCount: 0,
@@ -220,35 +220,35 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
 
     await expectFailure(
       api.origin,
-      `/api/workspaces/${target.id}/app-studio/operations/${install.operation.operationId}`,
+      `/api/spaces/${target.id}/app-studio/operations/${install.operation.operationId}`,
       404,
       /operation not found/i,
       { method: "DELETE" },
     );
     await expectFailure(
       api.origin,
-      `/api/workspaces/${target.id}/app-studio/operations/${install.operation.operationId}/activate`,
+      `/api/spaces/${target.id}/app-studio/operations/${install.operation.operationId}/activate`,
       404,
       /operation not found/i,
       { method: "POST", body: {} },
     );
     const activated = await request<{
-      instance: { runtimeInstanceId: string; workspaceId: string; releaseDigest: string };
+      instance: { runtimeInstanceId: string; spaceId: string; releaseDigest: string };
       apps: RestrictedAppInstalled[];
     }>(api.origin, `${studioPath}/operations/${install.operation.operationId}/activate`, {
       method: "POST",
       body: {},
     });
     assert.equal(activated.instance.runtimeInstanceId, install.operation.runtimeInstanceId);
-    assert.equal(activated.instance.workspaceId, target.id);
+    assert.equal(activated.instance.spaceId, target.id);
     assert.equal(activated.instance.releaseDigest, published.release.releaseDigest);
     assert.equal(activated.apps.length, 1);
     assertPowersOff(activated.apps[0]!, published.release.releaseDigest);
     await assertConnectionIsUnset(api.origin, target.id, activated.apps[0]!);
     assert.deepEqual(
-      (await request<{ impact: LocalAppWorkspaceRemovalImpact }>(
+      (await request<{ impact: LocalAppSpaceRemovalImpact }>(
         api.origin,
-        `/api/workspaces/${target.id}/app-removal-impact`,
+        `/api/spaces/${target.id}/app-removal-impact`,
       )).impact,
       {
         activeSourceInstanceCount: 0,
@@ -259,9 +259,9 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
       "Space removal preflight must expose an active target App Instance",
     );
     assert.equal(
-      (await request<{ impact: LocalAppWorkspaceRemovalImpact }>(
+      (await request<{ impact: LocalAppSpaceRemovalImpact }>(
         api.origin,
-        `/api/workspaces/${source.id}/app-removal-impact`,
+        `/api/spaces/${source.id}/app-removal-impact`,
       )).impact.activeSourceInstanceCount,
       1,
       "the source Space must expose its active downstream App Instance",
@@ -269,25 +269,25 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
 
     const firstTargetList = await request<{ apps: RestrictedAppInstalled[] }>(
       api.origin,
-      `/api/workspaces/${target.id}/restricted-apps`,
+      `/api/spaces/${target.id}/restricted-apps`,
     );
     assert.equal(firstTargetList.apps.length, 1);
     assertPowersOff(firstTargetList.apps[0]!, published.release.releaseDigest);
 
     await expectFailure(
       api.origin,
-      `/api/workspaces/${target.id}`,
+      `/api/spaces/${target.id}`,
       400,
       /Uninstall release-backed Apps/i,
       { method: "DELETE" },
     );
 
-    await writePackage(join(source.rootPath, ...sourcePath.split("/")), {
+    await writePackage(join(source.spaceRoot, ...sourcePath.split("/")), {
       packageVersion: "0.2.0",
       marker: "second-reviewed-revision",
     });
     const secondReview = await inspect(api.origin, source.id);
-    await request<{ app: RestrictedAppInstalled }>(api.origin, `/api/workspaces/${source.id}/restricted-apps`, {
+    await request<{ app: RestrictedAppInstalled }>(api.origin, `/api/spaces/${source.id}/restricted-apps`, {
       method: "POST",
       body: { sourcePath, expectedDigest: secondReview.digest },
     });
@@ -333,19 +333,19 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
       },
     );
     assert.equal(update.operation.kind, "update");
-    assert.equal(update.operation.targetWorkspaceId, target.id);
+    assert.equal(update.operation.targetSpaceId, target.id);
     assert.equal(update.operation.plan.canCommit, true);
     assert.equal(update.operation.plan.toReleaseDigest, secondPublished.release.releaseDigest);
 
     await expectFailure(
       api.origin,
-      `/api/workspaces/${target.id}/app-studio/operations/${update.operation.operationId}/activate`,
+      `/api/spaces/${target.id}/app-studio/operations/${update.operation.operationId}/activate`,
       404,
       /operation not found/i,
       { method: "POST", body: {} },
     );
     const updated = await request<{
-      instance: { runtimeInstanceId: string; workspaceId: string; releaseDigest: string };
+      instance: { runtimeInstanceId: string; spaceId: string; releaseDigest: string };
       apps: RestrictedAppInstalled[];
     }>(api.origin, `${studioPath}/operations/${update.operation.operationId}/activate`, {
       method: "POST",
@@ -372,20 +372,20 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
 
     await expectFailure(
       api.origin,
-      `/api/workspaces/${target.id}/local-app-instances/${installed.runtimeInstanceId}`,
+      `/api/spaces/${target.id}/local-app-instances/${installed.runtimeInstanceId}`,
       400,
       /retain or purge/i,
       { method: "DELETE", body: {} },
     );
     await expectFailure(
       api.origin,
-      `/api/workspaces/${source.id}/local-app-instances/${installed.runtimeInstanceId}`,
+      `/api/spaces/${source.id}/local-app-instances/${installed.runtimeInstanceId}`,
       404,
       /Instance not found/i,
       { method: "DELETE", body: { dataDisposition: "retain" } },
     );
     assert.equal(
-      (await request<{ apps: RestrictedAppInstalled[] }>(api.origin, `/api/workspaces/${target.id}/restricted-apps`)).apps.length,
+      (await request<{ apps: RestrictedAppInstalled[] }>(api.origin, `/api/spaces/${target.id}/restricted-apps`)).apps.length,
       1,
       "a foreign Space cannot uninstall an attached App Instance",
     );
@@ -394,7 +394,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
       removed: boolean;
       retainedData: LocalAppRetainedData[];
       cleanupPending: boolean;
-    }>(api.origin, `/api/workspaces/${target.id}/local-app-instances/${installed.runtimeInstanceId}`, {
+    }>(api.origin, `/api/spaces/${target.id}/local-app-instances/${installed.runtimeInstanceId}`, {
       method: "DELETE",
       body: { dataDisposition: "retain" },
     });
@@ -405,7 +405,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
 
     await expectFailure(
       api.origin,
-      `/api/workspaces/${source.id}`,
+      `/api/spaces/${source.id}`,
       400,
       /Purge .* retained local data/i,
       { method: "DELETE" },
@@ -419,7 +419,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
     const retainedDataId = uninstalled.retainedData[0]!.retainedDataId;
     await expectFailure(
       api.origin,
-      `/api/workspaces/${target.id}/app-studio/retained-data/${retainedDataId}`,
+      `/api/spaces/${target.id}/app-studio/retained-data/${retainedDataId}`,
       404,
       /retained .*data not found/i,
       { method: "DELETE" },
@@ -441,7 +441,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
 
     const purgeInstall = await request<{ operation: LocalAppInstallPlan }>(api.origin, `${studioPath}/installs/prepare`, {
       method: "POST",
-      body: { targetWorkspaceId: target.id, releaseDigest: secondPublished.release.releaseDigest },
+      body: { targetSpaceId: target.id, releaseDigest: secondPublished.release.releaseDigest },
     });
     const purgeActivated = await request<{ apps: RestrictedAppInstalled[] }>(
       api.origin,
@@ -453,7 +453,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
     await storage.set(purgeOwner, "temporary", true);
     const purgeUninstall = await request<{ removed: boolean; retainedData: LocalAppRetainedData[] }>(
       api.origin,
-      `/api/workspaces/${target.id}/local-app-instances/${purgeApp.runtimeInstanceId}`,
+      `/api/spaces/${target.id}/local-app-instances/${purgeApp.runtimeInstanceId}`,
       { method: "DELETE", body: { dataDisposition: "purge" } },
     );
     assert.equal(purgeUninstall.removed, true);
@@ -478,7 +478,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
     );
     assert.equal(repeatedDeletion.deletion.deleted, false, "Release deletion is retry-safe after registry commit");
 
-    const removedSpace = await request<{ removed: boolean }>(api.origin, `/api/workspaces/${target.id}`, {
+    const removedSpace = await request<{ removed: boolean }>(api.origin, `/api/spaces/${target.id}`, {
       method: "DELETE",
     });
     assert.equal(removedSpace.removed, true, "the Space is removable after its attached App Instance is explicitly uninstalled");
@@ -494,7 +494,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
 });
 
 test("target-scoped uninstall survives an unavailable linked source Space", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "workspace-local-app-missing-source-api-"));
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-local-app-missing-source-api-"));
   const stateBase = join(sandbox, "state");
   const restrictedAppRoot = join(stateBase, "restricted-apps");
   const storage = new FileRestrictedAppStorage(join(restrictedAppRoot, "data"));
@@ -502,7 +502,7 @@ test("target-scoped uninstall survives an unavailable linked source Space", asyn
   const api = await startLocalApi({
     port: 0,
     stateBase,
-    workspaceBase: join(sandbox, "managed-spaces"),
+    spaceBase: join(sandbox, "managed-spaces"),
     loadEnv: false,
     restrictedAppService: service,
   });
@@ -513,7 +513,7 @@ test("target-scoped uninstall survives an unavailable linked source Space", asyn
     const source = await registerLinkedSpace(api.origin, linkedRoot);
     assert.equal(source.location.storage, "linked");
     const target = await createSpace(api.origin, "Missing-source destination");
-    const studioPath = `/api/workspaces/${source.id}/app-studio`;
+    const studioPath = `/api/spaces/${source.id}/app-studio`;
 
     await request<{ project: LocalAppProject }>(api.origin, studioPath, {
       method: "PUT",
@@ -528,7 +528,7 @@ test("target-scoped uninstall survives an unavailable linked source Space", asyn
       marker: "linked-source-release",
     });
     const review = await inspect(api.origin, source.id);
-    await request<{ app: RestrictedAppInstalled }>(api.origin, `/api/workspaces/${source.id}/restricted-apps`, {
+    await request<{ app: RestrictedAppInstalled }>(api.origin, `/api/spaces/${source.id}/restricted-apps`, {
       method: "POST",
       body: { sourcePath, expectedDigest: review.digest },
     });
@@ -542,7 +542,7 @@ test("target-scoped uninstall survives an unavailable linked source Space", asyn
     });
     const install = await request<{ operation: LocalAppInstallPlan }>(api.origin, `${studioPath}/installs/prepare`, {
       method: "POST",
-      body: { targetWorkspaceId: target.id, releaseDigest: published.release.releaseDigest },
+      body: { targetSpaceId: target.id, releaseDigest: published.release.releaseDigest },
     });
     const activated = await request<{ apps: RestrictedAppInstalled[] }>(
       api.origin,
@@ -555,25 +555,25 @@ test("target-scoped uninstall survives an unavailable linked source Space", asyn
 
     const movedRoot = join(sandbox, "linked-app-source-moved-away");
     await rename(linkedRoot, movedRoot);
-    const afterMove = await request<{ workspaces: Array<{ id: string }> }>(api.origin, "/api/bootstrap");
-    assert.equal(afterMove.workspaces.some((workspace) => workspace.id === source.id), false);
-    assert.equal(afterMove.workspaces.some((workspace) => workspace.id === target.id), true);
+    const afterMove = await request<{ spaces: Array<{ id: string }> }>(api.origin, "/api/bootstrap");
+    assert.equal(afterMove.spaces.some((space) => space.id === source.id), false);
+    assert.equal(afterMove.spaces.some((space) => space.id === target.id), true);
     await expectFailure(api.origin, studioPath, 404, /Space not found/i);
 
     const uninstalled = await request<{ removed: boolean; retainedData: LocalAppRetainedData[] }>(
       api.origin,
-      `/api/workspaces/${target.id}/local-app-instances/${installed.runtimeInstanceId}`,
+      `/api/spaces/${target.id}/local-app-instances/${installed.runtimeInstanceId}`,
       { method: "DELETE", body: { dataDisposition: "purge" } },
     );
     assert.equal(uninstalled.removed, true);
     assert.deepEqual(uninstalled.retainedData, []);
     assert.equal((await storage.usage(owner)).keyCount, 0);
     assert.deepEqual(
-      (await request<{ apps: RestrictedAppInstalled[] }>(api.origin, `/api/workspaces/${target.id}/restricted-apps`)).apps,
+      (await request<{ apps: RestrictedAppInstalled[] }>(api.origin, `/api/spaces/${target.id}/restricted-apps`)).apps,
       [],
     );
 
-    const removedTarget = await request<{ removed: boolean }>(api.origin, `/api/workspaces/${target.id}`, {
+    const removedTarget = await request<{ removed: boolean }>(api.origin, `/api/spaces/${target.id}`, {
       method: "DELETE",
     });
     assert.equal(removedTarget.removed, true);
@@ -583,29 +583,29 @@ test("target-scoped uninstall survives an unavailable linked source Space", asyn
   }
 });
 
-async function createSpace(origin: string, name: string): Promise<{ id: string; rootPath: string }> {
-  return (await request<{ workspace: { id: string; rootPath: string } }>(origin, "/api/workspaces", {
+async function createSpace(origin: string, name: string): Promise<{ id: string; spaceRoot: string }> {
+  return (await request<{ space: { id: string; spaceRoot: string } }>(origin, "/api/spaces", {
     method: "POST",
     body: { name },
-  })).workspace;
+  })).space;
 }
 
 async function registerLinkedSpace(
   origin: string,
-  rootPath: string,
-): Promise<{ id: string; rootPath: string; location: { storage: "linked" } }> {
+  spaceRoot: string,
+): Promise<{ id: string; spaceRoot: string; location: { storage: "linked" } }> {
   return (await request<{
-    workspace: { id: string; rootPath: string; location: { storage: "linked" } };
-  }>(origin, "/api/workspaces/local-folder", {
+    space: { id: string; spaceRoot: string; location: { storage: "linked" } };
+  }>(origin, "/api/spaces/local-folder", {
     method: "POST",
-    body: { rootPath },
-  })).workspace;
+    body: { spaceRoot },
+  })).space;
 }
 
-async function inspect(origin: string, workspaceId: string): Promise<{ digest: string }> {
+async function inspect(origin: string, spaceId: string): Promise<{ digest: string }> {
   return (await request<{ review: { digest: string } }>(
     origin,
-    `/api/workspaces/${workspaceId}/restricted-apps/inspect`,
+    `/api/spaces/${spaceId}/restricted-apps/inspect`,
     { method: "POST", body: { sourcePath } },
   )).review;
 }
@@ -620,12 +620,12 @@ function assertPowersOff(app: RestrictedAppInstalled, releaseDigest: string): vo
   assert.equal(app.automations.every((automation) => automation.enabled === false), true);
 }
 
-async function assertConnectionIsUnset(origin: string, workspaceId: string, app: RestrictedAppInstalled): Promise<void> {
+async function assertConnectionIsUnset(origin: string, spaceId: string, app: RestrictedAppInstalled): Promise<void> {
   const response = await request<{
     connections: Array<{ destinationId: string; owner: string; kind: string | null; configured: boolean }>;
   }>(
     origin,
-    `/api/workspaces/${workspaceId}/restricted-apps/${featureId}/connections?expectedDigest=${app.digest}`,
+    `/api/spaces/${spaceId}/restricted-apps/${featureId}/connections?expectedDigest=${app.digest}`,
   );
   assert.deepEqual(response.connections, [{
     destinationId: "mail-api",

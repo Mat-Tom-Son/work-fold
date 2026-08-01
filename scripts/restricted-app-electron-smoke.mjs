@@ -51,7 +51,7 @@ void mark("loaded")
 
 async function runSmoke() {
   await mark("smoke-start");
-  const sandbox = await mkdtemp(join(tmpdir(), "workspace-restricted-electron-"));
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-restricted-electron-"));
   const listener = createServer((_request, response) => {
     hits += 1;
     response.writeHead(200, { "content-type": "text/plain" });
@@ -72,12 +72,12 @@ async function runSmoke() {
   const escapeUrl = `http://127.0.0.1:${address.port}/escape`;
   let host;
   try {
-    process.env.WORKSPACE_STATE_DIR = join(sandbox, "state");
-    const workspaceRoot = join(sandbox, "space");
-    const sourceRoot = join(workspaceRoot, "apps", "source");
+    process.env.WORKFOLD_STATE_DIR = join(sandbox, "state");
+    const spaceRoot = join(sandbox, "space");
+    const sourceRoot = join(spaceRoot, "apps", "source");
     const stagingRoot = join(sandbox, "staged");
     await writeSmokePackage(sourceRoot, address.port);
-    await mkdir(join(workspaceRoot, "exports"), { recursive: true });
+    await mkdir(join(spaceRoot, "exports"), { recursive: true });
     const receipt = await stageRestrictedAppPackage(sourceRoot, stagingRoot);
     await mark("package-staged");
     const connections = new EmptyConnections();
@@ -119,14 +119,14 @@ async function runSmoke() {
       connections,
       networkBroker,
       storage,
-      resolveWorkspaceRoot: (workspaceId) => workspaceId === "ws-electron-smoke" ? workspaceRoot : undefined,
+      resolveSpaceRoot: async (spaceId) => spaceId === "ws-electron-smoke" ? spaceRoot : null,
       preloadPath: join(rootDir, "dist", "desktop", "desktop", "src", "restricted-app-preload.cjs"),
       invocationTimeoutMs: 2_000,
       notifications: notificationBroker,
       onTabCommand: (command) => tabCommands.push(command),
     });
     const descriptor = {
-      workspaceId: "ws-electron-smoke",
+      spaceId: "ws-electron-smoke",
       projectId: createProjectId(),
       tenantId: createTenantId(),
       principalId: createPrincipalId(),
@@ -158,7 +158,7 @@ async function runSmoke() {
       dataNamespaceId: descriptor.dataNamespaceId,
     };
     host.syncAuthority([{
-      workspaceId: descriptor.workspaceId,
+      spaceId: descriptor.spaceId,
       appId: descriptor.manifest.id,
       digest: descriptor.digest,
       runtimeInstanceId: descriptor.runtimeInstanceId,
@@ -222,11 +222,11 @@ async function runSmoke() {
       scheduledAt: "2026-07-13T00:00:00.000Z",
     });
     assert.deepEqual(shownNotifications.map((item) => item.notification), [{
-      workspaceId: descriptor.workspaceId,
+      spaceId: descriptor.spaceId,
       appId: descriptor.manifest.id,
       digest: descriptor.digest,
       permissionId: "automation-update",
-      title: "Workspace · Restricted Electron smoke — Automation update",
+      title: "work-fold · Restricted Electron smoke — Automation update",
       body: "New sandboxed app data is ready.",
     }]);
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 350));
@@ -246,7 +246,7 @@ async function runSmoke() {
     await mark("automation-complete");
 
     const parent = new BrowserWindow({ show: true, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
-    await parent.loadURL("data:text/html,<main>Workspace owner</main>");
+    await parent.loadURL("data:text/html,<main>work-fold owner</main>");
     const staleMount = host.mountUi(descriptor, parent.webContents, parent, {
       mountId: "00000000-0000-4000-8000-000000000000",
       placement: "navigator",
@@ -262,7 +262,7 @@ async function runSmoke() {
       (error) => error?.code === "APP_UNAVAILABLE",
       "stop invalidates an in-flight stale UI mount",
     );
-    await host.stop(descriptor.workspaceId, descriptor.manifest.id, descriptor.digest);
+    await host.stop(descriptor.spaceId, descriptor.manifest.id, descriptor.digest);
     await staleMountRejection;
     const mountId = "11111111-1111-4111-8111-111111111111";
     await host.mountUi(descriptor, parent.webContents, parent, {
@@ -281,9 +281,9 @@ async function runSmoke() {
       "the visible restricted app did not finish its startup bridge calls",
     );
     assert.equal(hits, 0, "the visible restricted app must not reach loopback directly");
-    assert.deepEqual(tabCommands.map((command) => ({ type: command.type, workspaceId: command.workspaceId, appId: command.appId, digest: command.digest, tab: command.tab })), [{
+    assert.deepEqual(tabCommands.map((command) => ({ type: command.type, spaceId: command.spaceId, appId: command.appId, digest: command.digest, tab: command.tab })), [{
       type: "open",
-      workspaceId: descriptor.workspaceId,
+      spaceId: descriptor.spaceId,
       appId: descriptor.manifest.id,
       digest: descriptor.digest,
       tab: {
@@ -391,7 +391,7 @@ async function runSmoke() {
 }
 
 async function mark(message) {
-  const path = process.env.WORKSPACE_RESTRICTED_SMOKE_LOG;
+  const path = process.env.WORKFOLD_RESTRICTED_SMOKE_LOG;
   if (path) await appendFile(path, `${new Date().toISOString()} ${message}\n`, "utf8");
 }
 
@@ -417,7 +417,7 @@ async function writeSmokePackage(root, loopbackPort) {
     writeFile(join(root, "agent-app.json"), JSON.stringify(smokeManifest(loopbackPort)), "utf8"),
     writeFile(join(root, "index.html"), "<!doctype html><main id=app></main><script type=module src=ui.js></script>", "utf8"),
     writeFile(join(root, "ui.js"), `
-const bridge = globalThis.workspaceRestrictedApp;
+const bridge = globalThis.workFoldRestrictedApp;
 const context = bridge.context.get();
 let currentActive = context.active;
 let automationStorageEventCount = 0;
@@ -457,18 +457,18 @@ await bridge.tabs.open({ tabId: "smoke-tab", title: "Sandbox ready", route: "/re
 `, "utf8"),
     writeFile(join(root, "worker.js"), `
 let workerTopLevelStorageDenied = false;
-try { await globalThis.workspaceRestrictedApp.storage.set("worker-top-level", true); }
+try { await globalThis.workFoldRestrictedApp.storage.set("worker-top-level", true); }
 catch { workerTopLevelStorageDenied = true; }
 let workerTopLevelNotificationDenied = false;
-try { await globalThis.workspaceRestrictedApp.notifications.show({ permissionId: "automation-update" }); }
+try { await globalThis.workFoldRestrictedApp.notifications.show({ permissionId: "automation-update" }); }
 catch { workerTopLevelNotificationDenied = true; }
 let workerStorageEvents = 0;
-globalThis.workspaceRestrictedApp.storage.onChanged(() => { workerStorageEvents += 1; });
+globalThis.workFoldRestrictedApp.storage.onChanged(() => { workerStorageEvents += 1; });
 
 export async function handleAction(action, input) {
   if (action === "notification") {
     let actionNotificationDenied = false;
-    try { await globalThis.workspaceRestrictedApp.notifications.show({ permissionId: "automation-update" }); }
+    try { await globalThis.workFoldRestrictedApp.notifications.show({ permissionId: "automation-update" }); }
     catch { actionNotificationDenied = true; }
     return { workerTopLevelNotificationDenied, actionNotificationDenied };
   }
@@ -501,7 +501,7 @@ export async function handleAction(action, input) {
   const popupBlocked = window.open(input.escapeUrl) === null;
   let brokerDenied = false;
   try {
-    await globalThis.workspaceRestrictedApp.request({ destinationId: "mail-api", method: "GET", path: "/messages" });
+    await globalThis.workFoldRestrictedApp.request({ destinationId: "mail-api", method: "GET", path: "/messages" });
   } catch { brokerDenied = true; }
   return {
     echoed: input.text,
@@ -519,29 +519,29 @@ export async function handleAction(action, input) {
 export async function handleAutomation(event) {
   if (event.automationId !== "smoke-automation" || event.handler !== "smoke") throw new Error("Unknown automation.");
   if (event.scheduledAt === "2026-07-13T00:00:15.000Z") {
-    void globalThis.workspaceRestrictedApp.request({ destinationId: "late-effect", method: "POST", path: "/commit" }).catch(() => {});
+    void globalThis.workFoldRestrictedApp.request({ destinationId: "late-effect", method: "POST", path: "/commit" }).catch(() => {});
     return;
   }
-  try { await globalThis.workspaceRestrictedApp.request({ destinationId: "principal-probe", method: "GET", path: "/probe" }); }
+  try { await globalThis.workFoldRestrictedApp.request({ destinationId: "principal-probe", method: "GET", path: "/probe" }); }
   catch {}
   if (event.scheduledAt === "2026-07-13T00:00:30.000Z") {
     await new Promise((resolve) => setTimeout(resolve, 200));
-    await globalThis.workspaceRestrictedApp.notifications.show({ permissionId: "suspend-probe" });
+    await globalThis.workFoldRestrictedApp.notifications.show({ permissionId: "suspend-probe" });
     return;
   }
   if (event.scheduledAt === "2026-07-13T00:01:00.000Z") {
-    await globalThis.workspaceRestrictedApp.storage.transaction({
+    await globalThis.workFoldRestrictedApp.storage.transaction({
       clear: true,
       set: [{ key: "automation", value: event }],
     });
   } else {
-    await globalThis.workspaceRestrictedApp.storage.set("automation", event);
+    await globalThis.workFoldRestrictedApp.storage.set("automation", event);
   }
-  await globalThis.workspaceRestrictedApp.notifications.show({ permissionId: "automation-update" });
+  await globalThis.workFoldRestrictedApp.notifications.show({ permissionId: "automation-update" });
   await new Promise((resolve) => setTimeout(resolve, 120));
-  await globalThis.workspaceRestrictedApp.storage.set("worker-storage-events", workerStorageEvents);
+  await globalThis.workFoldRestrictedApp.storage.set("worker-storage-events", workerStorageEvents);
   setTimeout(async () => {
-    try { await globalThis.workspaceRestrictedApp.notifications.show({ permissionId: "post-return" }); }
+    try { await globalThis.workFoldRestrictedApp.notifications.show({ permissionId: "post-return" }); }
     catch {}
   }, 200);
 }

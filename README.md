@@ -1,24 +1,26 @@
-# Workspace
+# work-fold
 
-[![CI](https://github.com/Mat-Tom-Son/workspace/actions/workflows/ci.yml/badge.svg)](https://github.com/Mat-Tom-Son/workspace/actions/workflows/ci.yml)
-[![Latest release](https://img.shields.io/github/v/release/Mat-Tom-Son/workspace)](https://github.com/Mat-Tom-Son/workspace/releases/latest)
+[![CI](https://github.com/Mat-Tom-Son/work-fold/actions/workflows/ci.yml/badge.svg)](https://github.com/Mat-Tom-Son/work-fold/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/Mat-Tom-Son/work-fold)](https://github.com/Mat-Tom-Son/work-fold/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Workspace is a local-first Electron app that gives every kind of computer work a place, with a native [Pi](https://pi.dev) assistant built in.
+work-fold is a local-first Electron app that gives every kind of computer work a place, with a native [Pi](https://pi.dev) assistant built in.
 
-In the product, that place is called a **Space**: an understandable working context backed by an ordinary folder. A person can create a new Space and let Workspace create its folder, or turn an existing folder on their computer into a Space without moving or converting its files. Each Space keeps its portable identity and Chats in a hidden `.workspace/` directory. Executable project capabilities remain separate under `.pi/`; provider credentials, trust, History objects, sessions, ignore rules, and app preferences stay in protected application or Pi storage outside the Space.
+In the product, that place is called a **Space**: an understandable working context backed by an ordinary folder. A person can create a new Space and let work-fold create its folder, or turn an existing folder on their computer into a Space without moving or converting its files. Each Space keeps its portable identity and Chats in a hidden `.work-fold/` directory. Executable project capabilities remain separate under `.pi/`; provider credentials, trust, History objects, sessions, ignore rules, and app preferences stay in protected application or Pi storage outside the Space.
 
-The core idea is simple: the folder stays ordinary; Workspace makes it feel like a place you can understand, return to, and work in with an Assistant.
+The core idea is simple: the folder stays ordinary; work-fold makes it feel like a place you can understand, return to, and work in with an Assistant.
 
-## Get Workspace
+## Get work-fold
 
-[Download Workspace for Windows](https://github.com/Mat-Tom-Son/workspace/releases/latest) or [download Workspace for Apple silicon Macs](https://github.com/Mat-Tom-Son/workspace-mac-releases/releases/latest). Both installed apps use GitHub-hosted updates. The Mac app and DMG are Developer ID-signed, notarized, and accepted by Gatekeeper. Windows releases may use the project's stable personal certificate, but that self-signed identity is not publicly trusted, so Windows or SmartScreen may still show a warning.
+[Download work-fold for Windows](https://github.com/Mat-Tom-Son/work-fold/releases/latest) or [download work-fold for Apple silicon Macs](https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/latest). Both installed apps use GitHub-hosted updates. The Mac app and DMG are Developer ID-signed, notarized, and accepted by Gatekeeper. The first public Windows release requires a valid Authenticode signature from a new work-fold or product-neutral identity. A self-signed identity does not establish public Windows trust, so Windows or SmartScreen may still warn.
+
+work-fold is a clean product boundary, not an in-place rename of Workspace. It uses a new application profile, updater identity, CLI, repository, release feed, internal protocol, and `.work-fold/` Space metadata. It never imports, migrates, rewrites, wipes, or deletes legacy Workspace state or `.workspace/` content; those bytes remain preserved and inert. The old `Mat-Tom-Son/workspace` and `Mat-Tom-Son/workspace-mac-releases` repositories are frozen legacy surfaces and never receive work-fold releases.
 
 ## Product model
 
 | Concept | What it means |
 |---|---|
-| **Workspace** | The product: an environment for general computer work. |
+| **work-fold** | The product: an environment for general computer work. |
 | **Space** | Everything associated with one activity, backed by an ordinary folder. |
 | **Files** | The ordinary folder contents of the selected Space. |
 | **Library** | Reusable personal materials that can be brought into any Space. |
@@ -40,7 +42,7 @@ The bottom-rail **Add** menu opens one persistent Library tab for the selected S
 
 The folder is an implementation detail, but never a proprietary boundary. Space files remain ordinary files that can be opened in other apps, synchronized by desktop storage tools, backed up, or revealed in the operating system.
 
-Workspace reserves two hidden support directories inside a Space: `.workspace/` for the portable `space.json` identity and append-only conversation logs, and `.pi/` for native Pi project configuration. Neither appears in the Files surface or History checkpoints. Removing a linked Space from the app leaves `.workspace/` with the folder; deleting a managed Space deletes its folder normally.
+work-fold reserves two hidden support directories inside a Space: `.work-fold/` for the portable `space.json` identity and append-only conversation logs, and `.pi/` for native Pi project configuration. Neither appears in the Files surface or History checkpoints. Removing a linked Space from the app leaves `.work-fold/` with the folder; deleting a managed Space deletes its folder normally.
 
 ## What it supports
 
@@ -60,24 +62,25 @@ Workspace reserves two hidden support directories inside a Space: `.workspace/` 
 - A local App Studio that declares a machine-local App Project, prepares immutable version-2 Releases from reviewed previews, publishes them as a separate local decision, installs a published Release into a chosen registered Space, and prepares deterministic updates or rollbacks before activation.
 - [Agent Skills](https://agentskills.io) from standard `SKILL.md` directories, `.skill`/ZIP bundles, and skill-only imports from compatible multi-skill packs.
 - Assisted Windows installation and a signed/notarized Apple silicon DMG, with GitHub-hosted application updates on both platforms.
-- A versioned management layer and installed `workspace` command: a content-free read lane for inspecting Space context, running work, and Pi capabilities, plus a per-launch-authenticated act lane that lets a shell-capable agent create or register Spaces, copy material into a Space with a History restore point, and start, continue, await, or abort Space Chats while the app is running — every action journaled before it runs.
-- A management conversation above all Spaces (`workspace manage …`): the same full-trust Assistant runtime with a machine-local transcript, taught by app-materialized instructions to work across Spaces through the workspace CLI's read and act commands.
+- A versioned management layer and installed `work-fold` command: a content-free read lane for inspecting Space context, running work, and Pi capabilities, plus a per-launch-authenticated act lane that lets a shell-capable agent create or register Spaces, copy material into a Space with a History restore point, and start, continue, await, or abort Space Chats while the app is running — every action journaled before it runs.
+- A management conversation above all Spaces (`work-fold manage …`): the same full-trust Assistant runtime with a machine-local transcript, taught by app-materialized instructions to work across Spaces through the work-fold CLI's read and act commands. Requests carry reference attachments (`--attach` paths and links), track every delegated Space turn, and support request-level status and stop.
+- A menu-bar popover for that management conversation ("Tell work-fold"): drop files, folders, or links on the macOS menu-bar icon or the popover, add an instruction, and follow the request through working, needs-you, handed-off, and done — with an explicitly attributed action trail backed by act receipts and a Stop that names everything it aborts. The Windows tray offers the same popover from its menu.
 - Native OS file drops on any Chat composer: dropped files upload into that Space's dated `Dropped/` folder and attach as explicit chat context.
 
-Workspace does not bundle organization-specific tools, instructions, document libraries, or cloud accounts.
+work-fold does not bundle organization-specific tools, instructions, document libraries, or cloud accounts.
 
 Current desktop boundaries: Google Drive works through a Drive-for-desktop folder rather than native cloud mirroring. Settings offers API-key setup and Pi's OAuth flow for providers that advertise one, but account-tier, billing, and packaged-flow support remain provider-specific claims that require release verification. Direct Drive API sync is intentionally left for a later provider-adapter release. Restricted apps have a separate, app-scoped OAuth PKCE connection lane for providers that publish compatible public-client metadata.
 
-For the durable design rationale, context rules, and roadmap, see [Product model and roadmap](docs/product-model.md). For the shared control plane, CLI, and real-agent driver, see [Workspace management layer](docs/management-layer.md). For scopes, trust, Skill packs, Extensions, and packages, see [Assistant capabilities](docs/assistant-capabilities.md). The [desktop experience parity contract](docs/ui-parity.md) records the mature interactions this extraction must preserve, while the [visual system](docs/visual-design.md) defines the restrained shell, typography, icon, and layout rules.
+For the durable design rationale, context rules, and roadmap, see [Product model and roadmap](docs/product-model.md). For the shared control plane, CLI, and real-agent driver, see [work-fold management layer](docs/management-layer.md). For scopes, trust, Skill packs, Extensions, and packages, see [Assistant capabilities](docs/assistant-capabilities.md). The [desktop experience parity contract](docs/ui-parity.md) records the mature interactions this extraction must preserve, while the [visual system](docs/visual-design.md) defines the restrained shell, typography, icon, and layout rules.
 
 ## Restricted Space apps
 
-Workspace's restricted-app lane lets an Assistant build an interactive app for one Space without turning generated code into a full-trust Pi Extension. The app can own a navigator destination in the contributed rail, open and restore persistent right-side work tabs, expose bounded Assistant actions, keep machine-local JSON state, call explicitly reviewed network targets, work inside a separately selected Space file or folder, and declare independently controlled named automations coordinated by one scheduler across every Space.
+work-fold's restricted-app lane lets an Assistant build an interactive app for one Space without turning generated code into a full-trust Pi Extension. The app can own a navigator destination in the contributed rail, open and restore persistent right-side work tabs, expose bounded Assistant actions, keep machine-local JSON state, call explicitly reviewed network targets, work inside a separately selected Space file or folder, and declare independently controlled named automations coordinated by one scheduler across every Space.
 
 The normal creation path begins in a Space Chat:
 
 1. The Assistant writes a complete, already-built package inside the Space and calls the host-owned `propose_space_app` tool with only its Space-relative folder.
-2. Workspace inspects the package without evaluating JavaScript and returns a digest-pinned review to that owning Chat.
+2. work-fold inspects the package without evaluating JavaScript and returns a digest-pinned review to that owning Chat.
 3. The person chooses whether to add that exact revision as a **Local preview** in the source Space's Development Instance. Adding it grants only bounded app storage; network destinations, files, notification categories, saved connections, and every automation remain off.
 4. **Assistant tools → Installed → Apps in this Space** manages each authority separately. The app itself opens from the contributed rail and may create normal Space-owned tabs in the work area.
 
@@ -85,15 +88,15 @@ Revoking a destination stops brokered requests but does not silently delete a sa
 
 When a preview is ready to become an installable App, **App Studio** provides the local release lifecycle:
 
-1. Declare or edit the App Project's title, description, and icon. This presentation and the Project identity are machine-local in 0.4; Workspace does not add another portable file to the Space.
+1. Declare or edit the App Project's title, description, and icon. This presentation and the Project identity are machine-local; work-fold does not add another portable file to the Space.
 2. Prepare a Release from every currently reviewed Development preview. The immutable v2 envelope includes the exact Feature bytes, declarations, presentation, dependency inventory, provenance, and inspection evidence in a content-addressed local store.
 3. Review and separately publish that prepared Release. Publishing is a local state transition, not an upload, hosted deployment, signature, or App Store submission, and fails if a source preview changed after preparation.
-4. Prepare and activate installation into a chosen registered Space. The App Instance is distinct from its Development Instance, starts every destination, file, notification, connection, and automation off, and keeps its executable bytes, data, grants, operation journal, and receipts in Workspace application data.
+4. Prepare and activate installation into a chosen registered Space. The App Instance is distinct from its Development Instance, starts every destination, file, notification, connection, and automation off, and keeps its executable bytes, data, grants, operation journal, and receipts in work-fold application data.
 5. Prepare an update or rollback to another published Release, inspect its continuity/reset plan, then activate it. Exact unchanged Feature content may keep eligible authority; changed content resets grants, connections, and jobs while preserving the Feature installation and data namespace. Schema-bearing Releases and migration execution are rejected by the current local runtime.
 6. Uninstall the whole App Instance with an explicit **retain data** or **purge data** choice. Retained namespaces are no longer runnable and can be purged later from App Studio.
-7. Delete an unused prepared or published Release to reclaim its local immutable object. Workspace blocks deletion while an active Instance, either side of a prepared operation, or retained data still needs that Release. The Release store has a four-GiB aggregate quota.
+7. Delete an unused prepared or published Release to reclaim its local immutable object. work-fold blocks deletion while an active Instance, either side of a prepared operation, or retained data still needs that Release. The Release store has a four-GiB aggregate quota.
 
-The 0.4 local lane allows one App Instance per `(App Project, target Space)`. A target Space cannot already contain a preview or installed Feature with the same Feature id. The source Space and every target Space stay ordinary folders; Workspace blocks removing either registration while an active release-backed instance still depends on it and directs the person to uninstall first. Retained App data continues to block the source until explicit purge, but no longer binds the former target. Removing an obligation-free source clears its machine-local App Project and Release lineage; removing a target cancels prepared operations aimed there.
+The current local lane allows one App Instance per `(App Project, target Space)`. A target Space cannot already contain a preview or installed Feature with the same Feature id. The source Space and every target Space stay ordinary folders; work-fold blocks removing either registration while an active release-backed instance still depends on it and directs the person to uninstall first. Retained App data continues to block the source until explicit purge, but no longer binds the former target. Removing an obligation-free source clears its machine-local App Project and Release lineage; removing a target cancels prepared operations aimed there.
 
 Start with [Restricted app authoring](docs/restricted-app-authoring.md) to build a package, [Restricted app runtime](docs/restricted-app-runtime.md) for the security and lifecycle contract, and the [Connected inbox example](examples/packages/restricted-connected-inbox/README.md) for a runnable rail, tab, loopback service, storage, automation, and notification walkthrough.
 
@@ -115,9 +118,9 @@ and future-hosted boundaries.
 
 ## Management layer
 
-`WorkspaceKernel` is the shared in-process read authority for the product. It resolves an actor to a Space, returns versioned Space and running-task snapshots, and projects Pi's authoritative capability catalog with scope, provenance, trust, package, and diagnostic information. The renderer/local API and the installed CLI use that same kernel instance; writes still go through the domain services that own trust, filesystem, History, and concurrency policy.
+`WorkFoldKernel` is the shared in-process read authority for the product. It resolves an actor to a Space, returns versioned Space and running-task snapshots, and projects Pi's authoritative capability catalog with scope, provenance, trust, package, and diagnostic information. The renderer/local API and the installed CLI use that same kernel instance; writes still go through the domain services that own trust, filesystem, History, and concurrency policy.
 
-This is the first management primitive for a future cross-Space Assistant and controlled Space runtimes, not a hidden mutation API. Protocol v1 is deliberately read-only and exposes no file contents, conversation text, credentials, or provider tokens. See [Workspace management layer](docs/management-layer.md) for the architecture, transport, security boundary, code map, and roadmap.
+This is the first management primitive for a future cross-Space Assistant and controlled Space runtimes, not a hidden mutation API. Protocol v1 is deliberately read-only and exposes no file contents, conversation text, credentials, or provider tokens. See [work-fold management layer](docs/management-layer.md) for the architecture, transport, security boundary, code map, and roadmap.
 
 ## Development
 
@@ -139,11 +142,11 @@ npm run desktop:make
 npm run desktop:make:mac
 ```
 
-`desktop:package:smoke` creates and verifies the canonical Windows Electron Builder unpacked app while skipping NSIS installer and updater-artifact creation. The slower `desktop:package` command retains a Forge package lane for targeted diagnostics. `desktop:make` builds the Windows NSIS candidate; `desktop:make:mac` builds the non-interactive, separately identified `Workspace Local Smoke` artifacts; `desktop:release:mac` signs, notarizes, verifies, and publishes the production Mac artifacts.
+`desktop:package:smoke` creates and verifies the canonical Windows Electron Builder unpacked app while skipping NSIS installer and updater-artifact creation. The slower `desktop:package` command retains a Forge package lane for targeted diagnostics. `desktop:make` builds the Windows NSIS candidate; `desktop:make:mac` builds the non-interactive, separately identified `work-fold Local Smoke` artifacts; `desktop:release:mac` signs, notarizes, verifies, and publishes the production Mac artifacts.
 
 Use `npm run local:dev` for the fast UI loop, `check` and `test` for normal implementation feedback, and `desktop:prepare` for desktop integration. See [Windows builds](docs/windows-build.md) and [macOS builds](docs/macos-build.md) for platform packaging and release gates.
 
-`npm run local:api`, `npm run local:dev`, non-packaged Electron runs, and Windows package directories that have not been installed keep development data in a dedicated platform application-data directory by default (`%APPDATA%\Workspace Development` on Windows, `~/Library/Application Support/Workspace Development` on macOS, or the corresponding XDG configuration directory on Linux). This includes both feed-less smoke output and the feed-bearing `win-unpacked` release candidate: only an NSIS-installed Windows app with its installer-owned uninstaller selects the installed product's `Workspace` state. Set `WORKSPACE_STATE_DIR` for the local API or `WORKSPACE_DESKTOP_STATE_DIR` for Electron only when you intentionally want a specific state tree, such as an isolated migration fixture. `WORKSPACE_CLI_STATE_DIR` is the separate exact broker root used by packaged CLI shims and is propagated only to child commands.
+`npm run local:api`, `npm run local:dev`, non-packaged Electron runs, and Windows package directories that have not been installed keep development data in a dedicated platform application-data directory by default (`%APPDATA%\work-fold Development` on Windows, `~/Library/Application Support/work-fold Development` on macOS, or the corresponding XDG configuration directory on Linux). This includes both feed-less smoke output and the feed-bearing `win-unpacked` release candidate: only an NSIS-installed Windows app with its installer-owned uninstaller selects the installed product's `work-fold` state. Set `WORKFOLD_STATE_DIR` for the local API or `WORKFOLD_DESKTOP_STATE_DIR` for Electron only when you intentionally want a specific disposable state tree. `WORKFOLD_CLI_STATE_DIR` is the separate exact broker root used by packaged CLI shims and is propagated only to child commands.
 
 CI runs `check`, `test`, and `desktop:package:smoke`, so every branch verifies the same unpacked Electron Builder layout used by the release lane without paying the NSIS cost.
 
@@ -154,8 +157,8 @@ The repository has one contributor contract: [AGENTS.md](AGENTS.md). Codex reads
 Both harnesses can author and audit the exact same inert Space-appearance proposal:
 
 ```bash
-npm run --silent workspace:appearance -- create --name "Client work" --color "#0d74ce" --icon briefcase --banner aurora --created-by codex --out client-work.workspace.json
-npm run --silent workspace:appearance -- validate client-work.workspace.json --json
+npm run --silent work-fold:appearance -- create --name "Client work" --color "#0d74ce" --icon briefcase --banner aurora --created-by codex --out client-work.work-fold.json
+npm run --silent work-fold:appearance -- validate client-work.work-fold.json --json
 ```
 
 Use `--created-by claude-code` in Claude Code. The command never applies a mutation; import the
@@ -165,50 +168,52 @@ proposal in Customize Space after reviewing the light/dark preview. See
 They can also author the same inert Check proposal without enabling or running it:
 
 ```bash
-npm run --silent workspace:checks -- create-file-presence --title "Signed delivery exists" --file "Delivery/signed.pdf" --expect present --created-by codex --out signed-delivery.workspace-check.json
-npm run --silent workspace:checks -- validate signed-delivery.workspace-check.json --json
+npm run --silent work-fold:checks -- create-file-presence --title "Signed delivery exists" --file "Delivery/signed.pdf" --expect present --created-by codex --out signed-delivery.work-fold-check.json
+npm run --silent work-fold:checks -- validate signed-delivery.work-fold-check.json --json
 ```
 
-The proposal is ordinary reviewable JSON. Enablement remains a separate authenticated `workspace checks enable --space ... --proposal ...` act while the app is running.
+The proposal is ordinary reviewable JSON. Enablement remains a separate authenticated `work-fold checks enable --space ... --proposal ...` act while the app is running.
 
 To exercise one real Assistant turn through the same local API, Pi runtime, tools, Skills, Extensions, persistence, and event stream as the desktop app:
 
 ```powershell
-npm run workspace:drive -- --workspace C:\path\to\space --prompt "Summarize this Space"
-npm run workspace:drive -- --workspace C:\path\to\space --prompt "..." --json --agent-dir C:\temp\isolated-pi
+npm run work-fold:drive -- --space-root C:\path\to\space --prompt "Summarize this Space"
+npm run work-fold:drive -- --space-root C:\path\to\space --prompt "..." --json --agent-dir C:\temp\isolated-pi
 ```
 
-In-process driver runs use temporary application state unless `WORKSPACE_STATE_DIR` is set. Use `--attach http://127.0.0.1:4327` to drive an already-running development API. This driver performs a real agent turn; it is distinct from the read-only installed management CLI below.
+In-process driver runs use temporary application state unless `WORKFOLD_STATE_DIR` is set. Use `--attach http://127.0.0.1:4327` to drive an already-running development API. This driver performs a real agent turn; it is distinct from the read-only installed management CLI below.
 
-## Workspace CLI
+## work-fold CLI
 
-The Windows installer includes a `workspace` command and adds its package-root `bin` directory to the current user's `PATH`. The Mac app carries the same command under `Workspace.app/Contents/bin`; Workspace adds that directory to child processes so Pi shell tools can use it. A DMG does not silently edit shell profiles, so exposing the command to unrelated Terminal sessions remains an explicit installation action.
+The Windows installer includes a `work-fold` command and adds its package-root `bin` directory to the current user's `PATH`. The Mac app carries the same command under `work-fold.app/Contents/bin`; work-fold adds that directory to child processes so Pi shell tools can use it. A DMG does not silently edit shell profiles, so exposing the command to unrelated Terminal sessions remains an explicit installation action.
 
-The command uses a bounded protocol-v1 handoff under the owning app's platform application-data directory. Installed production apps use `%APPDATA%\Workspace\cli` on Windows and `~/Library/Application Support/Workspace/cli` on macOS; uninstalled Windows packages use `%APPDATA%\Workspace Development\cli`, and the separately identified Mac smoke app uses its own directory. It writes one atomic request, starts or contacts the packaged app, returns stdout, stderr, and the exit code, and removes the response. Platform helpers remain outside `app.asar`, Electron's `RunAsNode` fuse stays disabled, and the CLI-only state root cannot opt another desktop process into the parent's data.
+The command uses a bounded protocol-v1 handoff under the owning app's platform application-data directory. Installed production apps use `%APPDATA%\work-fold\cli` on Windows and `~/Library/Application Support/work-fold/cli` on macOS; uninstalled Windows packages use `%APPDATA%\work-fold Development\cli`, and the separately identified Mac smoke app uses its own directory. It writes one atomic request, starts or contacts the packaged app, returns stdout, stderr, and the exit code, and removes the response. Platform helpers remain outside `app.asar`, Electron's `RunAsNode` fuse stays disabled, and the CLI-only state root cannot opt another desktop process into the parent's data.
 
 ```powershell
-workspace context --json
-workspace spaces list
-workspace tasks list --space "Personal Space"
-workspace capabilities list --space "Personal Space" --json
-workspace chat send --space "Home" --new --message "File the material I dropped."
-workspace chat wait --space "Home" --task <task-id> --json
-workspace files add --space "Vendor Audits" --from ./report.pdf --to "Inbox"
-workspace manage send --message "What changed across my Spaces today?"
-workspace checks status --space "Vendor Audits" --json
-workspace checks run --space "Vendor Audits" --check <check-id> --json
-workspace checks wait --space "Vendor Audits" --task <task-id> --json
+work-fold context --json
+work-fold spaces list
+work-fold tasks list --space "Personal Space"
+work-fold capabilities list --space "Personal Space" --json
+work-fold chat send --space "Home" --new --message "File the material I dropped."
+work-fold chat wait --space "Home" --task <task-id> --json
+work-fold files add --space "Vendor Audits" --from ./report.pdf --to "Inbox"
+work-fold manage send --message "What changed across my Spaces today?"
+work-fold manage send --message "Put this where it belongs." --attach ./report.pdf
+work-fold manage stop --task <task-id>
+work-fold checks status --space "Vendor Audits" --json
+work-fold checks run --space "Vendor Audits" --check <check-id> --json
+work-fold checks wait --space "Vendor Audits" --task <task-id> --json
 ```
 
-Protocol v1 — the read lane — is deliberately read-only and content-free. It gives people, scripts, and the Assistant a shared way to inspect the Space resolved from the terminal's current folder, the registered Spaces, host-managed running tasks, capability inventory—including inactive tools or configured packages that are not currently loaded—and aggregate optional Check status. Mutations ride a separately versioned act lane instead: while the Workspace app is running it mints a per-launch token that authorizes `chat`, `chats list`, `spaces create/register`, `files add`, and Check enable/run/result/decision commands, reuses the same trust, conflict, task, and History rules as the desktop surfaces, journals every authorized action before it runs, and refuses a replayed request id instead of executing it twice. `chat send` and `checks run` return task ids; their wait commands follow exactly that work to its own success or failure. Without the running app, act commands answer "Open Workspace…". The handoff still trusts the current operating-system user — the token binds requests to one app run on this personal machine; it is not a multi-user boundary.
+Protocol v1 — the read lane — is deliberately read-only and content-free. It gives people, scripts, and the Assistant a shared way to inspect the Space resolved from the terminal's current folder, the registered Spaces, host-managed running tasks, capability inventory—including inactive tools or configured packages that are not currently loaded—and aggregate optional Check status. Mutations ride a separately versioned act lane instead: while the work-fold app is running it mints a per-launch token that authorizes `chat`, `chats list`, `spaces create/register`, `files add`, and Check enable/run/result/decision commands, reuses the same trust, conflict, task, and History rules as the desktop surfaces, journals every authorized action before it runs, and refuses a replayed request id instead of executing it twice. `chat send` and `checks run` return task ids; their wait commands follow exactly that work to its own success or failure. Without the running app, act commands answer "Open work-fold…". The handoff still trusts the current operating-system user — the token binds requests to one app run on this personal machine; it is not a multi-user boundary.
 
 Checks are optional and manual. An inert proposal names the exact Space-relative files and expectation; a separate `checks enable --space ... --proposal ...` act records local authority, and nothing watches an unconfigured Space. The first deterministic sensor checks whether designated files are present or absent without reading their contents, so it works across ordinary file types. In the desktop, configured Check state appears quietly beside Files and opens one Space-owned work tab; only current re-verified findings decorate their exact designated files. No Check runs merely because the surface opens. Stale, blocked, skipped, discarded, or failed work is health information, never a healthy result. See [Checks](docs/checks.md).
 
-Human-readable output is the default. Use `--json` for automation and `--space <id-or-exact-name>` when the terminal's current folder is not enough context. See [Workspace management layer](docs/management-layer.md) for snapshot fields, resolution rules, broker limits, and the distinction between this CLI and `workspace:drive`.
+Human-readable output is the default. Use `--json` for automation and `--space <id-or-exact-name>` when the terminal's current folder is not enough context. See [work-fold management layer](docs/management-layer.md) for snapshot fields, resolution rules, broker limits, and the distinction between this CLI and `work-fold:drive`.
 
 ## Windows releases
 
-Pushing an exact version tag such as `v<package version>` runs the Windows release workflow and publishes the installer plus updater metadata to [GitHub Releases](https://github.com/Mat-Tom-Son/workspace/releases). The installed app checks that public feed shortly after startup, every four hours, and when you choose **Help > Check for Updates…**. An unpacked `desktop:package:smoke` build intentionally disables updater controls because Electron Builder does not generate `resources/app-update.yml` for that lane.
+Pushing an exact version tag such as `v<package version>` runs the Windows release workflow and publishes the installer plus updater metadata to [GitHub Releases](https://github.com/Mat-Tom-Son/work-fold/releases). The installed app checks that public feed shortly after startup, every four hours, and when you choose **Help > Check for Updates…**. An unpacked `desktop:package:smoke` build intentionally disables updater controls because Electron Builder does not generate `resources/app-update.yml` for that lane.
 
 The release workflow supports an optional PFX certificate through GitHub secrets. The included personal certificate helper creates a self-signed identity outside the repository; this signs artifacts consistently but does not establish public Windows trust. Until a certificate-authority-backed identity is configured, users may still see Unknown Publisher or SmartScreen warnings.
 
@@ -216,17 +221,17 @@ See [Windows builds](docs/windows-build.md) and [Windows releases and signing](d
 
 ## macOS status
 
-`npm run desktop:make:mac` builds the non-interactive, separately identified `Workspace Local Smoke` Apple silicon structural candidate. `npm run desktop:release:mac` builds, Developer ID-signs, notarizes, staples, verifies, and draft-first publishes the production artifacts to the separate public Mac feed. Packaged production Mac builds update from that feed; signed installed updates through 0.4.7 have passed end to end. See [macOS build and release lane](docs/macos-build.md) and [macOS release runbook](docs/macos-release.md).
+`npm run desktop:make:mac` builds the non-interactive, separately identified `work-fold Local Smoke` Apple silicon structural candidate. `npm run desktop:release:mac` builds, Developer ID-signs, notarizes, staples, verifies, and draft-first publishes the production artifacts to the separate public Mac feed. The legacy Workspace updater proof is retained in the [macOS release runbook](docs/macos-release.md); work-fold requires its own signed first-install proof followed by a higher-version updater proof before the lane is accepted.
 
 ## Pi integration resources
 
-The user-facing **Library** contains personal materials. Separately, Workspace follows Pi's native resource locations for Assistant configuration rather than maintaining a parallel tool system:
+The user-facing **Library** contains personal materials. Separately, work-fold follows Pi's native resource locations for Assistant configuration rather than maintaining a parallel tool system:
 
 - User resources: the configured Pi agent directory (normally `~/.pi/agent`).
-- Portable project resources: `.pi/` inside a folder the user has registered as a Space. Registration itself is Workspace's authorization to load that exact local Pi configuration.
+- Portable project resources: `.pi/` inside a folder the user has registered as a Space. Registration itself is work-fold's authorization to load that exact local Pi configuration.
 - Packages: npm, git, HTTPS, and local package sources supported by Pi, managed as provenance and lifecycle records inside Assistant tools.
 
-Npm and git package sources use the corresponding command-line tools on `PATH`; local package paths and Skill imports do not require them. The packaged app uses Pi's normal global agent directory (typically `~/.pi/agent`) for packages and resources, while provider credentials are encrypted by the operating system for Workspace. Internal APIs and code may retain terms such as `workspace`, `project`, and `resource` where they identify existing Pi or storage concepts; those names do not change the user-facing Space, Library, Skill, and Extension model.
+Npm and git package sources use the corresponding command-line tools on `PATH`; local package paths and Skill imports do not require them. The packaged app uses Pi's normal global agent directory (typically `~/.pi/agent`) for packages and resources, while provider credentials are encrypted by the operating system for work-fold. Internal APIs and code use terms such as `space`, `project`, and `resource` where they identify technical Pi or storage concepts; those names do not change the user-facing Space, Library, Skill, and Extension model.
 
 See [Assistant capabilities](docs/assistant-capabilities.md) for the product-facing model and [Pi resource compatibility](docs/pi-resources.md) for the compact implementation reference.
 
@@ -236,23 +241,7 @@ See [Assistant capabilities](docs/assistant-capabilities.md) for the product-fac
 - [T3 Code reference audit](docs/t3code-reference-audit.md) — transferable workbench ideas, overlap, and the ranked adaptation plan.
 - [Architecture](docs/architecture.md), [management layer](docs/management-layer.md), and [Checks](docs/checks.md) — runtime boundaries, shared kernel/CLI, agent harness, and optional evidence-backed expectations over designated files.
 - [Assistant capabilities](docs/assistant-capabilities.md), [Extension surfaces](docs/extension-surfaces.md), [restricted app authoring](docs/restricted-app-authoring.md), [restricted app runtime](docs/restricted-app-runtime.md), and [Pi compatibility](docs/pi-resources.md) — Skills, full-trust Extensions, restricted apps, packages, scopes, authoring, and authorization.
-- [Workspace 0.8.0 release notes](docs/releases/0.8.0.md) — the quiet desktop Checks workflow, exact designated-file markers, manual run and decision controls, and adversarial truthfulness hardening.
-- [Workspace 0.7.1 release notes](docs/releases/0.7.1.md) — a narrow correction that distinguishes enabled Checks awaiting their first manual run from stale prior results.
-- [Workspace 0.7.0 release notes](docs/releases/0.7.0.md) — optional evidence-backed Checks over explicitly designated files, inert proposals, management/CLI workflows, and bounded fail-closed execution.
-- [Workspace 0.6.0 release notes](docs/releases/0.6.0.md) — the agent-facing act lane, the management conversation above Spaces, task-scoped outcomes, native Chat file drops, and additive-placement rollback.
-- [Workspace 0.4.7 release notes](docs/releases/0.4.7.md) — semantic Space appearance, dual previews, contrast auditing, durable local storage, and shared Codex/Claude proposal tooling.
-- [Workspace 0.4.6 release notes](docs/releases/0.4.6.md) — quiet background Chat continuity and active-tab focus preservation.
-- [Workspace 0.4.5 release notes](docs/releases/0.4.5.md) — Library tabs, cross-Space copy clarity, legacy navigation migration, and Codex/Claude contributor parity.
-- [Workspace 0.4.4 release notes](docs/releases/0.4.4.md) — Assistant tools in the work area, the Add menu, responsive capability management, and upgrade guidance.
-- [Workspace 0.4.3 release notes](docs/releases/0.4.3.md) — Space-bound Chat context, model stability, generated titles, modal accessibility, and upgrade guidance.
-- [Workspace 0.4.2 release notes](docs/releases/0.4.2.md) — cross-Space content search, large-Space performance, History correctness, restricted-network hardening, and upgrade guidance.
-- [Workspace 0.4.1 release notes](docs/releases/0.4.1.md) — Chat lifecycle, background-work visibility, composer discovery, provider setup, and upgrade guidance.
-- [Workspace 0.4.0 release notes](docs/releases/0.4.0.md) — Local App Studio, immutable Releases, release-backed App Instances, deterministic update/rollback, and explicit data removal.
-- [Workspace 0.3.0 release notes](docs/releases/0.3.0.md) — the local App-platform foundation, authority hardening, upgrade behavior, and hosted semantic-core boundary.
-- [Workspace 0.2.11 release notes](docs/releases/0.2.11.md) — first-request native Mac Quit behavior, the deferred graceful-shutdown coordinator, updater safety, and upgrade guidance.
-- [Workspace 0.2.10 release notes](docs/releases/0.2.10.md) — native macOS chrome, menus, Finder and Quick Look workflows, close/reopen continuity, security boundaries, and upgrade guidance.
-- [Workspace 0.2.9 release notes](docs/releases/0.2.9.md) — named Space-app automations, per-job authority, durable cadence, run receipts, and upgrade guidance.
-- [Workspace 0.2.8 release notes](docs/releases/0.2.8.md) — the shipped Space-app foundation, security boundary, example, verification, and known limits.
+- [Legacy Workspace release notes](docs/releases/0.8.0.md) — the historical pre-rebrand release series is preserved byte-for-byte under `docs/releases/`; it is evidence, not the work-fold version lineage.
 - [Desktop parity](docs/ui-parity.md) and [visual system](docs/visual-design.md) — required interactions and design rules.
 - [Windows build](docs/windows-build.md), [Windows release runbook](docs/windows-release.md), [macOS build lane](docs/macos-build.md), and [macOS release runbook](docs/macos-release.md) — verification, signing, updater, and publishing boundaries.
 - [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), and [Privacy](PRIVACY.md) — repository and user-data policies.

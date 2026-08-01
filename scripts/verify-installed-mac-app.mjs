@@ -7,22 +7,23 @@ import { fileURLToPath } from "node:url";
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 loadLocalReleaseEnvironment();
 const packageJson = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf8"));
-const appPath = process.env.WORKSPACE_MAC_APP_PATH || "/Applications/Workspace.app";
+const identity = JSON.parse(readFileSync(join(rootDir, "src", "shared", "product-identity.json"), "utf8"));
+const appPath = process.env.WORKFOLD_MAC_APP_PATH || `/Applications/${identity.productName}.app`;
 const expectedVersion = argumentValue("--version") || String(packageJson.version || "").trim();
-const expectedOwner = stringValue(process.env.WORKSPACE_MAC_RELEASE_OWNER) || "Mat-Tom-Son";
-const expectedRepo = stringValue(process.env.WORKSPACE_MAC_RELEASE_REPO) || "workspace-mac-releases";
-const expectedTeamId = stringValue(process.env.WORKSPACE_MAC_TEAM_ID) || "464JD5K8DC";
+const expectedOwner = stringValue(process.env.WORKFOLD_MAC_RELEASE_OWNER) || identity.sourceRepositoryOwner;
+const expectedRepo = stringValue(process.env.WORKFOLD_MAC_RELEASE_REPO) || identity.macReleaseRepositoryName;
+const expectedTeamId = stringValue(process.env.WORKFOLD_MAC_TEAM_ID) || "464JD5K8DC";
 const infoPlist = join(appPath, "Contents", "Info.plist");
 const appUpdatePath = join(appPath, "Contents", "Resources", "app-update.yml");
 
-if (process.platform !== "darwin") throw new Error("Installed Workspace verification is only available on macOS.");
+if (process.platform !== "darwin") throw new Error(`Installed ${identity.productName} verification is only available on macOS.`);
 if (!expectedVersion) throw new Error("Provide --version <version> or declare package.json version.");
-if (!existsSync(infoPlist) || !existsSync(appUpdatePath)) throw new Error(`Workspace is not installed completely at ${appPath}.`);
+if (!existsSync(infoPlist) || !existsSync(appUpdatePath)) throw new Error(`${identity.productName} is not installed completely at ${appPath}.`);
 
-const installedVersion = run("plutil", ["-extract", "CFBundleShortVersionString", "raw", "-o", "-", infoPlist], "Could not read installed Workspace version");
-const bundleId = run("plutil", ["-extract", "CFBundleIdentifier", "raw", "-o", "-", infoPlist], "Could not read installed Workspace bundle id");
-if (installedVersion !== expectedVersion) throw new Error(`Installed Workspace is ${installedVersion}; expected ${expectedVersion}.`);
-if (bundleId !== "io.github.mattomson.workspace") throw new Error(`Installed Workspace has unexpected bundle id ${bundleId}.`);
+const installedVersion = run("plutil", ["-extract", "CFBundleShortVersionString", "raw", "-o", "-", infoPlist], `Could not read installed ${identity.productName} version`);
+const bundleId = run("plutil", ["-extract", "CFBundleIdentifier", "raw", "-o", "-", infoPlist], `Could not read installed ${identity.productName} bundle id`);
+if (installedVersion !== expectedVersion) throw new Error(`Installed ${identity.productName} is ${installedVersion}; expected ${expectedVersion}.`);
+if (bundleId !== identity.productionAppId) throw new Error(`Installed ${identity.productName} has unexpected bundle id ${bundleId}.`);
 
 const updateConfig = readSimpleYaml(appUpdatePath);
 const expectedUpdateConfig = {
@@ -30,7 +31,7 @@ const expectedUpdateConfig = {
   owner: expectedOwner,
   repo: expectedRepo,
   releaseType: "release",
-  updaterCacheDirName: "workspace-desktop-updater",
+  updaterCacheDirName: identity.updaterCacheDirectoryName,
 };
 for (const [key, value] of Object.entries(expectedUpdateConfig)) {
   if (updateConfig[key] !== value) {
@@ -38,19 +39,19 @@ for (const [key, value] of Object.entries(expectedUpdateConfig)) {
   }
 }
 
-for (const relativePath of ["Contents/bin/workspace", "Contents/bin/workspace-cli.jxa.js"]) {
-  if (!existsSync(join(appPath, relativePath))) throw new Error(`Installed Workspace is missing ${relativePath}.`);
+for (const relativePath of [`Contents/bin/${identity.cliCommand}`, `Contents/bin/${identity.cliCommand}-cli.jxa.js`]) {
+  if (!existsSync(join(appPath, relativePath))) throw new Error(`Installed ${identity.productName} is missing ${relativePath}.`);
 }
 
-run("codesign", ["--verify", "--deep", "--strict", "--verbose=2", appPath], "Installed Workspace signature verification failed");
-const signature = run("codesign", ["-dv", "--verbose=4", appPath], "Could not inspect installed Workspace signature", true);
+run("codesign", ["--verify", "--deep", "--strict", "--verbose=2", appPath], `Installed ${identity.productName} signature verification failed`);
+const signature = run("codesign", ["-dv", "--verbose=4", appPath], `Could not inspect installed ${identity.productName} signature`, true);
 if (!signature.includes("Authority=Developer ID Application:") || !signature.includes(`TeamIdentifier=${expectedTeamId}`)) {
-  throw new Error(`Installed Workspace is not signed by the expected Developer ID Team ${expectedTeamId}.`);
+  throw new Error(`Installed ${identity.productName} is not signed by the expected Developer ID Team ${expectedTeamId}.`);
 }
-run("xcrun", ["stapler", "validate", appPath], "Installed Workspace notarization ticket validation failed");
-run("spctl", ["--assess", "--type", "execute", "--verbose=2", appPath], "Gatekeeper rejected installed Workspace");
+run("xcrun", ["stapler", "validate", appPath], `Installed ${identity.productName} notarization ticket validation failed`);
+run("spctl", ["--assess", "--type", "execute", "--verbose=2", appPath], `Gatekeeper rejected installed ${identity.productName}`);
 
-console.log(`Installed Workspace ${installedVersion} verified at ${appPath}.`);
+console.log(`Installed ${identity.productName} ${installedVersion} verified at ${appPath}.`);
 console.log(`Updater feed: ${expectedOwner}/${expectedRepo}; Team ID: ${expectedTeamId}.`);
 console.log("No Keychain secret data was requested.");
 

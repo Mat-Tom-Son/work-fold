@@ -5,39 +5,39 @@ import { basename, join, resolve } from "node:path";
 
 let configuredStateRoot: string | null = null;
 
-export function configureWorkspaceStateRoot(rootPath: string | undefined): void {
-  configuredStateRoot = rootPath?.trim() ? resolve(rootPath) : null;
+export function configureWorkFoldStateRoot(stateRoot: string | undefined): void {
+  configuredStateRoot = stateRoot?.trim() ? resolve(stateRoot) : null;
 }
 
-export function workspaceStateRoot(): string {
+export function workFoldStateRoot(): string {
   if (configuredStateRoot) return configuredStateRoot;
-  const override = process.env.WORKSPACE_STATE_DIR?.trim();
+  const override = process.env.WORKFOLD_STATE_DIR?.trim();
   if (override) return resolve(override);
-  return join(platformAppDataBase(), "Workspace");
+  return join(platformAppDataBase(), "work-fold");
 }
 
-export function managedWorkspaceRoot(): string {
-  const override = process.env.WORKSPACE_CONTENT_DIR?.trim();
-  return override ? resolve(override) : join(workspaceStateRoot(), "workspaces");
+export function managedSpaceRoot(): string {
+  const override = process.env.WORKFOLD_CONTENT_DIR?.trim();
+  return override ? resolve(override) : join(workFoldStateRoot(), "spaces");
 }
 
 export function resourceLibraryRoot(): string {
-  const override = process.env.WORKSPACE_RESOURCES_DIR?.trim();
-  return override ? resolve(override) : join(workspaceStateRoot(), "resources");
+  const override = process.env.WORKFOLD_RESOURCES_DIR?.trim();
+  return override ? resolve(override) : join(workFoldStateRoot(), "resources");
 }
 
-export function workspaceRegistryFile(): string {
-  return join(workspaceStateRoot(), "workspace-registry.json");
+export function spaceRegistryFile(): string {
+  return join(workFoldStateRoot(), "space-registry.json");
 }
 
 /** Machine-local Space identity and appearance preferences. */
-export function workspaceAppearanceFile(): string {
-  return join(workspaceStateRoot(), "appearance.json");
+export function spaceAppearanceFile(): string {
+  return join(workFoldStateRoot(), "appearance.json");
 }
 
 /** Machine-local staged code and lifecycle receipts for restricted apps. */
 export function restrictedAppRoot(): string {
-  return join(workspaceStateRoot(), "restricted-apps");
+  return join(workFoldStateRoot(), "restricted-apps");
 }
 
 /**
@@ -45,17 +45,17 @@ export function restrictedAppRoot(): string {
  * a distinct conversation scope, not a Space: its records describe this
  * machine's Space registry, so they are machine-local application state.
  */
-export const workspaceManagementScopeId = "workspace-management";
+export const workFoldManagementScopeId = "work-fold-management";
 
 /** Machine-local root holding the management scope's conversation records. */
-export function workspaceManagementRoot(): string {
-  return join(workspaceStateRoot(), "management");
+export function workFoldManagementRoot(): string {
+  return join(workFoldStateRoot(), "management");
 }
 
-export function workspaceStateDir(workspaceRoot: string): string {
-  const resolved = resolve(workspaceRoot);
-  const key = workspaceStateKey(resolved);
-  return join(workspaceStateRoot(), "state", "workspaces", key);
+export function spaceStateDir(spaceRoot: string): string {
+  const resolved = resolve(spaceRoot);
+  const key = spaceStateKey(resolved);
+  return join(workFoldStateRoot(), "state", "spaces", key);
 }
 
 /**
@@ -63,57 +63,43 @@ export function workspaceStateDir(workspaceRoot: string): string {
  * identity rather than the folder path. Moving a registered Space therefore
  * preserves its state, while removal can explicitly revoke the one identity.
  */
-export function workspaceCheckStateFile(workspaceId: string): string {
-  const normalized = workspaceId.trim();
+export function spaceCheckStateFile(spaceId: string): string {
+  const normalized = spaceId.trim();
   if (!normalized || normalized.length > 160 || /[^\x20-\x7e]/.test(normalized)) {
     throw new Error("A valid Space id is required for Check state.");
   }
   const readable = safeSegment(normalized).slice(0, 48) || "space";
   const hash = createHash("sha256").update(normalized).digest("hex").slice(0, 16);
-  return join(workspaceStateRoot(), "checks", "spaces", `${readable}-${hash}.json`);
+  return join(workFoldStateRoot(), "checks", "spaces", `${readable}-${hash}.json`);
 }
 
-export function workspaceMetadataDir(workspaceRoot: string): string {
-  return portableMetadataPath(join(resolve(workspaceRoot), ".workspace"), "Space metadata directory");
+export function spaceMetadataDir(spaceRoot: string): string {
+  return portableMetadataPath(join(resolve(spaceRoot), ".work-fold"), "Space metadata directory");
 }
 
-export function workspaceStateKey(workspaceRoot: string): string {
-  const resolved = resolve(workspaceRoot);
-  const readable = safeSegment(basename(resolved)).slice(0, 40) || "workspace";
+export function spaceStateKey(spaceRoot: string): string {
+  const resolved = resolve(spaceRoot);
+  const readable = safeSegment(basename(resolved)).slice(0, 40) || "space";
   const normalized = process.platform === "win32" ? resolved.toLocaleLowerCase() : resolved;
   const hash = createHash("sha256").update(normalized).digest("hex").slice(0, 16);
   return `${readable}-${hash}`;
 }
 
-export function workspaceManifestFile(workspaceRoot: string): string {
-  return portableMetadataPath(join(workspaceMetadataDir(workspaceRoot), "space.json"), "Space manifest");
+export function spaceManifestFile(spaceRoot: string): string {
+  return portableMetadataPath(join(spaceMetadataDir(spaceRoot), "space.json"), "Space manifest");
 }
 
-export function workspaceConversationDir(workspaceRoot: string): string {
-  return portableMetadataPath(join(workspaceMetadataDir(workspaceRoot), "conversations"), "Space conversation directory");
+export function spaceConversationDir(spaceRoot: string): string {
+  return portableMetadataPath(join(spaceMetadataDir(spaceRoot), "conversations"), "Space conversation directory");
 }
 
 /** Portable, inert Check declarations. Local enablement remains in app state. */
-export function workspaceCheckDeclarationDir(workspaceRoot: string): string {
-  return portableMetadataPath(join(workspaceMetadataDir(workspaceRoot), "checks"), "Space Check declaration directory");
+export function spaceCheckDeclarationDir(spaceRoot: string): string {
+  return portableMetadataPath(join(spaceMetadataDir(spaceRoot), "checks"), "Space Check declaration directory");
 }
 
-/** Previous releases stored these portable records in the app-data state tree. */
-export function legacyWorkspaceManifestFile(workspaceRoot: string): string {
-  return join(workspaceStateDir(workspaceRoot), "workspace.json");
-}
-
-/** Previous releases stored these portable records in the app-data state tree. */
-export function legacyWorkspaceConversationDir(workspaceRoot: string): string {
-  return join(workspaceStateDir(workspaceRoot), "conversations");
-}
-
-export function workspaceSessionDir(workspaceRoot: string): string {
-  return join(workspaceStateDir(workspaceRoot), "sessions");
-}
-
-export function workspaceHistoryRoot(workspaceRoot: string): string {
-  return join(workspaceStateDir(workspaceRoot), "history");
+export function spaceHistoryRoot(spaceRoot: string): string {
+  return join(spaceStateDir(spaceRoot), "history");
 }
 
 function platformAppDataBase(): string {

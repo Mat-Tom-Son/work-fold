@@ -3,17 +3,17 @@ import type * as React from "react";
 import { ArrowDown20Regular, ArrowUp20Regular } from "@fluentui/react-icons";
 import { AlertTriangle, Archive, CircleCheck, Clock3, Loader2, Square, X } from "lucide-react";
 
-import { agentActivityLogLimit, chatDraftDebounceMs, genericChatEmptyGreetings, workspacePathDragType } from "../../constants";
+import { agentActivityLogLimit, chatDraftDebounceMs, genericChatEmptyGreetings, spacePathDragType } from "../../constants";
 import { createFixtureContextAttachment, fixtureAgentActivityEvents, fixtureConversationSummary } from "../../fixtures/shared";
 import { api, createEventSource, errorText } from "../../lib/api";
 import { createChatTurnStateGate, observeChatTurnState } from "../../lib/chat-turn-state";
 import { hasNativeFiles } from "../../lib/file-actions";
 import { chatDisplayTitle, chatDraftStorageKey, clearStoredChatDraft, formatBytes, latestTranscriptTime, modelConversationTitle, readStoredChatDraft, writeStoredChatDraft } from "../../lib/format";
 import { dismissRestrictedAppProposal, installRestrictedAppProposal } from "../../lib/restricted-apps";
-import { resolveFixtureWorkspacePathCandidates } from "../../lib/workspace-path-links";
-import { workspaceIdentityFor, workspaceIdentityStyle, type WorkspaceIdentity } from "../../lib/workspace-identity";
-import type { AgentActivityEvent, AgentActivityLogEntry, AgentCatalog, AgentCommand, AgentStatus, ChatContextPathRequest, ChatLifecycleView, ChatMessage, ChatStreamEvent, ContextAttachment, ConversationRuntime, ConversationSummary, ExtensionUiRequest, PendingChatSend, RestrictedAppInstalled, RestrictedAppProposal, RuntimePreviewEntry, TreeEntry, WorkspaceCustomizationMap, WorkspaceFixtureConversation, WorkspaceSummary } from "../../types";
-import { Banner, FluentGlyph, WorkspaceIconGlyph } from "../chrome/common";
+import { resolveFixtureSpacePathCandidates } from "../../lib/space-path-links";
+import { spaceIdentityFor, spaceIdentityStyle, type SpaceIdentity } from "../../lib/space-identity";
+import type { AgentActivityEvent, AgentActivityLogEntry, AgentCatalog, AgentCommand, AgentStatus, ChatContextPathRequest, ChatLifecycleView, ChatMessage, ChatStreamEvent, ContextAttachment, ConversationRuntime, ConversationSummary, ExtensionUiRequest, PendingChatSend, RestrictedAppInstalled, RestrictedAppProposal, RuntimePreviewEntry, TreeEntry, SpaceCustomizationMap, SpaceFixtureConversation, SpaceSummary } from "../../types";
+import { Banner, FluentGlyph, SpaceIconGlyph } from "../chrome/common";
 import { RestrictedAppReviewDialog } from "../panes/RestrictedAppsSection";
 import { FileTypeIcon } from "../tree/FileTree";
 import { AgentActivityLog, AgentActivityTicker, RuntimeContextPreview, activityRecapKey, normalizeAgentActivityEvent, shouldKeepActivityRecap } from "./activity";
@@ -29,7 +29,7 @@ const fixtureComposerCommands: AgentCommand[] = [
 ];
 const fixtureConversationRuntime: ConversationRuntime = {
   sessionId: "fixture-session",
-  model: { provider: "fixture", id: "workspace-assistant", name: "Workspace Assistant" },
+  model: { provider: "fixture", id: "work-fold-assistant", name: "work-fold Assistant" },
   usage: {
     contextTokens: 18_400,
     contextWindow: 128_000,
@@ -45,14 +45,14 @@ const fixtureConversationRuntime: ConversationRuntime = {
 
 export function ChatPanel({
   surfaceTabId,
-  workspace,
-  workspaceCustomizations,
+  space,
+  spaceCustomizations,
   active = true,
   targetConversationId = null,
   contextPathRequest,
   onAddPathToChatContext,
   onUploadDroppedFiles,
-  onOpenWorkspaceFile,
+  onOpenSpaceFile,
   selectedPath,
   onConversationActivated,
   onConversationsChanged,
@@ -69,14 +69,14 @@ export function ChatPanel({
   fixtureTreeEntries = emptyFixtureTreeEntries,
 }: {
   surfaceTabId: string;
-  workspace: WorkspaceSummary;
-  workspaceCustomizations: WorkspaceCustomizationMap;
+  space: SpaceSummary;
+  spaceCustomizations: SpaceCustomizationMap;
   active?: boolean;
   targetConversationId?: string | null;
   contextPathRequest: ChatContextPathRequest | null;
   onAddPathToChatContext?: (path: string) => void;
   onUploadDroppedFiles?: (dataTransfer: DataTransfer) => Promise<string[]>;
-  onOpenWorkspaceFile?: (path: string) => void;
+  onOpenSpaceFile?: (path: string) => void;
   selectedPath: string | null;
   onConversationActivated?: (conversation: ConversationSummary | null) => void;
   onConversationsChanged?: (conversations: ConversationSummary[]) => void;
@@ -89,7 +89,7 @@ export function ChatPanel({
   onRestrictedAppInstalled?: (app: RestrictedAppInstalled) => void;
   onRestrictedAppProposalRequested?: () => void;
   fixtureMode?: boolean;
-  fixtureConversations?: WorkspaceFixtureConversation[];
+  fixtureConversations?: SpaceFixtureConversation[];
   fixtureTreeEntries?: TreeEntry[];
 }) {
   const [conversation, setConversation] = useState<ConversationSummary | null>(null);
@@ -129,9 +129,9 @@ export function ChatPanel({
   const [appProposalBusy, setAppProposalBusy] = useState(false);
   const appProposalVersionsRef = useRef(new Map<string, Pick<RestrictedAppProposal, "status" | "updatedAt">>());
   const emptyStateGreeting = useMemo(() => randomChatEmptyGreeting(), []);
-  const workspaceIdentity = useMemo(
-    () => workspaceIdentityFor(workspace, workspaceCustomizations),
-    [workspace, workspaceCustomizations],
+  const spaceIdentity = useMemo(
+    () => spaceIdentityFor(space, spaceCustomizations),
+    [space, spaceCustomizations],
   );
 
   useEffect(() => {
@@ -154,7 +154,7 @@ export function ChatPanel({
   const runtimePreviewIdRef = useRef(0);
   const eventIdRef = useRef(0);
   const eventClearTimerRef = useRef<number | null>(null);
-  const workspaceIdRef = useRef(workspace.id);
+  const spaceIdRef = useRef(space.id);
   const eventStreamReadyConversationIdRef = useRef<string | null>(null);
   const pendingSendRef = useRef<PendingChatSend | null>(null);
   const postingPendingSendRef = useRef(false);
@@ -167,11 +167,11 @@ export function ChatPanel({
   const activityLogId = useId();
   const draftStorageKey = useMemo(
     () => chatDraftStorageKey(
-      workspace.id,
+      space.id,
       targetConversationId ?? conversation?.id ?? null,
-      surfaceTabId === `chat:${workspace.id}:new` ? null : surfaceTabId,
+      surfaceTabId === `chat:${space.id}:new` ? null : surfaceTabId,
     ),
-    [workspace.id, targetConversationId, conversation?.id, surfaceTabId],
+    [space.id, targetConversationId, conversation?.id, surfaceTabId],
   );
   const runtimePreviewScrollKey = useMemo(
     () => runtimePreviews.map((entry) => `${entry.id}:${entry.phase ?? ""}:${entry.text.length}`).join("|"),
@@ -206,7 +206,7 @@ export function ChatPanel({
   }, []);
 
   useEffect(() => {
-    workspaceIdRef.current = workspace.id;
+    spaceIdRef.current = space.id;
     setActivityRecap([]);
     resetActivityLog();
     clearRuntimePreviews();
@@ -214,13 +214,13 @@ export function ChatPanel({
     postingPendingSendRef.current = false;
     eventStreamReadyConversationIdRef.current = null;
     transientConversationIdsRef.current = new Set();
-  }, [workspace.id]);
+  }, [space.id]);
 
   useEffect(() => {
     setAppProposal(null);
     setAppProposalBusy(false);
     appProposalVersionsRef.current.clear();
-  }, [workspace.id, conversation?.id]);
+  }, [space.id, conversation?.id]);
 
   useEffect(() => {
     if (fixtureMode) return;
@@ -243,7 +243,7 @@ export function ChatPanel({
   useEffect(() => {
     if (fixtureMode) return;
     void loadConversationList();
-  }, [workspace.id, fixtureMode]);
+  }, [space.id, fixtureMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -252,7 +252,7 @@ export function ChatPanel({
       setCommands(fixtureComposerCommands);
       return;
     }
-    void api<AgentCatalog>(`/api/workspaces/${workspace.id}/agent/catalog`)
+    void api<AgentCatalog>(`/api/spaces/${space.id}/agent/catalog`)
       .then((catalog) => {
         if (!cancelled) setCommands(catalog.commands ?? []);
       })
@@ -262,7 +262,7 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [workspace.id, fixtureMode]);
+  }, [space.id, fixtureMode]);
 
   useEffect(() => {
     setActiveCommandIndex(0);
@@ -281,7 +281,7 @@ export function ChatPanel({
       });
       return;
     }
-    void api<{ status: AgentStatus }>(`/api/agent/status?workspaceId=${encodeURIComponent(workspace.id)}`)
+    void api<{ status: AgentStatus }>(`/api/agent/status?spaceId=${encodeURIComponent(space.id)}`)
       .then(({ status }) => {
         if (!cancelled) setConfiguredAssistant(status);
       })
@@ -291,11 +291,11 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [workspace.id, fixtureMode]);
+  }, [space.id, fixtureMode]);
 
   useEffect(() => {
     setConversationRuntime(null);
-  }, [workspace.id, conversation?.id]);
+  }, [space.id, conversation?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -315,7 +315,7 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [workspace.id, conversation?.id, messages.length, running, fixtureMode]);
+  }, [space.id, conversation?.id, messages.length, running, fixtureMode]);
 
   useEffect(() => {
     if (!fixtureMode) return;
@@ -364,7 +364,7 @@ export function ChatPanel({
     seedActivityLog(fixtureEvents);
     setActivityRecap(fixtureEvents);
     setRuntimePreviews(fixturePreviews);
-  }, [workspace.id, fixtureMode, targetConversationId, fixtureConversations]);
+  }, [space.id, fixtureMode, targetConversationId, fixtureConversations]);
 
   useEffect(() => {
     if (fixtureMode) return;
@@ -408,7 +408,7 @@ export function ChatPanel({
     let openedOnce = false;
     const turnStateGate = createChatTurnStateGate();
     eventStreamReadyConversationIdRef.current = null;
-    const source = createEventSource(`/api/workspaces/${workspace.id}/conversations/${conversationId}/events`);
+    const source = createEventSource(`/api/spaces/${space.id}/conversations/${conversationId}/events`);
     source.onopen = () => {
       eventStreamReadyConversationIdRef.current = conversationId;
       setError(null);
@@ -500,11 +500,11 @@ export function ChatPanel({
           setExtensionRequest(data.request);
         }
       }
-      if (data.type === "restricted_app_proposal" && data.proposal?.status === "pending" && data.proposal.workspaceId === workspace.id && data.proposal.conversationId === conversationId && observeAppProposal(data.proposal)) {
+      if (data.type === "restricted_app_proposal" && data.proposal?.status === "pending" && data.proposal.spaceId === space.id && data.proposal.conversationId === conversationId && observeAppProposal(data.proposal)) {
         setAppProposal(data.proposal);
         onRestrictedAppProposalRequested?.();
       }
-      if (data.type === "restricted_app_proposal_settled" && data.proposal?.workspaceId === workspace.id && data.proposal.conversationId === conversationId && observeAppProposal(data.proposal)) {
+      if (data.type === "restricted_app_proposal_settled" && data.proposal?.spaceId === space.id && data.proposal.conversationId === conversationId && observeAppProposal(data.proposal)) {
         setAppProposal((current) => current?.id === data.proposal?.id ? null : current);
       }
       if (data.type === "editor" && typeof data.text === "string") {
@@ -539,7 +539,7 @@ export function ChatPanel({
       cancelStreamingFlush();
       activeThinkingPreviewIdRef.current = null;
     };
-  }, [conversation?.id, shouldKeepEventStreamOpen, workspace.id]);
+  }, [conversation?.id, shouldKeepEventStreamOpen, space.id]);
 
   useEffect(() => {
     if (!contextPathRequest) return;
@@ -764,10 +764,10 @@ export function ChatPanel({
     }
   }
 
-  // Dev-only fixture script playback (`?fixture=workspace&script=<conversationId>`): replays the
+  // Dev-only fixture script playback (`?fixture=space&script=<conversationId>`): replays the
   // conversation's first user+assistant pair as live action — typed prompt, activity events, streamed
   // reply — for product-video recording. Drives the same state setters the live event stream uses.
-  function startScriptPlayback(conversation: WorkspaceFixtureConversation, initialDelayMs: number) {
+  function startScriptPlayback(conversation: SpaceFixtureConversation, initialDelayMs: number) {
     scriptPlaybackStateRef.current = "playing";
     setError(null);
     commitConversations((fixtureConversations ?? []).map(fixtureConversationSummary));
@@ -899,7 +899,7 @@ export function ChatPanel({
     userPinnedToBottomRef.current = true;
     setUserPinnedToBottom(true);
     try {
-      const result = await api<{ conversations: ConversationSummary[] }>(`/api/workspaces/${workspace.id}/conversations`);
+      const result = await api<{ conversations: ConversationSummary[] }>(`/api/spaces/${space.id}/conversations`);
       commitConversations(result.conversations);
     } catch (conversationError) {
       setError(errorText(conversationError));
@@ -936,7 +936,7 @@ export function ChatPanel({
     setActiveContextPath(null);
     userPinnedToBottomRef.current = true;
     setUserPinnedToBottom(true);
-    const result = await api<{ conversation: ConversationSummary }>(`/api/workspaces/${workspace.id}/conversations`, { method: "POST" });
+    const result = await api<{ conversation: ConversationSummary }>(`/api/spaces/${space.id}/conversations`, { method: "POST" });
     transientConversationIdsRef.current.add(result.conversation.id);
     setConversation(result.conversation);
     onConversationActivated?.(result.conversation);
@@ -969,7 +969,7 @@ export function ChatPanel({
   async function loadConversationRuntime(conversationId: string): Promise<ConversationRuntime | null> {
     try {
       const result = await api<{ runtime: ConversationRuntime }>(
-        `/api/workspaces/${workspace.id}/conversations/${conversationId}/runtime`,
+        `/api/spaces/${space.id}/conversations/${conversationId}/runtime`,
       );
       return result.runtime;
     } catch {
@@ -981,7 +981,7 @@ export function ChatPanel({
     const settleStreamingTurn = options.settleStreamingTurn ?? false;
     try {
       if (fixtureMode) return;
-      const result = await api<{ messages: ChatMessage[] }>(`/api/workspaces/${workspace.id}/conversations/${conversationId}`);
+      const result = await api<{ messages: ChatMessage[] }>(`/api/spaces/${space.id}/conversations/${conversationId}`);
       const transcript = result.messages.filter((message) => message.role !== "system");
       setMessages((current) => {
         // Rows that replace content already on screen (the streamed reply)
@@ -1089,8 +1089,8 @@ export function ChatPanel({
       return;
     }
     try {
-      const activeConversation = conversation ?? (await api<{ conversation: ConversationSummary }>(`/api/workspaces/${workspace.id}/conversations`, { method: "POST" })).conversation;
-      const shouldUseOptimisticFirstPromptTitle = !conversation || transientConversationIdsRef.current.has(activeConversation.id) || activeConversation.title === "Workspace chat";
+      const activeConversation = conversation ?? (await api<{ conversation: ConversationSummary }>(`/api/spaces/${space.id}/conversations`, { method: "POST" })).conversation;
+      const shouldUseOptimisticFirstPromptTitle = !conversation || transientConversationIdsRef.current.has(activeConversation.id) || activeConversation.title === "work-fold chat";
       const optimisticConversation = shouldUseOptimisticFirstPromptTitle
         ? {
             ...activeConversation,
@@ -1132,7 +1132,7 @@ export function ChatPanel({
     postingPendingSendRef.current = true;
     pendingSendRef.current = null;
     try {
-      const result = await api<{ accepted: boolean; message: ChatMessage }>(`/api/workspaces/${workspace.id}/conversations/${pending.conversation.id}/messages`, {
+      const result = await api<{ accepted: boolean; message: ChatMessage }>(`/api/spaces/${space.id}/conversations/${pending.conversation.id}/messages`, {
         method: "POST",
         body: {
           content: pending.content,
@@ -1141,7 +1141,7 @@ export function ChatPanel({
         },
       });
       clearStoredChatDraft(pending.draftStorageKey);
-      const shouldUseFirstPromptTitle = pending.transientConversation || pending.conversation.title === "Workspace chat";
+      const shouldUseFirstPromptTitle = pending.transientConversation || pending.conversation.title === "work-fold chat";
       const updatedConversation = {
         ...pending.conversation,
         title: shouldUseFirstPromptTitle ? chatDisplayTitle({ firstUserMessage: pending.content }) : chatDisplayTitle({ serverTitle: pending.conversation.title }),
@@ -1196,7 +1196,7 @@ export function ChatPanel({
     }
     if (!conversation) return;
     try {
-      const result = await api<{ aborted: boolean }>(`/api/workspaces/${workspace.id}/conversations/${conversation.id}/abort`, { method: "POST" });
+      const result = await api<{ aborted: boolean }>(`/api/spaces/${space.id}/conversations/${conversation.id}/abort`, { method: "POST" });
       if (!result.aborted) addAgentEvent({ message: "No running Assistant turn found", phase: "complete" });
     } catch (abortError) {
       setError(errorText(abortError));
@@ -1209,7 +1209,7 @@ export function ChatPanel({
     setError(null);
     addAgentEvent({ message: "Compacting chat context", phase: "running" });
     try {
-      await api<{ compacted: boolean }>(`/api/workspaces/${workspace.id}/conversations/${conversation.id}/compact`, { method: "POST" });
+      await api<{ compacted: boolean }>(`/api/spaces/${space.id}/conversations/${conversation.id}/compact`, { method: "POST" });
       setRunning(false);
       setConversationRuntime(await loadConversationRuntime(conversation.id));
       addAgentEvent({ message: "Chat context compacted", phase: "complete" });
@@ -1229,7 +1229,7 @@ export function ChatPanel({
         setContextAttachments((current) => [...current, createFixtureContextAttachment(path)]);
         return;
       }
-      const result = await api<{ attachment: ContextAttachment }>(`/api/workspaces/${workspace.id}/context-attachments`, {
+      const result = await api<{ attachment: ContextAttachment }>(`/api/spaces/${space.id}/context-attachments`, {
         method: "POST",
         body: { path },
       });
@@ -1259,9 +1259,9 @@ export function ChatPanel({
     }
   }, []);
 
-  const resolveWorkspacePathLinks = useCallback(async (paths: string[]) => {
-    if (fixtureMode) return resolveFixtureWorkspacePathCandidates(paths, fixtureTreeEntries);
-    const result = await api<{ existing: string[] }>(`/api/workspaces/${workspace.id}/paths-exist`, {
+  const resolveSpacePathLinks = useCallback(async (paths: string[]) => {
+    if (fixtureMode) return resolveFixtureSpacePathCandidates(paths, fixtureTreeEntries);
+    const result = await api<{ existing: string[] }>(`/api/spaces/${space.id}/paths-exist`, {
       method: "POST",
       body: { paths },
     });
@@ -1277,18 +1277,18 @@ export function ChatPanel({
       if (bareNameMatches.length === 1 && bareNameMatches[0]) byCandidate.set(path, bareNameMatches[0]);
     }
     return byCandidate;
-  }, [fixtureMode, fixtureTreeEntries, workspace.id]);
+  }, [fixtureMode, fixtureTreeEntries, space.id]);
 
-  function droppedWorkspacePath(event: React.DragEvent<HTMLElement>): string {
-    return event.dataTransfer.getData(workspacePathDragType);
+  function droppedSpacePath(event: React.DragEvent<HTMLElement>): string {
+    return event.dataTransfer.getData(spacePathDragType);
   }
 
-  function hasWorkspacePathDrag(event: React.DragEvent<HTMLElement>): boolean {
-    return Array.from(event.dataTransfer.types).includes(workspacePathDragType);
+  function hasSpacePathDrag(event: React.DragEvent<HTMLElement>): boolean {
+    return Array.from(event.dataTransfer.types).includes(spacePathDragType);
   }
 
-  function composerAcceptsWorkspacePathDrag(event: React.DragEvent<HTMLElement>): boolean {
-    return hasWorkspacePathDrag(event) && Boolean(onAddPathToChatContext);
+  function composerAcceptsSpacePathDrag(event: React.DragEvent<HTMLElement>): boolean {
+    return hasSpacePathDrag(event) && Boolean(onAddPathToChatContext);
   }
 
   function composerAcceptsNativeFileDrag(event: React.DragEvent<HTMLElement>): boolean {
@@ -1296,13 +1296,13 @@ export function ChatPanel({
   }
 
   function handleComposerDragEnter(event: React.DragEvent<HTMLFormElement>): void {
-    if (!composerAcceptsWorkspacePathDrag(event) && !composerAcceptsNativeFileDrag(event)) return;
+    if (!composerAcceptsSpacePathDrag(event) && !composerAcceptsNativeFileDrag(event)) return;
     event.preventDefault();
     setDragActive(true);
   }
 
   function handleComposerDragOver(event: React.DragEvent<HTMLFormElement>): void {
-    if (!composerAcceptsWorkspacePathDrag(event) && !composerAcceptsNativeFileDrag(event)) return;
+    if (!composerAcceptsSpacePathDrag(event) && !composerAcceptsNativeFileDrag(event)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
     setDragActive(true);
@@ -1313,12 +1313,12 @@ export function ChatPanel({
   }
 
   function handleComposerDrop(event: React.DragEvent<HTMLFormElement>): void {
-    const acceptsWorkspacePath = composerAcceptsWorkspacePathDrag(event);
-    if (!acceptsWorkspacePath && !composerAcceptsNativeFileDrag(event)) return;
+    const acceptsSpacePath = composerAcceptsSpacePathDrag(event);
+    if (!acceptsSpacePath && !composerAcceptsNativeFileDrag(event)) return;
     event.preventDefault();
     setDragActive(false);
-    if (acceptsWorkspacePath) {
-      const path = droppedWorkspacePath(event);
+    if (acceptsSpacePath) {
+      const path = droppedSpacePath(event);
       if (path) onAddPathToChatContext?.(path);
       return;
     }
@@ -1359,7 +1359,7 @@ export function ChatPanel({
     const request = extensionRequest;
     setExtensionRequest(null);
     try {
-      await api(`/api/workspaces/${workspace.id}/conversations/${conversation.id}/extension-ui/${request.id}`, {
+      await api(`/api/spaces/${space.id}/conversations/${conversation.id}/extension-ui/${request.id}`, {
         method: "POST",
         body: { value, cancelled },
       });
@@ -1381,7 +1381,7 @@ export function ChatPanel({
     const proposal = appProposal;
     setAppProposalBusy(true);
     try {
-      const app = await installRestrictedAppProposal(workspace.id, proposal.conversationId, proposal.id);
+      const app = await installRestrictedAppProposal(space.id, proposal.conversationId, proposal.id);
       setAppProposal(null);
       onRestrictedAppInstalled?.(app);
       showToast({ text: `${app.manifest.title} installed. Review its access in Assistant tools when you are ready to connect it.`, tone: "success" });
@@ -1397,7 +1397,7 @@ export function ChatPanel({
     const proposal = appProposal;
     setAppProposalBusy(true);
     try {
-      await dismissRestrictedAppProposal(workspace.id, proposal.conversationId, proposal.id);
+      await dismissRestrictedAppProposal(space.id, proposal.conversationId, proposal.id);
       setAppProposal(null);
     } catch (caught) {
       setError(errorText(caught));
@@ -1464,9 +1464,9 @@ export function ChatPanel({
                 showRuntimePreview={showRuntimePreview}
                 runtimePreviews={runtimePreviews}
                 activityRecap={activityRecap}
-                workspaceId={workspace.id}
-                onOpenWorkspaceFile={onOpenWorkspaceFile}
-                resolveWorkspacePathLinks={resolveWorkspacePathLinks}
+                spaceId={space.id}
+                onOpenSpaceFile={onOpenSpaceFile}
+                resolveSpacePathLinks={resolveSpacePathLinks}
                 onCopyMessage={copyMessage}
                 key={message.id}
               />
@@ -1484,7 +1484,7 @@ export function ChatPanel({
             </article>
           ) : null}
           {!hasTranscript ? (
-            <ChatEmptyState greeting={emptyStateGreeting} workspace={workspace} identity={workspaceIdentity} />
+            <ChatEmptyState greeting={emptyStateGreeting} space={space} identity={spaceIdentity} />
           ) : null}
           <div className="message-end-sentinel" ref={messageEndRef} aria-hidden="true" />
         </div>
@@ -1823,20 +1823,20 @@ function ContextAttachmentPopover({ attachment, onClose }: { attachment: Context
 
 function ChatEmptyState({
   greeting,
-  workspace,
+  space,
   identity,
 }: {
   greeting: string;
-  workspace: WorkspaceSummary;
-  identity: WorkspaceIdentity;
+  space: SpaceSummary;
+  identity: SpaceIdentity;
 }) {
   const Icon = identity.Icon;
   return (
-    <div className="chat-empty-state" style={workspaceIdentityStyle(identity)}>
+    <div className="chat-empty-state" style={spaceIdentityStyle(identity)}>
       <strong>{greeting}</strong>
-      <span className="chat-empty-workspace">
-        <WorkspaceIconGlyph icon={Icon} size={15} />
-        <span>{workspace.name}</span>
+      <span className="chat-empty-space">
+        <SpaceIconGlyph icon={Icon} size={15} />
+        <span>{space.name}</span>
       </span>
     </div>
   );
@@ -1853,13 +1853,13 @@ function fixtureAgentRunning(): boolean {
 }
 
 // One playback per page load: the first ChatPanel whose fixture conversations contain the script
-// conversation claims it, so extra tabs for the same workspace never restart the show.
+// conversation claims it, so extra tabs for the same space never restart the show.
 let fixtureScriptPlaybackClaimed = false;
 
 function fixtureScriptPlayback(): { conversationId: string; delayMs: number } | null {
   if (!import.meta.env.DEV) return null;
   const params = new URLSearchParams(window.location.search);
-  if (params.get("fixture") !== "workspace") return null;
+  if (params.get("fixture") !== "space") return null;
   const conversationId = params.get("script");
   if (!conversationId) return null;
   const parsedDelay = Number.parseInt(params.get("scriptDelay") ?? "", 10);

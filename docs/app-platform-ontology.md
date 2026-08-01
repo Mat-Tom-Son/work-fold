@@ -88,9 +88,9 @@ forever without an account, App Project, release, or instance.
 - **Identity:** its portable Space id identifies the folder-backed context. It
   is not a credential, cloud project id, or ownership proof.
 - **Control:** the person controls the ordinary folder through the filesystem;
-  the local Workspace profile controls whether it is registered and authorized
+  the local work-fold profile controls whether it is registered and authorized
   to load its project Pi configuration.
-- **Authority:** registration authorizes local Pi configuration for Workspace.
+- **Authority:** registration authorizes local Pi configuration for work-fold.
   It does not publish, share, install a Feature, grant a connection, or attach
   all files to a Chat.
 - **Copy behavior:** moving the folder may preserve identity. Copying it creates
@@ -189,7 +189,7 @@ Feature creates a new id; an old installation identity is never revived.
   meaningful combined risk.
 - **Lifecycle:** update preserves the installation incarnation; disable, remove,
   reinstall, data retention/adoption, export, and purge are distinct operations.
-- **Visibility:** internal. Capabilities and update review may expose its state
+- **Visibility:** internal. Assistant tools and update review may expose its state
   without teaching “Feature Installation” as a top-level product noun.
 
 ### Runtime Instance
@@ -348,14 +348,19 @@ cloud account exists.
 
 ### Degenerate local Tenant
 
-One machine-local Workspace application profile under one operating-system user
+One machine-local work-fold application profile under one operating-system user
 is the **degenerate local Tenant**. It is a conceptual runtime-policy boundary,
 not a cloud record or portable credential.
+
+The boundary begins empty for work-fold. A legacy Workspace profile, portable
+`.workspace/` record, registry, connection, artifact, receipt, or data store is
+not another local Tenant and is never imported, adopted, or upgraded into this
+one. Preserved legacy bytes carry no work-fold identity or authority.
 
 - It owns local Runtime Instance policy, storage, grants, connection records,
   schedules, quotas, and receipts. It does not own App Project source or
   publication authority.
-- Its protection is limited to the current OS-user and trusted Workspace host
+- Its protection is limited to the current OS-user and trusted work-fold host
   boundary; it does not make the current read-only management protocol an
   authenticated API.
 - It is not stored in a Space as proof of ownership and does not travel when a
@@ -457,7 +462,7 @@ The product should expose an exact noun only where it improves a decision.
 | App Project | Contextual builder noun | Build, collaboration, review, publish, fork |
 | Feature | Meaningful name first; generic noun optional | Builder structure, permissions, update composition |
 | Feature Revision | Internal with digest/version evidence | Review, update, provenance, diagnostics, incident response |
-| Feature Installation | Internal state | Capabilities, grants, connections, jobs, data lifecycle |
+| Feature Installation | Internal state | Assistant tools, grants, connections, jobs, data lifecycle |
 | Runtime Instance | Internal union only | Typed host contracts, authority, storage, receipts |
 | Development Instance | **Local preview** or **Run locally** first | Source grants, review, receipts, diagnostics |
 | App Release | Progressive disclosure | Publish, install, update, rollback, provenance |

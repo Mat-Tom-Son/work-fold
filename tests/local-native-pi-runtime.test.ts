@@ -54,8 +54,8 @@ test("host-backed Pi AuthStorage persists provider-neutral API key data", async 
 
 test("routed extension UI bridge resolves host responses", async () => {
   const bridge = new RoutedPiExtensionUiBridge();
-  bridge.publish({ id: "editor-1", method: "setEditorText", text: "hello", conversationId: "conversation", workspaceRoot: "C:/workspace" });
-  bridge.publish({ id: "editor-2", method: "pasteToEditor", text: " world", conversationId: "conversation", workspaceRoot: "C:/workspace" });
+  bridge.publish({ id: "editor-1", method: "setEditorText", text: "hello", conversationId: "conversation", spaceRoot: "C:/workspace" });
+  bridge.publish({ id: "editor-2", method: "pasteToEditor", text: " world", conversationId: "conversation", spaceRoot: "C:/workspace" });
   assert.equal(bridge.getEditorText(), "hello world");
   const requestPromise = once(bridge, "request");
   const resultPromise = bridge.request({
@@ -64,7 +64,7 @@ test("routed extension UI bridge resolves host responses", async () => {
     title: "Trust?",
     message: "Load project extensions?",
     conversationId: "conversation",
-    workspaceRoot: "C:/workspace",
+    spaceRoot: "C:/workspace",
   });
   const [request] = await requestPromise as [PiExtensionUiRequest];
   assert.equal(request.id, "request-1");
@@ -79,8 +79,8 @@ test("Anthropic-style ZIP skill bundles preserve complete skill directories", as
   const root = await mkdtemp(join(tmpdir(), "workspace-skill-import-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const agentDir = join(root, "agent");
-  const workspaceRoot = join(root, "workspace");
-  await mkdir(workspaceRoot, { recursive: true });
+  const spaceRoot = join(root, "workspace");
+  await mkdir(spaceRoot, { recursive: true });
   const provider: PiRuntimeProvider = {
     async resolveRuntime() {
       return { agentDir };
@@ -94,7 +94,7 @@ test("Anthropic-style ZIP skill bundles preserve complete skill directories", as
   zip.file("skill-pack/skills/reviewer/references/rules.md", "# Rules\n");
   const bytes = await zip.generateAsync({ type: "uint8array" });
 
-  const result = await importPiSkillBundle(workspaceRoot, {
+  const result = await importPiSkillBundle(spaceRoot, {
     fileName: "anthropic-review.skill",
     bytes,
   }, provider);
@@ -103,7 +103,7 @@ test("Anthropic-style ZIP skill bundles preserve complete skill directories", as
   assert.match(await readFile(join(result.bundlePath, "skill-pack", "skills", "reviewer", "scripts", "check.js"), "utf8"), /console\.log/);
   assert.match(await readFile(join(result.bundlePath, "skill-pack", "skills", "reviewer", "references", "rules.md"), "utf8"), /Rules/);
   assert.equal(existsSync(join(result.bundlePath, "skill-pack", ".claude-plugin", "marketplace.json")), false);
-  const catalog = await loadAgentSkillCatalog(workspaceRoot, provider);
+  const catalog = await loadAgentSkillCatalog(spaceRoot, provider);
   assert.equal(catalog.skills.some((skill) => skill.name === "reviewer"), true);
 });
 
@@ -111,12 +111,12 @@ test("standalone SKILL.md imports use the declared skill name", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "workspace-skill-markdown-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const agentDir = join(root, "agent");
-  const workspaceRoot = join(root, "workspace");
-  await mkdir(workspaceRoot, { recursive: true });
+  const spaceRoot = join(root, "workspace");
+  await mkdir(spaceRoot, { recursive: true });
   const provider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir }; } };
   const bytes = new TextEncoder().encode("---\nname: personal-helper\ndescription: A personal helper\n---\n\nHelp carefully.\n");
 
-  const result = await importPiSkillBundle(workspaceRoot, { fileName: "SKILL.md", bytes }, provider);
+  const result = await importPiSkillBundle(spaceRoot, { fileName: "SKILL.md", bytes }, provider);
   assert.deepEqual(result.skills, [{ name: "personal-helper", relativePath: "SKILL.md" }]);
   assert.match(await readFile(join(result.bundlePath, "SKILL.md"), "utf8"), /personal-helper/);
 });
@@ -125,17 +125,17 @@ test("project skill imports require an explicit trust decision", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "workspace-skill-trust-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const agentDir = join(root, "agent");
-  const workspaceRoot = join(root, "workspace");
-  await mkdir(workspaceRoot, { recursive: true });
+  const spaceRoot = join(root, "workspace");
+  await mkdir(spaceRoot, { recursive: true });
   const provider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir }; } };
   const bytes = new TextEncoder().encode("---\nname: trusted-helper\ndescription: A trusted helper\n---\n\nHelp carefully.\n");
 
   await assert.rejects(
-    importPiSkillBundle(workspaceRoot, { fileName: "SKILL.md", bytes, scope: "project" }, provider),
+    importPiSkillBundle(spaceRoot, { fileName: "SKILL.md", bytes, scope: "project" }, provider),
     /Trust this Space/,
   );
-  new ProjectTrustStore(agentDir).set(workspaceRoot, true);
-  const result = await importPiSkillBundle(workspaceRoot, { fileName: "SKILL.md", bytes, scope: "project" }, provider);
+  new ProjectTrustStore(agentDir).set(spaceRoot, true);
+  const result = await importPiSkillBundle(spaceRoot, { fileName: "SKILL.md", bytes, scope: "project" }, provider);
   assert.match(result.bundlePath.replace(/\\/g, "/"), /\/\.pi\/skills\/trusted-helper$/);
 });
 
@@ -143,39 +143,39 @@ test("project package lifecycle requires the same explicit trust decision as Ski
   const root = await mkdtemp(join(tmpdir(), "workspace-package-trust-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const agentDir = join(root, "agent");
-  const workspaceRoot = join(root, "workspace");
+  const spaceRoot = join(root, "workspace");
   const packageRoot = join(root, "local-package");
-  await mkdir(workspaceRoot, { recursive: true });
+  await mkdir(spaceRoot, { recursive: true });
   await mkdir(packageRoot, { recursive: true });
   await writeFile(join(packageRoot, "package.json"), JSON.stringify({ name: "local-capability", private: true }), "utf8");
   const provider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir }; } };
 
   await assert.rejects(
-    installPiPackage(workspaceRoot, packageRoot, { scope: "project", runtimeProvider: provider }),
+    installPiPackage(spaceRoot, packageRoot, { scope: "project", runtimeProvider: provider }),
     /Trust this Space/,
   );
 
-  new ProjectTrustStore(agentDir).set(workspaceRoot, true);
-  await installPiPackage(workspaceRoot, packageRoot, { scope: "project", runtimeProvider: provider });
-  const configured = (await listPiPackages(workspaceRoot, provider)).find((item) => item.scope === "project");
+  new ProjectTrustStore(agentDir).set(spaceRoot, true);
+  await installPiPackage(spaceRoot, packageRoot, { scope: "project", runtimeProvider: provider });
+  const configured = (await listPiPackages(spaceRoot, provider)).find((item) => item.scope === "project");
   assert.ok(configured);
   assert.equal(configured.installedPath, packageRoot);
 
-  await updatePiPackages(workspaceRoot, configured.source, { scope: "project", runtimeProvider: provider });
-  assert.equal(await removePiPackage(workspaceRoot, configured.source, { scope: "project", runtimeProvider: provider }), true);
-  assert.equal((await listPiPackages(workspaceRoot, provider)).some((item) => item.scope === "project"), false);
+  await updatePiPackages(spaceRoot, configured.source, { scope: "project", runtimeProvider: provider });
+  assert.equal(await removePiPackage(spaceRoot, configured.source, { scope: "project", runtimeProvider: provider }), true);
+  assert.equal((await listPiPackages(spaceRoot, provider)).some((item) => item.scope === "project"), false);
 });
 
 test("project capability mutation trust honors negative policy precedence", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "workspace-mutation-trust-precedence-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const agentDir = join(root, "agent");
-  const workspaceRoot = join(root, "workspace");
-  await mkdir(workspaceRoot, { recursive: true });
+  const spaceRoot = join(root, "workspace");
+  await mkdir(spaceRoot, { recursive: true });
   const trustStore = new ProjectTrustStore(agentDir);
 
-  trustStore.set(workspaceRoot, false);
-  assert.equal(await isPiProjectMutationTrusted(workspaceRoot, {
+  trustStore.set(spaceRoot, false);
+  assert.equal(await isPiProjectMutationTrusted(spaceRoot, {
     async resolveRuntime() {
       return {
         agentDir,
@@ -184,8 +184,8 @@ test("project capability mutation trust honors negative policy precedence", asyn
     },
   }), false, "a saved Space denial must win over Pi's persistent always default");
 
-  trustStore.set(workspaceRoot, true);
-  assert.equal(await isPiProjectMutationTrusted(workspaceRoot, {
+  trustStore.set(spaceRoot, true);
+  assert.equal(await isPiProjectMutationTrusted(spaceRoot, {
     async resolveRuntime() {
       return {
         agentDir,
@@ -200,17 +200,17 @@ test("native Pi host discovers trusted project extensions, skills, context, comm
   const root = await mkdtemp(join(tmpdir(), "workspace-native-pi-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const agentDir = join(root, "agent");
-  const workspaceRoot = join(root, "workspace");
-  await mkdir(join(workspaceRoot, ".pi", "extensions"), { recursive: true });
-  await mkdir(join(workspaceRoot, ".pi", "skills", "demo"), { recursive: true });
-  await writeFile(join(workspaceRoot, "AGENTS.md"), "# Workspace instructions\n", "utf8");
+  const spaceRoot = join(root, "workspace");
+  await mkdir(join(spaceRoot, ".pi", "extensions"), { recursive: true });
+  await mkdir(join(spaceRoot, ".pi", "skills", "demo"), { recursive: true });
+  await writeFile(join(spaceRoot, "AGENTS.md"), "# Workspace instructions\n", "utf8");
   await writeFile(
-    join(workspaceRoot, ".pi", "skills", "demo", "SKILL.md"),
+    join(spaceRoot, ".pi", "skills", "demo", "SKILL.md"),
     "---\nname: demo\ndescription: Demo skill\n---\nFollow the demo.\n",
     "utf8",
   );
   await writeFile(
-    join(workspaceRoot, ".pi", "extensions", "ping.ts"),
+    join(spaceRoot, ".pi", "extensions", "ping.ts"),
     `export default function (pi) {
       pi.registerProvider("test-provider", {
         api: "openai-completions",
@@ -239,14 +239,14 @@ test("native Pi host discovers trusted project extensions, skills, context, comm
       return { agentDir, extensionUi };
     },
   };
-  const untrustedCatalog = await loadAgentSkillCatalog(workspaceRoot, provider);
+  const untrustedCatalog = await loadAgentSkillCatalog(spaceRoot, provider);
   assert.equal(untrustedCatalog.projectTrust.trusted, false);
   assert.equal(untrustedCatalog.skills.some((skill) => skill.name === "demo"), false);
   assert.equal(untrustedCatalog.extensions.some((extension) => extension.resolvedPath.endsWith("ping.ts")), false);
   assert.equal(untrustedCatalog.contextFiles.some((file) => file.path.endsWith("AGENTS.md")), true);
 
-  new ProjectTrustStore(agentDir).set(workspaceRoot, true);
-  const client = new PiConversationClient("native-test", workspaceRoot, provider);
+  new ProjectTrustStore(agentDir).set(spaceRoot, true);
+  const client = new PiConversationClient("native-test", spaceRoot, provider);
   t.after(() => client.stop());
 
   const catalog = await client.getCatalog();
@@ -275,7 +275,7 @@ test("native Pi host discovers trusted project extensions, skills, context, comm
   for (const unsupported of ["new", "resume", "fork", "clone", "tree", "import"]) {
     assert.equal(catalog.commands.some((command) => command.name === unsupported), false);
   }
-  const models = await listPiModels(workspaceRoot, provider);
+  const models = await listPiModels(spaceRoot, provider);
   assert.equal(models.some((model) => model.provider === "test-provider" && model.id === "test-model"), true);
 
   const uiEventPromise = once(extensionUi, "event");
@@ -283,14 +283,14 @@ test("native Pi host discovers trusted project extensions, skills, context, comm
   const [uiEvent] = await uiEventPromise;
   assert.equal(uiEvent.method, "notify");
   assert.equal(uiEvent.message, "pong");
-  assert.match(await client.prompt("/trust no"), /Remove the Space from Workspace to revoke it/);
-  assert.equal(new ProjectTrustStore(agentDir).get(workspaceRoot), true, "hosted /trust must not mutate Space trust mid-turn");
+  assert.match(await client.prompt("/trust no"), /Remove the Space from work-fold to revoke it/);
+  assert.equal(new ProjectTrustStore(agentDir).get(spaceRoot), true, "hosted /trust must not mutate Space trust mid-turn");
   const runtimeState = await client.getState();
   const sessionBefore = runtimeState.sessionId;
   assert.equal(Number.isFinite(runtimeState.usage.totalTokens), true);
   assert.equal(Number.isFinite(runtimeState.usage.cost), true);
   assert.equal(runtimeState.usage.contextWindow === null || runtimeState.usage.contextWindow > 0, true);
-  assert.match(await client.prompt("/new"), /unavailable because Workspace keeps the visible chat transcript synchronized/);
+  assert.match(await client.prompt("/new"), /unavailable because work-fold keeps the visible chat transcript synchronized/);
   assert.equal((await client.getState()).sessionId, sessionBefore);
 });
 
@@ -343,9 +343,9 @@ test("generic provider finish errors retry from the safe point and retain the fi
   const root = await mkdtemp(join(tmpdir(), "workspace-provider-retry-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const agentDir = join(root, "agent");
-  const workspaceRoot = join(root, "workspace");
+  const spaceRoot = join(root, "workspace");
   await mkdir(join(agentDir, "extensions"), { recursive: true });
-  await mkdir(workspaceRoot, { recursive: true });
+  await mkdir(spaceRoot, { recursive: true });
   await writeFile(
     join(agentDir, "extensions", "retry-provider.ts"),
     `export default function (pi) {
@@ -382,7 +382,7 @@ test("generic provider finish errors retry from the safe point and retain the fi
       return { agentDir, settingsManager };
     },
   };
-  const client = new PiConversationClient("provider-retry-test", workspaceRoot, provider);
+  const client = new PiConversationClient("provider-retry-test", spaceRoot, provider);
   t.after(() => client.stop());
   const events: PiChatEvent[] = [];
   client.on("event", (event: PiChatEvent) => events.push(event));

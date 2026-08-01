@@ -11,9 +11,3 @@ export function restrictedAppAutomationOutcomeLabel(
     case "interrupted": return "Interrupted — completion unknown";
   }
 }
-
-export function restrictedAppAutomationVerificationLabel(
-  verification: RestrictedAppAutomationRunReceipt["verification"],
-): string | undefined {
-  return verification === "legacy-unverified" ? "Legacy receipt — identity unverified" : undefined;
-}

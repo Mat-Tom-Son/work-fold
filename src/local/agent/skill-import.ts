@@ -24,7 +24,7 @@ export interface PiSkillBundleImportResult {
  * are preserved so scripts, references, assets, and templates keep working.
  */
 export async function importPiSkillBundle(
-  workspaceRoot: string,
+  spaceRoot: string,
   input: {
     fileName: string;
     bytes: Uint8Array;
@@ -39,13 +39,13 @@ export async function importPiSkillBundle(
     if (basename(input.fileName).toLowerCase() !== "skill.md") {
       throw new Error("A standalone Markdown skill must be named SKILL.md.");
     }
-    return importStandaloneSkill(workspaceRoot, input, runtimeProvider);
+    return importStandaloneSkill(spaceRoot, input, runtimeProvider);
   }
   if (extension !== ".zip" && extension !== ".skill") {
     throw new Error("Skills must be a SKILL.md file or use a .zip or .skill bundle.");
   }
 
-  const runtime = await resolvePiRuntime(workspaceRoot, runtimeProvider, { requestProjectTrust: false });
+  const runtime = await resolvePiRuntime(spaceRoot, runtimeProvider, { requestProjectTrust: false });
   const scope = input.scope ?? "user";
   if (scope === "project" && !hasExplicitPiProjectMutationTrust(runtime)) {
     throw new Error("Trust this Space before importing Space-scoped Skills.");
@@ -69,7 +69,7 @@ export async function importPiSkillBundle(
   const skillEntries = normalized.filter(({ path }) => skillRoots.some((root) => belongsToSkillRoot(path, root)));
 
   const destinationRoot = scope === "project"
-    ? join(workspaceRoot, ".pi", "skills")
+    ? join(spaceRoot, ".pi", "skills")
     : join(runtime.agentDir, "skills");
   await mkdir(destinationRoot, { recursive: true });
   const bundleName = safeBundleName(input.fileName);
@@ -124,7 +124,7 @@ export async function importPiSkillBundle(
 }
 
 async function importStandaloneSkill(
-  workspaceRoot: string,
+  spaceRoot: string,
   input: { fileName: string; bytes: Uint8Array; scope?: "user" | "project" },
   runtimeProvider?: PiRuntimeProvider,
 ): Promise<PiSkillBundleImportResult> {
@@ -140,13 +140,13 @@ async function importStandaloneSkill(
   const declaredName = skillFrontmatterName(markdown);
   if (!declaredName) throw new Error("SKILL.md must declare a name in YAML frontmatter.");
 
-  const runtime = await resolvePiRuntime(workspaceRoot, runtimeProvider, { requestProjectTrust: false });
+  const runtime = await resolvePiRuntime(spaceRoot, runtimeProvider, { requestProjectTrust: false });
   const scope = input.scope ?? "user";
   if (scope === "project" && !hasExplicitPiProjectMutationTrust(runtime)) {
     throw new Error("Trust this Space before importing Space-scoped Skills.");
   }
   const destinationRoot = scope === "project"
-    ? join(workspaceRoot, ".pi", "skills")
+    ? join(spaceRoot, ".pi", "skills")
     : join(runtime.agentDir, "skills");
   await mkdir(destinationRoot, { recursive: true });
   const bundleName = safeBundleName(`${declaredName}.skill`);

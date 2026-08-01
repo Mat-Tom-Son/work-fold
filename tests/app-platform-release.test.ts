@@ -56,14 +56,14 @@ function feature(
   return {
     featureId,
     featureRevision: {
-      mediaType: "application/vnd.workspace.feature+bundle",
+      mediaType: "application/vnd.work-fold.feature+bundle",
       entries: [
         { path: "worker.js", bytes: bytes(`export const marker = ${JSON.stringify(marker)};\n`) },
         { path: "assets/view.html", bytes: bytes(`<h1>${marker}</h1>\n`) },
       ],
     },
     declaration: {
-      mediaType: "application/vnd.workspace.feature-declaration+json",
+      mediaType: "application/vnd.work-fold.feature-declaration+json",
       value: {
         featureId,
         network: [{ destinationId: `${featureId}-api`, origin: `https://${featureId}.example` }],
@@ -83,7 +83,7 @@ function feature(
       sourceSchema: migrationSchema(featureId, marker, index + 1),
       targetSchema: migrationSchema(featureId, marker, index + 2),
       execution: {
-        runtimeApi: { name: "workspace-feature-broker", compatibleRange: "1.x" },
+        runtimeApi: { name: "work-fold.feature-broker", compatibleRange: "1.x" },
         mode: "maintenance",
         resourceLimits: {
           maxDurationMs: 30_000,
@@ -95,13 +95,13 @@ function feature(
         externalEffects: { network: false, connections: false, notifications: false },
         resumePolicy: "idempotent-restart",
         verification: {
-          mediaType: "application/vnd.workspace.migration-verification+json",
+          mediaType: "application/vnd.work-fold.migration-verification+json",
           value: { featureId, migrationId, invariants: ["schema-valid"] },
         },
         receiptStates: { success: "verified", failure: "failed", cancelled: "cancelled" },
       },
       artifact: {
-        mediaType: "application/vnd.workspace.migration+bundle",
+        mediaType: "application/vnd.work-fold.migration+bundle",
         entries: [{ path: "migrate.js", bytes: bytes(`// ${featureId}/${migrationId}/${marker}\n`) }],
       },
     })),
@@ -117,7 +117,7 @@ function fixture(features?: Mutable<AppReleaseFeatureInput>[]): Mutable<AppRelea
       icon: "sprout",
     },
     displayVersion: "1.2.0-beta.1",
-    runtimeApi: { name: "workspace-feature-broker", compatibleRange: "1.x" },
+    runtimeApi: { name: "work-fold.feature-broker", compatibleRange: "1.x" },
     features: features ?? [
       feature("garden-calendar", "calendar"),
       feature("connected-inbox", "inbox", ["schema-v1-to-v2", "bootstrap-index"]),
@@ -127,11 +127,11 @@ function fixture(features?: Mutable<AppReleaseFeatureInput>[]): Mutable<AppRelea
       value: { bomFormat: "CycloneDX", specVersion: "1.6", components: [] },
     },
     buildProvenance: {
-      mediaType: "application/vnd.workspace.build-provenance+json",
-      value: { builder: "workspace-test-builder", recipeDigest: sha256("1") },
+      mediaType: "application/vnd.work-fold.build-provenance+json",
+      value: { builder: "work-fold.test-builder", recipeDigest: sha256("1") },
     },
     inspectionEvidence: {
-      mediaType: "application/vnd.workspace.inspection-evidence+json",
+      mediaType: "application/vnd.work-fold.inspection-evidence+json",
       value: { policyVersion: "policy-1", findings: [] },
     },
     createdAt: "2026-07-15T12:00:00.000Z",
@@ -158,7 +158,7 @@ test("release assembly has a stable closed conformance digest and canonical mult
     },
   });
 
-  assert.equal(first.releaseDigest, "sha256:bed5ae427bdc4d1e68c7592bfaa7ba68efb5004d647a66ada8a0bd23f1b328dd");
+  assert.equal(first.releaseDigest, "sha256:bcdceb7a560f74dfaff8801a22ad92355a3e416dee89289c161debeadb421f1e");
   assert.equal(reordered.releaseDigest, first.releaseDigest);
   assert.deepEqual(reordered, first);
   assert.deepEqual(first.manifest.features.map((item) => item.featureId), ["connected-inbox", "garden-calendar"]);

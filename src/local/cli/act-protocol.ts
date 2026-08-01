@@ -1,52 +1,52 @@
 import { isAbsolute, resolve } from "node:path";
 
 import {
-  WorkspaceCliError,
-  normalizeWorkspaceCliRequestId,
+  WorkFoldCliError,
+  normalizeWorkFoldCliRequestId,
   parseBoundedCliArgv,
-  parseWorkspaceCliRequest,
-  WORKSPACE_CLI_ACT_TOKEN_PATTERN,
-  type WorkspaceCliRequestV1,
+  parseWorkFoldCliRequest,
+  WORKFOLD_CLI_ACT_TOKEN_PATTERN,
+  type WorkFoldCliRequestV1,
 } from "./protocol.js";
 
 /**
  * The act lane is the separately versioned mutation surface for the installed
  * CLI. It shares the hardened request-file broker with read-only protocol v1,
  * but every act request must carry the per-launch act token minted while the
- * interactive Workspace app is running; without that token the desktop host
+ * interactive work-fold app is running; without that token the desktop host
  * answers "unavailable" and nothing is mutated. Responses stay on the
  * lane-neutral v1 response contract so shims and the broker keep exactly one
  * response and error path.
  */
-export const WORKSPACE_CLI_ACT_PROTOCOL_VERSION = 2 as const;
+export const WORKFOLD_CLI_ACT_PROTOCOL_VERSION = 2 as const;
 
 /** Bound for `payload.messageFile` text (UTF-8 bytes), kept out of argv. */
-export const WORKSPACE_CLI_ACT_MAX_PAYLOAD_BYTES = 256 * 1024;
+export const WORKFOLD_CLI_ACT_MAX_PAYLOAD_BYTES = 256 * 1024;
 
 /** File-level bound for a serialized act request (JSON-escape headroom). */
-export const WORKSPACE_CLI_MAX_ACT_REQUEST_BYTES = 2 * 1024 * 1024;
+export const WORKFOLD_CLI_MAX_ACT_REQUEST_BYTES = 2 * 1024 * 1024;
 
-export interface WorkspaceCliActRequestPayload {
+export interface WorkFoldCliActRequestPayload {
   /** UTF-8 text supplied through `--message-file`, embedded by the shim. */
   messageFile?: string;
 }
 
 /** Stable on-disk act request contract shared by platform shims and the desktop broker. */
-export interface WorkspaceCliActRequestV2 {
-  protocolVersion: typeof WORKSPACE_CLI_ACT_PROTOCOL_VERSION;
+export interface WorkFoldCliActRequestV2 {
+  protocolVersion: typeof WORKFOLD_CLI_ACT_PROTOCOL_VERSION;
   lane: "act";
   id: string;
   argv: string[];
   cwd: string;
   createdAt: string;
   actToken: string;
-  payload?: WorkspaceCliActRequestPayload;
+  payload?: WorkFoldCliActRequestPayload;
 }
 
-export type WorkspaceCliBrokeredRequest = WorkspaceCliRequestV1 | WorkspaceCliActRequestV2;
+export type WorkFoldCliBrokeredRequest = WorkFoldCliRequestV1 | WorkFoldCliActRequestV2;
 
-export function isWorkspaceCliActRequest(request: WorkspaceCliBrokeredRequest): request is WorkspaceCliActRequestV2 {
-  return request.protocolVersion === WORKSPACE_CLI_ACT_PROTOCOL_VERSION;
+export function isWorkFoldCliActRequest(request: WorkFoldCliBrokeredRequest): request is WorkFoldCliActRequestV2 {
+  return request.protocolVersion === WORKFOLD_CLI_ACT_PROTOCOL_VERSION;
 }
 
 /**
@@ -54,37 +54,37 @@ export function isWorkspaceCliActRequest(request: WorkspaceCliBrokeredRequest): 
  * Protocol v1 parsing stays byte-for-byte unchanged; unsupported versions
  * fail with v1's stable "Unsupported CLI protocol version" error.
  */
-export function parseWorkspaceCliRequestEnvelope(value: unknown): WorkspaceCliBrokeredRequest {
+export function parseWorkFoldCliRequestEnvelope(value: unknown): WorkFoldCliBrokeredRequest {
   const record = objectRecord(value, "CLI request must be a JSON object.");
-  if (record.protocolVersion === WORKSPACE_CLI_ACT_PROTOCOL_VERSION) return parseWorkspaceCliActRequest(record);
-  return parseWorkspaceCliRequest(value);
+  if (record.protocolVersion === WORKFOLD_CLI_ACT_PROTOCOL_VERSION) return parseWorkFoldCliActRequest(record);
+  return parseWorkFoldCliRequest(value);
 }
 
-export function parseWorkspaceCliActRequest(value: unknown): WorkspaceCliActRequestV2 {
+export function parseWorkFoldCliActRequest(value: unknown): WorkFoldCliActRequestV2 {
   const record = objectRecord(value, "CLI act request must be a JSON object.");
   assertKeys(record, ["protocolVersion", "lane", "id", "argv", "cwd", "createdAt", "actToken"], ["payload"], "CLI act request");
-  if (record.protocolVersion !== WORKSPACE_CLI_ACT_PROTOCOL_VERSION) {
-    throw new WorkspaceCliError(
+  if (record.protocolVersion !== WORKFOLD_CLI_ACT_PROTOCOL_VERSION) {
+    throw new WorkFoldCliError(
       "protocolError",
-      `Unsupported CLI act protocol version: ${String(record.protocolVersion)}. Expected ${WORKSPACE_CLI_ACT_PROTOCOL_VERSION}.`,
+      `Unsupported CLI act protocol version: ${String(record.protocolVersion)}. Expected ${WORKFOLD_CLI_ACT_PROTOCOL_VERSION}.`,
     );
   }
-  if (record.lane !== "act") throw new WorkspaceCliError("protocolError", "CLI act request lane must be \"act\".");
-  if (typeof record.id !== "string") throw new WorkspaceCliError("protocolError", "CLI act request id must be a string.");
-  const id = normalizeWorkspaceCliRequestId(record.id);
+  if (record.lane !== "act") throw new WorkFoldCliError("protocolError", "CLI act request lane must be \"act\".");
+  if (typeof record.id !== "string") throw new WorkFoldCliError("protocolError", "CLI act request id must be a string.");
+  const id = normalizeWorkFoldCliRequestId(record.id);
   const argv = parseBoundedCliArgv(record.argv);
   if (typeof record.cwd !== "string" || !record.cwd.trim() || !isAbsolute(record.cwd)) {
-    throw new WorkspaceCliError("protocolError", "CLI act request cwd must be an absolute path.");
+    throw new WorkFoldCliError("protocolError", "CLI act request cwd must be an absolute path.");
   }
-  if (record.cwd.includes("\u0000")) throw new WorkspaceCliError("protocolError", "CLI act request cwd contains an invalid character.");
+  if (record.cwd.includes("\u0000")) throw new WorkFoldCliError("protocolError", "CLI act request cwd contains an invalid character.");
   if (typeof record.createdAt !== "string" || !Number.isFinite(Date.parse(record.createdAt))) {
-    throw new WorkspaceCliError("protocolError", "CLI act request createdAt must be an ISO timestamp.");
+    throw new WorkFoldCliError("protocolError", "CLI act request createdAt must be an ISO timestamp.");
   }
-  if (typeof record.actToken !== "string" || !WORKSPACE_CLI_ACT_TOKEN_PATTERN.test(record.actToken)) {
-    throw new WorkspaceCliError("protocolError", "CLI act request token is malformed.");
+  if (typeof record.actToken !== "string" || !WORKFOLD_CLI_ACT_TOKEN_PATTERN.test(record.actToken)) {
+    throw new WorkFoldCliError("protocolError", "CLI act request token is malformed.");
   }
   return {
-    protocolVersion: WORKSPACE_CLI_ACT_PROTOCOL_VERSION,
+    protocolVersion: WORKFOLD_CLI_ACT_PROTOCOL_VERSION,
     lane: "act",
     id,
     argv,
@@ -95,16 +95,16 @@ export function parseWorkspaceCliActRequest(value: unknown): WorkspaceCliActRequ
   };
 }
 
-export function createWorkspaceCliActRequest(input: {
+export function createWorkFoldCliActRequest(input: {
   id: string;
   argv: string[];
   cwd: string;
   actToken: string;
   createdAt?: string;
-  payload?: WorkspaceCliActRequestPayload;
-}): WorkspaceCliActRequestV2 {
-  return parseWorkspaceCliActRequest({
-    protocolVersion: WORKSPACE_CLI_ACT_PROTOCOL_VERSION,
+  payload?: WorkFoldCliActRequestPayload;
+}): WorkFoldCliActRequestV2 {
+  return parseWorkFoldCliActRequest({
+    protocolVersion: WORKFOLD_CLI_ACT_PROTOCOL_VERSION,
     lane: "act",
     id: input.id,
     argv: input.argv,
@@ -115,21 +115,21 @@ export function createWorkspaceCliActRequest(input: {
   });
 }
 
-function parseActPayload(value: unknown): WorkspaceCliActRequestPayload {
+function parseActPayload(value: unknown): WorkFoldCliActRequestPayload {
   const record = objectRecord(value, "CLI act request payload must be a JSON object.");
   assertKeys(record, [], ["messageFile"], "CLI act request payload");
   if (record.messageFile === undefined) return {};
   if (typeof record.messageFile !== "string" || record.messageFile.includes("\u0000")) {
-    throw new WorkspaceCliError("protocolError", "CLI act request messageFile must be text.");
+    throw new WorkFoldCliError("protocolError", "CLI act request messageFile must be text.");
   }
-  if (Buffer.byteLength(record.messageFile, "utf8") > WORKSPACE_CLI_ACT_MAX_PAYLOAD_BYTES) {
-    throw new WorkspaceCliError("protocolError", `CLI act request messageFile exceeds ${WORKSPACE_CLI_ACT_MAX_PAYLOAD_BYTES} bytes.`);
+  if (Buffer.byteLength(record.messageFile, "utf8") > WORKFOLD_CLI_ACT_MAX_PAYLOAD_BYTES) {
+    throw new WorkFoldCliError("protocolError", `CLI act request messageFile exceeds ${WORKFOLD_CLI_ACT_MAX_PAYLOAD_BYTES} bytes.`);
   }
   return { messageFile: record.messageFile };
 }
 
 function objectRecord(value: unknown, message: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new WorkspaceCliError("protocolError", message);
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new WorkFoldCliError("protocolError", message);
   return value as Record<string, unknown>;
 }
 
@@ -141,7 +141,7 @@ function assertKeys(
 ): void {
   const allowed = new Set([...required, ...optional]);
   const unexpected = Object.keys(record).filter((key) => !allowed.has(key));
-  if (unexpected.length) throw new WorkspaceCliError("protocolError", `${label} contains unsupported field: ${unexpected[0]}.`);
+  if (unexpected.length) throw new WorkFoldCliError("protocolError", `${label} contains unsupported field: ${unexpected[0]}.`);
   const missing = required.filter((key) => !(key in record));
-  if (missing.length) throw new WorkspaceCliError("protocolError", `${label} is missing required field: ${missing[0]}.`);
+  if (missing.length) throw new WorkFoldCliError("protocolError", `${label} is missing required field: ${missing[0]}.`);
 }

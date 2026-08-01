@@ -115,7 +115,7 @@ const fileNameIconMap = new Map<string, FileTreeIconSpec>([
   [".env", icon(settingsIconUrl, "Environment settings", "code")],
   [".env.local", icon(settingsIconUrl, "Local environment settings", "code")],
   [".gitignore", icon(gitIconUrl, "Git ignore file", "code")],
-  [".workspaceignore", icon(settingsIconUrl, "Workspace ignore file", "code")],
+  [".work-foldignore", icon(settingsIconUrl, "Space ignore file", "code")],
   ["license", icon(licenseIconUrl, "License", "text")],
   ["license.md", icon(licenseIconUrl, "License", "text")],
   ["package-lock.json", icon(npmIconUrl, "npm lockfile", "code")],

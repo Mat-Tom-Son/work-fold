@@ -3,7 +3,7 @@ import type { AppTypographyFont } from "../types";
 type DesktopPlatform = NodeJS.Platform | undefined;
 
 function desktopPlatform(): DesktopPlatform {
-  return typeof window === "undefined" ? undefined : window.workspaceDesktop?.app.platform;
+  return typeof window === "undefined" ? undefined : window.workFoldDesktop?.app.platform;
 }
 
 function isMacOS(platform: DesktopPlatform = desktopPlatform()): boolean {
@@ -20,7 +20,7 @@ function desktopFileDragHint(path: string, platform: DesktopPlatform = desktopPl
   return `${path} — drag to move`;
 }
 
-function workspaceEntryNativePath(rootPath: string, relativePath: string, platform: DesktopPlatform = desktopPlatform()): string {
+function spaceEntryNativePath(rootPath: string, relativePath: string, platform: DesktopPlatform = desktopPlatform()): string {
   if (!relativePath) return rootPath;
   const separator = platform === "win32" ? "\\" : "/";
   const root = rootPath.replace(/[\\/]+$/, "");
@@ -28,5 +28,5 @@ function workspaceEntryNativePath(rootPath: string, relativePath: string, platfo
   return [root, ...segments].join(separator);
 }
 
-export { desktopFileDragHint, desktopPlatform, isMacOS, typographyFontForPlatform, workspaceEntryNativePath };
+export { desktopFileDragHint, desktopPlatform, isMacOS, typographyFontForPlatform, spaceEntryNativePath };
 export type { DesktopPlatform };

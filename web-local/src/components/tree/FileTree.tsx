@@ -1,7 +1,7 @@
 import type React from "react";
 import { ChevronRight, Loader2 } from "lucide-react";
 import { fileTreeFileIcon, fileTreeFolderIcon, fileTreeIconClassName, type FileTreeIconSpec } from "../../file-tree-icons";
-import { hasNativeFiles, hasWorkspacePathDrag } from "../../lib/file-actions";
+import { hasNativeFiles, hasSpacePathDrag } from "../../lib/file-actions";
 import { desktopFileDragHint } from "../../lib/platform";
 import { isInsideFolder, parentFolderPath, treeEntryNeedsLazyChildren } from "../../lib/tree";
 import type { TreeEntry } from "../../types";
@@ -138,12 +138,12 @@ export function FileTree({
               }}
               onDragEnd={onDragEndEntry}
               onDragEnter={(event) => {
-                if (!hasNativeFiles(event) && !hasWorkspacePathDrag(event)) return;
+                if (!hasNativeFiles(event) && !hasSpacePathDrag(event)) return;
                 event.stopPropagation();
                 onUpdateDropTarget(event, parentDropTarget);
               }}
               onDragOver={(event) => {
-                if (!hasNativeFiles(event) && !hasWorkspacePathDrag(event)) return;
+                if (!hasNativeFiles(event) && !hasSpacePathDrag(event)) return;
                 event.stopPropagation();
                 onUpdateDropTarget(event, parentDropTarget);
               }}

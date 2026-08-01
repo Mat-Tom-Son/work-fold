@@ -1143,7 +1143,7 @@ function normalizeIoError(error: unknown, action: string): LocalAppReleaseStoreE
   if (error instanceof LocalAppReleaseStoreError) return error;
   return new LocalAppReleaseStoreError(
     "RELEASE_STORE_IO",
-    `Workspace could not ${action}.`,
+    `work-fold could not ${action}.`,
     { cause: error },
   );
 }

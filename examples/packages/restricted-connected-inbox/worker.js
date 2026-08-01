@@ -1,6 +1,6 @@
 export async function handleAction(action, input) {
   if (action !== "search") throw new Error("Unknown action.");
-  const response = await globalThis.workspaceRestrictedApp.request({
+  const response = await globalThis.workFoldRestrictedApp.request({
     destinationId: "mail-api",
     method: "GET",
     path: `/messages?query=${encodeURIComponent(input.query)}`,
@@ -19,7 +19,7 @@ export async function handleAutomation(event) {
   }
   let network;
   try {
-    const response = await globalThis.workspaceRestrictedApp.request({
+    const response = await globalThis.workFoldRestrictedApp.request({
       destinationId: "mail-api",
       method: "GET",
       path: "/messages?limit=20",
@@ -34,13 +34,13 @@ export async function handleAutomation(event) {
 
   let notification;
   try {
-    await globalThis.workspaceRestrictedApp.notifications.show({ permissionId: "inbox-refresh-finished" });
+    await globalThis.workFoldRestrictedApp.notifications.show({ permissionId: "inbox-refresh-finished" });
     notification = { state: "requested" };
   } catch (error) {
     notification = { state: "not-shown", code: errorCode(error, "NOTIFICATION_FAILED") };
   }
 
-  await globalThis.workspaceRestrictedApp.storage.set("last-automation-refresh", {
+  await globalThis.workFoldRestrictedApp.storage.set("last-automation-refresh", {
     version: 2,
     reason: event.reason,
     scheduledAt: event.scheduledAt,

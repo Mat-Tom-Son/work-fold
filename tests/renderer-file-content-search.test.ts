@@ -20,7 +20,7 @@ function stubSearch(calls: FetchCall[], respond: (url: string) => unknown): void
 }
 
 async function mountSearch(dom: Awaited<ReturnType<typeof createDomHarness>>, props: {
-  workspaceId: string;
+  spaceId: string;
   query: string;
   onOpenFile?: (path: string) => void;
 }): Promise<void> {
@@ -34,15 +34,15 @@ test("content search stays silent until there is a query, then reports matches",
   const calls: FetchCall[] = [];
   stubSearch(calls, () => ({ files: [{ path: "notes/plan.md", line: 2, preview: "the quarterly budget" }], truncated: false }));
 
-  await mountSearch(dom, { workspaceId: "space-1", query: "   " });
+  await mountSearch(dom, { spaceId: "space-1", query: "   " });
   assert.equal(dom.container.querySelector(".file-content-search"), null, "an empty query renders nothing and asks for nothing");
   assert.equal(calls.length, 0);
 
-  await mountSearch(dom, { workspaceId: "space-1", query: "quarterly" });
+  await mountSearch(dom, { spaceId: "space-1", query: "quarterly" });
   await dom.waitFor(() => calls.length > 0);
   assert.match(calls[0]?.url ?? "", /scope=files/, "the tree already covers filenames, so this asks only for contents");
   assert.match(calls[0]?.url ?? "", /q=quarterly/);
-  assert.match(calls[0]?.url ?? "", /\/api\/workspaces\/space-1\/search/);
+  assert.match(calls[0]?.url ?? "", /\/api\/spaces\/space-1\/search/);
 
   await dom.waitFor(() => Boolean(dom.container.querySelector(".file-content-search-preview")));
   assert.match(dom.container.textContent ?? "", /notes\/plan\.md/);
@@ -55,7 +55,7 @@ test("content search opens the file a match belongs to", async (t) => {
   stubSearch([], () => ({ files: [{ path: "notes/plan.md", line: 7, preview: "match" }], truncated: false }));
 
   const opened: string[] = [];
-  await mountSearch(dom, { workspaceId: "space-1", query: "match", onOpenFile: (path) => opened.push(path) });
+  await mountSearch(dom, { spaceId: "space-1", query: "match", onOpenFile: (path) => opened.push(path) });
   await dom.waitFor(() => Boolean(dom.container.querySelector(".file-content-search li button")));
 
   dom.container.querySelector<HTMLButtonElement>(".file-content-search li button")?.click();
@@ -67,12 +67,12 @@ test("content search discloses a truncated result and surfaces failures", async 
   t.after(() => dom.cleanup());
 
   stubSearch([], () => ({ files: [{ path: "a.txt", line: 1, preview: "x" }], truncated: true }));
-  await mountSearch(dom, { workspaceId: "space-1", query: "x" });
+  await mountSearch(dom, { spaceId: "space-1", query: "x" });
   await dom.waitFor(() => Boolean(dom.container.querySelector(".file-content-search-note")));
   assert.match(dom.container.textContent ?? "", /Showing the first/, "a bounded search says so rather than implying completeness");
 
   (globalThis as unknown as { fetch: unknown }).fetch = async () => new Response("{}", { status: 500 });
-  await mountSearch(dom, { workspaceId: "space-2", query: "boom" });
+  await mountSearch(dom, { spaceId: "space-2", query: "boom" });
   await dom.waitFor(() => (dom.container.textContent ?? "").includes("search this Space"));
   assert.match(dom.container.textContent ?? "", /Couldn\u2019t search this Space/);
 });
@@ -87,7 +87,7 @@ test("content search clears stale matches and aborts superseded disk work", asyn
     return new Promise<Response>((resolve) => responses.push(resolve));
   };
 
-  await mountSearch(dom, { workspaceId: "space-1", query: "first" });
+  await mountSearch(dom, { spaceId: "space-1", query: "first" });
   await dom.waitFor(() => calls.length === 1);
   await dom.act(() => {
     responses[0]?.(new Response(JSON.stringify({
@@ -97,7 +97,7 @@ test("content search clears stale matches and aborts superseded disk work", asyn
   });
   await dom.waitFor(() => (dom.container.textContent ?? "").includes("stale first result"));
 
-  await mountSearch(dom, { workspaceId: "space-1", query: "second" });
+  await mountSearch(dom, { spaceId: "space-1", query: "second" });
   assert.doesNotMatch(dom.container.textContent ?? "", /stale first result/, "the prior query disappears immediately");
   assert.equal(calls[0]?.signal?.aborted, true, "the superseded request is cancelled");
 

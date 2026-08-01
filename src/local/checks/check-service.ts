@@ -1,38 +1,38 @@
 import { randomUUID } from "node:crypto";
 import { relative, resolve, sep } from "node:path";
 
-import type { WorkspaceCheckDeclaration, WorkspaceCheckProposal } from "../../shared/checks.js";
-import type { WorkspaceActor, WorkspaceKernel } from "../workspace-kernel.js";
-import { listWorkspaces, type WorkspaceSummary } from "../workspace.js";
+import type { WorkFoldCheckDeclaration, WorkFoldCheckProposal } from "../../shared/checks.js";
+import type { WorkFoldActor, WorkFoldKernel } from "../work-fold-kernel.js";
+import { listSpaces, type SpaceSummary } from "../space.js";
 import {
-  discoverWorkspaceCheckDeclarations,
-  readWorkspaceCheckProposal,
-  writeWorkspaceCheckDeclaration,
-  type WorkspaceCheckDeclarationDiscovery,
-  type WorkspaceCheckDeclarationRecord,
+  discoverWorkFoldCheckDeclarations,
+  readWorkFoldCheckProposal,
+  writeWorkFoldCheckDeclaration,
+  type WorkFoldCheckDeclarationDiscovery,
+  type WorkFoldCheckDeclarationRecord,
 } from "./check-declarations.js";
-import { admitWorkspaceCheckCandidate, reverifyWorkspaceCheckFinding } from "./check-admission.js";
-import { workspaceCheckDigest } from "./check-integrity.js";
-import { resolveWorkspaceCheckSensor, type WorkspaceCheckSensor } from "./check-sensors.js";
-import { WorkspaceCheckStore, purgeWorkspaceCheckState } from "./check-store.js";
+import { admitWorkFoldCheckCandidate, reverifyWorkFoldCheckFinding } from "./check-admission.js";
+import { workFoldCheckDigest } from "./check-integrity.js";
+import { resolveWorkFoldCheckSensor, type WorkFoldCheckSensor } from "./check-sensors.js";
+import { WorkFoldCheckStore, purgeWorkFoldCheckState } from "./check-store.js";
 import type {
-  WorkspaceCheckAggregateState,
-  WorkspaceCheckAuthorization,
-  WorkspaceCheckDecision,
-  WorkspaceCheckDecisionKind,
-  WorkspaceCheckFinding,
-  WorkspaceCheckMachineState,
-  WorkspaceCheckRendererAuthorityState,
-  WorkspaceCheckRendererDecorations,
-  WorkspaceCheckRendererOverview,
-  WorkspaceCheckRunLimits,
-  WorkspaceCheckRunRecord,
-  WorkspaceCheckStatusSnapshot,
+  WorkFoldCheckAggregateState,
+  WorkFoldCheckAuthorization,
+  WorkFoldCheckDecision,
+  WorkFoldCheckDecisionKind,
+  WorkFoldCheckFinding,
+  WorkFoldCheckMachineState,
+  WorkFoldCheckRendererAuthorityState,
+  WorkFoldCheckRendererDecorations,
+  WorkFoldCheckRendererOverview,
+  WorkFoldCheckRunLimits,
+  WorkFoldCheckRunRecord,
+  WorkFoldCheckStatusSnapshot,
 } from "./check-types.js";
-import { workspaceCheckExperimentalSnapshotVersion } from "./check-types.js";
-import { resolveWorkspaceCheckTargets, type WorkspaceCheckTargetResolution } from "./target-resolver.js";
+import { workFoldCheckExperimentalSnapshotVersion } from "./check-types.js";
+import { resolveWorkFoldCheckTargets, type WorkFoldCheckTargetResolution } from "./target-resolver.js";
 
-const defaultRunLimits: WorkspaceCheckRunLimits = Object.freeze({
+const defaultRunLimits: WorkFoldCheckRunLimits = Object.freeze({
   maximumFiles: 512,
   maximumFileBytes: 64 * 1024 * 1024,
   maximumTotalBytes: 256 * 1024 * 1024,
@@ -40,90 +40,90 @@ const defaultRunLimits: WorkspaceCheckRunLimits = Object.freeze({
   timeoutMs: 30_000,
 });
 
-export interface WorkspaceCheckSpaceRef {
+export interface WorkFoldCheckSpaceRef {
   id: string;
-  rootPath: string;
+  spaceRoot: string;
 }
 
-export interface WorkspaceCheckServiceOptions {
-  kernel: WorkspaceKernel;
+export interface WorkFoldCheckServiceOptions {
+  kernel: WorkFoldKernel;
   now?: () => Date;
   createRunId?: () => string;
   createTaskId?: () => string;
-  storeFactory?: (workspaceId: string) => Promise<WorkspaceCheckStore>;
-  listSpaces?: () => Promise<WorkspaceSummary[]>;
-  resolveSensor?: (id: string, revision: number) => WorkspaceCheckSensor | null;
+  storeFactory?: (spaceId: string) => Promise<WorkFoldCheckStore>;
+  listSpaces?: () => Promise<SpaceSummary[]>;
+  resolveSensor?: (id: string, revision: number) => WorkFoldCheckSensor | null;
 }
 
 interface ActiveCheckRun {
-  workspaceId: string;
+  spaceId: string;
   runId: string;
   checkIds: string[];
   controller: AbortController;
   promise: Promise<void>;
 }
 
-export interface WorkspaceCheckTaskStatus {
+export interface WorkFoldCheckTaskStatus {
   taskId: string;
   runId: string | null;
-  state: WorkspaceCheckRunRecord["state"] | "unknown";
+  state: WorkFoldCheckRunRecord["state"] | "unknown";
   startedAt: string | null;
   endedAt: string | null;
   error: string | null;
 }
 
-interface WorkspaceCheckProblemsResult {
-  findings: WorkspaceCheckFinding[];
+interface WorkFoldCheckProblemsResult {
+  findings: WorkFoldCheckFinding[];
   invalidated: number;
   healthErrors: string[];
   truncated: boolean;
 }
 
-export class WorkspaceCheckOperationConflictError extends Error {
+export class WorkFoldCheckOperationConflictError extends Error {
   constructor(message = "Wait for the current Check operation in this Space to finish.") {
     super(message);
-    this.name = "WorkspaceCheckOperationConflictError";
+    this.name = "WorkFoldCheckOperationConflictError";
   }
 }
 
-export class WorkspaceCheckService {
-  readonly #kernel: WorkspaceKernel;
+export class WorkFoldCheckService {
+  readonly #kernel: WorkFoldKernel;
   readonly #now: () => Date;
   readonly #createRunId: () => string;
   readonly #createTaskId: () => string;
-  readonly #storeFactory: (workspaceId: string) => Promise<WorkspaceCheckStore>;
-  readonly #listSpaces: () => Promise<WorkspaceSummary[]>;
-  readonly #resolveSensor: (id: string, revision: number) => WorkspaceCheckSensor | null;
-  readonly #stores = new Map<string, Promise<WorkspaceCheckStore>>();
+  readonly #storeFactory: (spaceId: string) => Promise<WorkFoldCheckStore>;
+  readonly #listSpaces: () => Promise<SpaceSummary[]>;
+  readonly #resolveSensor: (id: string, revision: number) => WorkFoldCheckSensor | null;
+  readonly #stores = new Map<string, Promise<WorkFoldCheckStore>>();
   readonly #active = new Map<string, ActiveCheckRun>();
   readonly #runReservations = new Set<string>();
   readonly #operationReservations = new Set<string>();
   readonly #spaceRemovalReservations = new Set<string>();
   #spaceRegistryMutationReserved = false;
-  readonly #terminalRecovery = new Map<string, { workspaceId: string; store: WorkspaceCheckStore; run: WorkspaceCheckRunRecord }>();
+  readonly #terminalRecovery = new Map<string, { spaceId: string; store: WorkFoldCheckStore; run: WorkFoldCheckRunRecord }>();
 
-  constructor(options: WorkspaceCheckServiceOptions) {
+  constructor(options: WorkFoldCheckServiceOptions) {
     this.#kernel = options.kernel;
     this.#now = options.now ?? (() => new Date());
     this.#createRunId = options.createRunId ?? (() => `check-run-${randomUUID()}`);
     this.#createTaskId = options.createTaskId ?? (() => `check-task-${randomUUID()}`);
-    this.#storeFactory = options.storeFactory ?? ((workspaceId) => WorkspaceCheckStore.create(workspaceId));
-    this.#listSpaces = options.listSpaces ?? listWorkspaces;
-    this.#resolveSensor = options.resolveSensor ?? resolveWorkspaceCheckSensor;
+    this.#storeFactory = options.storeFactory ?? ((spaceId) => WorkFoldCheckStore.create(spaceId));
+    this.#listSpaces = options.listSpaces ?? listSpaces;
+    this.#resolveSensor = options.resolveSensor ?? resolveWorkFoldCheckSensor;
   }
 
   enable(input: {
-    space: WorkspaceCheckSpaceRef;
+    space: WorkFoldCheckSpaceRef;
     proposalPath: string;
-    actor: WorkspaceCheckAuthorization["enabledBy"];
-  }): Promise<{ declaration: WorkspaceCheckDeclaration; digest: string }> {
+    actor: WorkFoldCheckAuthorization["enabledBy"];
+  }): Promise<{ declaration: WorkFoldCheckDeclaration; digest: string }> {
     return this.#withOperationReservation(input.space.id, async () => {
       const space = await this.#registeredSpace(input.space);
-      const proposal = await readWorkspaceCheckProposal(input.proposalPath);
+      const proposal = await readWorkFoldCheckProposal(input.proposalPath);
       const sensor = this.#resolveSensor(proposal.check.sensor.id, proposal.check.sensor.revision);
       if (!sensor) throw new Error("The proposed Check requires a sensor revision that is not installed.");
-      const preview: WorkspaceCheckDeclaration = {
-        kind: "workspace.check",
+      const preview: WorkFoldCheckDeclaration = {
+        kind: "work-fold.check",
         version: 1,
         id: "check-preview0",
         ...proposal.check,
@@ -132,17 +132,17 @@ export class WorkspaceCheckService {
       };
       sensor.validate(preview);
       await this.#assertNoNestedSpaceTargets(space, preview);
-      await resolveWorkspaceCheckTargets(space.rootPath, preview.targets, {
+      await resolveWorkFoldCheckTargets(space.spaceRoot, preview.targets, {
         limits: {
           maxFiles: defaultRunLimits.maximumFiles,
           maxFileBytes: defaultRunLimits.maximumFileBytes,
           maxTotalBytes: defaultRunLimits.maximumTotalBytes,
         },
       });
-      const discovery = await discoverWorkspaceCheckDeclarations(space.rootPath);
+      const discovery = await discoverWorkFoldCheckDeclarations(space.spaceRoot);
       const identity = proposalDeclarationIdentity(proposal);
       const written = discovery.declarations.find((record) => declarationIdentity(record.declaration) === identity)
-        ?? await writeWorkspaceCheckDeclaration(space.rootPath, proposal);
+        ?? await writeWorkFoldCheckDeclaration(space.spaceRoot, proposal);
       sensor.validate(written.declaration);
       const store = await this.#store(space.id);
       const existingAuthorization = exactAuthorization(store.snapshot().authorizations[written.declaration.id], written);
@@ -164,10 +164,10 @@ export class WorkspaceCheckService {
     });
   }
 
-  disable(space: WorkspaceCheckSpaceRef, checkId: string): Promise<boolean> {
+  disable(space: WorkFoldCheckSpaceRef, checkId: string): Promise<boolean> {
     return this.#withOperationReservation(space.id, async () => {
       const registered = await this.#registeredSpace(space);
-      const active = [...this.#active.values()].find((run) => run.workspaceId === registered.id && run.checkIds.includes(checkId));
+      const active = [...this.#active.values()].find((run) => run.spaceId === registered.id && run.checkIds.includes(checkId));
       if (active) active.controller.abort("Check disabled.");
       return (await this.#store(registered.id)).disable(checkId);
     });
@@ -178,7 +178,7 @@ export class WorkspaceCheckService {
       || this.#spaceRemovalReservations.has(spaceId)
       || this.#runReservations.has(spaceId)
       || this.#operationReservations.has(spaceId)
-      || [...this.#active.values()].some((run) => run.workspaceId === spaceId)) return null;
+      || [...this.#active.values()].some((run) => run.spaceId === spaceId)) return null;
     this.#spaceRemovalReservations.add(spaceId);
     let released = false;
     return () => {
@@ -203,10 +203,10 @@ export class WorkspaceCheckService {
     let releaseOwnReservation: (() => void) | null = null;
     if (!this.#spaceRemovalReservations.has(spaceId)) {
       releaseOwnReservation = this.tryReserveSpaceRemoval(spaceId);
-      if (!releaseOwnReservation) throw new WorkspaceCheckOperationConflictError("Wait for the current Check operation before removing this Space.");
+      if (!releaseOwnReservation) throw new WorkFoldCheckOperationConflictError("Wait for the current Check operation before removing this Space.");
     }
     try {
-      const active = [...this.#active.entries()].filter(([, run]) => run.workspaceId === spaceId);
+      const active = [...this.#active.entries()].filter(([, run]) => run.spaceId === spaceId);
       for (const [, run] of active) run.controller.abort("Space removed.");
       await Promise.allSettled(active.map(([, run]) => run.promise));
       const cachedStore = this.#stores.get(spaceId);
@@ -214,10 +214,10 @@ export class WorkspaceCheckService {
         try {
           await (await cachedStore).purge();
         } catch {
-          await purgeWorkspaceCheckState(spaceId);
+          await purgeWorkFoldCheckState(spaceId);
         }
       } else {
-        await purgeWorkspaceCheckState(spaceId);
+        await purgeWorkFoldCheckState(spaceId);
       }
       for (const [taskId] of active) {
         this.#terminalRecovery.delete(taskId);
@@ -229,11 +229,11 @@ export class WorkspaceCheckService {
     }
   }
 
-  status(space: WorkspaceCheckSpaceRef): Promise<WorkspaceCheckStatusSnapshot> {
+  status(space: WorkFoldCheckSpaceRef): Promise<WorkFoldCheckStatusSnapshot> {
     return this.#withOperationReservation(space.id, async () => this.#status(await this.#registeredSpace(space)));
   }
 
-  decorations(space: WorkspaceCheckSpaceRef): Promise<WorkspaceCheckRendererDecorations> {
+  decorations(space: WorkFoldCheckSpaceRef): Promise<WorkFoldCheckRendererDecorations> {
     return this.#withOperationReservation(space.id, async () => {
       const registered = await this.#registeredSpace(space);
       const problems = await this.#problems(registered, false);
@@ -242,9 +242,9 @@ export class WorkspaceCheckService {
         counts.set(finding.targetPath, (counts.get(finding.targetPath) ?? 0) + 1);
       }
       return {
-        kind: "workspace.checks.decorations",
-        version: workspaceCheckExperimentalSnapshotVersion,
-        workspaceId: registered.id,
+        kind: "work-fold.checks.decorations",
+        version: workFoldCheckExperimentalSnapshotVersion,
+        spaceId: registered.id,
         items: [...counts.entries()]
           .sort(([left], [right]) => left.localeCompare(right, "en-US"))
           .map(([path, count]) => ({ path, count })),
@@ -252,10 +252,10 @@ export class WorkspaceCheckService {
     });
   }
 
-  overview(space: WorkspaceCheckSpaceRef): Promise<WorkspaceCheckRendererOverview> {
+  overview(space: WorkFoldCheckSpaceRef): Promise<WorkFoldCheckRendererOverview> {
     return this.#withOperationReservation(space.id, async () => {
       const registered = await this.#registeredSpace(space);
-      const discovery = await discoverWorkspaceCheckDeclarations(registered.rootPath);
+      const discovery = await discoverWorkFoldCheckDeclarations(registered.spaceRoot);
       const problems = await this.#problems(registered, true, undefined, discovery);
       const state = (await this.#store(registered.id)).snapshot();
       const status = await this.#status(registered, problems, { discovery, state });
@@ -275,9 +275,9 @@ export class WorkspaceCheckService {
         });
       }
       return {
-        kind: "workspace.checks.renderer",
-        version: workspaceCheckExperimentalSnapshotVersion,
-        workspaceId: registered.id,
+        kind: "work-fold.checks.renderer",
+        version: workFoldCheckExperimentalSnapshotVersion,
+        spaceId: registered.id,
         status,
         checks,
         ...problems,
@@ -286,11 +286,11 @@ export class WorkspaceCheckService {
   }
 
   async #status(
-    registered: WorkspaceCheckSpaceRef,
-    knownProblems?: WorkspaceCheckProblemsResult,
-    knownSnapshot?: { discovery: WorkspaceCheckDeclarationDiscovery; state: WorkspaceCheckMachineState },
-  ): Promise<WorkspaceCheckStatusSnapshot> {
-    const discovery = knownSnapshot?.discovery ?? await discoverWorkspaceCheckDeclarations(registered.rootPath);
+    registered: WorkFoldCheckSpaceRef,
+    knownProblems?: WorkFoldCheckProblemsResult,
+    knownSnapshot?: { discovery: WorkFoldCheckDeclarationDiscovery; state: WorkFoldCheckMachineState },
+  ): Promise<WorkFoldCheckStatusSnapshot> {
+    const discovery = knownSnapshot?.discovery ?? await discoverWorkFoldCheckDeclarations(registered.spaceRoot);
     const state = knownSnapshot?.state ?? (await this.#store(registered.id)).snapshot();
     let proposed = 0;
     let enabled = 0;
@@ -337,7 +337,7 @@ export class WorkspaceCheckService {
         continue;
       }
       try {
-        const inputs = await resolveCurrentInputs(record, authorization, registered.rootPath);
+        const inputs = await resolveCurrentInputs(record, authorization, registered.spaceRoot);
         if (sameSemanticInputs(inputs, run.inputs.filter((item) => item.checkId === record.declaration.id))) current += 1;
         else stale += 1;
       } catch {
@@ -350,7 +350,7 @@ export class WorkspaceCheckService {
     } catch {
       errors += 1;
     }
-    const running = [...this.#active.values()].filter((run) => run.workspaceId === registered.id).length;
+    const running = [...this.#active.values()].filter((run) => run.spaceId === registered.id).length;
     const aggregate = aggregateState({
       configured: discovery.declarations.length,
       enabled,
@@ -362,9 +362,9 @@ export class WorkspaceCheckService {
       needsAttention,
     });
     return {
-      kind: "workspace.checks.experimental",
-      version: workspaceCheckExperimentalSnapshotVersion,
-      workspaceId: registered.id,
+      kind: "work-fold.checks.experimental",
+      version: workFoldCheckExperimentalSnapshotVersion,
+      spaceId: registered.id,
       state: aggregate,
       configured: discovery.declarations.length,
       proposed,
@@ -381,12 +381,12 @@ export class WorkspaceCheckService {
   }
 
   async run(input: {
-    space: WorkspaceCheckSpaceRef;
+    space: WorkFoldCheckSpaceRef;
     checkId?: string;
-    actor: WorkspaceActor;
+    actor: WorkFoldActor;
   }): Promise<{ taskId: string; runId: string; checkIds: string[] }> {
     if (this.#runReservations.has(input.space.id) || this.hasActiveRun(input.space.id)) {
-      throw new WorkspaceCheckOperationConflictError("Wait for the current Check run in this Space to finish.");
+      throw new WorkFoldCheckOperationConflictError("Wait for the current Check run in this Space to finish.");
     }
     this.#runReservations.add(input.space.id);
     try {
@@ -405,7 +405,7 @@ export class WorkspaceCheckService {
     const limits = intersectLimits(records.map((record) => state.authorizations[record.declaration.id]!.limits));
     const taskId = this.#createTaskId();
     const runId = this.#createRunId();
-    const accepted: WorkspaceCheckRunRecord = {
+    const accepted: WorkFoldCheckRunRecord = {
       id: runId,
       taskId,
       checkIds,
@@ -422,7 +422,7 @@ export class WorkspaceCheckService {
     const store = await this.#store(space.id);
     await store.acceptRun(accepted);
     try {
-      this.#kernel.startExperimentalCheckRunTask({ id: taskId, workspaceId: space.id, actor: input.actor });
+      this.#kernel.startExperimentalCheckRunTask({ id: taskId, spaceId: space.id, actor: input.actor });
       await store.markRunRunning(runId);
     } catch (error) {
       this.#kernel.finishTask(taskId);
@@ -433,7 +433,7 @@ export class WorkspaceCheckService {
     const timeout = setTimeout(() => controller.abort("Check run exceeded its approved duration."), limits.timeoutMs);
     timeout.unref?.();
     const active: ActiveCheckRun = {
-      workspaceId: space.id,
+      spaceId: space.id,
       runId,
       checkIds,
       controller,
@@ -451,19 +451,19 @@ export class WorkspaceCheckService {
     }
   }
 
-  taskStatus(spaceId: string, taskId: string): Promise<WorkspaceCheckTaskStatus> {
+  taskStatus(spaceId: string, taskId: string): Promise<WorkFoldCheckTaskStatus> {
     return this.#withOperationReservation(spaceId, () => this.#taskStatus(spaceId, taskId));
   }
 
-  taskResult(spaceId: string, taskId: string): Promise<WorkspaceCheckRunRecord> {
+  taskResult(spaceId: string, taskId: string): Promise<WorkFoldCheckRunRecord> {
     return this.#withOperationReservation(spaceId, () => this.#taskResult(spaceId, taskId));
   }
 
-  async #taskResult(spaceId: string, taskId: string): Promise<WorkspaceCheckRunRecord> {
+  async #taskResult(spaceId: string, taskId: string): Promise<WorkFoldCheckRunRecord> {
     await this.#registeredSpaceId(spaceId);
     await this.#retryTerminalRecovery(taskId, spaceId);
     const active = this.#active.get(taskId);
-    if (active?.workspaceId === spaceId) throw new Error("The Check run is still running.");
+    if (active?.spaceId === spaceId) throw new Error("The Check run is still running.");
     const run = (await this.#store(spaceId)).snapshot().runs.find((item) => item.taskId === taskId);
     if (!run) throw new Error("Check task not found.");
     if (run.state === "accepted" || run.state === "running") throw new Error("The Check run is still running.");
@@ -477,15 +477,15 @@ export class WorkspaceCheckService {
   async #abort(spaceId: string, taskId: string): Promise<boolean> {
     await this.#registeredSpaceId(spaceId);
     const active = this.#active.get(taskId);
-    if (!active || active.workspaceId !== spaceId) return false;
+    if (!active || active.spaceId !== spaceId) return false;
     active.controller.abort("Check run aborted.");
     await active.promise;
     await this.#retryTerminalRecovery(taskId, spaceId);
     return true;
   }
 
-  problems(space: WorkspaceCheckSpaceRef, checkId?: string): Promise<{
-    findings: WorkspaceCheckFinding[];
+  problems(space: WorkFoldCheckSpaceRef, checkId?: string): Promise<{
+    findings: WorkFoldCheckFinding[];
     invalidated: number;
     healthErrors: string[];
     truncated: boolean;
@@ -496,18 +496,18 @@ export class WorkspaceCheckService {
   decide(input: {
     spaceId: string;
     findingId: string;
-    decision: WorkspaceCheckDecisionKind;
-    actor: WorkspaceCheckDecision["actor"];
+    decision: WorkFoldCheckDecisionKind;
+    actor: WorkFoldCheckDecision["actor"];
     deferUntil?: string;
     note?: string;
-  }): Promise<WorkspaceCheckDecision> {
+  }): Promise<WorkFoldCheckDecision> {
     return this.#withOperationReservation(input.spaceId, async () => {
       const space = await this.#registeredSpaceById(input.spaceId);
       const store = await this.#store(input.spaceId);
       const finding = store.snapshot().runs.flatMap((run) => run.findings).find((item) => item.id === input.findingId);
       if (!finding) throw new Error("Finding not found.");
       if (finding.status !== "active") {
-        throw new WorkspaceCheckOperationConflictError("This finding is no longer active. Refresh Checks and try again.");
+        throw new WorkFoldCheckOperationConflictError("This finding is no longer active. Refresh Checks and try again.");
       }
       const now = this.#now();
       if (input.decision === "defer") {
@@ -516,7 +516,7 @@ export class WorkspaceCheckService {
           throw new Error("A deferred finding requires a future deferUntil timestamp.");
         }
       }
-      const discovery = await discoverWorkspaceCheckDeclarations(space.rootPath);
+      const discovery = await discoverWorkFoldCheckDeclarations(space.spaceRoot);
       const record = discovery.declarations.find((item) => item.declaration.id === finding.checkId);
       const state = store.snapshot();
       const authorization = record ? exactAuthorization(state.authorizations[finding.checkId], record) : null;
@@ -527,22 +527,22 @@ export class WorkspaceCheckService {
         || !sensor || sensor.execution !== authorization.execution
         || sensor.implementationDigest !== authorization.sensorDigest
         || finding.sensorDigest !== authorization.sensorDigest) {
-        throw new WorkspaceCheckOperationConflictError("This finding is no longer current. Refresh Checks and try again.");
+        throw new WorkFoldCheckOperationConflictError("This finding is no longer current. Refresh Checks and try again.");
       }
       try {
         sensor.validate(record.declaration);
         await this.#assertNoNestedSpaceTargets(space, record.declaration);
-        if (!await reverifyWorkspaceCheckFinding(space.rootPath, record.declaration, finding)) {
+        if (!await reverifyWorkFoldCheckFinding(space.spaceRoot, record.declaration, finding)) {
           await store.invalidateFinding(
             finding.fingerprint,
             "The designated evidence changed or no longer proves this finding.",
             now,
           );
-          throw new WorkspaceCheckOperationConflictError("This finding is no longer current. Refresh Checks and try again.");
+          throw new WorkFoldCheckOperationConflictError("This finding is no longer current. Refresh Checks and try again.");
         }
       } catch (error) {
-        if (error instanceof WorkspaceCheckOperationConflictError) throw error;
-        throw new WorkspaceCheckOperationConflictError("This finding could not be re-verified. Refresh Checks and try again.");
+        if (error instanceof WorkFoldCheckOperationConflictError) throw error;
+        throw new WorkFoldCheckOperationConflictError("This finding could not be re-verified. Refresh Checks and try again.");
       }
       try {
         return await store.decide({
@@ -556,45 +556,45 @@ export class WorkspaceCheckService {
         });
       } catch (error) {
         if (/no longer active/.test(errorMessage(error))) {
-          throw new WorkspaceCheckOperationConflictError("This finding is no longer current. Refresh Checks and try again.");
+          throw new WorkFoldCheckOperationConflictError("This finding is no longer current. Refresh Checks and try again.");
         }
         throw error;
       }
     });
   }
 
-  hasActiveRun(workspaceId?: string): boolean {
+  hasActiveRun(spaceId?: string): boolean {
     return this.#spaceRegistryMutationReserved
-      || [...this.#active.values()].some((run) => workspaceId === undefined || run.workspaceId === workspaceId)
-      || [...this.#runReservations].some((id) => workspaceId === undefined || id === workspaceId)
-      || [...this.#operationReservations].some((id) => workspaceId === undefined || id === workspaceId)
-      || [...this.#spaceRemovalReservations].some((id) => workspaceId === undefined || id === workspaceId);
+      || [...this.#active.values()].some((run) => spaceId === undefined || run.spaceId === spaceId)
+      || [...this.#runReservations].some((id) => spaceId === undefined || id === spaceId)
+      || [...this.#operationReservations].some((id) => spaceId === undefined || id === spaceId)
+      || [...this.#spaceRemovalReservations].some((id) => spaceId === undefined || id === spaceId);
   }
 
   async close(): Promise<void> {
-    for (const active of this.#active.values()) active.controller.abort("Workspace is closing.");
+    for (const active of this.#active.values()) active.controller.abort("work-fold is closing.");
     await Promise.allSettled([...this.#active.values()].map((active) => active.promise));
     await Promise.allSettled([...this.#terminalRecovery.keys()].map((taskId) => this.#retryTerminalRecovery(taskId)));
     await Promise.allSettled([...this.#stores.values()].map(async (store) => (await store).flush()));
   }
 
   async #execute(
-    space: WorkspaceCheckSpaceRef,
-    records: WorkspaceCheckDeclarationRecord[],
-    accepted: WorkspaceCheckRunRecord,
+    space: WorkFoldCheckSpaceRef,
+    records: WorkFoldCheckDeclarationRecord[],
+    accepted: WorkFoldCheckRunRecord,
     signal: AbortSignal,
   ): Promise<void> {
     const store = await this.#store(space.id);
-    const findings: WorkspaceCheckFinding[] = [];
-    const inputs: WorkspaceCheckRunRecord["inputs"] = [];
+    const findings: WorkFoldCheckFinding[] = [];
+    const inputs: WorkFoldCheckRunRecord["inputs"] = [];
     let discardedCount = 0;
     let skippedCount = 0;
     let usedFiles = 0;
     let usedBytes = 0;
-    let terminal: WorkspaceCheckRunRecord;
+    let terminal: WorkFoldCheckRunRecord;
     try {
       const currentRecords = new Map(
-        (await discoverWorkspaceCheckDeclarations(space.rootPath)).declarations
+        (await discoverWorkFoldCheckDeclarations(space.spaceRoot)).declarations
           .map((record) => [record.declaration.id, record]),
       );
       for (const record of records) {
@@ -613,7 +613,7 @@ export class WorkspaceCheckService {
         const remainingFiles = accepted.limits.maximumFiles - usedFiles;
         const remainingBytes = accepted.limits.maximumTotalBytes - usedBytes;
         if (remainingFiles < 1 || remainingBytes < 0) throw new Error("Check run exhausted its approved input budget.");
-        const resolution = await resolveWorkspaceCheckTargets(space.rootPath, record.declaration.targets, {
+        const resolution = await resolveWorkFoldCheckTargets(space.spaceRoot, record.declaration.targets, {
           limits: {
             maxFiles: remainingFiles,
             maxFileBytes: accepted.limits.maximumFileBytes,
@@ -640,8 +640,8 @@ export class WorkspaceCheckService {
         if (result.candidates.length > remainingFindings) throw new Error("Check sensor exceeded the accepted run finding limit.");
         for (const candidate of result.candidates) {
           throwIfAborted(signal);
-          const finding = await admitWorkspaceCheckCandidate({
-            workspaceRoot: space.rootPath,
+          const finding = await admitWorkFoldCheckCandidate({
+            root: space.spaceRoot,
             declaration: record.declaration,
             declarationDigest: record.digest,
             sensorDigest: authorization.sensorDigest,
@@ -687,12 +687,12 @@ export class WorkspaceCheckService {
       // Fail closed: retain the internal task and capability lock until the
       // exact terminal record can be made durable or process restart marks the
       // run interrupted. Polling/result calls retry this write.
-      this.#terminalRecovery.set(accepted.taskId, { workspaceId: space.id, store, run: terminal });
+      this.#terminalRecovery.set(accepted.taskId, { spaceId: space.id, store, run: terminal });
     }
   }
 
-  async #enabledRecords(space: WorkspaceCheckSpaceRef, checkId?: string): Promise<WorkspaceCheckDeclarationRecord[]> {
-    const discovery = await discoverWorkspaceCheckDeclarations(space.rootPath);
+  async #enabledRecords(space: WorkFoldCheckSpaceRef, checkId?: string): Promise<WorkFoldCheckDeclarationRecord[]> {
+    const discovery = await discoverWorkFoldCheckDeclarations(space.spaceRoot);
     const store = await this.#store(space.id);
     const state = store.snapshot();
     return discovery.declarations.filter((record) => {
@@ -707,23 +707,23 @@ export class WorkspaceCheckService {
   }
 
   async #problems(
-    space: WorkspaceCheckSpaceRef,
+    space: WorkFoldCheckSpaceRef,
     persistInvalidation: boolean,
     checkId?: string,
-    knownDiscovery?: WorkspaceCheckDeclarationDiscovery,
+    knownDiscovery?: WorkFoldCheckDeclarationDiscovery,
   ): Promise<{
-    findings: WorkspaceCheckFinding[];
+    findings: WorkFoldCheckFinding[];
     invalidated: number;
     healthErrors: string[];
     truncated: boolean;
   }> {
-    const discovery = knownDiscovery ?? await discoverWorkspaceCheckDeclarations(space.rootPath);
+    const discovery = knownDiscovery ?? await discoverWorkFoldCheckDeclarations(space.spaceRoot);
     const declarations = new Map(discovery.declarations.map((record) => [record.declaration.id, record]));
     const store = await this.#store(space.id);
     const state = store.snapshot();
     const decisions = state.decisions;
     const seen = new Set<string>();
-    const findings: WorkspaceCheckFinding[] = [];
+    const findings: WorkFoldCheckFinding[] = [];
     const healthErrors: string[] = discovery.errors.map(() => "A Check declaration could not be read.");
     const nestedSpaceBlocked = new Set<string>();
     for (const record of discovery.declarations) {
@@ -748,7 +748,7 @@ export class WorkspaceCheckService {
       if (!sensor || sensor.implementationDigest !== authorization.sensorDigest || finding.sensorDigest !== authorization.sensorDigest) continue;
       let current = false;
       try {
-        current = await reverifyWorkspaceCheckFinding(space.rootPath, record.declaration, finding);
+        current = await reverifyWorkFoldCheckFinding(space.spaceRoot, record.declaration, finding);
       } catch {
         healthErrors.push("A finding could not be re-verified against its designated target.");
         continue;
@@ -771,10 +771,10 @@ export class WorkspaceCheckService {
   }
 
   async #rendererAuthorityState(
-    space: WorkspaceCheckSpaceRef,
-    record: WorkspaceCheckDeclarationRecord,
-    savedAuthorization: WorkspaceCheckAuthorization | undefined,
-  ): Promise<WorkspaceCheckRendererAuthorityState> {
+    space: WorkFoldCheckSpaceRef,
+    record: WorkFoldCheckDeclarationRecord,
+    savedAuthorization: WorkFoldCheckAuthorization | undefined,
+  ): Promise<WorkFoldCheckRendererAuthorityState> {
     if (!savedAuthorization) return "proposed";
     const authorization = exactAuthorization(savedAuthorization, record);
     if (!authorization) return "blocked";
@@ -793,7 +793,7 @@ export class WorkspaceCheckService {
     }
   }
 
-  async #taskStatus(spaceId: string, taskId: string): Promise<WorkspaceCheckTaskStatus> {
+  async #taskStatus(spaceId: string, taskId: string): Promise<WorkFoldCheckTaskStatus> {
     await this.#registeredSpaceId(spaceId);
     await this.#retryTerminalRecovery(taskId, spaceId);
     const run = (await this.#store(spaceId)).snapshot().runs.find((item) => item.taskId === taskId);
@@ -808,54 +808,54 @@ export class WorkspaceCheckService {
     };
   }
 
-  #store(workspaceId: string): Promise<WorkspaceCheckStore> {
-    const existing = this.#stores.get(workspaceId);
+  #store(spaceId: string): Promise<WorkFoldCheckStore> {
+    const existing = this.#stores.get(spaceId);
     if (existing) return existing;
-    const created = this.#storeFactory(workspaceId);
-    this.#stores.set(workspaceId, created);
+    const created = this.#storeFactory(spaceId);
+    this.#stores.set(spaceId, created);
     void created.catch(() => {
-      if (this.#stores.get(workspaceId) === created) this.#stores.delete(workspaceId);
+      if (this.#stores.get(spaceId) === created) this.#stores.delete(spaceId);
     });
     return created;
   }
 
-  async #withOperationReservation<T>(workspaceId: string, operation: () => Promise<T>): Promise<T> {
+  async #withOperationReservation<T>(spaceId: string, operation: () => Promise<T>): Promise<T> {
     if (this.#spaceRegistryMutationReserved
-      || this.#spaceRemovalReservations.has(workspaceId)
-      || this.#operationReservations.has(workspaceId)) {
-      throw new WorkspaceCheckOperationConflictError();
+      || this.#spaceRemovalReservations.has(spaceId)
+      || this.#operationReservations.has(spaceId)) {
+      throw new WorkFoldCheckOperationConflictError();
     }
-    this.#operationReservations.add(workspaceId);
+    this.#operationReservations.add(spaceId);
     try {
       return await operation();
     } finally {
-      this.#operationReservations.delete(workspaceId);
+      this.#operationReservations.delete(spaceId);
     }
   }
 
-  async #registeredSpace(input: WorkspaceCheckSpaceRef): Promise<WorkspaceCheckSpaceRef> {
+  async #registeredSpace(input: WorkFoldCheckSpaceRef): Promise<WorkFoldCheckSpaceRef> {
     const match = (await this.#listSpaces()).find((space) => space.id === input.id);
     if (!match) throw new Error("Registered Space not found.");
-    if (resolve(match.rootPath) !== resolve(input.rootPath)) {
+    if (resolve(match.spaceRoot) !== resolve(input.spaceRoot)) {
       throw new Error("The Check request does not match the registered Space folder.");
     }
-    return { id: match.id, rootPath: match.rootPath };
+    return { id: match.id, spaceRoot: match.spaceRoot };
   }
 
-  async #registeredSpaceId(workspaceId: string): Promise<void> {
-    await this.#registeredSpaceById(workspaceId);
+  async #registeredSpaceId(spaceId: string): Promise<void> {
+    await this.#registeredSpaceById(spaceId);
   }
 
-  async #registeredSpaceById(workspaceId: string): Promise<WorkspaceCheckSpaceRef> {
-    const space = (await this.#listSpaces()).find((item) => item.id === workspaceId);
+  async #registeredSpaceById(spaceId: string): Promise<WorkFoldCheckSpaceRef> {
+    const space = (await this.#listSpaces()).find((item) => item.id === spaceId);
     if (!space) throw new Error("Registered Space not found.");
-    return { id: space.id, rootPath: space.rootPath };
+    return { id: space.id, spaceRoot: space.spaceRoot };
   }
 
-  async #retryTerminalRecovery(taskId: string, workspaceId?: string): Promise<boolean> {
+  async #retryTerminalRecovery(taskId: string, spaceId?: string): Promise<boolean> {
     const recovery = this.#terminalRecovery.get(taskId);
     if (!recovery) return true;
-    if (workspaceId && recovery.workspaceId !== workspaceId) return false;
+    if (spaceId && recovery.spaceId !== spaceId) return false;
     try {
       await recovery.store.finishRun(recovery.run);
     } catch {
@@ -871,11 +871,11 @@ export class WorkspaceCheckService {
     this.#kernel.finishTask(taskId);
   }
 
-  async #assertNoNestedSpaceTargets(space: WorkspaceCheckSpaceRef, declaration: WorkspaceCheckDeclaration): Promise<void> {
-    const root = resolve(space.rootPath);
+  async #assertNoNestedSpaceTargets(space: WorkFoldCheckSpaceRef, declaration: WorkFoldCheckDeclaration): Promise<void> {
+    const root = resolve(space.spaceRoot);
     const nestedRoots = (await this.#listSpaces())
       .filter((item) => item.id !== space.id)
-      .map((item) => relative(root, resolve(item.rootPath)))
+      .map((item) => relative(root, resolve(item.spaceRoot)))
       .filter((path) => path && path !== ".." && !path.startsWith(`..${sep}`))
       .map((path) => path.split(sep).join("/"));
     for (const target of declaration.targets) {
@@ -888,9 +888,9 @@ export class WorkspaceCheckService {
 }
 
 function exactAuthorization(
-  authorization: WorkspaceCheckAuthorization | undefined,
-  record: WorkspaceCheckDeclarationRecord,
-): WorkspaceCheckAuthorization | null {
+  authorization: WorkFoldCheckAuthorization | undefined,
+  record: WorkFoldCheckDeclarationRecord,
+): WorkFoldCheckAuthorization | null {
   if (!authorization) return null;
   return authorization.declarationDigest === record.digest
     && authorization.sensorId === record.declaration.sensor.id
@@ -899,16 +899,16 @@ function exactAuthorization(
     : null;
 }
 
-function proposalDeclarationIdentity(proposal: WorkspaceCheckProposal): string {
-  return workspaceCheckDigest({
+function proposalDeclarationIdentity(proposal: WorkFoldCheckProposal): string {
+  return workFoldCheckDigest({
     ...proposal.check,
     createdBy: proposal.createdBy,
     createdAt: proposal.createdAt,
   });
 }
 
-function declarationIdentity(declaration: WorkspaceCheckDeclaration): string {
-  return workspaceCheckDigest({
+function declarationIdentity(declaration: WorkFoldCheckDeclaration): string {
+  return workFoldCheckDigest({
     title: declaration.title,
     severity: declaration.severity,
     trigger: declaration.trigger,
@@ -920,11 +920,11 @@ function declarationIdentity(declaration: WorkspaceCheckDeclaration): string {
 }
 
 async function resolveCurrentInputs(
-  record: WorkspaceCheckDeclarationRecord,
-  authorization: WorkspaceCheckAuthorization,
-  workspaceRoot: string,
-): Promise<WorkspaceCheckRunRecord["inputs"]> {
-  const resolution = await resolveWorkspaceCheckTargets(workspaceRoot, record.declaration.targets, {
+  record: WorkFoldCheckDeclarationRecord,
+  authorization: WorkFoldCheckAuthorization,
+  root: string,
+): Promise<WorkFoldCheckRunRecord["inputs"]> {
+  const resolution = await resolveWorkFoldCheckTargets(root, record.declaration.targets, {
     limits: {
       maxFiles: authorization.limits.maximumFiles,
       maxFileBytes: authorization.limits.maximumFileBytes,
@@ -934,14 +934,14 @@ async function resolveCurrentInputs(
   return runnerOwnedInputs(record.declaration.id, resolution);
 }
 
-function runnerOwnedInputs(checkId: string, resolution: WorkspaceCheckTargetResolution): WorkspaceCheckRunRecord["inputs"] {
+function runnerOwnedInputs(checkId: string, resolution: WorkFoldCheckTargetResolution): WorkFoldCheckRunRecord["inputs"] {
   return [
     ...resolution.files.map((file) => ({ checkId, path: file.path, state: "file" as const, size: file.sizeBytes })),
     ...resolution.missingExactTargets.map((target) => ({ checkId, path: target.path, state: "missing" as const })),
   ].sort((left, right) => left.path.localeCompare(right.path, "en-US"));
 }
 
-function closedSensorInputs(resolution: WorkspaceCheckTargetResolution) {
+function closedSensorInputs(resolution: WorkFoldCheckTargetResolution) {
   return {
     files: resolution.files.map(({ path, sizeBytes }) => ({ path, sizeBytes })),
     missingExactTargets: resolution.missingExactTargets.map(({ path }) => ({ path })),
@@ -949,20 +949,20 @@ function closedSensorInputs(resolution: WorkspaceCheckTargetResolution) {
 }
 
 function sameSemanticInputs(
-  left: WorkspaceCheckRunRecord["inputs"],
-  right: WorkspaceCheckRunRecord["inputs"],
+  left: WorkFoldCheckRunRecord["inputs"],
+  right: WorkFoldCheckRunRecord["inputs"],
 ): boolean {
-  const normalize = (values: WorkspaceCheckRunRecord["inputs"]) => values
+  const normalize = (values: WorkFoldCheckRunRecord["inputs"]) => values
     .map(({ checkId, path, state, sha256 }) => ({ checkId, path, state, sha256: sha256 ?? null }))
     .sort((a, b) => a.checkId.localeCompare(b.checkId) || a.path.localeCompare(b.path));
   return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
 }
 
-function latestRunForCheck(runs: WorkspaceCheckRunRecord[], checkId: string): WorkspaceCheckRunRecord | null {
+function latestRunForCheck(runs: WorkFoldCheckRunRecord[], checkId: string): WorkFoldCheckRunRecord | null {
   return runs.find((run) => run.checkIds.includes(checkId)) ?? null;
 }
 
-function intersectLimits(values: WorkspaceCheckRunLimits[]): WorkspaceCheckRunLimits {
+function intersectLimits(values: WorkFoldCheckRunLimits[]): WorkFoldCheckRunLimits {
   if (!values.length) return structuredClone(defaultRunLimits);
   return {
     maximumFiles: Math.min(...values.map((item) => item.maximumFiles)),
@@ -982,7 +982,7 @@ function aggregateState(input: {
   blocked: number;
   errors: number;
   needsAttention: number;
-}): WorkspaceCheckAggregateState {
+}): WorkFoldCheckAggregateState {
   if (input.errors) return "check-error";
   if (input.blocked) return "blocked";
   if (!input.configured || !input.enabled) return "not-configured";

@@ -40,11 +40,6 @@ export interface RestrictedAppStorageOwner {
   dataNamespaceId: DataNamespaceId;
 }
 
-export interface RestrictedAppLegacyStorageOwner {
-  workspaceId: string;
-  appId: string;
-}
-
 export interface RestrictedAppStorageSetOperation {
   key: string;
   value: RestrictedAppStorageJsonValue;
@@ -90,21 +85,12 @@ export class RestrictedAppStorageError extends Error {
 }
 
 interface RestrictedAppStorageFile {
-  schemaVersion: 2;
+  schemaVersion: 3;
   ownerClass: "instance";
   tenantId: TenantId;
   runtimeInstanceId: RuntimeInstanceId;
   featureInstallationId: FeatureInstallationId;
   dataNamespaceId: DataNamespaceId;
-  revision: number;
-  usageBytes: number;
-  entries: RestrictedAppStorageEntry[];
-}
-
-interface RestrictedAppLegacyStorageFile {
-  schemaVersion: 1;
-  workspaceId: string;
-  appId: string;
   revision: number;
   usageBytes: number;
   entries: RestrictedAppStorageEntry[];
@@ -216,7 +202,7 @@ export class FileRestrictedAppStorage {
         throw new RestrictedAppStorageError("STORAGE_CORRUPT", "Restricted app storage revision is exhausted.");
       }
       const next: RestrictedAppStorageFile = {
-        schemaVersion: 2,
+        schemaVersion: 3,
         ...normalizedOwner,
         revision: current.revision + 1,
         usageBytes,
@@ -242,57 +228,6 @@ export class FileRestrictedAppStorage {
       assertDirectory(directory, "Restricted app storage owner directory");
       assertContained(this.#rootPath, paths.directory);
       await rm(paths.directory, { recursive: true, force: true });
-      return true;
-    });
-  }
-
-  /**
-   * Atomically adopts the schema-1 Space/app store created by the pre-platform
-   * runtime into an explicit Data Namespace. This is the only implicit legacy
-   * association; every later adoption must use a reviewed migration workflow.
-   */
-  async migrateLegacyOwner(
-    legacyOwner: RestrictedAppLegacyStorageOwner,
-    owner: RestrictedAppStorageOwner,
-  ): Promise<boolean> {
-    const legacy = normalizeLegacyOwner(legacyOwner);
-    const normalized = normalizeOwner(owner);
-    return await this.#enqueue(normalized, async () => {
-      const legacyPaths = this.#pathsForHash(legacyOwnerHash(legacy));
-      const currentPaths = this.#paths(normalized);
-      const rootInfo = await safeInfo(this.#rootPath);
-      if (!rootInfo) return false;
-      assertDirectory(rootInfo, "Restricted app storage root");
-      const legacyShardInfo = await safeInfo(legacyPaths.shard);
-      if (!legacyShardInfo) return false;
-      assertDirectory(legacyShardInfo, "Legacy restricted app storage shard");
-      const legacyDirectoryInfo = await safeInfo(legacyPaths.directory);
-      if (!legacyDirectoryInfo) return false;
-      assertDirectory(legacyDirectoryInfo, "Legacy restricted app storage owner directory");
-      assertContained(this.#rootPath, legacyPaths.file);
-      const legacyInfo = await safeInfo(legacyPaths.file);
-      if (!legacyInfo) return false;
-      if (legacyInfo.isSymbolicLink() || !legacyInfo.isFile() || legacyInfo.size > restrictedAppStorageLimits.fileBytes) {
-        throw new RestrictedAppStorageError("STORAGE_UNSAFE", "Legacy restricted app storage is unsafe.");
-      }
-      const legacyFile = normalizeLegacyFile(JSON.parse((await readFile(legacyPaths.file)).toString("utf8")), legacy);
-      const currentInfo = await safeInfo(currentPaths.file);
-      if (currentInfo) {
-        const current = await this.#read(normalized);
-        if (current.revision !== legacyFile.revision || current.usageBytes !== legacyFile.usageBytes
-          || JSON.stringify(current.entries) !== JSON.stringify(legacyFile.entries)) {
-          throw new RestrictedAppStorageError("STORAGE_CONFLICT", "Legacy and App-platform storage both contain different data.");
-        }
-      } else {
-        await this.#write(normalized, {
-          schemaVersion: 2,
-          ...normalized,
-          revision: legacyFile.revision,
-          usageBytes: legacyFile.usageBytes,
-          entries: legacyFile.entries,
-        });
-      }
-      await rm(legacyPaths.directory, { recursive: true, force: true });
       return true;
     });
   }
@@ -324,7 +259,7 @@ export class FileRestrictedAppStorage {
       return normalizeFile(JSON.parse(bytes.toString("utf8")), owner);
     } catch (error) {
       if (error instanceof RestrictedAppStorageError) throw error;
-      throw new RestrictedAppStorageError("STORAGE_CORRUPT", `Workspace could not read restricted app storage: ${errorMessage(error)}`);
+      throw new RestrictedAppStorageError("STORAGE_CORRUPT", `work-fold could not read restricted app storage: ${errorMessage(error)}`);
     }
   }
 
@@ -408,38 +343,12 @@ function normalizeOwner(value: RestrictedAppStorageOwner): RestrictedAppStorageO
   }
 }
 
-function ownerIdentifier(value: unknown, label: string, maximum: number): string {
-  if (typeof value !== "string" || !value || value.length > maximum || !/^[A-Za-z0-9._-]+$/.test(value)) {
-    throw new RestrictedAppStorageError("STORAGE_INVALID", `Restricted app storage ${label} is invalid.`);
-  }
-  return value;
-}
-
 function ownerHash(owner: RestrictedAppStorageOwner): string {
   return createHash("sha256")
-    .update("workspace-restricted-app-storage-v2\0")
+    .update("work-fold.restricted-app-storage.v3\0")
     .update(owner.tenantId)
     .update("\0")
     .update(owner.dataNamespaceId)
-    .digest("hex");
-}
-
-function normalizeLegacyOwner(value: RestrictedAppLegacyStorageOwner): RestrictedAppLegacyStorageOwner {
-  if (!value || typeof value !== "object" || Object.keys(value).some((key) => key !== "workspaceId" && key !== "appId")) {
-    throw new RestrictedAppStorageError("STORAGE_INVALID", "Legacy restricted app storage owner is invalid.");
-  }
-  return {
-    workspaceId: ownerIdentifier(value.workspaceId, "Space id", 200),
-    appId: ownerIdentifier(value.appId, "app id", 64),
-  };
-}
-
-function legacyOwnerHash(owner: RestrictedAppLegacyStorageOwner): string {
-  return createHash("sha256")
-    .update("workspace-restricted-app-storage-v1\0")
-    .update(owner.workspaceId)
-    .update("\0")
-    .update(owner.appId)
     .digest("hex");
 }
 
@@ -506,7 +415,7 @@ function normalizeFile(value: unknown, owner: RestrictedAppStorageOwner): Restri
     throw new RestrictedAppStorageError("STORAGE_CORRUPT", "Restricted app storage file contains unsupported metadata.");
   }
   const record = value as Partial<RestrictedAppStorageFile>;
-  if (record.schemaVersion !== 2 || record.ownerClass !== owner.ownerClass || record.tenantId !== owner.tenantId
+  if (record.schemaVersion !== 3 || record.ownerClass !== owner.ownerClass || record.tenantId !== owner.tenantId
     || record.runtimeInstanceId !== owner.runtimeInstanceId || record.featureInstallationId !== owner.featureInstallationId
     || record.dataNamespaceId !== owner.dataNamespaceId
     || !Number.isSafeInteger(record.revision) || record.revision! < 0 || !Number.isSafeInteger(record.usageBytes)
@@ -545,7 +454,7 @@ function normalizeFile(value: unknown, owner: RestrictedAppStorageOwner): Restri
     throw new RestrictedAppStorageError("STORAGE_CORRUPT", "Restricted app storage file usage metadata is invalid.");
   }
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     ...owner,
     revision: record.revision!,
     usageBytes,
@@ -554,51 +463,7 @@ function normalizeFile(value: unknown, owner: RestrictedAppStorageOwner): Restri
 }
 
 function emptyFile(owner: RestrictedAppStorageOwner): RestrictedAppStorageFile {
-  return { schemaVersion: 2, ...owner, revision: 0, usageBytes: 0, entries: [] };
-}
-
-function normalizeLegacyFile(
-  value: unknown,
-  owner: RestrictedAppLegacyStorageOwner,
-): RestrictedAppLegacyStorageFile {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new RestrictedAppStorageError("STORAGE_CORRUPT", "Legacy restricted app storage file is invalid.");
-  }
-  if (Object.keys(value).some((key) => ![
-    "schemaVersion", "workspaceId", "appId", "revision", "usageBytes", "entries",
-  ].includes(key))) {
-    throw new RestrictedAppStorageError("STORAGE_CORRUPT", "Legacy restricted app storage contains unsupported metadata.");
-  }
-  const record = value as Partial<RestrictedAppLegacyStorageFile>;
-  if (record.schemaVersion !== 1 || record.workspaceId !== owner.workspaceId || record.appId !== owner.appId
-    || !Number.isSafeInteger(record.revision) || record.revision! < 0 || !Number.isSafeInteger(record.usageBytes)
-    || record.usageBytes! < 0 || !Array.isArray(record.entries)) {
-    throw new RestrictedAppStorageError("STORAGE_CORRUPT", "Legacy restricted app storage identity or metadata is invalid.");
-  }
-  const converted = normalizeFile({
-    schemaVersion: 2,
-    ownerClass: "instance",
-    tenantId: "tenant_legacy",
-    runtimeInstanceId: "runtime-instance_legacy",
-    featureInstallationId: "feature-installation_legacy",
-    dataNamespaceId: "data-namespace_legacy",
-    revision: record.revision,
-    usageBytes: record.usageBytes,
-    entries: record.entries,
-  }, {
-    ownerClass: "instance",
-    tenantId: parseTenantId("tenant_legacy"),
-    runtimeInstanceId: parseRuntimeInstanceId("runtime-instance_legacy"),
-    featureInstallationId: parseFeatureInstallationId("feature-installation_legacy"),
-    dataNamespaceId: parseDataNamespaceId("data-namespace_legacy"),
-  });
-  return {
-    schemaVersion: 1,
-    ...owner,
-    revision: converted.revision,
-    usageBytes: converted.usageBytes,
-    entries: converted.entries,
-  };
+  return { schemaVersion: 3, ...owner, revision: 0, usageBytes: 0, entries: [] };
 }
 
 function usageFromFile(file: RestrictedAppStorageFile): RestrictedAppStorageUsage {

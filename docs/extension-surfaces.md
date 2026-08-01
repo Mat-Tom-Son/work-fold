@@ -1,8 +1,8 @@
 # Extension surfaces
 
-Workspace can render a controlled application surface contributed by a normal, full-trust Pi Extension. A surface can add one destination below the stable primary rail, a navigator in the left pane, and one or more Space-bound tabs in the work area.
+work-fold can render a controlled application surface contributed by a normal, full-trust Pi Extension. A surface can add one destination below the stable primary rail, a navigator in the left pane, and one or more Space-bound tabs in the work area.
 
-This is a declarative UI contract, not renderer code injection. Workspace parses and bounds the manifest, renders its text and data through host-owned React components, and rejects unsupported block types. The Extension remains an ordinary executable Pi capability with its normal Personal or This Space scope and trust implications.
+This is a declarative UI contract, not renderer code injection. work-fold parses and bounds the manifest, renders its text and data through host-owned React components, and rejects unsupported block types. The Extension remains an ordinary executable Pi capability with its normal Personal or This Space scope and trust implications.
 
 Do not choose between `surface.json` and a restricted Space app based only on visual complexity:
 
@@ -25,7 +25,7 @@ project-pulse-package/
 └── surface.json
 ```
 
-The package and Extension entry point continue to use Pi's standard formats. Workspace does not discover a surface by scanning arbitrary Space files: it considers `surface.json` only when Pi loaded the adjacent Extension. Consequently, a This Space package surface is available only while its folder is registered as a Space.
+The package and Extension entry point continue to use Pi's standard formats. work-fold does not discover a surface by scanning arbitrary Space files: it considers `surface.json` only when Pi loaded the adjacent Extension. Consequently, a This Space package surface is available only while its folder is registered as a Space.
 
 Minimal `package.json`:
 

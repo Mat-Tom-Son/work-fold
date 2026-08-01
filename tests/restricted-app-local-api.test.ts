@@ -24,7 +24,7 @@ import { FileRestrictedAppStorage } from "../src/local/agent/restricted-app-stor
 import { startLocalApi } from "../src/local/server.js";
 
 test("restricted app API keeps review, install, grants, connections, invocation, and removal separate", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "workspace-restricted-api-"));
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-restricted-api-"));
   let nextAssistantBlock: { entered(): void; released: Promise<void> } | null = null;
   const blockNextAssistantRuntime = () => {
     let entered!: () => void;
@@ -53,7 +53,7 @@ test("restricted app API keeps review, install, grants, connections, invocation,
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    workspaceBase: join(sandbox, "spaces"),
+    spaceBase: join(sandbox, "spaces"),
     loadEnv: false,
     restrictedAppService: service,
     piRuntimeProvider: {
@@ -70,32 +70,32 @@ test("restricted app API keeps review, install, grants, connections, invocation,
     },
   });
   try {
-    const created = await request<{ workspace: { id: string; rootPath: string } }>(api.origin, "/api/workspaces", {
+    const created = await request<{ space: { id: string; spaceRoot: string } }>(api.origin, "/api/spaces", {
       method: "POST",
       body: { name: "Restricted apps" },
     });
-    const workspace = created.workspace;
+    const space = created.space;
     const sourcePath = "tools/mail-app";
-    await writePackage(join(workspace.rootPath, ...sourcePath.split("/")));
-    await mkdir(join(workspace.rootPath, "reports"), { recursive: true });
+    await writePackage(join(space.spaceRoot, ...sourcePath.split("/")));
+    await mkdir(join(space.spaceRoot, "reports"), { recursive: true });
 
-    const invalid = await fetch(`${api.origin}/api/workspaces/${workspace.id}/restricted-apps/inspect`, {
+    const invalid = await fetch(`${api.origin}/api/spaces/${space.id}/restricted-apps/inspect`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sourcePath: join(workspace.rootPath, "tools", "mail-app") }),
+      body: JSON.stringify({ sourcePath: join(space.spaceRoot, "tools", "mail-app") }),
     });
     assert.equal(invalid.status, 400);
 
     const inspected = await request<{ review: { digest: string; manifest: { id: string } } }>(
       api.origin,
-      `/api/workspaces/${workspace.id}/restricted-apps/inspect`,
+      `/api/spaces/${space.id}/restricted-apps/inspect`,
       { method: "POST", body: { sourcePath } },
     );
     assert.equal(inspected.review.manifest.id, "mail-app");
 
     const installed = await request<{ app: RestrictedAppInstalled }>(
       api.origin,
-      `/api/workspaces/${workspace.id}/restricted-apps`,
+      `/api/spaces/${space.id}/restricted-apps`,
       { method: "POST", body: { sourcePath, expectedDigest: inspected.review.digest } },
     );
     assert.equal(installed.app.digest, inspected.review.digest);
@@ -114,34 +114,34 @@ test("restricted app API keeps review, install, grants, connections, invocation,
 
     const granted = await request<{ app: { networkGrants: string[] } }>(
       api.origin,
-      `/api/workspaces/${workspace.id}/restricted-apps/mail-app/permissions/network/mail-api`,
+      `/api/spaces/${space.id}/restricted-apps/mail-app/permissions/network/mail-api`,
       { method: "PUT", body: { expectedDigest: inspected.review.digest } },
     );
     assert.deepEqual(granted.app.networkGrants, ["mail-api"]);
 
     const fileGranted = await request<{ app: { fileGrants: Array<{ declarationId: string; root: string; access: string }> } }>(
       api.origin,
-      `/api/workspaces/${workspace.id}/restricted-apps/mail-app/permissions/files/exports`,
+      `/api/spaces/${space.id}/restricted-apps/mail-app/permissions/files/exports`,
       { method: "PUT", body: { expectedDigest: inspected.review.digest, root: "reports" } },
     );
     assert.deepEqual(fileGranted.app.fileGrants, [{ id: "exports", declarationId: "exports", root: "reports", access: "read-write" }]);
 
     const notificationsGranted = await request<{ app: { notificationGrants: string[] } }>(
       api.origin,
-      `/api/workspaces/${workspace.id}/restricted-apps/mail-app/permissions/notifications/new-mail`,
+      `/api/spaces/${space.id}/restricted-apps/mail-app/permissions/notifications/new-mail`,
       { method: "PUT", body: { expectedDigest: inspected.review.digest } },
     );
     assert.deepEqual(notificationsGranted.app.notificationGrants, ["new-mail"]);
     const notificationsRevoked = await request<{ app: { notificationGrants: string[] } }>(
       api.origin,
-      `/api/workspaces/${workspace.id}/restricted-apps/mail-app/permissions/notifications/new-mail`,
+      `/api/spaces/${space.id}/restricted-apps/mail-app/permissions/notifications/new-mail`,
       { method: "DELETE", body: { expectedDigest: inspected.review.digest } },
     );
     assert.deepEqual(notificationsRevoked.app.notificationGrants, []);
 
     const automation = await request<{ app: { automations: Array<{ id: string; enabled: boolean; nextRunAt?: string }> } }>(
       api.origin,
-      `/api/workspaces/${workspace.id}/restricted-apps/mail-app/automations/refresh-mail`,
+      `/api/spaces/${space.id}/restricted-apps/mail-app/automations/refresh-mail`,
       { method: "PUT", body: { expectedDigest: inspected.review.digest } },
     );
     assert.equal(automation.app.automations[0]?.enabled, true);
@@ -161,13 +161,13 @@ test("restricted app API keeps review, install, grants, connections, invocation,
       };
     }>(
       api.origin,
-      `/api/workspaces/${workspace.id}/restricted-apps/mail-app/automations/refresh-mail/run`,
+      `/api/spaces/${space.id}/restricted-apps/mail-app/automations/refresh-mail/run`,
       { method: "POST", body: { expectedDigest: inspected.review.digest } },
     );
     try {
       await automationControl.started;
       const blockedMutation = await fetch(
-        `${api.origin}/api/workspaces/${workspace.id}/restricted-apps/mail-app/permissions/network/mail-api`,
+        `${api.origin}/api/spaces/${space.id}/restricted-apps/mail-app/permissions/network/mail-api`,
         {
           method: "DELETE",
           headers: { "content-type": "application/json" },
@@ -176,7 +176,7 @@ test("restricted app API keeps review, install, grants, connections, invocation,
       );
       assert.equal(blockedMutation.status, 409, "a manual automation run must reserve the Space capability-mutation lane");
       const blockedClear = await fetch(
-        `${api.origin}/api/workspaces/${workspace.id}/restricted-apps/mail-app/storage`,
+        `${api.origin}/api/spaces/${space.id}/restricted-apps/mail-app/storage`,
         {
           method: "DELETE",
           headers: { "content-type": "application/json" },
@@ -186,7 +186,7 @@ test("restricted app API keeps review, install, grants, connections, invocation,
       assert.equal(blockedClear.status, 409, "storage clear must join the Space capability-mutation lane");
       assert.equal((await request<{ usage: { keyCount: number } }>(
         api.origin,
-        `/api/workspaces/${workspace.id}/restricted-apps/mail-app/storage?expectedDigest=${inspected.review.digest}`,
+        `/api/spaces/${space.id}/restricted-apps/mail-app/storage?expectedDigest=${inspected.review.digest}`,
       )).usage.keyCount, 1, "read-only storage usage remains available during a capability mutation");
     } finally {
       automationControl.release();
@@ -216,24 +216,24 @@ test("restricted app API keeps review, install, grants, connections, invocation,
 
     const automationRuns = await request<{ runs: Array<typeof automationRun.run> }>(
       api.origin,
-      `/api/workspaces/${workspace.id}/restricted-apps/mail-app/automations/refresh-mail/runs?expectedDigest=${inspected.review.digest}`,
+      `/api/spaces/${space.id}/restricted-apps/mail-app/automations/refresh-mail/runs?expectedDigest=${inspected.review.digest}`,
     );
     assert.deepEqual(automationRuns.runs, [automationRun.run]);
 
     const usage = await request<{ usage: { keyCount: number } }>(
       api.origin,
-      `/api/workspaces/${workspace.id}/restricted-apps/mail-app/storage?expectedDigest=${inspected.review.digest}`,
+      `/api/spaces/${space.id}/restricted-apps/mail-app/storage?expectedDigest=${inspected.review.digest}`,
     );
     assert.equal(usage.usage.keyCount, 1);
 
     const conversation = await request<{ conversation: { id: string } }>(
       api.origin,
-      `/api/workspaces/${workspace.id}/conversations`,
+      `/api/spaces/${space.id}/conversations`,
       { method: "POST" },
     );
     const assistantControl = blockNextAssistantRuntime();
     const activeTurn = await fetch(
-      `${api.origin}/api/workspaces/${workspace.id}/conversations/${conversation.conversation.id}/messages`,
+      `${api.origin}/api/spaces/${space.id}/conversations/${conversation.conversation.id}/messages`,
       {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -244,7 +244,7 @@ test("restricted app API keeps review, install, grants, connections, invocation,
     await assistantControl.entered;
     try {
       const blockedClear = await fetch(
-        `${api.origin}/api/workspaces/${workspace.id}/restricted-apps/mail-app/storage`,
+        `${api.origin}/api/spaces/${space.id}/restricted-apps/mail-app/storage`,
         {
           method: "DELETE",
           headers: { "content-type": "application/json" },
@@ -254,7 +254,7 @@ test("restricted app API keeps review, install, grants, connections, invocation,
       assert.equal(blockedClear.status, 409, "active Assistant work must prevent storage authority changes");
       assert.equal((await request<{ usage: { keyCount: number } }>(
         api.origin,
-        `/api/workspaces/${workspace.id}/restricted-apps/mail-app/storage?expectedDigest=${inspected.review.digest}`,
+        `/api/spaces/${space.id}/restricted-apps/mail-app/storage?expectedDigest=${inspected.review.digest}`,
       )).usage.keyCount, 1);
     } finally {
       assistantControl.release();
@@ -263,14 +263,14 @@ test("restricted app API keeps review, install, grants, connections, invocation,
 
     const cleared = await request<{ usage: { keyCount: number } }>(
       api.origin,
-      `/api/workspaces/${workspace.id}/restricted-apps/mail-app/storage`,
+      `/api/spaces/${space.id}/restricted-apps/mail-app/storage`,
       { method: "DELETE", body: { expectedDigest: inspected.review.digest } },
     );
     assert.equal(cleared.usage.keyCount, 0);
 
     const oauthStatus = await request<{ connection: { destinationId: string; owner: string; kind: string; configured: boolean; diagnostics: Array<{ code: string; issuer: string; message: string }> } }>(
       api.origin,
-      `/api/workspaces/${workspace.id}/restricted-apps/mail-app/connections/mail-api/oauth`,
+      `/api/spaces/${space.id}/restricted-apps/mail-app/connections/mail-api/oauth`,
       { method: "POST", body: { expectedDigest: inspected.review.digest } },
     );
     assert.deepEqual(oauthStatus.connection, {
@@ -289,7 +289,7 @@ test("restricted app API keeps review, install, grants, connections, invocation,
 
     await request(
       api.origin,
-      `/api/workspaces/${workspace.id}/restricted-apps/mail-app/connections/mail-api`,
+      `/api/spaces/${space.id}/restricted-apps/mail-app/connections/mail-api`,
       {
         method: "PUT",
         body: {
@@ -300,13 +300,13 @@ test("restricted app API keeps review, install, grants, connections, invocation,
     );
     const statuses = await request<{ connections: Array<{ destinationId: string; owner: string; kind: string; configured: boolean }> }>(
       api.origin,
-      `/api/workspaces/${workspace.id}/restricted-apps/mail-app/connections?expectedDigest=${inspected.review.digest}`,
+      `/api/spaces/${space.id}/restricted-apps/mail-app/connections?expectedDigest=${inspected.review.digest}`,
     );
     assert.deepEqual(statuses.connections, [{ destinationId: "mail-api", owner: "instance", kind: "api-key", configured: true }]);
 
     const invoked = await request<{ result: unknown }>(
       api.origin,
-      `/api/workspaces/${workspace.id}/restricted-apps/mail-app/invoke`,
+      `/api/spaces/${space.id}/restricted-apps/mail-app/invoke`,
       { method: "POST", body: { expectedDigest: inspected.review.digest, action: "search", input: { query: "invoice" } } },
     );
     assert.deepEqual(invoked.result, { count: 3 });
@@ -314,25 +314,25 @@ test("restricted app API keeps review, install, grants, connections, invocation,
 
     const revoked = await request<{ app: { networkGrants: string[] } }>(
       api.origin,
-      `/api/workspaces/${workspace.id}/restricted-apps/mail-app/permissions/network/mail-api`,
+      `/api/spaces/${space.id}/restricted-apps/mail-app/permissions/network/mail-api`,
       { method: "DELETE", body: { expectedDigest: inspected.review.digest } },
     );
     assert.deepEqual(revoked.app.networkGrants, []);
 
     const filesRevoked = await request<{ app: { fileGrants: unknown[] } }>(
       api.origin,
-      `/api/workspaces/${workspace.id}/restricted-apps/mail-app/permissions/files/exports`,
+      `/api/spaces/${space.id}/restricted-apps/mail-app/permissions/files/exports`,
       { method: "DELETE", body: { expectedDigest: inspected.review.digest } },
     );
     assert.deepEqual(filesRevoked.app.fileGrants, []);
 
     const removed = await request<{ removed: boolean }>(
       api.origin,
-      `/api/workspaces/${workspace.id}/restricted-apps/mail-app`,
+      `/api/spaces/${space.id}/restricted-apps/mail-app`,
       { method: "DELETE", body: { expectedDigest: inspected.review.digest } },
     );
     assert.equal(removed.removed, true);
-    assert.deepEqual((await request<{ apps: unknown[] }>(api.origin, `/api/workspaces/${workspace.id}/restricted-apps`)).apps, []);
+    assert.deepEqual((await request<{ apps: unknown[] }>(api.origin, `/api/spaces/${space.id}/restricted-apps`)).apps, []);
   } finally {
     await api.close();
     await rm(sandbox, { recursive: true, force: true });
@@ -340,57 +340,57 @@ test("restricted app API keeps review, install, grants, connections, invocation,
 });
 
 test("restricted app proposals are host-inspected, owning-Chat bound, persisted, and digest-pinned", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "workspace-restricted-proposal-api-"));
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-restricted-proposal-api-"));
   const stateRoot = join(sandbox, "state", "restricted-apps");
   const service = await RestrictedAppService.create({ rootPath: stateRoot });
   const proposals = await RoutedRestrictedAppProposalHost.create({ service, registryPath: join(stateRoot, "proposals.json") });
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    workspaceBase: join(sandbox, "spaces"),
+    spaceBase: join(sandbox, "spaces"),
     loadEnv: false,
     restrictedAppService: service,
     restrictedAppProposalHost: proposals,
   });
   try {
-    const { workspace } = await request<{ workspace: { id: string; rootPath: string } }>(api.origin, "/api/workspaces", { method: "POST", body: { name: "Proposed apps" } });
-    const first = await request<{ conversation: { id: string } }>(api.origin, `/api/workspaces/${workspace.id}/conversations`, { method: "POST" });
-    const second = await request<{ conversation: { id: string } }>(api.origin, `/api/workspaces/${workspace.id}/conversations`, { method: "POST" });
-    await writePackage(join(workspace.rootPath, "tools", "mail-app"));
+    const { space } = await request<{ space: { id: string; spaceRoot: string } }>(api.origin, "/api/spaces", { method: "POST", body: { name: "Proposed apps" } });
+    const first = await request<{ conversation: { id: string } }>(api.origin, `/api/spaces/${space.id}/conversations`, { method: "POST" });
+    const second = await request<{ conversation: { id: string } }>(api.origin, `/api/spaces/${space.id}/conversations`, { method: "POST" });
+    await writePackage(join(space.spaceRoot, "tools", "mail-app"));
 
     const result = await proposals.propose({
-      workspaceId: workspace.id,
-      workspaceRoot: workspace.rootPath,
+      spaceId: space.id,
+      spaceRoot: space.spaceRoot,
       conversationId: first.conversation.id,
       sourcePath: "tools/mail-app",
     });
     assert.equal(result.status, "pending");
     const proposalId = result.proposal!.id;
 
-    const owned = await request<{ proposals: Array<{ id: string; sourcePath: string; workspaceRoot?: string; status: string }> }>(
+    const owned = await request<{ proposals: Array<{ id: string; sourcePath: string; spaceRoot?: string; status: string }> }>(
       api.origin,
-      `/api/workspaces/${workspace.id}/conversations/${first.conversation.id}/restricted-app-proposals`,
+      `/api/spaces/${space.id}/conversations/${first.conversation.id}/restricted-app-proposals`,
     );
     assert.deepEqual(owned.proposals.map(({ id, sourcePath, status }) => ({ id, sourcePath, status })), [{ id: proposalId, sourcePath: "tools/mail-app", status: "pending" }]);
-    assert.equal("workspaceRoot" in owned.proposals[0]!, false, "machine paths stay outside renderer proposal payloads");
-    assert.deepEqual((await request<{ proposals: unknown[] }>(api.origin, `/api/workspaces/${workspace.id}/conversations/${second.conversation.id}/restricted-app-proposals`)).proposals, []);
+    assert.equal("spaceRoot" in owned.proposals[0]!, false, "machine paths stay outside renderer proposal payloads");
+    assert.deepEqual((await request<{ proposals: unknown[] }>(api.origin, `/api/spaces/${space.id}/conversations/${second.conversation.id}/restricted-app-proposals`)).proposals, []);
 
-    const wrongChat = await fetch(`${api.origin}/api/workspaces/${workspace.id}/conversations/${second.conversation.id}/restricted-app-proposals/${proposalId}/install`, { method: "POST" });
+    const wrongChat = await fetch(`${api.origin}/api/spaces/${space.id}/conversations/${second.conversation.id}/restricted-app-proposals/${proposalId}/install`, { method: "POST" });
     assert.equal(wrongChat.status, 404);
 
     const installed = await request<{ app: { digest: string; networkGrants: string[] }; proposal: { status: string } }>(
       api.origin,
-      `/api/workspaces/${workspace.id}/conversations/${first.conversation.id}/restricted-app-proposals/${proposalId}/install`,
+      `/api/spaces/${space.id}/conversations/${first.conversation.id}/restricted-app-proposals/${proposalId}/install`,
       { method: "POST" },
     );
     assert.equal(installed.app.digest, result.proposal!.review.digest);
     assert.deepEqual(installed.app.networkGrants, []);
     assert.equal(installed.proposal.status, "installed");
 
-    const dismissedResult = await proposals.propose({ workspaceId: workspace.id, workspaceRoot: workspace.rootPath, conversationId: first.conversation.id, sourcePath: "tools/mail-app" });
+    const dismissedResult = await proposals.propose({ spaceId: space.id, spaceRoot: space.spaceRoot, conversationId: first.conversation.id, sourcePath: "tools/mail-app" });
     const dismissed = await request<{ dismissed: boolean }>(
       api.origin,
-      `/api/workspaces/${workspace.id}/conversations/${first.conversation.id}/restricted-app-proposals/${dismissedResult.proposal!.id}`,
+      `/api/spaces/${space.id}/conversations/${first.conversation.id}/restricted-app-proposals/${dismissedResult.proposal!.id}`,
       { method: "DELETE" },
     );
     assert.equal(dismissed.dismissed, true);
@@ -481,7 +481,7 @@ async function writePackage(root: string): Promise<void> {
           methods: ["GET"],
           auth: [
             { kind: "api-key", header: "x-api-key" },
-            { kind: "oauth2-pkce", issuer: "https://identity.example.com", clientId: "workspace-mail", scopes: ["mail.read"] },
+            { kind: "oauth2-pkce", issuer: "https://identity.example.com", clientId: "work-fold-mail", scopes: ["mail.read"] },
           ],
         }],
       },

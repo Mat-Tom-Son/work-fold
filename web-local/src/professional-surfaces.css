@@ -1,9 +1,9 @@
-/* Focused, reusable surfaces for the product panes introduced by Workspace.
+/* Focused, reusable surfaces for the product panes introduced by Space.
    These rules intentionally use the foundation tokens and stay scoped away
    from the transplanted legacy stylesheet. */
 
-.workspace-mode-pane:has(> .professional-surface) {
-  container-name: workspace-pane;
+.space-mode-pane:has(> .professional-surface) {
+  container-name: space-pane;
   container-type: inline-size;
 }
 
@@ -19,7 +19,7 @@
   background: var(--ui-surface);
 }
 
-.workspace-mode-pane > .restricted-app-view {
+.space-mode-pane > .restricted-app-view {
   width: auto;
   height: auto;
   margin: 12px;
@@ -56,12 +56,12 @@
   color: var(--ui-text);
 }
 
-.workspace-pane-content.professional-surface {
+.space-pane-content.professional-surface {
   min-width: 0;
   min-height: 0;
   flex: 1 1 auto;
   color: var(--ui-text);
-  font-family: var(--workspace-ui-font);
+  font-family: var(--work-fold-ui-font);
   font-size: 14px;
   font-weight: 400;
   line-height: 1.45;
@@ -151,7 +151,7 @@
   padding: 0 12px;
   border: 1px solid transparent;
   border-radius: var(--ui-radius-md);
-  font-family: var(--workspace-ui-font);
+  font-family: var(--work-fold-ui-font);
   font-size: 14px;
   font-weight: 600;
   line-height: 1;
@@ -231,7 +231,7 @@
 
 /* Spaces */
 
-.workspace-pane-content.professional-spaces {
+.space-pane-content.professional-spaces {
   display: grid;
   align-content: start;
   gap: 16px;
@@ -338,12 +338,12 @@
   font-weight: 600;
 }
 
-.professional-spaces .workspace-switcher {
+.professional-spaces .space-switcher {
   display: grid;
   gap: 8px;
 }
 
-.professional-spaces .workspace-card-shell {
+.professional-spaces .space-card-shell {
   min-width: 0;
   overflow: hidden;
   color: var(--ui-text);
@@ -353,49 +353,49 @@
   box-shadow: none;
 }
 
-.professional-spaces .workspace-card-shell.active {
+.professional-spaces .space-card-shell.active {
   background: var(--ui-accent-soft);
   border-color: color-mix(in srgb, var(--ui-accent) 48%, var(--ui-border));
   box-shadow: inset 3px 0 0 var(--ui-accent);
 }
 
-.professional-spaces .workspace-card-row,
-.professional-spaces .workspace-card-main,
-.professional-spaces .workspace-card-main.active {
+.professional-spaces .space-card-row,
+.professional-spaces .space-card-main,
+.professional-spaces .space-card-main.active {
   color: var(--ui-text);
   background: transparent;
   border: 0;
   box-shadow: none;
 }
 
-.professional-spaces .workspace-card-main:hover,
-.professional-spaces .workspace-card-main:focus-visible {
+.professional-spaces .space-card-main:hover,
+.professional-spaces .space-card-main:focus-visible {
   background: var(--ui-surface-hover);
 }
 
-.professional-spaces .workspace-tab-copy strong {
+.professional-spaces .space-tab-copy strong {
   color: var(--ui-text);
   font-weight: 600;
 }
 
-.professional-spaces .workspace-tab-copy > span {
+.professional-spaces .space-tab-copy > span {
   color: var(--ui-text-muted);
 }
 
-.professional-spaces .workspace-tab-icon {
+.professional-spaces .space-tab-icon {
   background: var(--ui-surface-subtle);
   border-color: var(--ui-border);
   box-shadow: none;
 }
 
-.professional-spaces .workspace-card-actions button {
+.professional-spaces .space-card-actions button {
   color: var(--ui-text-muted);
   background: transparent;
   border-color: transparent;
 }
 
-.professional-spaces .workspace-card-actions button:hover,
-.professional-spaces .workspace-card-actions button:focus-visible {
+.professional-spaces .space-card-actions button:hover,
+.professional-spaces .space-card-actions button:focus-visible {
   color: var(--ui-text);
   background: var(--ui-surface-hover);
   border-color: var(--ui-border);
@@ -409,7 +409,7 @@
 
 /* Chats */
 
-.workspace-pane-content.professional-chats {
+.space-pane-content.professional-chats {
   display: grid;
   align-content: start;
   gap: 12px;
@@ -420,17 +420,17 @@
   min-width: 0;
 }
 
-.professional-chats .chat-workspace-heading {
+.professional-chats .chat-space-heading {
   grid-template-columns: 20px minmax(0, 1fr) 28px;
   gap: 8px;
 }
 
-.professional-chats .chat-workspace-heading > span:first-child {
+.professional-chats .chat-space-heading > span:first-child {
   width: 20px;
   height: 20px;
 }
 
-.professional-chats .chat-workspace-heading .minimal-icon-button {
+.professional-chats .chat-space-heading .minimal-icon-button {
   width: 28px;
   height: 28px;
   min-height: 28px;
@@ -439,14 +439,14 @@
   transform: none;
 }
 
-.professional-chats .chat-workspace-heading .minimal-icon-button:hover,
-.professional-chats .chat-workspace-heading .minimal-icon-button:focus-visible {
+.professional-chats .chat-space-heading .minimal-icon-button:hover,
+.professional-chats .chat-space-heading .minimal-icon-button:focus-visible {
   opacity: 1;
 }
 
 /* Library */
 
-.workspace-pane-content.professional-library {
+.space-pane-content.professional-library {
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -457,8 +457,8 @@
   padding: clamp(20px, 3vw, 36px) max(20px, calc((100% - 1120px) / 2)) 44px;
 }
 
-.workspace-surface-body:has(> .library-pane) {
-  container-name: workspace-pane;
+.space-surface-body:has(> .library-pane) {
+  container-name: space-pane;
   container-type: inline-size;
 }
 
@@ -581,7 +581,7 @@
 
 /* History */
 
-.workspace-pane-content.professional-history {
+.space-pane-content.professional-history {
   display: grid;
   align-content: start;
   gap: 12px;
@@ -619,8 +619,8 @@
 }
 
 .professional-history-card.selected {
-  border-color: color-mix(in srgb, var(--workspace-accent, var(--ui-accent)) 58%, var(--ui-border));
-  box-shadow: inset 3px 0 0 var(--workspace-accent, var(--ui-accent));
+  border-color: color-mix(in srgb, var(--work-fold-accent, var(--ui-accent)) 58%, var(--ui-border));
+  box-shadow: inset 3px 0 0 var(--work-fold-accent, var(--ui-accent));
 }
 
 .professional-history-actions {
@@ -655,7 +655,7 @@
 
 /* Assistant setup and capability management */
 
-.workspace-pane-content.professional-assistant {
+.space-pane-content.professional-assistant {
   display: grid;
   align-content: start;
   gap: 12px;
@@ -731,7 +731,7 @@
   background: var(--ui-surface);
   border: 1px solid var(--ui-border-strong);
   border-radius: var(--ui-radius-md);
-  font-family: var(--workspace-ui-font);
+  font-family: var(--work-fold-ui-font);
   font-size: 14px;
 }
 
@@ -848,7 +848,7 @@
   background: transparent;
   border: 0;
   border-radius: var(--ui-radius-sm);
-  font-family: var(--workspace-ui-font);
+  font-family: var(--work-fold-ui-font);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -1035,12 +1035,12 @@
 
 /* Optional, explicitly scoped file Checks */
 
-.workspace-surface-body:has(> .checks-pane) {
+.space-surface-body:has(> .checks-pane) {
   container-name: checks-pane;
   container-type: inline-size;
 }
 
-.workspace-pane-content.checks-pane {
+.space-pane-content.checks-pane {
   width: 100%;
   height: 100%;
   align-content: start;
@@ -1356,7 +1356,7 @@
   color: var(--ui-text-muted);
   background: transparent;
   border: 0;
-  font-family: var(--workspace-ui-font);
+  font-family: var(--work-fold-ui-font);
   font-size: 11px;
   font-weight: 650;
   cursor: pointer;
@@ -1496,12 +1496,12 @@
 
 /* Unified Pi capability management */
 
-.workspace-surface-body:has(> .assistant-tools-pane) {
-  container-name: workspace-pane;
+.space-surface-body:has(> .assistant-tools-pane) {
+  container-name: space-pane;
   container-type: inline-size;
 }
 
-.workspace-pane-content.capabilities-pane.assistant-tools-pane {
+.space-pane-content.capabilities-pane.assistant-tools-pane {
   width: 100%;
   height: 100%;
   align-content: start;
@@ -1642,7 +1642,7 @@
   border: 0;
   border-bottom: 2px solid transparent;
   border-radius: 0;
-  font-family: var(--workspace-ui-font);
+  font-family: var(--work-fold-ui-font);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -1825,7 +1825,7 @@
   background: var(--ui-surface);
   border: 1px solid var(--ui-border-strong);
   border-radius: var(--ui-radius-sm);
-  font-family: var(--workspace-ui-font);
+  font-family: var(--work-fold-ui-font);
   font-size: 12px;
 }
 
@@ -1880,7 +1880,7 @@
   background: transparent;
   border: 0;
   outline: 0;
-  font-family: var(--workspace-ui-font);
+  font-family: var(--work-fold-ui-font);
   font-size: 13px;
 }
 
@@ -1913,7 +1913,7 @@
   background: var(--ui-surface);
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-md);
-  font-family: var(--workspace-ui-font);
+  font-family: var(--work-fold-ui-font);
   font-size: 12px;
 }
 
@@ -2554,7 +2554,7 @@
   padding: 6px;
   background: var(--ui-surface);
   border-radius: var(--ui-radius-sm);
-  font-family: var(--workspace-monospace-font, monospace);
+  font-family: var(--work-fold-monospace-font, monospace);
 }
 
 .capability-details-summary {
@@ -2655,7 +2655,7 @@
   font-size: 13px;
 }
 
-@container workspace-pane (max-width: 760px) {
+@container space-pane (max-width: 760px) {
   .library-tab-header {
     grid-template-columns: minmax(0, 1fr);
     align-items: start;
@@ -2668,7 +2668,7 @@
   }
 }
 
-@container workspace-pane (max-width: 620px) {
+@container space-pane (max-width: 620px) {
   .assistant-tools-header {
     grid-template-columns: minmax(0, 1fr);
     align-items: start;
@@ -2687,7 +2687,7 @@
   }
 }
 
-@container workspace-pane (max-width: 620px) {
+@container space-pane (max-width: 620px) {
   .professional-library .professional-library-split {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(150px, 42%) minmax(0, 1fr);
@@ -2699,7 +2699,7 @@
   }
 }
 
-@container workspace-pane (max-width: 520px) {
+@container space-pane (max-width: 520px) {
   .professional-space-actions,
   .professional-assistant .setup-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -2752,7 +2752,7 @@
     flex-direction: column;
   }
 
-  .workspace-pane-content.capabilities-pane.assistant-tools-pane {
+  .space-pane-content.capabilities-pane.assistant-tools-pane {
     gap: 18px;
     padding: 20px 18px 56px;
   }
@@ -2814,10 +2814,10 @@
   }
 }
 
-@container workspace-pane (max-width: 380px) {
-  .workspace-pane-content.professional-spaces,
-  .workspace-pane-content.professional-history,
-  .workspace-pane-content.professional-assistant {
+@container space-pane (max-width: 380px) {
+  .space-pane-content.professional-spaces,
+  .space-pane-content.professional-history,
+  .space-pane-content.professional-assistant {
     padding: 12px;
   }
 
@@ -3149,7 +3149,7 @@
   background: var(--ui-surface);
   border: 1px solid var(--ui-border-strong);
   border-radius: var(--ui-radius-sm);
-  font-family: var(--workspace-ui-font);
+  font-family: var(--work-fold-ui-font);
   font-size: 12px;
 }
 
@@ -3642,7 +3642,7 @@
 .restricted-app-oauth-note { color: var(--ui-text-subtle); font-size: 10px; line-height: 1.4; }
 .restricted-app-details-footer { justify-content: flex-end; }
 
-@container workspace-pane (max-width: 900px) {
+@container space-pane (max-width: 900px) {
   .capabilities-toolbar {
     grid-template-columns: minmax(0, 1fr);
     align-items: stretch;
@@ -3666,12 +3666,12 @@
   }
 }
 
-@container workspace-pane (max-width: 620px) {
+@container space-pane (max-width: 620px) {
   .capabilities-installed-context { grid-template-columns: 20px minmax(0, 1fr); align-items: start; }
   .capabilities-installed-context p { grid-column: 2; justify-self: start; max-width: none; text-align: left; }
 }
 
-@container workspace-pane (max-width: 620px) {
+@container space-pane (max-width: 620px) {
   .restricted-apps-heading,
   .restricted-app-card { grid-template-columns: minmax(0, 1fr); align-items: start; }
   .restricted-apps-heading-actions { width: 100%; justify-content: flex-start; }
@@ -3718,8 +3718,8 @@
   height: 36px;
   place-items: center;
   border-radius: 10px;
-  color: var(--workspace-accent);
-  background: color-mix(in srgb, var(--workspace-accent) 11%, var(--ui-surface));
+  color: var(--work-fold-accent);
+  background: color-mix(in srgb, var(--work-fold-accent) 11%, var(--ui-surface));
 }
 
 .extension-surface-pane-intro h2,
@@ -3793,8 +3793,8 @@
 }
 
 .extension-surface-view-list button.active {
-  border-color: color-mix(in srgb, var(--workspace-accent) 30%, var(--ui-border));
-  background: color-mix(in srgb, var(--workspace-accent) 9%, var(--ui-surface));
+  border-color: color-mix(in srgb, var(--work-fold-accent) 30%, var(--ui-border));
+  background: color-mix(in srgb, var(--work-fold-accent) 9%, var(--ui-surface));
 }
 
 .extension-surface-view-list button > span {
@@ -3845,7 +3845,7 @@
 .extension-surface-eyebrow {
   display: block;
   margin-bottom: 6px;
-  color: var(--workspace-accent);
+  color: var(--work-fold-accent);
   font-size: 11px;
   font-weight: 750;
   letter-spacing: 0.08em;
@@ -3898,7 +3898,7 @@
   border: 1px solid var(--ui-border);
   border-radius: 12px;
   background: var(--ui-surface);
-  box-shadow: var(--workspace-chat-shadow);
+  box-shadow: var(--work-fold-chat-shadow);
 }
 
 .extension-surface-metrics section > span,
@@ -3915,7 +3915,7 @@
 .extension-surface-callout {
   padding: 15px 17px;
   border: 1px solid var(--ui-border);
-  border-left: 4px solid var(--workspace-accent);
+  border-left: 4px solid var(--work-fold-accent);
   border-radius: 9px;
   background: var(--ui-surface);
 }
@@ -4001,7 +4001,7 @@
 .extension-surface-unavailable h2 { margin: 0 0 7px; color: var(--ui-text); }
 .extension-surface-unavailable code { margin-top: 13px; }
 
-@container workspace-pane (max-width: 520px) {
+@container space-pane (max-width: 520px) {
   .extension-surface-canvas { padding: 22px 18px 40px; }
   .extension-surface-canvas-header { display: grid; }
   .extension-surface-metrics { grid-template-columns: 1fr; }
@@ -4009,12 +4009,12 @@
 
 /* Local App Studio */
 
-.workspace-surface-body:has(> .app-studio-pane) {
-  container-name: workspace-pane;
+.space-surface-body:has(> .app-studio-pane) {
+  container-name: space-pane;
   container-type: inline-size;
 }
 
-.workspace-pane-content.app-studio-pane {
+.space-pane-content.app-studio-pane {
   width: 100%;
   height: 100%;
   display: block;
@@ -4228,7 +4228,7 @@
   background: var(--ui-surface);
   border: 1px solid var(--ui-border-strong);
   border-radius: var(--ui-radius-sm);
-  font-family: var(--workspace-ui-font);
+  font-family: var(--work-fold-ui-font);
   font-size: 13px;
 }
 
@@ -4473,7 +4473,7 @@
 }
 
 .app-studio-release-row.recently-published {
-  animation: app-studio-published 520ms var(--workspace-ease-smooth);
+  animation: app-studio-published 520ms var(--work-fold-ease-smooth);
 }
 
 @keyframes app-studio-published {
@@ -4610,7 +4610,7 @@
   border: 1px solid color-mix(in srgb, var(--ui-accent) 24%, var(--ui-border));
   border-left: 3px solid var(--ui-accent);
   border-radius: 0 var(--ui-radius-md) var(--ui-radius-md) 0;
-  animation: app-studio-review-enter 180ms var(--workspace-ease-smooth);
+  animation: app-studio-review-enter 180ms var(--work-fold-ease-smooth);
 }
 
 @keyframes app-studio-review-enter {
@@ -4811,7 +4811,7 @@
   color: var(--ui-text-muted);
   background: transparent;
   border: 0;
-  font-family: var(--workspace-ui-font);
+  font-family: var(--work-fold-ui-font);
   font-size: 10px;
   font-weight: 600;
   cursor: pointer;
@@ -4868,7 +4868,7 @@
   border-top: 1px solid var(--ui-border);
 }
 
-@container workspace-pane (max-width: 760px) {
+@container space-pane (max-width: 760px) {
   .app-studio-canvas {
     padding: 22px 20px 48px;
   }
@@ -4910,7 +4910,7 @@
   }
 }
 
-@container workspace-pane (max-width: 520px) {
+@container space-pane (max-width: 520px) {
   .app-studio-canvas {
     padding: 18px 14px 40px;
   }

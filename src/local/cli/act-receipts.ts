@@ -1,10 +1,10 @@
 import { appendFile, mkdir, readFile, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-import { WORKSPACE_CLI_REQUEST_MAX_AGE_MS, workspaceCliBrokerPaths } from "./broker.js";
-import { WorkspaceCliError, type WorkspaceCliErrorCode } from "./protocol.js";
+import { WORKFOLD_CLI_REQUEST_MAX_AGE_MS, workFoldCliBrokerPaths } from "./broker.js";
+import { WorkFoldCliError, type WorkFoldCliErrorCode } from "./protocol.js";
 
-export const WORKSPACE_CLI_ACT_RECEIPTS_MAX_BYTES = 1024 * 1024;
+export const WORKFOLD_CLI_ACT_RECEIPTS_MAX_BYTES = 1024 * 1024;
 
 /**
  * Durable, append-only journal of act-lane commands. Every authorized command
@@ -18,7 +18,7 @@ export const WORKSPACE_CLI_ACT_RECEIPTS_MAX_BYTES = 1024 * 1024;
  * must not be failed retroactively); the executor surfaces a warning when one
  * cannot be written.
  */
-export interface WorkspaceCliActReceiptV1 {
+export interface WorkFoldCliActReceiptV1 {
   v: 1;
   at: string;
   requestId: string;
@@ -26,19 +26,21 @@ export interface WorkspaceCliActReceiptV1 {
   spaceId?: string;
   conversationId?: string;
   outcome: "accepted" | "ok" | "error" | "rejected";
-  errorCode?: WorkspaceCliErrorCode;
+  errorCode?: WorkFoldCliErrorCode;
   checkpointId?: string;
   taskId?: string;
+  /** Kernel task id of the management turn this act was performed for, when one was running. */
+  parentTaskId?: string;
   detail?: string;
 }
 
-export interface WorkspaceCliActReceiptsOptions {
+export interface WorkFoldCliActReceiptsOptions {
   stateRoot: string;
   maxBytes?: number;
   now?: () => Date;
 }
 
-export class WorkspaceCliActReceipts {
+export class WorkFoldCliActReceipts {
   readonly path: string;
   readonly rotatedPath: string;
   readonly #directory: string;
@@ -46,19 +48,19 @@ export class WorkspaceCliActReceipts {
   readonly #now: () => Date;
   #queue: Promise<unknown> = Promise.resolve();
 
-  constructor(options: WorkspaceCliActReceiptsOptions) {
-    this.#directory = join(workspaceCliBrokerPaths(options.stateRoot).root, "receipts");
+  constructor(options: WorkFoldCliActReceiptsOptions) {
+    this.#directory = join(workFoldCliBrokerPaths(options.stateRoot).root, "receipts");
     this.path = join(this.#directory, "act.jsonl");
     this.rotatedPath = join(this.#directory, "act.1.jsonl");
-    this.#maxBytes = options.maxBytes ?? WORKSPACE_CLI_ACT_RECEIPTS_MAX_BYTES;
+    this.#maxBytes = options.maxBytes ?? WORKFOLD_CLI_ACT_RECEIPTS_MAX_BYTES;
     this.#now = options.now ?? (() => new Date());
   }
 
   /** Serialized best-effort append; resolves false when the receipt could not be written. */
-  append(entry: Omit<WorkspaceCliActReceiptV1, "v" | "at">): Promise<boolean> {
+  append(entry: Omit<WorkFoldCliActReceiptV1, "v" | "at">): Promise<boolean> {
     const operation = this.#queue.catch(() => undefined).then(async () => {
       try {
-        const record: WorkspaceCliActReceiptV1 = {
+        const record: WorkFoldCliActReceiptV1 = {
           v: 1,
           at: this.#now().toISOString(),
           ...entry,
@@ -83,18 +85,18 @@ export class WorkspaceCliActReceipts {
       for (const path of [this.path, this.rotatedPath]) {
         const text = await readFile(path, "utf8").catch((error: unknown) => {
           if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-          throw new WorkspaceCliError("failure", "Workspace could not verify the act receipt journal.", { cause: error });
+          throw new WorkFoldCliError("failure", "work-fold could not verify the act receipt journal.", { cause: error });
         });
         if (!text) continue;
         for (const line of text.split("\n")) {
           if (!line) continue;
           try {
-            const record = JSON.parse(line) as Partial<WorkspaceCliActReceiptV1>;
+            const record = JSON.parse(line) as Partial<WorkFoldCliActReceiptV1>;
             if (record.requestId === requestId && record.outcome === "accepted") return true;
           } catch (error) {
             // A damaged ledger cannot safely prove that this request id was
             // never accepted, so fail closed instead of risking a replay.
-            throw new WorkspaceCliError("failure", "Workspace could not verify the act receipt journal.", { cause: error });
+            throw new WorkFoldCliError("failure", "work-fold could not verify the act receipt journal.", { cause: error });
           }
         }
       }
@@ -117,7 +119,7 @@ export class WorkspaceCliActReceipts {
     if (firstLine) {
       try {
         const at = Date.parse((JSON.parse(firstLine) as { at?: string }).at ?? "");
-        if (Number.isFinite(at) && this.#now().getTime() - at < WORKSPACE_CLI_REQUEST_MAX_AGE_MS) return;
+        if (Number.isFinite(at) && this.#now().getTime() - at < WORKFOLD_CLI_REQUEST_MAX_AGE_MS) return;
       } catch {
         // An unreadable first line never blocks rotation.
       }

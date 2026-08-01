@@ -4,7 +4,7 @@ import { basename, extname } from "node:path";
 import JSZip from "jszip";
 
 import { OFFICE_OPEN_DOCUMENT_READ_NOTE, officeDocumentLockPresent } from "./office-lock-files.js";
-import { resolveWorkspacePath } from "./workspace.js";
+import { resolveSpacePath } from "./space.js";
 
 export type ConversationContextMode = "full_original_text" | "full_extracted_text" | "path_only_reference";
 
@@ -28,23 +28,23 @@ export interface LoadedConversationContextAttachment extends ConversationContext
 }
 
 export async function previewConversationContextAttachment(
-  rootPath: string,
+  spaceRoot: string,
   input: { path: string },
 ): Promise<ConversationContextAttachment> {
-  const loaded = await loadAttachment(rootPath, normalizePath(input.path), chatContextBudgetTokens(), chatContextBudgetTokens());
+  const loaded = await loadAttachment(spaceRoot, normalizePath(input.path), chatContextBudgetTokens(), chatContextBudgetTokens());
   const { text: _text, ...attachment } = loaded;
   return attachment;
 }
 
 export async function loadConversationContextAttachmentsForTurn(
-  rootPath: string,
+  spaceRoot: string,
   paths: string[],
 ): Promise<LoadedConversationContextAttachment[]> {
   const budgetTokens = chatContextBudgetTokens();
   let remaining = budgetTokens;
   const result: LoadedConversationContextAttachment[] = [];
   for (const sourcePath of [...new Set(paths.map(normalizePath).filter(Boolean))].slice(0, 32)) {
-    const attachment = await loadAttachment(rootPath, sourcePath, remaining, budgetTokens);
+    const attachment = await loadAttachment(spaceRoot, sourcePath, remaining, budgetTokens);
     if (attachment.includedInPrompt) remaining -= attachment.estimatedTokens;
     result.push(attachment);
   }
@@ -52,7 +52,7 @@ export async function loadConversationContextAttachmentsForTurn(
 }
 
 async function loadAttachment(
-  rootPath: string,
+  spaceRoot: string,
   sourcePath: string,
   remaining: number,
   budgetTokens: number,
@@ -61,7 +61,7 @@ async function loadAttachment(
   let sourceSizeBytes = 0;
   try {
     if (!sourcePath) throw new Error("Choose a file to attach to chat context.");
-    const path = resolveWorkspacePath(rootPath, sourcePath);
+    const path = resolveSpacePath(spaceRoot, sourcePath);
     const info = await stat(path);
     if (!info.isFile()) throw new Error("Only files can be attached to chat context.");
     sourceSizeBytes = info.size;
@@ -115,7 +115,7 @@ async function loadAttachment(
   }
 }
 
-async function readableAttachmentText(
+export async function readableAttachmentText(
   fileName: string,
   bytes: Buffer,
 ): Promise<{ text: string; mode: Exclude<ConversationContextMode, "path_only_reference">; provenance: string[]; warnings: string[] }> {
@@ -277,7 +277,7 @@ function pathOnlyAttachment(input: {
 }
 
 export function chatContextBudgetTokens(): number {
-  const configured = Number(process.env.WORKSPACE_CHAT_CONTEXT_BUDGET_TOKENS);
+  const configured = Number(process.env.WORKFOLD_CHAT_CONTEXT_BUDGET_TOKENS);
   return Number.isFinite(configured) && configured > 1000 ? Math.floor(configured) : 90_000;
 }
 
@@ -289,7 +289,7 @@ function normalizePath(value: string): string {
   return value.trim().replace(/\\/g, "/").replace(/^(?:\.\/)+/, "").replace(/^\/+/, "");
 }
 
-function normalizeText(value: string): string {
+export function normalizeText(value: string): string {
   const text = value.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trimEnd();
   return `${text}\n`;
 }

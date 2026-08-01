@@ -1,7 +1,7 @@
 # Restricted app authoring
 
 This is the canonical package and bridge reference for Space apps that run in
-Workspace's restricted web runtime. Read [Restricted app runtime](restricted-app-runtime.md)
+work-fold's restricted web runtime. Read [Restricted app runtime](restricted-app-runtime.md)
 for the security architecture, lifecycle boundaries, and remaining host gaps.
 The App Studio and release-backed runtime behind this surface are documented in
 [App platform foundation](app-platform-foundation.md). A version-2 package is a
@@ -9,7 +9,7 @@ reviewed Feature in either a Development preview or an immutable Release; its
 authoring and bridge contract does not change between those placements.
 
 Restricted apps are not native Pi Extensions. They are prebuilt HTML, CSS, and
-JavaScript packages that Workspace inspects without evaluation, pins to an
+JavaScript packages that work-fold inspects without evaluation, pins to an
 exact content digest, and runs in separate sandboxed Chromium hosts. Never add
 `pi.extensions` or install one through Pi's package manager.
 
@@ -26,7 +26,7 @@ The normal product path begins in a Chat belonging to the target Space:
    ordinary visible folder inside that Space.
 2. The Assistant calls the host-owned `propose_space_app` tool with only the
    Space-relative package folder.
-3. Workspace inspects the package without running JavaScript, computes its
+3. work-fold inspects the package without running JavaScript, computes its
    digest, and creates a review bound to the Space, Chat, source folder, and
    exact bytes.
 4. Review and add that digest in the owning Chat as a **Local preview** in
@@ -45,10 +45,10 @@ apps.
 
 Use **Open App Studio** when the reviewed preview is ready to install as an App:
 
-1. Declare or edit the App Project title, description, and icon. In 0.4 these
-   fields and `projectId` are machine-local Workspace state; do not create or
-   depend on `.workspace/app-project.json`.
-2. Prepare a Release with a display version. Workspace snapshots every reviewed
+1. Declare or edit the App Project title, description, and icon. These
+   fields and `projectId` are machine-local work-fold state; do not create or
+   depend on `.work-fold/app-project.json`.
+2. Prepare a Release with a display version. work-fold snapshots every reviewed
    preview in that Development Instance, so use stable, unique Feature ids and
    finish each package review first.
 3. Review the immutable digest and publish it as a separate local action. If any
@@ -66,7 +66,7 @@ The v2 Release is a closed local artifact: it contains the prebuilt package
 bytes and declarations rather than a source-folder pointer or ambient Pi
 dependency. “Publish” does not upload, host, sign, sync, or list it. Executable
 bytes, mutable data, grants, connections, schedules, operation journals, and
-receipts stay in Workspace application data even though the App is attached to
+receipts stay in work-fold application data even though the App is attached to
 the chosen Space for navigation and file-grant selection.
 
 App Studio can prepare an update or rollback to any other published Release from
@@ -76,7 +76,7 @@ connections, and jobs. The current local runtime rejects data schemas and
 migrations, so this package format must continue to rely on backward-compatible
 JSON storage until reviewed migration execution is implemented. Uninstall
 requires retaining or purging App data; retained namespaces are inactive and
-can only be purged later in 0.4.
+can only be purged later in the current local product.
 
 ## Package layout
 
@@ -104,10 +104,10 @@ my-space-app/
 }
 ```
 
-Workspace requires `name`, `version`, `type: "module"`, and `agentApp`. It
+work-fold requires `name`, `version`, `type: "module"`, and `agentApp`. It
 rejects package `scripts`, `bin`, `workspaces`, `gypfile`, and `pi` fields.
 Dependency metadata may describe the toolchain that produced the assets, but
-Workspace never runs npm or installs those dependencies. Bundle every runtime
+work-fold never runs npm or installs those dependencies. Bundle every runtime
 asset into the reviewed directory before proposing it. Package roots and files
 must be ordinary files and directories, not links or junctions.
 
@@ -213,19 +213,19 @@ template exercises every current section:
       {
         "id": "refresh-finished",
         "title": "Refresh finished",
-        "description": "The records refresh automation finished. Open Workspace to review the result."
+        "description": "The records refresh automation finished. Open work-fold to review the result."
       }
     ]
   }
 }
 ```
 
-`ui.cornerRadius` is optional presentation metadata. Workspace uses a rounded
+`ui.cornerRadius` is optional presentation metadata. work-fold uses a rounded
 12px app canvas when it is omitted. Apps may request a whole-pixel radius from
 0 through 24; use `0` only when the app intentionally owns a square edge. The
 host applies the reviewed value to both the HTML placeholder and the native
 `WebContentsView`, so an app cannot accidentally paint square corners over a
-rounded shell. Omit the field when targeting older Workspace builds: older
+rounded shell. Omit the field when targeting older work-fold builds: older
 strict manifest parsers do not recognize presentation fields added later.
 
 Manifest ids use lowercase letters, numbers, and hyphens. `ui`, `tools`, and
@@ -281,7 +281,7 @@ a CDN. Use the host bridge for network and Space files.
 The preload exposes one frozen global:
 
 ```js
-const bridge = globalThis.workspaceRestrictedApp;
+const bridge = globalThis.workFoldRestrictedApp;
 ```
 
 Bridge values and requests must be JSON-compatible and bounded. Do not pass
@@ -299,7 +299,7 @@ const unsubscribe = bridge.context.onChanged((next) => {
 });
 ```
 
-Context contains host-owned `workspaceId`, `appId`, `digest`, and `mountId`,
+Context contains host-owned `spaceId`, `appId`, `digest`, and `mountId`,
 plus `placement` (`navigator` or `tab`), nullable `appTabId`, origin-relative
 `route`, JSON `state`, `theme` (`light` or `dark`), and `active`. Treat identity
 as descriptive; the host derives authority from the sending renderer, never
@@ -437,7 +437,7 @@ It cannot manipulate visible tabs. Export `handleAction` for declared tools and
 ```js
 export async function handleAction(action, input) {
   if (action !== "search") throw new Error("Unknown action.");
-  const response = await globalThis.workspaceRestrictedApp.request({
+  const response = await globalThis.workFoldRestrictedApp.request({
     destinationId: "records-api",
     method: "GET",
     path: `/v1/records?query=${encodeURIComponent(input.query)}`,
@@ -453,7 +453,7 @@ export async function handleAutomation(event) {
   }
   let network;
   try {
-    const response = await globalThis.workspaceRestrictedApp.request({
+    const response = await globalThis.workFoldRestrictedApp.request({
       destinationId: "records-api",
       method: "GET",
       path: "/v1/records?limit=20",
@@ -466,14 +466,14 @@ export async function handleAutomation(event) {
 
   let notification;
   try {
-    notification = await globalThis.workspaceRestrictedApp.notifications.show({
+    notification = await globalThis.workFoldRestrictedApp.notifications.show({
       permissionId: "refresh-finished",
     });
   } catch (error) {
     notification = { status: "not-shown", code: error?.code || "NOTIFICATION_FAILED" };
   }
 
-  await globalThis.workspaceRestrictedApp.storage.set("last-refresh", {
+  await globalThis.workFoldRestrictedApp.storage.set("last-refresh", {
     reason: event.reason,
     scheduledAt: event.scheduledAt,
     completedAt: new Date().toISOString(),
@@ -490,7 +490,7 @@ events contain `runId`, `automationId`, `handler`, `reason` (`scheduled`,
 `handler` as the reviewed dispatch pair and reject unknown values.
 
 Every automation installs disabled. Enabling one schedules only that job while
-Workspace is running. One scheduler is shared across all Spaces and apps, with
+work-fold is running. One scheduler is shared across all Spaces and apps, with
 a two-run global limit, FIFO admission, same-job non-overlap, and at most one
 staggered latest catch-up when requested. **Run now** is a one-off execution:
 it works while the schedule is disabled and does not move the recurring
@@ -518,12 +518,12 @@ accepts. It never contains a credential:
 | API key | `{ "kind": "api-key", "header": "x-api-key" }` | Assistant tools collects the value and the broker injects it through the reviewed non-sensitive header name. |
 | Bearer | `{ "kind": "bearer" }` | Assistant tools stores the token and the broker writes `Authorization: Bearer …`. |
 | Basic | `{ "kind": "basic" }` | Assistant tools stores username/password and the broker creates the Basic authorization header. |
-| OAuth PKCE | `{ "kind": "oauth2-pkce", "issuer": "https://identity.example.com", "clientId": "public-native-client", "scopes": ["records.read"] }` | Workspace performs public-issuer discovery, S256, system-browser authorization, one-shot loopback callback, encrypted storage, and refresh. |
+| OAuth PKCE | `{ "kind": "oauth2-pkce", "issuer": "https://identity.example.com", "clientId": "public-native-client", "scopes": ["records.read"] }` | work-fold performs public-issuer discovery, S256, system-browser authorization, one-shot loopback callback, encrypted storage, and refresh. |
 
 A public destination may accept multiple credential kinds, but `none` cannot
 be combined with another kind. OAuth requires a client id registered with a
 public HTTPS issuer that supports public clients without a client secret, plus
-scopes that exclude `openid`. Workspace cannot verify who owns that client
+scopes that exclude `openid`. work-fold cannot verify who owns that client
 registration. Client secrets and device-code flow are rejected. Connections are configured per
 exact Feature revision and reviewed destination in Assistant tools. The host also
 binds each secret to its Tenant, Runtime Instance, Feature Installation,
@@ -554,9 +554,9 @@ well-known path, which a package author cannot forge — which is why a
 Google's does. Pinning has no such document, so it establishes the same thing
 structurally instead. Without the rule, a package could declare a genuine issuer
 and authorization endpoint alongside an attacker-controlled token endpoint: the
-person would see a real provider consent screen, and Workspace would then post
+person would see a real provider consent screen, and work-fold would then post
 the authorization code and PKCE verifier to the attacker. PKCE cannot help once
-the verifier is handed over. Workspace renders the endpoints for transparency,
+the verifier is handed over. work-fold renders the endpoints for transparency,
 but review is not treated as a substitute for enforcing their authority.
 
 Subdomains are deliberately refused as well, not only unrelated domains.
@@ -574,14 +574,14 @@ vouches for another host. Refusing a valid provider is recoverable; accepting an
 attacker's token endpoint is not. Supporting split-host providers would require
 a separately reviewed authority expansion beyond today's exact-host rule.
 Pinned mode is also weaker in one further respect: with no metadata
-document, Workspace cannot tell whether the provider supports RFC 9207, so the
+document, work-fold cannot tell whether the provider supports RFC 9207, so the
 authorization-response `iss` check is not required in this mode.
 
-Workspace hard-fails only on assertions it cannot supply itself: the metadata
+work-fold hard-fails only on assertions it cannot supply itself: the metadata
 `issuer` must equal the declared issuer, both endpoints must be public HTTPS, and
 an advertised `grant_types_supported` must include `authorization_code`.
 Under-declared *capabilities* are reported as durable connection diagnostics
-rather than refused, because Workspace always sends PKCE S256 and never holds a
+rather than refused, because work-fold always sends PKCE S256 and never holds a
 client secret. The connection management surface keeps those notes visible.
 This matters in practice: neither Google nor Microsoft advertises `none`
 in `token_endpoint_auth_methods_supported`, and Microsoft omits
@@ -618,12 +618,12 @@ overwrites every reviewed extra again when it builds the request.
 
 ## Runtime limits
 
-`workspaceRestrictedApp.limits.get()` returns the host's effective bounds
+`workFoldRestrictedApp.limits.get()` returns the host's effective bounds
 synchronously. The values are constant for the mount, arrive as a launch
 argument rather than an IPC call, and are available to the worker as well:
 
 ```js
-const limits = globalThis.workspaceRestrictedApp.limits.get();
+const limits = globalThis.workFoldRestrictedApp.limits.get();
 const pageSize = Math.floor(limits.network.maxResponseBytes / 2_048);
 ```
 
@@ -659,8 +659,8 @@ reset them while preserving installation/data lineage. Historical
 run receipts remain predecessor audit lineage while the new revision's run view
 starts empty. New receipts bind the accepting Tenant, Runtime Instance, Feature
 Installation, canonical revision, Data Namespace, effective Principal,
-seven-domain authority, occurrence, and attempt; imported older receipts are
-explicitly `legacy-unverified`. Removing a Development preview purges its app
+seven-domain authority, occurrence, and attempt. Legacy Workspace receipts are
+not imported. Removing a Development preview purges its app
 storage and connections. Uninstalling a release-backed App Instance removes its
 connections and makes its data unreachable in the same registry transition,
 then either retains the detached namespace or queues its physical purge as
@@ -719,7 +719,7 @@ The Connected inbox package includes a project-service panel. To test it:
    refresh job**.
 
 The helper is an ordinary dependency-free developer process that binds only
-`127.0.0.1:4317`. Workspace and the sandboxed app do not execute, install,
+`127.0.0.1:4317`. work-fold and the sandboxed app do not execute, install,
 stop, or trust it. The loopback broker verifies the reviewed address and port,
 not which process owns the listener. See the
 [example README](../examples/packages/restricted-connected-inbox/README.md)

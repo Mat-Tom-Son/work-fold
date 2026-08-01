@@ -20,6 +20,7 @@ import {
   type RestrictedAppRuntimeDescriptor,
   type RestrictedAppRuntimeHost,
 } from "../src/local/agent/restricted-app-service.js";
+import { RestrictedAppRegistryVersionUnsupportedError } from "../src/local/agent/restricted-app-registry-error.js";
 
 const sourceSpace = "ws-local-app-studio-source";
 const targetSpace = "ws-local-app-studio-target";
@@ -27,7 +28,7 @@ const featureId = "connected-inbox";
 const refreshAutomation = "refresh-mail";
 
 test("Local App Studio separates Project declaration, immutable Release review, durable install preparation, and activation", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "workspace-local-app-studio-release-"));
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-local-app-studio-release-"));
   const sourceRoot = join(sandbox, "source-space");
   const packageRoot = join(sourceRoot, "apps", "connected-inbox");
   const rootPath = join(sandbox, "state", "restricted-apps");
@@ -48,14 +49,14 @@ test("Local App Studio separates Project declaration, immutable Release review, 
       description: "A deliberately declared local App Project.",
       icon: "mail",
     } as const;
-    const project = await service.declareLocalAppProject({ workspaceId: sourceSpace, presentation });
+    const project = await service.declareLocalAppProject({ spaceId: sourceSpace, presentation });
     assert.deepEqual(project.presentation, presentation);
-    assert.equal(project.workspaceId, sourceSpace);
+    assert.equal(project.spaceId, sourceSpace);
 
-    const review = await service.inspect({ workspaceId: sourceSpace, workspaceRoot: sourceRoot, sourcePath: "apps/connected-inbox" });
+    const review = await service.inspect({ spaceId: sourceSpace, spaceRoot: sourceRoot, sourcePath: "apps/connected-inbox" });
     const preview = await service.install({
-      workspaceId: sourceSpace,
-      workspaceRoot: sourceRoot,
+      spaceId: sourceSpace,
+      spaceRoot: sourceRoot,
       sourcePath: "apps/connected-inbox",
       expectedDigest: review.digest,
     });
@@ -63,15 +64,15 @@ test("Local App Studio separates Project declaration, immutable Release review, 
     assert.equal(preview.releaseDigest, null);
     assert.equal(preview.projectId, project.projectId);
 
-    const prepared = await service.prepareLocalAppRelease({ workspaceId: sourceSpace, displayVersion: "1.0.0" });
+    const prepared = await service.prepareLocalAppRelease({ spaceId: sourceSpace, displayVersion: "1.0.0" });
     assert.equal(prepared.state, "prepared");
     assert.equal(prepared.publishedAt, null);
     assert.deepEqual(prepared.presentation, presentation);
     assert.deepEqual((await service.localAppStudio(sourceSpace)).releases, [prepared]);
     await assert.rejects(
       service.prepareLocalAppInstall({
-        sourceWorkspaceId: sourceSpace,
-        targetWorkspaceId: targetSpace,
+        sourceSpaceId: sourceSpace,
+        targetSpaceId: targetSpace,
         releaseDigest: prepared.releaseDigest,
       }),
       (error: unknown) => errorCode(error) === "INPUT_INVALID" && /published Release/i.test(errorMessage(error)),
@@ -80,20 +81,20 @@ test("Local App Studio separates Project declaration, immutable Release review, 
 
     await writeFile(join(packageRoot, "worker.js"), workerSource("unreviewed-source-after-prepare"), "utf8");
     const published = await service.publishLocalAppRelease({
-      workspaceId: sourceSpace,
+      spaceId: sourceSpace,
       releaseDigest: prepared.releaseDigest,
     });
     assert.equal(published.state, "published");
     assert.ok(published.publishedAt);
 
     const firstPlan = await service.prepareLocalAppInstall({
-      sourceWorkspaceId: sourceSpace,
-      targetWorkspaceId: targetSpace,
+      sourceSpaceId: sourceSpace,
+      targetSpaceId: targetSpace,
       releaseDigest: published.releaseDigest,
     });
     const retryPlan = await service.prepareLocalAppInstall({
-      sourceWorkspaceId: sourceSpace,
-      targetWorkspaceId: targetSpace,
+      sourceSpaceId: sourceSpace,
+      targetSpaceId: targetSpace,
       releaseDigest: published.releaseDigest,
     });
     assert.deepEqual(retryPlan, firstPlan, "retries must return the durably reserved operation and identity allocations");
@@ -116,7 +117,7 @@ test("Local App Studio separates Project declaration, immutable Release review, 
 
     const activated = await service.activateLocalAppInstall(firstPlan.operationId);
     assert.equal(activated.instance.runtimeInstanceId, firstPlan.runtimeInstanceId);
-    assert.equal(activated.instance.workspaceId, targetSpace);
+    assert.equal(activated.instance.spaceId, targetSpace);
     assert.equal(activated.instance.releaseDigest, published.releaseDigest);
     assert.equal(activated.apps.length, 1);
     const installed = activated.apps[0]!;
@@ -157,7 +158,7 @@ test("Local App Studio separates Project declaration, immutable Release review, 
 });
 
 test("removing a target Space cancels a prepared install even before an App Instance exists", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "workspace-local-app-studio-remove-target-"));
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-local-app-studio-remove-target-"));
   const sourceRoot = join(sandbox, "source-space");
   const packageRoot = join(sourceRoot, "apps", "connected-inbox");
   const rootPath = join(sandbox, "state", "restricted-apps");
@@ -166,37 +167,37 @@ test("removing a target Space cancels a prepared install even before an App Inst
     await writePackage(packageRoot, { marker: "prepared-target-removal" });
     service = await RestrictedAppService.create({ rootPath });
     await service.declareLocalAppProject({
-      workspaceId: sourceSpace,
+      spaceId: sourceSpace,
       presentation: { title: "Connected Inbox", description: null, icon: "mail" },
     });
     const review = await service.inspect({
-      workspaceId: sourceSpace,
-      workspaceRoot: sourceRoot,
+      spaceId: sourceSpace,
+      spaceRoot: sourceRoot,
       sourcePath: "apps/connected-inbox",
     });
     await service.install({
-      workspaceId: sourceSpace,
-      workspaceRoot: sourceRoot,
+      spaceId: sourceSpace,
+      spaceRoot: sourceRoot,
       sourcePath: "apps/connected-inbox",
       expectedDigest: review.digest,
     });
     const release = await prepareAndPublish(service, "1.0.0");
     const operation = await service.prepareLocalAppInstall({
-      sourceWorkspaceId: sourceSpace,
-      targetWorkspaceId: targetSpace,
+      sourceSpaceId: sourceSpace,
+      targetSpaceId: targetSpace,
       releaseDigest: release.releaseDigest,
     });
     assert.deepEqual((await service.localAppStudio(sourceSpace)).operations, [operation]);
-    assert.deepEqual(await service.workspaceRemovalMutationWorkspaceIds(sourceSpace), [sourceSpace, targetSpace]);
-    assert.deepEqual(await service.workspaceRemovalMutationWorkspaceIds(targetSpace), [sourceSpace, targetSpace]);
-    assert.deepEqual(await service.workspaceRemovalImpact(targetSpace), {
+    assert.deepEqual(await service.spaceRemovalMutationSpaceIds(sourceSpace), [sourceSpace, targetSpace]);
+    assert.deepEqual(await service.spaceRemovalMutationSpaceIds(targetSpace), [sourceSpace, targetSpace]);
+    assert.deepEqual(await service.spaceRemovalImpact(targetSpace), {
       activeSourceInstanceCount: 0,
       activeTargetInstanceCount: 0,
       retainedDataCount: 0,
       incomingPreparedOperationCount: 1,
     });
 
-    await service.removeWorkspace(targetSpace);
+    await service.removeSpace(targetSpace);
 
     assert.deepEqual((await service.localAppStudio(sourceSpace)).operations, []);
     await assert.rejects(
@@ -210,7 +211,7 @@ test("removing a target Space cancels a prepared install even before an App Inst
 });
 
 test("Release deletion prunes only unused objects and preserves every active, prepared, or retained obligation", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "workspace-local-app-studio-release-delete-"));
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-local-app-studio-release-delete-"));
   const sourceRoot = join(sandbox, "source-space");
   const packageRoot = join(sourceRoot, "apps", "connected-inbox");
   const rootPath = join(sandbox, "state", "restricted-apps");
@@ -221,30 +222,30 @@ test("Release deletion prunes only unused objects and preserves every active, pr
     await writePackage(packageRoot, { marker: "release-deletion" });
     service = await RestrictedAppService.create({ rootPath, storage, connections });
     await service.declareLocalAppProject({
-      workspaceId: sourceSpace,
+      spaceId: sourceSpace,
       presentation: { title: "Connected Inbox", description: "Release deletion fixture.", icon: "mail" },
     });
     const review = await service.inspect({
-      workspaceId: sourceSpace,
-      workspaceRoot: sourceRoot,
+      spaceId: sourceSpace,
+      spaceRoot: sourceRoot,
       sourcePath: "apps/connected-inbox",
     });
     await service.install({
-      workspaceId: sourceSpace,
-      workspaceRoot: sourceRoot,
+      spaceId: sourceSpace,
+      spaceRoot: sourceRoot,
       sourcePath: "apps/connected-inbox",
       expectedDigest: review.digest,
     });
 
-    const unusedPrepared = await service.prepareLocalAppRelease({ workspaceId: sourceSpace, displayVersion: "0.9.0" });
+    const unusedPrepared = await service.prepareLocalAppRelease({ spaceId: sourceSpace, displayVersion: "0.9.0" });
     const unusedPath = releaseObjectPath(rootPath, unusedPrepared.releaseDigest);
     assert.deepEqual(await service.deleteLocalAppRelease({
-      workspaceId: sourceSpace,
+      spaceId: sourceSpace,
       releaseDigest: unusedPrepared.releaseDigest,
     }), { deleted: true, cleanupPending: false });
     await assert.rejects(access(unusedPath), (error: unknown) => isMissingError(error));
     assert.deepEqual(await service.deleteLocalAppRelease({
-      workspaceId: sourceSpace,
+      spaceId: sourceSpace,
       releaseDigest: unusedPrepared.releaseDigest,
     }), { deleted: false, cleanupPending: false }, "deletion retries are idempotent");
 
@@ -254,40 +255,40 @@ test("Release deletion prunes only unused objects and preserves every active, pr
 
     const activeRelease = await prepareAndPublish(service, "1.0.0");
     const install = await service.prepareLocalAppInstall({
-      sourceWorkspaceId: sourceSpace,
-      targetWorkspaceId: targetSpace,
+      sourceSpaceId: sourceSpace,
+      targetSpaceId: targetSpace,
       releaseDigest: activeRelease.releaseDigest,
     });
     await assert.rejects(
-      service.deleteLocalAppRelease({ workspaceId: sourceSpace, releaseDigest: activeRelease.releaseDigest }),
+      service.deleteLocalAppRelease({ spaceId: sourceSpace, releaseDigest: activeRelease.releaseDigest }),
       (error: unknown) => errorCode(error) === "INPUT_INVALID" && /Cancel every prepared install/i.test(errorMessage(error)),
     );
     await service.cancelLocalAppOperation(install.operationId);
 
     const activeInstall = await service.prepareLocalAppInstall({
-      sourceWorkspaceId: sourceSpace,
-      targetWorkspaceId: targetSpace,
+      sourceSpaceId: sourceSpace,
+      targetSpaceId: targetSpace,
       releaseDigest: activeRelease.releaseDigest,
     });
     const installed = (await service.activateLocalAppInstall(activeInstall.operationId)).apps[0]!;
     await assert.rejects(
-      service.deleteLocalAppRelease({ workspaceId: sourceSpace, releaseDigest: activeRelease.releaseDigest }),
+      service.deleteLocalAppRelease({ spaceId: sourceSpace, releaseDigest: activeRelease.releaseDigest }),
       (error: unknown) => errorCode(error) === "INPUT_INVALID" && /Uninstall every App Instance/i.test(errorMessage(error)),
     );
 
     const updateTarget = await prepareAndPublish(service, "2.0.0");
     const update = await service.prepareLocalAppUpdate({
-      sourceWorkspaceId: sourceSpace,
+      sourceSpaceId: sourceSpace,
       runtimeInstanceId: installed.runtimeInstanceId,
       releaseDigest: updateTarget.releaseDigest,
     });
     await assert.rejects(
-      service.deleteLocalAppRelease({ workspaceId: sourceSpace, releaseDigest: updateTarget.releaseDigest }),
+      service.deleteLocalAppRelease({ spaceId: sourceSpace, releaseDigest: updateTarget.releaseDigest }),
       (error: unknown) => errorCode(error) === "INPUT_INVALID" && /Cancel every prepared install/i.test(errorMessage(error)),
       "the prepared operation's target Release must remain closed",
     );
     await assert.rejects(
-      service.deleteLocalAppRelease({ workspaceId: sourceSpace, releaseDigest: activeRelease.releaseDigest }),
+      service.deleteLocalAppRelease({ spaceId: sourceSpace, releaseDigest: activeRelease.releaseDigest }),
       (error: unknown) => errorCode(error) === "INPUT_INVALID"
         && /Uninstall every App Instance/i.test(errorMessage(error))
         && /Cancel every prepared install/i.test(errorMessage(error)),
@@ -295,7 +296,7 @@ test("Release deletion prunes only unused objects and preserves every active, pr
     );
     await service.cancelLocalAppOperation(update.operationId);
     assert.deepEqual(await service.deleteLocalAppRelease({
-      workspaceId: sourceSpace,
+      spaceId: sourceSpace,
       releaseDigest: updateTarget.releaseDigest,
     }), { deleted: true, cleanupPending: false });
 
@@ -304,12 +305,12 @@ test("Release deletion prunes only unused objects and preserves every active, pr
       dataDisposition: "retain",
     });
     await assert.rejects(
-      service.deleteLocalAppRelease({ workspaceId: sourceSpace, releaseDigest: activeRelease.releaseDigest }),
+      service.deleteLocalAppRelease({ spaceId: sourceSpace, releaseDigest: activeRelease.releaseDigest }),
       (error: unknown) => errorCode(error) === "INPUT_INVALID" && /Purge the retained App data/i.test(errorMessage(error)),
     );
     await service.purgeLocalAppRetainedData(uninstalled.retainedData[0]!.retainedDataId);
     assert.deepEqual(await service.deleteLocalAppRelease({
-      workspaceId: sourceSpace,
+      spaceId: sourceSpace,
       releaseDigest: activeRelease.releaseDigest,
     }), { deleted: true, cleanupPending: false });
     assert.deepEqual((await service.localAppStudio(sourceSpace)).releases, []);
@@ -321,7 +322,7 @@ test("Release deletion prunes only unused objects and preserves every active, pr
 });
 
 test("a retryable Release prune remains pending across restart without blocking service startup", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "workspace-local-app-studio-release-prune-retry-"));
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-local-app-studio-release-prune-retry-"));
   const sourceRoot = join(sandbox, "source-space");
   const packageRoot = join(sourceRoot, "apps", "connected-inbox");
   const rootPath = join(sandbox, "state", "restricted-apps");
@@ -341,26 +342,26 @@ test("a retryable Release prune remains pending across restart without blocking 
     await writePackage(packageRoot, { marker: "restart-safe-prune" });
     service = await RestrictedAppService.create({ rootPath, releaseStore });
     await service.declareLocalAppProject({
-      workspaceId: sourceSpace,
+      spaceId: sourceSpace,
       presentation: { title: "Connected Inbox", description: "Prune retry fixture.", icon: "mail" },
     });
     const review = await service.inspect({
-      workspaceId: sourceSpace,
-      workspaceRoot: sourceRoot,
+      spaceId: sourceSpace,
+      spaceRoot: sourceRoot,
       sourcePath: "apps/connected-inbox",
     });
     await service.install({
-      workspaceId: sourceSpace,
-      workspaceRoot: sourceRoot,
+      spaceId: sourceSpace,
+      spaceRoot: sourceRoot,
       sourcePath: "apps/connected-inbox",
       expectedDigest: review.digest,
     });
-    const release = await service.prepareLocalAppRelease({ workspaceId: sourceSpace, displayVersion: "0.9.0" });
+    const release = await service.prepareLocalAppRelease({ spaceId: sourceSpace, displayVersion: "0.9.0" });
     const objectPath = releaseObjectPath(rootPath, release.releaseDigest);
 
     blockPruning = true;
     assert.deepEqual(await service.deleteLocalAppRelease({
-      workspaceId: sourceSpace,
+      spaceId: sourceSpace,
       releaseDigest: release.releaseDigest,
     }), { deleted: true, cleanupPending: true });
     assert.equal(await access(objectPath).then(() => true), true);
@@ -371,13 +372,13 @@ test("a retryable Release prune remains pending across restart without blocking 
     assert.deepEqual((await service.localAppStudio(sourceSpace)).releases, [],
       "the committed registry deletion remains authoritative while bytes await pruning");
     assert.deepEqual(await service.deleteLocalAppRelease({
-      workspaceId: sourceSpace,
+      spaceId: sourceSpace,
       releaseDigest: release.releaseDigest,
     }), { deleted: false, cleanupPending: true });
 
     blockPruning = false;
     assert.deepEqual(await service.deleteLocalAppRelease({
-      workspaceId: sourceSpace,
+      spaceId: sourceSpace,
       releaseDigest: release.releaseDigest,
     }), { deleted: false, cleanupPending: false });
     await assert.rejects(access(objectPath), (error: unknown) => isMissingError(error));
@@ -388,7 +389,7 @@ test("a retryable Release prune remains pending across restart without blocking 
 });
 
 test("startup consumes the Release store's single verified reconciliation projection without rereading closures", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "workspace-local-app-studio-release-startup-"));
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-local-app-studio-release-startup-"));
   const sourceRoot = join(sandbox, "source-space");
   const packageRoot = join(sourceRoot, "apps", "connected-inbox");
   const rootPath = join(sandbox, "state", "restricted-apps");
@@ -398,13 +399,13 @@ test("startup consumes the Release store's single verified reconciliation projec
     await writePackage(packageRoot, { marker: "single-startup-verification" });
     service = await RestrictedAppService.create({ rootPath, releaseStore });
     const review = await service.inspect({
-      workspaceId: sourceSpace,
-      workspaceRoot: sourceRoot,
+      spaceId: sourceSpace,
+      spaceRoot: sourceRoot,
       sourcePath: "apps/connected-inbox",
     });
     await service.install({
-      workspaceId: sourceSpace,
-      workspaceRoot: sourceRoot,
+      spaceId: sourceSpace,
+      spaceRoot: sourceRoot,
       sourcePath: "apps/connected-inbox",
       expectedDigest: review.digest,
     });
@@ -425,7 +426,7 @@ test("startup consumes the Release store's single verified reconciliation projec
 });
 
 test("Local App updates preserve only exact continuity, reset every power on revision change, roll back, and retain data explicitly", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "workspace-local-app-studio-update-"));
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-local-app-studio-update-"));
   const sourceRoot = join(sandbox, "source-space");
   const targetRoot = join(sandbox, "target-space");
   const packageRoot = join(sourceRoot, "apps", "connected-inbox");
@@ -439,20 +440,20 @@ test("Local App updates preserve only exact continuity, reset every power on rev
     await mkdir(join(targetRoot, "exports"), { recursive: true });
     service = await RestrictedAppService.create({ rootPath, storage, connections, runtimeHost });
     await service.declareLocalAppProject({
-      workspaceId: sourceSpace,
+      spaceId: sourceSpace,
       presentation: { title: "Connected Inbox", description: "Update continuity fixture.", icon: "mail" },
     });
-    const previewReview = await service.inspect({ workspaceId: sourceSpace, workspaceRoot: sourceRoot, sourcePath: "apps/connected-inbox" });
+    const previewReview = await service.inspect({ spaceId: sourceSpace, spaceRoot: sourceRoot, sourcePath: "apps/connected-inbox" });
     await service.install({
-      workspaceId: sourceSpace,
-      workspaceRoot: sourceRoot,
+      spaceId: sourceSpace,
+      spaceRoot: sourceRoot,
       sourcePath: "apps/connected-inbox",
       expectedDigest: previewReview.digest,
     });
     const firstRelease = await prepareAndPublish(service, "1.0.0");
     const installPlan = await service.prepareLocalAppInstall({
-      sourceWorkspaceId: sourceSpace,
-      targetWorkspaceId: targetSpace,
+      sourceSpaceId: sourceSpace,
+      targetSpaceId: targetSpace,
       releaseDigest: firstRelease.releaseDigest,
     });
     const firstInstalled = (await service.activateLocalAppInstall(installPlan.operationId)).apps[0]!;
@@ -463,34 +464,34 @@ test("Local App updates preserve only exact continuity, reset every power on rev
     };
 
     await service.grantNetwork({
-      workspaceId: targetSpace,
+      spaceId: targetSpace,
       appId: featureId,
       expectedDigest: firstInstalled.digest,
       destinationId: "mail-api",
     });
     await service.grantFiles({
-      workspaceId: targetSpace,
-      workspaceRoot: targetRoot,
+      spaceId: targetSpace,
+      spaceRoot: targetRoot,
       appId: featureId,
       expectedDigest: firstInstalled.digest,
       permissionId: "exports",
       root: "exports",
     });
     await service.grantNotifications({
-      workspaceId: targetSpace,
+      spaceId: targetSpace,
       appId: featureId,
       expectedDigest: firstInstalled.digest,
       permissionId: "new-mail",
     });
     await service.setConnection({
-      workspaceId: targetSpace,
+      spaceId: targetSpace,
       appId: featureId,
       expectedDigest: firstInstalled.digest,
       destinationId: "mail-api",
       credential: { kind: "api-key", value: "local-test-secret" },
     });
     await service.setAutomationEnabled({
-      workspaceId: targetSpace,
+      spaceId: targetSpace,
       appId: featureId,
       expectedDigest: firstInstalled.digest,
       automationId: refreshAutomation,
@@ -500,7 +501,7 @@ test("Local App updates preserve only exact continuity, reset every power on rev
 
     const exactRelease = await prepareAndPublish(service, "1.0.1");
     const exactUpdate = await service.prepareLocalAppUpdate({
-      sourceWorkspaceId: sourceSpace,
+      sourceSpaceId: sourceSpace,
       runtimeInstanceId: firstInstalled.runtimeInstanceId,
       releaseDigest: exactRelease.releaseDigest,
     });
@@ -514,7 +515,7 @@ test("Local App updates preserve only exact continuity, reset every power on rev
     });
     await assert.rejects(
       service.prepareLocalAppUpdate({
-        sourceWorkspaceId: sourceSpace,
+        sourceSpaceId: sourceSpace,
         runtimeInstanceId: firstInstalled.runtimeInstanceId,
         releaseDigest: exactRelease.releaseDigest,
         continuityPolicy: "reset",
@@ -533,7 +534,7 @@ test("Local App updates preserve only exact continuity, reset every power on rev
 
     const resetRelease = await prepareAndPublish(service, "1.0.2");
     const resetUpdate = await service.prepareLocalAppUpdate({
-      sourceWorkspaceId: sourceSpace,
+      sourceSpaceId: sourceSpace,
       runtimeInstanceId: exactActivated.runtimeInstanceId,
       releaseDigest: resetRelease.releaseDigest,
       continuityPolicy: "reset",
@@ -550,44 +551,44 @@ test("Local App updates preserve only exact continuity, reset every power on rev
       "an exact-revision reset must synchronously revoke the predecessor connection");
     assert.deepEqual(await storage.get(storageOwner(resetActivated), "durable"), { count: 7 });
     await service.grantNetwork({
-      workspaceId: targetSpace,
+      spaceId: targetSpace,
       appId: featureId,
       expectedDigest: resetActivated.digest,
       destinationId: "mail-api",
     });
     await service.setConnection({
-      workspaceId: targetSpace,
+      spaceId: targetSpace,
       appId: featureId,
       expectedDigest: resetActivated.digest,
       destinationId: "mail-api",
       credential: { kind: "api-key", value: "replacement-test-secret" },
     });
     await service.setAutomationEnabled({
-      workspaceId: targetSpace,
+      spaceId: targetSpace,
       appId: featureId,
       expectedDigest: resetActivated.digest,
       automationId: refreshAutomation,
       enabled: true,
     });
 
-    const staleRelease = await service.prepareLocalAppRelease({ workspaceId: sourceSpace, displayVersion: "1.1.0" });
+    const staleRelease = await service.prepareLocalAppRelease({ spaceId: sourceSpace, displayVersion: "1.1.0" });
     await writePackage(packageRoot, { version: "0.2.0", marker: "changed-revision" });
-    const changedReview = await service.inspect({ workspaceId: sourceSpace, workspaceRoot: sourceRoot, sourcePath: "apps/connected-inbox" });
+    const changedReview = await service.inspect({ spaceId: sourceSpace, spaceRoot: sourceRoot, sourcePath: "apps/connected-inbox" });
     await service.install({
-      workspaceId: sourceSpace,
-      workspaceRoot: sourceRoot,
+      spaceId: sourceSpace,
+      spaceRoot: sourceRoot,
       sourcePath: "apps/connected-inbox",
       expectedDigest: changedReview.digest,
     });
     await assert.rejects(
-      service.publishLocalAppRelease({ workspaceId: sourceSpace, releaseDigest: staleRelease.releaseDigest }),
+      service.publishLocalAppRelease({ spaceId: sourceSpace, releaseDigest: staleRelease.releaseDigest }),
       (error: unknown) => errorCode(error) === "REVISION_CHANGED" && /changed after this Release was prepared/i.test(errorMessage(error)),
       "publishing must revalidate the reviewed Development Instance stamp",
     );
 
     const changedRelease = await prepareAndPublish(service, "2.0.0");
     const changedUpdate = await service.prepareLocalAppUpdate({
-      sourceWorkspaceId: sourceSpace,
+      sourceSpaceId: sourceSpace,
       runtimeInstanceId: firstInstalled.runtimeInstanceId,
       releaseDigest: changedRelease.releaseDigest,
     });
@@ -606,7 +607,7 @@ test("Local App updates preserve only exact continuity, reset every power on rev
       "code revision must not imply a data namespace reset");
 
     const rollbackPlan = await service.prepareLocalAppUpdate({
-      sourceWorkspaceId: sourceSpace,
+      sourceSpaceId: sourceSpace,
       runtimeInstanceId: changedActivated.runtimeInstanceId,
       releaseDigest: exactRelease.releaseDigest,
     });
@@ -619,12 +620,12 @@ test("Local App updates preserve only exact continuity, reset every power on rev
     assert.deepEqual(await storage.get(storageOwner(rolledBack), "durable"), { count: 7 });
 
     await assert.rejects(
-      service.remove({ workspaceId: targetSpace, appId: featureId, expectedDigest: rolledBack.digest }),
+      service.remove({ spaceId: targetSpace, appId: featureId, expectedDigest: rolledBack.digest }),
       (error: unknown) => errorCode(error) === "INPUT_INVALID" && /App Studio/i.test(errorMessage(error)),
       "a Feature-level remove must not bypass App Instance data disposition",
     );
     await assert.rejects(
-      service.removeWorkspace(targetSpace),
+      service.removeSpace(targetSpace),
       (error: unknown) => errorCode(error) === "INPUT_INVALID" && /Uninstall release-backed Apps/i.test(errorMessage(error)),
       "Space removal must not implicitly delete an attached App Instance",
     );
@@ -651,83 +652,30 @@ test("Local App updates preserve only exact continuity, reset every power on rev
   }
 });
 
-test("Restricted app registry v3 migrates to v4 with explicit presentation defaults and no fabricated App lifecycle state", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "workspace-local-app-studio-v3-"));
-  const sourceRoot = join(sandbox, "source-space");
-  const packageRoot = join(sourceRoot, "apps", "connected-inbox");
+test("Restricted app registry rejects v3 without importing or rewriting it", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-local-app-studio-v3-"));
   const rootPath = join(sandbox, "state", "restricted-apps");
   const registryPath = join(rootPath, "registry.json");
-  let service: RestrictedAppService | undefined;
+  const oldRegistry = `${JSON.stringify({ schemaVersion: 3, projects: [] }, null, 2)}\n`;
   try {
-    await writePackage(packageRoot, { marker: "v3-migration" });
-    service = await RestrictedAppService.create({ rootPath });
-    const review = await service.inspect({ workspaceId: sourceSpace, workspaceRoot: sourceRoot, sourcePath: "apps/connected-inbox" });
-    await service.install({
-      workspaceId: sourceSpace,
-      workspaceRoot: sourceRoot,
-      sourcePath: "apps/connected-inbox",
-      expectedDigest: review.digest,
-    });
-    await service.close();
-    service = undefined;
-
-    const current = JSON.parse(await readFile(registryPath, "utf8")) as Record<string, unknown> & {
-      projects: Array<Record<string, unknown>>;
-      installations: Array<Record<string, unknown>>;
-      migrations: Array<{ fromVersion: number; toVersion: number; migratedAt: string }>;
-    };
-    const v3: Record<string, unknown> = {
-      schemaVersion: 3,
-      localIdentity: current.localIdentity,
-      projects: current.projects.map(({ presentation: _presentation, updatedAt: _updatedAt, ...project }) => project),
-      runtimeInstances: current.runtimeInstances,
-      installations: current.installations.map(({ runtimeInstanceKind: _kind, releaseDigest: _release, ...installation }) => installation),
-      migrations: current.migrations.filter((migration) => migration.toVersion <= 3),
-      pendingCleanups: current.pendingCleanups,
-      acceptedAutomationRuns: current.acceptedAutomationRuns,
-      historicalAutomationRuns: current.historicalAutomationRuns,
-    };
-    await writeFile(registryPath, `${JSON.stringify(v3, null, 2)}\n`, "utf8");
-
-    const migratedAt = "2026-07-16T18:30:00.000Z";
-    service = await RestrictedAppService.create({ rootPath, now: () => new Date(migratedAt) });
-    const studio = await service.localAppStudio(sourceSpace);
-    assert.deepEqual(studio.project?.presentation, {
-      title: "Connected inbox",
-      description: "Search and automate a deliberately restricted inbox.",
-      icon: "mail",
-    });
-    assert.equal(studio.previews[0]?.runtimeInstanceKind, "development");
-    assert.equal(studio.previews[0]?.releaseDigest, null);
-    assert.deepEqual(studio.releases, []);
-    assert.deepEqual(studio.instances, []);
-    assert.deepEqual(studio.operations, []);
-    assert.deepEqual(studio.retainedData, []);
-
-    const persisted = JSON.parse(await readFile(registryPath, "utf8")) as {
-      schemaVersion: number;
-      releases: unknown[];
-      operations: unknown[];
-      retainedData: unknown[];
-      adminReceipts: unknown[];
-      migrations: Array<{ fromVersion: number; toVersion: number; migratedAt: string }>;
-    };
-    assert.equal(persisted.schemaVersion, 4);
-    assert.deepEqual(persisted.releases, []);
-    assert.deepEqual(persisted.operations, []);
-    assert.deepEqual(persisted.retainedData, []);
-    assert.deepEqual(persisted.adminReceipts, []);
-    assert.deepEqual(persisted.migrations.at(-1), { fromVersion: 3, toVersion: 4, migratedAt });
+    await mkdir(rootPath, { recursive: true });
+    await writeFile(registryPath, oldRegistry, "utf8");
+    await assert.rejects(
+      RestrictedAppService.create({ rootPath }),
+      (error) => error instanceof RestrictedAppRegistryVersionUnsupportedError
+        && error.actualVersion === 3
+        && error.supportedVersion === 5,
+    );
+    assert.equal(await readFile(registryPath, "utf8"), oldRegistry);
   } finally {
-    await service?.close().catch(() => undefined);
     await rm(sandbox, { recursive: true, force: true });
   }
 });
 
 async function prepareAndPublish(service: RestrictedAppService, displayVersion: string) {
-  const prepared = await service.prepareLocalAppRelease({ workspaceId: sourceSpace, displayVersion });
+  const prepared = await service.prepareLocalAppRelease({ spaceId: sourceSpace, displayVersion });
   return await service.publishLocalAppRelease({
-    workspaceId: sourceSpace,
+    spaceId: sourceSpace,
     releaseDigest: prepared.releaseDigest,
   });
 }
@@ -751,11 +699,11 @@ function storageOwner(app: RestrictedAppInstalled): RestrictedAppStorageOwner {
 }
 
 class RecordingRuntimeHost implements RestrictedAppRuntimeHost {
-  readonly stops: Array<{ workspaceId: string; appId: string; digest?: string }> = [];
+  readonly stops: Array<{ spaceId: string; appId: string; digest?: string }> = [];
   async invoke(_app: RestrictedAppRuntimeDescriptor, _action: string, _input: unknown): Promise<unknown> { return {}; }
   async runAutomation(): Promise<void> {}
-  async stop(workspaceId: string, appId: string, digest?: string): Promise<void> {
-    this.stops.push({ workspaceId, appId, ...(digest ? { digest } : {}) });
+  async stop(spaceId: string, appId: string, digest?: string): Promise<void> {
+    this.stops.push({ spaceId, appId, ...(digest ? { digest } : {}) });
   }
   async close(): Promise<void> {}
 }

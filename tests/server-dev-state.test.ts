@@ -18,10 +18,10 @@ test("local development defaults to dedicated state on every supported platform 
     homeDirectory: "C:\\Users\\developer",
     currentDirectory: "C:\\source\\workspace",
   });
-  assert.equal(windowsRoot, win32.join(windowsAppData, "Workspace Development"));
+  assert.equal(windowsRoot, win32.join(windowsAppData, "work-fold Development"));
   assert.notEqual(
     windowsRoot.toLowerCase(),
-    win32.join(windowsAppData, "Workspace").toLowerCase(),
+    win32.join(windowsAppData, "work-fold").toLowerCase(),
   );
 
   const macRoot = localDevelopmentStateRoot({
@@ -30,8 +30,8 @@ test("local development defaults to dedicated state on every supported platform 
     homeDirectory: "/Users/developer",
     currentDirectory: "/source/workspace",
   });
-  assert.equal(macRoot, "/Users/developer/Library/Application Support/Workspace Development");
-  assert.notEqual(macRoot, "/Users/developer/Library/Application Support/Workspace");
+  assert.equal(macRoot, "/Users/developer/Library/Application Support/work-fold Development");
+  assert.notEqual(macRoot, "/Users/developer/Library/Application Support/work-fold");
 
   const linuxRoot = localDevelopmentStateRoot({
     environment: { XDG_CONFIG_HOME: "/var/tmp/developer-config" },
@@ -39,15 +39,15 @@ test("local development defaults to dedicated state on every supported platform 
     homeDirectory: "/home/developer",
     currentDirectory: "/source/workspace",
   });
-  assert.equal(linuxRoot, "/var/tmp/developer-config/Workspace Development");
-  assert.notEqual(linuxRoot, "/var/tmp/developer-config/Workspace");
+  assert.equal(linuxRoot, "/var/tmp/developer-config/work-fold Development");
+  assert.notEqual(linuxRoot, "/var/tmp/developer-config/work-fold");
 });
 
-test("local development keeps WORKSPACE_STATE_DIR as an explicit override", () => {
+test("local development keeps WORKFOLD_STATE_DIR as an explicit override", () => {
   const options = createLocalDevelopmentApiOptions({
     environment: {
-      WORKSPACE_LOCAL_API_PORT: "5432",
-      WORKSPACE_STATE_DIR: "  fixtures/dev-state  ",
+      WORKFOLD_LOCAL_API_PORT: "5432",
+      WORKFOLD_STATE_DIR: "  fixtures/dev-state  ",
     },
     platform: "linux",
     homeDirectory: "/home/developer",
@@ -67,9 +67,9 @@ test("local development loads .env before resolving its state and port", async (
   const environment: Record<string, string | undefined> = {};
   try {
     await writeFile(envPath, [
-      "WORKSPACE_LOCAL_API_PORT=5433",
-      "WORKSPACE_STATE_DIR='fixtures/from-dot-env'",
-      "WORKSPACE_LOCAL_API_PORT=6000",
+      "WORKFOLD_LOCAL_API_PORT=5433",
+      "WORKFOLD_STATE_DIR='fixtures/from-dot-env'",
+      "WORKFOLD_LOCAL_API_PORT=6000",
       "",
     ].join("\n"), "utf8");
     loadLocalEnvironmentFile(envPath, environment);
@@ -91,14 +91,14 @@ test("local development loads .env before resolving its state and port", async (
 test("local development rejects malformed inherited ports before listen", () => {
   for (const value of ["not-a-port", "-1", "Infinity"]) {
     assert.equal(createLocalDevelopmentApiOptions({
-      environment: { WORKSPACE_LOCAL_API_PORT: value },
+      environment: { WORKFOLD_LOCAL_API_PORT: value },
       platform: "linux",
       homeDirectory: "/home/developer",
       currentDirectory: "/source/workspace",
     }).port, 4327);
   }
   assert.equal(createLocalDevelopmentApiOptions({
-    environment: { WORKSPACE_LOCAL_API_PORT: "0" },
+    environment: { WORKFOLD_LOCAL_API_PORT: "0" },
     platform: "linux",
     homeDirectory: "/home/developer",
     currentDirectory: "/source/workspace",

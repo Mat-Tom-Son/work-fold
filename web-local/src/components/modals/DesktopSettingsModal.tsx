@@ -16,18 +16,19 @@ import {
 import { textSizeOptions, typographyFontOptionsForPlatform } from "../../constants";
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { errorText } from "../../lib/api";
-import type { AgentStatus, AppTheme, AppThemePreference, AppTypographyPreference, DesktopUpdateStatus, WorkspaceSummary } from "../../types";
-import { AssistantSetupPane } from "../panes/workspacePanes";
+import type { AgentStatus, AppTheme, AppThemePreference, AppTypographyPreference, DesktopUpdateStatus, SpaceSummary } from "../../types";
+import { WorkFoldLockup } from "../brand/WorkFoldBrand";
+import { AssistantSetupPane } from "../panes/spacePanes";
 
 export type SettingsPage = "appearance" | "assistant" | "desktop" | "about";
 
-export function DesktopSettingsModal({ theme, themePreference, onThemePreferenceChange, typography, onTypographyChange, workspace, agentStatus, fixtureMode = false, initialPage = "appearance", onAgentConfigured, onClose, updateStatus, onUpdateAction }: {
+export function DesktopSettingsModal({ theme, themePreference, onThemePreferenceChange, typography, onTypographyChange, space, agentStatus, fixtureMode = false, initialPage = "appearance", onAgentConfigured, onClose, updateStatus, onUpdateAction }: {
   theme: AppTheme;
   themePreference: AppThemePreference;
   onThemePreferenceChange: (theme: AppThemePreference) => void;
   typography: AppTypographyPreference;
   onTypographyChange: (update: Partial<AppTypographyPreference>) => void;
-  workspace: WorkspaceSummary | null;
+  space: SpaceSummary | null;
   agentStatus: AgentStatus;
   fixtureMode?: boolean;
   initialPage?: SettingsPage;
@@ -36,7 +37,7 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
   updateStatus: DesktopUpdateStatus | null;
   onUpdateAction?: () => void;
 }) {
-  const typographyFontOptions = typographyFontOptionsForPlatform(window.workspaceDesktop?.app.platform);
+  const typographyFontOptions = typographyFontOptionsForPlatform(window.workFoldDesktop?.app.platform);
   const [page, setPage] = useState<SettingsPage>(initialPage);
   const [closeToTray, setCloseToTray] = useState<{ supported: boolean; enabled: boolean } | null>(null);
   const [closeToTrayBusy, setCloseToTrayBusy] = useState(false);
@@ -47,7 +48,7 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
   useEffect(() => { setPage(initialPage); }, [initialPage]);
   useEffect(() => {
     let cancelled = false;
-    const desktopWindow = window.workspaceDesktop?.window;
+    const desktopWindow = window.workFoldDesktop?.window;
     if (!desktopWindow?.getCloseToTray) return;
     void desktopWindow.getCloseToTray()
       .then((result) => { if (!cancelled) setCloseToTray(result); })
@@ -55,7 +56,7 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
     return () => { cancelled = true; };
   }, []);
   async function updateCloseToTray(enabled: boolean) {
-    const desktopWindow = window.workspaceDesktop?.window;
+    const desktopWindow = window.workFoldDesktop?.window;
     if (!desktopWindow?.setCloseToTray || !closeToTray || closeToTrayBusy || closeToTray.enabled === enabled) return;
     const previous = closeToTray;
     setCloseToTrayBusy(true);
@@ -75,7 +76,7 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
     { id: "appearance", label: "Appearance", detail: "Theme and type", icon: <Color20Regular /> },
     { id: "assistant", label: "Assistant", detail: "Provider and model", icon: <Bot20Regular /> },
     { id: "desktop", label: "Desktop", detail: "Window and updates", icon: <Desktop20Regular /> },
-    { id: "about", label: "About", detail: "Workspace details", icon: <Info20Regular /> },
+    { id: "about", label: "About", detail: "work-fold details", icon: <Info20Regular /> },
   ];
 
   return (
@@ -152,8 +153,8 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
             ) : null}
             {page === "assistant" ? (
               <div className="settings-tab-panel" id="settings-panel-assistant" role="tabpanel" aria-labelledby="settings-tab-assistant">
-                {workspace ? (
-                  <AssistantSetupPane workspace={workspace} status={agentStatus} fixtureMode={fixtureMode} embedded onConfigured={onAgentConfigured} />
+                {space ? (
+                  <AssistantSetupPane space={space} status={agentStatus} fixtureMode={fixtureMode} embedded onConfigured={onAgentConfigured} />
                 ) : (
                   <section className="settings-section" aria-labelledby="assistant-settings-title">
                     <div className="settings-section-heading"><h3 id="assistant-settings-title">Assistant</h3></div>
@@ -169,10 +170,10 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
                     <div className="settings-section-heading"><h3 id="window-close-settings-title">Closing the window</h3>{closeToTrayBusy ? <span><ArrowClockwise20Regular className="spin" /> Updating</span> : null}</div>
                     <div className="theme-segmented-control two-options" role="radiogroup" aria-label="Close button behavior">
                       <button className={closeToTray.enabled ? "active" : ""} type="button" role="radio" aria-checked={closeToTray.enabled} disabled={closeToTrayBusy} onClick={() => void updateCloseToTray(true)}>
-                        <Subtract20Regular /><span className="theme-choice-copy"><span>Keep Workspace running</span><small>Hide to the system tray so active work can continue</small></span>
+                        <Subtract20Regular /><span className="theme-choice-copy"><span>Keep work-fold running</span><small>Hide to the system tray so active work can continue</small></span>
                       </button>
                       <button className={!closeToTray.enabled ? "active" : ""} type="button" role="radio" aria-checked={!closeToTray.enabled} disabled={closeToTrayBusy} onClick={() => void updateCloseToTray(false)}>
-                        <Power20Regular /><span className="theme-choice-copy"><span>Quit Workspace</span><small>Stop the app when its window closes</small></span>
+                        <Power20Regular /><span className="theme-choice-copy"><span>Quit work-fold</span><small>Stop the app when its window closes</small></span>
                       </button>
                     </div>
                     {closeToTrayError ? <span className="settings-inline-error" role="alert">{closeToTrayError}</span> : null}
@@ -187,9 +188,10 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
             {page === "about" ? (
               <div className="settings-tab-panel" id="settings-panel-about" role="tabpanel" aria-labelledby="settings-tab-about">
                 <section className="settings-section">
-                  <div className="settings-section-heading"><h3>About Workspace</h3></div>
+                  <WorkFoldLockup className="about-work-fold-brand" />
+                  <div className="settings-section-heading"><h3>About work-fold</h3></div>
                   <p>A local-first place for files, Chats, reusable materials, and Assistant tools.</p>
-                  <dl className="context-meta-grid"><div><dt>Version</dt><dd>{window.workspaceDesktop?.app.version ?? "Development"}</dd></div><div><dt>Storage</dt><dd>Local</dd></div><div><dt>License</dt><dd>MIT</dd></div></dl>
+                  <dl className="context-meta-grid"><div><dt>Version</dt><dd>{window.workFoldDesktop?.app.version ?? "Development"}</dd></div><div><dt>Storage</dt><dd>Local</dd></div><div><dt>License</dt><dd>MIT</dd></div></dl>
                 </section>
               </div>
             ) : null}

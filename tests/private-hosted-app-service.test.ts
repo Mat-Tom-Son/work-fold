@@ -1872,17 +1872,17 @@ function createRelease(projectId: ProjectId, displayVersion: string, revision: s
       icon: "inbox",
     },
     displayVersion,
-    runtimeApi: { name: "workspace-feature-broker", compatibleRange: "1.x" },
+    runtimeApi: { name: "work-fold.feature-broker", compatibleRange: "1.x" },
     features: [{
       featureId: "connected-inbox",
       featureRevision: {
-        mediaType: "application/vnd.workspace.feature+bundle",
+        mediaType: "application/vnd.work-fold.feature+bundle",
         entries: [{ path: "index.js", bytes: encoder.encode(`export const revision = ${JSON.stringify(revision)};`) }],
       },
       declaration: {
-        mediaType: "application/vnd.workspace.feature-declaration+json",
+        mediaType: "application/vnd.work-fold.feature-declaration+json",
         value: {
-          format: "workspace-feature-declaration",
+          format: "work-fold.feature-declaration",
           formatVersion: 1,
           networkDestinations: [{ declarationId: "mail-api", origin: "https://api.example.com" }],
           connections: [{ declarationId: "mail-account", networkDeclarationId: "mail-api", authKind: "bearer" }],
@@ -1909,15 +1909,15 @@ function createRelease(projectId: ProjectId, displayVersion: string, revision: s
       migrations: [],
     }],
     dependencyInventory: {
-      mediaType: "application/vnd.workspace.dependencies+json",
+      mediaType: "application/vnd.work-fold.dependencies+json",
       value: { kind: "dependency-inventory", packages: [] },
     },
     buildProvenance: {
-      mediaType: "application/vnd.workspace.provenance+json",
+      mediaType: "application/vnd.work-fold.provenance+json",
       value: { kind: "build-provenance", builder: "fixture", revision },
     },
     inspectionEvidence: {
-      mediaType: "application/vnd.workspace.inspection+json",
+      mediaType: "application/vnd.work-fold.inspection+json",
       value: { kind: "inspection-evidence", policy: "fixture-1", decision: "pass" },
     },
     createdAt: "2026-07-15T11:00:00.000Z",
@@ -1933,17 +1933,17 @@ function createCommunityGardenRelease(projectId: ProjectId): AppReleaseEnvelope 
       icon: "sprout",
     },
     displayVersion: "1.0.0",
-    runtimeApi: { name: "workspace-feature-broker", compatibleRange: "1.x" },
+    runtimeApi: { name: "work-fold.feature-broker", compatibleRange: "1.x" },
     features: [{
       featureId: "community-garden",
       featureRevision: {
-        mediaType: "application/vnd.workspace.feature+bundle",
+        mediaType: "application/vnd.work-fold.feature+bundle",
         entries: [{ path: "garden.js", bytes: encoder.encode("export const app = 'community-garden';") }],
       },
       declaration: {
-        mediaType: "application/vnd.workspace.feature-declaration+json",
+        mediaType: "application/vnd.work-fold.feature-declaration+json",
         value: {
-          format: "workspace-feature-declaration",
+          format: "work-fold.feature-declaration",
           formatVersion: 1,
           networkDestinations: [{ declarationId: "reminder-api", origin: "https://reminders.example.com" }],
           connections: [{ declarationId: "reminder-service", networkDeclarationId: "reminder-api", authKind: "api-key" }],
@@ -1971,15 +1971,15 @@ function createCommunityGardenRelease(projectId: ProjectId): AppReleaseEnvelope 
       migrations: [],
     }],
     dependencyInventory: {
-      mediaType: "application/vnd.workspace.dependencies+json",
+      mediaType: "application/vnd.work-fold.dependencies+json",
       value: { kind: "garden-dependency-inventory", packages: [] },
     },
     buildProvenance: {
-      mediaType: "application/vnd.workspace.provenance+json",
+      mediaType: "application/vnd.work-fold.provenance+json",
       value: { kind: "garden-build-provenance", builder: "fixture" },
     },
     inspectionEvidence: {
-      mediaType: "application/vnd.workspace.inspection+json",
+      mediaType: "application/vnd.work-fold.inspection+json",
       value: { kind: "garden-inspection-evidence", policy: "fixture-1", decision: "pass" },
     },
     createdAt: "2026-07-15T11:30:00.000Z",

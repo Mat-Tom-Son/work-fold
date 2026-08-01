@@ -1,6 +1,6 @@
-import type { AgentActivityEvent, ContextAttachment, ConversationSummary, WorkspaceFixtureConversation } from "../types";
+import type { AgentActivityEvent, ContextAttachment, ConversationSummary, SpaceFixtureConversation } from "../types";
 
-export function fixtureConversationSummary(conversation: WorkspaceFixtureConversation): ConversationSummary {
+export function fixtureConversationSummary(conversation: SpaceFixtureConversation): ConversationSummary {
   return {
     id: conversation.id,
     title: conversation.title,

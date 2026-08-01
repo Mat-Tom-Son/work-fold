@@ -8,7 +8,7 @@ export const restrictedAppNotificationLimits = {
 } as const;
 
 export interface RestrictedAppNotificationOwner {
-  workspaceId: string;
+  spaceId: string;
   appId: string;
   digest: string;
 }
@@ -130,7 +130,7 @@ export class RestrictedAppNotificationBroker {
       const handle = this.#sink.show({
         ...owner,
         permissionId: declaration.id,
-        title: `Workspace · ${context.appTitle} — ${declaration.title}`,
+        title: `work-fold · ${context.appTitle} — ${declaration.title}`,
         body: declaration.description,
       }, {
         onClick: () => {
@@ -146,7 +146,7 @@ export class RestrictedAppNotificationBroker {
       outstanding = { key: categoryKey, appKey, owner, shownAt: now, handle };
       if (!closedBeforeAssignment) this.#outstanding.set(categoryKey, outstanding);
     } catch {
-      throw new RestrictedAppNotificationError("NOTIFICATION_FAILED", "Workspace could not show the app notification.");
+      throw new RestrictedAppNotificationError("NOTIFICATION_FAILED", "work-fold could not show the app notification.");
     }
 
     invocation.count += 1;
@@ -159,9 +159,9 @@ export class RestrictedAppNotificationBroker {
     return { status: "shown" };
   }
 
-  closeApp(owner: Pick<RestrictedAppNotificationOwner, "workspaceId" | "appId">, digest?: string): void {
+  closeApp(owner: Pick<RestrictedAppNotificationOwner, "spaceId" | "appId">, digest?: string): void {
     for (const item of [...this.#outstanding.values()]) {
-      if (item.owner.workspaceId !== owner.workspaceId || item.owner.appId !== owner.appId || (digest && item.owner.digest !== digest)) continue;
+      if (item.owner.spaceId !== owner.spaceId || item.owner.appId !== owner.appId || (digest && item.owner.digest !== digest)) continue;
       this.#closeOutstanding(item);
     }
     const now = this.#now();
@@ -237,19 +237,19 @@ function notificationRequest(value: unknown): { permissionId: string } {
 }
 
 function validateContext(context: RestrictedAppNotificationContext): void {
-  if (!context || typeof context !== "object" || !context.workspaceId || !context.appId || !/^[0-9a-f]{64}$/.test(context.digest)
+  if (!context || typeof context !== "object" || !context.spaceId || !context.appId || !/^[0-9a-f]{64}$/.test(context.digest)
     || !context.appTitle || !context.invocationId || !Array.isArray(context.declarations) || !Array.isArray(context.grants)) {
     throw new RestrictedAppNotificationError("NOTIFICATION_DENIED", "Notification host authority is invalid.");
   }
 }
 
 function ownerValue(context: RestrictedAppNotificationContext): RestrictedAppNotificationOwner {
-  return { workspaceId: context.workspaceId, appId: context.appId, digest: context.digest };
+  return { spaceId: context.spaceId, appId: context.appId, digest: context.digest };
 }
 
 function ownerKey(owner: RestrictedAppNotificationOwner): string {
   // Rate history intentionally survives renderer restarts, permission churn,
   // background disable/enable, and reviewed digest updates. Lifecycle cleanup
   // closes handles but must not let an app regain its anti-spam budget.
-  return `${owner.workspaceId}:${owner.appId}`;
+  return `${owner.spaceId}:${owner.appId}`;
 }

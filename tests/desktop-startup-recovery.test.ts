@@ -8,36 +8,36 @@ import {
   RestrictedAppRegistryVersionUnsupportedError,
 } from "../src/local/agent/restricted-app-registry-error.js";
 import {
-  latestWorkspaceReleaseUrl,
-  runWorkspaceStartupRecovery,
-  workspaceStartupRecoveryDialog,
-  workspaceStartupRecoveryPlan,
-  type WorkspaceStartupRecoveryDialog,
-  type WorkspaceStartupRecoveryHost,
+  latestWorkFoldReleaseUrl,
+  runWorkFoldStartupRecovery,
+  workFoldStartupRecoveryDialog,
+  workFoldStartupRecoveryPlan,
+  type WorkFoldStartupRecoveryDialog,
+  type WorkFoldStartupRecoveryHost,
 } from "../desktop/src/startup-recovery.js";
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
 test("newer local state produces update recovery without treating corruption as an update", () => {
-  const plan = workspaceStartupRecoveryPlan(new RestrictedAppRegistryVersionUnsupportedError(5, 4));
+  const plan = workFoldStartupRecoveryPlan(new RestrictedAppRegistryVersionUnsupportedError(6, 5));
   assert.deepEqual(plan, {
     reason: "newer-local-state",
-    actualVersion: 5,
-    supportedVersion: 4,
-    title: "Workspace update required",
-    message: "This version of Workspace cannot safely open newer local data.",
+    actualVersion: 6,
+    supportedVersion: 5,
+    title: "work-fold update required",
+    message: "This version of work-fold cannot safely open newer local data.",
   });
-  assert.equal(workspaceStartupRecoveryPlan(new RestrictedAppRegistryVersionUnsupportedError(4, 4)), null);
-  assert.equal(workspaceStartupRecoveryPlan(new RestrictedAppRegistryVersionUnsupportedError("future", 4)), null);
-  assert.equal(workspaceStartupRecoveryPlan(new Error("Registry is corrupt.")), null);
+  assert.equal(workFoldStartupRecoveryPlan(new RestrictedAppRegistryVersionUnsupportedError(5, 5)), null);
+  assert.equal(workFoldStartupRecoveryPlan(new RestrictedAppRegistryVersionUnsupportedError("future", 5)), null);
+  assert.equal(workFoldStartupRecoveryPlan(new Error("Registry is corrupt.")), null);
 });
 
 test("startup recovery prompts before network work and hands successful installation off without quitting", async () => {
   const plan = requiredPlan();
   const events: string[] = [];
-  const dialogs: WorkspaceStartupRecoveryDialog[] = [];
+  const dialogs: WorkFoldStartupRecoveryDialog[] = [];
   const responses = [0, 0];
-  const outcome = await runWorkspaceStartupRecovery(plan, recoveryHost({
+  const outcome = await runWorkFoldStartupRecovery(plan, recoveryHost({
     events,
     dialogs,
     responses,
@@ -60,9 +60,9 @@ test("startup recovery prompts before network work and hands successful installa
 test("startup recovery keeps release fallback and quit behavior for check and install failures", async () => {
   for (const scenario of ["check", "install"] as const) {
     const events: string[] = [];
-    const dialogs: WorkspaceStartupRecoveryDialog[] = [];
+    const dialogs: WorkFoldStartupRecoveryDialog[] = [];
     const responses = scenario === "check" ? [0, 0] : [0, 0, 0];
-    const outcome = await runWorkspaceStartupRecovery(requiredPlan(), recoveryHost({
+    const outcome = await runWorkFoldStartupRecovery(requiredPlan(), recoveryHost({
       events,
       dialogs,
       responses,
@@ -84,7 +84,7 @@ test("startup recovery keeps release fallback and quit behavior for check and in
 
 test("opening Releases from the initial prompt performs no update effect", async () => {
   const events: string[] = [];
-  const outcome = await runWorkspaceStartupRecovery(requiredPlan(), recoveryHost({
+  const outcome = await runWorkFoldStartupRecovery(requiredPlan(), recoveryHost({
     events,
     dialogs: [],
     responses: [1],
@@ -103,25 +103,25 @@ test("opening Releases from the initial prompt performs no update effect", async
 
 test("desktop startup wires the tested recovery controller to updater and release adapters", () => {
   const source = readFileSync(join(rootDir, "desktop", "src", "main.ts"), "utf8");
-  assert.match(source, /workspaceStartupRecoveryPlan\(error\)/);
-  assert.match(source, /runWorkspaceStartupRecovery\(plan/);
-  assert.match(source, /workspaceUpdater\.updateNow\(\)/);
-  assert.match(source, /openExternal\(latestWorkspaceReleaseUrl\)/);
+  assert.match(source, /workFoldStartupRecoveryPlan\(error\)/);
+  assert.match(source, /runWorkFoldStartupRecovery\(plan/);
+  assert.match(source, /desktopUpdater\.updateNow\(\)/);
+  assert.match(source, /openExternal\(latestWorkFoldReleaseUrl\)/);
   assert.match(source, /could not complete update recovery/);
-  assert.equal(latestWorkspaceReleaseUrl, "https://github.com/Mat-Tom-Son/workspace/releases/latest");
+  assert.equal(latestWorkFoldReleaseUrl, "https://github.com/Mat-Tom-Son/work-fold/releases/latest");
 });
 
 function requiredPlan() {
-  return workspaceStartupRecoveryPlan(new RestrictedAppRegistryVersionUnsupportedError(5, 4))!;
+  return workFoldStartupRecoveryPlan(new RestrictedAppRegistryVersionUnsupportedError(6, 5))!;
 }
 
 function recoveryHost(input: {
   events: string[];
-  dialogs: WorkspaceStartupRecoveryDialog[];
+  dialogs: WorkFoldStartupRecoveryDialog[];
   responses: number[];
-  checkForUpdate: WorkspaceStartupRecoveryHost["checkForUpdate"];
-  downloadAndInstall: WorkspaceStartupRecoveryHost["downloadAndInstall"];
-}): WorkspaceStartupRecoveryHost {
+  checkForUpdate: WorkFoldStartupRecoveryHost["checkForUpdate"];
+  downloadAndInstall: WorkFoldStartupRecoveryHost["downloadAndInstall"];
+}): WorkFoldStartupRecoveryHost {
   return {
     showDialog: async (dialog) => {
       input.dialogs.push(dialog);
@@ -146,6 +146,6 @@ test("dialog copy keeps data safety explicit in every recovery stage", () => {
     { kind: "check-failed" },
     { kind: "install-failed" },
   ] as const) {
-    assert.match(workspaceStartupRecoveryDialog(plan, stage).detail, /Spaces and app data are safe/);
+    assert.match(workFoldStartupRecoveryDialog(plan, stage).detail, /Spaces and app data are safe/);
   }
 });

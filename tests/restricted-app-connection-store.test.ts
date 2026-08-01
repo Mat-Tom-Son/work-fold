@@ -38,7 +38,7 @@ const tenantId = parseTenantId("tenant_local-test");
 const runtimeInstanceId = parseRuntimeInstanceId("runtime-instance_mail-test");
 const featureInstallationId = parseFeatureInstallationId("feature-installation_mail-test");
 const principalId = parsePrincipalId("principal_local-test");
-const featureRevisionDigest = parseAppPlatformArtifactDigest(`workspace-artifact-v1:sha256:${"b".repeat(64)}`);
+const featureRevisionDigest = parseAppPlatformArtifactDigest(`work-fold.artifact.v1:sha256:${"b".repeat(64)}`);
 const declarationDigest = computeDeclarationDigest({ destinationId: "mail-api", auth: "bearer" });
 
 function binding(overrides: Partial<RestrictedAppConnectionBinding> = {}): RestrictedAppConnectionBinding {
@@ -61,7 +61,7 @@ async function temporaryStore(t: test.TestContext): Promise<{
   encryption: TestEncryption;
   store: EncryptedRestrictedAppConnectionStore;
 }> {
-  const root = await mkdtemp(join(tmpdir(), "workspace-connections-"));
+  const root = await mkdtemp(join(tmpdir(), "work-fold-connections-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const file = join(root, "restricted-app-connections.bin");
   const encryption = new TestEncryption();
@@ -78,14 +78,14 @@ test("encrypted connection store persists without exposing plaintext credentials
     schemaVersion: number;
     records: Array<Record<string, unknown>>;
   };
-  assert.equal(persisted.schemaVersion, 2);
-  assert.equal(persisted.records[0]?.recordVersion, 1);
+  assert.equal(persisted.schemaVersion, 3);
+  assert.equal(persisted.records[0]?.recordVersion, 2);
   assert.match(String(persisted.records[0]?.connectionId), /^connection_/);
   assert.equal(persisted.records[0]?.tenantId, tenantId);
   assert.equal(persisted.records[0]?.runtimeInstanceId, runtimeInstanceId);
   assert.equal(persisted.records[0]?.featureInstallationId, featureInstallationId);
   assert.deepEqual(persisted.records[0]?.owner, { kind: "instance", runtimeInstanceId });
-  assert.equal("workspaceId" in (persisted.records[0] ?? {}), false);
+  assert.equal("spaceId" in (persisted.records[0] ?? {}), false);
   assert.equal("appId" in (persisted.records[0] ?? {}), false);
   assert.equal("digest" in (persisted.records[0] ?? {}), false);
 
@@ -103,7 +103,7 @@ test("encrypted connection store binds secrets to Tenant, Runtime Instance, Feat
     binding({ runtimeInstanceId: parseRuntimeInstanceId("runtime-instance_other-test"), owner: { kind: "instance", runtimeInstanceId: parseRuntimeInstanceId("runtime-instance_other-test") } }),
     binding({ featureId: "other-app" }),
     binding({ featureInstallationId: parseFeatureInstallationId("feature-installation_other-test") }),
-    binding({ featureRevisionDigest: parseAppPlatformArtifactDigest(`workspace-artifact-v1:sha256:${"c".repeat(64)}`) }),
+    binding({ featureRevisionDigest: parseAppPlatformArtifactDigest(`work-fold.artifact.v1:sha256:${"c".repeat(64)}`) }),
     binding({ declarationId: "calendar-api" }),
     binding({ declarationDigest: computeDeclarationDigest({ destinationId: "mail-api", auth: "basic" }) }),
     binding({ targetIdentity: "https://other.example.com" }),
@@ -190,12 +190,12 @@ test("encrypted connection store reauthorizes after staging and before its atomi
   assert.deepEqual(await store.get(binding()), { kind: "bearer", token: "current-secret" });
 });
 
-test("legacy connection cleanup is isolated and only an explicit reconnect replaces schema 1", async (t) => {
+test("old connection formats are rejected without rewriting their ciphertext", async (t) => {
   const { file, encryption } = await temporaryStore(t);
   const legacy = {
     schemaVersion: 1,
     records: [{
-      workspaceId: "space-one",
+      spaceId: "space-one",
       appId: "mail-app",
       digest: "b".repeat(64),
       destinationId: "mail-api",
@@ -206,21 +206,10 @@ test("legacy connection cleanup is isolated and only an explicit reconnect repla
   };
   await writeFile(file, encryption.encrypt(JSON.stringify(legacy)));
   const store = new EncryptedRestrictedAppConnectionStore(file, encryption);
-  assert.equal(await store.get(binding()), undefined);
   const legacyCiphertext = await readFile(file);
-  assert.deepEqual(encryption.decrypt(legacyCiphertext), JSON.stringify(legacy));
-
-  assert.equal(await store.delete(binding()), false, "Disconnect cannot attribute a schema-1 record to the requested binding");
+  await assert.rejects(store.get(binding()), /version is unsupported/i);
+  await assert.rejects(store.set(binding(), { kind: "bearer", token: "replacement-secret" }), /version is unsupported/i);
   assert.deepEqual(await readFile(file), legacyCiphertext);
-  await store.deleteFeature({ tenantId, runtimeInstanceId, featureId: "mail-app", featureInstallationId, featureRevisionDigest });
-  assert.deepEqual(await readFile(file), legacyCiphertext, "Feature update/removal cleanup must preserve unrelated legacy records");
-  await store.deleteRuntimeInstance({ tenantId, runtimeInstanceId });
-  assert.deepEqual(await readFile(file), legacyCiphertext, "Runtime Instance cleanup must preserve the ambiguous legacy store");
-
-  await store.set(binding(), { kind: "bearer", token: "replacement-secret" });
-  const reconnected = encryption.decrypt(await readFile(file));
-  assert.equal(reconnected.includes("legacy-secret"), false);
-  assert.deepEqual(await store.get(binding()), { kind: "bearer", token: "replacement-secret" });
 });
 
 test("encrypted connection store fails closed on corruption and never falls back to a backup", async (t) => {
@@ -249,7 +238,7 @@ test("encrypted connection store rejects the 1,025th record without corrupting t
   const { file, encryption, store } = await temporaryStore(t);
   await store.set(binding(), { kind: "bearer", token: "ceiling-secret" });
   const persisted = JSON.parse(encryption.decrypt(await readFile(file))) as {
-    schemaVersion: 2;
+    schemaVersion: 3;
     records: Array<Record<string, unknown>>;
   };
   const template = persisted.records[0]!;

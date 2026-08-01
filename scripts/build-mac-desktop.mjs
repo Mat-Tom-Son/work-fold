@@ -1,28 +1,29 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { readdir, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { loadEnvFile } from "node:process";
 import { fileURLToPath } from "node:url";
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const identity = JSON.parse(readFileSync(join(rootDir, "src", "shared", "product-identity.json"), "utf8"));
 loadLocalReleaseEnvironment();
 const builderCli = join(rootDir, "node_modules", "electron-builder", "out", "cli", "cli.js");
 const releaseBuild = process.argv.includes("--release");
 const unsignedSmokeBuild = process.argv.includes("--unsigned-smoke") || !releaseBuild;
 const arch = readOption("--arch") || (process.arch === "x64" ? "x64" : "arm64");
 
-if (process.platform !== "darwin") throw new Error("Workspace macOS artifacts must be built on a Mac host.");
+if (process.platform !== "darwin") throw new Error(`${identity.productName} macOS artifacts must be built on a Mac host.`);
 if (releaseBuild && process.argv.includes("--unsigned-smoke")) throw new Error("Use either --release or --unsigned-smoke, not both.");
 if (arch !== "arm64" && arch !== "x64") throw new Error(`Unsupported macOS architecture: ${arch}.`);
 if (releaseBuild) assertReleaseCredentials();
 
 const envPatch = {
-  WORKSPACE_DESKTOP_RELEASE_PLATFORM: "darwin",
-  WORKSPACE_DESKTOP_RELEASE_ARCH: arch,
+  WORKFOLD_DESKTOP_RELEASE_PLATFORM: "darwin",
+  WORKFOLD_DESKTOP_RELEASE_ARCH: arch,
   ...(releaseBuild
-    ? { WORKSPACE_MAC_RELEASE_BUILD: "1", WORKSPACE_REQUIRE_CODE_SIGNING: "1" }
-    : { WORKSPACE_ALLOW_UNSIGNED_MAC_BUILD: "1", CSC_IDENTITY_AUTO_DISCOVERY: "false" }),
+    ? { WORKFOLD_MAC_RELEASE_BUILD: "1", WORKFOLD_REQUIRE_CODE_SIGNING: "1" }
+    : { WORKFOLD_ALLOW_UNSIGNED_MAC_BUILD: "1", CSC_IDENTITY_AUTO_DISCOVERY: "false" }),
 };
 
 await runNpmScript("desktop:prepare", envPatch);
@@ -50,8 +51,8 @@ await runNpmScript("desktop:manifest:release:mac", envPatch);
 await runNpmScript("desktop:verify:release:mac", envPatch);
 
 function assertReleaseCredentials() {
-  if (!value(process.env.WORKSPACE_MAC_SIGN_IDENTITY) && !value(process.env.CSC_NAME)) {
-    throw new Error("Set WORKSPACE_MAC_SIGN_IDENTITY or CSC_NAME to a Developer ID Application identity.");
+  if (!value(process.env.WORKFOLD_MAC_SIGN_IDENTITY) && !value(process.env.CSC_NAME)) {
+    throw new Error("Set WORKFOLD_MAC_SIGN_IDENTITY or CSC_NAME to a Developer ID Application identity.");
   }
   const hasApiKey = every("APPLE_API_KEY", "APPLE_API_KEY_ID", "APPLE_API_ISSUER");
   const hasAppleId = every("APPLE_ID", "APPLE_APP_SPECIFIC_PASSWORD", "APPLE_TEAM_ID");
@@ -65,14 +66,14 @@ async function cleanMacArtifacts(targetArch) {
   const builderDir = join(rootDir, "out", "builder");
   await rm(join(builderDir, `mac-${targetArch}`), { recursive: true, force: true });
   if (!existsSync(builderDir)) return;
-  const artifactPattern = new RegExp(`^Workspace-.+-mac-${targetArch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.(?:dmg|zip)(?:\\.blockmap)?$`);
+  const artifactPattern = new RegExp(`^${identity.productName}-.+-mac-${targetArch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.(?:dmg|zip)(?:\\.blockmap)?$`);
   for (const entry of await readdir(builderDir, { withFileTypes: true })) {
     if (entry.isFile() && (
       artifactPattern.test(entry.name)
       || entry.name === "latest-mac.yml"
       || entry.name === "SHA256SUMS-mac.txt"
-      || entry.name === "Workspace-mac-release-manifest.json"
-      || entry.name === "Workspace-mac-release-manifest.txt"
+      || entry.name === `${identity.productName}-mac-release-manifest.json`
+      || entry.name === `${identity.productName}-mac-release-manifest.txt`
     )) {
       await rm(join(builderDir, entry.name), { force: true });
     }

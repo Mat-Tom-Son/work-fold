@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import type { PiRuntimeConfig, PiRuntimeProvider } from "./pi-runtime-config.js";
 
 /**
- * In Workspace, registering a Space is the host-level grant to load its Pi
+ * In work-fold, registering a Space is the host-level grant to load its Pi
  * project resources. The ordinary Space registry remains the durable source
  * of truth; Pi's own trust store is left untouched for native Pi consumers.
  */
@@ -38,13 +38,13 @@ export class RegisteredSpaceRuntimeProvider implements PiRuntimeProvider {
     private readonly authority: RegisteredSpaceTrustAuthority,
   ) {}
 
-  async resolveRuntime(workspaceRoot: string): Promise<PiRuntimeConfig> {
-    const runtime = await this.base.resolveRuntime(workspaceRoot);
+  async resolveRuntime(spaceRoot: string): Promise<PiRuntimeConfig> {
+    const runtime = await this.base.resolveRuntime(spaceRoot);
     return {
       ...runtime,
       projectTrust: {
         ...runtime.projectTrust,
-        override: this.authority.isRegistered(workspaceRoot),
+        override: this.authority.isRegistered(spaceRoot),
       },
     };
   }

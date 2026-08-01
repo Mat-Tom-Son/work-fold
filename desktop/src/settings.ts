@@ -19,7 +19,7 @@ const emptySettings = (): SecureSettingsFile => ({
   credentials: {},
 });
 
-/** Encrypted, application-scoped credentials. Never stored inside a workspace. */
+/** Encrypted, application-scoped credentials. Never stored inside a Space. */
 export class SecureSettingsStore implements PiAuthStorageHost {
   private queue: Promise<void> = Promise.resolve();
   private cache: SecureSettingsFile | undefined;
@@ -97,7 +97,7 @@ export class SecureSettingsStore implements PiAuthStorageHost {
         firstError ??= error;
       }
     }
-    throw new Error(`Workspace could not read secure settings: ${errorMessage(firstError)}`);
+    throw new Error(`work-fold could not read secure settings: ${errorMessage(firstError)}`);
   }
 
   private async write(data: SecureSettingsFile): Promise<void> {

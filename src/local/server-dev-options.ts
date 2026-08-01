@@ -2,8 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { posix, win32 } from "node:path";
 
-const developmentStateDirectoryName = "Workspace Development";
-const productionStateDirectoryName = "Workspace";
+const developmentStateDirectoryName = "work-fold Development";
+const productionStateDirectoryName = "work-fold";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 type MutableEnvironment = Record<string, string | undefined>;
@@ -29,7 +29,7 @@ export function createLocalDevelopmentApiOptions(
   input: LocalDevelopmentEnvironment = {},
 ): LocalDevelopmentApiOptions {
   const environment = input.environment ?? process.env;
-  const configuredPort = Number(environment.WORKSPACE_LOCAL_API_PORT);
+  const configuredPort = Number(environment.WORKFOLD_LOCAL_API_PORT);
   return {
     appMode: "dev",
     port: Number.isFinite(configuredPort) && configuredPort >= 0 ? configuredPort : 4327,
@@ -51,7 +51,7 @@ export function loadLocalEnvironmentFile(
 
 /**
  * Development must not silently open the installed product's state. An
- * explicit WORKSPACE_STATE_DIR remains available for intentional fixtures and
+ * explicit WORKFOLD_STATE_DIR remains available for intentional fixtures and
  * migration testing.
  */
 export function localDevelopmentStateRoot(input: LocalDevelopmentEnvironment = {}): string {
@@ -59,7 +59,7 @@ export function localDevelopmentStateRoot(input: LocalDevelopmentEnvironment = {
   const platform = input.platform ?? process.platform;
   const paths = platform === "win32" ? win32 : posix;
   const currentDirectory = input.currentDirectory ?? process.cwd();
-  const override = environment.WORKSPACE_STATE_DIR?.trim();
+  const override = environment.WORKFOLD_STATE_DIR?.trim();
   if (override) return paths.resolve(currentDirectory, override);
 
   const homeDirectory = input.homeDirectory ?? homedir();
@@ -69,7 +69,7 @@ export function localDevelopmentStateRoot(input: LocalDevelopmentEnvironment = {
   const comparableDevelopmentRoot = comparablePath(developmentRoot, platform);
   const comparableProductionRoot = comparablePath(productionRoot, platform);
   if (comparableDevelopmentRoot === comparableProductionRoot) {
-    throw new Error("The default development state directory must be separate from Workspace application state.");
+    throw new Error("The default development state directory must be separate from work-fold application state.");
   }
   return developmentRoot;
 }

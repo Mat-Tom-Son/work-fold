@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { primaryNavigation, welcomeActions } from "../web-local/src/ui-contract.js";
 
-test("Workspace navigation separates the active Space from its surfaces", () => {
+test("Space navigation separates the active Space from its surfaces", () => {
   assert.deepEqual(primaryNavigation.map(({ id, label }) => [id, label]), [
     ["files", "Files"],
     ["chats", "Chats"],

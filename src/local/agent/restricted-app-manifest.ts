@@ -39,7 +39,7 @@ export interface RestrictedAppOAuthPkceDeclaration {
   clientId: string;
   scopes: string[];
   /**
-   * How Workspace locates the authorization and token endpoints. Discovery is a
+   * How work-fold locates the authorization and token endpoints. Discovery is a
    * convenience, not the trust root: the reviewed issuer, the public-HTTPS
    * endpoint rules, PKCE S256, the one-shot loopback redirect, and the
    * never-send-a-secret rule hold identically in all three modes.
@@ -668,10 +668,10 @@ function publicOriginValue(value: unknown, label: string): string {
  *
  * Without that rule a package could declare a genuine issuer and authorization
  * endpoint with an attacker-controlled token endpoint. The person would see a
- * real provider consent screen, and Workspace would then post the authorization
+ * real provider consent screen, and work-fold would then post the authorization
  * code and PKCE verifier to the attacker, who could redeem them at the real
  * provider. PKCE cannot help when the verifier is handed to the attacker, and
- * no Workspace surface renders the pinned endpoints for a person to check.
+ * no work-fold surface renders the pinned endpoints for a person to check.
  *
  * A provider whose endpoints genuinely live on another domain must publish
  * discovery metadata; that document is exactly how an issuer vouches for a

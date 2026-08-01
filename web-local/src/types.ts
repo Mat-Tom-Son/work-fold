@@ -1,16 +1,16 @@
 import type { AccentIdentity, SpaceAppearanceState } from "../../src/shared/space-appearance";
 import type {
-  WorkspaceCheckDecisionKind,
-  WorkspaceCheckFinding,
-  WorkspaceCheckRendererDecorations,
-  WorkspaceCheckRendererOverview,
-  WorkspaceCheckStatusSnapshot,
+  WorkFoldCheckDecisionKind,
+  WorkFoldCheckFinding,
+  WorkFoldCheckRendererDecorations,
+  WorkFoldCheckRendererOverview,
+  WorkFoldCheckStatusSnapshot,
 } from "../../src/local/checks/check-types";
-import type { WorkspaceCheckTaskStatus } from "../../src/local/checks/check-service";
+import type { WorkFoldCheckTaskStatus } from "../../src/local/checks/check-service";
 
-export type WorkspacePane = "files" | "chats" | "history";
-export type WorkspaceExtensionRailMode = `app:${string}`;
-export type WorkspaceRailMode = "workspaces" | WorkspacePane | WorkspaceExtensionRailMode;
+export type SpacePane = "files" | "chats" | "history";
+export type SpaceExtensionRailMode = `app:${string}`;
+export type SpaceRailMode = "spaces" | SpacePane | SpaceExtensionRailMode;
 export type AppTheme = "light" | "dark";
 export type AppThemePreference = AppTheme | "system";
 export type AppTypographyFont = "default" | "stable" | "verdana" | "aptos";
@@ -21,22 +21,22 @@ export interface AppTypographyPreference {
   textSize: AppTextSize;
 }
 
-export interface WorkspaceLocation {
+export interface SpaceLocation {
   kind: "local";
   storage: "managed" | "linked";
   providerHint?: "google-drive";
 }
 
-export interface WorkspaceSummary {
+export interface SpaceSummary {
   id: string;
   name: string;
   rootPath: string;
-  location: WorkspaceLocation;
+  location: SpaceLocation;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface WorkspaceCustomization {
+export interface SpaceCustomization {
   schema?: 1 | 2;
   color?: string;
   color2?: string;
@@ -45,15 +45,15 @@ export interface WorkspaceCustomization {
   iconName?: string;
   bannerName?: string;
   bannerImage?: string | null;
-  bannerImagePosition?: WorkspaceBannerImagePosition;
+  bannerImagePosition?: SpaceBannerImagePosition;
 }
 
-export type WorkspaceCustomizationMap = Record<string, WorkspaceCustomization>;
-export type WorkspaceCustomizationPatch = WorkspaceCustomization;
-export interface WorkspaceColorOption { label: string; color: string; soft: string; border: string }
-export interface WorkspaceBannerOption { name: string; label: string }
-export type WorkspaceBannerImagePosition = "top" | "center" | "bottom";
-export interface WorkspacePaneBounds { min: number; max: number; fallback: number }
+export type SpaceCustomizationMap = Record<string, SpaceCustomization>;
+export type SpaceCustomizationPatch = SpaceCustomization;
+export interface SpaceColorOption { label: string; color: string; soft: string; border: string }
+export interface SpaceBannerOption { name: string; label: string }
+export type SpaceBannerImagePosition = "top" | "center" | "bottom";
+export interface SpacePaneBounds { min: number; max: number; fallback: number }
 
 export interface TreeEntry {
   name: string;
@@ -145,7 +145,7 @@ export interface RuntimePreviewEntry {
 export interface RuntimeThinkingSection { id: string; title: string; text: string; pending?: boolean }
 
 export interface ChatActionsState {
-  workspace: WorkspaceSummary;
+  space: SpaceSummary;
   conversation: ConversationSummary;
   x: number;
   y: number;
@@ -173,7 +173,7 @@ export interface ContextAttachment {
 export interface ChatContextPathRequest {
   id: number;
   path: string;
-  workspaceId: string;
+  spaceId: string;
   surfaceTabId: string;
 }
 export interface PendingChatSend {
@@ -185,7 +185,7 @@ export interface PendingChatSend {
   transientConversation: boolean;
   draftStorageKey: string;
 }
-export interface WorkspaceFixtureConversation extends ConversationSummary {
+export interface SpaceFixtureConversation extends ConversationSummary {
   messages: ChatMessage[];
   activityEvents?: AgentActivityEvent[];
   runtimePreviews?: RuntimePreviewEntry[];
@@ -196,23 +196,23 @@ export interface WorkspaceFixtureConversation extends ConversationSummary {
 
 export type AssistantToolsView = "installed" | "discover";
 
-interface WorkspaceSurfaceTabBase {
+interface SpaceSurfaceTabBase {
   id: string;
-  workspaceId: string;
+  spaceId: string;
   title: string;
 }
 
-export type WorkspaceSurfaceTab =
-  | (WorkspaceSurfaceTabBase & { kind: "chat"; conversationId: string | null })
-  | (WorkspaceSurfaceTabBase & { kind: "file"; path: string })
-  | (WorkspaceSurfaceTabBase & { kind: "history"; checkpointId?: string })
-  | (WorkspaceSurfaceTabBase & { kind: "library" })
-  | (WorkspaceSurfaceTabBase & { kind: "appearance" })
-  | (WorkspaceSurfaceTabBase & { kind: "app-studio" })
-  | (WorkspaceSurfaceTabBase & { kind: "assistant-tools"; view: AssistantToolsView })
-  | (WorkspaceSurfaceTabBase & { kind: "checks" })
-  | (WorkspaceSurfaceTabBase & { kind: "extension"; surfaceId: string; surfaceExecution: "full-trust-pi"; viewId: string })
-  | (WorkspaceSurfaceTabBase & {
+export type SpaceSurfaceTab =
+  | (SpaceSurfaceTabBase & { kind: "chat"; conversationId: string | null })
+  | (SpaceSurfaceTabBase & { kind: "file"; path: string })
+  | (SpaceSurfaceTabBase & { kind: "history"; checkpointId?: string })
+  | (SpaceSurfaceTabBase & { kind: "library" })
+  | (SpaceSurfaceTabBase & { kind: "appearance" })
+  | (SpaceSurfaceTabBase & { kind: "app-studio" })
+  | (SpaceSurfaceTabBase & { kind: "assistant-tools"; view: AssistantToolsView })
+  | (SpaceSurfaceTabBase & { kind: "checks" })
+  | (SpaceSurfaceTabBase & { kind: "extension"; surfaceId: string; surfaceExecution: "full-trust-pi"; viewId: string })
+  | (SpaceSurfaceTabBase & {
     kind: "restricted-app";
     appId: string;
     digest: string;
@@ -221,12 +221,12 @@ export type WorkspaceSurfaceTab =
     state?: unknown;
   });
 
-export type ChecksStatus = WorkspaceCheckStatusSnapshot;
-export type ChecksOverview = WorkspaceCheckRendererOverview;
-export type ChecksDecorations = WorkspaceCheckRendererDecorations;
-export type ChecksFinding = WorkspaceCheckFinding;
-export type ChecksDecisionKind = WorkspaceCheckDecisionKind;
-export type ChecksTaskStatus = WorkspaceCheckTaskStatus;
+export type ChecksStatus = WorkFoldCheckStatusSnapshot;
+export type ChecksOverview = WorkFoldCheckRendererOverview;
+export type ChecksDecorations = WorkFoldCheckRendererDecorations;
+export type ChecksFinding = WorkFoldCheckFinding;
+export type ChecksDecisionKind = WorkFoldCheckDecisionKind;
+export type ChecksTaskStatus = WorkFoldCheckTaskStatus;
 
 export interface AgentStatus {
   ready: boolean;
@@ -516,8 +516,8 @@ export interface RestrictedAppReview {
 }
 
 export interface RestrictedAppInstalled extends RestrictedAppReview {
-  workspaceId: string;
-  sourceWorkspaceId: string;
+  spaceId: string;
+  sourceSpaceId: string;
   projectId: string;
   tenantId: string;
   principalId: string;
@@ -542,7 +542,7 @@ export interface LocalAppPresentation {
 }
 
 export interface LocalAppProject {
-  workspaceId: string;
+  spaceId: string;
   projectId: string;
   presentation: LocalAppPresentation;
   createdAt: string;
@@ -551,7 +551,7 @@ export interface LocalAppProject {
 
 export interface LocalAppRelease {
   projectId: string;
-  sourceWorkspaceId: string;
+  sourceSpaceId: string;
   releaseDigest: string;
   displayVersion: string;
   presentation: LocalAppPresentation;
@@ -569,7 +569,7 @@ export interface LocalAppReleaseDeletionResult {
 export interface LocalAppInstance {
   runtimeInstanceId: string;
   projectId: string;
-  workspaceId: string;
+  spaceId: string;
   releaseDigest: string;
   displayVersion: string;
   presentation: LocalAppPresentation;
@@ -582,7 +582,7 @@ export interface LocalAppInstallOperation {
   operationId: string;
   kind: "install";
   projectId: string;
-  targetWorkspaceId: string;
+  targetSpaceId: string;
   releaseDigest: string;
   runtimeInstanceId: string;
   features: Array<{ featureId: string; featureInstallationId: string; dataNamespaceId: string }>;
@@ -593,7 +593,7 @@ export interface LocalAppUpdateOperation {
   operationId: string;
   kind: "update";
   projectId: string;
-  targetWorkspaceId: string;
+  targetSpaceId: string;
   releaseDigest: string;
   runtimeInstanceId: string;
   continuityPolicy: "eligible" | "reset";
@@ -637,7 +637,7 @@ export interface LocalAppStudioSnapshot {
   retainedData: LocalAppRetainedData[];
 }
 
-export interface LocalAppWorkspaceRemovalImpact {
+export interface LocalAppSpaceRemovalImpact {
   activeSourceInstanceCount: number;
   activeTargetInstanceCount: number;
   retainedDataCount: number;
@@ -654,7 +654,7 @@ export interface RestrictedAppAutomationState {
 
 export interface RestrictedAppAutomationRunReceipt {
   receiptId: string;
-  verification: "captured" | "legacy-unverified";
+  verification: "captured";
   runId: string;
   automationId: string;
   reason: "scheduled" | "manual" | "resume";
@@ -694,7 +694,7 @@ export interface AppPlatformAuthorityStamp {
 }
 
 export interface RestrictedAppViewRequest {
-  workspaceId: string;
+  spaceId: string;
   appId: string;
   digest: string;
   mountId: string;
@@ -711,7 +711,7 @@ export interface RestrictedAppViewRequest {
 
 export interface RestrictedAppProposal {
   id: string;
-  workspaceId: string;
+  spaceId: string;
   conversationId: string;
   sourcePath: string;
   review: RestrictedAppReview;
@@ -799,7 +799,7 @@ export interface CapabilityDiscoverDetailsResponse {
   item: CapabilityDiscoverDetailsItem;
 }
 
-export interface WorkspaceCheckpoint {
+export interface SpaceCheckpoint {
   checkpointId: string;
   createdAt: string;
   label?: string;
@@ -832,7 +832,7 @@ export interface LocalEventStream {
   close: () => void;
 }
 
-export type WorkspaceFileEvent =
+export type SpaceFileEvent =
   | { type: "ready"; recursive: boolean }
   | { type: "file_event"; eventType: string; path: string | null }
   | { type: "error"; message: string };
@@ -864,7 +864,7 @@ export interface ChatStreamEvent {
   editorMode?: "replace" | "append";
 }
 
-export interface BootstrapResponse { workspaces: WorkspaceSummary[]; agent: AgentStatus; appearance?: SpaceAppearanceState }
+export interface BootstrapResponse { spaces: SpaceSummary[]; agent: AgentStatus; appearance?: SpaceAppearanceState }
 export interface DesktopUpdateStatus {
   supported: boolean;
   phase: "unsupported" | "idle" | "checking" | "available" | "not_available" | "downloading" | "ready" | "installing" | "error";
@@ -875,6 +875,6 @@ export interface DesktopUpdateStatus {
   message: string;
   error: string | null;
 }
-export type CommandPaletteGroupId = "go-to" | "switch-workspace" | "chats" | "files" | "actions";
+export type CommandPaletteGroupId = "go-to" | "switch-space" | "chats" | "files" | "actions";
 export interface ShortcutRow { keys: string[]; action: string }
 export interface ShortcutGroup { title: string; rows: ShortcutRow[] }

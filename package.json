@@ -1,21 +1,21 @@
 {
-  "name": "workspace-desktop",
-  "version": "0.8.0",
+  "name": "work-fold-desktop",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "A local-first desktop workspace powered by Pi.",
+  "description": "A local-first desktop app powered by Pi.",
   "author": "Mat-Tom-Son",
   "license": "MIT",
-  "homepage": "https://github.com/Mat-Tom-Son/workspace#readme",
+  "homepage": "https://work-fold.com",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Mat-Tom-Son/workspace.git"
+    "url": "https://github.com/Mat-Tom-Son/work-fold.git"
   },
   "bugs": {
-    "url": "https://github.com/Mat-Tom-Son/workspace/issues"
+    "url": "https://github.com/Mat-Tom-Son/work-fold/issues"
   },
   "main": "dist/desktop/desktop/src/main.js",
-  "productName": "Workspace",
+  "productName": "work-fold",
   "engines": {
     "node": ">=22.19.0"
   },
@@ -25,9 +25,9 @@
     "check": "npm run local:check && npm run desktop:check",
     "test": "node scripts/run-tests.mjs",
     "local:api": "tsx src/local/server-dev.ts",
-    "workspace:drive": "tsx scripts/workspace-drive.ts",
-    "workspace:appearance": "tsx scripts/workspace-appearance.ts",
-    "workspace:checks": "tsx scripts/workspace-checks.ts",
+    "work-fold:drive": "tsx scripts/work-fold-drive.ts",
+    "work-fold:appearance": "tsx scripts/work-fold-appearance.ts",
+    "work-fold:checks": "tsx scripts/work-fold-checks.ts",
     "local:dev": "concurrently -k -n api,ui -c cyan,green \"npm run local:api\" \"vite --config vite.local.config.ts\"",
     "local:check": "tsc --noEmit -p tsconfig.web.json",
     "local:build": "vite build --config vite.local.config.ts",
@@ -35,13 +35,14 @@
     "desktop:check": "tsc --noEmit -p tsconfig.desktop.json",
     "desktop:compile": "node scripts/clean-desktop-dist.mjs && tsc -p tsconfig.desktop.json",
     "desktop:prepare": "npm run desktop:icons && npm run local:build && npm run desktop:compile && npm run desktop:restricted-app:smoke && npm run desktop:preflight",
-    "desktop:package": "npm run desktop:prepare && electron-forge package && node scripts/verify-packaged-app-assets.mjs --package-dir out/Workspace-win32-x64",
+    "desktop:package": "npm run desktop:prepare && electron-forge package && node scripts/verify-packaged-app-assets.mjs --package-dir out/work-fold-win32-x64",
     "desktop:package:smoke": "npm run desktop:prepare && electron-builder --config electron-builder.desktop.cjs --win --x64 --dir --publish never && npm run desktop:verify:packaged-assets -- --package-dir out/builder/win-unpacked",
     "desktop:make": "npm run desktop:prepare && electron-builder --config electron-builder.desktop.cjs --win nsis --x64 --publish never && npm run desktop:verify:release",
     "desktop:make:mac": "node scripts/build-mac-desktop.mjs --unsigned-smoke",
     "desktop:make:mac:release": "node scripts/build-mac-desktop.mjs --release",
     "desktop:publish:mac": "node scripts/publish-mac-release.mjs",
     "desktop:release:mac": "npm run desktop:make:mac:release && npm run desktop:publish:mac",
+    "desktop:release:mac:first": "npm run desktop:make:mac:release && npm run desktop:publish:mac -- --mac-first",
     "desktop:finalize:release:mac": "node scripts/finalize-mac-release-artifacts.mjs",
     "desktop:manifest:release:mac": "node scripts/write-mac-release-manifest.mjs",
     "desktop:reset:mac-safe-storage": "node scripts/reset-mac-safe-storage.mjs",

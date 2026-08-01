@@ -32,6 +32,17 @@ jobs:
             throw "Tag $env:GITHUB_REF_NAME does not match package version $version."
           }
 
+      - name: Require Windows release signing credentials
+        shell: pwsh
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_LINK) -or
+              [string]::IsNullOrWhiteSpace($env:WIN_CSC_KEY_PASSWORD)) {
+            throw "Windows release signing is not configured; refusing to publish an unsigned release."
+          }
+
       - name: Install dependencies
         run: npm ci
 
@@ -50,16 +61,16 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-          WORKSPACE_REQUIRE_CODE_SIGNING: ${{ secrets.WIN_CSC_LINK != '' && '1' || '0' }}
-          WORKSPACE_TRUSTED_CODE_SIGNING: ${{ vars.WORKSPACE_TRUSTED_CODE_SIGNING == '1' && '1' || '0' }}
+          WORKFOLD_REQUIRE_CODE_SIGNING: "1"
+          WORKFOLD_TRUSTED_CODE_SIGNING: ${{ vars.WORKFOLD_TRUSTED_CODE_SIGNING == '1' && '1' || '0' }}
 
       - name: Write SHA-256 checksums
         shell: pwsh
         run: |
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           $assets = @(
-            "out/builder/Workspace-Setup-$version.exe",
-            "out/builder/Workspace-Setup-$version.exe.blockmap",
+            "out/builder/work-fold-Setup-$version.exe",
+            "out/builder/work-fold-Setup-$version.exe.blockmap",
             "out/builder/latest.yml"
           )
           $lines = foreach ($asset in $assets) {
@@ -75,12 +86,12 @@ jobs:
       - name: Retain release assets
         uses: actions/upload-artifact@v7
         with:
-          name: Workspace-Windows-${{ github.ref_name }}
+          name: work-fold-Windows-${{ github.ref_name }}
           if-no-files-found: error
           retention-days: 14
           path: |
-            out/builder/Workspace-Setup-*.exe
-            out/builder/Workspace-Setup-*.exe.blockmap
+            out/builder/work-fold-Setup-*.exe
+            out/builder/work-fold-Setup-*.exe.blockmap
             out/builder/latest.yml
             out/builder/SHA256SUMS.txt
 
@@ -91,8 +102,8 @@ jobs:
         run: |
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           $assets = @(
-            "out/builder/Workspace-Setup-$version.exe",
-            "out/builder/Workspace-Setup-$version.exe.blockmap",
+            "out/builder/work-fold-Setup-$version.exe",
+            "out/builder/work-fold-Setup-$version.exe.blockmap",
             "out/builder/latest.yml",
             "out/builder/SHA256SUMS.txt"
           )
@@ -100,7 +111,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $notes -PathType Leaf)) {
             throw "Checked-in release notes are missing at $notes."
           }
-          & gh release create $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --verify-tag --draft --title "Workspace $version" --notes-file $notes @assets
+          & gh release create $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --verify-tag --draft --title "work-fold $version" --notes-file $notes @assets
           if ($LASTEXITCODE -ne 0) { throw "Could not create the draft GitHub release." }
           & gh release edit $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --draft=false --latest
           if ($LASTEXITCODE -ne 0) { throw "Could not publish the GitHub release." }

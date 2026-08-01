@@ -26,7 +26,7 @@ import {
 
 import { api, apiForm, errorText, safeExternalHref } from "../../lib/api";
 import { useModalDialog } from "../../hooks/useModalDialog";
-import { createWorkspaceOperationGate, type WorkspaceOperationToken } from "../../lib/workspace-operation-gate";
+import { createSpaceOperationGate, type SpaceOperationToken } from "../../lib/space-operation-gate";
 import { RestrictedAppsSection } from "./RestrictedAppsSection";
 import type {
   AgentCatalog,
@@ -47,7 +47,7 @@ import type {
   CapabilityDiscoverDetailsResponse,
   CapabilityDiscoverResponse,
   RestrictedAppInstalled,
-  WorkspaceSummary,
+  SpaceSummary,
 } from "../../types";
 import { requestConfirm, showToast } from "../../ui/feedback";
 
@@ -92,7 +92,7 @@ type PendingInstall = {
 };
 
 export function CapabilitiesPane({
-  workspace,
+  space,
   status,
   view,
   fixtureMode = false,
@@ -107,7 +107,7 @@ export function CapabilitiesPane({
   onOpenAppStudio,
   onViewChange,
 }: {
-  workspace: WorkspaceSummary;
+  space: SpaceSummary;
   status: AgentStatus;
   view: AssistantToolsView;
   fixtureMode?: boolean;
@@ -119,7 +119,7 @@ export function CapabilitiesPane({
   onRestrictedAppChanged: (app: RestrictedAppInstalled) => void;
   onRestrictedAppRemoved: (appId: string) => void;
   onBuildApp: () => void;
-  onOpenAppStudio: (workspaceId?: string) => void;
+  onOpenAppStudio: (spaceId?: string) => void;
   onViewChange: (view: AssistantToolsView) => void;
 }) {
   const [catalog, setCatalog] = useState<AgentCatalog | null>(null);
@@ -148,8 +148,8 @@ export function CapabilitiesPane({
   const discoverViewRef = useRef<HTMLElement>(null);
   const catalogRequestRef = useRef(0);
   const discoverRequestRef = useRef(0);
-  const operationGateRef = useRef(createWorkspaceOperationGate(workspace.id));
-  operationGateRef.current.activate(workspace.id);
+  const operationGateRef = useRef(createSpaceOperationGate(space.id));
+  operationGateRef.current.activate(space.id);
 
   useEffect(() => {
     setCatalog(null);
@@ -163,7 +163,7 @@ export function CapabilitiesPane({
     setPackageBusy(null);
     setReviewingItemId(null);
     void loadCatalog(operationGateRef.current.capture());
-  }, [fixtureMode, workspace.id]);
+  }, [fixtureMode, space.id]);
 
   useEffect(() => {
     if (view !== "discover") return;
@@ -171,7 +171,7 @@ export function CapabilitiesPane({
     return () => window.clearTimeout(timer);
   }, [view, query, typeFilter, discoverSort, fixtureMode]);
 
-  async function loadCatalog(operation: WorkspaceOperationToken = operationGateRef.current.capture()) {
+  async function loadCatalog(operation: SpaceOperationToken = operationGateRef.current.capture()) {
     const requestId = ++catalogRequestRef.current;
     if (fixtureMode) {
       if (operationGateRef.current.isCurrent(operation)) {
@@ -181,7 +181,7 @@ export function CapabilitiesPane({
       return;
     }
     try {
-      const next = await api<AgentCatalog>(`/api/workspaces/${operation.workspaceId}/agent/catalog`);
+      const next = await api<AgentCatalog>(`/api/spaces/${operation.spaceId}/agent/catalog`);
       if (catalogRequestRef.current === requestId && operationGateRef.current.isCurrent(operation)) {
         setCatalog(next);
         onCatalogChanged?.(next);
@@ -312,19 +312,19 @@ export function CapabilitiesPane({
         setCatalog(fixtureCatalog());
       } else if (install.kind === "skill-files") {
         const form = new FormData();
-        form.set("workspaceId", operation.workspaceId);
+        form.set("spaceId", operation.spaceId);
         form.set("scope", install.scope);
         install.files.forEach((file) => form.append("files", file, file.name));
         await apiForm("/api/agent/skills/import", form);
       } else if (install.kind === "catalog") {
         await api("/api/agent/capabilities/install", {
           method: "POST",
-          body: { workspaceId: operation.workspaceId, id: install.item.id, scope: install.scope },
+          body: { spaceId: operation.spaceId, id: install.item.id, scope: install.scope },
         });
       } else {
         await api("/api/agent/packages/install", {
           method: "POST",
-          body: { workspaceId: operation.workspaceId, source: install.source, scope: install.scope },
+          body: { spaceId: operation.spaceId, source: install.source, scope: install.scope },
         });
       }
       if (!operationGateRef.current.isCurrent(operation)) return;
@@ -365,7 +365,7 @@ export function CapabilitiesPane({
       } else {
         await api(`/api/agent/packages/${action}`, {
           method: "POST",
-          body: { workspaceId: operation.workspaceId, source: item.source, scope: item.scope },
+          body: { spaceId: operation.spaceId, source: item.source, scope: item.scope },
         });
         if (!operationGateRef.current.isCurrent(operation)) return;
         await loadCatalog(operation);
@@ -380,7 +380,7 @@ export function CapabilitiesPane({
   }
 
   return (
-    <div className="workspace-pane-content capabilities-pane assistant-tools-pane professional-surface professional-assistant">
+    <div className="space-pane-content capabilities-pane assistant-tools-pane professional-surface professional-assistant">
       {!status.configured ? (
         <CapabilityNotice
           icon={<Info20Regular />}
@@ -394,7 +394,7 @@ export function CapabilitiesPane({
         <div>
           <span className="professional-kicker">Assistant</span>
           <h1>Assistant tools</h1>
-          <p>See what the Assistant can use in {workspace.name}. Review scope, source, health, and app access.</p>
+          <p>See what the Assistant can use in {space.name}. Review scope, source, health, and app access.</p>
         </div>
         <button className="professional-button professional-button-primary capabilities-add-trigger" type="button" onClick={() => setAddOpen(true)}><Add16Regular />Add tool</button>
       </header>
@@ -409,7 +409,7 @@ export function CapabilitiesPane({
           <div className="capabilities-installed-context">
             <ShieldCheckmark20Regular aria-hidden="true" />
             <div>
-              <strong>{workspace.name}</strong>
+              <strong>{space.name}</strong>
               <span>{installedTotal} installed {installedTotal === 1 ? "tool" : "tools"} · {scopedToolCount(resources.filter((item) => item.scope === "project").length + restrictedApps.length, "Space")} · {scopedToolCount(resources.filter((item) => item.scope === "global").length, "Personal")}</span>
             </div>
             <p className={installedIssues ? "needs-attention" : "ready"}>{installedIssues ? `${installedIssues} ${installedIssues === 1 ? "tool needs" : "tools need"} attention` : "All tools healthy · App access is approved separately"}</p>
@@ -431,7 +431,7 @@ export function CapabilitiesPane({
           {!installedVisible && installedTotal && !showRestrictedAppsSection ? <CapabilityEmpty title="No matching tools" detail="Change the search or filters to see more." /> : null}
           {showRestrictedAppsSection ? (
             <RestrictedAppsSection
-              workspace={workspace}
+              space={space}
               apps={visibleRestrictedApps}
               totalApps={restrictedApps.length}
               filtered={visibleRestrictedApps.length !== restrictedApps.length}
@@ -744,7 +744,7 @@ function InstallReviewDialog({ pending, busy, onClose, onInstall }: { pending: P
         <div className="capability-dialog-body">
           <dl className="capability-review-facts"><div><dt>Source</dt><dd>{source}</dd></div><div><dt>Location</dt><dd>{scopeLabel(pending.scope)}</dd></div>{pending.kind !== "skill-files" ? <div><dt>Advertised contents</dt><dd>{pending.kind === "package" ? pending.item?.types.map(capabilityTypeLabel).join(", ") || "Package-defined Pi resources" : pending.item.types.map(capabilityTypeLabel).join(", ")}</dd></div> : <div><dt>Files</dt><dd>{pending.files.length}</dd></div>}{catalogInstall ? <><div><dt>Dependencies</dt><dd>{typeof pending.item.dependencyCount === "number" ? pending.item.dependencyCount : "Unknown / not inspected"}</dd></div><div><dt>Install scripts</dt><dd>{installScriptSummary(pending.item)}</dd></div></> : null}</dl>
           {catalogInstall ? <CapabilityPackageContents item={pending.item} /> : null}
-          <div className={extensionInstall ? "capability-code-warning danger" : "capability-code-warning"}><ShieldCheckmark20Regular aria-hidden="true" /><div><strong>{extensionInstall ? "This can run code on your computer" : "Skills can include scripts"}</strong><p>{executablePackageInstall ? `Pi packages may run package-manager install scripts. Loaded Extensions execute with your user account's full file, process, and network access.${mutableGitSource(source) ? " This git source is not pinned to an immutable commit and can change between installs." : ""} Missing script or dependency details mean unknown, not none. Review the source before continuing.` : "Workspace imports only discovered Skill directories, but a Skill may tell the Assistant to run included scripts. Import only from a source you trust."}</p></div></div>
+          <div className={extensionInstall ? "capability-code-warning danger" : "capability-code-warning"}><ShieldCheckmark20Regular aria-hidden="true" /><div><strong>{extensionInstall ? "This can run code on your computer" : "Skills can include scripts"}</strong><p>{executablePackageInstall ? `Pi packages may run package-manager install scripts. Loaded Extensions execute with your user account's full file, process, and network access.${mutableGitSource(source) ? " This git source is not pinned to an immutable commit and can change between installs." : ""} Missing script or dependency details mean unknown, not none. Review the source before continuing.` : "work-fold imports only discovered Skill directories, but a Skill may tell the Assistant to run included scripts. Import only from a source you trust."}</p></div></div>
         </div>
         <div className="capability-dialog-footer"><button ref={cancelRef} className="professional-button professional-button-secondary" type="button" onClick={onClose} disabled={busy}>Cancel</button><button className="professional-button professional-button-primary" type="button" onClick={onInstall} disabled={busy}>{busy ? <ArrowSync16Regular className="spin" /> : null}{pending.kind === "skill-files" ? "Import Skill" : "Install"}</button></div>
       </section>
@@ -758,7 +758,7 @@ function CapabilityDetailsDialog({ item, onClose }: { item: InstalledCapability;
     <div className="modal-backdrop capability-dialog-backdrop" role="presentation" onMouseDown={onClose}>
       <section ref={dialogRef} tabIndex={-1} className="capability-dialog capability-details-dialog" role="dialog" aria-modal="true" aria-labelledby="capability-details-title" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-title"><div><h2 id="capability-details-title">{item.name}</h2><p>{item.kind === "skill" ? "Skill" : "Extension"} · {scopeLabel(item.scope)} · {statusLabel(item.status)}</p></div><button className="minimal-icon-button" type="button" onClick={onClose} aria-label="Close details"><Dismiss20Regular /></button></div>
-        <div className="capability-dialog-body"><p className="capability-details-summary">{item.description}</p><dl className="capability-review-facts"><div><dt>Source</dt><dd>{item.source}</dd></div><div><dt>Path</dt><dd>{item.path}</dd></div><div><dt>Origin</dt><dd>{originLabel(item.origin)}</dd></div>{item.kind === "skill" ? <div><dt>Invocation</dt><dd>{item.disableModelInvocation ? "Only when explicitly requested" : "Available to the Assistant when relevant"}</dd></div> : null}</dl>{item.diagnostics.length ? <div className="professional-diagnostics">{item.diagnostics.map((diagnostic, index) => <span className={diagnostic.type} key={`${diagnostic.message}:${index}`}>{diagnostic.message}</span>)}</div> : null}{item.kind === "skill" && item.content ? <div className="markdown-preview capability-skill-content"><ReactMarkdown remarkPlugins={[remarkGfm]}>{stripSkillFrontmatter(item.content)}</ReactMarkdown></div> : null}{item.kind === "extension" ? <div className="capability-extension-details"><CapabilityStringList title="Tools" items={item.tools} /><CapabilityStringList title="Commands" items={item.commands} /><CapabilityStringList title="Flags" items={item.flags} /><div className="capability-code-warning danger"><ShieldCheckmark20Regular /><div><strong>Executable capability</strong><p>Extensions run with the same operating-system access as Workspace. Tool and command names are not a complete permissions inventory.</p></div></div></div> : null}</div>
+        <div className="capability-dialog-body"><p className="capability-details-summary">{item.description}</p><dl className="capability-review-facts"><div><dt>Source</dt><dd>{item.source}</dd></div><div><dt>Path</dt><dd>{item.path}</dd></div><div><dt>Origin</dt><dd>{originLabel(item.origin)}</dd></div>{item.kind === "skill" ? <div><dt>Invocation</dt><dd>{item.disableModelInvocation ? "Only when explicitly requested" : "Available to the Assistant when relevant"}</dd></div> : null}</dl>{item.diagnostics.length ? <div className="professional-diagnostics">{item.diagnostics.map((diagnostic, index) => <span className={diagnostic.type} key={`${diagnostic.message}:${index}`}>{diagnostic.message}</span>)}</div> : null}{item.kind === "skill" && item.content ? <div className="markdown-preview capability-skill-content"><ReactMarkdown remarkPlugins={[remarkGfm]}>{stripSkillFrontmatter(item.content)}</ReactMarkdown></div> : null}{item.kind === "extension" ? <div className="capability-extension-details"><CapabilityStringList title="Tools" items={item.tools} /><CapabilityStringList title="Commands" items={item.commands} /><CapabilityStringList title="Flags" items={item.flags} /><div className="capability-code-warning danger"><ShieldCheckmark20Regular /><div><strong>Executable capability</strong><p>Extensions run with the same operating-system access as work-fold. Tool and command names are not a complete permissions inventory.</p></div></div></div> : null}</div>
         <div className="capability-dialog-footer"><button className="professional-button professional-button-primary" type="button" onClick={onClose}>Done</button></div>
       </section>
     </div>
@@ -976,7 +976,7 @@ function fixtureCatalog(): AgentCatalog {
     trust: { required: true, trusted: true, savedDecision: true },
     projectTrusted: true,
     diagnostics: [],
-    packages: [{ source: "npm:@pi-workspace/calendar-tools", scope: "global", enabled: true, displayName: "Calendar tools", types: ["extension"] }],
+    packages: [{ source: "npm:@pi-work-fold/calendar-tools", scope: "global", enabled: true, displayName: "Calendar tools", types: ["extension"] }],
     skills: [{ id: "trip-planner", name: "Trip planner", description: "Turns bookings and preferences into a practical itinerary.", path: "skills/trip-planner/SKILL.md", source: { source: "anthropics/skills", scope: "user", origin: "package", packageSource: "github:anthropics/skills" }, scope: "global", origin: "package", packageSource: "github:anthropics/skills", enabled: true, loaded: true, content: "---\nname: trip-planner\ndescription: Plan a trip\n---\n\n# Trip planner\n\nBuild an itinerary from confirmed details, preferences, and constraints." }],
     extensions: [{ id: "calendar", name: "Calendar helper", path: ".pi/extensions/calendar.ts", source: { source: ".pi/extensions/calendar.ts", scope: "project", origin: "top-level" }, scope: "project", origin: "top-level", enabled: true, loaded: true, commands: ["calendar"], tools: ["read_calendar"], flags: ["calendar-account"] }],
     tools: [
@@ -991,7 +991,7 @@ function fixtureCatalog(): AgentCatalog {
 function fixtureDiscover(query: string, type: CapabilityTypeFilter, sort: DiscoverSort, offset: number): CapabilityDiscoverResponse {
   const all: CapabilityDiscoverItem[] = [
     { id: "anthropic-document-skills", name: "Document Skills", description: "First-party Anthropic Skills for creating and working with common document formats.", types: ["skill"], sourceKind: "bundle", official: true, author: "Anthropic", version: "1.0", downloads: 28400, publishedAt: "2026-06-14T00:00:00.000Z", repositoryUrl: "https://github.com/anthropics/skills", license: "Apache-2.0" },
-    { id: "pi-web-tools", name: "Pi web tools", description: "A Pi package with browser-oriented tools and commands.", types: ["extension"], sourceKind: "npm", installSource: "npm:@pi-workspace/web-tools", official: false, author: "Pi community", version: "2.3.1", downloads: 12800, publishedAt: "2026-07-01T00:00:00.000Z", npmUrl: "https://www.npmjs.com/package/@pi-workspace/web-tools", license: "MIT" },
+    { id: "pi-web-tools", name: "Pi web tools", description: "A Pi package with browser-oriented tools and commands.", types: ["extension"], sourceKind: "npm", installSource: "npm:@pi-work-fold/web-tools", official: false, author: "Pi community", version: "2.3.1", downloads: 12800, publishedAt: "2026-07-01T00:00:00.000Z", npmUrl: "https://www.npmjs.com/package/@pi-work-fold/web-tools", license: "MIT" },
     { id: "research-workbench", name: "Research workbench", description: "Skills and Extensions for collecting, organizing, and citing research.", types: ["skill", "extension"], sourceKind: "git", installSource: "git:github.com/example/research-workbench", official: false, author: "Community", version: "0.9.0", downloads: 4100, publishedAt: "2026-05-20T00:00:00.000Z", repositoryUrl: "https://github.com/example/research-workbench", license: "MIT" },
   ];
   const needle = query.trim().toLocaleLowerCase();

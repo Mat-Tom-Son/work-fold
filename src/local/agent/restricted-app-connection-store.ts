@@ -29,19 +29,12 @@ export interface RestrictedAppSecretEncryption {
 }
 
 interface ConnectionFile {
-  schemaVersion: 2;
+  schemaVersion: 3;
   records: ConnectionRecord[];
 }
 
-interface DisconnectedLegacyConnectionFile {
-  schemaVersion: 1;
-  disconnected: true;
-}
-
-type ReadConnectionFile = ConnectionFile | DisconnectedLegacyConnectionFile;
-
 interface ConnectionRecord extends RestrictedAppConnectionBinding {
-  recordVersion: 1;
+  recordVersion: 2;
   connectionId: string;
   credential: RestrictedAppCredential;
   updatedAt: string;
@@ -61,7 +54,6 @@ export class EncryptedRestrictedAppConnectionStore implements RestrictedAppConne
   async get(binding: RestrictedAppConnectionBinding): Promise<RestrictedAppCredential | undefined> {
     const normalized = normalizeBinding(binding);
     const data = await this.#read();
-    if (data.schemaVersion === 1) return undefined;
     const record = data.records.find((item) => bindingKey(item) === bindingKey(normalized));
     return record ? structuredClone(record.credential) : undefined;
   }
@@ -77,13 +69,13 @@ export class EncryptedRestrictedAppConnectionStore implements RestrictedAppConne
       const existing = data.records.find((item) => bindingKey(item) === bindingKey(normalized));
       data.records = data.records.filter((item) => bindingKey(item) !== bindingKey(normalized));
       data.records.push({
-        recordVersion: 1,
+        recordVersion: 2,
         connectionId: existing?.connectionId ?? `connection_${randomUUID()}`,
         ...normalized,
         credential: safeCredential,
         updatedAt: this.now().toISOString(),
       });
-    }, authorizeCommit, "replace-legacy");
+    }, authorizeCommit);
   }
 
   async delete(binding: RestrictedAppConnectionBinding, authorizeCommit?: RestrictedAppEffectAuthorizer): Promise<boolean> {
@@ -115,19 +107,12 @@ export class EncryptedRestrictedAppConnectionStore implements RestrictedAppConne
   async #update(
     mutator: (data: ConnectionFile) => void,
     authorizeCommit?: RestrictedAppEffectAuthorizer,
-    legacyPolicy: "preserve-legacy" | "replace-legacy" = "preserve-legacy",
   ): Promise<void> {
     let operationError: unknown;
     const operation = this.#queue.catch(() => undefined).then(async () => {
       try {
         const current = await this.#read();
-        // Schema 1 has no Tenant, Runtime Instance, Feature Installation, or
-        // owner identity. Cleanup cannot prove that a legacy record belongs to
-        // its target, so only an explicit reconnect may replace this file.
-        if (current.schemaVersion === 1 && legacyPolicy === "preserve-legacy") return;
-        const data: ConnectionFile = current.schemaVersion === 1
-          ? { schemaVersion: 2, records: [] }
-          : current;
+        const data: ConnectionFile = current;
         mutator(data);
         data.records.sort((left, right) => bindingKey(left).localeCompare(bindingKey(right)));
         await this.#write(data, authorizeCommit);
@@ -140,8 +125,8 @@ export class EncryptedRestrictedAppConnectionStore implements RestrictedAppConne
     if (operationError) throw operationError;
   }
 
-  async #read(): Promise<ReadConnectionFile> {
-    if (!existsSync(this.filePath)) return { schemaVersion: 2, records: [] };
+  async #read(): Promise<ConnectionFile> {
+    if (!existsSync(this.filePath)) return { schemaVersion: 3, records: [] };
     this.#assertEncryption();
     const info = await lstat(this.filePath);
     if (info.isSymbolicLink() || !info.isFile() || info.size > 2 * 1024 * 1024) throw new Error("Restricted app connection store is unsafe or too large.");
@@ -149,17 +134,16 @@ export class EncryptedRestrictedAppConnectionStore implements RestrictedAppConne
       const source = this.encryption.decrypt(await readFile(this.filePath));
       const value = JSON.parse(source) as unknown;
       const record = exactRecord(value, "Connection store", ["schemaVersion", "records"]);
-      if (record.schemaVersion === 1) return disconnectedSchema1(record);
-      if (record.schemaVersion !== 2 || !Array.isArray(record.records)) throw new Error("Connection store version is unsupported.");
+      if (record.schemaVersion !== 3 || !Array.isArray(record.records)) throw new Error("Connection store version is unsupported.");
       if (record.records.length > maximumConnectionRecords) throw new Error("Connection store contains too many records.");
       const records = record.records.map((item) => normalizeRecord(item));
       const keys = records.map(bindingKey);
       if (new Set(keys).size !== keys.length) throw new Error("Connection store contains duplicate bindings.");
       const connectionIds = records.map((item) => item.connectionId);
       if (new Set(connectionIds).size !== connectionIds.length) throw new Error("Connection store contains duplicate connection ids.");
-      return { schemaVersion: 2, records };
+      return { schemaVersion: 3, records };
     } catch (error) {
-      throw new Error(`Workspace could not read restricted app connections: ${errorMessage(error)}`);
+      throw new Error(`work-fold could not read restricted app connections: ${errorMessage(error)}`);
     }
   }
 
@@ -196,12 +180,12 @@ function normalizeRecord(value: unknown): ConnectionRecord {
     "recordVersion", "connectionId", "tenantId", "runtimeInstanceId", "featureId", "featureInstallationId",
     "featureRevisionDigest", "declarationId", "declarationDigest", "targetIdentity", "owner", "credential", "updatedAt",
   ]);
-  if (record.recordVersion !== 1) throw new Error("Connection record version is unsupported.");
+  if (record.recordVersion !== 2) throw new Error("Connection record version is unsupported.");
   const connectionId = connectionIdentifier(record.connectionId);
   const binding = normalizeBinding(record as unknown as RestrictedAppConnectionBinding);
   const credential = normalizeRestrictedAppCredential(record.credential);
   const updatedAt = exactTimestamp(record.updatedAt, "Connection update time");
-  return { recordVersion: 1, connectionId, ...binding, credential, updatedAt };
+  return { recordVersion: 2, connectionId, ...binding, credential, updatedAt };
 }
 
 function normalizeBinding(value: RestrictedAppConnectionBinding): RestrictedAppConnectionBinding {
@@ -328,19 +312,6 @@ function exactRecord(value: unknown, label: string, keys: readonly string[]): Re
   if (missing) throw new Error(`${label} is missing field ${missing}.`);
   if (actual.length !== keys.length) throw new Error(`${label} has an invalid field count.`);
   return record;
-}
-
-function disconnectedSchema1(value: unknown): DisconnectedLegacyConnectionFile {
-  const record = exactRecord(value, "Legacy connection store", ["schemaVersion", "records"]);
-  if (record.schemaVersion !== 1 || !Array.isArray(record.records)) {
-    throw new Error("Legacy connection store schema 1 is invalid.");
-  }
-  if (record.records.length > 1_024) throw new Error("Legacy connection store contains too many records.");
-  // Schema 1 omitted Tenant, Runtime Instance, Feature Installation, and owner
-  // identities. Treat every binding as disconnected instead of guessing an
-  // authority transfer. Reads leave the ciphertext untouched; the user's next
-  // explicit reconnect replaces it with an unambiguous schema 2 file.
-  return { schemaVersion: 1, disconnected: true };
 }
 
 function errorMessage(error: unknown): string {

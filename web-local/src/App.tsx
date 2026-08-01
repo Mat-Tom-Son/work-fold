@@ -8,11 +8,12 @@ import {
   type SpaceAppearanceState,
 } from "../../src/shared/space-appearance";
 
-import { defaultTypographyPreference, productName, textSizeValues, themePreferenceKey, typographyFontValues, typographyPreferenceKey, workspaceCustomizationStorageKey, workspacePathDragType } from "./constants";
+import { defaultTypographyPreference, productName, textSizeValues, themePreferenceKey, typographyFontValues, typographyPreferenceKey, spaceCustomizationStorageKey, spacePathDragType } from "./constants";
 import { ChatActionsPopover } from "./components/chat/ChatActionsPopover";
 import { ChatPanel } from "./components/chat/ChatPanel";
-import { WorkspaceSurfaceTabBar } from "./components/chat/WorkspaceSurfaceTabBar";
-import { Banner, CenteredState, EmptyInline, WorkspaceIconGlyph } from "./components/chrome/common";
+import { SpaceSurfaceTabBar } from "./components/chat/SpaceSurfaceTabBar";
+import { WorkFoldLoadingState } from "./components/brand/WorkFoldBrand";
+import { Banner, CenteredState, EmptyInline, SpaceIconGlyph } from "./components/chrome/common";
 import { DesktopTitleBar } from "./components/chrome/DesktopTitleBar";
 import { CommandPaletteHost, type CommandPaletteCommand } from "./components/modals/CommandPaletteHost";
 import { CreateSpaceModal } from "./components/modals/CreateSpaceModal";
@@ -27,43 +28,43 @@ import { AppStudioPane } from "./components/panes/AppStudioPane";
 import { CapabilitiesPane } from "./components/panes/CapabilitiesPane";
 import { ExtensionSurfacePane, ExtensionSurfaceUnavailable, ExtensionSurfaceView } from "./components/panes/ExtensionSurface";
 import { RestrictedAppViewport } from "./components/panes/RestrictedAppViewport";
-import { WorkspaceAppearancePanel, WorkspaceModeRail, WorkspacePaneHeader } from "./components/panes/workspaceChrome";
+import { SpaceAppearancePanel, SpaceModeRail, SpacePaneHeader } from "./components/panes/spaceChrome";
 import { FileContentSearch } from "./components/panes/FileContentSearch";
-import { ChatsPane, HistoryPane, LibraryPane, SpacesPane } from "./components/panes/workspacePanes";
+import { ChatsPane, HistoryPane, LibraryPane, SpacesPane } from "./components/panes/spacePanes";
 import { FileContextMenu } from "./components/tree/FileContextMenu";
 import { FileTree, FileTreeLoadingState } from "./components/tree/FileTree";
-import type { WorkspaceUiFixture } from "./fixtures/workspace-fixture";
+import type { SpaceUiFixture } from "./fixtures/space-fixture";
 import { usePaneResize } from "./hooks/usePaneResize";
 import { useChatActivity } from "./hooks/useChatActivity";
 import { useRestrictedApps } from "./hooks/useRestrictedApps";
 import { useSurfaceTabs } from "./hooks/useSurfaceTabs";
-import { useWorkspaceTree } from "./hooks/useWorkspaceTree";
-import { useWorkspaceChecks } from "./hooks/useWorkspaceChecks";
+import { useSpaceTree } from "./hooks/useSpaceTree";
+import { useSpaceChecks } from "./hooks/useSpaceChecks";
 import { api, apiForm, apiUrl, errorText } from "./lib/api";
 import { chatActivityKey, conversationLifecycleView } from "./lib/chat-lifecycle";
 import { chatContextRequestForTab } from "./lib/chat-context-request";
 import { contributedSurfaces, resolveSurfaceForKey, surfaceMatchesTab } from "./lib/capability-surfaces";
-import { canOpenDirectly, hasNativeFiles, hasWorkspacePathDrag, nativeOpenLabel } from "./lib/file-actions";
+import { canOpenDirectly, hasNativeFiles, hasSpacePathDrag, nativeOpenLabel } from "./lib/file-actions";
 import { formatItemCount } from "./lib/format";
 import { readStoredJsonValue, readStoredValue, writeStoredJsonValue, writeStoredValue } from "./lib/storage";
-import { isMacOS, typographyFontForPlatform, workspaceEntryNativePath } from "./lib/platform";
+import { isMacOS, typographyFontForPlatform, spaceEntryNativePath } from "./lib/platform";
 import { resolveRestrictedAppOpenRequest, restrictedAppRailMode } from "./lib/restricted-app-navigation";
-import { getLocalAppStudio, getLocalAppWorkspaceRemovalImpact } from "./lib/restricted-apps";
+import { getLocalAppStudio, getLocalAppSpaceRemovalImpact } from "./lib/restricted-apps";
 import { collectLoadedFileEntries, findTreeEntry, isInsideFolder, moveTreeEntry, removeTreeEntries } from "./lib/tree";
-import { normalizeWorkspaceCustomizations } from "./lib/workspace-customization";
-import { workspaceIdentityFor, workspaceIdentityStyle } from "./lib/workspace-identity";
-import { removeWorkspaceConfirmText, surfacePanelDomId, surfaceTabDomId, workspaceHeaderSourceBadgeLabel } from "./lib/workspace-ui";
-import type { AgentCatalog, AgentExtensionSurface, AppTheme, AppThemePreference, AppTypographyFont, AppTypographyPreference, BootstrapResponse, ChatActionsState, ChatContextPathRequest, ConversationSummary, DesktopUpdateStatus, FileContextMenuState, RestrictedAppInstalled, TreeEntry, WorkspaceCustomization, WorkspaceCustomizationMap, WorkspaceCustomizationPatch, WorkspacePane, WorkspaceRailMode, WorkspaceSummary } from "./types";
+import { normalizeSpaceCustomizations } from "./lib/space-customization";
+import { spaceIdentityFor, spaceIdentityStyle } from "./lib/space-identity";
+import { removeSpaceConfirmText, surfacePanelDomId, surfaceTabDomId, spaceHeaderSourceBadgeLabel } from "./lib/space-ui";
+import type { AgentCatalog, AgentExtensionSurface, AppTheme, AppThemePreference, AppTypographyFont, AppTypographyPreference, BootstrapResponse, ChatActionsState, ChatContextPathRequest, ConversationSummary, DesktopUpdateStatus, FileContextMenuState, RestrictedAppInstalled, TreeEntry, SpaceCustomization, SpaceCustomizationMap, SpaceCustomizationPatch, SpacePane, SpaceRailMode, SpaceSummary } from "./types";
 import { ConfirmDialogHost, requestConfirm, showToast, ToastHost } from "./ui/feedback";
-import { workspaceIconOptions } from "./workspace-icons";
+import { spaceIconOptions } from "./space-icons";
 
-const fixtureRequested = new URLSearchParams(window.location.search).get("fixture") === "workspace";
-const supportedWorkspaceIconNames = new Set(workspaceIconOptions.flatMap((option) => [option.name, ...(option.aliases ?? [])]));
+const fixtureRequested = new URLSearchParams(window.location.search).get("fixture") === "space";
+const supportedSpaceIconNames = new Set(spaceIconOptions.flatMap((option) => [option.name, ...(option.aliases ?? [])]));
 
 interface DroppedUploadFile { file: File; relativePath: string }
-type DesktopActionCommand = "new-chat" | "reload-workspace-state" | "open-capabilities" | "open-skills" | "open-extensions" | "open-command-palette";
+type DesktopActionCommand = "new-chat" | "reload-space-state" | "open-capabilities" | "open-skills" | "open-extensions" | "open-command-palette";
 interface PendingDelete {
-  workspaceId: string;
+  spaceId: string;
   path: string;
   name: string;
   selectedPath: string | null;
@@ -73,9 +74,9 @@ interface PendingDelete {
 export function App() {
   const [theme, themePreference, setThemePreference] = useThemePreference();
   const [typography, setTypography] = useTypographyPreference();
-  const [fixture, setFixture] = useState<WorkspaceUiFixture | null>(null);
+  const [fixture, setFixture] = useState<SpaceUiFixture | null>(null);
   const [boot, setBoot] = useState<BootstrapResponse | null>(null);
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => localStorage.getItem("workspace.active") ?? "");
+  const [activeSpaceId, setActiveSpaceId] = useState(() => localStorage.getItem("work-fold.space.active") ?? "");
   const [error, setError] = useState<string | null>(null);
   const [createSpaceOpen, setCreateSpaceOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -84,7 +85,7 @@ export function App() {
   const keyboardShortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
   const [desktopAction, setDesktopAction] = useState<{ id: number; command: DesktopActionCommand } | null>(null);
   const [updateStatus, setUpdateStatus] = useState<DesktopUpdateStatus | null>(null);
-  const showDesktopTitleBar = window.workspaceDesktop?.app.platform === "win32";
+  const showDesktopTitleBar = window.workFoldDesktop?.app.platform === "win32";
 
   const openKeyboardShortcuts = useCallback(() => {
     keyboardShortcutsReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -108,35 +109,35 @@ export function App() {
     try {
       const result = await api<BootstrapResponse>("/api/bootstrap");
       setBoot(result);
-      setActiveWorkspaceId((current) => result.workspaces.some((item) => item.id === current) ? current : result.workspaces[0]?.id ?? "");
+      setActiveSpaceId((current) => result.spaces.some((item) => item.id === current) ? current : result.spaces[0]?.id ?? "");
     } catch (caught) { setError(errorText(caught)); }
   }, []);
 
   useEffect(() => {
     if (fixtureRequested) {
-      void import("./fixtures/workspace-fixture").then(({ buildWorkspaceFixture }) => {
-        const next = buildWorkspaceFixture(); setFixture(next); setBoot({ workspaces: next.workspaces, agent: next.agent }); setActiveWorkspaceId(next.activeWorkspaceId);
+      void import("./fixtures/space-fixture").then(({ buildSpaceFixture }) => {
+        const next = buildSpaceFixture(); setFixture(next); setBoot({ spaces: next.spaces, agent: next.agent }); setActiveSpaceId(next.activeSpaceId);
       }).catch((caught) => setError(errorText(caught)));
       return;
     }
     void refreshBootstrap();
   }, [refreshBootstrap]);
 
-  const activeWorkspace = useMemo(() => boot?.workspaces.find((item) => item.id === activeWorkspaceId) ?? boot?.workspaces[0] ?? null, [activeWorkspaceId, boot]);
-  useEffect(() => { if (activeWorkspace) { if (!fixtureRequested) localStorage.setItem("workspace.active", activeWorkspace.id); setActiveWorkspaceId(activeWorkspace.id); } }, [activeWorkspace?.id]);
+  const activeSpace = useMemo(() => boot?.spaces.find((item) => item.id === activeSpaceId) ?? boot?.spaces[0] ?? null, [activeSpaceId, boot]);
+  useEffect(() => { if (activeSpace) { if (!fixtureRequested) localStorage.setItem("work-fold.space.active", activeSpace.id); setActiveSpaceId(activeSpace.id); } }, [activeSpace?.id]);
   useEffect(() => {
     if (fixtureRequested) return;
-    void window.workspaceDesktop?.workspace.setActiveSpace?.(activeWorkspace?.id ?? null).catch((caught) => setError(errorText(caught)));
-  }, [activeWorkspace?.id, activeWorkspace?.name, activeWorkspace?.rootPath]);
+    void window.workFoldDesktop?.space.setActiveSpace?.(activeSpace?.id ?? null).catch((caught) => setError(errorText(caught)));
+  }, [activeSpace?.id, activeSpace?.name, activeSpace?.rootPath]);
   useEffect(() => {
-    const desktopWorkspace = window.workspaceDesktop?.workspace;
-    if (!desktopWorkspace?.onOpenSpace || !boot) return;
-    return desktopWorkspace.onOpenSpace((workspaceId) => {
-      if (boot.workspaces.some((workspace) => workspace.id === workspaceId)) setActiveWorkspaceId(workspaceId);
+    const desktopSpace = window.workFoldDesktop?.space;
+    if (!desktopSpace?.onOpenSpace || !boot) return;
+    return desktopSpace.onOpenSpace((spaceId) => {
+      if (boot.spaces.some((space) => space.id === spaceId)) setActiveSpaceId(spaceId);
     });
-  }, [boot?.workspaces]);
+  }, [boot?.spaces]);
   useEffect(() => {
-    const updates = window.workspaceDesktop?.updates;
+    const updates = window.workFoldDesktop?.updates;
     if (!updates) return;
     let cancelled = false;
     void updates.getStatus().then((status) => { if (!cancelled) setUpdateStatus(status); }).catch((caught) => { if (!cancelled) setError(errorText(caught)); });
@@ -144,9 +145,9 @@ export function App() {
     return () => { cancelled = true; unsubscribe(); };
   }, []);
   useEffect(() => {
-    const menu = window.workspaceDesktop?.menu;
+    const menu = window.workFoldDesktop?.menu;
     if (!menu) return;
-    menu.setState({ spaceOpen: Boolean(activeWorkspace) });
+    menu.setState({ spaceOpen: Boolean(activeSpace) });
     return menu.onCommand((command) => {
       if (command === "new-space") setCreateSpaceOpen(true);
       else if (command === "open-local-folder") void openFolder();
@@ -154,11 +155,11 @@ export function App() {
       else if (command === "open-settings") openSettings();
       else if (command === "open-about") openSettings("about");
       else if (command === "open-keyboard-shortcuts") openKeyboardShortcuts();
-      else if (command === "new-chat" || command === "reload-workspace-state" || command === "open-capabilities" || command === "open-skills" || command === "open-extensions" || command === "open-command-palette") {
+      else if (command === "new-chat" || command === "reload-space-state" || command === "open-capabilities" || command === "open-skills" || command === "open-extensions" || command === "open-command-palette") {
         setDesktopAction({ id: Date.now(), command });
       }
     });
-  }, [activeWorkspace?.id, openKeyboardShortcuts, openSettings, refreshBootstrap]);
+  }, [activeSpace?.id, openKeyboardShortcuts, openSettings, refreshBootstrap]);
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
       if ((event.ctrlKey || event.metaKey) && !event.altKey && (event.key === "/" || event.code === "Slash")) {
@@ -170,35 +171,35 @@ export function App() {
     window.addEventListener("keydown", keydown); return () => window.removeEventListener("keydown", keydown);
   }, [openKeyboardShortcuts]);
   useEffect(() => {
-    const unsubscribe = window.workspaceDesktop?.runtime.onRendererRecovered?.(() => {
-      showToast({ text: "Workspace recovered from a problem and reloaded.", tone: "info" });
+    const unsubscribe = window.workFoldDesktop?.runtime.onRendererRecovered?.(() => {
+      showToast({ text: "work-fold recovered from a problem and reloaded.", tone: "info" });
     });
     return unsubscribe;
   }, []);
-  useEffect(() => window.workspaceDesktop?.agent.onOpenSettings(() => openSettings("assistant")), [openSettings]);
+  useEffect(() => window.workFoldDesktop?.agent.onOpenSettings(() => openSettings("assistant")), [openSettings]);
 
   async function createSpace(name: string) {
     if (fixtureRequested) { setCreateSpaceOpen(false); showToast({ text: "Space creation is disabled in the preview", tone: "info" }); return; }
-    const result = await api<{ workspace: WorkspaceSummary }>("/api/workspaces", { method: "POST", body: { name } });
-    await refreshBootstrap(); setActiveWorkspaceId(result.workspace.id); setCreateSpaceOpen(false);
+    const result = await api<{ space: SpaceSummary }>("/api/spaces", { method: "POST", body: { name } });
+    await refreshBootstrap(); setActiveSpaceId(result.space.id); setCreateSpaceOpen(false);
   }
 
   async function openFolder() {
-    const picker = window.workspaceDesktop?.workspace;
+    const picker = window.workFoldDesktop?.space;
     if (!picker) return setError("Folder selection is available in the desktop app.");
     try {
       const selected = await picker.chooseFolder(); if (!selected) return;
-      const result = await api<{ workspace: WorkspaceSummary }>("/api/workspaces/local-folder", { method: "POST", body: { rootPath: selected.path, folderGrantId: selected.folderGrantId } });
-      await refreshBootstrap(); setActiveWorkspaceId(result.workspace.id);
+      const result = await api<{ space: SpaceSummary }>("/api/spaces/local-folder", { method: "POST", body: { rootPath: selected.path, folderGrantId: selected.folderGrantId } });
+      await refreshBootstrap(); setActiveSpaceId(result.space.id);
     } catch (caught) { setError(errorText(caught)); }
   }
 
   async function checkForUpdates() {
-    try { const status = await window.workspaceDesktop?.updates.check(); if (status) setUpdateStatus(status); } catch (caught) { setError(errorText(caught)); }
+    try { const status = await window.workFoldDesktop?.updates.check(); if (status) setUpdateStatus(status); } catch (caught) { setError(errorText(caught)); }
   }
 
   async function runUpdateAction() {
-    const updates = window.workspaceDesktop?.updates;
+    const updates = window.workFoldDesktop?.updates;
     if (!updates) return;
     try {
       const status = updateStatus?.phase === "ready"
@@ -210,31 +211,31 @@ export function App() {
     } catch (caught) { setError(errorText(caught)); }
   }
 
-  if (!boot || (fixtureRequested && !fixture)) return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>{showDesktopTitleBar ? <DesktopTitleBar /> : null}<CenteredState icon={<Loader2 className="spin" size={28} />} title={`Opening ${productName}`} text={error ?? "Loading your Spaces and Assistant."} /></div>;
+  if (!boot || (fixtureRequested && !fixture)) return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>{showDesktopTitleBar ? <DesktopTitleBar /> : null}<WorkFoldLoadingState message={error ?? "Loading your Spaces and Assistant."} /></div>;
 
   return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>
     {showDesktopTitleBar ? <DesktopTitleBar /> : null}
-    {activeWorkspace ? <WorkspaceView workspace={activeWorkspace} workspaces={boot.workspaces} agent={boot.agent} appearance={boot.appearance} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchWorkspace={(workspace) => setActiveWorkspaceId(workspace.id)} onRefreshBootstrap={refreshBootstrap} onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} /> : <OnboardingFlow onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} />}
+    {activeSpace ? <SpaceView space={activeSpace} spaces={boot.spaces} agent={boot.agent} appearance={boot.appearance} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchSpace={(space) => setActiveSpaceId(space.id)} onRefreshBootstrap={refreshBootstrap} onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} /> : <OnboardingFlow onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} />}
     {error ? <div className="global-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="Dismiss"><X size={15} /></button></div> : null}
     {createSpaceOpen ? <CreateSpaceModal onClose={() => setCreateSpaceOpen(false)} onCreate={createSpace} /> : null}
-    {settingsOpen ? <DesktopSettingsModal theme={theme} themePreference={themePreference} onThemePreferenceChange={setThemePreference} typography={typography} onTypographyChange={setTypography} workspace={activeWorkspace} agentStatus={boot.agent} fixtureMode={Boolean(fixture)} initialPage={settingsInitialPage} onAgentConfigured={(agent) => setBoot((current) => current ? { ...current, agent } : current)} updateStatus={updateStatus} onUpdateAction={() => void runUpdateAction()} onClose={() => setSettingsOpen(false)} /> : null}
+    {settingsOpen ? <DesktopSettingsModal theme={theme} themePreference={themePreference} onThemePreferenceChange={setThemePreference} typography={typography} onTypographyChange={setTypography} space={activeSpace} agentStatus={boot.agent} fixtureMode={Boolean(fixture)} initialPage={settingsInitialPage} onAgentConfigured={(agent) => setBoot((current) => current ? { ...current, agent } : current)} updateStatus={updateStatus} onUpdateAction={() => void runUpdateAction()} onClose={() => setSettingsOpen(false)} /> : null}
     {shortcutsOpen ? <KeyboardShortcutsModal onClose={closeKeyboardShortcuts} /> : null}
     <ConfirmDialogHost /><ToastHost />
   </div>;
 }
 
-function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desktopAction, updateStatus, themePreference, onThemePreferenceChange, onUpdateAction, onSwitchWorkspace, onRefreshBootstrap, onCreateSpace, onOpenFolder, onOpenSettings, onOpenShortcuts, onError }: {
-  workspace: WorkspaceSummary;
-  workspaces: WorkspaceSummary[];
+function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, updateStatus, themePreference, onThemePreferenceChange, onUpdateAction, onSwitchSpace, onRefreshBootstrap, onCreateSpace, onOpenFolder, onOpenSettings, onOpenShortcuts, onError }: {
+  space: SpaceSummary;
+  spaces: SpaceSummary[];
   agent: BootstrapResponse["agent"];
   appearance?: SpaceAppearanceState;
-  fixture: WorkspaceUiFixture | null;
+  fixture: SpaceUiFixture | null;
   desktopAction: { id: number; command: DesktopActionCommand } | null;
   updateStatus: DesktopUpdateStatus | null;
   themePreference: AppThemePreference;
   onThemePreferenceChange: (theme: AppThemePreference) => void;
   onUpdateAction: () => void;
-  onSwitchWorkspace: (workspace: WorkspaceSummary) => void;
+  onSwitchSpace: (space: SpaceSummary) => void;
   onRefreshBootstrap: () => Promise<void>;
   onCreateSpace: () => void;
   onOpenFolder: () => void;
@@ -242,24 +243,24 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
   onOpenShortcuts: () => void;
   onError: (message: string | null) => void;
 }) {
-  const initialStoredModeRef = useRef(fixture ? null : localStorage.getItem("workspace.mode"));
-  const [activeMode, setActiveMode] = useState<WorkspaceRailMode>(() => fixture ? "files" : normalizeMode(initialStoredModeRef.current));
-  const legacyCustomizationsRef = useRef<WorkspaceCustomizationMap>(fixture ? {} : readStoredJsonValue(
-    workspaceCustomizationStorageKey,
-    (value) => normalizeWorkspaceCustomizations(value, undefined, supportedWorkspaceIconNames),
+  const initialStoredModeRef = useRef(fixture ? null : localStorage.getItem("work-fold.space.mode"));
+  const [activeMode, setActiveMode] = useState<SpaceRailMode>(() => fixture ? "files" : normalizeMode(initialStoredModeRef.current));
+  const legacyCustomizationsRef = useRef<SpaceCustomizationMap>(fixture ? {} : readStoredJsonValue(
+    spaceCustomizationStorageKey,
+    (value) => normalizeSpaceCustomizations(value, undefined, supportedSpaceIconNames),
     {},
   ));
-  const [customizations, setCustomizations] = useState<WorkspaceCustomizationMap>(() => fixture
+  const [customizations, setCustomizations] = useState<SpaceCustomizationMap>(() => fixture
     ? fixture.customizations
-    : normalizeWorkspaceCustomizations(
+    : normalizeSpaceCustomizations(
       { ...legacyCustomizationsRef.current, ...(appearance?.customizations ?? {}) },
       undefined,
-      supportedWorkspaceIconNames,
+      supportedSpaceIconNames,
     ));
   const customizationsRef = useRef(customizations);
   const appearanceStorageWarningShownRef = useRef(false);
   const appearanceWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const appearanceHistoryRef = useRef(new Map<string, WorkspaceCustomization[]>());
+  const appearanceHistoryRef = useRef(new Map<string, SpaceCustomization[]>());
   const [, setAppearanceHistoryVersion] = useState(0);
   customizationsRef.current = customizations;
   useEffect(() => {
@@ -273,7 +274,7 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
           body: { customizations: legacyCustomizationsRef.current },
         });
         legacyCustomizationsRef.current = {};
-        localStorage.removeItem(workspaceCustomizationStorageKey);
+        localStorage.removeItem(spaceCustomizationStorageKey);
         if (!cancelled) {
           customizationsRef.current = result.appearance.customizations;
           setCustomizations(result.appearance.customizations);
@@ -282,7 +283,7 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
       .catch((caught) => {
         if (!cancelled && !appearanceStorageWarningShownRef.current) {
           appearanceStorageWarningShownRef.current = true;
-          showToast({ text: `Workspace could not migrate the saved Space appearance. ${errorText(caught)}`, tone: "info" });
+          showToast({ text: `work-fold could not migrate the saved Space appearance. ${errorText(caught)}`, tone: "info" });
         }
       });
     return () => { cancelled = true; };
@@ -294,7 +295,7 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
   const [fileContextMenu, setFileContextMenu] = useState<FileContextMenuState | null>(null);
   const [renameEntryRequest, setRenameEntryRequest] = useState<{ path: string; name: string } | null>(null);
   const [chatActions, setChatActions] = useState<ChatActionsState | null>(null);
-  const [versionHistory, setVersionHistory] = useState<{ workspace: WorkspaceSummary; path: string; name: string } | null>(null);
+  const [versionHistory, setVersionHistory] = useState<{ space: SpaceSummary; path: string; name: string } | null>(null);
   const [contextRequest, setContextRequest] = useState<ChatContextPathRequest | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const commandPaletteReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -307,46 +308,46 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
   const uploadRef = useRef<HTMLInputElement>(null);
   const contextRequestId = useRef(0);
   const pendingDeletesRef = useRef(new Map<string, PendingDelete>());
-  const activeWorkspaceIdRef = useRef(workspace.id);
-  activeWorkspaceIdRef.current = workspace.id;
-  const tree = useWorkspaceTree(workspace, onError, fixture?.trees[workspace.id]);
+  const activeSpaceIdRef = useRef(space.id);
+  activeSpaceIdRef.current = space.id;
+  const tree = useSpaceTree(space, onError, fixture?.trees[space.id]);
   const selectedPathRef = useRef(tree.selectedPath);
   selectedPathRef.current = tree.selectedPath;
   const paneResize = usePaneResize(Boolean(fixture));
   const tabs = useSurfaceTabs({
-    workspace,
-    workspaces,
+    space,
+    spaces,
     fixtureMode: Boolean(fixture),
     migrateLegacyLibraryMode: initialStoredModeRef.current === "library",
-    onSwitchWorkspace,
+    onSwitchSpace,
   });
   const handleRestrictedAppError = useCallback((caught: unknown) => onError(errorText(caught)), [onError]);
   const restrictedAppsState = useRestrictedApps({
-    activeWorkspaceId: workspace.id,
+    activeSpaceId: space.id,
     fixtureMode: Boolean(fixture),
     onError: handleRestrictedAppError,
   });
   const activeTab = tabs.surfaceTabs.find((tab) => tab.id === tabs.activeSurfaceTabId) ?? null;
-  const checks = useWorkspaceChecks(workspace, Boolean(fixture), activeTab?.kind !== "checks");
-  const identity = workspaceIdentityFor(workspace, customizations);
-  const surfaceCatalogKnown = Object.prototype.hasOwnProperty.call(surfaceCatalogs, workspace.id);
-  const restrictedAppCatalogKnown = restrictedAppsState.knownWorkspaceIds.has(workspace.id);
-  const restrictedApps = restrictedAppsState.appsByWorkspace[workspace.id] ?? [];
+  const checks = useSpaceChecks(space, Boolean(fixture), activeTab?.kind !== "checks");
+  const identity = spaceIdentityFor(space, customizations);
+  const surfaceCatalogKnown = Object.prototype.hasOwnProperty.call(surfaceCatalogs, space.id);
+  const restrictedAppCatalogKnown = restrictedAppsState.knownSpaceIds.has(space.id);
+  const restrictedApps = restrictedAppsState.appsBySpace[space.id] ?? [];
   useEffect(() => {
     tabs.reconcileRestrictedAppSurfaceTabs(
-      restrictedAppsState.appsByWorkspace,
-      restrictedAppsState.knownWorkspaceIds,
+      restrictedAppsState.appsBySpace,
+      restrictedAppsState.knownSpaceIds,
     );
-  }, [restrictedAppsState.appsByWorkspace, restrictedAppsState.knownWorkspaceIds, tabs.reconcileRestrictedAppSurfaceTabs]);
-  const surfaces = useMemo(() => contributedSurfaces(workspace.id, surfaceCatalogs[workspace.id] ?? []), [surfaceCatalogs, workspace.id]);
+  }, [restrictedAppsState.appsBySpace, restrictedAppsState.knownSpaceIds, tabs.reconcileRestrictedAppSurfaceTabs]);
+  const surfaces = useMemo(() => contributedSurfaces(space.id, surfaceCatalogs[space.id] ?? []), [surfaceCatalogs, space.id]);
   const activeSurfaceKey = extensionSurfaceIdForMode(activeMode);
   const activeSurface = activeSurfaceKey ? resolveSurfaceForKey(surfaces, activeSurfaceKey) : null;
-  const activeRestrictedApp = restrictedApps.find((app) => restrictedAppRailMode(workspace.id, app.manifest.id) === activeMode) ?? null;
+  const activeRestrictedApp = restrictedApps.find((app) => restrictedAppRailMode(space.id, app.manifest.id) === activeMode) ?? null;
   const previewLocalFile = useCallback((path: string) => {
-    const previewFile = window.workspaceDesktop?.workspace.previewFile;
+    const previewFile = window.workFoldDesktop?.space.previewFile;
     if (!isMacOS() || !previewFile) return;
-    void previewFile(workspace.id, path).catch((caught) => onError(errorText(caught)));
-  }, [onError, workspace.id]);
+    void previewFile(space.id, path).catch((caught) => onError(errorText(caught)));
+  }, [onError, space.id]);
 
   const openCommandPalette = useCallback(() => {
     if (commandPaletteBlockedByDialog()) return;
@@ -374,22 +375,22 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
     }
   }, [fixture, onError]);
 
-  function openLibrary(targetWorkspace: WorkspaceSummary): void {
+  function openLibrary(targetSpace: SpaceSummary): void {
     setLibraryOpenRequests((current) => ({
       ...current,
-      [targetWorkspace.id]: (current[targetWorkspace.id] ?? 0) + 1,
+      [targetSpace.id]: (current[targetSpace.id] ?? 0) + 1,
     }));
-    tabs.openLibrarySurfaceTab(targetWorkspace);
+    tabs.openLibrarySurfaceTab(targetSpace);
   }
 
-  useEffect(() => { if (!fixture) localStorage.setItem("workspace.mode", activeMode); }, [activeMode, fixture]);
+  useEffect(() => { if (!fixture) localStorage.setItem("work-fold.space.mode", activeMode); }, [activeMode, fixture]);
   useEffect(() => {
     if (tree.status === "ready" && activeTab?.kind !== "checks") void checks.refresh();
   }, [activeTab?.kind, checks.refresh, tree.status, tree.tree]);
   useEffect(() => { void refreshLibraryTree(); }, [refreshLibraryTree]);
-  useEffect(() => { setActiveMode((current) => current === "workspaces" ? "files" : current); }, [workspace.id]);
+  useEffect(() => { setActiveMode((current) => current === "spaces" ? "files" : current); }, [space.id]);
   useEffect(() => {
-    if (!isMacOS() || !window.workspaceDesktop?.workspace.previewFile) return;
+    if (!isMacOS() || !window.workFoldDesktop?.space.previewFile) return;
     function previewSelectedFile(event: KeyboardEvent) {
       if (!isQuickLookShortcut(event) || activeMode !== "files") return;
       const path = selectedPathRef.current;
@@ -405,61 +406,61 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
     setActiveMode("files");
   }, [activeMode, activeRestrictedApp, restrictedAppCatalogKnown]);
   useEffect(() => {
-    const desktop = window.workspaceDesktop?.restrictedApps;
+    const desktop = window.workFoldDesktop?.restrictedApps;
     if (!desktop) return;
     return desktop.onTabCommand((command) => {
-      const installed = restrictedAppsState.appsByWorkspace[command.workspaceId]?.find((app) => (
+      const installed = restrictedAppsState.appsBySpace[command.spaceId]?.find((app) => (
         app.manifest.id === command.appId && app.digest === command.digest
       ));
-      const targetWorkspace = workspaces.find((item) => item.id === command.workspaceId);
-      if (!installed || !targetWorkspace) return;
+      const targetSpace = spaces.find((item) => item.id === command.spaceId);
+      if (!installed || !targetSpace) return;
       if (command.type === "open" && command.tab) {
-        tabs.openRestrictedAppSurfaceTab(targetWorkspace, { appId: command.appId, digest: command.digest }, command.tab);
+        tabs.openRestrictedAppSurfaceTab(targetSpace, { appId: command.appId, digest: command.digest }, command.tab);
       } else if (command.type === "update" && command.tab) {
-        tabs.updateRestrictedAppSurfaceTab(command.workspaceId, { appId: command.appId, digest: command.digest }, command.tab);
+        tabs.updateRestrictedAppSurfaceTab(command.spaceId, { appId: command.appId, digest: command.digest }, command.tab);
       } else if (command.type === "close" && command.sourceAppTabId) {
-        tabs.closeRestrictedAppSurfaceTab(command.workspaceId, command.appId, command.digest, command.sourceAppTabId);
+        tabs.closeRestrictedAppSurfaceTab(command.spaceId, command.appId, command.digest, command.sourceAppTabId);
       }
     });
-  }, [restrictedAppsState.appsByWorkspace, tabs, workspaces]);
+  }, [restrictedAppsState.appsBySpace, tabs, spaces]);
   useEffect(() => {
-    const desktop = window.workspaceDesktop?.restrictedApps;
+    const desktop = window.workFoldDesktop?.restrictedApps;
     if (!desktop) return;
     return desktop.onOpenRequest((request) => {
-      const target = resolveRestrictedAppOpenRequest(request, workspaces);
+      const target = resolveRestrictedAppOpenRequest(request, spaces);
       if (!target) return;
-      if (target.workspace.id !== workspace.id) onSwitchWorkspace(target.workspace);
+      if (target.space.id !== space.id) onSwitchSpace(target.space);
       setActiveMode(target.mode);
     });
-  }, [onSwitchWorkspace, workspace.id, workspaces]);
+  }, [onSwitchSpace, space.id, spaces]);
   useEffect(() => {
     // A temporarily missing or moved folder is not the same thing as an
     // explicit Space removal. Keep appearance keyed by the portable Space id
     // so relinking that folder restores its identity on this computer.
-    const next = normalizeWorkspaceCustomizations(customizationsRef.current, undefined, supportedWorkspaceIconNames);
+    const next = normalizeSpaceCustomizations(customizationsRef.current, undefined, supportedSpaceIconNames);
     if (JSON.stringify(next) !== JSON.stringify(customizationsRef.current)) {
       customizationsRef.current = next;
       setCustomizations(next);
     }
-  }, [workspaces.map((item) => item.id).join("|")]);
-  useEffect(() => { if (fixture) { setConversationGroups(fixtureConversationGroups(fixture)); return; } void loadConversationGroups(); }, [fixture, workspaces.map((item) => item.id).join("|")]);
+  }, [spaces.map((item) => item.id).join("|")]);
+  useEffect(() => { if (fixture) { setConversationGroups(fixtureConversationGroups(fixture)); return; } void loadConversationGroups(); }, [fixture, spaces.map((item) => item.id).join("|")]);
   useEffect(() => {
     if (fixture) {
       setSurfaceCatalogs(fixture.surfaces);
       return;
     }
     const requestId = ++surfaceCatalogRequestRef.current;
-    void api<AgentCatalog>(`/api/workspaces/${workspace.id}/agent/catalog`).then((catalog) => {
+    void api<AgentCatalog>(`/api/spaces/${space.id}/agent/catalog`).then((catalog) => {
       if (surfaceCatalogRequestRef.current !== requestId) return;
-      setSurfaceCatalogs((current) => ({ ...current, [workspace.id]: catalog.surfaces ?? [] }));
+      setSurfaceCatalogs((current) => ({ ...current, [space.id]: catalog.surfaces ?? [] }));
     }).catch((caught) => {
       if (surfaceCatalogRequestRef.current === requestId) onError(errorText(caught));
     });
-  }, [fixture, workspace.id]);
+  }, [fixture, space.id]);
   useEffect(() => {
     if (!surfaceCatalogKnown || !restrictedAppCatalogKnown || !activeSurfaceKey || activeSurface) return;
     setActiveMode("files");
-  }, [activeSurface, activeSurfaceKey, restrictedAppCatalogKnown, surfaceCatalogKnown, workspace.id]);
+  }, [activeSurface, activeSurfaceKey, restrictedAppCatalogKnown, surfaceCatalogKnown, space.id]);
   useEffect(() => { tabs.syncSurfaceTabConversationTitles(conversationGroups); }, [conversationGroups]);
   useEffect(() => {
     function closeMenus(event: PointerEvent) { if (event.target instanceof Element && event.target.closest(".context-menu")) return; setFileContextMenu(null); }
@@ -467,9 +468,9 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
   }, []);
   useEffect(() => {
     if (!desktopAction) return;
-    if (desktopAction.command === "new-chat") openChat(workspace, null);
-    else if (desktopAction.command === "reload-workspace-state") void refreshWorkspaceState();
-    else if (desktopAction.command === "open-capabilities" || desktopAction.command === "open-skills" || desktopAction.command === "open-extensions") tabs.openAssistantToolsSurfaceTab(workspace, "installed");
+    if (desktopAction.command === "new-chat") openChat(space, null);
+    else if (desktopAction.command === "reload-space-state") void refreshSpaceState();
+    else if (desktopAction.command === "open-capabilities" || desktopAction.command === "open-skills" || desktopAction.command === "open-extensions") tabs.openAssistantToolsSurfaceTab(space, "installed");
     else if (desktopAction.command === "open-command-palette") openCommandPalette();
   }, [desktopAction?.id, openCommandPalette]);
   useEffect(() => {
@@ -499,14 +500,14 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
   }, [closeCommandPalette, commandPaletteOpen, openCommandPalette]);
 
   async function loadConversationGroups() {
-    const pairs = await Promise.all(workspaces.map(async (item) => {
-      try { return [item.id, (await api<{ conversations: ConversationSummary[] }>(`/api/workspaces/${item.id}/conversations`)).conversations] as const; }
+    const pairs = await Promise.all(spaces.map(async (item) => {
+      try { return [item.id, (await api<{ conversations: ConversationSummary[] }>(`/api/spaces/${item.id}/conversations`)).conversations] as const; }
       catch { return [item.id, []] as const; }
     }));
     setConversationGroups(Object.fromEntries(pairs));
   }
 
-  async function refreshWorkspaceState() {
+  async function refreshSpaceState() {
     if (fixture) {
       showToast({ text: "Preview data is already up to date.", tone: "info" });
       return;
@@ -514,26 +515,26 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
     onError(null);
     await Promise.all([onRefreshBootstrap(), tree.refresh(false), loadConversationGroups(), refreshLibraryTree()]);
     setHistoryRefreshRequest((current) => current + 1);
-    showToast({ text: `${workspace.name} refreshed`, tone: "success" });
+    showToast({ text: `${space.name} refreshed`, tone: "success" });
   }
 
-  function rememberWorkspaceAppearance(workspaceId: string) {
-    const history = appearanceHistoryRef.current.get(workspaceId) ?? [];
-    history.push(structuredClone(customizationsRef.current[workspaceId] ?? {}));
+  function rememberSpaceAppearance(spaceId: string) {
+    const history = appearanceHistoryRef.current.get(spaceId) ?? [];
+    history.push(structuredClone(customizationsRef.current[spaceId] ?? {}));
     if (history.length > 20) history.shift();
-    appearanceHistoryRef.current.set(workspaceId, history);
+    appearanceHistoryRef.current.set(spaceId, history);
     setAppearanceHistoryVersion((current) => current + 1);
   }
 
-  function persistWorkspaceCustomization(
-    workspaceId: string,
-    customization: WorkspaceCustomization | undefined,
+  function persistSpaceCustomization(
+    spaceId: string,
+    customization: SpaceCustomization | undefined,
     options: { remember?: boolean } = {},
   ) {
-    if (options.remember !== false) rememberWorkspaceAppearance(workspaceId);
+    if (options.remember !== false) rememberSpaceAppearance(spaceId);
     const next = { ...customizationsRef.current };
-    if (customization && Object.keys(customization).length) next[workspaceId] = customization;
-    else delete next[workspaceId];
+    if (customization && Object.keys(customization).length) next[spaceId] = customization;
+    else delete next[spaceId];
     customizationsRef.current = next;
     setCustomizations(next);
     if (fixture) return;
@@ -541,22 +542,22 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
       .catch(() => undefined)
       .then(async () => {
         const result = customization && Object.keys(customization).length
-          ? await api<{ appearance: SpaceAppearanceState }>(`/api/workspaces/${workspaceId}/appearance`, {
+          ? await api<{ appearance: SpaceAppearanceState }>(`/api/spaces/${spaceId}/appearance`, {
             method: "PUT",
             body: { customization },
           })
-          : await api<{ appearance: SpaceAppearanceState }>(`/api/workspaces/${workspaceId}/appearance`, { method: "DELETE" });
+          : await api<{ appearance: SpaceAppearanceState }>(`/api/spaces/${spaceId}/appearance`, { method: "DELETE" });
       })
       .catch((caught) => {
         if (appearanceStorageWarningShownRef.current) return;
         appearanceStorageWarningShownRef.current = true;
-        showToast({ text: `This appearance works for this session, but Workspace could not save it on this computer. ${errorText(caught)}`, tone: "info" });
+        showToast({ text: `This appearance works for this session, but work-fold could not save it on this computer. ${errorText(caught)}`, tone: "info" });
       });
   }
 
-  function customizeWorkspace(workspaceId: string, patch: WorkspaceCustomizationPatch) {
-    const current = upgradeSpaceAppearanceCustomization(customizationsRef.current[workspaceId] ?? {});
-    const merged: WorkspaceCustomization = { ...current, ...patch, schema: 2 };
+  function customizeSpace(spaceId: string, patch: SpaceCustomizationPatch) {
+    const current = upgradeSpaceAppearanceCustomization(customizationsRef.current[spaceId] ?? {});
+    const merged: SpaceCustomization = { ...current, ...patch, schema: 2 };
     if (Object.prototype.hasOwnProperty.call(patch, "color")) {
       delete merged.color;
       if (patch.color) merged.primary = accentIdentityFromHex(patch.color);
@@ -567,56 +568,56 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
       if (patch.color2) merged.secondary = accentIdentityFromHex(patch.color2);
       else delete merged.secondary;
     }
-    const normalized = normalizeWorkspaceCustomizations(
-      { [workspaceId]: normalizeSpaceAppearanceCustomization(merged) },
-      new Set([workspaceId]),
-      supportedWorkspaceIconNames,
-    )[workspaceId];
-    persistWorkspaceCustomization(workspaceId, normalized);
+    const normalized = normalizeSpaceCustomizations(
+      { [spaceId]: normalizeSpaceAppearanceCustomization(merged) },
+      new Set([spaceId]),
+      supportedSpaceIconNames,
+    )[spaceId];
+    persistSpaceCustomization(spaceId, normalized);
   }
 
-  function replaceWorkspaceCustomization(workspaceId: string, customization: WorkspaceCustomization) {
-    const normalized = normalizeWorkspaceCustomizations(
-      { [workspaceId]: upgradeSpaceAppearanceCustomization(customization) },
-      new Set([workspaceId]),
-      supportedWorkspaceIconNames,
-    )[workspaceId];
-    persistWorkspaceCustomization(workspaceId, normalized);
+  function replaceSpaceCustomization(spaceId: string, customization: SpaceCustomization) {
+    const normalized = normalizeSpaceCustomizations(
+      { [spaceId]: upgradeSpaceAppearanceCustomization(customization) },
+      new Set([spaceId]),
+      supportedSpaceIconNames,
+    )[spaceId];
+    persistSpaceCustomization(spaceId, normalized);
     showToast({ text: "Appearance proposal applied to this Space.", tone: "success" });
   }
 
-  function undoWorkspaceCustomization(workspaceId: string) {
-    const history = appearanceHistoryRef.current.get(workspaceId) ?? [];
+  function undoSpaceCustomization(spaceId: string) {
+    const history = appearanceHistoryRef.current.get(spaceId) ?? [];
     const previous = history.pop();
-    appearanceHistoryRef.current.set(workspaceId, history);
+    appearanceHistoryRef.current.set(spaceId, history);
     setAppearanceHistoryVersion((current) => current + 1);
     if (!previous) return;
-    persistWorkspaceCustomization(workspaceId, Object.keys(previous).length ? previous : undefined, { remember: false });
+    persistSpaceCustomization(spaceId, Object.keys(previous).length ? previous : undefined, { remember: false });
     showToast({ text: "Undid the last appearance change.", tone: "success" });
   }
 
-  function resetWorkspaceCustomization(workspaceId: string) {
-    persistWorkspaceCustomization(workspaceId, undefined);
+  function resetSpaceCustomization(spaceId: string) {
+    persistSpaceCustomization(spaceId, undefined);
     showToast({ text: "Space appearance reset to defaults.", tone: "success" });
   }
 
-  async function renameSpace(target: WorkspaceSummary, name: string) {
+  async function renameSpace(target: SpaceSummary, name: string) {
     if (fixture) { showToast({ text: "Space rename is disabled in the preview", tone: "info" }); return; }
-    try { await api(`/api/workspaces/${target.id}`, { method: "PATCH", body: { name } }); await onRefreshBootstrap(); showToast({ text: `Renamed Space to ${name}`, tone: "success" }); }
+    try { await api(`/api/spaces/${target.id}`, { method: "PATCH", body: { name } }); await onRefreshBootstrap(); showToast({ text: `Renamed Space to ${name}`, tone: "success" }); }
     catch (caught) { onError(errorText(caught)); throw caught; }
   }
 
-  async function removeSpace(target: WorkspaceSummary) {
+  async function removeSpace(target: SpaceSummary) {
     if (fixture) { showToast({ text: "Space removal is disabled in the preview", tone: "info" }); return; }
     let appStudio;
     let appRemovalImpact;
     try {
       [appStudio, appRemovalImpact] = await Promise.all([
         getLocalAppStudio(target.id),
-        getLocalAppWorkspaceRemovalImpact(target.id),
+        getLocalAppSpaceRemovalImpact(target.id),
       ]);
     } catch (caught) {
-      onError(`Workspace could not verify ${target.name}'s App Studio state. ${errorText(caught)}`);
+      onError(`work-fold could not verify ${target.name}'s App Studio state. ${errorText(caught)}`);
       return;
     }
     if (appRemovalImpact.activeSourceInstanceCount || appRemovalImpact.activeTargetInstanceCount) {
@@ -627,24 +628,24 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
       onError(`Purge ${target.name}'s retained App data in App Studio before removing this source Space.`);
       return;
     }
-    const confirmed = await requestConfirm({ title: target.location.storage === "linked" ? `Remove ${target.name}?` : `Delete ${target.name}?`, body: removeWorkspaceConfirmText(target, {
+    const confirmed = await requestConfirm({ title: target.location.storage === "linked" ? `Remove ${target.name}?` : `Delete ${target.name}?`, body: removeSpaceConfirmText(target, {
       ...appStudio,
       incomingPreparedOperationCount: appRemovalImpact.incomingPreparedOperationCount,
     }), confirmLabel: target.location.storage === "linked" ? "Remove Space" : "Delete Space", tone: "danger" });
     if (!confirmed) return;
     try {
-      const removal = await api<{ cleanupPending: boolean; deleted: boolean }>(`/api/workspaces/${target.id}`, { method: "DELETE" });
+      const removal = await api<{ cleanupPending: boolean; deleted: boolean }>(`/api/spaces/${target.id}`, { method: "DELETE" });
       const nextCustomizations = { ...customizationsRef.current };
       delete nextCustomizations[target.id];
       customizationsRef.current = nextCustomizations;
       setCustomizations(nextCustomizations);
-      tabs.removeWorkspaceSurfaceTabs(target.id);
+      tabs.removeSpaceSurfaceTabs(target.id);
       await onRefreshBootstrap();
       showToast({
         text: removal.cleanupPending
           ? target.location.storage === "managed" && !removal.deleted
-            ? `${target.name} was removed. Workspace will retry deleting its managed folder when it next starts.`
-            : `${target.name} was removed. Workspace will finish machine-local cleanup when it next starts.`
+            ? `${target.name} was removed. work-fold will retry deleting its managed folder when it next starts.`
+            : `${target.name} was removed. work-fold will finish machine-local cleanup when it next starts.`
           : target.location.storage === "linked"
             ? `${target.name} removed. The folder and its files remain on your computer.`
             : `${target.name} and its managed folder were deleted.`,
@@ -653,13 +654,13 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
     } catch (caught) { onError(errorText(caught)); }
   }
 
-  function openChat(targetWorkspace: WorkspaceSummary, conversation: ConversationSummary | null) {
-    if (conversation) chatActivity.setAttention(chatActivityKey(targetWorkspace.id, conversation.id), false);
-    tabs.openChatSurfaceTab(targetWorkspace, conversation);
+  function openChat(targetSpace: SpaceSummary, conversation: ConversationSummary | null) {
+    if (conversation) chatActivity.setAttention(chatActivityKey(targetSpace.id, conversation.id), false);
+    tabs.openChatSurfaceTab(targetSpace, conversation);
   }
 
   function openChatActions(
-    targetWorkspace: WorkspaceSummary,
+    targetSpace: SpaceSummary,
     conversation: ConversationSummary,
     event: React.MouseEvent<HTMLElement>,
   ): void {
@@ -669,7 +670,7 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
     const rect = returnFocusTarget.getBoundingClientRect();
     const invokedFromKeyboard = event.clientX === 0 && event.clientY === 0;
     setChatActions({
-      workspace: targetWorkspace,
+      space: targetSpace,
       conversation,
       x: invokedFromKeyboard ? Math.round(rect.right - 8) : Math.round(event.clientX),
       y: invokedFromKeyboard ? Math.round(rect.bottom + 4) : Math.round(event.clientY),
@@ -677,10 +678,10 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
     });
   }
   function attachToChat(path: string) {
-    const existing = tabs.surfaceTabs.find((tab) => tab.kind === "chat" && tab.workspaceId === workspace.id && (!tab.conversationId || tab.id === tabs.activeSurfaceTabId));
-    const surfaceTabId = existing?.id ?? tabs.openChatSurfaceTab(workspace, null);
+    const existing = tabs.surfaceTabs.find((tab) => tab.kind === "chat" && tab.spaceId === space.id && (!tab.conversationId || tab.id === tabs.activeSurfaceTabId));
+    const surfaceTabId = existing?.id ?? tabs.openChatSurfaceTab(space, null);
     if (existing) tabs.setActiveSurfaceTabId(existing.id);
-    setContextRequest({ id: ++contextRequestId.current, path, workspaceId: workspace.id, surfaceTabId });
+    setContextRequest({ id: ++contextRequestId.current, path, spaceId: space.id, surfaceTabId });
     showToast({ text: `Attached ${path.split("/").pop() ?? path} to Chat`, tone: "success" });
   }
 
@@ -689,12 +690,12 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
     event.stopPropagation();
     const returnFocusTarget = event.currentTarget as HTMLElement;
     const point = { x: Math.round(event.clientX), y: Math.round(event.clientY) };
-    const popupFileMenu = window.workspaceDesktop?.workspace.popupFileMenu;
+    const popupFileMenu = window.workFoldDesktop?.space.popupFileMenu;
     if (isMacOS() && popupFileMenu) {
       setFileContextMenu(null);
       try {
         const command = await popupFileMenu({
-          workspaceId: workspace.id,
+          spaceId: space.id,
           path: entry.path,
           kind: entry.kind,
           capabilities: {
@@ -710,13 +711,13 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
         if (command === "open") {
           if (entry.kind === "file") {
             tree.setSelectedPath(entry.path);
-            tabs.openFileSurfaceTab(workspace, entry.path);
+            tabs.openFileSurfaceTab(space, entry.path);
             await openLocalPath(entry.path, nativeOpenLabel(entry).office ? "open-native" : "open");
           } else await openLocalPath(entry.path, "open");
         } else if (command === "reveal") await openLocalPath(entry.path, "reveal");
         else if (command === "copy-path") await copyPath(entry.path);
         else if (command === "attach-chat") attachToChat(entry.path);
-        else if (command === "version-history") openVersionHistory(workspace, entry.path);
+        else if (command === "version-history") openVersionHistory(space, entry.path);
         else if (command === "upload-here") chooseUpload(entry.path);
         else if (command === "rename") renameEntry(entry.path);
         else if (command === "delete") await deleteEntry(entry.path);
@@ -725,7 +726,7 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
     }
     setFileContextMenu({ entry, x: Math.min(point.x, window.innerWidth - 250), y: Math.min(point.y, window.innerHeight - 390), returnFocusTarget });
   }
-  function openRootContextMenu(event: React.MouseEvent<HTMLElement>) { if ((event.target as HTMLElement).closest("[data-tree-row]")) return; openContextMenu({ name: workspace.name, path: "", kind: "folder" }, event); }
+  function openRootContextMenu(event: React.MouseEvent<HTMLElement>) { if ((event.target as HTMLElement).closest("[data-tree-row]")) return; openContextMenu({ name: space.name, path: "", kind: "folder" }, event); }
 
   async function uploadFiles(files: DroppedUploadFile[], targetFolderPath: string) {
     if (!files.length || fixture) return;
@@ -736,7 +737,7 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
     setUploadingFiles(true);
     onError(null);
     try {
-      await apiForm(`/api/workspaces/${workspace.id}/upload-local-files`, form);
+      await apiForm(`/api/spaces/${space.id}/upload-local-files`, form);
       await tree.refresh();
       showToast({ text: formatItemCount(files.length, "file") + " added", tone: "success" });
     } catch (caught) { onError(errorText(caught)); }
@@ -758,7 +759,7 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
     files.forEach((item) => form.append("files", item.file, item.file.name));
     setUploadingFiles(true);
     try {
-      const result = await apiForm<{ uploaded: Array<{ path: string }> }>(`/api/workspaces/${workspace.id}/upload-local-files`, form);
+      const result = await apiForm<{ uploaded: Array<{ path: string }> }>(`/api/spaces/${space.id}/upload-local-files`, form);
       void tree.refresh();
       showToast({ text: `${formatItemCount(files.length, "file")} added to ${targetFolderPath}`, tone: "success" });
       return result.uploaded.map((item) => item.path);
@@ -772,10 +773,10 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
     if (fixture || !sourcePath || sourcePath === targetFolderPath || isInsideFolder(targetFolderPath, sourcePath)) return;
     tree.setMovingTreePath(sourcePath);
     try {
-      const result = await api<{ moved: { path: string; name: string }; safetyCheckpointId: string }>(`/api/workspaces/${workspace.id}/move-local-entry`, { method: "POST", body: { sourcePath, targetFolderPath } });
+      const result = await api<{ moved: { path: string; name: string }; safetyCheckpointId: string }>(`/api/spaces/${space.id}/move-local-entry`, { method: "POST", body: { sourcePath, targetFolderPath } });
       const preview = moveTreeEntry(tree.tree, sourcePath, targetFolderPath);
       tree.setTree(preview.entries);
-      tabs.retargetFileSurfaceTabsForMove(workspace.id, sourcePath, result.moved.path);
+      tabs.retargetFileSurfaceTabsForMove(space.id, sourcePath, result.moved.path);
       showHistorySaved(`Moved ${result.moved.name}`);
     }
     catch (caught) { onError(errorText(caught)); }
@@ -790,18 +791,18 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
       if (!confirmed) return;
     }
     const selectedPath = tree.selectedPath && (tree.selectedPath === path || tree.selectedPath.startsWith(`${path}/`)) ? tree.selectedPath : null;
-    const deletedTabPaths = new Set(tabs.surfaceTabs.flatMap((tab) => tab.kind === "file" && tab.workspaceId === workspace.id && (tab.path === path || tab.path.startsWith(`${path}/`)) ? [tab.path] : []));
-    const pending: PendingDelete = { workspaceId: workspace.id, path, name: entry?.name ?? path, selectedPath, deletedTabPaths };
+    const deletedTabPaths = new Set(tabs.surfaceTabs.flatMap((tab) => tab.kind === "file" && tab.spaceId === space.id && (tab.path === path || tab.path.startsWith(`${path}/`)) ? [tab.path] : []));
+    const pending: PendingDelete = { spaceId: space.id, path, name: entry?.name ?? path, selectedPath, deletedTabPaths };
     pendingDeletesRef.current.set(pendingDeleteKey(pending), pending);
     tree.setTree((current) => removeTreeEntries(current, new Set([path])));
     showToast({ text: `Removed ${pending.name}`, tone: "success", actionLabel: "Undo", durationMs: 6500,
       onAction: () => {
         if (pendingDeletesRef.current.get(pendingDeleteKey(pending)) !== pending) return;
         pendingDeletesRef.current.delete(pendingDeleteKey(pending));
-        if (pending.workspaceId !== activeWorkspaceIdRef.current) return;
+        if (pending.spaceId !== activeSpaceIdRef.current) return;
         const restoreSelection = Boolean(pending.selectedPath && (!selectedPathRef.current || selectedPathRef.current === pending.selectedPath));
         void refreshTreeWithPendingDeletes().then(() => {
-          if (pending.workspaceId === activeWorkspaceIdRef.current && pending.selectedPath && restoreSelection) tree.setSelectedPath(pending.selectedPath);
+          if (pending.spaceId === activeSpaceIdRef.current && pending.selectedPath && restoreSelection) tree.setSelectedPath(pending.selectedPath);
         });
       },
       onClose: (reason) => { if (reason !== "action") void commitPendingDelete(pending); },
@@ -819,28 +820,28 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
   }
   async function submitEntryRename(name: string) {
     if (!renameEntryRequest || name === renameEntryRequest.name) return;
-    const result = await api<{ renamed: { path: string }; safetyCheckpointId: string }>(`/api/workspaces/${workspace.id}/rename-local-entry`, {
+    const result = await api<{ renamed: { path: string }; safetyCheckpointId: string }>(`/api/spaces/${space.id}/rename-local-entry`, {
       method: "POST",
       body: { path: renameEntryRequest.path, newName: name },
     });
-    tabs.retargetFileSurfaceTabsForMove(workspace.id, renameEntryRequest.path, result.renamed.path);
+    tabs.retargetFileSurfaceTabsForMove(space.id, renameEntryRequest.path, result.renamed.path);
     await tree.refresh();
     showHistorySaved(`Renamed ${renameEntryRequest.name}`);
   }
 
-  async function openLocalPath(path: string, action: "reveal" | "open" | "open-native", targetWorkspace = workspace) {
+  async function openLocalPath(path: string, action: "reveal" | "open" | "open-native", targetSpace = space) {
     if (fixture) { showToast({ text: "Opening files is disabled in the preview", tone: "info" }); return; }
-    const desktop = window.workspaceDesktop;
-    try { if (!path) await desktop?.workspace.revealFolder?.(targetWorkspace.id); else if (desktop?.workspace.openPath) await desktop.workspace.openPath(targetWorkspace.id, path, action); else await desktop?.workspace.revealFolder?.(targetWorkspace.id); }
+    const desktop = window.workFoldDesktop;
+    try { if (!path) await desktop?.space.revealFolder?.(targetSpace.id); else if (desktop?.space.openPath) await desktop.space.openPath(targetSpace.id, path, action); else await desktop?.space.revealFolder?.(targetSpace.id); }
     catch (caught) { onError(errorText(caught)); }
   }
-  function openVersionHistory(targetWorkspace: WorkspaceSummary, path: string) {
+  function openVersionHistory(targetSpace: SpaceSummary, path: string) {
     if (fixture) { showToast({ text: "Version history is disabled in the preview", tone: "info" }); return; }
-    setVersionHistory({ workspace: targetWorkspace, path, name: path.split("/").pop() ?? path });
+    setVersionHistory({ space: targetSpace, path, name: path.split("/").pop() ?? path });
   }
-  async function copyPath(path: string) { const full = workspaceEntryNativePath(workspace.rootPath, path); await navigator.clipboard.writeText(full); showToast({ text: "Path copied", tone: "success" }); }
+  async function copyPath(path: string) { const full = spaceEntryNativePath(space.rootPath, path); await navigator.clipboard.writeText(full); showToast({ text: "Path copied", tone: "success" }); }
 
-  function updateDropTarget(event: React.DragEvent<HTMLElement>, target: string) { event.preventDefault(); if (hasNativeFiles(event) || hasWorkspacePathDrag(event)) { event.dataTransfer.dropEffect = hasNativeFiles(event) ? "copy" : "move"; tree.setDropTargetFolderPath(target); } }
+  function updateDropTarget(event: React.DragEvent<HTMLElement>, target: string) { event.preventDefault(); if (hasNativeFiles(event) || hasSpacePathDrag(event)) { event.dataTransfer.dropEffect = hasNativeFiles(event) ? "copy" : "move"; tree.setDropTargetFolderPath(target); } }
   function clearDropTarget(event?: React.DragEvent<HTMLElement>) { if (event && event.currentTarget.contains(event.relatedTarget as Node | null)) return; tree.setDropTargetFolderPath(null); }
   async function dropOnTarget(event: React.DragEvent<HTMLElement>, target: string) {
     event.preventDefault();
@@ -857,16 +858,16 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
       catch (caught) { onError(errorText(caught)); }
       return;
     }
-    const source = hasWorkspacePathDrag(event) ? event.dataTransfer.getData(workspacePathDragType) || event.dataTransfer.getData("text/plain") : "";
+    const source = hasSpacePathDrag(event) ? event.dataTransfer.getData(spacePathDragType) || event.dataTransfer.getData("text/plain") : "";
     if (source) await moveEntry(source, target);
   }
-  function startTreeDrag(path: string, event: React.DragEvent<HTMLElement>) { tree.setMovingTreePath(path); event.dataTransfer.setData(workspacePathDragType, path); event.dataTransfer.setData("text/plain", path); event.dataTransfer.effectAllowed = "move"; }
+  function startTreeDrag(path: string, event: React.DragEvent<HTMLElement>) { tree.setMovingTreePath(path); event.dataTransfer.setData(spacePathDragType, path); event.dataTransfer.setData("text/plain", path); event.dataTransfer.effectAllowed = "move"; }
   function endTreeDrag() { tree.setMovingTreePath(null); tree.setDropTargetFolderPath(null); }
 
   function startNativeFileDrag(path: string, event: React.DragEvent<HTMLElement>) {
-    if (!event.altKey || !window.workspaceDesktop?.workspace.startDrag) return false;
+    if (!event.altKey || !window.workFoldDesktop?.space.startDrag) return false;
     event.preventDefault();
-    void window.workspaceDesktop.workspace.startDrag(workspace.id, path).catch((caught) => onError(errorText(caught)));
+    void window.workFoldDesktop.space.startDrag(space.id, path).catch((caught) => onError(errorText(caught)));
     return true;
   }
 
@@ -876,10 +877,10 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
     pendingDeletesRef.current.delete(key);
     try {
       await deleteLocalFileRequest(pending);
-      tabs.closeFileSurfaceTabsForDeletedPaths(pending.workspaceId, pending.deletedTabPaths);
+      tabs.closeFileSurfaceTabsForDeletedPaths(pending.spaceId, pending.deletedTabPaths);
     } catch (caught) {
       onError(errorText(caught));
-      if (pending.workspaceId === activeWorkspaceIdRef.current) {
+      if (pending.spaceId === activeSpaceIdRef.current) {
         const restoreSelection = Boolean(pending.selectedPath && (!selectedPathRef.current || selectedPathRef.current === pending.selectedPath));
         await refreshTreeWithPendingDeletes();
         if (pending.selectedPath && restoreSelection) tree.setSelectedPath(pending.selectedPath);
@@ -902,7 +903,7 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
 
   async function refreshTreeWithPendingDeletes() {
     await tree.refresh();
-    const pendingPaths = new Set([...pendingDeletesRef.current.values()].filter((item) => item.workspaceId === workspace.id).map((item) => item.path));
+    const pendingPaths = new Set([...pendingDeletesRef.current.values()].filter((item) => item.spaceId === space.id).map((item) => item.path));
     if (pendingPaths.size) tree.setTree((current) => removeTreeEntries(current, pendingPaths));
   }
 
@@ -913,29 +914,29 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
   async function saveRestorePoint() {
     if (fixture) return;
     try {
-      await api(`/api/workspaces/${workspace.id}/history/checkpoints`, { method: "POST", body: { label: "Manual restore point" } });
+      await api(`/api/spaces/${space.id}/history/checkpoints`, { method: "POST", body: { label: "Manual restore point" } });
       setHistoryRefreshRequest((current) => current + 1);
       setActiveMode("history");
       showToast({ text: "Restore point saved", tone: "success" });
     } catch (caught) { onError(errorText(caught)); }
   }
 
-  async function renameChat(targetWorkspace: WorkspaceSummary, conversation: ConversationSummary, title: string) {
-    if (fixture) { const updated = { ...conversation, title }; replaceConversationSummary(targetWorkspace.id, updated); tabs.updateSurfaceTabConversationTitle(targetWorkspace.id, updated); return; }
-    const result = await api<{ conversation: ConversationSummary }>(`/api/workspaces/${targetWorkspace.id}/conversations/${conversation.id}`, { method: "PATCH", body: { title } });
-    replaceConversationSummary(targetWorkspace.id, result.conversation);
-    tabs.updateSurfaceTabConversationTitle(targetWorkspace.id, result.conversation);
+  async function renameChat(targetSpace: SpaceSummary, conversation: ConversationSummary, title: string) {
+    if (fixture) { const updated = { ...conversation, title }; replaceConversationSummary(targetSpace.id, updated); tabs.updateSurfaceTabConversationTitle(targetSpace.id, updated); return; }
+    const result = await api<{ conversation: ConversationSummary }>(`/api/spaces/${targetSpace.id}/conversations/${conversation.id}`, { method: "PATCH", body: { title } });
+    replaceConversationSummary(targetSpace.id, result.conversation);
+    tabs.updateSurfaceTabConversationTitle(targetSpace.id, result.conversation);
   }
 
-  function replaceConversationSummary(workspaceId: string, conversation: ConversationSummary): void {
+  function replaceConversationSummary(spaceId: string, conversation: ConversationSummary): void {
     setConversationGroups((current) => ({
       ...current,
-      [workspaceId]: (current[workspaceId] ?? []).map((item) => item.id === conversation.id ? conversation : item),
+      [spaceId]: (current[spaceId] ?? []).map((item) => item.id === conversation.id ? conversation : item),
     }));
   }
 
   async function updateChatLifecycle(
-    targetWorkspace: WorkspaceSummary,
+    targetSpace: SpaceSummary,
     conversation: ConversationSummary,
     patch: { archived?: boolean; snoozedUntil?: string | null },
     options: { announce?: boolean } = {},
@@ -944,20 +945,20 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
     const updated = fixture
       ? applyFixtureChatLifecycle(conversation, patch)
       : (await api<{ conversation: ConversationSummary }>(
-          `/api/workspaces/${targetWorkspace.id}/conversations/${conversation.id}`,
+          `/api/spaces/${targetSpace.id}/conversations/${conversation.id}`,
           { method: "PATCH", body: patch },
         )).conversation;
-    replaceConversationSummary(targetWorkspace.id, updated);
+    replaceConversationSummary(targetSpace.id, updated);
 
     const lifecycle = conversationLifecycleView(updated);
     const openTab = tabs.surfaceTabs.find((tab) =>
       tab.kind === "chat"
-      && tab.workspaceId === targetWorkspace.id
+      && tab.spaceId === targetSpace.id
       && tab.conversationId === conversation.id);
     if (lifecycle !== "active") {
       if (openTab) tabs.closeSurfaceTab(openTab.id);
-      chatActivity.setRunning(chatActivityKey(targetWorkspace.id, conversation.id), false);
-      chatActivity.setAttention(chatActivityKey(targetWorkspace.id, conversation.id), false);
+      chatActivity.setRunning(chatActivityKey(targetSpace.id, conversation.id), false);
+      chatActivity.setAttention(chatActivityKey(targetSpace.id, conversation.id), false);
     }
     if (options.announce === false) return updated;
 
@@ -968,16 +969,16 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
       actionLabel: "Undo",
       durationMs: 6500,
       onAction: () => {
-        const latest = (conversationGroups[targetWorkspace.id] ?? []).find((item) => item.id === conversation.id) ?? updated;
-        void updateChatLifecycle(targetWorkspace, latest, feedback.undo, { announce: false })
-          .then((restored) => { if (openTab) openChat(targetWorkspace, restored); })
+        const latest = (conversationGroups[targetSpace.id] ?? []).find((item) => item.id === conversation.id) ?? updated;
+        void updateChatLifecycle(targetSpace, latest, feedback.undo, { announce: false })
+          .then((restored) => { if (openTab) openChat(targetSpace, restored); })
           .catch((caught) => onError(errorText(caught)));
       },
     });
     return updated;
   }
 
-  function selectRailMode(mode: WorkspaceRailMode): void {
+  function selectRailMode(mode: SpaceRailMode): void {
     setActiveMode(mode);
     if (mode.startsWith("app:restricted:")) return;
     const surfaceKey = extensionSurfaceIdForMode(mode);
@@ -986,62 +987,62 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
     const firstView = surface?.views[0];
     if (!surface || !firstView) return;
     const activeMatches = activeTab?.kind === "extension" && surfaceMatchesTab(surface, activeTab);
-    if (!activeMatches) tabs.openExtensionSurfaceTab(workspace, surface, firstView);
+    if (!activeMatches) tabs.openExtensionSurfaceTab(space, surface, firstView);
   }
 
-  function openInstalledRestrictedApp(targetWorkspace: WorkspaceSummary, app: RestrictedAppInstalled): void {
+  function openInstalledRestrictedApp(targetSpace: SpaceSummary, app: RestrictedAppInstalled): void {
     restrictedAppsState.upsertApp(app);
-    if (targetWorkspace.id !== workspace.id) onSwitchWorkspace(targetWorkspace);
-    setActiveMode(restrictedAppRailMode(targetWorkspace.id, app.manifest.id));
+    if (targetSpace.id !== space.id) onSwitchSpace(targetSpace);
+    setActiveMode(restrictedAppRailMode(targetSpace.id, app.manifest.id));
   }
 
-  function updateSurfaceCatalog(targetWorkspaceId: string, catalog: AgentCatalog): void {
-    setSurfaceCatalogs((current) => ({ ...current, [targetWorkspaceId]: catalog.surfaces ?? [] }));
+  function updateSurfaceCatalog(targetSpaceId: string, catalog: AgentCatalog): void {
+    setSurfaceCatalogs((current) => ({ ...current, [targetSpaceId]: catalog.surfaces ?? [] }));
   }
 
   const commands = useMemo<CommandPaletteCommand[]>(() => [
-    ...(["files", "chats", "history"] as WorkspacePane[]).map((mode) => ({ id: `go:${mode}`, groupId: "go-to" as const, groupLabel: "Go to", label: mode[0]!.toUpperCase() + mode.slice(1), defaultVisible: true, run: () => selectRailMode(mode) })),
-    { id: "go:library", groupId: "go-to" as const, groupLabel: "Go to", label: "Library", detail: "Reusable personal files", defaultVisible: true, run: () => openLibrary(workspace) },
-    { id: "go:assistant-tools", groupId: "go-to" as const, groupLabel: "Go to", label: "Assistant tools", detail: "Installed Skills, Extensions, and apps", defaultVisible: true, run: () => tabs.openAssistantToolsSurfaceTab(workspace, "installed") },
-    ...(checks.status?.configured ? [{ id: "go:checks", groupId: "go-to" as const, groupLabel: "Go to", label: "Checks", detail: checks.status.needsAttention ? `${checks.status.needsAttention} need attention` : "Designated file expectations", defaultVisible: true, run: () => tabs.openChecksSurfaceTab(workspace) }] : []),
-    { id: "action:discover-assistant-tools", groupId: "actions" as const, groupLabel: "Actions", label: "Browse Skills & Extensions", keywords: ["capabilities", "discover", "install", "tools"], run: () => tabs.openAssistantToolsSurfaceTab(workspace, "discover") },
+    ...(["files", "chats", "history"] as SpacePane[]).map((mode) => ({ id: `go:${mode}`, groupId: "go-to" as const, groupLabel: "Go to", label: mode[0]!.toUpperCase() + mode.slice(1), defaultVisible: true, run: () => selectRailMode(mode) })),
+    { id: "go:library", groupId: "go-to" as const, groupLabel: "Go to", label: "Library", detail: "Reusable personal files", defaultVisible: true, run: () => openLibrary(space) },
+    { id: "go:assistant-tools", groupId: "go-to" as const, groupLabel: "Go to", label: "Assistant tools", detail: "Installed Skills, Extensions, and apps", defaultVisible: true, run: () => tabs.openAssistantToolsSurfaceTab(space, "installed") },
+    ...(checks.status?.configured ? [{ id: "go:checks", groupId: "go-to" as const, groupLabel: "Go to", label: "Checks", detail: checks.status.needsAttention ? `${checks.status.needsAttention} need attention` : "Designated file expectations", defaultVisible: true, run: () => tabs.openChecksSurfaceTab(space) }] : []),
+    { id: "action:discover-assistant-tools", groupId: "actions" as const, groupLabel: "Actions", label: "Browse Skills & Extensions", keywords: ["capabilities", "discover", "install", "tools"], run: () => tabs.openAssistantToolsSurfaceTab(space, "discover") },
     ...surfaces.map((surface) => ({ id: `app:${surface.key}`, groupId: "go-to" as const, groupLabel: "Go to", label: surface.title, detail: surface.scope === "project" ? "Pi Extension · This Space" : "Pi Extension · Personal", run: () => selectRailMode(`app:${surface.key}`) })),
-    ...restrictedApps.map((app) => ({ id: `restricted-app:${app.manifest.id}`, groupId: "go-to" as const, groupLabel: "Go to", label: app.manifest.title, detail: "Sandboxed app · This Space", run: () => selectRailMode(restrictedAppRailMode(workspace.id, app.manifest.id)) })),
-    ...workspaces.map((item) => ({ id: `space:${item.id}`, groupId: "switch-workspace" as const, groupLabel: "Switch Space", label: item.name, detail: workspaceHeaderSourceBadgeLabel(item), matchTargets: [item.rootPath], run: () => onSwitchWorkspace(item) })),
-    ...Object.entries(conversationGroups).flatMap(([workspaceId, conversations]) => conversations.map((conversation) => {
+    ...restrictedApps.map((app) => ({ id: `restricted-app:${app.manifest.id}`, groupId: "go-to" as const, groupLabel: "Go to", label: app.manifest.title, detail: "Sandboxed app · This Space", run: () => selectRailMode(restrictedAppRailMode(space.id, app.manifest.id)) })),
+    ...spaces.map((item) => ({ id: `space:${item.id}`, groupId: "switch-space" as const, groupLabel: "Switch Space", label: item.name, detail: spaceHeaderSourceBadgeLabel(item), matchTargets: [item.rootPath], run: () => onSwitchSpace(item) })),
+    ...Object.entries(conversationGroups).flatMap(([spaceId, conversations]) => conversations.map((conversation) => {
       const lifecycle = conversationLifecycleView(conversation);
       return {
-        id: `chat:${workspaceId}:${conversation.id}`,
+        id: `chat:${spaceId}:${conversation.id}`,
         groupId: "chats" as const,
         groupLabel: "Chats",
         label: conversation.title,
         detail: lifecycle === "archived" ? "Archived" : lifecycle === "snoozed" ? "Snoozed" : undefined,
-        run: () => { const target = workspaces.find((item) => item.id === workspaceId); if (target) openChat(target, conversation); },
+        run: () => { const target = spaces.find((item) => item.id === spaceId); if (target) openChat(target, conversation); },
       };
     })),
     ...collectLoadedFileEntries(tree.tree).flatMap((entry) => {
       const matchTargets = [entry.name, entry.path];
       return [
-        { id: `reveal-file:${workspace.id}:${entry.path}`, groupId: "files" as const, groupLabel: "Files", label: `Reveal in Files: ${entry.name}`, detail: entry.path, matchTargets, minQueryLength: 2, run: () => { setActiveMode("files"); tree.setSelectedPath(entry.path); tabs.openFileSurfaceTab(workspace, entry.path); } },
-        { id: `attach-file:${workspace.id}:${entry.path}`, groupId: "files" as const, groupLabel: "Files", label: `Attach to Chat: ${entry.name}`, detail: entry.path, matchTargets, minQueryLength: 2, run: () => attachToChat(entry.path) },
+        { id: `reveal-file:${space.id}:${entry.path}`, groupId: "files" as const, groupLabel: "Files", label: `Reveal in Files: ${entry.name}`, detail: entry.path, matchTargets, minQueryLength: 2, run: () => { setActiveMode("files"); tree.setSelectedPath(entry.path); tabs.openFileSurfaceTab(space, entry.path); } },
+        { id: `attach-file:${space.id}:${entry.path}`, groupId: "files" as const, groupLabel: "Files", label: `Attach to Chat: ${entry.name}`, detail: entry.path, matchTargets, minQueryLength: 2, run: () => attachToChat(entry.path) },
       ];
     }),
-    { id: "action:new-chat", groupId: "actions", groupLabel: "Actions", label: "New Chat", keywords: ["chat", "conversation", "assistant"], defaultVisible: true, run: () => openChat(workspace, null) },
+    { id: "action:new-chat", groupId: "actions", groupLabel: "Actions", label: "New Chat", keywords: ["chat", "conversation", "assistant"], defaultVisible: true, run: () => openChat(space, null) },
     ...(!fixture ? [{ id: "action:save-restore-point", groupId: "actions" as const, groupLabel: "Actions", label: "Save restore point", keywords: ["history", "checkpoint", "backup"], defaultVisible: true, run: () => { void saveRestorePoint(); } }] : []),
     { id: "action:new-space", groupId: "actions", groupLabel: "Actions", label: "Create a new Space", defaultVisible: true, run: onCreateSpace },
     { id: "action:open-folder", groupId: "actions", groupLabel: "Actions", label: "Turn a folder into a Space", defaultVisible: true, run: onOpenFolder },
     { id: "action:settings", groupId: "actions", groupLabel: "Actions", label: "Settings", defaultVisible: true, run: onOpenSettings },
     { id: "action:shortcuts", groupId: "actions", groupLabel: "Actions", label: "Keyboard shortcuts", run: onOpenShortcuts },
     ...(["light", "dark", "system"] as AppThemePreference[]).map((preference) => ({ id: `theme:${preference}`, groupId: "actions" as const, groupLabel: "Actions", label: preference === "system" ? "Use device theme" : `Use ${preference} theme`, detail: themePreference === preference ? "Current" : undefined, keywords: ["appearance", "color", "mode"], run: () => onThemePreferenceChange(preference) })),
-  ], [checks.status, conversationGroups, fixture, restrictedApps, surfaces, themePreference, tree.selectedPath, tree.tree, workspaces, workspace.id]);
+  ], [checks.status, conversationGroups, fixture, restrictedApps, surfaces, themePreference, tree.selectedPath, tree.tree, spaces, space.id]);
 
-  const layoutStyle = { ...(workspaceIdentityStyle(identity)), ...(paneResize.sidebarWidth ? { "--workspace-sidebar-width": `${paneResize.sidebarWidth}px` } : {}) } as CSSProperties;
+  const layoutStyle = { ...(spaceIdentityStyle(identity)), ...(paneResize.sidebarWidth ? { "--space-sidebar-width": `${paneResize.sidebarWidth}px` } : {}) } as CSSProperties;
 
-  return <main className={paneResize.sidebarResizing ? "workspace-layout resizing" : "workspace-layout"} ref={paneResize.workspaceLayoutRef} style={layoutStyle}>
-    <WorkspaceModeRail activeMode={activeMode} workspace={workspace} surfaces={surfaces} apps={restrictedApps} onModeChange={selectRailMode} onOpenLibrary={() => openLibrary(workspace)} onOpenAssistantTools={(view) => tabs.openAssistantToolsSurfaceTab(workspace, view)} onBuildApp={() => openChat(workspace, null)} accountControl={<button className="workspace-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings" data-rail-tooltip="Settings"><Settings24Regular aria-hidden="true" /></button>} onOpenKeyboardShortcuts={onOpenShortcuts} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
-    <section className={`workspace-mode-pane workspace-mode-pane-${activeMode}`} id="workspace-file-panel">
-      <WorkspacePaneHeader workspace={workspace} identity={identity} workspaces={workspaces} workspaceCustomizations={customizations} onSwitchWorkspace={onSwitchWorkspace} onCreateSpace={onCreateSpace} onOpenFolder={onOpenFolder} onManageSpaces={() => setActiveMode("workspaces")} managingSpaces={activeMode === "workspaces"} action={activeMode === "files" ? <button className="minimal-icon-button" type="button" disabled={uploadingFiles || tree.status === "refreshing"} onClick={() => void tree.refresh(false)} aria-label="Refresh files" title="Refresh files"><ArrowSync16Regular className={tree.status === "refreshing" ? "spin" : undefined} /></button> : undefined} />
-      {activeMode === "workspaces" ? <SpacesPane workspace={workspace} workspaces={workspaces} identities={customizations} onSwitch={onSwitchWorkspace} onCreate={onCreateSpace} onOpenFolder={onOpenFolder} onCustomize={(target) => tabs.openAppearanceSurfaceTab(target)} onRename={renameSpace} onRemove={(target) => void removeSpace(target)} /> : null}
+  return <main className={paneResize.sidebarResizing ? "space-layout resizing" : "space-layout"} ref={paneResize.spaceLayoutRef} style={layoutStyle}>
+    <SpaceModeRail activeMode={activeMode} space={space} surfaces={surfaces} apps={restrictedApps} onModeChange={selectRailMode} onOpenLibrary={() => openLibrary(space)} onOpenAssistantTools={(view) => tabs.openAssistantToolsSurfaceTab(space, view)} onBuildApp={() => openChat(space, null)} accountControl={<button className="space-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings" data-rail-tooltip="Settings"><Settings24Regular aria-hidden="true" /></button>} onOpenKeyboardShortcuts={onOpenShortcuts} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
+    <section className={`space-mode-pane space-mode-pane-${activeMode}`} id="space-file-panel">
+      <SpacePaneHeader space={space} identity={identity} spaces={spaces} spaceCustomizations={customizations} onSwitchSpace={onSwitchSpace} onCreateSpace={onCreateSpace} onOpenFolder={onOpenFolder} onManageSpaces={() => setActiveMode("spaces")} managingSpaces={activeMode === "spaces"} action={activeMode === "files" ? <button className="minimal-icon-button" type="button" disabled={uploadingFiles || tree.status === "refreshing"} onClick={() => void tree.refresh(false)} aria-label="Refresh files" title="Refresh files"><ArrowSync16Regular className={tree.status === "refreshing" ? "spin" : undefined} /></button> : undefined} />
+      {activeMode === "spaces" ? <SpacesPane space={space} spaces={spaces} identities={customizations} onSwitch={onSwitchSpace} onCreate={onCreateSpace} onOpenFolder={onOpenFolder} onCustomize={(target) => tabs.openAppearanceSurfaceTab(target)} onRename={renameSpace} onRemove={(target) => void removeSpace(target)} /> : null}
       {activeMode === "files" ? <div className="local-files-panel">
         <input
           ref={uploadRef}
@@ -1075,7 +1076,7 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
           </label>
           {tree.query ? <span className="file-tree-search-count">{tree.searchHydrating ? "Searching" : formatItemCount(tree.matchCount, "match", "matches")}</span> : null}
           {tree.treeTruncated ? <span className="file-tree-truncated" title="This Space holds more items than Files lists at once. Open a folder to see its contents, or search by name or contents.">Partial list</span> : null}
-          <ChecksToolbarButton status={checks.status} loading={checks.loading} unavailable={checks.unavailable} onClick={() => tabs.openChecksSurfaceTab(workspace)} />
+          <ChecksToolbarButton status={checks.status} loading={checks.loading} unavailable={checks.unavailable} onClick={() => tabs.openChecksSurfaceTab(space)} />
           <button className="minimal-icon-button" type="button" disabled={uploadingFiles} onClick={() => chooseUpload("")} aria-label="Add files" title="Add files"><Upload size={15} /></button>
         </div>
         <div
@@ -1090,143 +1091,143 @@ function WorkspaceView({ workspace, workspaces, agent, appearance, fixture, desk
         >
           {uploadingFiles ? <div className="file-upload-progress" aria-live="polite"><Loader2 className="spin" size={14} />Adding files</div> : null}
           {tree.status === "refreshing" ? <div className="file-tree-refresh-progress" aria-live="polite"><Loader2 className="spin" size={14} />Updating files</div> : null}
-          {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <EmptyInline text="Couldn't load this Space. Refresh to try again." /> : <FileTree entries={tree.visibleEntries} collapsedPaths={tree.query ? new Set() : tree.collapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} movingTreePath={tree.movingTreePath} dropTargetFolderPath={tree.dropTargetFolderPath} checkAttentionPaths={checks.attentionPaths} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workspace, path); }} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} />}
+          {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <EmptyInline text="Couldn't load this Space. Refresh to try again." /> : <FileTree entries={tree.visibleEntries} collapsedPaths={tree.query ? new Set() : tree.collapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} movingTreePath={tree.movingTreePath} dropTargetFolderPath={tree.dropTargetFolderPath} checkAttentionPaths={checks.attentionPaths} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); }} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} />}
         </div>
         {fixture ? null : (
           <FileContentSearch
-            workspaceId={workspace.id}
+            spaceId={space.id}
             query={tree.query}
-            onOpenFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workspace, path); }}
+            onOpenFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); }}
           />
         )}
       </div> : null}
-      {activeMode === "chats" ? <ChatsPane workspace={workspace} workspaces={workspaces} conversations={conversationGroups} customizations={customizations} activityStatuses={chatActivity.statuses} activeConversationId={activeTab?.kind === "chat" ? activeTab.conversationId ?? undefined : undefined} onOpen={(target, conversation) => openChat(target, conversation)} onNew={(target) => openChat(target, null)} onActions={openChatActions} /> : null}
-      {activeMode === "history" ? <HistoryPane workspace={workspace} fixtureItems={fixture?.checkpoints[workspace.id]} refreshRequest={historyRefreshRequest} onOpen={(item) => tabs.openHistorySurfaceTab(workspace, item.checkpointId, item.label || "Restore point")} onError={onError} /> : null}
-      {activeSurface ? <ExtensionSurfacePane surface={activeSurface} activeViewId={activeTab?.kind === "extension" && surfaceMatchesTab(activeSurface, activeTab) ? activeTab.viewId : null} onOpenView={(view) => tabs.openExtensionSurfaceTab(workspace, activeSurface, view)} /> : null}
+      {activeMode === "chats" ? <ChatsPane space={space} spaces={spaces} conversations={conversationGroups} customizations={customizations} activityStatuses={chatActivity.statuses} activeConversationId={activeTab?.kind === "chat" ? activeTab.conversationId ?? undefined : undefined} onOpen={(target, conversation) => openChat(target, conversation)} onNew={(target) => openChat(target, null)} onActions={openChatActions} /> : null}
+      {activeMode === "history" ? <HistoryPane space={space} fixtureItems={fixture?.checkpoints[space.id]} refreshRequest={historyRefreshRequest} onOpen={(item) => tabs.openHistorySurfaceTab(space, item.checkpointId, item.label || "Restore point")} onError={onError} /> : null}
+      {activeSurface ? <ExtensionSurfacePane surface={activeSurface} activeViewId={activeTab?.kind === "extension" && surfaceMatchesTab(activeSurface, activeTab) ? activeTab.viewId : null} onOpenView={(view) => tabs.openExtensionSurfaceTab(space, activeSurface, view)} /> : null}
       {activeRestrictedApp ? <RestrictedAppViewport app={activeRestrictedApp} placement="navigator" route="/" active /> : null}
     </section>
-    <button className="workspace-resizer" type="button" role="separator" aria-label="Resize the navigation pane and work area" aria-controls="workspace-file-panel workspace-chat-panel" aria-orientation="vertical" aria-valuemin={Math.round(paneResize.sidebarResizeBounds.min)} aria-valuemax={Math.round(paneResize.sidebarResizeBounds.max)} aria-valuenow={paneResize.sidebarResizeValue} title="Resize panes" onPointerDown={paneResize.startSidebarResize} onDoubleClick={paneResize.resetWorkspaceSidebarWidth} onKeyDown={paneResize.handleSidebarResizeKeyDown}><span className="sr-only">Resize panes</span></button>
-    <aside className="right-rail" id="workspace-chat-panel">
-      <WorkspaceSurfaceTabBar tabs={tabs.surfaceTabs} workspaces={workspaces} workspaceCustomizations={customizations} conversations={conversationGroups} chatActivityStatuses={chatActivity.statuses} activeTabId={tabs.activeSurfaceTabId} newChatWorkspaceId={workspace.id} onActivate={tabs.setActiveSurfaceTabId} onClose={tabs.closeSurfaceTab} onNewChatInWorkspace={(target) => openChat(target, null)} onChatActions={openChatActions} />
+    <button className="space-resizer" type="button" role="separator" aria-label="Resize the navigation pane and work area" aria-controls="space-file-panel space-chat-panel" aria-orientation="vertical" aria-valuemin={Math.round(paneResize.sidebarResizeBounds.min)} aria-valuemax={Math.round(paneResize.sidebarResizeBounds.max)} aria-valuenow={paneResize.sidebarResizeValue} title="Resize panes" onPointerDown={paneResize.startSidebarResize} onDoubleClick={paneResize.resetSpaceSidebarWidth} onKeyDown={paneResize.handleSidebarResizeKeyDown}><span className="sr-only">Resize panes</span></button>
+    <aside className="right-rail" id="space-chat-panel">
+      <SpaceSurfaceTabBar tabs={tabs.surfaceTabs} spaces={spaces} spaceCustomizations={customizations} conversations={conversationGroups} chatActivityStatuses={chatActivity.statuses} activeTabId={tabs.activeSurfaceTabId} newChatSpaceId={space.id} onActivate={tabs.setActiveSurfaceTabId} onClose={tabs.closeSurfaceTab} onNewChatInSpace={(target) => openChat(target, null)} onChatActions={openChatActions} />
       {tabs.surfaceTabs.length ? tabs.surfaceTabs.map((tab) => {
-        const targetWorkspace = workspaces.find((item) => item.id === tab.workspaceId);
-        if (!targetWorkspace) return null;
+        const targetSpace = spaces.find((item) => item.id === tab.spaceId);
+        if (!targetSpace) return null;
         const active = tab.id === tabs.activeSurfaceTabId;
-        const targetIdentity = workspaceIdentityFor(targetWorkspace, customizations);
+        const targetIdentity = spaceIdentityFor(targetSpace, customizations);
         const targetConversation = tab.kind === "chat" && tab.conversationId
-          ? conversationGroups[targetWorkspace.id]?.find((conversation) => conversation.id === tab.conversationId) ?? null
+          ? conversationGroups[targetSpace.id]?.find((conversation) => conversation.id === tab.conversationId) ?? null
           : null;
         const targetConversationLifecycle = targetConversation ? conversationLifecycleView(targetConversation) : "active";
         return (
-          <div className="workspace-surface-body" role="tabpanel" id={surfacePanelDomId(tab.id)} aria-labelledby={surfaceTabDomId(tab.id)} hidden={!active} key={tab.id} style={workspaceIdentityStyle(targetIdentity)}>
+          <div className="space-surface-body" role="tabpanel" id={surfacePanelDomId(tab.id)} aria-labelledby={surfaceTabDomId(tab.id)} hidden={!active} key={tab.id} style={spaceIdentityStyle(targetIdentity)}>
             {tab.kind === "file" && tab.path ? (
-              <FileDetailsPane workspace={targetWorkspace} path={tab.path} entry={targetWorkspace.id === workspace.id ? findTreeEntry(tree.tree, tab.path) : null} fixtureMode={Boolean(fixture)} onOpenLocal={(path, action) => openLocalPath(path, action, targetWorkspace)} onAddToChatContext={attachToChat} onShowVersionHistory={(path) => openVersionHistory(targetWorkspace, path)} onRename={targetWorkspace.id === workspace.id ? renameEntry : undefined} />
+              <FileDetailsPane space={targetSpace} path={tab.path} entry={targetSpace.id === space.id ? findTreeEntry(tree.tree, tab.path) : null} fixtureMode={Boolean(fixture)} onOpenLocal={(path, action) => openLocalPath(path, action, targetSpace)} onAddToChatContext={attachToChat} onShowVersionHistory={(path) => openVersionHistory(targetSpace, path)} onRename={targetSpace.id === space.id ? renameEntry : undefined} />
             ) : tab.kind === "library" ? (
               <LibraryPane
-                workspace={targetWorkspace}
-                workspaces={workspaces}
+                space={targetSpace}
+                spaces={spaces}
                 tree={libraryTree}
                 fixtureMode={Boolean(fixture)}
-                destinationResetRequest={libraryOpenRequests[targetWorkspace.id] ?? 0}
+                destinationResetRequest={libraryOpenRequests[targetSpace.id] ?? 0}
                 onRefresh={refreshLibraryTree}
                 onError={onError}
               />
             ) : tab.kind === "assistant-tools" ? (
               <CapabilitiesPane
-                workspace={targetWorkspace}
+                space={targetSpace}
                 status={agent}
                 view={tab.view}
                 fixtureMode={Boolean(fixture)}
-                restrictedApps={restrictedAppsState.appsByWorkspace[targetWorkspace.id] ?? []}
-                restrictedAppsLoading={restrictedAppsState.loadingWorkspaceIds.has(targetWorkspace.id)}
-                onViewChange={(view) => tabs.openAssistantToolsSurfaceTab(targetWorkspace, view)}
+                restrictedApps={restrictedAppsState.appsBySpace[targetSpace.id] ?? []}
+                restrictedAppsLoading={restrictedAppsState.loadingSpaceIds.has(targetSpace.id)}
+                onViewChange={(view) => tabs.openAssistantToolsSurfaceTab(targetSpace, view)}
                 onOpenSettings={() => onOpenSettings("assistant")}
                 onError={onError}
-                onCatalogChanged={(catalog) => updateSurfaceCatalog(targetWorkspace.id, catalog)}
+                onCatalogChanged={(catalog) => updateSurfaceCatalog(targetSpace.id, catalog)}
                 onRestrictedAppChanged={restrictedAppsState.upsertApp}
-                onRestrictedAppRemoved={(appId) => restrictedAppsState.removeApp(targetWorkspace.id, appId)}
-                onBuildApp={() => openChat(targetWorkspace, null)}
-                onOpenAppStudio={(sourceWorkspaceId) => tabs.openAppStudioSurfaceTab(workspaces.find((item) => item.id === sourceWorkspaceId) ?? targetWorkspace)}
+                onRestrictedAppRemoved={(appId) => restrictedAppsState.removeApp(targetSpace.id, appId)}
+                onBuildApp={() => openChat(targetSpace, null)}
+                onOpenAppStudio={(sourceSpaceId) => tabs.openAppStudioSurfaceTab(spaces.find((item) => item.id === sourceSpaceId) ?? targetSpace)}
               />
             ) : tab.kind === "checks" ? (
               <ChecksPane
-                workspace={targetWorkspace}
+                space={targetSpace}
                 active={active}
                 onOpenFile={(path) => {
-                  if (targetWorkspace.id === workspace.id) {
+                  if (targetSpace.id === space.id) {
                     setActiveMode("files");
                     tree.setSelectedPath(path);
                   }
-                  tabs.openFileSurfaceTab(targetWorkspace, path);
+                  tabs.openFileSurfaceTab(targetSpace, path);
                 }}
-                onChecksChanged={() => targetWorkspace.id === workspace.id ? checks.refresh() : undefined}
+                onChecksChanged={() => targetSpace.id === space.id ? checks.refresh() : undefined}
               />
             ) : tab.kind === "app-studio" ? (
               <AppStudioPane
-                workspace={targetWorkspace}
-                workspaces={workspaces}
+                space={targetSpace}
+                spaces={spaces}
                 active={active}
-                previewRevision={(restrictedAppsState.appsByWorkspace[targetWorkspace.id] ?? [])
+                previewRevision={(restrictedAppsState.appsBySpace[targetSpace.id] ?? [])
                   .filter((app) => app.runtimeInstanceKind === "development")
                   .map((app) => `${app.featureInstallationId}:${app.digest}:${app.updatedAt}`)
                   .sort()
                   .join("|")}
                 fixtureMode={Boolean(fixture)}
-                onAppsChanged={(workspaceId, runtimeInstanceId, apps) => {
-                  restrictedAppsState.replaceRuntimeInstanceApps(workspaceId, runtimeInstanceId, apps);
-                  void restrictedAppsState.refresh(workspaceId);
+                onAppsChanged={(spaceId, runtimeInstanceId, apps) => {
+                  restrictedAppsState.replaceRuntimeInstanceApps(spaceId, runtimeInstanceId, apps);
+                  void restrictedAppsState.refresh(spaceId);
                 }}
                 onError={onError}
               />
             ) : tab.kind === "appearance" ? (
-              <div className="workspace-appearance-surface professional-appearance-surface">
-                <div className="workspace-appearance-surface-heading">
-                  <span className="workspace-appearance-surface-icon" aria-hidden="true"><Color20Regular /></span>
-                  <div><h2>Customize {targetWorkspace.name}</h2><p>Give this Space a recognizable identity without changing the rest of Workspace.</p></div>
+              <div className="space-appearance-surface professional-appearance-surface">
+                <div className="space-appearance-surface-heading">
+                  <span className="space-appearance-surface-icon" aria-hidden="true"><Color20Regular /></span>
+                  <div><h2>Customize {targetSpace.name}</h2><p>Give this Space a recognizable identity without changing the rest of work-fold.</p></div>
                 </div>
-                <WorkspaceAppearancePanel
-                  workspace={targetWorkspace}
+                <SpaceAppearancePanel
+                  space={targetSpace}
                   identity={targetIdentity}
-                  customization={customizations[targetWorkspace.id]}
-                  canUndo={(appearanceHistoryRef.current.get(targetWorkspace.id)?.length ?? 0) > 0}
-                  onCustomizeWorkspace={customizeWorkspace}
-                  onReplaceWorkspace={replaceWorkspaceCustomization}
-                  onUndoWorkspace={undoWorkspaceCustomization}
-                  onResetWorkspace={resetWorkspaceCustomization}
+                  customization={customizations[targetSpace.id]}
+                  canUndo={(appearanceHistoryRef.current.get(targetSpace.id)?.length ?? 0) > 0}
+                  onCustomizeSpace={customizeSpace}
+                  onReplaceSpace={replaceSpaceCustomization}
+                  onUndoSpace={undoSpaceCustomization}
+                  onResetSpace={resetSpaceCustomization}
                 />
               </div>
             ) : tab.kind === "history" ? (
-              <HistoryPane workspace={targetWorkspace} fixtureItems={fixture?.checkpoints[targetWorkspace.id]} refreshRequest={targetWorkspace.id === workspace.id ? historyRefreshRequest : 0} selectedCheckpointId={tab.checkpointId} onOpen={(item) => tabs.openHistorySurfaceTab(targetWorkspace, item.checkpointId, item.label || "Restore point")} onError={onError} />
+              <HistoryPane space={targetSpace} fixtureItems={fixture?.checkpoints[targetSpace.id]} refreshRequest={targetSpace.id === space.id ? historyRefreshRequest : 0} selectedCheckpointId={tab.checkpointId} onOpen={(item) => tabs.openHistorySurfaceTab(targetSpace, item.checkpointId, item.label || "Restore point")} onError={onError} />
             ) : tab.kind === "extension" ? (() => {
-              const targetSurfaceInventoryKnown = Object.prototype.hasOwnProperty.call(surfaceCatalogs, targetWorkspace.id);
+              const targetSurfaceInventoryKnown = Object.prototype.hasOwnProperty.call(surfaceCatalogs, targetSpace.id);
               if (!targetSurfaceInventoryKnown) return <CenteredState icon={<Loader2 className="spin" size={24} />} title="Loading app view" text="Checking the tools installed for this Space." />;
-              const targetSurfaces = contributedSurfaces(targetWorkspace.id, surfaceCatalogs[targetWorkspace.id] ?? []);
+              const targetSurfaces = contributedSurfaces(targetSpace.id, surfaceCatalogs[targetSpace.id] ?? []);
               const surface = targetSurfaces.find((item) => surfaceMatchesTab(item, tab));
               const view = surface?.views.find((item) => item.id === tab.viewId);
               return surface && view ? <ExtensionSurfaceView surface={surface} view={view} /> : <ExtensionSurfaceUnavailable surfaceId={tab.surfaceId} viewId={tab.viewId} execution={tab.surfaceExecution} />;
             })() : tab.kind === "restricted-app" ? (() => {
-              if (!restrictedAppsState.knownWorkspaceIds.has(targetWorkspace.id)) return <CenteredState icon={<Loader2 className="spin" size={24} />} title="Loading app" text="Checking the sandboxed apps installed for this Space." />;
-              const app = restrictedAppsState.appsByWorkspace[targetWorkspace.id]?.find((item) => item.manifest.id === tab.appId && item.digest === tab.digest);
+              if (!restrictedAppsState.knownSpaceIds.has(targetSpace.id)) return <CenteredState icon={<Loader2 className="spin" size={24} />} title="Loading app" text="Checking the sandboxed apps installed for this Space." />;
+              const app = restrictedAppsState.appsBySpace[targetSpace.id]?.find((item) => item.manifest.id === tab.appId && item.digest === tab.digest);
               return app
                 ? <RestrictedAppViewport app={app} placement="tab" appTabId={tab.appTabId} route={tab.route} state={tab.state} active={active} />
                 : <CenteredState icon={<AlertTriangle size={24} />} title="App unavailable" text="This tab belongs to an app revision that is no longer installed in this Space." />;
             })() : tab.kind === "chat" ? (
-              <ChatPanel surfaceTabId={tab.id} workspace={targetWorkspace} workspaceCustomizations={customizations} active={active} targetConversationId={tab.conversationId ?? null} lifecycleView={targetConversationLifecycle} onResumeConversation={targetConversation ? () => updateChatLifecycle(targetWorkspace, targetConversation, targetConversationLifecycle === "archived" ? { archived: false } : { snoozedUntil: null }).then(() => {}).catch((caught) => onError(errorText(caught))) : undefined} contextPathRequest={chatContextRequestForTab(contextRequest, targetWorkspace.id, tab.id)} onAddPathToChatContext={active && targetWorkspace.id === workspace.id ? attachToChat : undefined} onUploadDroppedFiles={active && targetWorkspace.id === workspace.id ? uploadDroppedFilesForChat : undefined} onOpenWorkspaceFile={active && targetWorkspace.id === workspace.id ? (path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workspace, path); } : undefined} selectedPath={active && targetWorkspace.id === workspace.id ? tree.selectedPath : null} onConversationActivated={(conversation) => tabs.handleTabConversationActivated(tab.id, targetWorkspace, conversation)} onConversationsChanged={(conversations) => setConversationGroups((current) => ({ ...current, [targetWorkspace.id]: conversations }))} onRunningChange={(conversationId, running) => chatActivity.setRunning(chatActivityKey(targetWorkspace.id, conversationId), running)} onSettled={(conversationId, needsAttention) => chatActivity.setAttention(chatActivityKey(targetWorkspace.id, conversationId), needsAttention)} onViewed={(conversationId) => chatActivity.setAttention(chatActivityKey(targetWorkspace.id, conversationId), false)} onAgentFinished={() => targetWorkspace.id === workspace.id ? tree.refresh() : undefined} onRestrictedAppProposalRequested={() => tabs.setActiveSurfaceTabId(tab.id)} onRestrictedAppInstalled={(app) => openInstalledRestrictedApp(targetWorkspace, app)} fixtureMode={Boolean(fixture)} fixtureConversations={fixture && (tab.conversationId || tab.id === `chat:${targetWorkspace.id}:new`) ? fixture.conversations[targetWorkspace.id] : undefined} fixtureTreeEntries={fixture?.trees[targetWorkspace.id]} />
+              <ChatPanel surfaceTabId={tab.id} space={targetSpace} spaceCustomizations={customizations} active={active} targetConversationId={tab.conversationId ?? null} lifecycleView={targetConversationLifecycle} onResumeConversation={targetConversation ? () => updateChatLifecycle(targetSpace, targetConversation, targetConversationLifecycle === "archived" ? { archived: false } : { snoozedUntil: null }).then(() => {}).catch((caught) => onError(errorText(caught))) : undefined} contextPathRequest={chatContextRequestForTab(contextRequest, targetSpace.id, tab.id)} onAddPathToChatContext={active && targetSpace.id === space.id ? attachToChat : undefined} onUploadDroppedFiles={active && targetSpace.id === space.id ? uploadDroppedFilesForChat : undefined} onOpenSpaceFile={active && targetSpace.id === space.id ? (path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); } : undefined} selectedPath={active && targetSpace.id === space.id ? tree.selectedPath : null} onConversationActivated={(conversation) => tabs.handleTabConversationActivated(tab.id, targetSpace, conversation)} onConversationsChanged={(conversations) => setConversationGroups((current) => ({ ...current, [targetSpace.id]: conversations }))} onRunningChange={(conversationId, running) => chatActivity.setRunning(chatActivityKey(targetSpace.id, conversationId), running)} onSettled={(conversationId, needsAttention) => chatActivity.setAttention(chatActivityKey(targetSpace.id, conversationId), needsAttention)} onViewed={(conversationId) => chatActivity.setAttention(chatActivityKey(targetSpace.id, conversationId), false)} onAgentFinished={() => targetSpace.id === space.id ? tree.refresh() : undefined} onRestrictedAppProposalRequested={() => tabs.setActiveSurfaceTabId(tab.id)} onRestrictedAppInstalled={(app) => openInstalledRestrictedApp(targetSpace, app)} fixtureMode={Boolean(fixture)} fixtureConversations={fixture && (tab.conversationId || tab.id === `chat:${targetSpace.id}:new`) ? fixture.conversations[targetSpace.id] : undefined} fixtureTreeEntries={fixture?.trees[targetSpace.id]} />
             ) : null}
           </div>
         );
-      }) : <WorkspaceSurfaceEmptyState workspace={workspace} identity={identity} onNewChat={() => openChat(workspace, null)} />}
+      }) : <SpaceSurfaceEmptyState space={space} identity={identity} onNewChat={() => openChat(space, null)} />}
     </aside>
-    {fileContextMenu ? <FileContextMenu state={fileContextMenu} onSelect={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workspace, path); }} onOpenLocal={openLocalPath} onAddToChatContext={attachToChat} onCopyPath={copyPath} onShowVersionHistory={(path) => openVersionHistory(workspace, path)} onRename={fileContextMenu.entry.path ? renameEntry : undefined} onUploadHere={chooseUpload} onDelete={deleteEntry} onClose={() => setFileContextMenu(null)} /> : null}
+    {fileContextMenu ? <FileContextMenu state={fileContextMenu} onSelect={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); }} onOpenLocal={openLocalPath} onAddToChatContext={attachToChat} onCopyPath={copyPath} onShowVersionHistory={(path) => openVersionHistory(space, path)} onRename={fileContextMenu.entry.path ? renameEntry : undefined} onUploadHere={chooseUpload} onDelete={deleteEntry} onClose={() => setFileContextMenu(null)} /> : null}
     {renameEntryRequest ? <TextInputModal title={`Rename ${renameEntryRequest.name}`} description="Choose a new name. The item stays in the same folder." label="Name" initialValue={renameEntryRequest.name} confirmLabel="Rename" onSubmit={submitEntryRename} onClose={() => setRenameEntryRequest(null)} /> : null}
     {chatActions ? <ChatActionsPopover state={chatActions} onRename={renameChat} onLifecycle={(target, conversation, patch) => updateChatLifecycle(target, conversation, patch).then(() => {})} onClose={() => setChatActions(null)} /> : null}
-    {versionHistory ? <FileVersionHistoryModal workspace={versionHistory.workspace} filePath={versionHistory.path} fileName={versionHistory.name} onClose={() => setVersionHistory(null)} onRestored={() => void tree.refresh()} /> : null}
+    {versionHistory ? <FileVersionHistoryModal space={versionHistory.space} filePath={versionHistory.path} fileName={versionHistory.name} onClose={() => setVersionHistory(null)} onRestored={() => void tree.refresh()} /> : null}
     {commandPaletteOpen ? <CommandPaletteHost commands={commands} onClose={closeCommandPalette} /> : null}
   </main>;
 }
 
-function WorkspaceSurfaceEmptyState({ workspace, identity, onNewChat }: { workspace: WorkspaceSummary; identity: ReturnType<typeof workspaceIdentityFor>; onNewChat: () => void }) {
-  return <div className="workspace-surface-body workspace-surface-body-empty"><div className="workspace-surface-empty" style={workspaceIdentityStyle(identity)}><span className="workspace-surface-empty-icon"><WorkspaceIconGlyph icon={identity.Icon} size={24} /></span><h2>{workspace.name}</h2><p>Open a file, Chat, Library, restore point, or appearance tab here.</p><button className="primary-button" type="button" onClick={onNewChat}><CirclePlus size={16} />New Chat</button></div></div>;
+function SpaceSurfaceEmptyState({ space, identity, onNewChat }: { space: SpaceSummary; identity: ReturnType<typeof spaceIdentityFor>; onNewChat: () => void }) {
+  return <div className="space-surface-body space-surface-body-empty"><div className="space-surface-empty" style={spaceIdentityStyle(identity)}><span className="space-surface-empty-icon"><SpaceIconGlyph icon={identity.Icon} size={24} /></span><h2>{space.name}</h2><p>Open a file, Chat, Library, restore point, or appearance tab here.</p><button className="primary-button" type="button" onClick={onNewChat}><CirclePlus size={16} />New Chat</button></div></div>;
 }
 
 function applyFixtureChatLifecycle(
@@ -1273,12 +1274,12 @@ function DesktopUpdateButton({ status, onClick }: { status: DesktopUpdateStatus;
 
 function updateNeedsAttention(status: DesktopUpdateStatus) { return ["available", "downloading", "ready", "error"].includes(status.phase); }
 function updateActionLabel(status: DesktopUpdateStatus) {
-  if (status.phase === "available") return `Download Workspace ${status.availableVersion ?? "update"}`;
+  if (status.phase === "available") return `Download work-fold ${status.availableVersion ?? "update"}`;
   if (status.phase === "downloading") return status.progressPercent === null ? "Downloading update" : `Downloading update · ${Math.round(status.progressPercent)}%`;
-  if (status.phase === "ready") return `Restart and install Workspace ${status.availableVersion ?? "update"}`;
+  if (status.phase === "ready") return `Restart and install work-fold ${status.availableVersion ?? "update"}`;
   if (status.phase === "installing") return "Restarting to install update";
   if (status.phase === "error") return "Retry update";
-  if (status.phase === "not_available") return "Workspace is up to date";
+  if (status.phase === "not_available") return "work-fold is up to date";
   return "Check for updates";
 }
 
@@ -1298,13 +1299,13 @@ function commandPaletteBlockedByDialog() {
   return Boolean(document.querySelector(".modal-backdrop, .publish-review-backdrop, [role='dialog'][aria-modal='true']"));
 }
 
-function pendingDeleteKey(pending: Pick<PendingDelete, "workspaceId" | "path">) {
-  return `${pending.workspaceId}:${pending.path}`;
+function pendingDeleteKey(pending: Pick<PendingDelete, "spaceId" | "path">) {
+  return `${pending.spaceId}:${pending.path}`;
 }
 
 async function deleteLocalFileRequest(pending: PendingDelete, keepalive = false) {
-  const sessionHeaders = await window.workspaceDesktop?.api.getSessionHeaders?.();
-  const response = await fetch(apiUrl(`/api/workspaces/${pending.workspaceId}/local-file`), {
+  const sessionHeaders = await window.workFoldDesktop?.api.getSessionHeaders?.();
+  const response = await fetch(apiUrl(`/api/spaces/${pending.spaceId}/local-file`), {
     method: "DELETE",
     headers: { "content-type": "application/json", ...(sessionHeaders ?? {}) },
     body: JSON.stringify({ path: pending.path }),
@@ -1367,15 +1368,15 @@ function joinDropPath(...segments: string[]) {
   return segments.map((segment) => segment.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "")).filter(Boolean).join("/");
 }
 
-function fixtureConversationGroups(fixture: WorkspaceUiFixture): Record<string, ConversationSummary[]> { return Object.fromEntries(Object.entries(fixture.conversations).map(([id, conversations]) => [id, conversations.map(({ messages: _messages, ...summary }) => summary)])); }
-function normalizeMode(value: string | null): WorkspaceRailMode {
-  if (value === "space" || value === "workspaces") return "files";
+function fixtureConversationGroups(fixture: SpaceUiFixture): Record<string, ConversationSummary[]> { return Object.fromEntries(Object.entries(fixture.conversations).map(([id, conversations]) => [id, conversations.map(({ messages: _messages, ...summary }) => summary)])); }
+function normalizeMode(value: string | null): SpaceRailMode {
+  if (value === "space" || value === "spaces") return "files";
   if (value === "library" || value === "capabilities" || value === "skills" || value === "extensions") return "files";
-  if (value?.startsWith("app:") && /^[a-z0-9][a-z0-9:_-]{0,255}$/i.test(value.slice(4))) return value as WorkspaceRailMode;
-  return (["files", "chats", "history"] as WorkspaceRailMode[]).includes(value as WorkspaceRailMode) ? value as WorkspaceRailMode : "files";
+  if (value?.startsWith("app:") && /^[a-z0-9][a-z0-9:_-]{0,255}$/i.test(value.slice(4))) return value as SpaceRailMode;
+  return (["files", "chats", "history"] as SpaceRailMode[]).includes(value as SpaceRailMode) ? value as SpaceRailMode : "files";
 }
 
-function extensionSurfaceIdForMode(mode: WorkspaceRailMode): string | null {
+function extensionSurfaceIdForMode(mode: SpaceRailMode): string | null {
   return mode.startsWith("app:") && !mode.startsWith("app:restricted:") ? mode.slice(4) : null;
 }
 
@@ -1384,13 +1385,13 @@ function useThemePreference(): [AppTheme, AppThemePreference, (value: AppThemePr
   const [system, setSystem] = useState<AppTheme>(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   const theme = preference === "system" ? system : preference;
   useEffect(() => { const media = window.matchMedia?.("(prefers-color-scheme: dark)"); if (!media) return; const change = () => setSystem(media.matches ? "dark" : "light"); media.addEventListener("change", change); return () => media.removeEventListener("change", change); }, []);
-  useEffect(() => { document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme; window.workspaceDesktop?.window.setTheme(theme, preference); if (!fixtureRequested) writeStoredValue(themePreferenceKey, preference); }, [preference, theme]);
+  useEffect(() => { document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme; window.workFoldDesktop?.window.setTheme(theme, preference); if (!fixtureRequested) writeStoredValue(themePreferenceKey, preference); }, [preference, theme]);
   return [theme, preference, setPreference];
 }
 
 function useTypographyPreference(): [AppTypographyPreference, (update: Partial<AppTypographyPreference>) => void] {
   const [value, setValue] = useState<AppTypographyPreference>(() => fixtureRequested ? defaultTypographyPreference : readStoredJsonValue(typographyPreferenceKey, (raw) => { const record = raw as Partial<AppTypographyPreference>; const font = typographyFontValues.includes(record.font as AppTypographyFont) ? record.font as AppTypographyFont : defaultTypographyPreference.font; return { font: typographyFontForPlatform(font), textSize: textSizeValues.includes(record.textSize as AppTypographyPreference["textSize"]) ? record.textSize as AppTypographyPreference["textSize"] : defaultTypographyPreference.textSize }; }, defaultTypographyPreference));
-  useEffect(() => { document.documentElement.dataset.workspaceFont = value.font; document.documentElement.dataset.workspaceTextSize = value.textSize; if (!fixtureRequested) writeStoredJsonValue(typographyPreferenceKey, value); }, [value]);
+  useEffect(() => { document.documentElement.dataset.workFoldFont = value.font; document.documentElement.dataset.workFoldTextSize = value.textSize; if (!fixtureRequested) writeStoredJsonValue(typographyPreferenceKey, value); }, [value]);
   return [value, (update) => setValue((current) => ({ ...current, ...update }))];
 }
 
@@ -1454,17 +1455,17 @@ function useScrollbarActivity() {
 
 function useDesktopAccentColor() {
   useEffect(() => {
-    const desktopWindow = window.workspaceDesktop?.window;
+    const desktopWindow = window.workFoldDesktop?.window;
     if (!desktopWindow) return;
     let cancelled = false;
     const apply = (color: string | null) => {
       if (!color) {
-        document.documentElement.style.removeProperty("--workspace-accent");
+        document.documentElement.style.removeProperty("--space-accent");
         document.documentElement.style.removeProperty("--ui-accent");
         document.documentElement.style.removeProperty("--ui-accent-hover");
         document.documentElement.style.removeProperty("--ui-accent-soft");
       } else if (/^#[0-9a-f]{6}$/i.test(color)) {
-        document.documentElement.style.setProperty("--workspace-accent", color);
+        document.documentElement.style.setProperty("--space-accent", color);
         document.documentElement.style.setProperty("--ui-accent", color);
         document.documentElement.style.setProperty("--ui-accent-hover", `color-mix(in srgb, ${color} 86%, black)`);
         document.documentElement.style.setProperty("--ui-accent-soft", `color-mix(in srgb, ${color} 12%, transparent)`);

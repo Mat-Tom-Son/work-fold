@@ -32,7 +32,7 @@ async function temporaryStore(t: test.TestContext): Promise<{
   root: string;
   store: FileRestrictedAppStorage;
 }> {
-  const sandbox = await mkdtemp(join(tmpdir(), "workspace-restricted-storage-"));
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-restricted-storage-"));
   t.after(() => rm(sandbox, { recursive: true, force: true }));
   const root = join(sandbox, "restricted-app-data");
   return { root, store: new FileRestrictedAppStorage(root) };
@@ -233,12 +233,12 @@ test("restricted app storage reauthorizes immediately before an atomic commit", 
   });
 });
 
-test("restricted app storage adopts the legacy Space/app store exactly once", async (t) => {
+test("restricted app storage ignores old Space/app stores", async (t) => {
   const { root, store } = await temporaryStore(t);
-  const legacyOwner = { workspaceId: "space-one", appId: "mail-app" };
+  const legacyOwner = { spaceId: "space-one", appId: "mail-app" };
   const legacyHash = createHash("sha256")
-    .update("workspace-restricted-app-storage-v1\0")
-    .update(legacyOwner.workspaceId)
+    .update("work-fold-restricted-app-storage-v1\0")
+    .update(legacyOwner.spaceId)
     .update("\0")
     .update(legacyOwner.appId)
     .digest("hex");
@@ -252,11 +252,9 @@ test("restricted app storage adopts the legacy Space/app store exactly once", as
     entries: [{ key: "state", value: { preserved: true } }],
   }), "utf8");
 
-  assert.equal(await store.migrateLegacyOwner(legacyOwner, owner), true);
-  assert.deepEqual(await store.get(owner, "state"), { preserved: true });
-  assert.equal((await store.usage(owner)).revision, 4);
-  await assert.rejects(readFile(join(legacyDirectory, "storage.json")), { code: "ENOENT" });
-  assert.equal(await store.migrateLegacyOwner(legacyOwner, owner), false);
+  assert.equal(await store.get(owner, "state"), undefined);
+  assert.equal((await store.usage(owner)).revision, 0);
+  assert.equal(JSON.parse(await readFile(join(legacyDirectory, "storage.json"), "utf8")).schemaVersion, 1);
 });
 
 test("restricted app storage writes one atomic regular file and fails closed on corruption", async (t) => {

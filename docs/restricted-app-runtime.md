@@ -1,6 +1,6 @@
 # Restricted app runtime
 
-Workspace has a second executable lane for apps an agent creates for a Space.
+work-fold has a second executable lane for apps an agent creates for a Space.
 These apps can render arbitrary reviewed web UI in the left navigator and open
 normal persistent tabs in the work area. They are intentionally separate from
 native Pi Extensions.
@@ -25,6 +25,11 @@ installer, or appear in Pi's loaded Extension catalog. Pi imports Extension
 modules and calls their factories during catalog loading, which would cross the
 restricted execution boundary before the app opened.
 
+This lane begins empty in work-fold's new application profile. Legacy Workspace
+registries, package records, staged artifacts, storage namespaces, connections,
+receipts, grants, and automations are never opened, imported, or adopted. They
+cannot confer identity or authority in work-fold.
+
 ## Package contract
 
 `agent-app.json` is strict and versioned. It declares:
@@ -48,17 +53,17 @@ Public destinations use `{ "kind": "public-https", "origin": "https://api.exampl
 Local development services use an explicit numeric target such as
 `{ "kind": "loopback-http", "host": "127.0.0.1", "port": 4317 }`.
 Loopback targets do not use DNS, cannot redirect, and cannot receive saved
-credentials. Workspace verifies the numeric address and port, but does not yet
+credentials. work-fold verifies the numeric address and port, but does not yet
 verify which local process owns that port; the UI states that limitation when
 access is granted.
 
 Public auth declarations can use `none`, `api-key`, `bearer`, `basic`, or
 `oauth2-pkce`. Manifests contain no secret values. OAuth declarations contain a
 public HTTPS issuer, an existing public native-client id, scopes, an optional
-discovery mode, and optional reviewed authorization parameters. Workspace does
+discovery mode, and optional reviewed authorization parameters. work-fold does
 not accept client secrets, OIDC scopes, or device-code declarations in this
 lane. Generated apps cannot create a provider registration; provider-specific
-convenience connections require a future Workspace-owned adapter and
+convenience connections require a future work-fold-owned adapter and
 registration.
 
 An OAuth declaration locates its authorization server through RFC 8414
@@ -73,13 +78,13 @@ endpoint has no such document and must therefore establish the same authority
 structurally. Otherwise a package could pair a genuine issuer and authorization
 endpoint with an attacker-controlled token endpoint and receive the
 authorization code and PKCE verifier after a real provider consent screen.
-Workspace renders the exact issuer, client id, scopes, discovery mode, pinned
+work-fold renders the exact issuer, client id, scopes, discovery mode, pinned
 endpoints, and static authorization parameters during app review and connection
 management, but that transparency is not a substitute for structural
 validation. Pinned mode also cannot require the RFC 9207
 authorization-response `iss` check, because no metadata states whether the
 provider supports it.
-Workspace enforces what it can prove — the metadata issuer must equal the
+work-fold enforces what it can prove — the metadata issuer must equal the
 declared issuer, endpoints must be public HTTPS, and an advertised grant list
 must include `authorization_code` — and reports rather than refuses
 under-declared provider capabilities, because the client itself always sends
@@ -99,7 +104,7 @@ The package inspector never invokes npm, imports package code, or runs lifecycle
 scripts. It rejects scripts, binaries, workspaces, native build flags, Pi
 declarations, unsafe paths, links, missing entries, unknown powers, and
 oversized content. Dependency metadata is permitted because an agent may use a
-normal frontend toolchain, but Workspace never resolves or installs it: all
+normal frontend toolchain, but work-fold never resolves or installs it: all
 runtime assets must already be present in the reviewed package.
 Enumeration captures each regular file's identity, size, and change metadata;
 later reads use bounded file handles, require the same identity before and
@@ -108,8 +113,9 @@ from that one captured snapshot. A package that changes during inspection
 fails closed instead of allocating or reviewing the replacement bytes.
 
 Files are copied into application storage under a SHA-256 content digest and
-verified again. Inspection also computes the portable `workspace-artifact-v1`
-digest used by the App-platform release contract. Installation requires the
+verified again. Inspection also computes the portable
+`work-fold.artifact.v1:sha256:<64-lowercase-hex>` digest used by the App-platform
+release contract. Installation requires the
 exact reviewed bytes. The local registry owns one App Project and Development
 Instance per participating Space, with a distinct Feature Installation and Data
 Namespace per app. Source edits after installation do not change the installed
@@ -128,11 +134,11 @@ connected-inbox/
 
 The checked-in [connected inbox app](../examples/packages/restricted-connected-inbox/README.md)
 is an interactive reference package with a separate ordinary loopback demo
-service. Workspace does not launch or trust that developer process.
+service. work-fold does not launch or trust that developer process.
 
 ## Visible app host
 
-The trusted Workspace renderer owns only a placeholder rectangle and app
+The trusted work-fold renderer owns only a placeholder rectangle and app
 identity. Electron main verifies the installed Runtime Instance, Feature
 Installation, exact revision, and seven-domain Authority Stamp, snapshots the
 staged package, and mounts a `WebContentsView` in the main window. Every mount
@@ -159,12 +165,13 @@ the host clips the native view itself because renderer CSS cannot clip a
 the corner area still participates in hit testing, so the inset keeps it over
 inert pane background rather than trusted controls.
 
-The preload exposes only `workspaceRestrictedApp`:
+The `work-fold.restricted-app-bridge` preload exposes only the frozen
+`workFoldRestrictedApp` global:
 
 - `context.get()` and `context.onChanged()` report placement (`navigator` or
   `tab`), route, host-owned app identity, theme, active state, and bounded tab
   state;
-- `tabs.open(...)` asks Workspace to create or activate a Space-owned work tab;
+- `tabs.open(...)` asks work-fold to create or activate a Space-owned work tab;
 - a tab may update or close itself;
 - `request(...)` sends a declared request through the network broker;
 - `storage` provides Tenant-and-Data-Namespace-owned JSON data and active-UI
@@ -186,7 +193,7 @@ error code (`NETWORK_RESPONSE_TOO_LARGE`, `NETWORK_REQUEST_TOO_LARGE`,
 over-large read is distinguishable from a transport failure.
 
 An app supplies a local `appTabId`, title, route, and JSON state. It never
-supplies the owning Space, app id, digest, or shell tab id. Workspace derives
+supplies the owning Space, app id, digest, or shell tab id. work-fold derives
 those values from the sending `WebContents` and constructs
 `restricted-app:<space>:<app>:<digest>:<appTabId>`. App tabs use the same shell
 storage, cross-Space activation, close behavior, and most-recent-tab restoration
@@ -198,7 +205,7 @@ an unavailable or duplicate old-revision tab in the strip.
 ## Worker host
 
 Apps that expose Assistant tools or automations declare a separate worker
-module. Workspace loads it in a hidden sandboxed renderer with the same
+module. work-fold loads it in a hidden sandboxed renderer with the same
 direct-network and Node denials. Inputs and outputs are schema checked and
 bounded; timeouts, crashes, cyclic values, intrinsic tampering, and oversized
 results terminate the worker. The worker is optional so a UI-only app does not
@@ -212,13 +219,13 @@ The worker exports `handleAutomation(event)` and dispatches using the reviewed
 for the latest missed occurrence after startup or resume; `"none"` skips missed
 occurrences. `overlap` is currently fixed to `"skip"`.
 
-One machine-wide `WorkspaceAutomationService` owns scheduling across every
+One machine-wide `WorkFoldAutomationService` owns scheduling across every
 Space and restricted app. It uses a FIFO queue, at most two active jobs, and
 never overlaps the same named job. Scheduled, manual, skipped, cancelled, and
 failed attempts produce durable run receipts. The cadence anchor is persisted
 separately from one-off manual runs, so **Run now** does not shift the next
 scheduled occurrence. A manual run is allowed while its schedule is disabled,
-but it receives no notification authority. At launch, Workspace re-reads the
+but it receives no notification authority. At launch, work-fold re-reads the
 installed digest and current grants, then intersects those grants with that
 job's reviewed permission subset. Disabling, updating, removing, sleeping, or
 quitting stops stale launches before authority changes take effect.
@@ -250,9 +257,9 @@ Runtime Instance, Feature Installation, canonical Feature Revision artifact
 digest, destination declaration and digest, canonical target identity, and an
 explicit owner. The current local path creates Runtime-Instance-owned bindings;
 Principal-owned consent and delegation remain future product work. Apps receive
-status and errors, not secret values. The former Space/app/package-digest store is read only as
-disconnected authority; an explicit reconnect atomically replaces it without
-transferring ambiguous credentials.
+status and errors, not secret values. Legacy Workspace connection stores are
+never opened or imported. Connecting in work-fold creates a new binding in the
+new profile without transferring credentials or authority.
 
 OAuth PKCE uses RFC 8414 discovery, S256, a random one-shot loopback callback,
 state and verifier checks, the system browser, encrypted token storage, and
@@ -273,9 +280,9 @@ both cases.
 Every installed app has bounded, machine-local JSON storage physically keyed by
 Tenant and Data Namespace and self-describing its Runtime Instance and Feature
 Installation owner. The default limits are 5 MiB, 512 keys, 128 KiB per value,
-and bounded atomic transactions with revision checks. The schema-1 Space/app
-store is adopted exactly once after the host durably establishes those new
-identities. Data survives renderer replacement and reviewed updates and is never
+and bounded atomic transactions with revision checks. Legacy Workspace storage
+is never opened or adopted. Data created by work-fold survives renderer
+replacement and reviewed updates and is never
 placed in the Space. Removing a Development preview purges its namespace.
 Uninstalling a release-backed App Instance instead requires an explicit
 retain-or-purge choice: retained data loses all live Feature authority and can
@@ -297,7 +304,8 @@ it to a relative file or folder inside that app's Space. The sandbox sends only
 the grant id and a grant-relative path; the host derives Runtime Instance,
 Feature Installation, exact revision, current authority, and the selected root.
 The broker rejects absolute paths, traversal, links and
-junction escapes, alternate data streams, `.workspace`, `.pi`, oversized
+junction escapes, alternate data streams, `.work-fold`, preserved legacy
+`.workspace`, `.pi`, oversized
 operations, and authority beyond the declaration. Writes are atomic and create
 a targeted History checkpoint. An exact-file grant uses the grant-relative
 path `.` and may replace only that selected file; its atomic temporary stays in
@@ -314,7 +322,7 @@ The tool cannot execute or install code, grant a destination, or collect a
 credential. Its model-facing guidelines include the complete package, bridge,
 worker, permission, storage, file, tab, automation, and OAuth declaration
 contract, so app generation does not depend on a source checkout or hidden
-Workspace-only skill.
+work-fold-only skill.
 
 Human approval adds the receipt's exact revision as a Local preview in the
 source Space's Development Instance, with network, file, and notification
@@ -333,9 +341,9 @@ App Studio is a separate Space-bound work tab for moving reviewed previews into
 the local release-backed lane. The shipped lifecycle is:
 
 1. Declare or edit one App Project's machine-local title, description, and icon.
-   The Project record stays in Workspace application data; no portable Project
+   The Project record stays in work-fold application data; no portable Project
    file is written into the Space.
-2. Prepare an immutable `workspace-app-release` format-version-2 envelope from
+2. Prepare an immutable `work-fold.app-release` format-version-2 envelope from
    every current preview. The digest covers App presentation, exact Feature
    artifacts and declarations, dependency inventory, provenance, and inspection
    evidence. The verified canonical envelope is stored durably by digest.
@@ -390,23 +398,21 @@ are bound to Tenant, Runtime Instance, Feature Installation, exact Feature
 revision, declaration digest, target identity, and the current Runtime Instance
 owner. The portable contract also defines future Principal-owned connection
 consent and unattended delegation, but the version-2 local product does not
-offer that path. The old Space/app connection schema fails closed and requires
-reconnection because it cannot prove the stronger identities. All legacy
-bindings remain disconnected; the first explicit reconnect replaces the legacy
-store and discards its ambiguous bindings.
+offer that path. Old Workspace connection schemas are outside this profile and
+are never parsed. A connection created in work-fold starts with the complete
+new identity tuple.
 
 New automation receipts capture the accepting Tenant, Runtime Instance,
 Feature Installation, canonical Feature Revision, Data Namespace, effective
 Principal, seven-domain authority, occurrence, attempt, state, and acceptance
 time without storing worker inputs, outputs, file contents, request bodies, or
-credentials. Receipts imported from the older registry remain explicitly
-`legacy-unverified`; Workspace does not invent authority facts that were never
-recorded. The host persists an installation-independent `accepted` receipt
+credentials. Old Workspace receipts are not imported, so they cannot be
+presented as work-fold audit evidence. The host persists an installation-independent `accepted` receipt
 before starting worker execution and later terminalizes that run by its durable
 run id, even if update or removal has already detached the installation.
 On startup, any receipt left only in `accepted` state is reconciled to an
 `interrupted` outcome and `expired` state with an explicit warning that the
-completion of external effects is unknown; Workspace never reports a guessed
+completion of external effects is unknown; work-fold never reports a guessed
 success, failure, or cancellation.
 The registry has the same 5 MiB bound on write and read. Each automation
 acceptance preflights enough space for every currently accepted run to become a
@@ -421,7 +427,7 @@ or make an already-committed authority change appear to have failed.
 
 Removing a source Space is blocked while its Project has any active local App
 Instance or retained data; removing a target Space is blocked only while an App
-Instance is attached there. Workspace requires the whole App Instance to be
+Instance is attached there. work-fold requires the whole App Instance to be
 uninstalled first so a Space-removal shortcut cannot silently choose a data
 disposition. After explicit purge, source removal clears the machine-local App
 Project and Release lineage. Target removal cancels unactivated operations
@@ -442,12 +448,12 @@ The main gaps are:
   automation notifications are available);
 - a Space-service registry that can verify process ownership and lifecycle,
   replacing raw loopback-port grants for managed project services;
-- reviewed schema/migration execution, retained-data adoption and export, and a
+- reviewed schema/migration execution, retained-data reuse and export, and a
   portable Project import/collision model; and
 - finer resource controls for long-running or memory-heavy web apps.
 
 A verified Space-service target is deliberately not exposed yet. An honest
-implementation needs a trusted Workspace launcher/process authority outside the
+implementation needs a trusted work-fold launcher/process authority outside the
 renderer and local API, per-instance secret challenge, and generation-aware
 lifecycle. Treating any listener on a reviewed port as owned would only rename
 the existing raw-loopback limitation.

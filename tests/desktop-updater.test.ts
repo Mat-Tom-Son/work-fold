@@ -6,12 +6,12 @@ import test from "node:test";
 import {
   hasPackagedDesktopUpdateFeed,
   hasDownloadedUpdatePayload,
-  WorkspaceUpdater,
-  type WorkspaceUpdateCheckResultLike,
-  type WorkspaceUpdateMessage,
-  type WorkspaceUpdateStatus,
-  type WorkspaceUpdaterAdapter,
-  type WorkspaceUpdaterHost,
+  DesktopUpdater,
+  type DesktopUpdateCheckResultLike,
+  type DesktopUpdateMessage,
+  type DesktopUpdateStatus,
+  type DesktopUpdaterAdapter,
+  type DesktopUpdaterHost,
 } from "../desktop/src/updater.js";
 
 test("installed Windows and macOS builds with an updater feed enable update controls", () => {
@@ -33,14 +33,14 @@ test("downloaded payload readiness follows each platform updater", () => {
   assert.equal(hasDownloadedUpdatePayload({ platform: "win32", updateDownloadedEventReceived: true, installerPath: "C:\\updates\\Workspace.exe", installerExists: true }), true);
 });
 
-class FakeUpdater extends EventEmitter implements WorkspaceUpdaterAdapter {
+class FakeUpdater extends EventEmitter implements DesktopUpdaterAdapter {
   autoDownload = true;
   autoInstallOnAppQuit = true;
   autoRunAppAfterInstall = false;
   allowDowngrade = true;
   allowPrerelease = true;
   installerPath: string | null = "C:\\updates\\Workspace-Setup.exe";
-  checkResult: WorkspaceUpdateCheckResultLike | null = {
+  checkResult: DesktopUpdateCheckResultLike | null = {
     isUpdateAvailable: true,
     updateInfo: { version: "1.1.0" },
   };
@@ -49,7 +49,7 @@ class FakeUpdater extends EventEmitter implements WorkspaceUpdaterAdapter {
   quitError: Error | null = null;
   quitCalls: Array<{ silent: boolean | undefined; forceRunAfter: boolean | undefined }> = [];
 
-  async checkForUpdates(): Promise<WorkspaceUpdateCheckResultLike | null> {
+  async checkForUpdates(): Promise<DesktopUpdateCheckResultLike | null> {
     if (this.checkError) throw this.checkError;
     return this.checkResult;
   }
@@ -66,15 +66,15 @@ class FakeUpdater extends EventEmitter implements WorkspaceUpdaterAdapter {
   }
 }
 
-class FakeHost implements WorkspaceUpdaterHost {
+class FakeHost implements DesktopUpdaterHost {
   supported = true;
   platformValue: NodeJS.Platform = "win32";
   version = "1.0.0";
   nowValue = "2026-07-10T12:00:00.000Z";
   installerPresent = true;
   messageResponse = 1;
-  messages: WorkspaceUpdateMessage[] = [];
-  statuses: WorkspaceUpdateStatus[] = [];
+  messages: DesktopUpdateMessage[] = [];
+  statuses: DesktopUpdateStatus[] = [];
   progress: number[] = [];
 
   isSupported(): boolean { return this.supported; }
@@ -82,12 +82,12 @@ class FakeHost implements WorkspaceUpdaterHost {
   currentVersion(): string { return this.version; }
   now(): string { return this.nowValue; }
   installerExists(): boolean { return this.installerPresent; }
-  async showMessage(options: WorkspaceUpdateMessage): Promise<{ response: number }> {
+  async showMessage(options: DesktopUpdateMessage): Promise<{ response: number }> {
     this.messages.push(options);
     return { response: this.messageResponse };
   }
   setProgress(value: number): void { this.progress.push(value); }
-  emitStatus(status: WorkspaceUpdateStatus): void { this.statuses.push(status); }
+  emitStatus(status: DesktopUpdateStatus): void { this.statuses.push(status); }
 }
 
 function createHarness(options: { prepare?: () => Promise<void>; platform?: NodeJS.Platform } = {}) {
@@ -95,7 +95,7 @@ function createHarness(options: { prepare?: () => Promise<void>; platform?: Node
   const host = new FakeHost();
   host.platformValue = options.platform ?? "win32";
   let prepareCalls = 0;
-  const updater = new WorkspaceUpdater({
+  const updater = new DesktopUpdater({
     updater: adapter,
     host,
     automaticChecks: false,

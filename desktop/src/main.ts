@@ -36,42 +36,43 @@ import {
 } from "../../src/local/agent/registered-space-runtime.js";
 import type { PiRuntimeProvider } from "../../src/local/agent/pi-runtime-config.js";
 import { startLocalApi } from "../../src/local/server.js";
-import type { WorkspaceActFacade } from "../../src/local/cli/act-facade.js";
+import type { WorkFoldActFacade } from "../../src/local/cli/act-facade.js";
 import {
-  removeWorkspaceCliActTokenFile,
-  writeWorkspaceCliActTokenFile,
+  removeWorkFoldCliActTokenFile,
+  writeWorkFoldCliActTokenFile,
 } from "../../src/local/cli/act-token.js";
-import { configureWorkspaceStateRoot } from "../../src/local/state-paths.js";
-import { getWorkspace, listWorkspaces } from "../../src/local/workspace.js";
-import { WorkspaceCliKernelAdapter } from "../../src/local/workspace-cli-adapter.js";
-import { WorkspaceKernel } from "../../src/local/workspace-kernel.js";
-import { WorkspaceCheckService } from "../../src/local/checks/check-service.js";
+import { configureWorkFoldStateRoot, managedSpaceRoot } from "../../src/local/state-paths.js";
+import { getSpace, listSpaces } from "../../src/local/space.js";
+import { WorkFoldCliKernelAdapter } from "../../src/local/work-fold-cli-adapter.js";
+import { WorkFoldKernel } from "../../src/local/work-fold-kernel.js";
+import { WorkFoldCheckService } from "../../src/local/checks/check-service.js";
 import { RestrictedAppService } from "../../src/local/agent/restricted-app-service.js";
 import { FileRestrictedAppStorage } from "../../src/local/agent/restricted-app-storage.js";
 import { RestrictedAppNotificationBroker } from "../../src/local/agent/restricted-app-notifications.js";
 import { restrictedAppRoot } from "../../src/local/state-paths.js";
 import {
-  WorkspaceDesktopCliHost,
-  workspaceCliInstanceData,
-  workspaceCliRequestIdFromArgv,
-  workspaceCliRequestIdFromInstanceData,
-} from "./cli-host.js";
+  WorkFoldDesktopCliHost,
+  workFoldCliInstanceData,
+  workFoldCliRequestIdFromArgv,
+  workFoldCliRequestIdFromInstanceData,
+} from "./work-fold-cli-host.js";
+import { ManagementPopover, type ManagementPopoverStagedItem } from "./management-popover.js";
 import { PackagedPiRuntimeProvider } from "./pi-runtime.js";
 import { createRestrictedAppConnectionStore } from "./restricted-app-connections.js";
 import { createRestrictedAppOAuthClient } from "./restricted-app-oauth.js";
 import { RestrictedAppHost, restrictedAppProtocol } from "./restricted-app-host.js";
 import { SecureSettingsStore } from "./settings.js";
-import { WorkspaceUpdater, type WorkspaceUpdateStatus } from "./updater.js";
+import { DesktopUpdater, type DesktopUpdateStatus } from "./updater.js";
 import {
-  workspaceDesktopUserDataPath,
-  workspaceDesktopStateOverride,
-  workspaceDesktopUsesInstalledProductData,
+  workFoldDesktopUserDataPath,
+  workFoldDesktopStateOverride,
+  workFoldDesktopUsesInstalledProductData,
 } from "./user-data-path.js";
 import {
-  latestWorkspaceReleaseUrl,
-  runWorkspaceStartupRecovery,
-  workspaceStartupRecoveryPlan,
-  type WorkspaceStartupRecoveryPlan,
+  latestWorkFoldReleaseUrl,
+  runWorkFoldStartupRecovery,
+  workFoldStartupRecoveryPlan,
+  type WorkFoldStartupRecoveryPlan,
 } from "./startup-recovery.js";
 import { createDesktopPiOAuthHooks } from "./pi-oauth.js";
 import { AppLifetimeResource } from "./app-lifetime-resource.js";
@@ -84,18 +85,19 @@ import {
 import { desktopWindowMaterial, shouldUseMacVibrancy, shouldUseWindowsMica } from "./window-material.js";
 import { GracefulQuitCoordinator, type QuitPreparationOutcome } from "./quit-coordinator.js";
 import { RailTooltipOverlay } from "./rail-tooltip-overlay.js";
+import { productIdentity } from "../../src/shared/product-identity.js";
 
-const productionProductName = "Workspace";
-const localMacSmokeProductName = "Workspace Local Smoke";
+const productionProductName = productIdentity.productName;
+const localMacSmokeProductName = productIdentity.macSmokeProductName;
 const localMacSmokeBuild = process.platform === "darwin" && app.isPackaged && packagedBuildChannel() === "mac-local-smoke";
 const productName = localMacSmokeBuild ? localMacSmokeProductName : productionProductName;
-const appProtocol = "workspace-desktop";
-const appUserModelId = "io.github.mattomson.workspace";
+const appProtocol = productIdentity.internalProtocol;
+const appUserModelId = productIdentity.productionAppId;
 const desktopAssetRoutePrefix = "/_desktop-assets/";
 const desktopTitleBarHeight = 40;
 const desktopTitleBarOverlayPalettes = {
-  light: { color: "#f3f4f6", symbolColor: "#1b2433" },
-  dark: { color: "#20242b", symbolColor: "#f8fafc" },
+  light: { color: "#f4f2ed", symbolColor: "#252321" },
+  dark: { color: "#1b1a18", symbolColor: "#f0ece5" },
 } as const;
 // Electron supports Mica on Windows 11 22H2+ (build 22621). Older builds and
 // reduced-transparency sessions use a solid theme-matched window background.
@@ -104,7 +106,7 @@ const micaSupported = shouldUseWindowsMica(
   process.getSystemVersion(),
   nativeTheme.prefersReducedTransparency,
 );
-const macVibrancyEnabled = process.env.WORKSPACE_MAC_NATIVE_MATERIAL?.trim() !== "0";
+const macVibrancyEnabled = process.env.WORKFOLD_MAC_NATIVE_MATERIAL?.trim() !== "0";
 const macVibrancySupported = shouldUseMacVibrancy(
   process.platform,
   nativeTheme.prefersReducedTransparency,
@@ -114,7 +116,7 @@ const nativeWindowMaterial = desktopWindowMaterial(process.platform, {
   windowsMica: micaSupported,
   macVibrancy: macVibrancySupported,
 });
-const windowBackgroundColors = { light: "#f5f6f8", dark: "#111318" } as const;
+const windowBackgroundColors = { light: "#f4f2ed", dark: "#1b1a18" } as const;
 
 function titleBarOverlayFor(theme: "light" | "dark"): Electron.TitleBarOverlay {
   return {
@@ -138,22 +140,24 @@ const resumeUpdateCheckDelayMs = 20_000;
 const headlessCliIdleGraceMs = 500;
 const defaultWindowState = { width: 1440, height: 960 };
 const minimumWindowState = { width: 1100, height: 760 };
-const folderGrants = new Map<string, { rootPath: string; expiresAt: number }>();
+const folderGrants = new Map<string, { spaceRoot: string; expiresAt: number }>();
 
 let mainWindow: BrowserWindow | null = null;
 let railTooltipOverlay: RailTooltipOverlay | null = null;
 let tray: Tray | null = null;
+let managementPopover: ManagementPopover | null = null;
 const localApiLifetime = new AppLifetimeResource<Awaited<ReturnType<typeof startLocalApi>>>();
 let piRuntime: PackagedPiRuntimeProvider | null = null;
 let secureSettings: SecureSettingsStore | null = null;
 let apiSessionToken = "";
-let actFacade: WorkspaceActFacade | null = null;
+let actFacade: WorkFoldActFacade | null = null;
 let actToken = "";
+let resolveManagementLineageParent: ((taskId: string) => { taskId: string } | null) | null = null;
 let quitting = false;
 let quittingForUpdate = false;
 let activeAgentTurns = 0;
 let powerBlockerId: number | null = null;
-let workspaceUpdater: WorkspaceUpdater | null = null;
+let desktopUpdater: DesktopUpdater | null = null;
 let startupRecoveryPromise: Promise<void> | null = null;
 let shutdownPromise: Promise<void> | null = null;
 let rendererProtocolRegistered = false;
@@ -172,9 +176,9 @@ let interactiveStartupPromise: Promise<void> | null = null;
 let activateRegistered = false;
 let interactiveRequested = false;
 let cliRequestGeneration = 0;
-let activeNativeSpace: { id: string; name: string; rootPath: string } | null = null;
+let activeNativeSpace: { id: string; name: string; spaceRoot: string } | null = null;
 let activeNativeSpaceGeneration = 0;
-let pendingOpenSpaceRequest: { token: string; workspaceId: string } | null = null;
+let pendingOpenSpaceRequest: { token: string; spaceId: string } | null = null;
 const pendingMacOpenPaths: string[] = [];
 let macOpenPathDrainPromise: Promise<void> | null = null;
 const quitCoordinator = new GracefulQuitCoordinator({
@@ -207,8 +211,8 @@ protocol.registerSchemesAsPrivileged([
 
 function packagedBuildChannel(): string {
   try {
-    const metadata = JSON.parse(readFileSync(join(app.getAppPath(), "package.json"), "utf8")) as { workspaceBuildChannel?: unknown };
-    return typeof metadata.workspaceBuildChannel === "string" ? metadata.workspaceBuildChannel : "production";
+    const metadata = JSON.parse(readFileSync(join(app.getAppPath(), "package.json"), "utf8")) as { workFoldBuildChannel?: unknown };
+    return typeof metadata.workFoldBuildChannel === "string" ? metadata.workFoldBuildChannel : "production";
   } catch {
     // Historical production packages predate the explicit channel marker.
     return "production";
@@ -222,12 +226,12 @@ configureStableUserDataPath();
 let initialCliRequestId: string | null = null;
 let initialCliArgumentError: unknown = null;
 try {
-  initialCliRequestId = workspaceCliRequestIdFromArgv(process.argv);
+  initialCliRequestId = workFoldCliRequestIdFromArgv(process.argv);
 } catch (error) {
   initialCliArgumentError = error;
 }
 interactiveRequested = initialCliRequestId === null && initialCliArgumentError === null;
-const ownsInstance = app.requestSingleInstanceLock(workspaceCliInstanceData(initialCliRequestId));
+const ownsInstance = app.requestSingleInstanceLock(workFoldCliInstanceData(initialCliRequestId));
 if (!ownsInstance) app.quit();
 
 if (ownsInstance && process.platform === "darwin") {
@@ -250,13 +254,13 @@ if (ownsInstance) {
   app.on("second-instance", (_event, argv, _workingDirectory, additionalData) => {
     let requestId: string | null = null;
     try {
-      requestId = workspaceCliRequestIdFromInstanceData(additionalData) ?? workspaceCliRequestIdFromArgv(argv);
+      requestId = workFoldCliRequestIdFromInstanceData(additionalData) ?? workFoldCliRequestIdFromArgv(argv);
     } catch (error) {
       console.warn(`${productName} rejected an invalid CLI launch: ${errorMessage(error)}`);
       return;
     }
     if (requestId) {
-      void processWorkspaceCliRequest(requestId).catch((error) => {
+      void processWorkFoldCliRequest(requestId).catch((error) => {
         console.warn(`${productName} could not process CLI request ${requestId}: ${errorMessage(error)}`);
       });
       return;
@@ -266,11 +270,11 @@ if (ownsInstance) {
   });
   app.whenReady().then(async () => {
     configureStableUserDataPath();
-    configureWorkspaceStateRoot(app.getPath("userData"));
+    configureWorkFoldStateRoot(app.getPath("userData"));
     configurePackagedCliEnvironment();
     if (initialCliArgumentError) throw initialCliArgumentError;
     if (initialCliRequestId) {
-      await processWorkspaceCliRequest(initialCliRequestId);
+      await processWorkFoldCliRequest(initialCliRequestId);
       if (!interactiveRequested) {
         await quitAfterCliRequest();
         return;
@@ -294,17 +298,17 @@ app.on("before-quit", (event) => {
 
 async function prepareForApplicationQuit(): Promise<QuitPreparationOutcome> {
   destroyTray();
-  if (workspaceUpdater?.shouldInstallOnQuit()) {
+  if (desktopUpdater?.shouldInstallOnQuit()) {
     await shutdownForUpdateInstall();
-    const status = await workspaceUpdater.installDownloadedUpdateOnQuit();
+    const status = await desktopUpdater.installDownloadedUpdateOnQuit();
     if (status.phase === "installing") return "handoff";
-    workspaceUpdater.dispose();
-    workspaceUpdater = null;
+    desktopUpdater.dispose();
+    desktopUpdater = null;
     return "quit";
   }
   await shutdown();
-  workspaceUpdater?.dispose();
-  workspaceUpdater = null;
+  desktopUpdater?.dispose();
+  desktopUpdater = null;
   return "quit";
 }
 
@@ -319,9 +323,9 @@ interface DesktopHost {
   runtime: PackagedPiRuntimeProvider;
   runtimeProvider: PiRuntimeProvider;
   spaceTrustAuthority: RegisteredSpaceTrustAuthority;
-  kernel: WorkspaceKernel;
-  checks: WorkspaceCheckService;
-  cli: WorkspaceDesktopCliHost;
+  kernel: WorkFoldKernel;
+  checks: WorkFoldCheckService;
+  cli: WorkFoldDesktopCliHost;
   restrictedApps: RestrictedAppService;
   restrictedAppHost: RestrictedAppHost;
 }
@@ -330,7 +334,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
   if (desktopHostPromise) return desktopHostPromise;
   desktopHostPromise = (async () => {
     const userData = app.getPath("userData");
-    configureWorkspaceStateRoot(userData);
+    configureWorkFoldStateRoot(userData);
     const settings = new SecureSettingsStore(join(userData, "secure-settings.bin"));
     const restrictedConnections = createRestrictedAppConnectionStore(join(userData, "restricted-app-connections.bin"));
     const restrictedOAuth = createRestrictedAppOAuthClient(restrictedConnections, (url) => shell.openExternal(url));
@@ -353,18 +357,18 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       oauth: restrictedOAuth,
       storage: restrictedStorage,
       notifications: restrictedNotifications,
-      resolveWorkspaceRoot: async (workspaceId) => (await listWorkspaces()).find((workspace) => workspace.id === workspaceId)?.rootPath ?? null,
+      resolveSpaceRoot: async (spaceId) => (await listSpaces()).find((space) => space.id === spaceId)?.spaceRoot ?? null,
       preloadPath: resolveRestrictedAppPreloadPath(),
       onTabCommand: (command) => {
         if (!mainWindow || mainWindow.isDestroyed()) return;
-        mainWindow.webContents.send("workspace:restricted-app-view:tab-command", command);
+        mainWindow.webContents.send("work-fold:restricted-app-view:tab-command", command);
       },
       onUiState: (state) => {
         if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.id !== state.ownerWebContentsId) return;
-        mainWindow.webContents.send("workspace:restricted-app-view:state", state);
+        mainWindow.webContents.send("work-fold:restricted-app-view:state", state);
       },
       onNotificationOpen: (request) => {
-        void restrictedApps.runtimeDescriptor(request.workspaceId, request.appId, request.digest).then((current) => {
+        void restrictedApps.runtimeDescriptor(request.spaceId, request.appId, request.digest).then((current) => {
           const enabledForNotification = current.automations.some((state) => state.enabled
             && current.manifest.automations.some((automation) => automation.id === state.id
               && automation.permissions.notifications.includes(request.permissionId)));
@@ -372,7 +376,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
             || !current.manifest.permissions.notifications.some((item) => item.id === request.permissionId)) return;
           showWindow();
           if (!mainWindow || mainWindow.isDestroyed()) return;
-          mainWindow.webContents.send("workspace:restricted-app-view:open-request", request);
+          mainWindow.webContents.send("work-fold:restricted-app-view:open-request", request);
         }).catch(() => undefined);
       },
     });
@@ -395,7 +399,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       if (event.method === "openExternal") void openExternal(event.url);
       else if (event.method === "oauthDeviceCode") void openExternal(event.verificationUri);
       else if (event.method === "copyText") clipboard.writeText(event.text);
-      else if (event.method === "openSettings") mainWindow?.webContents.send("workspace:agent:open-settings");
+      else if (event.method === "openSettings") mainWindow?.webContents.send("work-fold:agent:open-settings");
       else if (event.method === "quit") app.quit();
       });
       const runtime = new PackagedPiRuntimeProvider({
@@ -403,18 +407,19 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       authStorageHost: settings,
       extensionUi,
     });
-      const spaceTrustAuthority = new RegisteredSpaceTrustAuthority((await listWorkspaces()).map((workspace) => workspace.rootPath));
+      const spaceTrustAuthority = new RegisteredSpaceTrustAuthority((await listSpaces()).map((space) => space.spaceRoot));
       const runtimeProvider = new RegisteredSpaceRuntimeProvider(runtime, spaceTrustAuthority);
-      const kernel = new WorkspaceKernel({ runtimeProvider });
-      const checks = new WorkspaceCheckService({ kernel });
-      const cli = new WorkspaceDesktopCliHost({
+      const kernel = new WorkFoldKernel({ runtimeProvider });
+      const checks = new WorkFoldCheckService({ kernel });
+      const cli = new WorkFoldDesktopCliHost({
       stateRoot: userData,
-      kernel: new WorkspaceCliKernelAdapter(kernel, {
-        checksStatusProvider: ({ workspaceId, workspaceRoot }) => checks.status({ id: workspaceId, rootPath: workspaceRoot }),
+      kernel: new WorkFoldCliKernelAdapter(kernel, {
+        checksStatusProvider: ({ spaceId, spaceRoot }) => checks.status({ id: spaceId, spaceRoot: spaceRoot }),
       }),
       version: app.getVersion(),
       productName,
       getActFacade: () => (actFacade && actToken ? { facade: actFacade, token: actToken } : null),
+      resolveLineageParent: (taskId) => resolveManagementLineageParent?.(taskId) ?? null,
       });
       await cli.initialize();
       secureSettings = settings;
@@ -428,7 +433,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
   return desktopHostPromise;
 }
 
-async function processWorkspaceCliRequest(requestId: string): Promise<void> {
+async function processWorkFoldCliRequest(requestId: string): Promise<void> {
   cliRequestGeneration += 1;
   const host = await ensureDesktopHost();
   await host.cli.processRequest(requestId);
@@ -476,7 +481,7 @@ async function quitAfterCliRequest(): Promise<void> {
   // A headless boot proves no interactive app holds the single-instance lock,
   // so any act-token file on disk is stale crash residue; removing it lets
   // shims fail fast instead of booting another headless host per attempt.
-  await removeWorkspaceCliActTokenFile(app.getPath("userData")).catch(() => undefined);
+  await removeWorkFoldCliActTokenFile(app.getPath("userData")).catch(() => undefined);
   quitting = true;
   // Exit synchronously after the queue and host-backed auth storage are both
   // drained so a new process cannot hand work to a half-shutdown primary.
@@ -486,13 +491,13 @@ async function quitAfterCliRequest(): Promise<void> {
 
 function reportStartupError(error: unknown): void {
   console.error(`${productName} could not start: ${errorMessage(error)}`);
-  const recovery = workspaceStartupRecoveryPlan(error);
+  const recovery = workFoldStartupRecoveryPlan(error);
   if (interactiveRequested && recovery) {
     startupRecoveryPromise ??= recoverFromNewerLocalState(recovery).catch((recoveryError) => {
       console.error(`${productName} update recovery failed: ${errorMessage(recoveryError)}`);
       dialog.showErrorBox(
         `${productName} update recovery failed`,
-        "Workspace could not complete update recovery. Your Spaces and app data are still safe.",
+        "work-fold could not complete update recovery. Your Spaces and app data are still safe.",
       );
       quitting = true;
       app.quit();
@@ -504,8 +509,8 @@ function reportStartupError(error: unknown): void {
   app.quit();
 }
 
-async function recoverFromNewerLocalState(plan: WorkspaceStartupRecoveryPlan): Promise<void> {
-  await runWorkspaceStartupRecovery(plan, {
+async function recoverFromNewerLocalState(plan: WorkFoldStartupRecoveryPlan): Promise<void> {
+  await runWorkFoldStartupRecovery(plan, {
     showDialog: async (prompt) => (await dialog.showMessageBox({
       type: prompt.type,
       title: prompt.title,
@@ -523,12 +528,12 @@ async function recoverFromNewerLocalState(plan: WorkspaceStartupRecoveryPlan): P
       return checked.phase === "available" ? checked.availableVersion : null;
     },
     downloadAndInstall: async () => {
-      if (!workspaceUpdater) return false;
-      let status = await workspaceUpdater.updateNow();
-      if (status.phase === "ready") status = await workspaceUpdater.install();
+      if (!desktopUpdater) return false;
+      let status = await desktopUpdater.updateNow();
+      if (status.phase === "ready") status = await desktopUpdater.install();
       return status.phase === "installing";
     },
-    openReleases: () => openExternal(latestWorkspaceReleaseUrl),
+    openReleases: () => openExternal(latestWorkFoldReleaseUrl),
     quit: () => {
       quitting = true;
       app.quit();
@@ -544,7 +549,7 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
     const api = await startLocalApi({
       appMode: "desktop",
       port: 0,
-      workspaceBase: join(userData, "workspaces"),
+      spaceBase: managedSpaceRoot(),
       stateBase: userData,
       sessionToken: apiSessionToken,
       allowedOrigins: [`${appProtocol}://app`],
@@ -569,8 +574,9 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
     // unavailable rather than half-working.
     actToken = randomBytes(32).toString("hex");
     actFacade = api.actFacade;
+    resolveManagementLineageParent = api.resolveManagementLineageParent;
     try {
-      await writeWorkspaceCliActTokenFile(userData, actToken, productName);
+      await writeWorkFoldCliActTokenFile(userData, actToken, productName);
     } catch (error) {
       actFacade = null;
       actToken = "";
@@ -662,7 +668,9 @@ async function createMainWindow(): Promise<void> {
   mainWindow.on("minimize", () => railTooltipOverlay?.hide());
   mainWindow.on("close", (event) => {
     if (quitting || quittingForUpdate || !quitCoordinator.shouldPreventNativeQuit()) return;
-    if (!tray || !desktopPreferences.closeToTray) return;
+    // Close-to-tray is Windows behavior; the macOS menu-bar item must not
+    // change what closing the last macOS window means (Dock keeps the host).
+    if (process.platform !== "win32" || !tray || !desktopPreferences.closeToTray) return;
     event.preventDefault();
     mainWindow?.hide();
     maybeShowTrayNotice();
@@ -723,37 +731,37 @@ function fetchProtocolFile(rootDir: string, requestedPath: string, method: strin
 function registerIpc(): void {
   if (ipcRegistered) return;
   ipcRegistered = true;
-  ipcMain.handle("workspace:api:session-headers", (event) => {
+  ipcMain.handle("work-fold:api:session-headers", (event) => {
     assertTrustedRenderer(event);
-    return { "x-workspace-session": apiSessionToken };
+    return { "x-work-fold-session": apiSessionToken };
   });
-  ipcMain.handle("workspace:runtime:health", async (event) => {
+  ipcMain.handle("work-fold:runtime:health", async (event) => {
     assertTrustedRenderer(event);
     return {
       pi: piRuntime ? await piRuntime.health() : { ok: false, configured: false, version: "", message: "Pi is still starting." },
       settings: secureSettings ? await secureSettings.status() : { encryptionAvailable: false, configuredProviders: [] },
     };
   });
-  ipcMain.handle("workspace:workspace:choose-folder", async (event) => {
+  ipcMain.handle("work-fold:space:choose-folder", async (event) => {
     assertTrustedRenderer(event);
     const result = mainWindow
       ? await dialog.showOpenDialog(mainWindow, { title: "Choose a folder to turn into a Space", properties: ["openDirectory", "createDirectory"] })
       : await dialog.showOpenDialog({ title: "Choose a folder to turn into a Space", properties: ["openDirectory", "createDirectory"] });
-    const rootPath = result.filePaths[0];
-    if (result.canceled || !rootPath) return null;
-    return { path: rootPath, folderGrantId: createFolderGrant(rootPath) };
+    const spaceRoot = result.filePaths[0];
+    if (result.canceled || !spaceRoot) return null;
+    return { path: spaceRoot, folderGrantId: createFolderGrant(spaceRoot) };
   });
-  ipcMain.handle("workspace:workspace:reveal-folder", async (event, value: unknown) => {
+  ipcMain.handle("work-fold:space:reveal-folder", async (event, value: unknown) => {
     assertTrustedRenderer(event);
     if (typeof value !== "string") throw new Error("A Space id is required.");
-    const workspace = await getWorkspace(value);
-    const error = await shell.openPath(workspace.rootPath);
-    if (error) throw new Error(`Workspace could not show this Space's folder. ${error}`);
+    const space = await getSpace(value);
+    const error = await shell.openPath(space.spaceRoot);
+    if (error) throw new Error(`work-fold could not show this Space's folder. ${error}`);
   });
-  ipcMain.handle("workspace:workspace:open-path", async (event, value: unknown) => {
+  ipcMain.handle("work-fold:space:open-path", async (event, value: unknown) => {
     assertTrustedRenderer(event);
-    const request = workspacePathRequest(value);
-    const filePath = await resolveWorkspaceItem(request.workspaceId, request.path);
+    const request = spacePathRequest(value);
+    const filePath = await resolveSpaceItem(request.spaceId, request.path);
     if (request.action === "reveal") {
       shell.showItemInFolder(filePath);
       return;
@@ -761,10 +769,10 @@ function registerIpc(): void {
     const result = await shell.openPath(filePath);
     if (result) throw new Error(`${productName} could not open this item. ${result}`);
   });
-  ipcMain.handle("workspace:workspace:start-drag", async (event, value: unknown) => {
+  ipcMain.handle("work-fold:space:start-drag", async (event, value: unknown) => {
     assertTrustedRenderer(event);
-    const request = workspacePathRequest(value, false);
-    const filePath = await resolveWorkspaceItem(request.workspaceId, request.path);
+    const request = spacePathRequest(value, false);
+    const filePath = await resolveSpaceItem(request.spaceId, request.path);
     const info = await stat(filePath);
     if (!info.isFile()) throw new Error("Only files can be dragged out of a Space.");
     const icon = nativeImage.createFromPath(join(resolveDesktopAssetsDir(), "icon-32.png"));
@@ -772,62 +780,72 @@ function registerIpc(): void {
     event.sender.startDrag({ file: filePath, icon });
     return true;
   });
-  ipcMain.handle("workspace:workspace:preview-file", async (event, value: unknown) => {
+  ipcMain.handle("work-fold:space:preview-file", async (event, value: unknown) => {
     assertTrustedMainRenderer(event);
     if (process.platform !== "darwin") return false;
-    const request = workspacePathRequest(value, false);
-    const filePath = await resolveWorkspaceItem(request.workspaceId, request.path);
+    const request = spacePathRequest(value, false);
+    const filePath = await resolveSpaceItem(request.spaceId, request.path);
     const info = await stat(filePath);
     if (!info.isFile()) throw new Error("Only files can be previewed with Quick Look.");
     const window = mainWindow;
-    if (!window || window.isDestroyed()) throw new Error("The Workspace window is not available.");
+    if (!window || window.isDestroyed()) throw new Error("The work-fold window is not available.");
     window.previewFile(filePath, basename(filePath));
     return true;
   });
-  ipcMain.handle("workspace:workspace:popup-file-menu", async (event, value: unknown): Promise<NativeFileMenuCommand | null> => {
+  ipcMain.handle("work-fold:space:popup-file-menu", async (event, value: unknown): Promise<NativeFileMenuCommand | null> => {
     assertTrustedMainRenderer(event);
     if (process.platform !== "darwin") return null;
     const request = parseNativeFileMenuRequest(value);
     await validateNativeFileMenuEntry(request);
     return popupNativeFileMenu(request);
   });
-  ipcMain.handle("workspace:workspace:set-active-space", async (event, value: unknown) => {
+  ipcMain.handle("work-fold:space:set-active-space", async (event, value: unknown) => {
     assertTrustedMainRenderer(event);
     if (value !== null && (typeof value !== "string" || !value.trim() || value.length > 512)) {
       throw new Error("A valid Space id is required.");
     }
     await setActiveNativeSpace(value === null ? null : value.trim());
   });
-  ipcMain.handle("workspace:workspace:take-open-space", (event) => {
+  ipcMain.handle("work-fold:space:take-open-space", (event) => {
     assertTrustedMainRenderer(event);
     const request = pendingOpenSpaceRequest;
     pendingOpenSpaceRequest = null;
     return request;
   });
-  ipcMain.on("workspace:workspace:ack-open-space", (event, value: unknown) => {
+  ipcMain.on("work-fold:space:ack-open-space", (event, value: unknown) => {
     assertTrustedMainRenderer(event);
     if (typeof value === "string" && pendingOpenSpaceRequest?.token === value) pendingOpenSpaceRequest = null;
   });
-  ipcMain.handle("workspace:shell:open-external", async (event, value: unknown) => {
+  ipcMain.handle("work-fold:shell:open-external", async (event, value: unknown) => {
     assertTrustedRenderer(event);
     if (typeof value !== "string") throw new Error("A URL is required.");
     await openExternal(value);
   });
-  ipcMain.handle("workspace:window:accent-color", (event) => {
+  ipcMain.handle("work-fold:window:accent-color", (event) => {
     assertTrustedRenderer(event);
     return getSystemAccentColor();
   });
-  ipcMain.handle("workspace:window:get-close-to-tray", (event) => {
+  ipcMain.on("work-fold:management:hide", (event) => {
+    assertTrustedRenderer(event);
+    managementPopover?.hide();
+  });
+  ipcMain.handle("work-fold:management:open-main", (event) => {
+    assertTrustedRenderer(event);
+    managementPopover?.hide();
+    showWindow();
+    return true;
+  });
+  ipcMain.handle("work-fold:window:get-close-to-tray", (event) => {
     assertTrustedRenderer(event);
     return closeToTrayStatus();
   });
-  ipcMain.handle("workspace:window:set-close-to-tray", (event, value: unknown) => {
+  ipcMain.handle("work-fold:window:set-close-to-tray", (event, value: unknown) => {
     assertTrustedRenderer(event);
     if (typeof value !== "boolean") throw new Error("Close-to-background preference must be a boolean.");
     updateDesktopPreferences({ closeToTray: value });
     return closeToTrayStatus();
   });
-  ipcMain.on("workspace:window:set-theme", (event, value: unknown, source: unknown) => {
+  ipcMain.on("work-fold:window:set-theme", (event, value: unknown, source: unknown) => {
     assertTrustedRenderer(event);
     if (value !== "light" && value !== "dark") return;
     // Keep the OS-drawn chrome (Mica backdrop, frame, menus) on the app theme.
@@ -841,19 +859,19 @@ function registerIpc(): void {
       mainWindow.setBackgroundColor(windowBackgroundColors[value]);
     }
   });
-  ipcMain.on("workspace:menu:set-state", (event, value: unknown) => {
+  ipcMain.on("work-fold:menu:set-state", (event, value: unknown) => {
     assertTrustedRenderer(event);
     updateApplicationMenuState(value);
   });
-  ipcMain.handle("workspace:menu:popup", (event, menuId: unknown, bounds: unknown) => {
+  ipcMain.handle("work-fold:menu:popup", (event, menuId: unknown, bounds: unknown) => {
     assertTrustedRenderer(event);
     popupApplicationSubmenu(menuId, bounds);
   });
-  ipcMain.handle("workspace:settings:status", (event) => {
+  ipcMain.handle("work-fold:settings:status", (event) => {
     assertTrustedRenderer(event);
     return secureSettings?.status() ?? { encryptionAvailable: false, configuredProviders: [] };
   });
-  ipcMain.on("workspace:window:rail-tooltip-show", (event, value: unknown) => {
+  ipcMain.on("work-fold:window:rail-tooltip-show", (event, value: unknown) => {
     assertTrustedMainRenderer(event);
     try {
       railTooltipOverlay?.show(value);
@@ -861,22 +879,22 @@ function registerIpc(): void {
       console.warn(`${productName} could not show a rail tooltip: ${errorMessage(error)}`);
     }
   });
-  ipcMain.on("workspace:window:rail-tooltip-hide", (event) => {
+  ipcMain.on("work-fold:window:rail-tooltip-hide", (event) => {
     assertTrustedMainRenderer(event);
     railTooltipOverlay?.hide();
   });
-  ipcMain.handle("workspace:restricted-app-view:mount", async (event, value: unknown) => {
+  ipcMain.handle("work-fold:restricted-app-view:mount", async (event, value: unknown) => {
     assertTrustedMainRenderer(event);
     const window = mainWindow;
-    if (!window || window.isDestroyed()) throw new Error("The Workspace window is not available.");
+    if (!window || window.isDestroyed()) throw new Error("The work-fold window is not available.");
     const identity = restrictedAppViewIdentity(value);
     const host = await ensureDesktopHost();
-    const descriptor = await host.restrictedApps.runtimeDescriptor(identity.workspaceId, identity.appId, identity.digest);
+    const descriptor = await host.restrictedApps.runtimeDescriptor(identity.spaceId, identity.appId, identity.digest);
     const mounted = await host.restrictedAppHost.mountUi(descriptor, event.sender, window, restrictedAppViewPayload(value));
     railTooltipOverlay?.raise();
     return mounted;
   });
-  ipcMain.on("workspace:restricted-app-view:layout", (event, value: unknown) => {
+  ipcMain.on("work-fold:restricted-app-view:layout", (event, value: unknown) => {
     assertTrustedMainRenderer(event);
     void ensureDesktopHost()
       .then((host) => {
@@ -885,27 +903,27 @@ function registerIpc(): void {
       })
       .catch((error) => console.warn(`${productName} could not lay out a restricted app view: ${errorMessage(error)}`));
   });
-  ipcMain.handle("workspace:restricted-app-view:unmount", async (event, value: unknown) => {
+  ipcMain.handle("work-fold:restricted-app-view:unmount", async (event, value: unknown) => {
     assertTrustedMainRenderer(event);
     if (typeof value !== "string") throw new Error("A restricted app mount id is required.");
     const host = await ensureDesktopHost();
     await host.restrictedAppHost.unmountUi(event.sender.id, value);
   });
-  ipcMain.handle("workspace:updates:status", (event): WorkspaceUpdateStatus => {
+  ipcMain.handle("work-fold:updates:status", (event): DesktopUpdateStatus => {
     assertTrustedRenderer(event);
     return getUpdateStatus();
   });
-  ipcMain.handle("workspace:updates:check", async (event): Promise<WorkspaceUpdateStatus> => {
+  ipcMain.handle("work-fold:updates:check", async (event): Promise<DesktopUpdateStatus> => {
     assertTrustedRenderer(event);
     return checkForUpdates();
   });
-  ipcMain.handle("workspace:updates:install", async (event): Promise<WorkspaceUpdateStatus> => {
+  ipcMain.handle("work-fold:updates:install", async (event): Promise<DesktopUpdateStatus> => {
     assertTrustedRenderer(event);
-    return workspaceUpdater?.install() ?? getUpdateStatus();
+    return desktopUpdater?.install() ?? getUpdateStatus();
   });
-  ipcMain.handle("workspace:updates:update-now", async (event): Promise<WorkspaceUpdateStatus> => {
+  ipcMain.handle("work-fold:updates:update-now", async (event): Promise<DesktopUpdateStatus> => {
     assertTrustedRenderer(event);
-    return workspaceUpdater?.updateNow() ?? getUpdateStatus();
+    return desktopUpdater?.updateNow() ?? getUpdateStatus();
   });
 }
 
@@ -913,7 +931,7 @@ type RendererMenuCommand =
   | "new-space"
   | "open-local-folder"
   | "new-chat"
-  | "reload-workspace-state"
+  | "reload-space-state"
   | "check-for-updates"
   | "open-settings"
   | "open-about"
@@ -968,7 +986,7 @@ function buildApplicationSubmenuTemplate(menuId: ApplicationMenuId): MenuItemCon
       }] : []),
       { type: "separator" },
       { id: "new-chat", label: "New Chat", accelerator: "CommandOrControl+Shift+N", enabled: rendererMenuState.spaceOpen, click: () => sendRendererMenuCommand("new-chat") },
-      { id: "refresh-space", label: "Refresh Space", accelerator: "CommandOrControl+R", enabled: rendererMenuState.spaceOpen, click: () => sendRendererMenuCommand("reload-workspace-state") },
+      { id: "refresh-space", label: "Refresh Space", accelerator: "CommandOrControl+R", enabled: rendererMenuState.spaceOpen, click: () => sendRendererMenuCommand("reload-space-state") },
     ];
     if (process.platform !== "darwin") {
       items.push(
@@ -1044,7 +1062,7 @@ function macApplicationMenu(): MenuItemConstructorOptions[] {
       { role: "hideOthers" },
       { role: "unhide" },
       { type: "separator" },
-      { id: "quit-workspace", label: `Quit ${productName}`, accelerator: "Command+Q", click: requestApplicationQuit },
+      { id: "quit-space", label: `Quit ${productName}`, accelerator: "Command+Q", click: requestApplicationQuit },
     ],
   }];
 }
@@ -1108,13 +1126,13 @@ function sendRendererMenuCommand(command: RendererMenuCommand): void {
     return;
   }
   showWindow();
-  window.webContents.send("workspace:menu-command", command);
+  window.webContents.send("work-fold:menu-command", command);
 }
 
 function updateApplicationMenuState(value: unknown): void {
   rendererMenuState = {
     spaceOpen: isRecord(value)
-      ? value.spaceOpen === true || value.workspaceOpen === true
+      ? value.spaceOpen === true || value.spaceOpen === true
       : rendererMenuState.spaceOpen,
   };
   const menu = Menu.getApplicationMenu();
@@ -1130,17 +1148,17 @@ function setMenuItemEnabled(menu: Menu | null, id: string, enabled: boolean): vo
 
 function configureUpdater(): void {
   // Ad hoc verification builds use a separate identity and must never touch
-  // the production update feed or production Workspace Safe Storage key.
-  if (workspaceUpdater || localMacSmokeBuild) return;
-  workspaceUpdater = new WorkspaceUpdater({
+  // the production update feed or production work-fold Safe Storage key.
+  if (desktopUpdater || localMacSmokeBuild) return;
+  desktopUpdater = new DesktopUpdater({
     getWindow: () => mainWindow,
     prepareToInstall: shutdownForUpdateInstall,
   });
-  workspaceUpdater.start();
+  desktopUpdater.start();
 }
 
-function getUpdateStatus(): WorkspaceUpdateStatus {
-  return workspaceUpdater?.getStatus() ?? {
+function getUpdateStatus(): DesktopUpdateStatus {
+  return desktopUpdater?.getStatus() ?? {
     supported: false,
     phase: "unsupported",
     currentVersion: app.getVersion(),
@@ -1152,8 +1170,8 @@ function getUpdateStatus(): WorkspaceUpdateStatus {
   };
 }
 
-function checkForUpdates(interactive = true): Promise<WorkspaceUpdateStatus> {
-  return workspaceUpdater?.check(interactive) ?? Promise.resolve(getUpdateStatus());
+function checkForUpdates(interactive = true): Promise<DesktopUpdateStatus> {
+  return desktopUpdater?.check(interactive) ?? Promise.resolve(getUpdateStatus());
 }
 
 async function checkForUpdatesFromMenu(): Promise<void> {
@@ -1164,7 +1182,7 @@ async function checkForUpdatesFromMenu(): Promise<void> {
       ? await dialog.showMessageBox(window, {
         type: "info",
         message: status.message,
-        detail: "Workspace can download the update now and restart when it is ready.",
+        detail: "work-fold can download the update now and restart when it is ready.",
         buttons: ["Download and Install", "Later"],
         defaultId: 0,
         cancelId: 1,
@@ -1173,13 +1191,13 @@ async function checkForUpdatesFromMenu(): Promise<void> {
       : await dialog.showMessageBox({
         type: "info",
         message: status.message,
-        detail: "Workspace can download the update now and restart when it is ready.",
+        detail: "work-fold can download the update now and restart when it is ready.",
         buttons: ["Download and Install", "Later"],
         defaultId: 0,
         cancelId: 1,
         noLink: true,
       });
-    if (result.response === 0) await workspaceUpdater?.updateNow();
+    if (result.response === 0) await desktopUpdater?.updateNow();
     return;
   }
   if (status.phase === "ready") {
@@ -1200,7 +1218,7 @@ async function checkForUpdatesFromMenu(): Promise<void> {
         cancelId: 1,
         noLink: true,
       });
-    if (result.response === 0) await workspaceUpdater?.install();
+    if (result.response === 0) await desktopUpdater?.install();
     return;
   }
   const options = {
@@ -1215,17 +1233,17 @@ async function checkForUpdatesFromMenu(): Promise<void> {
 }
 
 function configureStableUserDataPath(): void {
-  const useInstalledProductData = workspaceDesktopUsesInstalledProductData({
+  const useInstalledProductData = workFoldDesktopUsesInstalledProductData({
     executablePath: process.execPath,
     productName,
     isPackaged: app.isPackaged,
     fileExists: existsSync,
   });
-  const target = workspaceDesktopUserDataPath({
+  const target = workFoldDesktopUserDataPath({
     appDataPath: app.getPath("appData"),
     productName,
     useInstalledProductData,
-    override: workspaceDesktopStateOverride(process.env),
+    override: workFoldDesktopStateOverride(process.env),
   });
   if (app.getPath("userData") !== target) app.setPath("userData", target);
 }
@@ -1245,23 +1263,23 @@ function configurePackagedCliEnvironment(): void {
     .some((entry) => samePath(entry, binDirectory));
   if (!alreadyPresent) process.env[pathKey] = currentPath ? `${binDirectory}${delimiter}${currentPath}` : binDirectory;
   // Agent shell tools inherit this process environment. Pinning the executable
-  // makes their CLI calls address this exact installed Workspace build.
-  process.env.WORKSPACE_CLI_APP = process.execPath;
-  process.env.WORKSPACE_CLI_STATE_DIR = app.getPath("userData");
+  // makes their CLI calls address this exact installed work-fold build.
+  process.env.WORKFOLD_CLI_APP = process.execPath;
+  process.env.WORKFOLD_CLI_STATE_DIR = app.getPath("userData");
 }
 
-function createFolderGrant(rootPath: string): string {
+function createFolderGrant(spaceRoot: string): string {
   cleanupFolderGrants();
   const id = randomUUID();
-  folderGrants.set(id, { rootPath: resolve(rootPath), expiresAt: Date.now() + folderGrantTtlMs });
+  folderGrants.set(id, { spaceRoot: resolve(spaceRoot), expiresAt: Date.now() + folderGrantTtlMs });
   return id;
 }
 
-function consumeLocalFolderGrant(input: { rootPath: string; grantId: string }): boolean {
+function consumeLocalFolderGrant(input: { spaceRoot: string; grantId: string }): boolean {
   cleanupFolderGrants();
   const grant = folderGrants.get(input.grantId);
   folderGrants.delete(input.grantId);
-  return Boolean(grant && grant.expiresAt >= Date.now() && samePath(grant.rootPath, input.rootPath));
+  return Boolean(grant && grant.expiresAt >= Date.now() && samePath(grant.spaceRoot, input.spaceRoot));
 }
 
 function cleanupFolderGrants(): void {
@@ -1271,36 +1289,36 @@ function cleanupFolderGrants(): void {
   }
 }
 
-type WorkspacePathAction = "open" | "open-native" | "reveal";
+type SpacePathAction = "open" | "open-native" | "reveal";
 
-function workspacePathRequest(value: unknown, requireAction = true): { workspaceId: string; path: string; action: WorkspacePathAction } {
+function spacePathRequest(value: unknown, requireAction = true): { spaceId: string; path: string; action: SpacePathAction } {
   if (!isRecord(value)) throw new Error("A Space file request is required.");
-  const workspaceId = typeof value.workspaceId === "string" ? value.workspaceId.trim() : "";
+  const spaceId = typeof value.spaceId === "string" ? value.spaceId.trim() : "";
   const path = typeof value.path === "string" ? value.path : "";
   const action = value.action === "reveal" || value.action === "open-native" || value.action === "open"
     ? value.action
     : "open";
-  if (!workspaceId) throw new Error("A Space id is required.");
+  if (!spaceId) throw new Error("A Space id is required.");
   if (!path || path.includes("\0") || isAbsolute(path)) throw new Error("A relative Space file path is required.");
   if (requireAction && value.action !== undefined && value.action !== "reveal" && value.action !== "open-native" && value.action !== "open") {
     throw new Error("Unsupported Space file action.");
   }
-  return { workspaceId, path, action };
+  return { spaceId, path, action };
 }
 
-async function resolveWorkspaceItem(workspaceId: string, itemPath: string): Promise<string> {
-  const workspace = await getWorkspace(workspaceId);
-  const rootPath = await realpath(workspace.rootPath);
-  const candidate = resolve(rootPath, itemPath);
-  assertPathInsideRoot(rootPath, candidate);
+async function resolveSpaceItem(spaceId: string, itemPath: string): Promise<string> {
+  const space = await getSpace(spaceId);
+  const spaceRoot = await realpath(space.spaceRoot);
+  const candidate = resolve(spaceRoot, itemPath);
+  assertPathInsideRoot(spaceRoot, candidate);
   const resolvedCandidate = await realpath(candidate);
-  assertPathInsideRoot(rootPath, resolvedCandidate);
+  assertPathInsideRoot(spaceRoot, resolvedCandidate);
   return resolvedCandidate;
 }
 
-async function setActiveNativeSpace(workspaceId: string | null): Promise<void> {
+async function setActiveNativeSpace(spaceId: string | null): Promise<void> {
   const generation = ++activeNativeSpaceGeneration;
-  if (workspaceId === null) {
+  if (spaceId === null) {
     activeNativeSpace = null;
     applyNativeActiveSpaceToWindow(mainWindow);
     return;
@@ -1308,20 +1326,20 @@ async function setActiveNativeSpace(workspaceId: string | null): Promise<void> {
 
   // The renderer supplies identity only. Name and root are always loaded from
   // the host-owned registry before they reach native window or OS APIs.
-  const workspace = await getWorkspace(workspaceId);
+  const space = await getSpace(spaceId);
   if (generation !== activeNativeSpaceGeneration) return;
-  activeNativeSpace = { id: workspace.id, name: workspace.name, rootPath: workspace.rootPath };
+  activeNativeSpace = { id: space.id, name: space.name, spaceRoot: space.spaceRoot };
   applyNativeActiveSpaceToWindow(mainWindow);
-  if (process.platform === "darwin") app.addRecentDocument(workspace.rootPath);
+  if (process.platform === "darwin") app.addRecentDocument(space.spaceRoot);
 }
 
 async function validateNativeFileMenuEntry(request: NativeFileMenuRequest): Promise<void> {
   let info;
   if (request.path) {
-    info = await stat(await resolveWorkspaceItem(request.workspaceId, request.path));
+    info = await stat(await resolveSpaceItem(request.spaceId, request.path));
   } else {
-    const workspace = await getWorkspace(request.workspaceId);
-    info = await stat(await realpath(workspace.rootPath));
+    const space = await getSpace(request.spaceId);
+    info = await stat(await realpath(space.spaceRoot));
   }
   if ((request.kind === "file" && !info.isFile()) || (request.kind === "folder" && !info.isDirectory())) {
     throw new Error("The native file menu entry no longer matches this Space.");
@@ -1331,7 +1349,7 @@ async function validateNativeFileMenuEntry(request: NativeFileMenuRequest): Prom
 function popupNativeFileMenu(request: NativeFileMenuRequest): Promise<NativeFileMenuCommand | null> {
   const window = mainWindow;
   if (!window || window.isDestroyed() || window.webContents.isDestroyed()) {
-    return Promise.reject(new Error("The Workspace window is not available."));
+    return Promise.reject(new Error("The work-fold window is not available."));
   }
   return new Promise((resolveCommand) => {
     let settled = false;
@@ -1354,7 +1372,7 @@ function popupNativeFileMenu(request: NativeFileMenuRequest): Promise<NativeFile
 
 function applyNativeActiveSpaceToWindow(window: BrowserWindow | null): void {
   if (process.platform !== "darwin" || !window || window.isDestroyed()) return;
-  window.setRepresentedFilename(activeNativeSpace?.rootPath ?? "");
+  window.setRepresentedFilename(activeNativeSpace?.spaceRoot ?? "");
   window.setTitle(activeNativeSpace?.name ?? productName);
 }
 
@@ -1372,17 +1390,17 @@ async function drainPendingMacOpenPaths(): Promise<void> {
       if (!path) continue;
       await ensureMainWindow();
       showWindow();
-      const workspaceId = await registeredSpaceIdForOpenPath(path);
-      if (!workspaceId) {
+      const spaceId = await registeredSpaceIdForOpenPath(path);
+      if (!spaceId) {
         console.warn(`${productName} ignored an unregistered Finder folder: ${path}`);
         continue;
       }
-      await setActiveNativeSpace(workspaceId);
-      const request = { token: randomUUID(), workspaceId };
+      await setActiveNativeSpace(spaceId);
+      const request = { token: randomUUID(), spaceId };
       pendingOpenSpaceRequest = request;
       const window = mainWindow;
       if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) {
-        window.webContents.send("workspace:workspace:open-space", request);
+        window.webContents.send("work-fold:space:open-space", request);
       }
     }
   })().finally(() => {
@@ -1398,23 +1416,23 @@ async function registeredSpaceIdForOpenPath(path: string): Promise<string | null
     const info = await stat(path);
     if (!info.isDirectory()) return null;
     const openedRoot = await realpath(path);
-    for (const workspace of await listWorkspaces()) {
+    for (const space of await listSpaces()) {
       try {
-        const registeredRoot = await realpath(workspace.rootPath);
-        if (samePath(openedRoot, registeredRoot)) return workspace.id;
+        const registeredRoot = await realpath(space.spaceRoot);
+        if (samePath(openedRoot, registeredRoot)) return space.id;
       } catch {
         // Missing registered folders are already excluded from normal bootstrap;
         // one stale registration must not block another exact match.
       }
     }
   } catch {
-    // Finder may pass a path that moved before Workspace was ready.
+    // Finder may pass a path that moved before work-fold was ready.
   }
   return null;
 }
 
-function assertPathInsideRoot(rootPath: string, candidate: string): void {
-  const child = relative(rootPath, candidate);
+function assertPathInsideRoot(spaceRoot: string, candidate: string): void {
+  const child = relative(spaceRoot, candidate);
   if (!child || /^\.\.(?:[\\/]|$)/.test(child) || isAbsolute(child)) throw new Error("The requested item is outside this Space.");
 }
 
@@ -1431,7 +1449,7 @@ function updateAgentPowerState(activeTurns: number): void {
 
 async function openExternal(value: string): Promise<void> {
   const url = new URL(value);
-  if (!new Set(["https:", "http:", "mailto:"]).has(url.protocol)) throw new Error(`Workspace cannot open ${url.protocol} links.`);
+  if (!new Set(["https:", "http:", "mailto:"]).has(url.protocol)) throw new Error(`work-fold cannot open ${url.protocol} links.`);
   await shell.openExternal(url.toString());
 }
 
@@ -1443,6 +1461,7 @@ async function shutdown(): Promise<void> {
   // Pi runtime, so the act authority is revoked before anything else stops.
   actFacade = null;
   actToken = "";
+  resolveManagementLineageParent = null;
   updateAgentPowerState(0);
   const runtime = piRuntime;
   piRuntime = null;
@@ -1454,7 +1473,7 @@ async function shutdown(): Promise<void> {
       withShutdownTimeout(runtime?.flush() ?? Promise.resolve(), "Pi state"),
       withShutdownTimeout(restrictedApps, "restricted apps"),
       withShutdownTimeout(checks, "Checks"),
-      withShutdownTimeout(removeWorkspaceCliActTokenFile(app.getPath("userData")), "CLI act token"),
+      withShutdownTimeout(removeWorkFoldCliActTokenFile(app.getPath("userData")), "CLI act token"),
     ]);
     for (const outcome of outcomes) {
       if (outcome.status === "rejected") console.warn(`${productName} shutdown cleanup failed: ${errorMessage(outcome.reason)}`);
@@ -1540,28 +1559,99 @@ function updateDesktopPreferences(update: Partial<DesktopPreferences>): void {
 }
 
 function createTrayIfSupported(): void {
-  if (tray || process.platform !== "win32") return;
-  const iconPath = resolveWindowIcon();
-  if (!existsSync(iconPath)) {
-    console.warn(`${productName} tray icon was not found; close-to-background is unavailable.`);
+  if (tray || (process.platform !== "win32" && process.platform !== "darwin")) return;
+  const icon = resolveTrayIcon();
+  if (!icon) {
+    console.warn(`${productName} tray icon was not found; the ${process.platform === "darwin" ? "menu-bar" : "tray"} surface is unavailable.`);
     return;
   }
-  tray = new Tray(iconPath);
-  tray.setContextMenu(Menu.buildFromTemplate([
+  tray = new Tray(icon);
+  const menu = Menu.buildFromTemplate([
+    { label: `Tell ${productName}`, click: () => { void toggleManagementPopover(); } },
     { label: `Open ${productName}`, click: showWindow },
     { type: "separator" },
     { label: "Check for Updates...", click: () => sendRendererMenuCommand("check-for-updates") },
     { type: "separator" },
     { label: `Quit ${productName}`, click: () => app.quit() },
-  ]));
-  tray.on("click", showWindow);
-  tray.on("double-click", showWindow);
+  ]);
+  if (process.platform === "darwin") {
+    // No persistent context menu on macOS: setContextMenu would swallow the
+    // left click. Click opens the management popover, right-click the menu,
+    // and material dropped on the icon lands in the popover as staged context.
+    tray.on("click", () => { void toggleManagementPopover(); });
+    tray.on("right-click", () => tray?.popUpContextMenu(menu));
+    tray.on("drop-files", (_event, files) => {
+      void openManagementPopoverWithItems(files.map((file) => ({ kind: "path" as const, value: file })));
+    });
+    tray.on("drop-text", (_event, text) => {
+      void openManagementPopoverWithItems([{ kind: "text" as const, value: text }]);
+    });
+  } else {
+    tray.setContextMenu(menu);
+    tray.on("click", showWindow);
+    tray.on("double-click", showWindow);
+  }
   updateTrayTooltip();
+}
+
+function resolveTrayIcon(): Electron.NativeImage | string | null {
+  if (process.platform === "darwin") {
+    // Monochrome template image so macOS recolors the menu-bar item for
+    // light/dark menu bars; createFromPath also loads the @2x variant.
+    const path = join(resolveDesktopAssetsDir(), "iconTemplate.png");
+    if (!existsSync(path)) return null;
+    const image = nativeImage.createFromPath(path);
+    if (image.isEmpty()) return null;
+    image.setTemplateImage(true);
+    return image;
+  }
+  const iconPath = resolveWindowIcon();
+  return existsSync(iconPath) ? iconPath : null;
 }
 
 function destroyTray(): void {
   tray?.destroy();
   tray = null;
+  managementPopover?.destroy();
+  managementPopover = null;
+}
+
+async function ensureManagementPopover(): Promise<ManagementPopover> {
+  if (managementPopover) return managementPopover;
+  const api = await ensureInteractiveLocalApi();
+  managementPopover = new ManagementPopover({
+    appProtocol,
+    preloadPath: resolveManagementPopoverPreloadPath(),
+    additionalArguments: [
+      rendererArgument("api-base-url", api.origin),
+      rendererArgument("app-version", app.getVersion()),
+      rendererArgument("window-material", process.platform === "darwin" && macVibrancySupported ? "vibrancy" : "none"),
+    ],
+    backgroundColor: windowBackgroundColors[nativeTheme.shouldUseDarkColors ? "dark" : "light"],
+    vibrancy: process.platform === "darwin" && macVibrancySupported,
+    devTools: !app.isPackaged,
+    configureNavigation: configureWindowNavigation,
+    onError: (message) => console.warn(`${productName} management popover failed to load: ${message}`),
+  });
+  return managementPopover;
+}
+
+async function toggleManagementPopover(): Promise<void> {
+  try {
+    const popover = await ensureManagementPopover();
+    await popover.toggle(tray?.getBounds() ?? null);
+  } catch (error) {
+    console.warn(`${productName} could not open the management popover: ${errorMessage(error)}`);
+  }
+}
+
+async function openManagementPopoverWithItems(items: ManagementPopoverStagedItem[]): Promise<void> {
+  try {
+    const popover = await ensureManagementPopover();
+    await popover.stage(items, tray?.getBounds() ?? null);
+  } catch (error) {
+    console.warn(`${productName} could not stage dropped material: ${errorMessage(error)}`);
+  }
 }
 
 function updateTrayTooltip(): void {
@@ -1577,12 +1667,14 @@ function maybeShowTrayNotice(): void {
   if (!Notification.isSupported()) return;
   new Notification({
     title: `${productName} is still running`,
-    body: "Your Assistant can keep working in the background. Use the tray icon to reopen or quit Workspace, or change this in Settings.",
+    body: "Your Assistant can keep working in the background. Use the tray icon to reopen or quit work-fold, or change this in Settings.",
   }).show();
 }
 
 function closeToTrayStatus(): { supported: boolean; enabled: boolean } {
-  return { supported: tray !== null, enabled: desktopPreferences.closeToTray };
+  // A macOS menu-bar item is a management surface, not close-to-tray support:
+  // closing the last macOS window already keeps the app alive via the Dock.
+  return { supported: process.platform === "win32" && tray !== null, enabled: desktopPreferences.closeToTray };
 }
 
 function configurePowerMonitor(): void {
@@ -1605,7 +1697,7 @@ function configureAccentColorMonitor(): void {
   const sendAccentColor = () => {
     const window = mainWindow;
     if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return;
-    window.webContents.send("workspace:window:accent-color-changed", getSystemAccentColor());
+    window.webContents.send("work-fold:window:accent-color-changed", getSystemAccentColor());
   };
   if (process.platform === "darwin") {
     systemPreferences.subscribeNotification("AppleColorPreferencesChangedNotification", sendAccentColor);
@@ -1691,7 +1783,7 @@ async function recoverRenderer(reason: string): Promise<void> {
     rendererLoadFailed = false;
     rendererRecoveryAttempts = 0;
     rendererRecoveryFailurePromptShown = false;
-    window.webContents.send("workspace:runtime:renderer-recovered");
+    window.webContents.send("work-fold:runtime:renderer-recovered");
   }
 }
 
@@ -1782,25 +1874,25 @@ function assertTrustedMainRenderer(event: IpcMainInvokeEvent | IpcMainEvent): vo
   const mainFrame = event.sender.mainFrame;
   const mainFrameMatches = Boolean(frame && frame.processId === mainFrame.processId && frame.routingId === mainFrame.routingId);
   if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents || !mainFrameMatches) {
-    throw new Error("Restricted app view requests require the main Workspace renderer.");
+    throw new Error("Restricted app view requests require the main work-fold renderer.");
   }
 }
 
-function restrictedAppViewIdentity(value: unknown): { workspaceId: string; appId: string; digest: string } {
+function restrictedAppViewIdentity(value: unknown): { spaceId: string; appId: string; digest: string } {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Restricted app view identity is invalid.");
   const record = value as Record<string, unknown>;
-  const workspaceId = typeof record.workspaceId === "string" ? record.workspaceId : "";
+  const spaceId = typeof record.spaceId === "string" ? record.spaceId : "";
   const appId = typeof record.appId === "string" ? record.appId : "";
   const digest = typeof record.digest === "string" ? record.digest.toLowerCase() : "";
-  if (!workspaceId || workspaceId.length > 256 || !/^[a-z0-9][a-z0-9._-]{0,127}$/.test(appId) || !/^[a-f0-9]{64}$/.test(digest)) {
+  if (!spaceId || spaceId.length > 256 || !/^[a-z0-9][a-z0-9._-]{0,127}$/.test(appId) || !/^[a-f0-9]{64}$/.test(digest)) {
     throw new Error("Restricted app view identity is invalid.");
   }
-  return { workspaceId, appId, digest };
+  return { spaceId, appId, digest };
 }
 
 function restrictedAppViewPayload(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Restricted app view request is invalid.");
-  const { workspaceId: _workspaceId, appId: _appId, digest: _digest, ...payload } = value as Record<string, unknown>;
+  const { spaceId: _spaceId, appId: _appId, digest: _digest, ...payload } = value as Record<string, unknown>;
   return payload;
 }
 
@@ -1814,7 +1906,7 @@ function isTrustedRendererUrl(value: string): boolean {
 }
 
 function rendererArgument(name: string, value: string): string {
-  return `--workspace-${name}=${encodeURIComponent(value)}`;
+  return `--work-fold-${name}=${encodeURIComponent(value)}`;
 }
 
 function resolveRendererDir(): string {
@@ -1825,6 +1917,10 @@ function resolveRendererDir(): string {
 
 function resolvePreloadPath(): string {
   return join(dirnameFromFile(currentFile), "preload.cjs");
+}
+
+function resolveManagementPopoverPreloadPath(): string {
+  return join(dirnameFromFile(currentFile), "management-popover-preload.cjs");
 }
 
 function resolveRestrictedAppPreloadPath(): string {

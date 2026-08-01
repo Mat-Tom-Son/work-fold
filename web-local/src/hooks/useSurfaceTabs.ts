@@ -3,69 +3,69 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { chatDisplayTitle } from "../lib/format";
 import { readStoredJsonValue, writeStoredJsonValue } from "../lib/storage";
 import { retargetMovedPath } from "../lib/tree";
-import type { AgentExtensionSurfaceView, AssistantToolsView, CapabilitySurface, ConversationSummary, RestrictedAppInstalled, WorkspaceSummary, WorkspaceSurfaceTab } from "../types";
+import type { AgentExtensionSurfaceView, AssistantToolsView, CapabilitySurface, ConversationSummary, RestrictedAppInstalled, SpaceSummary, SpaceSurfaceTab } from "../types";
 
-const surfaceTabsStorageKey = "workspace.surfaceTabs.v1";
+const surfaceTabsStorageKey = "work-fold.space.surface-tabs.v1";
 
 export function useSurfaceTabs({
-  workspace,
-  workspaces,
+  space,
+  spaces,
   fixtureMode = false,
   migrateLegacyLibraryMode = false,
-  openChatWorkspaceId,
-  onOpenChatWorkspaceConsumed,
-  onSwitchWorkspace,
+  openChatSpaceId,
+  onOpenChatSpaceConsumed,
+  onSwitchSpace,
 }: {
-  workspace: WorkspaceSummary;
-  workspaces: WorkspaceSummary[];
+  space: SpaceSummary;
+  spaces: SpaceSummary[];
   fixtureMode?: boolean;
   migrateLegacyLibraryMode?: boolean;
-  openChatWorkspaceId?: string | null;
-  onOpenChatWorkspaceConsumed?: () => void;
-  onSwitchWorkspace?: (workspace: WorkspaceSummary) => void;
+  openChatSpaceId?: string | null;
+  onOpenChatSpaceConsumed?: () => void;
+  onSwitchSpace?: (space: SpaceSummary) => void;
 }) {
   const initialStateRef = useRef<SurfaceTabsState | null>(null);
   const skipNextPersistRef = useRef(!fixtureMode && !migrateLegacyLibraryMode);
-  const recentSurfaceTabIdsByWorkspaceRef = useRef<Map<string, string>>(new Map());
+  const recentSurfaceTabIdsBySpaceRef = useRef<Map<string, string>>(new Map());
   const previousActiveSurfaceTabIdRef = useRef<string | null | undefined>(undefined);
-  const previousWorkspaceCountRef = useRef(workspaces.length);
-  const previousWorkspaceIdRef = useRef(workspace.id);
+  const previousSpaceCountRef = useRef(spaces.length);
+  const previousSpaceIdRef = useRef(space.id);
   if (!initialStateRef.current) {
     const initialState = fixtureMode
-      ? defaultSurfaceTabsState(workspace)
-      : readStoredSurfaceTabsState(workspace, workspaces);
-    initialStateRef.current = migrateLegacyLibrarySurfaceTabState(initialState, workspace, migrateLegacyLibraryMode);
+      ? defaultSurfaceTabsState(space)
+      : readStoredSurfaceTabsState(space, spaces);
+    initialStateRef.current = migrateLegacyLibrarySurfaceTabState(initialState, space, migrateLegacyLibraryMode);
   }
-  const [surfaceTabs, setSurfaceTabs] = useState<WorkspaceSurfaceTab[]>(() => initialStateRef.current?.tabs ?? [newChatSurfaceTab(workspace)]);
-  const [activeSurfaceTabId, setActiveSurfaceTabId] = useState<string | null>(() => initialStateRef.current?.activeTabId ?? newChatSurfaceTabId(workspace.id));
+  const [surfaceTabs, setSurfaceTabs] = useState<SpaceSurfaceTab[]>(() => initialStateRef.current?.tabs ?? [newChatSurfaceTab(space)]);
+  const [activeSurfaceTabId, setActiveSurfaceTabId] = useState<string | null>(() => initialStateRef.current?.activeTabId ?? newChatSurfaceTabId(space.id));
 
   useEffect(() => {
-    recordActiveSurfaceTabWorkspaceRecency(recentSurfaceTabIdsByWorkspaceRef.current, surfaceTabs, activeSurfaceTabId);
+    recordActiveSurfaceTabSpaceRecency(recentSurfaceTabIdsBySpaceRef.current, surfaceTabs, activeSurfaceTabId);
   }, [activeSurfaceTabId, surfaceTabs]);
 
   useEffect(() => {
     const activeChanged = previousActiveSurfaceTabIdRef.current !== activeSurfaceTabId;
-    const workspacesHydrated = previousWorkspaceCountRef.current === 0 && workspaces.length > 0;
+    const spacesHydrated = previousSpaceCountRef.current === 0 && spaces.length > 0;
     previousActiveSurfaceTabIdRef.current = activeSurfaceTabId;
-    previousWorkspaceCountRef.current = workspaces.length;
-    if (!activeChanged && !workspacesHydrated) return;
-    const targetWorkspace = surfaceTabWorkspaceSwitchTarget({
+    previousSpaceCountRef.current = spaces.length;
+    if (!activeChanged && !spacesHydrated) return;
+    const targetSpace = surfaceTabSpaceSwitchTarget({
       activeTabId: activeSurfaceTabId,
-      activeWorkspaceId: workspace.id,
+      activeSpaceId: space.id,
       tabs: surfaceTabs,
-      workspaces,
+      spaces,
     });
-    if (targetWorkspace) onSwitchWorkspace?.(targetWorkspace);
-  }, [activeSurfaceTabId, onSwitchWorkspace, surfaceTabs, workspace.id, workspaces]);
+    if (targetSpace) onSwitchSpace?.(targetSpace);
+  }, [activeSurfaceTabId, onSwitchSpace, surfaceTabs, space.id, spaces]);
 
   useEffect(() => {
-    if (previousWorkspaceIdRef.current === workspace.id) return;
-    previousWorkspaceIdRef.current = workspace.id;
-    const resolution = surfaceTabActivationForWorkspace({
+    if (previousSpaceIdRef.current === space.id) return;
+    previousSpaceIdRef.current = space.id;
+    const resolution = surfaceTabActivationForSpace({
       activeTabId: activeSurfaceTabId,
-      recentTabIdsByWorkspace: recentSurfaceTabIdsByWorkspaceRef.current,
+      recentTabIdsBySpace: recentSurfaceTabIdsBySpaceRef.current,
       tabs: surfaceTabs,
-      workspace,
+      space,
     });
     if (!resolution || resolution.tabId === activeSurfaceTabId) return;
     if (resolution.tabToAdd) {
@@ -73,27 +73,27 @@ export function useSurfaceTabs({
       setSurfaceTabs((current) => current.some((tab) => tab.id === tabToAdd.id) ? current : [...current, tabToAdd]);
     }
     setActiveSurfaceTabId(resolution.tabId);
-  }, [activeSurfaceTabId, surfaceTabs, workspace]);
+  }, [activeSurfaceTabId, surfaceTabs, space]);
 
   useEffect(() => {
-    if (openChatWorkspaceId !== workspace.id) return;
-    const existingDraftTab = surfaceTabs.find((tab) => tab.kind === "chat" && tab.workspaceId === workspace.id && !tab.conversationId);
+    if (openChatSpaceId !== space.id) return;
+    const existingDraftTab = surfaceTabs.find((tab) => tab.kind === "chat" && tab.spaceId === space.id && !tab.conversationId);
     if (existingDraftTab) {
       setActiveSurfaceTabId(existingDraftTab.id);
-      onOpenChatWorkspaceConsumed?.();
+      onOpenChatSpaceConsumed?.();
       return;
     }
-    const tab = newChatSurfaceTab(workspace);
+    const tab = newChatSurfaceTab(space);
     setSurfaceTabs((current) => current.some((item) => item.id === tab.id) ? current : [...current, tab]);
     setActiveSurfaceTabId(tab.id);
-    onOpenChatWorkspaceConsumed?.();
-  }, [openChatWorkspaceId, onOpenChatWorkspaceConsumed, surfaceTabs, workspace.id, workspace.name]);
+    onOpenChatSpaceConsumed?.();
+  }, [openChatSpaceId, onOpenChatSpaceConsumed, surfaceTabs, space.id, space.name]);
 
   useEffect(() => {
-    if (!workspaces.length) return;
+    if (!spaces.length) return;
     setSurfaceTabs((current) => {
-      const next = filterSurfaceTabsToWorkspaces(current, workspaces);
-      const resolved = next.length ? next : [newChatSurfaceTab(workspace)];
+      const next = filterSurfaceTabsToSpaces(current, spaces);
+      const resolved = next.length ? next : [newChatSurfaceTab(space)];
       setActiveSurfaceTabId((currentActiveTabId) => (
         currentActiveTabId && resolved.some((tab) => tab.id === currentActiveTabId)
           ? currentActiveTabId
@@ -101,7 +101,7 @@ export function useSurfaceTabs({
       ));
       return resolved;
     });
-  }, [workspace.id, workspace.name, workspaces]);
+  }, [space.id, space.name, spaces]);
 
   useEffect(() => {
     setActiveSurfaceTabId((current) => {
@@ -122,16 +122,16 @@ export function useSurfaceTabs({
   function syncSurfaceTabConversationTitles(groups: Record<string, ConversationSummary[]>): void {
     setSurfaceTabs((current) => current.map((tab) => {
       if (tab.kind !== "chat" || !tab.conversationId) return tab;
-      const refreshedConversation = groups[tab.workspaceId]?.find((conversation) => conversation.id === tab.conversationId);
+      const refreshedConversation = groups[tab.spaceId]?.find((conversation) => conversation.id === tab.conversationId);
       if (!refreshedConversation) return tab;
       const title = chatDisplayTitle({ serverTitle: refreshedConversation.title });
       return tab.title === title ? tab : { ...tab, title };
     }));
   }
 
-  function openChatSurfaceTab(targetWorkspace: WorkspaceSummary, conversation: ConversationSummary | null = null): string {
+  function openChatSurfaceTab(targetSpace: SpaceSummary, conversation: ConversationSummary | null = null): string {
     if (conversation) {
-      const existingTab = surfaceTabs.find((tab) => tab.kind === "chat" && tab.workspaceId === targetWorkspace.id && tab.conversationId === conversation.id);
+      const existingTab = surfaceTabs.find((tab) => tab.kind === "chat" && tab.spaceId === targetSpace.id && tab.conversationId === conversation.id);
       if (existingTab) {
         setSurfaceTabs((current) => current.map((tab) => (
           tab.id === existingTab.id ? { ...tab, title: chatDisplayTitle({ serverTitle: conversation.title }) } : tab
@@ -140,95 +140,95 @@ export function useSurfaceTabs({
         return existingTab.id;
       }
     }
-    const tab = conversation ? chatSurfaceTab(targetWorkspace, conversation) : newChatSurfaceTab(targetWorkspace, { fresh: true });
+    const tab = conversation ? chatSurfaceTab(targetSpace, conversation) : newChatSurfaceTab(targetSpace, { fresh: true });
     setSurfaceTabs((current) => conversation ? upsertSurfaceTab(current, tab) : [...current, tab]);
     setActiveSurfaceTabId(tab.id);
     return tab.id;
   }
 
-  function openHistorySurfaceTab(targetWorkspace: WorkspaceSummary, checkpointId?: string, title = "History"): void {
-    const tab = historySurfaceTab(targetWorkspace, checkpointId, title);
+  function openHistorySurfaceTab(targetSpace: SpaceSummary, checkpointId?: string, title = "History"): void {
+    const tab = historySurfaceTab(targetSpace, checkpointId, title);
     setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
     setActiveSurfaceTabId(tab.id);
   }
 
-  function openLibrarySurfaceTab(targetWorkspace: WorkspaceSummary): void {
-    const tab = librarySurfaceTab(targetWorkspace);
+  function openLibrarySurfaceTab(targetSpace: SpaceSummary): void {
+    const tab = librarySurfaceTab(targetSpace);
     setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
     setActiveSurfaceTabId(tab.id);
   }
 
-  function openFileSurfaceTab(targetWorkspace: WorkspaceSummary, path: string): void {
-    const tab = fileSurfaceTab(targetWorkspace, path);
+  function openFileSurfaceTab(targetSpace: SpaceSummary, path: string): void {
+    const tab = fileSurfaceTab(targetSpace, path);
     setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
     setActiveSurfaceTabId(tab.id);
   }
 
-  function openAppearanceSurfaceTab(targetWorkspace: WorkspaceSummary): void {
-    const tab = appearanceSurfaceTab(targetWorkspace);
+  function openAppearanceSurfaceTab(targetSpace: SpaceSummary): void {
+    const tab = appearanceSurfaceTab(targetSpace);
     setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
     setActiveSurfaceTabId(tab.id);
   }
 
-  function openAppStudioSurfaceTab(targetWorkspace: WorkspaceSummary): void {
-    const tab = appStudioSurfaceTab(targetWorkspace);
+  function openAppStudioSurfaceTab(targetSpace: SpaceSummary): void {
+    const tab = appStudioSurfaceTab(targetSpace);
     setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
     setActiveSurfaceTabId(tab.id);
   }
 
-  function openAssistantToolsSurfaceTab(targetWorkspace: WorkspaceSummary, view: AssistantToolsView = "installed"): void {
-    const tab = assistantToolsSurfaceTab(targetWorkspace, view);
+  function openAssistantToolsSurfaceTab(targetSpace: SpaceSummary, view: AssistantToolsView = "installed"): void {
+    const tab = assistantToolsSurfaceTab(targetSpace, view);
     setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
     setActiveSurfaceTabId(tab.id);
   }
 
-  function openChecksSurfaceTab(targetWorkspace: WorkspaceSummary): void {
-    const tab = checksSurfaceTab(targetWorkspace);
+  function openChecksSurfaceTab(targetSpace: SpaceSummary): void {
+    const tab = checksSurfaceTab(targetSpace);
     setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
     setActiveSurfaceTabId(tab.id);
   }
 
   function openExtensionSurfaceTab(
-    targetWorkspace: WorkspaceSummary,
+    targetSpace: SpaceSummary,
     surface: CapabilitySurface,
     view: AgentExtensionSurfaceView,
   ): void {
-    const tab = extensionSurfaceTab(targetWorkspace, surface, view);
+    const tab = extensionSurfaceTab(targetSpace, surface, view);
     setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
     setActiveSurfaceTabId(tab.id);
   }
 
   function openRestrictedAppSurfaceTab(
-    targetWorkspace: WorkspaceSummary,
+    targetSpace: SpaceSummary,
     app: { appId: string; digest: string },
     target: { appTabId: string; title: string; route: string; state?: unknown },
   ): void {
-    const tab = restrictedAppSurfaceTab(targetWorkspace.id, app, target);
+    const tab = restrictedAppSurfaceTab(targetSpace.id, app, target);
     setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
     setActiveSurfaceTabId(tab.id);
   }
 
   function updateRestrictedAppSurfaceTab(
-    workspaceId: string,
+    spaceId: string,
     app: { appId: string; digest: string },
     target: { appTabId: string; title: string; route: string; state?: unknown },
   ): void {
-    const id = restrictedAppSurfaceTabId(workspaceId, app.appId, app.digest, target.appTabId);
+    const id = restrictedAppSurfaceTabId(spaceId, app.appId, app.digest, target.appTabId);
     setSurfaceTabs((current) => current.map((tab) => tab.id === id && tab.kind === "restricted-app"
-      ? restrictedAppSurfaceTab(workspaceId, app, target)
+      ? restrictedAppSurfaceTab(spaceId, app, target)
       : tab));
   }
 
-  function closeRestrictedAppSurfaceTab(workspaceId: string, appId: string, digest: string, appTabId: string): void {
-    closeSurfaceTab(restrictedAppSurfaceTabId(workspaceId, appId, digest, appTabId));
+  function closeRestrictedAppSurfaceTab(spaceId: string, appId: string, digest: string, appTabId: string): void {
+    closeSurfaceTab(restrictedAppSurfaceTabId(spaceId, appId, digest, appTabId));
   }
 
   const reconcileRestrictedAppSurfaceTabs = useCallback((
-    appsByWorkspace: Record<string, RestrictedAppInstalled[]>,
-    knownWorkspaceIds: ReadonlySet<string>,
+    appsBySpace: Record<string, RestrictedAppInstalled[]>,
+    knownSpaceIds: ReadonlySet<string>,
   ): void => {
     setSurfaceTabs((current) => {
-      const next = closeUnavailableRestrictedAppSurfaceTabs(current, appsByWorkspace, knownWorkspaceIds);
+      const next = closeUnavailableRestrictedAppSurfaceTabs(current, appsBySpace, knownSpaceIds);
       if (next === current) return current;
       setActiveSurfaceTabId((currentActiveTabId) => {
         if (currentActiveTabId && next.some((tab) => tab.id === currentActiveTabId)) return currentActiveTabId;
@@ -256,18 +256,18 @@ export function useSurfaceTabs({
     });
   }
 
-  function handleTabConversationActivated(tabId: string, tabWorkspace: WorkspaceSummary, conversation: ConversationSummary | null): void {
+  function handleTabConversationActivated(tabId: string, tabSpace: SpaceSummary, conversation: ConversationSummary | null): void {
     if (!conversation) return;
-    const duplicate = surfaceTabs.find((tab) => tab.kind === "chat" && tab.id !== tabId && tab.workspaceId === tabWorkspace.id && tab.conversationId === conversation.id);
+    const duplicate = surfaceTabs.find((tab) => tab.kind === "chat" && tab.id !== tabId && tab.spaceId === tabSpace.id && tab.conversationId === conversation.id);
     if (duplicate) {
       setSurfaceTabs((current) => current.filter((tab) => tab.id !== tabId));
       setActiveSurfaceTabId((current) => activeTabAfterConversationActivation(current, tabId, duplicate.id));
       return;
     }
-    const nextTab: WorkspaceSurfaceTab = {
+    const nextTab: SpaceSurfaceTab = {
       id: tabId,
       kind: "chat",
-      workspaceId: tabWorkspace.id,
+      spaceId: tabSpace.id,
       conversationId: conversation.id,
       title: chatDisplayTitle({ serverTitle: conversation.title }),
     };
@@ -276,21 +276,21 @@ export function useSurfaceTabs({
     });
   }
 
-  function removeWorkspaceSurfaceTabs(workspaceId: string): void {
-    setSurfaceTabs((current) => current.filter((tab) => tab.workspaceId !== workspaceId));
+  function removeSpaceSurfaceTabs(spaceId: string): void {
+    setSurfaceTabs((current) => current.filter((tab) => tab.spaceId !== spaceId));
   }
 
-  function retargetFileSurfaceTabsForMove(workspaceId: string, sourcePath: string, movedPath: string): void {
-    setSurfaceTabs((current) => retargetFileSurfaceTabs(current, workspaceId, sourcePath, movedPath));
+  function retargetFileSurfaceTabsForMove(spaceId: string, sourcePath: string, movedPath: string): void {
+    setSurfaceTabs((current) => retargetFileSurfaceTabs(current, spaceId, sourcePath, movedPath));
   }
 
-  function closeFileSurfaceTabsForDeletedPaths(workspaceId: string, deletedPaths: Set<string>): void {
-    setSurfaceTabs((current) => closeFileSurfaceTabs(current, workspaceId, deletedPaths));
+  function closeFileSurfaceTabsForDeletedPaths(spaceId: string, deletedPaths: Set<string>): void {
+    setSurfaceTabs((current) => closeFileSurfaceTabs(current, spaceId, deletedPaths));
   }
 
-  function updateSurfaceTabConversationTitle(workspaceId: string, conversation: ConversationSummary): void {
+  function updateSurfaceTabConversationTitle(spaceId: string, conversation: ConversationSummary): void {
     setSurfaceTabs((current) => current.map((tab) => (
-      tab.kind === "chat" && tab.workspaceId === workspaceId && tab.conversationId === conversation.id
+      tab.kind === "chat" && tab.spaceId === spaceId && tab.conversationId === conversation.id
         ? { ...tab, title: chatDisplayTitle({ serverTitle: conversation.title }) }
         : tab
     )));
@@ -316,41 +316,41 @@ export function useSurfaceTabs({
     reconcileRestrictedAppSurfaceTabs,
     closeSurfaceTab,
     handleTabConversationActivated,
-    removeWorkspaceSurfaceTabs,
+    removeSpaceSurfaceTabs,
     retargetFileSurfaceTabsForMove,
     closeFileSurfaceTabsForDeletedPaths,
     updateSurfaceTabConversationTitle,
   };
 }
 
-function newChatSurfaceTab(workspace: WorkspaceSummary, options: { fresh?: boolean } = {}): WorkspaceSurfaceTab {
+function newChatSurfaceTab(space: SpaceSummary, options: { fresh?: boolean } = {}): SpaceSurfaceTab {
   return {
-    id: options.fresh ? `chat:${workspace.id}:draft:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}` : newChatSurfaceTabId(workspace.id),
+    id: options.fresh ? `chat:${space.id}:draft:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}` : newChatSurfaceTabId(space.id),
     kind: "chat",
-    workspaceId: workspace.id,
+    spaceId: space.id,
     conversationId: null,
     title: "New chat",
   };
 }
 
 interface SurfaceTabsState {
-  tabs: WorkspaceSurfaceTab[];
+  tabs: SpaceSurfaceTab[];
   activeTabId: string | null;
 }
 
-function defaultSurfaceTabsState(workspace: WorkspaceSummary): SurfaceTabsState {
+function defaultSurfaceTabsState(space: SpaceSummary): SurfaceTabsState {
   return {
-    tabs: [newChatSurfaceTab(workspace)],
-    activeTabId: newChatSurfaceTabId(workspace.id),
+    tabs: [newChatSurfaceTab(space)],
+    activeTabId: newChatSurfaceTabId(space.id),
   };
 }
 
-function readStoredSurfaceTabsState(workspace: WorkspaceSummary, workspaces: WorkspaceSummary[]): SurfaceTabsState {
+function readStoredSurfaceTabsState(space: SpaceSummary, spaces: SpaceSummary[]): SurfaceTabsState {
   const stored = readStoredJsonValue<SurfaceTabsState>(surfaceTabsStorageKey, normalizeStoredSurfaceTabsValue, { tabs: [], activeTabId: null });
-  if (!stored.tabs.length) return defaultSurfaceTabsState(workspace);
-  if (!workspaces.length) return normalizeActiveSurfaceTab(stored);
-  const restored = restoreStoredSurfaceTabsForWorkspaces(stored, workspaces);
-  return restored.tabs.length ? restored : defaultSurfaceTabsState(workspace);
+  if (!stored.tabs.length) return defaultSurfaceTabsState(space);
+  if (!spaces.length) return normalizeActiveSurfaceTab(stored);
+  const restored = restoreStoredSurfaceTabsForSpaces(stored, spaces);
+  return restored.tabs.length ? restored : defaultSurfaceTabsState(space);
 }
 
 function writeStoredSurfaceTabsState(state: SurfaceTabsState): void {
@@ -368,8 +368,8 @@ function normalizeStoredSurfaceTabsValue(parsed: unknown): SurfaceTabsState {
   return normalizeActiveSurfaceTab({ tabs, activeTabId });
 }
 
-function normalizeStoredSurfaceTabs(tabs: unknown[]): WorkspaceSurfaceTab[] {
-  const next: WorkspaceSurfaceTab[] = [];
+function normalizeStoredSurfaceTabs(tabs: unknown[]): SpaceSurfaceTab[] {
+  const next: SpaceSurfaceTab[] = [];
   const seenIds = new Set<string>();
   for (const value of tabs) {
     const tab = normalizeStoredSurfaceTab(value);
@@ -380,16 +380,16 @@ function normalizeStoredSurfaceTabs(tabs: unknown[]): WorkspaceSurfaceTab[] {
   return next;
 }
 
-function normalizeStoredSurfaceTab(value: unknown): WorkspaceSurfaceTab | null {
+function normalizeStoredSurfaceTab(value: unknown): SpaceSurfaceTab | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
-  if (typeof record.id !== "string" || typeof record.workspaceId !== "string" || typeof record.title !== "string") return null;
+  if (typeof record.id !== "string" || typeof record.spaceId !== "string" || typeof record.title !== "string") return null;
   if (record.kind === "chat") {
     if (record.conversationId !== null && typeof record.conversationId !== "string") return null;
     return {
       id: record.id,
       kind: "chat",
-      workspaceId: record.workspaceId,
+      spaceId: record.spaceId,
       conversationId: record.conversationId,
       title: record.title,
     };
@@ -399,7 +399,7 @@ function normalizeStoredSurfaceTab(value: unknown): WorkspaceSurfaceTab | null {
     return {
       id: record.id,
       kind: "file",
-      workspaceId: record.workspaceId,
+      spaceId: record.spaceId,
       path: record.path,
       title: record.title,
     };
@@ -409,16 +409,16 @@ function normalizeStoredSurfaceTab(value: unknown): WorkspaceSurfaceTab | null {
     return {
       id: record.id,
       kind: "history",
-      workspaceId: record.workspaceId,
+      spaceId: record.spaceId,
       checkpointId: typeof record.checkpointId === "string" ? record.checkpointId : undefined,
       title: record.title,
     };
   }
   if (record.kind === "library") {
     return {
-      id: `library:${record.workspaceId}`,
+      id: `library:${record.spaceId}`,
       kind: "library",
-      workspaceId: record.workspaceId,
+      spaceId: record.spaceId,
       title: "Library",
     };
   }
@@ -426,33 +426,33 @@ function normalizeStoredSurfaceTab(value: unknown): WorkspaceSurfaceTab | null {
     return {
       id: record.id,
       kind: "appearance",
-      workspaceId: record.workspaceId,
+      spaceId: record.spaceId,
       title: record.title,
     };
   }
   if (record.kind === "app-studio") {
     return {
-      id: `app-studio:${record.workspaceId}`,
+      id: `app-studio:${record.spaceId}`,
       kind: "app-studio",
-      workspaceId: record.workspaceId,
+      spaceId: record.spaceId,
       title: record.title,
     };
   }
   if (record.kind === "assistant-tools") {
     if (record.view !== "installed" && record.view !== "discover") return null;
     return {
-      id: `assistant-tools:${record.workspaceId}`,
+      id: `assistant-tools:${record.spaceId}`,
       kind: "assistant-tools",
-      workspaceId: record.workspaceId,
+      spaceId: record.spaceId,
       view: record.view,
       title: "Assistant tools",
     };
   }
   if (record.kind === "checks") {
     return {
-      id: `checks:${record.workspaceId}`,
+      id: `checks:${record.spaceId}`,
       kind: "checks",
-      workspaceId: record.workspaceId,
+      spaceId: record.spaceId,
       title: "Checks",
     };
   }
@@ -462,7 +462,7 @@ function normalizeStoredSurfaceTab(value: unknown): WorkspaceSurfaceTab | null {
     return {
       id: record.id,
       kind: "extension",
-      workspaceId: record.workspaceId,
+      spaceId: record.spaceId,
       surfaceId: record.surfaceId,
       surfaceExecution: "full-trust-pi",
       viewId: record.viewId,
@@ -474,11 +474,11 @@ function normalizeStoredSurfaceTab(value: unknown): WorkspaceSurfaceTab | null {
     if (typeof record.digest !== "string" || !/^[a-f0-9]{64}$/.test(record.digest)) return null;
     if (typeof record.appTabId !== "string" || !/^[a-z0-9][a-z0-9._:-]{0,127}$/.test(record.appTabId)) return null;
     if (typeof record.route !== "string" || !validRestrictedAppRoute(record.route)) return null;
-    const id = restrictedAppSurfaceTabId(record.workspaceId, record.appId, record.digest, record.appTabId);
+    const id = restrictedAppSurfaceTabId(record.spaceId, record.appId, record.digest, record.appTabId);
     return {
       id,
       kind: "restricted-app",
-      workspaceId: record.workspaceId,
+      spaceId: record.spaceId,
       appId: record.appId,
       digest: record.digest,
       appTabId: record.appTabId,
@@ -490,16 +490,16 @@ function normalizeStoredSurfaceTab(value: unknown): WorkspaceSurfaceTab | null {
   return null;
 }
 
-function restoreStoredSurfaceTabsForWorkspaces(state: SurfaceTabsState, workspaces: WorkspaceSummary[]): SurfaceTabsState {
+function restoreStoredSurfaceTabsForSpaces(state: SurfaceTabsState, spaces: SpaceSummary[]): SurfaceTabsState {
   return normalizeActiveSurfaceTab({
-    tabs: filterSurfaceTabsToWorkspaces(state.tabs, workspaces),
+    tabs: filterSurfaceTabsToSpaces(state.tabs, spaces),
     activeTabId: state.activeTabId,
   });
 }
 
-function filterSurfaceTabsToWorkspaces(tabs: WorkspaceSurfaceTab[], workspaces: WorkspaceSummary[]): WorkspaceSurfaceTab[] {
-  const workspaceIds = new Set(workspaces.map((item) => item.id));
-  return tabs.filter((tab) => workspaceIds.has(tab.workspaceId));
+function filterSurfaceTabsToSpaces(tabs: SpaceSurfaceTab[], spaces: SpaceSummary[]): SpaceSurfaceTab[] {
+  const spaceIds = new Set(spaces.map((item) => item.id));
+  return tabs.filter((tab) => spaceIds.has(tab.spaceId));
 }
 
 function normalizeActiveSurfaceTab(state: SurfaceTabsState): SurfaceTabsState {
@@ -510,167 +510,167 @@ function normalizeActiveSurfaceTab(state: SurfaceTabsState): SurfaceTabsState {
   };
 }
 
-function recordActiveSurfaceTabWorkspaceRecency(recentTabIdsByWorkspace: Map<string, string>, tabs: WorkspaceSurfaceTab[], activeTabId: string | null): void {
+function recordActiveSurfaceTabSpaceRecency(recentTabIdsBySpace: Map<string, string>, tabs: SpaceSurfaceTab[], activeTabId: string | null): void {
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
   if (!activeTab) return;
-  recentTabIdsByWorkspace.set(activeTab.workspaceId, activeTab.id);
+  recentTabIdsBySpace.set(activeTab.spaceId, activeTab.id);
 }
 
 function activeTabAfterConversationActivation(currentActiveTabId: string | null, sourceTabId: string, duplicateTabId: string): string | null {
   return currentActiveTabId === sourceTabId ? duplicateTabId : currentActiveTabId;
 }
 
-function surfaceTabWorkspaceSwitchTarget({
+function surfaceTabSpaceSwitchTarget({
   activeTabId,
-  activeWorkspaceId,
+  activeSpaceId,
   tabs,
-  workspaces,
+  spaces,
 }: {
   activeTabId: string | null;
-  activeWorkspaceId: string;
-  tabs: WorkspaceSurfaceTab[];
-  workspaces: WorkspaceSummary[];
-}): WorkspaceSummary | null {
+  activeSpaceId: string;
+  tabs: SpaceSurfaceTab[];
+  spaces: SpaceSummary[];
+}): SpaceSummary | null {
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
-  if (!activeTab || activeTab.workspaceId === activeWorkspaceId) return null;
-  return workspaces.find((item) => item.id === activeTab.workspaceId) ?? null;
+  if (!activeTab || activeTab.spaceId === activeSpaceId) return null;
+  return spaces.find((item) => item.id === activeTab.spaceId) ?? null;
 }
 
-function surfaceTabActivationForWorkspace({
+function surfaceTabActivationForSpace({
   activeTabId,
-  recentTabIdsByWorkspace,
+  recentTabIdsBySpace,
   tabs,
-  workspace,
+  space,
 }: {
   activeTabId: string | null;
-  recentTabIdsByWorkspace: Map<string, string>;
-  tabs: WorkspaceSurfaceTab[];
-  workspace: WorkspaceSummary;
-}): { tabId: string; tabToAdd?: WorkspaceSurfaceTab } | null {
+  recentTabIdsBySpace: Map<string, string>;
+  tabs: SpaceSurfaceTab[];
+  space: SpaceSummary;
+}): { tabId: string; tabToAdd?: SpaceSurfaceTab } | null {
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
-  if (activeTab?.workspaceId === workspace.id) return null;
+  if (activeTab?.spaceId === space.id) return null;
 
-  const recentTabId = recentTabIdsByWorkspace.get(workspace.id);
-  const recentTab = recentTabId ? tabs.find((tab) => tab.id === recentTabId && tab.workspaceId === workspace.id) : null;
+  const recentTabId = recentTabIdsBySpace.get(space.id);
+  const recentTab = recentTabId ? tabs.find((tab) => tab.id === recentTabId && tab.spaceId === space.id) : null;
   if (recentTab) return { tabId: recentTab.id };
 
-  const draftTab = tabs.find((tab) => tab.kind === "chat" && tab.workspaceId === workspace.id && !tab.conversationId);
+  const draftTab = tabs.find((tab) => tab.kind === "chat" && tab.spaceId === space.id && !tab.conversationId);
   if (draftTab) return { tabId: draftTab.id };
 
-  const tab = newChatSurfaceTab(workspace);
+  const tab = newChatSurfaceTab(space);
   return { tabId: tab.id, tabToAdd: tab };
 }
 
-function newChatSurfaceTabId(workspaceId: string): string {
-  return `chat:${workspaceId}:new`;
+function newChatSurfaceTabId(spaceId: string): string {
+  return `chat:${spaceId}:new`;
 }
 
-function chatSurfaceTab(workspace: WorkspaceSummary, conversation: ConversationSummary): WorkspaceSurfaceTab {
+function chatSurfaceTab(space: SpaceSummary, conversation: ConversationSummary): SpaceSurfaceTab {
   return {
-    id: `chat:${workspace.id}:${conversation.id}`,
+    id: `chat:${space.id}:${conversation.id}`,
     kind: "chat",
-    workspaceId: workspace.id,
+    spaceId: space.id,
     conversationId: conversation.id,
     title: chatDisplayTitle({ serverTitle: conversation.title }),
   };
 }
 
-function historySurfaceTab(workspace: WorkspaceSummary, checkpointId?: string, title = "History"): WorkspaceSurfaceTab {
+function historySurfaceTab(space: SpaceSummary, checkpointId?: string, title = "History"): SpaceSurfaceTab {
   return {
-    id: checkpointId ? `history:${workspace.id}:${checkpointId}` : `history:${workspace.id}`,
+    id: checkpointId ? `history:${space.id}:${checkpointId}` : `history:${space.id}`,
     kind: "history",
-    workspaceId: workspace.id,
+    spaceId: space.id,
     checkpointId,
     title,
   };
 }
 
-export function librarySurfaceTab(workspace: WorkspaceSummary): WorkspaceSurfaceTab {
+export function librarySurfaceTab(space: SpaceSummary): SpaceSurfaceTab {
   return {
-    id: `library:${workspace.id}`,
+    id: `library:${space.id}`,
     kind: "library",
-    workspaceId: workspace.id,
+    spaceId: space.id,
     title: "Library",
   };
 }
 
 export function migrateLegacyLibrarySurfaceTabState(
   state: SurfaceTabsState,
-  workspace: WorkspaceSummary,
+  space: SpaceSummary,
   shouldMigrate: boolean,
 ): SurfaceTabsState {
   if (!shouldMigrate) return state;
-  const tab = librarySurfaceTab(workspace);
+  const tab = librarySurfaceTab(space);
   return {
     tabs: upsertSurfaceTab(state.tabs, tab),
     activeTabId: tab.id,
   };
 }
 
-function fileSurfaceTab(workspace: WorkspaceSummary, path: string): WorkspaceSurfaceTab {
+function fileSurfaceTab(space: SpaceSummary, path: string): SpaceSurfaceTab {
   return {
-    id: fileSurfaceTabId(workspace.id),
+    id: fileSurfaceTabId(space.id),
     kind: "file",
-    workspaceId: workspace.id,
+    spaceId: space.id,
     path,
     title: fileSurfaceTitle(path),
   };
 }
 
-function fileSurfaceTabId(workspaceId: string): string {
-  return `file:${workspaceId}`;
+function fileSurfaceTabId(spaceId: string): string {
+  return `file:${spaceId}`;
 }
 
 function fileSurfaceTitle(path: string): string {
   return path.split("/").pop() || path;
 }
 
-function appearanceSurfaceTab(workspace: WorkspaceSummary): WorkspaceSurfaceTab {
+function appearanceSurfaceTab(space: SpaceSummary): SpaceSurfaceTab {
   return {
-    id: `appearance:${workspace.id}`,
+    id: `appearance:${space.id}`,
     kind: "appearance",
-    workspaceId: workspace.id,
-    title: `Customize ${workspace.name}`,
+    spaceId: space.id,
+    title: `Customize ${space.name}`,
   };
 }
 
-export function appStudioSurfaceTab(workspace: WorkspaceSummary): WorkspaceSurfaceTab {
+export function appStudioSurfaceTab(space: SpaceSummary): SpaceSurfaceTab {
   return {
-    id: `app-studio:${workspace.id}`,
+    id: `app-studio:${space.id}`,
     kind: "app-studio",
-    workspaceId: workspace.id,
+    spaceId: space.id,
     title: "App Studio",
   };
 }
 
-export function assistantToolsSurfaceTab(workspace: WorkspaceSummary, view: AssistantToolsView = "installed"): WorkspaceSurfaceTab {
+export function assistantToolsSurfaceTab(space: SpaceSummary, view: AssistantToolsView = "installed"): SpaceSurfaceTab {
   return {
-    id: `assistant-tools:${workspace.id}`,
+    id: `assistant-tools:${space.id}`,
     kind: "assistant-tools",
-    workspaceId: workspace.id,
+    spaceId: space.id,
     view,
     title: "Assistant tools",
   };
 }
 
-export function checksSurfaceTab(workspace: WorkspaceSummary): WorkspaceSurfaceTab {
+export function checksSurfaceTab(space: SpaceSummary): SpaceSurfaceTab {
   return {
-    id: `checks:${workspace.id}`,
+    id: `checks:${space.id}`,
     kind: "checks",
-    workspaceId: workspace.id,
+    spaceId: space.id,
     title: "Checks",
   };
 }
 
 function extensionSurfaceTab(
-  workspace: WorkspaceSummary,
+  space: SpaceSummary,
   surface: CapabilitySurface,
   view: AgentExtensionSurfaceView,
-): WorkspaceSurfaceTab {
+): SpaceSurfaceTab {
   return {
-    id: `extension:${workspace.id}:${surface.key}:${view.id}`,
+    id: `extension:${space.id}:${surface.key}:${view.id}`,
     kind: "extension",
-    workspaceId: workspace.id,
+    spaceId: space.id,
     surfaceId: surface.key,
     surfaceExecution: "full-trust-pi",
     viewId: view.id,
@@ -679,14 +679,14 @@ function extensionSurfaceTab(
 }
 
 function restrictedAppSurfaceTab(
-  workspaceId: string,
+  spaceId: string,
   app: { appId: string; digest: string },
   target: { appTabId: string; title: string; route: string; state?: unknown },
-): WorkspaceSurfaceTab {
+): SpaceSurfaceTab {
   return {
-    id: restrictedAppSurfaceTabId(workspaceId, app.appId, app.digest, target.appTabId),
+    id: restrictedAppSurfaceTabId(spaceId, app.appId, app.digest, target.appTabId),
     kind: "restricted-app",
-    workspaceId,
+    spaceId,
     appId: app.appId,
     digest: app.digest,
     appTabId: target.appTabId,
@@ -696,18 +696,18 @@ function restrictedAppSurfaceTab(
   };
 }
 
-function restrictedAppSurfaceTabId(workspaceId: string, appId: string, digest: string, appTabId: string): string {
-  return `restricted-app:${workspaceId}:${appId}:${digest}:${appTabId}`;
+function restrictedAppSurfaceTabId(spaceId: string, appId: string, digest: string, appTabId: string): string {
+  return `restricted-app:${spaceId}:${appId}:${digest}:${appTabId}`;
 }
 
 function closeUnavailableRestrictedAppSurfaceTabs(
-  tabs: WorkspaceSurfaceTab[],
-  appsByWorkspace: Record<string, Array<{ manifest: { id: string }; digest: string }>>,
-  knownWorkspaceIds: ReadonlySet<string>,
-): WorkspaceSurfaceTab[] {
+  tabs: SpaceSurfaceTab[],
+  appsBySpace: Record<string, Array<{ manifest: { id: string }; digest: string }>>,
+  knownSpaceIds: ReadonlySet<string>,
+): SpaceSurfaceTab[] {
   const next = tabs.filter((tab) => {
-    if (tab.kind !== "restricted-app" || !knownWorkspaceIds.has(tab.workspaceId)) return true;
-    return (appsByWorkspace[tab.workspaceId] ?? []).some((app) => app.manifest.id === tab.appId && app.digest === tab.digest);
+    if (tab.kind !== "restricted-app" || !knownSpaceIds.has(tab.spaceId)) return true;
+    return (appsBySpace[tab.spaceId] ?? []).some((app) => app.manifest.id === tab.appId && app.digest === tab.digest);
   });
   return next.length === tabs.length ? tabs : next;
 }
@@ -721,23 +721,23 @@ function validRestrictedAppRoute(value: string): boolean {
   }
 }
 
-function upsertSurfaceTab(tabs: WorkspaceSurfaceTab[], tab: WorkspaceSurfaceTab): WorkspaceSurfaceTab[] {
+function upsertSurfaceTab(tabs: SpaceSurfaceTab[], tab: SpaceSurfaceTab): SpaceSurfaceTab[] {
   const existing = tabs.find((item) => item.id === tab.id);
   if (existing) return tabs.map((item) => item.id === tab.id ? { ...existing, ...tab } : item);
   return [...tabs, tab];
 }
 
-function retargetFileSurfaceTabs(tabs: WorkspaceSurfaceTab[], workspaceId: string, sourcePath: string, movedPath: string): WorkspaceSurfaceTab[] {
+function retargetFileSurfaceTabs(tabs: SpaceSurfaceTab[], spaceId: string, sourcePath: string, movedPath: string): SpaceSurfaceTab[] {
   return tabs.map((tab) => {
-    if (tab.kind !== "file" || tab.workspaceId !== workspaceId || !tab.path) return tab;
+    if (tab.kind !== "file" || tab.spaceId !== spaceId || !tab.path) return tab;
     const nextPath = retargetMovedPath(tab.path, sourcePath, movedPath);
     if (!nextPath || nextPath === tab.path) return tab;
     return { ...tab, path: nextPath, title: fileSurfaceTitle(nextPath) };
   });
 }
 
-function closeFileSurfaceTabs(tabs: WorkspaceSurfaceTab[], workspaceId: string, deletedPaths: Set<string>): WorkspaceSurfaceTab[] {
-  return tabs.filter((tab) => tab.kind !== "file" || tab.workspaceId !== workspaceId || !tab.path || !deletedPaths.has(tab.path));
+function closeFileSurfaceTabs(tabs: SpaceSurfaceTab[], spaceId: string, deletedPaths: Set<string>): SpaceSurfaceTab[] {
+  return tabs.filter((tab) => tab.kind !== "file" || tab.spaceId !== spaceId || !tab.path || !deletedPaths.has(tab.path));
 }
 
 export {
@@ -748,12 +748,12 @@ export {
   fileSurfaceTabId,
   historySurfaceTab,
   normalizeStoredSurfaceTabsValue,
-  recordActiveSurfaceTabWorkspaceRecency,
+  recordActiveSurfaceTabSpaceRecency,
   readStoredSurfaceTabsState,
-  restoreStoredSurfaceTabsForWorkspaces,
+  restoreStoredSurfaceTabsForSpaces,
   retargetFileSurfaceTabs,
   restrictedAppSurfaceTabId,
-  surfaceTabActivationForWorkspace,
-  surfaceTabWorkspaceSwitchTarget,
+  surfaceTabActivationForSpace,
+  surfaceTabSpaceSwitchTarget,
   upsertSurfaceTab,
 };
