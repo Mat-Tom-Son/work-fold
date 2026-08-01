@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { lstat, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { workspaceManagementRoot } from "./state-paths.js";
@@ -69,13 +69,44 @@ Summarize Space names, paths, restore-point ids, and task outcomes in plain lang
  * context file that Pi keeps in the session context, plus the
  * manage-workspaces Skill. These are the only project resources Workspace
  * places in the management root, and they are rewritten on every start so app
- * updates refresh them. A failure degrades the management conversation to an
- * uninstructed Assistant rather than blocking startup.
+ * updates refresh them. The desktop may still start if this fails, but the
+ * management conversation must remain unavailable rather than running without
+ * the identity and operating rules that define this privileged scope.
  */
 export async function ensureManagementInstructions(): Promise<void> {
   const root = workspaceManagementRoot();
-  const skillDir = join(root, ".pi", "skills", "manage-workspaces");
-  await mkdir(skillDir, { recursive: true });
-  await writeFile(join(root, "AGENTS.md"), managementAgentsFile, "utf8");
-  await writeFile(join(skillDir, "SKILL.md"), manageWorkspacesSkill, "utf8");
+  const directories = [
+    root,
+    join(root, ".pi"),
+    join(root, ".pi", "skills"),
+    join(root, ".pi", "skills", "manage-workspaces"),
+  ];
+  for (const [index, directory] of directories.entries()) {
+    await ensureAppOwnedDirectory(directory, index === 0);
+  }
+  await writeAppOwnedFile(join(root, "AGENTS.md"), managementAgentsFile);
+  await writeAppOwnedFile(join(directories.at(-1)!, "SKILL.md"), manageWorkspacesSkill);
+}
+
+async function ensureAppOwnedDirectory(path: string, recursive = false): Promise<void> {
+  try {
+    await mkdir(path, { recursive });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+  const info = await lstat(path);
+  if (!info.isDirectory() || info.isSymbolicLink()) {
+    throw new Error("Workspace management instructions require safe app-owned directories.");
+  }
+}
+
+async function writeAppOwnedFile(path: string, content: string): Promise<void> {
+  const existing = await lstat(path).catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  });
+  if (existing && (!existing.isFile() || existing.isSymbolicLink())) {
+    throw new Error("Workspace management instructions require safe app-owned files.");
+  }
+  await writeFile(path, content, { encoding: "utf8", mode: 0o600 });
 }

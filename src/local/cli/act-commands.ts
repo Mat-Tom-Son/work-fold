@@ -109,6 +109,7 @@ export function parseWorkspaceCliActArgv(argv: readonly string[]): WorkspaceCliA
       continue;
     }
     if (booleanFlags.has(token)) {
+      if (flags.has(token)) throw usageError(`${token} may be provided only once.`);
       flags.set(token, true);
       continue;
     }
@@ -117,6 +118,9 @@ export function parseWorkspaceCliActArgv(argv: readonly string[]): WorkspaceCliA
   }
 
   const command = positional.join(" ");
+  if (command !== "files add" && fromPaths.length) {
+    throw usageError(`--from cannot be used with '${command || "(none)"}'.`);
+  }
   const stringFlag = (name: string): string | undefined => {
     const value = flags.get(name);
     return typeof value === "string" ? value : undefined;

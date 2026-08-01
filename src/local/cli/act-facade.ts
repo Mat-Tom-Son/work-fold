@@ -96,8 +96,9 @@ export interface WorkspaceActFacade {
   /**
    * Management scope: the conversation above all Spaces. It reuses the same
    * turn orchestration and Pi runtime as Space Chats, but its transcript is
-   * machine-local application state, it carries no Space's project
-   * configuration, and its cross-Space hands are these same act commands.
+   * machine-local application state, it carries no user Space's project
+   * configuration (only Workspace's two app-owned management resources), and
+   * its cross-Space hands are these same act commands.
    * Omitting conversationId targets the default (most recent active)
    * management conversation, creating it on first send.
    */

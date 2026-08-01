@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { WorkspaceCliActReceipts } from "../src/local/cli/index.js";
+import { WorkspaceCliActReceipts, WorkspaceCliError } from "../src/local/cli/index.js";
 
 const bellCharacter = String.fromCharCode(7);
 const replacementCharacter = String.fromCharCode(0xfffd);
@@ -107,6 +107,25 @@ test("receipt append failures report false instead of throwing", async () => {
     await mkdir(join(sandbox, "cli"), { recursive: true });
     await writeFile(join(sandbox, "cli", "receipts"), "not a directory", "utf8");
     assert.equal(await receipts.append({ requestId: randomUUID(), command: "chat.send", outcome: "ok" }), false);
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("a damaged receipt ledger fails closed instead of permitting a replay", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "workspace-act-receipts-damaged-test-"));
+  try {
+    const receipts = new WorkspaceCliActReceipts({ stateRoot: sandbox });
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { dirname } = await import("node:path");
+    await mkdir(dirname(receipts.path), { recursive: true });
+    await writeFile(receipts.path, "{damaged journal line\n", "utf8");
+    await assert.rejects(
+      () => receipts.hasAccepted(randomUUID()),
+      (error: unknown) => error instanceof WorkspaceCliError
+        && error.code === "failure"
+        && /verify the act receipt journal/.test(error.message),
+    );
   } finally {
     await rm(sandbox, { recursive: true, force: true });
   }

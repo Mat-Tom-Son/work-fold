@@ -203,6 +203,7 @@ interface LocalApiState {
   appearance: SpaceAppearanceStore;
   kernel: WorkspaceKernel;
   spaceTrustAuthority: RegisteredSpaceTrustAuthority;
+  managementInstructionsError: string | null;
   localFolderGrantProvider?: LocalFolderGrantProvider;
   workspaceRemovalIo: Partial<WorkspaceRemovalIo>;
   beforeRestrictedAppWorkspaceRevalidation?: (workspaceId: string) => Promise<void>;
@@ -302,10 +303,12 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   // materializes here: the management AGENTS.md context file and the
   // manage-workspaces Skill.
   spaceTrustAuthority.grant(workspaceManagementRoot());
+  let managementInstructionsError: string | null = null;
   try {
     await ensureManagementInstructions();
   } catch (error) {
-    console.warn(`Workspace could not materialize the management instructions; the management conversation will run uninstructed: ${errorMessage(error)}`);
+    managementInstructionsError = errorMessage(error);
+    console.warn(`Workspace could not materialize the management instructions; the management conversation is unavailable: ${managementInstructionsError}`);
   }
   const runtimeProvider = new RegisteredSpaceRuntimeProvider(extensionRuntimeProvider, spaceTrustAuthority);
   const kernel = options.kernel ?? new WorkspaceKernel({ runtimeProvider });
@@ -324,6 +327,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     appearance,
     kernel,
     spaceTrustAuthority,
+    managementInstructionsError,
     localFolderGrantProvider: options.localFolderGrantProvider,
     workspaceRemovalIo: options.workspaceRemovalIo ?? {},
     beforeRestrictedAppWorkspaceRevalidation: options.beforeRestrictedAppWorkspaceRevalidation,
@@ -1732,14 +1736,14 @@ function createWorkspaceActFacade(state: LocalApiState): WorkspaceActFacade {
       return { space: toActSpaceRef(workspace), ...result };
     },
     async manageList() {
-      const scope = managementScope();
+      const scope = managementScope(state);
       const conversations = await runActOperation(() => listConversations(scope.rootPath));
       return { conversations: conversations.map(toActConversationRef) };
     },
     async manageSend(input) {
       const content = input.content.trim();
       if (!content) throw new WorkspaceCliError("usage", "Message content is required.");
-      const scope = managementScope();
+      const scope = managementScope(state);
       return runActOperation(async () => {
         const conversationId = input.newConversation
           ? (await createConversation(scope.rootPath)).id
@@ -1754,7 +1758,7 @@ function createWorkspaceActFacade(state: LocalApiState): WorkspaceActFacade {
       });
     },
     async manageConversationStatus(input) {
-      const scope = managementScope();
+      const scope = managementScope(state);
       const conversation = input.conversationId
         ? await runActOperation(() => readConversationSummary(scope.rootPath, input.conversationId!))
         : await runActOperation(() => resolveManagementConversation(false).catch(() => null));
@@ -1770,12 +1774,13 @@ function createWorkspaceActFacade(state: LocalApiState): WorkspaceActFacade {
       };
     },
     async manageTurnStatus(input) {
+      assertManagementInstructionsReady(state);
       const taskId = input.taskId.trim();
       if (!taskId) throw new WorkspaceCliError("usage", "Provide --task <id>.");
       return { task: turnStatusFor(state, workspaceManagementScopeId, taskId) };
     },
     async manageConversationResult(input) {
-      const scope = managementScope();
+      const scope = managementScope(state);
       const conversationId = input.conversationId
         ?? (await runActOperation(() => resolveManagementConversation(false).catch(() => null)))?.id;
       if (!conversationId) {
@@ -1784,13 +1789,14 @@ function createWorkspaceActFacade(state: LocalApiState): WorkspaceActFacade {
       return conversationResultForScope(state, scope.id, scope.rootPath, conversationId, input.messages);
     },
     async manageTurnResult(input) {
+      assertManagementInstructionsReady(state);
       const taskId = input.taskId.trim();
       if (!taskId) throw new WorkspaceCliError("usage", "Provide --task <id>.");
-      const scope = managementScope();
+      const scope = managementScope(state);
       return turnResultForScope(state, scope.id, scope.rootPath, taskId);
     },
     async manageAbort(input) {
-      const scope = managementScope();
+      const scope = managementScope(state);
       const conversationId = input.conversationId
         ?? (await runActOperation(() => resolveManagementConversation(false).catch(() => null)))?.id;
       if (!conversationId) {
@@ -1803,8 +1809,17 @@ function createWorkspaceActFacade(state: LocalApiState): WorkspaceActFacade {
 }
 
 /** The management scope shaped like the workspace refs the turn internals take. */
-function managementScope(): { id: string; rootPath: string } {
+function managementScope(state?: LocalApiState): { id: string; rootPath: string } {
+  if (state) assertManagementInstructionsReady(state);
   return { id: workspaceManagementScopeId, rootPath: workspaceManagementRoot() };
+}
+
+function assertManagementInstructionsReady(state: LocalApiState): void {
+  if (!state.managementInstructionsError) return;
+  throw new WorkspaceCliError(
+    "unavailable",
+    "The management conversation is unavailable because Workspace could not prepare its required instructions. Restart Workspace; if this continues, check the app-data management folder.",
+  );
 }
 
 /**
@@ -2124,13 +2139,14 @@ async function getClient(
   workspaceRoot: string,
   conversationId: string,
 ): Promise<PiConversationClient> {
+  if (workspaceId === workspaceManagementScopeId) assertManagementInstructionsReady(state);
   const key = clientKey(workspaceId, conversationId);
   rememberWorkspaceRoot(state, workspaceId, workspaceRoot);
   const existing = state.clients.get(key);
   if (existing) return existing;
-  // The management scope runs with personal Pi capabilities only: it belongs
-  // to no Space, so Space-bound restricted-app proposal and invocation
-  // bridges stay disconnected.
+  // The management scope loads personal Pi capabilities and its two app-owned
+  // project instructions. It belongs to no Space, so Space-bound restricted-
+  // app proposal and invocation bridges stay disconnected.
   const hostCapabilities = workspaceId === workspaceManagementScopeId
     ? undefined
     : {

@@ -2,7 +2,7 @@ import { appendFile, mkdir, readFile, rename, rm, stat } from "node:fs/promises"
 import { join } from "node:path";
 
 import { WORKSPACE_CLI_REQUEST_MAX_AGE_MS, workspaceCliBrokerPaths } from "./broker.js";
-import type { WorkspaceCliErrorCode } from "./protocol.js";
+import { WorkspaceCliError, type WorkspaceCliErrorCode } from "./protocol.js";
 
 export const WORKSPACE_CLI_ACT_RECEIPTS_MAX_BYTES = 1024 * 1024;
 
@@ -67,7 +67,7 @@ export class WorkspaceCliActReceipts {
         };
         await mkdir(this.#directory, { recursive: true, mode: 0o700 });
         await this.#rotateIfNeeded();
-        await appendFile(this.path, `${JSON.stringify(record)}\n`, { mode: 0o600 });
+        await appendFile(this.path, `${JSON.stringify(record)}\n`, { mode: 0o600, flush: true });
         return true;
       } catch {
         return false;
@@ -81,15 +81,20 @@ export class WorkspaceCliActReceipts {
   hasAccepted(requestId: string): Promise<boolean> {
     const operation = this.#queue.catch(() => undefined).then(async () => {
       for (const path of [this.path, this.rotatedPath]) {
-        const text = await readFile(path, "utf8").catch(() => null);
+        const text = await readFile(path, "utf8").catch((error: unknown) => {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+          throw new WorkspaceCliError("failure", "Workspace could not verify the act receipt journal.", { cause: error });
+        });
         if (!text) continue;
         for (const line of text.split("\n")) {
           if (!line) continue;
           try {
             const record = JSON.parse(line) as Partial<WorkspaceCliActReceiptV1>;
             if (record.requestId === requestId && record.outcome === "accepted") return true;
-          } catch {
-            // Torn or foreign lines never block the journal scan.
+          } catch (error) {
+            // A damaged ledger cannot safely prove that this request id was
+            // never accepted, so fail closed instead of risking a replay.
+            throw new WorkspaceCliError("failure", "Workspace could not verify the act receipt journal.", { cause: error });
           }
         }
       }

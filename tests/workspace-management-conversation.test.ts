@@ -120,6 +120,32 @@ test("the management conversation runs above all Spaces on the shared turn machi
   }
 });
 
+test("the management conversation fails closed when its required instructions cannot be prepared", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "workspace-management-fail-closed-test-"));
+  const stateBase = join(sandbox, "state");
+  await mkdir(stateBase, { recursive: true });
+  // Occupy the management root with a regular file. The rest of Workspace
+  // must still start, but this full-trust scope must not run uninstructed.
+  await writeFile(join(stateBase, "management"), "not a directory", "utf8");
+  const api = await startLocalApi({
+    port: 0,
+    stateBase,
+    workspaceBase: join(sandbox, "content"),
+    loadEnv: false,
+  });
+  try {
+    await assert.rejects(
+      () => api.actFacade.manageList(),
+      (error: unknown) => error instanceof WorkspaceCliError
+        && error.code === "unavailable"
+        && /required instructions/.test(error.message),
+    );
+  } finally {
+    await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
 async function waitForAsync(predicate: () => Promise<boolean>, timeoutMs = 10_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {

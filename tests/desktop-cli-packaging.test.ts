@@ -151,6 +151,14 @@ test("packaged asset verification requires external CLI shims", async () => {
   assert.match(verifier, /CLI shim must remain outside app\.asar/);
 });
 
+test("management dogfood launches the dev app with the agent-facing CLI on PATH", async () => {
+  const script = await read("scripts/management-dogfood.sh");
+  assert.match(script, /PATH="\$BIN:\$PATH" "\$BIN\/app-wrapper\.sh"/);
+  assert.match(script, /while \[ ! -f "\$DEVSTATE\/cli\/act-token\.json" \]/);
+  assert.match(script, /out\/management-dogfood\/bin/);
+  assert.doesNotMatch(script, /python3/);
+});
+
 /**
  * Shared act-lane contract both platform shims must keep: routing that never
  * lets content-bearing chat commands fall through to protocol v1, the

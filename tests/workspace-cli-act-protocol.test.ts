@@ -9,6 +9,7 @@ import {
   WORKSPACE_CLI_ACT_PROTOCOL_VERSION,
   createWorkspaceCliActRequest,
   isWorkspaceCliActRequest,
+  parseWorkspaceCliActArgv,
   parseWorkspaceCliActRequest,
   parseWorkspaceCliRequestEnvelope,
 } from "../src/local/cli/index.js";
@@ -96,4 +97,19 @@ test("createWorkspaceCliActRequest validates and normalizes like the parser", ()
   assert.equal(request.id, id.toLowerCase());
   assert.equal(request.cwd, cwd);
   assert.equal(request.lane, "act");
+});
+
+test("act command parsing rejects misplaced repeatable and duplicate boolean flags", () => {
+  assert.throws(
+    () => parseWorkspaceCliActArgv(["manage", "list", "--from", "ignored.txt"]),
+    /--from cannot be used with 'manage list'/,
+  );
+  assert.throws(
+    () => parseWorkspaceCliActArgv(["chat", "send", "--space", "space-1", "--new", "--new", "--message", "hello"]),
+    /--new may be provided only once/,
+  );
+  assert.deepEqual(
+    parseWorkspaceCliActArgv(["files", "add", "--space", "space-1", "--from", "one", "--from", "two"]),
+    { name: "files.add", output: "human", space: "space-1", fromPaths: ["one", "two"] },
+  );
 });
