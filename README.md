@@ -222,6 +222,7 @@ See [Assistant capabilities](docs/assistant-capabilities.md) for the product-fac
 - [T3 Code reference audit](docs/t3code-reference-audit.md) — transferable workbench ideas, overlap, and the ranked adaptation plan.
 - [Architecture](docs/architecture.md) and [management layer](docs/management-layer.md) — runtime boundaries, shared kernel, CLI, and agent harness.
 - [Assistant capabilities](docs/assistant-capabilities.md), [Extension surfaces](docs/extension-surfaces.md), [restricted app authoring](docs/restricted-app-authoring.md), [restricted app runtime](docs/restricted-app-runtime.md), and [Pi compatibility](docs/pi-resources.md) — Skills, full-trust Extensions, restricted apps, packages, scopes, authoring, and authorization.
+- [Workspace 0.6.0 release notes](docs/releases/0.6.0.md) — the agent-facing act lane, the management conversation above Spaces, task-scoped outcomes, native Chat file drops, and additive-placement rollback.
 - [Workspace 0.4.7 release notes](docs/releases/0.4.7.md) — semantic Space appearance, dual previews, contrast auditing, durable local storage, and shared Codex/Claude proposal tooling.
 - [Workspace 0.4.6 release notes](docs/releases/0.4.6.md) — quiet background Chat continuity and active-tab focus preservation.
 - [Workspace 0.4.5 release notes](docs/releases/0.4.5.md) — Library tabs, cross-Space copy clarity, legacy navigation migration, and Codex/Claude contributor parity.

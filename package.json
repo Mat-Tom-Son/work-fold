@@ -1,6 +1,6 @@
 {
   "name": "workspace-desktop",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "description": "A local-first desktop workspace powered by Pi.",
