@@ -75,6 +75,12 @@ replica. Database and transient-memory cleanup runs throughout the process
 lifetime; per-session operation limits, event-byte budgets, and event-stream
 caps bound one approved browser's retention pressure.
 
+New-address enrollment is controlled by a server-side deployment switch and
+bounded by per-IP and process-wide rate limits. The downloadable desktop carries
+no shared enrollment secret: embedding one in a public app would not create a
+meaningful authorization boundary. Closing enrollment does not disable or
+weaken the independently authenticated device tokens for existing addresses.
+
 An approved remote browser is nevertheless a powerful authority. It can send
 prompts to the same full-trust management Assistant described below and inspect
 the management transcript and bounded Space-relative file-tree metadata while

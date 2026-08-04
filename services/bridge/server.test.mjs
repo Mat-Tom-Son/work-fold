@@ -10,8 +10,6 @@ import { shouldSubmitComposerKey } from "./public/composer.js";
 import { renderMarkdown } from "./public/markdown.js";
 import { startBridgeServer } from "./server.mjs";
 
-const enrollmentSecret = "test-enrollment-secret-with-enough-entropy";
-
 test("serves the web client and healthy no-store API responses", async (context) => {
   const service = await testService(context);
   const baseUrl = `http://127.0.0.1:${service.port}`;
@@ -112,7 +110,9 @@ test("the landing download remains direct when GitHub's latest-release API is un
   );
 });
 
-test("requires the private enrollment credential and exact browser origin", async (context) => {
+test("keeps address enrollment server-controlled and browser login origin-bound", async (context) => {
+  const closedService = await testService(context, { publicEnrollment: false });
+  const closedBaseUrl = `http://127.0.0.1:${closedService.port}`;
   const service = await testService(context);
   const baseUrl = `http://127.0.0.1:${service.port}`;
   const deviceKeys = deviceKeyPairs();
@@ -123,12 +123,11 @@ test("requires the private enrollment credential and exact browser origin", asyn
     deviceEncryptionPublicJwk: deviceKeys.encryption.publicJwk,
   };
 
-  const forbidden = await jsonRequest(`${baseUrl}/api/device/enroll`, { method: "POST", body: enrollment });
-  assert.equal(forbidden.response.status, 403);
+  const closed = await jsonRequest(`${closedBaseUrl}/api/device/enroll`, { method: "POST", body: enrollment });
+  assert.equal(closed.response.status, 503);
 
   const enrolled = await jsonRequest(`${baseUrl}/api/device/enroll`, {
     method: "POST",
-    headers: { "x-work-fold-enrollment": enrollmentSecret },
     body: enrollment,
   });
   assert.equal(enrolled.response.status, 201);
@@ -159,7 +158,6 @@ test("pairs a non-exportable browser identity and relays only signed opaque enve
 
   const enrolled = await jsonRequest(`${baseUrl}/api/device/enroll`, {
     method: "POST",
-    headers: { "x-work-fold-enrollment": enrollmentSecret },
     body: {
       slug: "alice-test",
       password,
@@ -367,7 +365,7 @@ async function testService(context, options = {}) {
     host: "127.0.0.1",
     port: 0,
     baseDomain: "work-fold.test",
-    enrollmentSecret,
+    publicEnrollment: true,
     database,
     ...options,
   });

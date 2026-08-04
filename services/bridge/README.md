@@ -22,19 +22,19 @@ Node 22.19.0 or newer and PostgreSQL are required.
 ```bash
 npm install
 DATABASE_URL=postgresql://localhost/work_fold_bridge \
-WORKFOLD_ENROLLMENT_SECRET=replace-with-a-long-random-secret \
+WORKFOLD_ALLOW_PUBLIC_ENROLLMENT=1 \
 npm start
 ```
 
 For a local desktop build, set `WORKFOLD_REMOTE_BRIDGE_URL` to the local bridge
-origin and `WORKFOLD_REMOTE_ENROLLMENT_SECRET` to the same enrollment secret.
-The production bridge uses `WORKFOLD_BRIDGE_DOMAIN=work-fold.com`.
+origin. The production bridge uses `WORKFOLD_BRIDGE_DOMAIN=work-fold.com`.
 
 Configuration:
 
 - `DATABASE_URL` — required PostgreSQL connection string.
-- `WORKFOLD_ENROLLMENT_SECRET` — private-alpha credential required only when a
-  desktop creates its first address. Existing devices use their own token.
+- `WORKFOLD_ALLOW_PUBLIC_ENROLLMENT=1` — server-side switch permitting new
+  private-alpha address creation. When absent or disabled, existing addresses
+  keep working but new enrollment receives a closed response.
 - `WORKFOLD_BRIDGE_DOMAIN` — base domain; defaults to `work-fold.com`.
 - `WORKFOLD_TRUST_PROXY=1` — trust Railway's forwarded host/IP headers.
 - `WORKFOLD_BRIDGE_DB_POOL` — PostgreSQL pool size, from 1 through 50.
@@ -65,5 +65,6 @@ Railway must route `*.work-fold.com` to this service; that certificate includes
 `www.work-fold.com`. GoDaddy needs the Railway traffic CNAME plus the ownership
 TXT and wildcard-certificate challenge CNAME shown by Railway. The desktop
 remains the local execution endpoint and must be online for pairing or remote
-operations. The Railway service uses a 30-second drain window so reconnect and
-same-request recovery can run during deployments.
+operations. Set `WORKFOLD_ALLOW_PUBLIC_ENROLLMENT=1` in Railway only while new
+address creation should be available. The Railway service uses a 30-second
+drain window so reconnect and same-request recovery can run during deployments.

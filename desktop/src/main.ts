@@ -138,8 +138,9 @@ function titleBarOverlayFor(theme: "light" | "dark"): Electron.TitleBarOverlay {
 }
 const currentFile = fileURLToPath(import.meta.url);
 const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
-// Development builds use the repository's ignored local configuration. A
-// packaged build must receive enrollment through its release environment.
+// Development builds may override public service origins through the
+// repository's ignored local configuration. Packaged builds use the public
+// work-fold bridge and never depend on release-workstation credentials.
 if (!app.isPackaged) loadLocalEnvironmentFile(join(repoRoot, ".env"));
 const applicationVersion = resolveDesktopApplicationVersion({
   isPackaged: app.isPackaged,
@@ -656,14 +657,11 @@ async function configureRemoteAccess(value: unknown): Promise<RemoteAccessStatus
   const bridgeUrl = existing?.bridgeUrl ?? remoteBridgeUrl();
   if (!existing) {
     const keys = generateRemoteDeviceKeys();
-    const enrollmentSecret = process.env.WORKFOLD_REMOTE_ENROLLMENT_SECRET?.trim();
-    if (!enrollmentSecret) throw new Error("Remote access enrollment is not available in this build.");
     const enrolled = await remoteBridgeRequest<{
       account: { id: string; slug: string };
       deviceToken: string;
     }>(bridgeUrl, "/api/device/enroll", {
       method: "POST",
-      headers: { "x-work-fold-enrollment": enrollmentSecret },
       body: {
         slug: request.slug,
         password: request.password,
@@ -768,14 +766,13 @@ function remoteAccessSetupRequest(value: unknown): { slug: string; password: str
 async function remoteBridgeRequest<T = unknown>(
   bridgeUrl: string,
   path: string,
-  options: { method: "GET" | "POST" | "PUT" | "DELETE"; token?: string; headers?: Record<string, string>; body?: unknown },
+  options: { method: "GET" | "POST" | "PUT" | "DELETE"; token?: string; body?: unknown },
 ): Promise<T> {
   const response = await fetch(new URL(path, bridgeUrl), {
     method: options.method,
     headers: {
       ...(options.body === undefined ? {} : { "content-type": "application/json" }),
       ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
-      ...(options.headers ?? {}),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });

@@ -126,9 +126,12 @@ The same request model backs the desktop's **menu-bar popover** (macOS menu-bar 
 
 ### Remote browser surface
 
-Invitation-only private-alpha Remote access adds a browser surface to this exact management
+Server-enabled private-alpha Remote access adds a browser surface to this exact management
 conversation; it does not add another default conversation or Pi session. The
 desktop renderer configures a unique address and password in Settings. A
+server-side switch controls whether new addresses may be created; the public
+desktop app carries no shared enrollment credential, and the bridge applies
+per-IP and global enrollment rate limits. A
 successful password check creates only a host-only, SameSite session. A new
 browser then creates non-exportable P-256 signing and agreement keys and asks
 the online desktop to approve a matching six-digit code. Approval creates a

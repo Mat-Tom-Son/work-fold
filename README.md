@@ -88,7 +88,7 @@ work-fold reserves two hidden support directories inside a Space: `.work-fold/` 
 - A versioned management layer and installed `work-fold` command: a content-free read lane for inspecting Space context, running work, and Pi capabilities, plus a per-launch-authenticated act lane that lets a shell-capable agent create or register Spaces, copy material into a Space with a History restore point, and start, continue, await, or abort Space Chats while the app is running — every action journaled before it runs.
 - A management conversation above all Spaces (`work-fold manage …`): the same full-trust Assistant runtime with a machine-local transcript, taught by app-materialized instructions to work across Spaces through the work-fold CLI's read and act commands. Requests carry reference attachments (`--attach` paths and links), track every delegated Space turn, and support request-level status and stop.
 - A menu-bar popover for that management conversation ("Tell work-fold"): drop files, folders, or links on the macOS menu-bar icon or the popover, add an instruction, and follow the request through working, needs-you, handed-off, and done — with an explicitly attributed action trail backed by act receipts and a Stop that names everything it aborts. New chat starts a clean saved transcript without deleting the previous one. The Windows tray offers the same popover from its menu.
-- Private-alpha Remote access at a chosen `<name>.work-fold.com`: set the address and password in Settings, approve each new browser with a matching code on the desktop, then use the same management conversation, start a new saved chat when needed, and browse explicitly bounded, filtered Space-relative file trees. Alpha enrollment is configured by the build instead of asking the person for an invitation code. Payloads cross the hosted service as application-encrypted signed envelopes rather than durable plaintext records, but the hosted client and bridge are trusted parts of this full-authority feature and an active service compromise is outside that protection. The desktop must be online and remains the local execution endpoint.
+- Private-alpha Remote access at a chosen `<name>.work-fold.com`: set the address and password in Settings, approve each new browser with a matching code on the desktop, then use the same management conversation, start a new saved chat when needed, and browse explicitly bounded, filtered Space-relative file trees. New-address enrollment is controlled by the hosted bridge instead of an invitation code or a credential embedded in the app. Payloads cross the hosted service as application-encrypted signed envelopes rather than durable plaintext records, but the hosted client and bridge are trusted parts of this full-authority feature and an active service compromise is outside that protection. The desktop must be online and remains the local execution endpoint.
 - Native OS file drops on any Chat composer: dropped files upload into that Space's dated `Dropped/` folder and attach as explicit chat context.
 
 work-fold does not bundle organization-specific tools, instructions, document libraries, or cloud accounts.
@@ -172,8 +172,8 @@ Use exactly one credential in `.env.railway.local`: `RAILWAY_TOKEN` for a
 project-scoped token or `RAILWAY_API_TOKEN` for an account/workspace token. The
 private remote bridge lives in `services/bridge`; its own README documents the
 PostgreSQL, enrollment, one-replica, Railway, and wildcard-domain contract.
-Railway credentials and enrollment secrets remain ignored local or platform
-configuration and must never be committed.
+Railway credentials remain ignored local or platform configuration and must
+never be committed.
 
 Useful checks:
 

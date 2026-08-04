@@ -1,4 +1,4 @@
-import { createHash, createPublicKey, timingSafeEqual, verify } from "node:crypto";
+import { createPublicKey, verify } from "node:crypto";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { isIP } from "node:net";
@@ -46,11 +46,11 @@ export async function startBridgeServer({
   port = parsePort(process.env.PORT),
   baseDomain = process.env.WORKFOLD_BRIDGE_DOMAIN || defaultDomain,
   database = new BridgeDatabase(),
-  enrollmentSecret = process.env.WORKFOLD_ENROLLMENT_SECRET || "",
+  publicEnrollment = process.env.WORKFOLD_ALLOW_PUBLIC_ENROLLMENT === "1",
   trustProxy = process.env.WORKFOLD_TRUST_PROXY === "1",
   releaseFetcher = fetch,
 } = {}) {
-  const state = createState({ database, baseDomain: normalizeDomain(baseDomain), enrollmentSecret, trustProxy, releaseFetcher });
+  const state = createState({ database, baseDomain: normalizeDomain(baseDomain), publicEnrollment, trustProxy, releaseFetcher });
   await database.initialize();
   const server = createServer(async (request, response) => {
     try {
@@ -105,11 +105,11 @@ export async function startBridgeServer({
   });
 }
 
-function createState({ database, baseDomain, enrollmentSecret, trustProxy, releaseFetcher }) {
+function createState({ database, baseDomain, publicEnrollment, trustProxy, releaseFetcher }) {
   return {
     database,
     baseDomain,
-    enrollmentSecret,
+    publicEnrollment,
     trustProxy,
     releaseFetcher,
     latestMacDownload: null,
@@ -301,7 +301,8 @@ async function handleRequest(state, request, response) {
   }
 
   if (url.pathname === "/api/device/enroll" && method === "POST") {
-    enforceEnrollmentSecret(state, request);
+    requirePublicEnrollment(state);
+    enforceRateLimit(state, "enroll:global", 250, 60 * 60_000);
     enforceRateLimit(state, `enroll:${clientIp(state, request)}`, 5, 60 * 60_000);
     const body = await readJsonBody(request, maximumJsonBodyBytes);
     const result = await state.database.enroll(body);
@@ -596,10 +597,8 @@ function deviceToken(request) {
   return typeof authorization === "string" && authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
 }
 
-function enforceEnrollmentSecret(state, request) {
-  if (!state.enrollmentSecret) throw httpError(503, "New remote-access enrollment is currently closed.");
-  const supplied = request.headers["x-work-fold-enrollment"];
-  if (!safeTextEqual(state.enrollmentSecret, supplied)) throw httpError(403, "A valid private-beta enrollment credential is required.");
+function requirePublicEnrollment(state) {
+  if (!state.publicEnrollment) throw httpError(503, "New remote-access enrollment is currently closed.");
 }
 
 function requestSlug(state, request, url, bodySlug) {
@@ -902,13 +901,6 @@ function cookies(request) {
     const index = part.indexOf("=");
     return index < 0 ? ["", ""] : [part.slice(0, index).trim(), part.slice(index + 1).trim()];
   }).filter(([name]) => name));
-}
-
-function safeTextEqual(expected, actual) {
-  if (typeof actual !== "string") return false;
-  const left = createHash("sha256").update(expected).digest();
-  const right = createHash("sha256").update(actual).digest();
-  return timingSafeEqual(left, right);
 }
 
 function isLocalHost(host) {
