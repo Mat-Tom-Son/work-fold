@@ -144,6 +144,20 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
   settings: {
     getStatus: () => ipcRenderer.invoke("work-fold:settings:status"),
   },
+  remoteAccess: {
+    getStatus: () => ipcRenderer.invoke("work-fold:remote-access:status"),
+    configure: (request: { slug: string; password: string }) => ipcRenderer.invoke("work-fold:remote-access:configure", request),
+    setEnabled: (enabled: boolean) => ipcRenderer.invoke("work-fold:remote-access:set-enabled", enabled),
+    revokeBrowser: (grantId: string) => ipcRenderer.invoke("work-fold:remote-access:revoke-browser", grantId),
+    revokeAll: () => ipcRenderer.invoke("work-fold:remote-access:revoke-all"),
+    remove: () => ipcRenderer.invoke("work-fold:remote-access:remove"),
+    open: () => ipcRenderer.invoke("work-fold:remote-access:open"),
+    onStatusChanged: (callback: (status: unknown) => void) => {
+      const listener = (_event: unknown, status: unknown) => callback(status);
+      ipcRenderer.on("work-fold:remote-access:status", listener);
+      return () => ipcRenderer.removeListener("work-fold:remote-access:status", listener);
+    },
+  },
   menu: {
     setState: (state: unknown) => ipcRenderer.send("work-fold:menu:set-state", state),
     popup: (menuId: unknown, bounds: unknown) => ipcRenderer.invoke("work-fold:menu:popup", menuId, bounds),

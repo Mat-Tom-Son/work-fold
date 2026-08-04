@@ -215,6 +215,30 @@
   gap: 8px;
 }
 
+.assistant-credential-control {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.assistant-credential-control .professional-button {
+  white-space: nowrap;
+}
+
+.professional-save-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ui-success);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.professional-save-status svg {
+  flex: 0 0 auto;
+}
+
 .professional-status {
   display: flex;
   align-items: flex-start;
@@ -2708,6 +2732,10 @@
   .professional-field-wide,
   .professional-assistant .inline-error {
     grid-column: 1;
+  }
+
+  .assistant-credential-control {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .professional-notice {

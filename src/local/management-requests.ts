@@ -50,6 +50,9 @@ export interface ManagementRequestRecord {
   continuedFromTaskId: string | null;
   actions: ManagementRequestAction[];
   childTasks: ManagementChildTaskRef[];
+  source: "local" | "remote_web";
+  remotePrincipalId: string | null;
+  remoteRequestId: string | null;
 }
 
 export type ManagementAttachmentDispositionStatus = "placed" | "registered" | "unrecorded";
@@ -76,6 +79,9 @@ export class ManagementRequestRegistry {
     content: string;
     attachments: ManagementAttachmentRef[];
     continuedFromTaskId?: string;
+    source?: "local" | "remote_web";
+    remotePrincipalId?: string;
+    remoteRequestId?: string;
   }): ManagementRequestRecord {
     const previous = input.continuedFromTaskId
       ? this.#records.get(input.continuedFromTaskId) ?? null
@@ -94,6 +100,9 @@ export class ManagementRequestRegistry {
       continuedFromTaskId: previous?.taskId ?? null,
       actions: previous ? previous.actions.map((action) => ({ ...action })) : [],
       childTasks: previous ? previous.childTasks.map((child) => ({ ...child })) : [],
+      source: input.source ?? "local",
+      remotePrincipalId: input.remotePrincipalId ?? null,
+      remoteRequestId: input.remoteRequestId ?? null,
     };
     this.#records.set(input.taskId, record);
     this.#active.add(input.taskId);
@@ -114,7 +123,8 @@ export class ManagementRequestRegistry {
   }
 
   isActive(taskId: string): boolean {
-    return this.#active.has(taskId) && this.#records.has(taskId);
+    const record = this.#records.get(taskId);
+    return this.#active.has(taskId) && record !== undefined && record.stopRequestedAt === null;
   }
 
   /** Attributes an action to one explicit request id. */

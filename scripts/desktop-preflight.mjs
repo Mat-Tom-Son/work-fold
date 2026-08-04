@@ -65,8 +65,9 @@ function desktopReleasePlatform() {
 function verifyPiDependencyNormalization() {
   const piDir = join(rootDir, "node_modules", "@earendil-works", "pi-coding-agent");
   const expectedVersions = new Map([
-    ["brace-expansion", "5.0.8"],
+    ["brace-expansion", "5.0.9"],
     ["protobufjs", "7.6.5"],
+    ["undici", "8.10.0"],
   ]);
   for (const [name, expectedVersion] of expectedVersions) {
     try {

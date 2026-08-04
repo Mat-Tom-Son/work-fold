@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { ProjectTrustStore, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { AuthStorage, ModelRegistry, ProjectTrustStore, SettingsManager } from "@earendil-works/pi-coding-agent";
 import JSZip from "jszip";
 
 import { createPersistentPiAuthStorage, type PiAuthStorageData } from "../src/local/agent/auth-storage.js";
@@ -21,10 +21,53 @@ import {
   isPiProjectMutationTrusted,
   listPiModels,
   listPiPackages,
+  removePiProviderAuth,
   removePiPackage,
   updatePiPackages,
   type PiRuntimeProvider,
 } from "../src/local/agent/pi-runtime-config.js";
+
+test("Pi model summaries distinguish stored credentials and reflect explicit removal", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-pi-credential-status-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const agentDir = join(root, "agent");
+  const spaceRoot = join(root, "space");
+  await mkdir(spaceRoot, { recursive: true });
+  const authStorage = AuthStorage.inMemory({
+    "credential-test": { type: "api_key", key: "test-key" },
+  });
+  const modelRegistry = ModelRegistry.inMemory(authStorage);
+  modelRegistry.registerProvider("credential-test", {
+    api: "openai-completions",
+    baseUrl: "http://127.0.0.1:1/v1",
+    apiKey: "$WORKFOLD_CREDENTIAL_TEST_MISSING_KEY",
+    models: [{
+      id: "credential-model",
+      name: "Credential Model",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 4096,
+      maxTokens: 1024,
+    }],
+  });
+  const provider: PiRuntimeProvider = {
+    async resolveRuntime() {
+      return { agentDir, authStorage, modelRegistry, settingsManager: SettingsManager.inMemory() };
+    },
+  };
+
+  const configured = (await listPiModels(spaceRoot, provider)).find((item) => item.provider === "credential-test");
+  assert.equal(configured?.authConfigured, true);
+  assert.equal(configured?.authSource, "stored");
+  assert.equal(configured?.authType, "api_key");
+
+  await removePiProviderAuth(spaceRoot, "credential-test", provider);
+  const removed = (await listPiModels(spaceRoot, provider)).find((item) => item.provider === "credential-test");
+  assert.equal(removed?.authConfigured, false);
+  assert.equal(removed?.authSource, undefined);
+  assert.equal(removed?.authType, undefined);
+});
 
 test("host-backed Pi AuthStorage persists provider-neutral API key data", async () => {
   let stored: PiAuthStorageData = {};
@@ -50,6 +93,46 @@ test("host-backed Pi AuthStorage persists provider-neutral API key data", async 
     host: { async load() { return stored; }, async save(data) { stored = structuredClone(data); } },
   });
   assert.deepEqual(reopened.authStorage.get("openrouter"), { type: "api_key", key: "test-key" });
+});
+
+test("aborting during Pi session initialization latches cancellation before prompt execution", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-pi-cancel-init-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const agentDir = join(root, "agent");
+  const spaceRoot = join(root, "space");
+  await mkdir(agentDir, { recursive: true });
+  await mkdir(spaceRoot, { recursive: true });
+
+  let releaseInitialization!: () => void;
+  let initializationStarted!: () => void;
+  const initializationGate = new Promise<void>((resolve) => { releaseInitialization = resolve; });
+  const started = new Promise<void>((resolve) => { initializationStarted = resolve; });
+  let firstResolution = true;
+  const provider: PiRuntimeProvider = {
+    async resolveRuntime() {
+      if (firstResolution) {
+        firstResolution = false;
+        initializationStarted();
+        await initializationGate;
+      }
+      return { agentDir };
+    },
+  };
+  const client = new PiConversationClient("cancel-before-session", spaceRoot, provider);
+  t.after(() => client.stop());
+  const events: PiChatEvent[] = [];
+  client.on("event", (event: PiChatEvent) => events.push(event));
+
+  const prompt = client.prompt("/trust");
+  await started;
+  const rejected = assert.rejects(prompt, (error: unknown) => {
+    assert.equal((error as Error).name, "PiTurnCancelledError");
+    return true;
+  });
+  assert.equal(await client.abort("Remote browser authority was revoked."), true);
+  releaseInitialization();
+  await rejected;
+  assert.equal(events.some((event) => event.type === "assistant_message"), false);
 });
 
 test("routed extension UI bridge resolves host responses", async () => {

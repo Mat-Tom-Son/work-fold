@@ -244,6 +244,9 @@ export interface AgentModel {
   id: string;
   name: string;
   authConfigured: boolean;
+  authSource?: "stored" | "runtime" | "environment" | "fallback" | "models_json_key" | "models_json_command";
+  authLabel?: string;
+  authType?: "api_key" | "oauth";
   oauthSupported: boolean;
   contextWindow?: number;
 }

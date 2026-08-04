@@ -55,6 +55,7 @@ import {
   isPiProjectMutationTrusted,
   listPiModels,
   loginPiOAuth,
+  removePiProviderAuth,
   removePiPackage,
   savePiApiKey,
   setPiDefaultModel,
@@ -75,6 +76,12 @@ import {
   managementAttachmentDispositions,
   type ManagementRequestAction,
 } from "./management-requests.js";
+import type {
+  WorkFoldRemoteFacade,
+  WorkFoldRemoteOperation,
+  WorkFoldRemotePrincipal,
+  WorkFoldRemoteTreeResult,
+} from "./remote-management.js";
 import {
   createSpaceCheckpoint,
   createSpaceMutationCheckpoint,
@@ -189,6 +196,10 @@ export interface LocalApiOptions {
   maxBodyBytes?: number;
   loadEnv?: boolean;
   onAgentTurnActivity?: (activeTurns: number) => void;
+  /** Failure-injection seam immediately before a Pi prompt starts. */
+  beforeAgentPrompt?: (event: { spaceId: string; conversationId: string; taskId: string }) => Promise<void>;
+  /** Failure-injection seam after child acceptance but before parent attribution. */
+  beforeManagementActionRecord?: (event: { parentTaskId: string; command: "chat.send"; taskId: string }) => Promise<void>;
   onHistoryCheckpoint?: (event: {
     spaceId: string;
     conversationId: string;
@@ -204,6 +215,8 @@ export interface LocalApiHandle {
   kernel: WorkFoldKernel;
   /** In-process authority for CLI act-lane commands; see cli/act-facade.ts. */
   actFacade: WorkFoldActFacade;
+  /** Narrow Internet-facing semantic adapter. It never exposes the local HTTP session. */
+  remoteFacade: WorkFoldRemoteFacade;
   /** Validates an explicitly named management parent while its turn is active. */
   resolveManagementLineageParent: (taskId: string) => { taskId: string } | null;
   close: () => Promise<void>;
@@ -235,6 +248,7 @@ interface LocalApiState {
   runningTurns: Set<string>;
   activeTurnPromises: Set<Promise<void>>;
   activeTurnTasks: Map<string, { spaceId: string; conversationId: string }>;
+  cancelledTurnTasks: Set<string>;
   settledTurns: Map<string, SettledTurnRecord>;
   compactingConversations: Set<string>;
   capabilityMutations: Set<string>;
@@ -244,6 +258,8 @@ interface LocalApiState {
   fileStreams: Set<() => void>;
   activeTurns: number;
   onAgentTurnActivity?: (activeTurns: number) => void;
+  beforeAgentPrompt?: LocalApiOptions["beforeAgentPrompt"];
+  beforeManagementActionRecord?: LocalApiOptions["beforeManagementActionRecord"];
   onHistoryCheckpoint?: LocalApiOptions["onHistoryCheckpoint"];
 }
 
@@ -364,6 +380,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     runningTurns: new Set(),
     activeTurnPromises: new Set(),
     activeTurnTasks: new Map(),
+    cancelledTurnTasks: new Set(),
     settledTurns: new Map(),
     compactingConversations: new Set(),
     capabilityMutations: new Set(),
@@ -373,6 +390,8 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     fileStreams: new Set(),
     activeTurns: 0,
     onAgentTurnActivity: options.onAgentTurnActivity,
+    beforeAgentPrompt: options.beforeAgentPrompt,
+    beforeManagementActionRecord: options.beforeManagementActionRecord,
     onHistoryCheckpoint: options.onHistoryCheckpoint,
   };
 
@@ -407,6 +426,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     port: address.port,
     kernel,
     actFacade: createWorkFoldActFacade(state),
+    remoteFacade: createWorkFoldRemoteFacade(state),
     resolveManagementLineageParent: (taskId) => state.managementRequests.isActive(taskId) ? { taskId } : null,
     close: async () => {
       extensionUi.off("request", requestListener);
@@ -1413,6 +1433,18 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     sendJson(res, { status: normalizeStatus(await getPiSetupStatus(space.spaceRoot, state.runtimeProvider)) });
     return;
   }
+  if (method === "DELETE" && url.pathname === "/api/agent/auth") {
+    const body = await readJsonBody<{ spaceId?: string; provider?: string }>(state, req);
+    if (!body.spaceId || !body.provider?.trim()) throw badRequest("A Space and provider are required.");
+    const space = await getSpace(body.spaceId);
+    await removePiProviderAuth(space.spaceRoot, body.provider, state.runtimeProvider);
+    await invalidateAllClients(state);
+    sendJson(res, {
+      models: await listPiModels(space.spaceRoot, state.runtimeProvider),
+      status: normalizeStatus(await getPiSetupStatus(space.spaceRoot, state.runtimeProvider)),
+    });
+    return;
+  }
   if (method === "POST" && url.pathname === "/api/agent/oauth") {
     if (!state.piOAuthHooks) throw unavailable("Provider account sign-in requires the Space desktop app. You can use an API key for this provider instead.");
     const body = await readJsonBody<{ spaceId?: string; provider?: string; model?: string }>(state, req);
@@ -1826,6 +1858,8 @@ async function acceptConversationTurn(
     managementAttachments?: ManagementAttachmentRef[];
     /** Previous needs-you request whose audit trail this reply continues. */
     continuedFromManagementTaskId?: string;
+    /** Remote provenance is persisted with the message and management request. */
+    remotePrincipal?: WorkFoldRemotePrincipal;
   },
 ): Promise<{ message: { id: string; role: "user"; content: string; createdAt: string }; taskId: string }> {
   const turnKey = clientKey(space.id, conversationId);
@@ -1858,6 +1892,11 @@ async function acceptConversationTurn(
       ...(input.continuedFromManagementTaskId
         ? { continuedFromTaskId: input.continuedFromManagementTaskId }
         : {}),
+      ...(input.remotePrincipal ? {
+        source: "remote_web" as const,
+        remotePrincipalId: input.remotePrincipal.browserId,
+        remoteRequestId: input.remotePrincipal.requestId,
+      } : {}),
     });
   }
   broadcast(state, turnKey, turnStateEvent(conversationId, true));
@@ -1869,12 +1908,18 @@ async function acceptConversationTurn(
     ...(managementAttachments?.length
       ? { attachments: managementAttachments.map((ref) => ({ kind: ref.kind, target: ref.target, name: ref.name })) }
       : {}),
+    ...(input.remotePrincipal ? {
+      source: "remote_web" as const,
+      remotePrincipalId: input.remotePrincipal.browserId,
+      remoteRequestId: input.remotePrincipal.requestId,
+    } : {}),
   };
   try {
     await appendMessage(space.spaceRoot, conversationId, message);
   } catch (error) {
     state.runningTurns.delete(turnKey);
     state.activeTurnTasks.delete(task.id);
+    state.cancelledTurnTasks.delete(task.id);
     state.kernel.finishTask(task.id);
     if (managementAttachments) state.managementRequests.finish(task.id, "failed");
     broadcast(state, turnKey, turnStateEvent(conversationId, false));
@@ -1917,6 +1962,256 @@ async function registerSpaceInternal(state: LocalApiState, rootPath: string, pro
 const maxActAddSources = 25;
 
 /**
+ * Dedicated remote semantic adapter. The desktop relay can invoke only these
+ * bounded operations; it never receives the renderer session token or a
+ * generic local-HTTP tunnel. Every Assistant send still enters the canonical
+ * management conversation through the shared acceptance path.
+ */
+function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade {
+  return {
+    async execute(operation, rawInput, principal) {
+      assertRemotePrincipal(principal);
+      const input = remoteInput(rawInput);
+      switch (operation) {
+        case "management.summary": {
+          assertRemoteKeys(input, []);
+          assertManagementReadyForRoutes(state);
+          const conversation = await resolveManagementConversation(false).catch(() => null);
+          const latest = state.managementRequests.latest();
+          return {
+            available: true,
+            conversation: conversation ? toActConversationRef(conversation) : null,
+            state: conversation ? conversationRuntimeState(state, workFoldManagementScopeId, conversation.id) : "idle",
+            latestRequest: latest ? remoteManagementRequest(await managementRequestView(state, latest.taskId)) : null,
+          };
+        }
+        case "management.transcript": {
+          assertRemoteKeys(input, ["conversationId"]);
+          assertManagementReadyForRoutes(state);
+          const conversationId = remoteStableId(input.conversationId, "conversation id", 160);
+          const messages = await readConversation(workFoldManagementRoot(), conversationId);
+          if (!messages.length) throw notFound("Conversation not found.");
+          return remoteTranscript(messages);
+        }
+        case "management.send": {
+          assertRemoteKeys(input, ["content", "newConversation"]);
+          assertManagementReadyForRoutes(state);
+          const content = remoteContent(input.content);
+          const scope = managementScopeForRoutes(state);
+          if (input.newConversation !== undefined && typeof input.newConversation !== "boolean") {
+            throw badRequest("newConversation must be a boolean.");
+          }
+          // Idempotency must be checked before creating a requested new
+          // conversation. A recovered signed request may arrive after the
+          // desktop response cache is gone; creating first would leave an
+          // extra empty transcript on every replay.
+          const existingRemoteRequest = await findRemoteManagementRequest(scope.rootPath, principal.requestId);
+          if (existingRemoteRequest) {
+            return {
+              accepted: true,
+              duplicate: true,
+              conversationId: existingRemoteRequest.conversationId,
+              message: remoteChatMessage(existingRemoteRequest.message),
+              taskId: null,
+            };
+          }
+          const conversation = input.newConversation === true
+            ? await createConversation(scope.rootPath)
+            : await resolveManagementConversation(true);
+          const latest = state.managementRequests.latest();
+          const latestView = latest && latest.conversationId === conversation.id
+            ? await managementRequestView(state, latest.taskId)
+            : null;
+          const continuedFromManagementTaskId = latestView?.phase === "needs_you" ? latestView.taskId : undefined;
+          const { message, taskId } = await acceptConversationTurn(
+            state,
+            { id: scope.id, spaceRoot: scope.rootPath },
+            conversation.id,
+            {
+              content,
+              contextPaths: [],
+              selectedPath: null,
+              actorKind: "renderer",
+              managementAttachments: [],
+              ...(continuedFromManagementTaskId ? { continuedFromManagementTaskId } : {}),
+              remotePrincipal: principal,
+            },
+          );
+          return { accepted: true, conversationId: conversation.id, message: remoteChatMessage(message), taskId };
+        }
+        case "management.request": {
+          assertRemoteKeys(input, ["taskId"]);
+          assertManagementReadyForRoutes(state);
+          const taskId = remoteStableId(input.taskId, "task id", 160);
+          const request = await managementRequestView(state, taskId);
+          if (!request) throw notFound("Request not found. Request details are kept while work-fold stays running.");
+          return { request: remoteManagementRequest(request) };
+        }
+        case "management.stop": {
+          assertRemoteKeys(input, ["taskId"]);
+          assertManagementReadyForRoutes(state);
+          const taskId = remoteStableId(input.taskId, "task id", 160);
+          return { stopped: await stopManagementRequest(state, taskId) };
+        }
+        case "spaces.list": {
+          assertRemoteKeys(input, []);
+          const spaces = (await state.kernel.getSpaces({ kind: "renderer" })).spaces;
+          return { spaces: spaces.map((space) => ({ id: space.id, name: space.name })) };
+        }
+        case "spaces.tree": {
+          assertRemoteKeys(input, ["spaceId", "path"]);
+          const spaceId = remoteStableId(input.spaceId, "Space id", 512);
+          const path = input.path === undefined ? "" : remoteRelativePath(input.path);
+          const space = await getSpace(spaceId);
+          const scan = await scanSpaceTree(space.spaceRoot, 0, path, { includeIgnored: false });
+          const maximumEntries = 500;
+          const tree: WorkFoldRemoteTreeResult["tree"] = scan.entries.slice(0, maximumEntries).map((entry) => ({
+            name: entry.name,
+            path: entry.path,
+            kind: entry.kind,
+            ...(entry.sizeBytes === undefined ? {} : { sizeBytes: entry.sizeBytes }),
+            ...(entry.updatedAt === undefined ? {} : { updatedAt: entry.updatedAt }),
+            ...(entry.hasChildren === undefined ? {} : { hasChildren: entry.hasChildren }),
+          }));
+          return { tree, truncated: scan.truncated || scan.entries.length > maximumEntries } satisfies WorkFoldRemoteTreeResult;
+        }
+        default:
+          return remoteOperationExhaustive(operation);
+      }
+    },
+  };
+}
+
+function remoteManagementRequest(request: WorkFoldActManagementRequest | null): unknown {
+  if (!request) return null;
+  return {
+    taskId: request.taskId,
+    conversationId: request.conversationId,
+    phase: request.phase,
+    startedAt: request.startedAt,
+    endedAt: request.endedAt,
+    error: request.error,
+    content: request.content,
+    source: request.source,
+    children: request.children,
+    reply: request.reply,
+    attachments: request.attachments.map((attachment) => ({ kind: attachment.kind, name: attachment.name })),
+    dispositions: request.dispositions.map((disposition) => ({
+      attachment: { kind: disposition.attachment.kind, name: disposition.attachment.name },
+      status: disposition.status,
+      spaceId: disposition.spaceId,
+      spaceName: disposition.spaceName,
+      copied: disposition.copied,
+      checkpointId: disposition.checkpointId,
+    })),
+    actions: request.actions.map((action) => ({
+      command: action.command,
+      at: action.at,
+      spaceId: action.spaceId,
+      spaceName: action.spaceName,
+      copied: action.copied,
+      checkpointId: action.checkpointId,
+      conversationId: action.conversationId,
+      taskId: action.taskId,
+    })),
+  };
+}
+
+function remoteTranscript(messages: ChatMessage[]): { messages: Array<Record<string, unknown>>; truncated: boolean } {
+  const maximumMessages = 500;
+  const maximumJsonBytes = 1_200_000;
+  const tail = messages.slice(-maximumMessages).map(remoteChatMessage);
+  const selected: Array<Record<string, unknown>> = [];
+  let bytes = 2;
+  for (let index = tail.length - 1; index >= 0; index -= 1) {
+    const message = tail[index]!;
+    const messageBytes = Buffer.byteLength(JSON.stringify(message), "utf8") + 1;
+    if (selected.length && bytes + messageBytes > maximumJsonBytes) break;
+    selected.push(message);
+    bytes += messageBytes;
+  }
+  selected.reverse();
+  return {
+    messages: selected,
+    truncated: messages.length > maximumMessages || selected.length < tail.length || selected.some((message) => message.contentTruncated === true),
+  };
+}
+
+async function findRemoteManagementRequest(
+  managementRoot: string,
+  requestId: string,
+): Promise<{ conversationId: string; message: ChatMessage } | null> {
+  for (const conversation of await listConversations(managementRoot)) {
+    const message = (await readConversation(managementRoot, conversation.id))
+      .find((candidate) => candidate.role === "user" && candidate.remoteRequestId === requestId);
+    if (message) return { conversationId: conversation.id, message };
+  }
+  return null;
+}
+
+function remoteChatMessage(message: ChatMessage | { id: string; role: "user"; content: string; createdAt: string }): Record<string, unknown> {
+  const maximumContentCharacters = 128_000;
+  const contentTruncated = message.content.length > maximumContentCharacters;
+  return {
+    id: message.id,
+    role: message.role,
+    content: contentTruncated ? `${message.content.slice(0, maximumContentCharacters)}\n\n[Message truncated for remote display.]` : message.content,
+    createdAt: message.createdAt,
+    ...(contentTruncated ? { contentTruncated: true } : {}),
+    ...("kind" in message && message.kind ? { kind: message.kind } : {}),
+    ...("source" in message && message.source ? { source: message.source } : {}),
+    ...("interruption" in message && message.interruption ? { interruption: message.interruption } : {}),
+    ...("attachments" in message && message.attachments?.length
+      ? { attachments: message.attachments.map((attachment) => ({ kind: attachment.kind, name: attachment.name })) }
+      : {}),
+  };
+}
+
+function remoteInput(value: unknown): Record<string, unknown> {
+  if (value === undefined) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw badRequest("Remote operation input must be an object.");
+  return value as Record<string, unknown>;
+}
+
+function assertRemoteKeys(input: Record<string, unknown>, allowed: string[]): void {
+  const allowedSet = new Set(allowed);
+  const unknown = Object.keys(input).find((key) => !allowedSet.has(key));
+  if (unknown) throw badRequest(`Remote operation does not accept ${unknown}.`);
+}
+
+function assertRemotePrincipal(principal: WorkFoldRemotePrincipal): void {
+  remoteStableId(principal.browserId, "remote browser id", 160);
+  remoteStableId(principal.grantId, "remote grant id", 160);
+  remoteStableId(principal.requestId, "remote request id", 160);
+}
+
+function remoteStableId(value: unknown, label: string, maximum: number): string {
+  if (typeof value !== "string" || !value || value.length > maximum || !/^[A-Za-z0-9._:-]+$/.test(value)) {
+    throw badRequest(`A valid ${label} is required.`);
+  }
+  return value;
+}
+
+function remoteContent(value: unknown): string {
+  if (typeof value !== "string" || !value.trim() || value.length > 12_000 || value.includes("\0")) {
+    throw badRequest("A message of at most 12,000 characters is required.");
+  }
+  return value.trim();
+}
+
+function remoteRelativePath(value: unknown): string {
+  if (typeof value !== "string" || value.length > 2_048 || value.includes("\0") || isAbsolute(value)
+    || value.split(/[\\/]/).some((part) => part === "..")) {
+    throw badRequest("A valid Space-relative folder path is required.");
+  }
+  return value;
+}
+
+function remoteOperationExhaustive(operation: never): never {
+  throw badRequest(`Unsupported remote operation: ${String(operation)}`);
+}
+
+/**
  * The act facade is the CLI act lane's in-process authority. Every method
  * reuses the same route internals as the renderer (turn acceptance, trust
  * grants, History-checkpointed additions), so a CLI-initiated action obeys
@@ -1949,6 +2244,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         throw new WorkFoldCliError("usage", "Provide --conversation <id> or --new.");
       }
       return runActOperation(async () => {
+        assertManagementParentAccepting(state, input.parentTaskId);
         const conversationId = input.newConversation
           ? (await createConversation(space.spaceRoot)).id
           : input.conversationId!;
@@ -1958,7 +2254,10 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           selectedPath: null,
           actorKind: "cli",
         });
-        state.managementRequests.recordAction(input.parentTaskId, {
+        if (input.parentTaskId) {
+          await state.beforeManagementActionRecord?.({ parentTaskId: input.parentTaskId, command: "chat.send", taskId });
+        }
+        const attributedParent = state.managementRequests.recordAction(input.parentTaskId, {
           command: "chat.send",
           at: new Date().toISOString(),
           spaceId: space.id,
@@ -1966,6 +2265,9 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           conversationId,
           taskId,
         });
+        if (input.parentTaskId && (!attributedParent || !state.managementRequests.isActive(input.parentTaskId))) {
+          await cancelAcceptedTurn(state, space.id, conversationId, taskId);
+        }
         return { space: toActSpaceRef(space), conversationId, messageId: message.id, taskId };
       });
     },
@@ -2008,6 +2310,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       return { space: toActSpaceRef(space), ...result };
     },
     async createSpace(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
       const name = input.name.trim();
       if (!name) throw new WorkFoldCliError("usage", "A Space name is required.");
       const space = await runActOperation(() => runCheckSpaceRegistryMutation(state, () => createSpaceInternal(state, name)));
@@ -2021,6 +2324,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       return { space: toActSpaceRef(space) };
     },
     async registerSpace(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
       const rootPath = input.spaceRoot.trim();
       if (!rootPath || !isAbsolute(rootPath)) {
         throw new WorkFoldCliError("usage", "Provide an absolute folder path to register.");
@@ -2036,6 +2340,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       return { space: toActSpaceRef(space) };
     },
     async addFiles(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
       const space = await resolveSpace(input.space);
       const result = await runActOperation(() => addExternalFilesInternal(space, input));
       state.managementRequests.recordAction(input.parentTaskId, {
@@ -2340,6 +2645,9 @@ async function managementRequestView(
     actions: record.actions,
     children,
     reply,
+    source: record.source,
+    remotePrincipalId: record.remotePrincipalId,
+    remoteRequestId: record.remoteRequestId,
   };
 }
 
@@ -2362,27 +2670,46 @@ async function stopManagementRequest(
     throw new WorkFoldCliError("notFound", "Request not found. Request records are kept while the Space app stays running.");
   }
   const managementWasRunning = turnStatusFor(state, workFoldManagementScopeId, taskId).state === "running";
+  const initiallyRunningChildren = record.childTasks.filter((child) =>
+    turnStatusFor(state, child.spaceId, child.taskId).state === "running");
+  if (managementWasRunning || initiallyRunningChildren.length) state.managementRequests.markStopRequested(taskId);
   const runningChildren = record.childTasks.filter((child) =>
     turnStatusFor(state, child.spaceId, child.taskId).state === "running");
   let managementAborted = false;
   if (managementWasRunning) {
-    const client = state.clients.get(clientKey(workFoldManagementScopeId, record.conversationId));
-    managementAborted = client ? await client.abort() : false;
+    managementAborted = await cancelAcceptedTurn(state, workFoldManagementScopeId, record.conversationId, taskId);
   }
   const children: Array<{ taskId: string; conversationId: string; spaceId: string; aborted: boolean }> = [];
   for (const child of runningChildren) {
-    const client = state.clients.get(clientKey(child.spaceId, child.conversationId));
+    const aborted = await cancelAcceptedTurn(state, child.spaceId, child.conversationId, child.taskId);
     children.push({
       taskId: child.taskId,
       conversationId: child.conversationId,
       spaceId: child.spaceId,
-      aborted: client ? await client.abort() : false,
+      aborted,
     });
   }
-  if (managementAborted || children.some((child) => child.aborted)) {
-    state.managementRequests.markStopRequested(taskId);
-  }
   return { taskId, managementAborted, children };
+}
+
+function assertManagementParentAccepting(state: LocalApiState, parentTaskId: string | undefined): void {
+  if (!parentTaskId) return;
+  if (!state.managementRequests.isActive(parentTaskId)) {
+    throw new WorkFoldCliError("conflict", "The management request is stopping or has already finished.");
+  }
+}
+
+async function cancelAcceptedTurn(
+  state: LocalApiState,
+  spaceId: string,
+  conversationId: string,
+  taskId: string,
+): Promise<boolean> {
+  if (turnStatusFor(state, spaceId, taskId).state !== "running") return false;
+  state.cancelledTurnTasks.add(taskId);
+  const client = state.clients.get(clientKey(spaceId, conversationId));
+  await client?.abort().catch(() => false);
+  return true;
 }
 
 async function turnResultForScope(
@@ -2580,12 +2907,22 @@ async function runAgentTurn(
       ? await loadManagementAttachmentsForTurn(managementAttachments)
       : await loadConversationContextAttachmentsForTurn(spaceRoot, contextPaths);
     const attachedLinks = managementAttachments ? managementAttachmentLinks(managementAttachments) : [];
+    const managementSpaces = spaceId === workFoldManagementScopeId
+      ? (await state.kernel.getSpaces({ kind: "renderer" })).spaces.map((space) => ({
+          id: space.id,
+          name: space.name,
+          spaceRoot: space.spaceRoot,
+        }))
+      : undefined;
     await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "pre_turn");
+    await state.beforeAgentPrompt?.({ spaceId, conversationId, taskId });
+    throwIfTurnCancelled(state, taskId);
     promptStarted = true;
     const finalText = await client.prompt(content, {
       contextAttachments,
       selectedPath,
       ...(spaceId === workFoldManagementScopeId ? { managementTaskId: taskId } : {}),
+      ...(managementSpaces ? { managementSpaces } : {}),
       ...(attachedLinks.length ? { attachedLinks } : {}),
     });
     const assistantMessage = {
@@ -2653,6 +2990,7 @@ async function runAgentTurn(
   } finally {
     if (promptStarted) await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "post_turn");
     state.runningTurns.delete(key);
+    state.cancelledTurnTasks.delete(taskId);
     state.kernel.finishTask(taskId);
     if (spaceId === workFoldManagementScopeId) state.managementRequests.finish(taskId, settledStatus);
     settleTurnTask(state, taskId, {
@@ -2675,12 +3013,20 @@ function settleTurnTask(
   record: Omit<SettledTurnRecord, "taskId" | "endedAt">,
 ): void {
   state.activeTurnTasks.delete(taskId);
+  state.cancelledTurnTasks.delete(taskId);
   state.settledTurns.set(taskId, { taskId, endedAt: new Date().toISOString(), ...record });
   while (state.settledTurns.size > maxSettledTurnRecords) {
     const oldest = state.settledTurns.keys().next().value;
     if (oldest === undefined) break;
     state.settledTurns.delete(oldest);
   }
+}
+
+function throwIfTurnCancelled(state: LocalApiState, taskId: string): void {
+  if (!state.cancelledTurnTasks.has(taskId)) return;
+  const error = new Error("Agent turn cancelled by the user.");
+  error.name = "PiTurnCancelledError";
+  throw error;
 }
 
 function assistantTurnFailureMessage(error: unknown, partialResponsePreserved: boolean): string {

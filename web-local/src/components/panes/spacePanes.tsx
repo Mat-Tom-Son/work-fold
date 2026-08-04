@@ -613,6 +613,7 @@ export function AssistantSetupPane({ space, status, fixtureMode = false, embedde
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (fixtureMode) {
@@ -646,6 +647,11 @@ export function AssistantSetupPane({ space, status, fixtureMode = false, embedde
   const providerModels = models.filter((item) => item.provider === provider);
   const oauthSupported = providerModels.some((item) => item.oauthSupported);
   const authConfigured = providerModels.some((item) => item.authConfigured);
+  const providerAuth = providerModels.find((item) => item.authConfigured);
+  const removableAuth = providerAuth?.authSource === "stored";
+  const removeCredentialLabel = providerAuth?.authType === "oauth" ? "Disconnect account" : "Remove API key";
+  const credentialStatus = assistantCredentialStatus(providerAuth);
+  const setupChanged = !status.configured || provider !== status.provider || model !== status.model || Boolean(apiKey.trim());
   const subscriptionNote = oauthSupported ? providerSubscriptionNote(provider) : null;
 
   useEffect(() => {
@@ -654,14 +660,46 @@ export function AssistantSetupPane({ space, status, fixtureMode = false, embedde
   }, [models, provider]);
 
   async function configure(oauth = false) {
-    if (fixtureMode) { onConfigured({ ...status, configured: true, provider, model }); return; }
+    if (fixtureMode) {
+      onConfigured({ ...status, configured: true, provider, model });
+      setNotice(oauth ? "Account connected" : "Setup saved");
+      return;
+    }
     setSaving(true);
     setError(null);
+    setNotice(null);
     try {
-      const result = await api<{ status: AgentStatus }>(oauth ? "/api/agent/oauth" : "/api/agent/configure", { method: "POST", body: { spaceId: space.id, provider, model, ...(oauth ? {} : { apiKey: apiKey.trim() || undefined }) } });
-      setModels((current) => current.map((item) => item.provider === provider ? { ...item, authConfigured: true } : item));
+      const submittedApiKey = apiKey.trim();
+      const result = await api<{ status: AgentStatus }>(oauth ? "/api/agent/oauth" : "/api/agent/configure", { method: "POST", body: { spaceId: space.id, provider, model, ...(oauth ? {} : { apiKey: submittedApiKey || undefined }) } });
+      if (oauth || submittedApiKey) {
+        setModels((current) => current.map((item) => item.provider === provider ? {
+          ...item,
+          authConfigured: true,
+          authSource: "stored",
+          authType: oauth ? "oauth" : "api_key",
+        } : item));
+      }
       setApiKey("");
       onConfigured(result.status);
+      setNotice(oauth ? "Account connected" : "Setup saved");
+    } catch (caught) { setError(errorText(caught)); }
+    finally { setSaving(false); }
+  }
+
+  async function removeCredential() {
+    if (fixtureMode || !removableAuth || saving) return;
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api<{ models: AgentModel[]; status: AgentStatus }>("/api/agent/auth", {
+        method: "DELETE",
+        body: { spaceId: space.id, provider },
+      });
+      setModels(result.models);
+      setApiKey("");
+      onConfigured(result.status);
+      setNotice("Credential removed. You can enter a new API key.");
     } catch (caught) { setError(errorText(caught)); }
     finally { setSaving(false); }
   }
@@ -683,22 +721,26 @@ export function AssistantSetupPane({ space, status, fixtureMode = false, embedde
             {error ? <div className="inline-error" role="alert">{error}</div> : null}
             <label className="professional-field">
               <span className="professional-field-label">Provider</span>
-              <select value={provider} onChange={(event) => setProvider(event.target.value)}>{providers.map((item) => <option value={item} key={item}>{providerDisplayName(models, item)}</option>)}</select>
+              <select value={provider} onChange={(event) => { setProvider(event.target.value); setApiKey(""); setError(null); setNotice(null); }}>{providers.map((item) => <option value={item} key={item}>{providerDisplayName(models, item)}</option>)}</select>
             </label>
             <label className="professional-field">
               <span className="professional-field-label">Model</span>
-              <select value={model} onChange={(event) => setModel(event.target.value)}>{providerModels.map((item) => <option value={item.id} key={item.id}>{item.name || item.id}</option>)}</select>
+              <select value={model} onChange={(event) => { setModel(event.target.value); setError(null); setNotice(null); }}>{providerModels.map((item) => <option value={item.id} key={item.id}>{item.name || item.id}</option>)}</select>
             </label>
-            <label className="professional-field professional-field-wide">
-              <span className="professional-field-label">API key</span>
-              <span className="professional-field-hint">Stored securely on this computer</span>
-              <input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={authConfigured ? "Saved credential available" : "Paste a key"} autoComplete="off" />
-            </label>
+            <div className="professional-field professional-field-wide">
+              <label className="professional-field-label" htmlFor="assistant-api-key">API key</label>
+              <span className="professional-field-hint" id="assistant-api-key-hint">{credentialStatus ?? "Stored securely on this computer"}</span>
+              <div className="assistant-credential-control">
+                <input id="assistant-api-key" type="password" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setError(null); setNotice(null); }} placeholder={authConfigured ? "••••••••••••••••" : "Paste a key"} autoComplete="off" disabled={saving || authConfigured} aria-describedby="assistant-api-key-hint" />
+                {removableAuth ? <button className="professional-button professional-button-secondary" type="button" onClick={() => void removeCredential()} disabled={saving}>{removeCredentialLabel}</button> : null}
+              </div>
+            </div>
             <div className="professional-actions professional-field-wide">
-              <button className="professional-button professional-button-primary" type="submit" disabled={saving || !model || (!authConfigured && !apiKey.trim())}>
+              <button className="professional-button professional-button-primary" type="submit" disabled={saving || !model || !setupChanged || (!authConfigured && !apiKey.trim())}>
                 {saving ? <ArrowSync16Regular className="spin" /> : <Checkmark16Regular />}Save setup
               </button>
               {oauthSupported ? <button className="professional-button professional-button-secondary" type="button" onClick={() => void configure(true)} disabled={saving}>{authConfigured ? "Reconnect account" : "Connect account"}</button> : null}
+              {notice ? <span className="professional-save-status" role="status"><Checkmark16Regular />{notice}</span> : null}
             </div>
             {subscriptionNote ? <p className="security-note professional-field-wide"><ShieldCheckmark16Regular />{subscriptionNote}</p> : null}
             <p className="security-note professional-field-wide"><ShieldCheckmark16Regular />Creating or registering a Space allows its local Pi configuration. Review packages separately before installing them.</p>
@@ -740,6 +782,13 @@ function LoadingRow({ label }: { label: string }) {
 
 function unique<T>(items: T[]) { return [...new Set(items)]; }
 function providerDisplayName(models: AgentModel[], provider: string) { return models.find((item) => item.provider === provider)?.providerName || provider; }
+function assistantCredentialStatus(model: AgentModel | undefined) {
+  if (!model?.authConfigured) return null;
+  if (model.authSource === "stored") return model.authType === "oauth" ? "Provider account connected on this computer" : "API key saved on this computer";
+  if (model.authSource === "environment") return `API key supplied by ${model.authLabel || "the app environment"}`;
+  if (model.authSource === "models_json_key" || model.authSource === "models_json_command") return "Credential configured in Pi models settings";
+  return "Credential supplied outside work-fold";
+}
 function providerSubscriptionNote(_provider: string) {
   return "work-fold opens the provider's sign-in flow in your system browser and stores the resulting tokens in its encrypted desktop credential store. Availability and billing follow that provider's current account terms.";
 }

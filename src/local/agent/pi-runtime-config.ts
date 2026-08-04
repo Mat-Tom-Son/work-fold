@@ -123,6 +123,9 @@ export interface PiModelSummary {
   name: string;
   configured: boolean;
   authConfigured: boolean;
+  authSource?: AuthStatus["source"];
+  authLabel?: string;
+  authType?: "api_key" | "oauth";
   oauthSupported: boolean;
   reasoning: boolean;
   input: string[];
@@ -285,19 +288,27 @@ export async function listPiModels(
   const runtime = await resolvePiRuntime(spaceRoot, provider, { requestProjectTrust: false });
   await loadRuntimeProviders(spaceRoot, runtime);
   const oauthProviders = new Set(runtime.authStorage.getOAuthProviders().map((item) => item.id));
-  return runtime.modelRegistry.getAll().map((model) => ({
-    provider: model.provider,
-    providerName: runtime.modelRegistry.getProviderDisplayName(model.provider),
-    id: model.id,
-    name: model.name,
-    configured: runtime.modelRegistry.hasConfiguredAuth(model),
-    authConfigured: runtime.modelRegistry.hasConfiguredAuth(model),
-    oauthSupported: oauthProviders.has(model.provider),
-    reasoning: model.reasoning,
-    input: [...model.input],
-    contextWindow: model.contextWindow,
-    maxTokens: model.maxTokens,
-  })).sort((left, right) =>
+  return runtime.modelRegistry.getAll().map((model) => {
+    const auth = runtime.modelRegistry.getProviderAuthStatus(model.provider);
+    const storedCredential = runtime.authStorage.get(model.provider);
+    const configured = runtime.modelRegistry.hasConfiguredAuth(model);
+    return {
+      provider: model.provider,
+      providerName: runtime.modelRegistry.getProviderDisplayName(model.provider),
+      id: model.id,
+      name: model.name,
+      configured,
+      authConfigured: configured,
+      ...(auth.source ? { authSource: auth.source } : {}),
+      ...(auth.label ? { authLabel: auth.label } : {}),
+      ...(storedCredential ? { authType: storedCredential.type } : {}),
+      oauthSupported: oauthProviders.has(model.provider),
+      reasoning: model.reasoning,
+      input: [...model.input],
+      contextWindow: model.contextWindow,
+      maxTokens: model.maxTokens,
+    } satisfies PiModelSummary;
+  }).sort((left, right) =>
     left.providerName.localeCompare(right.providerName) || left.name.localeCompare(right.name));
 }
 

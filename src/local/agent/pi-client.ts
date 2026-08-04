@@ -100,6 +100,8 @@ export interface PiTurnContext {
   attachedLinks?: string[];
   /** Active management request id used to attribute downstream act commands. */
   managementTaskId?: string;
+  /** Exact host-owned Space registry at the start of this management turn. */
+  managementSpaces?: Array<{ id: string; name: string; spaceRoot: string }>;
   selectedPath?: string | null;
 }
 
@@ -135,6 +137,7 @@ export class PiConversationClient extends EventEmitter {
   private streamedAssistantText = "";
   private assistantAttemptStartOffset = 0;
   private promptInFlight = false;
+  private cancellationRequested: Error | null = null;
   private turnError: Error | null = null;
   private pendingAssistantError: string | null = null;
   private retryAttempts = 0;
@@ -153,10 +156,12 @@ export class PiConversationClient extends EventEmitter {
   /** Sends the user's exact text to Pi; /skill and extension commands stay raw. */
   async prompt(message: string, context: PiTurnContext = {}): Promise<string> {
     if (this.promptInFlight) throw new Error("The Assistant is already working in this Chat.");
+    this.resetTurnState();
+    this.cancellationRequested = null;
     this.promptInFlight = true;
     try {
       const session = await this.ensureSession();
-      this.resetTurnState();
+      this.throwIfCancellationRequested();
 
       const builtInResult = await this.executeBuiltInCommand(message);
       if (builtInResult !== null) {
@@ -177,6 +182,7 @@ export class PiConversationClient extends EventEmitter {
         }
       }
 
+      this.throwIfCancellationRequested();
       this.emitEvent({ type: "status", message: "The Assistant is working in this Space." });
       const messagesBefore = session.messages.length;
       await this.promptWithTimeout(session, message);
@@ -198,17 +204,19 @@ export class PiConversationClient extends EventEmitter {
       return this.assistantText.trim() || "Command completed.";
     } finally {
       this.promptInFlight = false;
+      this.cancellationRequested = null;
     }
   }
 
   async abort(reason = "Agent turn cancelled by the user."): Promise<boolean> {
     const session = this.runtimeHost?.session;
-    if (!session || !this.promptInFlight) return false;
+    if (!this.promptInFlight) return false;
     const error = new Error(reason);
     error.name = "PiTurnCancelledError";
+    this.cancellationRequested = error;
     this.turnError = error;
     this.emitEvent({ type: "status", message: reason });
-    await session.abort().catch(() => undefined);
+    if (session) await session.abort().catch(() => undefined);
     return true;
   }
 
@@ -733,6 +741,10 @@ export class PiConversationClient extends EventEmitter {
     this.lastToolEventKey = "";
   }
 
+  private throwIfCancellationRequested(): void {
+    if (this.cancellationRequested) throw this.cancellationRequested;
+  }
+
   private emitEvent(event: Omit<PiChatEvent, "conversationId">): void {
     this.emit("event", { ...event, conversationId: this.conversationId } satisfies PiChatEvent);
   }
@@ -850,8 +862,17 @@ function findPreferredModel(runtime: ResolvedPiRuntime) {
   return model && runtime.modelRegistry.hasConfiguredAuth(model) ? model : undefined;
 }
 
-function buildTurnContextMessage(context: PiTurnContext): string {
+export function buildTurnContextMessage(context: PiTurnContext): string {
   const lines: string[] = [];
+  if (context.managementSpaces) {
+    lines.push(
+      "Current work-fold profile snapshot for this exact request (authoritative):",
+      JSON.stringify({ spaces: context.managementSpaces }, null, 2),
+      "This snapshot replaces every Space name, id, and path from earlier conversation messages or tool results.",
+      "Never inspect an older Space path from conversation memory. Use the current snapshot and rerun `work-fold --json spaces list` before making registry claims.",
+      "If a CLI result disagrees with this snapshot, stop and report a profile-routing error instead of searching either set of paths.",
+    );
+  }
   if (context.managementTaskId) {
     lines.push(
       "This management request's task id is:",

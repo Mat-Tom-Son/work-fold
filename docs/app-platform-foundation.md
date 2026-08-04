@@ -142,7 +142,10 @@ The complete definitions and journey tests live in
 14. **Management remains a separate authenticated plane.** Feature runtime code
     cannot publish, install, approve bytes, grant a power, save a connection,
     enable a job, assign a role, migrate data, or deploy an instance. The current
-    same-user CLI protocol remains read-only.
+    same-user CLI protocol remains read-only. Optional remote management is a
+    surface over the existing management conversation through its own closed
+    semantic adapter; it is not a hosted App runtime, generic local-API tunnel,
+    publication path, or grant-management plane.
 15. **Legacy product state is outside the platform.** work-fold does not import,
     migrate, parse, mutate, or delete the legacy Workspace profile, portable
     metadata, registries, app storage, connections, receipts, or artifacts.

@@ -36,6 +36,7 @@ import {
 } from "../../src/local/agent/registered-space-runtime.js";
 import type { PiRuntimeProvider } from "../../src/local/agent/pi-runtime-config.js";
 import { startLocalApi } from "../../src/local/server.js";
+import { loadLocalEnvironmentFile } from "../../src/local/server-dev-options.js";
 import type { WorkFoldActFacade } from "../../src/local/cli/act-facade.js";
 import {
   removeWorkFoldCliActTokenFile,
@@ -87,6 +88,13 @@ import { GracefulQuitCoordinator, type QuitPreparationOutcome } from "./quit-coo
 import { RailTooltipOverlay } from "./rail-tooltip-overlay.js";
 import { productIdentity } from "../../src/shared/product-identity.js";
 import { resolveDesktopApplicationVersion } from "./application-version.js";
+import {
+  RemoteAccessClient,
+  generateRemoteDeviceKeys,
+  type RemoteAccessStatus,
+  type RemotePairingPrompt,
+} from "./remote-access.js";
+import type { RemoteAccessSettings } from "./settings.js";
 
 const productionProductName = productIdentity.productName;
 const localMacSmokeProductName = productIdentity.macSmokeProductName;
@@ -130,6 +138,9 @@ function titleBarOverlayFor(theme: "light" | "dark"): Electron.TitleBarOverlay {
 }
 const currentFile = fileURLToPath(import.meta.url);
 const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
+// Development builds use the repository's ignored local configuration. A
+// packaged build must receive enrollment through its release environment.
+if (!app.isPackaged) loadLocalEnvironmentFile(join(repoRoot, ".env"));
 const applicationVersion = resolveDesktopApplicationVersion({
   isPackaged: app.isPackaged,
   electronVersion: app.getVersion(),
@@ -155,6 +166,7 @@ let managementPopover: ManagementPopover | null = null;
 const localApiLifetime = new AppLifetimeResource<Awaited<ReturnType<typeof startLocalApi>>>();
 let piRuntime: PackagedPiRuntimeProvider | null = null;
 let secureSettings: SecureSettingsStore | null = null;
+let remoteAccessClient: RemoteAccessClient | null = null;
 let apiSessionToken = "";
 let actFacade: WorkFoldActFacade | null = null;
 let actToken = "";
@@ -287,7 +299,7 @@ if (ownsInstance) {
   app.whenReady().then(async () => {
     configureStableUserDataPath();
     configureWorkFoldStateRoot(app.getPath("userData"));
-    configurePackagedCliEnvironment();
+    configureCliEnvironment();
     if (initialCliArgumentError) throw initialCliArgumentError;
     if (initialCliRequestId) {
       await processWorkFoldCliRequest(initialCliRequestId);
@@ -460,11 +472,12 @@ async function startInteractiveApp(): Promise<void> {
   if (interactiveStartupPromise) return interactiveStartupPromise;
   interactiveStartupPromise = (async () => {
     await ensureDesktopHost();
-    await ensureInteractiveLocalApi();
+    const api = await ensureInteractiveLocalApi();
     loadDesktopPreferences();
     registerRendererProtocol();
     registerIpc();
     await ensureMainWindow();
+    await ensureRemoteAccessClient(api);
     configureUpdater();
     createTrayIfSupported();
     if (!activateRegistered) {
@@ -600,6 +613,175 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
     }
     return api;
   });
+}
+
+async function ensureRemoteAccessClient(api: Awaited<ReturnType<typeof startLocalApi>>): Promise<RemoteAccessClient> {
+  if (remoteAccessClient) return remoteAccessClient;
+  const host = await ensureDesktopHost();
+  remoteAccessClient = new RemoteAccessClient({
+    settingsStore: host.settings,
+    facade: api.remoteFacade,
+    promptPairing: promptRemoteBrowserPairing,
+    onStatus: (status) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("work-fold:remote-access:status", status);
+    },
+  });
+  const settings = await host.settings.getRemoteAccess();
+  if (settings?.enabled) await remoteAccessClient.start();
+  return remoteAccessClient;
+}
+
+async function promptRemoteBrowserPairing(pairing: RemotePairingPrompt): Promise<boolean> {
+  const options = {
+    type: "question" as const,
+    title: "Approve remote browser",
+    message: `Approve ${pairing.label}?`,
+    detail: `Confirm that this code also appears in the browser:\n\n${pairing.code}\n\nThis is a full-trust grant. The browser can ask work-fold to read or change files your account can access and run commands on this computer. Revoke it immediately if you do not recognize it.`,
+    buttons: ["Approve browser", "Decline"],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  };
+  const result = mainWindow && !mainWindow.isDestroyed()
+    ? await dialog.showMessageBox(mainWindow, options)
+    : await dialog.showMessageBox(options);
+  return result.response === 0;
+}
+
+async function configureRemoteAccess(value: unknown): Promise<RemoteAccessStatus> {
+  const request = remoteAccessSetupRequest(value);
+  const host = await ensureDesktopHost();
+  const api = await ensureInteractiveLocalApi();
+  const existing = await host.settings.getRemoteAccess();
+  const bridgeUrl = existing?.bridgeUrl ?? remoteBridgeUrl();
+  if (!existing) {
+    const keys = generateRemoteDeviceKeys();
+    const enrollmentSecret = process.env.WORKFOLD_REMOTE_ENROLLMENT_SECRET?.trim();
+    if (!enrollmentSecret) throw new Error("Remote access enrollment is not available in this build.");
+    const enrolled = await remoteBridgeRequest<{
+      account: { id: string; slug: string };
+      deviceToken: string;
+    }>(bridgeUrl, "/api/device/enroll", {
+      method: "POST",
+      headers: { "x-work-fold-enrollment": enrollmentSecret },
+      body: {
+        slug: request.slug,
+        password: request.password,
+        deviceSigningPublicJwk: keys.deviceSigningPublicJwk,
+        deviceEncryptionPublicJwk: keys.deviceEncryptionPublicJwk,
+      },
+    });
+    await host.settings.setRemoteAccess({
+      enabled: true,
+      bridgeUrl,
+      accountId: enrolled.account.id,
+      slug: enrolled.account.slug,
+      deviceToken: enrolled.deviceToken,
+      ...keys,
+      grants: [],
+    });
+  } else {
+    const updated = await remoteBridgeRequest<{ account: { id: string; slug: string } }>(bridgeUrl, "/api/device/account", {
+      method: "PUT",
+      token: existing.deviceToken,
+      body: { slug: request.slug, password: request.password },
+    });
+    await host.settings.setRemoteAccess({ ...existing, enabled: true, slug: updated.account.slug });
+  }
+  const client = await ensureRemoteAccessClient(api);
+  client.stop();
+  await client.start();
+  return client.status();
+}
+
+async function setRemoteAccessEnabled(value: unknown): Promise<RemoteAccessStatus> {
+  if (typeof value !== "boolean") throw new Error("Remote access enabled state must be a boolean.");
+  const host = await ensureDesktopHost();
+  const settings = await host.settings.setRemoteAccessEnabled(value);
+  if (!settings) throw new Error("Set up Remote access before enabling it.");
+  const client = await ensureRemoteAccessClient(await ensureInteractiveLocalApi());
+  if (value) await client.start(); else {
+    await client.stopActiveRemoteTasks();
+    client.stop();
+  }
+  return client.status();
+}
+
+async function revokeRemoteBrowser(value: unknown): Promise<RemoteAccessStatus> {
+  if (typeof value !== "string" || !value || value.length > 160) throw new Error("A browser grant id is required.");
+  const host = await ensureDesktopHost();
+  const settings = await requiredRemoteAccessSettings(host.settings);
+  const client = await ensureRemoteAccessClient(await ensureInteractiveLocalApi());
+  await client.revokeLocalGrant(value);
+  await remoteBridgeRequest(settings.bridgeUrl, `/api/device/grants/${encodeURIComponent(value)}`, { method: "DELETE", token: settings.deviceToken });
+  return client.status();
+}
+
+async function revokeAllRemoteBrowsers(): Promise<RemoteAccessStatus> {
+  const host = await ensureDesktopHost();
+  const settings = await requiredRemoteAccessSettings(host.settings);
+  const client = await ensureRemoteAccessClient(await ensureInteractiveLocalApi());
+  await client.revokeAllLocalGrants();
+  await remoteBridgeRequest(settings.bridgeUrl, "/api/device/grants/revoke-all", { method: "POST", token: settings.deviceToken, body: {} });
+  return client.status();
+}
+
+async function removeRemoteAccess(): Promise<RemoteAccessStatus> {
+  const host = await ensureDesktopHost();
+  const settings = await requiredRemoteAccessSettings(host.settings);
+  const client = await ensureRemoteAccessClient(await ensureInteractiveLocalApi());
+  await client.revokeAllLocalGrants();
+  await host.settings.setRemoteAccessEnabled(false);
+  client.stop();
+  await remoteBridgeRequest(settings.bridgeUrl, "/api/device/account", { method: "DELETE", token: settings.deviceToken });
+  await host.settings.clearRemoteAccess();
+  return client.status();
+}
+
+async function requiredRemoteAccessSettings(settings: SecureSettingsStore): Promise<RemoteAccessSettings> {
+  const configured = await settings.getRemoteAccess();
+  if (!configured) throw new Error("Remote access is not configured.");
+  return configured;
+}
+
+function remoteBridgeUrl(): string {
+  const value = process.env.WORKFOLD_REMOTE_BRIDGE_URL?.trim() || "https://www.work-fold.com";
+  const url = new URL(value);
+  if ((url.protocol !== "https:" && !(url.protocol === "http:" && new Set(["localhost", "127.0.0.1"]).has(url.hostname)))
+    || url.pathname !== "/" || url.username || url.password) throw new Error("WORKFOLD_REMOTE_BRIDGE_URL is invalid.");
+  return url.toString();
+}
+
+function remoteAccessSetupRequest(value: unknown): { slug: string; password: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Remote access setup is invalid.");
+  const record = value as { slug?: unknown; password?: unknown };
+  const slug = typeof record.slug === "string" ? record.slug.trim().toLowerCase() : "";
+  if (!/^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])?$/.test(slug) || slug.length < 3) {
+    throw new Error("Choose 3–32 lowercase letters, numbers, or hyphens.");
+  }
+  if (typeof record.password !== "string" || record.password.length < 8 || record.password.length > 256) {
+    throw new Error("Use a password of at least 8 characters.");
+  }
+  return { slug, password: record.password };
+}
+
+async function remoteBridgeRequest<T = unknown>(
+  bridgeUrl: string,
+  path: string,
+  options: { method: "GET" | "POST" | "PUT" | "DELETE"; token?: string; headers?: Record<string, string>; body?: unknown },
+): Promise<T> {
+  const response = await fetch(new URL(path, bridgeUrl), {
+    method: options.method,
+    headers: {
+      ...(options.body === undefined ? {} : { "content-type": "application/json" }),
+      ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
+      ...(options.headers ?? {}),
+    },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  });
+  const body = await response.json().catch(() => ({})) as { error?: unknown } & T;
+  if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : `Remote bridge request failed (${response.status}).`);
+  return body;
 }
 
 async function createMainWindow(): Promise<void> {
@@ -887,6 +1069,36 @@ function registerIpc(): void {
   ipcMain.handle("work-fold:settings:status", (event) => {
     assertTrustedRenderer(event);
     return secureSettings?.status() ?? { encryptionAvailable: false, configuredProviders: [] };
+  });
+  ipcMain.handle("work-fold:remote-access:status", async (event) => {
+    assertTrustedMainRenderer(event);
+    return (await ensureRemoteAccessClient(await ensureInteractiveLocalApi())).status();
+  });
+  ipcMain.handle("work-fold:remote-access:configure", (event, value: unknown) => {
+    assertTrustedMainRenderer(event);
+    return configureRemoteAccess(value);
+  });
+  ipcMain.handle("work-fold:remote-access:set-enabled", (event, value: unknown) => {
+    assertTrustedMainRenderer(event);
+    return setRemoteAccessEnabled(value);
+  });
+  ipcMain.handle("work-fold:remote-access:revoke-browser", (event, value: unknown) => {
+    assertTrustedMainRenderer(event);
+    return revokeRemoteBrowser(value);
+  });
+  ipcMain.handle("work-fold:remote-access:revoke-all", (event) => {
+    assertTrustedMainRenderer(event);
+    return revokeAllRemoteBrowsers();
+  });
+  ipcMain.handle("work-fold:remote-access:remove", (event) => {
+    assertTrustedMainRenderer(event);
+    return removeRemoteAccess();
+  });
+  ipcMain.handle("work-fold:remote-access:open", async (event) => {
+    assertTrustedMainRenderer(event);
+    const status = await (await ensureRemoteAccessClient(await ensureInteractiveLocalApi())).status();
+    if (!status.url) throw new Error("Set up Remote access before opening it.");
+    await shell.openExternal(status.url);
   });
   ipcMain.on("work-fold:window:rail-tooltip-show", (event, value: unknown) => {
     assertTrustedMainRenderer(event);
@@ -1265,7 +1477,12 @@ function configureStableUserDataPath(): void {
   if (app.getPath("userData") !== target) app.setPath("userData", target);
 }
 
-function configurePackagedCliEnvironment(): void {
+function configureCliEnvironment(): void {
+  // Every Assistant shell must address the same profile as the desktop process
+  // that launched it. Development and installed builds intentionally use
+  // different userData roots, so leaving this unset can expose a different
+  // Space registry through an installed work-fold CLI on PATH.
+  process.env.WORKFOLD_CLI_STATE_DIR = app.getPath("userData");
   if (!app.isPackaged || (process.platform !== "win32" && process.platform !== "darwin")) return;
   const executableDirectory = dirnameFromFile(process.execPath);
   const binDirectory = process.platform === "darwin"
@@ -1282,7 +1499,6 @@ function configurePackagedCliEnvironment(): void {
   // Agent shell tools inherit this process environment. Pinning the executable
   // makes their CLI calls address this exact installed work-fold build.
   process.env.WORKFOLD_CLI_APP = process.execPath;
-  process.env.WORKFOLD_CLI_STATE_DIR = app.getPath("userData");
 }
 
 function createFolderGrant(spaceRoot: string): string {
@@ -1479,6 +1695,7 @@ async function shutdown(): Promise<void> {
   actFacade = null;
   actToken = "";
   resolveManagementLineageParent = null;
+  remoteAccessClient?.stop();
   updateAgentPowerState(0);
   const runtime = piRuntime;
   piRuntime = null;

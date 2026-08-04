@@ -9,8 +9,9 @@ const asset = (name: string) => join(root, "desktop", "assets", name);
 const read = (path: string) => readFile(join(root, path), "utf8");
 
 test("the canonical icon source is the folded work-fold mark", async () => {
-  const [source, generator] = await Promise.all([
+  const [source, bridgeSource, generator] = await Promise.all([
     read("desktop/assets/work-fold-icon-source.svg"),
+    read("services/bridge/public/work-fold-icon.svg"),
     read("scripts/generate-desktop-icons.mjs"),
   ]);
 
@@ -18,6 +19,7 @@ test("the canonical icon source is the folded work-fold mark", async () => {
   assert.match(source, /#252321/);
   assert.match(source, /#D95735/);
   assert.match(source, /<title id="title">work-fold<\/title>/);
+  assert.equal(bridgeSource, source, "the hosted surface must reuse the canonical app icon exactly");
   await assert.rejects(access(asset("workspace-icon-source.svg")));
 
   assert.match(generator, /work-fold-icon-source\.svg/);

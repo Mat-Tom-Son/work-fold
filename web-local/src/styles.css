@@ -2182,7 +2182,7 @@ textarea,
 .settings-tabs {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 2px;
   padding: 0 18px;
   border-bottom: 1px solid #dde3ea;
@@ -2193,17 +2193,19 @@ textarea,
   position: relative;
   min-width: 0;
   min-height: 52px;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 9px 12px 10px;
+  justify-content: center;
+  padding: 9px 10px 10px;
   border: 0;
   border-bottom: 3px solid transparent;
   border-radius: 0;
   color: #475467;
   background: transparent;
-  text-align: left;
+  font-size: 0.8rem;
+  font-weight: 720;
+  text-align: center;
+  white-space: nowrap;
   transition:
     background-color 0.16s var(--work-fold-ease-smooth),
     border-color 0.16s var(--work-fold-ease-smooth),
@@ -2225,51 +2227,6 @@ textarea,
   box-shadow:
     inset 1px 0 0 #dde3ea,
     inset -1px 0 0 #dde3ea;
-}
-
-.settings-tab-icon {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  color: inherit;
-  background: #edf2f7;
-}
-
-.settings-tab.active .settings-tab-icon {
-  color: #ffffff;
-  background: var(--work-fold-blue-600);
-  border-color: var(--work-fold-blue-700);
-}
-
-.settings-tab-copy {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-
-.settings-tab-copy strong,
-.settings-tab-copy small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.settings-tab-copy strong {
-  font-size: 0.82rem;
-}
-
-.settings-tab-copy small {
-  color: #667085;
-  font-size: 0.69rem;
-  font-weight: 700;
-}
-
-.settings-tab.active .settings-tab-copy small {
-  color: #486ab3;
 }
 
 .settings-content {
@@ -2353,6 +2310,19 @@ textarea,
   border-radius: 8px;
   color: #184e77;
   background: #eef6fb;
+}
+
+.settings-close-button {
+  width: 38px;
+  height: 38px;
+  min-height: 38px;
+  align-self: center;
+  margin: 0;
+  padding: 0;
+}
+
+.settings-close-button svg {
+  display: block;
 }
 
 .settings-quick-grid {
@@ -13237,25 +13207,6 @@ textarea,
     inset -1px 0 0 rgba(148, 163, 184, 0.18);
 }
 
-.app-shell[data-theme="dark"] .settings-tab-icon {
-  background: rgba(30, 41, 59, 0.78);
-  border-color: transparent;
-}
-
-.app-shell[data-theme="dark"] .settings-tab.active .settings-tab-icon {
-  color: #ffffff;
-  background: #2563eb;
-  border-color: rgba(147, 197, 253, 0.5);
-}
-
-.app-shell[data-theme="dark"] .settings-tab-copy small {
-  color: #94a3b8;
-}
-
-.app-shell[data-theme="dark"] .settings-tab.active .settings-tab-copy small {
-  color: #bfdbfe;
-}
-
 .app-shell[data-theme="dark"] .settings-section {
   background: rgba(15, 23, 42, 0.72);
   border-color: rgba(148, 163, 184, 0.2);
@@ -14944,17 +14895,23 @@ textarea,
   }
 
   .settings-modal .modal-title {
-    align-items: flex-start;
+    align-items: center;
     flex-direction: row;
   }
 
   .settings-title-copy {
-    align-items: flex-start;
+    align-items: center;
   }
 
   .settings-title-mark {
     width: 34px;
     height: 34px;
+  }
+
+  .settings-close-button {
+    width: 34px;
+    height: 34px;
+    min-height: 34px;
   }
 
   .settings-content {
@@ -14970,9 +14927,10 @@ textarea,
   }
 
   .settings-tab {
-    flex: 0 0 152px;
-    min-height: 54px;
-    padding: 8px 10px 9px;
+    flex: 0 0 auto;
+    min-width: 124px;
+    min-height: 52px;
+    padding: 8px 14px 9px;
   }
 
   .settings-quick-grid {
@@ -16597,6 +16555,125 @@ textarea,
 .update-settings-section progress { width: min(300px, 100%); height: 7px; }
 .update-settings-section > .secondary-button { width: auto; min-width: 180px; }
 .settings-inline-error { display: block; margin-top: 5px; color: #b42318; font-size: 0.8rem; }
+.settings-save-status { display: inline-flex; align-items: center; gap: 6px; color: #267353; font-size: 0.8rem; font-weight: 700; }
+.settings-appearance-status { justify-content: flex-end; min-height: 20px; margin: 0 0 8px; color: #667085; }
+.settings-actions .settings-save-status { margin-right: auto; }
+
+.remote-access-overview p,
+.settings-section > p {
+  margin: 0;
+  color: #667085;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.remote-access-state {
+  border: 1px solid #d8e0e8;
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: #f8fafc;
+}
+
+.remote-access-state.connected {
+  color: #0f5b46;
+  border-color: #b8e3d3;
+  background: #f1fbf7;
+}
+
+.remote-access-state.connecting {
+  color: #7a4b08;
+  border-color: #ead3a2;
+  background: #fffaf0;
+}
+
+.remote-access-state.error {
+  color: #9f1f1f;
+  border-color: #f2c7c7;
+  background: #fff7f7;
+}
+
+.remote-access-url {
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid #d8e0e8;
+  border-radius: 7px;
+  padding: 7px 9px;
+  color: #184e77;
+  background: #f6f8fb;
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-access-actions,
+.remote-access-danger-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.remote-access-actions .secondary-button,
+.remote-access-danger-actions .secondary-button,
+.remote-browser-row .secondary-button {
+  width: auto;
+  min-height: 34px;
+}
+
+.remote-access-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.remote-slug-field {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.remote-slug-field input {
+  min-width: 0;
+  border-radius: 8px 0 0 8px;
+}
+
+.remote-slug-field > span {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  border: 1px solid #d8e0e8;
+  border-left: 0;
+  border-radius: 0 8px 8px 0;
+  padding: 0 9px;
+  color: #667085;
+  background: #f6f8fb;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.remote-browser-list {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid #d8e0e8;
+  border-radius: 8px;
+}
+
+.remote-browser-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 10px;
+}
+
+.remote-browser-row + .remote-browser-row { border-top: 1px solid #e4e9ef; }
+.remote-browser-row > div { min-width: 0; display: grid; gap: 2px; }
+.remote-browser-row strong { overflow: hidden; color: #24324a; font-size: 0.84rem; text-overflow: ellipsis; white-space: nowrap; }
+.remote-browser-row small,
+.remote-browser-empty { color: #667085; font-size: 0.76rem; }
+.remote-browser-empty { border: 1px dashed #d8e0e8; border-radius: 8px; padding: 12px; text-align: center; }
 .global-error { position: fixed; z-index: 300; right: 18px; bottom: 18px; left: 92px; display: flex; align-items: center; gap: 10px; padding: 11px 13px; border: 1px solid #f3b8bf; border-radius: 8px; color: #8f2430; background: #fff2f3; box-shadow: 0 12px 34px rgba(28, 39, 55, 0.18); }
 .global-error > span { flex: 1; }
 .global-error button { display: grid; place-items: center; border: 0; background: transparent; color: inherit; }
@@ -16609,7 +16686,27 @@ textarea,
 @media (max-width: 700px) {
   .update-settings-section { grid-template-columns: minmax(0, 1fr); }
   .update-settings-section > .secondary-button { width: 100%; min-width: 0; }
+  .remote-access-fields { grid-template-columns: minmax(0, 1fr); }
+  .remote-access-actions .secondary-button,
+  .remote-access-danger-actions .secondary-button { width: 100%; }
 }
+
+.app-shell[data-theme="dark"] .remote-access-overview p,
+.app-shell[data-theme="dark"] .settings-section > p,
+.app-shell[data-theme="dark"] .remote-browser-row small,
+.app-shell[data-theme="dark"] .remote-browser-empty { color: #94a3b8; }
+.app-shell[data-theme="dark"] .remote-access-url,
+.app-shell[data-theme="dark"] .remote-slug-field > span,
+.app-shell[data-theme="dark"] .remote-access-state { color: #cbd5e1; border-color: #3c4655; background: #202733; }
+.app-shell[data-theme="dark"] .remote-browser-list,
+.app-shell[data-theme="dark"] .remote-browser-empty { border-color: #3c4655; }
+.app-shell[data-theme="dark"] .remote-browser-row + .remote-browser-row { border-color: #303a48; }
+.app-shell[data-theme="dark"] .remote-browser-row strong { color: #e5edf7; }
+.app-shell[data-theme="dark"] .remote-access-state.connected { color: #8fe0c0; border-color: #285948; background: #142d26; }
+.app-shell[data-theme="dark"] .remote-access-state.connecting { color: #f0cb7a; border-color: #5f4d2b; background: #302817; }
+.app-shell[data-theme="dark"] .remote-access-state.error { color: #f4a0a0; border-color: #6b3838; background: #351d1d; }
+.app-shell[data-theme="dark"] .settings-save-status { color: #8fe0c0; }
+.app-shell[data-theme="dark"] .settings-appearance-status { color: #94a3b8; }
 
 .app-shell[data-theme="dark"] .library-tree { border-right-color: #343b47; }
 .app-shell[data-theme="dark"] .space-rail-account-button { color: rgba(255, 255, 255, 0.72); }

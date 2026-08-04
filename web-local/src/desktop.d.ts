@@ -11,6 +11,16 @@ interface WorkFoldDesktopUpdateStatus {
   error: string | null;
 }
 
+interface WorkFoldRemoteAccessStatus {
+  configured: boolean;
+  enabled: boolean;
+  connection: "stopped" | "connecting" | "connected" | "error";
+  slug: string | null;
+  url: string | null;
+  lastError: string | null;
+  approvedBrowsers: Array<{ id: string; browserId: string; label: string; approvedAt: string }>;
+}
+
 type WorkFoldDesktopMenuCommand =
   | "new-space"
   | "open-local-folder"
@@ -161,6 +171,16 @@ declare global {
       };
       settings: {
         getStatus: () => Promise<{ encryptionAvailable: boolean; configuredProviders: string[] }>;
+      };
+      remoteAccess: {
+        getStatus: () => Promise<WorkFoldRemoteAccessStatus>;
+        configure: (request: { slug: string; password: string }) => Promise<WorkFoldRemoteAccessStatus>;
+        setEnabled: (enabled: boolean) => Promise<WorkFoldRemoteAccessStatus>;
+        revokeBrowser: (grantId: string) => Promise<WorkFoldRemoteAccessStatus>;
+        revokeAll: () => Promise<WorkFoldRemoteAccessStatus>;
+        remove: () => Promise<WorkFoldRemoteAccessStatus>;
+        open: () => Promise<void>;
+        onStatusChanged: (listener: (status: WorkFoldRemoteAccessStatus) => void) => () => void;
       };
       menu: {
         setState: (state: { spaceOpen: boolean }) => void;

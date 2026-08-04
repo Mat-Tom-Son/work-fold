@@ -84,6 +84,65 @@ test("local API covers Space files, the Library, and external restore points", a
   }
 });
 
+test("Assistant credentials require explicit removal before replacement", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-assistant-credential-api-"));
+  const agentDir = join(sandbox, "agent");
+  const authStorage = AuthStorage.inMemory({
+    "credential-test": { type: "api_key", key: "test-key" },
+  });
+  const modelRegistry = ModelRegistry.inMemory(authStorage);
+  modelRegistry.registerProvider("credential-test", {
+    api: "openai-completions",
+    baseUrl: "http://127.0.0.1:1/v1",
+    apiKey: "$WORKFOLD_CREDENTIAL_TEST_MISSING_KEY",
+    models: [{
+      id: "credential-model",
+      name: "Credential Model",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 4096,
+      maxTokens: 1024,
+    }],
+  });
+  const api = await startLocalApi({
+    port: 0,
+    stateBase: join(sandbox, "state"),
+    spaceBase: join(sandbox, "content"),
+    loadEnv: false,
+    piRuntimeProvider: {
+      async resolveRuntime() {
+        return { agentDir, authStorage, modelRegistry, settingsManager: SettingsManager.inMemory() };
+      },
+    },
+  });
+  try {
+    const created = await json(`${api.origin}/api/spaces`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Credential Space" }),
+    }) as { space: { id: string } };
+    const before = await json(`${api.origin}/api/agent/models?spaceId=${created.space.id}`) as { models: Array<{ provider: string; authSource?: string; authType?: string }> };
+    const configured = before.models.find((item) => item.provider === "credential-test");
+    assert.equal(configured?.authSource, "stored");
+    assert.equal(configured?.authType, "api_key");
+
+    const removed = await json(`${api.origin}/api/agent/auth`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ spaceId: created.space.id, provider: "credential-test" }),
+    }) as { models: Array<{ provider: string; authConfigured: boolean; authSource?: string; authType?: string }> };
+    const cleared = removed.models.find((item) => item.provider === "credential-test");
+    assert.equal(cleared?.authConfigured, false);
+    assert.equal(cleared?.authSource, undefined);
+    assert.equal(cleared?.authType, undefined);
+    assert.equal(authStorage.get("credential-test"), undefined);
+  } finally {
+    await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
 test("uploads and Library copy-ins record additive restore points", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "workspace-additive-history-test-"));
   const api = await startLocalApi({

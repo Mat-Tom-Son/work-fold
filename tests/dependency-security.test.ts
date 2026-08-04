@@ -14,8 +14,9 @@ test("Pi resolves reviewed fixes for its shrinkwrapped dependencies", async () =
     packages?: Record<string, { version?: string }>;
   };
   for (const [name, expectedVersion] of [
-    ["brace-expansion", "5.0.8"],
+    ["brace-expansion", "5.0.9"],
     ["protobufjs", "7.6.5"],
+    ["undici", "8.10.0"],
   ]) {
     const resolvedPackagePath = piRequire.resolve(`${name}/package.json`);
     const resolvedPackage = JSON.parse(await readFile(resolvedPackagePath, "utf8")) as { version?: string };

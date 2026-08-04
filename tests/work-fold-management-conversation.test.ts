@@ -151,6 +151,96 @@ test("the management conversation fails closed when its required instructions ca
   }
 });
 
+test("remote access reuses the canonical management conversation through a bounded path-safe facade", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-remote-management-test-"));
+  await mkdir(join(sandbox, "agent", "extensions"), { recursive: true });
+  await writeFile(join(sandbox, "agent", "extensions", "hold.ts"), `export default function (pi) {
+    pi.registerCommand("hold", {
+      description: "Hold a test turn",
+      handler: async () => await new Promise((resolve) => setTimeout(resolve, 180)),
+    });
+  }\n`, "utf8");
+  const api = await startLocalApi({
+    port: 0,
+    stateBase: join(sandbox, "state"),
+    spaceBase: join(sandbox, "content"),
+    loadEnv: false,
+    piRuntimeProvider: {
+      async resolveRuntime() { return { agentDir: join(sandbox, "agent") }; },
+    },
+  });
+  try {
+    const principal = { browserId: "browser-1", grantId: "grant-1", requestId: "request-1" };
+    const initial = await api.remoteFacade.execute("management.summary", {}, principal) as { conversation: unknown };
+    assert.equal(initial.conversation, null);
+
+    const space = await api.actFacade.createSpace({ name: "Remote Files" });
+    await writeFile(join(space.space.spaceRoot, "brief.txt"), "private content", "utf8");
+    const spaces = await api.remoteFacade.execute("spaces.list", {}, principal) as { spaces: Array<Record<string, unknown>> };
+    assert.deepEqual(spaces.spaces, [{ id: space.space.id, name: "Remote Files" }], "absolute roots never cross the remote facade");
+    const tree = await api.remoteFacade.execute("spaces.tree", { spaceId: space.space.id, path: "" }, principal) as {
+      tree: Array<{ name: string; path: string }>;
+    };
+    assert.deepEqual(tree.tree.map((entry) => ({ name: entry.name, path: entry.path })), [{ name: "brief.txt", path: "brief.txt" }]);
+    await assert.rejects(
+      () => api.remoteFacade.execute("spaces.tree", { spaceId: space.space.id, path: "../outside" }, principal),
+      /Space-relative/,
+    );
+
+    const sent = await api.remoteFacade.execute("management.send", { content: "/hold" }, principal) as {
+      conversationId: string;
+      taskId: string;
+    };
+    const running = await api.kernel.getTasks({ kind: "system" });
+    assert.equal(running.tasks.find((task) => task.id === sent.taskId)?.actor.kind, "renderer", "the stable kernel actor vocabulary treats the approved web client as a renderer surface");
+
+    const duplicate = await api.remoteFacade.execute("management.send", { content: "/hold" }, principal) as { duplicate?: boolean; taskId: string | null };
+    assert.equal(duplicate.duplicate, true, "the signed request id is idempotent at the semantic adapter");
+    assert.equal(duplicate.taskId, null);
+    await waitForAsync(async () => (await api.actFacade.manageTurnStatus({ taskId: sent.taskId })).task.state !== "running");
+
+    const transcript = await api.remoteFacade.execute(
+      "management.transcript",
+      { conversationId: sent.conversationId },
+      { ...principal, requestId: "request-2" },
+    ) as { messages: Array<{ role: string; content: string; source?: string }> };
+    const remoteMessage = transcript.messages.find((message) => message.role === "user" && message.content === "/hold");
+    assert.equal(remoteMessage?.source, "remote_web");
+    assert.equal((await api.actFacade.manageConversationStatus({})).conversation.id, sent.conversationId, "web and menu-bar/CLI views resolve the same transcript");
+    assert.equal(transcript.messages.filter((message) => message.role === "user" && message.content === "/hold").length, 1);
+
+    const newChatPrincipal = { ...principal, requestId: "request-new-chat" };
+    const fresh = await api.remoteFacade.execute(
+      "management.send",
+      { content: "/hold", newConversation: true },
+      newChatPrincipal,
+    ) as { conversationId: string; taskId: string };
+    assert.notEqual(fresh.conversationId, sent.conversationId, "New chat starts a separate saved transcript");
+    const freshDuplicate = await api.remoteFacade.execute(
+      "management.send",
+      { content: "/hold", newConversation: true },
+      newChatPrincipal,
+    ) as { conversationId: string; duplicate?: boolean; taskId: string | null };
+    assert.equal(freshDuplicate.duplicate, true, "recovery does not create another transcript for the same signed request");
+    assert.equal(freshDuplicate.conversationId, fresh.conversationId);
+    assert.equal(freshDuplicate.taskId, null);
+    await waitForAsync(async () => (await api.actFacade.manageTurnStatus({ taskId: fresh.taskId })).task.state !== "running");
+    assert.equal((await api.actFacade.manageConversationStatus({})).conversation.id, fresh.conversationId);
+
+    await assert.rejects(
+      () => api.remoteFacade.execute(
+        "management.send",
+        { content: "no", newConversation: "yes" },
+        { ...principal, requestId: "request-bad-new-chat" },
+      ),
+      /newConversation must be a boolean/,
+    );
+  } finally {
+    await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
 async function waitForAsync(predicate: () => Promise<boolean>, timeoutMs = 10_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {

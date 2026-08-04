@@ -122,6 +122,16 @@ test("the act executor forwards attachments to the facade and stamps lineage on 
 
 test("management requests carry attachments, record lineage, and expose honest phases over the local API", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-management-api-test-"));
+  let heldConversationId: string | null = null;
+  let releaseHeldPrompt!: () => void;
+  let reportHeldPrompt!: () => void;
+  const heldPromptGate = new Promise<void>((resolve) => { releaseHeldPrompt = resolve; });
+  const heldPromptReached = new Promise<void>((resolve) => { reportHeldPrompt = resolve; });
+  let holdChildAttribution = false;
+  let releaseChildAttribution!: () => void;
+  let reportChildAttribution!: () => void;
+  const childAttributionGate = new Promise<void>((resolve) => { releaseChildAttribution = resolve; });
+  const childAttributionReached = new Promise<void>((resolve) => { reportChildAttribution = resolve; });
   await mkdir(join(sandbox, "agent", "extensions"), { recursive: true });
   await writeFile(join(sandbox, "agent", "extensions", "hold.ts"), `export default function (pi) {
     pi.registerCommand("hold", {
@@ -138,6 +148,16 @@ test("management requests carry attachments, record lineage, and expose honest p
       async resolveRuntime() {
         return { agentDir: join(sandbox, "agent") };
       },
+    },
+    async beforeAgentPrompt(event) {
+      if (event.conversationId !== heldConversationId) return;
+      reportHeldPrompt();
+      await heldPromptGate;
+    },
+    async beforeManagementActionRecord(event) {
+      if (!holdChildAttribution || event.command !== "chat.send") return;
+      reportChildAttribution();
+      await childAttributionGate;
     },
   });
   try {
@@ -247,6 +267,58 @@ test("management requests carry attachments, record lineage, and expose honest p
     });
     assert.equal((await facade.manageTurnStatus({ taskId: activeStopParent.taskId })).request?.phase, "stopped");
 
+    // A delegated child can be cancelled after acceptance but before its Pi
+    // prompt exists (for example while attachments or History are preparing).
+    // The task-id latch must stop that whole window, not just live Pi sessions.
+    const prePromptParent = await facade.manageSend({ content: "/hold" });
+    const prePromptConversation = await facade.createConversation({ space: target.space.id });
+    heldConversationId = prePromptConversation.conversation.id;
+    const prePromptChild = await facade.sendMessage({
+      space: target.space.id,
+      conversationId: prePromptConversation.conversation.id,
+      content: "/hold",
+      parentTaskId: prePromptParent.taskId,
+    });
+    await heldPromptReached;
+    const prePromptStop = await facade.manageStop({ taskId: prePromptParent.taskId });
+    assert.equal(prePromptStop.managementAborted, true);
+    assert.equal(prePromptStop.children.find((child) => child.taskId === prePromptChild.taskId)?.aborted, true);
+    releaseHeldPrompt();
+    await waitForAsync(async () => {
+      const view = await facade.manageTurnStatus({ taskId: prePromptParent.taskId });
+      return view.task.state !== "running" && view.request?.children.every((child) => child.state !== "running") === true;
+    });
+    const prePromptView = (await facade.manageTurnStatus({ taskId: prePromptParent.taskId })).request!;
+    assert.equal(prePromptView.children.find((child) => child.taskId === prePromptChild.taskId)?.state, "aborted");
+    assert.equal(prePromptView.phase, "stopped");
+
+    // Stopping the parent also fences a child accepted just before its
+    // explicit parent attribution is recorded. The late attribution remains
+    // visible, but its already-accepted task is immediately cancelled.
+    const admissionRaceParent = await facade.manageSend({ content: "/hold" });
+    const admissionRaceConversation = await facade.createConversation({ space: target.space.id });
+    holdChildAttribution = true;
+    const admissionRaceChildPromise = facade.sendMessage({
+      space: target.space.id,
+      conversationId: admissionRaceConversation.conversation.id,
+      content: "/hold",
+      parentTaskId: admissionRaceParent.taskId,
+    });
+    await childAttributionReached;
+    const admissionRaceStop = await facade.manageStop({ taskId: admissionRaceParent.taskId });
+    assert.equal(admissionRaceStop.managementAborted, true);
+    assert.deepEqual(admissionRaceStop.children, [], "the child has not been attributed at the stop snapshot");
+    releaseChildAttribution();
+    const admissionRaceChild = await admissionRaceChildPromise;
+    await waitForAsync(async () => {
+      const view = await facade.manageTurnStatus({ taskId: admissionRaceParent.taskId });
+      return view.task.state !== "running"
+        && view.request?.children.find((child) => child.taskId === admissionRaceChild.taskId)?.state === "aborted";
+    });
+    const admissionRaceView = (await facade.manageTurnStatus({ taskId: admissionRaceParent.taskId })).request!;
+    assert.equal(admissionRaceView.children.find((child) => child.taskId === admissionRaceChild.taskId)?.state, "aborted");
+    assert.equal(admissionRaceView.phase, "stopped");
+
     // A failed delegated turn is a failed request, not a green parent success.
     const failedParent = await facade.manageSend({ content: "/hold" });
     const failedConversation = await facade.createConversation({ space: target.space.id });
@@ -315,6 +387,8 @@ test("management requests carry attachments, record lineage, and expose honest p
     await waitForAsync(async () =>
       (await facade.manageTurnStatus({ taskId: httpSendBody.taskId })).task.state !== "running");
   } finally {
+    releaseHeldPrompt();
+    releaseChildAttribution();
     await api.close();
     await rm(sandbox, { recursive: true, force: true });
   }

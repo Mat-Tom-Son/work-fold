@@ -55,6 +55,43 @@ Only install Skills, Extensions, and packages whose source you understand. Revie
 
 The packaged main renderer and management popover talk to a loopback-only local API with a per-launch desktop session token and an app-specific allowed origin. That boundary is for trusted packaged renderers; it is not a network API intended for other local applications. The sandboxed popover uses a dedicated narrow preload exposing only that API session, dropped-file path resolution, hide/show-main actions, and window material; it does not inherit the main renderer's folder, restricted-app, update, settings, or shell bridges. Development mode has different local-origin assumptions and must not be exposed beyond the loopback interface.
 
+Optional Remote access does not expose that loopback API. The public bridge
+accepts only a closed list of semantic operations and routes opaque signed
+envelopes to an authenticated desktop WebSocket. Password sign-in alone is not
+Assistant authority: every new browser generates non-exportable signing and
+key-agreement keys and requires a matching-code approval in the desktop app.
+The resulting desktop-signed grant is bound to the account, browser keys, and a
+revocation generation. The desktop re-reads its operating-system-encrypted
+grant state immediately before an operation; disabling Remote access, revoking
+one browser, revoking every grant generation, or deleting the address stops
+later operations. The bridge enforces exact origins, host-only SameSite secure
+cookies, CSRF tokens, bounded bodies, fresh signatures, login/enrollment/
+operation rate limits, and security headers. Its PostgreSQL records contain a
+scrypt password verifier, public keys and certificates, hashed sessions, and
+operation metadata—not device/browser private keys or durable decrypted
+message/file bodies. Live presence, event streams, and bounded encrypted result
+buffers are process-local in the private alpha, which therefore runs one
+replica. Database and transient-memory cleanup runs throughout the process
+lifetime; per-session operation limits, event-byte budgets, and event-stream
+caps bound one approved browser's retention pressure.
+
+An approved remote browser is nevertheless a powerful authority. It can send
+prompts to the same full-trust management Assistant described below and inspect
+the management transcript and bounded Space-relative file-tree metadata while
+the desktop is online. The semantic adapter removes absolute roots and
+attachment targets and does not expose capability/settings mutation or generic
+local calls, but the Assistant itself remains taught rather than tool-restricted
+and may use ordinary local tools under the current user's permissions. Approve
+only browsers you control, revoke a lost browser promptly, and use a unique
+password. The hosted web client and bridge are trusted parts of this private
+alpha's authority boundary. Signed application-encrypted envelopes reduce
+plaintext persistence and passive relay visibility, but same-origin hosted code
+can use an approved non-exportable browser key; they do not protect against an
+active hosted-service compromise, a compromised approved browser, or a
+compromised desktop endpoint. Public/full-trust release requires either a
+separately installed and pinned signing client or another authority design that
+does not grant mutable first-load web code this power.
+
 The installed `work-fold` command uses a separate protocol-v1 file broker under the platform application-data directory (`%APPDATA%\work-fold\cli` on Windows and `~/Library/Application Support/work-fold/cli` on macOS). Requests and responses are UUID-named, atomic, size- and age-bounded, path-confined, and rejected when they are symbolic links or unsafe file types. Electron's single-instance host serializes accepted requests and cleans stale files.
 
 That broker is same-operating-system-user coordination, not authenticated interprocess communication. Another process running as the same user may be able to submit a request or read its result. Protocol v1 — the read lane — therefore exposes only compact Space names/paths, running-task metadata, and capability provenance/status. It does not return file contents, conversation text, API keys, provider credentials, or signing material, and it never mutates anything.

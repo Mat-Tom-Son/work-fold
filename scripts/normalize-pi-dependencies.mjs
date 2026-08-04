@@ -16,21 +16,35 @@ if (piPackage.version !== expectedPiVersion) {
 }
 
 for (const dependency of [
-  { name: "brace-expansion", fixedVersion: "5.0.8", replaceVersions: new Set(["5.0.6", "5.0.7"]) },
+  { name: "brace-expansion", fixedVersion: "5.0.9", replaceVersions: new Set(["5.0.6", "5.0.7", "5.0.8"]) },
   { name: "protobufjs", fixedVersion: "7.6.5", replaceVersions: new Set(["7.6.4"]) },
+  {
+    name: "undici",
+    fixedVersion: "8.10.0",
+    replaceVersions: new Set(["8.5.0", "8.8.0"]),
+    sourceName: "undici-pi-reviewed",
+    sourceDeclaration: "npm:undici@8.10.0",
+  },
 ]) {
   await normalizeDependency(dependency);
 }
 
-async function normalizeDependency({ name, fixedVersion, replaceVersions }) {
-  const configuredVersion = rootPackage.overrides?.[name];
-  if (configuredVersion !== fixedVersion) {
+async function normalizeDependency({
+  name,
+  fixedVersion,
+  replaceVersions,
+  sourceName = name,
+  sourceDeclaration = fixedVersion,
+}) {
+  const configuredVersion =
+    sourceName === name ? rootPackage.overrides?.[name] : rootPackage.dependencies?.[sourceName];
+  if (configuredVersion !== sourceDeclaration) {
     throw new Error(
-      `Refusing to normalize ${name} without the reviewed ${fixedVersion} override (found ${configuredVersion}).`,
+      `Refusing to normalize ${name} without the reviewed ${sourceDeclaration} source (found ${configuredVersion}).`,
     );
   }
 
-  const sourceDir = join(rootDir, "node_modules", name);
+  const sourceDir = join(rootDir, "node_modules", sourceName);
   const sourcePackage = await readJson(join(sourceDir, "package.json"));
   if (sourcePackage.version !== fixedVersion) {
     throw new Error(`Root ${name} is ${sourcePackage.version}; expected the reviewed ${fixedVersion} package.`);

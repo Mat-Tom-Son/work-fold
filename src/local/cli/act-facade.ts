@@ -97,6 +97,9 @@ export interface WorkFoldActManagementRequest {
   actions: ManagementRequestAction[];
   children: WorkFoldActManagementChildStatus[];
   reply: { messageId: string; content: string } | null;
+  source: "local" | "remote_web";
+  remotePrincipalId: string | null;
+  remoteRequestId: string | null;
 }
 
 export interface WorkFoldActCheckTaskStatus {

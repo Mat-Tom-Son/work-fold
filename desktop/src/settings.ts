@@ -10,13 +10,38 @@ export interface SecureSettingsStatus {
 }
 
 interface SecureSettingsFile {
-  schemaVersion: 1;
+  schemaVersion: 2;
   credentials: PiAuthStorageData;
+  remoteAccess: RemoteAccessSettings | null;
+}
+
+export interface RemoteBrowserGrantSettings {
+  id: string;
+  browserId: string;
+  label: string;
+  signingPublicJwk: JsonWebKey;
+  encryptionPublicJwk: JsonWebKey;
+  generation: number;
+  approvedAt: string;
+}
+
+export interface RemoteAccessSettings {
+  enabled: boolean;
+  bridgeUrl: string;
+  accountId: string;
+  slug: string;
+  deviceToken: string;
+  deviceSigningPrivateJwk: JsonWebKey;
+  deviceSigningPublicJwk: JsonWebKey;
+  deviceEncryptionPrivateJwk: JsonWebKey;
+  deviceEncryptionPublicJwk: JsonWebKey;
+  grants: RemoteBrowserGrantSettings[];
 }
 
 const emptySettings = (): SecureSettingsFile => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   credentials: {},
+  remoteAccess: null,
 });
 
 /** Encrypted, application-scoped credentials. Never stored inside a Space. */
@@ -67,6 +92,52 @@ export class SecureSettingsStore implements PiAuthStorageHost {
     await this.update((data) => {
       delete data.credentials[key];
     });
+  }
+
+  async getRemoteAccess(): Promise<RemoteAccessSettings | null> {
+    return (await this.read()).remoteAccess;
+  }
+
+  async setRemoteAccess(settings: RemoteAccessSettings): Promise<void> {
+    const normalized = remoteAccessSettings(settings);
+    if (!normalized) throw new Error("Remote access settings are invalid.");
+    await this.update((data) => { data.remoteAccess = normalized; });
+  }
+
+  async setRemoteAccessEnabled(enabled: boolean): Promise<RemoteAccessSettings | null> {
+    let result: RemoteAccessSettings | null = null;
+    await this.update((data) => {
+      if (!data.remoteAccess) return;
+      data.remoteAccess.enabled = enabled;
+      result = structuredClone(data.remoteAccess);
+    });
+    return result;
+  }
+
+  async saveRemoteBrowserGrant(grant: RemoteBrowserGrantSettings): Promise<void> {
+    const normalized = remoteBrowserGrant(grant);
+    if (!normalized) throw new Error("Remote browser grant is invalid.");
+    await this.update((data) => {
+      if (!data.remoteAccess) throw new Error("Remote access is not configured.");
+      data.remoteAccess.grants = [
+        normalized,
+        ...data.remoteAccess.grants.filter((item) => item.browserId !== normalized.browserId && item.id !== normalized.id),
+      ].slice(0, 64);
+    });
+  }
+
+  async removeRemoteBrowserGrant(grantId: string): Promise<void> {
+    await this.update((data) => {
+      if (data.remoteAccess) data.remoteAccess.grants = data.remoteAccess.grants.filter((item) => item.id !== grantId);
+    });
+  }
+
+  async clearRemoteBrowserGrants(): Promise<void> {
+    await this.update((data) => { if (data.remoteAccess) data.remoteAccess.grants = []; });
+  }
+
+  async clearRemoteAccess(): Promise<void> {
+    await this.update((data) => { data.remoteAccess = null; });
   }
 
   private async update(mutator: (data: SecureSettingsFile) => void): Promise<void> {
@@ -130,9 +201,74 @@ function normalizeSettings(value: unknown): SecureSettingsFile {
   if (!value || typeof value !== "object") return emptySettings();
   const record = value as Partial<SecureSettingsFile>;
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     credentials: credentialRecord(record.credentials),
+    remoteAccess: remoteAccessSettings((record as { remoteAccess?: unknown }).remoteAccess),
   };
+}
+
+function remoteAccessSettings(value: unknown): RemoteAccessSettings | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Partial<RemoteAccessSettings>;
+  if (typeof record.enabled !== "boolean" || !validHttpsUrl(record.bridgeUrl)
+    || !stableId(record.accountId, 160) || !stableSlug(record.slug)
+    || typeof record.deviceToken !== "string" || record.deviceToken.length < 32 || record.deviceToken.length > 256
+    || !privateEcJwk(record.deviceSigningPrivateJwk) || !publicEcJwk(record.deviceSigningPublicJwk)
+    || !privateEcJwk(record.deviceEncryptionPrivateJwk) || !publicEcJwk(record.deviceEncryptionPublicJwk)) return null;
+  return {
+    enabled: record.enabled,
+    bridgeUrl: record.bridgeUrl!,
+    accountId: record.accountId!,
+    slug: record.slug!,
+    deviceToken: record.deviceToken,
+    deviceSigningPrivateJwk: structuredClone(record.deviceSigningPrivateJwk),
+    deviceSigningPublicJwk: structuredClone(record.deviceSigningPublicJwk),
+    deviceEncryptionPrivateJwk: structuredClone(record.deviceEncryptionPrivateJwk),
+    deviceEncryptionPublicJwk: structuredClone(record.deviceEncryptionPublicJwk),
+    grants: Array.isArray(record.grants) ? record.grants.map(remoteBrowserGrant).filter((item): item is RemoteBrowserGrantSettings => Boolean(item)).slice(0, 64) : [],
+  };
+}
+
+function remoteBrowserGrant(value: unknown): RemoteBrowserGrantSettings | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Partial<RemoteBrowserGrantSettings>;
+  if (!stableId(record.id, 160) || !stableId(record.browserId, 160)
+    || typeof record.label !== "string" || !record.label.trim() || record.label.length > 80
+    || !publicEcJwk(record.signingPublicJwk) || !publicEcJwk(record.encryptionPublicJwk)
+    || !Number.isInteger(record.generation) || Number(record.generation) < 1
+    || typeof record.approvedAt !== "string" || !Number.isFinite(Date.parse(record.approvedAt))) return null;
+  return {
+    id: record.id!, browserId: record.browserId!, label: record.label.trim(),
+    signingPublicJwk: structuredClone(record.signingPublicJwk),
+    encryptionPublicJwk: structuredClone(record.encryptionPublicJwk),
+    generation: Number(record.generation), approvedAt: record.approvedAt,
+  };
+}
+
+function publicEcJwk(value: unknown): value is JsonWebKey {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as JsonWebKey;
+  return record.kty === "EC" && record.crv === "P-256" && typeof record.x === "string" && typeof record.y === "string" && record.d === undefined;
+}
+
+function privateEcJwk(value: unknown): value is JsonWebKey {
+  return publicEcJwk({ ...(value as object), d: undefined }) && typeof (value as JsonWebKey).d === "string";
+}
+
+function validHttpsUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return (url.protocol === "https:" || (url.protocol === "http:" && new Set(["127.0.0.1", "localhost"]).has(url.hostname))) && url.pathname === "/" && !url.username && !url.password;
+  } catch { return false; }
+}
+
+function stableId(value: unknown, maximum: number): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= maximum && /^[A-Za-z0-9._:-]+$/.test(value);
+}
+
+function stableSlug(value: unknown): value is string {
+  return typeof value === "string" && /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])?$/.test(value);
 }
 
 function credentialRecord(value: unknown): PiAuthStorageData {

@@ -1,8 +1,8 @@
 # Privacy
 
-Last updated: August 1, 2026
+Last updated: August 4, 2026
 
-work-fold is a local-first desktop application. It does not require a work-fold account, and the current application does not include first-party analytics, advertising, or usage telemetry.
+work-fold is a local-first desktop application. Core Space use does not require a work-fold account; a person may optionally create a private work-fold Remote access address. The current application does not include first-party analytics, advertising, or usage telemetry.
 
 This document describes the behavior of the open-source work-fold application. Model providers, GitHub, package hosts, cloud-sync software, and third-party Skills or Extensions have their own privacy terms.
 
@@ -18,6 +18,7 @@ By default, work-fold stores:
 - Restricted-app Development-preview receipts and package snapshots; machine-local App Project identity and presentation; immutable content-addressed Release envelopes; prepared/published state; install/update operation journals; local App Instance records; per-automation enablement/cadence state and bounded run receipts; retained-data records; and Tenant-and-Data-Namespace-owned JSON storage under the application-data `restricted-apps` directory. Separately encrypted restricted-app connections bind their exact runtime and installation identities in `restricted-app-connections.bin`.
 - Short-lived CLI request, claim, and response files under the owning app's application-data directory: `%APPDATA%\work-fold\cli` for an installed Windows app, `%APPDATA%\work-fold Development\cli` for an uninstalled Windows package, and the corresponding production or separately identified smoke-app directory on macOS.
 - The management conversation's machine-local transcript under the application-data `management/` root. When a request includes attachments, its user message stores their typed absolute local paths or http(s) links; request/action projections remain in memory for the app run, while act lineage is metadata in the receipt journal.
+- Optional Remote access device credentials, P-256 private keys, approved-browser public keys, and revocation state in the same operating-system-encrypted secure settings file as other application credentials. An approved browser keeps its own non-exportable private keys and grant identity in that browser's IndexedDB; it does not store a transcript or Space file cache there.
 
 work-fold uses a new application profile and does not inspect, import, migrate, rewrite, wipe, or delete legacy Workspace application data or `.workspace/` folder metadata. Legacy bytes remain where they already are and are not authoritative in work-fold. The app keeps `.workspace/` hidden and excludes it from History, Search, Checks, and restricted-app file grants. Pi's personal resources and authentication may still be read from the configured Pi agent directory, while work-fold keeps its Pi sessions in the separate `sessions/work-fold/` namespace.
 
@@ -29,6 +30,40 @@ deleting the ordinary folder; work-fold never uses managed deletion to erase
 legacy product data.
 
 ## When data leaves this computer
+
+### Optional Remote access bridge
+
+When Remote access is enabled, the desktop maintains an authenticated WebSocket
+to the work-fold bridge and the browser connects to its private
+`<name>.work-fold.com` address. The bridge can receive the chosen address,
+network metadata such as IP address and user agent, a scrypt password verifier,
+device and browser public keys, desktop-signed pairing certificates, hashed
+session/CSRF tokens, grant status, operation names/ids/timestamps, and encrypted
+envelope sizes. It may temporarily buffer signed encrypted envelopes and events
+in process memory. It stores identity, session, grant, and bounded operation
+metadata in PostgreSQL, but it does not durably store prompt text, conversation
+text, Assistant results, Space names, file names, file metadata, or file
+contents.
+
+Content-bearing browser and desktop payloads use signed application-layer
+envelopes encrypted with keys held by the approved browser and desktop. The
+normal bridge path therefore routes ciphertext rather than durably recording
+plaintext, and this does not hide ordinary network metadata. Remote access is
+currently a private alpha whose hosted client and bridge are
+trusted parts of the authority boundary: because that origin serves the web
+code which may use a non-exportable approved browser key, an active compromise
+of the hosted service can read displayed content or issue authorized requests.
+The envelope design protects passive relay handling and persisted state; it is
+not a guarantee against a malicious hosted origin. The browser renders the
+bounded recent machine-local management transcript and filtered, bounded
+Space-relative file-tree projections in memory and starts fresh by fetching
+them again after sign-in.
+Removing Remote access deletes its server-side account records; browser
+IndexedDB may retain an unusable local key until that site's data is cleared.
+
+A prompt sent from Remote access enters the same local management conversation
+and is then sent to the configured model provider under the behavior below.
+work-fold does not terminate or proxy the model-provider request at the bridge.
 
 ### Model providers
 
@@ -84,7 +119,7 @@ work-fold does not currently connect to the Google Drive API or run its own clou
 
 ## User choices
 
-Users choose which folders become Spaces, which files are attached to Chats, which model provider receives Assistant requests, and which Personal or This Space capabilities are installed. Registering the folder is the local Pi authorization. Restricted-app preview installation, Release preparation, local publication, target-Space installation, update/rollback activation, each network destination, file or notification grant, named automation, stored connection, App uninstall, and retain/purge decision are separate choices. Revoking one authority does not imply revoking the others or invalidating a credential at its remote provider.
+Users choose which folders become Spaces, which files are attached to Chats, which model provider receives Assistant requests, and which Personal or This Space capabilities are installed. Registering the folder is the local Pi authorization. Creating a Remote access address, approving each browser, revoking one or every browser, disabling the connection, and removing the address are separate choices. Restricted-app preview installation, Release preparation, local publication, target-Space installation, update/rollback activation, each network destination, file or notification grant, named automation, stored connection, App uninstall, and retain/purge decision are also separate choices. Revoking one authority does not imply revoking the others or invalidating a credential at its remote provider.
 
 Because this project is early stage, not every data-management action has a dedicated UI yet. Application and Pi data remain ordinary local files, but manual changes should be made only while work-fold is closed and after creating a backup.
 

@@ -20,6 +20,10 @@ export interface ChatMessage {
   landing?: ChatMessageLanding;
   interruption?: ChatMessageInterruption;
   attachments?: ChatMessageAttachmentRef[];
+  /** Durable surface provenance for messages accepted through remote access. */
+  source?: "remote_web";
+  remotePrincipalId?: string;
+  remoteRequestId?: string;
 }
 
 /**
@@ -397,10 +401,21 @@ function parseChatMessage(line: string): ChatMessage | null {
       const attachments = parsed.attachments.filter(isChatMessageAttachmentRef).slice(0, 32);
       if (attachments.length) message.attachments = attachments;
     }
+    if (parsed.source === "remote_web"
+      && isRemoteProvenanceId(parsed.remotePrincipalId)
+      && isRemoteProvenanceId(parsed.remoteRequestId)) {
+      message.source = "remote_web";
+      message.remotePrincipalId = parsed.remotePrincipalId;
+      message.remoteRequestId = parsed.remoteRequestId;
+    }
     return message;
   } catch {
     return null;
   }
+}
+
+function isRemoteProvenanceId(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 160 && /^[A-Za-z0-9._:-]+$/.test(value);
 }
 
 function isChatMessageAttachmentRef(value: unknown): value is ChatMessageAttachmentRef {

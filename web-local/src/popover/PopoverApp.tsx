@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { File, Link2, X } from "lucide-react";
+import { File, Link2, SquarePen, X } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { ApiError, api, createEventSource, errorText } from "../lib/api";
 import { WorkFoldLockup } from "../components/brand/WorkFoldBrand";
@@ -51,6 +53,15 @@ interface ManagementSummary {
   latestRequest: ManagementRequestView | null;
 }
 
+interface ManagementMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  createdAt: string;
+  kind?: string;
+  source?: string;
+}
+
 interface StagedItem {
   value: string;
   label: string;
@@ -59,54 +70,65 @@ interface StagedItem {
 
 const activePhases = new Set(["working", "handed_off"]);
 const pollIntervalMs = 1_500;
+const idlePollIntervalMs = 5_000;
 
 export function PopoverApp() {
   const bridge = window.workFoldDesktop;
   const [available, setAvailable] = useState<boolean | null>(null);
   const [unavailableReason, setUnavailableReason] = useState<string>("");
   const [request, setRequest] = useState<ManagementRequestView | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ManagementMessage[]>([]);
   const [staged, setStaged] = useState<StagedItem[]>([]);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [startingNewChat, setStartingNewChat] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [banner, setBanner] = useState<string>("");
   const [dropActive, setDropActive] = useState(false);
   const [activity, setActivity] = useState<string>("");
   const [now, setNow] = useState(() => Date.now());
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const transcriptRef = useRef<HTMLElement | null>(null);
   const requestRef = useRef<ManagementRequestView | null>(null);
+  const startingNewChatRef = useRef(false);
   requestRef.current = request;
 
-  const refreshRequest = useCallback(async (taskId: string) => {
+  const refreshConversation = useCallback(async () => {
     try {
-      const result = await api<{ request: ManagementRequestView }>(`/api/management/requests/${encodeURIComponent(taskId)}`);
-      setRequest(result.request);
+      const summary = await api<ManagementSummary>("/api/management/summary");
+      setAvailable(summary.available);
+      setUnavailableReason(summary.available ? "" : summary.reason ?? "");
+      if (startingNewChatRef.current) return;
+      setRequest(summary.latestRequest);
+      const nextConversationId = summary.conversation?.id ?? null;
+      setConversationId(nextConversationId);
+      if (!nextConversationId) {
+        setMessages([]);
+        return;
+      }
+      const transcript = await api<{ messages: ManagementMessage[] }>(`/api/management/conversations/${encodeURIComponent(nextConversationId)}`);
+      setMessages(transcript.messages.filter((message) =>
+        (message.role === "user" || message.role === "assistant") && !message.kind));
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
         setRequest(null);
+        setConversationId(null);
+        setMessages([]);
+        setAvailable(true);
         setBanner("That request belonged to an earlier app run. Start a new request to continue.");
         return;
       }
-      setBanner(errorText(error));
+      const message = errorText(error);
+      setAvailable(false);
+      setUnavailableReason(message);
+      setBanner(message);
     }
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    void api<ManagementSummary>("/api/management/summary")
-      .then((summary) => {
-        if (cancelled) return;
-        setAvailable(summary.available);
-        if (!summary.available) setUnavailableReason(summary.reason ?? "");
-        if (summary.latestRequest) setRequest(summary.latestRequest);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setAvailable(false);
-        setUnavailableReason(errorText(error));
-      });
-    return () => { cancelled = true; };
-  }, []);
+    void refreshConversation();
+  }, [refreshConversation]);
 
   // Staged material handed over by the tray (macOS icon drops).
   useEffect(() => {
@@ -121,7 +143,6 @@ export function PopoverApp() {
   }, [bridge]);
 
   // Live turn events for the active request's conversation.
-  const conversationId = request?.conversationId ?? null;
   useEffect(() => {
     if (!conversationId) return;
     const stream = createEventSource(`/api/management/conversations/${encodeURIComponent(conversationId)}/events`);
@@ -132,29 +153,49 @@ export function PopoverApp() {
       } catch {
         return;
       }
-      const running = requestRef.current;
       if (event.type === "status" || event.type === "tool") {
         const message = typeof event.message === "string" && event.message !== "Connected." ? event.message.trim() : "";
         const tool = event.type === "tool" && typeof event.toolName === "string" ? event.toolName.trim() : "";
         if (message || tool) setActivity(message || tool);
       }
-      if ((event.type === "turn_state" || event.type === "done" || event.type === "error") && running) {
-        void refreshRequest(running.taskId);
+      if (event.type === "turn_state" || event.type === "done" || event.type === "error") {
+        void refreshConversation();
       }
     };
     return () => stream.close();
-  }, [conversationId, refreshRequest]);
+  }, [conversationId, refreshConversation]);
 
-  // Poll while the request is active; children can settle without an event here.
+  // Poll quickly while work is active and quietly while idle. The latter keeps
+  // the persistent popover aligned when the web surface starts a fresh chat.
   const phase = request?.phase ?? null;
   useEffect(() => {
-    if (!request || !phase || !activePhases.has(phase)) return;
     const timer = window.setInterval(() => {
-      void refreshRequest(request.taskId);
+      void refreshConversation();
       setNow(Date.now());
-    }, pollIntervalMs);
+    }, request && phase && activePhases.has(phase) ? pollIntervalMs : idlePollIntervalMs);
     return () => window.clearInterval(timer);
-  }, [request?.taskId, phase, refreshRequest]);
+  }, [request?.taskId, phase, refreshConversation]);
+
+  // Electron keeps this renderer mounted while the popover is hidden. A turn
+  // can settle while Chromium has throttled its timer and event stream, so a
+  // newly shown/focused popover must reconcile the persisted request before it
+  // renders the old Working state again.
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState !== "hidden") void refreshConversation();
+    };
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [refreshConversation]);
+
+  useEffect(() => {
+    const transcript = transcriptRef.current;
+    if (transcript) transcript.scrollTop = transcript.scrollHeight;
+  }, [messages]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -174,7 +215,9 @@ export function PopoverApp() {
       const body: Record<string, unknown> = { content };
       if (staged.length) body.attachments = staged.map((item) => item.value);
       const current = requestRef.current;
-      if (current && current.phase === "needs_you") {
+      if (startingNewChatRef.current) {
+        body.newConversation = true;
+      } else if (current && current.phase === "needs_you") {
         body.conversationId = current.conversationId;
         body.continuationTaskId = current.taskId;
       }
@@ -182,15 +225,30 @@ export function PopoverApp() {
         "/api/management/messages",
         { method: "POST", body },
       );
+      startingNewChatRef.current = false;
+      setStartingNewChat(false);
       setText("");
       setStaged([]);
-      await refreshRequest(result.taskId);
+      setConversationId(result.conversationId);
+      await refreshConversation();
     } catch (error) {
       setBanner(errorText(error));
     } finally {
       setSending(false);
     }
-  }, [text, staged, sending, refreshRequest]);
+  }, [text, staged, sending, refreshConversation]);
+
+  const startNewChat = useCallback(() => {
+    if (sending || startingNewChatRef.current) return;
+    startingNewChatRef.current = true;
+    setStartingNewChat(true);
+    setRequest(null);
+    setConversationId(null);
+    setMessages([]);
+    setActivity("");
+    setBanner("New chat ready. Your previous chat is still saved on this desktop.");
+    window.setTimeout(() => composerRef.current?.focus(), 0);
+  }, [sending]);
 
   const stop = useCallback(async () => {
     const current = requestRef.current;
@@ -203,13 +261,13 @@ export function PopoverApp() {
       if (!result.stopped.managementAborted && !result.stopped.children.some((child) => child.aborted)) {
         setBanner("No running work was stopped. It may have finished just before the request arrived.");
       }
-      await refreshRequest(current.taskId);
+      await refreshConversation();
     } catch (error) {
       setBanner(errorText(error));
     } finally {
       setStopping(false);
     }
-  }, [stopping, refreshRequest]);
+  }, [stopping, refreshConversation]);
 
   const onDrop = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -242,13 +300,6 @@ export function PopoverApp() {
     setStaged((current) => current.filter((item) => item.value !== value));
   }, []);
 
-  const startNewRequest = useCallback(() => {
-    setRequest(null);
-    setActivity("");
-    setBanner("");
-    composerRef.current?.focus();
-  }, []);
-
   const elapsedLabel = useMemo(() => {
     if (!request || request.phase !== "working") return "";
     const startedAt = Date.parse(request.startedAt);
@@ -273,7 +324,7 @@ export function PopoverApp() {
     );
   }
 
-  const showComposer = !request || request.phase === "needs_you";
+  const showComposer = !request || !activePhases.has(request.phase);
   const composerPlaceholder = request?.phase === "needs_you"
     ? "Reply to work-fold"
     : "Tell work-fold what to do";
@@ -289,10 +340,35 @@ export function PopoverApp() {
     >
       <header className="popover-header">
         <WorkFoldLockup className="popover-brand" />
-        {request ? <PhasePill phase={request.phase} /> : null}
+        <div className="popover-header-actions">
+          <button
+            className="new-chat-button"
+            type="button"
+            onClick={startNewChat}
+            disabled={sending || startingNewChat}
+            title="Start a new chat. This chat stays saved on your desktop."
+          >
+            <SquarePen aria-hidden="true" />
+            <span>New chat</span>
+          </button>
+          {request ? <PhasePill phase={request.phase} /> : null}
+        </div>
       </header>
 
       {banner ? <div className="banner" role="alert">{banner}</div> : null}
+
+      <section className="popover-transcript" ref={transcriptRef} aria-label="Management conversation" aria-live="polite">
+        {messages.map((message) => (
+          <article className={`popover-message ${message.role}`} key={message.id}>
+            <div className="popover-message-role">{message.role === "assistant" ? "work-fold" : "You"}{message.source === "remote_web" ? " · Web" : ""}</div>
+            <div className="popover-message-body">
+              {message.role === "assistant"
+                ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                : message.content}
+            </div>
+          </article>
+        ))}
+      </section>
 
       {request && request.phase === "working" ? (
         <section className="card">
@@ -330,7 +406,7 @@ export function PopoverApp() {
       ) : null}
 
       {request && !activePhases.has(request.phase) ? (
-        <ResultCard request={request} onNewRequest={startNewRequest} />
+        <ResultCard request={request} />
       ) : null}
 
       {showComposer ? (
@@ -376,8 +452,12 @@ export function PopoverApp() {
   );
 }
 
-function ResultCard({ request, onNewRequest }: { request: ManagementRequestView; onNewRequest: () => void }) {
-  const running = request.children.some((child) => child.state === "running");
+function ResultCard({ request }: { request: ManagementRequestView }) {
+  const showOutcome = request.phase === "failed"
+    || request.phase === "stopped"
+    || request.dispositions.length > 0
+    || request.actions.some((action) => action.command !== "files.add");
+  if (!showOutcome) return null;
   return (
     <section className="card">
       {request.phase === "failed" ? (
@@ -385,14 +465,6 @@ function ResultCard({ request, onNewRequest }: { request: ManagementRequestView;
       ) : null}
       {request.phase === "stopped" ? <p>Stopped before it finished.</p> : null}
       <DispositionTrail request={request} />
-      {request.reply ? (
-        <div className={`reply${request.phase === "needs_you" ? " reply-question" : ""}`}>{request.reply.content}</div>
-      ) : null}
-      {!running && request.phase !== "needs_you" ? (
-        <div className="row-end">
-          <button className="ghost" onClick={onNewRequest}>New request</button>
-        </div>
-      ) : null}
     </section>
   );
 }

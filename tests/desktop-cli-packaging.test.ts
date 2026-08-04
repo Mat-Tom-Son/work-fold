@@ -155,6 +155,21 @@ test("management dogfood launches the dev app with the agent-facing CLI on PATH"
   assert.doesNotMatch(script, /python3/);
 });
 
+test("desktop Assistant shells inherit the exact running profile in development and packaged builds", async () => {
+  const main = await read("desktop/src/main.ts");
+  const start = main.indexOf("function configureCliEnvironment(): void {");
+  const end = main.indexOf("\n}\n\nfunction createFolderGrant", start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const helper = main.slice(start, end);
+  assert.match(helper, /process\.env\.WORKFOLD_CLI_STATE_DIR = app\.getPath\("userData"\)/);
+  assert.ok(
+    helper.indexOf("WORKFOLD_CLI_STATE_DIR") < helper.indexOf("if (!app.isPackaged"),
+    "state binding must happen before the packaged-only executable and PATH setup",
+  );
+  assert.match(main, /configureWorkFoldStateRoot\(app\.getPath\("userData"\)\);\s+configureCliEnvironment\(\);/);
+});
+
 /**
  * Shared act-lane contract both platform shims must keep: routing that never
  * lets content-bearing chat commands fall through to protocol v1, the

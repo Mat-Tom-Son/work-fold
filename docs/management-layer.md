@@ -112,7 +112,7 @@ Those two app-owned resources are required, not an optional enhancement. If work
 
 Be precise about its authority: the management conversation is a **full-trust Assistant, taught rather than caged**. Like every work-fold Assistant it keeps Pi's ordinary read/bash/edit/write tools, which accept absolute paths anywhere this user can reach. The materialized instructions teach it to prefer the `work-fold` read and act commands for anything that touches Spaces — those carry the trust grants, restore points, receipts, and conflict rules — but that preference is instruction, not an enforced authority boundary. An enforced CLI-only management agent would be a different, deliberate design (per-session tool restriction) that this personal, local product has not adopted.
 
-Without `--conversation`, manage commands target the most recent active management conversation, `manage send` creates it on first use, and `--new` deliberately allows additional threads while the default stays a single conversation; management turns appear in `work-fold tasks list` under the management scope id.
+Without `--conversation`, manage commands target the most recent active management conversation, `manage send` creates it on first use, and `--new` deliberately allows additional threads while the default stays a single conversation; management turns appear in `work-fold tasks list` under the management scope id. The menu-bar and remote browser surfaces expose the same choice as **New chat**: the view becomes a clean slate immediately, the first send creates the new machine-local transcript, and the previous transcript remains saved rather than being cleared or rewritten.
 
 ### Management attachments, request lineage, and the popover surface
 
@@ -123,6 +123,58 @@ Every accepted management turn is a **request**. Its hidden turn context supplie
 `manage status --task` therefore reports a `request` object alongside the turn: per-attachment **dispositions** computed from recorded actions (`placed`, `registered`, or honestly `unrecorded`), recorded actions with restore-point ids, child turns with their own task states, the reply, and a **phase** — `working`, `needs_you` (the reply's final line asks a question), `handed_off` (the management turn finished but a delegated Space turn still runs), `done`, `failed`, or `stopped`. Done requires both the management turn and every child to succeed; a failed or lost child fails the request, and an aborted child or accepted request-level stop stays stopped. A popover reply to `needs_you` starts a fresh turn in the same conversation while carrying the prior request's attachments and action/child trail forward; it does not replay those attachments into model context. `manage stop --task` aborts the management turn and every recorded child turn still running, and names each turn it touched.
 
 The same request model backs the desktop's **menu-bar popover** (macOS menu-bar item; the Windows tray gains the same "Tell work-fold" entry), which talks to `/api/management/*` local-API routes — send with attachments, summary, request status, request stop, transcript, and the per-conversation event stream — through the same acceptance path, conflict rules, and kernel task records as every other surface. The popover is deliberately a window, not a tab, so the Space-bound tab contract is untouched; dropping onto the macOS menu-bar icon or the popover stages bounded references without sending anything, and the send is always an explicit act. Its sandboxed renderer has a dedicated preload exposing only the local API session, dropped-file path resolution, hide/show-main actions, and window material — it does not inherit the main renderer's folder, restricted-app, update, settings, or shell bridges.
+
+### Remote browser surface
+
+Invitation-only private-alpha Remote access adds a browser surface to this exact management
+conversation; it does not add another default conversation or Pi session. The
+desktop renderer configures a unique address and password in Settings. A
+successful password check creates only a host-only, SameSite session. A new
+browser then creates non-exportable P-256 signing and agreement keys and asks
+the online desktop to approve a matching six-digit code. Approval creates a
+desktop-signed, generation-bound browser grant. One browser, every browser, the
+whole connection, and the address itself are separately revocable from the
+desktop.
+
+The public bridge terminates HTTPS and WebSockets and the hosted origin serves
+the executable browser client. PostgreSQL durably stores the address and scrypt
+verifier, device and browser public keys, grant certificates and generations,
+hashed sessions, and bounded operation metadata. It does not store private keys.
+Browser requests and desktop results use signed ECDH/HKDF/AES-GCM envelopes;
+completed prompt, transcript, result, Space-name, and file-tree bodies are not
+written to the database. This application encryption protects passive handling
+and persisted relay state, not an actively compromised hosted origin: same-origin
+code can use an approved non-exportable browser key, so the hosted client and
+bridge are trusted authority in this alpha even though the desktop remains the
+local execution endpoint. Live bounded encrypted response buffers, browser
+event streams, desktop presence, and rate limits are process-local, so the
+service must stay at one replica until those functions move to a shared
+backplane. Scheduled cleanup, active-row expiry predicates, per-grant operation
+caps, SSE caps, and a global ciphertext-byte budget bound the current process.
+
+The desktop does not expose its renderer token or tunnel arbitrary local HTTP.
+`WorkFoldRemoteFacade` is a closed semantic adapter with only management
+summary/transcript/send/request/stop plus Space-name listing and bounded
+Space-relative tree projection. It strips absolute roots and attachment target
+paths, applies the ordinary ignore policy, rejects traversal and unknown
+fields, and rechecks the locally encrypted grant immediately before execution.
+Dispatch and desktop-local authority mutations share one serialization fence;
+revocation removes local authority before contacting the bridge and stops
+locally tracked management and child work started by that grant. Signed request
+ids, atomic bridge delivery claims, desktop in-flight claims, and exact-id
+recovery prevent a reconnect or bridge restart from inventing a second prompt.
+`management.send` enters `acceptConversationTurn`, may explicitly start a new
+saved management thread, persists `remote_web` provenance and a signed request
+id, and participates in the same active-turn, request-lineage, stop, transcript,
+and Pi-session rules as the popover. The
+stable kernel continues to classify it as a renderer surface; the durable
+message/request provenance distinguishes remote acceptance without changing
+the version-1 actor vocabulary.
+
+This is a powerful full-trust management surface. Pairing authorizes a browser
+to ask the same taught-but-not-tool-restricted Assistant to act with the local
+user's authority while the desktop is online. Password possession alone is not
+that grant, and an offline desktop cannot approve or execute anything.
 
 Space-targeted act commands never resolve a Space from the working directory — every write names its Space explicitly. `chat send` accepts a CLI-initiated Assistant turn through the exact same acceptance path as the renderer (conflict checks, kernel task record with a `cli` actor, portable transcript persistence, pre/post-turn History checkpoints) and returns a task id. Non-cancelled terminal failures append a typed, sanitized Assistant result before the task settles, including setup failures that occur before a provider can answer; that same durable rule covers the machine-local management transcript and menu-bar popover, while raw provider diagnostics stay host-side. That task id is how a caller follows exactly its own turn: the app keeps each accepted turn's terminal outcome (`succeeded`, `failed`, or `aborted`, with the persisted response message id or the failure message) for the rest of the app run, `chat status --task`/`chat result --task` read it, and `chat wait --task` is a shim-side poll that finishes with that turn's own result — a failed or aborted turn exits non-zero instead of presenting an older transcript message as success (wait timeout exit code 7). `chat status|result --conversation` remain the transcript-scoped views. `files add` copies outside material in with a targeted restore point that succeeds or fails together with the placement, and `spaces create`/`spaces register` grant the same registered-Space runtime authorization as the desktop actions. Content-bearing chat reads (`chat status|result`, `chats list`) belong to the act lane too, so the read lane keeps its content-free property. When the interactive app is not running, act commands fail fast with "Open work-fold…" and exit code 6.
 
