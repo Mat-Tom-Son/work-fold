@@ -1,4 +1,5 @@
 import {
+  createHash,
   createCipheriv,
   createDecipheriv,
   createPrivateKey,
@@ -259,7 +260,9 @@ export class RemoteAccessClient {
       this.#heartbeatTimer = null;
       if (this.#stopped) return;
       const terminalError = this.#terminalSocketErrors.get(socket)
-        ?? (code === 4001 ? "The remote-access device credential was revoked." : null);
+        ?? (code === 4001 ? "The remote-access device credential was revoked."
+          : code === 1002 ? "The remote bridge closed the connection after a protocol error."
+            : null);
       this.#connection = terminalError ? "error" : "connecting";
       this.#lastError = terminalError;
       void this.emitStatus(generation);
@@ -312,13 +315,22 @@ export class RemoteAccessClient {
 
   async #handlePairing(value: unknown): Promise<void> {
     const pairing = parsePairing(value);
+    const expectedCode = deriveRemotePairingCode({
+      pairingId: pairing.id,
+      browserId: pairing.browserId,
+      signingPublicJwk: pairing.signingPublicJwk,
+      encryptionPublicJwk: pairing.encryptionPublicJwk,
+    });
+    if (pairing.code !== expectedCode) {
+      throw new Error("The remote pairing code did not match the browser keys.");
+    }
     await this.requireActiveSettings();
     const authorityVersion = this.#authorityVersion;
     const approved = await this.#promptPairing({
       id: pairing.id,
       browserId: pairing.browserId,
       label: pairing.label,
-      code: pairing.code,
+      code: expectedCode,
       expiresAt: pairing.expiresAt,
     });
     if (!approved || Date.parse(pairing.expiresAt) <= Date.now()) {
@@ -350,7 +362,7 @@ export class RemoteAccessClient {
           deviceId: settings.accountId,
           grantId: grant.id,
           pairingId: pairing.id,
-          pairingCode: pairing.code,
+          pairingCode: expectedCode,
           browserId: grant.browserId,
           browserSigningPublicJwk: grant.signingPublicJwk,
           browserEncryptionPublicJwk: grant.encryptionPublicJwk,
@@ -658,6 +670,24 @@ export async function runRemoteAccountRemoval(steps: RemoteAccountRemovalSteps):
   if (failures.length) throw new Error(failures.join(" "));
 }
 
+/** Independently reproduce the browser's short authentication string. */
+export function deriveRemotePairingCode(input: {
+  pairingId: string;
+  browserId: string;
+  signingPublicJwk: JsonWebKey;
+  encryptionPublicJwk: JsonWebKey;
+}): string {
+  const commitment = JSON.stringify([
+    "work-fold.pairing-code.v1",
+    stableId(input.pairingId, "pairing id"),
+    stableId(input.browserId, "browser id"),
+    pairingKeyFields(input.signingPublicJwk, "browser signing key", "sig"),
+    pairingKeyFields(input.encryptionPublicJwk, "browser encryption key", "enc"),
+  ]);
+  const prefix = createHash("sha256").update(commitment, "utf8").digest().readUInt32BE(0);
+  return String(prefix % 1_000_000).padStart(6, "0");
+}
+
 export function generateRemoteDeviceKeys(): Pick<RemoteAccessSettings,
   "deviceSigningPrivateJwk" | "deviceSigningPublicJwk" | "deviceEncryptionPrivateJwk" | "deviceEncryptionPublicJwk"> {
   const signing = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
@@ -678,8 +708,8 @@ function parsePairing(value: unknown): PairingRequest {
     label: stringValue(record.label, "browser label", 80),
     code: stringValue(record.code, "pairing code", 6),
     expiresAt: timestampValue(record.expiresAt, "pairing expiry"),
-    signingPublicJwk: publicEcJwk(record.signingPublicJwk, "browser signing key"),
-    encryptionPublicJwk: publicEcJwk(record.encryptionPublicJwk, "browser encryption key"),
+    signingPublicJwk: publicEcJwk(record.signingPublicJwk, "browser signing key", "sig"),
+    encryptionPublicJwk: publicEcJwk(record.encryptionPublicJwk, "browser encryption key", "enc"),
   };
   if (!/^\d{6}$/.test(pairing.code)) throw new Error("Pairing code is invalid.");
   return pairing;
@@ -853,11 +883,26 @@ function base64urlValue(value: unknown, label: string, maximum: number): string 
   if (typeof value !== "string" || !value || value.length > maximum || !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error(`A valid ${label} is required.`);
   return value;
 }
-function publicEcJwk(value: unknown, label: string): JsonWebKey {
+function pairingKeyFields(value: unknown, label: string, expectedUse: "sig" | "enc"): [string, string, string, string] {
+  const key = publicEcJwk(value, label, expectedUse);
+  return [expectedUse, "P-256", p256Coordinate(key.x, label), p256Coordinate(key.y, label)];
+}
+
+function publicEcJwk(value: unknown, label: string, expectedUse?: "sig" | "enc"): JsonWebKey {
   const record = objectValue(value, label) as JsonWebKey;
-  if (record.kty !== "EC" || record.crv !== "P-256" || typeof record.x !== "string" || typeof record.y !== "string" || record.d !== undefined) throw new Error(`${label} is invalid.`);
+  if (record.kty !== "EC" || record.crv !== "P-256" || typeof record.x !== "string" || typeof record.y !== "string" || record.d !== undefined
+    || (expectedUse && record.use !== undefined && record.use !== expectedUse)) throw new Error(`${label} is invalid.`);
+  p256Coordinate(record.x, label);
+  p256Coordinate(record.y, label);
   try { createPublicKey({ key: nodeJwk(record), format: "jwk" }); } catch { throw new Error(`${label} is invalid.`); }
   return structuredClone(record);
+}
+
+function p256Coordinate(value: string | undefined, label: string): string {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(value)) throw new Error(`${label} is invalid.`);
+  const bytes = Buffer.from(value, "base64url");
+  if (bytes.length !== 32 || bytes.toString("base64url") !== value) throw new Error(`${label} is invalid.`);
+  return value;
 }
 function nodeJwk(value: JsonWebKey): NodeJsonWebKey {
   return value as unknown as NodeJsonWebKey;

@@ -1,7 +1,9 @@
-import { createHash, createHmac, createPublicKey, randomBytes, randomInt, randomUUID, scrypt as scryptCallback, timingSafeEqual, verify } from "node:crypto";
+import { createHash, createHmac, createPublicKey, randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual, verify } from "node:crypto";
 import { promisify } from "node:util";
 
 import pg from "pg";
+
+import { pairingCodeForKeys } from "./public/pairing-code.js";
 
 const scrypt = promisify(scryptCallback);
 const scryptParameters = Object.freeze({ N: 2 ** 16, r: 8, p: 2, maxmem: 96 * 1024 * 1024 });
@@ -401,22 +403,23 @@ export class BridgeDatabase {
     return grantFromRow(grant);
   }
 
-  async createPairing(token, { browserId, label, signingPublicJwk, encryptionPublicJwk }) {
+  async createPairing(token, { pairingId, browserId, label, signingPublicJwk, encryptionPublicJwk }) {
     const session = await this.session(token, { touch: false });
     if (!session) throw new BridgeDatabaseError("unauthorized", "Sign in to continue.");
+    assertStableId(pairingId, "pairing id", 128);
     assertStableId(browserId, "browser id", 128);
     assertLabel(label);
     assertPublicJwk(signingPublicJwk, "browser signing key", "sig");
     assertPublicJwk(encryptionPublicJwk, "browser encryption key", "enc");
     const now = new Date();
     const pairing = {
-      id: randomUUID(),
+      id: pairingId,
       accountId: session.accountId,
       browserId,
       label: label.trim(),
       signingPublicJwk,
       encryptionPublicJwk,
-      code: String(randomInt(100_000, 1_000_000)),
+      code: await pairingCodeForKeys({ pairingId, browserId, signingPublicJwk, encryptionPublicJwk }),
       status: "pending",
       createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + pairingTtlMs).toISOString(),

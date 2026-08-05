@@ -1,5 +1,6 @@
 import { shouldSubmitComposerKey } from "./composer.js";
 import { renderMarkdown } from "./markdown.js";
+import { assertPairingRelay, pairingCodeForKeys } from "./pairing-code.js";
 
 const app = document.querySelector("#app");
 const encoder = new TextEncoder();
@@ -11,6 +12,7 @@ const state = {
   session: null,
   identity: null,
   pairing: null,
+  pairingExpectedCode: null,
   eventSource: null,
   pendingOperations: new Map(),
   earlyEvents: new Map(),
@@ -150,19 +152,33 @@ async function startPairing() {
     }, () => document.querySelector("#retry")?.addEventListener("click", () => location.reload()));
   }
   if (!state.identity) state.identity = await createBrowserIdentity();
-  const pairing = await api("/api/pairings", {
+  // The browser contributes the commitment nonce. Letting the bridge choose
+  // this id would let it cheaply search ids until two six-digit commitments
+  // collide after substituting a key.
+  const pairingId = crypto.randomUUID();
+  const expectedCode = await pairingCodeForKeys({
+    pairingId,
+    browserId: state.identity.browserId,
+    signingPublicJwk: state.identity.signingPublicJwk,
+    encryptionPublicJwk: state.identity.encryptionPublicJwk,
+  });
+  const response = await api("/api/pairings", {
     method: "POST",
     csrf: true,
     body: {
+      pairingId,
       browserId: state.identity.browserId,
       label: browserLabel(),
       signingPublicJwk: state.identity.signingPublicJwk,
       encryptionPublicJwk: state.identity.encryptionPublicJwk,
     },
   });
-  state.pairing = pairing.pairing;
+  const pairing = response.pairing;
+  assertPairingRelay(pairing, { pairingId, browserId: state.identity.browserId, expectedCode });
+  state.pairing = pairing;
+  state.pairingExpectedCode = expectedCode;
   renderPairing();
-  void pollPairing();
+  void pollPairing(pairingId, expectedCode);
 }
 
 function renderPairing(error = "") {
@@ -173,24 +189,30 @@ function renderPairing(error = "") {
     panel: `
       <h2>Approve ${escapeHtml(browserLabel())}</h2>
       <p>Confirm that the same six digits appear in the desktop prompt.</p>
-      <div class="pairing-code" aria-label="Pairing code ${escapeHtml(state.pairing?.code || "")}">${escapeHtml(state.pairing?.code || "")}</div>
+      <div class="pairing-code" aria-label="Pairing code ${escapeHtml(state.pairingExpectedCode || "")}">${escapeHtml(state.pairingExpectedCode || "")}</div>
       <div class="pairing-status"><span class="spinner" aria-hidden="true"></span><span>Waiting for approval…</span></div>
       ${error ? `<p class="form-error">${escapeHtml(error)}</p>` : ""}
     `,
   });
 }
 
-async function pollPairing() {
+async function pollPairing(pairingId, expectedCode) {
   for (;;) {
     await delay(1_300);
     let result;
-    try { result = await api(`/api/pairings/${encodeURIComponent(state.pairing.id)}`); }
+    try { result = await api(`/api/pairings/${encodeURIComponent(pairingId)}`); }
     catch (error) { return renderPairing(errorText(error)); }
+    try {
+      assertPairingRelay(result.pairing, { pairingId, browserId: state.identity.browserId, expectedCode });
+    } catch (error) {
+      return renderPairing(errorText(error));
+    }
+    if (state.pairingExpectedCode !== expectedCode) return;
     state.pairing = result.pairing;
     if (state.pairing.status === "pending") continue;
     if (state.pairing.status !== "approved") return renderPairing("The desktop did not approve this browser. Refresh to try again.");
     try {
-      await acceptApproval(state.pairing);
+      await acceptApproval(state.pairing, pairingId, expectedCode);
       state.session = await api("/api/auth/session");
       await openApplication();
     } catch (error) {
@@ -200,15 +222,22 @@ async function pollPairing() {
   }
 }
 
-async function acceptApproval(pairing) {
+async function acceptApproval(pairing, pairingId, expectedCode) {
   const certificate = pairing.approvalCertificate;
   if (!certificate || certificate.browserId !== state.identity.browserId || certificate.grantId === undefined
-    || certificate.pairingId !== pairing.id || certificate.pairingCode !== pairing.code
+    || pairing.id !== pairingId || certificate.pairingId !== pairingId || certificate.pairingCode !== expectedCode
     || certificate.generation !== state.session.grantGeneration
     || canonicalize(certificate.browserSigningPublicJwk) !== canonicalize(state.identity.signingPublicJwk)
     || canonicalize(certificate.browserEncryptionPublicJwk) !== canonicalize(state.identity.encryptionPublicJwk)) {
     throw new Error("The desktop approval did not match this browser.");
   }
+  const certificateCode = await pairingCodeForKeys({
+    pairingId: certificate.pairingId,
+    browserId: certificate.browserId,
+    signingPublicJwk: certificate.browserSigningPublicJwk,
+    encryptionPublicJwk: certificate.browserEncryptionPublicJwk,
+  });
+  if (certificateCode !== expectedCode) throw new Error("The desktop approval did not match this browser.");
   const valid = await verifyText(
     state.session.deviceSigningPublicJwk,
     canonicalize(certificate),

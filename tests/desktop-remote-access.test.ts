@@ -5,7 +5,12 @@ import { test } from "node:test";
 
 import WebSocket from "ws";
 
-import { RemoteAccessClient, runRemoteAccountRemoval } from "../desktop/src/remote-access.js";
+import {
+  RemoteAccessClient,
+  deriveRemotePairingCode,
+  runRemoteAccountRemoval,
+  type RemotePairingPrompt,
+} from "../desktop/src/remote-access.js";
 import type { WorkFoldRemoteFacade, WorkFoldRemotePrincipal } from "../src/local/remote-management.js";
 import type { RemoteAccessSettings } from "../desktop/src/settings.js";
 
@@ -77,7 +82,23 @@ const lifecycleSettings = {
   grants: [],
 } as unknown as RemoteAccessSettings;
 
-function lifecycleClient(): {
+const pairingSigningPublicJwk = {
+  kty: "EC", crv: "P-256", use: "sig",
+  x: "xEkeDeRgxDVFaj_PB7QX1eF5DT94ETgJA4N5bPNhIno",
+  y: "GveHxVX5FBYWxKmO_riBPgetQ8bxxXEpYM1m353Bb3c",
+};
+const pairingEncryptionPublicJwk = {
+  kty: "EC", crv: "P-256", use: "enc",
+  x: "GmmMwHR9tTlnVdnPz3InF4Lx-Mj3otTYx8PXttps3oc",
+  y: "UPGztQbOksSf3T7QrxgYFibxB2ZOCCjIqdvbPy3ks4E",
+};
+const substitutedEncryptionPublicJwk = {
+  kty: "EC", crv: "P-256", use: "enc",
+  x: "Gww7OYN9xo4od3Hm04wcifhvwf8R5m1ryJAClc_IrtE",
+  y: "JbGvE8li4d1A37YEsDpyBLsh-C7zYkgKNGFeou1WxOE",
+};
+
+function lifecycleClient(promptPairing: (pairing: RemotePairingPrompt) => Promise<boolean> = async () => false): {
   client: RemoteAccessClient;
   sockets: FakeRemoteSocket[];
   timers: ManualRemoteTimers;
@@ -92,7 +113,7 @@ function lifecycleClient(): {
       async execute() { throw new Error("Unexpected remote operation."); },
       async purgeUploads() {},
     },
-    promptPairing: async () => false,
+    promptPairing,
     createSocket: () => {
       const socket = new FakeRemoteSocket();
       sockets.push(socket);
@@ -283,6 +304,20 @@ test("peer protocol errors close terminally without sending an error reply", asy
   client.stop();
 });
 
+test("peer close code 1002 is terminal even when the desktop did not initiate it", async () => {
+  const { client, sockets, timers } = lifecycleClient();
+  await client.start();
+  const socket = sockets[0]!;
+  socket.open();
+  socket.finishClose(1002);
+  await flushAsyncHandlers();
+
+  assert.equal(timers.timeouts.size, 0);
+  assert.equal((await client.status()).connection, "error");
+  assert.match((await client.status()).lastError ?? "", /protocol error/i);
+  client.stop();
+});
+
 test("malformed remote frames have a bounded error reply budget", async () => {
   const { client, sockets, timers } = lifecycleClient();
   await client.start();
@@ -300,6 +335,77 @@ test("malformed remote frames have a bounded error reply budget", async () => {
   assert.equal(socket.closes.at(-1)?.code, 1002);
   socket.finishClose(1002);
   assert.equal(timers.timeouts.size, 0);
+  client.stop();
+});
+
+test("desktop rejects pairing key and code substitution before prompting", async () => {
+  let prompts = 0;
+  const { client, sockets } = lifecycleClient(async () => { prompts += 1; return false; });
+  await client.start();
+  const socket = sockets[0]!;
+  socket.open();
+  const pairingId = "pairing-123";
+  const browserId = "browser-456";
+  const codeForOriginalKeys = deriveRemotePairingCode({
+    pairingId,
+    browserId,
+    signingPublicJwk: pairingSigningPublicJwk,
+    encryptionPublicJwk: pairingEncryptionPublicJwk,
+  });
+
+  socket.receive(JSON.stringify({
+    type: "pairing.request",
+    pairing: {
+      id: pairingId,
+      browserId,
+      label: "Test browser",
+      code: codeForOriginalKeys,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      signingPublicJwk: pairingSigningPublicJwk,
+      encryptionPublicJwk: substitutedEncryptionPublicJwk,
+    },
+  }));
+  await flushAsyncHandlers();
+
+  assert.equal(prompts, 0);
+  assert.equal((JSON.parse(socket.sent[0]!) as { type: string }).type, "protocol.error");
+  assert.match((await client.status()).lastError ?? "", /did not match the browser keys/i);
+  client.stop();
+});
+
+test("desktop prompts with its independently derived pairing commitment", async () => {
+  const prompts: RemotePairingPrompt[] = [];
+  const { client, sockets } = lifecycleClient(async (pairing) => { prompts.push(pairing); return false; });
+  await client.start();
+  const socket = sockets[0]!;
+  socket.open();
+  const pairingId = "pairing-123";
+  const browserId = "browser-456";
+  const code = deriveRemotePairingCode({
+    pairingId,
+    browserId,
+    signingPublicJwk: pairingSigningPublicJwk,
+    encryptionPublicJwk: pairingEncryptionPublicJwk,
+  });
+
+  socket.receive(JSON.stringify({
+    type: "pairing.request",
+    pairing: {
+      id: pairingId,
+      browserId,
+      label: "Test browser",
+      code,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      signingPublicJwk: pairingSigningPublicJwk,
+      encryptionPublicJwk: pairingEncryptionPublicJwk,
+    },
+  }));
+  await flushAsyncHandlers();
+
+  assert.equal(prompts.length, 1);
+  assert.equal(prompts[0]?.code, code);
+  const decision = JSON.parse(socket.sent[0]!) as { type: string; approved: boolean };
+  assert.deepEqual(decision, { type: "pairing.decision", pairingId, approved: false });
   client.stop();
 });
 
