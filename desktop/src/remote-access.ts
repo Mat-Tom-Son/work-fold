@@ -78,6 +78,16 @@ export interface RemoteAccountRemovalSteps {
   clearLocalCredentials(): Promise<unknown>;
 }
 
+export class RemoteBridgeRequestError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "RemoteBridgeRequestError";
+    this.status = status;
+  }
+}
+
 class RemotePeerProtocolError extends Error {}
 
 const defaultRemoteAccessTimers: RemoteAccessTimers = {
@@ -660,7 +670,8 @@ export async function runRemoteAccountRemoval(steps: RemoteAccountRemovalSteps):
     await steps.deleteBridgeAccount();
     bridgeDeletionConfirmed = true;
   } catch (error) {
-    failures.push(errorMessage(error));
+    if (remoteAccountAlreadyAbsent(error)) bridgeDeletionConfirmed = true;
+    else failures.push(errorMessage(error));
   }
 
   if (bridgeDeletionConfirmed) {
@@ -668,6 +679,13 @@ export async function runRemoteAccountRemoval(steps: RemoteAccountRemovalSteps):
     catch (error) { failures.push(errorMessage(error)); }
   }
   if (failures.length) throw new Error(failures.join(" "));
+}
+
+function remoteAccountAlreadyAbsent(error: unknown): boolean {
+  // The authenticated account-deletion route returns 401 after a successful
+  // deletion invalidates its only device token. A 404 can instead mean an old
+  // or misrouted bridge where the deletion route never ran.
+  return error instanceof RemoteBridgeRequestError && error.status === 401;
 }
 
 /** Independently reproduce the browser's short authentication string. */

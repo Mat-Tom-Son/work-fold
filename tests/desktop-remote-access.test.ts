@@ -7,6 +7,7 @@ import WebSocket from "ws";
 
 import {
   RemoteAccessClient,
+  RemoteBridgeRequestError,
   deriveRemotePairingCode,
   runRemoteAccountRemoval,
   type RemotePairingPrompt,
@@ -433,6 +434,51 @@ test("remote account removal attempts bridge cleanup after local failures", asyn
   assert.deepEqual(events, ["revoke-local", "disable-local", "delete-bridge", "clear-credentials"]);
 });
 
+test("remote account removal retries local clearing after confirmed deletion returns unauthorized", async () => {
+  const events: string[] = [];
+  let deletionAttempts = 0;
+  let clearAttempts = 0;
+  const steps = {
+    async revokeLocalAuthority() { events.push("revoke-local"); },
+    async disableLocalAccess() { events.push("disable-local"); },
+    async deleteBridgeAccount() {
+      deletionAttempts += 1;
+      events.push(`delete-bridge:${deletionAttempts}`);
+      if (deletionAttempts > 1) throw new RemoteBridgeRequestError(401, "Sign in to continue.");
+    },
+    async clearLocalCredentials() {
+      clearAttempts += 1;
+      events.push(`clear-credentials:${clearAttempts}`);
+      if (clearAttempts === 1) throw new Error("settings write failed");
+    },
+  };
+
+  await assert.rejects(() => runRemoteAccountRemoval(steps), /settings write failed/);
+  await runRemoteAccountRemoval(steps);
+
+  assert.deepEqual(events, [
+    "revoke-local", "disable-local", "delete-bridge:1", "clear-credentials:1",
+    "revoke-local", "disable-local", "delete-bridge:2", "clear-credentials:2",
+  ]);
+});
+
+test("remote account removal never treats not-found, network, or server errors as deletion confirmation", async () => {
+  for (const failure of [
+    new RemoteBridgeRequestError(404, "Deletion route not found."),
+    new Error("network unavailable"),
+    new RemoteBridgeRequestError(500, "Bridge failed."),
+  ]) {
+    let cleared = false;
+    await assert.rejects(() => runRemoteAccountRemoval({
+      async revokeLocalAuthority() {},
+      async disableLocalAccess() {},
+      async deleteBridgeAccount() { throw failure; },
+      async clearLocalCredentials() { cleared = true; },
+    }), new RegExp(failure.message));
+    assert.equal(cleared, false);
+  }
+});
+
 test("local revocation still purges tasks and uploads when secure-settings mutation fails", async () => {
   const events: string[] = [];
   const client = new RemoteAccessClient({
@@ -469,4 +515,19 @@ test("pairing approval copy treats the browser label as unverified data", async 
   assert.match(prompt, /JSON\.stringify\(pairing\.label\)/);
   assert.doesNotMatch(prompt, /message:\s*`[^`]*\$\{pairing\.label\}/);
   assert.match(prompt, /This is a full-trust grant/);
+});
+
+test("remote bridge HTTP failures preserve their response status", async () => {
+  const main = await readFile(new URL("../desktop/src/main.ts", import.meta.url), "utf8");
+  const start = main.indexOf("async function remoteBridgeRequest");
+  const end = main.indexOf("\n}\n\nasync function createMainWindow", start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const request = main.slice(start, end);
+
+  assert.match(request, /throw new RemoteBridgeRequestError\(/);
+  assert.match(request, /response\.status/);
+  const error = new RemoteBridgeRequestError(503, "Unavailable.");
+  assert.equal(error.status, 503);
+  assert.equal(error.name, "RemoteBridgeRequestError");
 });

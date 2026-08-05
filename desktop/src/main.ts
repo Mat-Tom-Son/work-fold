@@ -90,6 +90,7 @@ import { productIdentity } from "../../src/shared/product-identity.js";
 import { resolveDesktopApplicationVersion } from "./application-version.js";
 import {
   RemoteAccessClient,
+  RemoteBridgeRequestError,
   generateRemoteDeviceKeys,
   runRemoteAccountRemoval,
   type RemoteAccessStatus,
@@ -797,7 +798,12 @@ async function remoteBridgeRequest<T = unknown>(
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
   const body = await response.json().catch(() => ({})) as { error?: unknown } & T;
-  if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : `Remote bridge request failed (${response.status}).`);
+  if (!response.ok) {
+    throw new RemoteBridgeRequestError(
+      response.status,
+      typeof body.error === "string" ? body.error : `Remote bridge request failed (${response.status}).`,
+    );
+  }
   return body;
 }
 
