@@ -133,8 +133,10 @@ server-side switch controls whether new addresses may be created; the public
 desktop app carries no shared enrollment credential, and the bridge applies
 per-IP and global enrollment rate limits. A
 successful password check creates only a host-only, SameSite session. A new
-browser then creates non-exportable P-256 signing and agreement keys and asks
-the online desktop to approve a matching six-digit code. Approval creates a
+browser then creates non-exportable P-256 signing and agreement keys plus a
+fresh pairing id. The browser and desktop independently derive the matching
+six-digit code from that id, the browser identity, and both public keys; a code
+supplied by the relay is never authoritative. Approval creates a
 desktop-signed, generation-bound browser grant. One browser, every browser, the
 whole connection, and the address itself are separately revocable from the
 desktop.
@@ -153,7 +155,13 @@ local execution endpoint. Live bounded encrypted response buffers, browser
 event streams, desktop presence, and rate limits are process-local, so the
 service must stay at one replica until those functions move to a shared
 backplane. Scheduled cleanup, active-row expiry predicates, per-grant operation
-caps, SSE caps, and a global ciphertext-byte budget bound the current process.
+caps, SSE caps, per-client queued-byte limits, and a global ciphertext-byte
+budget bound the current process. Device protocol errors have a finite
+per-connection budget and are terminal when received, while unknown typed
+frames are ignored for forward compatibility. Structured aggregate metrics
+cover request rate, password-check admission, device frame rate, event-loop
+lag, connection counts, and the enrollment switch without recording ids,
+content, ciphertext, tokens, addresses, or network identifiers.
 
 The desktop does not expose its renderer token or tunnel arbitrary local HTTP.
 `WorkFoldRemoteFacade` is a closed semantic adapter with bounded saved-Chat
@@ -164,9 +172,14 @@ the ordinary ignore policy to tree views, rejects traversal and unknown fields,
 and rechecks the locally encrypted grant immediately before execution.
 Dispatch and desktop-local authority mutations share one serialization fence;
 revocation removes local authority before contacting the bridge and stops
-locally tracked management requests and their recorded delegated children. Grant-scoped signed request
-ids, atomic bridge delivery claims, desktop in-flight claims, and exact-id
-recovery prevent a reconnect or bridge restart from inventing a second prompt.
+locally tracked management requests and their recorded delegated children.
+Every local and bridge cleanup lane is attempted even if another fails, and
+address removal keeps the device credential until server deletion is confirmed
+or the server confirms that the account is already absent. Grant-scoped signed
+request ids, atomic bridge delivery claims, desktop in-flight claims, and
+exact-id recovery prevent a reconnect or bridge restart from inventing a second
+prompt. A late signed result may complete an operation marked lost across a
+socket replacement, and repeated increasing progress events remain valid.
 `management.send` enters `acceptConversationTurn`, may explicitly
 start a new saved thread, persist `remote_web` browser/grant provenance and a
 signed request id, and participate in the same active-turn, stop, transcript, and Pi-session
@@ -183,7 +196,12 @@ and pre/post-turn History path. The Files selector is observational and never
 changes the conversation target. The
 stable kernel continues to classify it as a renderer surface; the durable
 message/request provenance distinguishes remote acceptance without changing
-the version-1 actor vocabulary.
+the version-1 actor vocabulary. Current replay records require the exact
+browser, grant, and signed request id. Shipped 0.2.2 records, which predate the
+grant field, retain browser-and-request recovery compatibility. A bounded
+filesystem-verified derived index accelerates this lookup without replacing the
+append-only transcripts as authority; oversized stores fall back to the full
+authoritative scan.
 
 Remote file upload is bounded to six plain-named files, 6 MB each and 8 MB per
 message, carried inside the encrypted request envelope. Uploads are temporary

@@ -39,8 +39,11 @@ to the work-fold bridge and the browser connects to its private
 network metadata such as IP address and user agent, a scrypt password verifier,
 device and browser public keys, desktop-signed pairing certificates, hashed
 session/CSRF tokens, grant status, operation names/ids/timestamps, and encrypted
-envelope sizes. It may temporarily buffer signed encrypted envelopes and events
-in process memory. It stores identity, session, grant, and bounded operation
+envelope sizes. The six-digit pairing display is derived from a fresh
+browser-contributed pairing id, the browser identity, and its public keys; the
+browser and desktop compute it independently. It may temporarily buffer signed
+encrypted envelopes and events in process memory. It stores identity, session,
+grant, and bounded operation
 metadata in PostgreSQL, but it does not durably store prompt text, conversation
 text, Assistant results, Space names, file names, file metadata, or file
 contents.
@@ -72,6 +75,12 @@ or when Remote access is disabled. If the Assistant explicitly places it into a
 Space, the ordinary restore-pointed file path applies; revocation does not
 delete that placed copy. work-fold does not terminate or proxy the
 model-provider request at the bridge.
+
+The bridge emits aggregate operational metrics for request and device-frame
+rates, password-check concurrency and queue depth, event-loop lag, connection
+counts, and whether enrollment is open. Those records intentionally omit
+account and browser ids, addresses, IP addresses, user agents, tokens, public
+keys, ciphertext, prompts, file names, and Assistant results.
 
 ### Model providers
 

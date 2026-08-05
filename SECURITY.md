@@ -59,21 +59,32 @@ Optional Remote access does not expose that loopback API. The public bridge
 accepts only a closed list of semantic operations and routes opaque signed
 envelopes to an authenticated desktop WebSocket. Password sign-in alone is not
 Assistant authority: every new browser generates non-exportable signing and
-key-agreement keys and requires a matching-code approval in the desktop app.
+key-agreement keys and a fresh pairing id. Browser and desktop independently
+derive the displayed six-digit approval code from that id, the browser
+identity, and both P-256 public keys, so a relay substitution changes the code
+the person compares unless it hits the short authentication string's six-digit
+collision space.
 The resulting desktop-signed grant is bound to the account, browser keys, and a
 revocation generation. The desktop re-reads its operating-system-encrypted
 grant state immediately before an operation; disabling Remote access, revoking
 one browser, revoking every grant generation, or deleting the address stops
 later operations. The bridge enforces exact origins, host-only SameSite secure
-cookies, CSRF tokens, bounded bodies, fresh signatures, login/enrollment/
-operation rate limits, and security headers. Its PostgreSQL records contain a
-scrypt password verifier, public keys and certificates, hashed sessions, and
+cookies, stable session-bound CSRF tokens, bounded bodies, fresh signatures,
+login/enrollment/operation rate limits, and security headers. Malformed login
+addresses are rejected before scrypt; well-formed checks pass through bounded
+IP-only admission and a fair queue with global and per-IP concurrency limits.
+There is no attacker-triggerable account-wide pre-verification lockout. Its
+PostgreSQL records contain a scrypt password verifier, public keys and certificates, hashed sessions, and
 operation metadata—not device/browser private keys or durable decrypted
 message/file bodies. Live presence, event streams, and bounded encrypted result
 buffers are process-local in the private alpha, which therefore runs one
 replica. Database and transient-memory cleanup runs throughout the process
 lifetime; per-session operation limits, event-byte budgets, and event-stream
-caps bound one approved browser's retention pressure.
+caps bound one approved browser's retention pressure. Device protocol errors
+are finite and terminal instead of self-amplifying, unknown typed frames are
+forward-compatible, stale replaced sockets are fenced, and SSE clients are
+dropped only after an explicit queued-byte bound rather than an ordinary stream
+high-water signal.
 
 New-address enrollment is controlled by a server-side deployment switch and
 bounded by per-IP and process-wide rate limits. The downloadable desktop carries
@@ -98,6 +109,13 @@ The semantic adapter removes absolute roots and attachment targets and does not
 expose capability/settings mutation or generic local calls, but each Assistant
 itself remains taught rather than tool-restricted and may use ordinary local
 tools under the current user's permissions.
+
+Revocation and address removal attempt local task/upload/cache cleanup and
+server cleanup independently. The desktop retains the only device credential
+until account deletion is confirmed, treats a later unauthorized response as
+confirmation that the stored device credential no longer authorizes that
+account, and does not treat network or server failures as deletion success.
+Bridge grant, session, operation, and event-stream cleanup is account-scoped.
 
 One message accepts at most six plain-named uploads, 6 MB each and 8 MB total.
 Uploads are temporary app-owned management references

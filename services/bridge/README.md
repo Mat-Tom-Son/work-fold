@@ -26,6 +26,16 @@ active protection. There is deliberately no attacker-triggerable account-wide
 pre-verification lockout: a correct password can still succeed after
 distributed failures against a known address.
 
+Pairing uses a browser-contributed random id and a six-digit short
+authentication string derived independently by the browser and desktop from
+that id, the browser identity, and both validated P-256 public keys. The bridge
+stores and relays the derived value for protocol consistency, but neither
+client treats the relay as its authority. Device protocol errors are finite and
+terminal, unknown typed frames are ignored for version skew, and displaced
+device generations are fenced. Browser event streams tolerate ordinary Node
+backpressure and drop a slow client only after an explicit 8 MiB queued-byte
+bound.
+
 The browser can open bounded saved management Chats, invoke that one canonical
 management Assistant, inspect filtered relative Space trees, and attach at most
 six files (6 MB each, 8 MB total) per message. Selecting a Space changes only
@@ -76,6 +86,15 @@ single process. Horizontal scaling therefore requires a shared
 presence/event backplane and distributed rate limiter before replicas are
 increased.
 
+At startup and once per minute the service writes a structured, aggregate
+`work-fold.bridge.metrics.v1` record. It covers HTTP request and device-frame
+rates, password-check active and queued counts, event-loop lag, device/SSE
+counts, and the public-enrollment switch. Saturated password admission,
+excessive device-frame rate, or high event-loop lag emits a warning. Metrics
+contain no account/browser ids, address or network identifiers, tokens,
+ciphertext, or content. Alert on warning records and retain enough history to
+establish normal single-replica headroom.
+
 Deploy this directory with:
 
 ```bash
@@ -87,5 +106,7 @@ Railway must route `*.work-fold.com` to this service; that certificate includes
 TXT and wildcard-certificate challenge CNAME shown by Railway. The desktop
 remains the local execution endpoint and must be online for pairing or remote
 operations. Set `WORKFOLD_ALLOW_PUBLIC_ENROLLMENT=1` in Railway only while new
-address creation should be available. The Railway service uses a 30-second
-drain window so reconnect and same-request recovery can run during deployments.
+address creation should be available, and verify the metrics record reports
+`publicEnrollment: false` again when that window closes. The Railway service
+uses a 30-second drain window so reconnect and same-request recovery can run
+during deployments.
