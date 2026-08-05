@@ -48,9 +48,12 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.match(applicationSource, /newConversation: true/);
   assert.match(applicationSource, /management\.chats/);
   assert.match(applicationSource, /management\.stop/);
-  assert.match(applicationSource, /spaces\.chats/);
-  assert.match(applicationSource, /spaces\.send/);
-  assert.match(applicationSource, /spaces\.stop/);
+  assert.doesNotMatch(applicationSource, /spaces\.(?:chats|transcript|send|stop)/);
+  assert.doesNotMatch(applicationSource, /Chat with Space|id="scope-name"|id="management-home"/);
+  assert.match(applicationSource, /id="account-settings"[\s\S]*?id="account-menu"[\s\S]*?>Sign out</);
+  assert.match(applicationSource, /id="workspace-pane"[\s\S]*?class="files-title">Files<[\s\S]*?id="toggle-files"/);
+  assert.match(applicationSource, /Working in \$\{spaceName\}/);
+  assert.match(applicationSource, /Couldn’t finish in \$\{spaceName\}/);
   assert.doesNotMatch(applicationSource, /previous chat is still saved on your desktop/);
   for (const removedCopy of [
     "Management conversation",
@@ -375,7 +378,7 @@ test("pairs a non-exportable browser identity and relays only signed opaque enve
   const uploadHeader = {
     ...requestHeader,
     requestId: randomUUID(),
-    operation: "spaces.send",
+    operation: "management.send",
     createdAt: new Date().toISOString(),
   };
   const uploadEnvelope = {
@@ -394,6 +397,26 @@ test("pairs a non-exportable browser identity and relays only signed opaque enve
   const deliveredUpload = await resumedMessages.next("operation.request");
   assert.equal(deliveredUpload.operation.requestId, uploadHeader.requestId);
   assert.equal(deliveredUpload.envelope.ciphertext.length, uploadEnvelope.ciphertext.length);
+
+  const directSpaceHeader = {
+    ...requestHeader,
+    requestId: randomUUID(),
+    operation: "spaces.send",
+    createdAt: new Date().toISOString(),
+  };
+  const directSpaceEnvelope = {
+    header: directSpaceHeader,
+    iv: randomBytes(12).toString("base64url"),
+    ciphertext: randomBytes(64).toString("base64url"),
+    signature: "",
+  };
+  directSpaceEnvelope.signature = signText(browserKeys.signing.privateKey, envelopeText(directSpaceEnvelope));
+  const rejectedDirectSpace = await jsonRequest(`${baseUrl}/api/operations?slug=alice-test`, {
+    method: "POST",
+    headers: { origin, cookie, "x-work-fold-csrf": session.body.csrfToken },
+    body: { envelope: directSpaceEnvelope },
+  });
+  assert.equal(rejectedDirectSpace.response.status, 400, "the bridge rejects direct Space Chat operations");
 });
 
 async function testService(context, options = {}) {

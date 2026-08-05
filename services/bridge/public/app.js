@@ -17,19 +17,21 @@ const state = {
   spaces: [],
   explorerSpaceId: null,
   trees: new Map(),
+  treeStatus: new Map(),
   expanded: new Set(),
-  scope: { kind: "management", spaceId: null },
   conversations: [],
   chatListTruncated: false,
   selectedConversationId: null,
-  contextPaths: new Set(),
   uploads: [],
+  composerDrafts: new Map(),
   filesPanelOpen: window.matchMedia("(min-width: 981px)").matches,
   messages: [],
+  transcriptConversationId: null,
   transcriptTruncated: false,
   treeTruncated: new Map(),
+  settledTreeRefreshes: new Set(),
   summary: null,
-  activeTask: null,
+  activeTasks: new Map(),
   banner: "",
   refreshTimer: null,
   sending: false,
@@ -251,7 +253,7 @@ function renderApplication() {
   app.innerHTML = `
     <div class="app-shell">
       <aside class="side-rail">
-        <button id="management-home" class="rail-brand" type="button" aria-label="Open work-fold chats"><span class="brand"><img class="brand-mark" src="/work-fold-icon.svg" alt="" />work-fold</span></button>
+        <div class="rail-brand"><span class="brand"><img class="brand-mark" src="/work-fold-icon.svg" alt="" />work-fold</span></div>
         <button id="new-chat" class="rail-new-chat" type="button">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" /></svg>
           <span>New chat</span>
@@ -259,14 +261,21 @@ function renderApplication() {
         <p class="rail-heading">Chats</p>
         <ul id="chats" class="chat-list"></ul>
         <div class="rail-spacer"></div>
-        <div class="rail-account"><span>${escapeHtml(state.context.slug)}.work-fold.com</span><button id="logout" class="quiet">Sign out</button></div>
+        <div class="rail-account">
+          <button id="account-settings" class="account-settings" type="button" aria-label="Settings" title="Settings" aria-controls="account-menu" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
+          </button>
+          <div id="account-menu" class="account-menu" hidden><button id="logout" type="button">Sign out</button></div>
+        </div>
       </aside>
       <main class="conversation">
         <header class="conversation-bar">
-          <div class="conversation-identity"><span id="scope-name"></span><strong id="conversation-title"></strong></div>
-          <div class="conversation-actions"><button id="stop-task" class="toolbar-button danger" type="button" hidden>Stop</button><button id="toggle-files" class="toolbar-button" type="button" aria-expanded="true">Files</button></div>
+          <span aria-hidden="true"></span>
+          <h1 id="conversation-title"></h1>
+          <div class="conversation-actions"><button id="stop-task" class="toolbar-button danger" type="button" hidden>Stop</button></div>
         </header>
         <div id="banner"></div>
+        <div id="chat-status" class="sr-only" role="status" aria-live="polite"></div>
         <section id="messages" class="messages"><div class="message-stream"></div></section>
         <footer class="composer-wrap">
           <form id="composer" class="composer">
@@ -289,23 +298,34 @@ function renderApplication() {
       </main>
       <aside id="workspace-pane" class="workspace-pane">
         <div class="workspace-pane-head">
-          <label for="space-picker">Space</label>
-          <button id="close-files" class="icon-button" type="button" aria-label="Close Files">×</button>
+          <strong class="files-title">Files</strong>
+          <button id="toggle-files" class="files-toggle" type="button" aria-label="Hide Files" aria-expanded="true" title="Hide Files">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
+          </button>
         </div>
-        <select id="space-picker" class="space-picker" aria-label="Choose a Space"></select>
-        <div class="workspace-actions"><button id="chat-with-space" class="space-chat-button" type="button">Chat with Space</button></div>
-        <div id="file-tree" class="file-tree"></div>
+        <div class="workspace-pane-content">
+          <select id="space-picker" class="space-picker" aria-label="Choose a Space"></select>
+          <div id="file-tree" class="file-tree"></div>
+        </div>
       </aside>
     </div>`;
   document.querySelector("#logout")?.addEventListener("click", () => void logout());
-  document.querySelector("#management-home")?.addEventListener("click", () => void switchScope({ kind: "management", spaceId: null }));
+  document.querySelector("#account-settings")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const menu = document.querySelector("#account-menu");
+    setAccountMenuOpen(menu?.hidden !== false);
+  });
+  document.querySelector("#account-menu")?.addEventListener("click", (event) => event.stopPropagation());
+  document.addEventListener("click", () => setAccountMenuOpen(false));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && document.querySelector("#account-menu")?.hidden === false) {
+      setAccountMenuOpen(false);
+      document.querySelector("#account-settings")?.focus();
+    }
+  });
   document.querySelector("#new-chat")?.addEventListener("click", startNewChat);
   document.querySelector("#stop-task")?.addEventListener("click", () => void stopCurrentTask());
   document.querySelector("#toggle-files")?.addEventListener("click", () => setFilesPanelOpen(!state.filesPanelOpen));
-  document.querySelector("#close-files")?.addEventListener("click", () => setFilesPanelOpen(false));
-  document.querySelector("#chat-with-space")?.addEventListener("click", () => {
-    if (state.explorerSpaceId) void switchScope({ kind: "space", spaceId: state.explorerSpaceId });
-  });
   document.querySelector("#space-picker")?.addEventListener("change", (event) => void selectExplorerSpace(event.currentTarget.value));
   document.querySelector("#attach-files")?.addEventListener("click", () => document.querySelector("#file-input")?.click());
   document.querySelector("#file-input")?.addEventListener("change", (event) => {
@@ -338,48 +358,104 @@ function renderMessages() {
   const wasNearBottom = !container.dataset.rendered
     || container.scrollHeight - container.scrollTop - container.clientHeight < 120;
   const visible = state.messages.filter((message) => (message.role === "user" || message.role === "assistant") && !message.kind);
-  const requestPhase = state.summary?.latestRequest?.phase;
+  const request = state.startingNewChat ? null : state.summary?.latestRequest;
+  const requestPhase = request?.phase;
+  const workEvents = requestEvents(request);
   const working = !state.startingNewChat && (
     state.summary?.state === "running" || requestPhase === "working" || requestPhase === "handed_off"
   );
+  const latestVisible = visible.at(-1);
+  const previousMessageId = container.dataset.latestMessageId;
+  if (latestVisible?.id) {
+    container.dataset.latestMessageId = latestVisible.id;
+    if (container.dataset.rendered && previousMessageId && previousMessageId !== latestVisible.id) {
+      const status = document.querySelector("#chat-status");
+      if (status) status.textContent = latestVisible.role === "assistant" ? "New reply from work-fold." : "Message sent.";
+    }
+  }
   container.innerHTML = `<div class="message-stream">${state.transcriptTruncated ? `<div class="projection-notice">Earlier messages are hidden.</div>` : ""}${visible.length ? visible.map((message) => `
     <article class="message ${message.role} ${message.source === "remote_web" ? "web" : ""}">
       <div class="message-role">${message.role === "assistant" ? escapeHtml(assistantLabel()) : "You"}</div>
       <div class="message-content"><div class="message-body markdown">${renderMarkdown(message.content)}</div>${message.attachments?.length ? `<div class="message-attachments">${message.attachments.map((attachment) => `<span>${fileGlyph(attachment.kind)}${escapeHtml(attachment.name)}</span>`).join("")}</div>` : ""}</div>
     </article>`).join("") : ""}
-    ${working ? `<div class="working-row"><span class="spinner"></span><span>${requestPhase === "handed_off" ? "Space working" : "Working"}</span></div>` : ""}
+    ${workEvents.map((event) => `<div class="work-event ${event.state}"${event.title ? ` title="${escapeAttribute(event.title)}"` : ""}><span class="work-event-mark" aria-hidden="true"></span><span>${event.html}</span></div>`).join("")}
+    ${working && !workEvents.some((event) => event.state === "running") ? `<div class="working-row"><span class="spinner"></span><span>Working</span></div>` : ""}
   </div>`;
   container.dataset.rendered = "true";
   if (wasNearBottom) container.scrollTop = container.scrollHeight;
   renderBanner();
 }
 
-async function refreshConversation() {
+function requestEvents(request) {
+  if (!request || typeof request !== "object") return [];
+  const events = [];
+  const children = Array.isArray(request.children) ? request.children : [];
+  for (const child of children) {
+    if (!child?.spaceName) continue;
+    const spaceName = `<strong>${escapeHtml(child.spaceName)}</strong>`;
+    if (child.state === "running") events.push({ state: "running", html: `Working in ${spaceName}` });
+    else if (child.state === "succeeded") events.push({ state: "succeeded", html: `Worked in ${spaceName}` });
+    else if (child.state === "aborted") events.push({ state: "stopped", html: `Stopped in ${spaceName}` });
+    else if (child.state === "failed" || child.state === "unknown") {
+      events.push({ state: "failed", html: `Couldn’t finish in ${spaceName}`, title: child.error || request.error || "" });
+    }
+  }
+  const dispositions = Array.isArray(request.dispositions) ? request.dispositions : [];
+  for (const disposition of dispositions) {
+    const attachment = disposition?.attachment?.name;
+    const spaceName = disposition?.spaceName;
+    if (!attachment || !spaceName) continue;
+    if (disposition.status === "placed") {
+      events.push({ state: "succeeded", html: `Placed <strong>${escapeHtml(attachment)}</strong> in <strong>${escapeHtml(spaceName)}</strong>` });
+    } else if (disposition.status === "registered") {
+      events.push({ state: "succeeded", html: `Added <strong>${escapeHtml(attachment)}</strong> as <strong>${escapeHtml(spaceName)}</strong>` });
+    }
+  }
+  if (request.phase === "failed" && !events.some((event) => event.state === "failed")) {
+    events.push({ state: "failed", html: "Couldn’t finish", title: request.error || "" });
+  } else if (request.phase === "stopped" && !events.some((event) => event.state === "stopped")) {
+    events.push({ state: "stopped", html: "Stopped" });
+  }
+  return events;
+}
+
+async function refreshConversation({ loadTranscript = true } = {}) {
   try {
     if (state.startingNewChat || !state.selectedConversationId) {
       state.summary = { state: "idle" };
       state.messages = [];
+      state.transcriptConversationId = null;
       state.transcriptTruncated = false;
       renderConversationChrome();
       renderMessages();
       return;
     }
-    if (state.scope.kind === "management") {
-      state.summary = await remote("management.summary", { conversationId: state.selectedConversationId });
-    } else {
-      const selected = state.conversations.find((conversation) => conversation.id === state.selectedConversationId);
-      state.summary = { state: selected?.state ?? "idle" };
-    }
+    state.summary = await remote("management.summary", { conversationId: state.selectedConversationId });
     const summaryPhase = state.summary?.latestRequest?.phase;
-    if (state.summary?.state !== "running" && summaryPhase !== "working" && summaryPhase !== "handed_off") {
-      if (state.activeTask?.conversationId === state.selectedConversationId) state.activeTask = null;
+    const latest = state.summary?.latestRequest;
+    const active = state.summary?.state === "running" || summaryPhase === "working" || summaryPhase === "handed_off";
+    if (active && latest?.canStop === true && typeof latest.taskId === "string") {
+      state.activeTasks.set(state.selectedConversationId, { taskId: latest.taskId, conversationId: state.selectedConversationId });
+    } else {
+      state.activeTasks.delete(state.selectedConversationId);
+    }
+    const settlementKey = !active && latest?.startedAt
+      ? `${state.selectedConversationId}:${latest.startedAt}`
+      : null;
+    if (settlementKey && !state.settledTreeRefreshes.has(settlementKey)) {
+      state.settledTreeRefreshes.add(settlementKey);
+      await refreshExplorerTree();
     }
     updateConnection(true);
-    const transcript = state.scope.kind === "management"
-      ? await remote("management.transcript", { conversationId: state.selectedConversationId })
-      : await remote("spaces.transcript", { spaceId: state.scope.spaceId, conversationId: state.selectedConversationId });
-    state.messages = transcript.messages ?? [];
-    state.transcriptTruncated = transcript.truncated === true;
+    if (loadTranscript) {
+      if (state.transcriptConversationId !== state.selectedConversationId) {
+        document.querySelector("#messages")?.removeAttribute("data-latest-message-id");
+      }
+      const transcript = await remote("management.transcript", { conversationId: state.selectedConversationId });
+      state.messages = transcript.messages ?? [];
+      state.transcriptConversationId = state.selectedConversationId;
+      state.transcriptTruncated = transcript.truncated === true;
+    }
     renderConversationChrome();
     renderMessages();
   } catch (error) {
@@ -396,6 +472,7 @@ async function sendPrompt() {
   state.sending = true;
   syncComposer();
   state.banner = "";
+  const sentDraftKey = currentComposerDraftKey();
   try {
     const attachments = await serializeUploads();
     const request = {
@@ -405,25 +482,17 @@ async function sendPrompt() {
         : { conversationId: state.selectedConversationId }),
       ...(attachments.length ? { attachments } : {}),
     };
-    const result = state.scope.kind === "management"
-      ? await remote("management.send", request)
-      : await remote("spaces.send", {
-        ...request,
-        spaceId: state.scope.spaceId,
-        contextPaths: [...state.contextPaths],
-        selectedPath: [...state.contextPaths].at(-1) ?? null,
-      });
+    const result = await remote("management.send", request);
     state.startingNewChat = false;
     state.selectedConversationId = result.conversationId;
-    state.activeTask = result.taskId ? {
+    if (result.taskId) state.activeTasks.set(result.conversationId, {
       taskId: result.taskId,
       conversationId: result.conversationId,
-      kind: state.scope.kind,
-      spaceId: state.scope.spaceId,
-    } : null;
+    });
+    else state.activeTasks.delete(result.conversationId);
+    state.composerDrafts.delete(sentDraftKey);
     input.value = "";
     state.uploads = [];
-    state.contextPaths.clear();
     syncComposer();
     await loadConversations({ preferredConversationId: result.conversationId });
   } catch (error) {
@@ -438,19 +507,43 @@ async function sendPrompt() {
 
 function startNewChat() {
   if (state.sending || state.startingNewChat) return;
+  saveComposerDraft();
   state.startingNewChat = true;
   state.selectedConversationId = null;
   state.messages = [];
+  state.transcriptConversationId = null;
+  document.querySelector("#messages")?.removeAttribute("data-latest-message-id");
   state.transcriptTruncated = false;
   state.banner = "";
-  state.contextPaths.clear();
-  state.uploads = [];
-  state.activeTask = null;
+  restoreComposerDraft();
   renderConversationChrome();
   renderConversations();
   renderMessages();
   syncComposer();
   document.querySelector("#prompt")?.focus({ preventScroll: true });
+}
+
+function currentComposerDraftKey() {
+  return state.startingNewChat || !state.selectedConversationId
+    ? "new-chat"
+    : `chat:${state.selectedConversationId}`;
+}
+
+function saveComposerDraft() {
+  const input = document.querySelector("#prompt");
+  if (!input) return;
+  const content = input.value;
+  if (!content && !state.uploads.length) state.composerDrafts.delete(currentComposerDraftKey());
+  else state.composerDrafts.set(currentComposerDraftKey(), { content, uploads: [...state.uploads] });
+}
+
+function restoreComposerDraft() {
+  const input = document.querySelector("#prompt");
+  if (!input) return;
+  const draft = state.composerDrafts.get(currentComposerDraftKey());
+  input.value = draft?.content ?? "";
+  state.uploads = [...(draft?.uploads ?? [])];
+  syncComposer();
 }
 
 function syncComposer() {
@@ -484,25 +577,35 @@ async function loadSpaces() {
 }
 
 async function loadConversations({ preferredConversationId = state.selectedConversationId, refreshTranscript = true } = {}) {
-  const result = state.scope.kind === "management"
-    ? await remote("management.chats")
-    : await remote("spaces.chats", { spaceId: state.scope.spaceId });
+  const previous = state.conversations.find((conversation) => conversation.id === state.selectedConversationId) ?? null;
+  const result = await remote("management.chats");
   state.conversations = (result.conversations ?? []).filter((conversation) => !conversation.archivedAt);
   state.chatListTruncated = result.truncated === true;
   const selected = preferredConversationId && state.conversations.some((conversation) => conversation.id === preferredConversationId)
     ? preferredConversationId
     : state.conversations[0]?.id ?? null;
-  state.selectedConversationId = state.startingNewChat ? null : selected;
+  const target = state.startingNewChat ? null : selected;
+  if (target !== state.selectedConversationId) {
+    saveComposerDraft();
+    state.selectedConversationId = target;
+    restoreComposerDraft();
+  }
   renderConversations();
   renderConversationChrome();
-  if (refreshTranscript) await refreshConversation();
+  if (refreshTranscript) {
+    const current = state.conversations.find((conversation) => conversation.id === state.selectedConversationId) ?? null;
+    const transcriptChanged = !previous || !current || previous.id !== current.id || previous.updatedAt !== current.updatedAt;
+    await refreshConversation({
+      loadTranscript: transcriptChanged || state.transcriptConversationId !== state.selectedConversationId,
+    });
+  }
 }
 
 function renderConversations() {
   const list = document.querySelector("#chats");
   if (!list) return;
   list.innerHTML = state.conversations.length ? `${state.conversations.map((conversation) => `
-    <li><button class="chat-button ${conversation.id === state.selectedConversationId && !state.startingNewChat ? "active" : ""}" data-chat-id="${escapeAttribute(conversation.id)}">
+    <li><button class="chat-button ${conversation.id === state.selectedConversationId && !state.startingNewChat ? "active" : ""}" data-chat-id="${escapeAttribute(conversation.id)}" ${conversation.id === state.selectedConversationId && !state.startingNewChat ? 'aria-current="page"' : ""}>
       <span class="chat-title">${escapeHtml(conversation.title)}</span>
       <span class="chat-meta">${conversation.state === "running" ? "Working" : shortDate(conversation.updatedAt)}</span>
     </button></li>`).join("")}${state.chatListTruncated ? `<li class="empty-list">Older chats hidden</li>` : ""}` : `<li class="empty-list">No chats</li>`;
@@ -513,36 +616,30 @@ function renderConversations() {
 
 async function selectConversation(conversationId) {
   if (state.sending || !conversationId) return;
+  saveComposerDraft();
   state.startingNewChat = false;
   state.selectedConversationId = conversationId;
+  restoreComposerDraft();
   state.banner = "";
   renderConversations();
   renderConversationChrome();
   await refreshConversation();
 }
 
-async function switchScope(scope) {
-  if (state.sending || (scope.kind === "space" && !scope.spaceId)) return;
-  state.scope = scope;
-  state.startingNewChat = false;
-  state.selectedConversationId = null;
-  state.messages = [];
-  state.contextPaths.clear();
-  state.uploads = [];
-  state.banner = "";
-  if (scope.kind === "space") {
-    state.explorerSpaceId = scope.spaceId;
-    await loadTree(scope.spaceId, "");
-  }
-  renderWorkspace();
-  syncComposer();
-  await loadConversations();
-}
-
 async function loadTree(spaceId, path) {
-  const result = await remote("spaces.tree", { spaceId, path });
-  state.trees.set(`${spaceId}:${path}`, result.tree ?? []);
-  state.treeTruncated.set(`${spaceId}:${path}`, result.truncated === true);
+  const key = `${spaceId}:${path}`;
+  state.treeStatus.set(key, "loading");
+  renderWorkspace();
+  try {
+    const result = await remote("spaces.tree", { spaceId, path });
+    state.trees.set(key, result.tree ?? []);
+    state.treeTruncated.set(key, result.truncated === true);
+    state.treeStatus.set(key, "loaded");
+  } catch (error) {
+    state.treeStatus.set(key, "error");
+    state.banner = errorText(error);
+    renderBanner();
+  }
   renderWorkspace();
 }
 
@@ -555,29 +652,21 @@ function findEntryInCaches(spaceId, path) {
 }
 
 function renderConversationChrome() {
-  const scopeName = document.querySelector("#scope-name");
   const title = document.querySelector("#conversation-title");
   const prompt = document.querySelector("#prompt");
-  const space = state.spaces.find((candidate) => candidate.id === state.scope.spaceId);
-  if (scopeName) scopeName.textContent = state.scope.kind === "management" ? "work-fold" : space?.name ?? "Space";
   const selected = state.conversations.find((conversation) => conversation.id === state.selectedConversationId);
   if (title) title.textContent = state.startingNewChat || !selected ? "New chat" : selected.title;
-  if (prompt) prompt.placeholder = state.scope.kind === "management" ? "Message work-fold" : `Message ${space?.name ?? "Space"}`;
+  if (prompt) prompt.placeholder = "Message work-fold";
   const stop = document.querySelector("#stop-task");
-  if (stop) stop.hidden = !state.activeTask || state.activeTask.conversationId !== state.selectedConversationId;
+  if (stop) stop.hidden = !state.selectedConversationId || !state.activeTasks.has(state.selectedConversationId);
 }
 
 function renderWorkspace() {
   const picker = document.querySelector("#space-picker");
   const tree = document.querySelector("#file-tree");
-  const chatButton = document.querySelector("#chat-with-space");
   if (picker) {
     picker.innerHTML = state.spaces.map((space) => `<option value="${escapeAttribute(space.id)}" ${space.id === state.explorerSpaceId ? "selected" : ""}>${escapeHtml(space.name)}</option>`).join("");
     picker.disabled = !state.spaces.length;
-  }
-  if (chatButton) {
-    chatButton.disabled = !state.explorerSpaceId;
-    chatButton.textContent = state.scope.kind === "space" && state.scope.spaceId === state.explorerSpaceId ? "Current chat" : "Chat with Space";
   }
   if (!tree) return;
   if (!state.explorerSpaceId) {
@@ -585,31 +674,29 @@ function renderWorkspace() {
     return;
   }
   const entries = state.trees.get(`${state.explorerSpaceId}:`) ?? [];
+  tree.setAttribute("aria-busy", String(state.treeStatus.get(`${state.explorerSpaceId}:`) === "loading"));
   tree.innerHTML = renderTreeRows(state.explorerSpaceId, entries, "", 0);
   for (const button of tree.querySelectorAll("[data-tree-path]")) {
     button.addEventListener("click", () => void toggleTree(button.dataset.spaceId, button.dataset.treePath));
   }
-  for (const button of tree.querySelectorAll("[data-add-context]")) {
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      void addFileContext(button.dataset.spaceId, button.dataset.addContext);
-    });
-  }
 }
 
 function renderTreeRows(spaceId, entries, path, depth) {
+  const key = `${spaceId}:${path}`;
+  const status = state.treeStatus.get(key);
+  if (status === "loading" || (!status && !state.trees.has(key))) return `<div class="file-empty">Loading…</div>`;
+  if (status === "error") return `<div class="file-empty error">Couldn’t load</div>`;
   const truncated = state.treeTruncated.get(`${spaceId}:${path}`) === true;
   if (!entries.length) return `<div class="file-empty">Empty</div>`;
   return `${truncated ? `<div class="tree-notice">First 500 items. Ignored files omitted.</div>` : ""}${entries.map((entry) => {
     const expanded = entry.kind === "folder" && state.expanded.has(`${spaceId}:${entry.path}`);
     const children = expanded ? state.trees.get(`${spaceId}:${entry.path}`) ?? [] : [];
-    const selected = state.scope.kind === "space" && state.scope.spaceId === spaceId && state.contextPaths.has(entry.path);
     return `<div class="file-node">
-      <div class="file-row ${selected ? "selected" : ""}" style="--depth:${depth}">
-        <button class="file-main" type="button" data-space-id="${escapeAttribute(spaceId)}" data-tree-path="${escapeAttribute(entry.path)}" ${entry.kind === "folder" ? `aria-expanded="${String(expanded)}"` : ""}>
-          <span class="tree-caret">${entry.kind === "folder" ? expanded ? "⌄" : "›" : ""}</span>${fileGlyph(entry.kind)}<span class="file-name">${escapeHtml(entry.name)}</span>
-        </button>
-        ${entry.kind === "file" ? `<span class="file-size">${formatBytes(entry.sizeBytes)}</span><button class="file-context-button" type="button" data-space-id="${escapeAttribute(spaceId)}" data-add-context="${escapeAttribute(entry.path)}" aria-label="Add ${escapeAttribute(entry.name)} to chat" title="Add to chat">+</button>` : ""}
+      <div class="file-row" style="--depth:${depth}">
+        ${entry.kind === "folder" ? `<button class="file-main" type="button" data-space-id="${escapeAttribute(spaceId)}" data-tree-path="${escapeAttribute(entry.path)}" aria-expanded="${String(expanded)}">` : `<div class="file-main">`}
+          <span class="tree-caret" aria-hidden="true">${entry.kind === "folder" ? expanded ? "⌄" : "›" : ""}</span>${fileGlyph(entry.kind)}<span class="file-name">${escapeHtml(entry.name)}</span>
+        ${entry.kind === "folder" ? `</button>` : `</div>`}
+        ${entry.kind === "file" ? `<span class="file-size">${formatBytes(entry.sizeBytes)}</span>` : ""}
       </div>
       ${expanded ? `<div>${renderTreeRows(spaceId, children, entry.path, depth + 1)}</div>` : ""}
     </div>`;
@@ -620,6 +707,16 @@ async function selectExplorerSpace(spaceId) {
   state.explorerSpaceId = spaceId;
   renderWorkspace();
   if (spaceId) await loadTree(spaceId, "");
+}
+
+async function refreshExplorerTree() {
+  const spaceId = state.explorerSpaceId;
+  if (!spaceId) return;
+  for (const key of [...state.trees.keys()]) if (key.startsWith(`${spaceId}:`)) state.trees.delete(key);
+  for (const key of [...state.treeStatus.keys()]) if (key.startsWith(`${spaceId}:`)) state.treeStatus.delete(key);
+  for (const key of [...state.treeTruncated.keys()]) if (key.startsWith(`${spaceId}:`)) state.treeTruncated.delete(key);
+  for (const key of [...state.expanded]) if (key.startsWith(`${spaceId}:`)) state.expanded.delete(key);
+  await loadTree(spaceId, "");
 }
 
 async function toggleTree(spaceId, path) {
@@ -634,26 +731,14 @@ async function toggleTree(spaceId, path) {
   renderWorkspace();
 }
 
-async function addFileContext(spaceId, path) {
-  if (state.scope.kind !== "space" || state.scope.spaceId !== spaceId) {
-    await switchScope({ kind: "space", spaceId });
-  }
-  if (state.contextPaths.has(path)) state.contextPaths.delete(path);
-  else state.contextPaths.add(path);
-  syncComposer();
-  renderWorkspace();
-  document.querySelector("#prompt")?.focus({ preventScroll: true });
-}
-
 async function stopCurrentTask() {
-  const task = state.activeTask;
+  const task = state.selectedConversationId ? state.activeTasks.get(state.selectedConversationId) : null;
   if (!task) return;
   const button = document.querySelector("#stop-task");
   if (button) button.disabled = true;
   try {
-    if (task.kind === "management") await remote("management.stop", { taskId: task.taskId });
-    else await remote("spaces.stop", { spaceId: task.spaceId, taskId: task.taskId });
-    state.activeTask = null;
+    await remote("management.stop", { taskId: task.taskId });
+    state.activeTasks.delete(task.conversationId);
     await loadConversations({ preferredConversationId: task.conversationId });
   } catch (error) {
     state.banner = errorText(error);
@@ -693,14 +778,8 @@ async function serializeUploads() {
 function renderComposerContext() {
   const container = document.querySelector("#composer-context");
   if (!container) return;
-  const context = [...state.contextPaths].map((path) => ({ kind: "context", name: path }));
   const uploads = state.uploads.map((file, index) => ({ kind: "upload", name: file.name, index }));
-  container.innerHTML = [...context, ...uploads].map((item) => `<span class="context-chip">${fileGlyph("file")}<span>${escapeHtml(item.name)}</span><button type="button" ${item.kind === "context" ? `data-remove-context="${escapeAttribute(item.name)}"` : `data-remove-upload="${item.index}"`} aria-label="Remove ${escapeAttribute(item.name)}">×</button></span>`).join("");
-  for (const button of container.querySelectorAll("[data-remove-context]")) button.addEventListener("click", () => {
-    state.contextPaths.delete(button.dataset.removeContext);
-    syncComposer();
-    renderWorkspace();
-  });
+  container.innerHTML = uploads.map((item) => `<span class="context-chip">${fileGlyph("file")}<span>${escapeHtml(item.name)}</span><button type="button" data-remove-upload="${item.index}" aria-label="Remove ${escapeAttribute(item.name)}">×</button></span>`).join("");
   for (const button of container.querySelectorAll("[data-remove-upload]")) button.addEventListener("click", () => {
     state.uploads.splice(Number(button.dataset.removeUpload), 1);
     syncComposer();
@@ -710,7 +789,18 @@ function renderComposerContext() {
 function setFilesPanelOpen(open) {
   state.filesPanelOpen = open;
   document.querySelector(".app-shell")?.classList.toggle("files-closed", !open);
-  document.querySelector("#toggle-files")?.setAttribute("aria-expanded", String(open));
+  const button = document.querySelector("#toggle-files");
+  button?.setAttribute("aria-expanded", String(open));
+  button?.setAttribute("aria-label", open ? "Hide Files" : "Show Files");
+  if (button) button.title = open ? "Hide Files" : "Show Files";
+}
+
+function setAccountMenuOpen(open) {
+  const button = document.querySelector("#account-settings");
+  const menu = document.querySelector("#account-menu");
+  if (!button || !menu) return;
+  button.setAttribute("aria-expanded", String(open));
+  menu.hidden = !open;
 }
 
 function fileGlyph(kind) {
@@ -734,14 +824,12 @@ function shortDate(value) {
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-function assistantLabel() {
-  if (state.scope.kind === "management") return "work-fold";
-  return state.spaces.find((space) => space.id === state.scope.spaceId)?.name ?? "Space";
-}
+function assistantLabel() { return "work-fold"; }
 
 function scheduleRefresh() {
   if (state.refreshTimer) clearTimeout(state.refreshTimer);
-  const active = state.summary?.state === "running";
+  const phase = state.summary?.latestRequest?.phase;
+  const active = state.summary?.state === "running" || phase === "working" || phase === "handed_off";
   state.refreshTimer = setTimeout(() => void loadConversations({ refreshTranscript: true })
     .catch((error) => {
       state.banner = errorText(error);
@@ -753,7 +841,10 @@ function scheduleRefresh() {
 function openEvents() {
   state.eventSource?.close();
   state.eventSource = new EventSource("/api/events");
-  state.eventSource.addEventListener("ready", () => updateConnection(true));
+  state.eventSource.addEventListener("ready", (raw) => {
+    const payload = JSON.parse(raw.data);
+    updateConnection(payload.desktopOnline === true);
+  });
   state.eventSource.addEventListener("remote", (raw) => {
     void receiveRemoteEvent(JSON.parse(raw.data)).catch((error) => {
       state.banner = errorText(error);
@@ -764,6 +855,10 @@ function openEvents() {
 }
 
 async function receiveRemoteEvent(event) {
+  if (event.type === "presence") {
+    updateConnection(event.desktopOnline === true);
+    return;
+  }
   const pending = state.pendingOperations.get(event.operationId);
   if (event.type === "operation.complete" && !pending) {
     state.earlyEvents.set(event.operationId, event);

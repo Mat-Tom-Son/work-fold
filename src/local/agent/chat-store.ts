@@ -23,6 +23,7 @@ export interface ChatMessage {
   /** Durable surface provenance for messages accepted through remote access. */
   source?: "remote_web";
   remotePrincipalId?: string;
+  remoteGrantId?: string;
   remoteRequestId?: string;
 }
 
@@ -406,6 +407,7 @@ function parseChatMessage(line: string): ChatMessage | null {
       && isRemoteProvenanceId(parsed.remoteRequestId)) {
       message.source = "remote_web";
       message.remotePrincipalId = parsed.remotePrincipalId;
+      if (isRemoteProvenanceId(parsed.remoteGrantId)) message.remoteGrantId = parsed.remoteGrantId;
       message.remoteRequestId = parsed.remoteRequestId;
     }
     return message;

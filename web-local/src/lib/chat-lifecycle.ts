@@ -1,4 +1,4 @@
-import type { ChatLifecycleView, ConversationSummary } from "../types";
+import type { ChatActivityStatus, ChatLifecycleView, ConversationSummary } from "../types";
 
 const hourMs = 60 * 60 * 1_000;
 
@@ -70,6 +70,16 @@ export function chatSnoozeTimeLabel(value: string, now = new Date()): string {
 
 export function chatActivityKey(spaceId: string, conversationId: string): string {
   return `${spaceId}:${conversationId}`;
+}
+
+export function aggregateChatActivityStatus(
+  spaceId: string,
+  conversations: readonly ConversationSummary[],
+  statuses: Readonly<Record<string, ChatActivityStatus>>,
+): ChatActivityStatus | null {
+  if (conversations.some((chat) => statuses[chatActivityKey(spaceId, chat.id)] === "running")) return "running";
+  if (conversations.some((chat) => statuses[chatActivityKey(spaceId, chat.id)] === "attention")) return "attention";
+  return null;
 }
 
 function preset(

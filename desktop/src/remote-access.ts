@@ -23,7 +23,7 @@ const maximumRememberedResponses = 256;
 const maximumRemoteRequestCiphertextCharacters = Math.floor(12 * 1024 * 1024 * 1.4);
 const operationSet = new Set<WorkFoldRemoteOperation>([
   "management.summary", "management.chats", "management.transcript", "management.send", "management.request",
-  "management.stop", "spaces.list", "spaces.tree", "spaces.chats", "spaces.transcript", "spaces.send", "spaces.stop",
+  "management.stop", "spaces.list", "spaces.tree",
 ]);
 
 export interface RemoteAccessStatus {
@@ -58,8 +58,6 @@ interface RemoteEnvelope {
 
 interface TrackedRemoteTask {
   principal: WorkFoldRemotePrincipal;
-  operation: "management.send" | "spaces.send";
-  spaceId?: string;
 }
 
 export class RemoteAccessClient {
@@ -77,6 +75,7 @@ export class RemoteAccessClient {
   #responses = new Map<string, RemoteEnvelope>();
   #inFlight = new Map<string, Promise<void>>();
   #authorityQueue: Promise<void> = Promise.resolve();
+  #authorityVersion = 0;
   #activeTasks = new Map<string, Map<string, TrackedRemoteTask>>();
 
   constructor(options: {
@@ -189,7 +188,8 @@ export class RemoteAccessClient {
 
   async #handlePairing(value: unknown): Promise<void> {
     const pairing = parsePairing(value);
-    const settings = await this.requireActiveSettings();
+    await this.requireActiveSettings();
+    const authorityVersion = this.#authorityVersion;
     const approved = await this.#promptPairing({
       id: pairing.id,
       browserId: pairing.browserId,
@@ -201,49 +201,66 @@ export class RemoteAccessClient {
       this.send({ type: "pairing.decision", pairingId: pairing.id, approved: false });
       return;
     }
-    const grant: RemoteBrowserGrantSettings = {
-      id: randomUUID(),
-      browserId: pairing.browserId,
-      label: pairing.label,
-      signingPublicJwk: pairing.signingPublicJwk,
-      encryptionPublicJwk: pairing.encryptionPublicJwk,
-      generation: await currentGrantGeneration(settings),
-      approvedAt: new Date().toISOString(),
-    };
-    const certificate = {
-      type: "work-fold.browser-grant.v1",
-      accountId: settings.accountId,
-      deviceId: settings.accountId,
-      grantId: grant.id,
-      pairingId: pairing.id,
-      pairingCode: pairing.code,
-      browserId: grant.browserId,
-      browserSigningPublicJwk: grant.signingPublicJwk,
-      browserEncryptionPublicJwk: grant.encryptionPublicJwk,
-      generation: grant.generation,
-      approvedAt: grant.approvedAt,
-    };
-    const signature = signP1363(settings.deviceSigningPrivateJwk, canonicalize(certificate));
-    await this.#settingsStore.saveRemoteBrowserGrant(grant);
-    this.send({ type: "pairing.decision", pairingId: pairing.id, approved: true, certificate, signature });
-    await this.emitStatus();
+    try {
+      await this.#withAuthority(async () => {
+        // The prompt may have been open while Remote access was disabled or
+        // this browser was revoked. Re-read authority at the commit point.
+        const settings = await this.requireActiveSettings();
+        if (this.#authorityVersion !== authorityVersion) {
+          throw new Error("Remote access authority changed while this browser approval was open.");
+        }
+        const replaced = settings.grants.find((item) => item.browserId === pairing.browserId) ?? null;
+        if (replaced) await this.#finishRevocationCleanup(replaced.id);
+        const grant: RemoteBrowserGrantSettings = {
+          id: randomUUID(),
+          browserId: pairing.browserId,
+          label: pairing.label,
+          signingPublicJwk: pairing.signingPublicJwk,
+          encryptionPublicJwk: pairing.encryptionPublicJwk,
+          generation: await currentGrantGeneration(settings),
+          approvedAt: new Date().toISOString(),
+        };
+        const certificate = {
+          type: "work-fold.browser-grant.v1",
+          accountId: settings.accountId,
+          deviceId: settings.accountId,
+          grantId: grant.id,
+          pairingId: pairing.id,
+          pairingCode: pairing.code,
+          browserId: grant.browserId,
+          browserSigningPublicJwk: grant.signingPublicJwk,
+          browserEncryptionPublicJwk: grant.encryptionPublicJwk,
+          generation: grant.generation,
+          approvedAt: grant.approvedAt,
+        };
+        const signature = signP1363(settings.deviceSigningPrivateJwk, canonicalize(certificate));
+        await this.#settingsStore.saveRemoteBrowserGrant(grant);
+        this.#authorityVersion += 1;
+        this.send({ type: "pairing.decision", pairingId: pairing.id, approved: true, certificate, signature });
+      });
+      await this.emitStatus();
+    } catch (error) {
+      this.send({ type: "pairing.decision", pairingId: pairing.id, approved: false });
+      throw error;
+    }
   }
 
   async #handleOperation(operationValue: unknown, envelopeValue: unknown): Promise<void> {
     const operation = parseOperation(operationValue);
-    const existing = this.#inFlight.get(operation.requestId);
+    const cacheKey = remoteRequestKey(operation.browserGrantId, operation.requestId);
+    const existing = this.#inFlight.get(cacheKey);
     if (existing) {
       await existing;
-      const remembered = this.#responses.get(operation.requestId);
+      const remembered = this.#responses.get(cacheKey);
       if (remembered) this.send({ type: "operation.complete", envelope: remembered });
       return;
     }
     const execution = this.#executeOperation(operation, envelopeValue);
-    this.#inFlight.set(operation.requestId, execution);
+    this.#inFlight.set(cacheKey, execution);
     try {
       await execution;
     } finally {
-      if (this.#inFlight.get(operation.requestId) === execution) this.#inFlight.delete(operation.requestId);
+      if (this.#inFlight.get(cacheKey) === execution) this.#inFlight.delete(cacheKey);
     }
   }
 
@@ -253,7 +270,8 @@ export class RemoteAccessClient {
     const grant = settings.grants.find((item) => item.id === operation.browserGrantId && item.generation === operation.generation);
     if (!grant) throw new Error("This browser grant is not active on the desktop.");
     assertRequestEnvelope(settings, grant, operation, envelope);
-    const remembered = this.#responses.get(operation.requestId);
+    const cacheKey = remoteRequestKey(grant.id, operation.requestId);
+    const remembered = this.#responses.get(cacheKey);
     if (remembered) {
       this.send({ type: "operation.complete", envelope: remembered });
       return;
@@ -272,16 +290,18 @@ export class RemoteAccessClient {
           throw new Error("This browser was revoked before the request could start.");
         }
         const value = await this.#facade.execute(remoteOperation, input, principal);
-        if (remoteOperation === "management.send" || remoteOperation === "spaces.send") {
-          this.rememberActiveTask(grant.id, remoteOperation, value, principal);
+        if (remoteOperation === "management.send") {
+          this.rememberActiveTask(grant.id, value, principal);
+        } else {
+          this.retireSettledTask(grant.id, remoteOperation, input, value);
         }
         return value;
       });
       const response = this.sendEncrypted(settings, grant, operation, 2, true, { result }, "operation.complete");
-      this.remember(operation.requestId, response);
+      this.remember(cacheKey, response);
     } catch (error) {
       const response = this.sendEncrypted(settings, grant, operation, 2, false, { error: errorMessage(error) }, "operation.complete");
-      this.remember(operation.requestId, response);
+      this.remember(cacheKey, response);
     }
   }
 
@@ -313,13 +333,14 @@ export class RemoteAccessClient {
     return envelope;
   }
 
-  remember(requestId: string, response: RemoteEnvelope): void {
-    this.#responses.set(requestId, response);
+  remember(cacheKey: string, response: RemoteEnvelope): void {
+    this.#responses.set(cacheKey, response);
     while (this.#responses.size > maximumRememberedResponses) this.#responses.delete(this.#responses.keys().next().value!);
   }
 
   async revokeLocalGrant(grantId: string): Promise<void> {
     await this.#withAuthority(async () => {
+      this.#authorityVersion += 1;
       await this.#settingsStore.removeRemoteBrowserGrant(grantId);
       await this.#finishRevocationCleanup(grantId);
     });
@@ -327,34 +348,49 @@ export class RemoteAccessClient {
 
   async revokeAllLocalGrants(): Promise<void> {
     await this.#withAuthority(async () => {
+      this.#authorityVersion += 1;
       await this.#settingsStore.clearRemoteBrowserGrants();
       await this.#finishRevocationCleanup();
     });
   }
 
   async stopActiveRemoteTasks(): Promise<void> {
-    await this.#withAuthority(() => this.#finishRevocationCleanup());
+    await this.#withAuthority(async () => {
+      this.#authorityVersion += 1;
+      await this.#finishRevocationCleanup();
+    });
   }
 
   rememberActiveTask(
     grantId: string,
-    operation: "management.send" | "spaces.send",
     value: unknown,
     principal: WorkFoldRemotePrincipal,
   ): void {
     if (!value || typeof value !== "object" || Array.isArray(value)) return;
-    const record = value as { taskId?: unknown; space?: unknown };
+    const record = value as { taskId?: unknown };
     const taskId = record.taskId;
     if (typeof taskId !== "string" || !taskId) return;
-    const spaceId = operation === "spaces.send"
-      && record.space && typeof record.space === "object" && !Array.isArray(record.space)
-      && typeof (record.space as { id?: unknown }).id === "string"
-      ? (record.space as { id: string }).id
-      : undefined;
-    if (operation === "spaces.send" && !spaceId) return;
     const tasks = this.#activeTasks.get(grantId) ?? new Map<string, TrackedRemoteTask>();
-    tasks.set(taskId, { principal, operation, ...(spaceId ? { spaceId } : {}) });
+    tasks.set(taskId, { principal });
     this.#activeTasks.set(grantId, tasks);
+  }
+
+  retireSettledTask(
+    grantId: string,
+    operation: WorkFoldRemoteOperation,
+    input: unknown,
+    value: unknown,
+  ): void {
+    const tasks = this.#activeTasks.get(grantId);
+    if (!tasks) return;
+    if (operation === "management.stop" && remoteStopWasAccepted(value)) {
+      const taskId = remoteTaskId(input);
+      if (taskId) tasks.delete(taskId);
+    } else {
+      const request = remoteRequestProjection(operation, value);
+      if (request && !new Set(["working", "handed_off"]).has(request.phase)) tasks.delete(request.taskId);
+    }
+    if (!tasks.size) this.#activeTasks.delete(grantId);
   }
 
   async #stopTrackedTasks(grantId?: string): Promise<void> {
@@ -365,17 +401,15 @@ export class RemoteAccessClient {
       for (const [taskId, tracked] of tasks) {
         try {
           const result = await this.#facade.execute(
-            tracked.operation === "spaces.send" ? "spaces.stop" : "management.stop",
-            tracked.operation === "spaces.send" ? { taskId, spaceId: tracked.spaceId } : { taskId },
+            "management.stop",
+            { taskId },
             {
               ...tracked.principal,
               grantId: selectedGrantId,
               requestId: randomUUID(),
             },
           );
-          if (tracked.operation === "spaces.send") {
-            if (!remoteSpaceStopSettled(result)) throw new Error("The Space task could not be stopped.");
-          } else if (!remoteStopWasAccepted(result)) {
+          if (!remoteStopWasAccepted(result)) {
             const status = await this.#facade.execute("management.request", { taskId }, {
               ...tracked.principal,
               grantId: selectedGrantId,
@@ -385,7 +419,8 @@ export class RemoteAccessClient {
           }
           tasks.delete(taskId);
         } catch (error) {
-          failures.push(`${taskId}: ${errorMessage(error)}`);
+          if (isRemoteRequestNotFound(error)) tasks.delete(taskId);
+          else failures.push(`${taskId}: ${errorMessage(error)}`);
         }
       }
       if (!tasks.size) this.#activeTasks.delete(selectedGrantId);
@@ -399,7 +434,19 @@ export class RemoteAccessClient {
     catch (error) { failures.push(errorMessage(error)); }
     try { await this.#facade.purgeUploads(grantId); }
     catch (error) { failures.push(`Could not purge remote uploads: ${errorMessage(error)}`); }
+    this.#clearGrantCaches(grantId);
     if (failures.length) throw new Error(failures.join(" "));
+  }
+
+  #clearGrantCaches(grantId?: string): void {
+    if (!grantId) {
+      this.#responses.clear();
+      this.#inFlight.clear();
+      return;
+    }
+    const prefix = `${grantId}:`;
+    for (const key of this.#responses.keys()) if (key.startsWith(prefix)) this.#responses.delete(key);
+    for (const key of this.#inFlight.keys()) if (key.startsWith(prefix)) this.#inFlight.delete(key);
   }
 
   async #withAuthority<T>(operation: () => Promise<T>): Promise<T> {
@@ -633,6 +680,37 @@ function freshTimestamp(value: unknown): boolean {
 }
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error ?? "unknown error"); }
 
+function remoteRequestKey(grantId: string, requestId: string): string {
+  return `${grantId}:${requestId}`;
+}
+
+function remoteTaskId(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const taskId = (value as { taskId?: unknown }).taskId;
+  return typeof taskId === "string" && taskId ? taskId : null;
+}
+
+function remoteRequestProjection(
+  operation: WorkFoldRemoteOperation,
+  value: unknown,
+): { taskId: string; phase: string } | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const outer = value as { request?: unknown; latestRequest?: unknown };
+  const candidate = operation === "management.request" ? outer.request
+    : operation === "management.summary" ? outer.latestRequest
+      : null;
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+  const request = candidate as { taskId?: unknown; phase?: unknown };
+  return typeof request.taskId === "string" && request.taskId
+    && typeof request.phase === "string"
+    ? { taskId: request.taskId, phase: request.phase }
+    : null;
+}
+
+function isRemoteRequestNotFound(error: unknown): boolean {
+  return /Remote request not found for this browser grant/i.test(errorMessage(error));
+}
+
 function remoteStopWasAccepted(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const stopped = (value as { stopped?: unknown }).stopped;
@@ -648,9 +726,4 @@ function remoteRequestIsActive(value: unknown): boolean {
   const request = (value as { request?: unknown }).request;
   if (!request || typeof request !== "object" || Array.isArray(request)) return true;
   return new Set(["working", "handed_off"]).has((request as { phase?: unknown }).phase as string);
-}
-
-function remoteSpaceStopSettled(value: unknown): boolean {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value)
-    && typeof (value as { stopped?: unknown }).stopped === "boolean");
 }

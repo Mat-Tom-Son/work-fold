@@ -8,11 +8,7 @@ export type WorkFoldRemoteOperation =
   | "management.request"
   | "management.stop"
   | "spaces.list"
-  | "spaces.tree"
-  | "spaces.chats"
-  | "spaces.transcript"
-  | "spaces.send"
-  | "spaces.stop";
+  | "spaces.tree";
 
 export interface WorkFoldRemotePrincipal {
   browserId: string;

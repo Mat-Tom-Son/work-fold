@@ -62,6 +62,9 @@ test("Chat work can be deferred, found again, and resumed without interrupting a
 test("Chats foreground the active Space and collapse other Spaces until requested", () => {
   assert.match(panes, /const \[expandedOtherSpaceIds, setExpandedOtherSpaceIds\]/);
   assert.match(panes, /<span>Other Spaces<\/span>/);
+  assert.doesNotMatch(panes, /\.filter\(\(\{ list \}\) => list\.length > 0\)/);
+  assert.match(panes, /<small>\{list\.length\}<\/small>/);
+  assert.match(panes, /aggregateChatActivityStatus\(item\.id, conversations\[item\.id\] \?\? \[\], activityStatuses\)/);
   assert.match(panes, /aria-label=\{`\$\{expanded \? "Hide" : "Show"\} chats in \$\{item\.name\}`\}/);
   assert.match(panes, /aria-expanded=\{expanded\}/);
   assert.match(panes, /const expanded = Boolean\(normalized\) \|\| expandedOtherSpaceIds\.has/);

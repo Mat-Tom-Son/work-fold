@@ -46,10 +46,6 @@ const allowedOperations = new Set([
   "management.stop",
   "spaces.list",
   "spaces.tree",
-  "spaces.chats",
-  "spaces.transcript",
-  "spaces.send",
-  "spaces.stop",
 ]);
 
 export async function startBridgeServer({
@@ -263,7 +259,7 @@ async function handleRequest(state, request, response) {
     const account = await requestedAccount(state, request, url);
     const { session } = await requireBrowserSession(state, request, account);
     if (!validPairedSession(session)) throw httpError(403, "Approve this browser from the work-fold desktop app.");
-    return openEventStream(state, request, response, session.browserGrantId);
+    return openEventStream(state, request, response, session.browserGrantId, account.id);
   }
 
   if (url.pathname === "/api/operations" && method === "POST") {
@@ -397,6 +393,7 @@ async function handleUpgrade(state, request, socket, head) {
       messageQueue: Promise.resolve(),
     };
     state.devices.set(account.id, connection);
+    void broadcastAccountPresence(state, account.id, true).catch(() => undefined);
     webSocket.on("pong", () => { connection.alive = true; });
     webSocket.on("message", (data) => {
       connection.messageQueue = connection.messageQueue.catch(() => undefined).then(() => handleDeviceMessage(state, connection, data)).catch((error) => {
@@ -407,6 +404,7 @@ async function handleUpgrade(state, request, socket, head) {
       if (state.devices.get(account.id)?.socket === webSocket) {
         state.devices.delete(account.id);
         void state.database.markActiveOperationsLost(account.id).catch(() => undefined);
+        void broadcastAccountPresence(state, account.id, false).catch(() => undefined);
       }
     });
     webSocket.on("error", () => undefined);
@@ -486,7 +484,7 @@ function assertBrowserEnvelope(account, session, value) {
   if (!allowedOperations.has(header.operation) || canonicalizeJson(header) !== canonicalizeJson(expected)) {
     throw httpError(400, "Remote request envelope is invalid.");
   }
-  if (!new Set(["management.send", "spaces.send"]).has(header.operation)
+  if (header.operation !== "management.send"
     && envelope.ciphertext.length > maximumRoutineEnvelopeBytes * 1.4) {
     throw httpError(413, "Remote request envelope is too large for this operation.");
   }
@@ -532,7 +530,7 @@ function assertFreshTimestamp(value) {
   if (!Number.isFinite(time) || Math.abs(Date.now() - time) > 5 * 60_000) throw httpError(400, "Remote envelope timestamp is stale.");
 }
 
-function openEventStream(state, request, response, grantId) {
+function openEventStream(state, request, response, grantId, accountId) {
   const clients = state.sseClients.get(grantId) ?? new Set();
   const totalClients = [...state.sseClients.values()].reduce((total, set) => total + set.size, 0);
   if (clients.size >= maximumSseClientsPerGrant || totalClients >= maximumSseClients) {
@@ -544,7 +542,7 @@ function openEventStream(state, request, response, grantId) {
     connection: "keep-alive",
     ...securityHeaders(state, request),
   });
-  response.write(`event: ready\ndata: ${JSON.stringify({ connected: true })}\n\n`);
+  response.write(`event: ready\ndata: ${JSON.stringify({ desktopOnline: state.devices.has(accountId) })}\n\n`);
   clients.add(response);
   state.sseClients.set(grantId, clients);
   const heartbeat = setInterval(() => response.write(": keepalive\n\n"), 20_000);
@@ -559,6 +557,13 @@ function openEventStream(state, request, response, grantId) {
 function broadcastGrant(state, grantId, event) {
   const data = `event: remote\ndata: ${JSON.stringify(event)}\n\n`;
   for (const response of state.sseClients.get(grantId) ?? []) if (!response.write(data)) response.end();
+}
+
+async function broadcastAccountPresence(state, accountId, desktopOnline) {
+  const grants = await state.database.listGrants(accountId);
+  for (const grant of grants) {
+    if (grant.status === "approved") broadcastGrant(state, grant.id, { type: "presence", desktopOnline });
+  }
 }
 
 function closeSseClients(state, grantId) {

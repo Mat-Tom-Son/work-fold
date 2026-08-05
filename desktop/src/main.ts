@@ -699,8 +699,8 @@ async function setRemoteAccessEnabled(value: unknown): Promise<RemoteAccessStatu
   if (!settings) throw new Error("Set up Remote access before enabling it.");
   const client = await ensureRemoteAccessClient(await ensureInteractiveLocalApi());
   if (value) await client.start(); else {
-    await client.stopActiveRemoteTasks();
-    client.stop();
+    try { await client.stopActiveRemoteTasks(); }
+    finally { client.stop(); }
   }
   return client.status();
 }
@@ -710,8 +710,10 @@ async function revokeRemoteBrowser(value: unknown): Promise<RemoteAccessStatus> 
   const host = await ensureDesktopHost();
   const settings = await requiredRemoteAccessSettings(host.settings);
   const client = await ensureRemoteAccessClient(await ensureInteractiveLocalApi());
-  await client.revokeLocalGrant(value);
-  await remoteBridgeRequest(settings.bridgeUrl, `/api/device/grants/${encodeURIComponent(value)}`, { method: "DELETE", token: settings.deviceToken });
+  await runRemoteRevocationSteps([
+    () => client.revokeLocalGrant(value),
+    () => remoteBridgeRequest(settings.bridgeUrl, `/api/device/grants/${encodeURIComponent(value)}`, { method: "DELETE", token: settings.deviceToken }),
+  ]);
   return client.status();
 }
 
@@ -719,8 +721,10 @@ async function revokeAllRemoteBrowsers(): Promise<RemoteAccessStatus> {
   const host = await ensureDesktopHost();
   const settings = await requiredRemoteAccessSettings(host.settings);
   const client = await ensureRemoteAccessClient(await ensureInteractiveLocalApi());
-  await client.revokeAllLocalGrants();
-  await remoteBridgeRequest(settings.bridgeUrl, "/api/device/grants/revoke-all", { method: "POST", token: settings.deviceToken, body: {} });
+  await runRemoteRevocationSteps([
+    () => client.revokeAllLocalGrants(),
+    () => remoteBridgeRequest(settings.bridgeUrl, "/api/device/grants/revoke-all", { method: "POST", token: settings.deviceToken, body: {} }),
+  ]);
   return client.status();
 }
 
@@ -728,12 +732,26 @@ async function removeRemoteAccess(): Promise<RemoteAccessStatus> {
   const host = await ensureDesktopHost();
   const settings = await requiredRemoteAccessSettings(host.settings);
   const client = await ensureRemoteAccessClient(await ensureInteractiveLocalApi());
-  await client.revokeAllLocalGrants();
-  await host.settings.setRemoteAccessEnabled(false);
-  client.stop();
-  await remoteBridgeRequest(settings.bridgeUrl, "/api/device/account", { method: "DELETE", token: settings.deviceToken });
-  await host.settings.clearRemoteAccess();
+  try {
+    await runRemoteRevocationSteps([
+      () => client.revokeAllLocalGrants(),
+      async () => { await host.settings.setRemoteAccessEnabled(false); },
+      () => remoteBridgeRequest(settings.bridgeUrl, "/api/device/account", { method: "DELETE", token: settings.deviceToken }),
+      () => host.settings.clearRemoteAccess(),
+    ]);
+  } finally {
+    client.stop();
+  }
   return client.status();
+}
+
+async function runRemoteRevocationSteps(steps: Array<() => Promise<unknown>>): Promise<void> {
+  const failures: string[] = [];
+  for (const step of steps) {
+    try { await step(); }
+    catch (error) { failures.push(errorMessage(error)); }
+  }
+  if (failures.length) throw new Error(failures.join(" "));
 }
 
 async function requiredRemoteAccessSettings(settings: SecureSettingsStore): Promise<RemoteAccessSettings> {

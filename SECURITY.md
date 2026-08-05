@@ -82,22 +82,30 @@ meaningful authorization boundary. Closing enrollment does not disable or
 weaken the independently authenticated device tokens for existing addresses.
 
 An approved remote browser is nevertheless a powerful authority. It can send
-prompts to the full-trust management Assistant or a selected Space's native
-Assistant, read bounded saved transcripts, inspect bounded Space-relative
-file-tree metadata, select visible non-ignored context, and upload bounded files
-while the desktop is online. Direct Space sends reuse the canonical registered-
-Space runtime, native Pi resources and tools, conflict rules, and History path.
+prompts to the full-trust management Assistant, read bounded saved management
+transcripts, inspect bounded Space-relative file-tree metadata, and upload
+bounded files while the desktop is online. Selecting a Files tree never selects
+another Assistant. The management Assistant may delegate through the attributed
+act path; those child turns reuse the canonical registered-Space runtime, native
+Pi resources and tools, conflict rules, and History path.
+Direct task-scoped request status and stop calls through the remote semantic
+adapter are bound to the browser identity and exact grant that accepted the
+request. Summary projections omit task ids and action details for other grants.
+This is not isolation between mutually hostile approved browsers: each can
+still prompt the same full-trust management Assistant inside the product's
+personal single-user trust boundary.
 The semantic adapter removes absolute roots and attachment targets and does not
 expose capability/settings mutation or generic local calls, but each Assistant
 itself remains taught rather than tool-restricted and may use ordinary local
 tools under the current user's permissions.
 
 One message accepts at most six plain-named uploads, 6 MB each and 8 MB total.
-Space uploads are written beneath a dated `Dropped/` directory and paired with
-a targeted restore point. Management uploads are temporary app-owned references
+Uploads are temporary app-owned management references
 with a 64 MB retained cap and 24-hour expiry; revoking one browser purges its
 staging directory, and disabling Remote access purges all remote management
-staging. Responses expose upload names and sizes, never local staging paths.
+staging. The Assistant may explicitly place one into a Space through the normal
+restore-pointed path. Responses expose upload names and sizes, never local
+staging paths.
 Approve only browsers you control, revoke a lost browser promptly, and use a
 unique password. The hosted web client and bridge are trusted parts of this
 private alpha's authority boundary. Signed application-encrypted envelopes reduce

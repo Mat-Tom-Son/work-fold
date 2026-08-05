@@ -52,6 +52,7 @@ export interface ManagementRequestRecord {
   childTasks: ManagementChildTaskRef[];
   source: "local" | "remote_web";
   remotePrincipalId: string | null;
+  remoteGrantId: string | null;
   remoteRequestId: string | null;
 }
 
@@ -81,6 +82,7 @@ export class ManagementRequestRegistry {
     continuedFromTaskId?: string;
     source?: "local" | "remote_web";
     remotePrincipalId?: string;
+    remoteGrantId?: string;
     remoteRequestId?: string;
   }): ManagementRequestRecord {
     const previous = input.continuedFromTaskId
@@ -102,6 +104,7 @@ export class ManagementRequestRegistry {
       childTasks: previous ? previous.childTasks.map((child) => ({ ...child })) : [],
       source: input.source ?? "local",
       remotePrincipalId: input.remotePrincipalId ?? null,
+      remoteGrantId: input.remoteGrantId ?? null,
       remoteRequestId: input.remoteRequestId ?? null,
     };
     this.#records.set(input.taskId, record);

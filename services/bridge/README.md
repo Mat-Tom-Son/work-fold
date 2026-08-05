@@ -15,13 +15,15 @@ plaintext persistence, not an untrusted-origin guarantee: the service also
 serves the browser JavaScript, so the hosted client and bridge are trusted parts
 of this alpha's full-authority boundary.
 
-The browser can open bounded saved management or Space Chats, invoke the
-selected canonical Assistant, inspect filtered relative Space trees, choose
-visible context, and attach at most six files (6 MB each, 8 MB total) per
-message. The bridge only relays the encrypted upload envelope. The desktop
-places Space uploads in a dated `Dropped/` folder with a restore point and keeps
-management uploads in quota- and expiry-bounded app-owned staging. No operation
-is a generic local-HTTP tunnel or a direct capability/settings endpoint.
+The browser can open bounded saved management Chats, invoke that one canonical
+management Assistant, inspect filtered relative Space trees, and attach at most
+six files (6 MB each, 8 MB total) per message. Selecting a Space changes only
+the Files tree; the management Assistant performs or delegates Space work
+through the desktop's attributed act path. The bridge only relays the encrypted
+upload envelope, and the desktop keeps uploads in quota- and expiry-bounded
+app-owned staging until the Assistant explicitly uses or places them. No
+operation is a direct Space Chat, generic local-HTTP tunnel, or direct
+capability/settings endpoint.
 
 ## Local development
 

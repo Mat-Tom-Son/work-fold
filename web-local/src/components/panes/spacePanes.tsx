@@ -33,7 +33,7 @@ import {
 } from "@fluentui/react-icons";
 import { api, apiForm, errorText } from "../../lib/api";
 import { resolveAssistantModelSelection } from "../../lib/assistant-model-selection";
-import { chatActivityKey, chatSnoozeTimeLabel, conversationLifecycleView, isRecentlyResurfaced } from "../../lib/chat-lifecycle";
+import { aggregateChatActivityStatus, chatActivityKey, chatSnoozeTimeLabel, conversationLifecycleView, isRecentlyResurfaced } from "../../lib/chat-lifecycle";
 import { formatChatListTime, formatItemCount } from "../../lib/format";
 import { spaceIdentityFor, spaceIdentityStyle } from "../../lib/space-identity";
 import type {
@@ -254,14 +254,9 @@ export function ChatsPane({
     .sort((left, right) => left.name.localeCompare(right.name))
     .map((item) => {
       const list = chatsFor(item);
-      const status = list.some((chat) => activityStatuses[chatActivityKey(item.id, chat.id)] === "running")
-        ? "running" as const
-        : list.some((chat) => activityStatuses[chatActivityKey(item.id, chat.id)] === "attention")
-          ? "attention" as const
-          : null;
+      const status = aggregateChatActivityStatus(item.id, conversations[item.id] ?? [], activityStatuses);
       return { item, list, status };
-    })
-    .filter(({ list }) => list.length > 0);
+    });
 
   return (
     <div className="space-pane-content chats-pane professional-surface professional-chats">

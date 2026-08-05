@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -12,7 +12,6 @@ import {
 import { loadAgentSkillCatalog } from "../src/local/agent/skill-catalog.js";
 import { WorkFoldCliError } from "../src/local/cli/index.js";
 import { startLocalApi } from "../src/local/server.js";
-import { setSpaceIgnoreState } from "../src/local/space-ignore.js";
 import { workFoldManagementRoot, workFoldManagementScopeId } from "../src/local/state-paths.js";
 
 test("the management conversation runs above all Spaces on the shared turn machinery", async () => {
@@ -154,6 +153,11 @@ test("the management conversation fails closed when its required instructions ca
 
 test("remote access reuses the canonical management conversation through a bounded path-safe facade", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-remote-management-test-"));
+  const expiredUpload = join(sandbox, "state", "management", "Incoming", "Remote", "expired-grant", "expired-request");
+  await mkdir(expiredUpload, { recursive: true });
+  await writeFile(join(expiredUpload, "old.txt"), "expired", "utf8");
+  const expiredAt = new Date(Date.now() - 25 * 60 * 60 * 1_000);
+  await utimes(expiredUpload, expiredAt, expiredAt);
   await mkdir(join(sandbox, "agent", "extensions"), { recursive: true });
   await writeFile(join(sandbox, "agent", "extensions", "hold.ts"), `export default function (pi) {
     pi.registerCommand("hold", {
@@ -171,6 +175,7 @@ test("remote access reuses the canonical management conversation through a bound
     },
   });
   try {
+    assert.equal(existsSync(expiredUpload), false, "startup prunes remote uploads after their 24-hour expiry without waiting for another upload");
     const principal = { browserId: "browser-1", grantId: "grant-1", requestId: "request-1" };
     const initial = await api.remoteFacade.execute("management.summary", {}, principal) as { conversation: unknown };
     assert.equal(initial.conversation, null);
@@ -194,11 +199,57 @@ test("remote access reuses the canonical management conversation through a bound
     };
     const running = await api.kernel.getTasks({ kind: "system" });
     assert.equal(running.tasks.find((task) => task.id === sent.taskId)?.actor.kind, "renderer", "the stable kernel actor vocabulary treats the approved web client as a renderer surface");
+    const ownedSummary = await api.remoteFacade.execute(
+      "management.summary",
+      { conversationId: sent.conversationId },
+      { ...principal, requestId: "request-owned-summary" },
+    ) as { latestRequest: { taskId: string; canStop: boolean } };
+    assert.equal(ownedSummary.latestRequest.taskId, sent.taskId);
+    assert.equal(ownedSummary.latestRequest.canStop, true);
+    const crossGrantSummary = await api.remoteFacade.execute(
+      "management.summary",
+      { conversationId: sent.conversationId },
+      { ...principal, grantId: "grant-other", requestId: "request-cross-grant-summary" },
+    ) as { latestRequest: Record<string, unknown> };
+    assert.equal(crossGrantSummary.latestRequest.canStop, false);
+    assert.equal("taskId" in crossGrantSummary.latestRequest, false, "cross-grant summaries omit task authority");
+    assert.equal("actions" in crossGrantSummary.latestRequest, false, "cross-grant summaries omit action details");
+    await assert.rejects(
+      () => api.remoteFacade.execute(
+        "management.stop",
+        { taskId: sent.taskId },
+        { ...principal, grantId: "grant-other", requestId: "request-cross-grant-stop" },
+      ),
+      /not found for this browser grant/,
+      "a different approved grant cannot stop a request whose task id it learns",
+    );
+    await assert.rejects(
+      () => api.remoteFacade.execute(
+        "management.request",
+        { taskId: sent.taskId },
+        { ...principal, browserId: "browser-other", requestId: "request-cross-browser-status" },
+      ),
+      /not found for this browser grant/,
+      "task-scoped request status is owned by the accepting browser and grant",
+    );
+    const ownedRequest = await api.remoteFacade.execute(
+      "management.request",
+      { taskId: sent.taskId },
+      { ...principal, requestId: "request-owned-status" },
+    ) as { request: { taskId: string } };
+    assert.equal(ownedRequest.request.taskId, sent.taskId);
 
     const duplicate = await api.remoteFacade.execute("management.send", { content: "/hold" }, principal) as { duplicate?: boolean; taskId: string | null };
     assert.equal(duplicate.duplicate, true, "the signed request id is idempotent at the semantic adapter");
     assert.equal(duplicate.taskId, null);
     await waitForAsync(async () => (await api.actFacade.manageTurnStatus({ taskId: sent.taskId })).task.state !== "running");
+    const sameIdOtherGrant = await api.remoteFacade.execute(
+      "management.send",
+      { content: "cross-grant request", conversationId: sent.conversationId },
+      { ...principal, grantId: "grant-other" },
+    ) as { duplicate?: boolean; taskId: string };
+    assert.equal(sameIdOtherGrant.duplicate, undefined, "request ids are idempotent only within their exact browser grant");
+    await waitForAsync(async () => (await api.actFacade.manageTurnStatus({ taskId: sameIdOtherGrant.taskId })).task.state !== "running");
 
     const transcript = await api.remoteFacade.execute(
       "management.transcript",
@@ -284,82 +335,6 @@ test("remote access reuses the canonical management conversation through a bound
     ) as { messages: Array<{ role: string; attachments?: Array<{ kind: string; name: string; target?: string }> }> };
     const uploadMessage = uploadTranscript.messages.find((message) => message.attachments?.some((attachment) => attachment.name === "brief-upload.txt"));
     assert.deepEqual(uploadMessage?.attachments, [{ kind: "file", name: "brief-upload.txt" }], "remote transcripts expose attachment identity without local paths");
-
-    const spaceUploadPrincipal = { ...principal, requestId: "request-space-upload" };
-    const spaceTurn = await api.remoteFacade.execute(
-      "spaces.send",
-      {
-        spaceId: space.space.id,
-        content: "/hold",
-        newConversation: true,
-        attachments: [{ name: "notes.txt", data: Buffer.from("space notes", "utf8").toString("base64url") }],
-      },
-      spaceUploadPrincipal,
-    ) as {
-      conversationId: string;
-      taskId: string;
-      uploads: Array<{ name: string; path: string; sizeBytes: number }>;
-      safetyCheckpointId: string | null;
-    };
-    assert.equal(spaceTurn.uploads[0]?.name, "notes.txt");
-    assert.match(spaceTurn.uploads[0]?.path ?? "", /^Dropped\/\d{4}-\d{2}-\d{2}\/notes\.txt$/);
-    assert.equal(existsSync(join(space.space.spaceRoot, spaceTurn.uploads[0]!.path)), true);
-    assert.ok(spaceTurn.safetyCheckpointId, "placing a remote upload in a Space records a restore point");
-    await waitForAsync(async () => {
-      const tasks = await api.kernel.getTasks({ kind: "system" });
-      return !tasks.tasks.some((task) => task.id === spaceTurn.taskId);
-    });
-    const spaceChats = await api.remoteFacade.execute(
-      "spaces.chats",
-      { spaceId: space.space.id },
-      { ...principal, requestId: "request-space-chats" },
-    ) as { space: { id: string }; conversations: Array<{ id: string }>; truncated: boolean };
-    assert.equal(spaceChats.space.id, space.space.id);
-    assert.equal(spaceChats.conversations.some((conversation) => conversation.id === spaceTurn.conversationId), true);
-    assert.equal(spaceChats.truncated, false);
-    const spaceTranscript = await api.remoteFacade.execute(
-      "spaces.transcript",
-      { spaceId: space.space.id, conversationId: spaceTurn.conversationId },
-      { ...principal, requestId: "request-space-transcript" },
-    ) as { messages: Array<{ role: string; content: string; source?: string }> };
-    assert.equal(spaceTranscript.messages.some((message) => message.role === "user" && message.content === "/hold" && message.source === "remote_web"), true);
-
-    const stoppable = await api.remoteFacade.execute(
-      "spaces.send",
-      { spaceId: space.space.id, content: "/hold", conversationId: spaceTurn.conversationId },
-      { ...principal, requestId: "request-space-stop" },
-    ) as { conversationId: string; taskId: string };
-    const stopped = await api.remoteFacade.execute(
-      "spaces.stop",
-      { spaceId: space.space.id, taskId: stoppable.taskId },
-      { ...principal, requestId: "request-space-stop-action" },
-    ) as { stopped: boolean; taskId: string };
-    assert.equal(stopped.taskId, stoppable.taskId);
-    assert.equal(stopped.stopped, true);
-
-    await writeFile(join(space.space.spaceRoot, "secret.txt"), "ignored", "utf8");
-    await setSpaceIgnoreState(space.space.spaceRoot, ["secret.txt"], true);
-    await assert.rejects(
-      () => api.remoteFacade.execute(
-        "spaces.send",
-        { spaceId: space.space.id, content: "/hold", newConversation: true, contextPaths: ["secret.txt"] },
-        { ...principal, requestId: "request-ignored-context" },
-      ),
-      /visible, non-ignored/,
-    );
-    await assert.rejects(
-      () => api.remoteFacade.execute(
-        "spaces.send",
-        {
-          spaceId: space.space.id,
-          content: "/hold",
-          newConversation: true,
-          attachments: [{ name: "../escape.txt", data: "eA" }],
-        },
-        { ...principal, requestId: "request-unsafe-upload" },
-      ),
-      /plain names/,
-    );
 
     await api.remoteFacade.purgeUploads(principal.grantId);
     assert.equal(existsSync(stagedManagementPath), false, "revoking a browser can purge its staged management uploads");

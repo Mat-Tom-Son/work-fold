@@ -55,22 +55,23 @@ code which may use a non-exportable approved browser key, an active compromise
 of the hosted service can read displayed content or issue authorized requests.
 The envelope design protects passive relay handling and persisted state; it is
 not a guarantee against a malicious hosted origin. The browser renders bounded
-saved management or Space transcripts and filtered, bounded Space-relative
-file-tree projections in memory and starts fresh by fetching them again after
-sign-in. Files selected in the browser remain page-local until send, then cross
-the bridge only inside the encrypted envelope.
+saved management transcripts and filtered, bounded Space-relative file-tree
+projections in memory and starts fresh by fetching them again after sign-in.
+Selecting a Space changes only the displayed file tree; it does not select a
+different Assistant or transcript.
 Removing Remote access deletes its server-side account records; browser
 IndexedDB may retain an unusable local key until that site's data is cleared.
 
-A prompt sent from Remote access enters the explicitly selected local management
-or Space Chat and is then sent to the configured model provider under the
-behavior below. A Space upload becomes ordinary Space content under a dated
-`Dropped/` folder and receives a restore point. A management upload becomes a
-temporary local reference under app-owned `management/Incoming/Remote/`, subject
+A prompt sent from Remote access enters the selected local management Chat and
+is then sent to the configured model provider under the behavior below. The
+management Assistant may delegate to a Space Assistant through the same
+attributed desktop act path used locally. An upload becomes a temporary local
+reference under app-owned `management/Incoming/Remote/`, subject
 to a 64 MB retained cap and 24-hour expiry; it is purged for a revoked browser
-or when Remote access is disabled. Revocation does not delete files already
-placed in a Space. work-fold does not terminate or proxy the model-provider
-request at the bridge.
+or when Remote access is disabled. If the Assistant explicitly places it into a
+Space, the ordinary restore-pointed file path applies; revocation does not
+delete that placed copy. work-fold does not terminate or proxy the
+model-provider request at the bridge.
 
 ### Model providers
 
