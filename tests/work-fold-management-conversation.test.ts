@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -151,6 +151,66 @@ test("the management conversation fails closed when its required instructions ca
   }
 });
 
+test("remote recovery recognizes shipped browser-scoped requests that predate grant provenance", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-remote-legacy-recovery-test-"));
+  const stateBase = join(sandbox, "state");
+  const conversationId = "chat-f6e5b83-legacy";
+  const transcriptDir = join(stateBase, "management", ".work-fold", "conversations");
+  const transcriptPath = join(transcriptDir, `${conversationId}.jsonl`);
+  await mkdir(transcriptDir, { recursive: true });
+  const legacyMessage = {
+    id: "message-from-0.2.2",
+    role: "user",
+    content: "legacy remote request",
+    createdAt: "2026-08-01T12:00:00.000Z",
+    source: "remote_web",
+    remotePrincipalId: "browser-legacy",
+    remoteRequestId: "request-before-grant-provenance",
+  };
+  const originalTranscript = `${JSON.stringify({
+    id: "legacy-title",
+    role: "system",
+    kind: "conversation_title",
+    titleSource: "placeholder",
+    content: "New Chat",
+    createdAt: "2026-08-01T11:59:59.000Z",
+  })}\n${JSON.stringify(legacyMessage)}\n`;
+  await writeFile(transcriptPath, originalTranscript, "utf8");
+
+  const api = await startLocalApi({
+    port: 0,
+    stateBase,
+    spaceBase: join(sandbox, "content"),
+    loadEnv: false,
+  });
+  try {
+    const recovered = await api.remoteFacade.execute(
+      "management.send",
+      { content: "must not run again", newConversation: true },
+      {
+        browserId: legacyMessage.remotePrincipalId,
+        grantId: "grant-added-after-0.2.2",
+        requestId: legacyMessage.remoteRequestId,
+      },
+    ) as { accepted: boolean; duplicate?: boolean; conversationId: string; taskId: string | null; message: { id: string } };
+
+    assert.equal(recovered.accepted, true);
+    assert.equal(recovered.duplicate, true, "the recovered signed request must not enqueue a second full-trust prompt");
+    assert.equal(recovered.conversationId, conversationId);
+    assert.equal(recovered.taskId, null);
+    assert.equal(recovered.message.id, legacyMessage.id);
+    assert.equal(await readFile(transcriptPath, "utf8"), originalTranscript, "compatibility lookup never rewrites the append-only log");
+    assert.deepEqual(
+      await readdir(transcriptDir),
+      [`${conversationId}.jsonl`],
+      "replaying a legacy New chat request does not leave another transcript",
+    );
+  } finally {
+    await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
 test("remote access reuses the canonical management conversation through a bounded path-safe facade", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-remote-management-test-"));
   const expiredUpload = join(sandbox, "state", "management", "Incoming", "Remote", "expired-grant", "expired-request");
@@ -179,6 +239,28 @@ test("remote access reuses the canonical management conversation through a bound
     const principal = { browserId: "browser-1", grantId: "grant-1", requestId: "request-1" };
     const initial = await api.remoteFacade.execute("management.summary", {}, principal) as { conversation: unknown };
     assert.equal(initial.conversation, null);
+
+    const locallyStarted = await api.actFacade.manageSend({ content: "/hold local-owner" });
+    await assert.rejects(
+      () => api.remoteFacade.execute(
+        "management.request",
+        { taskId: locallyStarted.taskId },
+        { ...principal, requestId: "request-local-task-status" },
+      ),
+      /not found for this browser grant/,
+      "remote task status never adopts locally-started management work",
+    );
+    await assert.rejects(
+      () => api.remoteFacade.execute(
+        "management.stop",
+        { taskId: locallyStarted.taskId },
+        { ...principal, requestId: "request-local-task-stop" },
+      ),
+      /not found for this browser grant/,
+      "remote stop never adopts locally-started management work",
+    );
+    assert.equal((await api.actFacade.manageStop({ taskId: locallyStarted.taskId })).managementAborted, true);
+    await waitForAsync(async () => (await api.actFacade.manageTurnStatus({ taskId: locallyStarted.taskId })).task.state !== "running");
 
     const space = await api.actFacade.createSpace({ name: "Remote Files" });
     await writeFile(join(space.space.spaceRoot, "brief.txt"), "private content", "utf8");
@@ -238,6 +320,13 @@ test("remote access reuses the canonical management conversation through a bound
       { ...principal, requestId: "request-owned-status" },
     ) as { request: { taskId: string } };
     assert.equal(ownedRequest.request.taskId, sent.taskId);
+    const ownedStop = await api.remoteFacade.execute(
+      "management.stop",
+      { taskId: sent.taskId },
+      { ...principal, requestId: "request-owned-stop" },
+    ) as { stopped: { taskId: string; managementAborted: boolean } };
+    assert.equal(ownedStop.stopped.taskId, sent.taskId);
+    assert.equal(ownedStop.stopped.managementAborted, true, "the exact accepting browser grant can stop its request");
 
     const duplicate = await api.remoteFacade.execute("management.send", { content: "/hold" }, principal) as { duplicate?: boolean; taskId: string | null };
     assert.equal(duplicate.duplicate, true, "the signed request id is idempotent at the semantic adapter");

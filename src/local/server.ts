@@ -21,6 +21,7 @@ import {
 } from "./agent/extension-ui.js";
 import {
   appendMessage,
+  conversationsDir,
   createConversation,
   listConversations,
   readConversation,
@@ -2244,15 +2245,113 @@ async function findRemoteConversationRequest(
   rootPath: string,
   principal: WorkFoldRemotePrincipal,
 ): Promise<{ conversationId: string; message: ChatMessage } | null> {
-  for (const conversation of await listConversations(rootPath)) {
-    const message = (await readConversation(rootPath, conversation.id))
-      .find((candidate) => candidate.role === "user"
-        && candidate.remotePrincipalId === principal.browserId
-        && candidate.remoteGrantId === principal.grantId
-        && candidate.remoteRequestId === principal.requestId);
-    if (message) return { conversationId: conversation.id, message };
+  const conversations = await listConversations(rootPath);
+  const cacheKey = resolve(rootPath);
+  const previous = remoteConversationRequestIndexes.get(cacheKey);
+  const nextConversations = new Map<string, RemoteConversationRequestIndexEntry>();
+  let requestCount = 0;
+  let cacheable = conversations.length <= maxRemoteRequestIndexConversations;
+  let matchedConversationId: string | null = null;
+
+  for (const conversation of conversations) {
+    const transcript = join(conversationsDir(rootPath), `${conversation.id}.jsonl`);
+    let info;
+    try {
+      info = await stat(transcript);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+    const identity = remoteTranscriptIdentity(info);
+    const cached = previous?.conversations.get(conversation.id);
+    const requests = cached?.identity === identity
+      ? cached.requests
+      : (await readConversation(rootPath, conversation.id)).flatMap((candidate) => {
+          if (candidate.role !== "user"
+            || candidate.source !== "remote_web"
+            || !candidate.remotePrincipalId
+            || !candidate.remoteRequestId) return [];
+          return [{
+            remotePrincipalId: candidate.remotePrincipalId,
+            ...(candidate.remoteGrantId ? { remoteGrantId: candidate.remoteGrantId } : {}),
+            remoteRequestId: candidate.remoteRequestId,
+          }];
+        });
+    requestCount += requests.length;
+    if (requestCount > maxRemoteRequestIndexEntries) cacheable = false;
+    if (cacheable) nextConversations.set(conversation.id, { identity, requests });
+    if (!matchedConversationId && requests.some((candidate) => remoteRequestMatches(candidate, principal))) {
+      matchedConversationId = conversation.id;
+    }
+  }
+
+  if (cacheable) {
+    rememberRemoteConversationRequestIndex(cacheKey, { conversations: nextConversations });
+  } else {
+    // The cache is only an optimization. Oversized stores keep the original
+    // authoritative scan rather than dropping older idempotency records.
+    remoteConversationRequestIndexes.delete(cacheKey);
+  }
+  if (matchedConversationId) {
+    const message = (await readConversation(rootPath, matchedConversationId))
+      .find((candidate) => candidate.role === "user" && remoteRequestMatches(candidate, principal));
+    if (message) return { conversationId: matchedConversationId, message };
   }
   return null;
+}
+
+interface RemoteConversationRequestRef {
+  remotePrincipalId: string;
+  remoteGrantId?: string;
+  remoteRequestId: string;
+}
+
+interface RemoteConversationRequestIndexEntry {
+  identity: string;
+  requests: RemoteConversationRequestRef[];
+}
+
+interface RemoteConversationRequestIndex {
+  conversations: Map<string, RemoteConversationRequestIndexEntry>;
+}
+
+// This complete derived index is trusted only while every current transcript
+// retains the same filesystem identity. Appends, replacements, new Chats, and
+// deletions are therefore re-read before a negative lookup can admit a turn.
+// It is deliberately bounded; a larger store falls back to the authoritative
+// append-only logs, and a restart simply rebuilds it from those logs.
+const remoteConversationRequestIndexes = new Map<string, RemoteConversationRequestIndex>();
+const maxRemoteRequestIndexRoots = 8;
+const maxRemoteRequestIndexConversations = 512;
+const maxRemoteRequestIndexEntries = 4_096;
+
+function rememberRemoteConversationRequestIndex(
+  rootPath: string,
+  index: RemoteConversationRequestIndex,
+): void {
+  remoteConversationRequestIndexes.delete(rootPath);
+  remoteConversationRequestIndexes.set(rootPath, index);
+  while (remoteConversationRequestIndexes.size > maxRemoteRequestIndexRoots) {
+    const oldest = remoteConversationRequestIndexes.keys().next().value as string | undefined;
+    if (!oldest) break;
+    remoteConversationRequestIndexes.delete(oldest);
+  }
+}
+
+function remoteTranscriptIdentity(info: Awaited<ReturnType<typeof stat>>): string {
+  return [info.size, info.mtime.toISOString(), info.ctime.toISOString(), info.dev, info.ino].join(":");
+}
+
+function remoteRequestMatches(
+  candidate: RemoteConversationRequestRef | ChatMessage,
+  principal: WorkFoldRemotePrincipal,
+): boolean {
+  return candidate.remotePrincipalId === principal.browserId
+    && candidate.remoteRequestId === principal.requestId
+    // Version 0.2.2 persisted browser + request provenance but no grant id.
+    // Preserve recovery for those shipped records without weakening the exact
+    // browser + grant + request match written by current builds.
+    && (candidate.remoteGrantId === undefined || candidate.remoteGrantId === principal.grantId);
 }
 
 const maxRemoteConversationSummaries = 100;
