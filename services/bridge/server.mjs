@@ -32,6 +32,12 @@ const maximumOperationEventBytes = 32 * 1024 * 1024;
 const maximumOperationEventRecords = 256;
 const maximumSseClients = 128;
 const maximumSseClientsPerGrant = 3;
+// A maximum-sized response envelope expands to a little over 4 MiB once its
+// base64url ciphertext is wrapped in JSON/SSE. Keep one such event plus normal
+// follow-up traffic bounded per slow client without treating write(false) as a
+// disconnect signal.
+const maximumSseClientQueuedBytes = 8 * 1024 * 1024;
+const maximumDeviceProtocolErrors = 2;
 const maximumRateLimitBuckets = 10_000;
 const loginAttemptsPerIp = 24;
 const loginAttemptWindowMs = 15 * 60_000;
@@ -43,7 +49,7 @@ const maximumQueuedPasswordChecksPerIp = 2;
 const sessionCookieName = "__Host-work_fold_session";
 const localSessionCookieName = "work_fold_session";
 const macReleaseApiUrl = "https://api.github.com/repos/Mat-Tom-Son/work-fold-mac-releases/releases/latest";
-const macReleaseFallbackDownloadUrl = "https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/download/v0.1.4/work-fold-0.1.4-mac-arm64.dmg";
+const macReleaseFallbackUrl = "https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/latest";
 const releaseDownloadCacheMs = 15 * 60 * 1_000;
 const publicDir = join(dirname(fileURLToPath(import.meta.url)), "public");
 const allowedOperations = new Set([
@@ -267,11 +273,13 @@ async function handleRequest(state, request, response) {
     await state.database.assertCsrf(session, request.headers["x-work-fold-csrf"]);
     enforceRateLimit(state.rateLimits, `pairing:${session.accountId}`, 12, 15 * 60_000);
     enforceRateLimit(state.rateLimits, `pair:${account.id}:${clientIp(state, request)}`, 10, 60 * 60_000);
-    const device = state.devices.get(account.id);
-    if (!device) throw httpError(409, "Your work-fold desktop must be online to approve this browser.");
+    if (!state.devices.has(account.id)) throw httpError(409, "Your work-fold desktop must be online to approve this browser.");
     const body = await readJsonBody(request, maximumJsonBodyBytes);
     const pairing = await state.database.createPairing(token, body);
-    sendDevice(device.socket, { type: "pairing.request", pairing: devicePairingView(pairing) });
+    const device = state.devices.get(account.id);
+    if (!device || !sendDevice(device.socket, { type: "pairing.request", pairing: devicePairingView(pairing) })) {
+      throw httpError(409, "Your work-fold desktop disconnected before it received the approval request.");
+    }
     return writeJson(response, 202, { pairing: browserPairingView(pairing) }, method, state, request);
   }
 
@@ -298,8 +306,7 @@ async function handleRequest(state, request, response) {
     await state.database.assertCsrf(session, request.headers["x-work-fold-csrf"]);
     if (!validPairedSession(session)) throw httpError(403, "Approve this browser from the work-fold desktop app.");
     enforceRateLimit(state.rateLimits, `operation:${session.id}`, 30, 60_000);
-    const device = state.devices.get(account.id);
-    if (!device) throw httpError(409, "Your work-fold desktop is offline.");
+    if (!state.devices.has(account.id)) throw httpError(409, "Your work-fold desktop is offline.");
     const body = await readJsonBody(request, maximumOperationBodyBytes);
     if (Object.keys(body).some((key) => key !== "envelope" && key !== "recover")
       || (body.recover !== undefined && typeof body.recover !== "boolean")) {
@@ -314,7 +321,8 @@ async function handleRequest(state, request, response) {
         const current = await state.database.operationForSession(session, operation.id);
         return writeJson(response, 200, { operation: current ?? operation }, method, state, request);
       }
-      if (!sendDevice(device.socket, { type: "operation.request", operation: claimed, envelope })) {
+      const device = state.devices.get(account.id);
+      if (!device || !sendDevice(device.socket, { type: "operation.request", operation: claimed, envelope })) {
         await state.database.setOperationState(account.id, operation.id, "lost");
         throw httpError(409, "Your work-fold desktop disconnected before it accepted the request.");
       }
@@ -363,8 +371,11 @@ async function handleRequest(state, request, response) {
 
   if (url.pathname === "/api/device/account" && method === "DELETE") {
     const account = await requireDevice(state, request);
+    const grants = await state.database.listGrants(account.id);
     state.devices.get(account.id)?.socket.close(4001, "Remote access removed");
     const removed = await state.database.removeAccount(account.id);
+    for (const grant of grants) closeSseClients(state, grant.id);
+    discardOperationEventsForAccount(state, account.id);
     return writeJson(response, 200, { removed }, method, state, request);
   }
 
@@ -379,12 +390,7 @@ async function handleRequest(state, request, response) {
     const grants = await state.database.listGrants(account.id);
     const revoked = await state.database.revokeAllGrants(account.id);
     for (const grant of grants) closeSseClients(state, grant.id);
-    for (const [operationId, record] of state.operationEvents) {
-      if (record.events.some((event) => event.envelope?.header?.accountId === account.id)) {
-        state.operationEventBytes -= record.bytes;
-        state.operationEvents.delete(operationId);
-      }
-    }
+    discardOperationEventsForAccount(state, account.id);
     return writeJson(response, 200, { revoked }, method, state, request);
   }
 
@@ -392,7 +398,7 @@ async function handleRequest(state, request, response) {
   if (grantMatch && method === "DELETE") {
     const account = await requireDevice(state, request);
     const revoked = await state.database.revokeGrant(account.id, grantMatch[1]);
-    closeSseClients(state, grantMatch[1]);
+    if (revoked) closeSseClients(state, grantMatch[1]);
     return writeJson(response, 200, { revoked }, method, state, request);
   }
 
@@ -413,20 +419,34 @@ async function handleUpgrade(state, request, socket, head) {
   if (!account) return rejectUpgrade(socket, 401, "Unauthorized");
   state.webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
     const existing = state.devices.get(account.id);
-    if (existing) existing.socket.close(4000, "A newer desktop connection replaced this one");
+    if (existing) {
+      existing.displaced = true;
+      existing.socket.close(4000, "A newer desktop connection replaced this one");
+    }
     const connection = {
       socket: webSocket,
       account,
       alive: true,
+      displaced: false,
+      terminal: false,
+      protocolErrors: 0,
       connectedAt: new Date().toISOString(),
       messageQueue: Promise.resolve(),
     };
     state.devices.set(account.id, connection);
     void broadcastAccountPresence(state, account.id, true).catch(() => undefined);
-    webSocket.on("pong", () => { connection.alive = true; });
+    webSocket.on("pong", () => {
+      if (isCurrentDeviceConnection(state, connection)) connection.alive = true;
+    });
     webSocket.on("message", (data) => {
-      connection.messageQueue = connection.messageQueue.catch(() => undefined).then(() => handleDeviceMessage(state, connection, data)).catch((error) => {
-        sendDevice(webSocket, { type: "protocol.error", error: publicErrorMessage(error) });
+      if (!isCurrentDeviceConnection(state, connection)) return;
+      connection.messageQueue = connection.messageQueue.catch(() => undefined).then(async () => {
+        if (!isCurrentDeviceConnection(state, connection)) return;
+        try {
+          await handleDeviceMessage(state, connection, data);
+        } catch (error) {
+          handleDeviceProtocolFailure(state, connection, error);
+        }
       });
     });
     webSocket.on("close", () => {
@@ -438,20 +458,31 @@ async function handleUpgrade(state, request, socket, head) {
     });
     webSocket.on("error", () => undefined);
     void state.database.pendingPairings(account.id).then((pairings) => {
+      if (!isCurrentDeviceConnection(state, connection)) return;
       sendDevice(webSocket, {
         type: "device.ready",
         account: publicAccount(account),
         pendingPairings: pairings.map(devicePairingView),
       });
-    }).catch(() => webSocket.close(1011, "Could not initialize device connection"));
+    }).catch(() => {
+      if (isCurrentDeviceConnection(state, connection)) webSocket.close(1011, "Could not initialize device connection");
+    });
   });
 }
 
 async function handleDeviceMessage(state, connection, raw) {
+  if (!isCurrentDeviceConnection(state, connection)) return;
   let message;
   try { message = JSON.parse(raw.toString()); } catch { throw new Error("Device messages must be JSON."); }
   if (!message || typeof message !== "object" || Array.isArray(message) || typeof message.type !== "string") {
     throw new Error("Device message is invalid.");
+  }
+  if (message.type === "protocol.error") {
+    // A peer reporting that it cannot understand us is terminal for this
+    // transport generation. Never answer protocol.error with protocol.error.
+    connection.terminal = true;
+    connection.socket.close(1002, "Device reported a protocol error");
+    return;
   }
   if (message.type === "device.heartbeat") {
     connection.alive = true;
@@ -459,9 +490,11 @@ async function handleDeviceMessage(state, connection, raw) {
   }
   if (message.type === "pairing.decision") {
     const currentAccount = await state.database.accountById(connection.account.id);
+    if (!isCurrentDeviceConnection(state, connection)) return;
     if (!currentAccount) throw new Error("Remote access is no longer registered.");
     connection.account = currentAccount;
     const decision = await state.database.decidePairing(currentAccount, message);
+    if (!isCurrentDeviceConnection(state, connection)) return;
     sendDevice(connection.socket, { type: "pairing.settled", pairingId: message.pairingId, ...decision });
     return;
   }
@@ -469,6 +502,7 @@ async function handleDeviceMessage(state, connection, raw) {
     const envelope = assertDeviceEnvelope(connection.account, message.envelope);
     if (envelope.header.eventKind !== message.type) throw new Error("Signed response kind does not match its message.");
     const operation = await state.database.operationForDevice(connection.account.id, envelope.header.operationId);
+    if (!isCurrentDeviceConnection(state, connection)) return;
     if (!operation || operation.browserGrantId !== envelope.header.grantId
       || operation.requestId !== envelope.header.requestId || operation.generation !== envelope.header.generation) {
       throw new Error("Response envelope does not match an accepted operation.");
@@ -484,7 +518,7 @@ async function handleDeviceMessage(state, connection, raw) {
     } else {
       transitioned = await state.database.setOperationState(connection.account.id, operation.id, "running");
     }
-    if (!transitioned) return;
+    if (!isCurrentDeviceConnection(state, connection) || !transitioned) return;
     const event = { envelope, at: new Date().toISOString() };
     rememberOperationEvent(state, operation.id, event);
     broadcastGrant(state, operation.browserGrantId, {
@@ -494,7 +528,26 @@ async function handleDeviceMessage(state, connection, raw) {
     });
     return;
   }
-  throw new Error("Unsupported device message type.");
+  // New desktop versions may add device-to-bridge notifications. A
+  // well-formed frame with an unknown type is forward-compatible and inert.
+}
+
+function isCurrentDeviceConnection(state, connection) {
+  return !connection.displaced
+    && !connection.terminal
+    && state.devices.get(connection.account.id) === connection
+    && connection.socket.readyState === WebSocket.OPEN;
+}
+
+function handleDeviceProtocolFailure(state, connection, error) {
+  if (!isCurrentDeviceConnection(state, connection)) return;
+  connection.protocolErrors += 1;
+  if (connection.protocolErrors > maximumDeviceProtocolErrors) {
+    connection.terminal = true;
+    connection.socket.close(1002, "Too many invalid device messages");
+    return;
+  }
+  sendDevice(connection.socket, { type: "protocol.error", error: publicErrorMessage(error) });
 }
 
 function assertBrowserEnvelope(account, session, value) {
@@ -560,6 +613,7 @@ function assertFreshTimestamp(value) {
 }
 
 function openEventStream(state, request, response, grantId, accountId) {
+  pruneClosedSseClients(state);
   const clients = state.sseClients.get(grantId) ?? new Set();
   const totalClients = [...state.sseClients.values()].reduce((total, set) => total + set.size, 0);
   if (clients.size >= maximumSseClientsPerGrant || totalClients >= maximumSseClients) {
@@ -571,21 +625,23 @@ function openEventStream(state, request, response, grantId, accountId) {
     connection: "keep-alive",
     ...securityHeaders(state, request),
   });
-  response.write(`event: ready\ndata: ${JSON.stringify({ desktopOnline: state.devices.has(accountId) })}\n\n`);
   clients.add(response);
   state.sseClients.set(grantId, clients);
-  const heartbeat = setInterval(() => response.write(": keepalive\n\n"), 20_000);
+  writeSseClient(state, grantId, response, `event: ready\ndata: ${JSON.stringify({ desktopOnline: state.devices.has(accountId) })}\n\n`);
+  const heartbeat = setInterval(() => writeSseClient(state, grantId, response, ": keepalive\n\n"), 20_000);
   const close = () => {
     clearInterval(heartbeat);
-    clients.delete(response);
-    if (!clients.size) state.sseClients.delete(grantId);
+    removeSseClient(state, grantId, response);
   };
-  request.on("close", close);
+  request.once("close", close);
+  response.once("close", close);
+  response.once("finish", close);
+  response.once("error", close);
 }
 
 function broadcastGrant(state, grantId, event) {
   const data = `event: remote\ndata: ${JSON.stringify(event)}\n\n`;
-  for (const response of state.sseClients.get(grantId) ?? []) if (!response.write(data)) response.end();
+  for (const response of state.sseClients.get(grantId) ?? []) writeSseClient(state, grantId, response, data);
 }
 
 async function broadcastAccountPresence(state, accountId, desktopOnline) {
@@ -599,6 +655,54 @@ function closeSseClients(state, grantId) {
   const clients = state.sseClients.get(grantId) ?? [];
   state.sseClients.delete(grantId);
   for (const response of clients) response.end();
+}
+
+function writeSseClient(state, grantId, response, data) {
+  if (response.destroyed || response.writableEnded) {
+    removeSseClient(state, grantId, response);
+    return false;
+  }
+  const bytes = Buffer.byteLength(data, "utf8");
+  if (response.writableLength + bytes > maximumSseClientQueuedBytes) {
+    removeSseClient(state, grantId, response);
+    response.destroy();
+    return false;
+  }
+  try {
+    // false means Node has crossed its high-water mark, not that this client
+    // failed. The bounded writableLength check above owns slow-client policy.
+    response.write(data);
+    return true;
+  } catch {
+    removeSseClient(state, grantId, response);
+    response.destroy();
+    return false;
+  }
+}
+
+function removeSseClient(state, grantId, response) {
+  const clients = state.sseClients.get(grantId);
+  if (!clients) return;
+  clients.delete(response);
+  if (!clients.size) state.sseClients.delete(grantId);
+}
+
+function pruneClosedSseClients(state) {
+  for (const [grantId, clients] of state.sseClients) {
+    for (const response of clients) {
+      if (response.destroyed || response.writableEnded) clients.delete(response);
+    }
+    if (!clients.size) state.sseClients.delete(grantId);
+  }
+}
+
+function discardOperationEventsForAccount(state, accountId) {
+  for (const [operationId, record] of state.operationEvents) {
+    if (record.events.some((event) => event.envelope?.header?.accountId === accountId)) {
+      state.operationEventBytes -= record.bytes;
+      state.operationEvents.delete(operationId);
+    }
+  }
 }
 
 function heartbeatDevices(state) {
@@ -957,7 +1061,7 @@ async function latestMacDownload(state) {
     return url.href;
   } catch (error) {
     console.warn(`work-fold could not resolve the latest macOS download: ${publicErrorMessage(error)}`);
-    return macReleaseFallbackDownloadUrl;
+    return macReleaseFallbackUrl;
   }
 }
 

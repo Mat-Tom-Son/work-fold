@@ -118,7 +118,7 @@ test("the landing download redirects to the latest signed macOS GitHub asset", a
   assert.equal(response.headers.get("cache-control"), "no-store");
 });
 
-test("the landing download remains direct when GitHub's latest-release API is unavailable", async (context) => {
+test("the landing download falls back to GitHub's current releases page when its API is unavailable", async (context) => {
   const service = await testService(context, {
     releaseFetcher: async () => new Response("rate limited", { status: 429 }),
   });
@@ -126,7 +126,7 @@ test("the landing download remains direct when GitHub's latest-release API is un
   assert.equal(response.status, 302);
   assert.equal(
     response.headers.get("location"),
-    "https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/download/v0.1.4/work-fold-0.1.4-mac-arm64.dmg",
+    "https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/latest",
   );
 });
 
@@ -317,6 +317,130 @@ test("distributed password failures cannot lock a correct account login", async 
   assert.equal(correct.response.status, 200);
 });
 
+test("device protocol errors are finite while unknown frames remain forward-compatible", async (context) => {
+  const service = await testService(context);
+  const baseUrl = `http://127.0.0.1:${service.port}`;
+  const enrolled = await enrollTestAccount(baseUrl, {
+    slug: "device-protocol-test",
+    password: "a private device protocol password",
+  });
+  const socket = new WebSocket(`ws://127.0.0.1:${service.port}/api/device/connect`, {
+    headers: { authorization: `Bearer ${enrolled.deviceToken}` },
+  });
+  context.after(() => socket.close());
+  const messages = messageQueue(socket);
+  await messages.next("device.ready");
+
+  socket.send(JSON.stringify({ type: "device.future-notification.v2", payload: { future: true } }));
+  socket.send(JSON.stringify({ type: "device.heartbeat" }));
+  await messages.next("device.heartbeat");
+  assert.equal(messages.takeNow("protocol.error"), null, "unknown future frames are ignored without starting an error exchange");
+
+  socket.send("{");
+  assert.match((await messages.next("protocol.error")).error, /must be JSON/);
+  socket.send(JSON.stringify({ type: "operation.event", envelope: null }));
+  assert.match((await messages.next("protocol.error")).error, /envelope is invalid/);
+  const closedForBudget = socketClosed(socket);
+  socket.send(JSON.stringify([]));
+  const budgetClose = await closedForBudget;
+  assert.equal(budgetClose.code, 1002);
+  assert.equal(messages.takeNow("protocol.error"), null, "the over-budget frame closes instead of producing an unbounded reply");
+
+  const terminalSocket = new WebSocket(`ws://127.0.0.1:${service.port}/api/device/connect`, {
+    headers: { authorization: `Bearer ${enrolled.deviceToken}` },
+  });
+  context.after(() => terminalSocket.close());
+  const terminalMessages = messageQueue(terminalSocket);
+  await terminalMessages.next("device.ready");
+  const terminalClose = socketClosed(terminalSocket);
+  terminalSocket.send(JSON.stringify({ type: "protocol.error", error: "desktop rejected a bridge frame" }));
+  assert.equal((await terminalClose).code, 1002);
+  assert.equal(terminalMessages.takeNow("protocol.error"), null, "an inbound protocol error is terminal and is never answered in kind");
+});
+
+test("a displaced device cannot decide a pairing and the current device can decline it", async (context) => {
+  const service = await testService(context);
+  const baseUrl = `http://127.0.0.1:${service.port}`;
+  const origin = baseUrl;
+  const password = "a private displacement test password";
+  const deviceKeys = deviceKeyPairs();
+  const browserKeys = deviceKeyPairs();
+  const enrolled = await jsonRequest(`${baseUrl}/api/device/enroll`, {
+    method: "POST",
+    body: {
+      slug: "device-displacement-test",
+      password,
+      deviceSigningPublicJwk: deviceKeys.signing.publicJwk,
+      deviceEncryptionPublicJwk: deviceKeys.encryption.publicJwk,
+    },
+  });
+  const oldSocket = new WebSocket(`ws://127.0.0.1:${service.port}/api/device/connect`, {
+    headers: { authorization: `Bearer ${enrolled.body.deviceToken}` },
+  });
+  context.after(() => oldSocket.close());
+  const oldMessages = messageQueue(oldSocket);
+  await oldMessages.next("device.ready");
+
+  const loggedIn = await jsonRequest(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { origin },
+    body: { slug: "device-displacement-test", password },
+  });
+  const cookie = cookieFrom(loggedIn.response);
+  const pairing = await jsonRequest(`${baseUrl}/api/pairings?slug=device-displacement-test`, {
+    method: "POST",
+    headers: { origin, cookie, "x-work-fold-csrf": loggedIn.body.csrfToken },
+    body: {
+      pairingId: randomUUID(),
+      browserId: "browser-displacement-test",
+      label: "Displacement test browser",
+      signingPublicJwk: browserKeys.signing.publicJwk,
+      encryptionPublicJwk: browserKeys.encryption.publicJwk,
+    },
+  });
+  await oldMessages.next("pairing.request");
+
+  const originalAccountById = service.database.accountById.bind(service.database);
+  let markStaleReadStarted;
+  const staleReadStarted = new Promise((resolve) => { markStaleReadStarted = resolve; });
+  let releaseStaleRead;
+  const staleReadGate = new Promise((resolve) => { releaseStaleRead = resolve; });
+  let blockFirstRead = true;
+  service.database.accountById = async (...arguments_) => {
+    const account = await originalAccountById(...arguments_);
+    if (blockFirstRead) {
+      blockFirstRead = false;
+      markStaleReadStarted();
+      await staleReadGate;
+    }
+    return account;
+  };
+
+  oldSocket.send(JSON.stringify({ type: "pairing.decision", pairingId: pairing.body.pairing.id, approved: false }));
+  await staleReadStarted;
+  const currentSocket = new WebSocket(`ws://127.0.0.1:${service.port}/api/device/connect`, {
+    headers: { authorization: `Bearer ${enrolled.body.deviceToken}` },
+  });
+  context.after(() => currentSocket.close());
+  const currentMessages = messageQueue(currentSocket);
+  await currentMessages.next("device.ready");
+  releaseStaleRead();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const stillPending = await jsonRequest(`${baseUrl}/api/pairings/${pairing.body.pairing.id}?slug=device-displacement-test`, {
+    headers: { cookie },
+  });
+  assert.equal(stillPending.body.pairing.status, "pending", "the displaced socket's in-flight decision is fenced before mutation");
+
+  currentSocket.send(JSON.stringify({ type: "pairing.decision", pairingId: pairing.body.pairing.id, approved: false }));
+  const declined = await currentMessages.next("pairing.settled");
+  assert.equal(declined.status, "declined");
+  const pairingResult = await jsonRequest(`${baseUrl}/api/pairings/${pairing.body.pairing.id}?slug=device-displacement-test`, {
+    headers: { cookie },
+  });
+  assert.equal(pairingResult.body.pairing.status, "declined");
+});
+
 test("pairs a non-exportable browser identity and relays only signed opaque envelopes", async (context) => {
   const service = await testService(context);
   const baseUrl = `http://127.0.0.1:${service.port}`;
@@ -356,6 +480,7 @@ test("pairs a non-exportable browser identity and relays only signed opaque enve
     method: "POST",
     headers: { origin, cookie, "x-work-fold-csrf": loggedIn.body.csrfToken },
     body: {
+      pairingId: randomUUID(),
       browserId: "browser-test-1",
       label: "Test browser",
       signingPublicJwk: browserKeys.signing.publicJwk,
@@ -399,6 +524,16 @@ test("pairs a non-exportable browser identity and relays only signed opaque enve
   const session = await jsonRequest(`${baseUrl}/api/auth/session?slug=alice-test`, { headers: { cookie } });
   assert.equal(session.body.paired, true);
   assert.equal(session.body.grant.id, certificate.grantId);
+  const eventAbort = new AbortController();
+  context.after(() => eventAbort.abort());
+  const eventResponse = await fetch(`${baseUrl}/api/events?slug=alice-test`, {
+    headers: { cookie },
+    signal: eventAbort.signal,
+  });
+  assert.equal(eventResponse.status, 200);
+  assert.match(eventResponse.headers.get("content-type"), /^text\/event-stream/);
+  const browserEvents = sseQueue(eventResponse.body);
+  await browserEvents.next("ready");
 
   const requestHeader = {
     type: "work-fold.remote-request.v1",
@@ -417,6 +552,40 @@ test("pairs a non-exportable browser identity and relays only signed opaque enve
     signature: "",
   };
   requestEnvelope.signature = signText(browserKeys.signing.privateKey, envelopeText(requestEnvelope));
+  const rejectedEnvelopes = [
+    {
+      expectedStatus: 400,
+      envelope: signedEnvelope({
+        ...requestHeader,
+        requestId: randomUUID(),
+        createdAt: new Date(Date.now() - 10 * 60_000).toISOString(),
+      }, browserKeys.signing.privateKey),
+    },
+    {
+      expectedStatus: 403,
+      envelope: signedEnvelope({ ...requestHeader, requestId: randomUUID() }, deviceKeys.signing.privateKey),
+    },
+    {
+      expectedStatus: 400,
+      envelope: signedEnvelope({ ...requestHeader, requestId: randomUUID(), grantId: randomUUID() }, browserKeys.signing.privateKey),
+    },
+    {
+      expectedStatus: 400,
+      envelope: signedEnvelope({ ...requestHeader, requestId: randomUUID(), generation: requestHeader.generation + 1 }, browserKeys.signing.privateKey),
+    },
+  ];
+  for (const rejected of rejectedEnvelopes) {
+    const result = await jsonRequest(`${baseUrl}/api/operations?slug=alice-test`, {
+      method: "POST",
+      headers: { origin, cookie, "x-work-fold-csrf": session.body.csrfToken },
+      body: { envelope: rejected.envelope },
+    });
+    assert.equal(result.response.status, rejected.expectedStatus);
+  }
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(messages.takeNow("operation.request"), null, "invalid browser envelopes never reach the desktop");
+  assert.equal(browserEvents.takeNow("remote"), null, "invalid browser envelopes never broadcast an event");
+
   const accepted = await jsonRequest(`${baseUrl}/api/operations?slug=alice-test`, {
     method: "POST",
     headers: { origin, cookie, "x-work-fold-csrf": session.body.csrfToken },
@@ -456,15 +625,59 @@ test("pairs a non-exportable browser identity and relays only signed opaque enve
   const progressEnvelope = {
     header: progressHeader,
     iv: randomBytes(12).toString("base64url"),
-    ciphertext: randomBytes(32).toString("base64url"),
+    ciphertext: randomBytes(220 * 1024).toString("base64url"),
     signature: "",
   };
   progressEnvelope.signature = signText(deviceKeys.signing.privateKey, envelopeText(progressEnvelope));
+  const badDesktopEnvelope = {
+    ...progressEnvelope,
+    ciphertext: randomBytes(48).toString("base64url"),
+    signature: "",
+  };
+  badDesktopEnvelope.signature = signText(browserKeys.signing.privateKey, envelopeText(badDesktopEnvelope));
+  socket.send(JSON.stringify({ type: "operation.event", envelope: badDesktopEnvelope }));
+  assert.match((await messages.next("protocol.error")).error, /signature is invalid/);
+  const afterBadSignature = await jsonRequest(`${baseUrl}/api/operations/${delivered.operation.id}?slug=alice-test`, { headers: { cookie } });
+  assert.equal(afterBadSignature.body.operation.state, "delivered");
+  assert.deepEqual(afterBadSignature.body.events, []);
+  assert.equal(browserEvents.takeNow("remote"), null, "a bad desktop signature is not broadcast");
+
   socket.send(JSON.stringify({ type: "operation.event", envelope: progressEnvelope }));
+  const largeBrowserEvent = await browserEvents.next(
+    "remote",
+    (event) => event.data.operationId === delivered.operation.id && event.data.envelope?.header?.sequence === 1,
+  );
+  assert.ok(largeBrowserEvent.data.envelope.ciphertext.length > 200 * 1024, "the event crosses Node's ordinary write high-water mark");
   await waitFor(async () => {
     const result = await jsonRequest(`${baseUrl}/api/operations/${delivered.operation.id}?slug=alice-test`, { headers: { cookie } });
     return result.body.operation?.state === "running" ? result : null;
   });
+
+  socket.send(JSON.stringify({ type: "operation.event", envelope: progressEnvelope }));
+  assert.match((await messages.next("protocol.error")).error, /sequence must increase/);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const afterReplay = await jsonRequest(`${baseUrl}/api/operations/${delivered.operation.id}?slug=alice-test`, { headers: { cookie } });
+  assert.equal(afterReplay.body.events.length, 1);
+  assert.equal(
+    browserEvents.takeNow("remote", (event) => event.data.operationId === delivered.operation.id && event.data.envelope?.header?.sequence === 1),
+    null,
+    "a replayed response sequence is not broadcast",
+  );
+
+  const followUpHeader = { ...progressHeader, sequence: 2, createdAt: new Date().toISOString() };
+  const followUpEnvelope = {
+    header: followUpHeader,
+    iv: randomBytes(12).toString("base64url"),
+    ciphertext: randomBytes(48).toString("base64url"),
+    signature: "",
+  };
+  followUpEnvelope.signature = signText(deviceKeys.signing.privateKey, envelopeText(followUpEnvelope));
+  socket.send(JSON.stringify({ type: "operation.event", envelope: followUpEnvelope }));
+  const followUpBrowserEvent = await browserEvents.next(
+    "remote",
+    (event) => event.data.operationId === delivered.operation.id && event.data.envelope?.header?.sequence === 2,
+  );
+  assert.deepEqual(followUpBrowserEvent.data.envelope, followUpEnvelope, "the SSE stream remains usable after the large buffered event");
 
   socket.close();
   const lost = await waitFor(async () => {
@@ -498,7 +711,7 @@ test("pairs a non-exportable browser identity and relays only signed opaque enve
     operationId: delivered.operation.id,
     requestId: requestHeader.requestId,
     generation: account.grantGeneration,
-    sequence: 2,
+    sequence: 3,
     ok: true,
     eventKind: "operation.complete",
     createdAt: new Date().toISOString(),
@@ -520,9 +733,10 @@ test("pairs a non-exportable browser identity and relays only signed opaque enve
     return result.body.operation?.state === "done" ? result : null;
   });
   const completed = await jsonRequest(`${baseUrl}/api/operations/${delivered.operation.id}?slug=alice-test`, { headers: { cookie } });
-  assert.equal(completed.body.events.length, 2);
+  assert.equal(completed.body.events.length, 3);
   assert.deepEqual(completed.body.events[0].envelope, progressEnvelope);
-  assert.deepEqual(completed.body.events[1].envelope, responseEnvelope);
+  assert.deepEqual(completed.body.events[1].envelope, followUpEnvelope);
+  assert.deepEqual(completed.body.events[2].envelope, responseEnvelope);
 
   const uploadHeader = {
     ...requestHeader,
@@ -546,6 +760,40 @@ test("pairs a non-exportable browser identity and relays only signed opaque enve
   const deliveredUpload = await resumedMessages.next("operation.request");
   assert.equal(deliveredUpload.operation.requestId, uploadHeader.requestId);
   assert.equal(deliveredUpload.envelope.ciphertext.length, uploadEnvelope.ciphertext.length);
+
+  const mismatchedDesktopHeaders = [
+    {
+      ...responseHeader,
+      operationId: deliveredUpload.operation.id,
+      requestId: uploadHeader.requestId,
+      grantId: randomUUID(),
+      sequence: 1,
+      eventKind: "operation.event",
+      createdAt: new Date().toISOString(),
+    },
+    {
+      ...responseHeader,
+      operationId: deliveredUpload.operation.id,
+      requestId: uploadHeader.requestId,
+      generation: responseHeader.generation + 1,
+      sequence: 1,
+      eventKind: "operation.event",
+      createdAt: new Date().toISOString(),
+    },
+  ];
+  for (const header of mismatchedDesktopHeaders) {
+    const envelope = signedEnvelope(header, deviceKeys.signing.privateKey);
+    resumedSocket.send(JSON.stringify({ type: "operation.event", envelope }));
+    assert.match((await resumedMessages.next("protocol.error")).error, /does not match an accepted operation/);
+  }
+  const untouchedUpload = await jsonRequest(`${baseUrl}/api/operations/${deliveredUpload.operation.id}?slug=alice-test`, { headers: { cookie } });
+  assert.equal(untouchedUpload.body.operation.state, "delivered");
+  assert.deepEqual(untouchedUpload.body.events, []);
+  assert.equal(
+    browserEvents.takeNow("remote", (event) => event.data.operationId === deliveredUpload.operation.id),
+    null,
+    "wrong desktop grant/generation responses are not broadcast",
+  );
 
   const directSpaceHeader = {
     ...requestHeader,
@@ -587,7 +835,7 @@ async function testService(context, options = {}) {
     await service.close();
     await pool.end();
   });
-  return service;
+  return { ...service, database };
 }
 
 async function enrollTestAccount(baseUrl, { slug, password }) {
@@ -630,6 +878,17 @@ function envelopeText(envelope) {
   return `${canonicalizeJson(envelope.header)}.${envelope.iv}.${envelope.ciphertext}`;
 }
 
+function signedEnvelope(header, privateKey) {
+  const envelope = {
+    header,
+    iv: randomBytes(12).toString("base64url"),
+    ciphertext: randomBytes(48).toString("base64url"),
+    signature: "",
+  };
+  envelope.signature = signText(privateKey, envelopeText(envelope));
+  return envelope;
+}
+
 async function jsonRequest(url, { method = "GET", headers = {}, body } = {}) {
   const response = await fetch(url, {
     method,
@@ -665,6 +924,81 @@ function messageQueue(socket) {
     },
     takeNow(type) {
       const index = queued.findIndex((value) => value.type === type);
+      return index >= 0 ? queued.splice(index, 1)[0] : null;
+    },
+  };
+}
+
+function socketClosed(socket) {
+  return new Promise((resolve) => {
+    socket.once("close", (code, reason) => resolve({ code, reason: reason.toString() }));
+  });
+}
+
+function sseQueue(body) {
+  assert.ok(body, "SSE response body is required");
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  const queued = [];
+  const waiters = [];
+  let buffer = "";
+  let failure = null;
+
+  const matches = (record, event, predicate) => record.event === event && (!predicate || predicate(record));
+  const dispatch = (record) => {
+    const index = waiters.findIndex((waiter) => matches(record, waiter.event, waiter.predicate));
+    if (index >= 0) waiters.splice(index, 1)[0].resolve(record);
+    else queued.push(record);
+  };
+  const parse = (block) => {
+    if (!block || block.startsWith(":")) return;
+    let event = "message";
+    const data = [];
+    for (const line of block.split("\n")) {
+      if (line.startsWith("event:")) event = line.slice(6).trimStart();
+      if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+    }
+    if (!data.length) return;
+    const text = data.join("\n");
+    dispatch({ event, data: JSON.parse(text) });
+  };
+  void (async () => {
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) throw new Error("SSE stream closed before the expected event.");
+        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+        for (;;) {
+          const boundary = buffer.indexOf("\n\n");
+          if (boundary < 0) break;
+          const block = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          parse(block);
+        }
+      }
+    } catch (error) {
+      failure = error;
+      for (const waiter of waiters.splice(0)) waiter.reject(error);
+    }
+  })();
+
+  return {
+    next(event, predicate) {
+      const index = queued.findIndex((record) => matches(record, event, predicate));
+      if (index >= 0) return Promise.resolve(queued.splice(index, 1)[0]);
+      if (failure) return Promise.reject(failure);
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`Timed out waiting for SSE ${event}.`)), 5_000);
+        waiters.push({
+          event,
+          predicate,
+          resolve: (value) => { clearTimeout(timer); resolve(value); },
+          reject: (error) => { clearTimeout(timer); reject(error); },
+        });
+      });
+    },
+    takeNow(event, predicate) {
+      const index = queued.findIndex((record) => matches(record, event, predicate));
       return index >= 0 ? queued.splice(index, 1)[0] : null;
     },
   };
