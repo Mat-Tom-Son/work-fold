@@ -23,6 +23,7 @@ import {
   appendMessage,
   conversationsDir,
   createConversation,
+  findRemoteConversationTitleRename,
   listConversations,
   readConversation,
   readConversationSummary,
@@ -102,7 +103,7 @@ import {
 } from "./resources.js";
 import { searchSpace } from "./search.js";
 import { SpaceAppearanceStore } from "./space-appearance-store.js";
-import { conversationTitleFromFirstUserMessage } from "../shared/chat-title.js";
+import { conversationTitleFromFirstUserMessage, normalizeConversationTitle } from "../shared/chat-title.js";
 import { spaceAppearanceBannerNames } from "../shared/space-appearance.js";
 import { WorkFoldCheckOperationConflictError, WorkFoldCheckService } from "./checks/check-service.js";
 import type { WorkFoldCheckDecisionKind } from "./checks/check-types.js";
@@ -2040,6 +2041,41 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
           if (!messages.length) throw notFound("Conversation not found.");
           return remoteTranscript(messages);
         }
+        case "management.rename": {
+          assertRemoteKeys(input, ["conversationId", "title"]);
+          assertManagementReadyForRoutes(state);
+          const conversationId = remoteStableId(input.conversationId, "conversation id", 160);
+          const title = remoteConversationTitle(input.title);
+          const provenance = {
+            source: "remote_web" as const,
+            remotePrincipalId: principal.browserId,
+            remoteGrantId: principal.grantId,
+            remoteRequestId: principal.requestId,
+          };
+          const replay = await findRemoteConversationTitleRename(
+            workFoldManagementRoot(),
+            conversationId,
+            provenance,
+          );
+          const key = clientKey(workFoldManagementScopeId, conversationId);
+          if (!replay && remoteManagementConversationState(state, conversationId) === "running") {
+            throw httpError(409, "Wait for the current Assistant turn to finish.");
+          }
+          if (!replay && state.compactingConversations.has(key)) {
+            throw httpError(409, "Wait for the current Chat compaction to finish.");
+          }
+          const conversation = replay ?? await renameConversation(
+            workFoldManagementRoot(),
+            conversationId,
+            title,
+            provenance,
+          );
+          if (!replay) state.clients.get(key)?.setSessionName(conversation.title);
+          return {
+            conversation: toActConversationRef(conversation),
+            state: conversationRuntimeState(state, workFoldManagementScopeId, conversationId),
+          };
+        }
         case "management.send": {
           assertRemoteKeys(input, ["content", "conversationId", "newConversation", "attachments"]);
           assertManagementReadyForRoutes(state);
@@ -2539,6 +2575,15 @@ function remoteContent(value: unknown): string {
     throw badRequest("A message of at most 12,000 characters is required.");
   }
   return value.trim();
+}
+
+function remoteConversationTitle(value: unknown): string {
+  if (typeof value !== "string" || value.includes("\0")) {
+    throw badRequest("Chat title must be text.");
+  }
+  const title = normalizeConversationTitle(value);
+  if (!title) throw badRequest("Enter a Chat title.");
+  return title;
 }
 
 function remoteRelativePath(value: unknown): string {

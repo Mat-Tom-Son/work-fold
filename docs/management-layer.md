@@ -165,7 +165,7 @@ content, ciphertext, tokens, addresses, or network identifiers.
 
 The desktop does not expose its renderer token or tunnel arbitrary local HTTP.
 `WorkFoldRemoteFacade` is a closed semantic adapter with bounded saved-Chat
-listing, summary/transcript/send/stop operations for the management conversation,
+listing, summary/transcript/rename/send/stop operations for the management conversation,
 management request projection, Space-name listing, and bounded Space-relative
 tree projection. It strips absolute roots and attachment target paths, applies
 the ordinary ignore policy to tree views, rejects traversal and unknown fields,
@@ -183,7 +183,10 @@ socket replacement, and repeated increasing progress events remain valid.
 `management.send` enters `acceptConversationTurn`, may explicitly
 start a new saved thread, persist `remote_web` browser/grant provenance and a
 signed request id, and participate in the same active-turn, stop, transcript, and Pi-session
-rules as the desktop management surface. Each accepted remote request records
+rules as the desktop management surface. `management.rename` records the same
+provenance on an append-only manual-title event, is retry-idempotent within that
+exact browser grant, and refuses to race an active turn or Chat compaction. Each
+accepted remote request records
 both its browser identity and exact grant. Direct task-scoped request status and
 stop calls reject every other browser or replacement grant, and cross-grant
 summaries omit task ids and action details. That direct-adapter ownership check

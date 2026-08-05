@@ -68,6 +68,13 @@ export interface ConversationLifecyclePatch {
   snoozedUntil?: string | null;
 }
 
+export interface ConversationRemoteTitleProvenance {
+  source: "remote_web";
+  remotePrincipalId: string;
+  remoteGrantId: string;
+  remoteRequestId: string;
+}
+
 export interface ChatMessageLanding {
   summary: string;
   nextActions: string[];
@@ -133,21 +140,41 @@ export async function createConversation(spaceRoot: string, title = untitledConv
   return { id, title: normalizedTitle, createdAt: now, updatedAt: now, archivedAt: null, snoozedUntil: null };
 }
 
-export async function renameConversation(spaceRoot: string, conversationId: string, title: string): Promise<ConversationSummary> {
+export async function findRemoteConversationTitleRename(
+  spaceRoot: string,
+  conversationId: string,
+  provenance: ConversationRemoteTitleProvenance,
+): Promise<ConversationSummary | null> {
+  const messages = await readConversation(spaceRoot, conversationId);
+  const replayIndex = remoteConversationTitleRenameIndex(messages, provenance);
+  return replayIndex < 0 ? null : conversationSummary(conversationId, messages.slice(0, replayIndex + 1));
+}
+
+export async function renameConversation(
+  spaceRoot: string,
+  conversationId: string,
+  title: string,
+  provenance?: ConversationRemoteTitleProvenance,
+): Promise<ConversationSummary> {
   const now = new Date().toISOString();
   const normalizedTitle = normalizeConversationTitle(title);
   if (!normalizedTitle) throw new Error("Conversation title is required.");
-  if (!(await readConversation(spaceRoot, conversationId)).length) throw new Error("Conversation not found.");
-  await appendMessage(spaceRoot, conversationId, {
+  const messages = await readConversation(spaceRoot, conversationId);
+  if (!messages.length) throw new Error("Conversation not found.");
+  const replayIndex = provenance ? remoteConversationTitleRenameIndex(messages, provenance) : -1;
+  if (replayIndex >= 0) return conversationSummary(conversationId, messages.slice(0, replayIndex + 1));
+  const titleMessage: ChatMessage = {
     id: randomUUID(),
     role: "system",
     kind: "conversation_title",
     titleSource: "manual",
     content: normalizedTitle,
     createdAt: now,
-  });
-  const messages = await readConversation(spaceRoot, conversationId);
-  return conversationSummary(conversationId, messages);
+    ...(provenance ?? {}),
+  };
+  await appendMessage(spaceRoot, conversationId, titleMessage);
+  const refreshedMessages = await readConversation(spaceRoot, conversationId);
+  return conversationSummary(conversationId, refreshedMessages);
 }
 
 export async function setGeneratedConversationTitle(
@@ -523,6 +550,21 @@ function manualConversationTitle(messages: ChatMessage[]): string | null {
     if (title) return title;
   }
   return null;
+}
+
+function remoteConversationTitleRenameIndex(
+  messages: ChatMessage[],
+  provenance: ConversationRemoteTitleProvenance,
+): number {
+  return messages.findIndex((message) => (
+    message.role === "system"
+    && message.kind === "conversation_title"
+    && message.titleSource === "manual"
+    && message.source === provenance.source
+    && message.remotePrincipalId === provenance.remotePrincipalId
+    && message.remoteGrantId === provenance.remoteGrantId
+    && message.remoteRequestId === provenance.remoteRequestId
+  ));
 }
 
 function generatedConversationTitle(messages: ChatMessage[]): string | null {

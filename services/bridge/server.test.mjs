@@ -8,6 +8,7 @@ import WebSocket from "ws";
 import { BridgeDatabase, canonicalizeJson } from "./database.mjs";
 import { shouldSubmitComposerKey } from "./public/composer.js";
 import { renderMarkdown } from "./public/markdown.js";
+import { normalizeChatTitle, replaceHtmlIfChanged } from "./public/rendering.js";
 import { createPasswordCheckQueue, startBridgeServer } from "./server.mjs";
 
 test("serves the web client and healthy no-store API responses", async (context) => {
@@ -36,18 +37,29 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.match(markdownModule.headers.get("content-type"), /^text\/javascript/);
   assert.match(await markdownModule.text(), /export function renderMarkdown/);
 
+  const renderingModule = await fetch(`${baseUrl}/rendering.js`);
+  assert.equal(renderingModule.status, 200);
+  assert.match(renderingModule.headers.get("content-type"), /^text\/javascript/);
+  assert.match(await renderingModule.text(), /export function replaceHtmlIfChanged/);
+
   const applicationScript = await fetch(`${baseUrl}/app.js`);
   const applicationSource = await applicationScript.text();
   assert.match(applicationSource, /class="landing-actions"/);
   assert.match(applicationSource, /href="\/download\/macos"/);
   assert.match(applicationSource, /href="https:\/\/github\.com\/Mat-Tom-Son\/work-fold"/);
   assert.match(applicationSource, /id="new-chat"/);
+  assert.match(applicationSource, /<h1 id="conversation-title"><\/h1>/);
+  assert.match(applicationSource, /id="rename-chat"/);
+  assert.match(applicationSource, /id="rename-chat-input" maxlength="80"/);
   assert.match(applicationSource, /id="chats"/);
   assert.match(applicationSource, /id="workspace-pane"/);
   assert.match(applicationSource, /id="file-input"/);
   assert.match(applicationSource, /newConversation: true/);
   assert.match(applicationSource, /management\.chats/);
+  assert.match(applicationSource, /management\.rename/);
   assert.match(applicationSource, /management\.stop/);
+  assert.match(applicationSource, /reconcileMessageRows/);
+  assert.match(applicationSource, /replaceHtmlIfChanged/);
   assert.doesNotMatch(applicationSource, /spaces\.(?:chats|transcript|send|stop)/);
   assert.doesNotMatch(applicationSource, /Chat with Space|id="scope-name"|id="management-home"/);
   assert.match(applicationSource, /id="account-settings"[\s\S]*?id="account-menu"[\s\S]*?>Sign out</);
@@ -55,6 +67,18 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.match(applicationSource, /Working in \$\{spaceName\}/);
   assert.match(applicationSource, /Couldn’t finish in \$\{spaceName\}/);
   assert.doesNotMatch(applicationSource, /previous chat is still saved on your desktop/);
+
+  const applicationStyles = await (await fetch(`${baseUrl}/app.css`)).text();
+  assert.match(applicationStyles, /\.message\.message-enter\s*\{\s*animation:/);
+  assert.match(applicationStyles, /\.conversation-title-view\[hidden\]\s*\{\s*display:\s*none/);
+  for (const structuralDivider of [
+    /\.side-rail\s*\{[^}]*border-right:\s*1px/,
+    /\.conversation-bar\s*\{[^}]*border-bottom:\s*1px/,
+    /\.message\s*\{[^}]*border-bottom:\s*1px/,
+    /\.composer-wrap\s*\{[^}]*border-top:\s*1px/,
+    /\.workspace-pane\s*\{[^}]*border-left:\s*1px/,
+    /\.workspace-pane-head\s*\{[^}]*border-bottom:\s*1px/,
+  ]) assert.doesNotMatch(applicationStyles, structuralDivider);
   for (const removedCopy of [
     "Management conversation",
     "Above all Spaces",
@@ -83,6 +107,26 @@ test("composer sends with Enter and preserves Shift+Enter for a new line", () =>
   assert.equal(shouldSubmitComposerKey({ key: "Enter", shiftKey: true, isComposing: false }), false);
   assert.equal(shouldSubmitComposerKey({ key: "Enter", shiftKey: false, isComposing: true }), false);
   assert.equal(shouldSubmitComposerKey({ key: "a", shiftKey: false, isComposing: false }), false);
+});
+
+test("stable rendering skips identical DOM replacements and Chat titles share desktop normalization", () => {
+  let writes = 0;
+  let markup = "";
+  const element = {};
+  Object.defineProperty(element, "innerHTML", {
+    get: () => markup,
+    set: (value) => {
+      writes += 1;
+      markup = value;
+    },
+  });
+
+  assert.equal(replaceHtmlIfChanged(element, "<p>Ready</p>"), true);
+  assert.equal(replaceHtmlIfChanged(element, "<p>Ready</p>"), false);
+  assert.equal(replaceHtmlIfChanged(element, "<p>Updated</p>"), true);
+  assert.equal(writes, 2);
+  assert.equal(normalizeChatTitle("  Planning\n\t notes  "), "Planning notes");
+  assert.equal(normalizeChatTitle("x".repeat(100)).length, 80);
 });
 
 test("chat Markdown renders common structures without accepting active HTML or unsafe links", () => {

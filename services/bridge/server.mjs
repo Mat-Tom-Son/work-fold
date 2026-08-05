@@ -57,6 +57,7 @@ const allowedOperations = new Set([
   "management.summary",
   "management.chats",
   "management.transcript",
+  "management.rename",
   "management.send",
   "management.request",
   "management.stop",

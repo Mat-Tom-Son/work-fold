@@ -36,7 +36,7 @@ device generations are fenced. Browser event streams tolerate ordinary Node
 backpressure and drop a slow client only after an explicit 8 MiB queued-byte
 bound.
 
-The browser can open bounded saved management Chats, invoke that one canonical
+The browser can open and rename bounded saved management Chats, invoke that one canonical
 management Assistant, inspect filtered relative Space trees, and attach at most
 six files (6 MB each, 8 MB total) per message. Selecting a Space changes only
 the Files tree; the management Assistant performs or delegates Space work

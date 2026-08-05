@@ -1,6 +1,7 @@
 import { shouldSubmitComposerKey } from "./composer.js";
 import { renderMarkdown } from "./markdown.js";
 import { assertPairingRelay, pairingCodeForKeys } from "./pairing-code.js";
+import { normalizeChatTitle, replaceHtmlIfChanged } from "./rendering.js";
 
 const app = document.querySelector("#app");
 const encoder = new TextEncoder();
@@ -36,8 +37,12 @@ const state = {
   activeTasks: new Map(),
   banner: "",
   refreshTimer: null,
+  conversationListRequestVersion: 0,
+  conversationRefreshVersion: 0,
   sending: false,
   startingNewChat: false,
+  renamingConversationId: null,
+  renameSaving: false,
 };
 
 void boot();
@@ -300,12 +305,29 @@ function renderApplication() {
       <main class="conversation">
         <header class="conversation-bar">
           <span aria-hidden="true"></span>
-          <h1 id="conversation-title"></h1>
+          <div class="conversation-title-shell">
+            <div id="conversation-title-view" class="conversation-title-view">
+              <h1 id="conversation-title"></h1>
+              <button id="rename-chat" class="conversation-title-button" type="button" aria-label="Rename Chat title" title="Rename Chat">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" /></svg>
+              </button>
+            </div>
+            <form id="rename-chat-form" class="conversation-title-form" hidden>
+              <label class="sr-only" for="rename-chat-input">Chat title</label>
+              <input id="rename-chat-input" maxlength="80" autocomplete="off" />
+              <button class="title-edit-action save" type="submit" aria-label="Save Chat title" title="Save">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
+              </button>
+              <button id="cancel-chat-rename" class="title-edit-action" type="button" aria-label="Cancel Chat title edit" title="Cancel">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+              </button>
+            </form>
+          </div>
           <div class="conversation-actions"><button id="stop-task" class="toolbar-button danger" type="button" hidden>Stop</button></div>
         </header>
         <div id="banner"></div>
         <div id="chat-status" class="sr-only" role="status" aria-live="polite"></div>
-        <section id="messages" class="messages"><div class="message-stream"></div></section>
+        <section id="messages" class="messages"><div class="message-stream"><div id="transcript-notice"></div><div id="message-rows"></div><div id="work-status"></div></div></section>
         <footer class="composer-wrap">
           <form id="composer" class="composer">
             <div id="composer-context" class="composer-context"></div>
@@ -353,6 +375,18 @@ function renderApplication() {
     }
   });
   document.querySelector("#new-chat")?.addEventListener("click", startNewChat);
+  document.querySelector("#rename-chat")?.addEventListener("click", beginChatRename);
+  document.querySelector("#rename-chat-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void saveChatRename();
+  });
+  document.querySelector("#cancel-chat-rename")?.addEventListener("click", cancelChatRename);
+  document.querySelector("#rename-chat-input")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    cancelChatRename();
+  });
   document.querySelector("#stop-task")?.addEventListener("click", () => void stopCurrentTask());
   document.querySelector("#toggle-files")?.addEventListener("click", () => setFilesPanelOpen(!state.filesPanelOpen));
   document.querySelector("#space-picker")?.addEventListener("change", (event) => void selectExplorerSpace(event.currentTarget.value));
@@ -383,7 +417,10 @@ function renderApplication() {
 
 function renderMessages() {
   const container = document.querySelector("#messages");
-  if (!container) return;
+  const notice = document.querySelector("#transcript-notice");
+  const rows = document.querySelector("#message-rows");
+  const workStatus = document.querySelector("#work-status");
+  if (!container || !notice || !rows || !workStatus) return;
   const wasNearBottom = !container.dataset.rendered
     || container.scrollHeight - container.scrollTop - container.clientHeight < 120;
   const visible = state.messages.filter((message) => (message.role === "user" || message.role === "assistant") && !message.kind);
@@ -393,26 +430,81 @@ function renderMessages() {
   const working = !state.startingNewChat && (
     state.summary?.state === "running" || requestPhase === "working" || requestPhase === "handed_off"
   );
+  const conversationKey = state.startingNewChat ? "new-chat" : state.selectedConversationId ?? "none";
+  const sameConversation = container.dataset.conversationId === conversationKey;
+  if (!sameConversation) {
+    rows.replaceChildren();
+    container.dataset.conversationId = conversationKey;
+    delete container.dataset.latestMessageId;
+  }
   const latestVisible = visible.at(-1);
   const previousMessageId = container.dataset.latestMessageId;
-  if (latestVisible?.id) {
+  if (latestVisible?.id && latestVisible.id !== previousMessageId) {
     container.dataset.latestMessageId = latestVisible.id;
     if (container.dataset.rendered && previousMessageId && previousMessageId !== latestVisible.id) {
       const status = document.querySelector("#chat-status");
       if (status) status.textContent = latestVisible.role === "assistant" ? "New reply from work-fold." : "Message sent.";
     }
+  } else if (!latestVisible?.id && previousMessageId) {
+    delete container.dataset.latestMessageId;
   }
-  container.innerHTML = `<div class="message-stream">${state.transcriptTruncated ? `<div class="projection-notice">Earlier messages are hidden.</div>` : ""}${visible.length ? visible.map((message) => `
-    <article class="message ${message.role} ${message.source === "remote_web" ? "web" : ""}">
-      <div class="message-role">${message.role === "assistant" ? escapeHtml(assistantLabel()) : "You"}</div>
-      <div class="message-content"><div class="message-body markdown">${renderMarkdown(message.content)}</div>${message.attachments?.length ? `<div class="message-attachments">${message.attachments.map((attachment) => `<span>${fileGlyph(attachment.kind)}${escapeHtml(attachment.name)}</span>`).join("")}</div>` : ""}</div>
-    </article>`).join("") : ""}
+  const noticeChanged = replaceHtmlIfChanged(
+    notice,
+    state.transcriptTruncated ? `<div class="projection-notice">Earlier messages are hidden.</div>` : "",
+  );
+  const messagesChanged = reconcileMessageRows(rows, visible, sameConversation && container.dataset.rendered === "true");
+  const workChanged = replaceHtmlIfChanged(workStatus, `
     ${workEvents.map((event) => `<div class="work-event ${event.state}"${event.title ? ` title="${escapeAttribute(event.title)}"` : ""}><span class="work-event-mark" aria-hidden="true"></span><span>${event.html}</span></div>`).join("")}
     ${working && !workEvents.some((event) => event.state === "running") ? `<div class="working-row"><span class="spinner"></span><span>Working</span></div>` : ""}
-  </div>`;
-  container.dataset.rendered = "true";
-  if (wasNearBottom) container.scrollTop = container.scrollHeight;
+  `);
+  if (container.dataset.rendered !== "true") container.dataset.rendered = "true";
+  if (wasNearBottom && (noticeChanged || messagesChanged || workChanged || !sameConversation)) {
+    container.scrollTop = container.scrollHeight;
+  }
   renderBanner();
+}
+
+function reconcileMessageRows(container, messages, animateNew) {
+  const existing = new Map(
+    [...container.children]
+      .filter((row) => row.dataset.messageId)
+      .map((row) => [row.dataset.messageId, row]),
+  );
+  const desiredIds = new Set();
+  let cursor = container.firstElementChild;
+  let changed = false;
+  for (const message of messages) {
+    desiredIds.add(message.id);
+    let row = existing.get(message.id);
+    if (!row) {
+      row = document.createElement("article");
+      row.classList.add("message");
+      row.dataset.messageId = message.id;
+      if (animateNew) {
+        row.classList.add("message-enter");
+        row.addEventListener("animationend", () => row.classList.remove("message-enter"), { once: true });
+      }
+      changed = true;
+    }
+    row.classList.toggle("user", message.role === "user");
+    row.classList.toggle("assistant", message.role === "assistant");
+    row.classList.toggle("web", message.source === "remote_web");
+    changed = replaceHtmlIfChanged(row, `
+      <div class="message-role">${message.role === "assistant" ? escapeHtml(assistantLabel()) : "You"}</div>
+      <div class="message-content"><div class="message-body markdown">${renderMarkdown(message.content)}</div>${message.attachments?.length ? `<div class="message-attachments">${message.attachments.map((attachment) => `<span>${fileGlyph(attachment.kind)}${escapeHtml(attachment.name)}</span>`).join("")}</div>` : ""}</div>
+    `) || changed;
+    if (row !== cursor) {
+      container.insertBefore(row, cursor);
+      changed = true;
+    }
+    cursor = row.nextElementSibling;
+  }
+  for (const [messageId, row] of existing) {
+    if (desiredIds.has(messageId)) continue;
+    row.remove();
+    changed = true;
+  }
+  return changed;
 }
 
 function requestEvents(request) {
@@ -449,6 +541,7 @@ function requestEvents(request) {
 }
 
 async function refreshConversation({ loadTranscript = true } = {}) {
+  const refreshVersion = ++state.conversationRefreshVersion;
   try {
     if (state.startingNewChat || !state.selectedConversationId) {
       state.summary = { state: "idle" };
@@ -459,45 +552,58 @@ async function refreshConversation({ loadTranscript = true } = {}) {
       renderMessages();
       return;
     }
-    state.summary = await remote("management.summary", { conversationId: state.selectedConversationId });
-    const summaryPhase = state.summary?.latestRequest?.phase;
-    const latest = state.summary?.latestRequest;
-    const active = state.summary?.state === "running" || summaryPhase === "working" || summaryPhase === "handed_off";
+    const conversationId = state.selectedConversationId;
+    const summary = await remote("management.summary", { conversationId });
+    if (!conversationRefreshIsCurrent(refreshVersion, conversationId)) return;
+    state.summary = summary;
+    const summaryPhase = summary?.latestRequest?.phase;
+    const latest = summary?.latestRequest;
+    const active = summary?.state === "running" || summaryPhase === "working" || summaryPhase === "handed_off";
     if (active && latest?.canStop === true && typeof latest.taskId === "string") {
-      state.activeTasks.set(state.selectedConversationId, { taskId: latest.taskId, conversationId: state.selectedConversationId });
+      state.activeTasks.set(conversationId, { taskId: latest.taskId, conversationId });
     } else {
-      state.activeTasks.delete(state.selectedConversationId);
+      state.activeTasks.delete(conversationId);
     }
     const settlementKey = !active && latest?.startedAt
-      ? `${state.selectedConversationId}:${latest.startedAt}`
+      ? `${conversationId}:${latest.startedAt}`
       : null;
     if (settlementKey && !state.settledTreeRefreshes.has(settlementKey)) {
       state.settledTreeRefreshes.add(settlementKey);
       await refreshExplorerTree();
+      if (!conversationRefreshIsCurrent(refreshVersion, conversationId)) return;
     }
     updateConnection(true);
     if (loadTranscript) {
-      if (state.transcriptConversationId !== state.selectedConversationId) {
+      if (state.transcriptConversationId !== conversationId) {
         document.querySelector("#messages")?.removeAttribute("data-latest-message-id");
       }
-      const transcript = await remote("management.transcript", { conversationId: state.selectedConversationId });
+      const transcript = await remote("management.transcript", { conversationId });
+      if (!conversationRefreshIsCurrent(refreshVersion, conversationId)) return;
       state.messages = transcript.messages ?? [];
-      state.transcriptConversationId = state.selectedConversationId;
+      state.transcriptConversationId = conversationId;
       state.transcriptTruncated = transcript.truncated === true;
     }
     renderConversationChrome();
     renderMessages();
   } catch (error) {
+    if (refreshVersion !== state.conversationRefreshVersion) return;
     state.banner = errorText(error);
     if (state.banner.toLowerCase().includes("offline")) updateConnection(false);
     renderBanner();
   }
 }
 
+function conversationRefreshIsCurrent(refreshVersion, conversationId) {
+  return refreshVersion === state.conversationRefreshVersion
+    && !state.startingNewChat
+    && state.selectedConversationId === conversationId;
+}
+
 async function sendPrompt() {
   const input = document.querySelector("#prompt");
   const content = input.value.trim();
-  if (!content || state.sending) return;
+  if (!content || state.sending || state.renameSaving) return;
+  cancelChatRename({ restoreFocus: false });
   state.sending = true;
   syncComposer();
   state.banner = "";
@@ -535,8 +641,10 @@ async function sendPrompt() {
 }
 
 function startNewChat() {
-  if (state.sending || state.startingNewChat) return;
+  if (state.sending || state.startingNewChat || state.renameSaving) return;
   saveComposerDraft();
+  state.conversationRefreshVersion += 1;
+  cancelChatRename({ restoreFocus: false });
   state.startingNewChat = true;
   state.selectedConversationId = null;
   state.messages = [];
@@ -582,13 +690,13 @@ function syncComposer() {
   input.style.height = "auto";
   input.style.height = `${Math.min(Math.max(input.scrollHeight, 56), 180)}px`;
   const unavailable = !state.session?.desktopOnline;
-  button.disabled = state.sending || unavailable || !input.value.trim();
+  button.disabled = state.sending || state.renameSaving || unavailable || !input.value.trim();
   button.dataset.sending = String(state.sending);
   button.setAttribute("aria-label", state.sending ? "Sending message" : unavailable ? "Desktop offline" : "Send message");
   button.title = state.sending ? "Sending…" : unavailable ? "Desktop offline" : "Send message";
   input.setAttribute("aria-busy", String(state.sending));
   const newChatButton = document.querySelector("#new-chat");
-  if (newChatButton) newChatButton.disabled = state.sending || state.startingNewChat;
+  if (newChatButton) newChatButton.disabled = state.sending || state.renameSaving || state.startingNewChat;
   renderComposerContext();
 }
 
@@ -605,23 +713,33 @@ async function loadSpaces() {
   }
 }
 
-async function loadConversations({ preferredConversationId = state.selectedConversationId, refreshTranscript = true } = {}) {
-  const previous = state.conversations.find((conversation) => conversation.id === state.selectedConversationId) ?? null;
+async function loadConversations(options = {}) {
+  const requestVersion = ++state.conversationListRequestVersion;
+  const previousConversations = state.conversations;
   const result = await remote("management.chats");
+  if (requestVersion !== state.conversationListRequestVersion) return;
   state.conversations = (result.conversations ?? []).filter((conversation) => !conversation.archivedAt);
   state.chatListTruncated = result.truncated === true;
+  const renaming = state.conversations.find((conversation) => conversation.id === state.renamingConversationId);
+  if (renaming && renaming.state !== "idle") cancelChatRename({ restoreFocus: false });
+  const preferredConversationId = Object.hasOwn(options, "preferredConversationId")
+    ? options.preferredConversationId
+    : state.selectedConversationId;
   const selected = preferredConversationId && state.conversations.some((conversation) => conversation.id === preferredConversationId)
     ? preferredConversationId
     : state.conversations[0]?.id ?? null;
   const target = state.startingNewChat ? null : selected;
   if (target !== state.selectedConversationId) {
     saveComposerDraft();
+    state.conversationRefreshVersion += 1;
+    cancelChatRename({ restoreFocus: false });
     state.selectedConversationId = target;
     restoreComposerDraft();
   }
   renderConversations();
   renderConversationChrome();
-  if (refreshTranscript) {
+  if (options.refreshTranscript !== false) {
+    const previous = previousConversations.find((conversation) => conversation.id === state.selectedConversationId) ?? null;
     const current = state.conversations.find((conversation) => conversation.id === state.selectedConversationId) ?? null;
     const transcriptChanged = !previous || !current || previous.id !== current.id || previous.updatedAt !== current.updatedAt;
     await refreshConversation({
@@ -633,19 +751,58 @@ async function loadConversations({ preferredConversationId = state.selectedConve
 function renderConversations() {
   const list = document.querySelector("#chats");
   if (!list) return;
-  list.innerHTML = state.conversations.length ? `${state.conversations.map((conversation) => `
-    <li><button class="chat-button ${conversation.id === state.selectedConversationId && !state.startingNewChat ? "active" : ""}" data-chat-id="${escapeAttribute(conversation.id)}" ${conversation.id === state.selectedConversationId && !state.startingNewChat ? 'aria-current="page"' : ""}>
-      <span class="chat-title">${escapeHtml(conversation.title)}</span>
-      <span class="chat-meta">${conversation.state === "running" ? "Working" : shortDate(conversation.updatedAt)}</span>
-    </button></li>`).join("")}${state.chatListTruncated ? `<li class="empty-list">Older chats hidden</li>` : ""}` : `<li class="empty-list">No chats</li>`;
-  for (const button of list.querySelectorAll("[data-chat-id]")) {
-    button.addEventListener("click", () => void selectConversation(button.dataset.chatId));
+  const existing = new Map(
+    [...list.children]
+      .filter((item) => item.dataset.chatId)
+      .map((item) => [item.dataset.chatId, item]),
+  );
+  let cursor = list.firstElementChild;
+  for (const conversation of state.conversations) {
+    let item = existing.get(conversation.id);
+    if (!item) {
+      item = document.createElement("li");
+      item.dataset.chatId = conversation.id;
+      item.innerHTML = `<button class="chat-button" type="button"><span class="chat-title"></span><span class="chat-meta"></span></button>`;
+      item.querySelector("button")?.addEventListener("click", (event) => {
+        void selectConversation(event.currentTarget.dataset.chatId);
+      });
+    }
+    const button = item.querySelector("button");
+    const title = item.querySelector(".chat-title");
+    const meta = item.querySelector(".chat-meta");
+    const active = conversation.id === state.selectedConversationId && !state.startingNewChat;
+    button.dataset.chatId = conversation.id;
+    button.classList.toggle("active", active);
+    button.disabled = state.sending || state.renameSaving;
+    if (active) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+    if (title.textContent !== conversation.title) title.textContent = conversation.title;
+    const metaText = conversation.state === "running" ? "Working" : shortDate(conversation.updatedAt);
+    if (meta.textContent !== metaText) meta.textContent = metaText;
+    if (item !== cursor) list.insertBefore(item, cursor);
+    cursor = item.nextElementSibling;
+    existing.delete(conversation.id);
+  }
+  for (const item of existing.values()) item.remove();
+
+  const noteText = state.conversations.length ? (state.chatListTruncated ? "Older chats hidden" : "") : "No chats";
+  let note = list.querySelector("[data-chat-list-note]");
+  if (!noteText) note?.remove();
+  else {
+    if (!note) {
+      note = document.createElement("li");
+      note.dataset.chatListNote = "true";
+      note.className = "empty-list";
+    }
+    if (note.textContent !== noteText) note.textContent = noteText;
+    list.append(note);
   }
 }
 
 async function selectConversation(conversationId) {
-  if (state.sending || !conversationId) return;
+  if (state.sending || state.renameSaving || !conversationId) return;
   saveComposerDraft();
+  cancelChatRename({ restoreFocus: false });
   state.startingNewChat = false;
   state.selectedConversationId = conversationId;
   restoreComposerDraft();
@@ -682,29 +839,115 @@ function findEntryInCaches(spaceId, path) {
 
 function renderConversationChrome() {
   const title = document.querySelector("#conversation-title");
+  const titleView = document.querySelector("#conversation-title-view");
+  const titleButton = document.querySelector("#rename-chat");
+  const renameForm = document.querySelector("#rename-chat-form");
+  const renameInput = document.querySelector("#rename-chat-input");
   const prompt = document.querySelector("#prompt");
   const selected = state.conversations.find((conversation) => conversation.id === state.selectedConversationId);
+  const editing = Boolean(selected && state.renamingConversationId === selected.id);
+  const chatBusy = selected?.state === "running" || selected?.state === "compacting";
   if (title) title.textContent = state.startingNewChat || !selected ? "New chat" : selected.title;
+  if (titleView) titleView.hidden = editing;
+  if (titleButton) {
+    titleButton.disabled = state.startingNewChat || !selected || chatBusy || state.renameSaving;
+  }
+  if (renameForm) renameForm.hidden = !editing;
+  if (renameInput) renameInput.disabled = state.renameSaving;
+  for (const button of renameForm?.querySelectorAll("button") ?? []) button.disabled = state.renameSaving;
   if (prompt) prompt.placeholder = "Message work-fold";
   const stop = document.querySelector("#stop-task");
   if (stop) stop.hidden = !state.selectedConversationId || !state.activeTasks.has(state.selectedConversationId);
+}
+
+function beginChatRename() {
+  const selected = state.conversations.find((conversation) => conversation.id === state.selectedConversationId);
+  if (!selected || state.startingNewChat || state.renameSaving || selected.state !== "idle") return;
+  const input = document.querySelector("#rename-chat-input");
+  if (!input) return;
+  state.renamingConversationId = selected.id;
+  state.banner = "";
+  input.value = selected.title;
+  renderConversationChrome();
+  renderBanner();
+  requestAnimationFrame(() => {
+    input.focus({ preventScroll: true });
+    input.select();
+  });
+}
+
+async function saveChatRename() {
+  const conversationId = state.renamingConversationId;
+  const input = document.querySelector("#rename-chat-input");
+  const selected = state.conversations.find((conversation) => conversation.id === conversationId);
+  if (!conversationId || !input || !selected || state.renameSaving) return;
+  const title = normalizeChatTitle(input.value);
+  if (!title) {
+    state.banner = "Enter a Chat title.";
+    renderBanner();
+    input.focus({ preventScroll: true });
+    return;
+  }
+  if (title === selected.title) {
+    cancelChatRename();
+    return;
+  }
+  state.renameSaving = true;
+  renderConversationChrome();
+  renderConversations();
+  syncComposer();
+  try {
+    const result = await remote("management.rename", { conversationId, title });
+    state.conversationListRequestVersion += 1;
+    state.conversations = state.conversations
+      .map((conversation) => conversation.id === conversationId ? { ...conversation, ...result.conversation } : conversation)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    state.renamingConversationId = null;
+    state.banner = "";
+    const status = document.querySelector("#chat-status");
+    if (status) status.textContent = "Chat title renamed.";
+    renderConversations();
+    renderBanner();
+  } catch (error) {
+    state.banner = errorText(error);
+    renderBanner();
+  } finally {
+    state.renameSaving = false;
+    renderConversationChrome();
+    renderConversations();
+    syncComposer();
+    const target = state.renamingConversationId ? input : document.querySelector("#rename-chat");
+    target?.focus({ preventScroll: true });
+  }
+}
+
+function cancelChatRename({ restoreFocus = true } = {}) {
+  if (state.renameSaving) return;
+  const wasEditing = Boolean(state.renamingConversationId);
+  state.renamingConversationId = null;
+  renderConversationChrome();
+  if (restoreFocus && wasEditing) {
+    requestAnimationFrame(() => document.querySelector("#rename-chat")?.focus({ preventScroll: true }));
+  }
 }
 
 function renderWorkspace() {
   const picker = document.querySelector("#space-picker");
   const tree = document.querySelector("#file-tree");
   if (picker) {
-    picker.innerHTML = state.spaces.map((space) => `<option value="${escapeAttribute(space.id)}" ${space.id === state.explorerSpaceId ? "selected" : ""}>${escapeHtml(space.name)}</option>`).join("");
+    replaceHtmlIfChanged(picker, state.spaces.map((space) => `<option value="${escapeAttribute(space.id)}" ${space.id === state.explorerSpaceId ? "selected" : ""}>${escapeHtml(space.name)}</option>`).join(""));
     picker.disabled = !state.spaces.length;
   }
   if (!tree) return;
   if (!state.explorerSpaceId) {
-    tree.innerHTML = `<div class="file-empty">No Spaces</div>`;
+    tree.setAttribute("aria-busy", "false");
+    replaceHtmlIfChanged(tree, `<div class="file-empty">No Spaces</div>`);
     return;
   }
   const entries = state.trees.get(`${state.explorerSpaceId}:`) ?? [];
   tree.setAttribute("aria-busy", String(state.treeStatus.get(`${state.explorerSpaceId}:`) === "loading"));
-  tree.innerHTML = renderTreeRows(state.explorerSpaceId, entries, "", 0);
+  const changed = replaceHtmlIfChanged(tree, renderTreeRows(state.explorerSpaceId, entries, "", 0));
+  if (!changed) return;
   for (const button of tree.querySelectorAll("[data-tree-path]")) {
     button.addEventListener("click", () => void toggleTree(button.dataset.spaceId, button.dataset.treePath));
   }
@@ -808,7 +1051,8 @@ function renderComposerContext() {
   const container = document.querySelector("#composer-context");
   if (!container) return;
   const uploads = state.uploads.map((file, index) => ({ kind: "upload", name: file.name, index }));
-  container.innerHTML = uploads.map((item) => `<span class="context-chip">${fileGlyph("file")}<span>${escapeHtml(item.name)}</span><button type="button" data-remove-upload="${item.index}" aria-label="Remove ${escapeAttribute(item.name)}">×</button></span>`).join("");
+  const changed = replaceHtmlIfChanged(container, uploads.map((item) => `<span class="context-chip">${fileGlyph("file")}<span>${escapeHtml(item.name)}</span><button type="button" data-remove-upload="${item.index}" aria-label="Remove ${escapeAttribute(item.name)}">×</button></span>`).join(""));
+  if (!changed) return;
   for (const button of container.querySelectorAll("[data-remove-upload]")) button.addEventListener("click", () => {
     state.uploads.splice(Number(button.dataset.removeUpload), 1);
     syncComposer();
@@ -1099,7 +1343,7 @@ function updateConnection(online = state.session?.desktopOnline) {
 
 function renderBanner() {
   const element = document.querySelector("#banner");
-  if (element) element.innerHTML = state.banner ? `<div class="banner" role="alert">${escapeHtml(state.banner)}</div>` : "";
+  if (element) replaceHtmlIfChanged(element, state.banner ? `<div class="banner" role="alert">${escapeHtml(state.banner)}</div>` : "");
 }
 
 function renderAuth({ eyebrow, headline, supporting, panel }, afterRender) {

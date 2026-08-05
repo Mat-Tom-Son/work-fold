@@ -8,6 +8,7 @@ import {
   appendMessage,
   conversationsDir,
   createConversation,
+  findRemoteConversationTitleRename,
   listConversations,
   readConversation,
   renameConversation,
@@ -278,6 +279,38 @@ test("chat store manual conversation title overrides generated landing title", a
   const summaries = await listConversations(spaceRoot);
   assert.equal(summaries[0]?.title, "Manual Document Rename");
   assert.ok((await readConversation(spaceRoot, "chat-manual-title")).some((item) => item.kind === "conversation_title" && item.content === "Manual Document Rename"));
+});
+
+test("remote Chat title retries are append-only and idempotent within one browser grant", async (t) => {
+  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-remote-title-"));
+  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+
+  const created = await createConversation(spaceRoot);
+  await appendMessage(spaceRoot, created.id, message("1", "Review the launch notes."));
+  const provenance = {
+    source: "remote_web" as const,
+    remotePrincipalId: "browser-title-test",
+    remoteGrantId: "grant-title-test",
+    remoteRequestId: "request-title-test",
+  };
+  const renamed = await renameConversation(spaceRoot, created.id, "Launch notes review", provenance);
+  const transcriptPath = join(conversationsDir(spaceRoot), `${created.id}.jsonl`);
+  const afterRename = await readFile(transcriptPath, "utf8");
+
+  const replay = await renameConversation(spaceRoot, created.id, "A retry must not replace the result", provenance);
+  assert.equal(replay.title, "Launch notes review");
+  assert.equal(await readFile(transcriptPath, "utf8"), afterRename, "an exact retry does not append another title event");
+  assert.equal((await findRemoteConversationTitleRename(spaceRoot, created.id, provenance))?.title, "Launch notes review");
+
+  const otherGrant = await renameConversation(spaceRoot, created.id, "Launch notes for approval", {
+    ...provenance,
+    remoteGrantId: "grant-title-test-replacement",
+  });
+  assert.equal(otherGrant.title, "Launch notes for approval", "a replacement grant does not inherit the old grant's request ids");
+  assert.equal(
+    (await readConversation(spaceRoot, created.id)).filter((item) => item.kind === "conversation_title" && item.source === "remote_web").length,
+    2,
+  );
 });
 
 test("chat store persists archive and snooze state as append-only lifecycle events", async (t) => {

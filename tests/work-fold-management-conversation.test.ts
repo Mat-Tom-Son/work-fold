@@ -320,6 +320,15 @@ test("remote access reuses the canonical management conversation through a bound
       { ...principal, requestId: "request-owned-status" },
     ) as { request: { taskId: string } };
     assert.equal(ownedRequest.request.taskId, sent.taskId);
+    await assert.rejects(
+      () => api.remoteFacade.execute(
+        "management.rename",
+        { conversationId: sent.conversationId, title: "Rename while working" },
+        { ...principal, requestId: "request-running-rename" },
+      ),
+      /Wait for the current Assistant turn to finish/,
+      "renaming never races a running Assistant turn",
+    );
     const ownedStop = await api.remoteFacade.execute(
       "management.stop",
       { taskId: sent.taskId },
@@ -339,6 +348,50 @@ test("remote access reuses the canonical management conversation through a bound
     ) as { duplicate?: boolean; taskId: string };
     assert.equal(sameIdOtherGrant.duplicate, undefined, "request ids are idempotent only within their exact browser grant");
     await waitForAsync(async () => (await api.actFacade.manageTurnStatus({ taskId: sameIdOtherGrant.taskId })).task.state !== "running");
+
+    const renamePrincipal = { ...principal, requestId: "request-rename-chat" };
+    const transcriptPath = join(workFoldManagementRoot(), ".work-fold", "conversations", `${sent.conversationId}.jsonl`);
+    const renamed = await api.remoteFacade.execute(
+      "management.rename",
+      { conversationId: sent.conversationId, title: "  Remote planning notes  " },
+      renamePrincipal,
+    ) as { conversation: { id: string; title: string } };
+    assert.equal(renamed.conversation.title, "Remote planning notes");
+    const afterRename = await readFile(transcriptPath, "utf8");
+    const renameReplay = await api.remoteFacade.execute(
+      "management.rename",
+      { conversationId: sent.conversationId, title: "A retry must preserve the accepted result" },
+      renamePrincipal,
+    ) as { conversation: { title: string } };
+    assert.equal(renameReplay.conversation.title, "Remote planning notes");
+    assert.equal(await readFile(transcriptPath, "utf8"), afterRename, "an exact signed retry never appends a second rename");
+    assert.equal(
+      (await api.actFacade.manageConversationStatus({ conversationId: sent.conversationId })).conversation.title,
+      "Remote planning notes",
+      "the desktop and CLI management surface see the remote title",
+    );
+    const renamedFromOtherGrant = await api.remoteFacade.execute(
+      "management.rename",
+      { conversationId: sent.conversationId, title: "Planning notes for approval" },
+      { ...renamePrincipal, grantId: "grant-other" },
+    ) as { conversation: { title: string } };
+    assert.equal(renamedFromOtherGrant.conversation.title, "Planning notes for approval");
+    await assert.rejects(
+      () => api.remoteFacade.execute(
+        "management.rename",
+        { conversationId: sent.conversationId, title: "Nope", unexpected: true },
+        { ...principal, requestId: "request-bad-rename-shape" },
+      ),
+      /does not accept unexpected/,
+    );
+    await assert.rejects(
+      () => api.remoteFacade.execute(
+        "management.rename",
+        { conversationId: sent.conversationId, title: "   " },
+        { ...principal, requestId: "request-empty-rename" },
+      ),
+      /Enter a Chat title/,
+    );
 
     const transcript = await api.remoteFacade.execute(
       "management.transcript",
