@@ -101,6 +101,14 @@ Deploy this directory with:
 npm run railway -- up services/bridge --path-as-root --service bridge
 ```
 
+Roll out the bridge and hosted browser client before distributing a desktop
+build that enforces key-bound pairing codes. New bridge code remains compatible
+with older desktops, while the hardened desktop deliberately rejects a legacy
+bridge's random pairing code. Wait at least the 10-minute pending-pairing TTL
+after the bridge rollout (or otherwise confirm that no legacy approval remains)
+before the desktop release, and ask anyone with an approval already open to
+refresh and start it again.
+
 Railway must route `*.work-fold.com` to this service; that certificate includes
 `www.work-fold.com`. GoDaddy needs the Railway traffic CNAME plus the ownership
 TXT and wildcard-certificate challenge CNAME shown by Railway. The desktop
