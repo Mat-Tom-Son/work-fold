@@ -1,4 +1,4 @@
-import { createHash, createPublicKey, randomBytes, randomInt, randomUUID, scrypt as scryptCallback, timingSafeEqual, verify } from "node:crypto";
+import { createHash, createHmac, createPublicKey, randomBytes, randomInt, randomUUID, scrypt as scryptCallback, timingSafeEqual, verify } from "node:crypto";
 import { promisify } from "node:util";
 
 import pg from "pg";
@@ -90,6 +90,7 @@ export class BridgeDatabase {
         account_id TEXT NOT NULL REFERENCES bridge_accounts(id) ON DELETE CASCADE,
         browser_grant_id TEXT REFERENCES bridge_browser_grants(id) ON DELETE SET NULL,
         csrf_hash TEXT NOT NULL,
+        csrf_previous_hash TEXT,
         login_challenge TEXT NOT NULL,
         created_at TIMESTAMPTZ NOT NULL,
         last_seen_at TIMESTAMPTZ NOT NULL,
@@ -129,6 +130,7 @@ export class BridgeDatabase {
       CREATE INDEX IF NOT EXISTS bridge_pairings_account_status_idx ON bridge_pairings(account_id, status);
       CREATE INDEX IF NOT EXISTS bridge_operations_account_state_idx ON bridge_operations(account_id, state);
       ALTER TABLE bridge_accounts ADD COLUMN IF NOT EXISTS auth_generation BIGINT NOT NULL DEFAULT 1;
+      ALTER TABLE bridge_sessions ADD COLUMN IF NOT EXISTS csrf_previous_hash TEXT;
     `);
     // A restart loses only transient delivery state. The browser may safely
     // resubmit the exact same signed envelope and request id; the desktop owns
@@ -251,7 +253,7 @@ export class BridgeDatabase {
 
   async createSession(account) {
     const token = randomBytes(32).toString("base64url");
-    const csrfToken = randomBytes(24).toString("base64url");
+    const csrfToken = sessionCsrfToken(token);
     const challenge = randomBytes(32).toString("base64url");
     const id = randomUUID();
     const now = new Date();
@@ -330,7 +332,11 @@ export class BridgeDatabase {
   }
 
   async assertCsrf(session, value) {
-    if (!session || typeof value !== "string" || !safeEqual(Buffer.from(session.csrfHash, "hex"), Buffer.from(tokenHash(value), "hex"))) {
+    const candidate = typeof value === "string" ? Buffer.from(tokenHash(value), "hex") : null;
+    const accepted = session && candidate && [session.csrfHash, session.csrfPreviousHash]
+      .filter((hash) => typeof hash === "string" && hash)
+      .some((hash) => safeEqual(Buffer.from(hash, "hex"), candidate));
+    if (!accepted) {
       throw new BridgeDatabaseError("csrf", "The browser session could not be verified. Refresh and try again.");
     }
   }
@@ -341,18 +347,27 @@ export class BridgeDatabase {
     return result.rowCount > 0;
   }
 
-  async rotateSessionCsrf(token) {
+  async issueSessionCsrf(token) {
     if (typeof token !== "string" || !token) return null;
-    const csrfToken = randomBytes(24).toString("base64url");
+    const csrfToken = sessionCsrfToken(token);
+    const csrfHash = tokenHash(csrfToken);
     const result = await this.#pool.query(
-      `UPDATE bridge_sessions SET csrf_hash = $1, last_seen_at = NOW(),
+      `UPDATE bridge_sessions SET
+        csrf_previous_hash = CASE WHEN csrf_hash = $1 THEN csrf_previous_hash ELSE csrf_hash END,
+        csrf_hash = $1, last_seen_at = NOW(),
         expires_at = CASE WHEN absolute_expires_at < NOW() + INTERVAL '12 hours'
           THEN absolute_expires_at ELSE NOW() + INTERVAL '12 hours' END
        WHERE token_hash = $2 AND expires_at > NOW() AND absolute_expires_at > NOW()
        RETURNING id`,
-      [tokenHash(csrfToken), tokenHash(token)],
+      [csrfHash, tokenHash(token)],
     );
     return result.rows[0] ? csrfToken : null;
+  }
+
+  // Kept as a compatibility alias while callers move to the issuance name.
+  // Unlike the old implementation, repeated calls do not invalidate tabs.
+  async rotateSessionCsrf(token) {
+    return this.issueSessionCsrf(token);
   }
 
   async revokeSessions(accountId) {
@@ -512,11 +527,17 @@ export class BridgeDatabase {
         "UPDATE bridge_browser_grants SET status = 'revoked', revoked_at = NOW() WHERE id = $1 AND account_id = $2 AND status = 'approved'",
         [grantId, accountId],
       );
-      await client.query("DELETE FROM bridge_sessions WHERE browser_grant_id = $1", [grantId]);
-      await client.query(
-        "UPDATE bridge_operations SET state = 'lost', updated_at = NOW() WHERE browser_grant_id = $1 AND state IN ('accepted','delivered','running')",
-        [grantId],
-      );
+      if (result.rowCount > 0) {
+        await client.query(
+          "DELETE FROM bridge_sessions WHERE account_id = $1 AND browser_grant_id = $2",
+          [accountId, grantId],
+        );
+        await client.query(
+          `UPDATE bridge_operations SET state = 'lost', updated_at = NOW()
+           WHERE account_id = $1 AND browser_grant_id = $2 AND state IN ('accepted','delivered','running')`,
+          [accountId, grantId],
+        );
+      }
       await client.query("COMMIT");
       return result.rowCount > 0;
     } catch (error) {
@@ -661,9 +682,9 @@ export class BridgeDatabase {
 
   async setOperationState(accountId, operationId, state) {
     const previousStates = {
-      running: ["accepted", "delivered"],
-      done: ["accepted", "delivered", "running"],
-      failed: ["accepted", "delivered", "running"],
+      running: ["accepted", "delivered", "running", "lost"],
+      done: ["accepted", "delivered", "running", "lost"],
+      failed: ["accepted", "delivered", "running", "lost"],
       lost: ["accepted", "delivered", "running"],
     }[state];
     if (!previousStates) throw new Error("Invalid operation state.");
@@ -782,6 +803,10 @@ function tokenHash(token) {
   return createHash("sha256").update(token).digest("hex");
 }
 
+function sessionCsrfToken(token) {
+  return createHmac("sha256", token).update("work-fold.session-csrf.v1").digest("base64url");
+}
+
 function safeEqual(left, right) {
   return left.length === right.length && timingSafeEqual(left, right);
 }
@@ -807,6 +832,7 @@ function sessionFromRow(row) {
     slug: row.slug,
     browserGrantId: row.browser_grant_id,
     csrfHash: row.csrf_hash,
+    csrfPreviousHash: row.csrf_previous_hash ?? null,
     loginChallenge: row.login_challenge,
     grantGeneration: Number(row.grant_generation),
     browserId: row.browser_id ?? null,
