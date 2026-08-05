@@ -91,6 +91,7 @@ import { resolveDesktopApplicationVersion } from "./application-version.js";
 import {
   RemoteAccessClient,
   generateRemoteDeviceKeys,
+  runRemoteAccountRemoval,
   type RemoteAccessStatus,
   type RemotePairingPrompt,
 } from "./remote-access.js";
@@ -633,11 +634,12 @@ async function ensureRemoteAccessClient(api: Awaited<ReturnType<typeof startLoca
 }
 
 async function promptRemoteBrowserPairing(pairing: RemotePairingPrompt): Promise<boolean> {
+  const unverifiedBrowserLabel = JSON.stringify(pairing.label);
   const options = {
     type: "question" as const,
     title: "Approve remote browser",
-    message: `Approve ${pairing.label}?`,
-    detail: `Confirm that this code also appears in the browser:\n\n${pairing.code}\n\nThis is a full-trust grant. The browser can ask work-fold to read or change files your account can access and run commands on this computer. Revoke it immediately if you do not recognize it.`,
+    message: "Approve this remote browser?",
+    detail: `Unverified browser-supplied label: ${unverifiedBrowserLabel}\n\nConfirm that this code also appears in the browser:\n\n${pairing.code}\n\nThis is a full-trust grant. The browser can ask work-fold to read or change files your account can access and run commands on this computer. Revoke it immediately if you do not recognize it.`,
     buttons: ["Approve browser", "Decline"],
     defaultId: 0,
     cancelId: 1,
@@ -733,12 +735,12 @@ async function removeRemoteAccess(): Promise<RemoteAccessStatus> {
   const settings = await requiredRemoteAccessSettings(host.settings);
   const client = await ensureRemoteAccessClient(await ensureInteractiveLocalApi());
   try {
-    await runRemoteRevocationSteps([
-      () => client.revokeAllLocalGrants(),
-      async () => { await host.settings.setRemoteAccessEnabled(false); },
-      () => remoteBridgeRequest(settings.bridgeUrl, "/api/device/account", { method: "DELETE", token: settings.deviceToken }),
-      () => host.settings.clearRemoteAccess(),
-    ]);
+    await runRemoteAccountRemoval({
+      revokeLocalAuthority: () => client.revokeAllLocalGrants(),
+      disableLocalAccess: () => host.settings.setRemoteAccessEnabled(false),
+      deleteBridgeAccount: () => remoteBridgeRequest(settings.bridgeUrl, "/api/device/account", { method: "DELETE", token: settings.deviceToken }),
+      clearLocalCredentials: () => host.settings.clearRemoteAccess(),
+    });
   } finally {
     client.stop();
   }
@@ -1935,6 +1937,9 @@ function configurePowerMonitor(): void {
   });
   powerMonitor.on("resume", () => {
     void desktopHostPromise?.then((host) => host.restrictedApps.resumeAutomations());
+    void remoteAccessClient?.recoverConnection().catch((error) => {
+      console.warn(`${productName} could not recover Remote access after resume: ${errorMessage(error)}`);
+    });
     setTimeout(ensureRendererAfterResume, resumeRendererHealthDelayMs);
     setTimeout(() => { void checkForUpdates(false); }, resumeUpdateCheckDelayMs);
   });

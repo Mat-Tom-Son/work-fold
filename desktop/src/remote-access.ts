@@ -21,6 +21,7 @@ import type { RemoteAccessSettings, RemoteBrowserGrantSettings, SecureSettingsSt
 const reconnectDelaysMs = [500, 1_000, 2_000, 5_000, 10_000, 20_000, 30_000] as const;
 const maximumRememberedResponses = 256;
 const maximumRemoteRequestCiphertextCharacters = Math.floor(12 * 1024 * 1024 * 1.4);
+const maximumProtocolErrorFramesPerConnection = 1;
 const operationSet = new Set<WorkFoldRemoteOperation>([
   "management.summary", "management.chats", "management.transcript", "management.send", "management.request",
   "management.stop", "spaces.list", "spaces.tree",
@@ -60,16 +61,47 @@ interface TrackedRemoteTask {
   principal: WorkFoldRemotePrincipal;
 }
 
+type RemoteAccessTimer = ReturnType<typeof setTimeout>;
+
+interface RemoteAccessTimers {
+  setTimeout(callback: () => void, delayMs: number): RemoteAccessTimer;
+  clearTimeout(timer: RemoteAccessTimer): void;
+  setInterval(callback: () => void, delayMs: number): RemoteAccessTimer;
+  clearInterval(timer: RemoteAccessTimer): void;
+}
+
+export interface RemoteAccountRemovalSteps {
+  revokeLocalAuthority(): Promise<unknown>;
+  disableLocalAccess(): Promise<unknown>;
+  deleteBridgeAccount(): Promise<unknown>;
+  clearLocalCredentials(): Promise<unknown>;
+}
+
+class RemotePeerProtocolError extends Error {}
+
+const defaultRemoteAccessTimers: RemoteAccessTimers = {
+  setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+  clearTimeout: (timer) => clearTimeout(timer),
+  setInterval: (callback, delayMs) => setInterval(callback, delayMs),
+  clearInterval: (timer) => clearInterval(timer),
+};
+
 export class RemoteAccessClient {
   #settingsStore: SecureSettingsStore;
   #facade: WorkFoldRemoteFacade;
   #promptPairing: (pairing: RemotePairingPrompt) => Promise<boolean>;
   #onStatus: (status: RemoteAccessStatus) => void;
+  #createSocket: (url: URL, options: { headers: { authorization: string } }) => WebSocket;
+  #timers: RemoteAccessTimers;
   #socket: WebSocket | null = null;
   #stopped = true;
+  #lifecycleGeneration = 0;
+  #connectAttempt: { generation: number; promise: Promise<void> } | null = null;
   #reconnectAttempt = 0;
-  #reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  #heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  #reconnectTimer: RemoteAccessTimer | null = null;
+  #heartbeatTimer: RemoteAccessTimer | null = null;
+  #protocolErrorFramesSent = 0;
+  #terminalSocketErrors = new WeakMap<WebSocket, string>();
   #connection: RemoteAccessStatus["connection"] = "stopped";
   #lastError: string | null = null;
   #responses = new Map<string, RemoteEnvelope>();
@@ -83,23 +115,35 @@ export class RemoteAccessClient {
     facade: WorkFoldRemoteFacade;
     promptPairing: (pairing: RemotePairingPrompt) => Promise<boolean>;
     onStatus?: (status: RemoteAccessStatus) => void;
+    createSocket?: (url: URL, options: { headers: { authorization: string } }) => WebSocket;
+    timers?: RemoteAccessTimers;
   }) {
     this.#settingsStore = options.settingsStore;
     this.#facade = options.facade;
     this.#promptPairing = options.promptPairing;
     this.#onStatus = options.onStatus ?? (() => undefined);
+    this.#createSocket = options.createSocket ?? ((url, socketOptions) => new WebSocket(url, socketOptions));
+    this.#timers = options.timers ?? defaultRemoteAccessTimers;
   }
 
   async start(): Promise<void> {
-    this.#stopped = false;
+    if (this.#stopped) {
+      this.#stopped = false;
+      this.#lifecycleGeneration += 1;
+    }
+    const generation = this.#lifecycleGeneration;
     if (this.#socket && this.#socket.readyState < WebSocket.CLOSING) return;
-    await this.#connect();
+    if (this.#reconnectTimer) this.#timers.clearTimeout(this.#reconnectTimer);
+    this.#reconnectTimer = null;
+    await this.#beginConnect(generation);
   }
 
   stop(): void {
     this.#stopped = true;
-    if (this.#reconnectTimer) clearTimeout(this.#reconnectTimer);
-    if (this.#heartbeatTimer) clearInterval(this.#heartbeatTimer);
+    this.#lifecycleGeneration += 1;
+    const generation = this.#lifecycleGeneration;
+    if (this.#reconnectTimer) this.#timers.clearTimeout(this.#reconnectTimer);
+    if (this.#heartbeatTimer) this.#timers.clearInterval(this.#heartbeatTimer);
     this.#reconnectTimer = null;
     this.#heartbeatTimer = null;
     const socket = this.#socket;
@@ -107,7 +151,34 @@ export class RemoteAccessClient {
     if (socket && socket.readyState < WebSocket.CLOSING) socket.close(1000, "Remote access disabled");
     this.#connection = "stopped";
     this.#lastError = null;
-    void this.emitStatus();
+    void this.emitStatus(generation);
+  }
+
+  async recoverConnection(): Promise<void> {
+    if (this.#stopped) return;
+    this.#lifecycleGeneration += 1;
+    const generation = this.#lifecycleGeneration;
+    if (this.#reconnectTimer) this.#timers.clearTimeout(this.#reconnectTimer);
+    if (this.#heartbeatTimer) this.#timers.clearInterval(this.#heartbeatTimer);
+    this.#reconnectTimer = null;
+    this.#heartbeatTimer = null;
+    const socket = this.#socket;
+    this.#socket = null;
+    if (socket && socket.readyState < WebSocket.CLOSING) socket.close(1001, "Remote access reconnecting");
+    this.#connection = "connecting";
+    this.#lastError = null;
+    void this.emitStatus(generation);
+    try {
+      await this.#beginConnect(generation);
+    } catch (error) {
+      if (this.#isCurrentGeneration(generation)) {
+        this.#connection = "error";
+        this.#lastError = errorMessage(error);
+        void this.emitStatus(generation);
+        this.#scheduleReconnect(generation);
+      }
+      throw error;
+    }
   }
 
   async status(): Promise<RemoteAccessStatus> {
@@ -115,58 +186,105 @@ export class RemoteAccessClient {
     return statusView(settings, this.#connection, this.#lastError);
   }
 
-  async #connect(): Promise<void> {
-    if (this.#stopped) return;
+  async #beginConnect(generation: number): Promise<void> {
+    if (!this.#isCurrentGeneration(generation)) return;
+    if (this.#connectAttempt?.generation === generation) return this.#connectAttempt.promise;
+    const promise = this.#connect(generation);
+    const attempt = { generation, promise };
+    this.#connectAttempt = attempt;
+    try {
+      await promise;
+    } finally {
+      if (this.#connectAttempt === attempt) this.#connectAttempt = null;
+    }
+  }
+
+  async #connect(generation: number): Promise<void> {
+    if (!this.#isCurrentGeneration(generation)) return;
     const settings = await this.#settingsStore.getRemoteAccess();
+    if (!this.#isCurrentGeneration(generation)) return;
     if (!settings?.enabled) return this.stop();
+    if (this.#socket && this.#socket.readyState < WebSocket.CLOSING) return;
     this.#connection = "connecting";
-    await this.emitStatus();
+    void this.emitStatus(generation);
     const url = new URL("/api/device/connect", settings.bridgeUrl);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    const socket = new WebSocket(url, { headers: { authorization: `Bearer ${settings.deviceToken}` } });
+    const socket = this.#createSocket(url, { headers: { authorization: `Bearer ${settings.deviceToken}` } });
+    if (!this.#isCurrentGeneration(generation)) {
+      if (socket.readyState < WebSocket.CLOSING) socket.close(1000, "Superseded remote connection");
+      return;
+    }
+    const displaced = this.#socket;
     this.#socket = socket;
+    this.#protocolErrorFramesSent = 0;
+    if (displaced && displaced !== socket && displaced.readyState < WebSocket.CLOSING) {
+      displaced.close(1000, "Superseded remote connection");
+    }
     socket.on("open", () => {
-      if (this.#socket !== socket || this.#stopped) return socket.close();
+      if (!this.#isCurrentSocket(socket, generation)) {
+        if (socket.readyState < WebSocket.CLOSING) socket.close(1000, "Superseded remote connection");
+        return;
+      }
       this.#reconnectAttempt = 0;
       this.#connection = "connected";
       this.#lastError = null;
-      void this.emitStatus();
-      if (this.#heartbeatTimer) clearInterval(this.#heartbeatTimer);
-      this.#heartbeatTimer = setInterval(() => this.send({ type: "device.heartbeat" }), 20_000);
+      void this.emitStatus(generation);
+      if (this.#heartbeatTimer) this.#timers.clearInterval(this.#heartbeatTimer);
+      this.#heartbeatTimer = this.#timers.setInterval(() => {
+        if (this.#isCurrentSocket(socket, generation)) this.#sendOnSocket(socket, { type: "device.heartbeat" });
+      }, 20_000);
     });
     socket.on("message", (raw) => {
+      if (!this.#isCurrentSocket(socket, generation)) return;
       void this.#handleMessage(raw.toString()).catch((error) => {
+        if (!this.#isCurrentSocket(socket, generation)) return;
+        if (error instanceof RemotePeerProtocolError) {
+          this.#closeWithProtocolError(socket, generation, error.message);
+          return;
+        }
         this.#lastError = errorMessage(error);
-        void this.emitStatus();
-        this.send({ type: "protocol.error", error: "The desktop rejected an invalid remote message." });
+        void this.emitStatus(generation);
+        if (this.#protocolErrorFramesSent < maximumProtocolErrorFramesPerConnection) {
+          this.#protocolErrorFramesSent += 1;
+          this.#sendOnSocket(socket, { type: "protocol.error", error: "The desktop rejected an invalid remote message." });
+          return;
+        }
+        this.#closeWithProtocolError(socket, generation, "The remote connection sent too many invalid messages.");
       });
     });
     socket.on("close", (code) => {
-      if (this.#socket === socket) this.#socket = null;
-      if (this.#heartbeatTimer) clearInterval(this.#heartbeatTimer);
+      if (!this.#isCurrentSocket(socket, generation)) return;
+      this.#socket = null;
+      if (this.#heartbeatTimer) this.#timers.clearInterval(this.#heartbeatTimer);
       this.#heartbeatTimer = null;
       if (this.#stopped) return;
-      this.#connection = code === 4001 ? "error" : "connecting";
-      this.#lastError = code === 4001 ? "The remote-access device credential was revoked." : null;
-      void this.emitStatus();
-      this.#scheduleReconnect();
+      const terminalError = this.#terminalSocketErrors.get(socket)
+        ?? (code === 4001 ? "The remote-access device credential was revoked." : null);
+      this.#connection = terminalError ? "error" : "connecting";
+      this.#lastError = terminalError;
+      void this.emitStatus(generation);
+      if (!terminalError) this.#scheduleReconnect(generation);
     });
     socket.on("error", (error) => {
+      if (!this.#isCurrentSocket(socket, generation)) return;
       this.#lastError = error.message;
       this.#connection = "error";
-      void this.emitStatus();
+      void this.emitStatus(generation);
     });
   }
 
-  #scheduleReconnect(): void {
-    if (this.#stopped || this.#reconnectTimer) return;
+  #scheduleReconnect(generation: number): void {
+    if (!this.#isCurrentGeneration(generation) || this.#reconnectTimer) return;
     const delay = reconnectDelaysMs[Math.min(this.#reconnectAttempt, reconnectDelaysMs.length - 1)];
     this.#reconnectAttempt += 1;
-    this.#reconnectTimer = setTimeout(() => {
+    this.#reconnectTimer = this.#timers.setTimeout(() => {
       this.#reconnectTimer = null;
-      void this.#connect().catch((error) => {
+      if (!this.#isCurrentGeneration(generation)) return;
+      void this.#beginConnect(generation).catch((error) => {
+        if (!this.#isCurrentGeneration(generation)) return;
         this.#lastError = errorMessage(error);
-        this.#scheduleReconnect();
+        void this.emitStatus(generation);
+        this.#scheduleReconnect(generation);
       });
     }, delay);
   }
@@ -182,8 +300,14 @@ export class RemoteAccessClient {
     if (message.type === "pairing.request") return this.#handlePairing(message.pairing);
     if (message.type === "operation.request") return this.#handleOperation(message.operation, message.envelope);
     if (message.type === "device.heartbeat" || message.type === "pairing.settled") return;
-    if (message.type === "protocol.error" && typeof message.error === "string") throw new Error(message.error);
-    throw new Error("Remote message type is unsupported.");
+    if (message.type === "protocol.error") {
+      const detail = typeof message.error === "string" && message.error.trim()
+        ? message.error.trim().slice(0, 500)
+        : "The remote bridge reported a protocol error.";
+      throw new RemotePeerProtocolError(detail);
+    }
+    // A newer bridge may add notifications that this desktop does not need.
+    // Ignoring unknown frames keeps version skew from becoming an error loop.
   }
 
   async #handlePairing(value: unknown): Promise<void> {
@@ -280,6 +404,7 @@ export class RemoteAccessClient {
     const input = parseRequestPayload(payload);
     const remoteOperation = operationName(envelope.header.operation);
     const principal: WorkFoldRemotePrincipal = { browserId: grant.browserId, grantId: grant.id, requestId: operation.requestId };
+    const authorityVersion = this.#authorityVersion;
     this.sendEncrypted(settings, grant, operation, 1, true, { status: "running" }, "operation.event");
     try {
       // Re-read immediately before execution so disabling or revoking cannot
@@ -297,9 +422,14 @@ export class RemoteAccessClient {
         }
         return value;
       });
+      // Revocation may win the authority queue immediately after execution.
+      // Do not repopulate response caches or disclose a result after its grant
+      // has been fenced and cleanup has cleared that grant's state.
+      if (this.#authorityVersion !== authorityVersion) return;
       const response = this.sendEncrypted(settings, grant, operation, 2, true, { result }, "operation.complete");
       this.remember(cacheKey, response);
     } catch (error) {
+      if (this.#authorityVersion !== authorityVersion) return;
       const response = this.sendEncrypted(settings, grant, operation, 2, false, { error: errorMessage(error) }, "operation.complete");
       this.remember(cacheKey, response);
     }
@@ -341,16 +471,24 @@ export class RemoteAccessClient {
   async revokeLocalGrant(grantId: string): Promise<void> {
     await this.#withAuthority(async () => {
       this.#authorityVersion += 1;
-      await this.#settingsStore.removeRemoteBrowserGrant(grantId);
-      await this.#finishRevocationCleanup(grantId);
+      const failures: string[] = [];
+      try { await this.#settingsStore.removeRemoteBrowserGrant(grantId); }
+      catch (error) { failures.push(errorMessage(error)); }
+      try { await this.#finishRevocationCleanup(grantId); }
+      catch (error) { failures.push(errorMessage(error)); }
+      if (failures.length) throw new Error(failures.join(" "));
     });
   }
 
   async revokeAllLocalGrants(): Promise<void> {
     await this.#withAuthority(async () => {
       this.#authorityVersion += 1;
-      await this.#settingsStore.clearRemoteBrowserGrants();
-      await this.#finishRevocationCleanup();
+      const failures: string[] = [];
+      try { await this.#settingsStore.clearRemoteBrowserGrants(); }
+      catch (error) { failures.push(errorMessage(error)); }
+      try { await this.#finishRevocationCleanup(); }
+      catch (error) { failures.push(errorMessage(error)); }
+      if (failures.length) throw new Error(failures.join(" "));
     });
   }
 
@@ -456,7 +594,29 @@ export class RemoteAccessClient {
   }
 
   send(value: unknown): void {
-    if (this.#socket?.readyState === WebSocket.OPEN) this.#socket.send(JSON.stringify(value));
+    const socket = this.#socket;
+    if (socket) this.#sendOnSocket(socket, value);
+  }
+
+  #sendOnSocket(socket: WebSocket, value: unknown): void {
+    if (this.#socket === socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(value));
+  }
+
+  #isCurrentGeneration(generation: number): boolean {
+    return !this.#stopped && this.#lifecycleGeneration === generation;
+  }
+
+  #isCurrentSocket(socket: WebSocket, generation: number): boolean {
+    return this.#isCurrentGeneration(generation) && this.#socket === socket;
+  }
+
+  #closeWithProtocolError(socket: WebSocket, generation: number, message: string): void {
+    if (!this.#isCurrentSocket(socket, generation)) return;
+    this.#terminalSocketErrors.set(socket, message);
+    this.#connection = "error";
+    this.#lastError = message;
+    void this.emitStatus(generation);
+    if (socket.readyState < WebSocket.CLOSING) socket.close(1002, "Remote protocol error");
   }
 
   async requireActiveSettings(): Promise<RemoteAccessSettings> {
@@ -465,9 +625,37 @@ export class RemoteAccessClient {
     return settings;
   }
 
-  async emitStatus(): Promise<void> {
-    this.#onStatus(await this.status());
+  async emitStatus(generation = this.#lifecycleGeneration): Promise<void> {
+    const status = await this.status();
+    if (generation === this.#lifecycleGeneration) this.#onStatus(status);
   }
+}
+
+/**
+ * Removes a Remote access account without discarding the only bridge
+ * credential until the bridge has confirmed deletion. Every cleanup lane is
+ * attempted so a local failure cannot silently strand server-side authority.
+ */
+export async function runRemoteAccountRemoval(steps: RemoteAccountRemovalSteps): Promise<void> {
+  const failures: string[] = [];
+  try { await steps.revokeLocalAuthority(); }
+  catch (error) { failures.push(errorMessage(error)); }
+  try { await steps.disableLocalAccess(); }
+  catch (error) { failures.push(errorMessage(error)); }
+
+  let bridgeDeletionConfirmed = false;
+  try {
+    await steps.deleteBridgeAccount();
+    bridgeDeletionConfirmed = true;
+  } catch (error) {
+    failures.push(errorMessage(error));
+  }
+
+  if (bridgeDeletionConfirmed) {
+    try { await steps.clearLocalCredentials(); }
+    catch (error) { failures.push(errorMessage(error)); }
+  }
+  if (failures.length) throw new Error(failures.join(" "));
 }
 
 export function generateRemoteDeviceKeys(): Pick<RemoteAccessSettings,
