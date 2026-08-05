@@ -265,7 +265,9 @@ test("password admission rejects work beyond its per-IP queue bound", async () =
     await gate;
   });
   await started;
+  assert.deepEqual(queue.snapshot(), { active: 1, queued: 0, maximumActive: 1, maximumQueued: 2 });
   const second = queue.run("198.51.100.10", async () => { order.push("second"); });
+  assert.deepEqual(queue.snapshot(), { active: 1, queued: 1, maximumActive: 1, maximumQueued: 2 });
   await assert.rejects(
     queue.run("198.51.100.10", async () => { order.push("overflow"); }),
     (error) => error?.status === 429,
@@ -273,6 +275,72 @@ test("password admission rejects work beyond its per-IP queue bound", async () =
   release();
   await Promise.all([first, second]);
   assert.deepEqual(order, ["first", "second"]);
+  assert.deepEqual(queue.snapshot(), { active: 0, queued: 0, maximumActive: 1, maximumQueued: 2 });
+});
+
+test("session CSRF issuance stays stable across tabs and the first tab remains authorized", async (context) => {
+  const service = await testService(context);
+  const baseUrl = `http://127.0.0.1:${service.port}`;
+  const password = "a stable multi-tab csrf password";
+  await enrollTestAccount(baseUrl, { slug: "csrf-tabs-test", password });
+  const loggedIn = await jsonRequest(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { origin: baseUrl },
+    body: { slug: "csrf-tabs-test", password },
+  });
+  const cookie = cookieFrom(loggedIn.response);
+  const firstTab = await jsonRequest(`${baseUrl}/api/auth/session?slug=csrf-tabs-test`, { headers: { cookie } });
+  const secondTab = await jsonRequest(`${baseUrl}/api/auth/session?slug=csrf-tabs-test`, { headers: { cookie } });
+  assert.equal(firstTab.body.csrfToken, secondTab.body.csrfToken);
+
+  const signedOut = await jsonRequest(`${baseUrl}/api/auth/session?slug=csrf-tabs-test`, {
+    method: "DELETE",
+    headers: { origin: baseUrl, cookie, "x-work-fold-csrf": firstTab.body.csrfToken },
+  });
+  assert.equal(signedOut.response.status, 200);
+  assert.equal(signedOut.body.signedOut, true, "a later tab read does not invalidate the first tab's token");
+});
+
+test("bridge metrics count only aggregate HTTP and device activity", async (context) => {
+  const reports = [];
+  const service = await testService(context, {
+    metrics: {
+      sink: (record) => reports.push(record),
+      reportIntervalMs: 60_000,
+      eventLoopLagWarningMs: 10,
+    },
+  });
+  const baseUrl = `http://127.0.0.1:${service.port}`;
+  assert.equal(reports[0]?.type, "work-fold.bridge.metrics.v1");
+  assert.equal(reports[0]?.reason, "startup");
+  assert.equal(reports[0]?.publicEnrollment, true);
+
+  await fetch(`${baseUrl}/health`);
+  const enrolled = await enrollTestAccount(baseUrl, {
+    slug: "aggregate-metrics-test",
+    password: "an aggregate metrics test password",
+  });
+  const socket = new WebSocket(`ws://127.0.0.1:${service.port}/api/device/connect`, {
+    headers: { authorization: `Bearer ${enrolled.deviceToken}` },
+  });
+  context.after(() => socket.close());
+  const messages = messageQueue(socket);
+  await messages.next("device.ready");
+  socket.send(JSON.stringify({ type: "device.heartbeat" }));
+  await messages.next("device.heartbeat");
+
+  const snapshot = service.metrics.snapshot();
+  assert.ok(snapshot.http.requestsTotal >= 2);
+  assert.equal(snapshot.deviceWebSocket.framesTotal, 1);
+  assert.equal(snapshot.connections.devicesCurrent, 1);
+  assert.equal(snapshot.publicEnrollment, true);
+  assert.doesNotMatch(JSON.stringify(snapshot), /aggregate-metrics-test|Bearer|deviceToken|slug|requestId/);
+
+  const warning = service.metrics.report({ reason: "manual", eventLoopLagMs: 25 });
+  assert.equal(warning.severity, "warning");
+  assert.ok(warning.warnings.includes("event_loop_lag"));
+  const absentEndpoint = await fetch(`${baseUrl}/api/metrics`);
+  assert.equal(absentEndpoint.status, 404, "metrics stay in the process log and are not a public endpoint");
 });
 
 test("distributed password failures cannot lock a correct account login", async (context) => {
@@ -827,6 +895,7 @@ async function testService(context, options = {}) {
     port: 0,
     baseDomain: "work-fold.test",
     publicEnrollment: true,
+    metrics: false,
     database,
     ...serverOptions,
     ...(passwordVerifierFactory ? { passwordVerifier: passwordVerifierFactory(database) } : {}),

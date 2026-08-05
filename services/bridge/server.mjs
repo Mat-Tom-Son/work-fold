@@ -15,6 +15,7 @@ import {
   normalizeSlug,
   verifyP1363,
 } from "./database.mjs";
+import { createBridgeMetrics } from "./metrics.mjs";
 
 const defaultHost = "0.0.0.0";
 const defaultPort = 3000;
@@ -73,6 +74,7 @@ export async function startBridgeServer({
   releaseFetcher = fetch,
   passwordVerifier = (slug, password) => database.authenticatePassword(slug, password),
   loginProtection,
+  metrics,
 } = {}) {
   const state = createState({
     database,
@@ -82,9 +84,11 @@ export async function startBridgeServer({
     releaseFetcher,
     passwordVerifier,
     loginProtection,
+    metrics,
   });
   await database.initialize();
   const server = createServer(async (request, response) => {
+    state.metrics.recordHttpRequest();
     try {
       await handleRequest(state, request, response);
     } catch (error) {
@@ -122,10 +126,13 @@ export async function startBridgeServer({
     await closeServer(server);
     throw new Error("Bridge service did not bind a TCP address.");
   }
+  state.metrics.start();
   return Object.freeze({
     host,
     port: address.port,
+    metrics: state.metrics,
     close: async () => {
+      state.metrics.stop();
       clearInterval(heartbeat);
       clearInterval(cleanup);
       for (const client of state.sseClients.values()) for (const response of client) response.end();
@@ -137,9 +144,9 @@ export async function startBridgeServer({
   });
 }
 
-function createState({ database, baseDomain, publicEnrollment, trustProxy, releaseFetcher, passwordVerifier, loginProtection }) {
+function createState({ database, baseDomain, publicEnrollment, trustProxy, releaseFetcher, passwordVerifier, loginProtection, metrics }) {
   const protection = normalizedLoginProtection(loginProtection);
-  return {
+  const state = {
     database,
     baseDomain,
     publicEnrollment,
@@ -158,6 +165,28 @@ function createState({ database, baseDomain, publicEnrollment, trustProxy, relea
     loginAttemptWindowMs: protection.attemptWindowMs,
     passwordVerifier,
     passwordChecks: createPasswordCheckQueue(protection),
+  };
+  const metricOptions = metrics && typeof metrics === "object" ? metrics : {};
+  state.metrics = createBridgeMetrics({
+    ...metricOptions,
+    enabled: metrics !== false && metricOptions.enabled !== false,
+    gauges: () => bridgeMetricGauges(state),
+  });
+  return state;
+}
+
+function bridgeMetricGauges(state) {
+  let sseClientsCurrent = 0;
+  for (const clients of state.sseClients.values()) {
+    for (const response of clients) {
+      if (!response.destroyed && !response.writableEnded) sseClientsCurrent += 1;
+    }
+  }
+  return {
+    publicEnrollment: state.publicEnrollment,
+    devicesCurrent: state.devices.size,
+    sseClientsCurrent,
+    passwordChecks: state.passwordChecks.snapshot(),
   };
 }
 
@@ -237,7 +266,7 @@ async function handleRequest(state, request, response) {
   if (url.pathname === "/api/auth/session" && method === "GET") {
     const account = await requestedAccount(state, request, url);
     const { token, session } = await requireBrowserSession(state, request, account);
-    const csrfToken = await state.database.rotateSessionCsrf(token);
+    const csrfToken = await state.database.issueSessionCsrf(token);
     if (!csrfToken) throw httpError(401, "Sign in to continue.");
     return writeJson(response, 200, { ...sessionView(state, account, session), csrfToken }, method, state, request);
   }
@@ -439,6 +468,7 @@ async function handleUpgrade(state, request, socket, head) {
       if (isCurrentDeviceConnection(state, connection)) connection.alive = true;
     });
     webSocket.on("message", (data) => {
+      state.metrics.recordDeviceWebSocketFrame();
       if (!isCurrentDeviceConnection(state, connection)) return;
       connection.messageQueue = connection.messageQueue.catch(() => undefined).then(async () => {
         if (!isCurrentDeviceConnection(state, connection)) return;
@@ -866,6 +896,14 @@ export function createPasswordCheckQueue({
         queue.push({ operation, resolve: resolveRun, reject: rejectRun });
         queued += 1;
         drain();
+      });
+    },
+    snapshot() {
+      return Object.freeze({
+        active,
+        queued,
+        maximumActive: maximumConcurrentChecks,
+        maximumQueued: maximumQueuedChecks,
       });
     },
   });

@@ -9,7 +9,7 @@
   },
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test server.test.mjs database-security.test.mjs"
+    "test": "node --test server.test.mjs database-security.test.mjs metrics.test.mjs"
   },
   "dependencies": {
     "pg": "^8.16.3",
