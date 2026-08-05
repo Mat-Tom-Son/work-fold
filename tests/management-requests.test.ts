@@ -28,6 +28,9 @@ test("the request registry attributes actions only to an explicit management tas
   // carries the exact parent id instead of relying on ambient running state.
   registry.begin({ taskId: "task-2", conversationId: "chat-2", content: "also this", attachments: [] });
   assert.equal(registry.isActive("task-2"), true);
+  assert.equal(registry.latestForConversation("chat-1")?.taskId, "task-1");
+  assert.equal(registry.latestForConversation("chat-2")?.taskId, "task-2");
+  assert.equal(registry.latestForConversation("missing"), null);
   const attributedSecond = registry.recordAction("task-2", {
     command: "spaces.create",
     at: new Date().toISOString(),

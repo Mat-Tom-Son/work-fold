@@ -19,8 +19,14 @@ const defaultHost = "0.0.0.0";
 const defaultPort = 3000;
 const defaultDomain = "work-fold.com";
 const maximumJsonBodyBytes = 96 * 1024;
-const maximumEnvelopeBytes = 2 * 1024 * 1024;
-const maximumDeviceMessageBytes = 3 * 1024 * 1024;
+// Remote uploads stay inside the signed application-encrypted envelope. The
+// browser client caps decoded files at 8 MiB total; JSON/base64 and AEAD
+// overhead need a little more room on the browser-to-bridge-to-device path.
+const maximumEnvelopeBytes = 12 * 1024 * 1024;
+const maximumOperationBodyBytes = 18 * 1024 * 1024;
+const maximumDeviceMessageBytes = 14 * 1024 * 1024;
+const maximumRoutineEnvelopeBytes = 2 * 1024 * 1024;
+const maximumResponseEnvelopeBytes = 3 * 1024 * 1024;
 const maximumOperationEventBytes = 32 * 1024 * 1024;
 const maximumOperationEventRecords = 256;
 const maximumSseClients = 128;
@@ -33,12 +39,17 @@ const releaseDownloadCacheMs = 15 * 60 * 1_000;
 const publicDir = join(dirname(fileURLToPath(import.meta.url)), "public");
 const allowedOperations = new Set([
   "management.summary",
+  "management.chats",
   "management.transcript",
   "management.send",
   "management.request",
   "management.stop",
   "spaces.list",
   "spaces.tree",
+  "spaces.chats",
+  "spaces.transcript",
+  "spaces.send",
+  "spaces.stop",
 ]);
 
 export async function startBridgeServer({
@@ -264,7 +275,7 @@ async function handleRequest(state, request, response) {
     enforceRateLimit(state, `operation:${session.id}`, 30, 60_000);
     const device = state.devices.get(account.id);
     if (!device) throw httpError(409, "Your work-fold desktop is offline.");
-    const body = await readJsonBody(request, maximumEnvelopeBytes);
+    const body = await readJsonBody(request, maximumOperationBodyBytes);
     if (Object.keys(body).some((key) => key !== "envelope" && key !== "recover")
       || (body.recover !== undefined && typeof body.recover !== "boolean")) {
       throw httpError(400, "Remote operation request is invalid.");
@@ -475,6 +486,10 @@ function assertBrowserEnvelope(account, session, value) {
   if (!allowedOperations.has(header.operation) || canonicalizeJson(header) !== canonicalizeJson(expected)) {
     throw httpError(400, "Remote request envelope is invalid.");
   }
+  if (!new Set(["management.send", "spaces.send"]).has(header.operation)
+    && envelope.ciphertext.length > maximumRoutineEnvelopeBytes * 1.4) {
+    throw httpError(413, "Remote request envelope is too large for this operation.");
+  }
   assertFreshTimestamp(header.createdAt);
   if (!verifyP1363(session.browserSigningPublicJwk, envelopeSignedText(envelope), envelope.signature)) {
     throw httpError(403, "Remote request signature is invalid.");
@@ -483,7 +498,7 @@ function assertBrowserEnvelope(account, session, value) {
 }
 
 function assertDeviceEnvelope(account, value) {
-  const envelope = assertEnvelopeShape(value);
+  const envelope = assertEnvelopeShape(value, maximumResponseEnvelopeBytes);
   const header = envelope.header;
   if (header.type !== "work-fold.remote-response.v1" || header.accountId !== account.id || header.deviceId !== account.id
     || typeof header.grantId !== "string" || typeof header.operationId !== "string" || typeof header.requestId !== "string"
@@ -498,10 +513,10 @@ function assertDeviceEnvelope(account, value) {
   return envelope;
 }
 
-function assertEnvelopeShape(value) {
+function assertEnvelopeShape(value, maximumBytes = maximumEnvelopeBytes) {
   if (!value || typeof value !== "object" || Array.isArray(value) || !value.header || typeof value.header !== "object"
     || typeof value.iv !== "string" || !/^[A-Za-z0-9_-]{16}$/.test(value.iv)
-    || typeof value.ciphertext !== "string" || value.ciphertext.length > maximumEnvelopeBytes * 1.4
+    || typeof value.ciphertext !== "string" || value.ciphertext.length > maximumBytes * 1.4
     || typeof value.signature !== "string" || value.signature.length > 256) {
     throw httpError(400, "Remote envelope is invalid.");
   }

@@ -12,6 +12,7 @@ import {
 import { loadAgentSkillCatalog } from "../src/local/agent/skill-catalog.js";
 import { WorkFoldCliError } from "../src/local/cli/index.js";
 import { startLocalApi } from "../src/local/server.js";
+import { setSpaceIgnoreState } from "../src/local/space-ignore.js";
 import { workFoldManagementRoot, workFoldManagementScopeId } from "../src/local/state-paths.js";
 
 test("the management conversation runs above all Spaces on the shared turn machinery", async () => {
@@ -226,6 +227,142 @@ test("remote access reuses the canonical management conversation through a bound
     assert.equal(freshDuplicate.taskId, null);
     await waitForAsync(async () => (await api.actFacade.manageTurnStatus({ taskId: fresh.taskId })).task.state !== "running");
     assert.equal((await api.actFacade.manageConversationStatus({})).conversation.id, fresh.conversationId);
+
+    const chats = await api.remoteFacade.execute(
+      "management.chats",
+      {},
+      { ...principal, requestId: "request-list-chats" },
+    ) as { conversations: Array<{ id: string }>; truncated: boolean };
+    assert.deepEqual(new Set(chats.conversations.map((conversation) => conversation.id)), new Set([sent.conversationId, fresh.conversationId]));
+    assert.equal(chats.truncated, false);
+
+    const resumed = await api.remoteFacade.execute(
+      "management.send",
+      { content: "/hold", conversationId: sent.conversationId },
+      { ...principal, requestId: "request-existing-chat" },
+    ) as { conversationId: string; taskId: string };
+    assert.equal(resumed.conversationId, sent.conversationId, "an explicit saved Chat wins over the most recently used Chat");
+    await waitForAsync(async () => (await api.actFacade.manageTurnStatus({ taskId: resumed.taskId })).task.state !== "running");
+    const selectedSummary = await api.remoteFacade.execute(
+      "management.summary",
+      { conversationId: sent.conversationId },
+      { ...principal, requestId: "request-selected-summary" },
+    ) as { conversation: { id: string }; latestRequest: { conversationId: string } };
+    assert.equal(selectedSummary.conversation.id, sent.conversationId);
+    assert.equal(selectedSummary.latestRequest.conversationId, sent.conversationId);
+
+    const managementUploadRequestId = "request-management-upload";
+    const uploadedToManagement = await api.remoteFacade.execute(
+      "management.send",
+      {
+        content: "/hold",
+        conversationId: sent.conversationId,
+        attachments: [{ name: "brief-upload.txt", data: Buffer.from("remote brief", "utf8").toString("base64url") }],
+      },
+      { ...principal, requestId: managementUploadRequestId },
+    ) as {
+      conversationId: string;
+      taskId: string;
+      uploads: Array<{ name: string; sizeBytes: number }>;
+    };
+    assert.deepEqual(uploadedToManagement.uploads, [{ name: "brief-upload.txt", sizeBytes: 12 }]);
+    assert.doesNotMatch(JSON.stringify(uploadedToManagement), new RegExp(sandbox.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    const stagedManagementPath = join(
+      workFoldManagementRoot(),
+      "Incoming",
+      "Remote",
+      principal.grantId,
+      managementUploadRequestId,
+      "brief-upload.txt",
+    );
+    assert.equal(existsSync(stagedManagementPath), true);
+    await waitForAsync(async () => (await api.actFacade.manageTurnStatus({ taskId: uploadedToManagement.taskId })).task.state !== "running");
+    const uploadTranscript = await api.remoteFacade.execute(
+      "management.transcript",
+      { conversationId: sent.conversationId },
+      { ...principal, requestId: "request-management-upload-transcript" },
+    ) as { messages: Array<{ role: string; attachments?: Array<{ kind: string; name: string; target?: string }> }> };
+    const uploadMessage = uploadTranscript.messages.find((message) => message.attachments?.some((attachment) => attachment.name === "brief-upload.txt"));
+    assert.deepEqual(uploadMessage?.attachments, [{ kind: "file", name: "brief-upload.txt" }], "remote transcripts expose attachment identity without local paths");
+
+    const spaceUploadPrincipal = { ...principal, requestId: "request-space-upload" };
+    const spaceTurn = await api.remoteFacade.execute(
+      "spaces.send",
+      {
+        spaceId: space.space.id,
+        content: "/hold",
+        newConversation: true,
+        attachments: [{ name: "notes.txt", data: Buffer.from("space notes", "utf8").toString("base64url") }],
+      },
+      spaceUploadPrincipal,
+    ) as {
+      conversationId: string;
+      taskId: string;
+      uploads: Array<{ name: string; path: string; sizeBytes: number }>;
+      safetyCheckpointId: string | null;
+    };
+    assert.equal(spaceTurn.uploads[0]?.name, "notes.txt");
+    assert.match(spaceTurn.uploads[0]?.path ?? "", /^Dropped\/\d{4}-\d{2}-\d{2}\/notes\.txt$/);
+    assert.equal(existsSync(join(space.space.spaceRoot, spaceTurn.uploads[0]!.path)), true);
+    assert.ok(spaceTurn.safetyCheckpointId, "placing a remote upload in a Space records a restore point");
+    await waitForAsync(async () => {
+      const tasks = await api.kernel.getTasks({ kind: "system" });
+      return !tasks.tasks.some((task) => task.id === spaceTurn.taskId);
+    });
+    const spaceChats = await api.remoteFacade.execute(
+      "spaces.chats",
+      { spaceId: space.space.id },
+      { ...principal, requestId: "request-space-chats" },
+    ) as { space: { id: string }; conversations: Array<{ id: string }>; truncated: boolean };
+    assert.equal(spaceChats.space.id, space.space.id);
+    assert.equal(spaceChats.conversations.some((conversation) => conversation.id === spaceTurn.conversationId), true);
+    assert.equal(spaceChats.truncated, false);
+    const spaceTranscript = await api.remoteFacade.execute(
+      "spaces.transcript",
+      { spaceId: space.space.id, conversationId: spaceTurn.conversationId },
+      { ...principal, requestId: "request-space-transcript" },
+    ) as { messages: Array<{ role: string; content: string; source?: string }> };
+    assert.equal(spaceTranscript.messages.some((message) => message.role === "user" && message.content === "/hold" && message.source === "remote_web"), true);
+
+    const stoppable = await api.remoteFacade.execute(
+      "spaces.send",
+      { spaceId: space.space.id, content: "/hold", conversationId: spaceTurn.conversationId },
+      { ...principal, requestId: "request-space-stop" },
+    ) as { conversationId: string; taskId: string };
+    const stopped = await api.remoteFacade.execute(
+      "spaces.stop",
+      { spaceId: space.space.id, taskId: stoppable.taskId },
+      { ...principal, requestId: "request-space-stop-action" },
+    ) as { stopped: boolean; taskId: string };
+    assert.equal(stopped.taskId, stoppable.taskId);
+    assert.equal(stopped.stopped, true);
+
+    await writeFile(join(space.space.spaceRoot, "secret.txt"), "ignored", "utf8");
+    await setSpaceIgnoreState(space.space.spaceRoot, ["secret.txt"], true);
+    await assert.rejects(
+      () => api.remoteFacade.execute(
+        "spaces.send",
+        { spaceId: space.space.id, content: "/hold", newConversation: true, contextPaths: ["secret.txt"] },
+        { ...principal, requestId: "request-ignored-context" },
+      ),
+      /visible, non-ignored/,
+    );
+    await assert.rejects(
+      () => api.remoteFacade.execute(
+        "spaces.send",
+        {
+          spaceId: space.space.id,
+          content: "/hold",
+          newConversation: true,
+          attachments: [{ name: "../escape.txt", data: "eA" }],
+        },
+        { ...principal, requestId: "request-unsafe-upload" },
+      ),
+      /plain names/,
+    );
+
+    await api.remoteFacade.purgeUploads(principal.grantId);
+    assert.equal(existsSync(stagedManagementPath), false, "revoking a browser can purge its staged management uploads");
 
     await assert.rejects(
       () => api.remoteFacade.execute(

@@ -17,7 +17,7 @@ By default, work-fold stores:
 - Provider credentials in an application-scoped file encrypted through Electron's operating-system-backed `safeStorage`. work-fold refuses credential operations when that encryption is unavailable.
 - Restricted-app Development-preview receipts and package snapshots; machine-local App Project identity and presentation; immutable content-addressed Release envelopes; prepared/published state; install/update operation journals; local App Instance records; per-automation enablement/cadence state and bounded run receipts; retained-data records; and Tenant-and-Data-Namespace-owned JSON storage under the application-data `restricted-apps` directory. Separately encrypted restricted-app connections bind their exact runtime and installation identities in `restricted-app-connections.bin`.
 - Short-lived CLI request, claim, and response files under the owning app's application-data directory: `%APPDATA%\work-fold\cli` for an installed Windows app, `%APPDATA%\work-fold Development\cli` for an uninstalled Windows package, and the corresponding production or separately identified smoke-app directory on macOS.
-- The management conversation's machine-local transcript under the application-data `management/` root. When a request includes attachments, its user message stores their typed absolute local paths or http(s) links; request/action projections remain in memory for the app run, while act lineage is metadata in the receipt journal.
+- The management conversation's machine-local transcript under the application-data `management/` root. When a request includes attachments, its user message stores their typed absolute local paths or http(s) links; remote uploads use an app-owned staging path under `management/Incoming/Remote/`. Request/action projections remain in memory for the app run, while act lineage is metadata in the receipt journal.
 - Optional Remote access device credentials, P-256 private keys, approved-browser public keys, and revocation state in the same operating-system-encrypted secure settings file as other application credentials. An approved browser keeps its own non-exportable private keys and grant identity in that browser's IndexedDB; it does not store a transcript or Space file cache there.
 
 work-fold uses a new application profile and does not inspect, import, migrate, rewrite, wipe, or delete legacy Workspace application data or `.workspace/` folder metadata. Legacy bytes remain where they already are and are not authoritative in work-fold. The app keeps `.workspace/` hidden and excludes it from History, Search, Checks, and restricted-app file grants. Pi's personal resources and authentication may still be read from the configured Pi agent directory, while work-fold keeps its Pi sessions in the separate `sessions/work-fold/` namespace.
@@ -54,16 +54,23 @@ trusted parts of the authority boundary: because that origin serves the web
 code which may use a non-exportable approved browser key, an active compromise
 of the hosted service can read displayed content or issue authorized requests.
 The envelope design protects passive relay handling and persisted state; it is
-not a guarantee against a malicious hosted origin. The browser renders the
-bounded recent machine-local management transcript and filtered, bounded
-Space-relative file-tree projections in memory and starts fresh by fetching
-them again after sign-in.
+not a guarantee against a malicious hosted origin. The browser renders bounded
+saved management or Space transcripts and filtered, bounded Space-relative
+file-tree projections in memory and starts fresh by fetching them again after
+sign-in. Files selected in the browser remain page-local until send, then cross
+the bridge only inside the encrypted envelope.
 Removing Remote access deletes its server-side account records; browser
 IndexedDB may retain an unusable local key until that site's data is cleared.
 
-A prompt sent from Remote access enters the same local management conversation
-and is then sent to the configured model provider under the behavior below.
-work-fold does not terminate or proxy the model-provider request at the bridge.
+A prompt sent from Remote access enters the explicitly selected local management
+or Space Chat and is then sent to the configured model provider under the
+behavior below. A Space upload becomes ordinary Space content under a dated
+`Dropped/` folder and receives a restore point. A management upload becomes a
+temporary local reference under app-owned `management/Incoming/Remote/`, subject
+to a 64 MB retained cap and 24-hour expiry; it is purged for a revoked browser
+or when Remote access is disabled. Revocation does not delete files already
+placed in a Space. work-fold does not terminate or proxy the model-provider
+request at the bridge.
 
 ### Model providers
 

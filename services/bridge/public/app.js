@@ -15,13 +15,21 @@ const state = {
   pendingOperations: new Map(),
   earlyEvents: new Map(),
   spaces: [],
-  selectedSpaceId: null,
+  explorerSpaceId: null,
   trees: new Map(),
   expanded: new Set(),
+  scope: { kind: "management", spaceId: null },
+  conversations: [],
+  chatListTruncated: false,
+  selectedConversationId: null,
+  contextPaths: new Set(),
+  uploads: [],
+  filesPanelOpen: window.matchMedia("(min-width: 981px)").matches,
   messages: [],
   transcriptTruncated: false,
   treeTruncated: new Map(),
   summary: null,
+  activeTask: null,
   banner: "",
   refreshTimer: null,
   sending: false,
@@ -89,7 +97,7 @@ function renderLanding() {
       <div class="landing-details" aria-label="How work-fold works">
         <section><span>01</span><div><h2>Keep folders ordinary</h2><p>Create a Space or register an existing folder. Your files stay visible in Finder and usable by the tools you already have.</p></div></section>
         <section><span>02</span><div><h2>Work with an Assistant</h2><p>Chat in the context you choose, keep a running local log, and move between Spaces without hiding where anything lives.</p></div></section>
-        <section><span>03</span><div><h2>Go remote when needed</h2><p>Use a private web address to reach the same management conversation while your desktop is online.</p></div></section>
+        <section><span>03</span><div><h2>Go remote when needed</h2><p>Use a private web address to reach your chats and Spaces while your desktop is online.</p></div></section>
       </div>
     </section>
   </main>`;
@@ -97,9 +105,9 @@ function renderLanding() {
 
 function renderLogin(error = "") {
   renderAuth({
-    eyebrow: "One Assistant · One running log",
+    eyebrow: "Remote access",
     headline: `Welcome back${state.context.slug ? `, ${escapeHtml(state.context.slug)}` : ""}.`,
-    supporting: "Your conversation, Spaces, and files remain on your desktop. This private-alpha page uses an application-encrypted path to the work-fold app you already use.",
+    supporting: "Your desktop must be online.",
     panel: `
       <form id="login-form">
         <h2>Sign in</h2>
@@ -234,7 +242,8 @@ async function bindIdentity() {
 async function openApplication() {
   renderApplication();
   openEvents();
-  await Promise.all([refreshConversation(), loadSpaces()]);
+  await loadSpaces();
+  await loadConversations();
   scheduleRefresh();
 }
 
@@ -242,22 +251,31 @@ function renderApplication() {
   app.innerHTML = `
     <div class="app-shell">
       <aside class="side-rail">
-        <div class="rail-brand"><span class="brand"><img class="brand-mark" src="/work-fold-icon.svg" alt="" />work-fold</span></div>
-        <button id="new-chat" class="rail-new-chat" type="button" title="Start a new chat. This chat stays saved on your desktop.">
+        <button id="management-home" class="rail-brand" type="button" aria-label="Open work-fold chats"><span class="brand"><img class="brand-mark" src="/work-fold-icon.svg" alt="" />work-fold</span></button>
+        <button id="new-chat" class="rail-new-chat" type="button">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" /></svg>
           <span>New chat</span>
         </button>
-        <p class="rail-heading">Spaces</p>
-        <ul id="spaces" class="space-list"></ul>
+        <p class="rail-heading">Chats</p>
+        <ul id="chats" class="chat-list"></ul>
         <div class="rail-spacer"></div>
         <div class="rail-account"><span>${escapeHtml(state.context.slug)}.work-fold.com</span><button id="logout" class="quiet">Sign out</button></div>
       </aside>
       <main class="conversation">
+        <header class="conversation-bar">
+          <div class="conversation-identity"><span id="scope-name"></span><strong id="conversation-title"></strong></div>
+          <div class="conversation-actions"><button id="stop-task" class="toolbar-button danger" type="button" hidden>Stop</button><button id="toggle-files" class="toolbar-button" type="button" aria-expanded="true">Files</button></div>
+        </header>
         <div id="banner"></div>
         <section id="messages" class="messages"><div class="message-stream"></div></section>
         <footer class="composer-wrap">
           <form id="composer" class="composer">
+            <div id="composer-context" class="composer-context"></div>
             <div class="composer-field">
+              <button id="attach-files" class="attach-button" type="button" aria-label="Attach files" title="Attach files">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8.5 12.5 5.7-5.7a3 3 0 1 1 4.2 4.2l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.2-8.2" /></svg>
+              </button>
+              <input id="file-input" type="file" multiple hidden />
               <textarea id="prompt" rows="1" maxlength="12000" placeholder="Message work-fold" aria-label="Message work-fold" aria-describedby="composer-note" autofocus></textarea>
               <button class="send-button" type="submit" aria-label="Send message" aria-keyshortcuts="Enter" title="Send message" disabled>
                 <svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-5 5 5-5 5 5" /></svg>
@@ -269,9 +287,31 @@ function renderApplication() {
           </form>
         </footer>
       </main>
+      <aside id="workspace-pane" class="workspace-pane">
+        <div class="workspace-pane-head">
+          <label for="space-picker">Space</label>
+          <button id="close-files" class="icon-button" type="button" aria-label="Close Files">×</button>
+        </div>
+        <select id="space-picker" class="space-picker" aria-label="Choose a Space"></select>
+        <div class="workspace-actions"><button id="chat-with-space" class="space-chat-button" type="button">Chat with Space</button></div>
+        <div id="file-tree" class="file-tree"></div>
+      </aside>
     </div>`;
   document.querySelector("#logout")?.addEventListener("click", () => void logout());
+  document.querySelector("#management-home")?.addEventListener("click", () => void switchScope({ kind: "management", spaceId: null }));
   document.querySelector("#new-chat")?.addEventListener("click", startNewChat);
+  document.querySelector("#stop-task")?.addEventListener("click", () => void stopCurrentTask());
+  document.querySelector("#toggle-files")?.addEventListener("click", () => setFilesPanelOpen(!state.filesPanelOpen));
+  document.querySelector("#close-files")?.addEventListener("click", () => setFilesPanelOpen(false));
+  document.querySelector("#chat-with-space")?.addEventListener("click", () => {
+    if (state.explorerSpaceId) void switchScope({ kind: "space", spaceId: state.explorerSpaceId });
+  });
+  document.querySelector("#space-picker")?.addEventListener("change", (event) => void selectExplorerSpace(event.currentTarget.value));
+  document.querySelector("#attach-files")?.addEventListener("click", () => document.querySelector("#file-input")?.click());
+  document.querySelector("#file-input")?.addEventListener("change", (event) => {
+    addUploads([...event.currentTarget.files]);
+    event.currentTarget.value = "";
+  });
   document.querySelector("#composer")?.addEventListener("submit", (event) => {
     event.preventDefault();
     void sendPrompt();
@@ -285,6 +325,10 @@ function renderApplication() {
     }
   });
   syncComposer();
+  renderConversationChrome();
+  renderConversations();
+  renderWorkspace();
+  setFilesPanelOpen(state.filesPanelOpen);
   updateConnection();
 }
 
@@ -294,17 +338,16 @@ function renderMessages() {
   const wasNearBottom = !container.dataset.rendered
     || container.scrollHeight - container.scrollTop - container.clientHeight < 120;
   const visible = state.messages.filter((message) => (message.role === "user" || message.role === "assistant") && !message.kind);
+  const requestPhase = state.summary?.latestRequest?.phase;
   const working = !state.startingNewChat && (
-    state.summary?.state === "running"
-    || state.summary?.latestRequest?.phase === "working"
-    || state.summary?.latestRequest?.phase === "handed_off"
+    state.summary?.state === "running" || requestPhase === "working" || requestPhase === "handed_off"
   );
-  container.innerHTML = `<div class="message-stream">${state.transcriptTruncated ? `<div class="projection-notice">Showing the most recent part of this running log. Open work-fold on the desktop for the complete history.</div>` : ""}${visible.length ? visible.map((message) => `
+  container.innerHTML = `<div class="message-stream">${state.transcriptTruncated ? `<div class="projection-notice">Earlier messages are hidden.</div>` : ""}${visible.length ? visible.map((message) => `
     <article class="message ${message.role} ${message.source === "remote_web" ? "web" : ""}">
-      <div class="message-role">${message.role === "assistant" ? "work-fold" : "You"}</div>
-      <div class="message-body markdown">${renderMarkdown(message.content)}</div>
+      <div class="message-role">${message.role === "assistant" ? escapeHtml(assistantLabel()) : "You"}</div>
+      <div class="message-content"><div class="message-body markdown">${renderMarkdown(message.content)}</div>${message.attachments?.length ? `<div class="message-attachments">${message.attachments.map((attachment) => `<span>${fileGlyph(attachment.kind)}${escapeHtml(attachment.name)}</span>`).join("")}</div>` : ""}</div>
     </article>`).join("") : ""}
-    ${working ? `<div class="working-row"><span class="spinner"></span><span>${escapeHtml(state.summary?.latestRequest?.phase === "handed_off" ? "Work continues in a Space" : "work-fold is working")}</span></div>` : ""}
+    ${working ? `<div class="working-row"><span class="spinner"></span><span>${requestPhase === "handed_off" ? "Space working" : "Working"}</span></div>` : ""}
   </div>`;
   container.dataset.rendered = "true";
   if (wasNearBottom) container.scrollTop = container.scrollHeight;
@@ -313,16 +356,31 @@ function renderMessages() {
 
 async function refreshConversation() {
   try {
-    state.summary = await remote("management.summary");
-    updateConnection(true);
-    if (state.startingNewChat) {
+    if (state.startingNewChat || !state.selectedConversationId) {
+      state.summary = { state: "idle" };
+      state.messages = [];
+      state.transcriptTruncated = false;
+      renderConversationChrome();
       renderMessages();
       return;
     }
-    const conversationId = state.summary.conversation?.id;
-    const transcript = conversationId ? await remote("management.transcript", { conversationId }) : { messages: [], truncated: false };
+    if (state.scope.kind === "management") {
+      state.summary = await remote("management.summary", { conversationId: state.selectedConversationId });
+    } else {
+      const selected = state.conversations.find((conversation) => conversation.id === state.selectedConversationId);
+      state.summary = { state: selected?.state ?? "idle" };
+    }
+    const summaryPhase = state.summary?.latestRequest?.phase;
+    if (state.summary?.state !== "running" && summaryPhase !== "working" && summaryPhase !== "handed_off") {
+      if (state.activeTask?.conversationId === state.selectedConversationId) state.activeTask = null;
+    }
+    updateConnection(true);
+    const transcript = state.scope.kind === "management"
+      ? await remote("management.transcript", { conversationId: state.selectedConversationId })
+      : await remote("spaces.transcript", { spaceId: state.scope.spaceId, conversationId: state.selectedConversationId });
     state.messages = transcript.messages ?? [];
     state.transcriptTruncated = transcript.truncated === true;
+    renderConversationChrome();
     renderMessages();
   } catch (error) {
     state.banner = errorText(error);
@@ -339,14 +397,35 @@ async function sendPrompt() {
   syncComposer();
   state.banner = "";
   try {
-    await remote("management.send", {
+    const attachments = await serializeUploads();
+    const request = {
       content,
-      ...(state.startingNewChat ? { newConversation: true } : {}),
-    });
+      ...(state.startingNewChat || !state.selectedConversationId
+        ? { newConversation: true }
+        : { conversationId: state.selectedConversationId }),
+      ...(attachments.length ? { attachments } : {}),
+    };
+    const result = state.scope.kind === "management"
+      ? await remote("management.send", request)
+      : await remote("spaces.send", {
+        ...request,
+        spaceId: state.scope.spaceId,
+        contextPaths: [...state.contextPaths],
+        selectedPath: [...state.contextPaths].at(-1) ?? null,
+      });
     state.startingNewChat = false;
+    state.selectedConversationId = result.conversationId;
+    state.activeTask = result.taskId ? {
+      taskId: result.taskId,
+      conversationId: result.conversationId,
+      kind: state.scope.kind,
+      spaceId: state.scope.spaceId,
+    } : null;
     input.value = "";
+    state.uploads = [];
+    state.contextPaths.clear();
     syncComposer();
-    await refreshConversation();
+    await loadConversations({ preferredConversationId: result.conversationId });
   } catch (error) {
     state.banner = errorText(error);
     renderBanner();
@@ -360,9 +439,15 @@ async function sendPrompt() {
 function startNewChat() {
   if (state.sending || state.startingNewChat) return;
   state.startingNewChat = true;
+  state.selectedConversationId = null;
   state.messages = [];
   state.transcriptTruncated = false;
-  state.banner = "New chat ready. Your previous chat is still saved on your desktop.";
+  state.banner = "";
+  state.contextPaths.clear();
+  state.uploads = [];
+  state.activeTask = null;
+  renderConversationChrome();
+  renderConversations();
   renderMessages();
   syncComposer();
   document.querySelector("#prompt")?.focus({ preventScroll: true });
@@ -382,67 +467,83 @@ function syncComposer() {
   input.setAttribute("aria-busy", String(state.sending));
   const newChatButton = document.querySelector("#new-chat");
   if (newChatButton) newChatButton.disabled = state.sending || state.startingNewChat;
+  renderComposerContext();
 }
 
 async function loadSpaces() {
   try {
     const result = await remote("spaces.list");
     state.spaces = result.spaces ?? [];
-    if (!state.selectedSpaceId && state.spaces[0]) state.selectedSpaceId = state.spaces[0].id;
-    renderSpaces();
-    if (state.selectedSpaceId) await loadTree(state.selectedSpaceId, "");
+    if (!state.explorerSpaceId && state.spaces[0]) state.explorerSpaceId = state.spaces[0].id;
+    renderWorkspace();
+    if (state.explorerSpaceId) await loadTree(state.explorerSpaceId, "");
   } catch (error) {
     state.banner = errorText(error);
     renderBanner();
   }
 }
 
-function renderSpaces() {
-  const list = document.querySelector("#spaces");
+async function loadConversations({ preferredConversationId = state.selectedConversationId, refreshTranscript = true } = {}) {
+  const result = state.scope.kind === "management"
+    ? await remote("management.chats")
+    : await remote("spaces.chats", { spaceId: state.scope.spaceId });
+  state.conversations = (result.conversations ?? []).filter((conversation) => !conversation.archivedAt);
+  state.chatListTruncated = result.truncated === true;
+  const selected = preferredConversationId && state.conversations.some((conversation) => conversation.id === preferredConversationId)
+    ? preferredConversationId
+    : state.conversations[0]?.id ?? null;
+  state.selectedConversationId = state.startingNewChat ? null : selected;
+  renderConversations();
+  renderConversationChrome();
+  if (refreshTranscript) await refreshConversation();
+}
+
+function renderConversations() {
+  const list = document.querySelector("#chats");
   if (!list) return;
-  list.innerHTML = state.spaces.map((space) => `
-    <li>
-      <button class="space-button ${space.id === state.selectedSpaceId ? "active" : ""}" data-space="${escapeAttribute(space.id)}"><span class="space-glyph">◇</span><span>${escapeHtml(space.name)}</span></button>
-      ${space.id === state.selectedSpaceId ? renderTreeList(space.id, state.trees.get(`${space.id}:`) ?? [], "") : ""}
-    </li>`).join("") || `<li><button class="space-button" disabled>No Spaces</button></li>`;
-  for (const button of list.querySelectorAll("[data-space]")) button.addEventListener("click", () => void selectSpace(button.dataset.space));
-  for (const button of list.querySelectorAll("[data-tree-path]")) button.addEventListener("click", () => void toggleTree(button.dataset.spaceId, button.dataset.treePath));
-}
-
-function renderTreeList(spaceId, entries, path) {
-  const truncated = state.treeTruncated.get(`${spaceId}:${path}`) === true;
-  if (!entries.length) return `<ul class="tree-list">${truncated ? `<li class="tree-notice">More items exist than can be shown here.</li>` : `<li><button class="tree-button" disabled><span></span><span>Empty</span></button></li>`}</ul>`;
-  return `<ul class="tree-list">${truncated ? `<li class="tree-notice">Showing the first 500 filtered items. Ignored and product-hidden files are omitted.</li>` : ""}${entries.map((entry) => {
-    const expanded = entry.kind === "folder" && state.expanded.has(`${spaceId}:${entry.path}`);
-    const children = expanded ? state.trees.get(`${spaceId}:${entry.path}`) ?? [] : [];
-    return `<li><button class="tree-button" data-space-id="${escapeAttribute(spaceId)}" data-tree-path="${escapeAttribute(entry.path)}"><span class="tree-caret">${entry.kind === "folder" ? expanded ? "▾" : "›" : ""}</span><span>${escapeHtml(entry.name)}</span></button>${expanded ? renderTreeList(spaceId, children, entry.path) : ""}</li>`;
-  }).join("")}</ul>`;
-}
-
-async function selectSpace(spaceId) {
-  state.selectedSpaceId = spaceId;
-  renderSpaces();
-  await loadTree(spaceId, "");
-}
-
-async function toggleTree(spaceId, path) {
-  const rootEntries = state.trees.get(`${spaceId}:`) ?? [];
-  const entry = findEntry(rootEntries, path) ?? findEntryInCaches(spaceId, path);
-  if (entry?.kind !== "folder") return;
-  const key = `${spaceId}:${path}`;
-  if (state.expanded.has(key)) state.expanded.delete(key);
-  else {
-    state.expanded.add(key);
-    if (!state.trees.has(key)) await loadTree(spaceId, path);
+  list.innerHTML = state.conversations.length ? `${state.conversations.map((conversation) => `
+    <li><button class="chat-button ${conversation.id === state.selectedConversationId && !state.startingNewChat ? "active" : ""}" data-chat-id="${escapeAttribute(conversation.id)}">
+      <span class="chat-title">${escapeHtml(conversation.title)}</span>
+      <span class="chat-meta">${conversation.state === "running" ? "Working" : shortDate(conversation.updatedAt)}</span>
+    </button></li>`).join("")}${state.chatListTruncated ? `<li class="empty-list">Older chats hidden</li>` : ""}` : `<li class="empty-list">No chats</li>`;
+  for (const button of list.querySelectorAll("[data-chat-id]")) {
+    button.addEventListener("click", () => void selectConversation(button.dataset.chatId));
   }
-  renderSpaces();
+}
+
+async function selectConversation(conversationId) {
+  if (state.sending || !conversationId) return;
+  state.startingNewChat = false;
+  state.selectedConversationId = conversationId;
+  state.banner = "";
+  renderConversations();
+  renderConversationChrome();
+  await refreshConversation();
+}
+
+async function switchScope(scope) {
+  if (state.sending || (scope.kind === "space" && !scope.spaceId)) return;
+  state.scope = scope;
+  state.startingNewChat = false;
+  state.selectedConversationId = null;
+  state.messages = [];
+  state.contextPaths.clear();
+  state.uploads = [];
+  state.banner = "";
+  if (scope.kind === "space") {
+    state.explorerSpaceId = scope.spaceId;
+    await loadTree(scope.spaceId, "");
+  }
+  renderWorkspace();
+  syncComposer();
+  await loadConversations();
 }
 
 async function loadTree(spaceId, path) {
   const result = await remote("spaces.tree", { spaceId, path });
   state.trees.set(`${spaceId}:${path}`, result.tree ?? []);
   state.treeTruncated.set(`${spaceId}:${path}`, result.truncated === true);
-  renderSpaces();
+  renderWorkspace();
 }
 
 function findEntry(entries, path) { return entries.find((entry) => entry.path === path) ?? null; }
@@ -453,10 +554,200 @@ function findEntryInCaches(spaceId, path) {
   return null;
 }
 
+function renderConversationChrome() {
+  const scopeName = document.querySelector("#scope-name");
+  const title = document.querySelector("#conversation-title");
+  const prompt = document.querySelector("#prompt");
+  const space = state.spaces.find((candidate) => candidate.id === state.scope.spaceId);
+  if (scopeName) scopeName.textContent = state.scope.kind === "management" ? "work-fold" : space?.name ?? "Space";
+  const selected = state.conversations.find((conversation) => conversation.id === state.selectedConversationId);
+  if (title) title.textContent = state.startingNewChat || !selected ? "New chat" : selected.title;
+  if (prompt) prompt.placeholder = state.scope.kind === "management" ? "Message work-fold" : `Message ${space?.name ?? "Space"}`;
+  const stop = document.querySelector("#stop-task");
+  if (stop) stop.hidden = !state.activeTask || state.activeTask.conversationId !== state.selectedConversationId;
+}
+
+function renderWorkspace() {
+  const picker = document.querySelector("#space-picker");
+  const tree = document.querySelector("#file-tree");
+  const chatButton = document.querySelector("#chat-with-space");
+  if (picker) {
+    picker.innerHTML = state.spaces.map((space) => `<option value="${escapeAttribute(space.id)}" ${space.id === state.explorerSpaceId ? "selected" : ""}>${escapeHtml(space.name)}</option>`).join("");
+    picker.disabled = !state.spaces.length;
+  }
+  if (chatButton) {
+    chatButton.disabled = !state.explorerSpaceId;
+    chatButton.textContent = state.scope.kind === "space" && state.scope.spaceId === state.explorerSpaceId ? "Current chat" : "Chat with Space";
+  }
+  if (!tree) return;
+  if (!state.explorerSpaceId) {
+    tree.innerHTML = `<div class="file-empty">No Spaces</div>`;
+    return;
+  }
+  const entries = state.trees.get(`${state.explorerSpaceId}:`) ?? [];
+  tree.innerHTML = renderTreeRows(state.explorerSpaceId, entries, "", 0);
+  for (const button of tree.querySelectorAll("[data-tree-path]")) {
+    button.addEventListener("click", () => void toggleTree(button.dataset.spaceId, button.dataset.treePath));
+  }
+  for (const button of tree.querySelectorAll("[data-add-context]")) {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      void addFileContext(button.dataset.spaceId, button.dataset.addContext);
+    });
+  }
+}
+
+function renderTreeRows(spaceId, entries, path, depth) {
+  const truncated = state.treeTruncated.get(`${spaceId}:${path}`) === true;
+  if (!entries.length) return `<div class="file-empty">Empty</div>`;
+  return `${truncated ? `<div class="tree-notice">First 500 items. Ignored files omitted.</div>` : ""}${entries.map((entry) => {
+    const expanded = entry.kind === "folder" && state.expanded.has(`${spaceId}:${entry.path}`);
+    const children = expanded ? state.trees.get(`${spaceId}:${entry.path}`) ?? [] : [];
+    const selected = state.scope.kind === "space" && state.scope.spaceId === spaceId && state.contextPaths.has(entry.path);
+    return `<div class="file-node">
+      <div class="file-row ${selected ? "selected" : ""}" style="--depth:${depth}">
+        <button class="file-main" type="button" data-space-id="${escapeAttribute(spaceId)}" data-tree-path="${escapeAttribute(entry.path)}" ${entry.kind === "folder" ? `aria-expanded="${String(expanded)}"` : ""}>
+          <span class="tree-caret">${entry.kind === "folder" ? expanded ? "⌄" : "›" : ""}</span>${fileGlyph(entry.kind)}<span class="file-name">${escapeHtml(entry.name)}</span>
+        </button>
+        ${entry.kind === "file" ? `<span class="file-size">${formatBytes(entry.sizeBytes)}</span><button class="file-context-button" type="button" data-space-id="${escapeAttribute(spaceId)}" data-add-context="${escapeAttribute(entry.path)}" aria-label="Add ${escapeAttribute(entry.name)} to chat" title="Add to chat">+</button>` : ""}
+      </div>
+      ${expanded ? `<div>${renderTreeRows(spaceId, children, entry.path, depth + 1)}</div>` : ""}
+    </div>`;
+  }).join("")}`;
+}
+
+async function selectExplorerSpace(spaceId) {
+  state.explorerSpaceId = spaceId;
+  renderWorkspace();
+  if (spaceId) await loadTree(spaceId, "");
+}
+
+async function toggleTree(spaceId, path) {
+  const entry = findEntryInCaches(spaceId, path);
+  if (entry?.kind !== "folder") return;
+  const key = `${spaceId}:${path}`;
+  if (state.expanded.has(key)) state.expanded.delete(key);
+  else {
+    state.expanded.add(key);
+    if (!state.trees.has(key)) await loadTree(spaceId, path);
+  }
+  renderWorkspace();
+}
+
+async function addFileContext(spaceId, path) {
+  if (state.scope.kind !== "space" || state.scope.spaceId !== spaceId) {
+    await switchScope({ kind: "space", spaceId });
+  }
+  if (state.contextPaths.has(path)) state.contextPaths.delete(path);
+  else state.contextPaths.add(path);
+  syncComposer();
+  renderWorkspace();
+  document.querySelector("#prompt")?.focus({ preventScroll: true });
+}
+
+async function stopCurrentTask() {
+  const task = state.activeTask;
+  if (!task) return;
+  const button = document.querySelector("#stop-task");
+  if (button) button.disabled = true;
+  try {
+    if (task.kind === "management") await remote("management.stop", { taskId: task.taskId });
+    else await remote("spaces.stop", { spaceId: task.spaceId, taskId: task.taskId });
+    state.activeTask = null;
+    await loadConversations({ preferredConversationId: task.conversationId });
+  } catch (error) {
+    state.banner = errorText(error);
+    renderBanner();
+  } finally {
+    if (button) button.disabled = false;
+    renderConversationChrome();
+  }
+}
+
+function addUploads(files) {
+  const maximumFiles = 6;
+  const maximumFileBytes = 6 * 1024 * 1024;
+  const maximumTotalBytes = 8 * 1024 * 1024;
+  const next = [...state.uploads];
+  for (const file of files) {
+    if (next.length >= maximumFiles) return showUploadError(`Attach up to ${maximumFiles} files.`);
+    if (file.size > maximumFileBytes) return showUploadError(`${file.name} is larger than 6 MB.`);
+    if (next.reduce((total, item) => total + item.size, 0) + file.size > maximumTotalBytes) return showUploadError("Attachments are limited to 8 MB per message.");
+    next.push(file);
+  }
+  state.uploads = next;
+  state.banner = "";
+  syncComposer();
+  renderBanner();
+}
+
+function showUploadError(message) {
+  state.banner = message;
+  renderBanner();
+}
+
+async function serializeUploads() {
+  return Promise.all(state.uploads.map(async (file) => ({ name: file.name, data: base64url(new Uint8Array(await file.arrayBuffer())) })));
+}
+
+function renderComposerContext() {
+  const container = document.querySelector("#composer-context");
+  if (!container) return;
+  const context = [...state.contextPaths].map((path) => ({ kind: "context", name: path }));
+  const uploads = state.uploads.map((file, index) => ({ kind: "upload", name: file.name, index }));
+  container.innerHTML = [...context, ...uploads].map((item) => `<span class="context-chip">${fileGlyph("file")}<span>${escapeHtml(item.name)}</span><button type="button" ${item.kind === "context" ? `data-remove-context="${escapeAttribute(item.name)}"` : `data-remove-upload="${item.index}"`} aria-label="Remove ${escapeAttribute(item.name)}">×</button></span>`).join("");
+  for (const button of container.querySelectorAll("[data-remove-context]")) button.addEventListener("click", () => {
+    state.contextPaths.delete(button.dataset.removeContext);
+    syncComposer();
+    renderWorkspace();
+  });
+  for (const button of container.querySelectorAll("[data-remove-upload]")) button.addEventListener("click", () => {
+    state.uploads.splice(Number(button.dataset.removeUpload), 1);
+    syncComposer();
+  });
+}
+
+function setFilesPanelOpen(open) {
+  state.filesPanelOpen = open;
+  document.querySelector(".app-shell")?.classList.toggle("files-closed", !open);
+  document.querySelector("#toggle-files")?.setAttribute("aria-expanded", String(open));
+}
+
+function fileGlyph(kind) {
+  return kind === "folder"
+    ? `<svg class="file-glyph folder" viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 5.5h5l1.4 1.6h8.6v8.4h-15Z" /></svg>`
+    : `<svg class="file-glyph" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5h6l4 4v11H5Z"/><path d="M11 2.5v4h4" /></svg>`;
+}
+
+function formatBytes(value) {
+  if (!Number.isFinite(value)) return "";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function shortDate(value) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  const today = new Date();
+  if (date.toDateString() === today.toDateString()) return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function assistantLabel() {
+  if (state.scope.kind === "management") return "work-fold";
+  return state.spaces.find((space) => space.id === state.scope.spaceId)?.name ?? "Space";
+}
+
 function scheduleRefresh() {
   if (state.refreshTimer) clearTimeout(state.refreshTimer);
-  const active = state.summary?.state === "running" || new Set(["working", "handed_off"]).has(state.summary?.latestRequest?.phase);
-  state.refreshTimer = setTimeout(() => void refreshConversation().finally(scheduleRefresh), active ? 5_000 : 10_000);
+  const active = state.summary?.state === "running";
+  state.refreshTimer = setTimeout(() => void loadConversations({ refreshTranscript: true })
+    .catch((error) => {
+      state.banner = errorText(error);
+      renderBanner();
+    })
+    .finally(scheduleRefresh), active ? 4_000 : 10_000);
 }
 
 function openEvents() {
@@ -689,9 +980,8 @@ function renderBanner() {
 
 function renderAuth({ eyebrow, headline, supporting, panel }, afterRender) {
   app.innerHTML = `<main class="auth-shell">
-    <header class="auth-top"><span class="brand"><img class="brand-mark" src="/work-fold-icon.svg" alt="" />work-fold</span><span class="secure-note">Private alpha</span></header>
+    <header class="auth-top"><span class="brand"><img class="brand-mark" src="/work-fold-icon.svg" alt="" />work-fold</span></header>
     <section class="auth-stage"><div class="auth-copy"><p class="eyebrow">${eyebrow}</p><h1>${headline}</h1><p>${supporting}</p></div><div class="auth-panel">${panel}</div></section>
-    <footer class="auth-foot"><span>Local files stay on your desktop.</span><span>Private alpha · Hosted client trusted</span></footer>
   </main>`;
   afterRender?.();
 }

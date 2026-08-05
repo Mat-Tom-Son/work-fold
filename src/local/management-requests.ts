@@ -158,6 +158,14 @@ export class ManagementRequestRegistry {
     for (const record of this.#records.values()) latest = record;
     return latest;
   }
+
+  latestForConversation(conversationId: string): ManagementRequestRecord | null {
+    let latest: ManagementRequestRecord | null = null;
+    for (const record of this.#records.values()) {
+      if (record.conversationId === conversationId) latest = record;
+    }
+    return latest;
+  }
 }
 
 function dedupeAttachments(attachments: ManagementAttachmentRef[]): ManagementAttachmentRef[] {

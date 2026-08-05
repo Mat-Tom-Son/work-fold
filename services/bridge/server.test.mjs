@@ -42,9 +42,26 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.match(applicationSource, /href="\/download\/macos"/);
   assert.match(applicationSource, /href="https:\/\/github\.com\/Mat-Tom-Son\/work-fold"/);
   assert.match(applicationSource, /id="new-chat"/);
+  assert.match(applicationSource, /id="chats"/);
+  assert.match(applicationSource, /id="workspace-pane"/);
+  assert.match(applicationSource, /id="file-input"/);
   assert.match(applicationSource, /newConversation: true/);
-  assert.match(applicationSource, /previous chat is still saved on your desktop/);
-  for (const removedCopy of ["Management conversation", "Above all Spaces", "Needs you", "Desktop connected", "Encrypted to your desktop"]) {
+  assert.match(applicationSource, /management\.chats/);
+  assert.match(applicationSource, /management\.stop/);
+  assert.match(applicationSource, /spaces\.chats/);
+  assert.match(applicationSource, /spaces\.send/);
+  assert.match(applicationSource, /spaces\.stop/);
+  assert.doesNotMatch(applicationSource, /previous chat is still saved on your desktop/);
+  for (const removedCopy of [
+    "Management conversation",
+    "Above all Spaces",
+    "Needs you",
+    "Desktop connected",
+    "Encrypted to your desktop",
+    "Private alpha",
+    "Hosted client trusted",
+    " · Web",
+  ]) {
     assert.doesNotMatch(applicationSource, new RegExp(removedCopy));
   }
 
@@ -354,6 +371,29 @@ test("pairs a non-exportable browser identity and relays only signed opaque enve
   assert.equal(completed.body.events.length, 2);
   assert.deepEqual(completed.body.events[0].envelope, progressEnvelope);
   assert.deepEqual(completed.body.events[1].envelope, responseEnvelope);
+
+  const uploadHeader = {
+    ...requestHeader,
+    requestId: randomUUID(),
+    operation: "spaces.send",
+    createdAt: new Date().toISOString(),
+  };
+  const uploadEnvelope = {
+    header: uploadHeader,
+    iv: randomBytes(12).toString("base64url"),
+    ciphertext: "A".repeat(13 * 1024 * 1024),
+    signature: "",
+  };
+  uploadEnvelope.signature = signText(browserKeys.signing.privateKey, envelopeText(uploadEnvelope));
+  const acceptedUpload = await jsonRequest(`${baseUrl}/api/operations?slug=alice-test`, {
+    method: "POST",
+    headers: { origin, cookie, "x-work-fold-csrf": session.body.csrfToken },
+    body: { envelope: uploadEnvelope },
+  });
+  assert.equal(acceptedUpload.response.status, 202, "the outer encrypted envelope must accommodate the documented 8 MB decoded upload batch");
+  const deliveredUpload = await resumedMessages.next("operation.request");
+  assert.equal(deliveredUpload.operation.requestId, uploadHeader.requestId);
+  assert.equal(deliveredUpload.envelope.ciphertext.length, uploadEnvelope.ciphertext.length);
 });
 
 async function testService(context, options = {}) {

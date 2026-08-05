@@ -126,8 +126,8 @@ The same request model backs the desktop's **menu-bar popover** (macOS menu-bar 
 
 ### Remote browser surface
 
-Server-enabled private-alpha Remote access adds a browser surface to this exact management
-conversation; it does not add another default conversation or Pi session. The
+Server-enabled private-alpha Remote access adds a browser surface to the canonical management
+and Space Chat runtimes; it does not add another transcript or Pi session. The
 desktop renderer configures a unique address and password in Settings. A
 server-side switch controls whether new addresses may be created; the public
 desktop app carries no shared enrollment credential, and the bridge applies
@@ -156,28 +156,41 @@ backplane. Scheduled cleanup, active-row expiry predicates, per-grant operation
 caps, SSE caps, and a global ciphertext-byte budget bound the current process.
 
 The desktop does not expose its renderer token or tunnel arbitrary local HTTP.
-`WorkFoldRemoteFacade` is a closed semantic adapter with only management
-summary/transcript/send/request/stop plus Space-name listing and bounded
-Space-relative tree projection. It strips absolute roots and attachment target
-paths, applies the ordinary ignore policy, rejects traversal and unknown
-fields, and rechecks the locally encrypted grant immediately before execution.
+`WorkFoldRemoteFacade` is a closed semantic adapter with bounded saved-Chat
+listing, summary/transcript/send/stop operations for management and Space Chats,
+management request projection, Space-name listing, and bounded Space-relative
+tree projection. It strips absolute roots and attachment target paths, applies
+the ordinary ignore policy, rejects traversal, ignored context paths, and
+unknown fields, and rechecks the locally encrypted grant immediately before execution.
 Dispatch and desktop-local authority mutations share one serialization fence;
 revocation removes local authority before contacting the bridge and stops
-locally tracked management and child work started by that grant. Signed request
+locally tracked management, delegated child, and direct Space work started by that grant. Signed request
 ids, atomic bridge delivery claims, desktop in-flight claims, and exact-id
 recovery prevent a reconnect or bridge restart from inventing a second prompt.
-`management.send` enters `acceptConversationTurn`, may explicitly start a new
-saved management thread, persists `remote_web` provenance and a signed request
-id, and participates in the same active-turn, request-lineage, stop, transcript,
-and Pi-session rules as the popover. The
+`management.send` and `spaces.send` enter `acceptConversationTurn`, may explicitly
+start a new saved thread, persist `remote_web` provenance and a signed request
+id, and participate in the same active-turn, stop, transcript, and Pi-session
+rules as their desktop counterparts. A direct Space turn also uses that Space's
+registered runtime authorization, native Pi project resources and tools, and
+pre/post-turn History path. The
 stable kernel continues to classify it as a renderer surface; the durable
 message/request provenance distinguishes remote acceptance without changing
 the version-1 actor vocabulary.
 
-This is a powerful full-trust management surface. Pairing authorizes a browser
-to ask the same taught-but-not-tool-restricted Assistant to act with the local
-user's authority while the desktop is online. Password possession alone is not
-that grant, and an offline desktop cannot approve or execute anything.
+Remote file upload is bounded to six plain-named files, 6 MB each and 8 MB per
+message, carried inside the encrypted request envelope. Space uploads are
+written to `Dropped/<local-date>/`, added to explicit context, and paired with a
+targeted additive restore point before the turn is accepted. Management uploads
+are temporary references under app-owned `management/Incoming/Remote/`: at most
+64 MB is retained, request directories expire after 24 hours, revoking a browser
+purges that browser's directory, and disabling Remote access purges the whole
+staging root. Remote results expose names and sizes, never staging paths.
+
+This is a powerful full-trust Assistant surface. Pairing authorizes a browser
+to ask the taught-but-not-tool-restricted management Assistant or a selected
+Space's native Assistant to act with the local user's authority while the
+desktop is online. Password possession alone is not that grant, and an offline
+desktop cannot approve or execute anything.
 
 Space-targeted act commands never resolve a Space from the working directory — every write names its Space explicitly. `chat send` accepts a CLI-initiated Assistant turn through the exact same acceptance path as the renderer (conflict checks, kernel task record with a `cli` actor, portable transcript persistence, pre/post-turn History checkpoints) and returns a task id. Non-cancelled terminal failures append a typed, sanitized Assistant result before the task settles, including setup failures that occur before a provider can answer; that same durable rule covers the machine-local management transcript and menu-bar popover, while raw provider diagnostics stay host-side. That task id is how a caller follows exactly its own turn: the app keeps each accepted turn's terminal outcome (`succeeded`, `failed`, or `aborted`, with the persisted response message id or the failure message) for the rest of the app run, `chat status --task`/`chat result --task` read it, and `chat wait --task` is a shim-side poll that finishes with that turn's own result — a failed or aborted turn exits non-zero instead of presenting an older transcript message as success (wait timeout exit code 7). `chat status|result --conversation` remain the transcript-scoped views. `files add` copies outside material in with a targeted restore point that succeeds or fails together with the placement, and `spaces create`/`spaces register` grant the same registered-Space runtime authorization as the desktop actions. Content-bearing chat reads (`chat status|result`, `chats list`) belong to the act lane too, so the read lane keeps its content-free property. When the interactive app is not running, act commands fail fast with "Open work-fold…" and exit code 6.
 

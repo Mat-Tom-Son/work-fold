@@ -20,9 +20,10 @@ import type { RemoteAccessSettings, RemoteBrowserGrantSettings, SecureSettingsSt
 
 const reconnectDelaysMs = [500, 1_000, 2_000, 5_000, 10_000, 20_000, 30_000] as const;
 const maximumRememberedResponses = 256;
+const maximumRemoteRequestCiphertextCharacters = Math.floor(12 * 1024 * 1024 * 1.4);
 const operationSet = new Set<WorkFoldRemoteOperation>([
-  "management.summary", "management.transcript", "management.send", "management.request",
-  "management.stop", "spaces.list", "spaces.tree",
+  "management.summary", "management.chats", "management.transcript", "management.send", "management.request",
+  "management.stop", "spaces.list", "spaces.tree", "spaces.chats", "spaces.transcript", "spaces.send", "spaces.stop",
 ]);
 
 export interface RemoteAccessStatus {
@@ -55,6 +56,12 @@ interface RemoteEnvelope {
   signature: string;
 }
 
+interface TrackedRemoteTask {
+  principal: WorkFoldRemotePrincipal;
+  operation: "management.send" | "spaces.send";
+  spaceId?: string;
+}
+
 export class RemoteAccessClient {
   #settingsStore: SecureSettingsStore;
   #facade: WorkFoldRemoteFacade;
@@ -70,7 +77,7 @@ export class RemoteAccessClient {
   #responses = new Map<string, RemoteEnvelope>();
   #inFlight = new Map<string, Promise<void>>();
   #authorityQueue: Promise<void> = Promise.resolve();
-  #activeTasks = new Map<string, Map<string, WorkFoldRemotePrincipal>>();
+  #activeTasks = new Map<string, Map<string, TrackedRemoteTask>>();
 
   constructor(options: {
     settingsStore: SecureSettingsStore;
@@ -265,7 +272,9 @@ export class RemoteAccessClient {
           throw new Error("This browser was revoked before the request could start.");
         }
         const value = await this.#facade.execute(remoteOperation, input, principal);
-        if (remoteOperation === "management.send") this.rememberActiveTask(grant.id, value, principal);
+        if (remoteOperation === "management.send" || remoteOperation === "spaces.send") {
+          this.rememberActiveTask(grant.id, remoteOperation, value, principal);
+        }
         return value;
       });
       const response = this.sendEncrypted(settings, grant, operation, 2, true, { result }, "operation.complete");
@@ -312,28 +321,39 @@ export class RemoteAccessClient {
   async revokeLocalGrant(grantId: string): Promise<void> {
     await this.#withAuthority(async () => {
       await this.#settingsStore.removeRemoteBrowserGrant(grantId);
-      await this.#stopTrackedTasks(grantId);
+      await this.#finishRevocationCleanup(grantId);
     });
   }
 
   async revokeAllLocalGrants(): Promise<void> {
     await this.#withAuthority(async () => {
       await this.#settingsStore.clearRemoteBrowserGrants();
-      await this.#stopTrackedTasks();
+      await this.#finishRevocationCleanup();
     });
   }
 
   async stopActiveRemoteTasks(): Promise<void> {
-    await this.#withAuthority(() => this.#stopTrackedTasks());
+    await this.#withAuthority(() => this.#finishRevocationCleanup());
   }
 
-  rememberActiveTask(grantId: string, value: unknown, principal: WorkFoldRemotePrincipal): void {
+  rememberActiveTask(
+    grantId: string,
+    operation: "management.send" | "spaces.send",
+    value: unknown,
+    principal: WorkFoldRemotePrincipal,
+  ): void {
     if (!value || typeof value !== "object" || Array.isArray(value)) return;
-    const taskId = (value as { taskId?: unknown }).taskId;
+    const record = value as { taskId?: unknown; space?: unknown };
+    const taskId = record.taskId;
     if (typeof taskId !== "string" || !taskId) return;
-    const tasks = this.#activeTasks.get(grantId) ?? new Map<string, WorkFoldRemotePrincipal>();
-    tasks.set(taskId, principal);
-    while (tasks.size > 64) tasks.delete(tasks.keys().next().value!);
+    const spaceId = operation === "spaces.send"
+      && record.space && typeof record.space === "object" && !Array.isArray(record.space)
+      && typeof (record.space as { id?: unknown }).id === "string"
+      ? (record.space as { id: string }).id
+      : undefined;
+    if (operation === "spaces.send" && !spaceId) return;
+    const tasks = this.#activeTasks.get(grantId) ?? new Map<string, TrackedRemoteTask>();
+    tasks.set(taskId, { principal, operation, ...(spaceId ? { spaceId } : {}) });
     this.#activeTasks.set(grantId, tasks);
   }
 
@@ -342,16 +362,22 @@ export class RemoteAccessClient {
     const failures: string[] = [];
     for (const [selectedGrantId, tasks] of selected) {
       if (!tasks) continue;
-      for (const [taskId, principal] of tasks) {
+      for (const [taskId, tracked] of tasks) {
         try {
-          const result = await this.#facade.execute("management.stop", { taskId }, {
-            ...principal,
-            grantId: selectedGrantId,
-            requestId: randomUUID(),
-          });
-          if (!remoteStopWasAccepted(result)) {
+          const result = await this.#facade.execute(
+            tracked.operation === "spaces.send" ? "spaces.stop" : "management.stop",
+            tracked.operation === "spaces.send" ? { taskId, spaceId: tracked.spaceId } : { taskId },
+            {
+              ...tracked.principal,
+              grantId: selectedGrantId,
+              requestId: randomUUID(),
+            },
+          );
+          if (tracked.operation === "spaces.send") {
+            if (!remoteSpaceStopSettled(result)) throw new Error("The Space task could not be stopped.");
+          } else if (!remoteStopWasAccepted(result)) {
             const status = await this.#facade.execute("management.request", { taskId }, {
-              ...principal,
+              ...tracked.principal,
               grantId: selectedGrantId,
               requestId: randomUUID(),
             });
@@ -365,6 +391,15 @@ export class RemoteAccessClient {
       if (!tasks.size) this.#activeTasks.delete(selectedGrantId);
     }
     if (failures.length) throw new Error(`Could not confirm that remote work stopped (${failures.join("; ")}).`);
+  }
+
+  async #finishRevocationCleanup(grantId?: string): Promise<void> {
+    const failures: string[] = [];
+    try { await this.#stopTrackedTasks(grantId); }
+    catch (error) { failures.push(errorMessage(error)); }
+    try { await this.#facade.purgeUploads(grantId); }
+    catch (error) { failures.push(`Could not purge remote uploads: ${errorMessage(error)}`); }
+    if (failures.length) throw new Error(failures.join(" "));
   }
 
   async #withAuthority<T>(operation: () => Promise<T>): Promise<T> {
@@ -439,7 +474,7 @@ function parseEnvelope(value: unknown): RemoteEnvelope {
   return {
     header: objectValue(record.header, "remote envelope header"),
     iv: base64urlValue(record.iv, "envelope iv", 16),
-    ciphertext: base64urlValue(record.ciphertext, "envelope ciphertext", 2_800_000),
+    ciphertext: base64urlValue(record.ciphertext, "envelope ciphertext", maximumRemoteRequestCiphertextCharacters),
     signature: base64urlValue(record.signature, "envelope signature", 128),
   };
 }
@@ -613,4 +648,9 @@ function remoteRequestIsActive(value: unknown): boolean {
   const request = (value as { request?: unknown }).request;
   if (!request || typeof request !== "object" || Array.isArray(request)) return true;
   return new Set(["working", "handed_off"]).has((request as { phase?: unknown }).phase as string);
+}
+
+function remoteSpaceStopSettled(value: unknown): boolean {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value)
+    && typeof (value as { stopped?: unknown }).stopped === "boolean");
 }

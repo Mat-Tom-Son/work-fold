@@ -82,15 +82,25 @@ meaningful authorization boundary. Closing enrollment does not disable or
 weaken the independently authenticated device tokens for existing addresses.
 
 An approved remote browser is nevertheless a powerful authority. It can send
-prompts to the same full-trust management Assistant described below and inspect
-the management transcript and bounded Space-relative file-tree metadata while
-the desktop is online. The semantic adapter removes absolute roots and
-attachment targets and does not expose capability/settings mutation or generic
-local calls, but the Assistant itself remains taught rather than tool-restricted
-and may use ordinary local tools under the current user's permissions. Approve
-only browsers you control, revoke a lost browser promptly, and use a unique
-password. The hosted web client and bridge are trusted parts of this private
-alpha's authority boundary. Signed application-encrypted envelopes reduce
+prompts to the full-trust management Assistant or a selected Space's native
+Assistant, read bounded saved transcripts, inspect bounded Space-relative
+file-tree metadata, select visible non-ignored context, and upload bounded files
+while the desktop is online. Direct Space sends reuse the canonical registered-
+Space runtime, native Pi resources and tools, conflict rules, and History path.
+The semantic adapter removes absolute roots and attachment targets and does not
+expose capability/settings mutation or generic local calls, but each Assistant
+itself remains taught rather than tool-restricted and may use ordinary local
+tools under the current user's permissions.
+
+One message accepts at most six plain-named uploads, 6 MB each and 8 MB total.
+Space uploads are written beneath a dated `Dropped/` directory and paired with
+a targeted restore point. Management uploads are temporary app-owned references
+with a 64 MB retained cap and 24-hour expiry; revoking one browser purges its
+staging directory, and disabling Remote access purges all remote management
+staging. Responses expose upload names and sizes, never local staging paths.
+Approve only browsers you control, revoke a lost browser promptly, and use a
+unique password. The hosted web client and bridge are trusted parts of this
+private alpha's authority boundary. Signed application-encrypted envelopes reduce
 plaintext persistence and passive relay visibility, but same-origin hosted code
 can use an approved non-exportable browser key; they do not protect against an
 active hosted-service compromise, a compromised approved browser, or a

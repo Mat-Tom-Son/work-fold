@@ -2,12 +2,17 @@ import type { TreeEntry } from "./space.js";
 
 export type WorkFoldRemoteOperation =
   | "management.summary"
+  | "management.chats"
   | "management.transcript"
   | "management.send"
   | "management.request"
   | "management.stop"
   | "spaces.list"
-  | "spaces.tree";
+  | "spaces.tree"
+  | "spaces.chats"
+  | "spaces.transcript"
+  | "spaces.send"
+  | "spaces.stop";
 
 export interface WorkFoldRemotePrincipal {
   browserId: string;
@@ -17,6 +22,7 @@ export interface WorkFoldRemotePrincipal {
 
 export interface WorkFoldRemoteFacade {
   execute(operation: WorkFoldRemoteOperation, input: unknown, principal: WorkFoldRemotePrincipal): Promise<unknown>;
+  purgeUploads(grantId?: string): Promise<void>;
 }
 
 export interface WorkFoldRemoteSpaceRef {

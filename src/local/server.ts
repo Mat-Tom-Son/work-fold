@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createReadStream, existsSync, watch } from "node:fs";
-import { lstat, rm, stat } from "node:fs/promises";
+import { lstat, readdir, rm, stat } from "node:fs/promises";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -1969,20 +1969,49 @@ const maxActAddSources = 25;
  */
 function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade {
   return {
+    async purgeUploads(grantId) {
+      const root = remoteManagementUploadRoot(workFoldManagementRoot());
+      if (!grantId) {
+        await rm(root, { recursive: true, force: true });
+        return;
+      }
+      await rm(join(root, safeRemoteUploadSegment(grantId)), { recursive: true, force: true });
+    },
     async execute(operation, rawInput, principal) {
       assertRemotePrincipal(principal);
       const input = remoteInput(rawInput);
       switch (operation) {
         case "management.summary": {
-          assertRemoteKeys(input, []);
+          assertRemoteKeys(input, ["conversationId"]);
           assertManagementReadyForRoutes(state);
-          const conversation = await resolveManagementConversation(false).catch(() => null);
-          const latest = state.managementRequests.latest();
+          const requestedConversationId = input.conversationId === undefined
+            ? null
+            : remoteStableId(input.conversationId, "conversation id", 160);
+          const conversation = requestedConversationId
+            ? await readConversationSummary(workFoldManagementRoot(), requestedConversationId)
+            : await resolveManagementConversation(false).catch(() => null);
+          if (requestedConversationId && !conversation) throw notFound("Conversation not found.");
+          const latest = conversation
+            ? state.managementRequests.latestForConversation(conversation.id)
+            : null;
           return {
             available: true,
             conversation: conversation ? toActConversationRef(conversation) : null,
             state: conversation ? conversationRuntimeState(state, workFoldManagementScopeId, conversation.id) : "idle",
             latestRequest: latest ? remoteManagementRequest(await managementRequestView(state, latest.taskId)) : null,
+          };
+        }
+        case "management.chats": {
+          assertRemoteKeys(input, []);
+          assertManagementReadyForRoutes(state);
+          const conversations = await listConversations(workFoldManagementRoot());
+          const selected = conversations.slice(0, maxRemoteConversationSummaries);
+          return {
+            conversations: selected.map((conversation) => ({
+              ...toActConversationRef(conversation),
+              state: conversationRuntimeState(state, workFoldManagementScopeId, conversation.id),
+            })),
+            truncated: selected.length < conversations.length,
           };
         }
         case "management.transcript": {
@@ -1994,18 +2023,24 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
           return remoteTranscript(messages);
         }
         case "management.send": {
-          assertRemoteKeys(input, ["content", "newConversation"]);
+          assertRemoteKeys(input, ["content", "conversationId", "newConversation", "attachments"]);
           assertManagementReadyForRoutes(state);
           const content = remoteContent(input.content);
           const scope = managementScopeForRoutes(state);
+          const conversationIdInput = input.conversationId === undefined
+            ? null
+            : remoteStableId(input.conversationId, "conversation id", 160);
           if (input.newConversation !== undefined && typeof input.newConversation !== "boolean") {
             throw badRequest("newConversation must be a boolean.");
+          }
+          if (input.newConversation === true && conversationIdInput) {
+            throw badRequest("Use either conversationId or newConversation, not both.");
           }
           // Idempotency must be checked before creating a requested new
           // conversation. A recovered signed request may arrive after the
           // desktop response cache is gone; creating first would leave an
           // extra empty transcript on every replay.
-          const existingRemoteRequest = await findRemoteManagementRequest(scope.rootPath, principal.requestId);
+          const existingRemoteRequest = await findRemoteConversationRequest(scope.rootPath, principal.requestId);
           if (existingRemoteRequest) {
             return {
               accepted: true,
@@ -2017,27 +2052,47 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
           }
           const conversation = input.newConversation === true
             ? await createConversation(scope.rootPath)
-            : await resolveManagementConversation(true);
-          const latest = state.managementRequests.latest();
+            : conversationIdInput
+              ? await readConversationSummary(scope.rootPath, conversationIdInput)
+              : await resolveManagementConversation(true);
+          if (!conversation) throw notFound("Conversation not found.");
+          const latest = state.managementRequests.latestForConversation(conversation.id);
           const latestView = latest && latest.conversationId === conversation.id
             ? await managementRequestView(state, latest.taskId)
             : null;
           const continuedFromManagementTaskId = latestView?.phase === "needs_you" ? latestView.taskId : undefined;
-          const { message, taskId } = await acceptConversationTurn(
-            state,
-            { id: scope.id, spaceRoot: scope.rootPath },
-            conversation.id,
-            {
-              content,
-              contextPaths: [],
-              selectedPath: null,
-              actorKind: "renderer",
-              managementAttachments: [],
-              ...(continuedFromManagementTaskId ? { continuedFromManagementTaskId } : {}),
-              remotePrincipal: principal,
-            },
+          const staged = await stageRemoteManagementUploads(
+            scope.rootPath,
+            input.attachments,
+            principal.grantId,
+            principal.requestId,
           );
-          return { accepted: true, conversationId: conversation.id, message: remoteChatMessage(message), taskId };
+          try {
+            const { message, taskId } = await acceptConversationTurn(
+              state,
+              { id: scope.id, spaceRoot: scope.rootPath },
+              conversation.id,
+              {
+                content,
+                contextPaths: [],
+                selectedPath: null,
+                actorKind: "renderer",
+                managementAttachments: staged.attachments,
+                ...(continuedFromManagementTaskId ? { continuedFromManagementTaskId } : {}),
+                remotePrincipal: principal,
+              },
+            );
+            return {
+              accepted: true,
+              conversationId: conversation.id,
+              message: remoteChatMessage(message),
+              taskId,
+              uploads: staged.uploads,
+            };
+          } catch (error) {
+            await staged.rollback();
+            throw error;
+          }
         }
         case "management.request": {
           assertRemoteKeys(input, ["taskId"]);
@@ -2074,6 +2129,108 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
             ...(entry.hasChildren === undefined ? {} : { hasChildren: entry.hasChildren }),
           }));
           return { tree, truncated: scan.truncated || scan.entries.length > maximumEntries } satisfies WorkFoldRemoteTreeResult;
+        }
+        case "spaces.chats": {
+          assertRemoteKeys(input, ["spaceId"]);
+          const spaceId = remoteStableId(input.spaceId, "Space id", 512);
+          const space = await getSpace(spaceId);
+          const conversations = await listConversations(space.spaceRoot);
+          const selected = conversations.slice(0, maxRemoteConversationSummaries);
+          return {
+            space: { id: space.id, name: space.name },
+            conversations: selected.map((conversation) => ({
+              ...toActConversationRef(conversation),
+              state: conversationRuntimeState(state, space.id, conversation.id),
+            })),
+            truncated: selected.length < conversations.length,
+          };
+        }
+        case "spaces.transcript": {
+          assertRemoteKeys(input, ["spaceId", "conversationId"]);
+          const spaceId = remoteStableId(input.spaceId, "Space id", 512);
+          const conversationId = remoteStableId(input.conversationId, "conversation id", 160);
+          const space = await getSpace(spaceId);
+          const messages = await readConversation(space.spaceRoot, conversationId);
+          if (!messages.length) throw notFound("Conversation not found.");
+          return { space: { id: space.id, name: space.name }, ...remoteTranscript(messages) };
+        }
+        case "spaces.send": {
+          assertRemoteKeys(input, ["spaceId", "content", "conversationId", "newConversation", "contextPaths", "selectedPath", "attachments"]);
+          const spaceId = remoteStableId(input.spaceId, "Space id", 512);
+          const space = await getSpace(spaceId);
+          const content = remoteContent(input.content);
+          const conversationIdInput = input.conversationId === undefined
+            ? null
+            : remoteStableId(input.conversationId, "conversation id", 160);
+          if (input.newConversation !== undefined && typeof input.newConversation !== "boolean") {
+            throw badRequest("newConversation must be a boolean.");
+          }
+          if (input.newConversation === true && conversationIdInput) {
+            throw badRequest("Use either conversationId or newConversation, not both.");
+          }
+          if (input.newConversation !== true && !conversationIdInput) {
+            throw badRequest("Choose an existing Space Chat or start a new one.");
+          }
+          const existingRemoteRequest = await findRemoteConversationRequest(space.spaceRoot, principal.requestId);
+          if (existingRemoteRequest) {
+            return {
+              accepted: true,
+              duplicate: true,
+              space: { id: space.id, name: space.name },
+              conversationId: existingRemoteRequest.conversationId,
+              message: remoteChatMessage(existingRemoteRequest.message),
+              taskId: null,
+            };
+          }
+          const conversation = input.newConversation === true
+            ? await createConversation(space.spaceRoot)
+            : await readConversationSummary(space.spaceRoot, conversationIdInput!);
+          if (!conversation) throw notFound("Conversation not found.");
+          const staged = await stageRemoteSpaceUploads(space, input.attachments);
+          try {
+            const explicitContextPaths = normalizeContextPaths(space.spaceRoot, input.contextPaths);
+            const contextPaths = [...new Set([...explicitContextPaths, ...staged.paths])].slice(0, 16);
+            if (input.selectedPath !== undefined && input.selectedPath !== null && typeof input.selectedPath !== "string") {
+              throw badRequest("Selected Space context must be a relative path.");
+            }
+            const selectedPath = normalizeSelectedPath(space.spaceRoot, input.selectedPath as string | null | undefined);
+            await assertRemoteVisibleSpacePaths(space.spaceRoot, [
+              ...explicitContextPaths,
+              ...(selectedPath ? [selectedPath] : []),
+            ]);
+            const { message, taskId } = await acceptConversationTurn(state, space, conversation.id, {
+              content,
+              contextPaths,
+              selectedPath,
+              actorKind: "renderer",
+              remotePrincipal: principal,
+            });
+            return {
+              accepted: true,
+              space: { id: space.id, name: space.name },
+              conversationId: conversation.id,
+              message: remoteChatMessage(message),
+              taskId,
+              uploads: staged.uploads,
+              safetyCheckpointId: staged.checkpointId,
+            };
+          } catch (error) {
+            await staged.rollback();
+            throw error;
+          }
+        }
+        case "spaces.stop": {
+          assertRemoteKeys(input, ["spaceId", "taskId"]);
+          const spaceId = remoteStableId(input.spaceId, "Space id", 512);
+          const taskId = remoteStableId(input.taskId, "task id", 160);
+          const space = await getSpace(spaceId);
+          const status = turnStatusFor(state, space.id, taskId);
+          if (status.state === "unknown" || !status.conversationId) throw notFound("Space task not found.");
+          return {
+            space: { id: space.id, name: space.name },
+            taskId,
+            stopped: await cancelAcceptedTurn(state, space.id, status.conversationId, taskId),
+          };
         }
         default:
           return remoteOperationExhaustive(operation);
@@ -2137,16 +2294,175 @@ function remoteTranscript(messages: ChatMessage[]): { messages: Array<Record<str
   };
 }
 
-async function findRemoteManagementRequest(
-  managementRoot: string,
+async function findRemoteConversationRequest(
+  rootPath: string,
   requestId: string,
 ): Promise<{ conversationId: string; message: ChatMessage } | null> {
-  for (const conversation of await listConversations(managementRoot)) {
-    const message = (await readConversation(managementRoot, conversation.id))
+  for (const conversation of await listConversations(rootPath)) {
+    const message = (await readConversation(rootPath, conversation.id))
       .find((candidate) => candidate.role === "user" && candidate.remoteRequestId === requestId);
     if (message) return { conversationId: conversation.id, message };
   }
   return null;
+}
+
+const maxRemoteConversationSummaries = 100;
+const maxRemoteUploadFiles = 6;
+const maxRemoteUploadFileBytes = 6 * 1024 * 1024;
+const maxRemoteUploadTotalBytes = 8 * 1024 * 1024;
+const maxRemoteManagementUploadStorageBytes = 64 * 1024 * 1024;
+const remoteManagementUploadTtlMs = 24 * 60 * 60 * 1_000;
+
+interface RemoteUploadFile {
+  fileName: string;
+  data: Buffer;
+}
+
+function remoteUploadFiles(value: unknown): RemoteUploadFile[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > maxRemoteUploadFiles) {
+    throw badRequest(`Remote chat accepts at most ${maxRemoteUploadFiles} uploaded files.`);
+  }
+  const files: RemoteUploadFile[] = [];
+  let totalBytes = 0;
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw badRequest("Remote upload metadata is invalid.");
+    const record = item as Record<string, unknown>;
+    const unknown = Object.keys(record).find((key) => key !== "name" && key !== "data");
+    if (unknown) throw badRequest(`Remote uploads do not accept ${unknown}.`);
+    const fileName = typeof record.name === "string" ? record.name.trim() : "";
+    if (!fileName || fileName.length > 180 || /[\\/\u0000-\u001f\u007f]/u.test(fileName) || fileName === "." || fileName === "..") {
+      throw badRequest("Remote upload file names must be plain names of at most 180 characters.");
+    }
+    if (typeof record.data !== "string" || !/^[A-Za-z0-9_-]*$/.test(record.data)) {
+      throw badRequest(`Remote upload data for ${fileName} is invalid.`);
+    }
+    const data = Buffer.from(record.data, "base64url");
+    if (data.toString("base64url") !== record.data) throw badRequest(`Remote upload data for ${fileName} is invalid.`);
+    if (data.byteLength > maxRemoteUploadFileBytes) {
+      throw badRequest(`${fileName} is larger than the 6 MB remote-upload limit.`);
+    }
+    totalBytes += data.byteLength;
+    if (totalBytes > maxRemoteUploadTotalBytes) throw badRequest("Remote uploads are limited to 8 MB per message.");
+    files.push({ fileName, data });
+  }
+  return files;
+}
+
+async function stageRemoteManagementUploads(
+  managementRoot: string,
+  value: unknown,
+  grantId: string,
+  requestId: string,
+): Promise<{
+  attachments: ManagementAttachmentRef[];
+  uploads: Array<{ name: string; sizeBytes: number }>;
+  rollback(): Promise<void>;
+}> {
+  const files = remoteUploadFiles(value);
+  if (!files.length) return { attachments: [], uploads: [], rollback: async () => undefined };
+  const retainedBytes = await pruneRemoteManagementUploads(managementRoot);
+  const incomingBytes = files.reduce((total, file) => total + file.data.byteLength, 0);
+  if (retainedBytes + incomingBytes > maxRemoteManagementUploadStorageBytes) {
+    throw badRequest("Remote upload storage is full. Remove older remote attachments or try again later.");
+  }
+  const targetFolder = `Incoming/Remote/${safeRemoteUploadSegment(grantId)}/${safeRemoteUploadSegment(requestId)}`;
+  const absoluteFolder = resolveSpacePath(managementRoot, targetFolder);
+  await rm(absoluteFolder, { recursive: true, force: true });
+  const uploaded = await writeUploadedFiles(managementRoot, targetFolder, files);
+  try {
+    const absolutePaths = uploaded.map((file) => resolveSpacePath(managementRoot, file.path));
+    const attachments = await classifyManagementAttachments(absolutePaths, managementRoot);
+    return {
+      attachments,
+      uploads: uploaded.map((file, index) => ({ name: files[index]!.fileName, sizeBytes: file.sizeBytes })),
+      rollback: async () => { await rm(absoluteFolder, { recursive: true, force: true }); },
+    };
+  } catch (error) {
+    await rm(absoluteFolder, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function remoteManagementUploadRoot(managementRoot: string): string {
+  return resolveSpacePath(managementRoot, "Incoming/Remote");
+}
+
+function safeRemoteUploadSegment(value: string): string {
+  const segment = value.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 160);
+  if (!segment || segment === "." || segment === "..") throw badRequest("Remote upload identity is invalid.");
+  return segment;
+}
+
+async function pruneRemoteManagementUploads(managementRoot: string): Promise<number> {
+  const root = remoteManagementUploadRoot(managementRoot);
+  const grants = await readdir(root, { withFileTypes: true }).catch(() => []);
+  const now = Date.now();
+  let retainedBytes = 0;
+  for (const grant of grants) {
+    if (!grant.isDirectory() || grant.isSymbolicLink()) {
+      await rm(join(root, grant.name), { recursive: true, force: true }).catch(() => undefined);
+      continue;
+    }
+    const grantRoot = join(root, grant.name);
+    const requests = await readdir(grantRoot, { withFileTypes: true }).catch(() => []);
+    for (const request of requests) {
+      const requestRoot = join(grantRoot, request.name);
+      const info = request.isDirectory() && !request.isSymbolicLink() ? await stat(requestRoot).catch(() => null) : null;
+      if (!info || now - info.mtimeMs > remoteManagementUploadTtlMs) {
+        await rm(requestRoot, { recursive: true, force: true }).catch(() => undefined);
+        continue;
+      }
+      const files = await readdir(requestRoot, { withFileTypes: true }).catch(() => []);
+      for (const file of files) {
+        if (!file.isFile() || file.isSymbolicLink()) continue;
+        retainedBytes += (await stat(join(requestRoot, file.name)).catch(() => null))?.size ?? 0;
+      }
+    }
+  }
+  return retainedBytes;
+}
+
+async function assertRemoteVisibleSpacePaths(spaceRoot: string, paths: readonly string[]): Promise<void> {
+  for (const path of [...new Set(paths)]) {
+    const segments = path.split("/");
+    const name = segments.pop() ?? "";
+    const parent = segments.join("/");
+    const scan = await scanSpaceTree(spaceRoot, 0, parent, { includeIgnored: false });
+    if (!scan.entries.some((entry) => entry.name === name && entry.path === path)) {
+      throw badRequest("Remote chat context must name a visible, non-ignored Space item.");
+    }
+  }
+}
+
+async function stageRemoteSpaceUploads(
+  space: SpaceSummary,
+  value: unknown,
+): Promise<{
+  paths: string[];
+  uploads: Array<{ name: string; path: string; sizeBytes: number }>;
+  checkpointId: string | null;
+  rollback(): Promise<void>;
+}> {
+  const files = remoteUploadFiles(value);
+  if (!files.length) return { paths: [], uploads: [], checkpointId: null, rollback: async () => undefined };
+  const now = new Date();
+  const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const uploaded = await writeUploadedFiles(space.spaceRoot, `Dropped/${localDate}`, files);
+  const paths = uploaded.map((file) => file.path);
+  const checkpoint = await checkpointAdditiveWritesOrUndo(space.spaceRoot, paths, {
+    reason: "pre_upload",
+    label: `Before remotely uploading ${uploaded.length} file${uploaded.length === 1 ? "" : "s"}`,
+  });
+  return {
+    paths,
+    uploads: uploaded.map((file, index) => ({ name: files[index]!.fileName, path: file.path, sizeBytes: file.sizeBytes })),
+    checkpointId: checkpoint?.checkpointId ?? null,
+    rollback: async () => {
+      await Promise.all(paths.map((path) => rm(resolveSpacePath(space.spaceRoot, path), { force: true }).catch(() => undefined)));
+      if (checkpoint) await discardSpaceCheckpoint(space.spaceRoot, checkpoint.checkpointId).catch(() => undefined);
+    },
+  };
 }
 
 function remoteChatMessage(message: ChatMessage | { id: string; role: "user"; content: string; createdAt: string }): Record<string, unknown> {
