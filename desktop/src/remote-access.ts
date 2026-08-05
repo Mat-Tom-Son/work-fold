@@ -62,6 +62,11 @@ interface TrackedRemoteTask {
   principal: WorkFoldRemotePrincipal;
 }
 
+interface RemoteOperationFence {
+  allGrants: number;
+  grant: number;
+}
+
 type RemoteAccessTimer = ReturnType<typeof setTimeout>;
 
 interface RemoteAccessTimers {
@@ -119,6 +124,8 @@ export class RemoteAccessClient {
   #inFlight = new Map<string, Promise<void>>();
   #authorityQueue: Promise<void> = Promise.resolve();
   #authorityVersion = 0;
+  #allGrantOperationFence = 0;
+  #grantOperationFences = new Map<string, number>();
   #activeTasks = new Map<string, Map<string, TrackedRemoteTask>>();
 
   constructor(options: {
@@ -356,7 +363,10 @@ export class RemoteAccessClient {
           throw new Error("Remote access authority changed while this browser approval was open.");
         }
         const replaced = settings.grants.find((item) => item.browserId === pairing.browserId) ?? null;
-        if (replaced) await this.#finishRevocationCleanup(replaced.id);
+        if (replaced) {
+          this.#fenceGrantOperations(replaced.id);
+          await this.#finishRevocationCleanup(replaced.id);
+        }
         const grant: RemoteBrowserGrantSettings = {
           id: randomUUID(),
           browserId: pairing.browserId,
@@ -392,16 +402,31 @@ export class RemoteAccessClient {
   }
 
   async #handleOperation(operationValue: unknown, envelopeValue: unknown): Promise<void> {
+    // A bridge-side session can remain valid briefly while local revocation or
+    // disable cleanup is still converging. That is authority skew, not a
+    // malformed transport frame, and must not make the account-wide socket
+    // terminal.
+    const settings = await this.#settingsStore.getRemoteAccess();
+    if (!settings?.enabled) return;
     const operation = parseOperation(operationValue);
+    const grant = settings.grants.find((item) => item.id === operation.browserGrantId && item.generation === operation.generation);
+    if (!grant) return;
+    const operationFence = this.#operationFence(grant.id);
     const cacheKey = remoteRequestKey(operation.browserGrantId, operation.requestId);
     const existing = this.#inFlight.get(cacheKey);
     if (existing) {
       await existing;
       const remembered = this.#responses.get(cacheKey);
-      if (remembered) this.send({ type: "operation.complete", envelope: remembered });
+      if (remembered) {
+        await this.#withAuthority(async () => {
+          if (await this.#currentOperationAuthority(grant, operationFence)) {
+            this.send({ type: "operation.complete", envelope: remembered });
+          }
+        });
+      }
       return;
     }
-    const execution = this.#executeOperation(operation, envelopeValue);
+    const execution = this.#executeOperation(settings, grant, operation, envelopeValue, operationFence);
     this.#inFlight.set(cacheKey, execution);
     try {
       await execution;
@@ -410,51 +435,66 @@ export class RemoteAccessClient {
     }
   }
 
-  async #executeOperation(operation: ReturnType<typeof parseOperation>, envelopeValue: unknown): Promise<void> {
-    const settings = await this.requireActiveSettings();
+  async #executeOperation(
+    settings: RemoteAccessSettings,
+    grant: RemoteBrowserGrantSettings,
+    operation: ReturnType<typeof parseOperation>,
+    envelopeValue: unknown,
+    operationFence: RemoteOperationFence,
+  ): Promise<void> {
     const envelope = parseEnvelope(envelopeValue);
-    const grant = settings.grants.find((item) => item.id === operation.browserGrantId && item.generation === operation.generation);
-    if (!grant) throw new Error("This browser grant is not active on the desktop.");
     assertRequestEnvelope(settings, grant, operation, envelope);
     const cacheKey = remoteRequestKey(grant.id, operation.requestId);
     const remembered = this.#responses.get(cacheKey);
     if (remembered) {
-      this.send({ type: "operation.complete", envelope: remembered });
+      await this.#withAuthority(async () => {
+        if (await this.#currentOperationAuthority(grant, operationFence)) {
+          this.send({ type: "operation.complete", envelope: remembered });
+        }
+      });
       return;
     }
     const payload = decryptEnvelope(settings.deviceEncryptionPrivateJwk, grant.encryptionPublicJwk, grant.id, envelope);
     const input = parseRequestPayload(payload);
     const remoteOperation = operationName(envelope.header.operation);
     const principal: WorkFoldRemotePrincipal = { browserId: grant.browserId, grantId: grant.id, requestId: operation.requestId };
-    const authorityVersion = this.#authorityVersion;
     this.sendEncrypted(settings, grant, operation, 1, true, { status: "running" }, "operation.event");
-    try {
+    await this.#withAuthority(async () => {
       // Re-read immediately before execution so disabling or revoking cannot
       // leave a stale envelope authorized in a queued microtask.
-      const result = await this.#withAuthority(async () => {
-        const current = await this.requireActiveSettings();
-        if (!current.grants.some((item) => item.id === grant.id && item.generation === grant.generation)) {
-          throw new Error("This browser was revoked before the request could start.");
-        }
+      if (!await this.#currentOperationAuthority(grant, operationFence)) return;
+      let ok = true;
+      let responsePayload: unknown;
+      try {
         const value = await this.#facade.execute(remoteOperation, input, principal);
         if (remoteOperation === "management.send") {
           this.rememberActiveTask(grant.id, value, principal);
         } else {
           this.retireSettledTask(grant.id, remoteOperation, input, value);
         }
-        return value;
-      });
-      // Revocation may win the authority queue immediately after execution.
-      // Do not repopulate response caches or disclose a result after its grant
-      // has been fenced and cleanup has cleared that grant's state.
-      if (this.#authorityVersion !== authorityVersion) return;
-      const response = this.sendEncrypted(settings, grant, operation, 2, true, { result }, "operation.complete");
+        responsePayload = { result: value };
+      } catch (error) {
+        ok = false;
+        responsePayload = { error: errorMessage(error) };
+      }
+
+      // Revocation fences are raised synchronously when the mutation is
+      // requested. Re-read settings and both fence scopes at the serialized
+      // completion point so a same-grant/all-grants revoke wins, while an
+      // unrelated browser mutation cannot discard this result.
+      const completion = await this.#currentOperationAuthority(grant, operationFence);
+      if (!completion) return;
+      const response = this.sendEncrypted(
+        completion.settings,
+        completion.grant,
+        operation,
+        2,
+        ok,
+        responsePayload,
+        "operation.complete",
+      );
       this.remember(cacheKey, response);
-    } catch (error) {
-      if (this.#authorityVersion !== authorityVersion) return;
-      const response = this.sendEncrypted(settings, grant, operation, 2, false, { error: errorMessage(error) }, "operation.complete");
-      this.remember(cacheKey, response);
-    }
+    });
   }
 
   sendEncrypted(
@@ -490,9 +530,48 @@ export class RemoteAccessClient {
     while (this.#responses.size > maximumRememberedResponses) this.#responses.delete(this.#responses.keys().next().value!);
   }
 
+  #operationFence(grantId: string): RemoteOperationFence {
+    return {
+      allGrants: this.#allGrantOperationFence,
+      grant: this.#grantOperationFences.get(grantId) ?? 0,
+    };
+  }
+
+  #fenceGrantOperations(grantId: string): void {
+    this.#grantOperationFences.set(grantId, (this.#grantOperationFences.get(grantId) ?? 0) + 1);
+  }
+
+  #fenceAllGrantOperations(): void {
+    this.#allGrantOperationFence += 1;
+  }
+
+  #operationFenceIsCurrent(grantId: string, fence: RemoteOperationFence): boolean {
+    return this.#allGrantOperationFence === fence.allGrants
+      && (this.#grantOperationFences.get(grantId) ?? 0) === fence.grant;
+  }
+
+  async #currentOperationAuthority(
+    expectedGrant: RemoteBrowserGrantSettings,
+    fence: RemoteOperationFence,
+  ): Promise<{ settings: RemoteAccessSettings; grant: RemoteBrowserGrantSettings } | null> {
+    if (!this.#operationFenceIsCurrent(expectedGrant.id, fence)) return null;
+    let settings: RemoteAccessSettings | null;
+    try {
+      settings = await this.#settingsStore.getRemoteAccess();
+    } catch {
+      // A completion cannot be disclosed or cached when current authority
+      // cannot be established. The connection itself remains usable.
+      return null;
+    }
+    if (!this.#operationFenceIsCurrent(expectedGrant.id, fence) || !settings?.enabled) return null;
+    const grant = settings.grants.find((item) => item.id === expectedGrant.id && item.generation === expectedGrant.generation);
+    return grant ? { settings, grant } : null;
+  }
+
   async revokeLocalGrant(grantId: string): Promise<void> {
+    this.#authorityVersion += 1;
+    this.#fenceGrantOperations(grantId);
     await this.#withAuthority(async () => {
-      this.#authorityVersion += 1;
       const failures: string[] = [];
       try { await this.#settingsStore.removeRemoteBrowserGrant(grantId); }
       catch (error) { failures.push(errorMessage(error)); }
@@ -503,8 +582,9 @@ export class RemoteAccessClient {
   }
 
   async revokeAllLocalGrants(): Promise<void> {
+    this.#authorityVersion += 1;
+    this.#fenceAllGrantOperations();
     await this.#withAuthority(async () => {
-      this.#authorityVersion += 1;
       const failures: string[] = [];
       try { await this.#settingsStore.clearRemoteBrowserGrants(); }
       catch (error) { failures.push(errorMessage(error)); }
@@ -515,8 +595,9 @@ export class RemoteAccessClient {
   }
 
   async stopActiveRemoteTasks(): Promise<void> {
+    this.#authorityVersion += 1;
+    this.#fenceAllGrantOperations();
     await this.#withAuthority(async () => {
-      this.#authorityVersion += 1;
       await this.#finishRevocationCleanup();
     });
   }

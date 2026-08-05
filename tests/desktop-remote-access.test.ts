@@ -1,4 +1,15 @@
 import assert from "node:assert/strict";
+import {
+  createCipheriv,
+  createPrivateKey,
+  createPublicKey,
+  diffieHellman,
+  generateKeyPairSync,
+  hkdfSync,
+  randomBytes,
+  sign,
+  type JsonWebKey as NodeJsonWebKey,
+} from "node:crypto";
 import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
@@ -9,11 +20,12 @@ import {
   RemoteAccessClient,
   RemoteBridgeRequestError,
   deriveRemotePairingCode,
+  generateRemoteDeviceKeys,
   runRemoteAccountRemoval,
   type RemotePairingPrompt,
 } from "../desktop/src/remote-access.js";
 import type { WorkFoldRemoteFacade, WorkFoldRemotePrincipal } from "../src/local/remote-management.js";
-import type { RemoteAccessSettings } from "../desktop/src/settings.js";
+import type { RemoteAccessSettings, RemoteBrowserGrantSettings } from "../desktop/src/settings.js";
 
 class FakeRemoteSocket extends EventEmitter {
   readyState = WebSocket.CONNECTING;
@@ -99,6 +111,113 @@ const substitutedEncryptionPublicJwk = {
   y: "JbGvE8li4d1A37YEsDpyBLsh-C7zYkgKNGFeou1WxOE",
 };
 
+interface RemoteTestBrowser {
+  grant: RemoteBrowserGrantSettings;
+  signingPrivateJwk: JsonWebKey;
+  encryptionPrivateJwk: JsonWebKey;
+}
+
+function remoteTestBrowser(id: string): RemoteTestBrowser {
+  const signing = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  const encryption = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  return {
+    grant: {
+      id,
+      browserId: `browser-${id}`,
+      label: `Browser ${id}`,
+      signingPublicJwk: { ...signing.publicKey.export({ format: "jwk" }), use: "sig" },
+      encryptionPublicJwk: { ...encryption.publicKey.export({ format: "jwk" }), use: "enc" },
+      generation: 1,
+      approvedAt: "2026-08-05T12:00:00.000Z",
+    },
+    signingPrivateJwk: signing.privateKey.export({ format: "jwk" }),
+    encryptionPrivateJwk: encryption.privateKey.export({ format: "jwk" }),
+  };
+}
+
+function remoteTestSettings(browsers: RemoteTestBrowser[]): RemoteAccessSettings {
+  return {
+    enabled: true,
+    bridgeUrl: "https://bridge.example/",
+    accountId: "account-operations",
+    slug: "operation-tests",
+    deviceToken: "d".repeat(32),
+    ...generateRemoteDeviceKeys(),
+    grants: browsers.map((browser) => structuredClone(browser.grant)),
+  };
+}
+
+function remoteOperationFrame(
+  settings: RemoteAccessSettings,
+  browser: RemoteTestBrowser,
+  requestId: string,
+  operation = "spaces.list",
+  input: unknown = {},
+): { type: string; operation: Record<string, unknown>; envelope: Record<string, unknown> } {
+  const operationId = `operation-${requestId}`;
+  const header = {
+    type: "work-fold.remote-request.v1",
+    accountId: settings.accountId,
+    deviceId: settings.accountId,
+    grantId: browser.grant.id,
+    generation: browser.grant.generation,
+    requestId,
+    operation,
+    createdAt: new Date().toISOString(),
+  };
+  const key = testTransportKey(
+    browser.encryptionPrivateJwk,
+    settings.deviceEncryptionPublicJwk,
+    browser.grant.id,
+  );
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  cipher.setAAD(Buffer.from(testCanonicalize(header)));
+  const ciphertext = Buffer.concat([
+    cipher.update(JSON.stringify({ input })),
+    cipher.final(),
+    cipher.getAuthTag(),
+  ]).toString("base64url");
+  const envelope = {
+    header,
+    iv: iv.toString("base64url"),
+    ciphertext,
+    signature: "",
+  };
+  envelope.signature = sign("sha256", Buffer.from(`${testCanonicalize(header)}.${envelope.iv}.${ciphertext}`), {
+    key: createPrivateKey({ key: browser.signingPrivateJwk as NodeJsonWebKey, format: "jwk" }),
+    dsaEncoding: "ieee-p1363",
+  }).toString("base64url");
+  return {
+    type: "operation.request",
+    operation: {
+      id: operationId,
+      accountId: settings.accountId,
+      browserGrantId: browser.grant.id,
+      requestId,
+      operation,
+      generation: browser.grant.generation,
+    },
+    envelope,
+  };
+}
+
+function testTransportKey(privateJwk: JsonWebKey, publicJwk: JsonWebKey, grantId: string): Buffer {
+  const shared = diffieHellman({
+    privateKey: createPrivateKey({ key: privateJwk as NodeJsonWebKey, format: "jwk" }),
+    publicKey: createPublicKey({ key: publicJwk as NodeJsonWebKey, format: "jwk" }),
+  });
+  return Buffer.from(hkdfSync("sha256", shared, Buffer.from(grantId), Buffer.from("work-fold.remote-envelope.v1"), 32));
+}
+
+function testCanonicalize(value: unknown): string {
+  if (value === null || typeof value === "number" || typeof value === "boolean" || typeof value === "string") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(testCanonicalize).join(",")}]`;
+  if (!value || typeof value !== "object") throw new Error("Test value is not JSON.");
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${testCanonicalize(record[key])}`).join(",")}}`;
+}
+
 function lifecycleClient(promptPairing: (pairing: RemotePairingPrompt) => Promise<boolean> = async () => false): {
   client: RemoteAccessClient;
   sockets: FakeRemoteSocket[];
@@ -125,8 +244,46 @@ function lifecycleClient(promptPairing: (pairing: RemotePairingPrompt) => Promis
   return { client, sockets, timers };
 }
 
+function remoteOperationClient(
+  initialSettings: RemoteAccessSettings,
+  facade: WorkFoldRemoteFacade,
+): {
+  client: RemoteAccessClient;
+  socket: FakeRemoteSocket;
+  timers: ManualRemoteTimers;
+  state: { settings: RemoteAccessSettings | null };
+} {
+  const state = { settings: structuredClone(initialSettings) as RemoteAccessSettings | null };
+  const socket = new FakeRemoteSocket();
+  const timers = new ManualRemoteTimers();
+  const client = new RemoteAccessClient({
+    settingsStore: {
+      async getRemoteAccess() { return structuredClone(state.settings); },
+      async removeRemoteBrowserGrant(grantId: string) {
+        if (state.settings) state.settings.grants = state.settings.grants.filter((grant) => grant.id !== grantId);
+      },
+      async clearRemoteBrowserGrants() {
+        if (state.settings) state.settings.grants = [];
+      },
+    } as never,
+    facade,
+    promptPairing: async () => false,
+    createSocket: () => socket as unknown as WebSocket,
+    timers,
+  });
+  return { client, socket, timers, state };
+}
+
 async function flushAsyncHandlers(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+async function waitForRemoteTest(predicate: () => boolean, message: string): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (predicate()) return;
+    await flushAsyncHandlers();
+  }
+  assert.fail(message);
 }
 
 function clientFor(
@@ -226,6 +383,183 @@ test("terminal request projections retire tracked work before revocation", async
 
   assert.deepEqual(operations, []);
   assert.deepEqual(events, ["remove:grant-1", "purge:grant-1"]);
+});
+
+test("an unrelated grant revocation cannot suppress a queued operation completion", async () => {
+  const browserA = remoteTestBrowser("grant-a");
+  const browserB = remoteTestBrowser("grant-b");
+  const settings = remoteTestSettings([browserA, browserB]);
+  let releaseFirst!: () => void;
+  const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  let markFirstStarted!: () => void;
+  const firstStarted = new Promise<void>((resolve) => { markFirstStarted = resolve; });
+  const calls: string[] = [];
+  const fixture = remoteOperationClient(settings, {
+    async execute(_operation, _input, principal) {
+      calls.push(principal.requestId);
+      if (principal.requestId === "request-a-first") {
+        markFirstStarted();
+        await firstGate;
+      }
+      return { spaces: [] };
+    },
+    async purgeUploads() {},
+  });
+  await fixture.client.start();
+  fixture.socket.open();
+
+  fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, browserA, "request-a-first")));
+  await firstStarted;
+  const revokeBrowserB = fixture.client.revokeLocalGrant(browserB.grant.id);
+  fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, browserA, "request-a-second")));
+  await waitForRemoteTest(
+    () => fixture.socket.sent.some((value) => {
+      const message = JSON.parse(value) as { type?: string; envelope?: { header?: { requestId?: string } } };
+      return message.type === "operation.event" && message.envelope?.header?.requestId === "request-a-second";
+    }),
+    "the second operation never reached the serialized authority queue",
+  );
+
+  releaseFirst();
+  await revokeBrowserB;
+  await waitForRemoteTest(
+    () => fixture.socket.sent.some((value) => {
+      const message = JSON.parse(value) as { type?: string; envelope?: { header?: { requestId?: string } } };
+      return message.type === "operation.complete" && message.envelope?.header?.requestId === "request-a-second";
+    }),
+    "an unrelated grant revocation suppressed the valid completion",
+  );
+
+  assert.deepEqual(calls, ["request-a-first", "request-a-second"]);
+  fixture.client.stop();
+});
+
+test("same-grant revocation suppresses a late completion and response-cache insertion", async () => {
+  const browser = remoteTestBrowser("grant-revoked");
+  const settings = remoteTestSettings([browser]);
+  let releaseFirst!: () => void;
+  const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  let markFirstStarted!: () => void;
+  const firstStarted = new Promise<void>((resolve) => { markFirstStarted = resolve; });
+  let calls = 0;
+  const fixture = remoteOperationClient(settings, {
+    async execute() {
+      calls += 1;
+      if (calls === 1) {
+        markFirstStarted();
+        await firstGate;
+      }
+      return { spaces: [] };
+    },
+    async purgeUploads() {},
+  });
+  await fixture.client.start();
+  fixture.socket.open();
+  const frame = remoteOperationFrame(settings, browser, "request-revoked");
+
+  fixture.socket.receive(JSON.stringify(frame));
+  await firstStarted;
+  const revoke = fixture.client.revokeLocalGrant(browser.grant.id);
+  releaseFirst();
+  await revoke;
+  await flushAsyncHandlers();
+
+  assert.equal(
+    fixture.socket.sent.some((value) => {
+      const message = JSON.parse(value) as { type?: string; envelope?: { header?: { requestId?: string } } };
+      return message.type === "operation.complete" && message.envelope?.header?.requestId === "request-revoked";
+    }),
+    false,
+    "a completion must not escape after its own grant is fenced",
+  );
+
+  fixture.state.settings!.grants = [structuredClone(browser.grant)];
+  fixture.socket.receive(JSON.stringify(frame));
+  await waitForRemoteTest(
+    () => fixture.socket.sent.some((value) => {
+      const message = JSON.parse(value) as { type?: string; envelope?: { header?: { requestId?: string } } };
+      return message.type === "operation.complete" && message.envelope?.header?.requestId === "request-revoked";
+    }),
+    "the re-authorized replay never completed",
+  );
+  assert.equal(calls, 2, "the fenced result was not inserted into the replay cache");
+  fixture.client.stop();
+});
+
+test("the all-grants disable fence suppresses an in-flight completion", async () => {
+  const browser = remoteTestBrowser("grant-disable");
+  const settings = remoteTestSettings([browser]);
+  let releaseExecution!: () => void;
+  const executionGate = new Promise<void>((resolve) => { releaseExecution = resolve; });
+  let markExecutionStarted!: () => void;
+  const executionStarted = new Promise<void>((resolve) => { markExecutionStarted = resolve; });
+  const fixture = remoteOperationClient(settings, {
+    async execute() {
+      markExecutionStarted();
+      await executionGate;
+      return { spaces: [] };
+    },
+    async purgeUploads() {},
+  });
+  await fixture.client.start();
+  fixture.socket.open();
+
+  fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, browser, "request-disable")));
+  await executionStarted;
+  const disableCleanup = fixture.client.stopActiveRemoteTasks();
+  releaseExecution();
+  await disableCleanup;
+  await flushAsyncHandlers();
+
+  assert.equal(
+    fixture.socket.sent.some((value) => {
+      const message = JSON.parse(value) as { type?: string; envelope?: { header?: { requestId?: string } } };
+      return message.type === "operation.complete" && message.envelope?.header?.requestId === "request-disable";
+    }),
+    false,
+    "an all-grants fence must win over a completion already in flight",
+  );
+  fixture.client.stop();
+});
+
+test("stale revoked-grant and disabled operation frames do not poison the current transport", async () => {
+  const staleBrowser = remoteTestBrowser("grant-stale");
+  const activeBrowser = remoteTestBrowser("grant-active");
+  const settings = remoteTestSettings([activeBrowser]);
+  const fixture = remoteOperationClient(settings, {
+    async execute() { throw new Error("A stale frame must never execute."); },
+    async purgeUploads() {},
+  });
+  await fixture.client.start();
+  fixture.socket.open();
+
+  const staleFrame = remoteOperationFrame(settings, staleBrowser, "request-stale");
+  staleFrame.envelope = { malformed: true };
+  fixture.socket.receive(JSON.stringify(staleFrame));
+  await flushAsyncHandlers();
+  assert.deepEqual(fixture.socket.sent, [], "authority skew must not emit protocol.error");
+
+  fixture.state.settings!.enabled = false;
+  fixture.socket.receive(JSON.stringify({ type: "operation.request", operation: null, envelope: null }));
+  await flushAsyncHandlers();
+  fixture.state.settings!.enabled = true;
+  assert.deepEqual(fixture.socket.sent, [], "disabled authority skew must be inert even before frame parsing");
+
+  const heartbeat = [...fixture.timers.intervals.values()][0];
+  assert.ok(heartbeat, "the connected socket has a heartbeat");
+  heartbeat();
+  assert.equal((JSON.parse(fixture.socket.sent.at(-1)!) as { type: string }).type, "device.heartbeat");
+  assert.deepEqual(fixture.socket.closes, []);
+  assert.equal((await fixture.client.status()).connection, "connected");
+
+  const badActiveFrame = remoteOperationFrame(settings, activeBrowser, "request-bad-signature");
+  badActiveFrame.envelope.signature = "AA";
+  fixture.socket.receive(JSON.stringify(badActiveFrame));
+  await waitForRemoteTest(
+    () => fixture.socket.sent.some((value) => (JSON.parse(value) as { type?: string }).type === "protocol.error"),
+    "an active grant's bad signature was not rejected",
+  );
+  fixture.client.stop();
 });
 
 test("stop then start keeps one current socket and orphan events cannot flap it", async () => {
