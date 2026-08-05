@@ -509,6 +509,170 @@ test("a displaced device cannot decide a pairing and the current device can decl
   assert.equal(pairingResult.body.pairing.status, "declined");
 });
 
+test("browser sessions, grants, operations, and device revocation stay account-scoped", async (context) => {
+  const service = await testService(context);
+  const baseUrl = `http://127.0.0.1:${service.port}`;
+  const origin = baseUrl;
+  const accountA = await pairedAccountFixture(context, baseUrl, {
+    slug: "isolation-alpha",
+    password: "an isolation password for alpha",
+    browserId: "browser-isolation-alpha",
+  });
+  const accountB = await pairedAccountFixture(context, baseUrl, {
+    slug: "isolation-bravo",
+    password: "an isolation password for bravo",
+    browserId: "browser-isolation-bravo",
+  });
+
+  const crossSession = await jsonRequest(`${baseUrl}/api/auth/session?slug=${accountB.slug}`, {
+    headers: { cookie: accountA.cookie },
+  });
+  assert.equal(crossSession.response.status, 401, "A's cookie cannot read B's session");
+
+  const crossPairing = await jsonRequest(
+    `${baseUrl}/api/pairings/${accountB.pairing.id}?slug=${accountB.slug}`,
+    { headers: { cookie: accountA.cookie } },
+  );
+  assert.equal(crossPairing.response.status, 401, "A's cookie cannot poll B's pairing");
+
+  const crossEvents = await jsonRequest(`${baseUrl}/api/events?slug=${accountB.slug}`, {
+    headers: { cookie: accountA.cookie },
+  });
+  assert.equal(crossEvents.response.status, 401, "A's cookie cannot open B's event stream");
+
+  const operationBEnvelope = browserOperationEnvelope(accountB);
+  const crossOperationPost = await jsonRequest(`${baseUrl}/api/operations?slug=${accountB.slug}`, {
+    method: "POST",
+    headers: { origin, cookie: accountA.cookie, "x-work-fold-csrf": accountA.csrfToken },
+    body: { envelope: operationBEnvelope },
+  });
+  assert.equal(crossOperationPost.response.status, 401, "A's session cannot submit B's signed operation");
+
+  const acceptedB = await jsonRequest(`${baseUrl}/api/operations?slug=${accountB.slug}`, {
+    method: "POST",
+    headers: { origin, cookie: accountB.cookie, "x-work-fold-csrf": accountB.csrfToken },
+    body: { envelope: operationBEnvelope },
+  });
+  assert.equal(acceptedB.response.status, 202);
+  const deliveredB = await accountB.messages.next("operation.request");
+  assert.equal(deliveredB.operation.id, acceptedB.body.operation.id);
+
+  const crossOperationGet = await jsonRequest(
+    `${baseUrl}/api/operations/${deliveredB.operation.id}?slug=${accountB.slug}`,
+    { headers: { cookie: accountA.cookie } },
+  );
+  assert.equal(crossOperationGet.response.status, 401, "A's cookie cannot read B's operation through B's account");
+  const crossGrantOperationGet = await jsonRequest(
+    `${baseUrl}/api/operations/${deliveredB.operation.id}?slug=${accountA.slug}`,
+    { headers: { cookie: accountA.cookie } },
+  );
+  assert.equal(crossGrantOperationGet.response.status, 404, "A's own session cannot resolve B's operation id");
+
+  const crossBindTarget = await jsonRequest(`${baseUrl}/api/auth/bind?slug=${accountB.slug}`, {
+    method: "POST",
+    headers: { origin, cookie: accountA.cookie, "x-work-fold-csrf": accountA.csrfToken },
+    body: { browserId: accountB.browserId, signature: "invalid" },
+  });
+  assert.equal(crossBindTarget.response.status, 401, "A's cookie cannot reach B's bind authority");
+
+  const freshALogin = await loginRequest(baseUrl, { slug: accountA.slug, password: accountA.password });
+  const freshACookie = cookieFrom(freshALogin.response);
+  const crossAccountProof = canonicalizeJson({
+    type: "work-fold.browser-bind.v1",
+    accountId: accountA.account.id,
+    browserId: accountB.browserId,
+    challenge: freshALogin.body.challenge,
+  });
+  const crossAccountBind = await jsonRequest(`${baseUrl}/api/auth/bind?slug=${accountA.slug}`, {
+    method: "POST",
+    headers: { origin, cookie: freshACookie, "x-work-fold-csrf": freshALogin.body.csrfToken },
+    body: {
+      browserId: accountB.browserId,
+      signature: signText(accountB.browserKeys.signing.privateKey, crossAccountProof),
+    },
+  });
+  assert.equal(crossAccountBind.response.status, 403);
+  assert.equal(crossAccountBind.body.code, "pairing_required", "B's grant cannot bind an unpaired A session");
+
+  const crossRevoke = await jsonRequest(`${baseUrl}/api/device/grants/${accountA.certificate.grantId}`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${accountB.deviceToken}` },
+  });
+  assert.equal(crossRevoke.response.status, 200);
+  assert.equal(crossRevoke.body.revoked, false, "device B cannot revoke account A's grant id");
+
+  const survivingSession = await jsonRequest(`${baseUrl}/api/auth/session?slug=${accountA.slug}`, {
+    headers: { cookie: accountA.cookie },
+  });
+  assert.equal(survivingSession.response.status, 200);
+  assert.equal(survivingSession.body.paired, true);
+  assert.equal(survivingSession.body.grant.id, accountA.certificate.grantId);
+
+  const eventAbort = new AbortController();
+  context.after(() => eventAbort.abort());
+  const eventResponse = await fetch(`${baseUrl}/api/events?slug=${accountA.slug}`, {
+    headers: { cookie: accountA.cookie },
+    signal: eventAbort.signal,
+  });
+  assert.equal(eventResponse.status, 200, "A's grant remains authorized after B's failed revoke");
+  const accountAEvents = sseQueue(eventResponse.body);
+  await accountAEvents.next("ready");
+
+  const operationAEnvelope = browserOperationEnvelope(accountA);
+  const acceptedA = await jsonRequest(`${baseUrl}/api/operations?slug=${accountA.slug}`, {
+    method: "POST",
+    headers: { origin, cookie: accountA.cookie, "x-work-fold-csrf": survivingSession.body.csrfToken },
+    body: { envelope: operationAEnvelope },
+  });
+  assert.equal(acceptedA.response.status, 202, "A's surviving grant can still submit operations");
+  const deliveredA = await accountA.messages.next("operation.request");
+  assert.equal(deliveredA.operation.id, acceptedA.body.operation.id);
+
+  const responseHeader = {
+    type: "work-fold.remote-response.v1",
+    accountId: accountA.account.id,
+    deviceId: accountA.account.id,
+    grantId: accountA.certificate.grantId,
+    operationId: deliveredA.operation.id,
+    requestId: operationAEnvelope.header.requestId,
+    generation: accountA.account.grantGeneration,
+    sequence: 1,
+    ok: true,
+    eventKind: "operation.event",
+    createdAt: new Date().toISOString(),
+  };
+  const staleResponse = signedEnvelope({
+    ...responseHeader,
+    createdAt: new Date(Date.now() - 10 * 60_000).toISOString(),
+  }, accountA.deviceKeys.signing.privateKey);
+  accountA.socket.send(JSON.stringify({ type: "operation.event", envelope: staleResponse }));
+  assert.match((await accountA.messages.next("protocol.error")).error, /timestamp is stale/);
+
+  const wrongAccountResponse = signedEnvelope({
+    ...responseHeader,
+    accountId: accountB.account.id,
+    deviceId: accountB.account.id,
+  }, accountB.deviceKeys.signing.privateKey);
+  accountA.socket.send(JSON.stringify({ type: "operation.event", envelope: wrongAccountResponse }));
+  assert.match((await accountA.messages.next("protocol.error")).error, /envelope is invalid/);
+  accountA.socket.send(JSON.stringify({ type: "device.heartbeat" }));
+  await accountA.messages.next("device.heartbeat");
+
+  const untouchedA = await jsonRequest(
+    `${baseUrl}/api/operations/${deliveredA.operation.id}?slug=${accountA.slug}`,
+    { headers: { cookie: accountA.cookie } },
+  );
+  assert.equal(untouchedA.body.operation.state, "delivered");
+  assert.deepEqual(untouchedA.body.events, []);
+  assert.equal(accountAEvents.takeNow("remote"), null, "rejected cross-account responses never reach A's browser");
+
+  const survivingB = await jsonRequest(
+    `${baseUrl}/api/operations/${deliveredB.operation.id}?slug=${accountB.slug}`,
+    { headers: { cookie: accountB.cookie } },
+  );
+  assert.equal(survivingB.response.status, 200, "B's own session still resolves B's operation");
+});
+
 test("pairs a non-exportable browser identity and relays only signed opaque envelopes", async (context) => {
   const service = await testService(context);
   const baseUrl = `http://127.0.0.1:${service.port}`;
@@ -883,6 +1047,98 @@ test("pairs a non-exportable browser identity and relays only signed opaque enve
   });
   assert.equal(rejectedDirectSpace.response.status, 400, "the bridge rejects direct Space Chat operations");
 });
+
+async function pairedAccountFixture(context, baseUrl, { slug, password, browserId }) {
+  const deviceKeys = deviceKeyPairs();
+  const browserKeys = deviceKeyPairs();
+  const enrolled = await jsonRequest(`${baseUrl}/api/device/enroll`, {
+    method: "POST",
+    body: {
+      slug,
+      password,
+      deviceSigningPublicJwk: deviceKeys.signing.publicJwk,
+      deviceEncryptionPublicJwk: deviceKeys.encryption.publicJwk,
+    },
+  });
+  assert.equal(enrolled.response.status, 201);
+  const account = enrolled.body.account;
+  const socket = new WebSocket(`${baseUrl.replace(/^http/, "ws")}/api/device/connect`, {
+    headers: { authorization: `Bearer ${enrolled.body.deviceToken}` },
+  });
+  context.after(() => socket.close());
+  const messages = messageQueue(socket);
+  await messages.next("device.ready");
+
+  const loggedIn = await loginRequest(baseUrl, { slug, password });
+  assert.equal(loggedIn.response.status, 200);
+  const cookie = cookieFrom(loggedIn.response);
+  const pairing = await jsonRequest(`${baseUrl}/api/pairings?slug=${slug}`, {
+    method: "POST",
+    headers: { origin: baseUrl, cookie, "x-work-fold-csrf": loggedIn.body.csrfToken },
+    body: {
+      pairingId: randomUUID(),
+      browserId,
+      label: `${slug} browser`,
+      signingPublicJwk: browserKeys.signing.publicJwk,
+      encryptionPublicJwk: browserKeys.encryption.publicJwk,
+    },
+  });
+  assert.equal(pairing.response.status, 202);
+  const request = await messages.next("pairing.request");
+  assert.equal(request.pairing.id, pairing.body.pairing.id);
+  const certificate = {
+    type: "work-fold.browser-grant.v1",
+    accountId: account.id,
+    deviceId: account.id,
+    grantId: randomUUID(),
+    pairingId: pairing.body.pairing.id,
+    pairingCode: pairing.body.pairing.code,
+    browserId,
+    browserSigningPublicJwk: browserKeys.signing.publicJwk,
+    browserEncryptionPublicJwk: browserKeys.encryption.publicJwk,
+    generation: account.grantGeneration,
+    approvedAt: new Date().toISOString(),
+  };
+  socket.send(JSON.stringify({
+    type: "pairing.decision",
+    pairingId: pairing.body.pairing.id,
+    approved: true,
+    certificate,
+    signature: signText(deviceKeys.signing.privateKey, canonicalizeJson(certificate)),
+  }));
+  assert.equal((await messages.next("pairing.settled")).status, "approved");
+  const session = await jsonRequest(`${baseUrl}/api/auth/session?slug=${slug}`, { headers: { cookie } });
+  assert.equal(session.response.status, 200);
+  assert.equal(session.body.grant.id, certificate.grantId);
+  return {
+    slug,
+    password,
+    browserId,
+    account,
+    deviceToken: enrolled.body.deviceToken,
+    deviceKeys,
+    browserKeys,
+    socket,
+    messages,
+    cookie,
+    csrfToken: session.body.csrfToken,
+    pairing: pairing.body.pairing,
+    certificate,
+  };
+}
+
+function browserOperationEnvelope(fixture) {
+  return signedEnvelope({
+    type: "work-fold.remote-request.v1",
+    accountId: fixture.account.id,
+    deviceId: fixture.account.id,
+    grantId: fixture.certificate.grantId,
+    generation: fixture.account.grantGeneration,
+    requestId: randomUUID(),
+    operation: "spaces.list",
+    createdAt: new Date().toISOString(),
+  }, fixture.browserKeys.signing.privateKey);
+}
 
 async function testService(context, options = {}) {
   const { passwordVerifierFactory, ...serverOptions } = options;
