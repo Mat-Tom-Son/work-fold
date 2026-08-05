@@ -11,6 +11,7 @@ import {
   BridgeDatabase,
   BridgeDatabaseError,
   canonicalizeJson,
+  isValidSlug,
   normalizeSlug,
   verifyP1363,
 } from "./database.mjs";
@@ -31,6 +32,14 @@ const maximumOperationEventBytes = 32 * 1024 * 1024;
 const maximumOperationEventRecords = 256;
 const maximumSseClients = 128;
 const maximumSseClientsPerGrant = 3;
+const maximumRateLimitBuckets = 10_000;
+const loginAttemptsPerIp = 24;
+const loginAttemptWindowMs = 15 * 60_000;
+const maximumLoginIpBuckets = 4_096;
+const maximumConcurrentPasswordChecks = 3;
+const maximumConcurrentPasswordChecksPerIp = 1;
+const maximumQueuedPasswordChecks = 24;
+const maximumQueuedPasswordChecksPerIp = 2;
 const sessionCookieName = "__Host-work_fold_session";
 const localSessionCookieName = "work_fold_session";
 const macReleaseApiUrl = "https://api.github.com/repos/Mat-Tom-Son/work-fold-mac-releases/releases/latest";
@@ -56,8 +65,18 @@ export async function startBridgeServer({
   publicEnrollment = process.env.WORKFOLD_ALLOW_PUBLIC_ENROLLMENT === "1",
   trustProxy = process.env.WORKFOLD_TRUST_PROXY === "1",
   releaseFetcher = fetch,
+  passwordVerifier = (slug, password) => database.authenticatePassword(slug, password),
+  loginProtection,
 } = {}) {
-  const state = createState({ database, baseDomain: normalizeDomain(baseDomain), publicEnrollment, trustProxy, releaseFetcher });
+  const state = createState({
+    database,
+    baseDomain: normalizeDomain(baseDomain),
+    publicEnrollment,
+    trustProxy,
+    releaseFetcher,
+    passwordVerifier,
+    loginProtection,
+  });
   await database.initialize();
   const server = createServer(async (request, response) => {
     try {
@@ -112,7 +131,8 @@ export async function startBridgeServer({
   });
 }
 
-function createState({ database, baseDomain, publicEnrollment, trustProxy, releaseFetcher }) {
+function createState({ database, baseDomain, publicEnrollment, trustProxy, releaseFetcher, passwordVerifier, loginProtection }) {
+  const protection = normalizedLoginProtection(loginProtection);
   return {
     database,
     baseDomain,
@@ -126,7 +146,12 @@ function createState({ database, baseDomain, publicEnrollment, trustProxy, relea
     operationEvents: new Map(),
     operationEventBytes: 0,
     rateLimits: new Map(),
-    activePasswordChecks: 0,
+    loginRateLimits: new Map(),
+    loginRateLimitMaximumBuckets: protection.maximumIpBuckets,
+    loginAttemptsPerIp: protection.attemptsPerIp,
+    loginAttemptWindowMs: protection.attemptWindowMs,
+    passwordVerifier,
+    passwordChecks: createPasswordCheckQueue(protection),
   };
 }
 
@@ -173,17 +198,21 @@ async function handleRequest(state, request, response) {
     const body = await readJsonBody(request, maximumJsonBodyBytes);
     const slug = requestSlug(state, request, url, body.slug);
     if (!slug) throw httpError(404, "Open your personal work-fold address to sign in.");
-    enforceRateLimit(state, `login:${clientIp(state, request)}:${slug}`, 8, 15 * 60_000);
-    enforceRateLimit(state, `login-account:${slug}`, 20, 15 * 60_000);
-    if (state.activePasswordChecks >= 3) throw httpError(429, "Too many sign-in attempts are being checked. Wait a moment and try again.");
-    state.activePasswordChecks += 1;
-    let account;
-    try {
-      account = await state.database.authenticatePassword(slug, body.password);
-    } finally {
-      state.activePasswordChecks -= 1;
-    }
-    if (!account) throw httpError(401, "The address or password is incorrect.");
+    const ip = clientIp(state, request);
+    enforceRateLimit(
+      state.loginRateLimits,
+      ip,
+      state.loginAttemptsPerIp,
+      state.loginAttemptWindowMs,
+      state.loginRateLimitMaximumBuckets,
+    );
+    if (!isValidSlug(slug)) throw invalidCredentialsError();
+    const account = await state.passwordChecks.run(ip, () => state.passwordVerifier(slug, body.password));
+    // Account-wide failure state must never become a pre-verification lockout:
+    // a distributed attacker who knows an address cannot prevent its owner from
+    // proving the correct password. Resource admission is instead IP-scoped and
+    // globally bounded by the fair password-check queue.
+    if (!account) throw invalidCredentialsError();
     const session = await state.database.createSession(account);
     response.setHeader("set-cookie", sessionCookie(state, request, session.token));
     return writeJson(response, 200, {
@@ -236,8 +265,8 @@ async function handleRequest(state, request, response) {
     const account = await requestedAccount(state, request, url);
     const { token, session } = await requireBrowserSession(state, request, account);
     await state.database.assertCsrf(session, request.headers["x-work-fold-csrf"]);
-    enforceRateLimit(state, `pairing:${session.accountId}`, 12, 15 * 60_000);
-    enforceRateLimit(state, `pair:${account.id}:${clientIp(state, request)}`, 10, 60 * 60_000);
+    enforceRateLimit(state.rateLimits, `pairing:${session.accountId}`, 12, 15 * 60_000);
+    enforceRateLimit(state.rateLimits, `pair:${account.id}:${clientIp(state, request)}`, 10, 60 * 60_000);
     const device = state.devices.get(account.id);
     if (!device) throw httpError(409, "Your work-fold desktop must be online to approve this browser.");
     const body = await readJsonBody(request, maximumJsonBodyBytes);
@@ -268,7 +297,7 @@ async function handleRequest(state, request, response) {
     const { session } = await requireBrowserSession(state, request, account);
     await state.database.assertCsrf(session, request.headers["x-work-fold-csrf"]);
     if (!validPairedSession(session)) throw httpError(403, "Approve this browser from the work-fold desktop app.");
-    enforceRateLimit(state, `operation:${session.id}`, 30, 60_000);
+    enforceRateLimit(state.rateLimits, `operation:${session.id}`, 30, 60_000);
     const device = state.devices.get(account.id);
     if (!device) throw httpError(409, "Your work-fold desktop is offline.");
     const body = await readJsonBody(request, maximumOperationBodyBytes);
@@ -309,8 +338,8 @@ async function handleRequest(state, request, response) {
 
   if (url.pathname === "/api/device/enroll" && method === "POST") {
     requirePublicEnrollment(state);
-    enforceRateLimit(state, "enroll:global", 250, 60 * 60_000);
-    enforceRateLimit(state, `enroll:${clientIp(state, request)}`, 5, 60 * 60_000);
+    enforceRateLimit(state.rateLimits, "enroll:global", 250, 60 * 60_000);
+    enforceRateLimit(state.rateLimits, `enroll:${clientIp(state, request)}`, 5, 60 * 60_000);
     const body = await readJsonBody(request, maximumJsonBodyBytes);
     const result = await state.database.enroll(body);
     return writeJson(response, 201, {
@@ -376,7 +405,7 @@ async function handleUpgrade(state, request, socket, head) {
   const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
   if (url.pathname !== "/api/device/connect") return rejectUpgrade(socket, 404, "Not found");
   try {
-    enforceRateLimit(state, `device-connect:${clientIp(state, request)}`, 30, 60_000);
+    enforceRateLimit(state.rateLimits, `device-connect:${clientIp(state, request)}`, 30, 60_000);
   } catch {
     return rejectUpgrade(socket, 429, "Too Many Requests");
   }
@@ -656,17 +685,111 @@ function assertSameOrigin(state, request) {
   }
 }
 
-function enforceRateLimit(state, key, maximum, windowMs) {
+function enforceRateLimit(rateLimits, key, maximum, windowMs, maximumBuckets = maximumRateLimitBuckets) {
   const now = Date.now();
-  const current = state.rateLimits.get(key);
+  const current = rateLimits.get(key);
+  if (!current && rateLimits.size >= maximumBuckets) {
+    for (const [candidate, item] of rateLimits) if (item.resetAt <= now) rateLimits.delete(candidate);
+    if (rateLimits.size >= maximumBuckets) throw tooManyRequestsError();
+  }
   const record = !current || current.resetAt <= now ? { count: 0, resetAt: now + windowMs } : current;
   record.count += 1;
-  state.rateLimits.set(key, record);
-  if (record.count > maximum) throw httpError(429, "Too many requests. Wait a little while and try again.");
-  if (state.rateLimits.size > 10_000) {
-    for (const [candidate, item] of state.rateLimits) if (item.resetAt <= now) state.rateLimits.delete(candidate);
-    while (state.rateLimits.size > 10_000) state.rateLimits.delete(state.rateLimits.keys().next().value);
-  }
+  rateLimits.set(key, record);
+  if (record.count > maximum) throw tooManyRequestsError();
+}
+
+export function createPasswordCheckQueue({
+  maximumConcurrentChecks,
+  maximumConcurrentChecksPerIp,
+  maximumQueuedChecks,
+  maximumQueuedChecksPerIp,
+}) {
+  let active = 0;
+  let queued = 0;
+  const activeByIp = new Map();
+  const queuesByIp = new Map();
+  const rotation = [];
+
+  const drain = () => {
+    while (active < maximumConcurrentChecks && queued > 0 && rotation.length > 0) {
+      let selected = null;
+      const candidates = rotation.length;
+      for (let index = 0; index < candidates; index += 1) {
+        const ip = rotation.shift();
+        const queue = queuesByIp.get(ip);
+        if (!queue?.length) {
+          queuesByIp.delete(ip);
+          continue;
+        }
+        rotation.push(ip);
+        if ((activeByIp.get(ip) ?? 0) < maximumConcurrentChecksPerIp) {
+          selected = ip;
+          break;
+        }
+      }
+      if (!selected) return;
+
+      const queue = queuesByIp.get(selected);
+      const job = queue.shift();
+      queued -= 1;
+      if (queue.length === 0) {
+        queuesByIp.delete(selected);
+        const index = rotation.indexOf(selected);
+        if (index >= 0) rotation.splice(index, 1);
+      }
+      active += 1;
+      activeByIp.set(selected, (activeByIp.get(selected) ?? 0) + 1);
+      void Promise.resolve().then(job.operation).then(job.resolve, job.reject).finally(() => {
+        active -= 1;
+        const remaining = (activeByIp.get(selected) ?? 1) - 1;
+        if (remaining > 0) activeByIp.set(selected, remaining);
+        else activeByIp.delete(selected);
+        drain();
+      });
+    }
+  };
+
+  return Object.freeze({
+    run(ip, operation) {
+      if (queued >= maximumQueuedChecks) return Promise.reject(tooManyRequestsError());
+      const queue = queuesByIp.get(ip) ?? [];
+      if (queue.length >= maximumQueuedChecksPerIp) return Promise.reject(tooManyRequestsError());
+      return new Promise((resolveRun, rejectRun) => {
+        if (!queuesByIp.has(ip)) {
+          queuesByIp.set(ip, queue);
+          rotation.push(ip);
+        }
+        queue.push({ operation, resolve: resolveRun, reject: rejectRun });
+        queued += 1;
+        drain();
+      });
+    },
+  });
+}
+
+function normalizedLoginProtection(value) {
+  const options = value && typeof value === "object" ? value : {};
+  return Object.freeze({
+    attemptsPerIp: positiveInteger(options.attemptsPerIp, loginAttemptsPerIp),
+    attemptWindowMs: positiveInteger(options.attemptWindowMs, loginAttemptWindowMs),
+    maximumIpBuckets: positiveInteger(options.maximumIpBuckets, maximumLoginIpBuckets),
+    maximumConcurrentChecks: positiveInteger(options.maximumConcurrentChecks, maximumConcurrentPasswordChecks),
+    maximumConcurrentChecksPerIp: positiveInteger(options.maximumConcurrentChecksPerIp, maximumConcurrentPasswordChecksPerIp),
+    maximumQueuedChecks: positiveInteger(options.maximumQueuedChecks, maximumQueuedPasswordChecks),
+    maximumQueuedChecksPerIp: positiveInteger(options.maximumQueuedChecksPerIp, maximumQueuedPasswordChecksPerIp),
+  });
+}
+
+function positiveInteger(value, fallback) {
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+function invalidCredentialsError() {
+  return httpError(401, "The address or password is incorrect.");
+}
+
+function tooManyRequestsError() {
+  return httpError(429, "Too many requests. Wait a little while and try again.");
 }
 
 function rememberOperationEvent(state, operationId, event) {
@@ -692,6 +815,7 @@ function rememberOperationEvent(state, operationId, event) {
 function pruneTransientState(state) {
   const now = Date.now();
   for (const [key, record] of state.rateLimits) if (record.resetAt <= now) state.rateLimits.delete(key);
+  for (const [key, record] of state.loginRateLimits) if (record.resetAt <= now) state.loginRateLimits.delete(key);
   for (const [operationId, record] of state.operationEvents) {
     if (record.expiresAt > now) continue;
     state.operationEventBytes -= record.bytes;

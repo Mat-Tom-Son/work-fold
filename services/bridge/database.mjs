@@ -683,9 +683,14 @@ export function normalizeSlug(value) {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
+export function isValidSlug(value) {
+  const slug = normalizeSlug(value);
+  return slugPattern.test(slug) && slug.length >= 3 && !reservedSlugs.has(slug);
+}
+
 export function assertSlug(value) {
   const slug = normalizeSlug(value);
-  if (!slugPattern.test(slug) || slug.length < 3 || reservedSlugs.has(slug)) {
+  if (!isValidSlug(slug)) {
     throw new BridgeDatabaseError("invalid_slug", "Choose 3–32 lowercase letters, numbers, or hyphens, beginning and ending with a letter or number.");
   }
   return slug;

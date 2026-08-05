@@ -15,6 +15,17 @@ plaintext persistence, not an untrusted-origin guarantee: the service also
 serves the browser JavaScript, so the hosted client and bridge are trusted parts
 of this alpha's full-authority boundary.
 
+Unauthenticated password work has its own process-local admission boundary.
+Malformed or reserved addresses are rejected before password verification;
+well-formed unknown addresses still use the same dummy scrypt verifier as a
+known address so login does not become an address-enumeration oracle. An
+IP-only fixed-window budget runs before scrypt, and accepted checks enter a
+bounded round-robin queue with one active check per IP. Queue and rate-limit
+maps fail closed at their fixed bounds instead of evicting another caller's
+active protection. There is deliberately no attacker-triggerable account-wide
+pre-verification lockout: a correct password can still succeed after
+distributed failures against a known address.
+
 The browser can open bounded saved management Chats, invoke that one canonical
 management Assistant, inspect filtered relative Space trees, and attach at most
 six files (6 MB each, 8 MB total) per message. Selecting a Space changes only

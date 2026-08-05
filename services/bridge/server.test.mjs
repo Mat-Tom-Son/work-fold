@@ -8,7 +8,7 @@ import WebSocket from "ws";
 import { BridgeDatabase, canonicalizeJson } from "./database.mjs";
 import { shouldSubmitComposerKey } from "./public/composer.js";
 import { renderMarkdown } from "./public/markdown.js";
-import { startBridgeServer } from "./server.mjs";
+import { createPasswordCheckQueue, startBridgeServer } from "./server.mjs";
 
 test("serves the web client and healthy no-store API responses", async (context) => {
   const service = await testService(context);
@@ -166,6 +166,155 @@ test("keeps address enrollment server-controlled and browser login origin-bound"
     body: { slug: "secure-test", password: enrollment.password },
   });
   assert.equal(wrongOrigin.response.status, 403);
+});
+
+test("rejects malformed login slugs before verification and keeps IP buckets bounded without evicting protection", async (context) => {
+  let passwordChecks = 0;
+  const service = await testService(context, {
+    trustProxy: true,
+    loginProtection: { attemptsPerIp: 2, maximumIpBuckets: 3 },
+    passwordVerifierFactory: (database) => async (...arguments_) => {
+      passwordChecks += 1;
+      return database.authenticatePassword(...arguments_);
+    },
+  });
+  const baseUrl = `http://127.0.0.1:${service.port}`;
+
+  const malformed = async (ip) => loginRequest(baseUrl, {
+    ip,
+    slug: "not_a_valid_slug",
+    password: "irrelevant",
+  });
+  assert.equal((await malformed("198.51.100.1")).response.status, 401);
+  assert.equal((await malformed("198.51.100.2")).response.status, 401);
+  assert.equal((await malformed("198.51.100.3")).response.status, 401);
+  assert.equal((await malformed("198.51.100.4")).response.status, 429, "new IP buckets fail closed at the configured bound");
+  assert.equal((await malformed("198.51.100.1")).response.status, 401);
+  assert.equal((await malformed("198.51.100.1")).response.status, 429, "the original IP budget was not evicted");
+  assert.equal(passwordChecks, 0, "malformed slugs never reach the password verifier");
+});
+
+test("fair bounded password admission lets a known login pass an unknown-slug backlog", async (context) => {
+  let markUnknownStarted;
+  const unknownStarted = new Promise((resolve) => { markUnknownStarted = resolve; });
+  let releaseUnknown;
+  const unknownGate = new Promise((resolve) => { releaseUnknown = resolve; });
+  const checkedSlugs = [];
+  const service = await testService(context, {
+    trustProxy: true,
+    loginProtection: {
+      attemptsPerIp: 10,
+      maximumConcurrentChecks: 2,
+      maximumConcurrentChecksPerIp: 1,
+      maximumQueuedChecks: 2,
+      maximumQueuedChecksPerIp: 1,
+    },
+    passwordVerifierFactory: (database) => async (slug, password) => {
+      checkedSlugs.push(slug);
+      if (slug.startsWith("missing-")) {
+        markUnknownStarted();
+        await unknownGate;
+      }
+      return database.authenticatePassword(slug, password);
+    },
+  });
+  const baseUrl = `http://127.0.0.1:${service.port}`;
+  const password = "a long private test password";
+  await enrollTestAccount(baseUrl, { slug: "known-login", password });
+
+  const firstUnknown = loginRequest(baseUrl, {
+    ip: "198.51.100.10",
+    slug: "missing-one",
+    password,
+  });
+  await unknownStarted;
+  const secondUnknown = loginRequest(baseUrl, {
+    ip: "198.51.100.10",
+    slug: "missing-two",
+    password,
+  });
+
+  const known = await loginRequest(baseUrl, {
+    ip: "198.51.100.20",
+    slug: "known-login",
+    password,
+  });
+  assert.equal(known.response.status, 200, "a different IP receives the other verifier slot");
+  assert.ok(checkedSlugs.includes("known-login"));
+
+  releaseUnknown();
+  assert.equal((await firstUnknown).response.status, 401);
+  assert.equal((await secondUnknown).response.status, 401);
+});
+
+test("password admission rejects work beyond its per-IP queue bound", async () => {
+  const queue = createPasswordCheckQueue({
+    maximumConcurrentChecks: 1,
+    maximumConcurrentChecksPerIp: 1,
+    maximumQueuedChecks: 2,
+    maximumQueuedChecksPerIp: 1,
+  });
+  let markStarted;
+  const started = new Promise((resolve) => { markStarted = resolve; });
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const order = [];
+  const first = queue.run("198.51.100.10", async () => {
+    order.push("first");
+    markStarted();
+    await gate;
+  });
+  await started;
+  const second = queue.run("198.51.100.10", async () => { order.push("second"); });
+  await assert.rejects(
+    queue.run("198.51.100.10", async () => { order.push("overflow"); }),
+    (error) => error?.status === 429,
+  );
+  release();
+  await Promise.all([first, second]);
+  assert.deepEqual(order, ["first", "second"]);
+});
+
+test("distributed password failures cannot lock a correct account login", async (context) => {
+  const checkedSlugs = [];
+  const service = await testService(context, {
+    trustProxy: true,
+    loginProtection: { attemptsPerIp: 2, maximumIpBuckets: 64 },
+    passwordVerifierFactory: (database) => async (slug, password) => {
+      checkedSlugs.push(slug);
+      if (password === "definitely-wrong") return null;
+      return database.authenticatePassword(slug, password);
+    },
+  });
+  const baseUrl = `http://127.0.0.1:${service.port}`;
+  const password = "another private test password";
+  await enrollTestAccount(baseUrl, { slug: "failure-pressure", password });
+
+  let knownFailureBody;
+  for (let index = 1; index <= 21; index += 1) {
+    const failed = await loginRequest(baseUrl, {
+      ip: `198.51.100.${index}`,
+      slug: "failure-pressure",
+      password: "definitely-wrong",
+    });
+    assert.equal(failed.response.status, 401);
+    knownFailureBody ??= failed.body;
+  }
+  const unknownFailure = await loginRequest(baseUrl, {
+    ip: "198.51.100.30",
+    slug: "well-formed-unknown",
+    password: "definitely-wrong",
+  });
+  assert.equal(unknownFailure.response.status, 401);
+  assert.deepEqual(unknownFailure.body, knownFailureBody, "known and unknown credential failures remain indistinguishable");
+  assert.ok(checkedSlugs.includes("well-formed-unknown"), "well-formed unknown slugs still take the verifier path");
+
+  const correct = await loginRequest(baseUrl, {
+    ip: "198.51.100.40",
+    slug: "failure-pressure",
+    password,
+  });
+  assert.equal(correct.response.status, 200);
 });
 
 test("pairs a non-exportable browser identity and relays only signed opaque envelopes", async (context) => {
@@ -420,6 +569,7 @@ test("pairs a non-exportable browser identity and relays only signed opaque enve
 });
 
 async function testService(context, options = {}) {
+  const { passwordVerifierFactory, ...serverOptions } = options;
   const memory = newDb({ autoCreateForeignKeyIndices: true });
   const adapter = memory.adapters.createPg();
   const pool = new adapter.Pool();
@@ -430,13 +580,37 @@ async function testService(context, options = {}) {
     baseDomain: "work-fold.test",
     publicEnrollment: true,
     database,
-    ...options,
+    ...serverOptions,
+    ...(passwordVerifierFactory ? { passwordVerifier: passwordVerifierFactory(database) } : {}),
   });
   context.after(async () => {
     await service.close();
     await pool.end();
   });
   return service;
+}
+
+async function enrollTestAccount(baseUrl, { slug, password }) {
+  const keys = deviceKeyPairs();
+  const enrolled = await jsonRequest(`${baseUrl}/api/device/enroll`, {
+    method: "POST",
+    body: {
+      slug,
+      password,
+      deviceSigningPublicJwk: keys.signing.publicJwk,
+      deviceEncryptionPublicJwk: keys.encryption.publicJwk,
+    },
+  });
+  assert.equal(enrolled.response.status, 201);
+  return enrolled.body;
+}
+
+function loginRequest(baseUrl, { ip, slug, password }) {
+  return jsonRequest(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { origin: baseUrl, ...(ip ? { "x-real-ip": ip } : {}) },
+    body: { slug, password },
+  });
 }
 
 function deviceKeyPairs() {
