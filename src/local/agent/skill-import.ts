@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createWriteStream, existsSync } from "node:fs";
 import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
@@ -16,6 +17,37 @@ export interface PiSkillBundleImportResult {
   scope: "user" | "project";
   bundlePath: string;
   skills: Array<{ name: string; relativePath: string }>;
+}
+
+/** Canonical content identity for a skill bundle: sha256 hex over the exact bytes. */
+export function piSkillBundleContentDigest(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+/**
+ * Digest-verified import for the fold's consecrated `capability.skills.import`
+ * execution (docs/fold-consecrations.md). The staged act pins the exact bytes
+ * that were enumerated at staging time; this path refuses changed content
+ * before any archive parsing, mirroring the restricted-app install path's
+ * revision-changed posture, so approval can only ever execute the reviewed
+ * bundle.
+ */
+export async function importPiSkillBundleVerified(
+  spaceRoot: string,
+  input: {
+    fileName: string;
+    bytes: Uint8Array;
+    scope?: "user" | "project";
+    expectedContentDigest: string;
+  },
+  runtimeProvider?: PiRuntimeProvider,
+): Promise<PiSkillBundleImportResult> {
+  const observed = piSkillBundleContentDigest(input.bytes);
+  if (observed !== input.expectedContentDigest) {
+    throw new Error("The skill bundle changed after it was reviewed. Restage the import from the current content.");
+  }
+  const { expectedContentDigest: _expected, ...importInput } = input;
+  return importPiSkillBundle(spaceRoot, importInput, runtimeProvider);
 }
 
 /**

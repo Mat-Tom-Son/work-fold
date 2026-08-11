@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ArrowSync16Regular, Color20Regular, Settings24Regular } from "@fluentui/react-icons";
 import { AlertTriangle, CirclePlus, Download, FolderOpen, Loader2, Search, Upload, X } from "lucide-react";
 import {
@@ -15,12 +15,14 @@ import { SpaceSurfaceTabBar } from "./components/chat/SpaceSurfaceTabBar";
 import { WorkFoldLoadingState } from "./components/brand/WorkFoldBrand";
 import { Banner, CenteredState, EmptyInline, SpaceIconGlyph } from "./components/chrome/common";
 import { DesktopTitleBar } from "./components/chrome/DesktopTitleBar";
+import { GlanceHeaderControl } from "./components/chrome/GlancePanel";
 import { CommandPaletteHost, type CommandPaletteCommand } from "./components/modals/CommandPaletteHost";
 import { CreateSpaceModal } from "./components/modals/CreateSpaceModal";
 import { DesktopSettingsModal, type SettingsPage } from "./components/modals/DesktopSettingsModal";
 import { FileVersionHistoryModal } from "./components/modals/FileVersionHistoryModal";
 import { KeyboardShortcutsModal } from "./components/modals/KeyboardShortcutsModal";
 import { TextInputModal } from "./components/modals/TextInputModal";
+import { NeedsYouRailControl, useNeedsYouDecisions } from "./components/NeedsYouDecisions";
 import { OnboardingFlow } from "./components/onboarding/OnboardingFlow";
 import { FileDetailsPane } from "./components/panes/FileDetailsPane";
 import { ChecksPane, ChecksToolbarButton } from "./components/panes/ChecksPane";
@@ -114,6 +116,16 @@ export function App() {
 
   useScrollbarActivity();
   useDesktopAccentColor();
+
+  // Pending fold decisions (docs/fold-consecrations.md): durable records above
+  // all Spaces, refreshed on the same focus/visibility discipline as the
+  // bootstrap — no background watcher. Deciding here records surface
+  // "main-window" on the receipts.
+  const needsYouDecisions = useNeedsYouDecisions({
+    surface: "main-window",
+    listenForReturn: true,
+    enabled: !fixtureRequested,
+  });
 
   const refreshBootstrap = useCallback(async () => {
     if (fixtureRequested) return;
@@ -250,7 +262,7 @@ export function App() {
 
   return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>
     {showDesktopTitleBar ? <DesktopTitleBar /> : null}
-    {activeSpace ? <SpaceView space={activeSpace} spaces={boot.spaces} agent={boot.agent} appearance={boot.appearance} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchSpace={(space) => setActiveSpaceId(space.id)} onRefreshBootstrap={refreshBootstrap} onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} onChecksControlChange={updateActiveChecksControl} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} /> : <OnboardingFlow onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} />}
+    {activeSpace ? <SpaceView space={activeSpace} spaces={boot.spaces} agent={boot.agent} appearance={boot.appearance} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchSpace={(space) => setActiveSpaceId(space.id)} onRefreshBootstrap={refreshBootstrap} onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} onChecksControlChange={updateActiveChecksControl} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} needsYouControl={<NeedsYouRailControl state={needsYouDecisions} />} /> : <OnboardingFlow onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} />}
     {error ? <div className="global-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="Dismiss"><X size={15} /></button></div> : null}
     {createSpaceOpen ? <CreateSpaceModal onClose={() => setCreateSpaceOpen(false)} onCreate={createSpace} /> : null}
     {settingsOpen ? <DesktopSettingsModal theme={theme} themePreference={themePreference} onThemePreferenceChange={setThemePreference} typography={typography} onTypographyChange={setTypography} space={activeSpace} agentStatus={boot.agent} fixtureMode={Boolean(fixture)} initialPage={settingsInitialPage} onAgentConfigured={(agent) => setBoot((current) => current ? { ...current, agent } : current)} updateStatus={updateStatus} onUpdateAction={() => void runUpdateAction()} onClose={() => setSettingsOpen(false)} /> : null}
@@ -259,7 +271,7 @@ export function App() {
   </div>;
 }
 
-function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, updateStatus, themePreference, onThemePreferenceChange, onUpdateAction, onSwitchSpace, onRefreshBootstrap, onCreateSpace, onOpenFolder, onChecksControlChange, onOpenSettings, onOpenShortcuts, onError }: {
+function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, updateStatus, themePreference, onThemePreferenceChange, onUpdateAction, onSwitchSpace, onRefreshBootstrap, onCreateSpace, onOpenFolder, onChecksControlChange, onOpenSettings, onOpenShortcuts, onError, needsYouControl }: {
   space: SpaceSummary;
   spaces: SpaceSummary[];
   agent: BootstrapResponse["agent"];
@@ -278,6 +290,8 @@ function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, u
   onOpenSettings: (page?: SettingsPage) => void;
   onOpenShortcuts: () => void;
   onError: (message: string | null) => void;
+  /** Conditional needs-you indicator + flyout; decisions belong to the fold above all Spaces. */
+  needsYouControl?: ReactNode;
 }) {
   const initialStoredModeRef = useRef(fixture ? null : localStorage.getItem("work-fold.space.mode"));
   const [activeMode, setActiveMode] = useState<SpaceRailMode>(() => fixture ? "files" : normalizeMode(initialStoredModeRef.current));
@@ -1090,10 +1104,19 @@ function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, u
 
   const layoutStyle = { ...(spaceIdentityStyle(identity)), ...(paneResize.sidebarWidth ? { "--space-sidebar-width": `${paneResize.sidebarWidth}px` } : {}) } as CSSProperties;
 
+  // The persistent Space-identity header's action cluster: the glance panel
+  // trigger (docs/fold-glance.md, surface `main-window` — reachable here,
+  // never a rail destination) plus the files-mode refresh. The glance reads
+  // the live local API, so the fixture preview omits it.
+  const headerAction = fixture && activeMode !== "files" ? undefined : <>
+    {fixture ? null : <GlanceHeaderControl />}
+    {activeMode === "files" ? <button className="minimal-icon-button" type="button" disabled={uploadingFiles || tree.status === "refreshing"} onClick={() => void tree.refresh(false)} aria-label="Refresh files" title="Refresh files"><ArrowSync16Regular className={tree.status === "refreshing" ? "spin" : undefined} /></button> : null}
+  </>;
+
   return <main className={paneResize.sidebarResizing ? "space-layout resizing" : "space-layout"} ref={paneResize.spaceLayoutRef} style={layoutStyle}>
-    <SpaceModeRail activeMode={activeMode} space={space} surfaces={surfaces} apps={restrictedApps} onModeChange={selectRailMode} onOpenLibrary={() => openLibrary(space)} onOpenAssistantTools={(view) => tabs.openAssistantToolsSurfaceTab(space, view)} onBuildApp={() => openChat(space, null)} accountControl={<button className="space-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings" data-rail-tooltip="Settings"><Settings24Regular aria-hidden="true" /></button>} onOpenKeyboardShortcuts={onOpenShortcuts} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
+    <SpaceModeRail activeMode={activeMode} space={space} surfaces={surfaces} apps={restrictedApps} onModeChange={selectRailMode} onOpenLibrary={() => openLibrary(space)} onOpenAssistantTools={(view) => tabs.openAssistantToolsSurfaceTab(space, view)} onBuildApp={() => openChat(space, null)} accountControl={<>{needsYouControl}<button className="space-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings" data-rail-tooltip="Settings"><Settings24Regular aria-hidden="true" /></button></>} onOpenKeyboardShortcuts={onOpenShortcuts} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
     <section className={`space-mode-pane space-mode-pane-${activeMode}`} id="space-file-panel">
-      <SpacePaneHeader space={space} identity={identity} spaces={spaces} spaceCustomizations={customizations} onSwitchSpace={onSwitchSpace} onCreateSpace={onCreateSpace} onOpenFolder={onOpenFolder} onManageSpaces={() => setActiveMode("spaces")} managingSpaces={activeMode === "spaces"} action={activeMode === "files" ? <button className="minimal-icon-button" type="button" disabled={uploadingFiles || tree.status === "refreshing"} onClick={() => void tree.refresh(false)} aria-label="Refresh files" title="Refresh files"><ArrowSync16Regular className={tree.status === "refreshing" ? "spin" : undefined} /></button> : undefined} />
+      <SpacePaneHeader space={space} identity={identity} spaces={spaces} spaceCustomizations={customizations} onSwitchSpace={onSwitchSpace} onCreateSpace={onCreateSpace} onOpenFolder={onOpenFolder} onManageSpaces={() => setActiveMode("spaces")} managingSpaces={activeMode === "spaces"} action={headerAction} />
       {activeMode === "spaces" ? <SpacesPane space={space} spaces={spaces} identities={customizations} onSwitch={onSwitchSpace} onCreate={onCreateSpace} onOpenFolder={onOpenFolder} onCustomize={(target) => tabs.openAppearanceSurfaceTab(target)} onRename={renameSpace} onRemove={(target) => void removeSpace(target)} /> : null}
       {activeMode === "files" ? <div className="local-files-panel">
         <input

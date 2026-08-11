@@ -15,6 +15,8 @@ test("bridge metrics report aggregate counters, rates, gauges, and warnings", ()
     publicEnrollment: true,
     devicesCurrent: 2,
     sseClientsCurrent: 3,
+    viewerActiveFetches: 2,
+    viewerInFlightCiphertextChars: 4_096,
     passwordChecks: { active: 2, queued: 3, maximumActive: 3, maximumQueued: 4 },
   };
   const metrics = createBridgeMetrics({
@@ -47,6 +49,12 @@ test("bridge metrics report aggregate counters, rates, gauges, and warnings", ()
   metrics.recordDeviceWebSocketFrame();
   metrics.recordDeviceWebSocketFrame();
   metrics.recordDeviceWebSocketFrame();
+  metrics.recordViewerRequest();
+  metrics.recordViewerRequest();
+  metrics.recordViewerFetchDispatched();
+  metrics.recordViewerBudgetExhaustion();
+  metrics.recordViewerSnapshotStoredBytes(2_048);
+  metrics.recordViewerSnapshotStoredBytes(-5);
   currentTime += 1_100;
   intervalCallback();
 
@@ -66,14 +74,30 @@ test("bridge metrics report aggregate counters, rates, gauges, and warnings", ()
     maximumQueued: 4,
   });
   assert.deepEqual(periodic.connections, { devicesCurrent: 2, sseClientsCurrent: 3 });
+  assert.deepEqual(periodic.viewer, {
+    requestsTotal: 2,
+    requestsInterval: 2,
+    requestsPerSecond: Number((2 * 1_000 / 1_100).toFixed(3)),
+    fetchesDispatchedTotal: 1,
+    fetchesDispatchedInterval: 1,
+    budgetExhaustionsTotal: 1,
+    budgetExhaustionsInterval: 1,
+    snapshotBytesStoredTotal: 2_048,
+    snapshotBytesStoredInterval: 2_048,
+    activeFetches: 2,
+    inFlightCiphertextChars: 4_096,
+  }, "viewer traffic reports as aggregate counters and gauges only");
   assert.deepEqual(periodic.warnings, ["device_frame_rate", "event_loop_lag", "password_queue_saturation"]);
-  assert.doesNotMatch(JSON.stringify(periodic), /account|browser|grant|token|slug|path|content|requestId/i);
+  assert.doesNotMatch(JSON.stringify(periodic), /account|browser|grant|token|slug|path|content|requestId|publication[iI]d|ciphertext"/i);
 
   const afterReport = metrics.snapshot();
   assert.equal(afterReport.http.requestsTotal, 2);
   assert.equal(afterReport.http.requestsInterval, 0);
   assert.equal(afterReport.deviceWebSocket.framesTotal, 3);
   assert.equal(afterReport.deviceWebSocket.framesInterval, 0);
+  assert.equal(afterReport.viewer.requestsInterval, 0);
+  assert.equal(afterReport.viewer.snapshotBytesStoredInterval, 0);
+  assert.equal(afterReport.viewer.fetchesDispatchedTotal, 1);
 });
 
 test("bridge metrics can be disabled and stop clears its unrefed timer exactly once", () => {

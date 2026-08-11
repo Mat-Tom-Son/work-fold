@@ -84,6 +84,17 @@ test("optional Checks complete proposal, grant, task, evidence, decision, stale,
   assert.equal(first.findings[0]?.evidence[0]?.kind, "path-state");
   assert.equal((await service.status(space)).state, "needs-attention");
 
+  const settledSummaries = await service.settledRuns(space);
+  assert.deepEqual(settledSummaries.map((run) => [run.runId, run.taskId, run.state, run.admittedCount]), [
+    ["check-run-1", "check-task-1", "succeeded", 1],
+  ], "settled-run summaries expose identifiers and counts for the glance");
+  const summaryKeys = Object.keys(settledSummaries[0]!).sort();
+  assert.deepEqual(
+    summaryKeys,
+    ["admittedCount", "endedAt", "runId", "startedAt", "state", "taskId"],
+    "settled-run summaries stay content-free: no findings, evidence, inputs, or paths",
+  );
+
   const problems = await service.problems(space);
   assert.equal(problems.findings.length, 1);
   assert.deepEqual(await service.decorations(space), {
@@ -157,6 +168,11 @@ test("optional Checks complete proposal, grant, task, evidence, decision, stale,
   assert.equal(recurred.findings.length, 1);
   assert.equal((await service.problems(space)).findings.length, 1, "a fixed finding that later recurs must not inherit an old resolve decision");
   assert.equal((await service.status(space)).state, "needs-attention");
+  assert.deepEqual(
+    (await service.settledRuns(space)).map((run) => run.runId).sort(),
+    ["check-run-1", "check-run-2", "check-run-3"],
+    "every terminal run keeps a content-free summary",
+  );
 });
 
 test("accepted and running Check work is pending rather than a content or infrastructure error", async (t) => {

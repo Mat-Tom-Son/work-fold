@@ -12,16 +12,17 @@ test("first-run onboarding locates the always-available menu-bar surface", async
     read("web-local/src/App.tsx"),
   ]);
 
-  assert.match(source, /work-fold lives in your menu bar\./);
+  assert.match(source, /Your fold lives in the menu bar\./);
   assert.match(source, /Click the fold—or drop something on it—from anywhere on your Mac\./);
   assert.match(source, /className="onboarding-menubar-scene" role="img"/);
+  assert.match(source, /opens your fold — a small place to drop files, folders, or links and tell work-fold what to do\./);
   assert.match(source, /<WorkFoldMark/);
   assert.match(source, /Drop files, folders, or links/);
   assert.match(source, /They wait here until you add an instruction\./);
   assert.match(source, /Tell work-fold what to do/);
   assert.match(source, /Close the main window whenever you like/);
   assert.match(source, /Work keeps going\./);
-  assert.match(source, /Across your Spaces/);
+  assert.match(source, /One door to all your Spaces/);
   assert.ok(source.indexOf("onboarding-menubar-scene") < source.indexOf("onboarding-identity"), "the menu-bar scene should sit above the welcome identity");
   assert.ok(source.indexOf("onboarding-identity") < source.indexOf("onboarding-start"), "the welcome identity should separate the menu-bar scene from Space setup");
   assert.match(app, /value === "light" \|\| value === "dark" \|\| value === "system" \? value : "dark"/);

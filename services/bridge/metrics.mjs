@@ -31,6 +31,14 @@ export function createBridgeMetrics({
   let httpRequestsInterval = 0;
   let deviceFramesTotal = 0;
   let deviceFramesInterval = 0;
+  let viewerRequestsTotal = 0;
+  let viewerRequestsInterval = 0;
+  let viewerFetchesDispatchedTotal = 0;
+  let viewerFetchesDispatchedInterval = 0;
+  let viewerBudgetExhaustionsTotal = 0;
+  let viewerBudgetExhaustionsInterval = 0;
+  let viewerSnapshotBytesStoredTotal = 0;
+  let viewerSnapshotBytesStoredInterval = 0;
   let lastReportAt = now();
   let lastEventLoopLagMs = 0;
   let expectedTickAt = lastReportAt + intervalMs;
@@ -72,6 +80,22 @@ export function createBridgeMetrics({
         framesInterval: deviceFramesInterval,
         framesPerSecond: frameRate,
       }),
+      // Aggregate publishing-ladder viewer traffic. Counters and gauges only:
+      // publication ids, slugs, addresses, ciphertext, and page content never
+      // enter this record.
+      viewer: Object.freeze({
+        requestsTotal: viewerRequestsTotal,
+        requestsInterval: viewerRequestsInterval,
+        requestsPerSecond: rate(viewerRequestsInterval, elapsedMs),
+        fetchesDispatchedTotal: viewerFetchesDispatchedTotal,
+        fetchesDispatchedInterval: viewerFetchesDispatchedInterval,
+        budgetExhaustionsTotal: viewerBudgetExhaustionsTotal,
+        budgetExhaustionsInterval: viewerBudgetExhaustionsInterval,
+        snapshotBytesStoredTotal: viewerSnapshotBytesStoredTotal,
+        snapshotBytesStoredInterval: viewerSnapshotBytesStoredInterval,
+        activeFetches: current.viewerActiveFetches,
+        inFlightCiphertextChars: current.viewerInFlightCiphertextChars,
+      }),
       passwordChecks: current.passwordChecks,
       connections: Object.freeze({
         devicesCurrent: current.devicesCurrent,
@@ -94,6 +118,10 @@ export function createBridgeMetrics({
     lastEventLoopLagMs = Math.max(0, finiteNumber(eventLoopLagMs, 0));
     httpRequestsInterval = 0;
     deviceFramesInterval = 0;
+    viewerRequestsInterval = 0;
+    viewerFetchesDispatchedInterval = 0;
+    viewerBudgetExhaustionsInterval = 0;
+    viewerSnapshotBytesStoredInterval = 0;
     return record;
   };
 
@@ -107,6 +135,27 @@ export function createBridgeMetrics({
       if (!enabled || stopped) return;
       deviceFramesTotal = increment(deviceFramesTotal);
       deviceFramesInterval = increment(deviceFramesInterval);
+    },
+    recordViewerRequest() {
+      if (!enabled || stopped) return;
+      viewerRequestsTotal = increment(viewerRequestsTotal);
+      viewerRequestsInterval = increment(viewerRequestsInterval);
+    },
+    recordViewerFetchDispatched() {
+      if (!enabled || stopped) return;
+      viewerFetchesDispatchedTotal = increment(viewerFetchesDispatchedTotal);
+      viewerFetchesDispatchedInterval = increment(viewerFetchesDispatchedInterval);
+    },
+    recordViewerBudgetExhaustion() {
+      if (!enabled || stopped) return;
+      viewerBudgetExhaustionsTotal = increment(viewerBudgetExhaustionsTotal);
+      viewerBudgetExhaustionsInterval = increment(viewerBudgetExhaustionsInterval);
+    },
+    recordViewerSnapshotStoredBytes(bytes) {
+      if (!enabled || stopped) return;
+      const stored = Number.isInteger(bytes) && bytes > 0 ? bytes : 0;
+      viewerSnapshotBytesStoredTotal = boundedAdd(viewerSnapshotBytesStoredTotal, stored);
+      viewerSnapshotBytesStoredInterval = boundedAdd(viewerSnapshotBytesStoredInterval, stored);
     },
     snapshot,
     report,
@@ -151,6 +200,8 @@ function safeGauges(value) {
     publicEnrollment: gauges.publicEnrollment === true,
     devicesCurrent: nonNegativeInteger(gauges.devicesCurrent),
     sseClientsCurrent: nonNegativeInteger(gauges.sseClientsCurrent),
+    viewerActiveFetches: nonNegativeInteger(gauges.viewerActiveFetches),
+    viewerInFlightCiphertextChars: nonNegativeInteger(gauges.viewerInFlightCiphertextChars),
     passwordChecks: Object.freeze({
       active: nonNegativeInteger(password.active),
       queued: nonNegativeInteger(password.queued),
@@ -166,6 +217,10 @@ function rate(count, elapsedMs) {
 
 function increment(value) {
   return value < Number.MAX_SAFE_INTEGER ? value + 1 : value;
+}
+
+function boundedAdd(value, amount) {
+  return value + amount < Number.MAX_SAFE_INTEGER ? value + amount : value;
 }
 
 function nonNegativeInteger(value) {

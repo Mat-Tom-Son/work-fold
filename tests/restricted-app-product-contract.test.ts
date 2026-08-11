@@ -39,6 +39,19 @@ test("review separates what is added now from access that still requires a later
   assert.match(apps, /Network, files, notifications, and automations remain off/);
   assert.match(apps, /restricted-app-authority-list/);
   assert.match(apps, /Off when added/);
+  // The reviewed viewer declaration (docs/fold-publishing.md, rung 3) is part
+  // of review copy and the install decision: the group shows the viewer entry
+  // and the complete viewer-readable surface, states that exposure is its own
+  // later decision, and keeps the viewer read-only. The copy says "at your
+  // address", never "host your website".
+  assert.match(apps, /title="At your address"/);
+  assert.match(apps, /startsOff=\{Boolean\(review\.manifest\.viewer\)\}/);
+  assert.match(apps, /Serve \{review\.manifest\.viewer\.entry\} to anyone holding this app's link/);
+  assert.match(apps, /viewer-readable \$\{review\.manifest\.viewer\.readable\.length === 1 \? "collection" : "collections"\} declared/);
+  assert.match(apps, /Viewer-readable collections: \$\{review\.manifest\.viewer\.readable\.join\(", "\)\}/);
+  assert.match(apps, /Viewers can read none of this app's stored data\./);
+  assert.match(apps, /Putting this app at your address is its own later decision; viewers never write, act, or reach connections\./);
+  assert.doesNotMatch(apps, /\bwebsite\b/i, "the word website never appears in app review copy");
   assert.match(apps, /<OAuthDeclarationDetails auth=\{auth\}/);
   assert.match(apps, /<dt>Issuer<\/dt>/);
   assert.match(apps, /<dt>Scopes<\/dt>/);

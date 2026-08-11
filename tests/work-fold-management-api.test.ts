@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -10,7 +11,7 @@ import {
 } from "../src/local/cli/act-commands.js";
 import { createWorkFoldCliActRequest } from "../src/local/cli/act-protocol.js";
 import type { WorkFoldActFacade } from "../src/local/cli/act-facade.js";
-import type { WorkFoldCliActReceiptV1 } from "../src/local/cli/act-receipts.js";
+import { WorkFoldCliActReceipts, type WorkFoldCliActReceiptV1 } from "../src/local/cli/act-receipts.js";
 import { startLocalApi } from "../src/local/server.js";
 
 test("act argv parsing carries manage send attachments and the manage stop command", () => {
@@ -166,6 +167,7 @@ test("management requests carry attachments, record lineage, and expose honest p
     const sourceDir = join(sandbox, "incoming");
     await mkdir(sourceDir, { recursive: true });
     await writeFile(join(sourceDir, "report.txt"), "external report", "utf8");
+    await writeFile(join(sourceDir, "notes.md"), "reusable notes", "utf8");
 
     assert.equal(api.resolveManagementLineageParent("task-missing"), null);
 
@@ -177,10 +179,10 @@ test("management requests carry attachments, record lineage, and expose honest p
 
     const send = await facade.manageSend({
       content: "/hold",
-      attachments: [join(sourceDir, "report.txt"), sourceDir, "https://example.com/owner/project"],
+      attachments: [join(sourceDir, "report.txt"), sourceDir, join(sourceDir, "notes.md"), "https://example.com/owner/project"],
       cwd: sandbox,
     });
-    assert.deepEqual(send.attachments.map((ref) => ref.kind), ["file", "folder", "url"]);
+    assert.deepEqual(send.attachments.map((ref) => ref.kind), ["file", "folder", "file", "url"]);
     assert.equal(api.resolveManagementLineageParent(send.taskId)?.taskId, send.taskId, "an active management turn validates its explicit lineage id");
 
     // Only acts carrying the explicit parent id attribute to this request.
@@ -192,6 +194,12 @@ test("management requests carry attachments, record lineage, and expose honest p
       parentTaskId: send.taskId,
     });
     assert.ok(added.checkpointId);
+    const libraryAdded = await facade.libraryAdd({
+      fromPaths: [join(sourceDir, "notes.md")],
+      cwd: sandbox,
+      parentTaskId: send.taskId,
+    });
+    assert.equal(libraryAdded.added.length, 1);
     const childConversation = await facade.createConversation({ space: target.space.id });
     const childSend = await facade.sendMessage({
       space: target.space.id,
@@ -216,6 +224,14 @@ test("management requests carry attachments, record lineage, and expose honest p
     assert.equal(placed.spaceName, "Target Space");
     assert.equal(placed.checkpointId, added.checkpointId);
     assert.equal(request.dispositions.find((item) => item.attachment.kind === "url")!.status, "unrecorded");
+    // An attachment that entered the personal Library is accounted for as
+    // exactly that: Space-free, no restore point, the Library-relative
+    // destinations from the attributed `library add`.
+    const libraryDisposition = request.dispositions.find((item) => item.attachment.name === "notes.md")!;
+    assert.equal(libraryDisposition.status, "library");
+    assert.deepEqual(libraryDisposition.copied, libraryAdded.added.map((file) => file.path));
+    assert.equal(libraryDisposition.spaceName, undefined, "the Library is Space-free");
+    assert.equal(libraryDisposition.checkpointId, undefined, "the Library records no restore point");
 
     // "Done" is never claimed while the delegated Space turn still runs.
     if (request.children[0]!.state === "running") {
@@ -240,7 +256,7 @@ test("management requests carry attachments, record lineage, and expose honest p
     const userMessage = (transcript.messages as Array<{ role: string; attachments?: Array<{ kind: string }> }>)
       .find((message) => message.role === "user" && message.attachments);
     assert.ok(userMessage, "the management transcript persists attachment references");
-    assert.deepEqual(userMessage!.attachments!.map((item) => item.kind), ["file", "folder", "url"]);
+    assert.deepEqual(userMessage!.attachments!.map((item) => item.kind), ["file", "folder", "file", "url"]);
 
     // Stop is request-scoped and honest about what it touched.
     const stopped = await facade.manageStop({ taskId: send.taskId });
@@ -394,10 +410,263 @@ test("management requests carry attachments, record lineage, and expose honest p
   }
 });
 
+test("renderer decision routes list, decide, and cancel needs-you cards with surface-attributed receipts", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-decision-api-test-"));
+  const stateBase = join(sandbox, "state");
+  const api = await startLocalApi({
+    port: 0,
+    stateBase,
+    spaceBase: join(sandbox, "content"),
+    loadEnv: false,
+  });
+  try {
+    const doomed = await api.actFacade.createSpace({ name: "Doomed Space" });
+    const kept = await api.actFacade.createSpace({ name: "Kept Space" });
+    const stagedDoomed = await api.actFacade.spacesDelete({ space: doomed.space.id });
+    const stagedKept = await api.actFacade.spacesDelete({ space: kept.space.id });
+    // An unbound kind in this build: stageable, deniable, cancelable — but an
+    // approval must be refused honestly before anything is consumed.
+    const unbound = await api.stagedActs.stage({
+      kind: "app.data.purge",
+      parameters: { spaceId: kept.space.id, appInstanceId: "app-1" },
+      pins: { appInstanceId: "app-1", dataNamespaceIds: ["ns-1"] },
+      provenance: { stagedVia: "act-cli", requestId: "req-unbound" },
+    });
+
+    // The list is the host-composed card projection: typed pins in, plain
+    // words out, soonest expiry first — never model prose.
+    const listed = await getJson(api.origin, "/api/management/decisions");
+    const cards = listed.decisions as Array<Record<string, unknown>>;
+    assert.equal(cards.length, 3);
+    const cardIds = cards.map((card) => card.id as string);
+    assert.deepEqual(
+      [...cardIds].sort(),
+      [stagedDoomed.staged.decisionId, stagedKept.staged.decisionId, unbound.act.id].sort(),
+    );
+    const sortedByExpiry = [...cards].sort((left, right) =>
+      String(left.expiresAt) < String(right.expiresAt) ? -1 : String(left.expiresAt) > String(right.expiresAt) ? 1 : 0);
+    assert.deepEqual(cardIds, sortedByExpiry.map((card) => card.id), "cards list soonest expiry first");
+    const doomedCard = cards.find((card) => card.id === stagedDoomed.staged.decisionId)!;
+    assert.equal(doomedCard.categoryLine, "Deletes something for good");
+    assert.equal(doomedCard.title, `Delete the Space folder ${doomed.space.spaceRoot}`);
+    assert.equal(doomedCard.secondConfirmation, true);
+    assert.equal(doomedCard.spaceName, "Doomed Space");
+    assert.equal((doomedCard.provenance as { stagedVia?: string }).stagedVia, "act-cli");
+
+    // The glance's needs-you items reference the same pending records — the
+    // same ids, one store, never a second list.
+    const glance = await api.kernel.getGlance({ kind: "renderer" });
+    const glanceDecisionIds = glance.needsYou
+      .filter((item) => item.kind === "pending-decision")
+      .map((item) => item.ref?.decisionId);
+    assert.deepEqual([...glanceDecisionIds].sort(), [...cardIds].sort());
+
+    // Deny takes one click; the receipts carry the deciding surface.
+    const denied = await postJson(api.origin, `/api/management/decisions/${stagedKept.staged.decisionId}/decide`, {
+      decision: "denied",
+      surface: "popover",
+      note: "Not this quarter.",
+    });
+    assert.equal(denied.status, 200);
+    const deniedCard = (denied.body as { decision: Record<string, unknown> }).decision;
+    assert.equal(deniedCard.state, "denied");
+    assert.equal((deniedCard.decision as { surface?: string }).surface, "popover");
+    assert.equal((deniedCard.decision as { note?: string }).note, "Not this quarter.");
+    assert.equal((denied.body as { receipted?: boolean }).receipted, true);
+
+    // A staged act is decided at most once; the loser learns the settled outcome.
+    const again = await postJson(api.origin, `/api/management/decisions/${stagedKept.staged.decisionId}/decide`, {
+      decision: "approved",
+      surface: "popover",
+    });
+    assert.equal(again.status, 409);
+    assert.equal((again.body as { code?: string }).code, "ALREADY_SETTLED");
+
+    // Approval from the main window executes the same managed removal the
+    // desktop ceremony runs, and the record carries surface "main-window".
+    const approved = await postJson(api.origin, `/api/management/decisions/${stagedDoomed.staged.decisionId}/decide`, {
+      decision: "approved",
+      surface: "main-window",
+    });
+    assert.equal(approved.status, 200);
+    const approvedCard = (approved.body as { decision: Record<string, unknown> }).decision;
+    assert.equal(approvedCard.state, "approved");
+    assert.equal((approvedCard.execution as { outcome?: string }).outcome, "executed");
+    assert.equal((approvedCard.decision as { surface?: string }).surface, "main-window");
+    assert.equal(existsSync(doomed.space.spaceRoot), false, "the managed folder is deleted by the approved decision");
+    const spacesLeft = await api.kernel.getSpaces({ kind: "renderer" });
+    assert.equal(spacesLeft.spaces.some((space) => space.id === doomed.space.id), false);
+
+    // The fold's one ledger holds the surface-attributed decision receipts.
+    const receiptsProbe = new WorkFoldCliActReceipts({ stateRoot: stateBase });
+    const journal = (await readFile(receiptsProbe.path, "utf8"))
+      .split("\n")
+      .filter((line) => line.trim())
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const denyReceipts = journal.filter((entry) => entry.command === "decision.deny");
+    assert.deepEqual(denyReceipts.map((entry) => entry.outcome), ["accepted", "ok"]);
+    for (const entry of denyReceipts) {
+      assert.equal(entry.surface, "popover");
+      assert.equal(entry.decisionId, stagedKept.staged.decisionId);
+    }
+    const approveReceipts = journal.filter((entry) => entry.command === "decision.approve");
+    assert.deepEqual(approveReceipts.map((entry) => entry.outcome), ["accepted", "ok"]);
+    for (const entry of approveReceipts) {
+      assert.equal(entry.surface, "main-window");
+      assert.equal(entry.decisionId, stagedDoomed.staged.decisionId);
+      assert.equal(entry.spaceId, doomed.space.id);
+    }
+
+    // An unbound kind refuses approval before anything is consumed; the card
+    // stays pending, and denying or canceling it remains available.
+    const unavailable = await postJson(api.origin, `/api/management/decisions/${unbound.act.id}/decide`, {
+      decision: "approved",
+      surface: "popover",
+    });
+    assert.equal(unavailable.status, 409);
+    assert.equal((unavailable.body as { code?: string }).code, "EXECUTION_UNAVAILABLE");
+    const stillPending = await getJson(api.origin, "/api/management/decisions");
+    assert.deepEqual(
+      (stillPending.decisions as Array<{ id: string }>).map((card) => card.id),
+      [unbound.act.id],
+    );
+    const canceled = await postJson(api.origin, `/api/management/decisions/${unbound.act.id}/cancel`, {});
+    assert.equal(canceled.status, 200);
+    assert.equal((canceled.body as { decision: { state?: string } }).decision.state, "canceled");
+    assert.deepEqual((await getJson(api.origin, "/api/management/decisions")).decisions, []);
+    const cancelAgain = await postJson(api.origin, `/api/management/decisions/${unbound.act.id}/cancel`, {});
+    assert.equal(cancelAgain.status, 409);
+    assert.equal((cancelAgain.body as { code?: string }).code, "ALREADY_SETTLED");
+
+    // The renderer lane accepts only the two desktop surfaces: remote_web
+    // arrives only through the signed envelope, policy only from host-side
+    // evaluation, and the act lane's surface never decides anything.
+    for (const surface of ["remote_web", "policy", "cli", "elsewhere"]) {
+      const refused = await postJson(api.origin, `/api/management/decisions/${unbound.act.id}/decide`, {
+        decision: "approved",
+        surface,
+      });
+      assert.equal(refused.status, 400, `surface ${surface} must be refused`);
+    }
+    assert.equal((await postJson(api.origin, "/api/management/decisions/missing/decide", {
+      decision: "denied",
+      surface: "popover",
+    })).status, 404);
+    assert.equal((await postJson(api.origin, `/api/management/decisions/${unbound.act.id}/decide`, {
+      decision: "maybe",
+      surface: "popover",
+    })).status, 400);
+    assert.equal((await postJson(api.origin, `/api/management/decisions/${unbound.act.id}/decide`, {
+      decision: "approved",
+      surface: "popover",
+      note: "notes ride only on denials",
+    })).status, 400);
+
+    // Deciding is deliberately NOT an act-lane verb: the staged family stops
+    // at list/show/cancel (checksDecide decides Check findings — a direct
+    // verb, not a consecration), and the act command table has no staged
+    // approval either.
+    const facadeNames = Object.keys(api.actFacade);
+    assert.equal(facadeNames.includes("stagedCancel"), true);
+    assert.equal(
+      facadeNames.some((name) => name !== "checksDecide" && /decide|decision|approve/i.test(name)),
+      false,
+      "the act facade must never expose staged-decision internals",
+    );
+    assert.throws(() => parseWorkFoldCliActArgv(["decisions", "list"]));
+    assert.throws(() => parseWorkFoldCliActArgv(["staged", "decide", "--id", unbound.act.id]));
+    assert.throws(() => parseWorkFoldCliActArgv(["staged", "approve", "--id", unbound.act.id]));
+  } finally {
+    await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("renderer glance routes serve the digest without management readiness and advance markers monotonically", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-glance-api-test-"));
+  const api = await startLocalApi({
+    port: 0,
+    stateBase: join(sandbox, "state"),
+    spaceBase: join(sandbox, "content"),
+    loadEnv: false,
+  });
+  try {
+    // The digest is served before any recorded change exists: an empty digest
+    // means nothing is recorded, not an error.
+    const empty = await getJson(api.origin, "/api/management/glance");
+    const emptyGlance = empty.glance as Record<string, unknown>;
+    assert.equal(emptyGlance.kind, "work-fold.glance.experimental");
+    assert.equal(emptyGlance.cursor, "");
+    assert.deepEqual(emptyGlance.seen, {});
+
+    // A recorded decision gives the digest a change item and a cursor; the
+    // needs-you card and the decision receipts come from the same records.
+    const space = await api.actFacade.createSpace({ name: "Glance Space" });
+    const staged = await api.actFacade.spacesDelete({ space: space.space.id });
+    const denied = await postJson(api.origin, `/api/management/decisions/${staged.staged.decisionId}/decide`, {
+      decision: "denied",
+      surface: "popover",
+    });
+    assert.equal(denied.status, 200);
+    const recorded = await getJson(api.origin, "/api/management/glance");
+    const glance = recorded.glance as { cursor: string; changes: Array<{ kind: string }>; seen: Record<string, string> };
+    assert.ok(glance.cursor, "a recorded decision gives the digest a cursor");
+    assert.ok(glance.changes.some((item) => item.kind === "decision-recorded"));
+
+    // Acknowledgement is an explicit post-render report, monotonic through
+    // the API: a replayed advance is a no-op, and fetching never advanced it.
+    assert.deepEqual(glance.seen, {}, "fetching the digest never advances a marker");
+    const advanced = await postJson(api.origin, "/api/management/glance/seen", {
+      surface: "popover",
+      cursor: glance.cursor,
+    });
+    assert.equal(advanced.status, 200);
+    assert.deepEqual(advanced.body, { advanced: true, seenThrough: glance.cursor });
+    const replayed = await postJson(api.origin, "/api/management/glance/seen", {
+      surface: "popover",
+      cursor: glance.cursor,
+    });
+    assert.deepEqual((replayed.body as { advanced: boolean }).advanced, false);
+    const afterSeen = await getJson(api.origin, "/api/management/glance");
+    assert.deepEqual((afterSeen.glance as { seen: Record<string, string> }).seen, { popover: glance.cursor });
+
+    // The renderer lane advances only the two desktop surfaces: remote
+    // markers move exclusively through the approved browser's signed
+    // envelope, and malformed cursors are refused.
+    for (const surface of ["remote:grant-1", "policy", "cli", 42]) {
+      const refused = await postJson(api.origin, "/api/management/glance/seen", {
+        surface: surface as never,
+        cursor: glance.cursor,
+      });
+      assert.equal(refused.status, 400, `surface ${String(surface)} must be refused on the renderer lane`);
+    }
+    assert.equal((await postJson(api.origin, "/api/management/glance/seen", {
+      surface: "main-window",
+      cursor: "not-a-cursor",
+    })).status, 400);
+  } finally {
+    await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
 async function getJson(origin: string, path: string): Promise<Record<string, unknown>> {
   const response = await fetch(new URL(path, origin));
   assert.equal(response.status, 200, `${path} must answer 200`);
   return await response.json() as Record<string, unknown>;
+}
+
+async function postJson(
+  origin: string,
+  path: string,
+  body: Record<string, unknown>,
+): Promise<{ status: number; body: unknown }> {
+  const response = await fetch(new URL(path, origin), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return { status: response.status, body: await response.json().catch(() => ({})) };
 }
 
 async function waitForAsync(predicate: () => Promise<boolean>, timeoutMs = 15_000): Promise<void> {

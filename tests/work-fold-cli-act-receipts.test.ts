@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { WorkFoldCliActReceipts, WorkFoldCliError } from "../src/local/cli/index.js";
+import { WORKFOLD_CLI_ACT_SURFACES, WorkFoldCliActReceipts, WorkFoldCliError } from "../src/local/cli/index.js";
 
 const bellCharacter = String.fromCharCode(7);
 const replacementCharacter = String.fromCharCode(0xfffd);
@@ -26,13 +26,19 @@ test("act receipts append ordered JSON lines and rotate only aged entries", asyn
       outcome: "ok",
       taskId: "task-1",
       detail: `accepted${bellCharacter}`,
+      surface: "remote_web",
+      decisionId: "staged-1",
+      policyId: "policy-1",
+      browserId: "browser-1",
+      grantId: "grant-1",
+      undoRef: { kind: "title", value: `Old title${bellCharacter}` },
     }), true);
     assert.equal(await receipts.append({ requestId: randomUUID(), command: "files.add", outcome: "error", errorCode: "conflict" }), true);
 
     const lines = (await readFile(receipts.path, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
     assert.equal(lines.length, 2);
     assert.deepEqual(lines[0], {
-      v: 1,
+      v: 2,
       at: new Date(startTime).toISOString(),
       requestId,
       command: "chat.send",
@@ -41,6 +47,12 @@ test("act receipts append ordered JSON lines and rotate only aged entries", asyn
       outcome: "ok",
       taskId: "task-1",
       detail: `accepted${replacementCharacter}`,
+      surface: "remote_web",
+      decisionId: "staged-1",
+      policyId: "policy-1",
+      browserId: "browser-1",
+      grantId: "grant-1",
+      undoRef: { kind: "title", value: `Old title${replacementCharacter}` },
     });
     assert.equal(lines[1]?.errorCode, "conflict");
 
@@ -110,6 +122,37 @@ test("receipt append failures report false instead of throwing", async () => {
   } finally {
     await rm(sandbox, { recursive: true, force: true });
   }
+});
+
+test("readers accept version 1 lines beside version 2 appends", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "workspace-act-receipts-v1-test-"));
+  try {
+    const receipts = new WorkFoldCliActReceipts({ stateRoot: sandbox });
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { dirname } = await import("node:path");
+    const versionOneId = randomUUID();
+    await mkdir(dirname(receipts.path), { recursive: true });
+    await writeFile(
+      receipts.path,
+      `${JSON.stringify({ v: 1, at: "2026-07-31T12:00:00.000Z", requestId: versionOneId, command: "files.add", outcome: "accepted" })}\n`,
+      "utf8",
+    );
+    assert.equal(await receipts.hasAccepted(versionOneId), true, "a version 1 accepted record must keep gating replays");
+
+    const versionTwoId = randomUUID();
+    await receipts.append({ requestId: versionTwoId, command: "chat.send", outcome: "accepted", surface: "cli" });
+    assert.equal(await receipts.hasAccepted(versionTwoId), true);
+    assert.equal(await receipts.hasAccepted(randomUUID()), false);
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("the recorded surface vocabulary is the closed five-value set", () => {
+  assert.deepEqual(
+    [...WORKFOLD_CLI_ACT_SURFACES],
+    ["cli", "popover", "main-window", "remote_web", "policy"],
+  );
 });
 
 test("a damaged receipt ledger fails closed instead of permitting a replay", async () => {

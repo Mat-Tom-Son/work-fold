@@ -183,6 +183,36 @@ test("Space identity and typography keep the restrained defaults", () => {
   assert.ok(numericWeights.every((weight) => weight <= 700), `foundation contains a weight above 700: ${numericWeights.join(", ")}`);
 });
 
+test("every referenced elevation and radius token is defined", () => {
+  // A var() whose token is undefined is a silent no-op declaration — the
+  // rail add menu and the needs-you flyout shipped shadowless, and the
+  // capability dialog shipped square-cornered, exactly this way — so every
+  // referenced --ui-shadow-* token must resolve in the light root and again
+  // in the dark override, and every referenced --ui-radius-* token must
+  // resolve in the root (radii are theme-invariant, so the dark override
+  // never redefines them).
+  const sheets = [foundationCss, shellCss, legacyCss, surfacesCss, customizationCss];
+  const referencedShadows = new Set<string>();
+  const referencedRadii = new Set<string>();
+  for (const css of sheets) {
+    for (const match of css.matchAll(/var\((--ui-shadow-[a-z-]+)[,)]/g)) referencedShadows.add(match[1]!);
+    for (const match of css.matchAll(/var\((--ui-radius-[a-z-]+)[,)]/g)) referencedRadii.add(match[1]!);
+  }
+  assert.ok(referencedShadows.has("--ui-shadow-lg"), "the elevated flyout shadow is in use");
+  assert.ok(referencedRadii.has("--ui-radius-xl"), "the capability-dialog radius is in use");
+  const darkStart = foundationCss.indexOf(':root[data-theme="dark"]');
+  assert.ok(darkStart > 0);
+  const lightBlock = foundationCss.slice(foundationCss.indexOf(":root {"), darkStart);
+  const darkBlock = foundationCss.slice(darkStart, foundationCss.indexOf("}", darkStart) + 1);
+  for (const token of referencedShadows) {
+    assert.ok(lightBlock.includes(`${token}:`), `${token} must be defined in the light theme`);
+    assert.ok(darkBlock.includes(`${token}:`), `${token} must be defined for the dark theme`);
+  }
+  for (const token of referencedRadii) {
+    assert.ok(lightBlock.includes(`${token}:`), `${token} must be defined in the root theme block`);
+  }
+});
+
 test("every used P0 pane class has a CSS selector", () => {
   const p0Classes = [
     "assistant-setup-card",

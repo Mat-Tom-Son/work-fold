@@ -106,6 +106,15 @@ export interface SpaceRemovalIntent {
   managedBase: string | null;
   managedRootIdentity: ManagedSpaceRootIdentity | null;
   managedRootClaimed: boolean;
+  /**
+   * Present exactly on a managed registration removal that keeps the folder
+   * (`spaces unregister` for managed storage, docs/fold-act-ledger.md). A
+   * preserve intent carries no managed-content deletion authority — no base,
+   * no root identity, no claim — so neither finalization nor crash recovery
+   * can ever delete under it. Absent means the managed folder is deleted,
+   * exactly the pre-existing intent shape.
+   */
+  folderDisposition?: "preserve";
   phase: "requested" | "app-state-removed";
   requestedAt: string;
 }
@@ -233,21 +242,36 @@ export async function beginSpaceRemoval(
   spaceId: string,
   managedBase = managedSpaceRoot(),
   io: Partial<SpaceRemovalIo> = {},
+  options: { folderDisposition?: "delete" | "preserve" } = {},
 ): Promise<SpaceRemovalIntent> {
   assertId(spaceId);
+  const requestedDisposition = options.folderDisposition ?? "delete";
   return withRegistryMutation(async () => {
     const registry = await readRegistry({ strict: true });
     const existing = registry.pendingRemovals.find((intent) => intent.spaceId === spaceId);
-    if (existing) return structuredClone(existing);
+    if (existing) {
+      // An in-flight intent's folder authority is settled; converting a
+      // pending deletion into a preservation (or the reverse) mid-flight
+      // would make crash recovery act on an authority the caller never held.
+      if (existing.storage === "managed"
+        && (existing.folderDisposition === "preserve") !== (requestedDisposition === "preserve")) {
+        throw new Error("A Space removal with a different folder disposition is already in progress.");
+      }
+      return structuredClone(existing);
+    }
     const space = registry.spaces.find((item) => item.id === spaceId);
     if (!space || !existsSync(space.spaceRoot)) throw notFound("Space not found.");
     const spaceRoot = ensureSafeSpaceRoot(space.spaceRoot);
-    const base = space.location.storage === "managed" ? resolve(managedBase) : null;
+    // A preserve removal deletes nothing, so it records no managed-content
+    // boundary and no root identity: the intent shape itself proves the
+    // deletion machinery has nothing to act on.
+    const preserveManagedFolder = space.location.storage === "managed" && requestedDisposition === "preserve";
+    const base = space.location.storage === "managed" && !preserveManagedFolder ? resolve(managedBase) : null;
     if (base && (samePath(spaceRoot, base) || !pathContains(base, spaceRoot))) {
       throw new Error("work-fold will only delete a managed Space inside its registered managed-content folder.");
     }
-    const managedRootIdentity = space.location.storage === "managed"
-      ? await captureManagedRootIdentity(spaceRoot, base!)
+    const managedRootIdentity = base !== null
+      ? await captureManagedRootIdentity(spaceRoot, base)
       : null;
     const intent: SpaceRemovalIntent = {
       transactionId: `space-removal_${randomUUID()}`,
@@ -257,6 +281,7 @@ export async function beginSpaceRemoval(
       managedBase: base,
       managedRootIdentity,
       managedRootClaimed: false,
+      ...(preserveManagedFolder ? { folderDisposition: "preserve" as const } : {}),
       phase: "requested",
       requestedAt: new Date().toISOString(),
     };
@@ -306,7 +331,10 @@ export async function finalizeSpaceRemoval(
     validateSpaceRemovalIntent(intent);
     const operations = removalIo(io);
     let deleted = false;
-    if (intent.storage === "managed") {
+    // A preserve intent carries no deletion authority (null base, null root
+    // identity), so the managed claim-and-delete machinery below must never
+    // run for it: the registration and app state go, the folder stays.
+    if (intent.storage === "managed" && intent.folderDisposition !== "preserve") {
       const claimPath = managedRemovalClaimPath(intent);
       let claimStatus = await managedClaimStatus(intent);
       if (claimStatus === "mismatch") {
@@ -388,12 +416,36 @@ export async function finalizeSpaceRemoval(
   });
 }
 
+/**
+ * Decision-time pin recheck for the fold's consecrated `space.delete-folder`
+ * act (docs/fold-consecrations.md): re-verifies the pinned Space identity and
+ * canonical root against the live registry immediately before a decided
+ * deletion executes. This is identity only — the `.workspace/` fail-closed
+ * rule, managed-base containment, and managed-root identity claims are
+ * re-verified by the removal machinery itself at execution, exactly as they
+ * are for a desktop-initiated deletion.
+ */
+export async function managedSpaceDeletionPinIssue(
+  pins: { spaceId: string; spaceRoot: string },
+): Promise<string | null> {
+  const space = (await listSpaces()).find((item) => item.id === pins.spaceId);
+  if (!space) return "The pinned Space is no longer registered.";
+  if (space.location.storage !== "managed") {
+    return "The pinned Space is not managed by work-fold; only a managed Space's folder can be deleted.";
+  }
+  if (!samePath(space.spaceRoot, pins.spaceRoot)) {
+    return "The registered Space folder no longer matches the pinned canonical root.";
+  }
+  return null;
+}
+
 export async function spaceRemovalPendingResult(
   intent: Pick<SpaceRemovalIntent,
-    "transactionId" | "spaceRoot" | "storage" | "managedBase" | "managedRootIdentity" | "managedRootClaimed">,
+    "transactionId" | "spaceRoot" | "storage" | "managedBase" | "managedRootIdentity" | "managedRootClaimed" | "folderDisposition">,
 ): Promise<SpaceRemovalResult> {
-  const rootStatus = intent.storage === "managed" ? await managedRootStatus(intent) : "mismatch";
-  const deleted = intent.storage === "managed"
+  const deletes = intent.storage === "managed" && intent.folderDisposition !== "preserve";
+  const rootStatus = deletes ? await managedRootStatus(intent) : "mismatch";
+  const deleted = deletes
     && await managedClaimStatus(intent) === "absent"
     && (rootStatus === "absent" || (intent.managedRootClaimed && rootStatus === "mismatch"));
   return {
@@ -1389,37 +1441,52 @@ function spaceRemovalIntent(value: unknown): SpaceRemovalIntent {
     throw new Error("Space registry contains an invalid removal intent.");
   }
   const item = value as Partial<SpaceRemovalIntent>;
-  const keys = Object.keys(value).sort();
-  if (keys.join("\0") !== [
+  const requiredKeys = [
     "transactionId", "spaceId", "spaceRoot", "storage", "managedBase", "managedRootIdentity", "managedRootClaimed", "phase", "requestedAt",
-  ].sort().join("\0")
+  ];
+  const keys = Object.keys(value).sort();
+  // The one optional key is the preserve marker; every other shape mismatch
+  // stays a hard failure exactly as before.
+  const expectedKeys = keys.includes("folderDisposition") ? [...requiredKeys, "folderDisposition"] : requiredKeys;
+  if (keys.join("\0") !== [...expectedKeys].sort().join("\0")
     || typeof item.transactionId !== "string"
     || !/^space-removal_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(item.transactionId)
     || !isSpaceId(item.spaceId)
     || typeof item.spaceRoot !== "string"
     || (item.storage !== "managed" && item.storage !== "linked")
     || typeof item.managedRootClaimed !== "boolean"
+    || (item.folderDisposition !== undefined && item.folderDisposition !== "preserve")
     || (item.phase !== "requested" && item.phase !== "app-state-removed")
     || typeof item.requestedAt !== "string" || !isValidTimestamp(item.requestedAt)) {
     throw new Error("Space registry contains an invalid removal intent.");
   }
-  if (item.storage === "managed" && (typeof item.managedBase !== "string" || !isAbsolute(item.managedBase))) {
+  const preserves = item.storage === "managed" && item.folderDisposition === "preserve";
+  if (item.folderDisposition === "preserve" && item.storage !== "managed") {
+    throw new Error("Only a managed Space removal intent may carry a preserve disposition.");
+  }
+  if (item.storage === "managed" && !preserves && (typeof item.managedBase !== "string" || !isAbsolute(item.managedBase))) {
     throw new Error("Managed Space removal intent has no content boundary.");
   }
-  if (item.storage === "managed" && !item.managedRootIdentity) {
+  if (item.storage === "managed" && !preserves && !item.managedRootIdentity) {
     throw new Error("Managed Space removal intent has no root identity.");
   }
   if (item.storage === "linked" && (item.managedBase !== null || item.managedRootIdentity !== null || item.managedRootClaimed)) {
     throw new Error("Linked Space removal intent has unexpected managed-content authority.");
+  }
+  if (preserves && (item.managedBase !== null || item.managedRootIdentity !== null || item.managedRootClaimed)) {
+    throw new Error("A preserve removal intent cannot hold managed-content deletion authority.");
   }
   const intent: SpaceRemovalIntent = {
     transactionId: item.transactionId,
     spaceId: item.spaceId,
     spaceRoot: lexicalSpaceRoot(item.spaceRoot),
     storage: item.storage,
-    managedBase: item.managedBase === null ? null : resolve(item.managedBase!),
-    managedRootIdentity: item.managedRootIdentity === null ? null : managedRootIdentity(item.managedRootIdentity),
+    managedBase: item.managedBase === null || item.managedBase === undefined ? null : resolve(item.managedBase),
+    managedRootIdentity: item.managedRootIdentity === null || item.managedRootIdentity === undefined
+      ? null
+      : managedRootIdentity(item.managedRootIdentity),
     managedRootClaimed: item.managedRootClaimed,
+    ...(preserves ? { folderDisposition: "preserve" as const } : {}),
     phase: item.phase,
     requestedAt: item.requestedAt,
   };
@@ -1429,7 +1496,7 @@ function spaceRemovalIntent(value: unknown): SpaceRemovalIntent {
 
 function validateSpaceRemovalIntent(intent: SpaceRemovalIntent): void {
   const spaceRoot = lexicalSpaceRoot(intent.spaceRoot);
-  if (intent.storage === "managed") {
+  if (intent.storage === "managed" && intent.folderDisposition !== "preserve") {
     const base = resolve(intent.managedBase!);
     if (samePath(spaceRoot, base) || !pathContains(base, spaceRoot)) {
       throw new Error("Managed Space removal intent escapes its registered content boundary.");
@@ -1440,7 +1507,9 @@ function validateSpaceRemovalIntent(intent: SpaceRemovalIntent): void {
       throw new Error("Managed Space removal intent has an invalid canonical content boundary.");
     }
   } else if (intent.managedBase !== null || intent.managedRootIdentity !== null || intent.managedRootClaimed) {
-    throw new Error("Linked Space removal intent cannot delete managed content.");
+    throw new Error(intent.storage === "linked"
+      ? "Linked Space removal intent cannot delete managed content."
+      : "A preserve removal intent cannot hold managed-content deletion authority.");
   }
 }
 

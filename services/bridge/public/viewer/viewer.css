@@ -1,0 +1,104 @@
+:root {
+  color-scheme: light dark;
+  --viewer-ink: #1c1d20;
+  --viewer-paper: #fbfaf8;
+  --viewer-muted: #6b6f76;
+  --viewer-line: #e4e1db;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --viewer-ink: #e8e6e1;
+    --viewer-paper: #17181b;
+    --viewer-muted: #9aa0a8;
+    --viewer-line: #2c2e33;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--viewer-paper);
+  color: var(--viewer-ink);
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.viewer-banner {
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--viewer-line);
+  color: var(--viewer-muted);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.viewer-root {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 4rem;
+  overflow-wrap: break-word;
+}
+
+.viewer-status {
+  margin: 4rem 0;
+  text-align: center;
+  color: var(--viewer-muted);
+}
+
+.viewer-root img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+}
+
+.viewer-root iframe.viewer-pdf {
+  width: 100%;
+  height: 85vh;
+  border: 1px solid var(--viewer-line);
+}
+
+.viewer-root pre {
+  overflow-x: auto;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--viewer-line);
+  border-radius: 6px;
+  font-size: 0.875rem;
+}
+
+.viewer-root code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.viewer-root blockquote {
+  margin: 1rem 0;
+  padding: 0.25rem 1rem;
+  border-left: 3px solid var(--viewer-line);
+  color: var(--viewer-muted);
+}
+
+.viewer-root table { border-collapse: collapse; }
+
+.viewer-root th,
+.viewer-root td {
+  border: 1px solid var(--viewer-line);
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+}
+
+.markdown-table-wrap { overflow-x: auto; }
+
+/* The rung-3 app shell: the sandboxed frame owns the whole canvas. */
+.viewer-app-root {
+  max-width: none;
+  padding: 0;
+  height: 100vh;
+}
+
+.viewer-app-root .viewer-status { padding: 0 1.25rem; }
+
+.viewer-app-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--viewer-paper);
+}

@@ -3,6 +3,7 @@ import { copyFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/pr
 import { dirname } from "node:path";
 import { safeStorage } from "electron";
 import type { PiAuthStorageData, PiAuthStorageHost } from "../../src/local/agent/auth-storage.js";
+import type { WorkFoldPublicationKeyStore } from "../../src/local/publications.js";
 
 export interface SecureSettingsStatus {
   encryptionAvailable: boolean;
@@ -13,6 +14,15 @@ interface SecureSettingsFile {
   schemaVersion: 2;
   credentials: PiAuthStorageData;
   remoteAccess: RemoteAccessSettings | null;
+  /**
+   * Per-publication page keys for "pages your fold serves"
+   * (docs/fold-publishing.md, rung 2): publicationId -> 32-byte base64url
+   * AES-256-GCM key. Remote access material — operating-system-encrypted
+   * beside the device and grant keys, never in the publication store and
+   * never inside a Space folder. The share link's fragment is the only other
+   * place a key exists.
+   */
+  publicationKeys: Record<string, string>;
 }
 
 export interface RemoteBrowserGrantSettings {
@@ -42,6 +52,7 @@ const emptySettings = (): SecureSettingsFile => ({
   schemaVersion: 2,
   credentials: {},
   remoteAccess: null,
+  publicationKeys: {},
 });
 
 /** Encrypted, application-scoped credentials. Never stored inside a Space. */
@@ -100,7 +111,7 @@ export class SecureSettingsStore implements PiAuthStorageHost {
 
   async setRemoteAccess(settings: RemoteAccessSettings): Promise<void> {
     const normalized = remoteAccessSettings(settings);
-    if (!normalized) throw new Error("Remote access settings are invalid.");
+    if (!normalized) throw new Error("Web access settings are invalid.");
     await this.update((data) => { data.remoteAccess = normalized; });
   }
 
@@ -118,7 +129,7 @@ export class SecureSettingsStore implements PiAuthStorageHost {
     const normalized = remoteBrowserGrant(grant);
     if (!normalized) throw new Error("Remote browser grant is invalid.");
     await this.update((data) => {
-      if (!data.remoteAccess) throw new Error("Remote access is not configured.");
+      if (!data.remoteAccess) throw new Error("Web access is not configured.");
       data.remoteAccess.grants = [
         normalized,
         ...data.remoteAccess.grants.filter((item) => item.browserId !== normalized.browserId && item.id !== normalized.id),
@@ -138,6 +149,39 @@ export class SecureSettingsStore implements PiAuthStorageHost {
 
   async clearRemoteAccess(): Promise<void> {
     await this.update((data) => { data.remoteAccess = null; });
+  }
+
+  async getPublicationKey(publicationId: string): Promise<string | null> {
+    if (!stableId(publicationId, 128)) return null;
+    return (await this.read()).publicationKeys[publicationId] ?? null;
+  }
+
+  async setPublicationKey(publicationId: string, keyBase64Url: string): Promise<void> {
+    if (!stableId(publicationId, 128)) throw new Error("Publication id is invalid.");
+    if (!publicationKeyBase64Url(keyBase64Url)) throw new Error("A publication key must be 32 bytes, base64url-encoded.");
+    await this.update((data) => {
+      data.publicationKeys[publicationId] = keyBase64Url;
+    });
+  }
+
+  async removePublicationKey(publicationId: string): Promise<void> {
+    await this.update((data) => {
+      delete data.publicationKeys[publicationId];
+    });
+  }
+
+  /**
+   * The publication service's key-store seam
+   * (src/local/publications.ts): revocation removes the key here in the same
+   * cleanup pass that deletes the bridge slot, and a key never leaves secure
+   * settings except inside the person's own share link.
+   */
+  publicationKeyStore(): WorkFoldPublicationKeyStore {
+    return {
+      get: (publicationId) => this.getPublicationKey(publicationId),
+      set: (publicationId, keyBase64Url) => this.setPublicationKey(publicationId, keyBase64Url),
+      remove: (publicationId) => this.removePublicationKey(publicationId),
+    };
   }
 
   private async update(mutator: (data: SecureSettingsFile) => void): Promise<void> {
@@ -204,7 +248,27 @@ function normalizeSettings(value: unknown): SecureSettingsFile {
     schemaVersion: 2,
     credentials: credentialRecord(record.credentials),
     remoteAccess: remoteAccessSettings((record as { remoteAccess?: unknown }).remoteAccess),
+    publicationKeys: publicationKeyRecord((record as { publicationKeys?: unknown }).publicationKeys),
   };
+}
+
+function publicationKeyRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const keys: Record<string, string> = {};
+  for (const [publicationId, key] of Object.entries(value as Record<string, unknown>)) {
+    if (!stableId(publicationId, 128) || !publicationKeyBase64Url(key)) continue;
+    keys[publicationId] = key;
+  }
+  return keys;
+}
+
+function publicationKeyBase64Url(value: unknown): value is string {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(value)) return false;
+  try {
+    return Buffer.from(value, "base64url").length === 32;
+  } catch {
+    return false;
+  }
 }
 
 function remoteAccessSettings(value: unknown): RemoteAccessSettings | null {

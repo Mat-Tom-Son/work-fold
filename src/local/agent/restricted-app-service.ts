@@ -23,6 +23,7 @@ import {
 import { RestrictedAppFileBroker, type RestrictedAppFileGrant } from "./restricted-app-files.js";
 import type {
   FileRestrictedAppStorage,
+  RestrictedAppStorageJsonValue,
   RestrictedAppStorageOwner,
   RestrictedAppStorageUsage,
 } from "./restricted-app-storage.js";
@@ -95,6 +96,7 @@ import {
   type LocalAppReleaseStoreVerifiedProjection,
 } from "./local-app-release-store.js";
 import { RestrictedAppRegistryVersionUnsupportedError } from "./restricted-app-registry-error.js";
+import type { WorkFoldSettleSignal } from "../routings/settle-signal.js";
 export interface RestrictedAppReview {
   packageName: string;
   version: string;
@@ -251,6 +253,51 @@ export interface RestrictedAppAutomationRunReceipt {
   attemptId: string;
 }
 
+/**
+ * One accepted-but-not-settled named-automation run, machine-wide, joined
+ * with the file-grant authority the run executes with. The durable
+ * accepted-run ledger is the source, so a crashed run can never linger here:
+ * startup reconciliation settles every accepted record `interrupted` before
+ * this service accepts reads.
+ */
+export interface RestrictedAppActiveAutomationRun {
+  spaceId: string;
+  appId: string;
+  automationId: string;
+  runId: string;
+  reason: "scheduled" | "manual" | "resume";
+  scheduledAt: string;
+  acceptedAt: string;
+  /**
+   * Grant ids of the Space file grants this run holds — the installation's
+   * grants narrowed to the automation's declared file permissions, exactly
+   * the authority the run was scoped to at acceptance. `null` when the grants
+   * cannot be resolved (the installation or the automation declaration is
+   * gone mid-run); consumers must treat unresolvable as holding a grant
+   * (fail closed), never as holding none.
+   */
+  fileGrantIds: string[] | null;
+}
+
+/**
+ * One settled automation run from the machine-wide historical receipts
+ * ledger, carrying the Space and app identity that per-installation receipt
+ * projections omit. Read by the glance's what-changed digest.
+ */
+export interface RestrictedAppAutomationRunHistoryReceipt {
+  receiptId: string;
+  spaceId: string;
+  appId: string;
+  automationId: string;
+  runId: string;
+  reason: "scheduled" | "manual" | "resume";
+  outcome: "success" | "failure" | "skipped" | "cancelled" | "interrupted";
+  scheduledAt: string;
+  startedAt: string;
+  finishedAt: string;
+  error?: string;
+}
+
 export interface RestrictedAppRuntimeDescriptor extends RestrictedAppInstalled {
   stagedRoot: string;
 }
@@ -294,6 +341,8 @@ export interface RestrictedAppServiceOptions {
    * service is the top-level lifecycle owner and no recovery must run first.
    */
   deferAutomationStart?: boolean;
+  /** Routing-trigger seam; settled runs are published only after their receipt is durable. */
+  settleSignal?: WorkFoldSettleSignal;
 }
 
 interface RestrictedAppRegistryFile {
@@ -485,6 +534,7 @@ export class RestrictedAppService {
   readonly #oauth?: RestrictedAppOAuthPkceClient;
   readonly #releaseStore: LocalAppReleaseStore;
   readonly #now: () => Date;
+  readonly #settleSignal: WorkFoldSettleSignal | null;
   readonly #automations: WorkFoldAutomationService;
   readonly #acceptedAutomations = new Map<string, AcceptedAutomationContext>();
   readonly #spaceRuntimeExclusions = new Set<string>();
@@ -504,6 +554,7 @@ export class RestrictedAppService {
     this.#oauth = options.oauth;
     this.#releaseStore = options.releaseStore ?? new LocalAppReleaseStore(join(this.#rootPath, "releases"));
     this.#now = options.now ?? (() => new Date());
+    this.#settleSignal = options.settleSignal ?? null;
     this.#registry = registry;
     const clock: WorkFoldAutomationClock = {
       now: this.#now,
@@ -586,6 +637,58 @@ export class RestrictedAppService {
       .filter((item) => item.spaceId === spaceId)
       .sort((left, right) => left.manifest.title.localeCompare(right.manifest.title) || left.manifest.id.localeCompare(right.manifest.id))
       .map((item) => this.#copyInstalled(item));
+  }
+
+  /**
+   * Resolves one installed app by its App Instance identity
+   * (`featureInstallationId`). The fold's consecration adapters re-verify
+   * pinned identities through this lookup immediately before a decided act
+   * executes (docs/fold-consecrations.md). A read like `list`, never a
+   * mutation; an absent instance is `undefined`, not an error, so the caller
+   * can compose its own invalidation reason.
+   */
+  async findByFeatureInstallation(spaceId: string, featureInstallationId: string): Promise<RestrictedAppInstalled | undefined> {
+    this.#assertOpen();
+    await this.#queue.catch(() => undefined);
+    const entry = this.#registry.installations.find((item) => item.spaceId === spaceId
+      && item.featureInstallationId === featureInstallationId);
+    return entry ? this.#copyInstalled(entry) : undefined;
+  }
+
+  /**
+   * Machine-wide App Instance lookup for the viewer plane
+   * (docs/fold-publishing.md, rung 3): a hosted-at-address exposure names an
+   * App Instance id alone, so its staging, decision recheck, and every serve
+   * resolve it across all registered Spaces. Returns the same
+   * staging-root-verified descriptor shape as `runtimeDescriptor`, so the
+   * caller can re-hash staged bytes against the install receipt. A read,
+   * never a mutation.
+   */
+  async findByFeatureInstallationAnywhere(featureInstallationId: string): Promise<RestrictedAppRuntimeDescriptor | undefined> {
+    this.#assertOpen();
+    await this.#queue.catch(() => undefined);
+    const entry = this.#registry.installations.find((item) => item.featureInstallationId === featureInstallationId);
+    if (!entry) return undefined;
+    await assertRestrictedAppStagingRoot(this.#stagingPath);
+    return { ...this.#copyInstalled(entry), stagedRoot: this.#digestRoot(entry.digest) };
+  }
+
+  /**
+   * The bounded read lane the viewer adapter is allowed to reach: key listing
+   * and single-key reads only, no usage, no writes, no clear. Null when this
+   * process has no desktop storage — headless viewer serves then refuse data
+   * reads honestly while assets keep working.
+   */
+  viewerStorageReads(): {
+    keys(owner: RestrictedAppStorageOwner, prefix?: string): Promise<string[]>;
+    get(owner: RestrictedAppStorageOwner, key: string): Promise<RestrictedAppStorageJsonValue | undefined>;
+  } | null {
+    const storage = this.#storage;
+    if (!storage) return null;
+    return {
+      keys: (owner, prefix) => storage.keys(owner, prefix),
+      get: (owner, key) => storage.get(owner, key),
+    };
   }
 
   async declareLocalAppProject(input: {
@@ -1958,6 +2061,70 @@ export class RestrictedAppService {
   }
 
   /**
+   * Machine-wide view of accepted-but-not-settled automation runs, joined
+   * with the file-grant authority each run holds. Read by the whole-Space
+   * History-restore fence (docs/fold-act-ledger.md, conflict rule 7) and the
+   * glance's running-work digest (docs/fold-glance.md). The durable
+   * accepted-run ledger is the source of truth; grants resolve through the
+   * live installation entry, and a run whose installation or automation
+   * declaration disappeared mid-run reports `fileGrantIds: null` so callers
+   * can fail closed instead of reading vanished authority as none.
+   */
+  async listActiveAutomationRuns(): Promise<RestrictedAppActiveAutomationRun[]> {
+    this.#assertOpen();
+    await this.#queue.catch(() => undefined);
+    return this.#registry.acceptedAutomationRuns.map((accepted) => {
+      const entry = this.#registry.installations.find((item) =>
+        item.runtimeInstanceId === accepted.runtimeInstanceId
+        && item.featureInstallationId === accepted.featureInstallationId
+        && item.digest === accepted.packageDigest);
+      const declaration = entry?.manifest.automations.find((item) => item.id === accepted.automationId);
+      const fileGrantIds = entry && declaration
+        ? entry.fileGrants
+          .filter((grant) => declaration.permissions.files.includes(grant.declarationId))
+          .map((grant) => grant.id)
+        : null;
+      return {
+        spaceId: accepted.spaceId,
+        appId: accepted.appId,
+        automationId: accepted.automationId,
+        runId: accepted.runId,
+        reason: accepted.reason,
+        scheduledAt: accepted.scheduledAt,
+        acceptedAt: accepted.acceptedAt,
+        fileGrantIds,
+      };
+    });
+  }
+
+  /**
+   * Machine-wide settled automation receipts, oldest first, from the same
+   * durable historical ledger the run receipts persist into (bounded there at
+   * 1,000 records). Content-free identities and outcomes only — the glance's
+   * what-changed digest is the consumer, and it never needs run payloads.
+   */
+  async listAutomationRunHistory(limit = 200): Promise<RestrictedAppAutomationRunHistoryReceipt[]> {
+    this.#assertOpen();
+    await this.#queue.catch(() => undefined);
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new RestrictedAppError("INPUT_INVALID", "Automation run history limit must be a positive integer.");
+    }
+    return this.#registry.historicalAutomationRuns.slice(-Math.min(limit, 1_000)).map((receipt) => ({
+      receiptId: receipt.receiptId,
+      spaceId: receipt.spaceId,
+      appId: receipt.appId,
+      automationId: receipt.automationId,
+      runId: receipt.runId,
+      reason: receipt.reason,
+      outcome: receipt.outcome,
+      scheduledAt: receipt.scheduledAt,
+      startedAt: receipt.startedAt,
+      finishedAt: receipt.finishedAt,
+      ...(receipt.error !== undefined ? { error: receipt.error } : {}),
+    }));
+  }
+
+  /**
    * Starts persisted jobs after higher-level lifecycle recovery. Exclusions are
    * persistent until the removal coordinator explicitly releases a completed
    * removal, so repeated startup calls cannot reactivate a pending Space.
@@ -2387,6 +2554,23 @@ export class RestrictedAppService {
           historicalAutomationRuns: [...this.#registry.historicalAutomationRuns, historical].slice(-1_000),
         });
         recorded = publicReceipt;
+        // Routing-trigger seam: published only on this fresh path, after the
+        // durable receipt write — a replayed result deduplicates against the
+        // historical ledger above and is never published twice, and a result
+        // without a durable receipt is never published at all. The signal owns
+        // listener failure isolation, so publication can never fail a receipt.
+        this.#settleSignal?.publish({
+          kind: "app-automation-run",
+          spaceId,
+          appId,
+          automationId: result.key.jobId,
+          runId: result.runId,
+          outcome: result.outcome,
+          reason: result.reason,
+          scheduledAt: result.scheduledAt,
+          startedAt: result.startedAt,
+          finishedAt: result.finishedAt,
+        });
       });
     } finally {
       this.#acceptedAutomations.delete(result.runId);
@@ -3918,6 +4102,18 @@ function automationDeclaration(manifest: RestrictedAppManifest, automationId: st
   const declaration = manifest.automations.find((automation) => automation.id === id);
   if (!declaration) throw new RestrictedAppError("INPUT_INVALID", "The app did not declare this automation.");
   return declaration;
+}
+
+/**
+ * Deterministic host-composed schedule line for one reviewed automation. The
+ * fold's staging path pins these exact words and its decision-time recheck
+ * recomposes them from the live declaration (docs/fold-consecrations.md), so
+ * a drifted schedule is a pin mismatch, never a silent change under an
+ * already-issued card.
+ */
+export function restrictedAppAutomationScheduleSummary(declaration: RestrictedAppAutomationDeclaration): string {
+  const minutes = declaration.trigger.intervalMinutes;
+  return minutes === 1 ? "Runs every minute" : `Runs every ${minutes} minutes`;
 }
 
 function automationKey(

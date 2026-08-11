@@ -1,4 +1,4 @@
-import { createPublicKey, verify } from "node:crypto";
+import { createPublicKey, randomUUID, verify } from "node:crypto";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { isIP } from "node:net";
@@ -11,8 +11,10 @@ import {
   BridgeDatabase,
   BridgeDatabaseError,
   canonicalizeJson,
+  isReservedViewerSlug,
   isValidSlug,
   normalizeSlug,
+  publicationWindowServedBytes,
   verifyP1363,
 } from "./database.mjs";
 import { createBridgeMetrics } from "./metrics.mjs";
@@ -52,7 +54,27 @@ const localSessionCookieName = "work_fold_session";
 const macReleaseApiUrl = "https://api.github.com/repos/Mat-Tom-Son/work-fold-mac-releases/releases/latest";
 const macReleaseFallbackUrl = "https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/latest";
 const releaseDownloadCacheMs = 15 * 60 * 1_000;
+// A publication snapshot stores at most ~2.8 MiB of base64url ciphertext;
+// the JSON wrapper needs a little more room on the device upload path.
+const maximumSnapshotBodyBytes = 4 * 1024 * 1024;
+// The publishing ladder's viewer plane is unauthenticated by design, so every
+// bound applies before anything reaches the desktop (docs/fold-publishing.md,
+// "Abuse bounds"). Decoded-bytes × 1.4 accounting matches the envelope limits.
+const viewerRequestsPerIpPerMinute = 60;
+const viewerFetchDispatchPerAccountPerMinute = 120;
+const maximumConcurrentViewerFetchesPerPublication = 4;
+const maximumViewerPageCiphertextChars = Math.floor(2 * 1024 * 1024 * 1.4);
+const maximumViewerInFlightCiphertextChars = Math.floor(64 * 1024 * 1024 * 1.4);
+const defaultViewerFetchTimeoutMs = 25_000;
 const publicDir = join(dirname(fileURLToPath(import.meta.url)), "public");
+const viewerPublicDir = join(publicDir, "viewer");
+// The management operation allowlist. The publishing ladder's viewer plane is
+// deliberately absent: viewer traffic never enters /api/operations, and
+// unknown operation names — including any viewer.* spelling — stay rejected.
+// The fold's decision and glance operations ride the same signed envelopes:
+// the bridge relays ciphertext and persists no card or digest content, and
+// staged acts never leave the desktop (docs/fold-consecrations.md,
+// docs/fold-glance.md).
 const allowedOperations = new Set([
   "management.summary",
   "management.chats",
@@ -61,6 +83,10 @@ const allowedOperations = new Set([
   "management.send",
   "management.request",
   "management.stop",
+  "management.glance",
+  "management.glanceSeen",
+  "decisions.list",
+  "decisions.decide",
   "spaces.list",
   "spaces.tree",
 ]);
@@ -76,6 +102,7 @@ export async function startBridgeServer({
   passwordVerifier = (slug, password) => database.authenticatePassword(slug, password),
   loginProtection,
   metrics,
+  viewerFetchTimeoutMs = defaultViewerFetchTimeoutMs,
 } = {}) {
   const state = createState({
     database,
@@ -86,6 +113,7 @@ export async function startBridgeServer({
     passwordVerifier,
     loginProtection,
     metrics,
+    viewerFetchTimeoutMs,
   });
   await database.initialize();
   const server = createServer(async (request, response) => {
@@ -137,6 +165,7 @@ export async function startBridgeServer({
       clearInterval(heartbeat);
       clearInterval(cleanup);
       for (const client of state.sseClients.values()) for (const response of client) response.end();
+      for (const fetchId of [...state.viewerFetches.keys()]) settleViewerFetch(state, fetchId, { state: "asleep" });
       for (const connection of state.devices.values()) connection.socket.close(1001, "Bridge shutting down");
       await closeServer(server);
       webSocketServer.close();
@@ -145,7 +174,7 @@ export async function startBridgeServer({
   });
 }
 
-function createState({ database, baseDomain, publicEnrollment, trustProxy, releaseFetcher, passwordVerifier, loginProtection, metrics }) {
+function createState({ database, baseDomain, publicEnrollment, trustProxy, releaseFetcher, passwordVerifier, loginProtection, metrics, viewerFetchTimeoutMs }) {
   const protection = normalizedLoginProtection(loginProtection);
   const state = {
     database,
@@ -166,6 +195,10 @@ function createState({ database, baseDomain, publicEnrollment, trustProxy, relea
     loginAttemptWindowMs: protection.attemptWindowMs,
     passwordVerifier,
     passwordChecks: createPasswordCheckQueue(protection),
+    viewerFetchTimeoutMs: positiveInteger(viewerFetchTimeoutMs, defaultViewerFetchTimeoutMs),
+    viewerFetches: new Map(),
+    viewerFetchCountsByPublication: new Map(),
+    viewerInFlightChars: 0,
   };
   const metricOptions = metrics && typeof metrics === "object" ? metrics : {};
   state.metrics = createBridgeMetrics({
@@ -187,6 +220,8 @@ function bridgeMetricGauges(state) {
     publicEnrollment: state.publicEnrollment,
     devicesCurrent: state.devices.size,
     sseClientsCurrent,
+    viewerActiveFetches: state.viewerFetches.size,
+    viewerInFlightCiphertextChars: state.viewerInFlightChars,
     passwordChecks: state.passwordChecks.snapshot(),
   };
 }
@@ -194,6 +229,12 @@ function bridgeMetricGauges(state) {
 async function handleRequest(state, request, response) {
   const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
   const method = request.method || "GET";
+
+  // The pages-* labels are the publishing ladder's viewer plane. They are
+  // diverted before any personal-slug resolution so the management client,
+  // its sign-in, its cookies, and approved-browser keys can never co-locate
+  // with published viewer content on one origin.
+  if (viewerPlaneHost(state, request) !== null) return handleViewerRequest(state, request, response, url, method);
 
   if (url.pathname === "/health") {
     if (method !== "GET" && method !== "HEAD") return methodNotAllowed(response, "GET, HEAD");
@@ -432,6 +473,47 @@ async function handleRequest(state, request, response) {
     return writeJson(response, 200, { revoked }, method, state, request);
   }
 
+  // Publication slots: the desktop's idempotent, content-free sync surface
+  // for the publishing ladder. These routes carry identifiers, budgets, and
+  // flags — never titles, paths, or page bytes — and stay inert until a
+  // desktop that publishes calls them.
+  const publicationMatch = url.pathname.match(/^\/api\/device\/publications\/([^/]+)$/);
+  if (publicationMatch && method === "PUT") {
+    const account = await requireDevice(state, request);
+    const body = await readJsonBody(request, maximumJsonBodyBytes);
+    const allowed = new Set(["operationId", "kind", "state", "serveRatePerMinute", "byteBudgetPerDay", "snapshotEnabled", "expiresAt"]);
+    if (Object.keys(body).some((key) => !allowed.has(key))) {
+      throw httpError(400, "Publication sync accepts only content-free slot fields.");
+    }
+    const result = await state.database.upsertPublication(account, publicationMatch[1], body);
+    return writeJson(response, result.created ? 201 : 200, { publication: publicationView(result) }, method, state, request);
+  }
+  if (publicationMatch && method === "DELETE") {
+    const account = await requireDevice(state, request);
+    const removed = await state.database.deletePublication(account.id, publicationMatch[1]);
+    return writeJson(response, 200, { removed }, method, state, request);
+  }
+
+  const snapshotMatch = url.pathname.match(/^\/api\/device\/publications\/([^/]+)\/snapshot$/);
+  if (snapshotMatch && method === "PUT") {
+    const account = await requireDevice(state, request);
+    const body = await readJsonBody(request, maximumSnapshotBodyBytes);
+    const allowed = new Set(["ciphertext", "iv", "contentDigest", "capturedAt"]);
+    if (Object.keys(body).some((key) => !allowed.has(key))) {
+      throw httpError(400, "Snapshot sync accepts only bounded ciphertext fields.");
+    }
+    const result = await state.database.putPublicationSnapshot(account.id, snapshotMatch[1], body);
+    return writeJson(response, 200, {
+      snapshot: publicationSnapshotView(result.snapshot),
+      stored: result.stored,
+    }, method, state, request);
+  }
+  if (snapshotMatch && method === "DELETE") {
+    const account = await requireDevice(state, request);
+    const removed = await state.database.deletePublicationSnapshot(account.id, snapshotMatch[1]);
+    return writeJson(response, 200, { removed }, method, state, request);
+  }
+
   if (url.pathname.startsWith("/api/")) throw httpError(404, "Not found.");
   if (method !== "GET" && method !== "HEAD") return methodNotAllowed(response, "GET, HEAD", state, request);
   return servePublicFile(state, request, url.pathname, response, method);
@@ -439,6 +521,7 @@ async function handleRequest(state, request, response) {
 
 async function handleUpgrade(state, request, socket, head) {
   const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+  if (viewerPlaneHost(state, request) !== null) return rejectUpgrade(socket, 404, "Not found");
   if (url.pathname !== "/api/device/connect") return rejectUpgrade(socket, 404, "Not found");
   try {
     enforceRateLimit(state.rateLimits, `device-connect:${clientIp(state, request)}`, 30, 60_000);
@@ -485,6 +568,7 @@ async function handleUpgrade(state, request, socket, head) {
         state.devices.delete(account.id);
         void state.database.markActiveOperationsLost(account.id).catch(() => undefined);
         void broadcastAccountPresence(state, account.id, false).catch(() => undefined);
+        settleViewerFetchesForAccount(state, account.id);
       }
     });
     webSocket.on("error", () => undefined);
@@ -557,6 +641,77 @@ async function handleDeviceMessage(state, connection, raw) {
       operationId: operation.id,
       envelope,
     });
+    return;
+  }
+  if (message.type === "viewer.page") {
+    if (!isStableViewerId(message.fetchId) || !isStableViewerId(message.publicationId)) {
+      throw new Error("Viewer page frame is invalid.");
+    }
+    // A typed refusal is content-free and rides the authenticated device
+    // socket. The desktop's effect-time recheck answers nothing-here for a
+    // slot it no longer serves and not-available for a source problem the
+    // publisher — not the audience — gets to see the reason for.
+    if (message.state !== undefined) {
+      if (message.envelope !== undefined || (message.state !== "not-available" && message.state !== "nothing-here")) {
+        throw new Error("Viewer page frame is invalid.");
+      }
+      const waiter = state.viewerFetches.get(message.fetchId);
+      if (waiter && waiter.kind === "page" && waiter.accountId === connection.account.id && waiter.publicationId === message.publicationId) {
+        settleViewerFetch(state, message.fetchId, { state: message.state });
+      }
+      return;
+    }
+    const envelope = assertViewerPageEnvelope(connection.account, message.envelope);
+    if (envelope.header.publicationId !== message.publicationId || envelope.header.fetchId !== message.fetchId) {
+      throw new Error("Viewer page envelope does not match its frame.");
+    }
+    if (!isCurrentDeviceConnection(state, connection)) return;
+    const waiter = state.viewerFetches.get(message.fetchId);
+    if (waiter && waiter.kind === "page" && waiter.accountId === connection.account.id && waiter.publicationId === envelope.header.publicationId) {
+      settleViewerFetch(state, message.fetchId, { state: "live", envelope });
+    }
+    // Snapshot refresh rides the same device-frame exchange as the serve — a
+    // counter-tracked sync, not a separate receipted act. The database owns
+    // opt-in, bounds, and newest-wins; a late frame may still refresh it.
+    try {
+      const stored = await state.database.putPublicationSnapshot(connection.account.id, envelope.header.publicationId, {
+        ciphertext: envelope.ciphertext,
+        iv: envelope.iv,
+        contentDigest: envelope.header.contentDigest,
+        capturedAt: envelope.header.servedAt,
+      });
+      if (stored.stored) state.metrics.recordViewerSnapshotStoredBytes(envelope.ciphertext.length);
+    } catch {
+      // Snapshot-disabled, bounds, and revoked-slot refusals are expected;
+      // a failed refresh leaves the previous snapshot in place.
+    }
+    return;
+  }
+  if (message.type === "viewer.app.result") {
+    if (!isStableViewerId(message.fetchId) || !isStableViewerId(message.publicationId)) {
+      throw new Error("Viewer app frame is invalid.");
+    }
+    if (message.state !== undefined) {
+      if (message.envelope !== undefined || (message.state !== "not-available" && message.state !== "nothing-here")) {
+        throw new Error("Viewer app frame is invalid.");
+      }
+      const waiter = state.viewerFetches.get(message.fetchId);
+      if (waiter && waiter.kind === "app" && waiter.accountId === connection.account.id && waiter.publicationId === message.publicationId) {
+        settleViewerFetch(state, message.fetchId, { state: message.state });
+      }
+      return;
+    }
+    const envelope = assertViewerAppEnvelope(connection.account, message.envelope);
+    if (envelope.header.publicationId !== message.publicationId || envelope.header.fetchId !== message.fetchId) {
+      throw new Error("Viewer app envelope does not match its frame.");
+    }
+    if (!isCurrentDeviceConnection(state, connection)) return;
+    const waiter = state.viewerFetches.get(message.fetchId);
+    if (waiter && waiter.kind === "app" && waiter.accountId === connection.account.id && waiter.publicationId === envelope.header.publicationId) {
+      settleViewerFetch(state, message.fetchId, { state: "live", envelope });
+    }
+    // No snapshot lane for apps: the frame settles its one waiter and
+    // nothing is retained.
     return;
   }
   // New desktop versions may add device-to-bridge notifications. A
@@ -790,10 +945,439 @@ function requestSlug(state, request, url, bodySlug) {
   const suffix = `.${state.baseDomain}`;
   if (host.endsWith(suffix)) {
     const candidate = host.slice(0, -suffix.length);
-    if (candidate && !candidate.includes(".")) return normalizeSlug(candidate);
+    if (candidate && !candidate.includes(".")) {
+      // A reserved viewer label never resolves to a personal management
+      // account, even if a legacy pages-* address row still exists.
+      return isReservedViewerSlug(candidate) ? null : normalizeSlug(candidate);
+    }
   }
   if (isLocalHost(host)) return normalizeSlug(bodySlug ?? url.searchParams.get("slug"));
   return null;
+}
+
+// The reserved pages-* label of the request host, or null when the request is
+// for the management plane. Viewer origins exist only under the base domain.
+function viewerPlaneHost(state, request) {
+  const host = requestHostname(state, request);
+  const suffix = `.${state.baseDomain}`;
+  if (!host.endsWith(suffix)) return null;
+  const label = host.slice(0, -suffix.length);
+  if (!label || label.includes(".")) return null;
+  return isReservedViewerSlug(label) ? label : null;
+}
+
+// The publishing ladder's viewer plane (docs/fold-publishing.md, rung 2). A
+// reserved pages-* host serves exactly the static viewer shell, the viewer
+// page API, and robots.txt — every other path gets the one indistinguishable
+// "nothing here" answer, so an outsider cannot tell revoked, never-existed,
+// or wrong-account apart, and no management surface, cookie, sign-in, or
+// client bundle ever exists on a viewer origin.
+async function handleViewerRequest(state, request, response, url, method) {
+  state.metrics.recordViewerRequest();
+  if (method !== "GET" && method !== "HEAD") {
+    response.setHeader("allow", "GET, HEAD");
+    return writeViewerText(response, 405, "Nothing is published here.\n", "GET", state, request);
+  }
+  if (url.pathname === "/robots.txt") {
+    return writeViewerText(response, 200, "User-agent: *\nDisallow: /\n", method, state, request);
+  }
+  if (/^\/p\/[A-Za-z0-9._:-]{1,128}$/.test(url.pathname)) {
+    return serveViewerShellFile(state, request, response, method, "index.html", "text/html; charset=utf-8");
+  }
+  // The rung-3 app shell (docs/fold-publishing.md): same origin-isolation and
+  // fragment-key rules as pages, its own document so its own CSP. The shell
+  // hosts the reviewed app inside a sandboxed blob: iframe WITHOUT
+  // allow-same-origin — an opaque origin with no storage and no cookies. A
+  // blob: document inherits the CSP of this shell document, so this policy
+  // deliberately allows inline/blob script and style for the app's own
+  // reviewed code while keeping every network direction closed: 'self' never
+  // matches inside the opaque-origin frame, so the app document can reach
+  // nothing at all — every read rides the shell's postMessage broker. The
+  // shell itself is static bridge-authored code with no injection sink.
+  if (/^\/a\/[A-Za-z0-9._:-]{1,128}$/.test(url.pathname)) {
+    return serveViewerShellFile(state, request, response, method, "app.html", "text/html; charset=utf-8", {
+      "content-security-policy": "default-src 'none'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline' blob:; "
+        + "img-src blob: data:; media-src blob: data:; font-src blob: data:; connect-src 'self'; frame-src blob:; "
+        + "object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    });
+  }
+  if (url.pathname === "/viewer.js") {
+    return serveViewerShellFile(state, request, response, method, "viewer.js", "text/javascript; charset=utf-8");
+  }
+  if (url.pathname === "/viewer-app.js") {
+    return serveViewerShellFile(state, request, response, method, "viewer-app.js", "text/javascript; charset=utf-8");
+  }
+  if (url.pathname === "/viewer.css") {
+    return serveViewerShellFile(state, request, response, method, "viewer.css", "text/css; charset=utf-8");
+  }
+  const pageMatch = url.pathname.match(/^\/api\/viewer\/pages\/([A-Za-z0-9._:-]{1,128})$/);
+  if (pageMatch && method === "GET") {
+    return handleViewerPageRequest(state, request, response, pageMatch[1]);
+  }
+  // The rung-3 viewer-app read routes: entry, exact staged asset, and the
+  // manifest-declared viewer-readable data reads. The bridge composes the
+  // typed call from the URL alone — the desktop's viewer adapter is the
+  // authority that refuses everything outside the closed viewer vocabulary.
+  const appMatch = url.pathname.match(/^\/api\/viewer\/apps\/([A-Za-z0-9._:-]{1,128})\/(entry|asset|data\/keys|data\/get)$/);
+  if (appMatch && method === "GET") {
+    const call = viewerAppCallFromRequest(appMatch[2], url.searchParams);
+    if (!call) return writeViewerJson(response, 404, { state: "nothing-here" }, state, request);
+    return handleViewerAppRequest(state, request, response, appMatch[1], call);
+  }
+  return writeViewerText(response, 404, "Nothing is published here.\n", method, state, request);
+}
+
+/** The typed viewer-app call for one GET route, or null when the query is unusable. */
+function viewerAppCallFromRequest(route, searchParams) {
+  if (route === "entry") return { kind: "entry" };
+  if (route === "asset") {
+    const path = searchParams.get("path");
+    if (typeof path !== "string" || !path || path.length > 240) return null;
+    return { kind: "asset", path };
+  }
+  if (route === "data/keys") {
+    const prefix = searchParams.get("prefix");
+    if (prefix !== null && prefix.length > 256) return null;
+    return prefix === null ? { kind: "data.keys" } : { kind: "data.keys", prefix };
+  }
+  const key = searchParams.get("key");
+  if (typeof key !== "string" || !key || key.length > 256) return null;
+  return { kind: "data.get", key };
+}
+
+/**
+ * The one viewer read: resolve the slot, enforce every bridge-side budget,
+ * and complete from the live desktop, the opted-in snapshot, or a typed
+ * honest state. Content crosses this path only as the desktop's signed
+ * AES-GCM envelope; the fragment key never reaches the bridge.
+ */
+async function handleViewerPageRequest(state, request, response, publicationId) {
+  const label = viewerPlaneHost(state, request);
+  const slug = label && label.startsWith("pages-") ? label.slice("pages-".length) : null;
+  const account = slug && !isReservedViewerSlug(slug) ? await state.database.accountBySlug(slug) : null;
+  if (!account) return writeViewerJson(response, 404, { state: "nothing-here" }, state, request);
+  try {
+    enforceRateLimit(state.rateLimits, `viewer-ip:${account.id}:${clientIp(state, request)}`, viewerRequestsPerIpPerMinute, 60_000);
+  } catch {
+    state.metrics.recordViewerBudgetExhaustion();
+    return writeViewerJson(response, 429, { state: "resting" }, state, request);
+  }
+  const publication = await state.database.publicationForViewer(account.id, publicationId);
+  // A slot of the other kind answers the one indistinguishable refusal: the
+  // page route serves pages, the app routes serve apps, and an outsider
+  // cannot use the mismatch to learn what a slot is.
+  if (!publication || publication.kind !== "page") return writeViewerJson(response, 404, { state: "nothing-here" }, state, request);
+  if (publicationWindowServedBytes(publication) >= publication.byteBudgetPerDay) {
+    state.metrics.recordViewerBudgetExhaustion();
+    notifyPublicationResting(state, account.id, publication.id, "byte-budget");
+    return writeViewerJson(response, 200, { state: "resting" }, state, request);
+  }
+  try {
+    enforceRateLimit(state.rateLimits, `viewer-serve:${publication.id}`, publication.serveRatePerMinute, 60_000);
+  } catch {
+    state.metrics.recordViewerBudgetExhaustion();
+    notifyPublicationResting(state, account.id, publication.id, "serve-rate");
+    return writeViewerJson(response, 429, { state: "resting" }, state, request);
+  }
+
+  const device = state.devices.get(account.id);
+  if (!device) {
+    const offline = await viewerOfflineResult(state, account.id, publication.id);
+    return writeViewerJson(response, offline.state === "nothing-here" ? 404 : 200, offline, state, request);
+  }
+  try {
+    enforceRateLimit(state.rateLimits, `viewer-dispatch:${account.id}`, viewerFetchDispatchPerAccountPerMinute, 60_000);
+  } catch {
+    state.metrics.recordViewerBudgetExhaustion();
+    return writeViewerJson(response, 429, { state: "resting" }, state, request);
+  }
+  if ((state.viewerFetchCountsByPublication.get(publication.id) ?? 0) >= maximumConcurrentViewerFetchesPerPublication
+    || state.viewerInFlightChars + maximumViewerPageCiphertextChars > maximumViewerInFlightCiphertextChars) {
+    state.metrics.recordViewerBudgetExhaustion();
+    return writeViewerJson(response, 429, { state: "resting" }, state, request);
+  }
+
+  const fetchId = randomUUID();
+  const result = await new Promise((resolveFetch) => {
+    const waiter = {
+      kind: "page",
+      accountId: account.id,
+      publicationId: publication.id,
+      resolve: resolveFetch,
+      timer: setTimeout(() => settleViewerFetchOffline(state, fetchId), state.viewerFetchTimeoutMs),
+    };
+    waiter.timer.unref?.();
+    state.viewerFetches.set(fetchId, waiter);
+    state.viewerFetchCountsByPublication.set(publication.id, (state.viewerFetchCountsByPublication.get(publication.id) ?? 0) + 1);
+    state.viewerInFlightChars += maximumViewerPageCiphertextChars;
+    state.metrics.recordViewerFetchDispatched();
+    if (!sendDevice(device.socket, { type: "viewer.fetch", fetchId, publicationId: publication.id })) {
+      settleViewerFetchOffline(state, fetchId);
+    }
+  });
+  if (result.state === "live") {
+    await chargeViewerBytes(state, account.id, publication.id, result.envelope.ciphertext.length);
+  }
+  return writeViewerJson(response, result.state === "nothing-here" ? 404 : 200, result, state, request);
+}
+
+/**
+ * One viewer-app read (rung 3): identical admission ladder to pages — per-IP,
+ * slot resolution with the kind check, byte budget, per-slot serve rate,
+ * dispatch rate, concurrency, and the in-flight ciphertext budget — then a
+ * `viewer.app.fetch` frame carrying the typed call. Apps have no snapshot
+ * lane, so an offline desktop is always honestly asleep.
+ */
+async function handleViewerAppRequest(state, request, response, publicationId, call) {
+  const label = viewerPlaneHost(state, request);
+  const slug = label && label.startsWith("pages-") ? label.slice("pages-".length) : null;
+  const account = slug && !isReservedViewerSlug(slug) ? await state.database.accountBySlug(slug) : null;
+  if (!account) return writeViewerJson(response, 404, { state: "nothing-here" }, state, request);
+  try {
+    enforceRateLimit(state.rateLimits, `viewer-ip:${account.id}:${clientIp(state, request)}`, viewerRequestsPerIpPerMinute, 60_000);
+  } catch {
+    state.metrics.recordViewerBudgetExhaustion();
+    return writeViewerJson(response, 429, { state: "resting" }, state, request);
+  }
+  const publication = await state.database.publicationForViewer(account.id, publicationId);
+  if (!publication || publication.kind !== "app") return writeViewerJson(response, 404, { state: "nothing-here" }, state, request);
+  if (publicationWindowServedBytes(publication) >= publication.byteBudgetPerDay) {
+    state.metrics.recordViewerBudgetExhaustion();
+    notifyPublicationResting(state, account.id, publication.id, "byte-budget");
+    return writeViewerJson(response, 200, { state: "resting" }, state, request);
+  }
+  try {
+    enforceRateLimit(state.rateLimits, `viewer-serve:${publication.id}`, publication.serveRatePerMinute, 60_000);
+  } catch {
+    state.metrics.recordViewerBudgetExhaustion();
+    notifyPublicationResting(state, account.id, publication.id, "serve-rate");
+    return writeViewerJson(response, 429, { state: "resting" }, state, request);
+  }
+
+  const device = state.devices.get(account.id);
+  if (!device) return writeViewerJson(response, 200, { state: "asleep" }, state, request);
+  try {
+    enforceRateLimit(state.rateLimits, `viewer-dispatch:${account.id}`, viewerFetchDispatchPerAccountPerMinute, 60_000);
+  } catch {
+    state.metrics.recordViewerBudgetExhaustion();
+    return writeViewerJson(response, 429, { state: "resting" }, state, request);
+  }
+  if ((state.viewerFetchCountsByPublication.get(publication.id) ?? 0) >= maximumConcurrentViewerFetchesPerPublication
+    || state.viewerInFlightChars + maximumViewerPageCiphertextChars > maximumViewerInFlightCiphertextChars) {
+    state.metrics.recordViewerBudgetExhaustion();
+    return writeViewerJson(response, 429, { state: "resting" }, state, request);
+  }
+
+  const fetchId = randomUUID();
+  const result = await new Promise((resolveFetch) => {
+    const waiter = {
+      kind: "app",
+      accountId: account.id,
+      publicationId: publication.id,
+      resolve: resolveFetch,
+      timer: setTimeout(() => settleViewerFetchOffline(state, fetchId), state.viewerFetchTimeoutMs),
+    };
+    waiter.timer.unref?.();
+    state.viewerFetches.set(fetchId, waiter);
+    state.viewerFetchCountsByPublication.set(publication.id, (state.viewerFetchCountsByPublication.get(publication.id) ?? 0) + 1);
+    state.viewerInFlightChars += maximumViewerPageCiphertextChars;
+    state.metrics.recordViewerFetchDispatched();
+    if (!sendDevice(device.socket, { type: "viewer.app.fetch", fetchId, publicationId: publication.id, call })) {
+      settleViewerFetchOffline(state, fetchId);
+    }
+  });
+  if (result.state === "live") {
+    await chargeViewerBytes(state, account.id, publication.id, result.envelope.ciphertext.length);
+  }
+  return writeViewerJson(response, result.state === "nothing-here" ? 404 : 200, result, state, request);
+}
+
+/**
+ * Tells the connected desktop that one of its publications is resting, so the
+ * publisher's glance can say precisely what the viewer's vague page cannot
+ * (docs/fold-publishing.md, "Honest states": budget exhaustion is a typed
+ * viewer state and a glance item, never a silent drop). Content-free —
+ * publication id and a reason token — rate-limited to one notice per
+ * publication per minute, and best-effort: an asleep desktop simply never
+ * hears, and per-publication resting cannot occur while asleep anyway.
+ */
+function notifyPublicationResting(state, accountId, publicationId, reason) {
+  const device = state.devices.get(accountId);
+  if (!device) return;
+  try {
+    enforceRateLimit(state.rateLimits, `viewer-resting-notice:${publicationId}`, 1, 60_000);
+  } catch {
+    return;
+  }
+  sendDevice(device.socket, { type: "viewer.resting", publicationId, reason });
+}
+
+/** Desktop offline or unresponsive: the opted-in snapshot if one exists, else honestly asleep. */
+async function viewerOfflineResult(state, accountId, publicationId) {
+  try {
+    const snapshot = await state.database.publicationSnapshot(accountId, publicationId);
+    if (snapshot) {
+      await chargeViewerBytes(state, accountId, publicationId, snapshot.ciphertext.length);
+      return {
+        state: "as-of",
+        page: {
+          publicationId: snapshot.publicationId,
+          contentDigest: snapshot.contentDigest,
+          capturedAt: snapshot.capturedAt,
+          iv: snapshot.iv,
+          ciphertext: snapshot.ciphertext,
+        },
+      };
+    }
+  } catch {
+    // A snapshot read failure downgrades to asleep; it never breaks the path.
+  }
+  return { state: "asleep" };
+}
+
+async function chargeViewerBytes(state, accountId, publicationId, chars) {
+  // Best-effort accounting after the response bytes were already committed;
+  // admission for the next request reads the counters this write maintains.
+  await state.database.chargePublicationServedBytes(accountId, publicationId, chars).catch(() => undefined);
+}
+
+function settleViewerFetch(state, fetchId, result) {
+  const waiter = state.viewerFetches.get(fetchId);
+  if (!waiter) return false;
+  state.viewerFetches.delete(fetchId);
+  clearTimeout(waiter.timer);
+  const count = (state.viewerFetchCountsByPublication.get(waiter.publicationId) ?? 1) - 1;
+  if (count > 0) state.viewerFetchCountsByPublication.set(waiter.publicationId, count);
+  else state.viewerFetchCountsByPublication.delete(waiter.publicationId);
+  state.viewerInFlightChars = Math.max(0, state.viewerInFlightChars - maximumViewerPageCiphertextChars);
+  waiter.resolve(result);
+  return true;
+}
+
+function settleViewerFetchOffline(state, fetchId) {
+  const waiter = state.viewerFetches.get(fetchId);
+  if (!waiter) return;
+  // Apps have no snapshot lane: an unresponsive desktop is an honestly
+  // asleep app, never an "as of" copy.
+  if (waiter.kind === "app") {
+    settleViewerFetch(state, fetchId, { state: "asleep" });
+    return;
+  }
+  void viewerOfflineResult(state, waiter.accountId, waiter.publicationId)
+    .then((result) => settleViewerFetch(state, fetchId, result))
+    .catch(() => settleViewerFetch(state, fetchId, { state: "asleep" }));
+}
+
+function settleViewerFetchesForAccount(state, accountId) {
+  for (const [fetchId, waiter] of [...state.viewerFetches]) {
+    if (waiter.accountId === accountId) settleViewerFetchOffline(state, fetchId);
+  }
+}
+
+/**
+ * Admission for the desktop's signed viewer-page envelope, exactly as
+ * work-fold.remote-response.v1 admission: shape, bounded ciphertext, header
+ * identity, freshness, and the device signature. The bridge never holds the
+ * publication key, so this is relay and caching hygiene, not decryption.
+ */
+function assertViewerPageEnvelope(account, value) {
+  const envelope = assertEnvelopeShape(value, maximumViewerPageCiphertextChars / 1.4);
+  const header = envelope.header;
+  if (header.type !== "work-fold.viewer-page.v1" || header.accountId !== account.id || header.deviceId !== account.id
+    || !isStableViewerId(header.publicationId) || !isStableViewerId(header.fetchId) || !isStableViewerId(header.contentDigest)) {
+    throw new Error("Viewer page envelope is invalid.");
+  }
+  assertFreshTimestamp(header.servedAt);
+  if (!verifyP1363(account.deviceSigningPublicJwk, envelopeSignedText(envelope), envelope.signature)) {
+    throw new Error("Viewer page signature is invalid.");
+  }
+  return envelope;
+}
+
+/**
+ * Admission for the desktop's signed viewer-app envelope (rung 3): the same
+ * shape, bound, identity, freshness, and signature discipline as pages, plus
+ * the call digest the shell verifies against the call it made. Relay
+ * hygiene, never decryption — the publication key stays with link holders.
+ */
+function assertViewerAppEnvelope(account, value) {
+  const envelope = assertEnvelopeShape(value, maximumViewerPageCiphertextChars / 1.4);
+  const header = envelope.header;
+  if (header.type !== "work-fold.viewer-app.v1" || header.accountId !== account.id || header.deviceId !== account.id
+    || !isStableViewerId(header.publicationId) || !isStableViewerId(header.fetchId)
+    || !isStableViewerId(header.contentDigest) || !isStableViewerId(header.callDigest)) {
+    throw new Error("Viewer app envelope is invalid.");
+  }
+  assertFreshTimestamp(header.servedAt);
+  if (!verifyP1363(account.deviceSigningPublicJwk, envelopeSignedText(envelope), envelope.signature)) {
+    throw new Error("Viewer app signature is invalid.");
+  }
+  return envelope;
+}
+
+function isStableViewerId(value) {
+  return typeof value === "string" && value.length > 0 && value.length <= 128 && /^[A-Za-z0-9._:-]+$/.test(value);
+}
+
+async function serveViewerShellFile(state, request, response, method, name, contentType, headerOverrides = {}) {
+  let body;
+  try {
+    body = await readFile(join(viewerPublicDir, name));
+  } catch {
+    return writeViewerText(response, 404, "Nothing is published here.\n", method, state, request);
+  }
+  response.writeHead(200, {
+    "content-type": contentType,
+    "content-length": body.length,
+    // The shell is not fingerprinted; revalidate so a bridge rollout cannot
+    // leave a viewer on stale shell code.
+    "cache-control": "no-cache",
+    "x-robots-tag": "noindex, nofollow",
+    ...viewerSecurityHeaders(state, request),
+    // The app shell document (rung 3) overrides exactly its CSP so the
+    // sandboxed opaque-origin blob: iframe can run the reviewed app's own
+    // code; every other viewer response keeps the strict page policy.
+    ...headerOverrides,
+  });
+  response.end(method === "HEAD" ? undefined : body);
+}
+
+function writeViewerText(response, status, text, method, state, request) {
+  const body = Buffer.from(text, "utf8");
+  response.writeHead(status, {
+    "content-type": "text/plain; charset=utf-8",
+    "content-length": body.length,
+    "cache-control": "no-store",
+    "x-robots-tag": "noindex, nofollow",
+    ...viewerSecurityHeaders(state, request),
+  });
+  response.end(method === "HEAD" ? undefined : body);
+}
+
+function writeViewerJson(response, status, value, state, request) {
+  const body = JSON.stringify(value);
+  response.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "content-length": Buffer.byteLength(body),
+    "cache-control": "no-store",
+    "x-robots-tag": "noindex, nofollow",
+    ...viewerSecurityHeaders(state, request),
+  });
+  response.end(body);
+}
+
+// The viewer origin never sets cookies, never runs remote script, and renders
+// decrypted documents inertly: blob: frames for PDFs, blob: images, no forms,
+// no external connections beyond its own page API.
+function viewerSecurityHeaders(state, request) {
+  return {
+    "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src blob:; connect-src 'self'; frame-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+    "referrer-policy": "no-referrer",
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY",
+    ...(request && !isLocalHost(requestHostname(state, request)) ? { "strict-transport-security": "max-age=31536000; includeSubDomains" } : {}),
+  };
 }
 
 function requestHostname(state, request) {
@@ -1002,6 +1586,33 @@ function publicGrant(grant) {
   return { id: grant.id, browserId: grant.browserId, label: grant.label, generation: grant.generation, status: grant.status, approvedAt: grant.approvedAt, revokedAt: grant.revokedAt };
 }
 
+function publicationView(publication) {
+  return {
+    id: publication.id,
+    kind: publication.kind,
+    state: publication.state,
+    serveRatePerMinute: publication.serveRatePerMinute,
+    byteBudgetPerDay: publication.byteBudgetPerDay,
+    servedBytes: publication.servedBytes,
+    snapshotEnabled: publication.snapshotEnabled,
+    operationId: publication.operationId,
+    createdAt: publication.createdAt,
+    updatedAt: publication.updatedAt,
+    expiresAt: publication.expiresAt,
+  };
+}
+
+// Snapshot acknowledgements never echo ciphertext or IVs back; the desktop
+// already holds them, and responses stay content-free.
+function publicationSnapshotView(snapshot) {
+  return {
+    publicationId: snapshot.publicationId,
+    contentDigest: snapshot.contentDigest,
+    byteSize: snapshot.byteSize,
+    capturedAt: snapshot.capturedAt,
+  };
+}
+
 function devicePairingView(pairing) {
   return {
     id: pairing.id,
@@ -1061,6 +1672,9 @@ async function servePublicFile(state, request, pathname, response, method) {
   const requested = pathname === "/" ? "index.html" : decodeURIComponent(pathname).replace(/^\/+/, "");
   const candidate = resolve(publicDir, requested);
   if (candidate !== publicDir && !candidate.startsWith(`${publicDir}${sep}`)) throw httpError(404, "Not found.");
+  // Origin isolation is bidirectional: the management origin never serves the
+  // viewer shell, just as a viewer origin never serves the management client.
+  if (candidate === viewerPublicDir || candidate.startsWith(`${viewerPublicDir}${sep}`)) throw httpError(404, "Not found.");
   try {
     const body = await readFile(candidate);
     response.writeHead(200, {
@@ -1130,6 +1744,8 @@ function writeApiError(response, error, state, request) {
       ["not_found", 404], ["slug_taken", 409], ["invalid_slug", 400], ["invalid_password", 400],
       ["invalid_input", 400], ["invalid_key", 400], ["invalid_certificate", 400],
       ["credentials_changed", 409], ["request_conflict", 409], ["pairing_limit", 429], ["operation_limit", 429],
+      ["publication_contested", 409], ["publication_limit", 429], ["snapshot_disabled", 409],
+      ["snapshot_too_large", 413], ["snapshot_budget", 413],
     ]).get(error.code) ?? 400;
   } else if (!error?.status) {
     console.error(`work-fold bridge request failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);

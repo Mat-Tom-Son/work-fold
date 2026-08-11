@@ -17,6 +17,19 @@ const reservedSlugs = new Set([
   "admin", "api", "app", "assets", "auth", "billing", "bridge", "cdn", "docs", "help",
   "login", "mail", "root", "status", "support", "www",
 ]);
+const maximumPublicationsPerAccount = 32;
+const publicationKinds = new Set(["page", "app"]);
+const publicationStates = new Set(["active", "revoked"]);
+// The per-publication starting budgets; raising them is a desktop-side
+// consecration, and these are the bridge's hard admission ceilings.
+const publicationServeRateDefault = 60;
+const publicationServeRateMaximum = 600;
+const publicationByteBudgetDefault = 256 * 1024 * 1024;
+const publicationByteBudgetMaximum = 1024 * 1024 * 1024;
+// Snapshot rows hold base64url ciphertext text; the budgets use the same
+// decoded-bytes × 1.4 accounting as the envelope limits in server.mjs.
+const maximumSnapshotCiphertextChars = Math.floor(2 * 1024 * 1024 * 1.4);
+const maximumAccountSnapshotChars = Math.floor(16 * 1024 * 1024 * 1.4);
 const dummyPassword = Object.freeze({
   salt: Buffer.alloc(16, 0x45).toString("base64"),
   hash: Buffer.alloc(passwordBytes, 0xa7).toString("base64"),
@@ -128,9 +141,33 @@ export class BridgeDatabase {
         expires_at TIMESTAMPTZ NOT NULL,
         UNIQUE(browser_grant_id, request_id)
       );
+      CREATE TABLE IF NOT EXISTS bridge_publications (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES bridge_accounts(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('page', 'app')),
+        state TEXT NOT NULL CHECK (state IN ('active', 'revoked')),
+        serve_rate_per_minute INTEGER NOT NULL,
+        byte_budget_per_day BIGINT NOT NULL,
+        served_bytes BIGINT NOT NULL DEFAULT 0,
+        served_bytes_window_started_at TIMESTAMPTZ NOT NULL,
+        snapshot_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        operation_id TEXT NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        expires_at TIMESTAMPTZ
+      );
+      CREATE TABLE IF NOT EXISTS bridge_publication_snapshots (
+        publication_id TEXT PRIMARY KEY REFERENCES bridge_publications(id) ON DELETE CASCADE,
+        ciphertext TEXT NOT NULL,
+        iv TEXT NOT NULL,
+        content_digest TEXT NOT NULL,
+        byte_size BIGINT NOT NULL,
+        captured_at TIMESTAMPTZ NOT NULL
+      );
       CREATE INDEX IF NOT EXISTS bridge_sessions_account_idx ON bridge_sessions(account_id);
       CREATE INDEX IF NOT EXISTS bridge_pairings_account_status_idx ON bridge_pairings(account_id, status);
       CREATE INDEX IF NOT EXISTS bridge_operations_account_state_idx ON bridge_operations(account_id, state);
+      CREATE INDEX IF NOT EXISTS bridge_publications_account_idx ON bridge_publications(account_id);
       ALTER TABLE bridge_accounts ADD COLUMN IF NOT EXISTS auth_generation BIGINT NOT NULL DEFAULT 1;
       ALTER TABLE bridge_sessions ADD COLUMN IF NOT EXISTS csrf_previous_hash TEXT;
     `);
@@ -149,6 +186,7 @@ export class BridgeDatabase {
     await this.#pool.query("DELETE FROM bridge_sessions WHERE absolute_expires_at <= NOW() OR expires_at <= NOW()");
     await this.#pool.query("UPDATE bridge_pairings SET status = 'expired' WHERE status = 'pending' AND expires_at <= NOW()");
     await this.#pool.query("DELETE FROM bridge_operations WHERE expires_at <= NOW()");
+    await this.#pool.query("DELETE FROM bridge_publications WHERE expires_at IS NOT NULL AND expires_at <= NOW()");
   }
 
   async enroll({ slug: rawSlug, password, deviceSigningPublicJwk, deviceEncryptionPublicJwk }) {
@@ -701,6 +739,236 @@ export class BridgeDatabase {
     );
     return result.rows[0] ? operationFromRow(result.rows[0]) : null;
   }
+
+  // Publication slots are the bridge side of the publishing ladder's viewer
+  // grants. Rows are deliberately content-free — identifiers, budgets,
+  // aggregate served-byte counters, and revocation state; never titles,
+  // file names, source paths, or page bytes. Snapshot rows hold only bounded
+  // AES-GCM ciphertext for publications that explicitly opted in. The desktop
+  // is the authority; these accessors are its idempotent sync surface and are
+  // inert until a desktop that publishes calls them.
+  async upsertPublication(account, publicationId, {
+    operationId,
+    kind,
+    state = "active",
+    serveRatePerMinute = publicationServeRateDefault,
+    byteBudgetPerDay = publicationByteBudgetDefault,
+    snapshotEnabled = false,
+    expiresAt = null,
+  } = {}) {
+    assertStableId(publicationId, "publication id", 128);
+    assertStableId(operationId, "operation id", 128);
+    if (!publicationKinds.has(kind)) throw new BridgeDatabaseError("invalid_input", "A publication kind of page or app is required.");
+    if (!publicationStates.has(state)) throw new BridgeDatabaseError("invalid_input", "A publication state of active or revoked is required.");
+    assertBoundedInteger(serveRatePerMinute, 1, publicationServeRateMaximum, "serve-rate budget");
+    assertBoundedInteger(byteBudgetPerDay, 1, publicationByteBudgetMaximum, "byte budget");
+    if (typeof snapshotEnabled !== "boolean") throw new BridgeDatabaseError("invalid_input", "The snapshot flag must be true or false.");
+    const expiry = expiresAt === null || expiresAt === undefined ? null : parseTimestamp(expiresAt, "publication expiry");
+    const mutation = { kind, state, serveRatePerMinute, byteBudgetPerDay, snapshotEnabled, expiry };
+    // A legacy pages-* address contests the viewer namespace: neither that
+    // address nor the address whose viewer origin it squats on can publish
+    // until it is renamed. Both keep every non-publishing capability.
+    if (isReservedViewerSlug(account.slug) || await this.accountBySlug(`pages-${account.slug}`)) {
+      throw new BridgeDatabaseError("publication_contested", "This address's viewer namespace is contested by an existing pages- address. Rename that address before publishing.");
+    }
+    const now = new Date();
+    const client = await this.#pool.connect();
+    try {
+      await client.query("BEGIN");
+      const existing = await client.query("SELECT * FROM bridge_publications WHERE id = $1 FOR UPDATE", [publicationId]);
+      const row = existing.rows[0];
+      if (row && row.account_id !== account.id) {
+        throw new BridgeDatabaseError("request_conflict", "That publication id is not available.");
+      }
+      if (row && row.operation_id === operationId) {
+        assertPublicationMutationMatches(row, mutation);
+        await client.query("COMMIT");
+        return { ...publicationFromRow(row), duplicate: true, created: false };
+      }
+      if (row) {
+        const updated = await client.query(
+          `UPDATE bridge_publications SET kind = $1, state = $2, serve_rate_per_minute = $3, byte_budget_per_day = $4,
+             snapshot_enabled = $5, expires_at = $6, operation_id = $7, updated_at = $8
+           WHERE id = $9 RETURNING *`,
+          [kind, state, serveRatePerMinute, byteBudgetPerDay, snapshotEnabled, expiry, operationId, now, publicationId],
+        );
+        if (!snapshotEnabled) {
+          await client.query("DELETE FROM bridge_publication_snapshots WHERE publication_id = $1", [publicationId]);
+        }
+        await client.query("COMMIT");
+        return { ...publicationFromRow(updated.rows[0]), duplicate: false, created: false };
+      }
+      const count = await client.query("SELECT COUNT(*)::int AS count FROM bridge_publications WHERE account_id = $1", [account.id]);
+      if (Number(count.rows[0]?.count ?? 0) >= maximumPublicationsPerAccount) {
+        throw new BridgeDatabaseError("publication_limit", "Too many publications exist for this address. Revoke one first.");
+      }
+      const inserted = await client.query(
+        `INSERT INTO bridge_publications (
+          id, account_id, kind, state, serve_rate_per_minute, byte_budget_per_day, served_bytes,
+          served_bytes_window_started_at, snapshot_enabled, operation_id, created_at, updated_at, expires_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,0,$7,$8,$9,$7,$7,$10) RETURNING *`,
+        [publicationId, account.id, kind, state, serveRatePerMinute, byteBudgetPerDay, now, snapshotEnabled, operationId, expiry],
+      );
+      await client.query("COMMIT");
+      return { ...publicationFromRow(inserted.rows[0]), duplicate: false, created: true };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      if (error?.code !== "23505") throw error;
+      // The UNIQUE operation id (or a racing create of the same slot)
+      // collided. A matching applied mutation is an idempotent replay;
+      // anything else is a conflicting reuse.
+      const holder = await this.#pool.query("SELECT * FROM bridge_publications WHERE operation_id = $1", [operationId]);
+      const held = holder.rows[0];
+      if (held && held.id === publicationId && held.account_id === account.id) {
+        assertPublicationMutationMatches(held, mutation);
+        return { ...publicationFromRow(held), duplicate: true, created: false };
+      }
+      throw new BridgeDatabaseError("request_conflict", "That operation id was already used for a different publication sync.");
+    } finally {
+      client.release();
+    }
+  }
+
+  async deletePublication(accountId, publicationId) {
+    const result = await this.#pool.query(
+      "DELETE FROM bridge_publications WHERE id = $1 AND account_id = $2",
+      [publicationId, accountId],
+    );
+    return result.rowCount > 0;
+  }
+
+  /**
+   * The viewer plane's one read: an active, unexpired slot for this account,
+   * or null. Revoked, expired, foreign, and never-existed slots are all the
+   * same null so the serving path cannot distinguish them for an outsider.
+   */
+  async publicationForViewer(accountId, publicationId) {
+    if (typeof publicationId !== "string" || !publicationId || publicationId.length > 128
+      || !/^[A-Za-z0-9._:-]+$/.test(publicationId)) return null;
+    const result = await this.#pool.query(
+      `SELECT * FROM bridge_publications
+       WHERE id = $1 AND account_id = $2 AND state = 'active'
+         AND (expires_at IS NULL OR expires_at > NOW())`,
+      [publicationId, accountId],
+    );
+    return result.rows[0] ? publicationFromRow(result.rows[0]) : null;
+  }
+
+  async publicationSnapshot(accountId, publicationId) {
+    const result = await this.#pool.query(
+      `SELECT s.* FROM bridge_publication_snapshots s
+       JOIN bridge_publications p ON p.id = s.publication_id
+       WHERE s.publication_id = $1 AND p.account_id = $2 AND p.state = 'active' AND p.snapshot_enabled`,
+      [publicationId, accountId],
+    );
+    return result.rows[0] ? publicationSnapshotFromRow(result.rows[0]) : null;
+  }
+
+  /**
+   * Serve-time byte accounting against the slot's rolling day window. The
+   * window restarts when its start timestamp is older than a day; otherwise
+   * served bytes accumulate. Charging is best-effort bookkeeping after a
+   * response was already relayed — admission happens before dispatch, against
+   * the counters this method maintains.
+   */
+  async chargePublicationServedBytes(accountId, publicationId, bytes) {
+    if (!Number.isInteger(bytes) || bytes < 0) throw new BridgeDatabaseError("invalid_input", "A non-negative served byte count is required.");
+    const result = await this.#pool.query(
+      `UPDATE bridge_publications SET
+         served_bytes = CASE WHEN served_bytes_window_started_at <= NOW() - INTERVAL '24 hours' THEN $3 ELSE served_bytes + $3 END,
+         served_bytes_window_started_at = CASE WHEN served_bytes_window_started_at <= NOW() - INTERVAL '24 hours' THEN NOW() ELSE served_bytes_window_started_at END,
+         updated_at = NOW()
+       WHERE id = $1 AND account_id = $2 RETURNING *`,
+      [publicationId, accountId, bytes],
+    );
+    return result.rows[0] ? publicationFromRow(result.rows[0]) : null;
+  }
+
+  async putPublicationSnapshot(accountId, publicationId, { ciphertext, iv, contentDigest, capturedAt } = {}) {
+    assertStableId(publicationId, "publication id", 128);
+    assertStableId(contentDigest, "content digest", 128);
+    if (typeof iv !== "string" || !/^[A-Za-z0-9_-]{16}$/.test(iv)) {
+      throw new BridgeDatabaseError("invalid_input", "A valid snapshot IV is required.");
+    }
+    if (typeof ciphertext !== "string" || !ciphertext || !/^[A-Za-z0-9_-]+$/.test(ciphertext)) {
+      throw new BridgeDatabaseError("invalid_input", "Snapshot ciphertext must be base64url text.");
+    }
+    if (ciphertext.length > maximumSnapshotCiphertextChars) {
+      throw new BridgeDatabaseError("snapshot_too_large", "The snapshot is larger than the relay keeps for one page.");
+    }
+    const captured = parseTimestamp(capturedAt, "snapshot capture");
+    const client = await this.#pool.connect();
+    try {
+      await client.query("BEGIN");
+      const publication = await client.query(
+        "SELECT * FROM bridge_publications WHERE id = $1 AND account_id = $2 FOR UPDATE",
+        [publicationId, accountId],
+      );
+      const slot = publication.rows[0];
+      if (!slot || slot.state !== "active") throw new BridgeDatabaseError("not_found", "That publication is not available.");
+      if (!slot.snapshot_enabled) {
+        throw new BridgeDatabaseError("snapshot_disabled", "Snapshot caching is off for this publication.");
+      }
+      const existing = await client.query(
+        "SELECT * FROM bridge_publication_snapshots WHERE publication_id = $1 FOR UPDATE",
+        [publicationId],
+      );
+      const current = existing.rows[0];
+      if (current) {
+        // Newest wins by digest + timestamp: a strictly older capture never
+        // replaces the stored row, and an identical capture is a no-op.
+        const currentAt = new Date(current.captured_at).getTime();
+        if (currentAt > captured.getTime()
+          || (currentAt === captured.getTime() && current.content_digest === contentDigest)) {
+          await client.query("COMMIT");
+          return { snapshot: publicationSnapshotFromRow(current), stored: false };
+        }
+      }
+      const used = await client.query(
+        `SELECT COALESCE(SUM(byte_size), 0) AS used FROM bridge_publication_snapshots
+         WHERE publication_id IN (SELECT id FROM bridge_publications WHERE account_id = $1)
+           AND publication_id <> $2`,
+        [accountId, publicationId],
+      );
+      if (Number(used.rows[0]?.used ?? 0) + ciphertext.length > maximumAccountSnapshotChars) {
+        throw new BridgeDatabaseError("snapshot_budget", "This address's snapshot budget at the relay is full.");
+      }
+      await client.query("DELETE FROM bridge_publication_snapshots WHERE publication_id = $1", [publicationId]);
+      const inserted = await client.query(
+        `INSERT INTO bridge_publication_snapshots (publication_id, ciphertext, iv, content_digest, byte_size, captured_at)
+         VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+        [publicationId, ciphertext, iv, contentDigest, ciphertext.length, captured],
+      );
+      await client.query("COMMIT");
+      return { snapshot: publicationSnapshotFromRow(inserted.rows[0]), stored: true };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async deletePublicationSnapshot(accountId, publicationId) {
+    const result = await this.#pool.query(
+      `DELETE FROM bridge_publication_snapshots WHERE publication_id IN (
+         SELECT id FROM bridge_publications WHERE id = $1 AND account_id = $2
+       )`,
+      [publicationId, accountId],
+    );
+    return result.rowCount > 0;
+  }
+}
+
+/**
+ * Bytes already served inside the slot's current rolling day window. A window
+ * older than a day has lapsed, so its counter no longer counts against the
+ * budget — the next charge restarts it.
+ */
+export function publicationWindowServedBytes(publication, nowMs = Date.now()) {
+  const startedAt = Date.parse(publication?.servedBytesWindowStartedAt ?? "");
+  if (!Number.isFinite(startedAt) || nowMs - startedAt >= 24 * 60 * 60 * 1_000) return 0;
+  return publication.servedBytes;
 }
 
 export function normalizeSlug(value) {
@@ -709,7 +977,16 @@ export function normalizeSlug(value) {
 
 export function isValidSlug(value) {
   const slug = normalizeSlug(value);
-  return slugPattern.test(slug) && slug.length >= 3 && !reservedSlugs.has(slug);
+  return slugPattern.test(slug) && slug.length >= 3 && !reservedSlugs.has(slug) && !isReservedViewerSlug(slug);
+}
+
+// The publishing ladder's viewer origins are pages-<slug> hosts, so the whole
+// pages-* label namespace is reserved as real prefix logic — the exact-match
+// reservedSlugs set alone cannot express it. Nothing else beginning with
+// "pages" (for example "pagesmith") is affected.
+export function isReservedViewerSlug(value) {
+  const slug = normalizeSlug(value);
+  return slug === "pages" || slug.startsWith("pages-");
 }
 
 export function assertSlug(value) {
@@ -777,6 +1054,30 @@ function assertPublicJwk(value, label, use) {
 function assertStableId(value, label, maximum) {
   if (typeof value !== "string" || !value || value.length > maximum || !/^[A-Za-z0-9._:-]+$/.test(value)) {
     throw new BridgeDatabaseError("invalid_input", `A valid ${label} is required.`);
+  }
+}
+
+function assertBoundedInteger(value, minimum, maximum, label) {
+  if (!Number.isInteger(value) || value < minimum || value > maximum) {
+    throw new BridgeDatabaseError("invalid_input", `A ${label} from ${minimum} through ${maximum} is required.`);
+  }
+}
+
+function parseTimestamp(value, label) {
+  const time = typeof value === "string" ? Date.parse(value) : NaN;
+  if (!Number.isFinite(time)) throw new BridgeDatabaseError("invalid_input", `A valid ${label} timestamp is required.`);
+  return new Date(time);
+}
+
+function assertPublicationMutationMatches(row, { kind, state, serveRatePerMinute, byteBudgetPerDay, snapshotEnabled, expiry }) {
+  const rowExpiry = row.expires_at ? new Date(row.expires_at).getTime() : null;
+  const requestedExpiry = expiry ? expiry.getTime() : null;
+  if (row.kind !== kind || row.state !== state
+    || Number(row.serve_rate_per_minute) !== serveRatePerMinute
+    || Number(row.byte_budget_per_day) !== byteBudgetPerDay
+    || Boolean(row.snapshot_enabled) !== snapshotEnabled
+    || rowExpiry !== requestedExpiry) {
+    throw new BridgeDatabaseError("request_conflict", "That operation id was already used for a different publication sync.");
   }
 }
 
@@ -892,6 +1193,35 @@ function operationFromRow(row) {
     state: row.state,
     createdAt: timestamp(row.created_at),
     updatedAt: timestamp(row.updated_at),
+  });
+}
+
+function publicationFromRow(row) {
+  return Object.freeze({
+    id: row.id,
+    accountId: row.account_id,
+    kind: row.kind,
+    state: row.state,
+    serveRatePerMinute: Number(row.serve_rate_per_minute),
+    byteBudgetPerDay: Number(row.byte_budget_per_day),
+    servedBytes: Number(row.served_bytes),
+    servedBytesWindowStartedAt: timestamp(row.served_bytes_window_started_at),
+    snapshotEnabled: Boolean(row.snapshot_enabled),
+    operationId: row.operation_id,
+    createdAt: timestamp(row.created_at),
+    updatedAt: timestamp(row.updated_at),
+    expiresAt: row.expires_at ? timestamp(row.expires_at) : null,
+  });
+}
+
+function publicationSnapshotFromRow(row) {
+  return Object.freeze({
+    publicationId: row.publication_id,
+    ciphertext: row.ciphertext,
+    iv: row.iv,
+    contentDigest: row.content_digest,
+    byteSize: Number(row.byte_size),
+    capturedAt: timestamp(row.captured_at),
   });
 }
 

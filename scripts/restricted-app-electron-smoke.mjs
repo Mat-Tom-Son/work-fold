@@ -18,6 +18,7 @@ import {
   RestrictedAppError,
   RestrictedAppNetworkBroker,
 } from "../dist/desktop/src/local/agent/restricted-app-connections.js";
+import { createRestrictedAppViewerAdapter } from "../dist/desktop/src/local/agent/restricted-app-viewer.js";
 import {
   createAuthorityStamp,
   createDataNamespaceId,
@@ -376,6 +377,110 @@ async function runSmoke() {
     await host.unmountUi(parent.webContents.id, mountId);
     parent.destroy();
     await mark("ui-complete");
+
+    // Rung 3 viewer-scope denials (docs/fold-publishing.md; fold integration
+    // item 26): the desktop viewer adapter over the same real staged bytes,
+    // storage, and identity records this Electron host runs — viewers reach
+    // the reviewed entry, exact staged assets, and the manifest-declared
+    // viewer-readable collection, and nothing else: no actions, no egress,
+    // no connections, no files, no writes.
+    const viewerState = { releaseDigest: `sha256:${"a".repeat(64)}`, widenSurface: false };
+    const viewerAdapter = createRestrictedAppViewerAdapter({
+      resolveInstance: async (appInstanceId) => {
+        if (appInstanceId !== descriptor.featureInstallationId) return null;
+        const manifest = structuredClone(descriptor.manifest);
+        if (viewerState.widenSurface && manifest.viewer) manifest.viewer.readable.push("viewer-private/");
+        return {
+          spaceId: descriptor.spaceId,
+          packageName: descriptor.packageName,
+          version: descriptor.version,
+          digest: descriptor.digest,
+          artifactDigest: descriptor.artifactDigest,
+          releaseDigest: viewerState.releaseDigest,
+          runtimeInstanceKind: "app",
+          manifest,
+          tenantId: descriptor.tenantId,
+          runtimeInstanceId: descriptor.runtimeInstanceId,
+          featureInstallationId: descriptor.featureInstallationId,
+          dataNamespaceId: descriptor.dataNamespaceId,
+          fileCount: descriptor.fileCount,
+          totalBytes: descriptor.totalBytes,
+          stagedRoot: descriptor.stagedRoot,
+        };
+      },
+      storage,
+    });
+    const exposure = await viewerAdapter.resolveExposure(descriptor.featureInstallationId);
+    assert.equal(exposure.eligible, true);
+    assert.deepEqual(exposure.pins.viewerSurface, ["entry:viewer.html", "data:viewer-public/"]);
+    const viewerPins = exposure.pins;
+    await storage.set(storageOwner, "viewer-public/greeting", "hello audience");
+    await storage.set(storageOwner, "viewer-private/secret", "never");
+    const viewerHitsBefore = hits;
+    const networkOwnersBefore = networkOwners.length;
+    const notificationsBefore = shownNotifications.length;
+
+    const served = async (call) => {
+      const outcome = await viewerAdapter.serve(viewerPins, call);
+      assert.equal(outcome.state, "served", `expected a served outcome for ${JSON.stringify(call)}`);
+      return outcome.result;
+    };
+    const deniedViewer = async (call, pattern) => {
+      const result = await served(call);
+      assert.equal(result.ok, false, `expected a typed viewer denial for ${JSON.stringify(call)}`);
+      assert.match(result.message, pattern);
+    };
+
+    const entry = await served({ kind: "entry" });
+    assert.equal(entry.ok, true);
+    assert.equal(
+      Buffer.from(entry.result.bytes, "base64url").toString("utf8"),
+      "<!doctype html><main>viewer smoke surface</main>",
+      "the viewer entry serves the exact staged bytes",
+    );
+    const asset = await served({ kind: "asset", path: "index.html" });
+    assert.equal(asset.ok, true);
+    const dataRead = await served({ kind: "data.get", key: "viewer-public/greeting" });
+    assert.deepEqual(dataRead.result, { kind: "data.get", key: "viewer-public/greeting", present: true, value: "hello audience" });
+    const dataKeys = await served({ kind: "data.keys" });
+    assert.deepEqual(dataKeys.result.keys.filter((key) => key.startsWith("viewer-")), ["viewer-public/greeting"],
+      "keys outside the viewer-readable collection are never listed");
+
+    // The denial matrix of integration item 26: actions, egress, connections,
+    // files, writes — plus notifications, jobs, host UI, and unknown kinds.
+    await deniedViewer({ kind: "data.set", key: "viewer-public/greeting", value: "defaced" }, /Viewers mutate nothing/);
+    await deniedViewer({ kind: "storage.clear" }, /Viewers mutate nothing/);
+    await deniedViewer({ kind: "action", action: "probe" }, /person's runtime/);
+    await deniedViewer({ kind: "invoke", tool: "probe", input: { text: "x", escapeUrl } }, /person's runtime/);
+    await deniedViewer({ kind: "network.request", destinationId: "escape", method: "GET", path: "/escape" }, /network egress/);
+    await deniedViewer({ kind: "fetch", url: escapeUrl }, /network egress/);
+    await deniedViewer({ kind: "connections.list" }, /saved credential/);
+    await deniedViewer({ kind: "oauth.start", destinationId: "mail-api" }, /saved credential/);
+    await deniedViewer({ kind: "files.read", grantId: "exports", path: "smoke.txt" }, /person's own use of the app/);
+    await deniedViewer({ kind: "notifications.show", permissionId: "automation-update" }, /Notifications are not viewer-reachable/);
+    await deniedViewer({ kind: "automation.run", automationId: "smoke-automation" }, /Viewers cannot run, schedule, or observe jobs/);
+    await deniedViewer({ kind: "tabs.open", tabId: "viewer-tab" }, /outside the desktop shell/);
+    await deniedViewer({ kind: "made.up.call" }, /not viewer-reachable/);
+    await deniedViewer({ kind: "data.get", key: "viewer-private/secret" }, /outside the app's viewer-readable collections/);
+    const escapeAsset = await served({ kind: "asset", path: "../outside.js" });
+    assert.equal(escapeAsset.ok, false);
+    assert.equal(escapeAsset.code, "not-found");
+
+    assert.equal(hits, viewerHitsBefore, "no viewer call may reach the loopback listener");
+    assert.equal(networkOwners.length, networkOwnersBefore, "no viewer call reaches the network broker at all");
+    assert.equal(shownNotifications.length, notificationsBefore, "no viewer call shows a notification");
+    assert.equal(await storage.get(storageOwner, "viewer-public/greeting"), "hello audience", "viewer traffic mutated nothing");
+
+    // An unchanged-surface update keeps serving; a widened surface stops
+    // until a fresh outward-exposure consecration.
+    viewerState.releaseDigest = `sha256:${"b".repeat(64)}`;
+    assert.equal((await viewerAdapter.serve(viewerPins, { kind: "entry" })).state, "served");
+    viewerState.widenSurface = true;
+    const widened = await viewerAdapter.serve(viewerPins, { kind: "entry" });
+    assert.equal(widened.state, "not-available");
+    assert.match(widened.reason, /viewer surface changed/);
+    viewerState.widenSurface = false;
+    await mark("viewer-scope-complete");
   } finally {
     await mark("cleanup-start");
     try {
@@ -416,6 +521,7 @@ async function writeSmokePackage(root, loopbackPort) {
     }), "utf8"),
     writeFile(join(root, "agent-app.json"), JSON.stringify(smokeManifest(loopbackPort)), "utf8"),
     writeFile(join(root, "index.html"), "<!doctype html><main id=app></main><script type=module src=ui.js></script>", "utf8"),
+    writeFile(join(root, "viewer.html"), "<!doctype html><main>viewer smoke surface</main>", "utf8"),
     writeFile(join(root, "ui.js"), `
 const bridge = globalThis.workFoldRestrictedApp;
 const context = bridge.context.get();
@@ -636,6 +742,10 @@ function smokeManifest(loopbackPort) {
         { id: "escape", target: { kind: "loopback-http", host: "127.0.0.1", port: loopbackPort }, methods: ["GET"], auth: [{ kind: "none" }] },
       ],
     },
+    // The rung-3 viewer surface (docs/fold-publishing.md): one reviewed entry
+    // document and one viewer-readable collection, exercised by the
+    // viewer-scope denial probe below.
+    viewer: { entry: "viewer.html", readable: ["viewer-public/"] },
   };
 }
 

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   createCipheriv,
+  createDecipheriv,
   createPrivateKey,
   createPublicKey,
   diffieHellman,
@@ -8,6 +9,7 @@ import {
   hkdfSync,
   randomBytes,
   sign,
+  verify,
   type JsonWebKey as NodeJsonWebKey,
 } from "node:crypto";
 import { EventEmitter } from "node:events";
@@ -19,10 +21,12 @@ import WebSocket from "ws";
 import {
   RemoteAccessClient,
   RemoteBridgeRequestError,
+  createRemoteBridgePublicationSync,
   deriveRemotePairingCode,
   generateRemoteDeviceKeys,
   runRemoteAccountRemoval,
   type RemotePairingPrompt,
+  type RemoteViewerPageProvider,
 } from "../desktop/src/remote-access.js";
 import type { WorkFoldRemoteFacade, WorkFoldRemotePrincipal } from "../src/local/remote-management.js";
 import type { RemoteAccessSettings, RemoteBrowserGrantSettings } from "../desktop/src/settings.js";
@@ -324,6 +328,45 @@ test("remote revocation stops every tracked management task before purging uploa
   assert.deepEqual(events, ["remove:grant-1", "purge:grant-1"]);
 });
 
+test("remote revocation cascades desktop-local grant authority before uploads are purged", async () => {
+  const events: string[] = [];
+  const facade: WorkFoldRemoteFacade = {
+    async execute(operation) {
+      events.push(operation);
+      return { stopped: { managementAborted: true, children: [] } };
+    },
+    async purgeUploads(grantId) { events.push(`purge:${grantId ?? "all"}`); },
+    async revokeGrantAuthority(grantId) { events.push(`revoke-authority:${grantId ?? "all"}`); },
+  };
+  const client = clientFor(facade, events);
+  client.rememberActiveTask("grant-1", { taskId: "management-1" }, {
+    browserId: "browser-1", grantId: "grant-1", requestId: "request-1",
+  });
+
+  await client.revokeLocalGrant("grant-1");
+  // Ordered desktop-local-first: tracked work stops, then the staged-act and
+  // glance-marker cascade runs, then uploads purge — all before the caller's
+  // bridge mutation (docs/fold-consecrations.md, browser revocation).
+  assert.deepEqual(events, ["remove:grant-1", "management.stop", "revoke-authority:grant-1", "purge:grant-1"]);
+
+  events.length = 0;
+  await client.revokeAllLocalGrants();
+  assert.deepEqual(events, ["remove:all", "revoke-authority:all", "purge:all"]);
+});
+
+test("a cascade failure never skips the upload purge and still surfaces the error", async () => {
+  const events: string[] = [];
+  const facade: WorkFoldRemoteFacade = {
+    async execute() { throw new Error("Unexpected remote operation."); },
+    async purgeUploads(grantId) { events.push(`purge:${grantId ?? "all"}`); },
+    async revokeGrantAuthority() { throw new Error("staged-act store unavailable"); },
+  };
+  const client = clientFor(facade, events);
+
+  await assert.rejects(() => client.revokeLocalGrant("grant-1"), /staged-act store unavailable/);
+  assert.deepEqual(events, ["remove:grant-1", "purge:grant-1"]);
+});
+
 test("remote revocation still purges staged uploads when stopping a task fails", async () => {
   const events: string[] = [];
   const facade: WorkFoldRemoteFacade = {
@@ -519,6 +562,130 @@ test("the all-grants disable fence suppresses an in-flight completion", async ()
     false,
     "an all-grants fence must win over a completion already in flight",
   );
+  fixture.client.stop();
+});
+
+test("revocation refuses a queued decisions.decide before the desktop consumes it", async () => {
+  const holdingBrowser = remoteTestBrowser("grant-holding");
+  const revokedBrowser = remoteTestBrowser("grant-revoked-decide");
+  const settings = remoteTestSettings([holdingBrowser, revokedBrowser]);
+  let releaseHold!: () => void;
+  const holdGate = new Promise<void>((resolve) => { releaseHold = resolve; });
+  let markHoldStarted!: () => void;
+  const holdStarted = new Promise<void>((resolve) => { markHoldStarted = resolve; });
+  const executed: string[] = [];
+  const fixture = remoteOperationClient(settings, {
+    async execute(operation) {
+      executed.push(operation);
+      if (operation === "spaces.list") {
+        markHoldStarted();
+        await holdGate;
+        return { spaces: [] };
+      }
+      if (operation === "management.stop") return { stopped: { managementAborted: true, children: [] } };
+      return { decision: { id: "staged-1" }, receipted: true };
+    },
+    async purgeUploads() {},
+    async revokeGrantAuthority() {},
+  });
+  await fixture.client.start();
+  fixture.socket.open();
+
+  // Hold the serialized authority queue with another grant's operation, queue
+  // the decide behind it, then revoke the deciding grant. The fence raised at
+  // the revocation call must refuse the decide before the facade — and so
+  // before the decision path — ever runs: an in-flight decision from a
+  // revoked browser is refused before consumption.
+  fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, holdingBrowser, "request-hold", "spaces.list")));
+  await holdStarted;
+  fixture.socket.receive(JSON.stringify(remoteOperationFrame(
+    settings,
+    revokedBrowser,
+    "request-decide",
+    "decisions.decide",
+    { id: "staged-1", decision: "approved" },
+  )));
+  await waitForRemoteTest(
+    () => fixture.socket.sent.some((value) => {
+      const message = JSON.parse(value) as { type?: string; envelope?: { header?: { requestId?: string } } };
+      return message.type === "operation.event" && message.envelope?.header?.requestId === "request-decide";
+    }),
+    "the decide operation never queued behind the held authority block",
+  );
+  const revoke = fixture.client.revokeLocalGrant(revokedBrowser.grant.id);
+  releaseHold();
+  await revoke;
+  await flushAsyncHandlers();
+  await flushAsyncHandlers();
+
+  assert.deepEqual(executed.filter((operation) => operation === "decisions.decide"), [],
+    "a revoked grant's queued decide must never reach the decision path");
+  assert.equal(
+    fixture.socket.sent.some((value) => {
+      const message = JSON.parse(value) as { type?: string; envelope?: { header?: { requestId?: string } } };
+      return message.type === "operation.complete" && message.envelope?.header?.requestId === "request-decide";
+    }),
+    false,
+    "no completion may be disclosed to the revoked grant",
+  );
+  fixture.client.stop();
+});
+
+function decryptTestResponse(
+  browser: RemoteTestBrowser,
+  settings: RemoteAccessSettings,
+  envelope: { header: Record<string, unknown>; iv: string; ciphertext: string },
+): Record<string, unknown> {
+  const key = testTransportKey(browser.encryptionPrivateJwk, settings.deviceEncryptionPublicJwk, browser.grant.id);
+  const encrypted = Buffer.from(envelope.ciphertext, "base64url");
+  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(envelope.iv, "base64url"));
+  decipher.setAAD(Buffer.from(testCanonicalize(envelope.header)));
+  decipher.setAuthTag(encrypted.subarray(-16));
+  return JSON.parse(Buffer.concat([decipher.update(encrypted.subarray(0, -16)), decipher.final()]).toString("utf8")) as Record<string, unknown>;
+}
+
+test("the glance projection crosses within its 64 KB bound and an oversized digest is an honest refusal", async () => {
+  const browser = remoteTestBrowser("grant-glance");
+  const settings = remoteTestSettings([browser]);
+  const glances = new Map<string, unknown>([
+    ["request-glance-ok", { glance: { cursor: "", running: [], needsYou: [], changes: [], checks: [], seen: {} } }],
+    ["request-glance-huge", { glance: { padding: "x".repeat(80 * 1024) } }],
+  ]);
+  let nextGlance = "request-glance-ok";
+  const fixture = remoteOperationClient(settings, {
+    async execute(operation) {
+      if (operation === "management.glance") return glances.get(nextGlance);
+      if (operation === "decisions.list") return { decisions: [] };
+      throw new Error(`unexpected operation ${operation}`);
+    },
+    async purgeUploads() {},
+  });
+  await fixture.client.start();
+  fixture.socket.open();
+
+  const completions = () => fixture.socket.sent
+    .map((value) => JSON.parse(value) as { type?: string; envelope?: { header?: Record<string, unknown>; iv?: string; ciphertext?: string } })
+    .filter((message) => message.type === "operation.complete");
+
+  fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, browser, "request-glance-ok", "management.glance")));
+  await waitForRemoteTest(() => completions().length === 1, "the bounded digest never completed");
+  const bounded = completions()[0]!.envelope as { header: Record<string, unknown>; iv: string; ciphertext: string };
+  assert.equal(bounded.header.ok, true);
+  const boundedPayload = decryptTestResponse(browser, settings, bounded);
+  assert.deepEqual(Object.keys(boundedPayload), ["result"], "a served digest crosses as an ordinary result");
+
+  nextGlance = "request-glance-huge";
+  fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, browser, "request-glance-huge", "management.glance")));
+  await waitForRemoteTest(() => completions().length === 2, "the oversized digest never settled");
+  const oversized = completions()[1]!.envelope as { header: Record<string, unknown>; iv: string; ciphertext: string };
+  assert.equal(oversized.header.ok, false, "an oversized digest is refused, never silently trimmed");
+  const oversizedPayload = decryptTestResponse(browser, settings, oversized);
+  assert.match(String(oversizedPayload.error), /64 KB/);
+
+  // The decision vocabulary dispatches through the same allowlist.
+  fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, browser, "request-decisions", "decisions.list")));
+  await waitForRemoteTest(() => completions().length === 3, "decisions.list never completed");
+  assert.equal((completions()[2]!.envelope as { header: Record<string, unknown> }).header.ok, true);
   fixture.client.stop();
 });
 
@@ -864,4 +1031,394 @@ test("remote bridge HTTP failures preserve their response status", async () => {
   const error = new RemoteBridgeRequestError(503, "Unavailable.");
   assert.equal(error.status, 503);
   assert.equal(error.name, "RemoteBridgeRequestError");
+});
+
+function viewerPageClient(
+  initialSettings: RemoteAccessSettings,
+  viewerPages: RemoteViewerPageProvider,
+): { client: RemoteAccessClient; socket: FakeRemoteSocket; state: { settings: RemoteAccessSettings | null } } {
+  const state = { settings: structuredClone(initialSettings) as RemoteAccessSettings | null };
+  const socket = new FakeRemoteSocket();
+  const client = new RemoteAccessClient({
+    settingsStore: {
+      async getRemoteAccess() { return structuredClone(state.settings); },
+    } as never,
+    facade: {
+      async execute() { throw new Error("Unexpected remote operation."); },
+      async purgeUploads() {},
+    },
+    promptPairing: async () => false,
+    createSocket: () => socket as unknown as WebSocket,
+    timers: new ManualRemoteTimers(),
+    viewerPages,
+  });
+  return { client, socket, state };
+}
+
+function sentViewerPages(socket: FakeRemoteSocket): Array<Record<string, unknown>> {
+  return socket.sent
+    .map((raw) => JSON.parse(raw) as Record<string, unknown>)
+    .filter((frame) => frame.type === "viewer.page");
+}
+
+test("viewer.fetch answers with a device-signed viewer-page envelope built from the publication service", async () => {
+  const settings = remoteTestSettings([]);
+  const serves: string[] = [];
+  const provider: RemoteViewerPageProvider = {
+    async servePage(publicationId) {
+      serves.push(publicationId);
+      return {
+        state: "served",
+        publicationId,
+        ciphertext: randomBytes(48).toString("base64url"),
+        iv: randomBytes(12).toString("base64url"),
+        contentDigest: "sha256:served-digest",
+        servedAt: new Date().toISOString(),
+        byteSize: 48,
+        snapshotEnabled: true,
+      };
+    },
+  };
+  const { client, socket } = viewerPageClient(settings, provider);
+  await client.start();
+  socket.open();
+  socket.receive(JSON.stringify({ type: "viewer.fetch", fetchId: "fetch-1", publicationId: "publication-1" }));
+  await waitForRemoteTest(() => sentViewerPages(socket).length === 1, "expected one viewer.page reply");
+
+  assert.deepEqual(serves, ["publication-1"]);
+  const frame = sentViewerPages(socket)[0]!;
+  assert.equal(frame.fetchId, "fetch-1");
+  assert.equal(frame.publicationId, "publication-1");
+  assert.equal(frame.state, undefined, "a served page carries an envelope, not a refusal state");
+  const envelope = frame.envelope as { header: Record<string, unknown>; iv: string; ciphertext: string; signature: string };
+  assert.deepEqual(envelope.header, {
+    type: "work-fold.viewer-page.v1",
+    accountId: settings.accountId,
+    deviceId: settings.accountId,
+    publicationId: "publication-1",
+    fetchId: "fetch-1",
+    contentDigest: "sha256:served-digest",
+    servedAt: envelope.header.servedAt,
+  });
+  const signedText = `${testCanonicalize(envelope.header)}.${envelope.iv}.${envelope.ciphertext}`;
+  assert.equal(
+    verify(
+      "sha256",
+      Buffer.from(signedText),
+      { key: createPublicKey({ key: settings.deviceSigningPublicJwk as NodeJsonWebKey, format: "jwk" }), dsaEncoding: "ieee-p1363" },
+      Buffer.from(envelope.signature, "base64url"),
+    ),
+    true,
+    "the envelope verifies under the device signing key exactly as the bridge admits it",
+  );
+});
+
+test("viewer.app.fetch relays the typed call and answers with a device-signed viewer-app envelope", async () => {
+  const settings = remoteTestSettings([]);
+  const serves: Array<{ publicationId: string; call: unknown }> = [];
+  const provider: RemoteViewerPageProvider = {
+    async servePage() {
+      throw new Error("The app frame must never reach the page path.");
+    },
+    async serveAppCall(publicationId, call) {
+      serves.push({ publicationId, call: structuredClone(call) });
+      if (publicationId === "publication-app-gone") return { state: "nothing-here", publicationId };
+      return {
+        state: "served",
+        publicationId,
+        ciphertext: randomBytes(48).toString("base64url"),
+        iv: randomBytes(12).toString("base64url"),
+        contentDigest: "sha256:app-digest",
+        callDigest: "sha256:call-digest",
+        servedAt: new Date().toISOString(),
+        byteSize: 48,
+      };
+    },
+  };
+  const { client, socket } = viewerPageClient(settings, provider);
+  await client.start();
+  socket.open();
+  const call = { kind: "data.get", key: "public/greeting" };
+  socket.receive(JSON.stringify({ type: "viewer.app.fetch", fetchId: "fetch-app-1", publicationId: "publication-app-1", call }));
+  socket.receive(JSON.stringify({ type: "viewer.app.fetch", fetchId: "fetch-app-2", publicationId: "publication-app-gone", call: { kind: "entry" } }));
+  const sentAppResults = () => socket.sent
+    .map((raw) => JSON.parse(raw) as Record<string, unknown>)
+    .filter((frame) => frame.type === "viewer.app.result");
+  await waitForRemoteTest(() => sentAppResults().length === 2, "expected two viewer.app.result replies");
+
+  assert.deepEqual(serves, [
+    { publicationId: "publication-app-1", call },
+    { publicationId: "publication-app-gone", call: { kind: "entry" } },
+  ], "the desktop passes the relayed call to the publication service verbatim");
+  const [served, refused] = sentAppResults() as [Record<string, unknown>, Record<string, unknown>];
+  assert.equal(served.fetchId, "fetch-app-1");
+  const envelope = served.envelope as { header: Record<string, unknown>; iv: string; ciphertext: string; signature: string };
+  assert.deepEqual(envelope.header, {
+    type: "work-fold.viewer-app.v1",
+    accountId: settings.accountId,
+    deviceId: settings.accountId,
+    publicationId: "publication-app-1",
+    fetchId: "fetch-app-1",
+    callDigest: "sha256:call-digest",
+    contentDigest: "sha256:app-digest",
+    servedAt: envelope.header.servedAt,
+  });
+  const signedText = `${testCanonicalize(envelope.header)}.${envelope.iv}.${envelope.ciphertext}`;
+  assert.equal(
+    verify(
+      "sha256",
+      Buffer.from(signedText),
+      { key: createPublicKey({ key: settings.deviceSigningPublicJwk as NodeJsonWebKey, format: "jwk" }), dsaEncoding: "ieee-p1363" },
+      Buffer.from(envelope.signature, "base64url"),
+    ),
+    true,
+    "the app envelope verifies under the device signing key exactly as the bridge admits it",
+  );
+  assert.deepEqual(refused, {
+    type: "viewer.app.result",
+    fetchId: "fetch-app-2",
+    publicationId: "publication-app-gone",
+    state: "nothing-here",
+  }, "refusals stay typed and content-free");
+
+  // A desktop without the app hook ignores the frame entirely, like an older
+  // build; the bridge settles the viewer honestly.
+  const { client: pageOnlyClient, socket: pageOnlySocket } = viewerPageClient(settings, {
+    async servePage(publicationId) {
+      return { state: "nothing-here", publicationId };
+    },
+  });
+  await pageOnlyClient.start();
+  pageOnlySocket.open();
+  pageOnlySocket.receive(JSON.stringify({ type: "viewer.app.fetch", fetchId: "fetch-old", publicationId: "publication-any", call: { kind: "entry" } }));
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 30));
+  assert.equal(pageOnlySocket.sent.filter((raw) => raw.includes("viewer.app.result")).length, 0,
+    "a desktop without the app hook stays silent");
+});
+
+test("viewer.fetch refusals stay typed and content-free, and disabled or providerless desktops stay silent", async () => {
+  const settings = remoteTestSettings([]);
+  const results = new Map<string, RemoteViewerPageProvider["servePage"]>([
+    ["publication-gone", async (publicationId: string) => ({ state: "nothing-here" as const, publicationId })],
+    ["publication-broken", async () => { throw new Error("render exploded with /private/path/detail"); }],
+  ]);
+  const provider: RemoteViewerPageProvider = {
+    async servePage(publicationId) {
+      const serve = results.get(publicationId);
+      if (!serve) throw new Error(`unexpected serve ${publicationId}`);
+      return serve(publicationId);
+    },
+  };
+  const { client, socket, state } = viewerPageClient(settings, provider);
+  await client.start();
+  socket.open();
+  socket.receive(JSON.stringify({ type: "viewer.fetch", fetchId: "fetch-gone", publicationId: "publication-gone" }));
+  socket.receive(JSON.stringify({ type: "viewer.fetch", fetchId: "fetch-broken", publicationId: "publication-broken" }));
+  await waitForRemoteTest(() => sentViewerPages(socket).length === 2, "expected two viewer.page refusals");
+
+  const frames = sentViewerPages(socket);
+  assert.deepEqual(frames[0], { type: "viewer.page", fetchId: "fetch-gone", publicationId: "publication-gone", state: "nothing-here" });
+  assert.deepEqual(
+    frames[1],
+    { type: "viewer.page", fetchId: "fetch-broken", publicationId: "publication-broken", state: "not-available" },
+    "a host failure is a vague not-available; the reason never leaves the desktop",
+  );
+  assert.doesNotMatch(socket.sent.join("\n"), /private\/path\/detail/);
+
+  const malformedBefore = socket.sent.length;
+  socket.receive(JSON.stringify({ type: "viewer.fetch", fetchId: "bad fetch id", publicationId: "publication-gone" }));
+  await waitForRemoteTest(
+    () => socket.sent.slice(malformedBefore).some((raw) => (JSON.parse(raw) as { type?: string }).type === "protocol.error"),
+    "a malformed viewer.fetch frame is a protocol error",
+  );
+
+  state.settings = { ...structuredClone(settings), enabled: false };
+  const disabledBefore = sentViewerPages(socket).length;
+  socket.receive(JSON.stringify({ type: "viewer.fetch", fetchId: "fetch-disabled", publicationId: "publication-gone" }));
+  await flushAsyncHandlers();
+  await flushAsyncHandlers();
+  assert.equal(sentViewerPages(socket).length, disabledBefore, "disabled Remote access serves nothing");
+
+  const bareSocket = new FakeRemoteSocket();
+  const bareClient = new RemoteAccessClient({
+    settingsStore: { async getRemoteAccess() { return remoteTestSettings([]); } } as never,
+    facade: { async execute() { throw new Error("unused"); }, async purgeUploads() {} },
+    promptPairing: async () => false,
+    createSocket: () => bareSocket as unknown as WebSocket,
+    timers: new ManualRemoteTimers(),
+  });
+  await bareClient.start();
+  bareSocket.open();
+  bareSocket.receive(JSON.stringify({ type: "viewer.fetch", fetchId: "fetch-old", publicationId: "publication-any" }));
+  await flushAsyncHandlers();
+  await flushAsyncHandlers();
+  assert.equal(bareSocket.sent.filter((raw) => raw.includes("viewer.page")).length, 0,
+    "a desktop without a publication provider ignores the frame like an older desktop");
+});
+
+test("device reconnect re-drives pending publication bridge work through the provider hook", async () => {
+  const settings = remoteTestSettings([]);
+  let redrives = 0;
+  const provider: RemoteViewerPageProvider = {
+    async servePage(publicationId) { return { state: "nothing-here", publicationId }; },
+    async onDeviceConnected() { redrives += 1; },
+  };
+  const { client, socket } = viewerPageClient(settings, provider);
+  await client.start();
+  socket.open();
+  await waitForRemoteTest(() => redrives === 1, "expected the redrive hook on connect");
+});
+
+test("the bridge's resting notice reaches the provider hook and malformed frames are protocol errors", async () => {
+  const settings = remoteTestSettings([]);
+  const noted: Array<{ publicationId: string; reason: string }> = [];
+  const provider: RemoteViewerPageProvider = {
+    async servePage(publicationId) { return { state: "nothing-here", publicationId }; },
+    async noteResting(publicationId, reason) { noted.push({ publicationId, reason }); },
+  };
+  const { client, socket, state } = viewerPageClient(settings, provider);
+  await client.start();
+  socket.open();
+  socket.receive(JSON.stringify({ type: "viewer.resting", publicationId: "publication-busy", reason: "byte-budget" }));
+  await waitForRemoteTest(() => noted.length === 1, "expected one resting note");
+  assert.deepEqual(noted, [{ publicationId: "publication-busy", reason: "byte-budget" }]);
+
+  socket.receive(JSON.stringify({ type: "viewer.resting", publicationId: "publication-busy", reason: "made-up" }));
+  await waitForRemoteTest(
+    () => socket.sent.some((raw) => raw.includes("protocol.error")),
+    "an unknown reason token is a protocol error",
+  );
+  assert.equal(noted.length, 1);
+
+  // Disabled Remote access drops the note instead of recording under dead
+  // authority; a provider without the hook ignores the frame entirely.
+  state.settings = { ...structuredClone(settings), enabled: false };
+  socket.receive(JSON.stringify({ type: "viewer.resting", publicationId: "publication-busy", reason: "serve-rate" }));
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 20));
+  assert.equal(noted.length, 1, "a disabled desktop records nothing");
+});
+
+test("the status view derives the isolated pages- viewer origin beside the management address", async () => {
+  const settings = remoteTestSettings([]);
+  const { client } = viewerPageClient(settings, {
+    async servePage(publicationId) { return { state: "nothing-here", publicationId }; },
+  });
+  const status = await client.status();
+  assert.equal(status.url, "https://operation-tests.bridge.example");
+  assert.equal(
+    status.viewerOrigin,
+    "https://pages-operation-tests.bridge.example",
+    "share links compose against the pages- origin, never the management origin",
+  );
+});
+
+test("the publication bridge sync lane is content-free, idempotent, and honest about a missing address", async () => {
+  const requests: Array<{ url: string; method: string; authorization: string; body: unknown }> = [];
+  let nextResponse: { status: number; body: unknown } = { status: 200, body: { publication: {} } };
+  const fetchFn = (async (input: URL | RequestInfo, init?: RequestInit) => {
+    requests.push({
+      url: String(input),
+      method: init?.method ?? "GET",
+      authorization: String((init?.headers as Record<string, string>).authorization),
+      body: init?.body === undefined ? undefined : JSON.parse(String(init.body)),
+    });
+    return new Response(JSON.stringify(nextResponse.body), {
+      status: nextResponse.status,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+  const settings = remoteTestSettings([]);
+  const state = { settings: settings as RemoteAccessSettings | null };
+  const sync = createRemoteBridgePublicationSync(async () => state.settings, fetchFn);
+
+  await sync.upsertSlot({
+    publicationId: "publication-sync",
+    operationId: "operation-sync-1",
+    kind: "page",
+    state: "active",
+    serveRatePerMinute: 60,
+    byteBudgetPerDay: 1024,
+    snapshotEnabled: false,
+  });
+  assert.equal(requests[0]!.url, "https://bridge.example/api/device/publications/publication-sync");
+  assert.equal(requests[0]!.method, "PUT");
+  assert.equal(requests[0]!.authorization, `Bearer ${settings.deviceToken}`);
+  assert.deepEqual(Object.keys(requests[0]!.body as Record<string, unknown>).sort(), [
+    "byteBudgetPerDay", "kind", "operationId", "serveRatePerMinute", "snapshotEnabled", "state",
+  ], "slot syncs carry only content-free fields — no titles, paths, keys, or bytes");
+
+  nextResponse = { status: 200, body: { snapshot: {}, stored: true } };
+  await sync.putSnapshot({
+    publicationId: "publication-sync",
+    ciphertext: "Y2lwaGVydGV4dA",
+    iv: "aXYtdGVzdC0xMjM0",
+    contentDigest: "sha256:seed",
+    capturedAt: "2026-08-10T10:00:00.000Z",
+  });
+  assert.equal(requests[1]!.url, "https://bridge.example/api/device/publications/publication-sync/snapshot");
+  assert.equal(requests[1]!.method, "PUT");
+  assert.deepEqual(Object.keys(requests[1]!.body as Record<string, unknown>).sort(), [
+    "capturedAt", "ciphertext", "contentDigest", "iv",
+  ], "snapshot pushes carry exactly the bounded ciphertext fields");
+
+  nextResponse = { status: 404, body: { ok: false, error: "Not found." } };
+  await assert.rejects(
+    sync.putSnapshot({
+      publicationId: "publication-sync",
+      ciphertext: "Y2lwaGVydGV4dA",
+      iv: "aXYtdGVzdC0xMjM0",
+      contentDigest: "sha256:seed",
+      capturedAt: "2026-08-10T10:00:00.000Z",
+    }),
+    (error: unknown) => error instanceof RemoteBridgeRequestError && error.status === 404,
+    "a snapshot push is not a deletion lane: a missing slot surfaces for the caller's best-effort catch",
+  );
+  await sync.deleteSlot("publication-sync");
+  await sync.deleteSnapshot("publication-sync");
+  assert.equal(requests[3]!.method, "DELETE");
+  assert.equal(requests[4]!.url, "https://bridge.example/api/device/publications/publication-sync/snapshot");
+
+  nextResponse = { status: 409, body: { ok: false, error: "That operation id was already used for a different publication sync." } };
+  await assert.rejects(
+    sync.upsertSlot({
+      publicationId: "publication-sync",
+      operationId: "operation-sync-1",
+      kind: "page",
+      state: "active",
+      serveRatePerMinute: 60,
+      byteBudgetPerDay: 1024,
+      snapshotEnabled: false,
+    }),
+    (error: unknown) => error instanceof RemoteBridgeRequestError && error.status === 409,
+    "conflicting syncs surface the bridge's status for the redrive lane",
+  );
+
+  state.settings = null;
+  await sync.deleteSlot("publication-after-removal");
+  await sync.deleteSnapshot("publication-after-removal");
+  assert.equal(requests.length, 6, "deletions without an account are already satisfied and never invent a request");
+  await assert.rejects(
+    sync.putSnapshot({
+      publicationId: "publication-after-removal",
+      ciphertext: "Y2lwaGVydGV4dA",
+      iv: "aXYtdGVzdC0xMjM0",
+      contentDigest: "sha256:seed",
+      capturedAt: "2026-08-10T10:00:00.000Z",
+    }),
+    /no address/,
+    "a snapshot push without an enrolled address fails instead of pretending",
+  );
+  await assert.rejects(
+    sync.upsertSlot({
+      publicationId: "publication-no-address",
+      operationId: "operation-no-address",
+      kind: "page",
+      state: "active",
+      serveRatePerMinute: 60,
+      byteBudgetPerDay: 1024,
+      snapshotEnabled: false,
+    }),
+    /no address/,
+    "slot creation without an enrolled address fails instead of pretending",
+  );
 });

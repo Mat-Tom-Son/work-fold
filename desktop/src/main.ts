@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
-import { basename, delimiter, isAbsolute, join, normalize, relative, resolve } from "node:path";
+import { basename, delimiter, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   app,
@@ -44,9 +44,11 @@ import {
 } from "../../src/local/cli/act-token.js";
 import { configureWorkFoldStateRoot, managedSpaceRoot } from "../../src/local/state-paths.js";
 import { getSpace, listSpaces } from "../../src/local/space.js";
+import { containsReservedSpacePathSegment } from "../../src/local/space-path-policy.js";
 import { WorkFoldCliKernelAdapter } from "../../src/local/work-fold-cli-adapter.js";
 import { WorkFoldKernel } from "../../src/local/work-fold-kernel.js";
 import { WorkFoldCheckService } from "../../src/local/checks/check-service.js";
+import { WorkFoldSettleSignal } from "../../src/local/routings/settle-signal.js";
 import { RestrictedAppService } from "../../src/local/agent/restricted-app-service.js";
 import { FileRestrictedAppStorage } from "../../src/local/agent/restricted-app-storage.js";
 import { RestrictedAppNotificationBroker } from "../../src/local/agent/restricted-app-notifications.js";
@@ -91,6 +93,7 @@ import { resolveDesktopApplicationVersion } from "./application-version.js";
 import {
   RemoteAccessClient,
   RemoteBridgeRequestError,
+  createRemoteBridgePublicationSync,
   generateRemoteDeviceKeys,
   runRemoteAccountRemoval,
   type RemoteAccessStatus,
@@ -174,6 +177,13 @@ let apiSessionToken = "";
 let actFacade: WorkFoldActFacade | null = null;
 let actToken = "";
 let resolveManagementLineageParent: ((taskId: string) => { taskId: string } | null) | null = null;
+/**
+ * The routing executor's sleep/wake lifecycle handle (docs/fold-routings.md:
+ * suspension aborts the active run, which settles `interrupted`; resume
+ * re-arms cadences from the durable anchor). Set once the interactive local
+ * API exists; both calls are safe no-ops after close.
+ */
+let routingPowerLifecycle: { suspend: () => void; resume: () => void } | null = null;
 let quitting = false;
 let quittingForUpdate = false;
 let activeAgentTurns = 0;
@@ -359,6 +369,13 @@ interface DesktopHost {
   cli: WorkFoldDesktopCliHost;
   restrictedApps: RestrictedAppService;
   restrictedAppHost: RestrictedAppHost;
+  /**
+   * The one in-process settle seam (docs/fold-routings.md): the host's Check
+   * and restricted-app services publish into this exact instance, and the
+   * interactive local API consumes it for routing triggers — one signal for
+   * the whole desktop, or settles silently never reach enabled routings.
+   */
+  settleSignal: WorkFoldSettleSignal;
 }
 
 async function ensureDesktopHost(): Promise<DesktopHost> {
@@ -382,6 +399,10 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
         },
       },
     });
+    // One settle signal for the whole desktop host: the Check service and the
+    // restricted-app service publish durable settles into it, and the local
+    // API's routing executor subscribes to the same instance.
+    const settleSignal = new WorkFoldSettleSignal();
     let restrictedApps!: RestrictedAppService;
     const restrictedRuntime = new RestrictedAppHost({
       connections: restrictedConnections,
@@ -419,6 +440,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
         oauth: restrictedOAuth,
         storage: restrictedStorage,
         deferAutomationStart: true,
+        settleSignal,
       });
     } catch (error) {
       await restrictedRuntime.close();
@@ -441,7 +463,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       const spaceTrustAuthority = new RegisteredSpaceTrustAuthority((await listSpaces()).map((space) => space.spaceRoot));
       const runtimeProvider = new RegisteredSpaceRuntimeProvider(runtime, spaceTrustAuthority);
       const kernel = new WorkFoldKernel({ runtimeProvider });
-      const checks = new WorkFoldCheckService({ kernel });
+      const checks = new WorkFoldCheckService({ kernel, settleSignal });
       const cli = new WorkFoldDesktopCliHost({
       stateRoot: userData,
       kernel: new WorkFoldCliKernelAdapter(kernel, {
@@ -455,7 +477,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       await cli.initialize();
       secureSettings = settings;
       piRuntime = runtime;
-      return { settings, extensionUi, runtime, runtimeProvider, spaceTrustAuthority, kernel, checks, cli, restrictedApps, restrictedAppHost: restrictedRuntime };
+      return { settings, extensionUi, runtime, runtimeProvider, spaceTrustAuthority, kernel, checks, cli, restrictedApps, restrictedAppHost: restrictedRuntime, settleSignal };
     } catch (error) {
       await restrictedApps.close();
       throw error;
@@ -597,9 +619,23 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
       extensionUiBridge: host.extensionUi,
       kernel: host.kernel,
       checkService: host.checks,
+      // The exact instance the injected Check and restricted-app services
+      // publish into, so desktop settles reach routing triggers; and the CLI
+      // host's own act-receipts journal, so decisions, publications, and CLI
+      // acts share one ledger file and one at-most-once gate.
+      settleSignal: host.settleSignal,
+      actReceipts: host.cli.receipts,
       localFolderGrantProvider: { consumeLocalFolderGrant },
       restrictedAppService: host.restrictedApps,
       onAgentTurnActivity: updateAgentPowerState,
+      // Pages your fold serves (docs/fold-publishing.md): publication keys
+      // live in operating-system-encrypted secure settings beside the other
+      // Remote access material, and the slot/snapshot sync lane reads the
+      // current Remote access credential at call time — unconfigured means
+      // slot syncs stay honestly pending while deletions are already
+      // satisfied by the account cascade.
+      publicationKeys: host.settings.publicationKeyStore(),
+      publicationBridge: createRemoteBridgePublicationSync(() => host.settings.getRemoteAccess()),
     });
     // The per-launch act token authorizes the CLI act lane for exactly this
     // interactive run; without a readable token file, act commands stay
@@ -607,6 +643,7 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
     actToken = randomBytes(32).toString("hex");
     actFacade = api.actFacade;
     resolveManagementLineageParent = api.resolveManagementLineageParent;
+    routingPowerLifecycle = api.routings;
     try {
       await writeWorkFoldCliActTokenFile(userData, actToken, productName);
     } catch (error) {
@@ -627,6 +664,16 @@ async function ensureRemoteAccessClient(api: Awaited<ReturnType<typeof startLoca
     promptPairing: promptRemoteBrowserPairing,
     onStatus: (status) => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("work-fold:remote-access:status", status);
+    },
+    // The desktop side of the serving path: `viewer.fetch` renders through
+    // the publication authority's effect-time recheck, reconnects re-drive
+    // pending slot syncs and snapshot seeds, and the bridge's resting notice
+    // becomes the publisher-facing health note the glance surfaces.
+    viewerPages: {
+      servePage: (publicationId) => api.publications.serveViewerPage(publicationId),
+      serveAppCall: (publicationId, call) => api.publications.serveViewerAppCall(publicationId, call),
+      onDeviceConnected: () => api.publications.redriveBridgeSync(),
+      noteResting: (publicationId, reason) => api.publications.noteViewerResting(publicationId, reason),
     },
   });
   const settings = await host.settings.getRemoteAccess();
@@ -696,10 +743,10 @@ async function configureRemoteAccess(value: unknown): Promise<RemoteAccessStatus
 }
 
 async function setRemoteAccessEnabled(value: unknown): Promise<RemoteAccessStatus> {
-  if (typeof value !== "boolean") throw new Error("Remote access enabled state must be a boolean.");
+  if (typeof value !== "boolean") throw new Error("Web access enabled state must be a boolean.");
   const host = await ensureDesktopHost();
   const settings = await host.settings.setRemoteAccessEnabled(value);
-  if (!settings) throw new Error("Set up Remote access before enabling it.");
+  if (!settings) throw new Error("Set up web access before enabling it.");
   const client = await ensureRemoteAccessClient(await ensureInteractiveLocalApi());
   if (value) await client.start(); else {
     try { await client.stopActiveRemoteTasks(); }
@@ -759,7 +806,7 @@ async function runRemoteRevocationSteps(steps: Array<() => Promise<unknown>>): P
 
 async function requiredRemoteAccessSettings(settings: SecureSettingsStore): Promise<RemoteAccessSettings> {
   const configured = await settings.getRemoteAccess();
-  if (!configured) throw new Error("Remote access is not configured.");
+  if (!configured) throw new Error("Web access is not configured.");
   return configured;
 }
 
@@ -772,7 +819,7 @@ function remoteBridgeUrl(): string {
 }
 
 function remoteAccessSetupRequest(value: unknown): { slug: string; password: string } {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Remote access setup is invalid.");
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Web access setup is invalid.");
   const record = value as { slug?: unknown; password?: unknown };
   const slug = typeof record.slug === "string" ? record.slug.trim().toLowerCase() : "";
   if (!/^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])?$/.test(slug) || slug.length < 3) {
@@ -973,6 +1020,36 @@ function registerIpc(): void {
     if (result.canceled || !spaceRoot) return null;
     return { path: spaceRoot, folderGrantId: createFolderGrant(spaceRoot) };
   });
+  // The app.grant.files person-chosen root (docs/fold-consecrations.md): a
+  // staged file-grant card pins the reviewed declaration only, and approval
+  // binds it to a folder the person picks here — desktop-only by
+  // construction, because only the main renderer's preload reaches this
+  // handler. The dialog result is validated against the Space's folder and
+  // returned as the Space-relative root the grant path stores.
+  ipcMain.handle("work-fold:decisions:choose-file-grant-root", async (event, value: unknown) => {
+    assertTrustedRenderer(event);
+    if (typeof value !== "string" || !value.trim()) throw new Error("A Space id is required.");
+    const space = await getSpace(value.trim());
+    const options = {
+      title: "Choose the folder this app may access",
+      defaultPath: space.spaceRoot,
+      properties: ["openDirectory", "createDirectory"] as Array<"openDirectory" | "createDirectory">,
+    };
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, options)
+      : await dialog.showOpenDialog(options);
+    const chosen = result.filePaths[0];
+    if (result.canceled || !chosen) return null;
+    const relativePath = relative(space.spaceRoot, resolve(chosen));
+    if (relativePath !== "" && (isAbsolute(relativePath) || relativePath === ".." || relativePath.startsWith(`..${sep}`))) {
+      return { error: "Choose a folder inside this Space's folder." };
+    }
+    const root = relativePath === "" ? "." : relativePath.split(sep).join("/");
+    if (root !== "." && containsReservedSpacePathSegment(root)) {
+      return { error: "work-fold metadata folders cannot be granted to an app." };
+    }
+    return { root };
+  });
   ipcMain.handle("work-fold:space:reveal-folder", async (event, value: unknown) => {
     assertTrustedRenderer(event);
     if (typeof value !== "string") throw new Error("A Space id is required.");
@@ -1120,7 +1197,7 @@ function registerIpc(): void {
   ipcMain.handle("work-fold:remote-access:open", async (event) => {
     assertTrustedMainRenderer(event);
     const status = await (await ensureRemoteAccessClient(await ensureInteractiveLocalApi())).status();
-    if (!status.url) throw new Error("Set up Remote access before opening it.");
+    if (!status.url) throw new Error("Set up web access before opening it.");
     await shell.openExternal(status.url);
   });
   ipcMain.on("work-fold:window:rail-tooltip-show", (event, value: unknown) => {
@@ -1824,7 +1901,7 @@ function createTrayIfSupported(): void {
   }
   tray = new Tray(icon);
   const menu = Menu.buildFromTemplate([
-    { label: `Tell ${productName}`, click: () => { void toggleManagementPopover(); } },
+    { label: "Your fold", click: () => { void toggleManagementPopover(); } },
     { label: `Open ${productName}`, click: showWindow },
     { type: "separator" },
     { label: "Check for Updates...", click: () => sendRendererMenuCommand("check-for-updates") },
@@ -1940,9 +2017,14 @@ function configurePowerMonitor(): void {
   powerMonitorRegistered = true;
   powerMonitor.on("suspend", () => {
     void desktopHostPromise?.then((host) => host.restrictedApps.suspendAutomations());
+    // Routing runs share the scheduler discipline: suspension aborts the
+    // active run (it settles `interrupted`, honestly receipted) and holds
+    // admissions until resume (docs/fold-routings.md).
+    routingPowerLifecycle?.suspend();
   });
   powerMonitor.on("resume", () => {
     void desktopHostPromise?.then((host) => host.restrictedApps.resumeAutomations());
+    routingPowerLifecycle?.resume();
     void remoteAccessClient?.recoverConnection().catch((error) => {
       console.warn(`${productName} could not recover Remote access after resume: ${errorMessage(error)}`);
     });

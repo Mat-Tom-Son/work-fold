@@ -34,6 +34,43 @@ export interface WorkFoldCliActReceiptV1 {
   detail?: string;
 }
 
+/**
+ * Closed surface vocabulary shared between act receipts and consecration
+ * decision records. `cli`, `popover`, and `remote_web` name the authenticated
+ * surface that initiated an act; `main-window` and `policy` additionally
+ * appear on decision receipts. `remote_web` matches the provenance spelling
+ * already durable in conversation logs.
+ */
+export const WORKFOLD_CLI_ACT_SURFACES = ["cli", "popover", "main-window", "remote_web", "policy"] as const;
+
+export type WorkFoldCliActSurface = (typeof WORKFOLD_CLI_ACT_SURFACES)[number];
+
+/**
+ * Typed pointer to the prior state an undo verb needs — identifiers, digests,
+ * or short prior values (a title, a lifecycle state) only. Receipts never
+ * grow file contents, message text, queries, or secrets.
+ */
+export interface WorkFoldCliActUndoRef {
+  kind: string;
+  value: string;
+}
+
+export interface WorkFoldCliActReceiptV2 extends Omit<WorkFoldCliActReceiptV1, "v"> {
+  v: 2;
+  surface?: WorkFoldCliActSurface;
+  /** Links staging and execution receipts to the pending decision that authorized them. */
+  decisionId?: string;
+  /** Present exactly when a standing policy, not a click, satisfied a consecration. */
+  policyId?: string;
+  /** Approved remote browser identity, when the act arrived through remote access. */
+  browserId?: string;
+  grantId?: string;
+  undoRef?: WorkFoldCliActUndoRef;
+}
+
+/** Journal lines are written at the current version; readers accept every version. */
+export type WorkFoldCliActReceipt = WorkFoldCliActReceiptV1 | WorkFoldCliActReceiptV2;
+
 export interface WorkFoldCliActReceiptsOptions {
   stateRoot: string;
   maxBytes?: number;
@@ -57,15 +94,18 @@ export class WorkFoldCliActReceipts {
   }
 
   /** Serialized best-effort append; resolves false when the receipt could not be written. */
-  append(entry: Omit<WorkFoldCliActReceiptV1, "v" | "at">): Promise<boolean> {
+  append(entry: Omit<WorkFoldCliActReceiptV2, "v" | "at">): Promise<boolean> {
     const operation = this.#queue.catch(() => undefined).then(async () => {
       try {
-        const record: WorkFoldCliActReceiptV1 = {
-          v: 1,
+        const record: WorkFoldCliActReceiptV2 = {
+          v: 2,
           at: this.#now().toISOString(),
           ...entry,
           command: scrubText(entry.command),
           ...(entry.detail !== undefined ? { detail: scrubText(entry.detail) } : {}),
+          ...(entry.undoRef !== undefined
+            ? { undoRef: { kind: entry.undoRef.kind, value: scrubText(entry.undoRef.value) } }
+            : {}),
         };
         await mkdir(this.#directory, { recursive: true, mode: 0o700 });
         await this.#rotateIfNeeded();
@@ -91,7 +131,7 @@ export class WorkFoldCliActReceipts {
         for (const line of text.split("\n")) {
           if (!line) continue;
           try {
-            const record = JSON.parse(line) as Partial<WorkFoldCliActReceiptV1>;
+            const record = JSON.parse(line) as Partial<WorkFoldCliActReceipt>;
             if (record.requestId === requestId && record.outcome === "accepted") return true;
           } catch (error) {
             // A damaged ledger cannot safely prove that this request id was

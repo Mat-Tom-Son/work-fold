@@ -60,6 +60,58 @@ test("the request registry attributes actions only to an explicit management tas
   assert.equal(registry.get("task-1")?.outcome, "aborted");
 });
 
+test("the widened action vocabulary records every landed mutation verb, Space-free acts included", () => {
+  const registry = new ManagementRequestRegistry();
+  registry.begin({ taskId: "task-1", conversationId: "chat-1", content: "tidy things", attachments: [] });
+
+  // Space-bound acts carry their Space; the compaction act also carries the
+  // kernel task id without ever becoming a chat.send child.
+  registry.recordAction("task-1", {
+    command: "chat.compact",
+    at: new Date().toISOString(),
+    spaceId: "space-1",
+    spaceName: "Fold",
+    conversationId: "chat-9",
+    taskId: "task-compact",
+  });
+  assert.equal(registry.get("task-1")?.childTasks.length, 0, "only chat.send records child turns");
+
+  // The personal Library and personal-scope tools are Space-free: the action
+  // records honestly without inventing a Space.
+  registry.recordAction("task-1", {
+    command: "library.add",
+    at: new Date().toISOString(),
+    copied: ["Receipts/one.pdf"],
+  });
+  registry.recordAction("task-1", {
+    command: "tools.remove",
+    at: new Date().toISOString(),
+  });
+  registry.recordAction("task-1", {
+    command: "apps.revoke",
+    at: new Date().toISOString(),
+    spaceId: "space-1",
+    spaceName: "Fold",
+  });
+  const record = registry.get("task-1")!;
+  assert.deepEqual(
+    record.actions.map((action) => action.command),
+    ["chat.compact", "library.add", "tools.remove", "apps.revoke"],
+  );
+  assert.equal(record.actions[1]?.spaceId, undefined);
+  assert.deepEqual(record.actions[1]?.copied, ["Receipts/one.pdf"]);
+
+  // A chat.send without resolved Space fields records the action but never a
+  // malformed child-task reference.
+  registry.recordAction("task-1", {
+    command: "chat.send",
+    at: new Date().toISOString(),
+    conversationId: "chat-2",
+    taskId: "task-child",
+  });
+  assert.equal(registry.get("task-1")?.childTasks.length, 0);
+});
+
 test("attachment dispositions account for every attachment and never guess", () => {
   const registry = new ManagementRequestRegistry();
   const record = registry.begin({

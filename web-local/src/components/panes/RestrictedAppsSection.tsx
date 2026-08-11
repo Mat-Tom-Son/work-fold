@@ -6,6 +6,7 @@ import {
   Clock20Regular,
   Delete16Regular,
   Dismiss20Regular,
+  Globe20Regular,
   Info20Regular,
   PlugConnected20Regular,
   ShieldCheckmark20Regular,
@@ -292,6 +293,13 @@ function ReviewDeclarations({ review }: { review: RestrictedAppReview }) {
     </ReviewAuthorityGroup>
     <ReviewAuthorityGroup icon={<Clock20Regular />} title="Automations" summary={review.manifest.automations.length ? `${review.manifest.automations.length} ${review.manifest.automations.length === 1 ? "schedule" : "schedules"} declared` : "None declared"} startsOff={Boolean(review.manifest.automations.length)}>
       {review.manifest.automations.length ? <div className="restricted-app-authority-items">{review.manifest.automations.map((automation) => <article key={automation.id}><strong>{automation.title}</strong><span>{automation.description || `Runs the ${automation.handler} handler.`}</span><small>{formatAutomationSchedule(automation)} · Power: {automationPowerSummary(review.manifest, automation)}</small></article>)}</div> : null}
+    </ReviewAuthorityGroup>
+    <ReviewAuthorityGroup icon={<Globe20Regular />} title="At your address" summary={review.manifest.viewer ? (review.manifest.viewer.readable.length ? `Viewer entry plus ${review.manifest.viewer.readable.length} viewer-readable ${review.manifest.viewer.readable.length === 1 ? "collection" : "collections"} declared` : "Viewer entry declared — viewers can read no app data") : "None declared"} startsOff={Boolean(review.manifest.viewer)}>
+      {review.manifest.viewer ? <div className="restricted-app-authority-items"><article>
+        <strong>Serve {review.manifest.viewer.entry} to anyone holding this app's link</strong>
+        <span>{review.manifest.viewer.readable.length ? `Viewer-readable collections: ${review.manifest.viewer.readable.join(", ")} — this app's own stored data only.` : "Viewers can read none of this app's stored data."}</span>
+        <small>Putting this app at your address is its own later decision; viewers never write, act, or reach connections.</small>
+      </article></div> : null}
     </ReviewAuthorityGroup>
   </div>;
 }

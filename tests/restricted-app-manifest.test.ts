@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   parseRestrictedAppManifest,
   restrictedAppManifestVersion,
+  restrictedAppViewerSurfacePins,
 } from "../src/local/agent/restricted-app-manifest.js";
 import {
   restrictedAppDefaultCornerRadius,
@@ -470,4 +471,48 @@ test("request objects and response mode cannot be reintroduced as reviewed param
       `expected ${name} to be rejected`,
     );
   }
+});
+
+test("viewer declarations are optional, closed, canonical, and pinned deterministically", () => {
+  const withoutViewer = parseRestrictedAppManifest(manifest());
+  assert.equal(withoutViewer.viewer, undefined, "apps without a viewer surface parse unchanged");
+
+  const parsed = parseRestrictedAppManifest(manifest({
+    viewer: { entry: "viewer.html", readable: ["notes/", "public"] },
+  }));
+  assert.deepEqual(parsed.viewer, { entry: "viewer.html", readable: ["notes/", "public"] });
+  const reordered = parseRestrictedAppManifest(manifest({
+    viewer: { entry: "viewer.html", readable: ["public", "notes/"] },
+  }));
+  assert.deepEqual(reordered.viewer, parsed.viewer, "readable prefixes normalize to one canonical order");
+  assert.deepEqual(
+    restrictedAppViewerSurfacePins(parsed.viewer!),
+    ["entry:viewer.html", "data:notes/", "data:public"],
+    "the consecration pins derive one complete viewer-readable surface",
+  );
+
+  const readableOnlyEntry = parseRestrictedAppManifest(manifest({ viewer: { entry: "viewer.html" } }));
+  assert.deepEqual(readableOnlyEntry.viewer, { entry: "viewer.html", readable: [] });
+
+  assert.throws(
+    () => parseRestrictedAppManifest(manifest({ viewer: { entry: "viewer.js" } })),
+    /viewer entry has an unsupported file type/i,
+  );
+  assert.throws(
+    () => parseRestrictedAppManifest(manifest({ viewer: { entry: "../viewer.html" } })),
+    /unsafe path segment/i,
+  );
+  assert.throws(
+    () => parseRestrictedAppManifest(manifest({ viewer: { entry: "viewer.html", readable: ["Secret"] } })),
+    /lowercase letters/i,
+  );
+  assert.throws(
+    () => parseRestrictedAppManifest(manifest({ viewer: { entry: "viewer.html", readable: ["a/", "a/"] } })),
+    /duplicated/i,
+  );
+  assert.throws(
+    () => parseRestrictedAppManifest(manifest({ viewer: { entry: "viewer.html", writable: ["a/"] } })),
+    /unsupported field/i,
+    "the viewer surface is read-only by construction; no writable spelling exists",
+  );
 });

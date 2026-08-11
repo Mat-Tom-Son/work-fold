@@ -16,6 +16,11 @@ import {
 
 import WebSocket from "ws";
 
+import type {
+  WorkFoldPublicationBridgeSync,
+  WorkFoldViewerAppServeResult,
+  WorkFoldViewerPageServeResult,
+} from "../../src/local/publications.js";
 import type { WorkFoldRemoteFacade, WorkFoldRemoteOperation, WorkFoldRemotePrincipal } from "../../src/local/remote-management.js";
 import type { RemoteAccessSettings, RemoteBrowserGrantSettings, SecureSettingsStore } from "./settings.js";
 
@@ -25,8 +30,16 @@ const maximumRemoteRequestCiphertextCharacters = Math.floor(12 * 1024 * 1024 * 1
 const maximumProtocolErrorFramesPerConnection = 1;
 const operationSet = new Set<WorkFoldRemoteOperation>([
   "management.summary", "management.chats", "management.transcript", "management.rename", "management.send", "management.request",
-  "management.stop", "spaces.list", "spaces.tree",
+  "management.stop", "management.glance", "management.glanceSeen", "decisions.list", "decisions.decide",
+  "spaces.list", "spaces.tree",
 ]);
+/**
+ * The serialized glance digest is bounded to 64 KB (docs/fold-glance.md) so it
+ * always fits the existing per-operation and queued-byte budgets. The digest's
+ * own caps keep it far below this; exceeding the bound is answered with an
+ * honest typed refusal, never a silently trimmed digest presented as complete.
+ */
+const maximumRemoteGlanceProjectionBytes = 64 * 1024;
 
 export interface RemoteAccessStatus {
   configured: boolean;
@@ -34,6 +47,12 @@ export interface RemoteAccessStatus {
   connection: "stopped" | "connecting" | "connected" | "error";
   slug: string | null;
   url: string | null;
+  /**
+   * The origin published pages are served from: `pages-<slug>` under the same
+   * base domain (docs/fold-publishing.md, "Origin isolation"). Share links
+   * compose against this origin; the management client never serves on it.
+   */
+  viewerOrigin: string | null;
   lastError: string | null;
   approvedBrowsers: Array<{ id: string; browserId: string; label: string; approvedAt: string }>;
 }
@@ -83,6 +102,37 @@ export interface RemoteAccountRemovalSteps {
   clearLocalCredentials(): Promise<unknown>;
 }
 
+/**
+ * The publishing ladder's desktop serving hook (docs/fold-publishing.md,
+ * rung 2), implemented by `src/local/publications.ts`. `servePage` performs
+ * the effect-time recheck, identity checks, bounded render, and publication-
+ * key encryption; this client only wraps the result in a device-signed
+ * `work-fold.viewer-page.v1` envelope. A client without a provider ignores
+ * `viewer.fetch` frames entirely — indistinguishable from an older desktop —
+ * and the bridge settles the viewer honestly.
+ */
+export interface RemoteViewerPageProvider {
+  servePage(publicationId: string): Promise<WorkFoldViewerPageServeResult>;
+  /**
+   * Rung 3 (docs/fold-publishing.md): one relayed viewer-app call — reviewed
+   * entry, staged asset, or viewer-readable data read — served through the
+   * publication service's effect-time recheck and the desktop-enforced
+   * viewer-safe broker subset. A desktop without the hook ignores
+   * `viewer.app.fetch` frames, exactly like an older build, and the bridge
+   * settles the viewer honestly asleep.
+   */
+  serveAppCall?(publicationId: string, call: unknown): Promise<WorkFoldViewerAppServeResult>;
+  /** Called after the device socket (re)connects, to re-drive pending publication bridge syncs. */
+  onDeviceConnected?(): Promise<unknown> | unknown;
+  /**
+   * Bridge-relayed budget-exhaustion notice for one publication: viewers are
+   * seeing the vague "resting" page, and the publisher's precise reason is
+   * recorded as a health note the glance surfaces. Content-free and
+   * best-effort; an older desktop without the hook simply never learns.
+   */
+  noteResting?(publicationId: string, reason: "serve-rate" | "byte-budget"): Promise<unknown> | unknown;
+}
+
 export class RemoteBridgeRequestError extends Error {
   readonly status: number;
 
@@ -109,6 +159,7 @@ export class RemoteAccessClient {
   #onStatus: (status: RemoteAccessStatus) => void;
   #createSocket: (url: URL, options: { headers: { authorization: string } }) => WebSocket;
   #timers: RemoteAccessTimers;
+  #viewerPages: RemoteViewerPageProvider | null;
   #socket: WebSocket | null = null;
   #stopped = true;
   #lifecycleGeneration = 0;
@@ -135,6 +186,7 @@ export class RemoteAccessClient {
     onStatus?: (status: RemoteAccessStatus) => void;
     createSocket?: (url: URL, options: { headers: { authorization: string } }) => WebSocket;
     timers?: RemoteAccessTimers;
+    viewerPages?: RemoteViewerPageProvider | null;
   }) {
     this.#settingsStore = options.settingsStore;
     this.#facade = options.facade;
@@ -142,6 +194,7 @@ export class RemoteAccessClient {
     this.#onStatus = options.onStatus ?? (() => undefined);
     this.#createSocket = options.createSocket ?? ((url, socketOptions) => new WebSocket(url, socketOptions));
     this.#timers = options.timers ?? defaultRemoteAccessTimers;
+    this.#viewerPages = options.viewerPages ?? null;
   }
 
   async start(): Promise<void> {
@@ -247,6 +300,13 @@ export class RemoteAccessClient {
       this.#connection = "connected";
       this.#lastError = null;
       void this.emitStatus(generation);
+      // Publication slot syncs and revocation cleanups that could not reach
+      // the bridge re-drive on every (re)connect; failures simply stay
+      // pending for the next attempt.
+      const viewerPages = this.#viewerPages;
+      if (viewerPages?.onDeviceConnected) {
+        void Promise.resolve().then(() => viewerPages.onDeviceConnected!()).catch(() => undefined);
+      }
       if (this.#heartbeatTimer) this.#timers.clearInterval(this.#heartbeatTimer);
       this.#heartbeatTimer = this.#timers.setInterval(() => {
         if (this.#isCurrentSocket(socket, generation)) this.#sendOnSocket(socket, { type: "device.heartbeat" });
@@ -319,6 +379,9 @@ export class RemoteAccessClient {
     }
     if (message.type === "pairing.request") return this.#handlePairing(message.pairing);
     if (message.type === "operation.request") return this.#handleOperation(message.operation, message.envelope);
+    if (message.type === "viewer.fetch") return this.#handleViewerFetch(message);
+    if (message.type === "viewer.app.fetch") return this.#handleViewerAppFetch(message);
+    if (message.type === "viewer.resting") return this.#handleViewerResting(message);
     if (message.type === "device.heartbeat" || message.type === "pairing.settled") return;
     if (message.type === "protocol.error") {
       const detail = typeof message.error === "string" && message.error.trim()
@@ -360,7 +423,7 @@ export class RemoteAccessClient {
         // this browser was revoked. Re-read authority at the commit point.
         const settings = await this.requireActiveSettings();
         if (this.#authorityVersion !== authorityVersion) {
-          throw new Error("Remote access authority changed while this browser approval was open.");
+          throw new Error("Web access authority changed while this browser approval was open.");
         }
         const replaced = settings.grants.find((item) => item.browserId === pairing.browserId) ?? null;
         if (replaced) {
@@ -399,6 +462,126 @@ export class RemoteAccessClient {
       this.send({ type: "pairing.decision", pairingId: pairing.id, approved: false });
       throw error;
     }
+  }
+
+  /**
+   * One relay-forwarded viewer fetch. The publication service owns the
+   * effect-time recheck, source identity checks, bounded render, and the
+   * AES-GCM encryption under the publication key; this method adds only the
+   * device signature over the finished envelope, re-reading Remote access
+   * authority immediately before anything leaves the desktop. Refusals are
+   * typed and content-free. Serving is a read: nothing here is journaled.
+   */
+  async #handleViewerFetch(message: Record<string, unknown>): Promise<void> {
+    // A desktop with no publication provider behaves exactly like an older
+    // desktop that does not know the frame: it stays silent and the bridge
+    // settles the viewer honestly.
+    if (!this.#viewerPages) return;
+    const fetchId = stableId(message.fetchId, "viewer fetch id");
+    const publicationId = stableId(message.publicationId, "publication id");
+    const settings = await this.#settingsStore.getRemoteAccess();
+    if (!settings?.enabled) return;
+    let result: WorkFoldViewerPageServeResult;
+    try {
+      result = await this.#viewerPages.servePage(publicationId);
+    } catch {
+      // A host failure is a source problem, not a missing grant.
+      result = { state: "not-available", publicationId };
+    }
+    // Re-read at the send point so disabling Remote access during a render
+    // cannot let a stale envelope leave the desktop.
+    let current: RemoteAccessSettings | null;
+    try {
+      current = await this.#settingsStore.getRemoteAccess();
+    } catch {
+      return;
+    }
+    if (!current?.enabled) return;
+    if (result.state !== "served") {
+      this.send({ type: "viewer.page", fetchId, publicationId, state: result.state });
+      return;
+    }
+    const header = {
+      type: "work-fold.viewer-page.v1",
+      accountId: current.accountId,
+      deviceId: current.accountId,
+      publicationId,
+      fetchId,
+      contentDigest: result.contentDigest,
+      servedAt: result.servedAt,
+    };
+    const envelope: RemoteEnvelope = { header, iv: result.iv, ciphertext: result.ciphertext, signature: "" };
+    envelope.signature = signP1363(current.deviceSigningPrivateJwk, signedEnvelopeText(envelope));
+    this.send({ type: "viewer.page", fetchId, publicationId, envelope });
+  }
+
+  /**
+   * One relay-forwarded viewer-app call (rung 3). The publication service and
+   * the restricted-app viewer adapter own the effect-time recheck, the
+   * viewer-safe broker subset, and the publication-key encryption binding the
+   * canonical call fingerprint; this method adds only the device signature —
+   * re-reading Remote access authority at the send point exactly as the page
+   * path does. A desktop without the provider hook stays silent, and the
+   * bridge settles the viewer honestly.
+   */
+  async #handleViewerAppFetch(message: Record<string, unknown>): Promise<void> {
+    const provider = this.#viewerPages;
+    if (!provider?.serveAppCall) return;
+    const fetchId = stableId(message.fetchId, "viewer fetch id");
+    const publicationId = stableId(message.publicationId, "publication id");
+    const settings = await this.#settingsStore.getRemoteAccess();
+    if (!settings?.enabled) return;
+    let result: WorkFoldViewerAppServeResult;
+    try {
+      result = await provider.serveAppCall(publicationId, message.call);
+    } catch {
+      // A host failure is a source problem, not a missing grant.
+      result = { state: "not-available", publicationId };
+    }
+    // Re-read at the send point so disabling Remote access during a serve
+    // cannot let a stale envelope leave the desktop.
+    let current: RemoteAccessSettings | null;
+    try {
+      current = await this.#settingsStore.getRemoteAccess();
+    } catch {
+      return;
+    }
+    if (!current?.enabled) return;
+    if (result.state !== "served") {
+      this.send({ type: "viewer.app.result", fetchId, publicationId, state: result.state });
+      return;
+    }
+    const header = {
+      type: "work-fold.viewer-app.v1",
+      accountId: current.accountId,
+      deviceId: current.accountId,
+      publicationId,
+      fetchId,
+      callDigest: result.callDigest,
+      contentDigest: result.contentDigest,
+      servedAt: result.servedAt,
+    };
+    const envelope: RemoteEnvelope = { header, iv: result.iv, ciphertext: result.ciphertext, signature: "" };
+    envelope.signature = signP1363(current.deviceSigningPrivateJwk, signedEnvelopeText(envelope));
+    this.send({ type: "viewer.app.result", fetchId, publicationId, envelope });
+  }
+
+  /**
+   * The bridge's rate-limited notice that one publication is resting: no
+   * response frame, no mutation of Remote access state — the provider records
+   * the publisher-facing health note. Malformed frames are protocol errors;
+   * an unknown publication is the provider's no-op.
+   */
+  async #handleViewerResting(message: Record<string, unknown>): Promise<void> {
+    const provider = this.#viewerPages;
+    if (!provider?.noteResting) return;
+    const publicationId = stableId(message.publicationId, "publication id");
+    if (message.reason !== "serve-rate" && message.reason !== "byte-budget") {
+      throw new Error("Viewer resting frame is invalid.");
+    }
+    const settings = await this.#settingsStore.getRemoteAccess();
+    if (!settings?.enabled) return;
+    await provider.noteResting(publicationId, message.reason);
   }
 
   async #handleOperation(operationValue: unknown, envelopeValue: unknown): Promise<void> {
@@ -467,6 +650,10 @@ export class RemoteAccessClient {
       let responsePayload: unknown;
       try {
         const value = await this.#facade.execute(remoteOperation, input, principal);
+        if (remoteOperation === "management.glance"
+          && Buffer.byteLength(JSON.stringify(value ?? null), "utf8") > maximumRemoteGlanceProjectionBytes) {
+          throw new Error("The glance digest exceeded its 64 KB remote bound. Open work-fold on the desktop to see it.");
+        }
         if (remoteOperation === "management.send") {
           this.rememberActiveTask(grant.id, value, principal);
         } else {
@@ -670,8 +857,17 @@ export class RemoteAccessClient {
   }
 
   async #finishRevocationCleanup(grantId?: string): Promise<void> {
+    // Desktop-local authority is withdrawn first, before any bridge mutation
+    // (the callers order it that way), and every lane is attempted so one
+    // failure cannot silently skip the rest. The operation fences raised at
+    // the revocation call already refuse in-flight operations from the
+    // revoked grant — including a `decisions.decide` that has not reached the
+    // serialized authority queue — before anything is consumed; a decision
+    // that already executed stands, named by its receipt.
     const failures: string[] = [];
     try { await this.#stopTrackedTasks(grantId); }
+    catch (error) { failures.push(errorMessage(error)); }
+    try { await this.#facade.revokeGrantAuthority?.(grantId); }
     catch (error) { failures.push(errorMessage(error)); }
     try { await this.#facade.purgeUploads(grantId); }
     catch (error) { failures.push(`Could not purge remote uploads: ${errorMessage(error)}`); }
@@ -724,7 +920,7 @@ export class RemoteAccessClient {
 
   async requireActiveSettings(): Promise<RemoteAccessSettings> {
     const settings = await this.#settingsStore.getRemoteAccess();
-    if (!settings?.enabled) throw new Error("Remote access is disabled.");
+    if (!settings?.enabled) throw new Error("Web access is disabled.");
     return settings;
   }
 
@@ -767,6 +963,76 @@ function remoteAccountAlreadyAbsent(error: unknown): boolean {
   // deletion invalidates its only device token. A 404 can instead mean an old
   // or misrouted bridge where the deletion route never ran.
   return error instanceof RemoteBridgeRequestError && error.status === 401;
+}
+
+/**
+ * The publication service's bridge-sync lane over the device-authenticated
+ * HTTP routes: idempotent-by-operation-id slot upserts, slot deletion, and
+ * snapshot deletion. Every request carries only content-free slot fields —
+ * identifiers, budgets, flags — never titles, paths, keys, or page bytes.
+ * With Remote access unconfigured, deletions are already satisfied (the
+ * account cascade destroyed every bridge row) while slot creation fails:
+ * publications cannot outlive, or predate, the address they are served under.
+ */
+export function createRemoteBridgePublicationSync(
+  getSettings: () => Promise<RemoteAccessSettings | null>,
+  fetchFn: typeof fetch = fetch,
+): WorkFoldPublicationBridgeSync {
+  const request = async (path: string, method: "PUT" | "DELETE", body: unknown, deletionLane: boolean): Promise<void> => {
+    const settings = await getSettings();
+    if (!settings) {
+      if (deletionLane) return;
+      throw new Error("Web access is not set up, so this page has no address to publish to.");
+    }
+    const response = await fetchFn(new URL(path, settings.bridgeUrl), {
+      method,
+      headers: {
+        authorization: `Bearer ${settings.deviceToken}`,
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    if (!response.ok) {
+      const parsed = await response.json().catch(() => null) as { error?: unknown } | null;
+      // A deletion answered 404 means the row is already gone — the outcome
+      // the caller wanted — while any other failure stays a retryable error.
+      if (deletionLane && response.status === 404) return;
+      throw new RemoteBridgeRequestError(
+        response.status,
+        typeof parsed?.error === "string" ? parsed.error : "The bridge could not sync this publication.",
+      );
+    }
+  };
+  return {
+    async upsertSlot(input) {
+      await request(`/api/device/publications/${encodeURIComponent(input.publicationId)}`, "PUT", {
+        operationId: input.operationId,
+        kind: input.kind,
+        state: input.state,
+        serveRatePerMinute: input.serveRatePerMinute,
+        byteBudgetPerDay: input.byteBudgetPerDay,
+        snapshotEnabled: input.snapshotEnabled,
+        ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
+      }, false);
+    },
+    async deleteSlot(publicationId) {
+      await request(`/api/device/publications/${encodeURIComponent(publicationId)}`, "DELETE", undefined, true);
+    },
+    async putSnapshot(input) {
+      // Bounded ciphertext, IV, digest, and capture time — the relay stores
+      // exactly what a viewer would have received, and it owns opt-in,
+      // bounds, and newest-wins for the row.
+      await request(`/api/device/publications/${encodeURIComponent(input.publicationId)}/snapshot`, "PUT", {
+        ciphertext: input.ciphertext,
+        iv: input.iv,
+        contentDigest: input.contentDigest,
+        capturedAt: input.capturedAt,
+      }, false);
+    },
+    async deleteSnapshot(publicationId) {
+      await request(`/api/device/publications/${encodeURIComponent(publicationId)}/snapshot`, "DELETE", undefined, true);
+    },
+  };
 }
 
 /** Independently reproduce the browser's short authentication string. */
@@ -947,12 +1213,14 @@ async function currentGrantGeneration(settings: RemoteAccessSettings): Promise<n
 function statusView(settings: RemoteAccessSettings | null, connection: RemoteAccessStatus["connection"], lastError: string | null): RemoteAccessStatus {
   const bridge = settings ? new URL(settings.bridgeUrl) : null;
   const baseHost = bridge?.hostname.replace(/^www\./, "") ?? "";
+  const port = bridge?.port ? `:${bridge.port}` : "";
   return {
     configured: Boolean(settings),
     enabled: settings?.enabled ?? false,
     connection: settings?.enabled ? connection : "stopped",
     slug: settings?.slug ?? null,
-    url: settings ? `${bridge!.protocol}//${settings.slug}.${baseHost}${bridge!.port ? `:${bridge!.port}` : ""}` : null,
+    url: settings ? `${bridge!.protocol}//${settings.slug}.${baseHost}${port}` : null,
+    viewerOrigin: settings ? `${bridge!.protocol}//pages-${settings.slug}.${baseHost}${port}` : null,
     lastError,
     approvedBrowsers: settings?.grants.map((grant) => ({ id: grant.id, browserId: grant.browserId, label: grant.label, approvedAt: grant.approvedAt })) ?? [],
   };

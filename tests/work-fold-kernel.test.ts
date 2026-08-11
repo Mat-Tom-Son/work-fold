@@ -221,6 +221,265 @@ test("WorkFoldKernel capability queries expose the shared stable catalog snapsho
   );
 });
 
+test("WorkFoldKernel getGlance composes the actor-independent experimental digest", async () => {
+  const root = join(process.cwd(), "kernel-glance", "root");
+  const spaceSummary = space("space-7777777777777777", "Glance", root);
+  const taskClock = [new Date("2026-08-10T11:00:00.000Z"), new Date("2026-08-10T11:05:00.000Z")];
+  const kernel = new WorkFoldKernel({
+    ...spaceDependencies([spaceSummary]),
+    now: () => taskClock.shift() ?? new Date("2026-08-10T12:00:00.000Z"),
+    glanceSources: {
+      // The kernel is the running-task registry: an injected reader for that
+      // row must not displace it.
+      runningTasks: async () => [{
+        id: "task-imposter",
+        kind: "assistant_turn",
+        spaceId: spaceSummary.id,
+        startedAt: "2026-08-10T11:59:00.000Z",
+      }],
+      settledTurns: async () => [{
+        taskId: "task-old",
+        spaceId: spaceSummary.id,
+        conversationId: "chat-old",
+        outcome: "succeeded",
+        endedAt: "2026-08-10T09:00:00.000Z",
+      }],
+      checkpoints: async (spaceRef) => spaceRef.id === spaceSummary.id
+        ? [{
+          checkpointId: "cp-1",
+          createdAt: "2026-08-10T10:00:00.000Z",
+          label: "Before cleanup",
+          reason: "manual",
+          scope: "full" as const,
+        }]
+        : [],
+    },
+    readGlanceSeen: async () => ({ popover: "2026-08-10T09:30:00.000Z/settled-turns:task-old" }),
+  });
+  kernel.startTask({
+    id: "task-turn",
+    kind: "assistant_turn",
+    spaceId: spaceSummary.id,
+    conversationId: "chat-live",
+    actor: { kind: "assistant", spaceId: spaceSummary.id, conversationId: "chat-live" },
+  });
+  kernel.startExperimentalCheckRunTask({
+    id: "task-check",
+    spaceId: spaceSummary.id,
+    actor: { kind: "system", spaceId: spaceSummary.id },
+  });
+  const tasksBefore = JSON.stringify(await kernel.getTasks({ kind: "system" }));
+
+  const glance = await kernel.getGlance({ kind: "cli", spaceId: `  ${spaceSummary.id}  `, cwd: "  .  " });
+  assert.equal(glance.kind, "work-fold.glance.experimental");
+  assert.equal(glance.version, 0);
+  assert.equal(glance.composedAt, "2026-08-10T12:00:00.000Z");
+  assert.deepEqual(
+    glance.running.map((item) => [item.id, item.kind]),
+    [["kernel-tasks:task-turn", "assistant-turn"], ["kernel-tasks:task-check", "check-run"]],
+    "the kernel's own registry feeds Running now, including the experimental check_run kind",
+  );
+  assert.equal(glance.running[0].spaceName, "Glance");
+  assert.deepEqual(glance.changes.map((item) => item.id), [
+    "history-checkpoints:space-7777777777777777:cp-1",
+    "settled-turns:task-old",
+  ]);
+  assert.equal(glance.cursor, "2026-08-10T10:00:00.000Z/history-checkpoints:space-7777777777777777:cp-1");
+  assert.deepEqual(glance.seen, { popover: "2026-08-10T09:30:00.000Z/settled-turns:task-old" });
+  assert.deepEqual(glance.unavailable, []);
+
+  const unscoped = await kernel.getGlance({ kind: "renderer" });
+  assert.equal(
+    JSON.stringify(unscoped),
+    JSON.stringify(glance),
+    "the digest is management-scoped: a normalized Space-scoped actor must not change one byte",
+  );
+
+  assert.equal(
+    JSON.stringify(await kernel.getTasks({ kind: "system" })),
+    tasksBefore,
+    "composing the experimental glance must be byte-invisible to stable work-fold.tasks v1",
+  );
+
+  kernel.finishTask("task-turn");
+  kernel.finishTask("task-check");
+  const settled = await kernel.getGlance({ kind: "system" });
+  assert.deepEqual(settled.running, [], "finished tasks leave Running now");
+});
+
+test("WorkFoldKernel tracks experimental routing runs internally, outside v1 tasks and the glance's running section", async () => {
+  const root = join(process.cwd(), "kernel-routing-tasks", "root");
+  const spaceSummary = space("space-9999999999999999", "Routing", root);
+  const kernel = new WorkFoldKernel({
+    ...spaceDependencies([spaceSummary]),
+    now: () => new Date("2026-08-10T12:00:00.000Z"),
+    createTaskId: () => "task-generated-routing",
+  });
+  const before = JSON.stringify(await kernel.getTasks({ kind: "system" }));
+
+  const task = kernel.startExperimentalRoutingRunTask({
+    routingId: "routing-digest",
+    runId: "run-1",
+    actor: { kind: "system" },
+  });
+  assert.deepEqual(task, {
+    id: "task-generated-routing",
+    kind: "routing_run",
+    status: "running",
+    routingId: "routing-digest",
+    runId: "run-1",
+    actor: { kind: "system" },
+    startedAt: "2026-08-10T12:00:00.000Z",
+  });
+  assert.equal(
+    JSON.stringify(await kernel.getTasks({ kind: "system" })),
+    before,
+    "an internal routing_run must be byte-invisible to the stable work-fold.tasks v1 snapshot",
+  );
+  const glance = await kernel.getGlance({ kind: "system" });
+  assert.deepEqual(
+    glance.running,
+    [],
+    "routing runs reach the glance through their receipts source, never as a kernel task item",
+  );
+  assert.throws(
+    () => kernel.startExperimentalRoutingRunTask({ id: task.id, routingId: "other", runId: "run-2", actor: { kind: "system" } }),
+    /already running/,
+    "experimental and stable tasks must share lifecycle id ownership",
+  );
+  assert.throws(
+    () => kernel.startExperimentalRoutingRunTask({ id: "task-blank-routing", routingId: "  ", runId: "run-3", actor: { kind: "system" } }),
+    /routing id is required/,
+  );
+  assert.equal(kernel.finishTask(task.id), true);
+  assert.equal(kernel.finishTask(task.id), false);
+  assert.equal(JSON.stringify(await kernel.getTasks({ kind: "system" })), before);
+});
+
+test("WorkFoldKernel configureGlance attaches live readers post-construction without touching the task registry source", async () => {
+  const root = join(process.cwd(), "kernel-glance-configure", "root");
+  const spaceSummary = space("space-aaaaaaaaaaaaaaaa", "Late wiring", root);
+  const kernel = new WorkFoldKernel({
+    ...spaceDependencies([spaceSummary]),
+    now: () => new Date("2026-08-10T12:00:00.000Z"),
+  });
+  const bare = await kernel.getGlance({ kind: "system" });
+  assert.deepEqual(bare.changes, [], "before wiring, injected kinds are absent");
+  assert.deepEqual(bare.seen, {});
+
+  kernel.configureGlance({
+    sources: {
+      settledTurns: async () => [{
+        taskId: "task-late",
+        spaceId: spaceSummary.id,
+        conversationId: "chat-late",
+        outcome: "succeeded" as const,
+        endedAt: "2026-08-10T11:00:00.000Z",
+      }],
+      // The kernel's own registry must still win the running-tasks row.
+      runningTasks: async () => [{
+        id: "task-imposter",
+        kind: "assistant_turn" as const,
+        spaceId: spaceSummary.id,
+        startedAt: "2026-08-10T11:59:00.000Z",
+      }],
+    },
+    readSeen: async () => ({ popover: "2026-08-10T10:00:00.000Z/settled-turns:task-late" }),
+  });
+  const wired = await kernel.getGlance({ kind: "system" });
+  assert.deepEqual(wired.changes.map((item) => item.id), ["settled-turns:task-late"]);
+  assert.deepEqual(wired.seen, { popover: "2026-08-10T10:00:00.000Z/settled-turns:task-late" });
+  assert.deepEqual(wired.running, [], "an injected running-tasks reader never displaces the kernel registry");
+});
+
+test("WorkFoldKernel getGlance treats a failed seen read as no markers", async () => {
+  const root = join(process.cwd(), "kernel-glance-seen", "root");
+  const spaceSummary = space("space-8888888888888888", "Seenless", root);
+  const kernel = new WorkFoldKernel({
+    ...spaceDependencies([spaceSummary]),
+    now: () => new Date("2026-08-10T12:00:00.000Z"),
+    readGlanceSeen: async () => { throw new Error("marker store unreadable"); },
+  });
+  const glance = await kernel.getGlance({ kind: "renderer" });
+  assert.deepEqual(glance.seen, {}, "losing markers only over-reports newness");
+  assert.deepEqual(glance.unavailable, [], "the seen table is preference, not a digest source");
+});
+
+test("the experimental History-restore fence judges routing runs from the task registry and fails closed", async () => {
+  const targetId = "space-9999999999999999";
+  const otherId = "space-aaaaaaaaaaaaaaaa";
+  const root = join(process.cwd(), "kernel-restore-fence", "root");
+  const kernel = new WorkFoldKernel(spaceDependencies([space(targetId, "Target", root)]));
+  const blockers = () => kernel.listExperimentalHistoryRestoreBlockers(targetId);
+
+  // A quiet registry restores freely; a blank Space id is a caller bug.
+  assert.deepEqual(await blockers(), []);
+  await assert.rejects(() => kernel.listExperimentalHistoryRestoreBlockers("  "), /Space id/);
+
+  // An active routing run with no configured reader fails closed: the
+  // registry proves work is running, so unverifiable hops must not race a
+  // restore.
+  const run = kernel.startExperimentalRoutingRunTask({
+    routingId: "routing-glue",
+    runId: "run-1",
+    actor: { kind: "system" },
+  });
+  let judged = await blockers();
+  assert.equal(judged.length, 1);
+  assert.match(judged[0]!, /routing run run-1 \(routing routing-glue\)/);
+  assert.match(judged[0]!, /cannot be verified in this build/);
+
+  // A reader that resolves the declared files-hop targets narrows the rule:
+  // hops into other Spaces never block, a hop into this Space blocks.
+  kernel.configureHistoryRestoreFence({ sources: { routingRunFilesHopTargets: async () => [otherId] } });
+  assert.deepEqual(await blockers(), []);
+  kernel.configureHistoryRestoreFence({ sources: { routingRunFilesHopTargets: async () => [otherId, targetId] } });
+  judged = await blockers();
+  assert.equal(judged.length, 1);
+  assert.match(judged[0]!, /declares a files hop into this Space/);
+
+  // An unknown routing and a failing reader both fail closed.
+  kernel.configureHistoryRestoreFence({ sources: { routingRunFilesHopTargets: async () => null } });
+  assert.match((await blockers())[0]!, /files-hop targets could not be verified/);
+  kernel.configureHistoryRestoreFence({
+    sources: { routingRunFilesHopTargets: async () => { throw new Error("store damaged"); } },
+  });
+  assert.match((await blockers())[0]!, /files-hop targets could not be verified/);
+
+  // A settled run clears its half of the fence, and no ghost blocker survives.
+  kernel.finishTask(run.id);
+  assert.deepEqual(await blockers(), []);
+
+  // The automation reader blocks on runs whose app holds a file grant into
+  // this Space, and a configured reader that fails blocks too (fail closed).
+  kernel.configureHistoryRestoreFence({
+    sources: {
+      automationRunsWithFileGrantInto: async (spaceId) => spaceId === targetId
+        ? [{ appId: "connected-inbox", automationId: "daily-sync", runId: "run-9" }]
+        : [],
+    },
+  });
+  judged = await blockers();
+  assert.equal(judged.length, 1);
+  assert.match(judged[0]!, /app automation daily-sync of connected-inbox \(run run-9\)/);
+  assert.match(judged[0]!, /file grant into this Space/);
+  kernel.configureHistoryRestoreFence({
+    sources: { automationRunsWithFileGrantInto: async () => { throw new Error("no machine-wide accessor"); } },
+  });
+  assert.match((await blockers())[0]!, /could not be verified/);
+
+  // Assistant-turn and compaction fencing stays with the act facade's live
+  // route state; those task kinds alone never trip the kernel fence.
+  kernel.configureHistoryRestoreFence({ sources: {} });
+  kernel.startTask({
+    kind: "assistant_turn",
+    spaceId: targetId,
+    conversationId: "chat-one",
+    actor: { kind: "assistant", spaceId: targetId, conversationId: "chat-one", cwd: root },
+  });
+  assert.deepEqual(await blockers(), []);
+});
+
 function kernelForSpaces(spaces: SpaceSummary[]): WorkFoldKernel {
   return new WorkFoldKernel(spaceDependencies(spaces));
 }

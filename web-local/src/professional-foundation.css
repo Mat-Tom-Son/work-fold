@@ -22,7 +22,11 @@
   --ui-radius-sm: 4px;
   --ui-radius-md: 8px;
   --ui-radius-lg: 12px;
+  /* Large dialog surfaces (capability review dialog). */
+  --ui-radius-xl: 16px;
   --ui-shadow-menu: 0 8px 16px rgba(23, 29, 39, 0.14);
+  /* Elevated flyouts and dialogs (rail add menu, needs-you flyout). */
+  --ui-shadow-lg: 0 16px 32px rgba(23, 29, 39, 0.18);
 }
 
 :root[data-theme="dark"] {
@@ -45,6 +49,7 @@
   --ui-tooltip-background: #f4f4f4;
   --ui-tooltip-text: #202020;
   --ui-shadow-menu: 0 8px 16px rgba(0, 0, 0, 0.28);
+  --ui-shadow-lg: 0 16px 32px rgba(0, 0, 0, 0.44);
 }
 
 html,

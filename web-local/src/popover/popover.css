@@ -262,3 +262,86 @@ button.ghost { border-color: transparent; background: none; color: var(--pop-tex
 button.ghost:hover { color: var(--pop-text); }
 
 button.danger-quiet { color: var(--pop-danger); border-color: var(--pop-danger-border); background: none; }
+
+/* Needs-you decision stack: durable pending cards between the header and the
+   transcript, present only while at least one decision pends. */
+.needs-you-stack { display: flex; flex-direction: column; gap: 8px; }
+.needs-you-heading { color: var(--pop-warning-text); font-size: 11px; font-weight: 650; text-transform: none; }
+.needs-you-notice {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--pop-surface-2);
+  font-size: 12px;
+}
+.needs-you-notice button { border: none; background: none; padding: 0 2px; color: var(--pop-text-muted); }
+.needs-you-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  background: var(--pop-surface);
+  border: 1px solid var(--pop-border);
+  border-left: 3px solid var(--pop-warning-text);
+  border-radius: 10px;
+}
+.needs-you-card[data-category="destroy"] { border-left-color: var(--pop-danger); }
+.needs-you-card p, .needs-you-card h3, .needs-you-card dl { margin: 0; }
+.needs-you-category { color: var(--pop-warning-text); font-size: 11px; font-weight: 650; }
+.needs-you-card[data-category="destroy"] .needs-you-category { color: var(--pop-danger); }
+.needs-you-title { font-size: 13px; font-weight: 650; overflow-wrap: anywhere; }
+.needs-you-facts { display: grid; gap: 2px; }
+.needs-you-fact { display: flex; gap: 6px; font-size: 11.5px; }
+.needs-you-fact dt { flex: none; color: var(--pop-text-muted); }
+.needs-you-fact dt::after { content: ":"; }
+.needs-you-fact dd { margin: 0; overflow-wrap: anywhere; user-select: text; }
+.needs-you-provenance, .needs-you-prior-denial, .needs-you-desktop-only { color: var(--pop-text-muted); font-size: 11px; }
+.needs-you-prior-denial { color: var(--pop-warning-text); }
+/* app.grant.files: the popover states that the folder picker lives in the
+   main window; the choose button never renders here (narrow preload). */
+.needs-you-grant-root { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.needs-you-grant-root code { font-size: 11.5px; user-select: text; }
+.needs-you-grant-root-error { color: var(--pop-danger); font-size: 11px; }
+.needs-you-note summary { color: var(--pop-text-muted); font-size: 11px; cursor: pointer; }
+.needs-you-note input {
+  width: 100%;
+  margin-top: 4px;
+  padding: 5px 8px;
+  border: 1px solid var(--pop-border);
+  border-radius: 6px;
+  background: var(--pop-bg);
+  color: var(--pop-text);
+  font: inherit;
+  font-size: 12px;
+}
+.needs-you-confirm { display: flex; flex-direction: column; gap: 6px; }
+.needs-you-confirm p { color: var(--pop-danger); font-size: 12px; }
+.needs-you-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.needs-you-approve { background: var(--pop-accent); border-color: transparent; color: var(--pop-accent-text); font-weight: 600; }
+.needs-you-approve.needs-you-destroy { background: var(--pop-danger); color: var(--pop-accent-text); }
+.needs-you-deny { color: var(--pop-danger); border-color: var(--pop-danger-border); background: none; }
+
+/* The glance (docs/fold-glance.md): the deterministic digest at the popover's
+   top, below the needs-you stack. Seen items render quieter, never hidden. */
+.glance { display: flex; flex-direction: column; gap: 5px; }
+.glance-heading { margin: 4px 0 0; color: var(--pop-text-muted); font-size: 11px; font-weight: 650; }
+.glance-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.glance-item { font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.glance-item.quiet { color: var(--pop-text-muted); }
+.glance-empty, .glance-truncated, .glance-unavailable { margin: 0; color: var(--pop-text-muted); font-size: 11px; }
+.glance-unavailable { color: var(--pop-warning-text); }
+.glance-show-earlier {
+  align-self: flex-start;
+  margin: 2px 0 0;
+  padding: 2px 8px;
+  border: 1px solid var(--pop-border);
+  border-radius: 6px;
+  background: none;
+  color: var(--pop-text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}

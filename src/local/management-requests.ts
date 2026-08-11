@@ -13,13 +13,80 @@ import { maxManagementAttachments, type ManagementAttachmentRef } from "./manage
  */
 export type ManagementRequestOutcome = "succeeded" | "failed" | "aborted";
 
-export type ManagementRequestActionCommand = "files.add" | "spaces.create" | "spaces.register" | "chat.send";
+/**
+ * Every landed act-lane mutation verb (docs/fold-act-ledger.md). The registry
+ * records one entry per explicitly attributed act so the request's story stays
+ * complete; consumers render the commands they understand and fall back to the
+ * command token for the rest. Act reads (status, result, list, search,
+ * versions, glance) are deliberately absent — reads carry no lineage.
+ */
+export type ManagementRequestActionCommand =
+  | "chat.send"
+  | "chat.rename"
+  | "chat.snooze"
+  | "chat.archive"
+  | "chat.resume"
+  | "chat.compact"
+  | "history.save"
+  | "history.restore"
+  | "history.restore-file"
+  | "files.add"
+  | "files.move"
+  | "files.rename"
+  | "files.delete"
+  | "files.destroy"
+  | "files.mkdir"
+  | "files.create"
+  | "library.add"
+  | "library.folder.create"
+  | "library.copy"
+  | "spaces.create"
+  | "spaces.register"
+  | "spaces.rename"
+  | "spaces.unregister"
+  | "spaces.delete"
+  | "spaces.appearance.apply"
+  | "spaces.appearance.reset"
+  | "spaces.appearance.undo"
+  | "tools.import-skill"
+  | "tools.install"
+  | "tools.update"
+  | "tools.remove"
+  | "apps.proposals.dismiss"
+  | "apps.install-proposal"
+  | "apps.remove"
+  | "apps.grant"
+  | "apps.revoke"
+  | "apps.connect"
+  | "apps.disconnect"
+  | "apps.automation.enable"
+  | "apps.automation.disable"
+  | "apps.automation.run"
+  | "apps.storage.clear"
+  | "apps.retained.purge"
+  | "apps.project.declare"
+  | "apps.release.prepare"
+  | "apps.release.publish"
+  | "apps.release.delete"
+  | "apps.install.prepare"
+  | "apps.update.prepare"
+  | "apps.operation.activate"
+  | "apps.operation.cancel"
+  | "apps.uninstall"
+  | "routings.stage"
+  | "pages.stage"
+  | "pages.stage-app"
+  | "staged.cancel";
 
 export interface ManagementRequestAction {
   command: ManagementRequestActionCommand;
   at: string;
-  spaceId: string;
-  spaceName: string;
+  /**
+   * Absent exactly for Space-free acts: the personal Library verbs and
+   * personal-scope tools removal. Every Space-bound act names its Space.
+   */
+  spaceId?: string;
+  spaceName?: string;
   /** Resolved absolute source paths for files.add; used to match dispositions. */
   sources?: string[];
   /** Space-relative destinations reported by files.add. */
@@ -29,6 +96,12 @@ export interface ManagementRequestAction {
   spaceRoot?: string;
   conversationId?: string;
   taskId?: string;
+  /**
+   * Staged-act id for consecration staging verbs and `staged cancel`
+   * (docs/fold-consecrations.md): the staged act and its pending decision
+   * share one identity, so the request's action trail can point at the card.
+   */
+  decisionId?: string;
 }
 
 export interface ManagementChildTaskRef {
@@ -136,7 +209,8 @@ export class ManagementRequestRegistry {
     const record = this.#records.get(parentTaskId);
     if (!record || record.actions.length >= maxManagementRequestActions) return null;
     record.actions.push(action);
-    if (action.command === "chat.send" && action.taskId && action.conversationId) {
+    if (action.command === "chat.send" && action.taskId && action.conversationId
+      && action.spaceId !== undefined && action.spaceName !== undefined) {
       record.childTasks.push({
         taskId: action.taskId,
         spaceId: action.spaceId,
@@ -160,6 +234,20 @@ export class ManagementRequestRegistry {
     let latest: ManagementRequestRecord | null = null;
     for (const record of this.#records.values()) latest = record;
     return latest;
+  }
+
+  /**
+   * Every retained request record, oldest first (the registry is already
+   * bounded to the newest hundred). Copies only — the glance and other
+   * projections must never mutate the registry's own records.
+   */
+  list(): ManagementRequestRecord[] {
+    return [...this.#records.values()].map((record) => ({
+      ...record,
+      attachments: [...record.attachments],
+      actions: record.actions.map((action) => ({ ...action })),
+      childTasks: record.childTasks.map((child) => ({ ...child })),
+    }));
   }
 
   latestForConversation(conversationId: string): ManagementRequestRecord | null {

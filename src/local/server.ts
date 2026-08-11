@@ -1,10 +1,12 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createReadStream, existsSync, watch } from "node:fs";
-import { lstat, readdir, rm, stat } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import JSZip from "jszip";
 
 import {
   PiConversationClient,
@@ -39,7 +41,7 @@ import {
   type CapabilitySort,
   type CapabilityType,
 } from "./agent/capability-registry.js";
-import { importPiSkillBundle } from "./agent/skill-import.js";
+import { importPiSkillBundle, piSkillBundleContentDigest } from "./agent/skill-import.js";
 import {
   RegisteredSpaceRuntimeProvider,
   RegisteredSpaceTrustAuthority,
@@ -50,12 +52,22 @@ import {
   type RestrictedAppProposalReceipt,
   type RestrictedAppProposalSettled,
 } from "./agent/restricted-app-proposals.js";
-import { RestrictedAppService } from "./agent/restricted-app-service.js";
+import {
+  RestrictedAppService,
+  restrictedAppAutomationScheduleSummary,
+  type LocalAppInstance,
+  type LocalAppOperation,
+  type LocalAppRelease,
+  type RestrictedAppAutomationRunReceipt,
+  type RestrictedAppInstalled,
+} from "./agent/restricted-app-service.js";
+import type { RestrictedAppNetworkDeclaration } from "./agent/restricted-app-manifest.js";
 import {
   getPiSetupStatus,
   installPiPackage,
   isPiProjectMutationTrusted,
   listPiModels,
+  listPiPackages,
   loginPiOAuth,
   removePiProviderAuth,
   removePiPackage,
@@ -77,6 +89,7 @@ import {
   ManagementRequestRegistry,
   managementAttachmentDispositions,
   type ManagementRequestAction,
+  type ManagementRequestActionCommand,
   type ManagementRequestRecord,
 } from "./management-requests.js";
 import type {
@@ -89,11 +102,14 @@ import {
   createSpaceCheckpoint,
   createSpaceMutationCheckpoint,
   discardSpaceCheckpoint,
+  getSpaceCheckpoint,
   listFileVersions,
   listSpaceCheckpoints,
   restoreFileVersion,
   restoreSpaceCheckpoint,
+  type CheckpointSkippedFile,
   type SpaceCheckpoint,
+  type SpaceFileVersion,
 } from "./history.js";
 import {
   copyResourcesToSpace,
@@ -104,27 +120,156 @@ import {
 import { searchSpace } from "./search.js";
 import { SpaceAppearanceStore } from "./space-appearance-store.js";
 import { conversationTitleFromFirstUserMessage, normalizeConversationTitle } from "../shared/chat-title.js";
-import { spaceAppearanceBannerNames } from "../shared/space-appearance.js";
+import {
+  hasSpaceAppearanceCustomization,
+  parseSpaceAppearanceProposal,
+  spaceAppearanceBannerNames,
+  type SpaceAppearanceCustomization,
+  type SpaceAppearanceProposal,
+} from "../shared/space-appearance.js";
+import type { AppReleasePresentation } from "./agent/app-platform-release.js";
 import { WorkFoldCheckOperationConflictError, WorkFoldCheckService } from "./checks/check-service.js";
 import type { WorkFoldCheckDecisionKind } from "./checks/check-types.js";
 import { purgeWorkFoldCheckState } from "./checks/check-store.js";
+import { resolveWorkFoldCheckTargets } from "./checks/target-resolver.js";
+import {
+  FoldDecisionError,
+  FoldDecisionService,
+  createManagedSpaceDeletionAdapter,
+  createRestrictedAppAutomationEnableAdapter,
+  createRestrictedAppGrantAdapter,
+  createRestrictedAppReviewApproveAdapter,
+  createSkillImportAdapter,
+  foldDecisionRequestId,
+  foldDecisionSurfaceRestrictions,
+  type FoldDecisionAdapters,
+  type FoldDecisionFenceScope,
+  type FoldDecisionMutationFence,
+  type FoldDecisionReceiptsWriter,
+  type FoldStagedActKindAdapter,
+} from "./fold-decisions.js";
+import { foldDecisionCard, type FoldDecisionCard } from "./fold-decision-cards.js";
+import {
+  FOLD_POLICY_CAP,
+  FOLD_POLICY_ELIGIBLE_KINDS,
+  FOLD_POLICY_FIRST_PARTY_REGISTRIES,
+  FOLD_POLICY_LABEL_MAX_CHARS,
+  FOLD_POLICY_MATCHER_DESCRIPTORS,
+  FoldPolicyError,
+  FoldStandingPolicyStore,
+  mintFoldPolicySettingsWriter,
+  type FoldPolicyCategory,
+  type FoldPolicyEligibleKind,
+  type FoldPolicyEvaluation,
+  type FoldPolicyMatch,
+  type FoldPolicySettingsWriter,
+} from "./fold-policies.js";
+import {
+  FoldStagedActError,
+  FoldStagedActStore,
+  foldStagedActCategory,
+  type FoldStagedAct,
+  type FoldStagedActAdmission,
+  type FoldStagedActFields,
+  type FoldStagedActKind,
+  type FoldStagedActProvenance,
+} from "./fold-staged-acts.js";
+import {
+  createWorkFoldGlancePolicyChangeReader,
+  createWorkFoldGlanceRoutingRunReader,
+  parseWorkFoldGlanceCursor,
+  workFoldGlanceChatRecordFromMessages,
+  type WorkFoldGlanceAutomationReceiptRecord,
+  type WorkFoldGlanceAutomationRunRecord,
+  type WorkFoldGlanceCheckSource,
+  type WorkFoldGlanceManagementRequestRecord,
+  type WorkFoldGlanceSettledTurnRecord,
+  type WorkFoldGlanceSourceReaders,
+  type WorkFoldGlanceStagedActRecord,
+  type WorkFoldGlanceViewerGrantEventRecord,
+} from "./glance.js";
+import { WorkFoldGlanceSeenStore, workFoldGlanceRemoteSurfaceId } from "./glance-seen-store.js";
 import { ensureManagementInstructions } from "./management-instructions.js";
+import {
+  WORKFOLD_PUBLICATION_BYTE_BUDGET_DEFAULT,
+  WORKFOLD_PUBLICATION_MAX_SOURCE_BYTES,
+  WORKFOLD_PUBLICATION_SERVE_RATE_DEFAULT,
+  WORKFOLD_PUBLICATION_SOURCE_TYPES,
+  WORKFOLD_PUBLICATION_TITLE_MAX_LENGTH,
+  WorkFoldPublicationError,
+  WorkFoldPublicationService,
+  type WorkFoldPublicationBridgeSync,
+  type WorkFoldPublicationKeyStore,
+  type WorkFoldPublicationView,
+} from "./publications.js";
+import {
+  createRestrictedAppViewerAdapter,
+  type RestrictedAppViewerAdapter,
+} from "./agent/restricted-app-viewer.js";
+import {
+  declarationFromWorkFoldRoutingProposal,
+  normalizeWorkFoldRoutingDeclaration,
+  normalizeWorkFoldRoutingProposal,
+  workFoldRoutingBounds,
+  workFoldRoutingDeclarationKind,
+  workFoldRoutingDigest,
+  workFoldRoutingProposalKind,
+  workFoldRoutingReferencedSpaceIds,
+  type WorkFoldRoutingDeclaration,
+  type WorkFoldRoutingFilesStep,
+} from "./routings/routing-declarations.js";
+import {
+  WorkFoldRoutingService,
+  WorkFoldRoutingServiceError,
+  type WorkFoldRoutingHopPorts,
+} from "./routings/routing-service.js";
+import {
+  WorkFoldRoutingStore,
+  WorkFoldRoutingStoreError,
+  workFoldRoutingReceiptsFile,
+  workFoldRoutingReceiptsRotatedFile,
+  type WorkFoldRoutingRecord,
+} from "./routings/routing-store.js";
+import { WorkFoldSettleSignal } from "./routings/settle-signal.js";
 import {
   configureWorkFoldStateRoot,
   restrictedAppRoot,
   workFoldManagementRoot,
   workFoldManagementScopeId,
+  workFoldStateRoot,
 } from "./state-paths.js";
 import { WorkFoldKernel } from "./work-fold-kernel.js";
+import { WorkFoldCliActReceipts, type WorkFoldCliActReceipt } from "./cli/act-receipts.js";
 import { WorkFoldCliError } from "./cli/protocol.js";
 import type {
+  WorkFoldActAppAutomationRunRef,
+  WorkFoldActAppInstanceRef,
+  WorkFoldActAppOperationRef,
+  WorkFoldActAppPresentation,
+  WorkFoldActAppProposalRef,
+  WorkFoldActAppReleaseRef,
+  WorkFoldActAttachmentDisposition,
+  WorkFoldActChatLifecycleState,
   WorkFoldActChatMessage,
   WorkFoldActChatState,
+  WorkFoldActCheckpointSummary,
   WorkFoldActConversationRef,
   WorkFoldActFacade,
+  WorkFoldActFileVersionRef,
+  WorkFoldActLibraryItem,
   WorkFoldActManagementRequest,
   WorkFoldActManagementRequestPhase,
+  WorkFoldActPublicationRef,
+  WorkFoldActRoutingDetail,
+  WorkFoldActRoutingReceipt,
+  WorkFoldActRoutingStepView,
+  WorkFoldActRoutingSummary,
+  WorkFoldActRoutingTriggerRef,
   WorkFoldActSpaceRef,
+  WorkFoldActStagedActDetail,
+  WorkFoldActStagedActSummary,
+  WorkFoldActStagedAutoApproval,
+  WorkFoldActStagedDecision,
   WorkFoldActTurnStatus,
 } from "./cli/act-facade.js";
 import { resolveWorkFoldCliSpaceSelector } from "./work-fold-cli-adapter.js";
@@ -133,6 +278,7 @@ import {
   loadLocalEnvironmentFile,
 } from "./server-dev-options.js";
 import { isAlwaysHiddenSpaceEntry, isSpaceIgnored, readSpaceIgnoreState, setSpaceIgnoreState } from "./space-ignore.js";
+import { containsReservedSpacePathSegment } from "./space-path-policy.js";
 import { canonicalSpaceWatchRoot } from "./space-watch.js";
 import {
   beginSpaceRemoval,
@@ -159,7 +305,9 @@ import {
   writeSpaceTextFile,
   writeUploadedFiles,
   type SpaceRemovalIo,
+  type SpaceRemovalResult,
   type SpaceSummary,
+  type TreeEntry,
 } from "./space.js";
 
 export interface LocalFolderGrantProvider {
@@ -189,6 +337,34 @@ export interface LocalApiOptions {
   kernel?: WorkFoldKernel;
   /** Shared with the desktop read CLI and interactive act facade. */
   checkService?: WorkFoldCheckService;
+  /**
+   * The one in-process settle seam between the Check and restricted-app
+   * settlement funnels and the routing executor. Supply the same instance to
+   * an injected checkService/restrictedAppService so their settles reach
+   * routing triggers; when absent, the API creates one for the services it
+   * constructs itself.
+   */
+  settleSignal?: WorkFoldSettleSignal;
+  /**
+   * The act lane's durable receipts journal (the fold's one ledger). Supply
+   * the desktop CLI host's instance so decisions, publications, and CLI acts
+   * share one file and one at-most-once gate; when absent, the API constructs
+   * one over the same state-root path the host uses.
+   */
+  actReceipts?: WorkFoldCliActReceipts;
+  /** Test seam for the staged-act store; defaults to the state-root store. */
+  foldStagedActStore?: FoldStagedActStore;
+  /** Test seam for the standing-policy store; defaults to the state-root store. */
+  foldPolicyStore?: FoldStandingPolicyStore;
+  /**
+   * Publication page keys. The desktop passes the operating-system-encrypted
+   * secure-settings store (`desktop/src/settings.ts`); without one, keys live
+   * only in memory for this app run — honest for development, never for a
+   * shipped desktop.
+   */
+  publicationKeys?: WorkFoldPublicationKeyStore;
+  /** The bridge slot-sync lane; absent while Remote access is unconfigured. */
+  publicationBridge?: WorkFoldPublicationBridgeSync | null;
   /** Shared with the desktop kernel so registry trust changes apply everywhere. */
   spaceTrustAuthority?: RegisteredSpaceTrustAuthority;
   localFolderGrantProvider?: LocalFolderGrantProvider;
@@ -222,6 +398,26 @@ export interface LocalApiHandle {
   remoteFacade: WorkFoldRemoteFacade;
   /** Validates an explicitly named management parent while its turn is active. */
   resolveManagementLineageParent: (taskId: string) => { taskId: string } | null;
+  /** Staged consecrations awaiting a person's decision (docs/fold-consecrations.md). */
+  stagedActs: FoldStagedActStore;
+  /**
+   * The person-authored standing policies (docs/fold-consecrations.md
+   * §Standing policies). Reading and citing is open; every mutation demands
+   * the Settings writer, which is minted once inside the API and handed only
+   * to the renderer-session Settings routes — never to this handle, the act
+   * facade, or the remote facade.
+   */
+  foldPolicies: FoldStandingPolicyStore;
+  /**
+   * The consecration decision path, for the desktop renderer/popover session
+   * routes and the approved remote browser's signed envelope. Deliberately
+   * not an act-lane verb; the act facade never reaches it.
+   */
+  foldDecisions: FoldDecisionService;
+  /** The routing executor (docs/fold-routings.md), for the desktop surfaces and lifecycle wiring. */
+  routings: WorkFoldRoutingService;
+  /** The publication authority (docs/fold-publishing.md rung 2); the desktop wires it as the remote viewer-page provider. */
+  publications: WorkFoldPublicationService;
   close: () => Promise<void>;
 }
 
@@ -240,6 +436,58 @@ interface LocalApiState {
   appearance: SpaceAppearanceStore;
   kernel: WorkFoldKernel;
   checks: WorkFoldCheckService;
+  settleSignal: WorkFoldSettleSignal;
+  actReceipts: WorkFoldCliActReceipts;
+  stagedActs: FoldStagedActStore;
+  /**
+   * Exactly one standing-policy store and exactly one minted Settings writer
+   * per API. The writer exists so policy authoring is structurally a
+   * desktop-Settings act (never-list entry 4): only the renderer-session
+   * Settings routes pass it to the store, the act facade and remote facade
+   * have no policy mutation surface at all, and the fold can cite policies
+   * through reads that need no writer.
+   */
+  foldPolicies: FoldStandingPolicyStore;
+  foldPolicyWriter: FoldPolicySettingsWriter;
+  /**
+   * Label snapshots for in-flight policy exercises, keyed by staged-act id:
+   * registered immediately before the host-side decision runs so the decision
+   * receipts can carry the exercised policy's label exactly as it read at
+   * exercise time, and removed when the exercise settles.
+   */
+  policyLabelSnapshots: Map<string, string>;
+  publications: WorkFoldPublicationService;
+  /**
+   * The rung-3 viewer adapter: exposure resolution for staging and decision
+   * recheck, and the viewer-safe serve path the publication service drives.
+   */
+  restrictedAppViewer: RestrictedAppViewerAdapter;
+  /**
+   * Person-chosen Space-relative roots for pending `app.grant.files`
+   * decisions, keyed by staged-act id: registered by the renderer decide
+   * route immediately before the host-side decision runs and removed when it
+   * settles. The staged card pins the reviewed declaration only; the root is
+   * the decision-time supplement the desktop folder picker supplies
+   * (docs/fold-consecrations.md), so the grant adapter's resolver reads it
+   * here and an approval that carries none stays honestly ineligible.
+   */
+  fileGrantRootChoices: Map<string, string>;
+  /**
+   * The same key store the publication service encrypts with, held so the
+   * renderer-session Settings routes can compose a share link on demand
+   * (docs/fold-publishing.md: the link is composed from secure settings and
+   * shown transiently; it appears in no receipt, journal, log, or glance
+   * item). Only the reveal route reads it; nothing else on this state may.
+   */
+  publicationKeys: WorkFoldPublicationKeyStore;
+  glanceSeen: WorkFoldGlanceSeenStore;
+  /**
+   * Constructed in a second phase after the state object exists, because the
+   * decision fence, adapters, and routing hop ports close over this state.
+   * Both are assigned before the server accepts a request.
+   */
+  foldDecisions: FoldDecisionService;
+  routings: WorkFoldRoutingService;
   spaceTrustAuthority: RegisteredSpaceTrustAuthority;
   managementInstructionsError: string | null;
   localFolderGrantProvider?: LocalFolderGrantProvider;
@@ -259,6 +507,8 @@ interface LocalApiState {
   spaceIdsByRoot: Map<string, string>;
   extensionRequests: Map<string, PiExtensionUiRequest>;
   fileStreams: Set<() => void>;
+  /** In-process observers of turn-boundary History checkpoints (routing chat hops). */
+  turnCheckpointListeners: Set<(event: TurnCheckpointEvent) => void>;
   activeTurns: number;
   onAgentTurnActivity?: (activeTurns: number) => void;
   beforeAgentPrompt?: LocalApiOptions["beforeAgentPrompt"];
@@ -280,6 +530,13 @@ interface SettledTurnRecord {
   endedAt: string;
   messageId?: string;
   error?: string;
+}
+
+interface TurnCheckpointEvent {
+  spaceId: string;
+  conversationId: string;
+  reason: "pre_turn" | "post_turn";
+  checkpointId: string;
 }
 
 interface MultipartFile {
@@ -329,11 +586,12 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     service: restrictedApps,
     registryPath: join(restrictedAppRoot(), "proposals.json"),
   });
-  const recoveredSpaceRoots = await recoverPendingSpaceRemovals(
+  const recoveredRemovals = await recoverPendingSpaceRemovals(
     restrictedApps,
     restrictedAppProposals,
     options.spaceRemovalIo ?? {},
   );
+  const recoveredSpaceRoots = recoveredRemovals.spaceRoots;
   const pendingSpaceIds = (await listPendingSpaceRemovals()).map((intent) => intent.spaceId);
   const appearance = options.appearanceStore ?? await SpaceAppearanceStore.create({
     normalize: { allowedBannerNames: new Set(spaceAppearanceBannerNames) },
@@ -359,7 +617,46 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   });
   const runtimeProvider = new RegisteredSpaceRuntimeProvider(extensionRuntimeProvider, spaceTrustAuthority);
   const kernel = options.kernel ?? new WorkFoldKernel({ runtimeProvider });
-  const checks = options.checkService ?? new WorkFoldCheckService({ kernel });
+  const settleSignal = options.settleSignal ?? new WorkFoldSettleSignal();
+  const checks = options.checkService ?? new WorkFoldCheckService({ kernel, settleSignal });
+  // The fold's one ledger: the same act-receipts journal the desktop CLI host
+  // appends. Both instances write the identical state-root path, so decisions
+  // and publications land in the journal the act lane already audits.
+  const actReceipts = options.actReceipts ?? new WorkFoldCliActReceipts({ stateRoot: workFoldStateRoot() });
+  const stagedActs = options.foldStagedActStore ?? await FoldStagedActStore.create();
+  const foldPolicies = options.foldPolicyStore ?? await FoldStandingPolicyStore.create();
+  const routingStore = await WorkFoldRoutingStore.create();
+  const publicationKeys = options.publicationKeys ?? createEphemeralPublicationKeyStore();
+  // The rung-3 viewer adapter (docs/fold-publishing.md): the viewer-safe
+  // broker subset enforced desktop-side over the same installed-instance
+  // authority the sandboxed host uses. Storage reads are the service's
+  // bounded read lane; without desktop storage, data reads refuse honestly
+  // while reviewed assets keep serving.
+  const restrictedAppViewer = createRestrictedAppViewerAdapter({
+    resolveInstance: async (appInstanceId) => (await restrictedApps.findByFeatureInstallationAnywhere(appInstanceId)) ?? null,
+    storage: restrictedApps.viewerStorageReads() ?? {
+      keys: async () => {
+        throw new Error("Restricted app storage requires the work-fold desktop host.");
+      },
+      get: async () => {
+        throw new Error("Restricted app storage requires the work-fold desktop host.");
+      },
+    },
+  });
+  const publications = await WorkFoldPublicationService.create({
+    keys: publicationKeys,
+    receipts: actReceipts,
+    resolveSpaceRoot: async (spaceId) => {
+      try {
+        return (await getSpace(spaceId)).spaceRoot;
+      } catch {
+        return null;
+      }
+    },
+    bridge: options.publicationBridge ?? null,
+    apps: restrictedAppViewer,
+  });
+  const glanceSeen = new WorkFoldGlanceSeenStore();
   const state: LocalApiState = {
     appMode,
     spaceBase: options.spaceBase ? resolve(options.spaceBase) : undefined,
@@ -375,6 +672,21 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     appearance,
     kernel,
     checks,
+    settleSignal,
+    actReceipts,
+    stagedActs,
+    foldPolicies,
+    foldPolicyWriter: mintFoldPolicySettingsWriter(),
+    policyLabelSnapshots: new Map(),
+    publications,
+    restrictedAppViewer,
+    fileGrantRootChoices: new Map(),
+    publicationKeys,
+    glanceSeen,
+    // Assigned in the second construction phase below, before the server
+    // listens; their fences and hop ports close over this state object.
+    foldDecisions: undefined as unknown as FoldDecisionService,
+    routings: undefined as unknown as WorkFoldRoutingService,
     spaceTrustAuthority,
     managementInstructionsError,
     localFolderGrantProvider: options.localFolderGrantProvider,
@@ -394,12 +706,74 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     spaceIdsByRoot: new Map(),
     extensionRequests: new Map(),
     fileStreams: new Set(),
+    turnCheckpointListeners: new Set(),
     activeTurns: 0,
     onAgentTurnActivity: options.onAgentTurnActivity,
     beforeAgentPrompt: options.beforeAgentPrompt,
     beforeManagementActionRecord: options.beforeManagementActionRecord,
     onHistoryCheckpoint: options.onHistoryCheckpoint,
   };
+
+  // Second construction phase: the decision path and the routing executor
+  // close over the shared state (capability-mutation fences, live route
+  // internals), so they are built once it exists and before the server
+  // listens.
+  state.foldDecisions = new FoldDecisionService({
+    store: stagedActs,
+    receipts: createPolicyLabelAwareDecisionReceipts(state),
+    kernel,
+    fence: createFoldDecisionFence(state),
+    adapters: createFoldDecisionAdapters(state),
+  });
+  state.routings = await WorkFoldRoutingService.create({
+    store: routingStore,
+    ports: createRoutingHopPorts(state),
+    settleSignal,
+    tasks: {
+      start: ({ routingId, runId }) =>
+        kernel.startExperimentalRoutingRunTask({ routingId, runId, actor: { kind: "system" } }),
+      finish: (taskId) => {
+        kernel.finishTask(taskId);
+      },
+    },
+  });
+  // Space removals that finalized (or remain pending) while the app was not
+  // running still revoke standing authority: suspend routings referencing the
+  // removed Spaces and cancel their pending staged cards, best-effort — both
+  // stores already fail closed on damage.
+  for (const spaceId of new Set([...recoveredRemovals.spaceIds, ...pendingSpaceIds])) {
+    await state.routings.handleSpaceRemoved(spaceId).catch(() => undefined);
+    await stagedActs.cancelForSpace(spaceId).catch(() => undefined);
+  }
+  // Complete interrupted publication work (key mints, bridge slot syncs);
+  // with no bridge configured everything stays honestly pending.
+  await publications.redriveBridgeSync().catch(() => undefined);
+  kernel.configureGlance({
+    sources: createServerGlanceSources(state),
+    readSeen: () => glanceSeen.seenCursors(),
+  });
+  // History-restore fence readers (docs/fold-act-ledger.md, conflict rule 7):
+  // the kernel's routing_run tasks come from this API's own task port, and
+  // this reader resolves each active run's declared files-hop targets from
+  // the routing store. The restricted-app half reads the registry's durable
+  // accepted-run ledger through the machine-wide accessor; a run whose
+  // file-grant authority cannot be resolved (fileGrantIds null) blocks too —
+  // vanished authority must never read as none while the run is live.
+  kernel.configureHistoryRestoreFence({
+    sources: {
+      routingRunFilesHopTargets: async (routingId) => {
+        const routing = await state.routings.getRouting(routingId);
+        if (!routing) return null;
+        return routing.declaration.steps
+          .filter((step): step is WorkFoldRoutingFilesStep => step.kind === "files")
+          .map((step) => step.toSpace);
+      },
+      automationRunsWithFileGrantInto: async (spaceId) =>
+        (await state.restrictedApps.listActiveAutomationRuns())
+          .filter((run) => run.spaceId === spaceId && (run.fileGrantIds === null || run.fileGrantIds.length > 0))
+          .map((run) => ({ appId: run.appId, automationId: run.automationId, runId: run.runId })),
+    },
+  });
 
   const requestListener = (request: PiExtensionUiRequest) => routeExtensionRequest(state, request);
   const eventListener = (event: PiExtensionUiEvent) => routeExtensionEvent(state, event);
@@ -441,6 +815,11 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     actFacade: createWorkFoldActFacade(state),
     remoteFacade: createWorkFoldRemoteFacade(state),
     resolveManagementLineageParent: (taskId) => state.managementRequests.isActive(taskId) ? { taskId } : null,
+    stagedActs,
+    foldPolicies,
+    foldDecisions: state.foldDecisions,
+    routings: state.routings,
+    publications,
     close: async () => {
       clearInterval(remoteUploadPruneTimer);
       extensionUi.off("request", requestListener);
@@ -449,6 +828,11 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       restrictedAppProposals.off("request", proposalListener);
       restrictedAppProposals.off("settled", proposalSettledListener);
       extensionUi.cancelAll();
+      // Stop the routing executor first: it aborts active runs (they settle
+      // with honest interrupted/stopped receipts through their own domains),
+      // and the drained turn promises below carry any aborted chat hops to
+      // their settled records.
+      state.routings.close();
       for (const streams of state.chatStreams.values()) for (const response of streams) response.end();
       for (const close of [...state.fileStreams]) close();
       for (const client of state.clients.values()) await client.stop().catch(() => undefined);
@@ -606,54 +990,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   }
   if (spaceMatch && method === "DELETE") {
     const space = await getSpace(spaceMatch[1]);
-    const affectedSpaceIds = await state.restrictedApps.spaceRemovalMutationSpaceIds(space.id);
-    const removal = await runRestrictedAppMutations(state, affectedSpaceIds, async () => {
-      const releaseCheckRemoval = state.checks.tryReserveSpaceRemoval(space.id);
-      if (!releaseCheckRemoval) throw httpError(409, "Wait for the current Check operation before removing this Space.");
-      try {
-        const impact = await state.restrictedApps.spaceRemovalImpact(space.id);
-        if (impact.activeSourceInstanceCount > 0 || impact.activeTargetInstanceCount > 0) {
-          throw badRequest("Uninstall release-backed Apps from this Space before removing it.");
-        }
-        if (impact.retainedDataCount > 0) {
-          throw badRequest("Purge this App Project's retained local data in App Studio before removing its source Space.");
-        }
-        const intent = await beginSpaceRemoval(space.id, state.spaceBase, state.spaceRemovalIo);
-        state.restrictedApps.fenceSpaceRemoval(space.id);
-        state.spaceTrustAuthority.revoke(space.spaceRoot);
-        state.spaceIdsByRoot.delete(spaceRootKey(space.spaceRoot));
-        await invalidateWorkFoldClients(state, space.id);
-        closeSpaceStreams(state, space.id);
-        for (const request of [...state.extensionRequests.values()]) {
-          if (request.spaceRoot !== space.spaceRoot) continue;
-          state.extensionUi.cancel(request.id);
-          state.extensionRequests.delete(request.id);
-        }
-        try {
-          await state.checks.removeSpace(space.id);
-        } catch {
-          return spaceRemovalPendingResult(intent);
-        }
-        try {
-          await state.restrictedApps.removeSpace(space.id);
-          await state.restrictedAppProposals.removeSpace(space.id);
-        } catch {
-          return spaceRemovalPendingResult(intent);
-        }
-        try {
-          await markSpaceRemovalAppStateRemoved(intent.spaceId, state.spaceRemovalIo);
-        } catch {
-          return spaceRemovalPendingResult(intent);
-        }
-        const result = await finalizeSpaceRemoval(intent.spaceId, state.spaceRemovalIo);
-        if (!result.cleanupPending) await state.appearance.removeSpace(space.id);
-        if (!result.cleanupPending) state.restrictedApps.releaseSpaceRemovalFence(space.id);
-        return result;
-      } finally {
-        releaseCheckRemoval();
-      }
-    }, { requiredSpaceIds: [space.id] });
-    sendJson(res, removal);
+    sendJson(res, await removeSpaceRegistrationInternal(state, space));
     return;
   }
 
@@ -1834,6 +2171,277 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
 
+  // Needs-you decision surface (docs/fold-consecrations.md): renderer/popover
+  // session routes over the same host-composed card contract every surface
+  // renders (fold integration reconciliation 6). Deciding is deliberately NOT
+  // an act-lane verb: these routes exist only on the renderer session — the
+  // act facade and the act CLI never reach them — and the only decision
+  // surfaces they accept are the two desktop ones. The routes stay available
+  // while the management conversation is not (a pending card outlives any
+  // conversation state), and the glance's needs-you items reference the same
+  // pending records by the same ids.
+  if (url.pathname === "/api/management/decisions" && method === "GET") {
+    try {
+      const acts = await state.stagedActs.list({ state: "staged" });
+      const cards = await composeDecisionCards(acts);
+      // Soonest expiry first, matching the glance's needs-you ordering.
+      cards.sort((left, right) =>
+        compareIsoStrings(left.expiresAt, right.expiresAt) || compareIsoStrings(left.id, right.id));
+      sendJson(res, { decisions: cards });
+    } catch (error) {
+      sendFoldDecisionError(res, error);
+    }
+    return;
+  }
+  const decisionDecideMatch = match(url.pathname, /^\/api\/management\/decisions\/([^/]+)\/decide$/);
+  if (decisionDecideMatch && method === "POST") {
+    const body = await readJsonBody<{ decision?: unknown; surface?: unknown; note?: unknown; fileGrantRoot?: unknown }>(state, req);
+    if (body.decision !== "approved" && body.decision !== "denied") {
+      throw badRequest("The decision must be approved or denied.");
+    }
+    // Surface attribution is the compensating control on decision receipts:
+    // this renderer lane records exactly which desktop surface clicked.
+    // `remote_web` arrives only through the approved browser's signed
+    // envelope, and `policy` only from host-side evaluation — neither is
+    // acceptable from a renderer request.
+    if (body.surface !== "popover" && body.surface !== "main-window") {
+      throw badRequest("The decision surface must be popover or main-window.");
+    }
+    if (body.note !== undefined && typeof body.note !== "string") {
+      throw badRequest("A denial note must be a string.");
+    }
+    if (body.note !== undefined && body.decision !== "denied") {
+      throw badRequest("A note is offered only with a denial.");
+    }
+    // The app.grant.files decision-time supplement: the person-chosen
+    // Space-relative root from the desktop folder picker
+    // (docs/fold-consecrations.md). Renderer-session approvals only — the
+    // remote decide operation carries no root, so remote approvals of file
+    // grants stay honestly ineligible rather than granting a root no card
+    // ever showed.
+    if (body.fileGrantRoot !== undefined && body.decision !== "approved") {
+      throw badRequest("A chosen folder accompanies only an approval.");
+    }
+    const fileGrantRoot = body.fileGrantRoot !== undefined ? decisionFileGrantRoot(body.fileGrantRoot) : undefined;
+    if (fileGrantRoot !== undefined) state.fileGrantRootChoices.set(decisionDecideMatch[1], fileGrantRoot);
+    try {
+      const result = await state.foldDecisions.decide(decisionDecideMatch[1], {
+        decision: body.decision,
+        surface: body.surface,
+        ...(body.note !== undefined && body.note.trim() ? { note: body.note } : {}),
+      });
+      sendJson(res, {
+        decision: (await composeDecisionCards([result.act]))[0],
+        receipted: result.receipted,
+      });
+    } catch (error) {
+      sendFoldDecisionError(res, error);
+    } finally {
+      if (fileGrantRoot !== undefined) state.fileGrantRootChoices.delete(decisionDecideMatch[1]);
+    }
+    return;
+  }
+  const decisionCancelMatch = match(url.pathname, /^\/api\/management\/decisions\/([^/]+)\/cancel$/);
+  if (decisionCancelMatch && method === "POST") {
+    await readJsonBody<Record<string, never>>(state, req);
+    try {
+      const act = await state.stagedActs.cancel(decisionCancelMatch[1]);
+      sendJson(res, { decision: (await composeDecisionCards([act]))[0] });
+    } catch (error) {
+      sendFoldDecisionError(res, error);
+    }
+    return;
+  }
+
+  // The glance (docs/fold-glance.md): the app-composed digest for the popover
+  // and the main window, on the renderer session. Deliberately no
+  // management-readiness gate — the digest reads recorded state, not the
+  // management Pi session, so it stays available even when management
+  // commands fail closed; only narration needs the conversation.
+  if (url.pathname === "/api/management/glance" && method === "GET") {
+    sendJson(res, { glance: await state.kernel.getGlance({ kind: "renderer" }) });
+    return;
+  }
+  if (url.pathname === "/api/management/glance/seen" && method === "POST") {
+    const body = await readJsonBody<{ surface?: unknown; cursor?: unknown }>(state, req);
+    // The renderer lane advances only the two desktop surfaces. Remote
+    // `remote:<grantId>` markers advance exclusively through the approved
+    // browser's signed envelope (`management.glanceSeen`), so one surface can
+    // never acknowledge for another.
+    if (body.surface !== "popover" && body.surface !== "main-window") {
+      throw badRequest("The glance surface must be popover or main-window.");
+    }
+    if (typeof body.cursor !== "string" || !parseWorkFoldGlanceCursor(body.cursor)) {
+      throw badRequest("A rendered glance cursor is required to mark seen.");
+    }
+    // Monotonic by construction: fetching never advances a marker, a replayed
+    // or backward advance is a no-op, and a failed write only leaves items
+    // rendering as new.
+    sendJson(res, await state.glanceSeen.advance(body.surface, body.cursor));
+    return;
+  }
+
+  // Standing policies (docs/fold-consecrations.md §Standing policies):
+  // authoring is a desktop-human act in Settings → The fold, so these routes
+  // exist only on the renderer session and hold the one minted Settings
+  // writer. Refusal elsewhere is by construction, not by filter: the act
+  // facade has no policy methods, the act CLI has no policy verbs, and the
+  // remote operation vocabulary has no policy operation — standing-policy
+  // authoring is never-list entry 4, and the fold may cite policies (reads,
+  // exercised receipts) but never write them.
+  if (url.pathname === "/api/settings/fold-policies" && method === "GET") {
+    try {
+      let policies: Awaited<ReturnType<FoldStandingPolicyStore["list"]>> = [];
+      try {
+        policies = await state.foldPolicies.list();
+      } catch (error) {
+        // A damaged store still renders in Settings: status says why every
+        // policy is disabled, and recovery happens outside the product.
+        if (!(error instanceof FoldPolicyError && error.code === "STORE_DAMAGED")) throw error;
+      }
+      sendJson(res, {
+        policies,
+        status: state.foldPolicies.status(),
+        contract: foldPolicySettingsContract(),
+      });
+    } catch (error) {
+      sendFoldPolicyError(res, error);
+    }
+    return;
+  }
+  if (url.pathname === "/api/settings/fold-policies" && method === "POST") {
+    const body = await readJsonBody<{ label?: unknown; kind?: unknown; match?: unknown; enabled?: unknown }>(state, req);
+    try {
+      const policy = await state.foldPolicies.createPolicy(state.foldPolicyWriter, {
+        label: String(body.label ?? ""),
+        kind: body.kind as FoldPolicyEligibleKind,
+        match: foldPolicyMatchInput(body.match),
+        ...(body.enabled !== undefined ? { enabled: body.enabled as boolean } : {}),
+      });
+      sendJson(res, { policy, status: state.foldPolicies.status() }, 201);
+    } catch (error) {
+      sendFoldPolicyError(res, error);
+    }
+    return;
+  }
+  if (url.pathname === "/api/settings/fold-policies/reattest" && method === "POST") {
+    await readJsonBody<Record<string, never>>(state, req);
+    try {
+      sendJson(res, { status: await state.foldPolicies.reattest(state.foldPolicyWriter) });
+    } catch (error) {
+      sendFoldPolicyError(res, error);
+    }
+    return;
+  }
+  const policyEnableMatch = match(url.pathname, /^\/api\/settings\/fold-policies\/([^/]+)\/(enable|disable)$/);
+  if (policyEnableMatch && method === "POST") {
+    await readJsonBody<Record<string, never>>(state, req);
+    try {
+      const policy = await state.foldPolicies.setPolicyEnabled(
+        state.foldPolicyWriter,
+        policyEnableMatch[1],
+        policyEnableMatch[2] === "enable",
+      );
+      sendJson(res, { policy, status: state.foldPolicies.status() });
+    } catch (error) {
+      sendFoldPolicyError(res, error);
+    }
+    return;
+  }
+  const policyMatch = match(url.pathname, /^\/api\/settings\/fold-policies\/([^/]+)$/);
+  if (policyMatch && method === "PATCH") {
+    const body = await readJsonBody<{ label?: unknown; match?: unknown }>(state, req);
+    try {
+      const policy = await state.foldPolicies.updatePolicy(state.foldPolicyWriter, policyMatch[1], {
+        ...(body.label !== undefined ? { label: String(body.label) } : {}),
+        ...(body.match !== undefined ? { match: foldPolicyMatchInput(body.match) } : {}),
+      });
+      sendJson(res, { policy, status: state.foldPolicies.status() });
+    } catch (error) {
+      sendFoldPolicyError(res, error);
+    }
+    return;
+  }
+  if (policyMatch && method === "DELETE") {
+    try {
+      const policy = await state.foldPolicies.removePolicy(state.foldPolicyWriter, policyMatch[1]);
+      sendJson(res, { policy, status: state.foldPolicies.status() });
+    } catch (error) {
+      sendFoldPolicyError(res, error);
+    }
+    return;
+  }
+
+  // Pages your fold serves (docs/fold-publishing.md, plan item 5): the
+  // desktop Settings surface over the publication authority. Reads list the
+  // grant records with their budgets, tallies, and health notes; the
+  // narrowing verbs — revoke, cut budgets, snapshot off — are direct
+  // receipted acts minted with a per-request id and the main-window surface.
+  // Widening has no route here: a new slot, raised budgets, or snapshot-on
+  // is a fresh consecration staged through the fold and decided on a
+  // needs-you card. The reveal route composes the share link's secret
+  // fragment on demand from the key store and returns it transiently — it is
+  // never listed, journaled, or logged.
+  if (url.pathname === "/api/settings/publications" && method === "GET") {
+    try {
+      const status = state.publications.status();
+      const views = status.damaged ? [] : await state.publications.list();
+      const publications = [];
+      for (const view of views) {
+        const registered = await getSpace(view.spaceId).catch(() => null);
+        publications.push({ ...view, ...(registered ? { spaceName: registered.name } : {}) });
+      }
+      sendJson(res, { publications, status });
+    } catch (error) {
+      sendFoldPublicationError(res, error);
+    }
+    return;
+  }
+  const publicationSettingsMatch = match(url.pathname, /^\/api\/settings\/publications\/([^/]+)\/(reveal-link|revoke|narrow|snapshot-off)$/);
+  if (publicationSettingsMatch && method === "POST") {
+    const publicationId = publicationSettingsMatch[1];
+    const action = publicationSettingsMatch[2];
+    try {
+      if (action === "reveal-link") {
+        await readJsonBody<Record<string, never>>(state, req);
+        const view = await state.publications.get(publicationId);
+        if (!view || view.state !== "active") {
+          sendJson(res, { error: "This page is not shared right now." }, 404);
+          return;
+        }
+        const key = await state.publicationKeys.get(publicationId);
+        if (!key) {
+          sendJson(res, { error: "The page key is missing from secure settings; stop sharing and share the page again." }, 409);
+          return;
+        }
+        sendJson(res, { viewerPath: view.viewerPath, key });
+        return;
+      }
+      // A per-request id keeps each Settings act its own journal entry;
+      // surface main-window records where the human clicked.
+      const context = { requestId: `settings:${randomUUID()}`, surface: "main-window" as const };
+      if (action === "revoke") {
+        await readJsonBody<Record<string, never>>(state, req);
+        sendJson(res, { publication: await state.publications.revoke(publicationId, context) });
+        return;
+      }
+      if (action === "snapshot-off") {
+        await readJsonBody<Record<string, never>>(state, req);
+        sendJson(res, { publication: await state.publications.disableSnapshot(publicationId, context) });
+        return;
+      }
+      const body = await readJsonBody<{ serveRatePerMinute?: unknown; byteBudgetPerDay?: unknown }>(state, req);
+      const narrowInput: { serveRatePerMinute?: number; byteBudgetPerDay?: number } = {};
+      if (body.serveRatePerMinute !== undefined) narrowInput.serveRatePerMinute = Number(body.serveRatePerMinute);
+      if (body.byteBudgetPerDay !== undefined) narrowInput.byteBudgetPerDay = Number(body.byteBudgetPerDay);
+      sendJson(res, { publication: await state.publications.narrowBudgets(publicationId, narrowInput, context) });
+      return;
+    } catch (error) {
+      sendFoldPublicationError(res, error);
+    }
+    return;
+  }
+
   const extensionResponseMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/conversations\/([^/]+)\/extension-ui\/([^/]+)$/);
   if (method === "POST" && extensionResponseMatch) {
     const space = await getSpace(extensionResponseMatch[1]);
@@ -1867,7 +2475,8 @@ async function acceptConversationTurn(
     content: string;
     contextPaths: string[];
     selectedPath: string | null;
-    actorKind: "assistant" | "cli" | "renderer";
+    /** `system` marks turns app code dispatches (routing chat hops). */
+    actorKind: "assistant" | "cli" | "renderer" | "system";
     /** Management-scope reference attachments; never used for Space Chats. */
     managementAttachments?: ManagementAttachmentRef[];
     /** Previous needs-you request whose audit trail this reply continues. */
@@ -1972,7 +2581,107 @@ async function createSpaceInternal(state: LocalApiState, name: string): Promise<
 async function registerSpaceInternal(state: LocalApiState, rootPath: string, providerHint?: "google-drive"): Promise<SpaceSummary> {
   const space = await registerLinkedSpace(rootPath, providerHint);
   state.spaceTrustAuthority.grant(space.spaceRoot);
+  // Copy-level note when a suspended routing's missing Space returns with its
+  // portable identity; the routing stays suspended — registration never
+  // silently re-arms standing behavior — so a failure to note it is tolerable.
+  await state.routings.handleSpaceReRegistered(space.id).catch(() => undefined);
   return space;
+}
+
+/**
+ * The one Space-removal path, shared by the desktop DELETE route, the staged
+ * `space.delete-folder` decision, and the act facade's `spaces unregister`:
+ * App Studio impact checks, the durable removal intent, runtime-authorization
+ * revocation, per-service app-state cleanup with the crash-safe pending
+ * result, and finalization. A linked registration removal always leaves the
+ * folder and its portable `.work-fold/` identity in place; a managed Space
+ * deletes its folder tree unless the caller passes the preserve disposition
+ * (the act lane's `spaces unregister`), which records an intent that provably
+ * holds no deletion authority.
+ */
+async function removeSpaceRegistrationInternal(
+  state: LocalApiState,
+  space: SpaceSummary,
+  options: { managedFolderDisposition?: "delete" | "preserve" } = {},
+): Promise<SpaceRemovalResult> {
+  const affectedSpaceIds = await state.restrictedApps.spaceRemovalMutationSpaceIds(space.id);
+  return runRestrictedAppMutations(state, affectedSpaceIds, async () => {
+    const releaseCheckRemoval = state.checks.tryReserveSpaceRemoval(space.id);
+    if (!releaseCheckRemoval) throw httpError(409, "Wait for the current Check operation before removing this Space.");
+    try {
+      const impact = await state.restrictedApps.spaceRemovalImpact(space.id);
+      if (impact.activeSourceInstanceCount > 0 || impact.activeTargetInstanceCount > 0) {
+        throw badRequest("Uninstall release-backed Apps from this Space before removing it.");
+      }
+      if (impact.retainedDataCount > 0) {
+        throw badRequest("Purge this App Project's retained local data in App Studio before removing its source Space.");
+      }
+      // Outward exposure blocks removal: a page served from this Space must be
+      // revoked first, and a damaged publication store cannot prove the Space
+      // is unpublished, so both refuse here before any state changes.
+      let livePublications;
+      try {
+        livePublications = await state.publications.activePublicationsForSpace(space.id);
+      } catch (error) {
+        throw httpError(409, errorMessage(error));
+      }
+      if (livePublications.length) {
+        const named = livePublications.slice(0, 3).map((publication) => `"${publication.title}"`).join(", ");
+        const more = livePublications.length > 3 ? ", …" : "";
+        throw badRequest(
+          `Stop sharing ${livePublications.length === 1 ? "the page" : `${livePublications.length} pages`} `
+            + `served from this Space before removing it: ${named}${more}.`,
+        );
+      }
+      const intent = await beginSpaceRemoval(space.id, state.spaceBase, state.spaceRemovalIo, {
+        ...(options.managedFolderDisposition ? { folderDisposition: options.managedFolderDisposition } : {}),
+      });
+      state.restrictedApps.fenceSpaceRemoval(space.id);
+      state.spaceTrustAuthority.revoke(space.spaceRoot);
+      state.spaceIdsByRoot.delete(spaceRootKey(space.spaceRoot));
+      await invalidateWorkFoldClients(state, space.id);
+      closeSpaceStreams(state, space.id);
+      for (const request of [...state.extensionRequests.values()]) {
+        if (request.spaceRoot !== space.spaceRoot) continue;
+        state.extensionUi.cancel(request.id);
+        state.extensionRequests.delete(request.id);
+      }
+      try {
+        await state.checks.removeSpace(space.id);
+      } catch {
+        return spaceRemovalPendingResult(intent);
+      }
+      // The same revocation moment as Check authority: enabled routings
+      // referencing this Space suspend (their active runs stop), and pending
+      // staged cards pinned to it are canceled. Suspension failing leaves the
+      // durable intent pending — startup retries the cascade; the staged-act
+      // cascade is best-effort because a damaged store already fails staging
+      // and deciding closed.
+      try {
+        await state.routings.handleSpaceRemoved(space.id);
+      } catch {
+        return spaceRemovalPendingResult(intent);
+      }
+      await state.stagedActs.cancelForSpace(space.id).catch(() => undefined);
+      try {
+        await state.restrictedApps.removeSpace(space.id);
+        await state.restrictedAppProposals.removeSpace(space.id);
+      } catch {
+        return spaceRemovalPendingResult(intent);
+      }
+      try {
+        await markSpaceRemovalAppStateRemoved(intent.spaceId, state.spaceRemovalIo);
+      } catch {
+        return spaceRemovalPendingResult(intent);
+      }
+      const result = await finalizeSpaceRemoval(intent.spaceId, state.spaceRemovalIo);
+      if (!result.cleanupPending) await state.appearance.removeSpace(space.id);
+      if (!result.cleanupPending) state.restrictedApps.releaseSpaceRemovalFence(space.id);
+      return result;
+    } finally {
+      releaseCheckRemoval();
+    }
+  }, { requiredSpaceIds: [space.id] });
 }
 
 const maxActAddSources = 25;
@@ -1992,6 +2701,45 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
         return;
       }
       await rm(join(root, safeRemoteUploadSegment(grantId)), { recursive: true, force: true });
+    },
+    async revokeGrantAuthority(grantId) {
+      // Browser revocation's desktop-local cascade (docs/fold-consecrations.md):
+      // pending staged acts whose staging provenance traces to the revoked
+      // grant are canceled — a compromised browser cannot leave a card behind
+      // as a time bomb — and the grant's `remote:<grantId>` glance marker goes
+      // with the rest of its state. Decided acts stand; their receipts name
+      // the browser that made them. Every lane is attempted so one failure
+      // cannot silently skip the rest.
+      const failures: string[] = [];
+      try {
+        if (grantId !== undefined) {
+          await state.stagedActs.cancelForBrowserGrant({ grantId });
+        } else {
+          const remoteGrantIds = new Set(
+            (await state.stagedActs.list({ state: "staged" }))
+              .map((act) => act.provenance.grantId)
+              .filter((value): value is string => typeof value === "string"),
+          );
+          for (const staleGrantId of remoteGrantIds) {
+            await state.stagedActs.cancelForBrowserGrant({ grantId: staleGrantId });
+          }
+        }
+      } catch (error) {
+        failures.push(`Could not cancel the browser's pending staged acts: ${errorMessage(error)}`);
+      }
+      try {
+        if (grantId !== undefined) {
+          await state.glanceSeen.removeSurface(workFoldGlanceRemoteSurfaceId(grantId));
+        } else {
+          const seen = await state.glanceSeen.read();
+          for (const surfaceId of Object.keys(seen.surfaces)) {
+            if (surfaceId.startsWith("remote:")) await state.glanceSeen.removeSurface(surfaceId);
+          }
+        }
+      } catch (error) {
+        failures.push(`Could not remove the browser's glance marker: ${errorMessage(error)}`);
+      }
+      if (failures.length) throw new Error(failures.join(" "));
     },
     async execute(operation, rawInput, principal) {
       assertRemotePrincipal(principal);
@@ -2163,6 +2911,78 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
           const taskId = remoteStableId(input.taskId, "task id", 160);
           assertRemoteManagementRequestOwner(state, taskId, principal);
           return { stopped: await stopManagementRequest(state, taskId) };
+        }
+        case "decisions.list": {
+          // The same host-composed card projection every desktop surface
+          // renders (docs/fold-consecrations.md): every approved browser sees
+          // the same pending cards, soonest expiry first. Cards carry
+          // `desktopOnly` and `stagedByGrantId`, so the client states the two
+          // surface rules up front instead of discovering refusals. No
+          // management-readiness gate: a pending card outlives any
+          // conversation state.
+          assertRemoteKeys(input, []);
+          const acts = await state.stagedActs.list({ state: "staged" });
+          const cards = await composeDecisionCards(acts);
+          cards.sort((left, right) =>
+            compareIsoStrings(left.expiresAt, right.expiresAt) || compareIsoStrings(left.id, right.id));
+          return { decisions: cards };
+        }
+        case "decisions.decide": {
+          assertRemoteKeys(input, ["id", "decision", "note"]);
+          const id = remoteStableId(input.id, "decision id", 160);
+          if (input.decision !== "approved" && input.decision !== "denied") {
+            throw badRequest("The decision must be approved or denied.");
+          }
+          if (input.note !== undefined && typeof input.note !== "string") {
+            throw badRequest("A denial note must be a string.");
+          }
+          if (input.note !== undefined && input.decision !== "denied") {
+            throw badRequest("A note is offered only with a denial.");
+          }
+          // Surface attribution comes from the transport, never the payload:
+          // the desktop dispatch re-verified this grant against Remote access
+          // settings immediately before execution, and that recheck's
+          // browserId/grantId land on the decision receipt — the compensating
+          // control the remote-clicks decision recorded. Eligibility, pin
+          // recheck, journal-first consumption, and execution all run
+          // desktop-side in the shared decision path.
+          const result = await state.foldDecisions.decide(id, {
+            decision: input.decision,
+            surface: "remote_web",
+            browserId: principal.browserId,
+            grantId: principal.grantId,
+            ...(typeof input.note === "string" && input.note.trim() ? { note: input.note } : {}),
+          });
+          return {
+            decision: (await composeDecisionCards([result.act]))[0],
+            receipted: result.receipted,
+          };
+        }
+        case "management.glance": {
+          // App-composed digest over recorded state (docs/fold-glance.md).
+          // Cross-grant hygiene: the projection carries only the requesting
+          // grant's own seen marker, so one phone never reads another's
+          // acknowledgements. No management-readiness gate — the digest stays
+          // available even when management commands fail closed.
+          assertRemoteKeys(input, []);
+          const snapshot = await state.kernel.getGlance({ kind: "renderer" });
+          const surfaceId = workFoldGlanceRemoteSurfaceId(principal.grantId);
+          return {
+            glance: {
+              ...snapshot,
+              seen: surfaceId in snapshot.seen ? { [surfaceId]: snapshot.seen[surfaceId] } : {},
+            },
+          };
+        }
+        case "management.glanceSeen": {
+          // Advances only this grant's own `remote:<grantId>` marker, and only
+          // monotonically — a replayed or reordered advance is a no-op, and a
+          // refused advance merely leaves items rendering as new.
+          assertRemoteKeys(input, ["cursor"]);
+          if (typeof input.cursor !== "string" || !parseWorkFoldGlanceCursor(input.cursor)) {
+            throw badRequest("A rendered glance cursor is required to mark seen.");
+          }
+          return await state.glanceSeen.advance(workFoldGlanceRemoteSurfaceId(principal.grantId), input.cursor);
         }
         case "spaces.list": {
           assertRemoteKeys(input, []);
@@ -2606,11 +3426,125 @@ function remoteOperationExhaustive(operation: never): never {
  * through the act lane deliberately has no renderer folder-picker grant:
  * possession of the per-launch act token is that caller's authorization.
  */
+/**
+ * Act-lane marker recorded as the owning conversation of a host-created
+ * install-preview review: the same digest-pinned review record the Chat
+ * proposal path stores, bound to the act lane instead of a real Chat.
+ */
+const workFoldActInstallPreviewConversationId = "work-fold.act.install-preview";
+
 function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
   const resolveSpace = async (selector: string): Promise<SpaceSummary> => {
     const resolved = resolveWorkFoldCliSpaceSelector(await listSpaces(), selector.trim() || undefined);
     if (!resolved) throw new WorkFoldCliError("usage", "Act commands require an explicit --space <id-or-name>.");
     return resolved;
+  };
+  /**
+   * Per-Space appearance undo slot for this app run: the customization a
+   * receipted appearance act displaced and the customization it left in
+   * place. `spaces appearance undo` swaps them; a desktop-side change makes
+   * the recorded slot stale, which the equality check below turns into a
+   * typed refusal instead of restoring a state the receipt never described.
+   */
+  const appearanceUndoSlots = new Map<string, {
+    displaced: SpaceAppearanceCustomization | null;
+    result: SpaceAppearanceCustomization | null;
+  }>();
+  const currentAppearanceCustomization = (spaceId: string): SpaceAppearanceCustomization | null =>
+    state.appearance.snapshot().customizations[spaceId] ?? null;
+  /** The conversation PATCH route's 409s, mapped to CLI conflict errors. */
+  const assertChatMutable = (spaceId: string, conversationId: string): void => {
+    const key = clientKey(spaceId, conversationId);
+    if (state.runningTurns.has(key)) {
+      throw new WorkFoldCliError("conflict", "Wait for the current Assistant turn to finish.");
+    }
+    if (state.compactingConversations.has(key)) {
+      throw new WorkFoldCliError("conflict", "Wait for the current Chat compaction to finish.");
+    }
+  };
+  const requireConversationSummary = async (
+    spaceRoot: string,
+    conversationId: string,
+  ): Promise<ConversationSummary> => {
+    const summary = await runActOperation(() => readConversationSummary(spaceRoot, conversationId));
+    if (!summary) throw new WorkFoldCliError("notFound", "Conversation not found.");
+    return summary;
+  };
+  /**
+   * Resolves one installed app by its manifest id so digest-less narrowing
+   * verbs can pin the current reviewed revision for their mutation — a
+   * revision change between lookup and act then fails with the service's
+   * REVISION_CHANGED instead of acting on different bytes.
+   */
+  const requireInstalledApp = async (space: SpaceSummary, appId: string): Promise<RestrictedAppInstalled> => {
+    const id = appId.trim();
+    if (!id) throw new WorkFoldCliError("usage", "Provide --app <id>.");
+    const app = (await runActOperation(() => state.restrictedApps.list(space.id)))
+      .find((item) => item.manifest.id === id);
+    if (!app) throw new WorkFoldCliError("notFound", "No app with this id is installed in this Space.");
+    return app;
+  };
+  /**
+   * The one staging door for every consecrated verb: typed parameters and
+   * pins composed by the calling method from live state, provenance from the
+   * validated management lineage, admission through the staged-act store's
+   * serialized path, and the ledger's staged result shape back. Nothing here
+   * executes anything; deciding has no facade shape, permanently.
+   *
+   * The one exception a person authored in advance: after a fresh admission,
+   * enabled standing policies are evaluated host-side against the act's typed
+   * fields (docs/fold-consecrations.md §Standing policies). A match
+   * short-circuits into the same decision path as a click — with
+   * `surface: "policy"` and the exercised policy's identity — and the staged
+   * result reports the auto-approval instead of a pending card. A
+   * deduplicated admission returns the existing pending card unevaluated:
+   * policies bind acts staged after they were authored, never a card that was
+   * already waiting.
+   */
+  const stageConsecration = async (input: {
+    kind: FoldStagedActKind;
+    parameters: FoldStagedActFields;
+    pins: FoldStagedActFields;
+    parentTaskId?: string;
+    requestId?: string;
+  }): Promise<WorkFoldActStagedDecision> => {
+    const admission = await runStagedActStoreOperation(() => state.stagedActs.stage({
+      kind: input.kind,
+      parameters: input.parameters,
+      pins: input.pins,
+      provenance: stagingProvenance(state, input.parentTaskId, input.requestId),
+    }));
+    if (admission.deduplicated) return toStagedDecision(admission);
+    const exercised = await exerciseStandingPolicyAtAdmission(state, admission.act);
+    if (!exercised) return toStagedDecision(admission);
+    return {
+      ...toStagedDecision(admission),
+      state: "approved",
+      autoApproval: exercised,
+    };
+  };
+  /**
+   * Whole-Space restore replaces the working set running work may be reading,
+   * so the act lane refuses concurrency the desktop still leaves to a confirm
+   * dialog (docs/fold-act-ledger.md, conflict rule 7). The live route state
+   * covers Assistant turns, compactions, and Check work; the kernel's
+   * experimental fence covers active routing runs with files hops into the
+   * Space and — once its reader exists — restricted-app automation runs whose
+   * apps hold file grants into it (the ledger's item 4).
+   */
+  const assertSpaceQuietForHistoryRestore = async (spaceId: string): Promise<void> => {
+    const prefix = `${spaceId}:`;
+    if ([...state.runningTurns].some((key) => key.startsWith(prefix))) {
+      throw new WorkFoldCliError("conflict", "Wait for the running Assistant turn in this Space to finish before restoring.");
+    }
+    if ([...state.compactingConversations].some((key) => key.startsWith(prefix))) {
+      throw new WorkFoldCliError("conflict", "Wait for the running Chat compaction in this Space to finish before restoring.");
+    }
+    if (state.checkRunReservations.has(spaceId) || state.checks.hasActiveRun(spaceId)) {
+      throw new WorkFoldCliError("conflict", "Wait for the running Check work in this Space to finish before restoring.");
+    }
+    const blockers = await state.kernel.listExperimentalHistoryRestoreBlockers(spaceId);
+    if (blockers.length) throw new WorkFoldCliError("conflict", blockers[0]!);
   };
   return {
     async createConversation(input) {
@@ -2696,6 +3630,401 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const result = await turnResultForScope(state, space.id, space.spaceRoot, taskId);
       return { space: toActSpaceRef(space), ...result };
     },
+    async chatRename(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const title = input.title.trim();
+      if (!title) throw new WorkFoldCliError("usage", "Chat title is required.");
+      const summary = await requireConversationSummary(space.spaceRoot, input.conversationId);
+      assertChatMutable(space.id, input.conversationId);
+      const conversation = await runActOperation(() => renameConversation(space.spaceRoot, input.conversationId, title));
+      state.clients.get(clientKey(space.id, input.conversationId))?.setSessionName(conversation.title);
+      recordFacadeAction(state, input.parentTaskId, { command: "chat.rename", space, conversationId: conversation.id });
+      return {
+        space: toActSpaceRef(space),
+        conversation: toActConversationRef(conversation),
+        priorTitle: summary.title,
+      };
+    },
+    async chatSnooze(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const until = input.until.trim();
+      if (!Number.isFinite(Date.parse(until))) throw new WorkFoldCliError("usage", "Snooze time is invalid.");
+      if (Date.parse(until) <= Date.now()) throw new WorkFoldCliError("usage", "Choose a future snooze time.");
+      const summary = await requireConversationSummary(space.spaceRoot, input.conversationId);
+      if (summary.archivedAt) throw new WorkFoldCliError("conflict", "Unarchive this Chat before snoozing it.");
+      assertChatMutable(space.id, input.conversationId);
+      const conversation = await runActOperation(() =>
+        updateConversationLifecycle(space.spaceRoot, input.conversationId, { snoozedUntil: until }));
+      recordFacadeAction(state, input.parentTaskId, { command: "chat.snooze", space, conversationId: conversation.id });
+      return {
+        space: toActSpaceRef(space),
+        conversation: toActConversationRef(conversation),
+        priorLifecycle: toActChatLifecycleState(summary),
+      };
+    },
+    async chatArchive(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const summary = await requireConversationSummary(space.spaceRoot, input.conversationId);
+      if (summary.archivedAt) throw new WorkFoldCliError("conflict", "This Chat is already archived.");
+      assertChatMutable(space.id, input.conversationId);
+      const conversation = await runActOperation(() =>
+        updateConversationLifecycle(space.spaceRoot, input.conversationId, { archived: true }));
+      recordFacadeAction(state, input.parentTaskId, { command: "chat.archive", space, conversationId: conversation.id });
+      return {
+        space: toActSpaceRef(space),
+        conversation: toActConversationRef(conversation),
+        priorLifecycle: toActChatLifecycleState(summary),
+      };
+    },
+    async chatResume(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const summary = await requireConversationSummary(space.spaceRoot, input.conversationId);
+      if (!summary.archivedAt && !summary.snoozedUntil) {
+        throw new WorkFoldCliError("conflict", "This Chat is already active.");
+      }
+      assertChatMutable(space.id, input.conversationId);
+      // One lifecycle change per act, mirroring the renderer: an archived Chat
+      // restores to Active; a snoozed (or snooze-expired) Chat clears its snooze.
+      const conversation = await runActOperation(() =>
+        updateConversationLifecycle(
+          space.spaceRoot,
+          input.conversationId,
+          summary.archivedAt ? { archived: false } : { snoozedUntil: null },
+        ));
+      recordFacadeAction(state, input.parentTaskId, { command: "chat.resume", space, conversationId: conversation.id });
+      return {
+        space: toActSpaceRef(space),
+        conversation: toActConversationRef(conversation),
+        priorLifecycle: toActChatLifecycleState(summary),
+      };
+    },
+    async chatCompact(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      return runActOperation(async () => {
+        // Exactly the composer's /compact route: same not-found check, same
+        // capability-mutation fence, same 409s, and the same kernel
+        // `compaction` task lifecycle — started before the compaction and
+        // finished on every outcome, so no ghost task survives a failure.
+        if (!(await readConversation(space.spaceRoot, input.conversationId)).length) {
+          throw new WorkFoldCliError("notFound", "Conversation not found.");
+        }
+        const key = clientKey(space.id, input.conversationId);
+        assertNoCapabilityMutationForTurn(state, space.id);
+        assertChatMutable(space.id, input.conversationId);
+        state.compactingConversations.add(key);
+        const task = state.kernel.startTask({
+          kind: "compaction",
+          spaceId: space.id,
+          conversationId: input.conversationId,
+          actor: { kind: "cli", cwd: space.spaceRoot, spaceId: space.id, conversationId: input.conversationId },
+        });
+        try {
+          const client = await getClient(state, space.id, space.spaceRoot, input.conversationId);
+          await client.compact();
+          broadcast(state, streamKey(space.id, input.conversationId), { type: "done", conversationId: input.conversationId });
+        } finally {
+          state.compactingConversations.delete(key);
+          state.kernel.finishTask(task.id);
+        }
+        recordFacadeAction(state, input.parentTaskId, {
+          command: "chat.compact",
+          space,
+          conversationId: input.conversationId,
+          taskId: task.id,
+        });
+        return {
+          space: toActSpaceRef(space),
+          conversationId: input.conversationId,
+          compacted: true as const,
+          taskId: task.id,
+        };
+      });
+    },
+    async historyList(input) {
+      const space = await resolveSpace(input.space);
+      const checkpoints = await runActOperation(() => listSpaceCheckpoints(space.spaceRoot));
+      return { space: toActSpaceRef(space), checkpoints: checkpoints.map(toActCheckpointSummary) };
+    },
+    async historySave(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      return runActOperation(async () => {
+        // Same internals as the History pane's save route: an unchanged Space
+        // returns the latest matching restore point instead of a duplicate.
+        const existingIds = new Set(
+          (await listSpaceCheckpoints(space.spaceRoot, 1000)).map((checkpoint) => checkpoint.checkpointId),
+        );
+        const checkpoint = await createSpaceCheckpoint(space.spaceRoot, {
+          ...(input.label !== undefined ? { label: input.label } : {}),
+          reason: "manual",
+        });
+        recordFacadeAction(state, input.parentTaskId, {
+          command: "history.save",
+          space,
+          checkpointId: checkpoint.checkpointId,
+        });
+        return {
+          space: toActSpaceRef(space),
+          checkpoint: toActCheckpointSummary(checkpoint),
+          created: !existingIds.has(checkpoint.checkpointId),
+        };
+      });
+    },
+    async historyRestore(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      await assertSpaceQuietForHistoryRestore(space.id);
+      const result = await runActOperation(() => restoreSpaceCheckpoint(space.spaceRoot, input.checkpointId));
+      recordFacadeAction(state, input.parentTaskId, {
+        command: "history.restore",
+        space,
+        checkpointId: result.safetyCheckpointId,
+      });
+      return {
+        space: toActSpaceRef(space),
+        restored: true,
+        checkpointId: result.checkpointId,
+        safetyCheckpointId: result.safetyCheckpointId,
+        restoredFileCount: result.restoredFiles.length,
+        deletedFileCount: result.deletedFiles.length,
+        movedEntryCount: result.movedEntries.length,
+        unchangedFileCount: result.unchangedFiles,
+        skippedLargeFileCount: result.skippedLargeFiles.length,
+      };
+    },
+    async historyVersions(input) {
+      const space = await resolveSpace(input.space);
+      const path = input.path.trim();
+      if (!path) throw new WorkFoldCliError("usage", "A Space-relative file path is required.");
+      const versions = await runActOperation(() => listFileVersions(space.spaceRoot, path));
+      return { space: toActSpaceRef(space), path, versions: versions.map(toActFileVersionRef) };
+    },
+    async historyRestoreFile(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      if (!/^[a-f0-9]{64}$/i.test(input.version.trim())) {
+        throw new WorkFoldCliError("usage", "Provide --version as the 64-character SHA-256 hash shown by 'history versions'.");
+      }
+      return runActOperation(async () => {
+        const target = await stat(resolveSpacePath(space.spaceRoot, input.path)).catch(() => null);
+        if (target && !target.isFile()) {
+          throw new WorkFoldCliError("conflict", "The selected path is currently a folder.");
+        }
+        const result = await restoreFileVersion(space.spaceRoot, input.path, input.version.trim());
+        recordFacadeAction(state, input.parentTaskId, {
+          command: "history.restore-file",
+          space,
+          checkpointId: result.safetyCheckpointId,
+        });
+        return { space: toActSpaceRef(space), ...result };
+      });
+    },
+    async filesMove(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const sourceRaw = input.fromPath.trim();
+      if (!sourceRaw) throw new WorkFoldCliError("usage", "Select a file or folder to move.");
+      return runActOperation(async () => {
+        // Exactly the desktop move route: a targeted restore point that undoes
+        // the move, then the mutation, with the unused restore point discarded
+        // when the mutation fails.
+        const moveSource = normalizeSpaceRelativePath(sourceRaw);
+        const moveTargetFolder = normalizeSpaceRelativePath(input.toDir);
+        const moveDestination = [moveTargetFolder, basename(moveSource)].filter(Boolean).join("/");
+        const safety = await createSpaceMutationCheckpoint(space.spaceRoot, {
+          movesOnRestore: [{ fromPath: moveDestination, toPath: moveSource }],
+          reason: "pre_move",
+          label: `Before moving ${sourceRaw}`,
+        });
+        const moved = await runWithHistorySafety(space.spaceRoot, safety.checkpointId, () => moveSpaceEntry(space.spaceRoot, {
+          sourcePath: moveSource,
+          targetFolderPath: input.toDir,
+        }));
+        recordFacadeAction(state, input.parentTaskId, { command: "files.move", space, checkpointId: safety.checkpointId });
+        return {
+          space: toActSpaceRef(space),
+          fromPath: moved.fromPath,
+          path: moved.path,
+          kind: moved.kind,
+          safetyCheckpointId: safety.checkpointId,
+        };
+      });
+    },
+    async filesRename(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const sourceRaw = input.path.trim();
+      const newName = input.newName.trim();
+      if (!sourceRaw || !newName) throw new WorkFoldCliError("usage", "A Space item and new name are required.");
+      return runActOperation(async () => {
+        const renameSource = normalizeSpaceRelativePath(sourceRaw);
+        const renameParent = renameSource.includes("/") ? renameSource.slice(0, renameSource.lastIndexOf("/")) : "";
+        const renameDestination = [renameParent, newName].filter(Boolean).join("/");
+        const safety = await createSpaceMutationCheckpoint(space.spaceRoot, {
+          movesOnRestore: [{ fromPath: renameDestination, toPath: renameSource }],
+          reason: "pre_rename",
+          label: `Before renaming ${sourceRaw}`,
+        });
+        const renamed = await runWithHistorySafety(space.spaceRoot, safety.checkpointId, () => renameSpaceEntry(space.spaceRoot, { path: sourceRaw, newName }));
+        recordFacadeAction(state, input.parentTaskId, { command: "files.rename", space, checkpointId: safety.checkpointId });
+        return {
+          space: toActSpaceRef(space),
+          fromPath: renamed.fromPath,
+          path: renamed.path,
+          priorName: basename(renameSource),
+          kind: renamed.kind,
+          safetyCheckpointId: safety.checkpointId,
+        };
+      });
+    },
+    async filesDelete(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const target = input.path.trim();
+      if (!target) throw new WorkFoldCliError("usage", "Select a file or folder to delete.");
+      return runActOperation(async () => {
+        const safety = await createSpaceMutationCheckpoint(space.spaceRoot, {
+          paths: [target],
+          reason: "pre_delete",
+          label: `Before deleting ${target}`,
+        });
+        // The coverage refusal throws inside runWithHistorySafety so the
+        // partial restore point is discarded along with every other failure.
+        return runWithHistorySafety(space.spaceRoot, safety.checkpointId, async () => {
+          assertDeleteRestoreCoverage(safety);
+          const deleted = await deleteSpaceEntry(space.spaceRoot, target);
+          recordFacadeAction(state, input.parentTaskId, { command: "files.delete", space, checkpointId: safety.checkpointId });
+          return { space: toActSpaceRef(space), ...deleted, safetyCheckpointId: safety.checkpointId };
+        });
+      });
+    },
+    async filesMkdir(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const { target, parentPath, name } = splitActEntryPath(input.path, "A folder path is required.");
+      return runActOperation(async () => {
+        const safety = await createSpaceMutationCheckpoint(space.spaceRoot, {
+          deleteOnRestore: [target],
+          reason: "pre_create",
+          label: `Before creating ${name}`,
+        });
+        const folder = await runWithHistorySafety(space.spaceRoot, safety.checkpointId, () => createSpaceFolder(space.spaceRoot, parentPath, name));
+        recordFacadeAction(state, input.parentTaskId, { command: "files.mkdir", space, checkpointId: safety.checkpointId });
+        return {
+          space: toActSpaceRef(space),
+          created: true as const,
+          path: folder.path,
+          kind: "folder" as const,
+          safetyCheckpointId: safety.checkpointId,
+        };
+      });
+    },
+    async filesCreate(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const { target, parentPath, name } = splitActEntryPath(input.path, "A file path is required.");
+      return runActOperation(async () => {
+        const safety = await createSpaceMutationCheckpoint(space.spaceRoot, {
+          deleteOnRestore: [target],
+          reason: "pre_create",
+          label: `Before creating ${name}`,
+        });
+        const file = await runWithHistorySafety(space.spaceRoot, safety.checkpointId, () => createSpaceTextFile(space.spaceRoot, parentPath, name, ""));
+        recordFacadeAction(state, input.parentTaskId, { command: "files.create", space, checkpointId: safety.checkpointId });
+        return {
+          space: toActSpaceRef(space),
+          created: true as const,
+          path: file.path,
+          kind: "file" as const,
+          safetyCheckpointId: safety.checkpointId,
+        };
+      });
+    },
+    async search(input) {
+      const space = await resolveSpace(input.space);
+      const query = input.query.trim();
+      if (!query) throw new WorkFoldCliError("usage", "Enter something to search for.");
+      const scope = input.scope ?? "all";
+      const result = await runActOperation(() => searchSpace(space.spaceRoot, query, {
+        includeFiles: scope !== "chats",
+        includeChats: scope !== "files",
+      }));
+      return { space: toActSpaceRef(space), scope, ...result };
+    },
+    async libraryList() {
+      const tree = await runActOperation(() => listResourceTree());
+      const items: WorkFoldActLibraryItem[] = [];
+      return { items, truncated: flattenLibraryTree(tree, items) };
+    },
+    async libraryCopy(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const item = input.item.trim();
+      if (!item) throw new WorkFoldCliError("usage", "Provide --item <library-path>.");
+      return runActOperation(async () => {
+        // Exactly the desktop copy-to-space route: an independent copy landing
+        // under `From Library`, with copy and restore point succeeding or
+        // failing together in the destination Space; the Library original is
+        // untouched.
+        const copied = await copyResourcesToSpace(space.spaceRoot, [item], "From Library");
+        const safety = await checkpointAdditiveWritesOrUndo(space.spaceRoot, copied, {
+          reason: "pre_add",
+          label: `Before adding ${copied.length} Library item${copied.length === 1 ? "" : "s"}`,
+        });
+        recordFacadeAction(state, input.parentTaskId, {
+          command: "library.copy",
+          space,
+          copied,
+          checkpointId: safety?.checkpointId ?? null,
+        });
+        return {
+          space: toActSpaceRef(space),
+          item,
+          copied: copied[0]!,
+          checkpointId: safety?.checkpointId ?? null,
+        };
+      });
+    },
+    async libraryAdd(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      return runActOperation(async () => {
+        // The same upload internals as the desktop's "Add files to Library"
+        // (`uploadResourceFiles` over `writeUploadedFiles`), fed from
+        // host-read source files instead of a multipart body. The Library is
+        // personal and Space-free: no restore point is recorded, and the total
+        // read is bounded by the same budget as the desktop upload body.
+        const files = await collectLibraryUploadFiles(input.fromPaths, input.cwd, state.maxBodyBytes);
+        const added = await uploadResourceFiles(input.toDir ?? "", files);
+        // Resolved absolute sources are recorded exactly as files.add records
+        // them, so attachment dispositions can account for an attachment that
+        // entered the Library (`library` status in the request views).
+        state.managementRequests.recordAction(input.parentTaskId, {
+          command: "library.add",
+          at: new Date().toISOString(),
+          sources: input.fromPaths.map((raw) => {
+            const trimmed = raw.trim();
+            return isAbsolute(trimmed) ? resolve(trimmed) : resolve(input.cwd, trimmed);
+          }),
+          copied: added.map((file) => file.path),
+        });
+        return { added };
+      });
+    },
+    async libraryFolderCreate(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const name = input.name.trim();
+      if (!name) throw new WorkFoldCliError("usage", "A Library folder name is required.");
+      return runActOperation(async () => {
+        const folder = await createResourceFolder("", name);
+        recordFacadeAction(state, input.parentTaskId, { command: "library.folder.create" });
+        return { created: true as const, path: folder.path };
+      });
+    },
     async createSpace(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
       const name = input.name.trim();
@@ -2743,6 +4072,1310 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         checkpointId: result.checkpointId,
       });
       return { space: toActSpaceRef(space), ...result };
+    },
+    async spacesRename(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const name = input.name.trim();
+      if (!name) throw new WorkFoldCliError("usage", "A Space name is required.");
+      // The ledger's ambiguous-making rule: a duplicate exact name under the
+      // CLI selector's case-insensitive match would break `--space` selection
+      // by name, so it is refused here. The comparison folds the same way the
+      // selector does; renaming a Space to a case variant of itself stays
+      // allowed.
+      const folded = name.replace(/\s+/g, " ").slice(0, 80).toLocaleLowerCase("en-US");
+      const collision = (await listSpaces()).find((item) =>
+        item.id !== space.id && item.name.toLocaleLowerCase("en-US") === folded);
+      if (collision) {
+        throw new WorkFoldCliError(
+          "conflict",
+          `Another Space is already named ${collision.name} [${collision.id}]; a duplicate exact name would make --space selection ambiguous.`,
+        );
+      }
+      const renamed = await runActOperation(() => renameSpace(space.id, name));
+      recordFacadeAction(state, input.parentTaskId, { command: "spaces.rename", space: renamed });
+      return { space: toActSpaceRef(renamed), priorName: space.name };
+    },
+    async spacesUnregister(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const storage = space.location.storage;
+      // Both storage kinds run the same removal orchestration — App Studio
+      // impact checks, publication blocks, routing suspension, staged-act
+      // cancellation, durable intent, app-state cleanup. A managed Space
+      // records a preserve-disposition intent that provably holds no
+      // deletion authority, so the folder and its portable `.work-fold/`
+      // identity remain exactly as they do for a linked registration;
+      // deleting the managed folder stays the staged `spaces delete`
+      // consecration.
+      const removal = await runActOperation(() =>
+        removeSpaceRegistrationInternal(state, space, { managedFolderDisposition: "preserve" }));
+      appearanceUndoSlots.delete(space.id);
+      recordFacadeAction(state, input.parentTaskId, { command: "spaces.unregister", space });
+      return {
+        space: toActSpaceRef(space),
+        storage,
+        removed: true as const,
+        cleanupPending: removal.cleanupPending,
+      };
+    },
+    async spacesAppearanceApply(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const proposal = await readSpaceAppearanceProposalFile(input.proposalPath, input.cwd);
+      if (proposal.target?.spaceId && proposal.target.spaceId !== space.id) {
+        throw new WorkFoldCliError(
+          "conflict",
+          `This appearance proposal targets a different Space (${proposal.target.spaceId}). Apply it with that --space, or use a proposal authored for this one.`,
+        );
+      }
+      return runActOperation(async () => {
+        const displaced = currentAppearanceCustomization(space.id);
+        // Exactly the Customize Space import route's mutation: the store
+        // normalizes and persists the typed customization atomically.
+        const applied = await state.appearance.replaceSpace(space.id, proposal.customization);
+        const result = applied.customizations[space.id] ?? null;
+        appearanceUndoSlots.set(space.id, { displaced, result });
+        recordFacadeAction(state, input.parentTaskId, { command: "spaces.appearance.apply", space });
+        return {
+          space: toActSpaceRef(space),
+          applied: true as const,
+          proposalName: proposal.name,
+          appearanceRef: appearanceCustomizationRef(result),
+          priorAppearanceRef: appearanceCustomizationRef(displaced),
+        };
+      });
+    },
+    async spacesAppearanceReset(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      return runActOperation(async () => {
+        const displaced = currentAppearanceCustomization(space.id);
+        if (displaced === null) {
+          // An already-default Space is an honest no-op that arms no undo.
+          return {
+            space: toActSpaceRef(space),
+            reset: true as const,
+            changed: false,
+            priorAppearanceRef: null,
+          };
+        }
+        await state.appearance.removeSpace(space.id);
+        appearanceUndoSlots.set(space.id, { displaced, result: null });
+        recordFacadeAction(state, input.parentTaskId, { command: "spaces.appearance.reset", space });
+        return {
+          space: toActSpaceRef(space),
+          reset: true as const,
+          changed: true,
+          priorAppearanceRef: appearanceCustomizationRef(displaced),
+        };
+      });
+    },
+    async spacesAppearanceUndo(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const slot = appearanceUndoSlots.get(space.id);
+      if (!slot) {
+        throw new WorkFoldCliError(
+          "conflict",
+          "No receipted appearance act recorded a prior customization for this Space in this app run, so there is nothing to undo. Apply a proposal or reset explicitly instead.",
+        );
+      }
+      if (!appearanceCustomizationsEqual(currentAppearanceCustomization(space.id), slot.result)) {
+        throw new WorkFoldCliError(
+          "conflict",
+          "This Space's appearance was changed outside the act lane (for example on the desktop) since the last receipted appearance act, so the recorded prior customization no longer describes what an undo would displace. Apply a proposal or reset explicitly instead.",
+        );
+      }
+      return runActOperation(async () => {
+        const next = slot.displaced;
+        const stateAfter = next !== null && hasSpaceAppearanceCustomization(next)
+          ? await state.appearance.replaceSpace(space.id, next)
+          : await state.appearance.removeSpace(space.id);
+        const restored = stateAfter.customizations[space.id] ?? null;
+        // Undo is its own inverse: the displaced and restored refs swap.
+        appearanceUndoSlots.set(space.id, { displaced: slot.result, result: restored });
+        recordFacadeAction(state, input.parentTaskId, { command: "spaces.appearance.undo", space });
+        return {
+          space: toActSpaceRef(space),
+          restored: true as const,
+          restoredAppearanceRef: appearanceCustomizationRef(restored),
+          displacedAppearanceRef: appearanceCustomizationRef(slot.result),
+        };
+      });
+    },
+    async toolsRemove(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const source = input.source.trim();
+      if (!source) throw new WorkFoldCliError("usage", "A package source is required.");
+      if (input.scope === "space") {
+        const space = await resolveSpace(input.space ?? "");
+        // Exactly the desktop packages/remove route: project scope requires
+        // the Space's Pi project trust and the per-Space capability fence.
+        const removed = await runActOperation(() => runCapabilityMutation(state, space, "project", () =>
+          removePiPackage(space.spaceRoot, source, {
+            scope: "project",
+            runtimeProvider: state.runtimeProvider,
+          })));
+        recordFacadeAction(state, input.parentTaskId, { command: "tools.remove", space });
+        return { scope: "space" as const, space: toActSpaceRef(space), source, removed };
+      }
+      // Personal scope mutates the personal (user-scope) Pi settings every
+      // Space runtime loads. The app-owned management root is the resolution
+      // context — the same root the management conversation's own runtime
+      // uses — and the global capability fence refuses while any Assistant,
+      // compaction, or Check work is active anywhere.
+      const managementRootScope = { id: workFoldManagementScopeId, spaceRoot: workFoldManagementRoot() };
+      const removed = await runActOperation(() => runCapabilityMutation(state, managementRootScope, "global", () =>
+        removePiPackage(managementRootScope.spaceRoot, source, {
+          scope: "user",
+          runtimeProvider: state.runtimeProvider,
+        })));
+      recordFacadeAction(state, input.parentTaskId, { command: "tools.remove" });
+      return { scope: "personal" as const, source, removed };
+    },
+    async appsProposalsList(input) {
+      const space = await resolveSpace(input.space);
+      // The desktop proposal route's own scope rule: proposals are bound to
+      // one Chat, and the Chat must exist in this Space.
+      if (!(await runActOperation(() => readConversation(space.spaceRoot, input.conversationId))).length) {
+        throw new WorkFoldCliError("notFound", "Conversation not found.");
+      }
+      const proposals = await runActOperation(() =>
+        state.restrictedAppProposals.list({ spaceId: space.id, conversationId: input.conversationId }));
+      return {
+        space: toActSpaceRef(space),
+        conversationId: input.conversationId,
+        proposals: proposals.map(toActAppProposalRef),
+      };
+    },
+    async appsProposalsDismiss(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const proposal = await runActOperation(() => state.restrictedAppProposals.get(input.proposal));
+      if (!proposal || proposal.spaceId !== space.id || proposal.conversationId !== input.conversationId) {
+        throw new WorkFoldCliError("notFound", "App proposal not found.");
+      }
+      const dismissed = await runActOperation(() => state.restrictedAppProposals.dismiss(proposal.id));
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.proposals.dismiss", space, conversationId: input.conversationId });
+      return { space: toActSpaceRef(space), proposalId: proposal.id, dismissed };
+    },
+    async appsRemove(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const app = await requireInstalledApp(space, input.app);
+      // The exact desktop DELETE route, with the resolved digest pinned; the
+      // service refuses release-backed Instances toward `apps uninstall` and
+      // stops the running app host before the registration goes.
+      const removed = await runActOperation(() => runRestrictedAppMutation(state, space.id, () =>
+        state.restrictedApps.remove({ spaceId: space.id, appId: app.manifest.id, expectedDigest: app.digest })));
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.remove", space });
+      return { space: toActSpaceRef(space), appId: app.manifest.id, digest: app.digest, removed };
+    },
+    async appsRevoke(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const digest = input.digest.trim();
+      if (!digest) throw new WorkFoldCliError("usage", "Provide --digest <sha256>.");
+      const declaration = input.declaration.trim();
+      if (!declaration) throw new WorkFoldCliError("usage", "Provide --declaration <id>.");
+      const app = await requireInstalledApp(space, input.app);
+      // Grants bind to the exact reviewed digest, so revocation names it too.
+      const granted = input.kind === "network"
+        ? app.networkGrants.includes(declaration)
+        : input.kind === "files"
+          ? app.fileGrants.some((grant) => grant.declarationId === declaration)
+          : app.notificationGrants.includes(declaration);
+      await runActOperation(() => runRestrictedAppMutation(state, space.id, () => input.kind === "network"
+        ? state.restrictedApps.revokeNetwork({ spaceId: space.id, appId: app.manifest.id, destinationId: declaration, expectedDigest: digest })
+        : input.kind === "files"
+          ? state.restrictedApps.revokeFiles({ spaceId: space.id, appId: app.manifest.id, permissionId: declaration, expectedDigest: digest })
+          : state.restrictedApps.revokeNotifications({ spaceId: space.id, appId: app.manifest.id, permissionId: declaration, expectedDigest: digest })));
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.revoke", space });
+      return {
+        space: toActSpaceRef(space),
+        appId: app.manifest.id,
+        grantKind: input.kind,
+        declaration,
+        revoked: granted,
+      };
+    },
+    async appsDisconnect(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const destination = input.destination.trim();
+      if (!destination) throw new WorkFoldCliError("usage", "Provide --destination <id>.");
+      const app = await requireInstalledApp(space, input.app);
+      const disconnected = await runActOperation(() => runRestrictedAppMutation(state, space.id, () =>
+        state.restrictedApps.deleteConnection({
+          spaceId: space.id,
+          appId: app.manifest.id,
+          destinationId: destination,
+          expectedDigest: app.digest,
+        })));
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.disconnect", space });
+      return { space: toActSpaceRef(space), appId: app.manifest.id, destination, disconnected };
+    },
+    async appsAutomationDisable(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const automationId = input.automation.trim();
+      if (!automationId) throw new WorkFoldCliError("usage", "Provide --automation <id>.");
+      const app = await requireInstalledApp(space, input.app);
+      const wasEnabled = app.automations.some((automation) => automation.id === automationId && automation.enabled);
+      await runActOperation(() => runRestrictedAppMutation(state, space.id, () =>
+        state.restrictedApps.setAutomationEnabled({
+          spaceId: space.id,
+          appId: app.manifest.id,
+          automationId,
+          expectedDigest: app.digest,
+          enabled: false,
+        })));
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.automation.disable", space });
+      return {
+        space: toActSpaceRef(space),
+        appId: app.manifest.id,
+        automationId,
+        disabled: true as const,
+        wasEnabled,
+      };
+    },
+    async appsAutomationRun(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const automationId = input.automation.trim();
+      if (!automationId) throw new WorkFoldCliError("usage", "Provide --automation <id>.");
+      const app = await requireInstalledApp(space, input.app);
+      const result = await runActOperation(() => runRestrictedAppMutation(state, space.id, () =>
+        state.restrictedApps.runAutomationNow({
+          spaceId: space.id,
+          appId: app.manifest.id,
+          automationId,
+          expectedDigest: app.digest,
+        })));
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.automation.run", space });
+      return {
+        space: toActSpaceRef(space),
+        appId: app.manifest.id,
+        automationId,
+        run: toActAppAutomationRunRef(result.run),
+      };
+    },
+    async appsProjectDeclare(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const presentation = await readAppPresentationFile(input.presentationPath, input.cwd);
+      return runActOperation(() => runRestrictedAppMutation(state, space.id, async () => {
+        const prior = (await state.restrictedApps.localAppStudio(space.id)).project?.presentation ?? null;
+        const project = await state.restrictedApps.declareLocalAppProject({ spaceId: space.id, presentation });
+        recordFacadeAction(state, input.parentTaskId, { command: "apps.project.declare", space });
+        return {
+          space: toActSpaceRef(space),
+          project: { projectId: project.projectId, presentation: toActAppPresentation(project.presentation) },
+          priorPresentation: prior ? toActAppPresentation(prior) : null,
+          priorPresentationRef: prior ? shortContentRef(prior) : null,
+        };
+      }));
+    },
+    async appsReleasePrepare(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const release = await runActOperation(() => runRestrictedAppMutation(state, space.id, () =>
+        state.restrictedApps.prepareLocalAppRelease({ spaceId: space.id, displayVersion: input.version })));
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.release.prepare", space });
+      return { space: toActSpaceRef(space), release: toActAppReleaseRef(release) };
+    },
+    async appsReleasePublish(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const release = await runActOperation(() => runRestrictedAppMutation(state, space.id, () =>
+        state.restrictedApps.publishLocalAppRelease({ spaceId: space.id, releaseDigest: input.release })));
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.release.publish", space });
+      return { space: toActSpaceRef(space), release: toActAppReleaseRef(release) };
+    },
+    async appsReleaseDelete(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const deletion = await runActOperation(() => runRestrictedAppMutation(state, space.id, () =>
+        state.restrictedApps.deleteLocalAppRelease({ spaceId: space.id, releaseDigest: input.release })));
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.release.delete", space });
+      return {
+        space: toActSpaceRef(space),
+        releaseDigest: input.release,
+        deleted: deletion.deleted,
+        cleanupPending: deletion.cleanupPending,
+      };
+    },
+    async appsInstallPrepare(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const target = await resolveSpace(input.targetSpace);
+      const operation = await runActOperation(() => runRestrictedAppMutations(state, [space.id, target.id], () =>
+        state.restrictedApps.prepareLocalAppInstall({
+          sourceSpaceId: space.id,
+          targetSpaceId: target.id,
+          releaseDigest: input.release,
+        })));
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.install.prepare", space });
+      return {
+        space: toActSpaceRef(space),
+        targetSpace: toActSpaceRef(target),
+        operation: toActAppOperationRef(operation),
+      };
+    },
+    async appsUpdatePrepare(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      return runActOperation(async () => {
+        const studio = await state.restrictedApps.localAppStudio(space.id);
+        const instance = studio.instances.find((item) => item.runtimeInstanceId === input.instance);
+        if (!instance) throw new WorkFoldCliError("notFound", "Local App Instance not found.");
+        const target = await getSpace(instance.spaceId);
+        const operation = await runRestrictedAppMutations(state, [space.id, target.id], () =>
+          state.restrictedApps.prepareLocalAppUpdate({
+            sourceSpaceId: space.id,
+            runtimeInstanceId: instance.runtimeInstanceId,
+            releaseDigest: input.release,
+          }));
+        recordFacadeAction(state, input.parentTaskId, { command: "apps.update.prepare", space });
+        return {
+          space: toActSpaceRef(space),
+          targetSpace: toActSpaceRef(target),
+          operation: toActAppOperationRef(operation),
+        };
+      });
+    },
+    async appsOperationActivate(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      return runActOperation(async () => {
+        const studio = await state.restrictedApps.localAppStudio(space.id);
+        const operation = studio.operations.find((item) => item.operationId === input.operation);
+        if (!operation) throw new WorkFoldCliError("notFound", "Prepared App operation not found.");
+        const target = await getSpace(operation.targetSpaceId);
+        const result = await runRestrictedAppMutations(state, [space.id, target.id], () => operation.kind === "install"
+          ? state.restrictedApps.activateLocalAppInstall(operation.operationId)
+          : state.restrictedApps.activateLocalAppUpdate(operation.operationId));
+        recordFacadeAction(state, input.parentTaskId, { command: "apps.operation.activate", space });
+        return {
+          space: toActSpaceRef(space),
+          operationId: operation.operationId,
+          operationKind: operation.kind,
+          instance: toActAppInstanceRef(result.instance),
+        };
+      });
+    },
+    async appsOperationCancel(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const cancelled = await runActOperation(() => runRestrictedAppMutation(state, space.id, async () => {
+        const studio = await state.restrictedApps.localAppStudio(space.id);
+        if (!studio.operations.some((operation) => operation.operationId === input.operation)) {
+          throw new WorkFoldCliError("notFound", "Prepared App operation not found.");
+        }
+        return state.restrictedApps.cancelLocalAppOperation(input.operation);
+      }));
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.operation.cancel", space });
+      return { space: toActSpaceRef(space), operationId: input.operation, cancelled };
+    },
+    async appsUninstall(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      return runActOperation(async () => {
+        const installed = (await state.restrictedApps.list(space.id)).find((app) => (
+          app.runtimeInstanceKind === "app" && app.runtimeInstanceId === input.instance
+        ));
+        if (!installed) throw new WorkFoldCliError("notFound", "Local App Instance not found.");
+        const result = await runRestrictedAppMutations(state, [installed.sourceSpaceId, space.id], () =>
+          state.restrictedApps.uninstallLocalApp({
+            runtimeInstanceId: input.instance,
+            // The purge disposition is consecration 3 and stages upstream;
+            // this facade method is deliberately retain-only.
+            dataDisposition: "retain",
+          }), { requiredSpaceIds: [space.id] });
+        recordFacadeAction(state, input.parentTaskId, { command: "apps.uninstall", space });
+        return {
+          space: toActSpaceRef(space),
+          runtimeInstanceId: input.instance,
+          removed: result.removed,
+          retainedNamespaceIds: result.retainedData.map((item) => item.dataNamespaceId),
+          cleanupPending: result.cleanupPending,
+        };
+      });
+    },
+    async spacesDelete(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      if (space.location.storage !== "managed") {
+        throw new WorkFoldCliError(
+          "conflict",
+          "Only a managed Space's folder can be deleted. Removing a linked registration is 'spaces unregister'; the folder is yours either way.",
+        );
+      }
+      // The same read-only impact checks the removal orchestration runs
+      // (docs/fold-act-ledger.md, conflict rule 4): staging refuses what the
+      // desktop removal would refuse, including the live-publication block.
+      const impact = await runActOperation(() => state.restrictedApps.spaceRemovalImpact(space.id));
+      if (impact.activeSourceInstanceCount > 0 || impact.activeTargetInstanceCount > 0) {
+        throw new WorkFoldCliError("conflict", "Uninstall release-backed Apps from this Space before staging its deletion.");
+      }
+      if (impact.retainedDataCount > 0) {
+        throw new WorkFoldCliError("conflict", "Purge this App Project's retained local data in App Studio before staging its source Space's deletion.");
+      }
+      let livePublications;
+      try {
+        livePublications = await state.publications.activePublicationsForSpace(space.id);
+      } catch (error) {
+        throw new WorkFoldCliError("conflict", errorMessage(error), { cause: error });
+      }
+      if (livePublications.length) {
+        const named = livePublications.slice(0, 3).map((publication) => `"${publication.title}"`).join(", ");
+        const more = livePublications.length > 3 ? ", …" : "";
+        throw new WorkFoldCliError(
+          "conflict",
+          `Stop sharing ${livePublications.length === 1 ? "the page" : `${livePublications.length} pages`} `
+            + `served from this Space before staging its deletion: ${named}${more}.`,
+        );
+      }
+      const staged = await stageConsecration({
+        kind: "space.delete-folder",
+        parameters: { spaceId: space.id },
+        pins: { spaceId: space.id, spaceRoot: space.spaceRoot },
+        parentTaskId: input.parentTaskId,
+        requestId: input.requestId,
+      });
+      recordFacadeAction(state, input.parentTaskId, { command: "spaces.delete", space, decisionId: staged.decisionId });
+      return { space: toActSpaceRef(space), staged };
+    },
+    async filesDestroy(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      if (!input.paths.length) throw new WorkFoldCliError("usage", "Provide at least one --path <space-path>.");
+      const paths: string[] = [];
+      const contentIdentities: string[] = [];
+      for (const raw of input.paths) {
+        let absolute: string;
+        try {
+          absolute = resolveSpacePath(space.spaceRoot, raw);
+        } catch (error) {
+          throw new WorkFoldCliError("usage", errorMessage(error), { cause: error });
+        }
+        const normalized = relative(space.spaceRoot, absolute).split(sep).join("/");
+        if (!normalized) throw new WorkFoldCliError("usage", "The Space root itself cannot be staged for destruction.");
+        try {
+          contentIdentities.push(await observedDestroyIdentity(absolute));
+        } catch (error) {
+          if (error instanceof WorkFoldCliError) throw error;
+          throw new WorkFoldCliError("notFound", `Not found in this Space: ${normalized}.`, { cause: error });
+        }
+        paths.push(normalized);
+      }
+      const staged = await stageConsecration({
+        kind: "files.destroy",
+        parameters: { spaceId: space.id, paths },
+        pins: { spaceId: space.id, paths, contentIdentities },
+        parentTaskId: input.parentTaskId,
+        requestId: input.requestId,
+      });
+      recordFacadeAction(state, input.parentTaskId, { command: "files.destroy", space, decisionId: staged.decisionId });
+      return { space: toActSpaceRef(space), staged, paths, contentIdentities };
+    },
+    async toolsImportSkill(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = input.scope === "space" ? await resolveSpace(input.space ?? "") : undefined;
+      const source = isAbsolute(input.from) ? resolve(input.from) : resolve(input.cwd, input.from);
+      const info = await lstat(source).catch(() => null);
+      if (!info || info.isSymbolicLink() || !info.isFile()) {
+        throw new WorkFoldCliError("notFound", "The skill bundle must be a regular file on this machine.");
+      }
+      if (info.size > 100 * 1024 * 1024) {
+        throw new WorkFoldCliError("usage", "The skill bundle exceeds the 100 MB archive limit.");
+      }
+      const bytes = await readFile(source);
+      const contentDigest = piSkillBundleContentDigest(bytes);
+      const skillNames = await enumerateSkillBundleNames(basename(source), bytes);
+      const scopedSpace: FoldStagedActFields = space ? { spaceId: space.id } : {};
+      const staged = await stageConsecration({
+        kind: "capability.skills.import",
+        parameters: { source, scope: input.scope, ...scopedSpace },
+        pins: { source, contentDigest, skillNames },
+        parentTaskId: input.parentTaskId,
+        requestId: input.requestId,
+      });
+      recordFacadeAction(state, input.parentTaskId, {
+        command: "tools.import-skill",
+        ...(space ? { space } : {}),
+        decisionId: staged.decisionId,
+      });
+      return {
+        scope: input.scope,
+        ...(space ? { space: toActSpaceRef(space) } : {}),
+        staged,
+        source,
+        contentDigest,
+        skillNames,
+      };
+    },
+    async toolsInstall(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = input.scope === "space" ? await resolveSpace(input.space ?? "") : undefined;
+      const scopedSpace: FoldStagedActFields = space ? { spaceId: space.id } : {};
+      const record = (staged: WorkFoldActStagedDecision): void =>
+        recordFacadeAction(state, input.parentTaskId, {
+          command: "tools.install",
+          ...(space ? { space } : {}),
+          decisionId: staged.decisionId,
+        });
+      if (input.catalogId !== undefined) {
+        // Remote inspection is read-only and can take seconds; it completes
+        // before anything is staged, exactly as the desktop review does.
+        const details = await runActOperation(() => state.capabilityRegistry.details(input.catalogId!));
+        if (details.sourceKind === "reference") {
+          throw new WorkFoldCliError("usage", "This capability is a reference and cannot be installed directly.");
+        }
+        if (details.sourceKind === "bundle") {
+          // An official catalog skill bundle makes bytes runnable as a skill
+          // import: the exact built bytes are digest-pinned, and approval
+          // rebuilds and re-verifies them.
+          const bundle = await runActOperation(() => state.capabilityRegistry.buildOfficialSkillBundle(input.catalogId!));
+          const contentDigest = piSkillBundleContentDigest(bundle.bytes);
+          const skillNames = details.skills?.length
+            ? [...details.skills].sort()
+            : await enumerateSkillBundleNames(bundle.fileName, bundle.bytes);
+          const staged = await stageConsecration({
+            kind: "capability.skills.import",
+            parameters: { source: input.catalogId, scope: input.scope, ...scopedSpace },
+            pins: { source: input.catalogId, contentDigest, skillNames },
+            parentTaskId: input.parentTaskId,
+            requestId: input.requestId,
+          });
+          record(staged);
+          return {
+            scope: input.scope,
+            ...(space ? { space: toActSpaceRef(space) } : {}),
+            staged,
+            source: input.catalogId,
+            contentDigest,
+            skillNames,
+          };
+        }
+        if (!details.installSource || !details.version) {
+          throw new WorkFoldCliError(
+            "unavailable",
+            "work-fold cannot pin an exact version for this package source yet, so it cannot stage this install. Install it from Assistant tools on the desktop.",
+          );
+        }
+        const resourceSummary = capabilityResourceSummary(details);
+        const staged = await stageConsecration({
+          kind: "capability.package.install",
+          parameters: { catalogId: input.catalogId, scope: input.scope, ...scopedSpace },
+          pins: {
+            packageId: details.id,
+            version: details.version,
+            source: details.installSource,
+            scope: input.scope,
+            resourceSummary,
+          },
+          parentTaskId: input.parentTaskId,
+          requestId: input.requestId,
+        });
+        record(staged);
+        return {
+          scope: input.scope,
+          ...(space ? { space: toActSpaceRef(space) } : {}),
+          staged,
+          source: details.installSource,
+          packageId: details.id,
+          version: details.version,
+          resourceSummary,
+        };
+      }
+      const identity = npmSourceIdentity(input.source ?? "");
+      if (!identity) {
+        throw new WorkFoldCliError(
+          "unavailable",
+          "work-fold can pin an exact version only for npm package sources yet, so it cannot stage this install. Install it from Assistant tools on the desktop.",
+        );
+      }
+      const details = await runActOperation(() => state.capabilityRegistry.details(`npm:${identity.packageName}`));
+      if (!details.installSource || !details.version) {
+        throw new WorkFoldCliError("unavailable", "npm did not report an exact installable version for this package.");
+      }
+      if (identity.pinnedVersion !== undefined && identity.pinnedVersion !== details.version) {
+        throw new WorkFoldCliError(
+          "conflict",
+          `work-fold inspects the latest published version (${details.version}) and can stage only that exact version; `
+            + `the source pins ${identity.pinnedVersion}. Stage without a version pin, or use the inspected version.`,
+        );
+      }
+      const resourceSummary = capabilityResourceSummary(details);
+      const staged = await stageConsecration({
+        kind: "capability.package.install",
+        parameters: { source: details.installSource, scope: input.scope, ...scopedSpace },
+        pins: {
+          packageId: details.id,
+          version: details.version,
+          source: details.installSource,
+          scope: input.scope,
+          resourceSummary,
+        },
+        parentTaskId: input.parentTaskId,
+        requestId: input.requestId,
+      });
+      record(staged);
+      return {
+        scope: input.scope,
+        ...(space ? { space: toActSpaceRef(space) } : {}),
+        staged,
+        source: details.installSource,
+        packageId: details.id,
+        version: details.version,
+        resourceSummary,
+      };
+    },
+    async toolsUpdate(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = input.scope === "space" ? await resolveSpace(input.space ?? "") : undefined;
+      const source = input.source.trim();
+      const identity = npmSourceIdentity(source);
+      if (!identity) {
+        throw new WorkFoldCliError(
+          "unavailable",
+          "work-fold can pin an exact version only for npm package sources yet, so it cannot stage this update. Update it from Assistant tools on the desktop.",
+        );
+      }
+      // Mirror the update path's configured-scope requirement at staging so
+      // the refusal is honest and early; the capability fence is not needed
+      // for this read.
+      const root = space ? space.spaceRoot : workFoldManagementRoot();
+      const piScope = space ? "project" : "user";
+      const configured = (await runActOperation(() => listPiPackages(root, state.runtimeProvider)))
+        .find((item) => item.source === source && item.scope === piScope);
+      if (!configured) {
+        throw new WorkFoldCliError("notFound", `Package is not configured in the requested scope: ${source}`);
+      }
+      const details = await runActOperation(() => state.capabilityRegistry.details(`npm:${identity.packageName}`));
+      if (!details.version) {
+        throw new WorkFoldCliError("unavailable", "npm did not report an exact version for this package.");
+      }
+      const resourceSummary = capabilityResourceSummary(details);
+      const scopedSpace: FoldStagedActFields = space ? { spaceId: space.id } : {};
+      const staged = await stageConsecration({
+        kind: "capability.package.update",
+        parameters: { source, scope: input.scope, ...scopedSpace },
+        pins: {
+          packageId: details.id,
+          version: details.version,
+          source,
+          scope: input.scope,
+          resourceSummary,
+        },
+        parentTaskId: input.parentTaskId,
+        requestId: input.requestId,
+      });
+      recordFacadeAction(state, input.parentTaskId, {
+        command: "tools.update",
+        ...(space ? { space } : {}),
+        decisionId: staged.decisionId,
+      });
+      return {
+        scope: input.scope,
+        ...(space ? { space: toActSpaceRef(space) } : {}),
+        staged,
+        source,
+        packageId: details.id,
+        version: details.version,
+        resourceSummary,
+      };
+    },
+    async appsInstallProposal(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const proposal = await runActOperation(() => state.restrictedAppProposals.get(input.proposal));
+      if (!proposal || proposal.spaceId !== space.id || proposal.conversationId !== input.conversationId) {
+        throw new WorkFoldCliError("notFound", "App proposal not found.");
+      }
+      if (proposal.status !== "pending") {
+        throw new WorkFoldCliError(
+          "conflict",
+          proposal.status === "revision-changed"
+            ? "The package changed after review; review the new revision before staging its install."
+            : `This app review is ${proposal.status}; only a pending review can be staged.`,
+        );
+      }
+      const staged = await stageConsecration({
+        kind: "app.review.approve",
+        parameters: { spaceId: space.id, proposalId: proposal.id },
+        pins: { proposalId: proposal.id, reviewDigest: proposal.review.digest },
+        parentTaskId: input.parentTaskId,
+        requestId: input.requestId,
+      });
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.install-proposal", space, decisionId: staged.decisionId });
+      return { space: toActSpaceRef(space), staged, proposalId: proposal.id, digest: proposal.review.digest };
+    },
+    async appsInstallPreview(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const packagePath = input.packagePath.trim();
+      if (!packagePath) throw new WorkFoldCliError("usage", "Provide --package <space-path>.");
+      // The host inspects the package and owns every review field and the
+      // digest — the same review record the Chat proposal path creates, under
+      // an act-lane marker instead of a conversation. A repeated stage of the
+      // same unchanged package converges on the same pending review, so the
+      // staged act dedupes onto one card and denial memory holds.
+      const proposal = await runActOperation(async () => {
+        const result = await state.restrictedAppProposals.propose({
+          spaceId: space.id,
+          spaceRoot: space.spaceRoot,
+          conversationId: workFoldActInstallPreviewConversationId,
+          sourcePath: packagePath,
+        });
+        if (result.status !== "pending" || !result.proposal) {
+          throw new WorkFoldCliError("failure", "The package review could not be recorded.");
+        }
+        return result.proposal;
+      });
+      const replacesInstalled = (await runActOperation(() => state.restrictedApps.list(space.id)))
+        .some((app) => app.manifest.id === proposal.review.manifest.id);
+      // The same staged kind and pins as an approved Chat proposal
+      // (docs/fold-consecrations.md keeps the vocabulary closed): approval
+      // rides the digest-checked install path, and a package edited after
+      // review surfaces as the existing REVISION_CHANGED refusal.
+      const staged = await stageConsecration({
+        kind: "app.review.approve",
+        parameters: { spaceId: space.id, proposalId: proposal.id },
+        pins: { proposalId: proposal.id, reviewDigest: proposal.review.digest },
+        parentTaskId: input.parentTaskId,
+        requestId: input.requestId,
+      });
+      return {
+        space: toActSpaceRef(space),
+        staged,
+        proposalId: proposal.id,
+        digest: proposal.review.digest,
+        title: proposal.review.manifest.title,
+        packageName: proposal.review.packageName,
+        version: proposal.review.version,
+        replacesInstalled,
+      };
+    },
+    async appsGrant(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const app = await requireInstalledApp(space, input.app);
+      if (input.digest.trim() !== app.digest) {
+        throw new WorkFoldCliError(
+          "conflict",
+          "Grants bind to the exact reviewed digest, and the installed app's digest is different. Read the current revision's review before staging.",
+        );
+      }
+      const declaration = input.declaration.trim();
+      const declared = input.kind === "network"
+        ? app.manifest.permissions.network.some((item) => item.id === declaration)
+        : input.kind === "files"
+          ? app.manifest.permissions.files.some((item) => item.id === declaration)
+          : app.manifest.permissions.notifications.some((item) => item.id === declaration);
+      if (!declared) throw new WorkFoldCliError("notFound", "The app does not declare this permission.");
+      const kind = input.kind === "network"
+        ? "app.grant.network" as const
+        : input.kind === "files"
+          ? "app.grant.files" as const
+          : "app.grant.notifications" as const;
+      const staged = await stageConsecration({
+        kind,
+        parameters: { spaceId: space.id, appInstanceId: app.featureInstallationId, declarationId: declaration },
+        pins: {
+          appInstanceId: app.featureInstallationId,
+          declarationId: declaration,
+          releaseDigest: app.releaseDigest ?? app.digest,
+        },
+        parentTaskId: input.parentTaskId,
+        requestId: input.requestId,
+      });
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.grant", space, decisionId: staged.decisionId });
+      return {
+        space: toActSpaceRef(space),
+        staged,
+        appId: app.manifest.id,
+        grantKind: input.kind,
+        declaration,
+      };
+    },
+    async appsConnect(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const app = await requireInstalledApp(space, input.app);
+      const destination = app.manifest.permissions.network.find((item) => item.id === input.destination.trim());
+      if (!destination) throw new WorkFoldCliError("notFound", "The app does not declare this connection destination.");
+      const target = destination.target.kind === "public-https"
+        ? String(destination.target.origin)
+        : `http://${String(destination.target.host)}:${String(destination.target.port)}`;
+      // The staged act names the connection's shape only — app, destination,
+      // target, adapter — never a secret. The browser sign-in adapter is
+      // preferred because it is the one flow approval can open without a
+      // person typing a credential.
+      const adapterKind = destination.auth.some((item) => item.kind === "oauth2-pkce")
+        ? "oauth2-pkce"
+        : destination.auth[0]?.kind;
+      if (!adapterKind) throw new WorkFoldCliError("conflict", "This destination declares no credential adapter to connect with.");
+      const staged = await stageConsecration({
+        kind: "app.connection.save",
+        parameters: { spaceId: space.id, appInstanceId: app.featureInstallationId, destinationId: destination.id },
+        pins: {
+          appInstanceId: app.featureInstallationId,
+          declarationId: destination.id,
+          target,
+          adapterKind,
+        },
+        parentTaskId: input.parentTaskId,
+        requestId: input.requestId,
+      });
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.connect", space, decisionId: staged.decisionId });
+      return {
+        space: toActSpaceRef(space),
+        staged,
+        appId: app.manifest.id,
+        destination: destination.id,
+        target,
+        adapterKind,
+      };
+    },
+    async appsAutomationEnable(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const app = await requireInstalledApp(space, input.app);
+      const automationId = input.automation.trim();
+      const declaration = app.manifest.automations.find((item) => item.id === automationId);
+      if (!declaration) throw new WorkFoldCliError("notFound", "The app does not declare this automation.");
+      if (app.automations.some((automation) => automation.id === automationId && automation.enabled)) {
+        throw new WorkFoldCliError("conflict", "This automation is already enabled; there is nothing to stage.");
+      }
+      const scheduleSummary = restrictedAppAutomationScheduleSummary(declaration);
+      const staged = await stageConsecration({
+        kind: "app.automation.enable",
+        parameters: { spaceId: space.id, appInstanceId: app.featureInstallationId, automationId },
+        pins: {
+          appInstanceId: app.featureInstallationId,
+          automationId,
+          reviewedDigest: app.digest,
+          scheduleSummary,
+        },
+        parentTaskId: input.parentTaskId,
+        requestId: input.requestId,
+      });
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.automation.enable", space, decisionId: staged.decisionId });
+      return {
+        space: toActSpaceRef(space),
+        staged,
+        appId: app.manifest.id,
+        automationId,
+        scheduleSummary,
+      };
+    },
+    async appsStorageClear(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const app = await requireInstalledApp(space, input.app);
+      // The card states the byte count being destroyed; without an observable
+      // count the act refuses instead of staging a blind destruction.
+      const usage = await runActOperation(() => state.restrictedApps.storageUsage(space.id, app.manifest.id, app.digest));
+      const staged = await stageConsecration({
+        kind: "app.storage.clear",
+        parameters: { spaceId: space.id, appInstanceId: app.featureInstallationId },
+        pins: {
+          appInstanceId: app.featureInstallationId,
+          dataNamespaceIds: [app.dataNamespaceId],
+          observedBytes: usage.usageBytes,
+        },
+        parentTaskId: input.parentTaskId,
+        requestId: input.requestId,
+      });
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.storage.clear", space, decisionId: staged.decisionId });
+      return { space: toActSpaceRef(space), staged, appId: app.manifest.id, observedBytes: usage.usageBytes };
+    },
+    async appsRetainedPurge(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const studio = await runActOperation(() => state.restrictedApps.localAppStudio(space.id));
+      const retained = studio.retainedData.find((item) => item.retainedDataId === input.retained.trim());
+      if (!retained) throw new WorkFoldCliError("notFound", "Retained App data record not found in this Space's App Studio.");
+      const staged = await stageConsecration({
+        kind: "app.data.purge",
+        parameters: { spaceId: space.id, appInstanceId: retained.featureInstallationId },
+        pins: {
+          appInstanceId: retained.featureInstallationId,
+          dataNamespaceIds: [retained.dataNamespaceId],
+        },
+        parentTaskId: input.parentTaskId,
+        requestId: input.requestId,
+      });
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.retained.purge", space, decisionId: staged.decisionId });
+      return {
+        space: toActSpaceRef(space),
+        staged,
+        retainedDataId: retained.retainedDataId,
+        dataNamespaceIds: [retained.dataNamespaceId],
+      };
+    },
+    async appsUninstallPurge(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const installed = (await runActOperation(() => state.restrictedApps.list(space.id))).find((app) => (
+        app.runtimeInstanceKind === "app" && app.runtimeInstanceId === input.instance
+      ));
+      if (!installed) throw new WorkFoldCliError("notFound", "Local App Instance not found.");
+      const staged = await stageConsecration({
+        kind: "app.data.purge",
+        parameters: { spaceId: space.id, appInstanceId: installed.featureInstallationId },
+        pins: {
+          appInstanceId: installed.featureInstallationId,
+          dataNamespaceIds: [installed.dataNamespaceId],
+        },
+        parentTaskId: input.parentTaskId,
+        requestId: input.requestId,
+      });
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.uninstall", space, decisionId: staged.decisionId });
+      return {
+        space: toActSpaceRef(space),
+        staged,
+        runtimeInstanceId: installed.runtimeInstanceId,
+        dataNamespaceIds: [installed.dataNamespaceId],
+      };
+    },
+    async routingsStage(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const { declaration, digest } = await readRoutingStagingFile(input.proposalPath, input.cwd);
+      const referencedSpaceIds = workFoldRoutingReferencedSpaceIds(declaration);
+      for (const spaceId of referencedSpaceIds) {
+        const registered = await getSpace(spaceId).catch(() => null);
+        if (!registered) {
+          throw new WorkFoldCliError(
+            "conflict",
+            `The routing references a Space that is not registered on this machine (${spaceId}); the enablement card could not show it by name.`,
+          );
+        }
+      }
+      // Hold the exact normalized declaration before the card exists, so a
+      // pending card always has its reviewed bytes; pruning afterwards keeps
+      // only digests still pinned by pending cards.
+      await holdStagedRoutingDeclaration(declaration, digest);
+      const staged = await stageConsecration({
+        kind: "routing.enable",
+        parameters: { routingId: declaration.id },
+        pins: { routingId: declaration.id, declarationDigest: digest },
+        parentTaskId: input.parentTaskId,
+        requestId: input.requestId,
+      });
+      await pruneStagedRoutingDeclarations(state.stagedActs).catch(() => undefined);
+      recordFacadeAction(state, input.parentTaskId, { command: "routings.stage", decisionId: staged.decisionId });
+      return {
+        staged,
+        routingId: declaration.id,
+        declarationDigest: digest,
+        title: declaration.title,
+        referencedSpaceIds,
+      };
+    },
+    async pagesStage(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const title = input.title.trim();
+      if (!title || title.length > WORKFOLD_PUBLICATION_TITLE_MAX_LENGTH || /[\r\n]/.test(title)) {
+        throw new WorkFoldCliError(
+          "usage",
+          `A page title of 1 through ${WORKFOLD_PUBLICATION_TITLE_MAX_LENGTH} characters is required.`,
+        );
+      }
+      const status = state.publications.status();
+      if (status.damaged) {
+        throw new WorkFoldCliError("failure", `work-fold cannot stage a page: ${status.damageReason ?? "the publication store is damaged."}`);
+      }
+      const source = await stagedPageSource(space.spaceRoot, input.path);
+      const snapshotEnabled = input.snapshot === true;
+      const staged = await stageConsecration({
+        kind: "publish.viewer.expose",
+        parameters: { exposure: "page", spaceId: space.id },
+        pins: {
+          exposure: "page",
+          spaceId: space.id,
+          relativePath: source.relativePath,
+          title,
+          snapshotEnabled,
+          byteBudget: WORKFOLD_PUBLICATION_BYTE_BUDGET_DEFAULT,
+          serveBudget: WORKFOLD_PUBLICATION_SERVE_RATE_DEFAULT,
+        },
+        parentTaskId: input.parentTaskId,
+        requestId: input.requestId,
+      });
+      recordFacadeAction(state, input.parentTaskId, { command: "pages.stage", space, decisionId: staged.decisionId });
+      return {
+        space: toActSpaceRef(space),
+        staged,
+        relativePath: source.relativePath,
+        title,
+        snapshotEnabled,
+        serveRatePerMinute: WORKFOLD_PUBLICATION_SERVE_RATE_DEFAULT,
+        byteBudgetPerDay: WORKFOLD_PUBLICATION_BYTE_BUDGET_DEFAULT,
+      };
+    },
+    async pagesStageApp(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const status = state.publications.status();
+      if (status.damaged) {
+        throw new WorkFoldCliError("failure", `work-fold cannot stage an app exposure: ${status.damageReason ?? "the publication store is damaged."}`);
+      }
+      // Exposure eligibility and pins come from the viewer adapter: an
+      // installed App Instance of a prepared Release whose reviewed manifest
+      // declares a viewer surface. The decision-time recheck re-resolves the
+      // same identity before anything activates. `--instance` accepts the App
+      // Instance id (the pin identity) or, like `apps uninstall`, the
+      // Runtime Instance id of an app installed in this Space.
+      const requested = input.instance.trim();
+      const byRuntimeId = (await runActOperation(() => state.restrictedApps.list(space.id)))
+        .find((app) => app.runtimeInstanceKind === "app" && app.runtimeInstanceId === requested);
+      const exposure = await state.restrictedAppViewer.resolveExposure(byRuntimeId?.featureInstallationId ?? requested);
+      if (!exposure.eligible) throw new WorkFoldCliError("conflict", exposure.issue);
+      if (exposure.spaceId !== space.id) {
+        throw new WorkFoldCliError("notFound", "This Space has no installed App Instance with this id.");
+      }
+      const alreadyExposed = (await runActOperation(() => state.publications.list())).some((view) => (
+        view.state === "active" && view.kind === "app" && view.app?.appInstanceId === exposure.pins.appInstanceId
+      ));
+      if (alreadyExposed) {
+        throw new WorkFoldCliError("conflict", "This App Instance is already at your address; stop sharing it before exposing it again.");
+      }
+      const staged = await stageConsecration({
+        kind: "publish.viewer.expose",
+        parameters: { exposure: "hosted-app", appInstanceId: exposure.pins.appInstanceId },
+        pins: {
+          exposure: "hosted-app",
+          appInstanceId: exposure.pins.appInstanceId,
+          releaseDigest: exposure.pins.releaseDigest,
+          viewerEntry: exposure.pins.viewerEntry,
+          viewerSurface: exposure.pins.viewerSurface,
+        },
+        parentTaskId: input.parentTaskId,
+        requestId: input.requestId,
+      });
+      recordFacadeAction(state, input.parentTaskId, { command: "pages.stage-app", space, decisionId: staged.decisionId });
+      return {
+        space: toActSpaceRef(space),
+        staged,
+        appId: exposure.appId,
+        title: exposure.title,
+        appInstanceId: exposure.pins.appInstanceId,
+        releaseDigest: exposure.pins.releaseDigest,
+        viewerEntry: exposure.pins.viewerEntry,
+        viewerSurface: exposure.pins.viewerSurface,
+        serveRatePerMinute: WORKFOLD_PUBLICATION_SERVE_RATE_DEFAULT,
+        byteBudgetPerDay: WORKFOLD_PUBLICATION_BYTE_BUDGET_DEFAULT,
+      };
+    },
+    async routingsList() {
+      const projections = await runActOperation(() => state.routings.listRoutings());
+      return { routings: projections.map(toActRoutingSummary) };
+    },
+    async routingsShow(input) {
+      const routingId = input.routing.trim();
+      const projection = await runActOperation(() => state.routings.getRouting(routingId));
+      if (!projection) throw new WorkFoldCliError("notFound", "No routing has this id on this machine.");
+      const spaceNames = new Map<string, string>();
+      for (const spaceId of workFoldRoutingReferencedSpaceIds(projection.declaration)) {
+        const registered = await getSpace(spaceId).catch(() => null);
+        if (registered) spaceNames.set(spaceId, registered.name);
+      }
+      const named = (spaceId: string) => (spaceNames.has(spaceId) ? { spaceName: spaceNames.get(spaceId)! } : {});
+      return {
+        routing: {
+          ...toActRoutingSummary(projection),
+          steps: projection.declaration.steps.map((step) => step.kind === "chat"
+            ? { id: step.id, kind: "chat" as const, spaceId: step.space, ...named(step.space), message: step.message }
+            : step.kind === "files"
+              ? {
+                id: step.id,
+                kind: "files" as const,
+                fromSpaceId: step.fromSpace,
+                ...(spaceNames.has(step.fromSpace) ? { fromSpaceName: spaceNames.get(step.fromSpace)! } : {}),
+                source: toActRoutingFilesSource(step.from),
+                toSpaceId: step.toSpace,
+                ...(spaceNames.has(step.toSpace) ? { toSpaceName: spaceNames.get(step.toSpace)! } : {}),
+                to: step.to,
+              }
+              : { id: step.id, kind: "check" as const, spaceId: step.space, ...named(step.space), ...(step.check ? { checkId: step.check } : {}) }),
+          grants: projection.grants.map((grant) => ({
+            digest: grant.digest,
+            decisionId: grant.decisionId,
+            approvedAt: grant.approvedAt,
+            surface: grant.surface,
+            ...(grant.browserId ? { browserId: grant.browserId } : {}),
+          })),
+        },
+      };
+    },
+    async routingsRun(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const routingId = input.routing.trim();
+      const projection = await runActOperation(() => state.routings.getRouting(routingId));
+      if (!projection) throw new WorkFoldCliError("notFound", "No routing has this id on this machine.");
+      const run = await runActOperation(() => state.routings.runNow(routingId, {
+        ...(input.requestId ? { requestId: input.requestId } : {}),
+      }));
+      return {
+        routingId,
+        title: projection.declaration.title,
+        run: {
+          runId: run.runId,
+          outcome: run.outcome,
+          startedAt: run.startedAt,
+          finishedAt: run.finishedAt,
+          ...(run.error !== undefined ? { error: run.error } : {}),
+        },
+      };
+    },
+    async routingsStop(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const routingId = input.routing.trim();
+      const stopped = state.routings.stopRun(routingId);
+      if (!stopped) {
+        throw new WorkFoldCliError("conflict", "This routing has no active run; its settled state already stands.");
+      }
+      return { routingId, stopped: true as const, runId: stopped.runId };
+    },
+    async routingsDisable(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const routingId = input.routing.trim();
+      const result = await runActOperation(() => state.routings.disable(routingId));
+      return {
+        routingId,
+        disabled: true as const,
+        digest: result.record.digest,
+        stoppedRunId: result.stoppedRunId,
+      };
+    },
+    async routingsDelete(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const routingId = input.routing.trim();
+      const record = await runActOperation(() => state.routings.deleteRouting(routingId));
+      if (record.health !== "disabled" && record.health !== "suspended") {
+        throw new WorkFoldCliError("failure", "The routing was deleted in an unexpected health state.");
+      }
+      return { routingId, deleted: true as const, digest: record.digest, finalHealth: record.health };
+    },
+    async routingsReceipts(input) {
+      const routingFilter = input.routing?.trim();
+      const parsed: WorkFoldActRoutingReceipt[] = [];
+      let damagedLineCount = 0;
+      for (const path of [workFoldRoutingReceiptsRotatedFile(), workFoldRoutingReceiptsFile()]) {
+        const text = await readFile(path, "utf8").catch(() => null);
+        if (!text) continue;
+        for (const line of text.split("\n")) {
+          if (!line.trim()) continue;
+          let record: Record<string, unknown>;
+          try {
+            record = JSON.parse(line) as Record<string, unknown>;
+          } catch {
+            damagedLineCount += 1;
+            continue;
+          }
+          const { at, scope, outcome, routingId } = record;
+          if (
+            typeof at !== "string"
+            || typeof outcome !== "string"
+            || typeof routingId !== "string"
+            || (scope !== "routing" && scope !== "run" && scope !== "hop")
+          ) {
+            damagedLineCount += 1;
+            continue;
+          }
+          if (routingFilter && routingId !== routingFilter) continue;
+          const { v: _version, ...fields } = record;
+          parsed.push({ ...fields, at, scope, outcome, routingId } as WorkFoldActRoutingReceipt);
+        }
+      }
+      const receipts = parsed.slice(-500);
+      return { receipts, truncated: parsed.length > receipts.length, damagedLineCount };
+    },
+    async pagesList() {
+      const views = await runActOperation(() => state.publications.list());
+      const spaceNames = new Map<string, string>();
+      for (const view of views) {
+        if (spaceNames.has(view.spaceId)) continue;
+        const registered = await getSpace(view.spaceId).catch(() => null);
+        if (registered) spaceNames.set(view.spaceId, registered.name);
+      }
+      return { publications: views.map((view) => toActPublicationRef(view, spaceNames.get(view.spaceId))) };
+    },
+    async pagesStatus(input) {
+      const publicationId = input.publication.trim();
+      const view = await runActOperation(() => state.publications.get(publicationId));
+      if (!view) throw new WorkFoldCliError("notFound", "No publication has this id on this machine.");
+      const registered = await getSpace(view.spaceId).catch(() => null);
+      return { publication: toActPublicationRef(view, registered?.name) };
+    },
+    async pagesRevoke(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const publicationId = input.publication.trim();
+      const prior = await runActOperation(() => state.publications.get(publicationId));
+      if (!prior) throw new WorkFoldCliError("notFound", "No publication has this id on this machine.");
+      const registered = await getSpace(prior.spaceId).catch(() => null);
+      if (prior.state !== "active") {
+        return { publication: toActPublicationRef(prior, registered?.name), alreadyRevoked: true };
+      }
+      const view = await runActOperation(() => state.publications.revoke(publicationId, {
+        requestId: input.requestId ?? randomUUID(),
+        surface: "cli",
+        ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
+      }));
+      return { publication: toActPublicationRef(view, registered?.name), alreadyRevoked: false };
+    },
+    async pagesNarrow(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const publicationId = input.publication.trim();
+      const prior = await runActOperation(() => state.publications.get(publicationId));
+      if (!prior) throw new WorkFoldCliError("notFound", "No publication has this id on this machine.");
+      const view = await runActOperation(() => state.publications.narrowBudgets(publicationId, {
+        ...(input.serveRatePerMinute !== undefined ? { serveRatePerMinute: input.serveRatePerMinute } : {}),
+        ...(input.byteBudgetPerDay !== undefined ? { byteBudgetPerDay: input.byteBudgetPerDay } : {}),
+      }, {
+        requestId: input.requestId ?? randomUUID(),
+        surface: "cli",
+        ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
+      }));
+      const registered = await getSpace(view.spaceId).catch(() => null);
+      return {
+        publication: toActPublicationRef(view, registered?.name),
+        priorServeRatePerMinute: prior.serveRatePerMinute,
+        priorByteBudgetPerDay: prior.byteBudgetPerDay,
+      };
+    },
+    async pagesSnapshotOff(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const publicationId = input.publication.trim();
+      const prior = await runActOperation(() => state.publications.get(publicationId));
+      if (!prior) throw new WorkFoldCliError("notFound", "No publication has this id on this machine.");
+      const view = await runActOperation(() => state.publications.disableSnapshot(publicationId, {
+        requestId: input.requestId ?? randomUUID(),
+        surface: "cli",
+        ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
+      }));
+      const registered = await getSpace(view.spaceId).catch(() => null);
+      return { publication: toActPublicationRef(view, registered?.name), wasEnabled: prior.snapshotEnabled };
+    },
+    async stagedList() {
+      const acts = await runStagedActStoreOperation(() => state.stagedActs.list());
+      return { acts: acts.map(toStagedActSummary) };
+    },
+    async stagedShow(input) {
+      const act = await runStagedActStoreOperation(() => state.stagedActs.get(input.id.trim()));
+      if (!act) throw new WorkFoldCliError("notFound", "No staged act has this id; approval never survives restaging.");
+      return { act: toStagedActDetail(act) };
+    },
+    async stagedCancel(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const act = await runStagedActStoreOperation(() => state.stagedActs.cancel(input.id.trim()));
+      recordFacadeAction(state, input.parentTaskId, { command: "staged.cancel", decisionId: act.id });
+      return { act: toStagedActSummary(act) };
     },
     async checksEnable(input) {
       const space = await resolveSpace(input.space);
@@ -2921,6 +5554,12 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const client = state.clients.get(clientKey(scope.id, conversationId));
       return { conversationId, aborted: client ? await client.abort() : false };
     },
+    async manageGlance() {
+      // Deliberately no management-readiness gate: the glance reads recorded
+      // state through the kernel, never the Assistant, and stays available
+      // while the management conversation is not.
+      return runActOperation(() => state.kernel.getGlance({ kind: "cli" }));
+    },
   };
 }
 
@@ -3028,7 +5667,7 @@ async function managementRequestView(
       : null),
     content: record.content,
     attachments: record.attachments,
-    dispositions: managementAttachmentDispositions(record),
+    dispositions: withLibraryDispositions(record),
     actions: record.actions,
     children,
     reply,
@@ -3036,6 +5675,28 @@ async function managementRequestView(
     remotePrincipalId: record.remotePrincipalId,
     remoteRequestId: record.remoteRequestId,
   };
+}
+
+/**
+ * The registry's mechanical disposition accounting, widened with the
+ * Space-free `library` outcome: an attachment whose resolved path matches an
+ * attributed `library add`'s recorded sources entered the personal Library.
+ * Space placements keep precedence — the registry reports those first and
+ * only `unrecorded` attachments are upgraded here, so one attachment never
+ * tells two stories.
+ */
+function withLibraryDispositions(record: ManagementRequestRecord): WorkFoldActAttachmentDisposition[] {
+  return managementAttachmentDispositions(record).map((disposition): WorkFoldActAttachmentDisposition => {
+    if (disposition.status !== "unrecorded" || disposition.attachment.kind === "url") return disposition;
+    const added = record.actions.find((action) =>
+      action.command === "library.add" && action.sources?.includes(disposition.attachment.target));
+    if (!added) return disposition;
+    return {
+      attachment: disposition.attachment,
+      status: "library",
+      copied: added.copied ?? [],
+    };
+  });
 }
 
 function managementReplyAsksQuestion(content: string): boolean {
@@ -3084,6 +5745,40 @@ function assertManagementParentAccepting(state: LocalApiState, parentTaskId: str
   if (!state.managementRequests.isActive(parentTaskId)) {
     throw new WorkFoldCliError("conflict", "The management request is stopping or has already finished.");
   }
+}
+
+/**
+ * Attributes one applied facade mutation to its explicitly named management
+ * request, so the request's recorded story stays complete across every landed
+ * verb. Space-free acts (the personal Library, personal-scope tools) record
+ * no Space fields. `chat.send` keeps its own inline recording because it also
+ * threads child-task bookkeeping and post-acceptance cancellation.
+ */
+function recordFacadeAction(
+  state: LocalApiState,
+  parentTaskId: string | undefined,
+  input: {
+    command: ManagementRequestActionCommand;
+    space?: SpaceSummary;
+    conversationId?: string;
+    checkpointId?: string | null;
+    taskId?: string;
+    copied?: string[];
+    /** Staged-act id for staging verbs and `staged cancel`, so the request trail points at the card. */
+    decisionId?: string;
+  },
+): void {
+  if (!parentTaskId) return;
+  state.managementRequests.recordAction(parentTaskId, {
+    command: input.command,
+    at: new Date().toISOString(),
+    ...(input.space ? { spaceId: input.space.id, spaceName: input.space.name } : {}),
+    ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+    ...(input.checkpointId !== undefined ? { checkpointId: input.checkpointId } : {}),
+    ...(input.taskId ? { taskId: input.taskId } : {}),
+    ...(input.copied ? { copied: input.copied } : {}),
+    ...(input.decisionId ? { decisionId: input.decisionId } : {}),
+  });
 }
 
 async function cancelAcceptedTurn(
@@ -3197,14 +5892,427 @@ async function addExternalFilesInternal(
   return { copied, checkpointId: safety?.checkpointId ?? null };
 }
 
+const maxActLibraryUploadFiles = 500;
+
+/**
+ * Reads `library add` sources into the exact upload shape the desktop's
+ * Library upload route feeds `uploadResourceFiles`: files carry their bytes,
+ * folder sources walk file-by-file with the folder's name preserved as the
+ * relative-path prefix (the desktop's folder-upload behavior). Symbolic links
+ * are refused anywhere, nothing is skipped silently, and the total read is
+ * bounded by the same budget the desktop upload body enforces.
+ */
+async function collectLibraryUploadFiles(
+  fromPaths: string[],
+  cwd: string,
+  maxTotalBytes: number,
+): Promise<Array<{ fileName: string; relativePath?: string; data: Buffer }>> {
+  if (!fromPaths.length) throw new WorkFoldCliError("usage", "Provide at least one --from <path> to add.");
+  if (fromPaths.length > maxActAddSources) {
+    throw new WorkFoldCliError("usage", `At most ${maxActAddSources} sources can be added at once.`);
+  }
+  const files: Array<{ fileName: string; relativePath?: string; data: Buffer }> = [];
+  let totalBytes = 0;
+  const readBounded = async (path: string, label: string): Promise<Buffer> => {
+    const data = await readFile(path);
+    totalBytes += data.byteLength;
+    if (totalBytes > maxTotalBytes) {
+      throw new WorkFoldCliError("usage", `The sources exceed the ${maxTotalBytes}-byte Library upload budget at ${label}.`);
+    }
+    return data;
+  };
+  const visitFolder = async (root: string, relativePrefix: string): Promise<void> => {
+    for (const name of (await readdir(root)).sort()) {
+      const path = join(root, name);
+      const relativePath = `${relativePrefix}/${name}`;
+      const info = await lstat(path);
+      if (info.isSymbolicLink()) {
+        throw new WorkFoldCliError("usage", `Symbolic-link sources cannot be added to the Library: ${relativePath}.`);
+      }
+      if (info.isDirectory()) {
+        await visitFolder(path, relativePath);
+        continue;
+      }
+      if (!info.isFile()) {
+        throw new WorkFoldCliError("usage", `Only files and folders can be added to the Library: ${relativePath}.`);
+      }
+      if (files.length >= maxActLibraryUploadFiles) {
+        throw new WorkFoldCliError("usage", `At most ${maxActLibraryUploadFiles} files can be added to the Library at once.`);
+      }
+      files.push({ fileName: name, relativePath, data: await readBounded(path, relativePath) });
+    }
+  };
+  for (const raw of fromPaths) {
+    const trimmed = raw.trim();
+    if (!trimmed) throw new WorkFoldCliError("usage", "Source paths cannot be empty.");
+    const source = isAbsolute(trimmed) ? resolve(trimmed) : resolve(cwd, trimmed);
+    const info = await lstat(source).catch(() => null);
+    if (!info) throw new WorkFoldCliError("notFound", `Source not found: ${trimmed}.`);
+    if (info.isSymbolicLink()) {
+      throw new WorkFoldCliError("usage", `Symbolic-link sources cannot be added to the Library: ${trimmed}.`);
+    }
+    if (info.isDirectory()) {
+      await visitFolder(source, basename(source));
+      continue;
+    }
+    if (!info.isFile()) {
+      throw new WorkFoldCliError("usage", `Only files and folders can be added to the Library: ${trimmed}.`);
+    }
+    if (files.length >= maxActLibraryUploadFiles) {
+      throw new WorkFoldCliError("usage", `At most ${maxActLibraryUploadFiles} files can be added to the Library at once.`);
+    }
+    files.push({ fileName: basename(source), data: await readBounded(source, trimmed) });
+  }
+  if (!files.length) {
+    throw new WorkFoldCliError("usage", "The sources contain no files to add to the Library.");
+  }
+  return files;
+}
+
+const maxActDeleteRefusalPaths = 5;
+
+const actDeleteSkipReasonLabels: Record<CheckpointSkippedFile["reason"], string> = {
+  too_large: "oversized",
+  unreadable: "unreadable",
+  symbolic_link: "symbolic link",
+  excluded: "excluded from History",
+};
+
+/**
+ * The act lane's deliberate strengthening over the desktop delete route
+ * (docs/fold-act-ledger.md, conflict rule 10): the route takes its safety
+ * restore point and proceeds even when the capture skipped a file it could
+ * not cover, which for the act lane would mean irreversible loss with no
+ * click. A delete the restore point cannot cover is a destroy, so it is
+ * refused here — naming the uncoverable paths — into the staged
+ * `files destroy` consecration.
+ */
+function assertDeleteRestoreCoverage(safety: SpaceCheckpoint): void {
+  if (!safety.skippedFiles.length) return;
+  const named = safety.skippedFiles
+    .slice(0, maxActDeleteRefusalPaths)
+    .map((file) => `${file.path} (${actDeleteSkipReasonLabels[file.reason]})`);
+  const more = safety.skippedFiles.length - named.length;
+  const count = safety.skippedFiles.length;
+  throw new WorkFoldCliError(
+    "conflict",
+    `This delete is refused because its restore point could not cover ${count} matched file${count === 1 ? "" : "s"}: `
+    + `${named.join("; ")}${more > 0 ? `; and ${more} more` : ""}. `
+    + "Deleting content History cannot restore is irreversible — 'files destroy' stages that decision for a person to approve.",
+  );
+}
+
+/**
+ * Splits one Space-relative act path into the desktop create routes' parent
+ * and name inputs, so `files mkdir`/`files create` run the exact same
+ * `createSpaceFolder`/`createSpaceTextFile` internals as the renderer.
+ */
+function splitActEntryPath(rawPath: string, missingMessage: string): { target: string; parentPath: string; name: string } {
+  const target = normalizeSpaceRelativePath(rawPath);
+  if (!target) throw new WorkFoldCliError("usage", missingMessage);
+  const lastSlash = target.lastIndexOf("/");
+  return {
+    target,
+    parentPath: lastSlash === -1 ? "" : target.slice(0, lastSlash),
+    name: lastSlash === -1 ? target : target.slice(lastSlash + 1),
+  };
+}
+
+const maxActLibraryItems = 500;
+
+/** Bounded depth-first flattening of the Library tree; true when the bound cut it short. */
+function flattenLibraryTree(entries: TreeEntry[], items: WorkFoldActLibraryItem[]): boolean {
+  for (const entry of entries) {
+    if (items.length >= maxActLibraryItems) return true;
+    items.push({
+      path: entry.path,
+      kind: entry.kind,
+      ...(entry.kind === "file" ? { sizeBytes: entry.sizeBytes ?? 0 } : {}),
+    });
+    if (entry.children?.length && flattenLibraryTree(entry.children, items)) return true;
+  }
+  return false;
+}
+
+/** Banner-image data URLs dominate a proposal's size; anything past this bound is not a typed proposal. */
+const maxActAppearanceProposalBytes = 1_048_576;
+/** A typed presentation file is a small JSON object; larger inputs are refused unread. */
+const maxActPresentationFileBytes = 65_536;
+
+/**
+ * Reads and validates one typed `space-appearance` proposal file, resolved
+ * host-side against the caller's working directory — the same file-borne
+ * input pattern as `checks enable --proposal`. Nothing but the typed proposal
+ * is accepted: no free-form argv colors, no other JSON shapes.
+ */
+async function readSpaceAppearanceProposalFile(rawPath: string, cwd: string): Promise<SpaceAppearanceProposal> {
+  const parsed = await readBoundedActJsonFile(rawPath, cwd, maxActAppearanceProposalBytes, "appearance proposal");
+  try {
+    return parseSpaceAppearanceProposal(parsed);
+  } catch (error) {
+    throw new WorkFoldCliError("usage", errorMessage(error), { cause: error });
+  }
+}
+
+/**
+ * Reads one typed App Studio presentation file and applies exactly the
+ * desktop pane's shape validation; the service's own value bounds still run
+ * inside `declareLocalAppProject`.
+ */
+async function readAppPresentationFile(rawPath: string, cwd: string): Promise<AppReleasePresentation> {
+  const parsed = await readBoundedActJsonFile(rawPath, cwd, maxActPresentationFileBytes, "App presentation");
+  const body = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed as { title?: unknown; description?: unknown; icon?: unknown }
+    : {};
+  if (typeof body.title !== "string"
+    || (body.description !== undefined && body.description !== null && typeof body.description !== "string")
+    || (body.icon !== undefined && body.icon !== null && typeof body.icon !== "string")) {
+    throw new WorkFoldCliError("usage", "An App title plus optional text description and icon id are required.");
+  }
+  return {
+    title: body.title,
+    description: body.description === undefined ? null : body.description,
+    icon: body.icon === undefined ? null : body.icon,
+  };
+}
+
+async function readBoundedActJsonFile(
+  rawPath: string,
+  cwd: string,
+  maximumBytes: number,
+  label: string,
+): Promise<unknown> {
+  const trimmed = rawPath.trim();
+  if (!trimmed) throw new WorkFoldCliError("usage", `A ${label} file path is required.`);
+  const path = isAbsolute(trimmed) ? resolve(trimmed) : resolve(cwd, trimmed);
+  const info = await stat(path).catch(() => null);
+  if (!info || !info.isFile()) throw new WorkFoldCliError("notFound", `The ${label} file was not found: ${trimmed}.`);
+  if (info.size > maximumBytes) {
+    throw new WorkFoldCliError("usage", `The ${label} file is larger than ${maximumBytes} bytes and cannot be a typed work-fold file.`);
+  }
+  try {
+    return JSON.parse(await readFile(path, "utf8")) as unknown;
+  } catch (error) {
+    throw new WorkFoldCliError("usage", `The ${label} file is not valid JSON.`, { cause: error });
+  }
+}
+
+/**
+ * Short content digest used as a receipt-safe reference: receipts and act
+ * output carry identifiers and digests, never customization or presentation
+ * payloads. Store-normalized values serialize deterministically, so equal
+ * content yields equal refs.
+ */
+function shortContentRef(value: unknown): string {
+  return `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 16)}`;
+}
+
+function appearanceCustomizationRef(customization: SpaceAppearanceCustomization | null): string | null {
+  return customization === null ? null : shortContentRef(customization);
+}
+
+function appearanceCustomizationsEqual(
+  left: SpaceAppearanceCustomization | null,
+  right: SpaceAppearanceCustomization | null,
+): boolean {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+function toActAppPresentation(presentation: AppReleasePresentation): WorkFoldActAppPresentation {
+  return { title: presentation.title, description: presentation.description, icon: presentation.icon };
+}
+
+function toActAppReleaseRef(release: LocalAppRelease): WorkFoldActAppReleaseRef {
+  return {
+    releaseDigest: release.releaseDigest,
+    displayVersion: release.displayVersion,
+    state: release.state,
+    preparedAt: release.preparedAt,
+    publishedAt: release.publishedAt,
+    featureCount: release.featureIds.length,
+  };
+}
+
+function toActAppOperationRef(operation: LocalAppOperation): WorkFoldActAppOperationRef {
+  return {
+    operationId: operation.operationId,
+    kind: operation.kind,
+    releaseDigest: operation.releaseDigest,
+    runtimeInstanceId: operation.runtimeInstanceId,
+    targetSpaceId: operation.targetSpaceId,
+    preparedAt: operation.preparedAt,
+    ...(operation.kind === "update"
+      ? { fromReleaseDigest: operation.plan.fromReleaseDigest, continuityPolicy: operation.continuityPolicy }
+      : {}),
+  };
+}
+
+function toActAppInstanceRef(instance: LocalAppInstance): WorkFoldActAppInstanceRef {
+  return {
+    runtimeInstanceId: instance.runtimeInstanceId,
+    spaceId: instance.spaceId,
+    releaseDigest: instance.releaseDigest,
+    displayVersion: instance.displayVersion,
+  };
+}
+
+function toActAppProposalRef(proposal: RestrictedAppProposalReceipt): WorkFoldActAppProposalRef {
+  return {
+    id: proposal.id,
+    status: proposal.status,
+    sourcePath: proposal.sourcePath,
+    title: proposal.review.manifest.title,
+    packageName: proposal.review.packageName,
+    version: proposal.review.version,
+    digest: proposal.review.digest,
+    createdAt: proposal.createdAt,
+    updatedAt: proposal.updatedAt,
+  };
+}
+
+function toActAppAutomationRunRef(run: RestrictedAppAutomationRunReceipt): WorkFoldActAppAutomationRunRef {
+  return {
+    runId: run.runId,
+    outcome: run.outcome,
+    startedAt: run.startedAt,
+    finishedAt: run.finishedAt,
+    ...(run.error !== undefined ? { error: run.error } : {}),
+  };
+}
+
+function toActRoutingTriggerRef(trigger: WorkFoldRoutingDeclaration["trigger"]): {
+  kind: "manual" | "interval" | "on-settled";
+  intervalMinutes?: number;
+  source?: {
+    kind: "check-run" | "app-automation-run";
+    spaceId: string;
+    checkId?: string;
+    appId?: string;
+    automationId?: string;
+    outcomes: string[];
+  };
+} {
+  if (trigger.kind === "interval") return { kind: "interval", intervalMinutes: trigger.intervalMinutes };
+  if (trigger.kind === "on-settled") {
+    const source = trigger.source;
+    if (source.kind === "check-run") {
+      return {
+        kind: "on-settled",
+        source: {
+          kind: "check-run",
+          spaceId: source.space,
+          ...(source.check ? { checkId: source.check } : {}),
+          outcomes: [...source.outcomes],
+        },
+      };
+    }
+    return {
+      kind: "on-settled",
+      source: {
+        kind: "app-automation-run",
+        spaceId: source.space,
+        appId: source.appId,
+        automationId: source.automationId,
+        outcomes: [...source.outcomes],
+      },
+    };
+  }
+  return { kind: "manual" };
+}
+
+function toActRoutingSummary(projection: {
+  declaration: WorkFoldRoutingDeclaration;
+  digest: string;
+  health: "enabled" | "disabled" | "suspended";
+  grants: Array<{ approvedAt: string }>;
+  lastScheduledAt?: string;
+  disabledAt?: string;
+  suspension?: { at: string; missingSpaceIds: string[]; reRegisteredSpaceIds: string[] };
+  nextScheduledAt?: string;
+}) {
+  return {
+    routingId: projection.declaration.id,
+    title: projection.declaration.title,
+    health: projection.health,
+    digest: projection.digest,
+    trigger: toActRoutingTriggerRef(projection.declaration.trigger),
+    stepCount: projection.declaration.steps.length,
+    referencedSpaceIds: workFoldRoutingReferencedSpaceIds(projection.declaration),
+    ...(projection.health === "enabled" && projection.grants.length > 0
+      ? { enabledAt: projection.grants[projection.grants.length - 1]!.approvedAt }
+      : {}),
+    ...(projection.disabledAt ? { disabledAt: projection.disabledAt } : {}),
+    ...(projection.suspension
+      ? {
+        suspension: {
+          at: projection.suspension.at,
+          missingSpaceIds: [...projection.suspension.missingSpaceIds],
+          reRegisteredSpaceIds: [...projection.suspension.reRegisteredSpaceIds],
+        },
+      }
+      : {}),
+    ...(projection.lastScheduledAt ? { lastScheduledAt: projection.lastScheduledAt } : {}),
+    ...(projection.nextScheduledAt ? { nextScheduledAt: projection.nextScheduledAt } : {}),
+  };
+}
+
+function toActRoutingFilesSource(
+  source: Extract<WorkFoldRoutingDeclaration["steps"][number], { kind: "files" }>["from"],
+): { kind: "paths"; paths: string[] }
+  | { kind: "tree"; path: string; recursive: boolean; extensions: string[] }
+  | { kind: "step-created-files"; step: string; extensions?: string[]; maxFiles: number; maxTotalBytes: number } {
+  if (source.kind === "paths") return { kind: "paths", paths: [...source.paths] };
+  if (source.kind === "tree") return { kind: "tree", path: source.path, recursive: source.recursive, extensions: [...source.extensions] };
+  return {
+    kind: "step-created-files",
+    step: source.step,
+    ...(source.extensions ? { extensions: [...source.extensions] } : {}),
+    maxFiles: source.maxFiles,
+    maxTotalBytes: source.maxTotalBytes,
+  };
+}
+
+function toActPublicationRef(view: WorkFoldPublicationView, spaceName?: string) {
+  return {
+    publicationId: view.publicationId,
+    kind: view.kind,
+    spaceId: view.spaceId,
+    ...(spaceName ? { spaceName } : {}),
+    ...(view.relativePath !== undefined ? { relativePath: view.relativePath } : {}),
+    ...(view.app
+      ? {
+        appInstanceId: view.app.appInstanceId,
+        releaseDigest: view.app.releaseDigest,
+        viewerEntry: view.app.viewerEntry,
+        viewerSurface: [...view.app.viewerSurface],
+      }
+      : {}),
+    title: view.title,
+    state: view.state,
+    live: view.live,
+    serveRatePerMinute: view.serveRatePerMinute,
+    byteBudgetPerDay: view.byteBudgetPerDay,
+    snapshotEnabled: view.snapshotEnabled,
+    createdAt: view.createdAt,
+    updatedAt: view.updatedAt,
+    ...(view.revokedAt ? { revokedAt: view.revokedAt } : {}),
+    ...(view.expiresAt ? { expiresAt: view.expiresAt } : {}),
+    bridgeSlot: view.bridgeSlot,
+    ...(view.bridgeCleanup ? { bridgeCleanup: view.bridgeCleanup } : {}),
+    viewerPath: view.viewerPath,
+  };
+}
+
 async function runActOperation<T>(operation: () => Promise<T>): Promise<T> {
   try {
     return await operation();
   } catch (error) {
     if (error instanceof WorkFoldCliError) throw error;
+    // Exactly the HTTP boundary's status translation (sendError), so a
+    // restricted-app or route error means the same thing on both surfaces.
     const statusCode = typeof (error as { statusCode?: unknown })?.statusCode === "number"
       ? (error as { statusCode: number }).statusCode
-      : null;
+      : restrictedAppErrorStatus(error);
     const message = error instanceof Error ? error.message : String(error ?? "Space act command failed.");
     if (statusCode === 400) throw new WorkFoldCliError("usage", message, { cause: error });
     if (statusCode === 403) throw new WorkFoldCliError("permissionDenied", message, { cause: error });
@@ -3252,6 +6360,39 @@ function toActConversationRef(conversation: ConversationSummary): WorkFoldActCon
     updatedAt: conversation.updatedAt,
     archivedAt: conversation.archivedAt ?? null,
     snoozedUntil: conversation.snoozedUntil ?? null,
+  };
+}
+
+function toActChatLifecycleState(conversation: ConversationSummary): WorkFoldActChatLifecycleState {
+  return {
+    archivedAt: conversation.archivedAt ?? null,
+    snoozedUntil: conversation.snoozedUntil ?? null,
+  };
+}
+
+/** Manifest-summary projection: counts and identifiers, never per-file listings. */
+function toActCheckpointSummary(checkpoint: SpaceCheckpoint): WorkFoldActCheckpointSummary {
+  return {
+    checkpointId: checkpoint.checkpointId,
+    createdAt: checkpoint.createdAt,
+    ...(checkpoint.label ? { label: checkpoint.label } : {}),
+    reason: checkpoint.reason,
+    scope: checkpoint.scope,
+    fileCount: checkpoint.fileCount,
+    totalBytes: checkpoint.totalBytes,
+    skippedFileCount: checkpoint.skippedFiles.length,
+  };
+}
+
+function toActFileVersionRef(version: SpaceFileVersion): WorkFoldActFileVersionRef {
+  return {
+    path: version.path,
+    hashSha256: version.hashSha256,
+    sizeBytes: version.sizeBytes,
+    modifiedAt: version.modifiedAt,
+    capturedAt: version.capturedAt,
+    checkpointId: version.checkpointId,
+    ...(version.checkpointLabel ? { checkpointLabel: version.checkpointLabel } : {}),
   };
 }
 
@@ -3591,7 +6732,7 @@ async function recoverPendingSpaceRemovals(
   restrictedApps: RestrictedAppService,
   restrictedAppProposals: RoutedRestrictedAppProposalHost,
   io: Partial<SpaceRemovalIo>,
-): Promise<string[]> {
+): Promise<{ spaceRoots: string[]; spaceIds: string[] }> {
   const pendingRemovals = await listPendingSpaceRemovals();
   for (const pending of pendingRemovals) {
     try {
@@ -3610,7 +6751,10 @@ async function recoverPendingSpaceRemovals(
       // other Spaces and normal startup can proceed; a later startup retries it.
     }
   }
-  return pendingRemovals.map((intent) => intent.spaceRoot);
+  return {
+    spaceRoots: pendingRemovals.map((intent) => intent.spaceRoot),
+    spaceIds: pendingRemovals.map((intent) => intent.spaceId),
+  };
 }
 
 async function runRestrictedAppMutations<T>(
@@ -3718,6 +6862,1545 @@ function hasActiveCapabilityWorkForSpace(state: LocalApiState, spaceId: string):
   return [...state.runningTurns, ...state.compactingConversations].some((key) => key.startsWith(prefix))
     || state.checkRunReservations.has(spaceId)
     || state.checks.hasActiveRun(spaceId);
+}
+
+// ---------------------------------------------------------------------------
+// Fold wiring: the consecration decision path, the routing executor's hop
+// ports, the publication key fallback, and the glance's live-registry source
+// readers. All of it is constructed by startLocalApi over the same shared
+// state (and the same fences) the HTTP routes and the act facade use.
+// ---------------------------------------------------------------------------
+
+/**
+ * Development fallback only: keys live for this app run and pages served
+ * under them stop decrypting after restart until the redrive lane mints a
+ * fresh key. The desktop always injects the operating-system-encrypted
+ * secure-settings store (`desktop/src/settings.ts`), where publication keys
+ * durably belong as Remote access material.
+ */
+function createEphemeralPublicationKeyStore(): WorkFoldPublicationKeyStore {
+  const keys = new Map<string, string>();
+  return {
+    async get(publicationId) {
+      return keys.get(publicationId) ?? null;
+    },
+    async set(publicationId, keyBase64Url) {
+      keys.set(publicationId, keyBase64Url);
+    },
+    async remove(publicationId) {
+      keys.delete(publicationId);
+    },
+  };
+}
+
+/** The neutral app-owned root global capability mutations resolve against. */
+function capabilityGlobalMutationScope(): { id: string; spaceRoot: string } {
+  return { id: workFoldManagementScopeId, spaceRoot: workFoldManagementRoot() };
+}
+
+/**
+ * The consecration execution fence over the exact reservation state the
+ * desktop routes use: `probe` answers, without reserving, whether the scope
+ * could be reserved right now (so an ineligible click consumes nothing), and
+ * `run` reserves with runRestrictedAppMutation semantics for a Space scope
+ * and runCapabilityMutation's global branch for the global scope. Project
+ * trust checks stay with the per-kind adapters, mirroring the routes each
+ * kind reuses.
+ */
+// ---------------------------------------------------------------------------
+// Consecration staging (docs/fold-consecrations.md; verb rows in
+// docs/fold-act-ledger.md). The facade composes each staged act's typed
+// parameters and pins from live state, admits it through the staged-act
+// store's journaled path, and returns the ledger's staged result shape. The
+// helpers below are the shared plumbing: error translation into the CLI's
+// typed vocabulary, provenance from the validated management lineage, the
+// bounded projections `staged list|show` render, and the digest-addressed
+// holding area a staged routing declaration waits in until its decision.
+// ---------------------------------------------------------------------------
+
+/**
+ * Cards for the needs-you surfaces, host-composed from the typed staged-act
+ * records with registered Space names resolved. One card contract for every
+ * surface; nothing here reads model prose.
+ */
+async function composeDecisionCards(acts: FoldStagedAct[]): Promise<FoldDecisionCard[]> {
+  const spaceNames = new Map((await listSpaces()).map((space) => [space.id, space.name]));
+  return acts.map((act) => foldDecisionCard(act, { spaceNames }));
+}
+
+function compareIsoStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+const maxDecisionFileGrantRootLength = 512;
+
+/**
+ * The person-chosen root accompanying an `app.grant.files` approval: "." for
+ * the whole Space, otherwise a plain Space-relative path. Mirrors the file
+ * broker's safe-relative-path rules (`src/local/agent/restricted-app-files.ts`)
+ * so a root this route accepts is one the grant path will accept too — a typo
+ * refuses here, before the approval is consumed, never as a failed execution.
+ */
+function decisionFileGrantRoot(value: unknown): string {
+  if (typeof value !== "string") throw badRequest("The chosen folder must be a string path.");
+  const root = value.trim();
+  if (!root || root.length > maxDecisionFileGrantRootLength) {
+    throw badRequest("Choose a folder inside the Space for this grant.");
+  }
+  if (root === ".") return root;
+  if (isAbsolute(root) || root.startsWith("/") || root.includes("\\") || root.includes(":") || root.includes("\0")) {
+    throw badRequest("The chosen folder must be a Space-relative path.");
+  }
+  if (root.split("/").some((segment) => !segment || segment === "." || segment === "..")) {
+    throw badRequest("The chosen folder must be a plain Space-relative path.");
+  }
+  if (containsReservedSpacePathSegment(root)) {
+    throw badRequest("work-fold metadata folders cannot be granted to an app.");
+  }
+  return root;
+}
+
+/**
+ * Decision-path refusals for the renderer decision routes, with the typed
+ * code and (when the refusal settled the record) the resulting state, so the
+ * surfaces can say exactly what happened instead of guessing from prose.
+ */
+function sendFoldDecisionError(res: ServerResponse, error: unknown): void {
+  if (error instanceof FoldDecisionError) {
+    sendJson(res, {
+      error: error.message,
+      code: error.code,
+      ...(error.state !== undefined ? { state: error.state } : {}),
+    }, error.code === "SURFACE_FORBIDDEN" ? 403 : 409);
+    return;
+  }
+  if (error instanceof FoldStagedActError) {
+    const status = error.code === "INPUT_INVALID" || error.code === "KIND_UNKNOWN"
+      ? 400
+      : error.code === "NOT_FOUND"
+        ? 404
+        : error.code === "STORE_DAMAGED" || error.code === "JOURNAL_UNAVAILABLE"
+          ? 500
+          : 409;
+    sendJson(res, {
+      error: error.message,
+      code: error.code,
+      ...(error.state !== undefined ? { state: error.state } : {}),
+    }, status);
+    return;
+  }
+  sendError(res, error);
+}
+
+/** Standing-policy route refusals, with the store's typed code preserved. */
+function sendFoldPublicationError(res: ServerResponse, error: unknown): void {
+  if (error instanceof WorkFoldPublicationError) {
+    const status = error.code === "INPUT_INVALID" || error.code === "WIDEN_REFUSED" || error.code === "SOURCE_INVALID"
+      ? 400
+      : error.code === "NOT_FOUND"
+        ? 404
+        : error.code === "ALREADY_REVOKED" || error.code === "PUBLICATION_CAP"
+          ? 409
+          : error.code === "STORE_DAMAGED" || error.code === "JOURNAL_UNAVAILABLE"
+            ? 503
+            : 500;
+    sendJson(res, { error: error.message, code: error.code }, status);
+    return;
+  }
+  sendError(res, error);
+}
+
+function sendFoldPolicyError(res: ServerResponse, error: unknown): void {
+  if (error instanceof FoldPolicyError) {
+    const status = error.code === "INPUT_INVALID" || error.code === "KIND_INELIGIBLE" || error.code === "OPEN_REGISTRY"
+      ? 400
+      : error.code === "NOT_FOUND"
+        ? 404
+        : error.code === "SETTINGS_ONLY"
+          ? 403
+          : error.code === "POLICY_CAP"
+            ? 409
+            : 500;
+    sendJson(res, { error: error.message, code: error.code }, status);
+    return;
+  }
+  sendError(res, error);
+}
+
+/** Light route-shape pass; the store's matcher validation is the authority. */
+function foldPolicyMatchInput(value: unknown): FoldPolicyMatch {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    // The store refuses non-object matchers with its own precise message.
+    return value as FoldPolicyMatch;
+  }
+  const match: Record<string, string> = {};
+  for (const [name, field] of Object.entries(value as Record<string, unknown>)) {
+    if (field === undefined || field === null) continue;
+    if (typeof field === "string" && !field.trim()) continue;
+    match[name] = field as string;
+  }
+  return match;
+}
+
+/**
+ * The Settings section's authoring metadata: the policy-eligible kind set and
+ * the typed matcher fields each kind accepts, rendered by
+ * DesktopSettingsModal so the pickers offer eligible kinds only. The field
+ * structure — names, required flags, value enums — derives from the store's
+ * own exported matcher vocabulary (`FOLD_POLICY_MATCHER_DESCRIPTORS`), so the
+ * pickers can never drift from what the store accepts at write; this module
+ * adds only person-facing presentation, keyed exhaustively over
+ * {@link FoldPolicyEligibleKind} — adding an eligible kind without presenting
+ * it here is a compile error — while the store's own matcher validation stays
+ * the one write-time authority. Categories use the working card copy from
+ * docs/fold-consecrations.md; destroy has no entry because it has no policy
+ * vocabulary.
+ */
+interface FoldPolicySettingsFieldDescriptor {
+  name: string;
+  label: string;
+  required: boolean;
+  values?: readonly string[];
+  hint?: string;
+}
+
+interface FoldPolicySettingsKindDescriptor {
+  kind: FoldPolicyEligibleKind;
+  category: FoldPolicyCategory;
+  categoryLabel: string;
+  label: string;
+  fields: FoldPolicySettingsFieldDescriptor[];
+}
+
+function foldPolicySettingsContract(): {
+  cap: number;
+  labelMaxChars: number;
+  firstPartyRegistries: readonly string[];
+  kinds: FoldPolicySettingsKindDescriptor[];
+} {
+  const fieldLabels: Record<string, string> = {
+    reviewDigest: "Reviewed content digest",
+    source: "Source",
+    packageId: "Package id",
+    version: "Exact version",
+    scope: "Scope",
+    spaceId: "Space id",
+    contentDigest: "Content digest",
+    appInstanceId: "App Instance id",
+    declarationId: "Declaration id",
+    target: "Connection target",
+    adapterKind: "Adapter kind",
+    automationId: "Automation id",
+  };
+  const packageSourceHint = "Pin a packageId, or name a first-party curated registry; open registries are refused.";
+  const presentation: Record<FoldPolicyEligibleKind, {
+    label: string;
+    fieldLabels?: Record<string, string>;
+    hints?: Record<string, string>;
+  }> = {
+    "app.review.approve": { label: "Approve an app review" },
+    "capability.package.install": {
+      label: "Install a package or Extension",
+      fieldLabels: { source: "Package source" },
+      hints: { source: packageSourceHint },
+    },
+    "capability.package.update": {
+      label: "Update a package or Extension",
+      fieldLabels: { source: "Package source" },
+      hints: { source: packageSourceHint },
+    },
+    "capability.skills.import": {
+      label: "Import a skill bundle",
+      hints: { contentDigest: "Pin a contentDigest, or name a first-party curated registry source." },
+    },
+    "app.grant.network": { label: "Grant a network destination" },
+    "app.grant.files": { label: "Grant Space file access" },
+    "app.grant.notifications": { label: "Grant a notification category" },
+    "app.connection.save": { label: "Save an app connection" },
+    "app.automation.enable": { label: "Enable a named automation" },
+  };
+  return {
+    cap: FOLD_POLICY_CAP,
+    labelMaxChars: FOLD_POLICY_LABEL_MAX_CHARS,
+    firstPartyRegistries: FOLD_POLICY_FIRST_PARTY_REGISTRIES,
+    kinds: FOLD_POLICY_ELIGIBLE_KINDS.map((kind) => {
+      const category = foldStagedActCategory(kind) as FoldPolicyCategory;
+      return {
+        kind,
+        category,
+        categoryLabel: category === "make-runnable"
+          ? "Installs code that can run as you"
+          : "Grants a standing power",
+        label: presentation[kind].label,
+        fields: Object.entries(FOLD_POLICY_MATCHER_DESCRIPTORS[kind].fields).map(([name, spec]) => {
+          const hint = presentation[kind].hints?.[name];
+          return {
+            name,
+            label: presentation[kind].fieldLabels?.[name] ?? fieldLabels[name] ?? name,
+            required: spec.required,
+            ...(spec.values !== undefined ? { values: spec.values } : {}),
+            ...(hint !== undefined ? { hint } : {}),
+          };
+        }),
+      };
+    }),
+  };
+}
+
+function mapFoldStagedActError(error: FoldStagedActError): WorkFoldCliError {
+  switch (error.code) {
+    case "INPUT_INVALID":
+    case "KIND_UNKNOWN":
+      return new WorkFoldCliError("usage", error.message, { cause: error });
+    case "NOT_FOUND":
+      return new WorkFoldCliError("notFound", error.message, { cause: error });
+    case "PENDING_CAP":
+    case "ALREADY_SETTLED":
+    case "EXPIRED":
+    case "EXECUTION_INVALID":
+      return new WorkFoldCliError("conflict", error.message, { cause: error });
+    default:
+      // STORE_DAMAGED and JOURNAL_UNAVAILABLE: honest failures, never guessed.
+      return new WorkFoldCliError("failure", error.message, { cause: error });
+  }
+}
+
+async function runStagedActStoreOperation<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof FoldStagedActError) throw mapFoldStagedActError(error);
+    throw error;
+  }
+}
+
+/**
+ * The receipts writer the decision path journals through, extending the
+ * composition the policies module documents: when the decision being
+ * journaled is an exercised standing policy, both the accepted and terminal
+ * receipt lines carry the policy's label snapshot at exercise time in their
+ * host-composed detail, beside the `surface: "policy"` and `policyId` columns
+ * receipts v2 already records. Every other decision passes through unchanged.
+ */
+function createPolicyLabelAwareDecisionReceipts(state: LocalApiState): FoldDecisionReceiptsWriter {
+  return {
+    async append(entry) {
+      const label = entry.policyId !== undefined && typeof entry.decisionId === "string"
+        ? state.policyLabelSnapshots.get(entry.decisionId)
+        : undefined;
+      if (label === undefined) return await state.actReceipts.append(entry);
+      const suffix = `auto-approved by standing policy "${label}"`;
+      return await state.actReceipts.append({
+        ...entry,
+        detail: entry.detail !== undefined ? `${entry.detail} — ${suffix}` : suffix,
+      });
+    },
+    hasAccepted: (requestId) => state.actReceipts.hasAccepted(requestId),
+  };
+}
+
+/**
+ * Host-side standing-policy evaluation at staged-act admission
+ * (docs/fold-consecrations.md §Standing policies): never in the model, never
+ * over prose, and never for a deduplicated card. A match short-circuits into
+ * the same decision path as a click — eligibility precheck, pin recheck,
+ * journal-first consumption, execution, terminal receipt — so an exercised
+ * policy's receipts contain everything a clicked decision's receipts contain,
+ * with `surface: "policy"`, the policy id, and the label snapshot.
+ *
+ * Everything here fails closed to a click: a damaged or unattested policy
+ * store, a non-matching act, or a decision-path refusal that consumed nothing
+ * (a busy fence, an ineligible act) returns null and leaves the pending card
+ * waiting for a person. Only a refusal that settled the record — a pin
+ * mismatch or the interrupted-decision backstop, both practically unreachable
+ * this close to admission — surfaces as a typed conflict, because reporting a
+ * pending card for a settled act would be a lie.
+ */
+async function exerciseStandingPolicyAtAdmission(
+  state: LocalApiState,
+  act: FoldStagedAct,
+): Promise<WorkFoldActStagedAutoApproval | null> {
+  let evaluation: FoldPolicyEvaluation;
+  try {
+    evaluation = await state.foldPolicies.evaluate(act);
+  } catch {
+    // Evaluation never throws by contract; an unexpected failure still means
+    // no auto-approval, which is the fail-closed direction.
+    return null;
+  }
+  if (!evaluation.matched) return null;
+  state.policyLabelSnapshots.set(act.id, evaluation.labelSnapshot);
+  try {
+    const result = await state.foldDecisions.decide(act.id, evaluation.decisionInput);
+    return {
+      policyId: evaluation.policy.id,
+      policyLabel: evaluation.labelSnapshot,
+      executionOutcome: result.act.execution?.outcome ?? "executed",
+      ...(result.act.execution?.errorDetail !== undefined ? { detail: result.act.execution.errorDetail } : {}),
+      receipted: result.receipted,
+    };
+  } catch (error) {
+    const current = await state.stagedActs.get(act.id).catch(() => undefined);
+    if (!current || current.state === "staged") return null;
+    if (current.state === "approved" && current.decision?.policyId !== undefined) {
+      // The decision committed but its outcome could not be reported cleanly
+      // (for example the execution-record write failed); the approval stands
+      // and the response must say so.
+      return {
+        policyId: current.decision.policyId,
+        policyLabel: evaluation.labelSnapshot,
+        executionOutcome: current.execution?.outcome ?? "interrupted",
+        ...(current.execution?.errorDetail !== undefined ? { detail: current.execution.errorDetail } : {}),
+        receipted: false,
+      };
+    }
+    throw new WorkFoldCliError(
+      "conflict",
+      `A standing policy matched this act, but the decision could not complete and the staged act is now ${current.state}: ${errorMessage(error)}`,
+      { cause: error },
+    );
+  } finally {
+    state.policyLabelSnapshots.delete(act.id);
+  }
+}
+
+/**
+ * Provenance for one staged act. `requestId` is the staging act's journal id.
+ * When the act carries explicit management lineage, the staged card records
+ * the management conversation that holds the fold's reasoning — and, when
+ * that request arrived through Remote access, the exact browser identity, so
+ * the no-self-approval rule and browser-revocation cascades bind to real
+ * data.
+ */
+function stagingProvenance(
+  state: LocalApiState,
+  parentTaskId: string | undefined,
+  requestId: string | undefined,
+): FoldStagedActProvenance {
+  const record = parentTaskId ? state.managementRequests.get(parentTaskId) : null;
+  return {
+    stagedVia: record ? "management-conversation" : "act-cli",
+    requestId: requestId?.trim() || randomUUID(),
+    ...(parentTaskId ? { parentTaskId } : {}),
+    ...(record ? { conversationId: record.conversationId } : {}),
+    ...(record?.remotePrincipalId && record.remoteGrantId
+      ? { browserId: record.remotePrincipalId, grantId: record.remoteGrantId }
+      : {}),
+  };
+}
+
+function toStagedDecision(admission: FoldStagedActAdmission): WorkFoldActStagedDecision {
+  const { act } = admission;
+  return {
+    decisionId: act.id,
+    kind: act.kind,
+    category: act.category,
+    state: "staged",
+    createdAt: act.createdAt,
+    expiresAt: act.expiresAt,
+    deduplicated: admission.deduplicated,
+    ...(act.priorDenialAt !== undefined ? { priorDenialAt: act.priorDenialAt } : {}),
+  };
+}
+
+function stagedActSpaceIdOf(act: FoldStagedAct): string | undefined {
+  const value = act.parameters.spaceId ?? act.pins.spaceId;
+  return typeof value === "string" ? value : undefined;
+}
+
+function toStagedActSummary(act: FoldStagedAct): WorkFoldActStagedActSummary {
+  const spaceId = stagedActSpaceIdOf(act);
+  return {
+    id: act.id,
+    kind: act.kind,
+    category: act.category,
+    state: act.state,
+    createdAt: act.createdAt,
+    expiresAt: act.expiresAt,
+    ...(spaceId !== undefined ? { spaceId } : {}),
+    ...(act.decidedAt !== undefined ? { decidedAt: act.decidedAt } : {}),
+    ...(act.decision !== undefined ? { decisionSurface: act.decision.surface } : {}),
+    ...(act.execution !== undefined ? { executionOutcome: act.execution.outcome } : {}),
+    ...(act.priorDenialAt !== undefined ? { priorDenialAt: act.priorDenialAt } : {}),
+  };
+}
+
+function toStagedActDetail(act: FoldStagedAct): WorkFoldActStagedActDetail {
+  const restrictions = foldDecisionSurfaceRestrictions(act);
+  return {
+    ...toStagedActSummary(act),
+    parameters: structuredClone(act.parameters),
+    pins: structuredClone(act.pins),
+    provenance: structuredClone(act.provenance),
+    restrictions: {
+      desktopOnly: restrictions.desktopOnly,
+      ...(restrictions.stagedByGrantId !== undefined ? { stagedByGrantId: restrictions.stagedByGrantId } : {}),
+    },
+    ...(act.decision !== undefined ? { decision: structuredClone(act.decision) } : {}),
+    ...(act.execution !== undefined ? { execution: structuredClone(act.execution) } : {}),
+    ...(act.invalidationReason !== undefined ? { invalidationReason: act.invalidationReason } : {}),
+    ...(act.cancellationReason !== undefined ? { cancellationReason: act.cancellationReason } : {}),
+  };
+}
+
+/**
+ * Digest-addressed holding area for staged routing declarations: the exact
+ * normalized declaration a `routings stage` reviewed, waiting inert until its
+ * decision. Machine-local application state beside the staged-act store —
+ * never a Space folder — and content-addressed, so the decision-time reload
+ * is identity, not trust: bytes that no longer hash to the pinned digest
+ * invalidate the card instead of enabling something the person never saw.
+ */
+function stagedRoutingDeclarationsDir(): string {
+  return join(workFoldStateRoot(), "fold", "staged-routings");
+}
+
+function stagedRoutingDeclarationFile(digest: string): string {
+  if (!/^[a-f0-9]{16,128}$/.test(digest)) throw new WorkFoldCliError("usage", "The routing declaration digest is malformed.");
+  return join(stagedRoutingDeclarationsDir(), `${digest}.json`);
+}
+
+async function holdStagedRoutingDeclaration(declaration: WorkFoldRoutingDeclaration, digest: string): Promise<void> {
+  const directory = stagedRoutingDeclarationsDir();
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const temporaryPath = join(directory, `.${digest}.${randomUUID()}.tmp`);
+  await writeFile(temporaryPath, `${JSON.stringify(declaration, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  await rename(temporaryPath, stagedRoutingDeclarationFile(digest));
+}
+
+/** Bounded by the pending cap: only digests a pending routing.enable act still pins are kept. */
+async function pruneStagedRoutingDeclarations(store: FoldStagedActStore): Promise<void> {
+  const pending = await store.list({ state: "staged", kind: "routing.enable" }).catch(() => [] as FoldStagedAct[]);
+  const keep = new Set(
+    pending
+      .map((act) => act.pins.declarationDigest)
+      .filter((digest): digest is string => typeof digest === "string"),
+  );
+  const directory = stagedRoutingDeclarationsDir();
+  for (const entry of await readdir(directory).catch(() => [] as string[])) {
+    if (!entry.endsWith(".json")) continue;
+    if (keep.has(entry.slice(0, -".json".length))) continue;
+    await rm(join(directory, entry), { force: true }).catch(() => undefined);
+  }
+}
+
+async function loadStagedRoutingDeclaration(digest: string): Promise<WorkFoldRoutingDeclaration | null> {
+  let text: string;
+  try {
+    text = await readFile(stagedRoutingDeclarationFile(digest), "utf8");
+  } catch {
+    return null;
+  }
+  const declaration = normalizeWorkFoldRoutingDeclaration(JSON.parse(text));
+  return workFoldRoutingDigest(declaration) === digest ? declaration : null;
+}
+
+/**
+ * Reads one inert typed routing file — a proposal or a full declaration —
+ * and normalizes it into the declaration enablement will verify. A proposal
+ * gains a deterministic content-derived routing id, so restaging identical
+ * content dedupes onto one card and denial memory holds.
+ */
+async function readRoutingStagingFile(
+  proposalPath: string,
+  cwd: string,
+): Promise<{ declaration: WorkFoldRoutingDeclaration; digest: string }> {
+  const path = isAbsolute(proposalPath) ? resolve(proposalPath) : resolve(cwd, proposalPath);
+  const info = await lstat(path).catch(() => null);
+  if (!info || info.isSymbolicLink() || !info.isFile()) {
+    throw new WorkFoldCliError("notFound", "The routing proposal must be a regular file on this machine.");
+  }
+  if (info.size > 256 * 1024) throw new WorkFoldCliError("usage", "The routing proposal exceeds the 256 KiB bound.");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(path, "utf8"));
+  } catch (error) {
+    throw new WorkFoldCliError("usage", `The routing proposal is not readable JSON: ${errorMessage(error)}`, { cause: error });
+  }
+  const kind = (parsed as { kind?: unknown } | null)?.kind;
+  try {
+    if (kind === workFoldRoutingProposalKind) {
+      const proposal = normalizeWorkFoldRoutingProposal(parsed);
+      const contentId = `routing-${workFoldRoutingDigest(proposal).slice(0, 16)}`;
+      const declaration = declarationFromWorkFoldRoutingProposal(proposal, contentId);
+      return { declaration, digest: workFoldRoutingDigest(declaration) };
+    }
+    if (kind === workFoldRoutingDeclarationKind) {
+      const declaration = normalizeWorkFoldRoutingDeclaration(parsed);
+      return { declaration, digest: workFoldRoutingDigest(declaration) };
+    }
+  } catch (error) {
+    throw new WorkFoldCliError("usage", errorMessage(error), { cause: error });
+  }
+  throw new WorkFoldCliError(
+    "usage",
+    `The file is not a typed routing proposal (${workFoldRoutingProposalKind}) or declaration (${workFoldRoutingDeclarationKind}); nothing else is accepted.`,
+  );
+}
+
+/**
+ * Enumerates a skill bundle's SKILL.md names for the staged card without
+ * installing anything, on the import path's own bounds. Digest equality
+ * remains the whole identity recheck at decision time; these names are the
+ * card's inspection facts, derived from the exact staged bytes.
+ */
+async function enumerateSkillBundleNames(fileName: string, bytes: Uint8Array): Promise<string[]> {
+  const extension = extname(fileName).toLowerCase();
+  if (extension === ".md") {
+    const markdown = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    const frontmatter = /^---\s*\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(markdown)?.[1] ?? "";
+    const rawName = /^name\s*:\s*(.+?)\s*$/im.exec(frontmatter)?.[1]?.trim();
+    const unquoted = rawName?.replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/, (_match, d, s) => (d ?? s ?? "")).trim();
+    if (!unquoted) throw new WorkFoldCliError("usage", "SKILL.md must declare a name in YAML frontmatter.");
+    return [unquoted];
+  }
+  if (extension !== ".zip" && extension !== ".skill") {
+    throw new WorkFoldCliError("usage", "Skills must be a SKILL.md file or use a .zip or .skill bundle.");
+  }
+  let archive: JSZip;
+  try {
+    archive = await JSZip.loadAsync(bytes);
+  } catch (error) {
+    throw new WorkFoldCliError("usage", `Could not read the skill bundle: ${errorMessage(error)}`, { cause: error });
+  }
+  const bundleStem = basename(fileName, extname(fileName));
+  const names = Object.values(archive.files)
+    .filter((entry) => !entry.dir && basename(entry.name.replace(/\\/g, "/")).toLowerCase() === "skill.md")
+    .map((entry) => {
+      const parent = entry.name.replace(/\\/g, "/").replace(/\/?skill\.md$/i, "").replace(/\/$/, "");
+      const segments = parent.split("/").filter((segment) => segment && segment !== ".");
+      return segments.length ? segments[segments.length - 1]! : bundleStem;
+    })
+    .slice(0, 256);
+  if (!names.length) throw new WorkFoldCliError("usage", "The bundle does not contain a SKILL.md file.");
+  return [...new Set(names)].sort();
+}
+
+/** Parses an npm package source into its identity; null for non-npm sources. */
+function npmSourceIdentity(source: string): { packageName: string; pinnedVersion?: string } | null {
+  if (!source.startsWith("npm:")) return null;
+  const rest = source.slice("npm:".length);
+  const at = rest.indexOf("@", rest.startsWith("@") ? 1 : 0);
+  if (at === -1) return { packageName: rest };
+  const packageName = rest.slice(0, at);
+  const pinnedVersion = rest.slice(at + 1);
+  return pinnedVersion ? { packageName, pinnedVersion } : { packageName };
+}
+
+/**
+ * The inspected resource summary the needs-you card shows for a package
+ * install or update. Extensions and install scripts are named for what they
+ * are — a code-execution decision — exactly as the desktop review does.
+ */
+function capabilityResourceSummary(details: {
+  skills?: string[];
+  extensions?: string[];
+  prompts?: string[];
+  themes?: string[];
+  installScripts?: Array<{ name: string }>;
+  dependencyCount?: number;
+}): string {
+  const parts = [
+    `${details.skills?.length ?? 0} skill(s)`,
+    `${details.extensions?.length ?? 0} extension(s)${(details.extensions?.length ?? 0) > 0 ? " — executable Pi capability" : ""}`,
+  ];
+  if (details.prompts?.length) parts.push(`${details.prompts.length} prompt(s)`);
+  if (details.themes?.length) parts.push(`${details.themes.length} theme(s)`);
+  if (details.installScripts?.length) {
+    parts.push(`${details.installScripts.length} install script(s) — runs code at install (${details.installScripts.map((script) => script.name).join(", ")})`);
+  }
+  if (details.dependencyCount) parts.push(`${details.dependencyCount} runtime dependencies`);
+  return parts.join(", ").slice(0, 2000);
+}
+
+/**
+ * Observed content identity for one staged `files destroy` target, pinned so
+ * the decision-time recheck can refuse changed content: a content hash where
+ * readable, sizes always, bounded folder measurements for trees.
+ */
+async function observedDestroyIdentity(absolutePath: string): Promise<string> {
+  const info = await lstat(absolutePath);
+  if (info.isDirectory()) {
+    let fileCount = 0;
+    let totalBytes = 0;
+    let visited = 0;
+    const visit = async (path: string): Promise<void> => {
+      if (visited >= maxRoutingMeasureEntries) return;
+      visited += 1;
+      const entryInfo = await lstat(path).catch(() => null);
+      if (!entryInfo || entryInfo.isSymbolicLink()) return;
+      if (entryInfo.isFile()) {
+        fileCount += 1;
+        totalBytes += entryInfo.size;
+        return;
+      }
+      if (!entryInfo.isDirectory()) return;
+      for (const entry of await readdir(path).catch(() => [] as string[])) await visit(join(path, entry));
+    };
+    await visit(absolutePath);
+    return `folder:files=${fileCount}:bytes=${totalBytes}`;
+  }
+  if (!info.isFile()) throw new WorkFoldCliError("usage", "Only files and folders can be staged for destruction.");
+  try {
+    const hash = createHash("sha256");
+    for await (const chunk of createReadStream(absolutePath)) hash.update(chunk as Buffer);
+    return `file:sha256:${hash.digest("hex")}:${info.size}`;
+  } catch {
+    return `file:unreadable:${info.size}`;
+  }
+}
+
+/**
+ * Staging-time source verification for one page exposure, mirroring the
+ * publication service's own inspection: the exact normalized relative path
+ * the pins carry, an allowed media type, a regular file, and the shareable
+ * size bound. The service re-verifies for real at decision time and again at
+ * every serve.
+ */
+async function stagedPageSource(spaceRoot: string, relativePath: string): Promise<{ relativePath: string; byteSize: number }> {
+  let path: string;
+  try {
+    path = resolveSpacePath(spaceRoot, relativePath);
+  } catch (error) {
+    throw new WorkFoldCliError("usage", errorMessage(error), { cause: error });
+  }
+  // Canonical Space-relative form from the resolved path, so identical
+  // designations ("./weekly.md", "weekly.md") pin one identity and dedupe
+  // onto one card.
+  const normalized = relative(resolve(spaceRoot), path).split(sep).join("/");
+  if (!normalized) throw new WorkFoldCliError("usage", "A Space-relative file path is required.");
+  const extension = extname(normalized).toLowerCase();
+  if (!WORKFOLD_PUBLICATION_SOURCE_TYPES[extension]) {
+    throw new WorkFoldCliError("usage", "Only Markdown, plain text, PNG, JPEG, and PDF files can be shared as a page in this slice.");
+  }
+  const info = await lstat(path).catch(() => null);
+  if (!info || !info.isFile()) throw new WorkFoldCliError("notFound", "The designated file does not exist as a regular file.");
+  if (info.size > WORKFOLD_PUBLICATION_MAX_SOURCE_BYTES) {
+    throw new WorkFoldCliError("usage", "The designated file is larger than a shareable page (8 MiB).");
+  }
+  return { relativePath: normalized, byteSize: info.size };
+}
+
+function createFoldDecisionFence(state: LocalApiState): FoldDecisionMutationFence {
+  return {
+    probe(scope) {
+      return capabilityFenceBusyReason(state, scope);
+    },
+    run(scope, operation) {
+      return scope.scope === "space"
+        ? runRestrictedAppMutation(state, scope.spaceId, operation)
+        : runCapabilityMutation(state, capabilityGlobalMutationScope(), "global", operation);
+    },
+  };
+}
+
+/** Mirrors reserveCapabilityMutation's conflict checks without reserving. */
+function capabilityFenceBusyReason(state: LocalApiState, scope: FoldDecisionFenceScope): string | null {
+  if (scope.scope === "global") {
+    if (state.capabilityMutations.size > 0) return "Wait for the current capability change to finish.";
+    if (state.runningTurns.size > 0 || state.compactingConversations.size > 0
+      || state.checkRunReservations.size > 0 || state.checks.hasActiveRun()) {
+      return "Wait for affected Assistant work to finish before changing capabilities.";
+    }
+    return null;
+  }
+  if (state.capabilityMutations.has(globalCapabilityMutationKey) || state.capabilityMutations.has(scope.spaceId)) {
+    return "Wait for the current capability change to finish.";
+  }
+  if (hasActiveCapabilityWorkForSpace(state, scope.spaceId)) {
+    return "Wait for affected Assistant work to finish before changing capabilities.";
+  }
+  return null;
+}
+
+/**
+ * Per-kind execution adapters for the decision path: each binds one staged-act
+ * kind to the same domain internals the equivalent desktop ceremony uses.
+ * `app.data.purge`, `app.storage.clear`, `files.destroy`, and hosted-app
+ * `publish.viewer.expose` exposure stay deliberately unbound in this build —
+ * staging, denying, and canceling them works, and approving them is refused
+ * honestly (EXECUTION_UNAVAILABLE or a pending eligibility reason) before
+ * anything is consumed.
+ */
+function createFoldDecisionAdapters(state: LocalApiState): FoldDecisionAdapters {
+  const spaceRefById = async (spaceId: string): Promise<{ id: string; spaceRoot: string }> => {
+    const space = await getSpace(spaceId);
+    return { id: space.id, spaceRoot: space.spaceRoot };
+  };
+  const grantOptions = {
+    service: state.restrictedApps,
+    getSpace: spaceRefById,
+    // The decision-time person-chosen root the renderer decide route
+    // registered for exactly this staged act (desktop folder picker,
+    // docs/fold-consecrations.md). Absent means the app.grant.files card is
+    // honestly ineligible on this decide — including every remote decide,
+    // whose operation carries no root by design.
+    resolveFileGrantRoot: (act: FoldStagedAct) => state.fileGrantRootChoices.get(act.id) ?? null,
+  };
+  return {
+    "app.review.approve": createRestrictedAppReviewApproveAdapter({ proposals: state.restrictedAppProposals }),
+    "app.grant.network": createRestrictedAppGrantAdapter("app.grant.network", grantOptions),
+    "app.grant.files": createRestrictedAppGrantAdapter("app.grant.files", grantOptions),
+    "app.grant.notifications": createRestrictedAppGrantAdapter("app.grant.notifications", grantOptions),
+    "app.automation.enable": createRestrictedAppAutomationEnableAdapter({ service: state.restrictedApps }),
+    "capability.skills.import": createSkillImportAdapter({
+      loadBundle: (act) => loadStagedSkillBundle(state, act),
+      // Space scope resolves the Space's folder; Personal scope has no Space,
+      // so it names the same app-owned neutral root the act facade's
+      // Personal-scope tools verbs resolve against.
+      rootForScope: async (act) => act.parameters.scope === "space"
+        ? (await getSpace(String(act.parameters.spaceId))).spaceRoot
+        : workFoldManagementRoot(),
+      runtimeProvider: state.runtimeProvider,
+    }),
+    "routing.enable": createRoutingEnableDecisionAdapter(state),
+    "publish.viewer.expose": createViewerExposeDecisionAdapter(state),
+    "capability.package.install": createCapabilityPackageDecisionAdapter(state, "install"),
+    "capability.package.update": createCapabilityPackageDecisionAdapter(state, "update"),
+    "app.connection.save": createAppConnectionSaveDecisionAdapter(state),
+    "space.delete-folder": createManagedSpaceDeletionAdapter({
+      // The complete desktop removal orchestration — impact checks, Check,
+      // routing, staged-act, and app-state revocation, claim-verified managed
+      // deletion — shared with DELETE /api/spaces/:id and `spaces unregister`.
+      // It reserves its own capability fences across every affected Space, so
+      // the adapter's null fenceScope keeps the service from reserving twice.
+      executeDeletion: async (act) => {
+        const space = await getSpace(String(act.pins.spaceId ?? act.parameters.spaceId));
+        const result = await removeSpaceRegistrationInternal(state, space);
+        return {
+          detail: result.cleanupPending
+            ? `Deleted the managed Space folder ${space.spaceRoot}; final cleanup completes at the next start.`
+            : `Deleted the managed Space folder ${space.spaceRoot}.`,
+        };
+      },
+    }),
+  };
+}
+
+/**
+ * Re-reads the exact staged bundle bytes for `capability.skills.import`.
+ * Loading is identity, not trust: the adapter's content-digest recheck
+ * decides whether these are the reviewed bytes. An absolute path is a
+ * file-borne bundle; any other source is an official catalog bundle id,
+ * rebuilt through the same registry path the desktop install uses and then
+ * digest-checked like every other reload.
+ */
+async function loadStagedSkillBundle(
+  state: LocalApiState,
+  act: FoldStagedAct,
+): Promise<{ fileName: string; bytes: Uint8Array }> {
+  const source = String(act.pins.source ?? act.parameters.source ?? "").trim();
+  if (!source) throw new Error("the staged bundle source is missing");
+  if (!isAbsolute(source)) {
+    const bundle = await state.capabilityRegistry.buildOfficialSkillBundle(source);
+    return { fileName: bundle.fileName, bytes: bundle.bytes };
+  }
+  const info = await lstat(source);
+  if (info.isSymbolicLink() || !info.isFile()) {
+    throw new Error("the staged bundle source must be a regular file");
+  }
+  return { fileName: basename(source), bytes: await readFile(source) };
+}
+
+/**
+ * `routing.enable` — the enablement grant of docs/fold-routings.md. The
+ * staged declaration is reloaded from the digest-addressed holding area and
+ * re-verified against the pinned digest and routing id; every referenced
+ * Space must still be registered. Execution commits the declaration and the
+ * exact-authority grant through the routing service with `decisionId` equal
+ * to the staged-act id — the staged act and its decision share one identity —
+ * and the store itself re-refuses a declaration that no longer hashes to the
+ * reviewed digest, so an edited routing never coasts on a stale approval.
+ */
+function createRoutingEnableDecisionAdapter(state: LocalApiState): FoldStagedActKindAdapter {
+  const load = async (act: FoldStagedAct): Promise<{ declaration: WorkFoldRoutingDeclaration } | { issue: string }> => {
+    const digest = String(act.pins.declarationDigest);
+    let declaration: WorkFoldRoutingDeclaration | null;
+    try {
+      declaration = await loadStagedRoutingDeclaration(digest);
+    } catch {
+      declaration = null;
+    }
+    if (!declaration) {
+      return { issue: "The staged routing declaration no longer matches the reviewed digest or is no longer held; restage it from the proposal." };
+    }
+    if (declaration.id !== act.pins.routingId) {
+      return { issue: "The staged declaration names a different routing than this card pinned." };
+    }
+    for (const spaceId of workFoldRoutingReferencedSpaceIds(declaration)) {
+      const registered = await getSpace(spaceId).catch(() => null);
+      if (!registered) return { issue: `The routing references a Space that is no longer registered (${spaceId}).` };
+    }
+    return { declaration };
+  };
+  return {
+    // Enablement is a routing-store commit under its own serialization; it
+    // mutates no capability state, so it reserves no capability fence.
+    fenceScope: () => null,
+    async recheckPins(act) {
+      const loaded = await load(act);
+      return "issue" in loaded ? loaded.issue : null;
+    },
+    async execute(act) {
+      const loaded = await load(act);
+      if ("issue" in loaded) throw new Error(loaded.issue);
+      const decision = act.decision;
+      if (!decision || decision.decision !== "approved") throw new Error("Execution requires a consumed approval.");
+      const record = await state.routings.enable({
+        declaration: loaded.declaration,
+        expectedDigest: String(act.pins.declarationDigest),
+        decision: {
+          decisionId: act.id,
+          surface: decision.surface,
+          ...(decision.browserId !== undefined ? { browserId: decision.browserId } : {}),
+          ...(decision.grantId !== undefined ? { browserGrantId: decision.grantId } : {}),
+        },
+      });
+      await rm(stagedRoutingDeclarationFile(record.digest), { force: true }).catch(() => undefined);
+      return {
+        detail: `Enabled routing "${record.declaration.title}" (${record.declaration.id}) at digest ${record.digest}.`,
+        undoRef: { kind: "routing-id", value: record.declaration.id },
+      };
+    },
+  };
+}
+
+/**
+ * `publish.viewer.expose` — the activation paths of docs/fold-publishing.md,
+ * executed with the approving surface, browser identity, and `decisionId`
+ * threaded into the publication service's own journaled act context. Page
+ * exposure re-verifies the designated source; hosted-app exposure (rung 3)
+ * re-resolves the pinned App Instance and requires the exact pinned Release
+ * digest and viewer surface — an app that updated or widened its viewer
+ * surface after staging invalidates instead of exposing something the card
+ * never showed.
+ */
+function createViewerExposeDecisionAdapter(state: LocalApiState): FoldStagedActKindAdapter {
+  const recheckPage = async (act: FoldStagedAct): Promise<string | null> => {
+    const space = await getSpace(String(act.pins.spaceId)).catch(() => null);
+    if (!space) return "The pinned Space is no longer registered.";
+    try {
+      const source = await stagedPageSource(space.spaceRoot, String(act.pins.relativePath));
+      if (source.relativePath !== act.pins.relativePath) {
+        return "The designated file's normalized path no longer matches the pinned path.";
+      }
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+    return null;
+  };
+  const resolveHostedApp = async (act: FoldStagedAct): Promise<
+    | { exposure: Extract<Awaited<ReturnType<RestrictedAppViewerAdapter["resolveExposure"]>>, { eligible: true }> }
+    | { issue: string }
+  > => {
+    const exposure = await state.restrictedAppViewer.resolveExposure(stringPinValue(act, "appInstanceId"));
+    if (!exposure.eligible) return { issue: exposure.issue };
+    if (exposure.pins.releaseDigest !== act.pins.releaseDigest) {
+      return { issue: "The installed Release digest no longer matches the pinned digest; the app updated after staging." };
+    }
+    if (exposure.pins.viewerEntry !== act.pins.viewerEntry) {
+      return { issue: "The app's viewer entry no longer matches the pinned entry." };
+    }
+    const pinnedSurface = Array.isArray(act.pins.viewerSurface) ? act.pins.viewerSurface.map(String) : [];
+    if (JSON.stringify(exposure.pins.viewerSurface) !== JSON.stringify(pinnedSurface)) {
+      return { issue: "The app's viewer-readable surface no longer matches the pinned surface." };
+    }
+    return { exposure };
+  };
+  return {
+    // Activation is publication-service work under its own journal and
+    // serialization; it is not a capability mutation.
+    fenceScope: () => null,
+    async recheckPins(act) {
+      if (act.pins.exposure === "page") return await recheckPage(act);
+      const resolved = await resolveHostedApp(act);
+      return "issue" in resolved ? resolved.issue : null;
+    },
+    async execute(act) {
+      const decision = act.decision;
+      if (!decision || decision.decision !== "approved") throw new Error("Execution requires a consumed approval.");
+      const context = {
+        // A distinct deterministic request id: the decision path owns
+        // `fold-decision:<id>`, and the activation journals its own
+        // accepted/terminal pair under the same single-use identity family.
+        requestId: `${foldDecisionRequestId(act.id)}:activate`,
+        surface: decision.surface,
+        decisionId: act.id,
+        ...(decision.browserId !== undefined ? { browserId: decision.browserId } : {}),
+        ...(decision.grantId !== undefined ? { grantId: decision.grantId } : {}),
+      };
+      if (act.pins.exposure === "page") {
+        const view = await state.publications.activate({
+          spaceId: String(act.pins.spaceId),
+          relativePath: String(act.pins.relativePath),
+          title: String(act.pins.title),
+          serveRatePerMinute: Number(act.pins.serveBudget),
+          byteBudgetPerDay: Number(act.pins.byteBudget),
+          snapshotEnabled: act.pins.snapshotEnabled === true,
+        }, context);
+        return {
+          detail: `Shared "${view.title}" (${view.spaceId}:${view.relativePath}) as /p/${view.publicationId}; `
+            + `bridgeSync=${view.bridgeSlot === "confirmed" ? "confirmed" : "pending"}.`,
+          undoRef: { kind: "publicationId", value: view.publicationId },
+        };
+      }
+      const resolved = await resolveHostedApp(act);
+      if ("issue" in resolved) throw new Error(resolved.issue);
+      const view = await state.publications.activateApp({
+        spaceId: resolved.exposure.spaceId,
+        title: resolved.exposure.title,
+        app: {
+          appInstanceId: resolved.exposure.pins.appInstanceId,
+          releaseDigest: resolved.exposure.pins.releaseDigest,
+          viewerEntry: resolved.exposure.pins.viewerEntry,
+          viewerSurface: resolved.exposure.pins.viewerSurface,
+        },
+      }, context);
+      return {
+        detail: `Put "${view.title}" (App Instance ${resolved.exposure.pins.appInstanceId}, `
+          + `Release ${resolved.exposure.pins.releaseDigest}) at your address as /a/${view.publicationId}; `
+          + `bridgeSync=${view.bridgeSlot === "confirmed" ? "confirmed" : "pending"}.`,
+        undoRef: { kind: "publicationId", value: view.publicationId },
+      };
+    },
+  };
+}
+
+/** The staged-act pin as bounded text, tolerating the parameter mirror. */
+function stringPinValue(act: FoldStagedAct, name: string): string {
+  const value = act.pins[name] ?? act.parameters[name];
+  return typeof value === "string" ? value : "";
+}
+
+/**
+ * `capability.package.install|update` — the same capability-mutation
+ * internals as the desktop package routes, executed inside the decision
+ * fence's reservation (Space scope for a Space-scoped package, global for
+ * Personal scope) instead of reserving twice. Project trust is an
+ * eligibility precheck so an untrusted Space keeps the card pending rather
+ * than consuming approval.
+ */
+function createCapabilityPackageDecisionAdapter(
+  state: LocalApiState,
+  operation: "install" | "update",
+): FoldStagedActKindAdapter {
+  const scopeOf = (act: FoldStagedAct): "personal" | "space" =>
+    (act.pins.scope ?? act.parameters.scope) === "space" ? "space" : "personal";
+  const spaceOf = async (act: FoldStagedAct): Promise<SpaceSummary | null> => {
+    const spaceId = act.parameters.spaceId;
+    if (typeof spaceId !== "string") return null;
+    try {
+      return await getSpace(spaceId);
+    } catch {
+      return null;
+    }
+  };
+  return {
+    async eligibilityIssue(act) {
+      if (scopeOf(act) !== "space") return null;
+      const space = await spaceOf(act);
+      if (!space) return null; // the pin recheck reports the missing Space
+      return await isPiProjectMutationTrusted(space.spaceRoot, state.runtimeProvider)
+        ? null
+        : "Trust this Space before changing Space-scoped capabilities.";
+    },
+    async recheckPins(act) {
+      if (scopeOf(act) !== "space") return null;
+      return (await spaceOf(act)) ? null : "The pinned Space is no longer registered.";
+    },
+    async execute(act) {
+      const scope = scopeOf(act);
+      const space = scope === "space" ? await spaceOf(act) : null;
+      if (scope === "space" && !space) throw new Error("The pinned Space is no longer registered.");
+      const root = space?.spaceRoot ?? workFoldManagementRoot();
+      const source = String(act.pins.source);
+      const piScope = scope === "space" ? "project" as const : "user" as const;
+      if (operation === "install") {
+        await installPiPackage(root, source, { scope: piScope, runtimeProvider: state.runtimeProvider });
+      } else {
+        await updatePiPackages(root, source, { scope: piScope, runtimeProvider: state.runtimeProvider });
+      }
+      return {
+        detail: `${operation === "install" ? "Installed" : "Updated"} ${String(act.pins.packageId)}@${String(act.pins.version)} `
+          + `from ${source} at ${piScope === "user" ? "Personal" : "This Space"} scope.`,
+        undoRef: { kind: "package-source", value: source },
+      };
+    },
+  };
+}
+
+/**
+ * `app.connection.save` — approval opens the existing host connection flow
+ * scoped to the pinned declaration. Only the browser OAuth flow can run
+ * without a person typing a secret, so form-credential shapes stay honestly
+ * ineligible: the secret is entered in Assistant tools, never through the
+ * fold, and the staged act carries only the connection's shape.
+ */
+function createAppConnectionSaveDecisionAdapter(state: LocalApiState): FoldStagedActKindAdapter {
+  const targetLabel = (target: { kind: string; origin?: string; host?: string; port?: number }): string =>
+    target.kind === "public-https" ? String(target.origin) : `http://${String(target.host)}:${String(target.port)}`;
+  const resolve = async (act: FoldStagedAct): Promise<
+    | { issue: string }
+    | { app: RestrictedAppInstalled; destination: RestrictedAppNetworkDeclaration }
+  > => {
+    const spaceId = String(act.parameters.spaceId);
+    const appInstanceId = String(act.pins.appInstanceId ?? act.parameters.appInstanceId);
+    const app = await state.restrictedApps.findByFeatureInstallation(spaceId, appInstanceId);
+    if (!app) return { issue: "The pinned App Instance is no longer installed in this Space." };
+    const declarationId = String(act.pins.declarationId);
+    const destination = app.manifest.permissions.network.find((item) => item.id === declarationId);
+    if (!destination) return { issue: "The app no longer declares the pinned connection destination." };
+    if (targetLabel(destination.target) !== act.pins.target) {
+      return { issue: "The destination's reviewed target changed after staging." };
+    }
+    if (!destination.auth.some((item) => item.kind === act.pins.adapterKind)) {
+      return { issue: "The destination no longer declares the pinned credential adapter." };
+    }
+    return { app, destination };
+  };
+  return {
+    eligibilityIssue(act) {
+      return act.pins.adapterKind === "oauth2-pkce"
+        ? null
+        : "This connection takes a secret typed into the host connection form; enter it in Assistant tools. Approval here can open only the browser sign-in flow.";
+    },
+    async recheckPins(act) {
+      const resolved = await resolve(act);
+      return "issue" in resolved ? resolved.issue : null;
+    },
+    async execute(act) {
+      const resolved = await resolve(act);
+      if ("issue" in resolved) throw new Error(resolved.issue);
+      await state.restrictedApps.connectOAuth({
+        spaceId: resolved.app.spaceId,
+        appId: resolved.app.manifest.id,
+        destinationId: resolved.destination.id,
+        expectedDigest: resolved.app.digest,
+      });
+      return {
+        detail: `Connected ${resolved.app.manifest.id} to ${String(act.pins.target)} through the browser sign-in flow.`,
+        undoRef: { kind: "declaration", value: resolved.destination.id },
+      };
+    },
+  };
+}
+
+/**
+ * The routing executor's hop ports: the same in-process internals the act
+ * facade uses — turn acceptance in a fresh Chat, the files-add copy with its
+ * restore point, reserved Check runs — honoring aborts through each domain's
+ * own abort path, and returning identifiers and counts only.
+ */
+function createRoutingHopPorts(state: LocalApiState): WorkFoldRoutingHopPorts {
+  return {
+    async chat(step, context) {
+      const space = await getSpace(step.space);
+      const conversation = await createConversation(space.spaceRoot);
+      const checkpoints: { pre?: string; post?: string } = {};
+      const observer = (event: TurnCheckpointEvent): void => {
+        if (event.spaceId !== space.id || event.conversationId !== conversation.id) return;
+        if (event.reason === "pre_turn") checkpoints.pre ??= event.checkpointId;
+        else checkpoints.post = event.checkpointId;
+      };
+      state.turnCheckpointListeners.add(observer);
+      try {
+        const { taskId } = await acceptConversationTurn(state, space, conversation.id, {
+          content: step.message,
+          contextPaths: [],
+          selectedPath: null,
+          actorKind: "system",
+        });
+        const settled = await waitForSettledTurn(state, space.id, conversation.id, taskId, context.signal);
+        return {
+          conversationId: conversation.id,
+          turnTaskId: taskId,
+          outcome: settled.status,
+          ...(settled.error !== undefined ? { error: settled.error } : {}),
+          ...(checkpoints.pre !== undefined ? { preCheckpointId: checkpoints.pre } : {}),
+          ...(checkpoints.post !== undefined ? { postCheckpointId: checkpoints.post } : {}),
+        };
+      } finally {
+        state.turnCheckpointListeners.delete(observer);
+      }
+    },
+    async files(step, source, context) {
+      // A files hop is deliberately not interruptible mid-copy: it completes
+      // with its restore point or fails as one unit, so the signal is only a
+      // pre-flight refusal here.
+      if (context.signal.aborted) throw new Error("The run was aborted before this hop copied anything.");
+      const from = await getSpace(step.fromSpace);
+      const to = await getSpace(step.toSpace);
+      const absoluteSources = await resolveRoutingFilesSources(from.spaceRoot, source);
+      const copied: string[] = [];
+      try {
+        for (const sourcePath of absoluteSources) {
+          copied.push(await copyPathIntoSpace(sourcePath, to.spaceRoot, step.to));
+        }
+      } catch (error) {
+        // A mid-batch failure must not strand earlier copies without a
+        // restore point: undo them best-effort, then surface the failure.
+        await Promise.all(copied.map((path) =>
+          rm(resolveSpacePath(to.spaceRoot, path), { recursive: true, force: true }).catch(() => undefined)));
+        throw error;
+      }
+      const safety = await checkpointAdditiveWritesOrUndo(to.spaceRoot, copied, {
+        reason: "pre_add",
+        label: `Before routing hop ${step.id} added ${copied.length} item${copied.length === 1 ? "" : "s"}`,
+      });
+      const measured = await measureSpaceEntries(to.spaceRoot, copied);
+      return {
+        ...(safety ? { restorePointId: safety.checkpointId } : {}),
+        copiedPaths: copied,
+        fileCount: measured.fileCount,
+        totalBytes: measured.totalBytes,
+      };
+    },
+    async check(step, context) {
+      const space = await getSpace(step.space);
+      const accepted = await runReservedCheckOperation(state, space.id, () => state.checks.run({
+        space,
+        ...(step.check !== undefined ? { checkId: step.check } : {}),
+        actor: { kind: "system", spaceId: space.id },
+        // Lineage stamps the settle record so routing-caused runs never fire
+        // on-settled triggers — chains stay structurally impossible.
+        lineage: context.lineage,
+      }));
+      const requestAbort = (): void => {
+        void state.checks.abort(space.id, accepted.taskId).catch(() => undefined);
+      };
+      if (context.signal.aborted) requestAbort();
+      context.signal.addEventListener("abort", requestAbort, { once: true });
+      try {
+        for (;;) {
+          const status = await state.checks.taskStatus(space.id, accepted.taskId);
+          if (status.state === "unknown") throw new Error("work-fold lost track of this Check run.");
+          if (status.state !== "accepted" && status.state !== "running") break;
+          await settleDelay(50);
+        }
+        const run = await state.checks.taskResult(space.id, accepted.taskId);
+        if (run.state === "accepted" || run.state === "running") {
+          throw new Error("The Check run has not settled.");
+        }
+        return {
+          runId: run.id,
+          taskId: accepted.taskId,
+          state: run.state,
+          checkIds: [...run.checkIds],
+          findingCount: run.findings.length,
+          admittedCount: run.admittedCount,
+          ...(run.error !== undefined ? { error: run.error } : {}),
+        };
+      } finally {
+        context.signal.removeEventListener("abort", requestAbort);
+      }
+    },
+    async checkpointManifest(spaceId, checkpointId) {
+      const space = await getSpace(spaceId).catch(() => null);
+      if (!space) return null;
+      const checkpoint = await getSpaceCheckpoint(space.spaceRoot, checkpointId);
+      if (!checkpoint) return null;
+      return {
+        files: checkpoint.files.map((file) => ({
+          path: file.path,
+          hashSha256: file.hashSha256,
+          sizeBytes: file.sizeBytes,
+        })),
+        skippedFilePaths: checkpoint.skippedFiles.map((file) => file.path),
+      };
+    },
+  };
+}
+
+/**
+ * Resolves a routing files hop's source selection inside the source Space:
+ * exact paths under the ordinary Space path policy (no symbolic links, no
+ * reserved segments), or the bounded tree selector through the Check target
+ * resolver's discipline and the routing handoff bounds.
+ */
+async function resolveRoutingFilesSources(
+  fromSpaceRoot: string,
+  source: Parameters<WorkFoldRoutingHopPorts["files"]>[1],
+): Promise<string[]> {
+  if (source.kind === "paths") {
+    if (source.paths.length === 0) throw new Error("The files hop resolved no source paths.");
+    if (source.paths.length > workFoldRoutingBounds.maxHandoffFiles) {
+      throw new Error(`The files hop names ${source.paths.length} paths, more than the ${workFoldRoutingBounds.maxHandoffFiles}-file bound.`);
+    }
+    const absolute: string[] = [];
+    for (const raw of source.paths) {
+      const path = resolveSpacePath(fromSpaceRoot, raw);
+      const info = await lstat(path).catch(() => null);
+      if (!info) throw new Error(`Source not found in the source Space: ${raw}.`);
+      if (info.isSymbolicLink()) throw new Error(`Symbolic-link sources cannot be copied: ${raw}.`);
+      if (!info.isFile() && !info.isDirectory()) throw new Error(`Only files and folders can be copied: ${raw}.`);
+      absolute.push(path);
+    }
+    return absolute;
+  }
+  const resolution = await resolveWorkFoldCheckTargets(fromSpaceRoot, [{
+    kind: "tree",
+    role: "primary",
+    path: source.path,
+    recursive: source.recursive,
+    extensions: [...source.extensions],
+  }], {
+    limits: {
+      maxFiles: workFoldRoutingBounds.maxHandoffFiles,
+      maxTotalBytes: workFoldRoutingBounds.maxHandoffTotalBytes,
+    },
+  });
+  return resolution.files.map((file) => file.absolutePath);
+}
+
+const maxRoutingMeasureEntries = 10_000;
+
+/** Bounded evidence measurement of copied destinations: files and bytes. */
+async function measureSpaceEntries(
+  spaceRoot: string,
+  relativePaths: string[],
+): Promise<{ fileCount: number; totalBytes: number }> {
+  let fileCount = 0;
+  let totalBytes = 0;
+  let visited = 0;
+  const visit = async (path: string): Promise<void> => {
+    if (visited >= maxRoutingMeasureEntries) return;
+    visited += 1;
+    const info = await lstat(path).catch(() => null);
+    if (!info || info.isSymbolicLink()) return;
+    if (info.isFile()) {
+      fileCount += 1;
+      totalBytes += info.size;
+      return;
+    }
+    if (!info.isDirectory()) return;
+    for (const entry of await readdir(path).catch(() => [] as string[])) {
+      await visit(join(path, entry));
+    }
+  };
+  for (const relativePath of relativePaths) {
+    await visit(resolveSpacePath(spaceRoot, relativePath));
+  }
+  return { fileCount, totalBytes };
+}
+
+/**
+ * Follows one accepted turn to its settled record, honoring the routing
+ * run's abort signal through the same cancellation path `manage stop` uses.
+ * The accepted turn always settles (its runner records an outcome in a
+ * finally block), so the wait terminates; a record evicted by the bounded
+ * settled-turn history reports honestly as lost.
+ */
+async function waitForSettledTurn(
+  state: LocalApiState,
+  spaceId: string,
+  conversationId: string,
+  taskId: string,
+  signal: AbortSignal,
+): Promise<SettledTurnRecord> {
+  let abortRequested = false;
+  const requestAbort = (): void => {
+    if (abortRequested) return;
+    abortRequested = true;
+    void cancelAcceptedTurn(state, spaceId, conversationId, taskId).catch(() => undefined);
+  };
+  const onAbort = (): void => requestAbort();
+  if (signal.aborted) requestAbort();
+  signal.addEventListener("abort", onAbort, { once: true });
+  try {
+    for (;;) {
+      const settled = state.settledTurns.get(taskId);
+      if (settled && settled.spaceId === spaceId) return { ...settled };
+      if (!state.activeTurnTasks.has(taskId)) {
+        const late = state.settledTurns.get(taskId);
+        if (late && late.spaceId === spaceId) return { ...late };
+        return {
+          taskId,
+          spaceId,
+          conversationId,
+          status: "failed",
+          endedAt: new Date().toISOString(),
+          error: "work-fold lost track of this turn.",
+        };
+      }
+      await settleDelay(25);
+    }
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
+function settleDelay(milliseconds: number): Promise<void> {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+}
+
+const maxGlanceConversationsPerSpace = 64;
+const maxGlanceCheckpointsPerSpace = 24;
+const maxGlanceActReceiptLines = 512;
+const maxGlanceAutomationReceipts = 200;
+
+/**
+ * The glance's live-registry source readers (docs/fold-glance.md): recorded
+ * state only — the settled-turn records, the management-request registry, the
+ * chat store and History per registered Space, the Check service's status and
+ * content-free settled runs, the act-receipts ledger, the staged-act store,
+ * the routing receipts journal, the publication grant records, and the
+ * restricted-app registry's machine-wide automation ledgers (active accepted
+ * runs and settled receipts). The kernel's own task registry supplies running
+ * tasks.
+ */
+function createServerGlanceSources(state: LocalApiState): WorkFoldGlanceSourceReaders {
+  const routingRunReader = createWorkFoldGlanceRoutingRunReader();
+  // The policy store's own change journal, read tolerantly from the same
+  // state-root files the store appends (docs/fold-consecrations.md: the
+  // glance reports policy-store changes, including the attestation mismatch
+  // that disables every policy until a person re-saves them in Settings).
+  const policyChangeReader = createWorkFoldGlancePolicyChangeReader();
+  return {
+    policyChanges: policyChangeReader,
+    settledTurns: async (): Promise<WorkFoldGlanceSettledTurnRecord[]> =>
+      [...state.settledTurns.values()].map((turn) => ({
+        taskId: turn.taskId,
+        // The management scope is not a Space; its settled turns carry no
+        // Space id instead of rendering as a removed Space.
+        ...(turn.spaceId === workFoldManagementScopeId ? {} : { spaceId: turn.spaceId }),
+        conversationId: turn.conversationId,
+        outcome: turn.status,
+        endedAt: turn.endedAt,
+      })),
+    managementRequests: () => glanceManagementRequestRecords(state),
+    chats: async (space) => {
+      const summaries = await listConversations(space.spaceRoot);
+      const records = [];
+      for (const summary of summaries.slice(0, maxGlanceConversationsPerSpace)) {
+        records.push(workFoldGlanceChatRecordFromMessages(summary, await readConversation(space.spaceRoot, summary.id)));
+      }
+      return records;
+    },
+    checkpoints: async (space) =>
+      (await listSpaceCheckpoints(space.spaceRoot, maxGlanceCheckpointsPerSpace)).map((checkpoint) => ({
+        checkpointId: checkpoint.checkpointId,
+        createdAt: checkpoint.createdAt,
+        ...(checkpoint.label !== undefined ? { label: checkpoint.label } : {}),
+        reason: checkpoint.reason,
+        scope: checkpoint.scope,
+      })),
+    checks: async (space): Promise<WorkFoldGlanceCheckSource | null> => {
+      const ref = { id: space.id, spaceRoot: space.spaceRoot };
+      return {
+        status: await state.checks.status(ref),
+        settledRuns: (await state.checks.settledRuns(ref)).map((run) => ({
+          runId: run.runId,
+          taskId: run.taskId,
+          state: run.state,
+          startedAt: run.startedAt,
+          ...(run.endedAt !== undefined ? { endedAt: run.endedAt } : {}),
+          admittedCount: run.admittedCount,
+        })),
+      };
+    },
+    actReceipts: () => readActReceiptJournal(state),
+    // The restricted-app registry's machine-wide ledgers: accepted-but-not-
+    // settled runs render as running work, durable settled receipts as
+    // what-changed items. Both are recorded state; no run is executed or
+    // polled to compose the digest.
+    automationRuns: async (): Promise<WorkFoldGlanceAutomationRunRecord[]> =>
+      (await state.restrictedApps.listActiveAutomationRuns()).map((run) => ({
+        runId: run.runId,
+        automationId: run.automationId,
+        spaceId: run.spaceId,
+        startedAt: run.acceptedAt,
+      })),
+    automationRunReceipts: async (): Promise<WorkFoldGlanceAutomationReceiptRecord[]> =>
+      (await state.restrictedApps.listAutomationRunHistory(maxGlanceAutomationReceipts)).map((receipt) => ({
+        receiptId: receipt.receiptId,
+        runId: receipt.runId,
+        automationId: receipt.automationId,
+        spaceId: receipt.spaceId,
+        outcome: receipt.outcome,
+        finishedAt: receipt.finishedAt,
+      })),
+    stagedActs: async (): Promise<WorkFoldGlanceStagedActRecord[]> =>
+      (await state.stagedActs.list()).map((act) => ({
+        id: act.id,
+        category: act.category,
+        kind: act.kind,
+        state: act.state,
+        createdAt: act.createdAt,
+        expiresAt: act.expiresAt,
+        ...(act.decidedAt !== undefined ? { decidedAt: act.decidedAt } : {}),
+        ...(act.decision !== undefined ? { decisionSurface: act.decision.surface } : {}),
+      })),
+    routingRuns: routingRunReader,
+    viewerGrants: async (): Promise<WorkFoldGlanceViewerGrantEventRecord[]> => {
+      const events: WorkFoldGlanceViewerGrantEventRecord[] = [];
+      for (const view of await state.publications.list()) {
+        events.push({ publicationId: view.publicationId, event: "created", at: view.createdAt, spaceId: view.spaceId });
+        if (view.revokedAt !== undefined) {
+          events.push({ publicationId: view.publicationId, event: "revoked", at: view.revokedAt, spaceId: view.spaceId });
+        }
+        // The record's bounded health note: the publisher-facing reason
+        // behind a vague not-available or resting viewer page
+        // (docs/fold-publishing.md, "Honest states").
+        if (view.lastProblem !== undefined) {
+          events.push({
+            publicationId: view.publicationId,
+            event: view.lastProblem.state,
+            at: view.lastProblem.at,
+            spaceId: view.spaceId,
+            title: view.title,
+            reason: view.lastProblem.reason,
+          });
+        }
+      }
+      return events;
+    },
+  };
+}
+
+/** Management-request records with the same phase truth the act lane reports. */
+async function glanceManagementRequestRecords(state: LocalApiState): Promise<WorkFoldGlanceManagementRequestRecord[]> {
+  const records: WorkFoldGlanceManagementRequestRecord[] = [];
+  for (const record of state.managementRequests.list()) {
+    const view = await managementRequestView(state, record.taskId);
+    if (!view) continue;
+    records.push({
+      taskId: view.taskId,
+      conversationId: view.conversationId,
+      phase: view.phase,
+      startedAt: view.startedAt,
+      endedAt: view.endedAt,
+      childTaskIds: record.childTasks.map((child) => child.taskId),
+    });
+  }
+  return records;
+}
+
+/**
+ * Tolerant bounded read of the act-receipts ledger for the glance: the same
+ * live and rotated files the executor appends. A damaged line is omitted —
+ * the glance is a projection, never the journal's authority.
+ */
+async function readActReceiptJournal(state: LocalApiState): Promise<WorkFoldCliActReceipt[]> {
+  const receipts: WorkFoldCliActReceipt[] = [];
+  for (const path of [state.actReceipts.rotatedPath, state.actReceipts.path]) {
+    const text = await readFile(path, "utf8").catch(() => null);
+    if (text === null) continue;
+    const lines = text.split("\n").filter((line) => line.trim());
+    for (const line of lines.slice(-maxGlanceActReceiptLines)) {
+      try {
+        const record = JSON.parse(line) as Partial<WorkFoldCliActReceipt>;
+        if ((record.v !== 1 && record.v !== 2)
+          || typeof record.at !== "string"
+          || typeof record.requestId !== "string"
+          || typeof record.command !== "string"
+          || typeof record.outcome !== "string") continue;
+        receipts.push(record as WorkFoldCliActReceipt);
+      } catch {
+        // Omitted, never fatal.
+      }
+    }
+  }
+  return receipts.slice(-maxGlanceActReceiptLines);
 }
 
 function closeSpaceStreams(state: LocalApiState, spaceId: string): void {
@@ -4009,6 +8692,13 @@ async function captureTurnCheckpointSafe(
       checkpointId: checkpoint.checkpointId,
       skippedLargeFiles: checkpoint.skippedLargeFiles,
     });
+    for (const listener of [...state.turnCheckpointListeners]) {
+      try {
+        listener({ spaceId, conversationId, reason, checkpointId: checkpoint.checkpointId });
+      } catch {
+        // Observers never affect the turn.
+      }
+    }
     if (checkpoint.skippedLargeFiles.length) {
       broadcast(state, streamKey(spaceId, conversationId), {
         type: "status",

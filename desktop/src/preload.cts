@@ -91,6 +91,12 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
       return () => ipcRenderer.removeListener("work-fold:agent:open-settings", listener);
     },
   },
+  // Needs-you decision helpers for the main window only. The popover's
+  // narrow preload deliberately omits this namespace, which is what keeps the
+  // file-grant folder picker a desktop main-window act.
+  decisions: {
+    chooseFileGrantRoot: (spaceId: string) => ipcRenderer.invoke("work-fold:decisions:choose-file-grant-root", spaceId),
+  },
   restrictedApps: {
     mountView: (request: unknown) => ipcRenderer.invoke("work-fold:restricted-app-view:mount", request),
     layoutView: (request: unknown) => ipcRenderer.send("work-fold:restricted-app-view:layout", request),

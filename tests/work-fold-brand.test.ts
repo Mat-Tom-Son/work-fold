@@ -85,8 +85,27 @@ test("onboarding, loading, About, and the popover use the restrained work-fold l
 
   assert.match(indexHtml, /<title>work-fold<\/title>/);
   assert.match(indexHtml, /%23D95735/);
-  assert.match(popoverHtml, /<title>Tell work-fold<\/title>/);
+  assert.match(popoverHtml, /<title>Your fold<\/title>/);
   assert.doesNotMatch(`${indexHtml}\n${popoverHtml}`, /Workspace/);
+});
+
+test("the fold names the popover surface, tray entry, and two-state capture button", async () => {
+  const [popover, desktopMain] = await Promise.all([
+    read("web-local/src/popover/PopoverApp.tsx"),
+    read("desktop/src/main.ts"),
+  ]);
+
+  assert.match(popover, /Your fold is unavailable\./);
+  assert.match(popover, /aria-label="Your fold"/);
+  assert.match(popover, /You can close your fold — the work continues\./);
+  assert.match(popover, /staged\.length \? "Fold it in" : "Send"/);
+  // work-fold stays the actor: imperative composer copy keeps the product as addressee.
+  assert.match(popover, /Tell work-fold what to do/);
+  assert.match(popover, /Reply to work-fold/);
+
+  assert.match(desktopMain, /\{ label: "Your fold", click: \(\) => \{ void toggleManagementPopover\(\); \} \}/);
+  assert.match(desktopMain, /label: `Open \$\{productName\}`/);
+  assert.match(desktopMain, /label: `Quit \$\{productName\}`/);
 });
 
 async function pixelSummary(path: string) {

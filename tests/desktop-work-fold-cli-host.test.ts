@@ -203,6 +203,48 @@ test("desktop CLI host gates act requests on the per-launch authority and record
   }
 });
 
+test("desktop main wires one settle seam, one receipts ledger, and routing sleep/wake beside the app lifecycle", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const main = await readFile(new URL("../desktop/src/main.ts", import.meta.url), "utf8");
+
+  // One WorkFoldSettleSignal per desktop host: constructed once, published
+  // into by the host's Check and restricted-app services, consumed by the
+  // local API's routing executor. Anything else silently drops settles.
+  const hostStart = main.indexOf("async function ensureDesktopHost");
+  assert.ok(hostStart >= 0);
+  const hostBody = main.slice(hostStart, main.indexOf("\nasync function processWorkFoldCliRequest", hostStart));
+  assert.match(hostBody, /const settleSignal = new WorkFoldSettleSignal\(\);/);
+  const restrictedCreate = hostBody.slice(hostBody.indexOf("RestrictedAppService.create({"), hostBody.indexOf("})", hostBody.indexOf("RestrictedAppService.create({")));
+  assert.match(restrictedCreate, /settleSignal,/, "the restricted-app service publishes into the shared signal");
+  assert.match(hostBody, /new WorkFoldCheckService\(\{ kernel, settleSignal \}\)/, "the Check service publishes into the shared signal");
+  assert.match(hostBody, /settleSignal \};\s*$/m);
+
+  const apiStart = main.indexOf("function ensureInteractiveLocalApi");
+  const apiBody = main.slice(apiStart, main.indexOf("\nasync function ensureRemoteAccessClient", apiStart));
+  assert.match(apiBody, /settleSignal: host\.settleSignal,/, "the local API consumes the host's exact signal instance");
+  assert.match(apiBody, /actReceipts: host\.cli\.receipts,/, "decisions, publications, and CLI acts share the CLI host's one ledger");
+  assert.match(apiBody, /publicationKeys: host\.settings\.publicationKeyStore\(\)/);
+  assert.match(apiBody, /routingPowerLifecycle = api\.routings;/);
+
+  // Sleep suspends both schedulers; wake resumes both. Routing runs abort on
+  // suspension and settle `interrupted` (docs/fold-routings.md).
+  const powerStart = main.indexOf("function configurePowerMonitor");
+  const powerBody = main.slice(powerStart, main.indexOf("\nfunction configureAccentColorMonitor", powerStart));
+  const suspendBody = powerBody.slice(powerBody.indexOf('powerMonitor.on("suspend"'), powerBody.indexOf('powerMonitor.on("resume"'));
+  assert.match(suspendBody, /suspendAutomations\(\)/);
+  assert.match(suspendBody, /routingPowerLifecycle\?\.suspend\(\);/);
+  const resumeBody = powerBody.slice(powerBody.indexOf('powerMonitor.on("resume"'), powerBody.indexOf('powerMonitor.on("shutdown"'));
+  assert.match(resumeBody, /resumeAutomations\(\)/);
+  assert.match(resumeBody, /routingPowerLifecycle\?\.resume\(\);/);
+
+  // The remote client keeps the viewer-page provider wired to the
+  // publication authority, and reconnects re-drive pending bridge syncs.
+  const remoteStart = main.indexOf("async function ensureRemoteAccessClient");
+  const remoteBody = main.slice(remoteStart, main.indexOf("\nasync function promptRemoteBrowserPairing", remoteStart));
+  assert.match(remoteBody, /servePage: \(publicationId\) => api\.publications\.serveViewerPage\(publicationId\)/);
+  assert.match(remoteBody, /onDeviceConnected: \(\) => api\.publications\.redriveBridgeSync\(\)/);
+});
+
 function fixtureKernel(): WorkFoldCliKernel {
   return {
     async getContext(actor) {

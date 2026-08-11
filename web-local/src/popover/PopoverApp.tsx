@@ -5,6 +5,8 @@ import remarkGfm from "remark-gfm";
 
 import { ApiError, api, createEventSource, errorText } from "../lib/api";
 import { WorkFoldLockup } from "../components/brand/WorkFoldBrand";
+import { NeedsYouStack, useNeedsYouDecisions } from "../components/NeedsYouDecisions";
+import { GlanceSection, useGlance } from "./GlanceSection";
 
 /** Mirrors the server's WorkFoldActManagementRequest projection. */
 interface ManagementRequestView {
@@ -18,7 +20,8 @@ interface ManagementRequestView {
   attachments: Array<{ kind: "file" | "folder" | "url"; target: string; name: string }>;
   dispositions: Array<{
     attachment: { kind: "file" | "folder" | "url"; target: string; name: string };
-    status: "placed" | "registered" | "unrecorded";
+    /** `library` is Space-free: the attachment entered the personal Library through an attributed `library add`. */
+    status: "placed" | "registered" | "library" | "unrecorded";
     spaceName?: string;
     copied?: string[];
     checkpointId?: string | null;
@@ -93,8 +96,18 @@ export function PopoverApp() {
   const requestRef = useRef<ManagementRequestView | null>(null);
   const startingNewChatRef = useRef(false);
   requestRef.current = request;
+  // Durable pending decisions are their own object, distinct from the
+  // conversational needs_you phase; deciding here records surface "popover".
+  const needsYou = useNeedsYouDecisions({ surface: "popover" });
+  const refreshNeedsYou = needsYou.refresh;
+  // The glance rides the popover's existing refresh cadence and acknowledges
+  // with surface id "popover" only after the fetched digest has rendered.
+  const glance = useGlance("popover");
+  const refreshGlance = glance.refresh;
 
   const refreshConversation = useCallback(async () => {
+    void refreshNeedsYou();
+    void refreshGlance();
     try {
       const summary = await api<ManagementSummary>("/api/management/summary");
       setAvailable(summary.available);
@@ -124,7 +137,7 @@ export function PopoverApp() {
       setUnavailableReason(message);
       setBanner(message);
     }
-  }, []);
+  }, [refreshNeedsYou]);
 
   useEffect(() => {
     void refreshConversation();
@@ -317,7 +330,7 @@ export function PopoverApp() {
       <div className="popover">
         <header className="popover-header"><WorkFoldLockup className="popover-brand" /></header>
         <div className="card">
-          <p>The management conversation is unavailable.</p>
+          <p>Your fold is unavailable.</p>
           {unavailableReason ? <p className="muted small">{unavailableReason}</p> : null}
         </div>
       </div>
@@ -357,7 +370,11 @@ export function PopoverApp() {
 
       {banner ? <div className="banner" role="alert">{banner}</div> : null}
 
-      <section className="popover-transcript" ref={transcriptRef} aria-label="Management conversation" aria-live="polite">
+      <NeedsYouStack state={needsYou} />
+
+      <GlanceSection state={glance} surface="popover" />
+
+      <section className="popover-transcript" ref={transcriptRef} aria-label="Your fold" aria-live="polite">
         {messages.map((message) => (
           <article className={`popover-message ${message.role}`} key={message.id}>
             <div className="popover-message-role">{message.role === "assistant" ? "work-fold" : "You"}{message.source === "remote_web" ? " · Web" : ""}</div>
@@ -377,7 +394,7 @@ export function PopoverApp() {
             {request.attachments.length ? `${request.attachments.length} item${request.attachments.length === 1 ? "" : "s"} attached · ` : ""}
             {elapsedLabel ? `started ${elapsedLabel} ago` : "just started"}
           </p>
-          <p className="muted small">You can close this popover — the work continues.</p>
+          <p className="muted small">You can close your fold — the work continues.</p>
           <div className="row-end">
             <button className="danger-quiet" onClick={() => { void stop(); }} disabled={stopping}>
               {stopping ? "Stopping…" : "Stop"}
@@ -443,7 +460,7 @@ export function PopoverApp() {
               <button className="ghost" onClick={() => { void bridge.management?.openMainWindow(); }}>Open work-fold</button>
             ) : <span />}
             <button className="primary" onClick={() => { void send(); }} disabled={sending || !text.trim()}>
-              {sending ? "Sending…" : "Tell work-fold"}
+              {sending ? "Sending…" : staged.length ? "Fold it in" : "Send"}
             </button>
           </div>
         </section>
@@ -488,7 +505,9 @@ function DispositionTrail({ request }: { request: ManagementRequestView }) {
               ? <>Copied {disposition.attachment.name} to {disposition.spaceName}{disposition.checkpointId ? <span className="muted small"> · restore point {shortId(disposition.checkpointId)}</span> : null}</>
               : disposition.status === "registered"
                 ? <>Registered {disposition.attachment.name} as the Space {disposition.spaceName}</>
-                : <>{disposition.attachment.name}: no recorded placement — see the reply below</>}
+                : disposition.status === "library"
+                  ? <>Added {disposition.attachment.name} to your Library</>
+                  : <>{disposition.attachment.name}: no recorded placement — see the reply below</>}
           </span>
         </li>
       ))}

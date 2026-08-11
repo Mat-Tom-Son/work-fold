@@ -339,6 +339,173 @@ test("restricted app API keeps review, install, grants, connections, invocation,
   }
 });
 
+test("machine-wide automation ledgers feed the glance and the restore fence, and a decided file grant binds to the person-chosen root", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-restricted-ledgers-"));
+  const runtime = new RuntimeHost();
+  const service = await RestrictedAppService.create({
+    rootPath: join(sandbox, "state", "restricted-apps"),
+    runtimeHost: runtime,
+  });
+  const api = await startLocalApi({
+    port: 0,
+    stateBase: join(sandbox, "state"),
+    spaceBase: join(sandbox, "spaces"),
+    loadEnv: false,
+    restrictedAppService: service,
+  });
+  try {
+    const { space } = await request<{ space: { id: string; spaceRoot: string } }>(
+      api.origin,
+      "/api/spaces",
+      { method: "POST", body: { name: "Ledger apps" } },
+    );
+    await writePackage(join(space.spaceRoot, "tools", "mail-app"));
+    await mkdir(join(space.spaceRoot, "reports"), { recursive: true });
+    const inspected = await request<{ review: { digest: string } }>(
+      api.origin,
+      `/api/spaces/${space.id}/restricted-apps/inspect`,
+      { method: "POST", body: { sourcePath: "tools/mail-app" } },
+    );
+    const installed = await request<{ app: RestrictedAppInstalled }>(
+      api.origin,
+      `/api/spaces/${space.id}/restricted-apps`,
+      { method: "POST", body: { sourcePath: "tools/mail-app", expectedDigest: inspected.review.digest } },
+    );
+    await request(
+      api.origin,
+      `/api/spaces/${space.id}/restricted-apps/mail-app/automations/refresh-mail`,
+      { method: "PUT", body: { expectedDigest: inspected.review.digest } },
+    );
+
+    // Phase A: an active accepted run with no file grants is visible in the
+    // machine-wide ledger and the glance, but never blocks a restore.
+    assert.deepEqual(await service.listActiveAutomationRuns(), []);
+    const firstControl = runtime.blockNextAutomation();
+    const firstRun = request<{ run: { runId: string; outcome: string } }>(
+      api.origin,
+      `/api/spaces/${space.id}/restricted-apps/mail-app/automations/refresh-mail/run`,
+      { method: "POST", body: { expectedDigest: inspected.review.digest } },
+    );
+    await firstControl.started;
+    const activeWithoutGrant = await service.listActiveAutomationRuns();
+    assert.equal(activeWithoutGrant.length, 1);
+    assert.equal(activeWithoutGrant[0]!.spaceId, space.id);
+    assert.equal(activeWithoutGrant[0]!.appId, "mail-app");
+    assert.equal(activeWithoutGrant[0]!.automationId, "refresh-mail");
+    assert.equal(activeWithoutGrant[0]!.reason, "manual");
+    assert.deepEqual(activeWithoutGrant[0]!.fileGrantIds, [], "no grant means the run provably holds none");
+    const runningGlance = await api.kernel.getGlance({ kind: "renderer" });
+    assert.equal(
+      runningGlance.running.some((item) => item.kind === "automation-run"),
+      true,
+      "an accepted automation run reaches the glance's running digest",
+    );
+    assert.deepEqual(
+      await api.kernel.listExperimentalHistoryRestoreBlockers(space.id),
+      [],
+      "a run holding no file grant never blocks a restore",
+    );
+    firstControl.release();
+    assert.equal((await firstRun).run.outcome, "success");
+    assert.deepEqual(await service.listActiveAutomationRuns(), []);
+
+    // Phase B: the app.grant.files decision binds to the person-chosen root
+    // supplied at decide time; without one the approval refuses before
+    // anything is consumed, and a malformed root refuses at the route.
+    const staged = await api.stagedActs.stage({
+      kind: "app.grant.files",
+      parameters: { spaceId: space.id, appInstanceId: installed.app.featureInstallationId, declarationId: "exports" },
+      pins: {
+        appInstanceId: installed.app.featureInstallationId,
+        declarationId: "exports",
+        releaseDigest: installed.app.digest,
+      },
+      provenance: { stagedVia: "act-cli", requestId: "req-grant-files" },
+    });
+    const withoutRoot = await fetch(`${api.origin}/api/management/decisions/${staged.act.id}/decide`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision: "approved", surface: "main-window" }),
+    });
+    assert.equal(withoutRoot.status, 409);
+    assert.equal(((await withoutRoot.json()) as { code?: string }).code, "NOT_ELIGIBLE");
+    for (const badRoot of ["../escape", ".work-fold/inner", "reports\\nested", "", "a//b"]) {
+      const refused = await fetch(`${api.origin}/api/management/decisions/${staged.act.id}/decide`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ decision: "approved", surface: "main-window", fileGrantRoot: badRoot }),
+      });
+      assert.equal(refused.status, 400, `root ${JSON.stringify(badRoot)} must be refused`);
+    }
+    const rootOnDenial = await fetch(`${api.origin}/api/management/decisions/${staged.act.id}/decide`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision: "denied", surface: "main-window", fileGrantRoot: "reports" }),
+    });
+    assert.equal(rootOnDenial.status, 400, "a chosen folder accompanies only an approval");
+    const approved = await fetch(`${api.origin}/api/management/decisions/${staged.act.id}/decide`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision: "approved", surface: "main-window", fileGrantRoot: "reports" }),
+    });
+    assert.equal(approved.status, 200, await approved.clone().text());
+    const approvedCard = (await approved.json()) as { decision: { state: string; execution?: { outcome?: string } } };
+    assert.equal(approvedCard.decision.state, "approved");
+    assert.equal(approvedCard.decision.execution?.outcome, "executed");
+    const grantedApps = await service.list(space.id);
+    assert.deepEqual(
+      grantedApps[0]?.fileGrants,
+      [{ id: "exports", declarationId: "exports", root: "reports", access: "read-write" }],
+      "the decided grant carries exactly the person-chosen root",
+    );
+
+    // Phase C: the same run now holds the grant, so the machine-wide join
+    // reports it and the whole-Space restore fence blocks this Space only.
+    const secondControl = runtime.blockNextAutomation();
+    const secondRun = request<{ run: { outcome: string } }>(
+      api.origin,
+      `/api/spaces/${space.id}/restricted-apps/mail-app/automations/refresh-mail/run`,
+      { method: "POST", body: { expectedDigest: inspected.review.digest } },
+    );
+    await secondControl.started;
+    const activeWithGrant = await service.listActiveAutomationRuns();
+    assert.deepEqual(activeWithGrant[0]?.fileGrantIds, ["exports"]);
+    const blockers = await api.kernel.listExperimentalHistoryRestoreBlockers(space.id);
+    assert.equal(blockers.length, 1);
+    assert.match(blockers[0]!, /app automation refresh-mail of mail-app/);
+    assert.match(blockers[0]!, /file grant into this Space/);
+    assert.deepEqual(
+      await api.kernel.listExperimentalHistoryRestoreBlockers("ws-elsewhere-0000000"),
+      [],
+      "the fence blocks only the Space the grant reaches into",
+    );
+    secondControl.release();
+    assert.equal((await secondRun).run.outcome, "success");
+    assert.deepEqual(await api.kernel.listExperimentalHistoryRestoreBlockers(space.id), []);
+
+    // Settled receipts reach the machine-wide history ledger and the glance's
+    // what-changed digest with their Space and app identity intact.
+    const history = await service.listAutomationRunHistory();
+    assert.equal(history.length, 2);
+    for (const receipt of history) {
+      assert.equal(receipt.spaceId, space.id);
+      assert.equal(receipt.appId, "mail-app");
+      assert.equal(receipt.automationId, "refresh-mail");
+      assert.equal(receipt.outcome, "success");
+      assert.match(receipt.finishedAt, /^\d{4}-\d{2}-\d{2}T/);
+    }
+    const settledGlance = await api.kernel.getGlance({ kind: "renderer" });
+    assert.equal(
+      settledGlance.changes.some((item) => item.kind === "automation-run-settled"),
+      true,
+      "settled automation receipts reach the glance's what-changed digest",
+    );
+  } finally {
+    await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
 test("restricted app proposals are host-inspected, owning-Chat bound, persisted, and digest-pinned", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-restricted-proposal-api-"));
   const stateRoot = join(sandbox, "state", "restricted-apps");

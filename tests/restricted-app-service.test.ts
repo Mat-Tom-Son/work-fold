@@ -1034,6 +1034,102 @@ test("RestrictedAppService reconciles a crash after durable automation acceptanc
   }
 });
 
+test("RestrictedAppService's machine-wide run ledgers join active runs with scoped file-grant authority", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-restricted-service-active-runs-"));
+  const spaceRoot = join(sandbox, "space");
+  const rootPath = join(sandbox, "state", "restricted-apps");
+  const runtime = new GatedAutomationRuntimeHost();
+  let service: RestrictedAppService | undefined;
+  try {
+    await writePackage(join(spaceRoot, "apps", "inbox"));
+    await mkdir(join(spaceRoot, "reports"), { recursive: true });
+    service = await RestrictedAppService.create({ rootPath, runtimeHost: runtime, deferAutomationStart: false });
+    const review = await service.inspect({ spaceId: spaceOne, spaceRoot, sourcePath: "apps/inbox" });
+    await service.install({ spaceId: spaceOne, spaceRoot, sourcePath: "apps/inbox", expectedDigest: review.digest });
+    await service.grantFiles({
+      spaceId: spaceOne,
+      spaceRoot,
+      appId: "connected-inbox",
+      expectedDigest: review.digest,
+      permissionId: "exports",
+      root: "reports",
+    });
+    for (const automationId of [refreshAutomation, exportAutomation]) {
+      await service.setAutomationEnabled({
+        spaceId: spaceOne,
+        appId: "connected-inbox",
+        expectedDigest: review.digest,
+        automationId,
+        enabled: true,
+      });
+    }
+    assert.deepEqual(await service.listActiveAutomationRuns(), []);
+    assert.deepEqual(await service.listAutomationRunHistory(), []);
+
+    const refreshRun = service.runAutomationNow({
+      spaceId: spaceOne,
+      appId: "connected-inbox",
+      expectedDigest: review.digest,
+      automationId: refreshAutomation,
+    });
+    const exportRun = service.runAutomationNow({
+      spaceId: spaceOne,
+      appId: "connected-inbox",
+      expectedDigest: review.digest,
+      automationId: exportAutomation,
+    });
+    await runtime.waitForStarts(2);
+    const active = await service.listActiveAutomationRuns();
+    assert.equal(active.length, 2);
+    const byAutomation = new Map(active.map((run) => [run.automationId, run]));
+    assert.deepEqual(
+      byAutomation.get(refreshAutomation)?.fileGrantIds,
+      [],
+      "a run whose automation declares no file permissions provably holds none",
+    );
+    assert.deepEqual(
+      byAutomation.get(exportAutomation)?.fileGrantIds,
+      ["exports"],
+      "the join narrows the installation's grants to the automation's declared permissions",
+    );
+    for (const run of active) {
+      assert.equal(run.spaceId, spaceOne);
+      assert.equal(run.appId, "connected-inbox");
+      assert.equal(run.reason, "manual");
+      assert.match(run.acceptedAt, /^\d{4}-\d{2}-\d{2}T/);
+      assert.match(run.scheduledAt, /^\d{4}-\d{2}-\d{2}T/);
+      assert.ok(run.runId);
+    }
+
+    runtime.releaseAll();
+    const settled = await Promise.all([refreshRun, exportRun]);
+    assert.deepEqual(settled.map(({ run }) => run.outcome), ["success", "success"]);
+    assert.deepEqual(await service.listActiveAutomationRuns(), [], "settled runs leave the active ledger");
+    const history = await service.listAutomationRunHistory();
+    assert.deepEqual(
+      history.map((receipt) => receipt.automationId).sort(),
+      [exportAutomation, refreshAutomation].sort(),
+    );
+    for (const receipt of history) {
+      assert.equal(receipt.spaceId, spaceOne);
+      assert.equal(receipt.appId, "connected-inbox");
+      assert.equal(receipt.outcome, "success");
+      assert.equal(receipt.reason, "manual");
+      assert.match(receipt.finishedAt, /^\d{4}-\d{2}-\d{2}T/);
+      assert.ok(receipt.receiptId);
+      assert.ok(receipt.runId);
+    }
+    assert.equal((await service.listAutomationRunHistory(1)).length, 1, "the history read is bounded by its limit");
+    await assert.rejects(service.listAutomationRunHistory(0), /positive integer/);
+    await service.close();
+    service = undefined;
+  } finally {
+    runtime.releaseAll();
+    await service?.close().catch(() => undefined);
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
 test("RestrictedAppService persists a nonempty fallback for an empty worker failure and reopens cleanly", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-restricted-service-empty-automation-error-"));
   const spaceRoot = join(sandbox, "space");
@@ -1617,6 +1713,48 @@ class RecordingRuntimeHost implements RestrictedAppRuntimeHost {
   async close(): Promise<void> {
     this.closeCount += 1;
   }
+}
+
+class GatedAutomationRuntimeHost implements RestrictedAppRuntimeHost {
+  readonly #releases: Array<() => void> = [];
+  readonly #startWaiters: Array<{ count: number; resolve: () => void }> = [];
+  #started = 0;
+
+  async invoke(): Promise<unknown> { return {}; }
+
+  async runAutomation(): Promise<void> {
+    this.#started += 1;
+    for (const waiter of [...this.#startWaiters]) {
+      if (this.#started < waiter.count) continue;
+      this.#startWaiters.splice(this.#startWaiters.indexOf(waiter), 1);
+      waiter.resolve();
+    }
+    await new Promise<void>((resolvePromise) => this.#releases.push(resolvePromise));
+  }
+
+  async waitForStarts(count: number): Promise<void> {
+    if (this.#started >= count) return;
+    await new Promise<void>((resolvePromise, rejectPromise) => {
+      const timeout = setTimeout(
+        () => rejectPromise(new Error(`Timed out waiting for ${count} automation runs to start; observed ${this.#started}.`)),
+        10_000,
+      );
+      this.#startWaiters.push({
+        count,
+        resolve: () => {
+          clearTimeout(timeout);
+          resolvePromise();
+        },
+      });
+    });
+  }
+
+  releaseAll(): void {
+    for (const release of this.#releases.splice(0)) release();
+  }
+
+  async stop(): Promise<void> {}
+  async close(): Promise<void> {}
 }
 
 class QueuedNotificationRuntimeHost implements RestrictedAppRuntimeHost {

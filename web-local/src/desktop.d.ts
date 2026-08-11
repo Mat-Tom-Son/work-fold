@@ -17,6 +17,8 @@ interface WorkFoldRemoteAccessStatus {
   connection: "stopped" | "connecting" | "connected" | "error";
   slug: string | null;
   url: string | null;
+  /** The pages-<slug> origin share links compose against; null until an address exists. */
+  viewerOrigin: string | null;
   lastError: string | null;
   approvedBrowsers: Array<{ id: string; browserId: string; label: string; approvedAt: string }>;
 }
@@ -128,6 +130,13 @@ declare global {
       };
       agent: {
         onOpenSettings: (listener: () => void) => () => void;
+      };
+      /**
+       * Main-window-only needs-you helpers; absent in the popover's narrow
+       * preload, so surfaces feature-detect the file-grant folder picker.
+       */
+      decisions?: {
+        chooseFileGrantRoot: (spaceId: string) => Promise<{ root?: string; error?: string } | null>;
       };
       management?: {
         getPathForFile: (file: File) => string;

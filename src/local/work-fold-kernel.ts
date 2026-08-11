@@ -19,6 +19,12 @@ import {
   type SpaceLocation,
   type SpaceSummary,
 } from "./space.js";
+import {
+  composeWorkFoldGlance,
+  type WorkFoldGlanceSnapshot,
+  type WorkFoldGlanceSourceReaders,
+  type WorkFoldGlanceTaskRecord,
+} from "./glance.js";
 
 export const workFoldKernelSnapshotVersion = 1 as const;
 
@@ -94,12 +100,95 @@ export interface WorkFoldExperimentalCheckRunTask {
   startedAt: string;
 }
 
+/**
+ * Experimental internal task shape for a consecrated execution: the mutation
+ * that runs after a person (or an exercised standing policy) approves a staged
+ * act (docs/fold-consecrations.md). Following the `check_run` precedent it is
+ * deliberately separate from WorkFoldTaskKind and must not enter the stable
+ * space.tasks v1 projection. A Space id is present only when the execution
+ * mutates one Space; Personal-scope and machine-scope executions carry none.
+ */
+export interface WorkFoldExperimentalFoldDecisionTaskInput {
+  id?: string;
+  spaceId?: string;
+  /** The staged act whose approved execution this task tracks. */
+  stagedActId: string;
+  actor: WorkFoldActor;
+}
+
+export interface WorkFoldExperimentalFoldDecisionTask {
+  id: string;
+  kind: "fold_decision";
+  status: "running";
+  spaceId: string | null;
+  stagedActId: string;
+  actor: WorkFoldActor;
+  startedAt: string;
+}
+
+/**
+ * Experimental internal task shape for one routing run (docs/fold-routings.md).
+ * Following the `check_run` precedent it is deliberately separate from
+ * WorkFoldTaskKind and must not enter the stable space.tasks v1 projection. A
+ * routing run is cross-Space glue, so it carries no Space id; the glance
+ * renders routing runs from their own receipts source, never from this task.
+ */
+export interface WorkFoldExperimentalRoutingRunTaskInput {
+  id?: string;
+  routingId: string;
+  runId: string;
+  actor: WorkFoldActor;
+}
+
+export interface WorkFoldExperimentalRoutingRunTask {
+  id: string;
+  kind: "routing_run";
+  status: "running";
+  routingId: string;
+  runId: string;
+  actor: WorkFoldActor;
+  startedAt: string;
+}
+
 export interface WorkFoldTasksSnapshot {
   kind: "work-fold.tasks";
   version: typeof workFoldKernelSnapshotVersion;
   actor: WorkFoldActor;
   spaceId: string | null;
   tasks: WorkFoldTaskSnapshot[];
+}
+
+/**
+ * Injected readers for the whole-Space History-restore fence
+ * (docs/fold-act-ledger.md, conflict rule 7). The kernel's own task registry
+ * is the record of which routing runs are active; these readers resolve what
+ * an active run means for one Space. Both follow the glance-source pattern:
+ * the owning application host wires them over its live services.
+ */
+export interface WorkFoldHistoryRestoreFenceSources {
+  /**
+   * Space ids the routing's declared files hops copy into (`toSpace`), or
+   * null when the routing's declaration cannot be found. Absent reader and
+   * null/failed reads fail closed: an active routing run whose hops cannot
+   * be verified blocks the restore rather than racing it.
+   */
+  routingRunFilesHopTargets?(routingId: string): Promise<string[] | null>;
+  /**
+   * Active (accepted, not yet settled) restricted-app automation runs whose
+   * app holds a file grant into the named Space. The owning host wires it
+   * over the restricted-app registry's machine-wide accessor
+   * (`listActiveAutomationRuns` in
+   * `src/local/agent/restricted-app-service.ts`); a run whose grants cannot
+   * be resolved is included by that wiring rather than dropped, and a
+   * configured reader that fails blocks the restore (fail closed). An absent
+   * reader is absence of evidence, unlike an active routing-run task the
+   * kernel can already see.
+   */
+  automationRunsWithFileGrantInto?(spaceId: string): Promise<Array<{
+    appId: string;
+    automationId: string;
+    runId: string;
+  }>>;
 }
 
 export type WorkFoldCapabilityScope = "global" | "project" | "temporary";
@@ -255,6 +344,17 @@ export interface WorkFoldKernelOptions {
   loadCapabilityCatalog?: (spaceRoot: string, runtimeProvider?: PiRuntimeProvider) => Promise<PiResourceCatalog>;
   listPackages?: (spaceRoot: string, runtimeProvider?: PiRuntimeProvider) => Promise<PiConfiguredPackage[]>;
   isProjectMutationTrusted?: (spaceRoot: string, runtimeProvider?: PiRuntimeProvider) => Promise<boolean>;
+  /**
+   * Injected glance source readers, exactly as `listSpaces` and
+   * `loadCapabilityCatalog` are today. The kernel always supplies its own task
+   * registry as the running-task source; an absent reader renders its glance
+   * kinds as absent.
+   */
+  glanceSources?: WorkFoldGlanceSourceReaders;
+  /** Reads the per-surface seen markers. The kernel never writes them. */
+  readGlanceSeen?: () => Promise<Record<string, string>>;
+  /** Injected History-restore fence readers; see the interface's fail-closed rules. */
+  historyRestoreFenceSources?: WorkFoldHistoryRestoreFenceSources;
   now?: () => Date;
   createTaskId?: () => string;
 }
@@ -280,9 +380,18 @@ export class WorkFoldKernel {
   readonly #loadCapabilityCatalog: WorkFoldKernelOptions["loadCapabilityCatalog"] & {};
   readonly #listPackages: WorkFoldKernelOptions["listPackages"] & {};
   readonly #isProjectMutationTrusted: WorkFoldKernelOptions["isProjectMutationTrusted"] & {};
+  #glanceSources: WorkFoldGlanceSourceReaders;
+  #readGlanceSeen?: () => Promise<Record<string, string>>;
+  #historyRestoreFenceSources: WorkFoldHistoryRestoreFenceSources;
   readonly #now: () => Date;
   readonly #createTaskId: () => string;
-  readonly #tasks = new Map<string, WorkFoldTaskSnapshot | WorkFoldExperimentalCheckRunTask>();
+  readonly #tasks = new Map<
+    string,
+    | WorkFoldTaskSnapshot
+    | WorkFoldExperimentalCheckRunTask
+    | WorkFoldExperimentalFoldDecisionTask
+    | WorkFoldExperimentalRoutingRunTask
+  >();
 
   constructor(options: WorkFoldKernelOptions = {}) {
     this.#runtimeProvider = options.runtimeProvider;
@@ -291,6 +400,9 @@ export class WorkFoldKernel {
     this.#loadCapabilityCatalog = options.loadCapabilityCatalog ?? loadAgentSkillCatalog;
     this.#listPackages = options.listPackages ?? listPiPackages;
     this.#isProjectMutationTrusted = options.isProjectMutationTrusted ?? isPiProjectMutationTrusted;
+    this.#glanceSources = options.glanceSources ?? {};
+    this.#readGlanceSeen = options.readGlanceSeen;
+    this.#historyRestoreFenceSources = options.historyRestoreFenceSources ?? {};
     this.#now = options.now ?? (() => new Date());
     this.#createTaskId = options.createTaskId ?? (() => `task-${randomUUID()}`);
   }
@@ -347,7 +459,9 @@ export class WorkFoldKernel {
     const context = scoped ? await this.getContext(normalizedActor) : null;
     const spaceId = context?.space?.id ?? null;
     const tasks = [...this.#tasks.values()]
-      .filter((task): task is WorkFoldTaskSnapshot => task.kind !== "check_run")
+      // Only the stable kinds enter the space.tasks v1 projection; the
+      // experimental check_run and fold_decision lifecycles stay internal.
+      .filter((task): task is WorkFoldTaskSnapshot => task.kind === "assistant_turn" || task.kind === "compaction")
       .filter((task) => !scoped || task.spaceId === spaceId)
       .sort((left, right) => left.startedAt.localeCompare(right.startedAt) || left.id.localeCompare(right.id))
       .map(copyTask);
@@ -375,6 +489,150 @@ export class WorkFoldKernel {
       space: context.space,
       catalog: buildWorkFoldCapabilityCatalog(catalog, packages, mutationTrusted),
     };
+  }
+
+  /**
+   * Composes the experimental glance digest (version 0) over the kernel's own
+   * task registry, the registered Spaces, and the injected source readers,
+   * with one clock reading. The digest is management-scoped: it never varies
+   * by actor, and the actor is normalized only for interface consistency. The
+   * experimental snapshot stays out of the stable `work-fold.tasks`/protocol
+   * v1 projections, following the `check_run` precedent, and the kernel stays
+   * read-only here — it reads seen markers and never writes one.
+   */
+  async getGlance(actor: WorkFoldActor): Promise<WorkFoldGlanceSnapshot> {
+    normalizeActor(actor);
+    const spaces = (await this.#listSpaces()).map(toSpaceSnapshot);
+    let seen: Record<string, string> = {};
+    if (this.#readGlanceSeen) {
+      try {
+        seen = await this.#readGlanceSeen();
+      } catch {
+        // A lost seen table only renders more items as new — over-reporting
+        // is the safe failure direction for markers.
+        seen = {};
+      }
+    }
+    return composeWorkFoldGlance({
+      now: this.#now(),
+      spaces: spaces.map((space) => ({ id: space.id, name: space.name, spaceRoot: space.spaceRoot })),
+      sources: {
+        ...this.#glanceSources,
+        runningTasks: async () => this.#glanceTaskRecords(),
+      },
+      seen,
+    });
+  }
+
+  /**
+   * One-shot wiring seam for the owning application host: the local API
+   * constructs its live-registry source readers and seen-marker reader only
+   * after the kernel exists (the desktop builds the kernel first), so this
+   * attaches them post-construction. It rewires reads only — the kernel stays
+   * read-only over glance state, and its own task registry still always
+   * supplies the running-task source.
+   */
+  configureGlance(input: {
+    sources?: WorkFoldGlanceSourceReaders;
+    readSeen?: () => Promise<Record<string, string>>;
+  }): void {
+    if (input.sources) this.#glanceSources = { ...input.sources };
+    if (input.readSeen) this.#readGlanceSeen = input.readSeen;
+  }
+
+  /**
+   * Post-construction wiring for the History-restore fence readers, exactly
+   * like `configureGlance`: the owning host builds its routing executor after
+   * the kernel exists, so the readers attach here. Reads only — the kernel
+   * never mutates routing or app state through this seam.
+   */
+  configureHistoryRestoreFence(input: { sources: WorkFoldHistoryRestoreFenceSources }): void {
+    this.#historyRestoreFenceSources = { ...input.sources };
+  }
+
+  /**
+   * The whole-Space History-restore fence (docs/fold-act-ledger.md, conflict
+   * rule 7, item 4): person-readable blockers for restoring the named Space
+   * right now, judged from the kernel's own task registry plus the injected
+   * fence readers. Restore replaces the working set running work may be
+   * writing into, so the rule is deliberate strengthening over the desktop's
+   * confirm dialog:
+   *
+   * - An active `routing_run` task whose declaration includes a files hop
+   *   into this Space blocks. A run whose hops cannot be verified — no
+   *   reader, an unknown routing, a failed read — blocks too (fail closed):
+   *   the registry proves work is running, so unverifiable hops must not
+   *   race a restore.
+   * - An active restricted-app automation run whose app holds a file grant
+   *   into this Space blocks, through the injected reader; a configured
+   *   reader that fails blocks (fail closed). While no reader is configured
+   *   there is no recorded evidence of such runs anywhere in-process, and
+   *   this half of the rule stays honestly inactive.
+   *
+   * The experimental method follows the `check_run` precedent: it is not part
+   * of the stable snapshot surface, and Assistant-turn/compaction/Check-run
+   * fencing stays with the act facade's own live route state.
+   */
+  async listExperimentalHistoryRestoreBlockers(spaceId: string): Promise<string[]> {
+    const targetSpaceId = spaceId.trim();
+    if (!targetSpaceId) throw new Error("Space task Space id is required.");
+    const blockers: string[] = [];
+    const routingRuns = [...this.#tasks.values()]
+      .filter((task): task is WorkFoldExperimentalRoutingRunTask => task.kind === "routing_run");
+    const readTargets = this.#historyRestoreFenceSources.routingRunFilesHopTargets;
+    for (const run of routingRuns) {
+      const label = `routing run ${run.runId} (routing ${run.routingId})`;
+      if (!readTargets) {
+        blockers.push(`Wait for the running ${label} to finish before restoring: its files-hop targets cannot be verified in this build.`);
+        continue;
+      }
+      let targets: string[] | null;
+      try {
+        targets = await readTargets(run.routingId);
+      } catch {
+        targets = null;
+      }
+      if (targets === null) {
+        blockers.push(`Wait for the running ${label} to finish before restoring: its files-hop targets could not be verified.`);
+        continue;
+      }
+      if (targets.includes(targetSpaceId)) {
+        blockers.push(`Wait for the running ${label} to finish before restoring: it declares a files hop into this Space.`);
+      }
+    }
+    const readAutomationRuns = this.#historyRestoreFenceSources.automationRunsWithFileGrantInto;
+    if (readAutomationRuns) {
+      try {
+        for (const run of await readAutomationRuns(targetSpaceId)) {
+          blockers.push(
+            `Wait for the running app automation ${run.automationId} of ${run.appId} (run ${run.runId}) to finish before restoring: the app holds a file grant into this Space.`,
+          );
+        }
+      } catch {
+        blockers.push("Wait before restoring: running app automations with file grants into this Space could not be verified.");
+      }
+    }
+    return blockers;
+  }
+
+  #glanceTaskRecords(): WorkFoldGlanceTaskRecord[] {
+    // The glance's running-task vocabulary is closed (assistant_turn,
+    // compaction, check_run). A running fold_decision execution is deliberately
+    // not projected: pending cards and settled decisions already reach the
+    // glance through its own staged-act readers, and the execution itself is a
+    // short internal step between them. A routing_run task is likewise
+    // excluded: routing runs reach the glance through their own receipts
+    // source, and this internal task carries no Space id to render.
+    return [...this.#tasks.values()]
+      .filter((task): task is WorkFoldTaskSnapshot | WorkFoldExperimentalCheckRunTask =>
+        task.kind === "assistant_turn" || task.kind === "compaction" || task.kind === "check_run")
+      .map((task) => ({
+        id: task.id,
+        kind: task.kind,
+        spaceId: task.spaceId,
+        ...(task.kind !== "check_run" && task.conversationId ? { conversationId: task.conversationId } : {}),
+        startedAt: task.startedAt,
+      }));
   }
 
   startTask(input: WorkFoldTaskInput): WorkFoldTaskSnapshot {
@@ -416,6 +674,61 @@ export class WorkFoldKernel {
     };
     this.#tasks.set(task.id, task);
     return copyExperimentalCheckRunTask(task);
+  }
+
+  /**
+   * Starts a consecrated execution in the shared internal lifecycle without
+   * promoting the experimental kind into the stable space.tasks v1 projection.
+   * The decision path (src/local/fold-decisions.ts) starts one task per
+   * approved execution and finishes it on every outcome — success, failure,
+   * and abort cleanup — so a capability mutation can be fenced against it and
+   * no ghost task survives the execution.
+   */
+  startExperimentalFoldDecisionTask(input: WorkFoldExperimentalFoldDecisionTaskInput): WorkFoldExperimentalFoldDecisionTask {
+    const id = input.id?.trim() || this.#createTaskId();
+    if (this.#tasks.has(id)) throw new Error(`Space task is already running: ${id}`);
+    const stagedActId = input.stagedActId.trim();
+    if (!stagedActId) throw new Error("Fold decision task staged-act id is required.");
+    const spaceId = input.spaceId?.trim() || null;
+    if (input.spaceId !== undefined && !spaceId) throw new Error("Space task Space id is required.");
+    const task: WorkFoldExperimentalFoldDecisionTask = {
+      id,
+      kind: "fold_decision",
+      status: "running",
+      spaceId,
+      stagedActId,
+      actor: normalizeActor(input.actor),
+      startedAt: this.#now().toISOString(),
+    };
+    this.#tasks.set(task.id, task);
+    return copyExperimentalFoldDecisionTask(task);
+  }
+
+  /**
+   * Starts one routing run in the shared internal lifecycle without promoting
+   * the experimental kind into the stable space.tasks v1 projection. The
+   * routing executor (src/local/routings/routing-service.ts) starts one task
+   * per launched run through its observability port and finishes it on every
+   * outcome, so no ghost task survives a settled run.
+   */
+  startExperimentalRoutingRunTask(input: WorkFoldExperimentalRoutingRunTaskInput): WorkFoldExperimentalRoutingRunTask {
+    const id = input.id?.trim() || this.#createTaskId();
+    if (this.#tasks.has(id)) throw new Error(`Space task is already running: ${id}`);
+    const routingId = input.routingId.trim();
+    if (!routingId) throw new Error("Routing run task routing id is required.");
+    const runId = input.runId.trim();
+    if (!runId) throw new Error("Routing run task run id is required.");
+    const task: WorkFoldExperimentalRoutingRunTask = {
+      id,
+      kind: "routing_run",
+      status: "running",
+      routingId,
+      runId,
+      actor: normalizeActor(input.actor),
+      startedAt: this.#now().toISOString(),
+    };
+    this.#tasks.set(task.id, task);
+    return copyExperimentalRoutingRunTask(task);
   }
 
   finishTask(taskId: string): boolean {
@@ -620,6 +933,14 @@ function copyTask(task: WorkFoldTaskSnapshot): WorkFoldTaskSnapshot {
 }
 
 function copyExperimentalCheckRunTask(task: WorkFoldExperimentalCheckRunTask): WorkFoldExperimentalCheckRunTask {
+  return { ...task, actor: { ...task.actor } };
+}
+
+function copyExperimentalFoldDecisionTask(task: WorkFoldExperimentalFoldDecisionTask): WorkFoldExperimentalFoldDecisionTask {
+  return { ...task, actor: { ...task.actor } };
+}
+
+function copyExperimentalRoutingRunTask(task: WorkFoldExperimentalRoutingRunTask): WorkFoldExperimentalRoutingRunTask {
   return { ...task, actor: { ...task.actor } };
 }
 

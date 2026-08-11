@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import test from "node:test";
 
 import {
+  WORKFOLD_CLI_ACT_STAGED_COMMAND_NAMES,
   WORKFOLD_CLI_PROTOCOL_VERSION,
   WorkFoldCliError,
   WorkFoldCliExitCode,
@@ -96,6 +97,53 @@ test("CLI argv parser produces stable usage errors", () => {
       argv.join(" "),
     );
   }
+});
+
+test("CLI help covers every landed act family and is honest about staging", () => {
+  // The spelled verb inventory of docs/fold-act-ledger.md plus the sibling
+  // routings/pages plans, as the act argv parser accepts them. Growing the
+  // act table without growing help fails here on purpose.
+  const families: Record<string, string[]> = {
+    chat: ["create", "send", "status", "result", "wait", "abort", "rename", "snooze", "archive", "resume", "compact"],
+    chats: ["list"],
+    manage: ["send", "status", "result", "wait", "stop", "abort", "list", "glance"],
+    checks: ["status", "enable", "disable", "run", "task", "result", "wait", "abort", "problems", "decide"],
+    history: ["list", "save", "restore", "versions", "restore-file"],
+    search: [""],
+    files: ["add", "move", "rename", "delete", "mkdir", "create", "destroy"],
+    library: ["list", "add", "folder create", "copy"],
+    spaces: ["list", "create", "register", "rename", "unregister", "delete", "appearance apply", "appearance reset", "appearance undo"],
+    tools: ["import-skill", "install", "update", "remove"],
+    apps: [
+      "proposals list", "proposals dismiss", "install-proposal", "install-preview", "remove",
+      "grant", "revoke", "connect", "disconnect", "automation enable", "automation disable",
+      "automation run", "storage clear", "retained purge", "project declare", "release prepare",
+      "release publish", "release delete", "install prepare", "update prepare",
+      "operation activate", "operation cancel", "uninstall",
+    ],
+    routings: ["stage", "list", "show", "run", "stop", "disable", "delete", "receipts"],
+    pages: ["stage", "list", "status", "revoke", "narrow", "snapshot-off"],
+    staged: ["list", "show", "cancel"],
+  };
+  const overview = workFoldCliHelp("work-fold");
+  for (const [family, verbs] of Object.entries(families)) {
+    const topic = workFoldCliHelp("work-fold", family);
+    assert.notEqual(topic, overview, `'${family}' needs a dedicated help topic`);
+    assert.match(overview, new RegExp(`\\b${family}\\b`), `the overview must list ${family}`);
+    for (const verb of verbs) {
+      const spelled = verb ? `${family} ${verb}` : family;
+      assert.ok(topic.includes(`work-fold ${spelled} `), `help ${family} must show usage for '${spelled}'`);
+    }
+  }
+  // Every consecrated row's family topic must say the act stages a decision
+  // instead of executing; apps.uninstall is consecrated via --purge-data.
+  for (const stagedName of WORKFOLD_CLI_ACT_STAGED_COMMAND_NAMES) {
+    const family = stagedName.split(".")[0]!;
+    assert.match(workFoldCliHelp("work-fold", family), /decision/, `help ${family} must explain staging for ${stagedName}`);
+  }
+  assert.match(workFoldCliHelp("work-fold", "apps"), /--purge-data/);
+  // The never-list stays visible where an agent looks first.
+  assert.match(overview, /desktop-only/);
 });
 
 test("CLI executor passes actor cwd and Space scope through the narrow kernel", async () => {

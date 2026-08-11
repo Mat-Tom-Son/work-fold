@@ -265,6 +265,87 @@ test("managed-folder cleanup failure leaves a hidden, recoverable removal intent
   assert.deepEqual(await listPendingSpaceRemovals(), []);
 });
 
+test("a preserve-disposition removal unregisters a managed Space while its folder provably survives", async () => {
+  const space = await createManagedSpace("Managed keep-folder", contentRoot);
+  await writeFile(join(space.spaceRoot, "keep.md"), "still here", "utf8");
+
+  const intent = await beginSpaceRemoval(space.id, contentRoot, {}, { folderDisposition: "preserve" });
+  assert.equal(intent.folderDisposition, "preserve");
+  assert.equal(intent.storage, "managed");
+  assert.equal(intent.managedBase, null, "a preserve intent records no managed-content boundary");
+  assert.equal(intent.managedRootIdentity, null, "a preserve intent holds no deletion identity");
+
+  // The durable intent round-trips the strict registry read, and an
+  // in-flight preserve intent cannot be converted into a deletion.
+  assert.equal((await listPendingSpaceRemovals())[0]?.folderDisposition, "preserve");
+  await assert.rejects(beginSpaceRemoval(space.id, contentRoot), /different folder disposition/);
+
+  await markSpaceRemovalAppStateRemoved(space.id);
+  // A crash between app-state cleanup and registry finalization keeps the
+  // preserve semantics: the pending result never claims a deletion.
+  const pending = await finalizeSpaceRemoval(space.id, {
+    async removeSpaceState() {
+      throw new Error("simulated app-state lock");
+    },
+  });
+  assert.deepEqual(pending, {
+    removed: true,
+    deleted: false,
+    spaceRoot: space.spaceRoot,
+    cleanupPending: true,
+  });
+
+  const removed = await finalizeSpaceRemoval(space.id, {
+    async claimManagedRoot() {
+      throw new Error("a preserve removal must never claim the managed root");
+    },
+    async removeClaimedManagedRoot() {
+      throw new Error("a preserve removal must never delete the managed root");
+    },
+  });
+  assert.deepEqual(removed, {
+    removed: true,
+    deleted: false,
+    spaceRoot: space.spaceRoot,
+    cleanupPending: false,
+  });
+  assert.equal(await readFile(join(space.spaceRoot, "keep.md"), "utf8"), "still here");
+  assert.equal(existsSync(spaceManifestFile(space.spaceRoot)), true, "the portable identity persists");
+  assert.deepEqual(await listPendingSpaceRemovals(), []);
+  assert.equal((await listSpaces()).some((item) => item.id === space.id), false);
+
+  // The preserved folder registers again with the same portable identity.
+  const reRegistered = await registerLinkedSpace(space.spaceRoot);
+  assert.equal(reRegistered.id, space.id, "re-registration restores the persisted identity");
+});
+
+test("a preserve marker is valid only on a managed intent that holds no deletion authority", async () => {
+  const space = await createManagedSpace("Preserve marker rules", contentRoot);
+  await beginSpaceRemoval(space.id, contentRoot, {}, { folderDisposition: "preserve" });
+  const registryText = await readFile(spaceRegistryFile(), "utf8");
+  const poison = (mutate: (intent: Record<string, unknown>) => void) => {
+    const registry = JSON.parse(registryText) as { pendingRemovals: Array<Record<string, unknown>> };
+    mutate(registry.pendingRemovals[0]!);
+    return writeFile(spaceRegistryFile(), `${JSON.stringify(registry, null, 2)}\n`, "utf8");
+  };
+
+  // A preserve intent that somehow gained deletion authority is refused by
+  // the strict registry read: the shape itself is the proof.
+  await poison((intent) => { intent.managedRootClaimed = true; });
+  await assert.rejects(listPendingSpaceRemovals(), /could not be read safely/);
+
+  await poison((intent) => { intent.folderDisposition = "delete"; });
+  await assert.rejects(listPendingSpaceRemovals(), /could not be read safely/);
+
+  // Restore the valid preserve intent and complete the removal so later
+  // tests see a clean registry.
+  await writeFile(spaceRegistryFile(), registryText, "utf8");
+  await markSpaceRemovalAppStateRemoved(space.id);
+  const removed = await finalizeSpaceRemoval(space.id);
+  assert.equal(removed.deleted, false);
+  assert.equal(existsSync(space.spaceRoot), true);
+});
+
 test("a durable claim hint cannot finalize while the approved root still exists", async () => {
   const space = await createManagedSpace("Removal claim replay", contentRoot);
   await writeFile(join(space.spaceRoot, "approved-original.txt"), "original", "utf8");

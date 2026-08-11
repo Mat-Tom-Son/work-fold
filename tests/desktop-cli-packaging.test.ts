@@ -186,12 +186,17 @@ test("packaged Remote access enrollment carries no shared client credential", as
 
 /**
  * Shared act-lane contract both platform shims must keep: routing that never
- * lets content-bearing chat commands fall through to protocol v1, the
- * per-launch token file, the bounded message payload rewrite, the shim-side
- * wait loop, and the fail-fast unavailable path.
+ * lets a content-bearing act command fall through to protocol v1 — every
+ * ledger family plus the two read-lane exceptions (`spaces list`,
+ * `checks status`) — the per-launch token file, the bounded message payload
+ * rewrite, the shim-side wait loop, and the fail-fast unavailable path.
  */
 function assertActLaneShimContract(shim: string): void {
-  for (const routed of ["chat", "chats", "files", "manage", "checks", "spaces", "create", "register", "wait", "status", "task", "result"]) {
+  const routedFamilies = [
+    "chat", "chats", "files", "manage", "checks", "spaces", "history", "search",
+    "library", "tools", "apps", "routings", "pages", "staged",
+  ];
+  for (const routed of [...routedFamilies, "list", "status", "wait", "task", "result"]) {
     assert.match(shim, new RegExp(`["']${routed}["']`), `act routing must reference ${routed}`);
   }
   assert.match(shim, /act-token\.json/);

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
 import test from "node:test";
 
 import { newDb } from "pg-mem";
@@ -9,6 +9,14 @@ import { BridgeDatabase, canonicalizeJson } from "./database.mjs";
 import { shouldSubmitComposerKey } from "./public/composer.js";
 import { renderMarkdown } from "./public/markdown.js";
 import { normalizeChatTitle, replaceHtmlIfChanged } from "./public/rendering.js";
+import { parseViewerLocation, viewerPageAad, viewerSlugFromHost } from "./public/viewer/viewer.js";
+import {
+  composeViewerAppDocument,
+  parseViewerAppLocation,
+  viewerAppAad,
+  viewerAppCallFingerprint,
+  viewerAppCallRoute,
+} from "./public/viewer/viewer-app.js";
 import { createPasswordCheckQueue, startBridgeServer } from "./server.mjs";
 
 test("serves the web client and healthy no-store API responses", async (context) => {
@@ -57,6 +65,10 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.match(applicationSource, /newConversation: true/);
   assert.match(applicationSource, /management\.chats/);
   assert.match(applicationSource, /management\.rename/);
+  // The request trail accounts for the Space-free Library disposition; it
+  // renders without the Space-name guard the placed/registered lines need.
+  assert.match(applicationSource, /to the Library<\/strong>|<\/strong> to the Library/);
+  assert.match(applicationSource, /disposition\.status === "library"/);
   assert.match(applicationSource, /management\.stop/);
   assert.match(applicationSource, /reconcileMessageRows/);
   assert.match(applicationSource, /replaceHtmlIfChanged/);
@@ -79,10 +91,12 @@ test("serves the web client and healthy no-store API responses", async (context)
     /\.workspace-pane\s*\{[^}]*border-left:\s*1px/,
     /\.workspace-pane-head\s*\{[^}]*border-bottom:\s*1px/,
   ]) assert.doesNotMatch(applicationStyles, structuralDivider);
+  // "Needs you" left this list deliberately: the fold's decision cards
+  // (docs/fold-consecrations.md, remote client) reintroduced the heading as
+  // the shared card contract's vocabulary, pinned in copy.test.mjs.
   for (const removedCopy of [
     "Management conversation",
     "Above all Spaces",
-    "Needs you",
     "Desktop connected",
     "Encrypted to your desktop",
     "Private alpha",
@@ -1091,6 +1105,661 @@ test("pairs a non-exportable browser identity and relays only signed opaque enve
   });
   assert.equal(rejectedDirectSpace.response.status, 400, "the bridge rejects direct Space Chat operations");
 });
+
+test("a reserved pages-* host serves viewer routes or nothing, never the management surface", async (context) => {
+  const service = await testService(context, { trustProxy: true });
+  const baseUrl = `http://127.0.0.1:${service.port}`;
+  const viewerHost = { "x-forwarded-host": "pages-someone.work-fold.test" };
+
+  const page = await fetch(baseUrl, { headers: viewerHost });
+  assert.equal(page.status, 404);
+  assert.match(page.headers.get("content-type"), /^text\/plain/);
+  assert.equal(page.headers.get("cache-control"), "no-store");
+  assert.match(page.headers.get("content-security-policy"), /default-src 'none'/);
+  assert.match(page.headers.get("x-robots-tag"), /noindex/);
+  assert.equal(await page.text(), "Nothing is published here.\n");
+
+  const shell = await fetch(`${baseUrl}/p/some-publication`, { headers: viewerHost });
+  assert.equal(shell.status, 200);
+  assert.match(shell.headers.get("content-type"), /^text\/html/);
+  assert.match(shell.headers.get("content-security-policy"), /default-src 'none'; script-src 'self'/);
+  assert.equal(shell.headers.get("set-cookie"), null, "the viewer origin never sets a cookie");
+  assert.match(await shell.text(), /viewer\.js/);
+  const shellModule = await fetch(`${baseUrl}/viewer.js`, { headers: viewerHost });
+  assert.equal(shellModule.status, 200);
+  assert.match(await shellModule.text(), /Nothing is published here\./);
+
+  const shellOnManagement = await fetch(`${baseUrl}/viewer/index.html`);
+  assert.equal(shellOnManagement.status, 404, "the management origin never serves viewer content");
+  const spaFallback = await fetch(`${baseUrl}/p/some-publication`);
+  assert.equal(spaFallback.status, 200);
+  assert.match(await spaFallback.text(), /<title>work-fold<\/title>/, "the management origin keeps its own client on /p/ paths");
+
+  const clientBundle = await fetch(`${baseUrl}/app.js`, { headers: viewerHost });
+  assert.equal(clientBundle.status, 404);
+  assert.equal(await clientBundle.text(), "Nothing is published here.\n", "the management client bundle is never served on a viewer host");
+
+  const managementApi = await fetch(`${baseUrl}/api/public/context`, { headers: viewerHost });
+  assert.equal(managementApi.status, 404);
+  assert.equal(await managementApi.text(), "Nothing is published here.\n", "management API surfaces do not exist on a viewer host");
+
+  const health = await fetch(`${baseUrl}/health`, { headers: viewerHost });
+  assert.equal(health.status, 404, "a viewer host serves viewer routes or nothing");
+
+  const robots = await fetch(`${baseUrl}/robots.txt`, { headers: viewerHost });
+  assert.equal(robots.status, 200);
+  assert.match(await robots.text(), /Disallow: \//);
+
+  const login = await fetch(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { ...viewerHost, origin: "https://pages-someone.work-fold.test", "content-type": "application/json" },
+    body: JSON.stringify({ slug: "someone", password: "irrelevant password" }),
+  });
+  assert.equal(login.status, 405, "sign-in does not exist on the viewer origin");
+  assert.equal(login.headers.get("set-cookie"), null);
+
+  const exactPages = await fetch(baseUrl, { headers: { "x-forwarded-host": "pages.work-fold.test" } });
+  assert.equal(exactPages.status, 404, "the bare pages label is reserved together with the prefix");
+
+  const unreserved = await fetch(baseUrl, { headers: { "x-forwarded-host": "pagesmith.work-fold.test" } });
+  assert.equal(unreserved.status, 200, "only the exact pages label and the pages- prefix are diverted");
+  assert.match(unreserved.headers.get("content-type"), /^text\/html/);
+
+  const keys = deviceKeyPairs();
+  const enrollReserved = await jsonRequest(`${baseUrl}/api/device/enroll`, {
+    method: "POST",
+    body: {
+      slug: "pages-someone",
+      password: "a viewer namespace password",
+      deviceSigningPublicJwk: keys.signing.publicJwk,
+      deviceEncryptionPublicJwk: keys.encryption.publicJwk,
+    },
+  });
+  assert.equal(enrollReserved.response.status, 400);
+  assert.equal(enrollReserved.body.code, "invalid_slug", "enrollment can no longer take a viewer-namespace address");
+
+  const upgradeStatus = await new Promise((resolve, reject) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${service.port}/api/device/connect`, {
+      headers: { authorization: "Bearer an-irrelevant-token", "x-forwarded-host": "pages-someone.work-fold.test" },
+    });
+    const timer = setTimeout(() => reject(new Error("Timed out waiting for the viewer-host upgrade rejection.")), 5_000);
+    socket.on("unexpected-response", (_request, upgradeResponse) => {
+      clearTimeout(timer);
+      socket.terminate();
+      resolve(upgradeResponse.statusCode);
+    });
+    socket.on("open", () => {
+      clearTimeout(timer);
+      socket.terminate();
+      reject(new Error("The device lane must not open on a viewer host."));
+    });
+    socket.on("error", () => undefined);
+  });
+  assert.equal(upgradeStatus, 404, "the device lane does not exist on a viewer host");
+});
+
+test("viewer operations stay outside the management allowlist and publication slots stay device-authenticated", async (context) => {
+  const service = await testService(context);
+  const baseUrl = `http://127.0.0.1:${service.port}`;
+  const origin = baseUrl;
+  const fixture = await pairedAccountFixture(context, baseUrl, {
+    slug: "publisher-test",
+    password: "a publication slot password",
+    browserId: "browser-publisher-test",
+  });
+
+  for (const operation of ["viewer.fetch", "publications.sync", "management.future-unknown"]) {
+    const envelope = signedEnvelope({
+      type: "work-fold.remote-request.v1",
+      accountId: fixture.account.id,
+      deviceId: fixture.account.id,
+      grantId: fixture.certificate.grantId,
+      generation: fixture.account.grantGeneration,
+      requestId: randomUUID(),
+      operation,
+      createdAt: new Date().toISOString(),
+    }, fixture.browserKeys.signing.privateKey);
+    const rejected = await jsonRequest(`${baseUrl}/api/operations?slug=publisher-test`, {
+      method: "POST",
+      headers: { origin, cookie: fixture.cookie, "x-work-fold-csrf": fixture.csrfToken },
+      body: { envelope },
+    });
+    assert.equal(rejected.response.status, 400, `${operation} is rejected by the management allowlist`);
+  }
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(fixture.messages.takeNow("operation.request"), null, "no rejected operation name reaches the desktop");
+
+  const unauthenticated = await jsonRequest(`${baseUrl}/api/device/publications/publication-http`, {
+    method: "PUT",
+    body: { operationId: "operation-unauthorized", kind: "page" },
+  });
+  assert.equal(unauthenticated.response.status, 401, "publication sync requires the device bearer token");
+
+  const authorization = { authorization: `Bearer ${fixture.deviceToken}` };
+  const createBody = { operationId: "operation-http-1", kind: "page", snapshotEnabled: true };
+  const created = await jsonRequest(`${baseUrl}/api/device/publications/publication-http`, {
+    method: "PUT",
+    headers: authorization,
+    body: createBody,
+  });
+  assert.equal(created.response.status, 201);
+  assert.deepEqual(Object.keys(created.body.publication).sort(), [
+    "byteBudgetPerDay", "createdAt", "expiresAt", "id", "kind", "operationId",
+    "serveRatePerMinute", "servedBytes", "snapshotEnabled", "state", "updatedAt",
+  ], "the slot response is content-free: identifiers, budgets, counters, and state only");
+
+  const replayed = await jsonRequest(`${baseUrl}/api/device/publications/publication-http`, {
+    method: "PUT",
+    headers: authorization,
+    body: createBody,
+  });
+  assert.equal(replayed.response.status, 200, "a replayed operation id is idempotent");
+  assert.equal(replayed.body.publication.operationId, "operation-http-1");
+
+  const contentBearing = await jsonRequest(`${baseUrl}/api/device/publications/publication-http`, {
+    method: "PUT",
+    headers: authorization,
+    body: { operationId: "operation-http-2", kind: "page", title: "Quarterly report" },
+  });
+  assert.equal(contentBearing.response.status, 400, "content-bearing fields are rejected, never stored");
+
+  const snapshot = await jsonRequest(`${baseUrl}/api/device/publications/publication-http/snapshot`, {
+    method: "PUT",
+    headers: authorization,
+    body: {
+      ciphertext: "A".repeat(2048),
+      iv: randomBytes(12).toString("base64url"),
+      contentDigest: "sha256:http-snapshot",
+      capturedAt: new Date().toISOString(),
+    },
+  });
+  assert.equal(snapshot.response.status, 200);
+  assert.equal(snapshot.body.stored, true);
+  assert.equal(snapshot.body.snapshot.ciphertext, undefined, "snapshot acknowledgements never echo ciphertext");
+  assert.equal(snapshot.body.snapshot.byteSize, 2048);
+
+  const snapshotRemoved = await jsonRequest(`${baseUrl}/api/device/publications/publication-http/snapshot`, {
+    method: "DELETE",
+    headers: authorization,
+  });
+  assert.equal(snapshotRemoved.body.removed, true);
+
+  const removed = await jsonRequest(`${baseUrl}/api/device/publications/publication-http`, {
+    method: "DELETE",
+    headers: authorization,
+  });
+  assert.equal(removed.body.removed, true);
+  const removedAgain = await jsonRequest(`${baseUrl}/api/device/publications/publication-http`, {
+    method: "DELETE",
+    headers: authorization,
+  });
+  assert.equal(removedAgain.body.removed, false, "revocation is idempotent");
+});
+
+test("the fold's decision and glance operations pass the management allowlist content-blind", async (context) => {
+  const service = await testService(context);
+  const baseUrl = `http://127.0.0.1:${service.port}`;
+  const fixture = await pairedAccountFixture(context, baseUrl, {
+    slug: "fold-wave-test",
+    password: "a fold wave password",
+    browserId: "browser-fold-wave",
+  });
+
+  // The remote wave lands allowlist-first (docs/fold-integration.md,
+  // reconciliation 7): the bridge accepts the operation names and relays the
+  // signed ciphertext untouched. Cards and digests stay end-to-end encrypted
+  // between the desktop and the approved browser; staged acts never live here.
+  for (const operation of ["decisions.list", "decisions.decide", "management.glance", "management.glanceSeen"]) {
+    const envelope = signedEnvelope({
+      type: "work-fold.remote-request.v1",
+      accountId: fixture.account.id,
+      deviceId: fixture.account.id,
+      grantId: fixture.certificate.grantId,
+      generation: fixture.account.grantGeneration,
+      requestId: randomUUID(),
+      operation,
+      createdAt: new Date().toISOString(),
+    }, fixture.browserKeys.signing.privateKey);
+    const accepted = await jsonRequest(`${baseUrl}/api/operations?slug=fold-wave-test`, {
+      method: "POST",
+      headers: { origin: baseUrl, cookie: fixture.cookie, "x-work-fold-csrf": fixture.csrfToken },
+      body: { envelope },
+    });
+    assert.equal(accepted.response.status, 202, `${operation} passes the management allowlist`);
+    const delivered = await fixture.messages.next("operation.request");
+    assert.equal(delivered.operation.operation, operation);
+    assert.deepEqual(delivered.envelope, envelope, "the bridge relays the envelope untouched — it stays content-blind");
+  }
+
+  // No decision or glance spelling opens a side door for unpaired viewers:
+  // the names stay management operations behind the approved-browser session.
+  const unauthenticated = await jsonRequest(`${baseUrl}/api/operations?slug=fold-wave-test`, {
+    method: "POST",
+    headers: { origin: baseUrl },
+    body: { envelope: browserOperationEnvelope(fixture) },
+  });
+  assert.equal(unauthenticated.response.status, 401);
+});
+
+test("the viewer plane serves live pages, charges budgets, keeps snapshots, and honors revocation", async (context) => {
+  const service = await testService(context, { trustProxy: true });
+  const baseUrl = `http://127.0.0.1:${service.port}`;
+  const slug = "sharer-test";
+  const deviceKeys = deviceKeyPairs();
+  const enrolled = await jsonRequest(`${baseUrl}/api/device/enroll`, {
+    method: "POST",
+    body: {
+      slug,
+      password: "a viewer serving password",
+      deviceSigningPublicJwk: deviceKeys.signing.publicJwk,
+      deviceEncryptionPublicJwk: deviceKeys.encryption.publicJwk,
+    },
+  });
+  assert.equal(enrolled.response.status, 201);
+  const account = enrolled.body.account;
+  const authorization = { authorization: `Bearer ${enrolled.body.deviceToken}` };
+  const socket = new WebSocket(`${baseUrl.replace(/^http/, "ws")}/api/device/connect`, { headers: authorization });
+  context.after(() => socket.close());
+  const messages = messageQueue(socket);
+  await messages.next("device.ready");
+
+  const publicationId = "publication-viewer-live";
+  const created = await jsonRequest(`${baseUrl}/api/device/publications/${publicationId}`, {
+    method: "PUT",
+    headers: authorization,
+    body: { operationId: "operation-viewer-live-1", kind: "page", snapshotEnabled: true },
+  });
+  assert.equal(created.response.status, 201);
+
+  const viewerHost = { "x-forwarded-host": `pages-${slug}.work-fold.test` };
+  const pageKey = randomBytes(32);
+  const payload = { v: 1, title: "Weekly report", mediaType: "text/html", body: "<h1>Ready</h1>" };
+  const serving = fetch(`${baseUrl}/api/viewer/pages/${publicationId}`, { headers: viewerHost });
+  const fetchFrame = await messages.next("viewer.fetch");
+  assert.equal(fetchFrame.publicationId, publicationId);
+  const envelope = viewerPageEnvelope(deviceKeys, {
+    accountId: account.id,
+    publicationId,
+    fetchId: fetchFrame.fetchId,
+    payload,
+    key: pageKey,
+  });
+  socket.send(JSON.stringify({ type: "viewer.page", fetchId: fetchFrame.fetchId, publicationId, envelope }));
+
+  const live = await serving;
+  assert.equal(live.status, 200);
+  assert.match(live.headers.get("content-security-policy"), /default-src 'none'/);
+  assert.equal(live.headers.get("set-cookie"), null);
+  const liveBody = await live.json();
+  assert.equal(liveBody.state, "live");
+  assert.equal(liveBody.envelope.header.type, "work-fold.viewer-page.v1");
+  assert.deepEqual(
+    decryptViewerCiphertext(pageKey, publicationId, liveBody.envelope.header.contentDigest,
+      liveBody.envelope.header.servedAt, liveBody.envelope.iv, liveBody.envelope.ciphertext),
+    payload,
+    "a viewer holding only the link key can decrypt exactly what the desktop served",
+  );
+
+  const charged = await waitFor(async () => {
+    const slot = await service.database.publicationForViewer(account.id, publicationId);
+    return slot && slot.servedBytes > 0 ? slot : null;
+  });
+  assert.equal(charged.servedBytes, liveBody.envelope.ciphertext.length, "served bytes are charged to the slot's day window");
+  const snapshot = await waitFor(() => service.database.publicationSnapshot(account.id, publicationId));
+  assert.equal(snapshot.contentDigest, liveBody.envelope.header.contentDigest, "the live serve refreshed the opted-in snapshot in the same exchange");
+
+  socket.close();
+  const asOfBody = await waitFor(async () => {
+    const response = await fetch(`${baseUrl}/api/viewer/pages/${publicationId}`, { headers: viewerHost });
+    const body = await response.json();
+    return body.state === "as-of" ? body : null;
+  });
+  assert.equal(asOfBody.page.publicationId, publicationId);
+  assert.deepEqual(
+    decryptViewerCiphertext(pageKey, publicationId, asOfBody.page.contentDigest,
+      asOfBody.page.capturedAt, asOfBody.page.iv, asOfBody.page.ciphertext),
+    payload,
+    "the offline snapshot serves the same ciphertext under an as-of state, never as live",
+  );
+
+  const narrowed = await jsonRequest(`${baseUrl}/api/device/publications/${publicationId}`, {
+    method: "PUT",
+    headers: authorization,
+    body: { operationId: "operation-viewer-live-2", kind: "page", snapshotEnabled: true, byteBudgetPerDay: 1 },
+  });
+  assert.equal(narrowed.response.status, 200);
+  const resting = await fetch(`${baseUrl}/api/viewer/pages/${publicationId}`, { headers: viewerHost });
+  assert.equal(resting.status, 200);
+  assert.deepEqual(await resting.json(), { state: "resting" }, "an exhausted byte budget is a typed resting state");
+
+  // The publisher's side of resting: with a desktop connected, the bridge
+  // sends one content-free viewer.resting notice per publication per minute,
+  // so the glance can name what the viewer's vague page cannot.
+  const noticeSocket = new WebSocket(`${baseUrl.replace(/^http/, "ws")}/api/device/connect`, { headers: authorization });
+  context.after(() => noticeSocket.close());
+  const noticeMessages = messageQueue(noticeSocket);
+  await noticeMessages.next("device.ready");
+  const restingAgain = await fetch(`${baseUrl}/api/viewer/pages/${publicationId}`, { headers: viewerHost });
+  assert.deepEqual(await restingAgain.json(), { state: "resting" });
+  const notice = await noticeMessages.next("viewer.resting");
+  assert.equal(notice.publicationId, publicationId);
+  assert.equal(notice.reason, "byte-budget");
+  await fetch(`${baseUrl}/api/viewer/pages/${publicationId}`, { headers: viewerHost });
+  noticeSocket.send(JSON.stringify({ type: "device.heartbeat" }));
+  await noticeMessages.next("device.heartbeat");
+  assert.equal(noticeMessages.takeNow("viewer.resting"), null, "the notice is rate-limited to one per publication per minute");
+
+  const removed = await jsonRequest(`${baseUrl}/api/device/publications/${publicationId}`, {
+    method: "DELETE",
+    headers: authorization,
+  });
+  assert.equal(removed.body.removed, true);
+  const gone = await fetch(`${baseUrl}/api/viewer/pages/${publicationId}`, { headers: viewerHost });
+  assert.equal(gone.status, 404);
+  assert.deepEqual(await gone.json(), { state: "nothing-here" }, "a revoked slot is indistinguishable from one that never existed");
+});
+
+test("the viewer plane answers honestly when the desktop is asleep, refuses, stalls, or exceeds its serve rate", async (context) => {
+  const service = await testService(context, { trustProxy: true, viewerFetchTimeoutMs: 250 });
+  const baseUrl = `http://127.0.0.1:${service.port}`;
+  const slug = "napper-test";
+  const deviceKeys = deviceKeyPairs();
+  const enrolled = await jsonRequest(`${baseUrl}/api/device/enroll`, {
+    method: "POST",
+    body: {
+      slug,
+      password: "a sleepy desktop password",
+      deviceSigningPublicJwk: deviceKeys.signing.publicJwk,
+      deviceEncryptionPublicJwk: deviceKeys.encryption.publicJwk,
+    },
+  });
+  const account = enrolled.body.account;
+  const authorization = { authorization: `Bearer ${enrolled.body.deviceToken}` };
+  const publicationId = "publication-viewer-asleep";
+  await jsonRequest(`${baseUrl}/api/device/publications/${publicationId}`, {
+    method: "PUT",
+    headers: authorization,
+    body: { operationId: "operation-viewer-asleep-1", kind: "page" },
+  });
+  const viewerHost = { "x-forwarded-host": `pages-${slug}.work-fold.test` };
+
+  const asleep = await fetch(`${baseUrl}/api/viewer/pages/${publicationId}`, { headers: viewerHost });
+  assert.equal(asleep.status, 200);
+  assert.deepEqual(await asleep.json(), { state: "asleep" }, "no desktop connection and no snapshot is honestly asleep");
+
+  const unknown = await fetch(`${baseUrl}/api/viewer/pages/publication-never-existed`, { headers: viewerHost });
+  assert.equal(unknown.status, 404);
+  assert.deepEqual(await unknown.json(), { state: "nothing-here" });
+  const ghostAccount = await fetch(`${baseUrl}/api/viewer/pages/${publicationId}`, {
+    headers: { "x-forwarded-host": "pages-ghost-address.work-fold.test" },
+  });
+  assert.equal(ghostAccount.status, 404);
+  assert.deepEqual(await ghostAccount.json(), { state: "nothing-here" }, "a viewer host without an account is the same nothing-here");
+
+  const socket = new WebSocket(`${baseUrl.replace(/^http/, "ws")}/api/device/connect`, { headers: authorization });
+  context.after(() => socket.close());
+  const messages = messageQueue(socket);
+  await messages.next("device.ready");
+
+  const refusedServing = fetch(`${baseUrl}/api/viewer/pages/${publicationId}`, { headers: viewerHost });
+  const refusalFrame = await messages.next("viewer.fetch");
+  socket.send(JSON.stringify({ type: "viewer.page", fetchId: refusalFrame.fetchId, publicationId, state: "not-available" }));
+  const refused = await refusedServing;
+  assert.equal(refused.status, 200);
+  assert.deepEqual(await refused.json(), { state: "not-available" }, "the desktop's typed refusal reaches the viewer with no detail");
+
+  const forgedServing = fetch(`${baseUrl}/api/viewer/pages/${publicationId}`, { headers: viewerHost });
+  const forgedFrame = await messages.next("viewer.fetch");
+  const forgedKeys = deviceKeyPairs();
+  const forged = viewerPageEnvelope(forgedKeys, {
+    accountId: account.id,
+    publicationId,
+    fetchId: forgedFrame.fetchId,
+    payload: { v: 1, title: "forged", mediaType: "text/html", body: "<p>no</p>" },
+    key: randomBytes(32),
+  });
+  socket.send(JSON.stringify({ type: "viewer.page", fetchId: forgedFrame.fetchId, publicationId, envelope: forged }));
+  await messages.next("protocol.error");
+  const timedOut = await forgedServing;
+  assert.deepEqual(await timedOut.json(), { state: "asleep" }, "an unverifiable envelope is never relayed; the stalled fetch settles honestly");
+
+  const stalledServing = fetch(`${baseUrl}/api/viewer/pages/${publicationId}`, { headers: viewerHost });
+  await messages.next("viewer.fetch");
+  const stalled = await stalledServing;
+  assert.deepEqual(await stalled.json(), { state: "asleep" }, "a silent desktop settles as asleep after the fetch timeout");
+
+  const throttled = await jsonRequest(`${baseUrl}/api/device/publications/${publicationId}`, {
+    method: "PUT",
+    headers: authorization,
+    body: { operationId: "operation-viewer-asleep-2", kind: "page", serveRatePerMinute: 1 },
+  });
+  assert.equal(throttled.response.status, 200);
+  const overRate = await fetch(`${baseUrl}/api/viewer/pages/${publicationId}`, { headers: viewerHost });
+  assert.equal(overRate.status, 429);
+  assert.deepEqual(await overRate.json(), { state: "resting" }, "the slot's serve-rate budget rests the page before any dispatch");
+});
+
+test("the viewer app plane serves the sandboxed shell, relays typed calls, separates kinds, and sleeps honestly", async (context) => {
+  const service = await testService(context, { trustProxy: true, viewerFetchTimeoutMs: 250 });
+  const baseUrl = `http://127.0.0.1:${service.port}`;
+  const slug = "app-sharer-test";
+  const deviceKeys = deviceKeyPairs();
+  const enrolled = await jsonRequest(`${baseUrl}/api/device/enroll`, {
+    method: "POST",
+    body: {
+      slug,
+      password: "an app serving password",
+      deviceSigningPublicJwk: deviceKeys.signing.publicJwk,
+      deviceEncryptionPublicJwk: deviceKeys.encryption.publicJwk,
+    },
+  });
+  assert.equal(enrolled.response.status, 201);
+  const account = enrolled.body.account;
+  const authorization = { authorization: `Bearer ${enrolled.body.deviceToken}` };
+  const socket = new WebSocket(`${baseUrl.replace(/^http/, "ws")}/api/device/connect`, { headers: authorization });
+  context.after(() => socket.close());
+  const messages = messageQueue(socket);
+  await messages.next("device.ready");
+
+  const appSlot = "publication-app-live";
+  const pageSlot = "publication-page-beside";
+  const createdApp = await jsonRequest(`${baseUrl}/api/device/publications/${appSlot}`, {
+    method: "PUT",
+    headers: authorization,
+    body: { operationId: "operation-app-live-1", kind: "app" },
+  });
+  assert.equal(createdApp.response.status, 201);
+  const createdPage = await jsonRequest(`${baseUrl}/api/device/publications/${pageSlot}`, {
+    method: "PUT",
+    headers: authorization,
+    body: { operationId: "operation-app-live-2", kind: "page" },
+  });
+  assert.equal(createdPage.response.status, 201);
+
+  const viewerHost = { "x-forwarded-host": `pages-${slug}.work-fold.test` };
+  // The app shell document carries its own CSP: the sandboxed opaque-origin
+  // blob: iframe inherits it, so the reviewed app's inline/blob code may run
+  // while the page shell keeps the strict inert policy.
+  const shell = await fetch(`${baseUrl}/a/${appSlot}`, { headers: viewerHost });
+  assert.equal(shell.status, 200);
+  assert.match(shell.headers.get("content-security-policy"), /script-src 'self' 'unsafe-inline' blob:/);
+  assert.equal(shell.headers.get("set-cookie"), null, "the app shell never sets a cookie");
+  assert.match(await shell.text(), /viewer-app\.js/);
+  const pagesShell = await fetch(`${baseUrl}/p/${appSlot}`, { headers: viewerHost });
+  assert.doesNotMatch(pagesShell.headers.get("content-security-policy"), /unsafe-inline/,
+    "the page shell keeps its strict policy");
+  const shellModule = await fetch(`${baseUrl}/viewer-app.js`, { headers: viewerHost });
+  assert.equal(shellModule.status, 200);
+  assert.match(await shellModule.text(), /workFoldViewerApp/);
+
+  // Kind separation both ways, without waking the desktop: the page route on
+  // an app slot and the app route on a page slot both answer nothing-here.
+  const pageRouteOnApp = await fetch(`${baseUrl}/api/viewer/pages/${appSlot}`, { headers: viewerHost });
+  assert.equal(pageRouteOnApp.status, 404);
+  assert.deepEqual(await pageRouteOnApp.json(), { state: "nothing-here" });
+  const appRouteOnPage = await fetch(`${baseUrl}/api/viewer/apps/${pageSlot}/entry`, { headers: viewerHost });
+  assert.equal(appRouteOnPage.status, 404);
+  assert.deepEqual(await appRouteOnPage.json(), { state: "nothing-here" });
+
+  // A live entry fetch: the device frame carries the typed call, the desktop
+  // answers with a signed work-fold.viewer-app.v1 envelope, and the link-key
+  // holder decrypts the exact payload under the call-bound AAD.
+  const appKey = randomBytes(32);
+  const entryCall = { kind: "entry" };
+  const serving = fetch(`${baseUrl}/api/viewer/apps/${appSlot}/entry`, { headers: viewerHost });
+  const fetchFrame = await messages.next("viewer.app.fetch");
+  assert.equal(fetchFrame.publicationId, appSlot);
+  assert.deepEqual(fetchFrame.call, entryCall, "the bridge relays the typed call it composed from the route");
+  const payload = { v: 1, ok: true, result: { kind: "entry", mediaType: "text/html", bytes: Buffer.from("<!doctype html><p>app</p>").toString("base64url") } };
+  const envelope = viewerAppEnvelope(deviceKeys, {
+    accountId: account.id,
+    publicationId: appSlot,
+    fetchId: fetchFrame.fetchId,
+    call: entryCall,
+    payload,
+    key: appKey,
+  });
+  socket.send(JSON.stringify({ type: "viewer.app.result", fetchId: fetchFrame.fetchId, publicationId: appSlot, envelope }));
+  const live = await serving;
+  assert.equal(live.status, 200);
+  const liveBody = await live.json();
+  assert.equal(liveBody.state, "live");
+  assert.equal(liveBody.envelope.header.type, "work-fold.viewer-app.v1");
+  assert.deepEqual(
+    decryptViewerAppCiphertext(appKey, appSlot, entryCall, liveBody.envelope),
+    payload,
+    "a viewer holding only the link key can decrypt exactly what the desktop served for exactly this call",
+  );
+  const charged = await waitFor(async () => {
+    const slot = await service.database.publicationForViewer(account.id, appSlot);
+    return slot && slot.servedBytes > 0 ? slot : null;
+  });
+  assert.equal(charged.servedBytes, liveBody.envelope.ciphertext.length, "app traffic charges the same per-slot byte budgets");
+
+  // A data read composes the typed call from the query.
+  const dataServing = fetch(`${baseUrl}/api/viewer/apps/${appSlot}/data/get?key=notes/today`, { headers: viewerHost });
+  const dataFrame = await messages.next("viewer.app.fetch");
+  assert.deepEqual(dataFrame.call, { kind: "data.get", key: "notes/today" });
+  const denial = { v: 1, ok: false, code: "viewer-scope", message: "This key is outside the app's viewer-readable collections." };
+  const denialCall = { kind: "data.get", key: "notes/today" };
+  socket.send(JSON.stringify({
+    type: "viewer.app.result",
+    fetchId: dataFrame.fetchId,
+    publicationId: appSlot,
+    envelope: viewerAppEnvelope(deviceKeys, {
+      accountId: account.id,
+      publicationId: appSlot,
+      fetchId: dataFrame.fetchId,
+      call: denialCall,
+      payload: denial,
+      key: appKey,
+    }),
+  }));
+  const denialBody = await (await dataServing).json();
+  assert.equal(denialBody.state, "live");
+  assert.deepEqual(
+    decryptViewerAppCiphertext(appKey, appSlot, denialCall, denialBody.envelope),
+    denial,
+    "typed viewer-scope refusals ride the same encrypted lane; the bridge never sees them",
+  );
+
+  // Asleep, never as-of: apps have no snapshot lane.
+  socket.close();
+  const asleep = await waitFor(async () => {
+    const response = await fetch(`${baseUrl}/api/viewer/apps/${appSlot}/entry`, { headers: viewerHost });
+    const body = await response.json();
+    return body.state === "asleep" ? body : null;
+  });
+  assert.deepEqual(asleep, { state: "asleep" }, "an offline desktop is an honestly asleep app");
+});
+
+test("the viewer app shell module composes canonical calls, routes, and the sandboxed document", () => {
+  assert.deepEqual(parseViewerAppLocation("/a/publication-1", "#" + "k".repeat(43)), {
+    publicationId: "publication-1",
+    key: "k".repeat(43),
+  });
+  assert.deepEqual(parseViewerAppLocation("/p/publication-1", "#" + "k".repeat(43)), { publicationId: null, key: "k".repeat(43) });
+  assert.equal(
+    viewerAppCallFingerprint({ path: "x.js", kind: "asset" }),
+    "{\"kind\":\"asset\",\"path\":\"x.js\"}",
+    "fingerprints sort object keys so both ends derive identical bytes",
+  );
+  assert.equal(
+    viewerAppAad("publication-1", "{\"kind\":\"entry\"}", "sha256:abc", "2026-08-10T10:00:00.000Z"),
+    JSON.stringify(["work-fold.viewer-app.v1", "publication-1", "{\"kind\":\"entry\"}", "sha256:abc", "2026-08-10T10:00:00.000Z"]),
+    "the shell and the desktop bind the same additional authenticated data",
+  );
+  assert.equal(viewerAppCallRoute("p1", { kind: "entry" }), "/api/viewer/apps/p1/entry");
+  assert.equal(viewerAppCallRoute("p1", { kind: "asset", path: "img/logo.png" }), "/api/viewer/apps/p1/asset?path=img%2Flogo.png");
+  assert.equal(viewerAppCallRoute("p1", { kind: "data.keys", prefix: "notes/" }), "/api/viewer/apps/p1/data/keys?prefix=notes%2F");
+  assert.equal(viewerAppCallRoute("p1", { kind: "data.get", key: "notes/a" }), "/api/viewer/apps/p1/data/get?key=notes%2Fa");
+  assert.equal(viewerAppCallRoute("p1", { kind: "connections.list" }), null, "the shell offers no route outside the closed viewer vocabulary");
+  const composed = composeViewerAppDocument("<!doctype html><html><body>app</body></html>");
+  assert.match(composed, /^<!doctype html><script>/, "the bootstrap runs first while standards mode is preserved");
+  assert.match(composed, /workFoldViewerApp/);
+});
+
+test("the viewer shell module parses links, derives slugs, and binds the documented AAD", () => {
+  assert.deepEqual(parseViewerLocation("/p/publication-1", "#" + "k".repeat(43)), {
+    publicationId: "publication-1",
+    key: "k".repeat(43),
+  });
+  assert.deepEqual(parseViewerLocation("/p/../etc", "#short"), { publicationId: null, key: null });
+  assert.equal(viewerSlugFromHost("pages-sharer-test.work-fold.test"), "sharer-test");
+  assert.equal(viewerSlugFromHost("sharer-test.work-fold.test"), null);
+  assert.equal(
+    viewerPageAad("publication-1", "sha256:abc", "2026-08-10T10:00:00.000Z"),
+    JSON.stringify(["work-fold.viewer-page.v1", "publication-1", "sha256:abc", "2026-08-10T10:00:00.000Z"]),
+    "the shell and the desktop bind the same additional authenticated data",
+  );
+});
+
+function viewerPageEnvelope(deviceKeys, { accountId, publicationId, fetchId, payload, key }) {
+  const plaintext = Buffer.from(JSON.stringify(payload), "utf8");
+  const contentDigest = `sha256:${createHash("sha256").update(plaintext).digest("hex")}`;
+  const servedAt = new Date().toISOString();
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  cipher.setAAD(Buffer.from(JSON.stringify(["work-fold.viewer-page.v1", publicationId, contentDigest, servedAt]), "utf8"));
+  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final(), cipher.getAuthTag()]).toString("base64url");
+  const header = { type: "work-fold.viewer-page.v1", accountId, deviceId: accountId, publicationId, fetchId, contentDigest, servedAt };
+  const envelope = { header, iv: iv.toString("base64url"), ciphertext, signature: "" };
+  envelope.signature = signText(deviceKeys.signing.privateKey, envelopeText(envelope));
+  return envelope;
+}
+
+function viewerAppEnvelope(deviceKeys, { accountId, publicationId, fetchId, call, payload, key }) {
+  const fingerprint = viewerAppCallFingerprint(call);
+  const plaintext = Buffer.from(JSON.stringify(payload), "utf8");
+  const contentDigest = `sha256:${createHash("sha256").update(plaintext).digest("hex")}`;
+  const callDigest = `sha256:${createHash("sha256").update(fingerprint, "utf8").digest("hex")}`;
+  const servedAt = new Date().toISOString();
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  cipher.setAAD(Buffer.from(viewerAppAad(publicationId, fingerprint, contentDigest, servedAt), "utf8"));
+  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final(), cipher.getAuthTag()]).toString("base64url");
+  const header = { type: "work-fold.viewer-app.v1", accountId, deviceId: accountId, publicationId, fetchId, callDigest, contentDigest, servedAt };
+  const envelope = { header, iv: iv.toString("base64url"), ciphertext, signature: "" };
+  envelope.signature = signText(deviceKeys.signing.privateKey, envelopeText(envelope));
+  return envelope;
+}
+
+function decryptViewerAppCiphertext(key, publicationId, call, envelope) {
+  const fingerprint = viewerAppCallFingerprint(call);
+  const bytes = Buffer.from(envelope.ciphertext, "base64url");
+  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(envelope.iv, "base64url"));
+  decipher.setAAD(Buffer.from(viewerAppAad(publicationId, fingerprint, envelope.header.contentDigest, envelope.header.servedAt), "utf8"));
+  decipher.setAuthTag(bytes.subarray(-16));
+  return JSON.parse(Buffer.concat([decipher.update(bytes.subarray(0, -16)), decipher.final()]).toString("utf8"));
+}
+
+function decryptViewerCiphertext(key, publicationId, contentDigest, timestamp, iv, ciphertext) {
+  const bytes = Buffer.from(ciphertext, "base64url");
+  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "base64url"));
+  decipher.setAAD(Buffer.from(JSON.stringify(["work-fold.viewer-page.v1", publicationId, contentDigest, timestamp]), "utf8"));
+  decipher.setAuthTag(bytes.subarray(-16));
+  return JSON.parse(Buffer.concat([decipher.update(bytes.subarray(0, -16)), decipher.final()]).toString("utf8"));
+}
 
 async function pairedAccountFixture(context, baseUrl, { slug, password, browserId }) {
   const deviceKeys = deviceKeyPairs();

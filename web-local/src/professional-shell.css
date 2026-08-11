@@ -285,6 +285,279 @@
   border-color: transparent;
 }
 
+/* Needs-you: conditional indicator in the bottom rail cluster plus its
+   anchored flyout (docs/fold-consecrations.md). Present only while decisions
+   pend — no pending decisions, no control — and deliberately not a rail
+   destination: the flyout is a small window-scope surface. */
+.app-shell .professional-space-rail .space-rail-settings-control {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  width: auto;
+  min-width: 48px;
+}
+
+.space-rail-needs-you-anchor {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.app-shell .professional-space-rail .space-rail-needs-you-button {
+  position: relative;
+  color: var(--ui-attention);
+}
+
+.space-rail-needs-you-button .needs-you-count {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  padding: 0 4px;
+  background: var(--ui-accent);
+  border-radius: 999px;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.needs-you-flyout {
+  position: absolute;
+  z-index: 90;
+  left: calc(100% + 12px);
+  bottom: 0;
+  width: min(420px, calc(100vw - 96px));
+  max-height: min(560px, 80vh);
+  overflow-y: auto;
+  padding: 10px;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-lg);
+  box-shadow: var(--ui-shadow-lg);
+}
+
+.needs-you-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.needs-you-heading {
+  color: var(--ui-text-subtle);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.needs-you-notice {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface-hover);
+  font-size: 12px;
+}
+
+.needs-you-notice button {
+  border: 0;
+  background: none;
+  padding: 0 2px;
+  color: var(--ui-text-muted);
+  cursor: pointer;
+}
+
+.needs-you-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-left: 3px solid var(--ui-accent);
+  border-radius: var(--ui-radius-md);
+}
+
+.needs-you-card[data-category="destroy"] { border-left-color: var(--ui-danger); }
+.needs-you-card p, .needs-you-card h3, .needs-you-card dl { margin: 0; }
+
+.needs-you-category {
+  color: var(--ui-text-subtle);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.needs-you-card[data-category="destroy"] .needs-you-category { color: var(--ui-danger); }
+
+.needs-you-title { font-size: 13px; font-weight: 650; overflow-wrap: anywhere; }
+
+.needs-you-facts { display: grid; gap: 2px; }
+.needs-you-fact { display: flex; gap: 6px; font-size: 11.5px; }
+.needs-you-fact dt { flex: none; color: var(--ui-text-muted); }
+.needs-you-fact dt::after { content: ":"; }
+.needs-you-fact dd { margin: 0; overflow-wrap: anywhere; user-select: text; }
+
+.needs-you-provenance, .needs-you-prior-denial, .needs-you-desktop-only {
+  color: var(--ui-text-muted);
+  font-size: 11px;
+}
+
+.needs-you-grant-root { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.needs-you-grant-root code { font-size: 11.5px; user-select: text; }
+
+.needs-you-choose-root {
+  padding: 4px 10px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.needs-you-choose-root:disabled { opacity: 0.55; cursor: default; }
+
+.needs-you-grant-root-error { color: var(--ui-danger); font-size: 11px; }
+
+.needs-you-note summary { color: var(--ui-text-muted); font-size: 11px; cursor: pointer; }
+
+.needs-you-note input {
+  width: 100%;
+  margin-top: 4px;
+  padding: 5px 8px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-sm, 6px);
+  background: var(--ui-canvas);
+  color: var(--ui-text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.needs-you-confirm { display: flex; flex-direction: column; gap: 6px; }
+.needs-you-confirm p { color: var(--ui-danger); font-size: 12px; }
+
+.needs-you-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+.needs-you-actions button {
+  padding: 5px 12px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.needs-you-actions button:disabled { opacity: 0.55; cursor: default; }
+
+.needs-you-approve.needs-you-approve {
+  background: var(--ui-accent);
+  border-color: transparent;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.needs-you-approve.needs-you-destroy { background: var(--ui-danger); }
+
+.needs-you-deny.needs-you-deny {
+  color: var(--ui-danger);
+  background: none;
+}
+
+/* The glance panel (docs/fold-glance.md, surface `main-window`): the compact
+   digest reachable from the Space-identity header's action cluster —
+   deliberately not a rail destination, badge, or permanent navigation item.
+   The header clips its children, so the panel renders through a portal at
+   fixed coordinates measured from its trigger. */
+.glance-header-anchor {
+  display: grid;
+  place-items: center;
+}
+
+.glance-panel {
+  position: fixed;
+  z-index: 90;
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(560px, 76vh);
+  overflow-y: auto;
+  padding: 12px;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-lg);
+  box-shadow: var(--ui-shadow-lg);
+}
+
+.glance-panel .glance {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.glance-panel .glance-heading {
+  margin: 6px 0 0;
+  color: var(--ui-text-subtle);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.glance-panel .glance-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.glance-panel .glance-item {
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.glance-panel .glance-item.quiet {
+  color: var(--ui-text-muted);
+}
+
+.glance-panel .glance-empty,
+.glance-panel .glance-truncated {
+  margin: 0;
+  color: var(--ui-text-muted);
+  font-size: 11px;
+}
+
+.glance-panel .glance-unavailable {
+  margin: 0;
+  color: var(--ui-attention);
+  font-size: 11px;
+}
+
+.glance-panel .glance-show-earlier {
+  align-self: flex-start;
+  margin: 2px 0 0;
+  padding: 2px 8px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-sm);
+  background: none;
+  color: var(--ui-text-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.glance-panel .glance-show-earlier:hover,
+.glance-panel .glance-show-earlier:focus-visible {
+  color: var(--ui-text);
+  background: var(--ui-surface-hover);
+}
+
 @media (min-width: 821px) {
   .app-shell .professional-space-rail [data-rail-tooltip] {
     position: relative;

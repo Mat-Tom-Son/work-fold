@@ -73,16 +73,20 @@ if ($args.Count -gt 0 -and [string]$args[0] -ceq $pathManagementFlag) {
   }
 }
 
-$script:ActUnavailableMessage = 'Open work-fold to run this command. Chat, Check, and Space actions need the work-fold app running.'
+$script:ActUnavailableMessage = 'Open work-fold to run this command. Act commands need the work-fold app running.'
 $script:ActMaxMessageFileBytes = 262144
 
 function Test-WorkFoldActCommand {
   param([string[]]$CommandArguments)
   $positional = @($CommandArguments | Where-Object { $_ -cne '--json' })
   $group = if ($positional.Count -gt 0) { [string]$positional[0] } else { '' }
-  if (@('chat', 'chats', 'files', 'manage') -contains $group) { return $true }
+  $actGroups = @(
+    'chat', 'chats', 'files', 'manage', 'history', 'search', 'library',
+    'tools', 'apps', 'routings', 'pages', 'staged'
+  )
+  if ($actGroups -contains $group) { return $true }
   if ($group -ceq 'checks') { return $positional.Count -lt 2 -or [string]$positional[1] -cne 'status' }
-  if ($group -ceq 'spaces' -and $positional.Count -gt 1 -and @('create', 'register') -contains [string]$positional[1]) { return $true }
+  if ($group -ceq 'spaces') { return $positional.Count -lt 2 -or [string]$positional[1] -cne 'list' }
   return $false
 }
 
@@ -347,8 +351,9 @@ try {
   [IO.Directory]::CreateDirectory((Join-Path $script:WorkFoldCliRoot 'responses')) | Out-Null
 
   if (Test-WorkFoldActCommand -CommandArguments $commandArguments) {
-    # Chat, Space, and file writes ride the separately versioned act lane and
-    # require the per-launch token the running app minted.
+    # Every act family (Chats, files, History, Library, Spaces, tools, apps,
+    # routings, pages, staged acts) rides the separately versioned act lane
+    # and requires the per-launch token the running app minted.
     $actToken = Read-WorkFoldActToken -CliRoot $script:WorkFoldCliRoot
     if ([string]::IsNullOrEmpty($actToken)) {
       [Console]::Error.Write("work-fold: $($script:ActUnavailableMessage)$([Environment]::NewLine)")

@@ -468,6 +468,43 @@ button { color: inherit; }
 .chat-meta { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
 .empty-list { padding: 9px; color: var(--muted); font-size: 12px; }
 
+/* The fold's home section: needs-you cards above the saved-Chat list, then
+   the glance. Cards and digest lines arrive host-composed from the desktop. */
+.fold-home { flex: none; max-height: 46vh; margin: 0 0 14px; overflow-y: auto; display: grid; gap: 12px; }
+.needs-you-stack { display: grid; gap: 8px; }
+.needs-you-heading { color: var(--warning); font-size: 11px; font-weight: 720; letter-spacing: .09em; text-transform: uppercase; }
+.needs-you-notice { display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; margin: 0; padding: 8px 10px; border-radius: 9px; background: var(--paper); color: var(--ink); font-size: 12px; line-height: 1.45; }
+.needs-you-notice button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 12px; line-height: 1; padding: 2px; }
+.needs-you-card { margin: 0; padding: 11px 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); font-size: 12px; }
+.needs-you-card[data-category="destroy"] { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+.needs-you-category { margin: 0 0 4px; color: var(--muted); font-size: 11px; }
+.needs-you-title { margin: 0 0 8px; font-size: 13px; line-height: 1.4; font-weight: 640; overflow-wrap: anywhere; }
+.needs-you-facts { display: grid; gap: 3px; margin: 0 0 8px; }
+.needs-you-fact { display: flex; gap: 6px; align-items: baseline; }
+.needs-you-fact dt { flex: none; color: var(--muted); }
+.needs-you-fact dd { margin: 0; overflow-wrap: anywhere; }
+.needs-you-provenance, .needs-you-prior-denial, .needs-you-rule { margin: 0 0 6px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.needs-you-prior-denial { color: var(--warning); }
+.needs-you-rule { color: var(--warning); }
+.needs-you-note { margin: 0 0 8px; font-size: 11px; color: var(--muted); }
+.needs-you-note summary { cursor: pointer; }
+.needs-you-note input { width: 100%; margin-top: 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); font-size: 12px; }
+.needs-you-confirm { margin: 0 0 4px; padding: 9px 10px; border-radius: 9px; background: color-mix(in srgb, var(--danger) 9%, var(--surface)); }
+.needs-you-confirm p { margin: 0 0 8px; color: var(--danger); font-size: 12px; }
+.needs-you-actions { display: flex; gap: 8px; }
+.needs-you-actions button { min-height: 30px; padding: 4px 12px; border-radius: 9px; border: 1px solid var(--line); background: var(--paper); font-size: 12px; font-weight: 620; cursor: pointer; }
+.needs-you-actions button:disabled { opacity: .56; cursor: default; }
+.needs-you-approve { border-color: color-mix(in srgb, var(--accent) 42%, var(--line)); color: var(--accent); }
+.needs-you-approve.needs-you-destroy { border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); color: var(--danger); }
+.glance { display: grid; gap: 6px; }
+.glance-heading { margin: 6px 0 0; color: var(--muted); font-size: 11px; font-weight: 720; letter-spacing: .09em; text-transform: uppercase; }
+.glance-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.glance-item { padding: 0 2px; color: var(--ink); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.glance-item.quiet { color: var(--muted); }
+.glance-empty, .glance-truncated, .glance-unavailable { margin: 0; padding: 0 2px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.glance-unavailable { color: var(--warning); }
+.glance-show-earlier { justify-self: start; margin: 2px 0 0; padding: 3px 8px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--muted); font-size: 11px; cursor: pointer; }
+
 .conversation { height: 100svh; grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .conversation-bar {
   min-height: 58px;
@@ -619,6 +656,10 @@ button.file-main { cursor: pointer; }
   .chat-list li { flex: none; max-width: 180px; }
   .chat-button { min-height: 34px; grid-template-columns: minmax(0, 1fr); padding: 6px 9px; background: var(--paper); }
   .chat-meta { display: none; }
+  /* The glance belongs on the phone (publishing rung 1): the fold home spans
+     the collapsed rail instead of disappearing with the desktop rail chrome. */
+  .fold-home { grid-column: 1 / -1; grid-row: 2; max-height: 42vh; margin: 4px 0 0; }
+  .fold-home[hidden] { display: none; }
   .conversation { height: calc(100svh - 59px); }
   .conversation-bar { min-height: 50px; padding: 0 54px; }
   .conversation-title-shell { width: 58vw; }

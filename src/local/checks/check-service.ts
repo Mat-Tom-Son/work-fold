@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { relative, resolve, sep } from "node:path";
 
 import type { WorkFoldCheckDeclaration, WorkFoldCheckProposal } from "../../shared/checks.js";
+import type { WorkFoldSettleLineage, WorkFoldSettleSignal } from "../routings/settle-signal.js";
 import type { WorkFoldActor, WorkFoldKernel } from "../work-fold-kernel.js";
 import { listSpaces, type SpaceSummary } from "../space.js";
 import {
@@ -53,6 +54,8 @@ export interface WorkFoldCheckServiceOptions {
   storeFactory?: (spaceId: string) => Promise<WorkFoldCheckStore>;
   listSpaces?: () => Promise<SpaceSummary[]>;
   resolveSensor?: (id: string, revision: number) => WorkFoldCheckSensor | null;
+  /** Routing-trigger seam; terminal runs are published only after they are durable. */
+  settleSignal?: WorkFoldSettleSignal;
 }
 
 interface ActiveCheckRun {
@@ -70,6 +73,20 @@ export interface WorkFoldCheckTaskStatus {
   startedAt: string | null;
   endedAt: string | null;
   error: string | null;
+}
+
+/**
+ * Content-free projection of one settled Check run for cross-surface digests
+ * (the glance's check reader). Identifiers, terminal state, timestamps, and
+ * the admitted count only.
+ */
+export interface WorkFoldCheckSettledRunSummary {
+  runId: string;
+  taskId: string;
+  state: Exclude<WorkFoldCheckRunRecord["state"], "accepted" | "running">;
+  startedAt: string;
+  endedAt?: string;
+  admittedCount: number;
 }
 
 interface WorkFoldCheckProblemsResult {
@@ -94,13 +111,19 @@ export class WorkFoldCheckService {
   readonly #storeFactory: (spaceId: string) => Promise<WorkFoldCheckStore>;
   readonly #listSpaces: () => Promise<SpaceSummary[]>;
   readonly #resolveSensor: (id: string, revision: number) => WorkFoldCheckSensor | null;
+  readonly #settleSignal: WorkFoldSettleSignal | null;
   readonly #stores = new Map<string, Promise<WorkFoldCheckStore>>();
   readonly #active = new Map<string, ActiveCheckRun>();
   readonly #runReservations = new Set<string>();
   readonly #operationReservations = new Set<string>();
   readonly #spaceRemovalReservations = new Set<string>();
   #spaceRegistryMutationReserved = false;
-  readonly #terminalRecovery = new Map<string, { spaceId: string; store: WorkFoldCheckStore; run: WorkFoldCheckRunRecord }>();
+  readonly #terminalRecovery = new Map<string, {
+    spaceId: string;
+    store: WorkFoldCheckStore;
+    run: WorkFoldCheckRunRecord;
+    lineage?: WorkFoldSettleLineage;
+  }>();
 
   constructor(options: WorkFoldCheckServiceOptions) {
     this.#kernel = options.kernel;
@@ -110,6 +133,7 @@ export class WorkFoldCheckService {
     this.#storeFactory = options.storeFactory ?? ((spaceId) => WorkFoldCheckStore.create(spaceId));
     this.#listSpaces = options.listSpaces ?? listSpaces;
     this.#resolveSensor = options.resolveSensor ?? resolveWorkFoldCheckSensor;
+    this.#settleSignal = options.settleSignal ?? null;
   }
 
   enable(input: {
@@ -231,6 +255,29 @@ export class WorkFoldCheckService {
 
   status(space: WorkFoldCheckSpaceRef): Promise<WorkFoldCheckStatusSnapshot> {
     return this.#withOperationReservation(space.id, async () => this.#status(await this.#registeredSpace(space)));
+  }
+
+  /**
+   * Content-free summaries of this Space's settled Check runs, for the glance
+   * (docs/fold-glance.md): identifiers, terminal state, timestamps, and the
+   * admitted count only — never findings, evidence, paths, or inputs. This is
+   * a plain read over the store's persisted run records, deliberately outside
+   * the per-Space operation reservation so composing the glance never
+   * conflicts with (or blocks) running Check work.
+   */
+  async settledRuns(space: WorkFoldCheckSpaceRef): Promise<WorkFoldCheckSettledRunSummary[]> {
+    const registered = await this.#registeredSpace(space);
+    const runs = (await this.#store(registered.id)).snapshot().runs;
+    return runs
+      .filter((run) => run.state !== "accepted" && run.state !== "running")
+      .map((run) => ({
+        runId: run.id,
+        taskId: run.taskId,
+        state: run.state as WorkFoldCheckSettledRunSummary["state"],
+        startedAt: run.startedAt,
+        ...(run.endedAt !== undefined ? { endedAt: run.endedAt } : {}),
+        admittedCount: run.admittedCount,
+      }));
   }
 
   decorations(space: WorkFoldCheckSpaceRef): Promise<WorkFoldCheckRendererDecorations> {
@@ -384,6 +431,8 @@ export class WorkFoldCheckService {
     space: WorkFoldCheckSpaceRef;
     checkId?: string;
     actor: WorkFoldActor;
+    /** Stamped on the settle record so routing-caused runs never fire triggers. */
+    lineage?: WorkFoldSettleLineage;
   }): Promise<{ taskId: string; runId: string; checkIds: string[] }> {
     if (this.#runReservations.has(input.space.id) || this.hasActiveRun(input.space.id)) {
       throw new WorkFoldCheckOperationConflictError("Wait for the current Check run in this Space to finish.");
@@ -426,7 +475,14 @@ export class WorkFoldCheckService {
       await store.markRunRunning(runId);
     } catch (error) {
       this.#kernel.finishTask(taskId);
-      await store.finishRun({ ...accepted, state: "failed", endedAt: this.#now().toISOString(), error: errorMessage(error) });
+      const terminal: WorkFoldCheckRunRecord = {
+        ...accepted,
+        state: "failed",
+        endedAt: this.#now().toISOString(),
+        error: errorMessage(error),
+      };
+      await store.finishRun(terminal);
+      this.#publishRunSettle(space.id, terminal, input.lineage);
       throw error;
     }
     const controller = new AbortController();
@@ -440,7 +496,7 @@ export class WorkFoldCheckService {
       promise: Promise.resolve(),
     };
     this.#active.set(taskId, active);
-    active.promise = this.#execute(space, records, accepted, controller.signal)
+    active.promise = this.#execute(space, records, accepted, controller.signal, input.lineage)
       .finally(() => {
         clearTimeout(timeout);
         if (!this.#terminalRecovery.has(taskId)) this.#finishActiveTask(taskId);
@@ -583,6 +639,7 @@ export class WorkFoldCheckService {
     records: WorkFoldCheckDeclarationRecord[],
     accepted: WorkFoldCheckRunRecord,
     signal: AbortSignal,
+    lineage?: WorkFoldSettleLineage,
   ): Promise<void> {
     const store = await this.#store(space.id);
     const findings: WorkFoldCheckFinding[] = [];
@@ -686,9 +743,18 @@ export class WorkFoldCheckService {
     } catch {
       // Fail closed: retain the internal task and capability lock until the
       // exact terminal record can be made durable or process restart marks the
-      // run interrupted. Polling/result calls retry this write.
-      this.#terminalRecovery.set(accepted.taskId, { spaceId: space.id, store, run: terminal });
+      // run interrupted. Polling/result calls retry this write, and the settle
+      // signal waits with it — a settle is published only once its terminal
+      // record is durable.
+      this.#terminalRecovery.set(accepted.taskId, {
+        spaceId: space.id,
+        store,
+        run: terminal,
+        ...(lineage ? { lineage } : {}),
+      });
+      return;
     }
+    this.#publishRunSettle(space.id, terminal, lineage);
   }
 
   async #enabledRecords(space: WorkFoldCheckSpaceRef, checkId?: string): Promise<WorkFoldCheckDeclarationRecord[]> {
@@ -863,12 +929,36 @@ export class WorkFoldCheckService {
     }
     this.#terminalRecovery.delete(taskId);
     this.#finishActiveTask(taskId);
+    this.#publishRunSettle(recovery.spaceId, recovery.run, recovery.lineage);
     return true;
   }
 
   #finishActiveTask(taskId: string): void {
     if (!this.#active.delete(taskId)) return;
     this.#kernel.finishTask(taskId);
+  }
+
+  /**
+   * Terminal-persistence funnel exit for the routing-trigger seam: called only
+   * after the exact terminal run record is durable, exactly once per run. The
+   * signal owns listener failure isolation, so publication can never fail a
+   * Check run; a malformed non-terminal record is dropped rather than
+   * published.
+   */
+  #publishRunSettle(spaceId: string, run: WorkFoldCheckRunRecord, lineage?: WorkFoldSettleLineage): void {
+    if (!this.#settleSignal) return;
+    if (run.state === "accepted" || run.state === "running" || !run.endedAt) return;
+    this.#settleSignal.publish({
+      kind: "check-run",
+      spaceId,
+      runId: run.id,
+      taskId: run.taskId,
+      checkIds: [...run.checkIds],
+      state: run.state,
+      startedAt: run.startedAt,
+      endedAt: run.endedAt,
+      ...(lineage ? { lineage } : {}),
+    });
   }
 
   async #assertNoNestedSpaceTargets(space: WorkFoldCheckSpaceRef, declaration: WorkFoldCheckDeclaration): Promise<void> {

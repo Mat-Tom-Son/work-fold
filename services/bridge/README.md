@@ -15,6 +15,21 @@ plaintext persistence, not an untrusted-origin guarantee: the service also
 serves the browser JavaScript, so the hosted client and bridge are trusted parts
 of this alpha's full-authority boundary.
 
+The `pages-*` labels under the base domain are a reserved viewer namespace for
+the publishing ladder, landing bridge-first ahead of the desktop feature.
+Enrollment rejects the exact slug `pages` and any slug beginning `pages-` as
+real prefix logic, and a `pages-*` host is diverted before personal-slug
+resolution: it serves viewer routes or nothing — never the management client,
+its sign-in, its cookies, or the device lane. Durable `bridge_publications`
+and `bridge_publication_snapshots` rows are content-free slot records —
+identifiers, budgets, aggregate served-byte counters, revocation state, and
+bounded snapshot ciphertext only for publications that explicitly opted in;
+never titles, file names, source paths, or page bytes. The device-token-
+authenticated `PUT`/`DELETE /api/device/publications/:id` and snapshot routes
+are idempotent by operation id and inert until a desktop that publishes calls
+them. Viewer operation names never enter the management operation allowlist,
+and no viewer endpoint exists on the management origin.
+
 Unauthenticated password work has its own process-local admission boundary.
 Malformed or reserved addresses are rejected before password verification;
 well-formed unknown addresses still use the same dummy scrypt verifier as a

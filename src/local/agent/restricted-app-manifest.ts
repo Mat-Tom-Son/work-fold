@@ -161,6 +161,28 @@ export interface RestrictedAppAutomationDeclaration {
   overlap: "skip";
 }
 
+/**
+ * The reviewed viewer surface for "an app at your address"
+ * (docs/fold-publishing.md, rung 3). `entry` names the packaged document the
+ * viewer plane serves to link holders; `readable` names the exact
+ * instance-owned storage key prefixes ("collections") viewers may read.
+ * This declaration is the complete viewer-readable surface: the desktop
+ * viewer adapter refuses every read outside it, and every write, action,
+ * network, connection, notification, file, automation, OAuth, or host-UI
+ * call regardless of it. Because the field is reviewed, it appears in review
+ * copy and is pinned by the outward-exposure consecration; an update that
+ * widens `readable` or changes `entry` is a fresh consecration.
+ */
+export interface RestrictedAppViewerDeclaration {
+  entry: string;
+  readable: string[];
+}
+
+export const restrictedAppViewerReadableLimits = { prefixes: 16, prefixLength: 64 } as const;
+
+/** Storage key prefixes a person can read in review copy: printable, no separators to spoof. */
+const viewerReadablePrefixPattern = /^[a-z0-9][a-z0-9._/-]{0,63}$/;
+
 export interface RestrictedAppManifest {
   version: typeof restrictedAppManifestVersion;
   id: string;
@@ -182,6 +204,7 @@ export interface RestrictedAppManifest {
     notifications: RestrictedAppNotificationDeclaration[];
   };
   automations: RestrictedAppAutomationDeclaration[];
+  viewer?: RestrictedAppViewerDeclaration;
 }
 
 export function validateRestrictedAppValue(
@@ -238,7 +261,7 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
     throw new Error(`Restricted app manifest version must be ${restrictedAppManifestVersion}.`);
   }
   const manifest = objectValue(value, "Restricted app manifest", [
-    "version", "id", "title", "description", "runtime", "ui", "tools", "automations", "permissions",
+    "version", "id", "title", "description", "runtime", "ui", "tools", "automations", "permissions", "viewer",
   ]);
   const runtime = objectValue(manifest.runtime, "Restricted app runtime", ["kind", "entry", "worker"]);
   if (runtime.kind !== restrictedAppRuntimeKind) {
@@ -296,6 +319,7 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
       throw new Error(`Restricted app notification permission ${unreferenced.id} must be referenced by an automation.`);
     }
   }
+  const viewer = parseViewerDeclaration(manifest.viewer);
   return {
     version: restrictedAppManifestVersion,
     id: idValue(manifest.id, "Restricted app id"),
@@ -309,7 +333,44 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
     tools,
     permissions: { network, files, notifications },
     automations,
+    ...(viewer ? { viewer } : {}),
   };
+}
+
+/**
+ * The reviewed viewer surface (docs/fold-publishing.md, rung 3). The entry is
+ * a packaged HTML document like the runtime entry; readable prefixes are a
+ * bounded, deduplicated, sorted list so the declaration — and therefore the
+ * consecration pins derived from it — has exactly one canonical spelling.
+ */
+function parseViewerDeclaration(value: unknown): RestrictedAppViewerDeclaration | undefined {
+  if (value === undefined) return undefined;
+  const viewer = objectValue(value, "Restricted app viewer declaration", ["entry", "readable"]);
+  const entry = packagePathValue(viewer.entry, "Restricted app viewer entry", [".html"]);
+  const readable = viewer.readable === undefined
+    ? []
+    : arrayValue(viewer.readable, "Restricted app viewer readable prefixes", 0, restrictedAppViewerReadableLimits.prefixes)
+      .map((item, index) => {
+        const label = `Restricted app viewer readable prefix ${index + 1}`;
+        const prefix = stringValue(item, label, restrictedAppViewerReadableLimits.prefixLength);
+        if (!viewerReadablePrefixPattern.test(prefix)) {
+          throw new Error(`${label} must use lowercase letters, numbers, and ._/- separators.`);
+        }
+        return prefix;
+      });
+  assertUnique(readable, "Restricted app viewer readable prefix");
+  return { entry, readable: [...readable].sort((left, right) => left.localeCompare(right)) };
+}
+
+/**
+ * The complete viewer-readable surface as consecration pins
+ * (docs/fold-consecrations.md `publish.viewer.expose`, hosted-app shape):
+ * one canonical string list a decision card can render and a serve-time
+ * recheck can compare exactly. An app without a viewer declaration has no
+ * viewer surface and cannot be put at an address.
+ */
+export function restrictedAppViewerSurfacePins(viewer: RestrictedAppViewerDeclaration): string[] {
+  return [`entry:${viewer.entry}`, ...viewer.readable.map((prefix) => `data:${prefix}`)];
 }
 
 function parseAutomationDeclaration(

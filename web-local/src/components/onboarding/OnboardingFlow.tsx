@@ -13,7 +13,7 @@ import { WorkFoldLockup, WorkFoldMark } from "../brand/WorkFoldBrand";
 export function OnboardingFlow({ onCreateSpace, onOpenFolder }: { onCreateSpace: () => void; onOpenFolder: () => void }) {
   return <main className="onboarding-flow">
     <section className="onboarding-choose" aria-labelledby="onboarding-title">
-      <div className="onboarding-menubar-scene" role="img" aria-label="The work-fold menu-bar icon opens a small place to drop files, folders, or links and tell work-fold what to do.">
+      <div className="onboarding-menubar-scene" role="img" aria-label="The work-fold menu-bar icon opens your fold — a small place to drop files, folders, or links and tell work-fold what to do.">
         <div className="onboarding-menubar-strip">
           <div className="onboarding-menubar-menus" aria-hidden="true">
             <strong>work-fold</strong><span>File</span><span>Edit</span><span>View</span><span>Window</span><span>Help</span>
@@ -29,7 +29,7 @@ export function OnboardingFlow({ onCreateSpace, onOpenFolder }: { onCreateSpace:
         <span className="onboarding-menubar-pin" aria-hidden="true"><i /></span>
 
         <div className="onboarding-popover-preview">
-          <header><WorkFoldLockup className="onboarding-popover-brand" /><span>Across your Spaces</span></header>
+          <header><WorkFoldLockup className="onboarding-popover-brand" /><span>One door to all your Spaces</span></header>
           <div className="onboarding-popover-drop">
             <span aria-hidden="true"><File size={17} /><Link2 size={16} /></span>
             <strong>Drop files, folders, or links</strong>
@@ -43,7 +43,7 @@ export function OnboardingFlow({ onCreateSpace, onOpenFolder }: { onCreateSpace:
       <div className="onboarding-identity">
         <WorkFoldLockup className="onboarding-brand" animated />
         <div className="onboarding-copy">
-          <h1 id="onboarding-title">work-fold lives in your menu bar.</h1>
+          <h1 id="onboarding-title">Your fold lives in the menu bar.</h1>
           <p>Click the fold—or drop something on it—from anywhere on your Mac.</p>
         </div>
       </div>

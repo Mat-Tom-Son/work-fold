@@ -1,7 +1,7 @@
 ObjC.import("Foundation");
 ObjC.import("stdlib");
 
-var ACT_UNAVAILABLE_MESSAGE = "Open work-fold to run this command. Chat, Check, and Space actions need the work-fold app running.";
+var ACT_UNAVAILABLE_MESSAGE = "Open work-fold to run this command. Act commands need the work-fold app running.";
 var ACT_MAX_MESSAGE_FILE_BYTES = 262144;
 
 function run(rawArguments) {
@@ -38,8 +38,9 @@ function run(rawArguments) {
     const context = { fileManager, appPath, cliRoot, timeoutMs };
 
     if (isActCommand(argumentsList)) {
-      // Chat, Space, and file writes ride the separately versioned act lane
-      // and require the per-launch token the running app minted.
+      // Every act family (Chats, files, History, Library, Spaces, tools,
+      // apps, routings, pages, staged acts) rides the separately versioned
+      // act lane and requires the per-launch token the running app minted.
       const actToken = readActToken(cliRoot);
       if (!actToken) {
         writeHandle($.NSFileHandle.fileHandleWithStandardError, `work-fold: ${ACT_UNAVAILABLE_MESSAGE}\n`);
@@ -67,13 +68,14 @@ function run(rawArguments) {
   $.exit(exitCode);
 }
 
-/** Leading positionals decide the lane; content-bearing chat reads are act-lane too. */
+/** Leading positionals decide the lane; content-bearing act reads (status, result, search) are act-lane too. */
 function isActCommand(argumentsList) {
   const positional = argumentsList.filter((token) => token !== "--json");
   const group = positional[0] || "";
-  if (group === "chat" || group === "chats" || group === "files" || group === "manage") return true;
+  const actGroups = ["chat", "chats", "files", "manage", "history", "search", "library", "tools", "apps", "routings", "pages", "staged"];
+  if (actGroups.includes(group)) return true;
   if (group === "checks") return positional[1] !== "status";
-  return group === "spaces" && (positional[1] === "create" || positional[1] === "register");
+  return group === "spaces" && positional[1] !== "list";
 }
 
 function parseWaitCommand(argumentsList) {
