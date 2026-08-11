@@ -40,10 +40,14 @@ claimed by the canonical documents.
 
 | Held item | Gate |
 |---|---|
-| V-2 — the visual-design bullet admitting a menu-bar/tray attention dot while decisions pend | The visual-acceptance pass must accept the dot; it is not implemented in this tree and no acceptance is recorded. Until then the dot exists only as the pass-gated possibility U-3 names. |
+| V-2 — the visual-design bullet admitting a menu-bar/tray attention dot while decisions pend | The visual-acceptance pass must accept the dot; it is not implemented and no acceptance is recorded. Until then the dot exists only as the pass-gated possibility U-3 names. |
 | README walkthrough screenshots (`output/playwright/work-fold-0.1.4-*.png`) | "Refresh README collateral only once builds show the new strings" — a packaged build showing "Your fold" and "Fold it in" must exist first. The surrounding walkthrough sentences already said "the fold" and were deliberately unchanged. |
-| Release-notes claims for the fold | A public release carrying the fold; none exists. `docs/releases/` holds only preserved legacy notes and gains nothing until then. |
-| Product-model roadmap "Foundation now" refresh (and the shrink of PM-6's direction bullet) | The roadmap's own rule: shipped-tense roadmap wording is written at ship time and must describe what a release actually carries. Until a public release carries the fold, the roadmap lists it as accepted direction only. |
+
+Two originally held items were discharged at ship time with the 0.3.0
+release commit: the fold's release notes landed as
+[releases/0.3.0.md](releases/0.3.0.md), and the product-model roadmap's
+"Foundation now" section absorbed the fold in shipped tense, replacing
+PM-6's accepted-direction bullet.
 
 ## Cross-document reconciliations
 

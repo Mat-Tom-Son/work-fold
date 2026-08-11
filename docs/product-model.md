@@ -271,9 +271,15 @@ When a design is ambiguous, prefer the option that best preserves these properti
 - Build a Windows installer and deliver updates through GitHub Releases.
 - Build, Developer ID-sign, notarize, and publish macOS arm64 app, DMG, ZIP, blockmap, and update metadata from the same source version as Windows, with a verified installed two-version updater lane.
 
+- Meet the whole product through **the fold** — the one door above all Spaces: the management conversation, its menu-bar/tray popover, and "Your fold on the web" — with capture in and publishing out. See [the fold](fold.md).
+- Perform every product verb through the fold's receipted act lane at human parity: chat lifecycle and compaction, History restore with automation-aware fencing, file operations, content search, Library, Space rename/unregister and appearance, capability removal, and App Studio's authority-neutral lifecycle — each act journaled before it runs, receipted after, with typed undo references.
+- Stage the three consecrations — make bytes runnable, widen a power, destroy irreversibly — as inert needs-you decisions with host-composed cards on the main window's flyout, the popover, and approved remote browsers; author standing policies in Settings → The fold that pre-approve narrow categories with exercised-policy receipts; the never-list keeps the fold's own authority surface desktop-human-only.
+- Declare deterministic cross-Space routings — a schedule or a settled Check or automation run driving fixed Chat, files, and Check steps on the shared two-slot scheduler with per-hop receipts; enablement is a consecration, and nothing above Spaces runs an unattended conversation.
+- Read the glance — the app-composed digest of running work, needs-you decisions, and changes since each surface last looked — on the main window, the popover, and the remote client, with narration on demand that never advances seen markers.
+- Share "pages your fold serves": one designated file or one reviewed hosted App Instance served live from the desktop at the person's `<name>.work-fold.com` address to link-scoped, read-only viewers — end-to-end encrypted with URL-fragment keys, rate- and byte-budgeted, snapshot caching an explicit labeled opt-in, and revocable desktop-first.
+
 ### Next product layer
 
-- Grow the fold per the accepted fold design set: the complete receipted verb ledger, staged needs-you decisions with person-authored standing policies, declared deterministic routings, the glance, and the publishing ladder ("pages your fold serves"). See [the fold](fold.md).
 - Add a deliberate portable App Project declaration, import/relink, and
   collision model only if it can preserve ordinary-folder semantics without
   treating a copied id as ownership.
