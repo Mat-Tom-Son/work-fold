@@ -47,7 +47,17 @@ cannot confer identity or authority in work-fold.
 - a required `automations` array containing zero to sixteen independently
   controlled named interval jobs. Each job declares its handler, schedule,
   catch-up policy, overlap policy, and an exact subset of the app's reviewed
-  network, file, and notification permissions.
+  network, file, and notification permissions; and
+- an optional `viewer` declaration — the complete viewer-readable surface for
+  serving an installed App Instance to link holders at the person's address
+  ("an app at your address"): a packaged `entry` document plus the exact
+  instance-owned storage key prefixes viewers may read. The desktop viewer
+  adapter refuses every read outside that declaration and every write, action,
+  network, connection, notification, file, automation, OAuth, or host-UI call
+  regardless of it; exposure itself is a separate needs-you decision recorded
+  in [the fold](fold.md), and a reviewed update that widens the viewer surface
+  or changes the entry stages a fresh one. Declaring `viewer` grants nothing by
+  itself.
 
 Public destinations use `{ "kind": "public-https", "origin": "https://api.example.com" }`.
 Local development services use an explicit numeric target such as

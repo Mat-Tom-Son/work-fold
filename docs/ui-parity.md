@@ -35,8 +35,8 @@ The translation is intentionally narrow. It does not justify replacing the shell
 - Preserve the Windows custom title bar and the platform menu contract; macOS uses its native hidden-inset title bar plus application, File, Edit, View, Window, and Help menus.
 - Preserve window size, position, maximized state, theme integration, and renderer recovery behavior.
 - On Windows, closing the window may hide work-fold to the system tray when the preference is enabled. On macOS, closing the last window keeps the application host alive and the Dock icon recreates the window. Explicit Quit exits cleanly on both. Close-to-tray remains Windows behavior: the macOS menu-bar item never changes what closing the last macOS window means.
-- The tray exposes clear **Tell work-fold**, **Show**, and **Quit** actions and does not strand an invisible process.
-- Both platforms carry the management popover (**Tell work-fold**): a macOS menu-bar item where left click opens the popover, right click opens the menu, and files or links dropped on the icon stage as reference chips; the Windows tray offers the same popover through its menu while click still opens the main window. The popover works with the main window closed, stages drops without sending, and its Stop names the management turn and every delegated Space turn it aborts.
+- The tray exposes clear **Your fold**, **Show**, and **Quit** actions and does not strand an invisible process.
+- Both platforms carry the management popover (**Your fold**): a macOS menu-bar item where left click opens the popover, right click opens the menu, and files or links dropped on the icon stage as reference chips; the Windows tray offers the same popover through its menu while click still opens the main window. The popover works with the main window closed, stages drops without sending, and its Stop names the management turn and every delegated Space turn it aborts.
 - Update status and commands remain available from both the platform-appropriate desktop menu and settings surface.
 
 ### Files and folders
@@ -60,6 +60,7 @@ The translation is intentionally narrow. It does not justify replacing the shell
 - The installed `work-fold` command resolves the terminal's current folder to the same Space model as the renderer, can report live Assistant/compaction tasks, and exposes compact capability metadata through stable JSON.
 - A headless CLI request must coexist with the running single-instance desktop app, return bounded stdout/stderr/exit status, and avoid opening or stealing focus from the interactive window.
 - Installer PATH integration must be reversible and must not modify shell profile files.
+- Pending needs-you decisions render as host-composed cards in the popover, an anchored main-window flyout, and the approved remote client; deciding one is never available from the CLI, and a card exists only for a real staged act. The glance renders at the popover's top, the remote home, and a compact main-window panel. None of these adds a rail destination, tab, in-window badge, or notification — the one exception is the optional menu-bar/tray attention dot for pending decisions, which ships only if the visual-acceptance pass admits it (see visual-design); with nothing pending, no control appears.
 
 ### Restricted Space apps
 

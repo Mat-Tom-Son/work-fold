@@ -103,9 +103,12 @@ The result is inert:
 
 The proposal command intentionally has no `apply` operation. A person imports the file into the
 target Space and sees the resolved preview. Applying a preset is a mutation; routing that through the
-unauthenticated protocol-v1 management CLI would violate its read-only boundary. A future direct
-agent mutation path requires the authenticated, scoped, replay-protected, receipted transport defined
-in [the management layer](management-layer.md).
+unauthenticated protocol-v1 management CLI would violate its read-only boundary. The separate
+receipted application path is the act lane's `work-fold spaces appearance apply|reset|undo`, which
+accepts only the same typed proposal file, journals before mutating, records the prior customization
+for one-act undo, and requires the running app's per-launch act token — the authenticated, scoped,
+replay-protected, receipted transport defined in [the management layer](management-layer.md). The
+npm-script primitive stays inert and import-only.
 
 ## Verification
 

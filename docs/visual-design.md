@@ -9,6 +9,7 @@ work-fold uses a quiet desktop-tool aesthetic. The interface should feel native,
 - Primary rail surfaces are Files, Chats, and History. Add, Shortcuts, and Settings stay at the bottom; Library and Assistant tools open as persistent Space-owned work tabs.
 - Provider, model, and authentication controls live in Settings under Assistant; Assistant is not a rail group.
 - The persistent header above the left pane identifies the selected root folder. Its compact menu switches, creates, registers, or manages Spaces; the selected rail item identifies the current surface.
+- A conditional **Needs you** indicator may join the bottom-rail cluster only while staged decisions pend, opening an anchored flyout of host-composed cards; the glance opens as a compact panel from the Space-identity header region. Neither is a rail destination, tab, permanent badge, or notification stream, and both disappear entirely when they have nothing to show.
 
 ## Iconography
 

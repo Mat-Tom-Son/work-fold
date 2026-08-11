@@ -216,6 +216,10 @@ template exercises every current section:
         "description": "The records refresh automation finished. Open work-fold to review the result."
       }
     ]
+  },
+  "viewer": {
+    "entry": "viewer.html",
+    "readable": ["records/summary"]
   }
 }
 ```
@@ -249,6 +253,19 @@ for that job: launch-time authority is the intersection of this subset and the
 person's current grants. Automations require a worker. Every notification
 declaration must be referenced by at least one automation. Notification title
 and description are reviewed, bounded, plain single-line text.
+
+`viewer` is optional and exists only for apps meant to be served to link
+holders at the person's address ("an app at your address"). It is the complete
+viewer-readable surface: `entry` names the packaged document the viewer plane
+serves, and `readable` names up to sixteen exact instance-owned storage key
+prefixes (lowercase letters, numbers, `._/-`, at most 64 characters each)
+viewers may read. Everything else is refused for viewers desktop-side —
+storage writes, Assistant actions, network, connections, Space files,
+notifications, automations, OAuth, and host UI. Declaring `viewer` grants no
+audience: putting an installed App Instance at the person's address is a
+separate needs-you decision, and a reviewed update that widens `readable` or
+changes `entry` stages a fresh one. See [the fold](fold.md) and
+[Restricted app runtime](restricted-app-runtime.md).
 
 Network methods are limited to `GET`, `POST`, `PUT`, `PATCH`, and `DELETE`.
 Public targets are exact HTTPS origins. Loopback targets are numeric
