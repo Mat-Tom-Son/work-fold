@@ -91,8 +91,8 @@ export class RailTooltipOverlay {
 }
 
 function tooltipDocument(request: RailTooltipRequest): string {
-  const background = request.theme === "dark" ? "#f5f6f8" : "#24272c";
-  const foreground = request.theme === "dark" ? "#20242b" : "#ffffff";
+  const background = request.theme === "dark" ? "#f4f6fa" : "#16233b";
+  const foreground = request.theme === "dark" ? "#16233b" : "#ffffff";
   const html = `<!doctype html>
 <html>
 <head>

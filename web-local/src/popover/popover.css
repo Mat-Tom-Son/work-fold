@@ -1,40 +1,40 @@
 :root {
-  --pop-bg: #f3f0e9;
-  --pop-surface: #fbfaf7;
-  --pop-surface-2: #eae5dd;
-  --pop-text: #252321;
-  --pop-text-muted: #6b655f;
-  --pop-border: rgba(0, 0, 0, 0.12);
-  --pop-accent: #c84f30;
+  --pop-bg: #f2f4ef;
+  --pop-surface: #fbfcf9;
+  --pop-surface-2: #e7ebe1;
+  --pop-text: #1c2530;
+  --pop-text-muted: #5b6472;
+  --pop-border: rgba(16, 35, 60, 0.13);
+  --pop-accent: #0b6fd6;
   --pop-accent-text: #ffffff;
-  --pop-danger: #a32d2d;
-  --pop-danger-border: rgba(163, 45, 45, 0.45);
-  --pop-success: #0f6e56;
-  --pop-warning-bg: #faeeda;
-  --pop-warning-text: #854f0b;
-  --pop-accent-bg: #fae8e1;
-  --pop-accent-strong: #9b3c25;
-  --pop-success-bg: #e1f5ee;
+  --pop-danger: #b3251f;
+  --pop-danger-border: rgba(179, 37, 31, 0.4);
+  --pop-success: #157a4e;
+  --pop-warning-bg: #fdf2d4;
+  --pop-warning-text: #7d5600;
+  --pop-accent-bg: #e3f0fd;
+  --pop-accent-strong: #0a4c92;
+  --pop-success-bg: #e2f6ea;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --pop-bg: #1b1a18;
-    --pop-surface: #252321;
-    --pop-surface-2: #34312d;
-    --pop-text: #f0ece5;
-    --pop-text-muted: #aaa39a;
+    --pop-bg: #0f1622;
+    --pop-surface: #17202f;
+    --pop-surface-2: #232f43;
+    --pop-text: #e9eef7;
+    --pop-text-muted: #a5b0c2;
     --pop-border: rgba(255, 255, 255, 0.14);
-    --pop-accent: #f08363;
-    --pop-accent-text: #2b1710;
-    --pop-danger: #f09595;
-    --pop-danger-border: rgba(240, 149, 149, 0.4);
-    --pop-success: #5dcaa5;
-    --pop-warning-bg: #41360f;
-    --pop-warning-text: #fac775;
-    --pop-accent-bg: #4b271e;
-    --pop-accent-strong: #ffb49d;
-    --pop-success-bg: #073b30;
+    --pop-accent: #1ea0ff;
+    --pop-accent-text: #06233c;
+    --pop-danger: #ff9b92;
+    --pop-danger-border: rgba(255, 155, 146, 0.4);
+    --pop-success: #56d99a;
+    --pop-warning-bg: #3b300e;
+    --pop-warning-text: #f8c95c;
+    --pop-accent-bg: #123a5c;
+    --pop-accent-strong: #8eccff;
+    --pop-success-bg: #0b3b2a;
   }
 }
 
@@ -44,7 +44,7 @@ html, body, #root { height: 100%; }
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  font-family: "Inter Variable", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   font-size: 13px;
   line-height: 1.45;
   color: var(--pop-text);
@@ -70,16 +70,7 @@ body {
 
 .popover-header { display: flex; align-items: center; justify-content: space-between; }
 .popover-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
-.popover-brand { gap: 7px; }
-.popover-brand .work-fold-mark-shell {
-  width: 22px;
-  height: 22px;
-  flex-basis: 22px;
-  padding: 3px;
-  border-radius: 6px;
-  box-shadow: none;
-}
-.popover-brand .work-fold-wordmark { font-size: 13px; font-weight: 650; letter-spacing: -0.035em; }
+.popover-brand { --work-fold-lockup-mark: 26px; }
 
 /* The ⋯ overflow menu: the header keeps the lockup and, while a request is
    active, the phase pill; everything else folds into this quiet menu. */
@@ -134,15 +125,11 @@ body {
   gap: 14px;
   text-align: center;
 }
-.popover-loading-brand { flex-direction: column; gap: 13px; }
-.popover-loading-brand .work-fold-mark-shell {
-  width: 64px;
-  height: 64px;
-  flex-basis: 64px;
-  padding: 9px;
-  border-radius: 18px;
+.popover-loading-brand { --work-fold-lockup-mark: 64px; flex-direction: column; gap: 12px; }
+.popover-loading-brand .work-fold-wordmark-art {
+  height: auto;
+  width: calc(var(--work-fold-lockup-mark) * 0.96);
 }
-.popover-loading-brand .work-fold-wordmark { font-size: 1.7rem; }
 .popover-loading p { margin: 0; }
 
 .pill { font-size: 11px; padding: 2px 10px; border-radius: 999px; background: var(--pop-surface-2); }

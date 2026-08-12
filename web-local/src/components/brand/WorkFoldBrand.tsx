@@ -1,29 +1,32 @@
 import { productName } from "../../constants";
+import lockupBlackUrl from "../../assets/brand/work-fold-lockup-black.png";
+import lockupWhiteUrl from "../../assets/brand/work-fold-lockup-white.png";
+import markUrl from "../../assets/brand/work-fold-mark.png";
 
 export function WorkFoldMark({ className = "" }: { className?: string }) {
   return (
-    <svg
+    <img
       className={["work-fold-mark", className].filter(Boolean).join(" ")}
-      viewBox="142 142 740 740"
+      src={markUrl}
+      alt=""
       aria-hidden="true"
-      focusable="false"
-    >
-      <path className="work-fold-mark-plane work-fold-mark-plane-left" d="M184 300h142l90 336 96-188 96 188 90-336h142L664 780H552l-40-86-40 86H360L184 300Z" />
-      <path className="work-fold-mark-plane work-fold-mark-plane-right" d="m512 448 96 188 90-336h142L664 780H552l-40-86V448Z" />
-      <path className="work-fold-mark-crease" d="m512 448 36 71-36 175-27-58 27-188Z" />
-    </svg>
+      draggable={false}
+    />
   );
 }
 
 export function WorkFoldLockup({ className = "", animated = false }: { className?: string; animated?: boolean }) {
+  // The provided horizontal lockups are single images: black carries light
+  // themes, white carries dark themes.
   return (
     <div
       className={["work-fold-lockup", className].filter(Boolean).join(" ")}
       data-animated={animated ? "true" : undefined}
+      role="img"
       aria-label={productName}
     >
-      <span className="work-fold-mark-shell" aria-hidden="true"><WorkFoldMark /></span>
-      <span className="work-fold-wordmark" aria-hidden="true">{productName}</span>
+      <img className="work-fold-lockup-art work-fold-lockup-art-black" src={lockupBlackUrl} alt="" draggable={false} />
+      <img className="work-fold-lockup-art work-fold-lockup-art-white" src={lockupWhiteUrl} alt="" draggable={false} />
     </div>
   );
 }

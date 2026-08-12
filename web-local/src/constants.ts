@@ -35,17 +35,14 @@ export const defaultTypographyPreference: AppTypographyPreference = { font: "def
 export const typographyFontValues: AppTypographyFont[] = ["default", "stable", "verdana", "aptos"];
 export const textSizeValues: AppTextSize[] = ["compact", "standard", "comfortable"];
 export const typographyFontOptions: Array<{ value: AppTypographyFont; label: string; detail: string }> = [
-  { value: "default", label: "Default", detail: "Segoe UI Variable" },
+  { value: "default", label: "Default", detail: "Inter" },
   { value: "stable", label: "Segoe UI", detail: "Non-variable" },
   { value: "verdana", label: "Verdana", detail: "Wide letters" },
   { value: "aptos", label: "Aptos", detail: "Document style" },
 ];
 export function typographyFontOptionsForPlatform(platform: NodeJS.Platform | undefined): Array<{ value: AppTypographyFont; label: string; detail: string }> {
   if (platform !== "darwin") return typographyFontOptions;
-  return [
-    { value: "default", label: "System", detail: "macOS system font" },
-    ...typographyFontOptions.filter((option) => option.value !== "default" && option.value !== "stable"),
-  ];
+  return typographyFontOptions.filter((option) => option.value !== "stable");
 }
 export const textSizeOptions: Array<{ value: AppTextSize; label: string; detail: string }> = [
   { value: "compact", label: "Compact", detail: "14 px" },

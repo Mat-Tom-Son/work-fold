@@ -1,60 +1,65 @@
+import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 
-// Generates the remote web client's installable-app icons from the same SVG
-// mark the client already serves. Run once after changing the mark:
+// Installs the remote web client's icons from the committed designer icon
+// pack, sizes the horizontal lockups for the header surfaces, and composes
+// the Open Graph image. Outputs are committed as static files so the bridge
+// deploy stays a plain static directory. Run once after the pack or lockups
+// change:
 //
 //   node scripts/generate-bridge-web-icons.mjs
-//
-// Outputs are committed as static files in services/bridge/public/ so the
-// bridge deploy stays a plain static directory (the pattern set by
-// scripts/generate-desktop-icons.mjs for desktop/assets).
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const brandDir = join(rootDir, "desktop", "assets", "brand");
+const packDir = join(brandDir, "pack");
 const publicDir = join(rootDir, "services", "bridge", "public");
-const source = join(publicDir, "work-fold-icon.svg");
+const rendererBrandDir = join(rootDir, "web-local", "src", "assets", "brand");
 
-// The SVG is a 1024 canvas holding a 912px rounded app tile inset by 56px on
-// every side. Home-screen icons want the tile itself, not the transparent
-// margin around it, so full-bleed variants crop to the tile and flatten its
-// rounded corners onto the client's light paper color (app.css --paper).
-const tileInset = 56;
-const tileSize = 912;
-const renderScale = 4;
-const paper = "#f3f0e9";
+// The client's light paper color (app.css --paper).
+const paper = "#f2f4ef";
+const lockupHeight = 192;
 
-if (!existsSync(source)) throw new Error(`Icon source not found: ${source}`);
+const packCopies = [
+  ["web/icon-192.png", "icon-192.png"],
+  ["web/icon-512.png", "icon-512.png"],
+  ["web/icon-maskable-512.png", "icon-maskable-512.png"],
+  ["web/apple-touch-icon.png", "apple-touch-icon.png"],
+  ["web/favicon-32x32.png", "favicon-32.png"],
+  ["web/favicon.ico", "favicon.ico"],
+  ["png/transparent/work-fold-icon-256.png", "brand-mark.png"],
+];
 
-const rendered = await sharp(source, { density: 72 * renderScale }).png().toBuffer();
-
-async function writeFullSvgIcon(size, name) {
-  await sharp(rendered).resize(size, size).png().toFile(join(publicDir, name));
+await mkdir(rendererBrandDir, { recursive: true });
+for (const [source, target] of packCopies) {
+  const sourcePath = join(packDir, source);
+  if (!existsSync(sourcePath)) throw new Error(`Icon pack source not found: ${sourcePath}`);
+  await copyFile(sourcePath, join(publicDir, target));
 }
 
-async function writeFullBleedTileIcon(size, name) {
-  await sharp(rendered)
-    .extract({
-      left: tileInset * renderScale,
-      top: tileInset * renderScale,
-      width: tileSize * renderScale,
-      height: tileSize * renderScale,
-    })
-    .flatten({ background: paper })
-    .resize(size, size)
+// The provided horizontal lockups (black for light themes, white for dark)
+// serve every header surface; the bridge and the desktop renderer bundle the
+// identical bytes.
+for (const tone of ["black", "white"]) {
+  const lockup = await sharp(join(brandDir, `lockup-horizontal-${tone}.png`))
+    .resize({ height: lockupHeight })
     .png()
-    .toFile(join(publicDir, name));
+    .toBuffer();
+  await writeFile(join(publicDir, `brand-lockup-${tone}.png`), lockup);
+  await writeFile(join(rendererBrandDir, `work-fold-lockup-${tone}.png`), lockup);
 }
 
-// Manifest icons: the mark as drawn (purpose "any"), plus a full-bleed
-// maskable variant the launcher may crop to its own shape.
-await writeFullSvgIcon(192, "icon-192.png");
-await writeFullSvgIcon(512, "icon-512.png");
-await writeFullBleedTileIcon(512, "icon-maskable-512.png");
+// The desktop renderer bundles the bare cube for mark-only placements.
+await copyFile(join(packDir, "png/transparent/work-fold-icon-512.png"), join(rendererBrandDir, "work-fold-mark.png"));
 
-// iOS composites no transparency into home-screen icons, so the Apple touch
-// icon is the full-bleed tile too; iOS applies its own corner mask.
-await writeFullBleedTileIcon(180, "apple-touch-icon.png");
+// Link previews: the black lockup centered on the paper field.
+const ogLockup = await sharp(join(brandDir, "lockup-horizontal-black.png")).resize({ width: 940 }).png().toBuffer();
+const ogLockupHeight = (await sharp(ogLockup).metadata()).height;
+await sharp({ create: { width: 1200, height: 630, channels: 3, background: paper } })
+  .composite([{ input: ogLockup, left: 130, top: Math.round((630 - ogLockupHeight) / 2) }])
+  .png()
+  .toFile(join(publicDir, "og-image.png"));
 
-console.log(`Generated work-fold web client icons in ${publicDir}`);
+console.log(`Installed work-fold web client icons from the pack into ${publicDir}`);

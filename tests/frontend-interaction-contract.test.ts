@@ -211,7 +211,7 @@ test("Markdown image policy embeds only CSP-compatible sources and links remote 
   assert.match(indexHtml, /img-src 'self' data: blob:/);
   assert.doesNotMatch(indexHtml, /img-src[^;]*https:/);
   assert.doesNotMatch(indexHtml, /frame-ancestors/, "frame-ancestors is ignored in a meta CSP and should not create console noise");
-  assert.match(indexHtml, /<link rel="icon" href="data:image\/svg\+xml,/);
+  assert.match(indexHtml, /<link rel="icon" href="data:image\/png;base64,/);
 });
 
 test("space operation tokens reject stale completions even after switching back", () => {

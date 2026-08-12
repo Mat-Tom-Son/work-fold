@@ -124,7 +124,7 @@ function renderAddressUnavailable() {
 function renderLanding() {
   app.innerHTML = `<main class="landing-shell">
     <header class="auth-top">
-      <span class="brand"><img class="brand-mark" src="/work-fold-icon.svg" alt="" />work-fold</span>
+      <span class="brand" role="img" aria-label="work-fold"><img class="brand-lockup brand-lockup-black" src="/brand-lockup-black.png" alt="" /><img class="brand-lockup brand-lockup-white" src="/brand-lockup-white.png" alt="" /></span>
       <nav class="landing-actions" aria-label="Download and source">
         <a class="header-download" href="/download/macos">Download for macOS</a>
         <a class="github-link" href="https://github.com/Mat-Tom-Son/work-fold" target="_blank" rel="noreferrer" aria-label="View work-fold on GitHub" title="View work-fold on GitHub">
@@ -330,7 +330,7 @@ function renderApplication() {
   app.innerHTML = `
     <div class="app-shell" data-context="home">
       <nav class="icon-rail" aria-label="Primary">
-        <span class="rail-mark"><img src="/work-fold-icon.svg" alt="work-fold" title="work-fold" /></span>
+        <span class="rail-mark"><img src="/brand-mark.png" alt="work-fold" title="work-fold" /></span>
         <button class="rail-item" type="button" data-nav-context="home" aria-label="Home" title="Home" aria-current="page">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 10.5 12 4l7.5 6.5" /><path d="M6.5 9.5V19h11V9.5" /></svg>
         </button>
@@ -1914,7 +1914,7 @@ function renderBanner() {
 
 function renderAuth({ eyebrow, headline, supporting, panel }, afterRender) {
   app.innerHTML = `<main class="auth-shell">
-    <header class="auth-top"><span class="brand"><img class="brand-mark" src="/work-fold-icon.svg" alt="" />work-fold</span></header>
+    <header class="auth-top"><span class="brand" role="img" aria-label="work-fold"><img class="brand-lockup brand-lockup-black" src="/brand-lockup-black.png" alt="" /><img class="brand-lockup brand-lockup-white" src="/brand-lockup-white.png" alt="" /></span></header>
     <section class="auth-stage"><div class="auth-copy"><p class="eyebrow">${eyebrow}</p><h1>${headline}</h1><p>${supporting}</p></div><div class="auth-panel">${panel}</div></section>
   </main>`;
   afterRender?.();
