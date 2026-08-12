@@ -57,7 +57,7 @@ import {
   WorkFoldDesktopCliHost,
   workFoldCliInstanceData,
   workFoldCliRequestIdFromArgv,
-  workFoldCliRequestIdFromInstanceData,
+  workFoldSecondInstanceIntent,
 } from "./work-fold-cli-host.js";
 import { ManagementPopover, type ManagementPopoverStagedItem } from "./management-popover.js";
 import { PackagedPiRuntimeProvider } from "./pi-runtime.js";
@@ -293,16 +293,18 @@ if (ownsInstance && process.platform === "darwin") {
 
 if (ownsInstance) {
   app.on("second-instance", (_event, argv, _workingDirectory, additionalData) => {
-    let requestId: string | null = null;
-    try {
-      requestId = workFoldCliRequestIdFromInstanceData(additionalData) ?? workFoldCliRequestIdFromArgv(argv);
-    } catch (error) {
-      console.warn(`${productName} rejected an invalid CLI launch: ${errorMessage(error)}`);
+    // Route by cause: the shim relaunches this executable for every CLI
+    // request, so anything CLI-shaped stays headless — even when the request
+    // id was lost in transit — and only a genuine interactive relaunch (the
+    // person opened work-fold again) may front the window.
+    const intent = workFoldSecondInstanceIntent(argv, additionalData);
+    if (intent.kind === "cli-invalid") {
+      console.warn(`${productName} rejected an invalid CLI launch: ${intent.reason}`);
       return;
     }
-    if (requestId) {
-      void processWorkFoldCliRequest(requestId).catch((error) => {
-        console.warn(`${productName} could not process CLI request ${requestId}: ${errorMessage(error)}`);
+    if (intent.kind === "cli") {
+      void processWorkFoldCliRequest(intent.requestId).catch((error) => {
+        console.warn(`${productName} could not process CLI request ${intent.requestId}: ${errorMessage(error)}`);
       });
       return;
     }
@@ -931,7 +933,10 @@ async function createMainWindow(): Promise<void> {
   });
   configureWindowStatePersistence(mainWindow);
   if (state?.isMaximized) mainWindow.maximize();
-  mainWindow.on("ready-to-show", () => mainWindow?.show());
+  // First reveal only: renderer recoveries can re-emit ready-to-show, and a
+  // window the person hid (Windows close-to-tray, minimize) must not
+  // resurface because an autonomous reload finished painting.
+  mainWindow.once("ready-to-show", () => mainWindow?.show());
   mainWindow.on("blur", () => railTooltipOverlay?.hide());
   mainWindow.on("hide", () => railTooltipOverlay?.hide());
   mainWindow.on("minimize", () => railTooltipOverlay?.hide());

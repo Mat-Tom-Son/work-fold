@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { File, Link2, SquarePen, X } from "lucide-react";
+import { ChevronRight, Ellipsis, File, Link2, SquarePen, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { ApiError, api, createEventSource, errorText } from "../lib/api";
 import { WorkFoldLockup } from "../components/brand/WorkFoldBrand";
 import { NeedsYouStack, useNeedsYouDecisions } from "../components/NeedsYouDecisions";
-import { GlanceSection, useGlance } from "./GlanceSection";
+import { GlanceSection, glanceIsEmpty, glanceSpaceCount, glanceUnseenChangeCount, useGlance } from "./GlanceSection";
 
 /** Mirrors the server's WorkFoldActManagementRequest projection. */
 interface ManagementRequestView {
@@ -72,8 +72,25 @@ interface StagedItem {
 }
 
 const activePhases = new Set(["working", "handed_off"]);
+const terminalPhases = new Set(["done", "failed", "stopped"]);
 const pollIntervalMs = 1_500;
 const idlePollIntervalMs = 5_000;
+
+/**
+ * The door-first popover folds everything except the composer behind quiet
+ * strips. Exactly one section auto-opens at a time, by priority: pending
+ * decisions, then the active request (working/handed_off tail, a needs_you
+ * reply, or a just-settled result), then quiet. Every strip stays clickable
+ * whenever its content exists, so the ladder chooses a default without
+ * hiding anything.
+ */
+type FoldSection = "decisions" | "conversation" | "glance";
+
+const sectionDomIds: Record<FoldSection, string> = {
+  decisions: "popover-decisions",
+  conversation: "popover-conversation",
+  glance: "popover-glance",
+};
 
 export function PopoverApp() {
   const bridge = window.workFoldDesktop;
@@ -91,18 +108,24 @@ export function PopoverApp() {
   const [dropActive, setDropActive] = useState(false);
   const [activity, setActivity] = useState<string>("");
   const [now, setNow] = useState(() => Date.now());
+  const [openSection, setOpenSection] = useState<FoldSection | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const transcriptRef = useRef<HTMLElement | null>(null);
   const requestRef = useRef<ManagementRequestView | null>(null);
   const startingNewChatRef = useRef(false);
+  const openSectionRef = useRef<FoldSection | null>(null);
+  const menuAnchorRef = useRef<HTMLDivElement | null>(null);
   requestRef.current = request;
+  openSectionRef.current = openSection;
   // Durable pending decisions are their own object, distinct from the
   // conversational needs_you phase; deciding here records surface "popover".
   const needsYou = useNeedsYouDecisions({ surface: "popover" });
   const refreshNeedsYou = needsYou.refresh;
-  // The glance rides the popover's existing refresh cadence and acknowledges
-  // with surface id "popover" only after the fetched digest has rendered.
-  const glance = useGlance("popover");
+  // The glance rides the popover's existing refresh cadence, but the seen
+  // marker is gated on the person expanding the What's new strip: a collapsed
+  // strip fetches (its unseen count must stay honest) and never acknowledges.
+  const glance = useGlance("popover", { acknowledge: openSection === "glance" });
   const refreshGlance = glance.refresh;
 
   const refreshConversation = useCallback(async () => {
@@ -137,7 +160,7 @@ export function PopoverApp() {
       setUnavailableReason(message);
       setBanner(message);
     }
-  }, [refreshNeedsYou]);
+  }, [refreshNeedsYou, refreshGlance]);
 
   useEffect(() => {
     void refreshConversation();
@@ -205,18 +228,98 @@ export function PopoverApp() {
     };
   }, [refreshConversation]);
 
+  // Priority ladder rung 1: pending decisions auto-open their section, and it
+  // folds back once nothing pends and no just-settled outcome is on screen.
+  const decisionCount = needsYou.cards.length;
+  const decisionNotice = needsYou.notice;
+  const prevDecisionCountRef = useRef(0);
+  useEffect(() => {
+    const previous = prevDecisionCountRef.current;
+    prevDecisionCountRef.current = decisionCount;
+    if (decisionCount > 0 && previous === 0) setOpenSection("decisions");
+    else if (decisionCount === 0 && !decisionNotice) {
+      setOpenSection((current) => (current === "decisions" ? null : current));
+    }
+  }, [decisionCount, decisionNotice]);
+
+  // Priority ladder rung 2: with no decisions pending, a needs_you reply opens
+  // the conversation, and a request that just settled auto-expands it once so
+  // the result entry is visible — then normal collapse rules apply.
+  const prevPhaseRef = useRef<ManagementRequestView["phase"] | null>(null);
+  useEffect(() => {
+    const previous = prevPhaseRef.current;
+    prevPhaseRef.current = phase;
+    if (phase === previous) return;
+    if (decisionCount > 0) return;
+    if (phase === "needs_you") setOpenSection("conversation");
+    else if (phase && previous && activePhases.has(previous) && terminalPhases.has(phase)) {
+      setOpenSection("conversation");
+    }
+  }, [phase, decisionCount]);
+
   useEffect(() => {
     const transcript = transcriptRef.current;
     if (transcript) transcript.scrollTop = transcript.scrollHeight;
-  }, [messages]);
+  }, [messages, openSection, phase]);
+
+  // The door comes first: whenever the shown popover has nothing that outranks
+  // it — no pending decision, no running work hiding the composer — and focus
+  // has not landed anywhere yet, the composer takes it.
+  useEffect(() => {
+    if (available !== true) return;
+    const focusComposerFirst = () => {
+      if (document.visibilityState === "hidden") return;
+      if (decisionCount > 0) return;
+      const current = requestRef.current;
+      if (current && activePhases.has(current.phase)) return;
+      const active = document.activeElement;
+      if (active && active !== document.body && active !== document.documentElement) return;
+      composerRef.current?.focus();
+    };
+    focusComposerFirst();
+    window.addEventListener("focus", focusComposerFirst);
+    document.addEventListener("visibilitychange", focusComposerFirst);
+    return () => {
+      window.removeEventListener("focus", focusComposerFirst);
+      document.removeEventListener("visibilitychange", focusComposerFirst);
+    };
+  }, [available, decisionCount]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") bridge?.management?.hide();
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        bridge?.management?.hide();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [bridge]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const closeFromOutside = (event: PointerEvent) => {
+      if (menuAnchorRef.current?.contains(event.target as Node)) return;
+      setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", closeFromOutside, true);
+    return () => document.removeEventListener("pointerdown", closeFromOutside, true);
+  }, [menuOpen]);
+
+  // A person's strip click toggles that section; expanding moves focus to the
+  // section's first actionable element, collapsing leaves focus on the strip
+  // the click already focused. The ladder's auto-opens never move focus.
+  const toggleSection = useCallback((section: FoldSection) => {
+    const next = openSectionRef.current === section ? null : section;
+    setOpenSection(next);
+    if (!next) return;
+    window.requestAnimationFrame(() => {
+      const drawer = document.getElementById(sectionDomIds[section]);
+      if (!drawer) return;
+      const target = drawer.querySelector<HTMLElement>("button, [href], input, textarea, select, summary");
+      (target ?? drawer).focus();
+    });
+  }, []);
 
   const send = useCallback(async () => {
     const content = text.trim();
@@ -322,6 +425,20 @@ export function PopoverApp() {
     return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
   }, [request, now]);
 
+  // The collapsed What's new strip counts unseen change items from the fetched
+  // snapshot; counting never advances the marker.
+  const unseenCount = useMemo(() => glanceUnseenChangeCount(glance.snapshot, "popover"), [glance.snapshot]);
+
+  // The quiet footer line stays honest: recorded running work is named before
+  // any quiet claim, and the Space count comes from the snapshot when it can
+  // be derived at all.
+  const quietStatus = useMemo(() => {
+    const running = glance.snapshot?.running.length ?? 0;
+    if (running > 0) return `${running} running now`;
+    const spaces = glanceSpaceCount(glance.snapshot);
+    return spaces >= 2 ? `All quiet across ${spaces} Spaces` : "All quiet";
+  }, [glance.snapshot]);
+
   if (available === null) {
     return <div className="popover popover-loading"><WorkFoldLockup className="popover-loading-brand" animated /><p className="muted">Connecting…</p></div>;
   }
@@ -341,6 +458,8 @@ export function PopoverApp() {
   const composerPlaceholder = request?.phase === "needs_you"
     ? "Reply to work-fold"
     : "Tell work-fold what to do";
+  const requestActive = request !== null && !terminalPhases.has(request.phase);
+  const conversationExists = messages.length > 0 || request !== null;
 
   return (
     <div
@@ -354,76 +473,129 @@ export function PopoverApp() {
       <header className="popover-header">
         <WorkFoldLockup className="popover-brand" />
         <div className="popover-header-actions">
-          <button
-            className="new-chat-button"
-            type="button"
-            onClick={startNewChat}
-            disabled={sending || startingNewChat}
-            title="Start a new chat. This chat stays saved on your desktop."
-          >
-            <SquarePen aria-hidden="true" />
-            <span>New chat</span>
-          </button>
-          {request ? <PhasePill phase={request.phase} /> : null}
+          {request && requestActive ? <PhasePill phase={request.phase} /> : null}
+          <div className="popover-menu-anchor" ref={menuAnchorRef}>
+            <button
+              className="popover-menu-button"
+              type="button"
+              aria-label="More"
+              title="More"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-controls="popover-overflow-menu"
+              onClick={() => setMenuOpen((current) => !current)}
+            >
+              <Ellipsis aria-hidden="true" />
+            </button>
+            {menuOpen ? (
+              <div id="popover-overflow-menu" className="popover-menu" role="menu" aria-label="More">
+                <button
+                  className="popover-menu-item"
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { setMenuOpen(false); startNewChat(); }}
+                  disabled={sending || startingNewChat}
+                  title="Start a new chat. This chat stays saved on your desktop."
+                >
+                  <SquarePen aria-hidden="true" />
+                  <span>New chat</span>
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
       </header>
 
       {banner ? <div className="banner" role="alert">{banner}</div> : null}
 
-      <NeedsYouStack state={needsYou} />
-
-      <GlanceSection state={glance} surface="popover" />
-
-      <section className="popover-transcript" ref={transcriptRef} aria-label="Your fold" aria-live="polite">
-        {messages.map((message) => (
-          <article className={`popover-message ${message.role}`} key={message.id}>
-            <div className="popover-message-role">{message.role === "assistant" ? "work-fold" : "You"}{message.source === "remote_web" ? " · Web" : ""}</div>
-            <div className="popover-message-body">
-              {message.role === "assistant"
-                ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
-                : message.content}
+      {decisionCount > 0 || decisionNotice ? (
+        <section className="fold-section fold-section-decisions">
+          {decisionCount > 0 ? (
+            <button
+              type="button"
+              className="fold-strip fold-strip-decisions"
+              aria-expanded={openSection === "decisions"}
+              aria-controls="popover-decisions"
+              onClick={() => toggleSection("decisions")}
+            >
+              <span>{decisionCount === 1 ? "1 decision needs you" : `${decisionCount} decisions need you`}</span>
+              <ChevronRight className="fold-strip-chevron" aria-hidden="true" />
+            </button>
+          ) : null}
+          {openSection === "decisions" ? (
+            <div id="popover-decisions" className="fold-drawer" tabIndex={-1}>
+              <NeedsYouStack state={needsYou} presentation="single" />
             </div>
-          </article>
-        ))}
-      </section>
-
-      {request && request.phase === "working" ? (
-        <section className="card">
-          <p className="working-line" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" />{activity || "Working on your request"}</p>
-          <p className="muted small">
-            {request.attachments.length ? `${request.attachments.length} item${request.attachments.length === 1 ? "" : "s"} attached · ` : ""}
-            {elapsedLabel ? `started ${elapsedLabel} ago` : "just started"}
-          </p>
-          <p className="muted small">You can close your fold — the work continues.</p>
-          <div className="row-end">
-            <button className="danger-quiet" onClick={() => { void stop(); }} disabled={stopping}>
-              {stopping ? "Stopping…" : "Stop"}
-            </button>
-          </div>
+          ) : null}
         </section>
       ) : null}
 
-      {request && request.phase === "handed_off" ? (
-        <section className="card">
-          <p>Handed off — work continues in {request.children.filter((child) => child.state === "running").length === 1 ? "a Space" : "Spaces"}.</p>
-          <ul className="trail">
-            {request.children.map((child) => (
-              <li key={child.taskId}>
-                {child.state === "running" ? <span className="spinner" aria-hidden="true" /> : <Tick state={child.state} />}
-                <span>{child.spaceName}: {childStateLabel(child.state)}</span>
-              </li>
-            ))}
-          </ul>
-          <div className="row-end">
-            <button className="danger-quiet" onClick={() => { void stop(); }} disabled={stopping}>
-              {stopping ? "Stopping…" : "Stop remaining work"}
-            </button>
-          </div>
+      {conversationExists ? (
+        <section className="fold-section fold-section-conversation">
+          <button
+            type="button"
+            className="fold-strip"
+            aria-expanded={openSection === "conversation"}
+            aria-controls="popover-conversation"
+            onClick={() => toggleSection("conversation")}
+          >
+            <span>Conversation</span>
+            <ChevronRight className="fold-strip-chevron" aria-hidden="true" />
+          </button>
+          {openSection === "conversation" ? (
+            <section className="popover-transcript" id="popover-conversation" ref={transcriptRef} aria-label="Your fold" aria-live="polite" tabIndex={-1}>
+              {messages.map((message) => (
+                <article className={`popover-message ${message.role}`} key={message.id}>
+                  <div className="popover-message-role">{message.role === "assistant" ? "work-fold" : "You"}{message.source === "remote_web" ? " · Web" : ""}</div>
+                  <div className="popover-message-body">
+                    {message.role === "assistant"
+                      ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                      : message.content}
+                  </div>
+                </article>
+              ))}
+              {request && request.phase === "handed_off" ? (
+                <article className="popover-entry">
+                  <ul className="trail">
+                    {request.children.map((child) => (
+                      <li key={child.taskId}>
+                        {child.state === "running" ? <span className="spinner" aria-hidden="true" /> : <Tick state={child.state} />}
+                        <span>{child.spaceName}: {childStateLabel(child.state)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </article>
+              ) : null}
+              {request && !activePhases.has(request.phase) ? (
+                <ResultEntry request={request} />
+              ) : null}
+            </section>
+          ) : null}
+          {request && activePhases.has(request.phase) ? (
+            <div className="fold-tail">
+              {request.phase === "working" ? (
+                <>
+                  <p className="working-line" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" />{activity || "Working on your request"}</p>
+                  <p className="muted small">
+                    {request.attachments.length ? `${request.attachments.length} item${request.attachments.length === 1 ? "" : "s"} attached · ` : ""}
+                    {elapsedLabel ? `started ${elapsedLabel} ago` : "just started"}
+                  </p>
+                  <p className="muted small">You can close your fold — the work continues.</p>
+                </>
+              ) : (
+                <>
+                  <p className="working-line" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" />Handed off — work continues in {request.children.filter((child) => child.state === "running").length === 1 ? "a Space" : "Spaces"}.</p>
+                  <p className="muted small">You can close your fold — the work continues.</p>
+                </>
+              )}
+              <div className="row-end">
+                <button className="danger-quiet" onClick={() => { void stop(); }} disabled={stopping}>
+                  {stopping ? "Stopping…" : request.phase === "handed_off" ? "Stop remaining work" : "Stop"}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </section>
-      ) : null}
-
-      {request && !activePhases.has(request.phase) ? (
-        <ResultCard request={request} />
       ) : null}
 
       {showComposer ? (
@@ -465,24 +637,52 @@ export function PopoverApp() {
           </div>
         </section>
       ) : null}
+
+      {openSection === "glance" ? (
+        <div id="popover-glance" className="fold-drawer fold-drawer-glance" tabIndex={-1}>
+          {glance.snapshot && !glanceIsEmpty(glance.snapshot)
+            ? <GlanceSection state={glance} surface="popover" />
+            : <p className="glance-empty">Nothing recorded right now: no running work, nothing waiting on you, and no recorded changes.</p>}
+        </div>
+      ) : null}
+
+      <footer className="popover-foot">
+        <span className="popover-foot-status">
+          {decisionCount === 0 && !requestActive ? quietStatus : ""}
+        </span>
+        <button
+          type="button"
+          className="fold-strip fold-strip-glance"
+          aria-expanded={openSection === "glance"}
+          aria-controls="popover-glance"
+          onClick={() => toggleSection("glance")}
+        >
+          <span>What's new{unseenCount ? ` (${unseenCount})` : ""}</span>
+          <ChevronRight className="fold-strip-chevron" aria-hidden="true" />
+        </button>
+      </footer>
     </div>
   );
 }
 
-function ResultCard({ request }: { request: ManagementRequestView }) {
+/**
+ * The settled request's inline conversation entry — the same host-recorded
+ * outcome the old result card carried, absorbed into the one narrator.
+ */
+function ResultEntry({ request }: { request: ManagementRequestView }) {
   const showOutcome = request.phase === "failed"
     || request.phase === "stopped"
     || request.dispositions.length > 0
     || request.actions.some((action) => action.command !== "files.add");
   if (!showOutcome) return null;
   return (
-    <section className="card">
+    <article className="popover-entry">
       {request.phase === "failed" ? (
         <p className="error-line">Couldn't finish{request.error ? `: ${request.error}` : "."}</p>
       ) : null}
       {request.phase === "stopped" ? <p>Stopped before it finished.</p> : null}
       <DispositionTrail request={request} />
-    </section>
+    </article>
   );
 }
 

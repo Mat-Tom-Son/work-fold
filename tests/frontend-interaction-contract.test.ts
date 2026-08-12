@@ -144,6 +144,11 @@ test("the needs-you flyout is conditional, anchored to the bottom rail cluster, 
   // Decisions made elsewhere become visible on the existing return discipline.
   assert.match(needsYouDecisions, /window\.addEventListener\("focus", refreshOnReturn\)/);
   assert.match(needsYouDecisions, /document\.addEventListener\("visibilitychange", refreshOnReturn\)/);
+  // The flyout keeps the full stack presentation: the shared component
+  // defaults to "stack", and the popover alone opts into the single-card
+  // presentation (pinned in management-popover-refresh.test.ts).
+  assert.match(needsYouDecisions, /presentation = "stack"/);
+  assert.match(needsYouDecisions, /<NeedsYouStack state=\{state\} \/>/);
 });
 
 test("the main-window glance panel hangs off the Space-identity header, mounts only while open, and never becomes a rail destination", () => {

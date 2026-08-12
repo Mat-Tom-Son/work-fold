@@ -11,6 +11,10 @@ import { api } from "../lib/api";
  * the digest's cursor only after it has actually rendered on a visible
  * surface, fetching never advances it, and marking seen renders items quieter
  * without hiding anything — Show earlier reveals the bounded tail regardless.
+ * A surface that folds the digest behind a collapsed strip passes
+ * `acknowledge: false` while collapsed: fetching keeps the strip's unseen
+ * count honest, and the marker advances only once the person expands the
+ * strip and the digest actually renders.
  */
 
 export interface GlanceItemView {
@@ -54,7 +58,8 @@ export interface GlanceState {
   refresh: () => Promise<void>;
 }
 
-export function useGlance(surface: GlanceSurface): GlanceState {
+export function useGlance(surface: GlanceSurface, options?: { acknowledge?: boolean }): GlanceState {
+  const acknowledge = options?.acknowledge !== false;
   const [snapshot, setSnapshot] = useState<GlanceSnapshotView | null>(null);
   const acknowledgedRef = useRef("");
 
@@ -73,11 +78,13 @@ export function useGlance(surface: GlanceSurface): GlanceState {
   }, [refresh]);
 
   // Acknowledge after render, never on fetch: this effect runs only once the
-  // fetched snapshot has committed to the screen, skips hidden surfaces, and
-  // posts each cursor at most once. The store is monotonic either way — a
-  // replayed or backward advance is a no-op — and a failed acknowledgement
-  // only leaves items rendering as new.
+  // fetched snapshot has committed to the screen, skips hidden surfaces and
+  // surfaces whose digest is folded behind a collapsed strip
+  // (`acknowledge: false`), and posts each cursor at most once. The store is
+  // monotonic either way — a replayed or backward advance is a no-op — and a
+  // failed acknowledgement only leaves items rendering as new.
   useEffect(() => {
+    if (!acknowledge) return;
     if (!snapshot?.cursor || document.visibilityState === "hidden") return;
     if (snapshot.seen[surface] === snapshot.cursor || acknowledgedRef.current === snapshot.cursor) return;
     acknowledgedRef.current = snapshot.cursor;
@@ -87,9 +94,47 @@ export function useGlance(surface: GlanceSurface): GlanceState {
     }).catch(() => {
       acknowledgedRef.current = "";
     });
-  }, [snapshot, surface]);
+  }, [snapshot, surface, acknowledge]);
 
   return { snapshot, refresh };
+}
+
+/**
+ * Unseen change items for a surface's collapsed strip label. Counting reads
+ * the fetched snapshot only — it never advances the marker, exactly like the
+ * fetch itself.
+ */
+export function glanceUnseenChangeCount(snapshot: GlanceSnapshotView | null, surface: GlanceSurface): number {
+  if (!snapshot) return 0;
+  const seenThrough = snapshot.seen[surface] ?? "";
+  return snapshot.changes.filter((item) => glanceCursorIsNewer(`${item.at}/${item.id}`, seenThrough)).length;
+}
+
+/**
+ * Distinct Space ids the digest mentions — checks rows plus Space-carrying
+ * items. This is what the snapshot can honestly count; it is not a
+ * registered-Spaces total, so callers fall back to a Space-free phrasing
+ * when it is zero or one.
+ */
+export function glanceSpaceCount(snapshot: GlanceSnapshotView | null): number {
+  if (!snapshot) return 0;
+  const ids = new Set<string>();
+  for (const row of snapshot.checks) ids.add(row.spaceId);
+  for (const item of [...snapshot.running, ...snapshot.needsYou, ...snapshot.changes]) {
+    if (item.spaceId) ids.add(item.spaceId);
+  }
+  return ids.size;
+}
+
+/**
+ * True when the digest has nothing to render. Pending decisions are excluded
+ * because they belong to the needs-you card surface; an empty digest means
+ * nothing is recorded, never "all clear".
+ */
+export function glanceIsEmpty(snapshot: GlanceSnapshotView): boolean {
+  const questions = snapshot.needsYou.filter((item) => item.kind !== "pending-decision");
+  return !questions.length && !snapshot.running.length && !snapshot.changes.length
+    && !snapshot.checks.length && !snapshot.unavailable.length;
 }
 
 /**
@@ -111,9 +156,7 @@ export function GlanceSection({ state, surface }: { state: GlanceState; surface:
   const fresh = snapshot.changes.filter(isNew);
   const shownChanges = showEarlier ? snapshot.changes : fresh;
   const earlierCount = snapshot.changes.length - fresh.length;
-  const empty = !questions.length && !snapshot.running.length && !snapshot.changes.length
-    && !snapshot.checks.length && !snapshot.unavailable.length;
-  if (empty) return null;
+  if (glanceIsEmpty(snapshot)) return null;
 
   return (
     <section className="glance" aria-label="The glance">

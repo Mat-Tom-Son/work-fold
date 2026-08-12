@@ -43,3 +43,22 @@ test("the Mac Quit item enters the deferred graceful coordinator instead of a na
   assert.doesNotMatch(macMenu, /\{ role: "quit" \}/);
   assert.match(main, /app\.on\("before-quit"[\s\S]*?shouldPreventNativeQuit\(\)[\s\S]*?event\.preventDefault\(\)[\s\S]*?quitCoordinator\.requestQuit\(\)/);
 });
+
+test("headless CLI relaunches never front the interactive window", () => {
+  // The shim relaunches the executable for every request; only a genuine
+  // interactive relaunch (person opened work-fold again) reaches showWindow.
+  assert.match(
+    main,
+    /app\.on\("second-instance", \(_event, argv, _workingDirectory, additionalData\) => \{[\s\S]*?workFoldSecondInstanceIntent\(argv, additionalData\)[\s\S]*?intent\.kind === "cli-invalid"[\s\S]*?return;[\s\S]*?intent\.kind === "cli"[\s\S]*?processWorkFoldCliRequest\(intent\.requestId\)[\s\S]*?return;[\s\S]*?interactiveRequested = true;[\s\S]*?startInteractiveApp\(\)\.then\(showWindow\)/,
+  );
+  // The old shape parsed ids inline and fell through to showWindow whenever
+  // both channels came back empty — CLI-shaped launches must not do that.
+  assert.doesNotMatch(main, /workFoldCliRequestIdFromInstanceData\(additionalData\)/);
+});
+
+test("the main window reveals itself only on its first ready-to-show", () => {
+  // Renderer recoveries can re-emit ready-to-show; a window the person hid
+  // (close-to-tray, minimize) must not resurface on an autonomous reload.
+  assert.match(main, /mainWindow\.once\("ready-to-show", \(\) => mainWindow\?\.show\(\)\)/);
+  assert.doesNotMatch(main, /mainWindow\.on\("ready-to-show"/);
+});

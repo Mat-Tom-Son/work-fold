@@ -80,19 +80,53 @@ body {
   box-shadow: none;
 }
 .popover-brand .work-fold-wordmark { font-size: 13px; font-weight: 650; letter-spacing: -0.035em; }
-.new-chat-button {
+
+/* The ⋯ overflow menu: the header keeps the lockup and, while a request is
+   active, the phase pill; everything else folds into this quiet menu. */
+.popover-menu-anchor { position: relative; }
+.popover-menu-button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  min-width: 28px;
   min-height: 28px;
-  padding: 4px 8px;
+  padding: 4px;
   border-color: transparent;
   background: none;
   color: var(--pop-text-muted);
-  font-size: 11.5px;
 }
-.new-chat-button:hover { background: var(--pop-surface-2); color: var(--pop-text); }
-.new-chat-button svg { width: 13px; height: 13px; stroke-width: 1.9; }
+.popover-menu-button:hover,
+.popover-menu-button[aria-expanded="true"] { background: var(--pop-surface-2); color: var(--pop-text); }
+.popover-menu-button svg { width: 15px; height: 15px; stroke-width: 1.9; display: block; }
+.popover-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 4px;
+  background: var(--pop-surface);
+  border: 1px solid var(--pop-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.popover-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--pop-text);
+  font-size: 12px;
+  text-align: left;
+}
+.popover-menu-item:hover { background: var(--pop-surface-2); }
+.popover-menu-item svg { width: 13px; height: 13px; stroke-width: 1.9; flex: none; }
 
 .popover-loading {
   place-content: center;
@@ -167,7 +201,73 @@ body {
 .cross { color: var(--pop-danger); font-weight: 600; }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--pop-text-muted); flex: none; align-self: center; }
 
-.popover-transcript { min-height: 90px; flex: 1; overflow-y: auto; border-top: 1px solid var(--pop-border); border-bottom: 1px solid var(--pop-border); user-select: text; }
+/* Folded sections: one calm surface, not stacked cards. Strips are quiet
+   full-width rows separated by hairlines; exactly one section is expanded at
+   a time and the rest stay reachable as their strips. */
+.fold-section { display: flex; flex-direction: column; }
+.fold-section-conversation { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.fold-section-conversation:not(:has(.popover-transcript)) { flex: 0 0 auto; }
+.fold-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 6px 2px;
+  border: none;
+  border-top: 1px solid var(--pop-border);
+  border-radius: 0;
+  background: none;
+  color: var(--pop-text-muted);
+  font-size: 11.5px;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+.fold-strip:hover { color: var(--pop-text); }
+.fold-strip-chevron { width: 12px; height: 12px; stroke-width: 2; flex: none; transition: transform 120ms ease; }
+.fold-strip[aria-expanded="true"] .fold-strip-chevron { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) {
+  .fold-strip-chevron { transition: none; }
+}
+/* The decisions strip carries the existing warning tint; everything else
+   stays muted. */
+.fold-strip-decisions {
+  padding: 6px 10px;
+  border-top: none;
+  border-radius: 8px;
+  background: var(--pop-warning-bg);
+  color: var(--pop-warning-text);
+}
+.fold-strip-decisions:hover { color: var(--pop-warning-text); }
+.fold-drawer { display: flex; flex-direction: column; gap: 8px; padding: 6px 0 2px; }
+.fold-drawer:focus { outline: none; }
+.fold-drawer-glance { max-height: 260px; overflow-y: auto; user-select: text; }
+/* The active request's live tail: visible below the Conversation strip even
+   while the drawer is collapsed. */
+.fold-tail { display: flex; flex-direction: column; gap: 6px; padding: 8px 2px 2px; }
+/* An inline narrator entry inside the conversation drawer (handed-off trail,
+   settled result), separated like a message. */
+.popover-entry { display: flex; flex-direction: column; gap: 8px; padding: 10px 2px; }
+.popover-entry + .popover-entry, .popover-message + .popover-entry { border-top: 1px solid var(--pop-border); }
+.popover-entry p { margin: 0; }
+
+/* The footer line: quiet status at the left, the What's new strip trigger at
+   the right. In the quiet state this line and the composer are all there is. */
+.popover-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid var(--pop-border);
+}
+.popover-foot-status { color: var(--pop-text-muted); font-size: 11.5px; }
+.popover-foot .fold-strip { width: auto; flex: none; border-top: none; padding: 4px 2px; }
+
+.popover-transcript { min-height: 90px; flex: 1; overflow-y: auto; user-select: text; }
+.popover-transcript:focus { outline: none; }
 .popover-message { padding: 10px 2px; }
 .popover-message + .popover-message { border-top: 1px solid var(--pop-border); }
 .popover-message-role { margin-bottom: 4px; color: var(--pop-text-muted); font-size: 11px; font-weight: 650; }
@@ -263,8 +363,9 @@ button.ghost:hover { color: var(--pop-text); }
 
 button.danger-quiet { color: var(--pop-danger); border-color: var(--pop-danger-border); background: none; }
 
-/* Needs-you decision stack: durable pending cards between the header and the
-   transcript, present only while at least one decision pends. */
+/* Needs-you decision cards: durable pending decisions behind the
+   warning-tinted strip below the header, present only while at least one
+   decision pends. The popover shows one card at a time. */
 .needs-you-stack { display: flex; flex-direction: column; gap: 8px; }
 .needs-you-heading { color: var(--pop-warning-text); font-size: 11px; font-weight: 650; text-transform: none; }
 .needs-you-notice {
@@ -324,9 +425,23 @@ button.danger-quiet { color: var(--pop-danger); border-color: var(--pop-danger-b
 .needs-you-approve { background: var(--pop-accent); border-color: transparent; color: var(--pop-accent-text); font-weight: 600; }
 .needs-you-approve.needs-you-destroy { background: var(--pop-danger); color: var(--pop-accent-text); }
 .needs-you-deny { color: var(--pop-danger); border-color: var(--pop-danger-border); background: none; }
+/* Single-card presentation only: the advance affordance that cycles to the
+   next pending card. The main-window flyout keeps the full stack and never
+   renders it. */
+.needs-you-advance {
+  align-self: flex-end;
+  padding: 3px 8px;
+  border: 1px solid var(--pop-border);
+  border-radius: 6px;
+  background: none;
+  color: var(--pop-text-muted);
+  font-size: 11px;
+}
+.needs-you-advance:hover { color: var(--pop-text); }
 
-/* The glance (docs/fold-glance.md): the deterministic digest at the popover's
-   top, below the needs-you stack. Seen items render quieter, never hidden. */
+/* The glance (docs/fold-glance.md): the deterministic digest behind the
+   What's new strip on the footer line. Seen items render quieter, never
+   hidden, and a collapsed strip never marks anything seen. */
 .glance { display: flex; flex-direction: column; gap: 5px; }
 .glance-heading { margin: 4px 0 0; color: var(--pop-text-muted); font-size: 11px; font-weight: 650; }
 .glance-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }

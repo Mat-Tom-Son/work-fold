@@ -10,6 +10,7 @@ import {
   workFoldCliInstanceData,
   workFoldCliRequestIdFromArgv,
   workFoldCliRequestIdFromInstanceData,
+  workFoldSecondInstanceIntent,
 } from "../desktop/src/work-fold-cli-host.js";
 import {
   createWorkFoldCliActRequest,
@@ -35,6 +36,35 @@ test("desktop CLI launch metadata accepts both Electron argument forms", () => {
     "--work-fold-cli-request",
     randomUUID(),
   ]), /only once/);
+});
+
+test("second-instance launches route by cause and CLI shape never reads as interactive", () => {
+  const id = randomUUID();
+  // Healthy CLI signals resolve from instance data or argv.
+  assert.deepEqual(
+    workFoldSecondInstanceIntent(["work-fold.exe"], { kind: "work-fold-cli", requestId: id }),
+    { kind: "cli", requestId: id },
+  );
+  assert.deepEqual(
+    workFoldSecondInstanceIntent(["work-fold.exe", `--work-fold-cli-request=${id}`], null),
+    { kind: "cli", requestId: id },
+  );
+  // Genuine interactive relaunches are the only "gui" outcomes.
+  assert.deepEqual(workFoldSecondInstanceIntent(["work-fold.exe"], { kind: "work-fold-gui" }), { kind: "gui" });
+  assert.deepEqual(workFoldSecondInstanceIntent(["work-fold.exe"], null), { kind: "gui" });
+  // A CLI-stamped launch whose request id was dropped in transit must stay
+  // headless (docs/ui-parity.md: headless CLI requests never open or steal
+  // focus from the interactive window) — it must never classify as "gui".
+  assert.equal(workFoldSecondInstanceIntent(["work-fold.exe"], { kind: "work-fold-cli" }).kind, "cli-invalid");
+  assert.equal(workFoldSecondInstanceIntent(["work-fold.exe"], { kind: "work-fold-cli", requestId: 7 }).kind, "cli-invalid");
+  // Mangled ids from either channel reject without becoming interactive.
+  assert.equal(
+    workFoldSecondInstanceIntent(["work-fold.exe"], { kind: "work-fold-cli", requestId: "../bad" }).kind,
+    "cli-invalid",
+  );
+  assert.equal(workFoldSecondInstanceIntent(["work-fold.exe", "--work-fold-cli-request", "nope"], null).kind, "cli-invalid");
+  assert.equal(workFoldSecondInstanceIntent(["work-fold.exe", "--work-fold-cli-request"], null).kind, "cli-invalid");
+  assert.equal(workFoldSecondInstanceIntent(["work-fold.exe", "--work-fold-cli-request="], null).kind, "cli-invalid");
 });
 
 test("desktop CLI host processes an atomic request through the executor", async () => {

@@ -139,14 +139,17 @@ Three human surfaces read the digest; each owns one marker. No surface
 receives push: the digest is pulled when a surface is visible and never
 recomputed in the background for nobody.
 
-**The popover top.** The popover renders the glance above the composer —
-**Needs you**, then **Running now**, then a compact **Since you last
-looked**, then the Checks rows — via `GET /api/management/glance` on its
-existing session and refresh cadence, acknowledging the rendered cursor to
-`POST /api/management/glance/seen` as `popover`. The digest is app-composed
-and does not require the management Pi session, so the glance stays
-available even when management commands fail closed; only narration needs
-the conversation.
+**The popover's What's new strip.** Since the 0.3.1 popover redesign the
+glance folds behind a footer strip labeled **What's new (N)** — N counts
+unseen change items — and expands to the same section order: **Needs you**,
+then **Running now**, then a compact **Since you last looked**, then the
+Checks rows, via `GET /api/management/glance` on the existing session and
+refresh cadence. Acknowledgement is expansion-gated: opening the strip is
+what posts the rendered cursor to `POST /api/management/glance/seen` as
+`popover`; a collapsed strip fetches but never marks seen. The digest is
+app-composed and does not require the management Pi session, so the glance
+stays available even when management commands fail closed; only narration
+needs the conversation.
 
 **The remote client home.** The approved-browser client shows the same
 digest on its home screen, above the saved-Chat list, through the

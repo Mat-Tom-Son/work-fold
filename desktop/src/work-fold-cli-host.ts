@@ -86,6 +86,44 @@ export class WorkFoldDesktopCliHost {
   }
 }
 
+export type WorkFoldSecondInstanceIntent =
+  | { kind: "cli"; requestId: string }
+  | { kind: "cli-invalid"; reason: string }
+  | { kind: "gui" };
+
+/**
+ * Classifies a second-instance launch by cause. Only a genuine interactive
+ * relaunch may surface or focus the window — docs/ui-parity.md: a headless
+ * CLI request must coexist with the running desktop app and avoid opening or
+ * stealing focus from the interactive window. The shim relaunches this
+ * executable for every request, so any launch that carries CLI shape —
+ * instance data stamped "work-fold-cli", or the request argument in argv —
+ * stays headless even when its request id is missing or mangled in transit.
+ */
+export function workFoldSecondInstanceIntent(
+  argv: readonly string[],
+  additionalData: unknown,
+): WorkFoldSecondInstanceIntent {
+  try {
+    const requestId = workFoldCliRequestIdFromInstanceData(additionalData) ?? workFoldCliRequestIdFromArgv(argv);
+    if (requestId) return { kind: "cli", requestId };
+  } catch (error) {
+    return { kind: "cli-invalid", reason: error instanceof Error ? error.message : String(error) };
+  }
+  if (isCliShapedLaunch(argv, additionalData)) {
+    return { kind: "cli-invalid", reason: "The CLI launch carried no usable request id." };
+  }
+  return { kind: "gui" };
+}
+
+function isCliShapedLaunch(argv: readonly string[], additionalData: unknown): boolean {
+  if (additionalData && typeof additionalData === "object" && !Array.isArray(additionalData)
+    && (additionalData as Record<string, unknown>).kind === "work-fold-cli") {
+    return true;
+  }
+  return argv.some((argument) => argument === cliRequestArgument || argument.startsWith(`${cliRequestArgument}=`));
+}
+
 export function workFoldCliRequestIdFromArgv(argv: readonly string[]): string | null {
   let requestId: string | null = null;
   for (let index = 0; index < argv.length; index += 1) {

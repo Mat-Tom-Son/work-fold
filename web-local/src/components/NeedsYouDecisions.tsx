@@ -10,8 +10,11 @@ import { needsYouSurface } from "../ui-contract";
  * host-composed from `/api/management/decisions` — this component renders the
  * typed projection and never composes copy from Assistant prose. The popover
  * stack and the main-window flyout share this exact component (fold
- * integration reconciliation 6), differing only in where the stack mounts and
- * in the recorded decision surface (`popover` vs `main-window`).
+ * integration reconciliation 6), differing only in where the stack mounts,
+ * in the recorded decision surface (`popover` vs `main-window`), and in the
+ * presentation: the flyout keeps the full stack, while the popover shows one
+ * card at a time with an advance affordance. Card content, wiring, and the
+ * one-card decision contract are identical in both presentations.
  */
 
 export interface DecisionCardFact {
@@ -308,24 +311,38 @@ export function NeedsYouCard({ card, busy, onDecide }: {
 
 /**
  * The card stack: present only while at least one decision pends (or a just-
- * settled outcome is still on screen), one card each, rendered identically on
- * every surface that mounts it.
+ * settled outcome is still on screen). The default `"stack"` presentation
+ * renders every pending card — the main-window flyout keeps it — while the
+ * popover's `"single"` presentation shows the current card alone with an
+ * "N more" advance affordance that cycles through the rest. Deciding a card
+ * removes it on refresh, so the next pending card slides into the same slot;
+ * the cursor clamps rather than dangling past the shrunken list.
  */
-export function NeedsYouStack({ state }: { state: NeedsYouDecisionsState }) {
+export function NeedsYouStack({ state, presentation = "stack" }: {
+  state: NeedsYouDecisionsState;
+  presentation?: "stack" | "single";
+}) {
+  const [cardCursor, setCardCursor] = useState(0);
   if (!state.cards.length && !state.notice) return null;
+  const single = presentation === "single";
+  const index = state.cards.length ? Math.min(cardCursor, state.cards.length - 1) : 0;
+  const shown = single ? state.cards.slice(index, index + 1) : state.cards;
+  const moreCount = single ? state.cards.length - 1 : 0;
   return (
     <section className="needs-you-stack" aria-label={needsYouSurface.heading}>
-      <header className="needs-you-heading">
-        {needsYouSurface.heading}
-        {state.cards.length > 1 ? ` (${state.cards.length})` : ""}
-      </header>
+      {single ? null : (
+        <header className="needs-you-heading">
+          {needsYouSurface.heading}
+          {state.cards.length > 1 ? ` (${state.cards.length})` : ""}
+        </header>
+      )}
       {state.notice ? (
         <p className="needs-you-notice" role="status">
           <span>{state.notice}</span>
           <button type="button" aria-label="Dismiss" onClick={state.dismissNotice}>✕</button>
         </p>
       ) : null}
-      {state.cards.map((card) => (
+      {shown.map((card) => (
         <NeedsYouCard
           key={card.id}
           card={card}
@@ -333,6 +350,16 @@ export function NeedsYouStack({ state }: { state: NeedsYouDecisionsState }) {
           onDecide={(decision, options) => void state.decide(card, decision, options)}
         />
       ))}
+      {moreCount > 0 ? (
+        <button
+          type="button"
+          className="needs-you-advance"
+          aria-label={`Show the next decision (${moreCount} more)`}
+          onClick={() => setCardCursor((index + 1) % state.cards.length)}
+        >
+          {moreCount} more
+        </button>
+      ) : null}
     </section>
   );
 }

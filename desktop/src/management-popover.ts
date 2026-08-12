@@ -1,5 +1,7 @@
 import { BrowserWindow, screen, type Rectangle } from "electron";
 
+import { trayPopoverToggleAction } from "./tray-popover-toggle.js";
+
 /**
  * The menu-bar/tray popover: a small always-available surface for the
  * management conversation. It is deliberately its own window, not a child of
@@ -36,6 +38,8 @@ export class ManagementPopover {
   #loaded = false;
   #pendingStaged: ManagementPopoverStagedItem[] = [];
   #destroyed = false;
+  #lastBlurHiddenAt: number | null = null;
+  #pendingShow: Promise<void> | null = null;
 
   constructor(options: ManagementPopoverOptions) {
     this.#options = options;
@@ -46,7 +50,19 @@ export class ManagementPopover {
   }
 
   async toggle(anchor: Rectangle | null): Promise<void> {
-    if (this.isVisible()) {
+    // The click that dismisses the popover blurs it first, and the blur
+    // handler hides it, so a naive toggle would observe "hidden" and re-show
+    // the popover the person just closed (see tray-popover-toggle.ts).
+    const action = trayPopoverToggleAction(
+      { visible: this.isVisible(), lastBlurHiddenAt: this.#lastBlurHiddenAt },
+      Date.now(),
+    );
+    if (action === "suppress") {
+      // Consumed: the very next click means "open it again".
+      this.#lastBlurHiddenAt = null;
+      return;
+    }
+    if (action === "hide") {
       this.hide();
       return;
     }
@@ -55,10 +71,30 @@ export class ManagementPopover {
 
   async show(anchor: Rectangle | null): Promise<void> {
     if (this.#destroyed) return;
-    const window = await this.#ensureWindow();
-    window.setPosition(...popoverPosition(anchor));
-    window.show();
-    window.focus();
+    // A second tray event while the first cold open is still loading must not
+    // start a second show/focus pass over the same window.
+    if (this.#pendingShow) return this.#pendingShow;
+    this.#pendingShow = (async () => {
+      const window = await this.#ensureWindow();
+      if (this.#destroyed || window.isDestroyed()) return;
+      window.setPosition(...popoverPosition(anchor));
+      window.show();
+      if (process.platform === "darwin") {
+        // The popover is a nonactivating panel: show() alone grants it key
+        // status. window.focus() would also request app activation, and
+        // activating the app raises the main window behind the popover —
+        // summoning the menu-bar surface must not front the rest of work-fold
+        // or steal the previous app's active state.
+        window.webContents.focus();
+      } else {
+        window.focus();
+      }
+    })();
+    try {
+      await this.#pendingShow;
+    } finally {
+      this.#pendingShow = null;
+    }
   }
 
   hide(): void {
@@ -102,6 +138,11 @@ export class ManagementPopover {
       fullscreenable: false,
       skipTaskbar: true,
       alwaysOnTop: true,
+      // A nonactivating macOS panel takes key status (typing works) without
+      // activating the app, so opening the popover never raises the main
+      // window behind it, and hiding it hands focus straight back to the app
+      // the person was using.
+      ...(process.platform === "darwin" ? { type: "panel" as const } : {}),
       ...(process.platform === "darwin" && this.#options.vibrancy
         ? { vibrancy: "menu" as const, visualEffectState: "active" as const, backgroundColor: "#00000000" }
         : { backgroundColor: this.#options.backgroundColor }),
@@ -117,11 +158,24 @@ export class ManagementPopover {
     });
     this.#window = window;
     if (process.platform === "darwin") {
-      window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+      // skipTransformProcessType is required: without it Electron transforms
+      // the whole app to a UIElementApplication the moment this window is
+      // created — the Dock icon disappears, the app is forcibly deactivated
+      // (which blurs and instantly hides the freshly shown popover), and the
+      // later transform back re-activates work-fold and fronts the main
+      // window at an arbitrary moment.
+      window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
     }
     this.#options.configureNavigation(window);
     window.on("blur", () => {
-      if (!window.isDestroyed() && !window.webContents.isDevToolsOpened()) this.hide();
+      if (window.isDestroyed() || window.webContents.isDevToolsOpened()) return;
+      // Arm the tray-click grace only for blur-caused hides: if the window is
+      // already hidden this blur is the tail of a programmatic hide (Escape,
+      // Open work-fold), and suppressing the next tray click would swallow a
+      // deliberate reopen.
+      if (!window.isVisible()) return;
+      this.#lastBlurHiddenAt = Date.now();
+      this.hide();
     });
     window.on("close", (event) => {
       if (this.#destroyed) return;
