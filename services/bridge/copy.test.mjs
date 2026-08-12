@@ -47,8 +47,10 @@ test("remote client keeps the load-bearing copy exact", async () => {
   assert.ok(app.includes('headline: "Match the code in work-fold."'));
   assert.ok(app.includes("Approval binds a non-exportable browser key to your desktop."));
 
-  // The chats rail lists the fold's saved chats; the heading stays.
-  assert.ok(app.includes('<p class="rail-heading">Chats</p>'));
+  // The Chats screen lists the fold's saved chats; Home is the door and
+  // carries the quiet fold header.
+  assert.ok(app.includes('<h1 class="context-title" tabindex="-1">Chats</h1>'));
+  assert.ok(app.includes('<h1 class="context-title" tabindex="-1">Your fold</h1>'));
 
   // Page title stays the product name.
   const page = await clientSource("index.html");
@@ -120,4 +122,33 @@ test("remote glance home renders the digest sections with quiet-not-hidden seen 
   // Desktop offline means no digest: the client refreshes only while online
   // and keeps its honest offline state otherwise.
   assert.match(app, /if \(state\.foldHomeRefreshing \|\| !state\.session\?\.desktopOnline\) return;/);
+});
+
+test("remote client navigation keeps the four-context single-column shell", async () => {
+  const app = await clientSource("app.js");
+
+  // Bottom tabs on the phone; the icon rail from 860px up. The same three
+  // destinations either way, and the Chat screen belongs to Chats in both.
+  assert.match(app, /class="tab-bar"[\s\S]*?<span>Home<\/span>[\s\S]*?<span>Chats<\/span>[\s\S]*?<span>Files<\/span>/);
+  assert.match(app, /class="icon-rail"[\s\S]*?aria-label="Home"[\s\S]*?aria-label="Chats"[\s\S]*?aria-label="Files"[\s\S]*?aria-label="New chat"/);
+  assert.match(app, /const highlighted = name === "chat" \? "chats" : name;/);
+  assert.match(app, /setAttribute\("aria-current", "page"\)/);
+
+  // Chat is a single column with a back affordance at every width; the saved
+  // list lives only in the Chats context — there is no desktop sidebar.
+  assert.match(app, /id="context-chats"[\s\S]*?<ul id="chats"[\s\S]*?id="context-chat"[\s\S]*?id="back-to-chats"/);
+  assert.ok(app.includes('aria-label="Back to chats"'));
+
+  // The Home status line stays honest: the desktop is online or asleep,
+  // never an error page pretending otherwise.
+  assert.ok(app.includes('online ? "Desktop online" : "Desktop asleep"'));
+
+  // The Home composer always starts a new request, and "Fold it in" appears
+  // exactly when material is staged on the message (fold.md rule 3).
+  assert.match(app, /sentFromHome \|\| state\.startingNewChat \|\| !state\.selectedConversationId/);
+  assert.ok(app.includes('state.uploads.length ? "Fold it in" : "Send message"'));
+
+  // Home renders pending decisions first, then the live request tail, then
+  // the glance body — the needs-you stack is never below the digest.
+  assert.ok(app.includes("${renderNeedsYou()}${renderHomeActivity()}${renderGlance()}"));
 });

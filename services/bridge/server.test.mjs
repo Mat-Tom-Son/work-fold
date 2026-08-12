@@ -75,7 +75,16 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.doesNotMatch(applicationSource, /spaces\.(?:chats|transcript|send|stop)/);
   assert.doesNotMatch(applicationSource, /Chat with Space|id="scope-name"|id="management-home"/);
   assert.match(applicationSource, /id="account-settings"[\s\S]*?id="account-menu"[\s\S]*?>Sign out</);
-  assert.match(applicationSource, /id="workspace-pane"[\s\S]*?class="files-title">Files<[\s\S]*?id="toggle-files"/);
+  // The four-context single-column shell: Home carries decisions, the tail,
+  // the glance, and recent chats above its composer; the saved-chat list is
+  // the Chats context; Chat is one transcript with a back affordance; Files
+  // is the read-only tree as its own context.
+  assert.match(applicationSource, /id="context-home"[\s\S]*?id="fold-home"[\s\S]*?id="recent-chats"[\s\S]*?id="home-composer-slot"/);
+  assert.match(applicationSource, /id="context-chats"[\s\S]*?<ul id="chats"[\s\S]*?id="context-chat"[\s\S]*?id="back-to-chats"[\s\S]*?id="messages"[\s\S]*?id="chat-composer-slot"/);
+  assert.match(applicationSource, /id="context-files"[\s\S]*?class="context-title" tabindex="-1">Files<[\s\S]*?id="workspace-pane"[\s\S]*?id="space-picker"[\s\S]*?id="file-tree"/);
+  // Phone tabs and the desktop icon rail carry the same three destinations.
+  assert.match(applicationSource, /class="tab-bar"[\s\S]*?data-nav-context="home"[\s\S]*?<span>Home<\/span>[\s\S]*?data-nav-context="chats"[\s\S]*?<span>Chats<\/span>[\s\S]*?data-nav-context="files"[\s\S]*?<span>Files<\/span>/);
+  assert.match(applicationSource, /class="icon-rail"[\s\S]*?data-nav-context="home"[\s\S]*?data-nav-context="chats"[\s\S]*?data-nav-context="files"[\s\S]*?id="rail-new-chat"/);
   assert.match(applicationSource, /Working in \$\{spaceName\}/);
   assert.match(applicationSource, /Couldn’t finish in \$\{spaceName\}/);
   assert.doesNotMatch(applicationSource, /previous chat is still saved on your desktop/);
@@ -84,13 +93,19 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.match(applicationStyles, /\.message\.message-enter\s*\{\s*animation:/);
   assert.match(applicationStyles, /\.conversation-title-view\[hidden\]\s*\{\s*display:\s*none/);
   for (const structuralDivider of [
-    /\.side-rail\s*\{[^}]*border-right:\s*1px/,
+    /\.icon-rail\s*\{[^}]*border-right:\s*1px/,
     /\.conversation-bar\s*\{[^}]*border-bottom:\s*1px/,
     /\.message\s*\{[^}]*border-bottom:\s*1px/,
     /\.composer-wrap\s*\{[^}]*border-top:\s*1px/,
     /\.workspace-pane\s*\{[^}]*border-left:\s*1px/,
-    /\.workspace-pane-head\s*\{[^}]*border-bottom:\s*1px/,
   ]) assert.doesNotMatch(applicationStyles, structuralDivider);
+  // One breakpoint by construction: the icon rail arrives at 860px; the old
+  // mid-width layouts are gone.
+  assert.match(applicationStyles, /@media \(min-width: 860px\)/);
+  for (const retiredBreakpoint of ["max-width: 980px", "max-width: 680px"]) {
+    assert.equal(applicationStyles.includes(retiredBreakpoint), false);
+  }
+  assert.match(applicationStyles, /\.tab-bar\s*\{[^}]*padding-bottom:\s*env\(safe-area-inset-bottom/);
   // "Needs you" left this list deliberately: the fold's decision cards
   // (docs/fold-consecrations.md, remote client) reintroduced the heading as
   // the shared card contract's vocabulary, pinned in copy.test.mjs.
@@ -111,9 +126,68 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.match(appIcon.headers.get("content-type"), /^image\/svg\+xml/);
   assert.match(await appIcon.text(), /id="work-fold-mark"/);
 
+  // Installable: the page links the manifest and Apple icon metadata, the
+  // manifest is served with a manifest content type and the fold's name, and
+  // every icon it names resolves as a PNG.
+  const pageMarkup = await (await fetch(baseUrl)).text();
+  assert.match(pageMarkup, /<link rel="manifest" href="\/manifest\.webmanifest" \/>/);
+  assert.match(pageMarkup, /<link rel="apple-touch-icon" href="\/apple-touch-icon\.png" \/>/);
+  assert.match(pageMarkup, /viewport-fit=cover/);
+  assert.match(pageMarkup, /apple-mobile-web-app-capable/);
+  assert.match(pageMarkup, /apple-mobile-web-app-status-bar-style/);
+  assert.match(pageMarkup, /name="theme-color" media="\(prefers-color-scheme: light\)" content="#f3f0e9"/);
+  assert.match(pageMarkup, /name="theme-color" media="\(prefers-color-scheme: dark\)" content="#1b1a18"/);
+
+  const manifest = await fetch(`${baseUrl}/manifest.webmanifest`);
+  assert.equal(manifest.status, 200);
+  assert.match(manifest.headers.get("content-type"), /^application\/manifest\+json/);
+  const manifestBody = await manifest.json();
+  assert.equal(manifestBody.name, "Your fold");
+  assert.equal(manifestBody.short_name, "Your fold");
+  assert.equal(manifestBody.display, "standalone");
+  assert.equal(manifestBody.start_url, "/");
+  assert.deepEqual(
+    manifestBody.icons.map((icon) => icon.src),
+    ["/icon-192.png", "/icon-512.png", "/icon-maskable-512.png"],
+  );
+  for (const iconPath of ["/apple-touch-icon.png", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png"]) {
+    const icon = await fetch(`${baseUrl}${iconPath}`);
+    assert.equal(icon.status, 200);
+    assert.match(icon.headers.get("content-type"), /^image\/png/);
+  }
+
   const rejected = await fetch(baseUrl, { method: "POST" });
   assert.equal(rejected.status, 405);
   assert.equal(rejected.headers.get("allow"), "GET, HEAD");
+});
+
+test("fixture previews render canned state and stay inert against the real API", async (context) => {
+  const service = await testService(context);
+  const baseUrl = `http://127.0.0.1:${service.port}`;
+
+  const fixtures = await fetch(`${baseUrl}/fixtures.js`);
+  assert.equal(fixtures.status, 200);
+  assert.match(fixtures.headers.get("content-type"), /^text\/javascript/);
+  const fixturesSource = await fixtures.text();
+  assert.match(fixturesSource, /export function buildFixture/);
+  // Canned state only: the fixture module never talks to anything and never
+  // stubs an operation that could be confused with real state.
+  assert.doesNotMatch(fixturesSource, /fetch\(|EventSource|indexedDB|crypto\.subtle|api\(|remote\(/);
+
+  const applicationSource = await (await fetch(`${baseUrl}/app.js`)).text();
+  // ?fixture accepts exactly the three preview screens.
+  assert.match(applicationSource, /requested === "home" \|\| requested === "chat" \|\| requested === "files"/);
+  // The guard: fixture mode never attaches auth or calls fetch. api() and
+  // remote() refuse before touching identity or the network, the event
+  // stream and refresh loop never start, and no seen marker is posted from
+  // a preview.
+  assert.match(applicationSource, /async function api\(path[\s\S]{0,120}?if \(fixtureName\) throw new Error\("Fixture preview is inert/);
+  assert.match(applicationSource, /async function remote\(operation[\s\S]{0,120}?if \(fixtureName\) throw new Error\("Fixture preview is inert/);
+  assert.match(applicationSource, /function openEvents\(\) \{\s*\n\s*if \(fixtureName\) return;/);
+  assert.match(applicationSource, /function scheduleRefresh\(\) \{\s*\n\s*if \(fixtureName\) return;/);
+  assert.match(applicationSource, /function acknowledgeGlance\(\) \{\s*\n\s*if \(fixtureName\) return;/);
+  // The preview is labeled for what it is.
+  assert.match(applicationSource, />Fixture preview<\/div>/);
 });
 
 test("composer sends with Enter and preserves Shift+Enter for a new line", () => {

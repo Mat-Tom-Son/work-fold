@@ -1,4 +1,5 @@
 import { shouldSubmitComposerKey } from "./composer.js";
+import { buildFixture } from "./fixtures.js";
 import { renderMarkdown } from "./markdown.js";
 import { assertPairingRelay, pairingCodeForKeys } from "./pairing-code.js";
 import { normalizeChatTitle, replaceHtmlIfChanged } from "./rendering.js";
@@ -7,6 +8,20 @@ const app = document.querySelector("#app");
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const localSlug = new URL(location.href).searchParams.get("slug") || "";
+
+// ?fixture=home|chat|files renders canned local state for QA (the desktop
+// renderer's ?fixture=space precedent). Fixture mode is client-side only and
+// inert against the real API: api() and remote() refuse before any fetch or
+// auth material is touched, and the event stream never opens.
+const fixtureName = (() => {
+  const requested = new URL(location.href).searchParams.get("fixture");
+  return requested === "home" || requested === "chat" || requested === "files" ? requested : null;
+})();
+
+// The four contexts of the single-column client. One is visible at a time on
+// every width; desktop adds an icon rail and phone adds bottom tabs, but the
+// screens themselves are the same.
+const contextNames = ["home", "chats", "chat", "files"];
 
 const state = {
   context: null,
@@ -27,7 +42,7 @@ const state = {
   selectedConversationId: null,
   uploads: [],
   composerDrafts: new Map(),
-  filesPanelOpen: window.matchMedia("(min-width: 981px)").matches,
+  contextName: "home",
   messages: [],
   transcriptConversationId: null,
   transcriptTruncated: false,
@@ -46,6 +61,7 @@ const state = {
   decisionNotes: new Map(),
   glanceAcknowledged: "",
   showEarlierChanges: false,
+  stoppingTask: false,
   refreshTimer: null,
   conversationListRequestVersion: 0,
   conversationRefreshVersion: 0,
@@ -58,6 +74,7 @@ const state = {
 void boot();
 
 async function boot() {
+  if (fixtureName) return bootFixture(fixtureName);
   try {
     state.identity = await loadIdentity();
     state.context = await api(`/api/public/context${localSlug ? `?slug=${encodeURIComponent(localSlug)}` : ""}`);
@@ -68,6 +85,14 @@ async function boot() {
   } catch (error) {
     renderFatal(errorText(error));
   }
+}
+
+function bootFixture(name) {
+  const fixture = buildFixture(name);
+  Object.assign(state, fixture.state);
+  renderApplication();
+  renderMessages();
+  showContext(name === "chat" ? "chat" : name);
 }
 
 async function continueAuthenticated() {
@@ -287,6 +312,7 @@ async function bindIdentity() {
 
 async function openApplication() {
   renderApplication();
+  showContext("home");
   openEvents();
   await loadSpaces();
   await loadConversations();
@@ -294,99 +320,192 @@ async function openApplication() {
   scheduleRefresh();
 }
 
+// --- The shell: four single-column contexts, one visible at a time ---------
+// Home is the door and the glance; Chats is the saved-conversation list; Chat
+// is one transcript with a back affordance; Files is the read-only tree. The
+// icon rail (wide) and the bottom tab bar (narrow) are chrome over the same
+// four screens — no context is exclusive to a width.
+
 function renderApplication() {
   app.innerHTML = `
-    <div class="app-shell">
-      <aside class="side-rail">
-        <div class="rail-brand"><span class="brand"><img class="brand-mark" src="/work-fold-icon.svg" alt="" />work-fold</span></div>
-        <button id="new-chat" class="rail-new-chat" type="button">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" /></svg>
-          <span>New chat</span>
+    <div class="app-shell" data-context="home">
+      <nav class="icon-rail" aria-label="Primary">
+        <span class="rail-mark"><img src="/work-fold-icon.svg" alt="work-fold" title="work-fold" /></span>
+        <button class="rail-item" type="button" data-nav-context="home" aria-label="Home" title="Home" aria-current="page">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 10.5 12 4l7.5 6.5" /><path d="M6.5 9.5V19h11V9.5" /></svg>
         </button>
-        <section id="fold-home" class="fold-home" aria-label="Your fold at a glance" hidden></section>
-        <p class="rail-heading">Chats</p>
-        <ul id="chats" class="chat-list"></ul>
+        <button class="rail-item" type="button" data-nav-context="chats" aria-label="Chats" title="Chats">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v11h-9l-4 3.5v-3.5H4Z" /></svg>
+        </button>
+        <button class="rail-item" type="button" data-nav-context="files" aria-label="Files" title="Files">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l1.8 2h9.2v9H3.5Z" /></svg>
+        </button>
         <div class="rail-spacer"></div>
+        <button id="rail-new-chat" class="rail-item" type="button" aria-label="New chat" title="New chat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" /></svg>
+        </button>
         <div class="rail-account">
-          <button id="account-settings" class="account-settings" type="button" aria-label="Settings" title="Settings" aria-controls="account-menu" aria-expanded="false">
+          <button id="account-settings" class="account-settings" type="button" aria-label="Settings" title="Settings" aria-controls="account-menu" aria-expanded="false" data-account-toggle="account-menu">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
           </button>
-          <div id="account-menu" class="account-menu" hidden><button id="logout" type="button">Sign out</button></div>
+          <div id="account-menu" class="account-menu" hidden><button type="button" data-logout="true">Sign out</button></div>
         </div>
-      </aside>
-      <main class="conversation">
-        <header class="conversation-bar">
-          <span aria-hidden="true"></span>
-          <div class="conversation-title-shell">
-            <div id="conversation-title-view" class="conversation-title-view">
-              <h1 id="conversation-title"></h1>
-              <button id="rename-chat" class="conversation-title-button" type="button" aria-label="Rename Chat title" title="Rename Chat">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" /></svg>
-              </button>
-            </div>
-            <form id="rename-chat-form" class="conversation-title-form" hidden>
-              <label class="sr-only" for="rename-chat-input">Chat title</label>
-              <input id="rename-chat-input" maxlength="80" autocomplete="off" />
-              <button class="title-edit-action save" type="submit" aria-label="Save Chat title" title="Save">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
-              </button>
-              <button id="cancel-chat-rename" class="title-edit-action" type="button" aria-label="Cancel Chat title edit" title="Cancel">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
-              </button>
-            </form>
-          </div>
-          <div class="conversation-actions"><button id="stop-task" class="toolbar-button danger" type="button" hidden>Stop</button></div>
-        </header>
+      </nav>
+      <div class="app-contexts">
+        ${fixtureName ? `<div class="fixture-badge" role="status">Fixture preview</div>` : ""}
         <div id="banner"></div>
         <div id="chat-status" class="sr-only" role="status" aria-live="polite"></div>
-        <section id="messages" class="messages"><div class="message-stream"><div id="transcript-notice"></div><div id="message-rows"></div><div id="work-status"></div></div></section>
-        <footer class="composer-wrap">
-          <form id="composer" class="composer">
-            <div id="composer-context" class="composer-context"></div>
-            <div class="composer-field">
-              <button id="attach-files" class="attach-button" type="button" aria-label="Attach files" title="Attach files">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8.5 12.5 5.7-5.7a3 3 0 1 1 4.2 4.2l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.2-8.2" /></svg>
-              </button>
-              <input id="file-input" type="file" multiple hidden />
-              <textarea id="prompt" rows="1" maxlength="12000" placeholder="Message work-fold" aria-label="Message work-fold" aria-describedby="composer-note" autofocus></textarea>
-              <button class="send-button" type="submit" aria-label="Send message" aria-keyshortcuts="Enter" title="Send message" disabled>
-                <svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-5 5 5-5 5 5" /></svg>
-              </button>
+        <section id="context-home" class="context context-home" aria-label="Home">
+          <div class="context-scroll">
+            <div class="context-column">
+              <header class="home-header">
+                <div class="home-head-row">
+                  <h1 class="context-title" tabindex="-1">Your fold</h1>
+                  <div class="home-account">
+                    <button id="home-account-settings" class="account-settings" type="button" aria-label="Settings" title="Settings" aria-controls="home-account-menu" aria-expanded="false" data-account-toggle="home-account-menu">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
+                    </button>
+                    <div id="home-account-menu" class="account-menu" hidden><button type="button" data-logout="true">Sign out</button></div>
+                  </div>
+                </div>
+                <p class="home-address">${escapeHtml(location.host)}</p>
+                <p id="desktop-presence" class="home-presence"><span class="presence-dot" aria-hidden="true"></span><span id="desktop-presence-text"></span></p>
+              </header>
+              <section id="fold-home" class="fold-home" aria-label="Your fold at a glance" hidden></section>
+              <section class="home-chats" aria-label="Recent chats">
+                <h2 class="home-heading">Recent chats</h2>
+                <ul id="recent-chats" class="chat-list"></ul>
+                <button id="all-chats" class="text-button" type="button">All chats</button>
+              </section>
             </div>
-            <div id="composer-note" class="composer-note">
-              <span><kbd>Enter</kbd> to send · <kbd>Shift</kbd> + <kbd>Enter</kbd> for a new line</span>
+          </div>
+          <footer class="composer-wrap" id="home-composer-slot"></footer>
+        </section>
+        <section id="context-chats" class="context context-chats" aria-label="Chats" hidden>
+          <div class="context-scroll">
+            <div class="context-column">
+              <header class="context-head">
+                <h1 class="context-title" tabindex="-1">Chats</h1>
+                <button id="new-chat" class="rail-new-chat" type="button">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" /></svg>
+                  <span>New chat</span>
+                </button>
+              </header>
+              <ul id="chats" class="chat-list"></ul>
             </div>
-          </form>
-        </footer>
-      </main>
-      <aside id="workspace-pane" class="workspace-pane">
-        <div class="workspace-pane-head">
-          <strong class="files-title">Files</strong>
-          <button id="toggle-files" class="files-toggle" type="button" aria-label="Hide Files" aria-expanded="true" title="Hide Files">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
-          </button>
-        </div>
-        <div class="workspace-pane-content">
-          <select id="space-picker" class="space-picker" aria-label="Choose a Space"></select>
-          <div id="file-tree" class="file-tree"></div>
-        </div>
-      </aside>
+          </div>
+        </section>
+        <section id="context-chat" class="context context-chat" aria-label="Chat" hidden>
+          <header class="conversation-bar">
+            <button id="back-to-chats" class="back-button" type="button" aria-label="Back to chats" title="Back to chats">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6" /></svg>
+            </button>
+            <div class="conversation-title-shell">
+              <div id="conversation-title-view" class="conversation-title-view">
+                <h1 id="conversation-title"></h1>
+                <button id="rename-chat" class="conversation-title-button" type="button" aria-label="Rename Chat title" title="Rename Chat">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" /></svg>
+                </button>
+              </div>
+              <form id="rename-chat-form" class="conversation-title-form" hidden>
+                <label class="sr-only" for="rename-chat-input">Chat title</label>
+                <input id="rename-chat-input" maxlength="80" autocomplete="off" />
+                <button class="title-edit-action save" type="submit" aria-label="Save Chat title" title="Save">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
+                </button>
+                <button id="cancel-chat-rename" class="title-edit-action" type="button" aria-label="Cancel Chat title edit" title="Cancel">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+                </button>
+              </form>
+            </div>
+            <div class="conversation-actions"><button id="stop-task" class="toolbar-button danger" type="button" hidden>Stop</button></div>
+          </header>
+          <section id="messages" class="messages"><div class="message-stream"><div id="transcript-notice"></div><div id="message-rows"></div><div id="work-status"></div></div></section>
+          <footer class="composer-wrap" id="chat-composer-slot"></footer>
+        </section>
+        <section id="context-files" class="context context-files" aria-label="Files" hidden>
+          <div class="context-scroll">
+            <div class="context-column">
+              <header class="context-head">
+                <h1 class="context-title" tabindex="-1">Files</h1>
+              </header>
+              <div id="workspace-pane" class="workspace-pane">
+                <select id="space-picker" class="space-picker" aria-label="Choose a Space"></select>
+                <div id="file-tree" class="file-tree"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+      <nav class="tab-bar" aria-label="Primary">
+        <button class="tab-item" type="button" data-nav-context="home" aria-current="page">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 10.5 12 4l7.5 6.5" /><path d="M6.5 9.5V19h11V9.5" /></svg>
+          <span>Home</span>
+        </button>
+        <button class="tab-item" type="button" data-nav-context="chats">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v11h-9l-4 3.5v-3.5H4Z" /></svg>
+          <span>Chats</span>
+        </button>
+        <button class="tab-item" type="button" data-nav-context="files">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l1.8 2h9.2v9H3.5Z" /></svg>
+          <span>Files</span>
+        </button>
+      </nav>
     </div>`;
-  document.querySelector("#logout")?.addEventListener("click", () => void logout());
-  document.querySelector("#account-settings")?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    const menu = document.querySelector("#account-menu");
-    setAccountMenuOpen(menu?.hidden !== false);
-  });
-  document.querySelector("#account-menu")?.addEventListener("click", (event) => event.stopPropagation());
-  document.addEventListener("click", () => setAccountMenuOpen(false));
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && document.querySelector("#account-menu")?.hidden === false) {
-      setAccountMenuOpen(false);
-      document.querySelector("#account-settings")?.focus();
-    }
-  });
+  const composer = document.createElement("form");
+  composer.id = "composer";
+  composer.className = "composer";
+  composer.innerHTML = `
+    <div id="composer-context" class="composer-context"></div>
+    <div class="composer-field">
+      <button id="attach-files" class="attach-button" type="button" aria-label="Attach files" title="Attach files">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8.5 12.5 5.7-5.7a3 3 0 1 1 4.2 4.2l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.2-8.2" /></svg>
+      </button>
+      <input id="file-input" type="file" multiple hidden />
+      <textarea id="prompt" rows="1" maxlength="12000" placeholder="Message work-fold" aria-label="Message work-fold" aria-describedby="composer-note" autofocus></textarea>
+      <button class="send-button" type="submit" aria-label="Send message" aria-keyshortcuts="Enter" title="Send message" disabled>
+        <svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-5 5 5-5 5 5" /></svg>
+      </button>
+    </div>
+    <div id="composer-note" class="composer-note">
+      <span><kbd>Enter</kbd> to send · <kbd>Shift</kbd> + <kbd>Enter</kbd> for a new line</span>
+    </div>`;
+  document.querySelector("#home-composer-slot")?.append(composer);
+
+  for (const button of document.querySelectorAll("[data-nav-context]")) {
+    button.addEventListener("click", () => showContext(button.dataset.navContext));
+  }
+  document.querySelector("#back-to-chats")?.addEventListener("click", () => showContext("chats", { moveFocus: true }));
+  document.querySelector("#all-chats")?.addEventListener("click", () => showContext("chats", { moveFocus: true }));
+  document.querySelector("#rail-new-chat")?.addEventListener("click", startNewChat);
   document.querySelector("#new-chat")?.addEventListener("click", startNewChat);
+  document.querySelector("#recent-chats")?.addEventListener("click", (event) => {
+    const chat = event.target.closest?.("[data-chat-id]");
+    if (chat) void selectConversation(chat.dataset.chatId);
+  });
+  for (const button of document.querySelectorAll("[data-account-toggle]")) {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const menu = document.getElementById(button.dataset.accountToggle);
+      const open = menu?.hidden !== false;
+      closeAccountMenus();
+      if (menu) setAccountMenuOpen(button, menu, open);
+    });
+  }
+  for (const menu of document.querySelectorAll(".account-menu")) {
+    menu.addEventListener("click", (event) => event.stopPropagation());
+  }
+  for (const button of document.querySelectorAll("[data-logout]")) {
+    button.addEventListener("click", () => void logout());
+  }
+  document.addEventListener("click", () => closeAccountMenus());
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const openMenu = [...document.querySelectorAll(".account-menu")].find((menu) => menu.hidden === false);
+    if (!openMenu) return;
+    closeAccountMenus();
+    document.querySelector(`[data-account-toggle="${openMenu.id}"]`)?.focus();
+  });
   const foldHome = document.querySelector("#fold-home");
   // Delegated listeners survive the section's innerHTML refreshes.
   foldHome?.addEventListener("click", onFoldHomeClick);
@@ -416,7 +535,6 @@ function renderApplication() {
     cancelChatRename();
   });
   document.querySelector("#stop-task")?.addEventListener("click", () => void stopCurrentTask());
-  document.querySelector("#toggle-files")?.addEventListener("click", () => setFilesPanelOpen(!state.filesPanelOpen));
   document.querySelector("#space-picker")?.addEventListener("change", (event) => void selectExplorerSpace(event.currentTarget.value));
   document.querySelector("#attach-files")?.addEventListener("click", () => document.querySelector("#file-input")?.click());
   document.querySelector("#file-input")?.addEventListener("change", (event) => {
@@ -440,8 +558,45 @@ function renderApplication() {
   renderConversations();
   renderFoldHome();
   renderWorkspace();
-  setFilesPanelOpen(state.filesPanelOpen);
   updateConnection();
+}
+
+function showContext(name, { moveFocus = false } = {}) {
+  if (!contextNames.includes(name)) name = "home";
+  if (state.contextName !== name) {
+    // Only Home and Chat host the composer; drafts save under the outgoing
+    // context's key and restore under the incoming one.
+    saveComposerDraft();
+    state.contextName = name;
+    document.querySelector(".app-shell")?.setAttribute("data-context", name);
+    for (const context of contextNames) {
+      const section = document.querySelector(`#context-${context}`);
+      if (section) section.hidden = context !== name;
+    }
+    const slot = name === "home" ? "#home-composer-slot" : name === "chat" ? "#chat-composer-slot" : null;
+    const composer = document.querySelector("#composer");
+    if (slot && composer) document.querySelector(slot)?.append(composer);
+    restoreComposerDraft();
+    // The Chat screen belongs to the Chats destination in the rail and tabs.
+    const highlighted = name === "chat" ? "chats" : name;
+    for (const button of document.querySelectorAll("[data-nav-context]")) {
+      if (button.dataset.navContext === highlighted) button.setAttribute("aria-current", "page");
+      else button.removeAttribute("aria-current");
+    }
+    if (name === "chat") {
+      const messages = document.querySelector("#messages");
+      if (messages) messages.scrollTop = messages.scrollHeight;
+    }
+    renderConversationChrome();
+  }
+  if (moveFocus) focusContextHeading(name);
+}
+
+function focusContextHeading(name) {
+  const heading = document.querySelector(`#context-${name} h1`);
+  if (!heading) return;
+  if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
+  heading.focus({ preventScroll: true });
 }
 
 function renderMessages() {
@@ -577,6 +732,13 @@ function requestEvents(request) {
 }
 
 async function refreshConversation({ loadTranscript = true } = {}) {
+  // Fixture previews re-render the canned state instead of asking anything.
+  if (fixtureName) {
+    renderConversationChrome();
+    renderMessages();
+    renderFoldHome();
+    return;
+  }
   const refreshVersion = ++state.conversationRefreshVersion;
   try {
     if (state.startingNewChat || !state.selectedConversationId) {
@@ -586,6 +748,7 @@ async function refreshConversation({ loadTranscript = true } = {}) {
       state.transcriptTruncated = false;
       renderConversationChrome();
       renderMessages();
+      renderFoldHome();
       return;
     }
     const conversationId = state.selectedConversationId;
@@ -621,6 +784,7 @@ async function refreshConversation({ loadTranscript = true } = {}) {
     }
     renderConversationChrome();
     renderMessages();
+    renderFoldHome();
   } catch (error) {
     if (refreshVersion !== state.conversationRefreshVersion) return;
     state.banner = errorText(error);
@@ -643,12 +807,15 @@ async function sendPrompt() {
   state.sending = true;
   syncComposer();
   state.banner = "";
+  const sentFromHome = state.contextName === "home";
   const sentDraftKey = currentComposerDraftKey();
   try {
     const attachments = await serializeUploads();
+    // The Home composer always starts a new request — the same path as the
+    // Chats screen's New chat followed by a send.
     const request = {
       content,
-      ...(state.startingNewChat || !state.selectedConversationId
+      ...(sentFromHome || state.startingNewChat || !state.selectedConversationId
         ? { newConversation: true }
         : { conversationId: state.selectedConversationId }),
       ...(attachments.length ? { attachments } : {}),
@@ -665,6 +832,7 @@ async function sendPrompt() {
     input.value = "";
     state.uploads = [];
     syncComposer();
+    if (sentFromHome) showContext("chat");
     await loadConversations({ preferredConversationId: result.conversationId });
   } catch (error) {
     state.banner = errorText(error);
@@ -688,6 +856,7 @@ function startNewChat() {
   document.querySelector("#messages")?.removeAttribute("data-latest-message-id");
   state.transcriptTruncated = false;
   state.banner = "";
+  showContext("chat");
   restoreComposerDraft();
   renderConversationChrome();
   renderConversations();
@@ -696,13 +865,18 @@ function startNewChat() {
   document.querySelector("#prompt")?.focus({ preventScroll: true });
 }
 
+function composerContextActive() {
+  return state.contextName === "home" || state.contextName === "chat";
+}
+
 function currentComposerDraftKey() {
-  return state.startingNewChat || !state.selectedConversationId
+  return state.contextName === "home" || state.startingNewChat || !state.selectedConversationId
     ? "new-chat"
     : `chat:${state.selectedConversationId}`;
 }
 
 function saveComposerDraft() {
+  if (!composerContextActive()) return;
   const input = document.querySelector("#prompt");
   if (!input) return;
   const content = input.value;
@@ -711,6 +885,7 @@ function saveComposerDraft() {
 }
 
 function restoreComposerDraft() {
+  if (!composerContextActive()) return;
   const input = document.querySelector("#prompt");
   if (!input) return;
   const draft = state.composerDrafts.get(currentComposerDraftKey());
@@ -726,17 +901,22 @@ function syncComposer() {
   input.style.height = "auto";
   input.style.height = `${Math.min(Math.max(input.scrollHeight, 56), 180)}px`;
   const unavailable = !state.session?.desktopOnline;
+  // "Fold it in" is the capture verb: it appears exactly when material is
+  // staged on the message; a message without material is just Send.
+  const sendLabel = state.uploads.length ? "Fold it in" : "Send message";
   button.disabled = state.sending || state.renameSaving || unavailable || !input.value.trim();
   button.dataset.sending = String(state.sending);
-  button.setAttribute("aria-label", state.sending ? "Sending message" : unavailable ? "Desktop offline" : "Send message");
-  button.title = state.sending ? "Sending…" : unavailable ? "Desktop offline" : "Send message";
+  button.setAttribute("aria-label", state.sending ? "Sending message" : unavailable ? "Desktop offline" : sendLabel);
+  button.title = state.sending ? "Sending…" : unavailable ? "Desktop offline" : sendLabel;
   input.setAttribute("aria-busy", String(state.sending));
-  const newChatButton = document.querySelector("#new-chat");
-  if (newChatButton) newChatButton.disabled = state.sending || state.renameSaving || state.startingNewChat;
+  for (const newChatButton of document.querySelectorAll("#new-chat, #rail-new-chat")) {
+    newChatButton.disabled = state.sending || state.renameSaving || state.startingNewChat;
+  }
   renderComposerContext();
 }
 
 async function loadSpaces() {
+  if (fixtureName) return renderWorkspace();
   try {
     const result = await remote("spaces.list");
     state.spaces = result.spaces ?? [];
@@ -750,6 +930,11 @@ async function loadSpaces() {
 }
 
 async function loadConversations(options = {}) {
+  if (fixtureName) {
+    renderConversations();
+    renderConversationChrome();
+    return;
+  }
   const requestVersion = ++state.conversationListRequestVersion;
   const previousConversations = state.conversations;
   const result = await remote("management.chats");
@@ -833,6 +1018,25 @@ function renderConversations() {
     if (note.textContent !== noteText) note.textContent = noteText;
     list.append(note);
   }
+  renderHomeChats();
+}
+
+// Home shows a short tail of the same saved-Chat list; the Chats screen holds
+// the full list.
+function renderHomeChats() {
+  const list = document.querySelector("#recent-chats");
+  const allChats = document.querySelector("#all-chats");
+  if (!list) return;
+  const recent = state.conversations.slice(0, 4);
+  const markup = recent.length
+    ? recent.map((conversation) => {
+      const active = conversation.id === state.selectedConversationId && !state.startingNewChat;
+      const metaText = conversation.state === "running" ? "Working" : shortDate(conversation.updatedAt);
+      return `<li><button class="chat-button${active ? " active" : ""}" type="button" data-chat-id="${escapeAttribute(conversation.id)}"${state.sending || state.renameSaving ? " disabled" : ""}><span class="chat-title">${escapeHtml(conversation.title)}</span><span class="chat-meta">${escapeHtml(metaText)}</span></button></li>`;
+    }).join("")
+    : `<li class="empty-list">No chats</li>`;
+  replaceHtmlIfChanged(list, markup);
+  if (allChats) allChats.hidden = state.conversations.length <= recent.length;
 }
 
 async function selectConversation(conversationId) {
@@ -841,14 +1045,16 @@ async function selectConversation(conversationId) {
   cancelChatRename({ restoreFocus: false });
   state.startingNewChat = false;
   state.selectedConversationId = conversationId;
-  restoreComposerDraft();
   state.banner = "";
+  showContext("chat", { moveFocus: true });
+  restoreComposerDraft();
   renderConversations();
   renderConversationChrome();
   await refreshConversation();
 }
 
 async function loadTree(spaceId, path) {
+  if (fixtureName) return renderWorkspace();
   const key = `${spaceId}:${path}`;
   state.treeStatus.set(key, "loading");
   renderWorkspace();
@@ -1041,9 +1247,11 @@ async function toggleTree(spaceId, path) {
 
 async function stopCurrentTask() {
   const task = state.selectedConversationId ? state.activeTasks.get(state.selectedConversationId) : null;
-  if (!task) return;
+  if (!task || state.stoppingTask) return;
+  state.stoppingTask = true;
   const button = document.querySelector("#stop-task");
   if (button) button.disabled = true;
+  renderFoldHome();
   try {
     await remote("management.stop", { taskId: task.taskId });
     state.activeTasks.delete(task.conversationId);
@@ -1052,12 +1260,15 @@ async function stopCurrentTask() {
     state.banner = errorText(error);
     renderBanner();
   } finally {
+    state.stoppingTask = false;
     if (button) button.disabled = false;
     renderConversationChrome();
+    renderFoldHome();
   }
 }
 
-// --- The fold's home section: needs-you decision cards and the glance ------
+// --- The fold's Home: needs-you decision cards, the request tail, and the
+// glance as the page body ---------------------------------------------------
 // Every line of a card is host-composed on the desktop from the staged act's
 // typed pins (one card contract across the popover, the main window, and this
 // client); the digest is app-composed from recorded state. This client renders
@@ -1093,6 +1304,7 @@ async function refreshFoldHome() {
  * always safe to retry.
  */
 function acknowledgeGlance() {
+  if (fixtureName) return;
   const cursor = state.glance?.cursor;
   if (!cursor || document.visibilityState === "hidden" || !state.identity?.grantId) return;
   const seenThrough = state.glance.seen?.[`remote:${state.identity.grantId}`] ?? "";
@@ -1106,7 +1318,8 @@ function acknowledgeGlance() {
 function renderFoldHome() {
   const container = document.querySelector("#fold-home");
   if (!container) return;
-  const markup = `${renderNeedsYou()}${renderGlance()}`;
+  // Decisions come first, then the live request tail, then the glance.
+  const markup = `${renderNeedsYou()}${renderHomeActivity()}${renderGlance()}`;
   container.hidden = !markup;
   if (!replaceHtmlIfChanged(container, markup)) return;
   // Attribute values are render-time snapshots; live values survive refreshes.
@@ -1184,6 +1397,24 @@ function renderDecisionCard(card) {
     ${chosenFolderRule}
     ${actions}
   </article>`;
+}
+
+// The live request tail: the latest request's activity, with Stop, exactly as
+// the Chat screen tells it — shown on Home only while work is running.
+function renderHomeActivity() {
+  const request = state.startingNewChat ? null : state.summary?.latestRequest;
+  const requestPhase = request?.phase;
+  const working = !state.startingNewChat && (
+    state.summary?.state === "running" || requestPhase === "working" || requestPhase === "handed_off"
+  );
+  if (!working) return "";
+  const workEvents = requestEvents(request);
+  const canStop = Boolean(state.selectedConversationId && state.activeTasks.has(state.selectedConversationId));
+  return `<section class="home-activity" aria-label="Running now in your latest chat">
+    ${workEvents.map((event) => `<div class="work-event ${event.state}"${event.title ? ` title="${escapeAttribute(event.title)}"` : ""}><span class="work-event-mark" aria-hidden="true"></span><span>${event.html}</span></div>`).join("")}
+    ${!workEvents.some((event) => event.state === "running") ? `<div class="working-row"><span class="spinner"></span><span>Working</span></div>` : ""}
+    ${canStop ? `<button type="button" class="toolbar-button danger" data-stop-task="true"${state.stoppingTask ? " disabled" : ""}>Stop</button>` : ""}
+  </section>`;
 }
 
 function renderGlance() {
@@ -1265,6 +1496,10 @@ function cardTime(value) {
 function onFoldHomeClick(event) {
   const button = event.target.closest?.("button");
   if (!button) return;
+  if (button.dataset.stopTask) {
+    void stopCurrentTask();
+    return;
+  }
   if (button.dataset.dismissFoldNotice) {
     state.foldHomeNotice = "";
     renderFoldHome();
@@ -1375,21 +1610,16 @@ function renderComposerContext() {
   });
 }
 
-function setFilesPanelOpen(open) {
-  state.filesPanelOpen = open;
-  document.querySelector(".app-shell")?.classList.toggle("files-closed", !open);
-  const button = document.querySelector("#toggle-files");
-  button?.setAttribute("aria-expanded", String(open));
-  button?.setAttribute("aria-label", open ? "Hide Files" : "Show Files");
-  if (button) button.title = open ? "Hide Files" : "Show Files";
-}
-
-function setAccountMenuOpen(open) {
-  const button = document.querySelector("#account-settings");
-  const menu = document.querySelector("#account-menu");
-  if (!button || !menu) return;
+function setAccountMenuOpen(button, menu, open) {
   button.setAttribute("aria-expanded", String(open));
   menu.hidden = !open;
+}
+
+function closeAccountMenus() {
+  for (const button of document.querySelectorAll("[data-account-toggle]")) {
+    const menu = document.getElementById(button.dataset.accountToggle);
+    if (menu) setAccountMenuOpen(button, menu, false);
+  }
 }
 
 function fileGlyph(kind) {
@@ -1415,7 +1645,20 @@ function shortDate(value) {
 
 function assistantLabel() { return "work-fold"; }
 
+// The quiet Home status line: the address is where you are; the desktop is
+// online or asleep, never an error page pretending otherwise.
+function renderDesktopPresence() {
+  const presence = document.querySelector("#desktop-presence");
+  const text = document.querySelector("#desktop-presence-text");
+  if (!presence || !text) return;
+  const online = Boolean(state.session?.desktopOnline);
+  presence.dataset.online = String(online);
+  const label = online ? "Desktop online" : "Desktop asleep";
+  if (text.textContent !== label) text.textContent = label;
+}
+
 function scheduleRefresh() {
+  if (fixtureName) return;
   if (state.refreshTimer) clearTimeout(state.refreshTimer);
   const phase = state.summary?.latestRequest?.phase;
   const active = state.summary?.state === "running" || phase === "working" || phase === "handed_off";
@@ -1431,6 +1674,7 @@ function scheduleRefresh() {
 }
 
 function openEvents() {
+  if (fixtureName) return;
   state.eventSource?.close();
   state.eventSource = new EventSource("/api/events");
   state.eventSource.addEventListener("ready", (raw) => {
@@ -1466,6 +1710,7 @@ async function receiveRemoteEvent(event) {
 }
 
 async function remote(operation, input = {}) {
+  if (fixtureName) throw new Error("Fixture preview is inert; nothing is sent.");
   if (!state.session?.paired || !state.identity?.grantId) throw new Error("This browser is not approved.");
   const requestId = crypto.randomUUID();
   const header = {
@@ -1632,6 +1877,7 @@ function canonicalize(value) {
 }
 
 async function api(path, { method = "GET", body, csrf = false } = {}) {
+  if (fixtureName) throw new Error("Fixture preview is inert; nothing is sent.");
   const response = await fetch(path, {
     method,
     credentials: "same-origin",
@@ -1657,6 +1903,7 @@ function clearGrantFromIdentity() {
 
 function updateConnection(online = state.session?.desktopOnline) {
   if (state.session) state.session.desktopOnline = Boolean(online);
+  renderDesktopPresence();
   syncComposer();
 }
 
