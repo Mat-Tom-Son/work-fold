@@ -136,7 +136,7 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.match(pageMarkup, /apple-mobile-web-app-status-bar-style/);
   assert.match(pageMarkup, /name="theme-color" media="\(prefers-color-scheme: light\)" content="#f2f4ef"/);
   assert.match(pageMarkup, /name="theme-color" media="\(prefers-color-scheme: dark\)" content="#0f1622"/);
-  assert.match(pageMarkup, /property="og:image" content="https:\/\/work-fold\.com\/og-image\.png"/);
+  assert.match(pageMarkup, /property="og:image" content="https:\/\/www\.work-fold\.com\/og-image\.png"/);
 
   const manifest = await fetch(`${baseUrl}/manifest.webmanifest`);
   assert.equal(manifest.status, 200);

@@ -133,7 +133,7 @@ test("the web surfaces ship the same pack exports", async () => {
   assert.match(indexHtml, /name="theme-color" media="\(prefers-color-scheme: light\)" content="#f2f4ef"/);
   assert.match(indexHtml, /name="theme-color" media="\(prefers-color-scheme: dark\)" content="#0f1622"/);
   assert.match(indexHtml, /<link rel="icon" href="\/favicon-32\.png" type="image\/png" sizes="32x32" \/>/);
-  assert.match(indexHtml, /property="og:image" content="https:\/\/work-fold\.com\/og-image\.png"/);
+  assert.match(indexHtml, /property="og:image" content="https:\/\/www\.work-fold\.com\/og-image\.png"/);
   assert.match(indexHtml, /name="twitter:card" content="summary_large_image"/);
   assert.match(manifest, /"background_color": "#f2f4ef"/);
   assert.match(manifest, /"theme_color": "#f2f4ef"/);
