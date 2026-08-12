@@ -121,10 +121,9 @@ test("serves the web client and healthy no-store API responses", async (context)
     assert.doesNotMatch(applicationSource, new RegExp(removedCopy));
   }
 
-  const appIcon = await fetch(`${baseUrl}/work-fold-icon.svg`);
+  const appIcon = await fetch(`${baseUrl}/brand-mark.png`);
   assert.equal(appIcon.status, 200);
-  assert.match(appIcon.headers.get("content-type"), /^image\/svg\+xml/);
-  assert.match(await appIcon.text(), /id="work-fold-mark"/);
+  assert.match(appIcon.headers.get("content-type"), /^image\/png/);
 
   // Installable: the page links the manifest and Apple icon metadata, the
   // manifest is served with a manifest content type and the fold's name, and
@@ -135,8 +134,9 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.match(pageMarkup, /viewport-fit=cover/);
   assert.match(pageMarkup, /apple-mobile-web-app-capable/);
   assert.match(pageMarkup, /apple-mobile-web-app-status-bar-style/);
-  assert.match(pageMarkup, /name="theme-color" media="\(prefers-color-scheme: light\)" content="#f3f0e9"/);
-  assert.match(pageMarkup, /name="theme-color" media="\(prefers-color-scheme: dark\)" content="#1b1a18"/);
+  assert.match(pageMarkup, /name="theme-color" media="\(prefers-color-scheme: light\)" content="#f2f4ef"/);
+  assert.match(pageMarkup, /name="theme-color" media="\(prefers-color-scheme: dark\)" content="#0f1622"/);
+  assert.match(pageMarkup, /property="og:image" content="https:\/\/work-fold\.com\/og-image\.png"/);
 
   const manifest = await fetch(`${baseUrl}/manifest.webmanifest`);
   assert.equal(manifest.status, 200);
@@ -150,11 +150,20 @@ test("serves the web client and healthy no-store API responses", async (context)
     manifestBody.icons.map((icon) => icon.src),
     ["/icon-192.png", "/icon-512.png", "/icon-maskable-512.png"],
   );
-  for (const iconPath of ["/apple-touch-icon.png", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png"]) {
+  for (const iconPath of ["/apple-touch-icon.png", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png", "/favicon-32.png", "/brand-mark.png", "/brand-lockup-black.png", "/brand-lockup-white.png", "/og-image.png"]) {
     const icon = await fetch(`${baseUrl}${iconPath}`);
     assert.equal(icon.status, 200);
     assert.match(icon.headers.get("content-type"), /^image\/png/);
   }
+
+  const legacyFavicon = await fetch(`${baseUrl}/favicon.ico`);
+  assert.equal(legacyFavicon.status, 200);
+  assert.equal(legacyFavicon.headers.get("content-type"), "image/vnd.microsoft.icon");
+
+  // Brand webfonts are self-hosted next to the client that declares them.
+  const font = await fetch(`${baseUrl}/fonts/inter-latin-wght-normal.woff2`);
+  assert.equal(font.status, 200);
+  assert.equal(font.headers.get("content-type"), "font/woff2");
 
   const rejected = await fetch(baseUrl, { method: "POST" });
   assert.equal(rejected.status, 405);

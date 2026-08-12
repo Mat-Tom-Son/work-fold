@@ -19,9 +19,9 @@ const [app, rendererMain, styles, customization, settings, shortcuts, restricted
   read("web-local/src/components/panes/RestrictedAppsSection.tsx"),
 ]);
 
-test("macOS typography uses the system font and omits the Windows-only Segoe choice", () => {
+test("typography ships the brand font everywhere and omits the Windows-only Segoe choice on macOS", () => {
   assert.deepEqual(typographyFontOptionsForPlatform("darwin").map(({ value, label }) => [value, label]), [
-    ["default", "System"],
+    ["default", "Default"],
     ["verdana", "Verdana"],
     ["aptos", "Aptos"],
   ]);
@@ -33,7 +33,9 @@ test("macOS typography uses the system font and omits the Windows-only Segoe cho
   ]);
   assert.equal(typographyFontForPlatform("stable", "darwin"), "default");
   assert.equal(typographyFontForPlatform("stable", "win32"), "stable");
-  assert.match(styles, /:root\[data-platform="darwin"\][\s\S]*?--work-fold-font-family-default:\s*-apple-system/);
+  // Inter is bundled, so the default stack no longer forks per platform.
+  assert.match(styles, /--work-fold-font-family-default:\s*"Inter Variable"/);
+  assert.doesNotMatch(styles, /:root\[data-platform="darwin"\][\s\S]{0,200}--work-fold-font-family-default/);
   assert.match(settings, /Match your device’s appearance/);
   assert.doesNotMatch(settings, /Match Windows/);
 });

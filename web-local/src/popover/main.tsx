@@ -1,6 +1,11 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 
+import "@fontsource-variable/inter";
+import "@fontsource-variable/inter/wght-italic.css";
+import "@fontsource/poppins/500.css";
+import "@fontsource/poppins/600.css";
+import "@fontsource/poppins/700.css";
 import "../brand.css";
 import "./popover.css";
 import { PopoverApp } from "./PopoverApp";

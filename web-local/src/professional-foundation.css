@@ -1,23 +1,24 @@
 :root {
-  --work-fold-ui-font: var(--work-fold-font-family, "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif);
+  --work-fold-ui-font: var(--work-fold-font-family, "Inter Variable", Inter, "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif);
+  --work-fold-font-display: "Poppins", var(--work-fold-ui-font);
   --work-fold-font-weight-heavy: 700;
-  --ui-canvas: #f4f2ed;
-  --ui-surface: #fbfaf7;
-  --ui-surface-subtle: #ede9e2;
-  --ui-surface-hover: #e6e1d9;
-  --ui-border: #d9d2c9;
-  --ui-border-strong: #c8bfb5;
-  --ui-text: #252321;
-  --ui-text-muted: #6b655f;
-  --ui-text-subtle: #918980;
-  --ui-accent: #c84f30;
-  --ui-accent-hover: #b94429;
-  --ui-accent-soft: #fae8e1;
-  --ui-success: #237a3b;
-  --ui-attention: #a66300;
-  --ui-attention-soft: #fff3d6;
+  --ui-canvas: #f2f4ef;
+  --ui-surface: #fbfcf9;
+  --ui-surface-subtle: #e9ede3;
+  --ui-surface-hover: #dfe5d9;
+  --ui-border: #d5dbd0;
+  --ui-border-strong: #bcc5b9;
+  --ui-text: #1c2530;
+  --ui-text-muted: #5b6472;
+  --ui-text-subtle: #8a93a1;
+  --ui-accent: #0b6fd6;
+  --ui-accent-hover: #095cb4;
+  --ui-accent-soft: #e3f0fd;
+  --ui-success: #1f7a44;
+  --ui-attention: #9a6a00;
+  --ui-attention-soft: #fdf2d4;
   --ui-danger: #b42318;
-  --ui-tooltip-background: #252525;
+  --ui-tooltip-background: #16233b;
   --ui-tooltip-text: #ffffff;
   --ui-radius-sm: 4px;
   --ui-radius-md: 8px;
@@ -30,24 +31,24 @@
 }
 
 :root[data-theme="dark"] {
-  --ui-canvas: #1b1a18;
-  --ui-surface: #22211f;
-  --ui-surface-subtle: #2b2926;
-  --ui-surface-hover: #35322e;
-  --ui-border: #423e39;
-  --ui-border-strong: #554f49;
-  --ui-text: #f0ece5;
-  --ui-text-muted: #aaa39a;
-  --ui-text-subtle: #817a73;
-  --ui-accent: #f08363;
-  --ui-accent-hover: #f59a7f;
-  --ui-accent-soft: rgba(240, 131, 99, 0.15);
-  --ui-success: #72c78a;
-  --ui-attention: #efb45f;
-  --ui-attention-soft: rgba(239, 180, 95, 0.14);
+  --ui-canvas: #0f1622;
+  --ui-surface: #151f2e;
+  --ui-surface-subtle: #1d2939;
+  --ui-surface-hover: #26344a;
+  --ui-border: #33415a;
+  --ui-border-strong: #46567a;
+  --ui-text: #e9eef7;
+  --ui-text-muted: #a5b0c2;
+  --ui-text-subtle: #7a8598;
+  --ui-accent: #1ea0ff;
+  --ui-accent-hover: #4db5ff;
+  --ui-accent-soft: rgba(30, 160, 255, 0.16);
+  --ui-success: #46d586;
+  --ui-attention: #f6b516;
+  --ui-attention-soft: rgba(246, 181, 22, 0.14);
   --ui-danger: #ff9b92;
-  --ui-tooltip-background: #f4f4f4;
-  --ui-tooltip-text: #202020;
+  --ui-tooltip-background: #f4f6fa;
+  --ui-tooltip-text: #16233b;
   --ui-shadow-menu: 0 8px 16px rgba(0, 0, 0, 0.28);
   --ui-shadow-lg: 0 16px 32px rgba(0, 0, 0, 0.44);
 }
@@ -76,6 +77,23 @@ body {
 .context-menu,
 .command-palette-backdrop {
   font-family: var(--work-fold-ui-font);
+}
+
+/* Brand typography: Poppins carries interface headings; conversation and
+   document content rendered from markdown stays in the body face. */
+h1,
+h2,
+h3 {
+  font-family: var(--work-fold-font-display);
+}
+
+.message-body h1,
+.message-body h2,
+.message-body h3,
+.markdown-preview h1,
+.markdown-preview h2,
+.markdown-preview h3 {
+  font-family: inherit;
 }
 
 button,

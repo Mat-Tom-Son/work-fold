@@ -2,6 +2,13 @@
 
 work-fold uses a quiet desktop-tool aesthetic. The interface should feel native, legible, and deliberate before it feels customizable.
 
+## Brand
+
+- The mark ships from the designer icon pack in `desktop/assets/brand/pack/`: one vector master with an optically simplified small-size variant, exported per platform (tiled macOS/Windows app icons, bare-cube transparents, monochrome ladders, and the tab-ready menu-bar template). Lockups are the provided horizontal artwork as single images — black on light themes, white on dark — never stitched from separate cube and wordmark pieces. The installers (`npm run desktop:icons`, `node scripts/generate-bridge-web-icons.mjs`, `node scripts/sync-bridge-fonts.mjs`) are copy-and-verify; no surface keeps a private or redrawn copy of the mark.
+- The palette pairs deep navy ink (`#0e386c` brand navy, `#1c2530` body ink) with the bright blue interactive accent (`#0b6fd6` on light fields, `#1ea0ff` on dark), and reserves the cube's teal `#22cfc6`, green `#46d586`, and gold `#f6b516` for semantic and illustrative moments. Light surfaces build on the `#f2f4ef` neutral field; dark surfaces build on navy slate (`#0f1622` canvas). Filled accent controls use the paired contrast color, never white-on-bright-blue.
+- In-app lockups pair the mark with the product name set in Poppins — the bubble wordmark art is reserved for marketing surfaces (the landing page, the OG image, the DMG background).
+- Tokens live in `web-local/src/brand.css` and `professional-foundation.css` (desktop shell), `web-local/src/popover/popover.css` (the fold popover), and `services/bridge/public/app.css` (the web client); `tests/work-fold-brand.test.ts` guards the contract.
+
 ## Information hierarchy
 
 - A **Space** is a root folder. It is selected or switched; it is not a peer navigation surface.
@@ -22,7 +29,7 @@ work-fold uses a quiet desktop-tool aesthetic. The interface should feel native,
 
 ## Typography and spacing
 
-- Windows defaults to Segoe UI Variable Text; macOS defaults to the system font. Both use 15px body copy and weights 400, 600, and 700.
+- Every platform defaults to the bundled brand fonts: Inter Variable for body copy and controls, Poppins SemiBold (600) for interface headings. Markdown-rendered conversation and document content keeps the body face. Body copy is 15px with weights 400, 600, and 700; the fonts ship with the app and the web client, never from a CDN.
 - User-selected fonts and text sizes may change type, but must not change shell geometry or push controls out of bounds.
 - Use the 4, 8, 12, 16, 24, and 32px spacing scale.
 - Controls are 36–40px tall with 4–8px radii.

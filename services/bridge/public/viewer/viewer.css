@@ -1,17 +1,17 @@
 :root {
   color-scheme: light dark;
-  --viewer-ink: #1c1d20;
-  --viewer-paper: #fbfaf8;
-  --viewer-muted: #6b6f76;
-  --viewer-line: #e4e1db;
+  --viewer-ink: #1c2530;
+  --viewer-paper: #fbfcf9;
+  --viewer-muted: #5f6a78;
+  --viewer-line: #dde3ea;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --viewer-ink: #e8e6e1;
-    --viewer-paper: #17181b;
-    --viewer-muted: #9aa0a8;
-    --viewer-line: #2c2e33;
+    --viewer-ink: #e7ecf4;
+    --viewer-paper: #131a26;
+    --viewer-muted: #98a4b4;
+    --viewer-line: #2b3648;
   }
 }
 

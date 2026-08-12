@@ -1,37 +1,123 @@
+/* Brand webfonts, self-hosted from /fonts (see scripts/sync-bridge-fonts.mjs).
+   Inter Variable carries body text; Poppins carries display headings. */
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(/fonts/inter-latin-wght-normal.woff2) format("woff2-variations");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(/fonts/inter-latin-ext-wght-normal.woff2) format("woff2-variations");
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: "Inter Variable";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(/fonts/inter-latin-wght-italic.woff2) format("woff2-variations");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family: "Inter Variable";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(/fonts/inter-latin-ext-wght-italic.woff2) format("woff2-variations");
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url(/fonts/poppins-latin-500-normal.woff2) format("woff2");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url(/fonts/poppins-latin-ext-500-normal.woff2) format("woff2");
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url(/fonts/poppins-latin-600-normal.woff2) format("woff2");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url(/fonts/poppins-latin-ext-600-normal.woff2) format("woff2");
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url(/fonts/poppins-latin-700-normal.woff2) format("woff2");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url(/fonts/poppins-latin-ext-700-normal.woff2) format("woff2");
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
 :root {
   color-scheme: light;
-  --paper: #f3f0e9;
-  --paper-deep: #e8e3da;
-  --surface: #fbfaf7;
-  --ink: #252321;
-  --muted: #746e67;
-  --line: rgba(37, 35, 33, 0.14);
-  --accent: #c84f30;
-  --accent-hover: #ad4127;
-  --accent-soft: #f6ded5;
-  --success: #176a55;
-  --warning: #8a5514;
-  --danger: #a33939;
-  --shadow: 0 22px 70px rgba(52, 45, 37, 0.12);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --paper: #f2f4ef;
+  --paper-deep: #e6ebe2;
+  --surface: #fbfcf9;
+  --ink: #1c2530;
+  --muted: #616b79;
+  --line: rgba(16, 35, 60, 0.14);
+  --accent: #0b6fd6;
+  --accent-hover: #095cb4;
+  --accent-soft: #dcedfd;
+  --accent-contrast: #ffffff;
+  --success: #157a4e;
+  --warning: #8a6200;
+  --danger: #b3392f;
+  --shadow: 0 22px 70px rgba(14, 35, 66, 0.12);
+  --font-display: "Poppins", "Inter Variable", Inter, system-ui, sans-serif;
+  font-family: "Inter Variable", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   font-synthesis: none;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --paper: #1b1a18;
-    --paper-deep: #24211e;
-    --surface: #272522;
-    --ink: #f1ede7;
-    --muted: #aaa39a;
+    --paper: #0f1622;
+    --paper-deep: #131c2b;
+    --surface: #182233;
+    --ink: #e9eef7;
+    --muted: #a5b0c2;
     --line: rgba(255, 255, 255, 0.14);
-    --accent: #f08363;
-    --accent-hover: #ff9b7d;
-    --accent-soft: #4a2920;
-    --success: #65c9a8;
-    --warning: #efbd72;
-    --danger: #f09b9b;
+    --accent: #1ea0ff;
+    --accent-hover: #4db5ff;
+    --accent-soft: #0f2f4d;
+    --accent-contrast: #06233c;
+    --success: #56d99a;
+    --warning: #f6b516;
+    --danger: #ff9b92;
     --shadow: 0 24px 80px rgba(0, 0, 0, 0.36);
   }
 }
@@ -46,18 +132,21 @@ button { color: inherit; }
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   color: var(--ink);
-  font-size: 17px;
-  font-weight: 720;
-  letter-spacing: -0.045em;
 }
 
-.brand-mark {
-  width: 30px;
-  height: 30px;
+.brand-lockup {
   display: block;
-  border-radius: 8px;
+  height: 34px;
+  width: auto;
+}
+
+.brand-lockup-white { display: none; }
+
+@media (prefers-color-scheme: dark) {
+  .brand-lockup-black { display: none; }
+  .brand-lockup-white { display: block; }
 }
 
 /* --- Landing, sign-in, pairing, and offline gate ------------------------- */
@@ -90,7 +179,7 @@ button { color: inherit; }
 }
 
 .landing-copy { max-width: 720px; animation: rise-in 480ms cubic-bezier(.2,.8,.2,1) both; }
-.landing-copy h1 { max-width: 700px; margin: 0; font-size: clamp(54px, 7.4vw, 106px); line-height: .91; letter-spacing: -.075em; font-weight: 720; }
+.landing-copy h1 { max-width: 700px; margin: 0; font-family: var(--font-display); font-size: clamp(50px, 6.9vw, 98px); line-height: .98; letter-spacing: -.035em; font-weight: 600; }
 .landing-copy > p:not(.eyebrow) { max-width: 590px; margin: 28px 0 0; color: var(--muted); font-size: 18px; line-height: 1.65; }
 
 .landing-actions { display: flex; align-items: center; gap: 9px; }
@@ -101,7 +190,7 @@ button { color: inherit; }
   padding: 0 15px;
   border-radius: 10px;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-contrast);
   font-size: 12px;
   font-weight: 720;
   text-decoration: none;
@@ -130,7 +219,7 @@ button { color: inherit; }
 .landing-details { border-top: 1px solid var(--line); animation: rise-in 560ms 80ms cubic-bezier(.2,.8,.2,1) both; }
 .landing-details section { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 16px; padding: 22px 0 24px; border-bottom: 1px solid var(--line); }
 .landing-details section > span { padding-top: 3px; color: var(--accent); font-size: 11px; font-weight: 760; font-variant-numeric: tabular-nums; letter-spacing: .08em; }
-.landing-details h2 { margin: 0; font-size: 17px; letter-spacing: -.025em; }
+.landing-details h2 { margin: 0; font-family: var(--font-display); font-size: 17px; font-weight: 600; letter-spacing: -.015em; }
 .landing-details p { margin: 7px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
 
 .auth-top { display: flex; align-items: center; justify-content: space-between; }
@@ -146,7 +235,7 @@ button { color: inherit; }
 
 .auth-copy { max-width: 610px; animation: rise-in 480ms cubic-bezier(.2,.8,.2,1) both; }
 .eyebrow { margin: 0 0 18px; color: var(--accent); font-size: 12px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
-.auth-copy h1 { margin: 0; font-size: clamp(48px, 7vw, 90px); line-height: .95; letter-spacing: -.07em; font-weight: 720; }
+.auth-copy h1 { margin: 0; font-family: var(--font-display); font-size: clamp(44px, 6.5vw, 84px); line-height: 1; letter-spacing: -.035em; font-weight: 600; }
 .auth-copy p:not(.eyebrow) { max-width: 470px; margin: 26px 0 0; color: var(--muted); font-size: 17px; line-height: 1.6; }
 
 .auth-panel {
@@ -157,7 +246,7 @@ button { color: inherit; }
   box-shadow: var(--shadow);
   animation: rise-in 560ms 80ms cubic-bezier(.2,.8,.2,1) both;
 }
-.auth-panel h2 { margin: 0; font-size: 24px; letter-spacing: -.04em; }
+.auth-panel h2 { margin: 0; font-family: var(--font-display); font-size: 24px; font-weight: 600; letter-spacing: -.02em; }
 .auth-panel > p { color: var(--muted); line-height: 1.55; }
 
 .field { display: grid; gap: 8px; margin: 22px 0 0; }
@@ -180,7 +269,7 @@ button { color: inherit; }
   padding: 13px 18px;
   border-radius: 11px;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-contrast);
   font-weight: 700;
   transition: transform 140ms ease, background 140ms ease;
 }
@@ -236,7 +325,7 @@ button { color: inherit; }
 .context-scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; scroll-behavior: smooth; }
 .context-column { width: min(720px, 100%); margin: 0 auto; padding: 18px 18px 24px; }
 .context-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 4px 0 14px; }
-.context-title { margin: 0; font-size: 26px; font-weight: 720; letter-spacing: -.045em; outline: none; }
+.context-title { margin: 0; font-family: var(--font-display); font-size: 26px; font-weight: 600; letter-spacing: -.02em; outline: none; }
 
 /* The icon rail (860px and up). Icon-only square targets; labels ride
    tooltips and accessible names; the selected item gets a soft fill plus a
@@ -593,7 +682,7 @@ button { color: inherit; }
   padding: 0;
   border-radius: 12px;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-contrast);
   box-shadow: 0 5px 14px color-mix(in srgb, var(--accent) 26%, transparent);
   transition: transform 140ms ease, background 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
 }

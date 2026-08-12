@@ -110,8 +110,8 @@ const appUserModelId = productIdentity.productionAppId;
 const desktopAssetRoutePrefix = "/_desktop-assets/";
 const desktopTitleBarHeight = 40;
 const desktopTitleBarOverlayPalettes = {
-  light: { color: "#f4f2ed", symbolColor: "#252321" },
-  dark: { color: "#1b1a18", symbolColor: "#f0ece5" },
+  light: { color: "#f2f4ef", symbolColor: "#1c2530" },
+  dark: { color: "#0f1622", symbolColor: "#e9eef7" },
 } as const;
 // Electron supports Mica on Windows 11 22H2+ (build 22621). Older builds and
 // reduced-transparency sessions use a solid theme-matched window background.
@@ -130,7 +130,7 @@ const nativeWindowMaterial = desktopWindowMaterial(process.platform, {
   windowsMica: micaSupported,
   macVibrancy: macVibrancySupported,
 });
-const windowBackgroundColors = { light: "#f4f2ed", dark: "#1b1a18" } as const;
+const windowBackgroundColors = { light: "#f2f4ef", dark: "#0f1622" } as const;
 
 function titleBarOverlayFor(theme: "light" | "dark"): Electron.TitleBarOverlay {
   return {

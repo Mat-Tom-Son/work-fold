@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="topGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF9A08"/>
+      <stop offset="0.48" stop-color="#FFB817"/>
+      <stop offset="1" stop-color="#FFD62B"/>
+    </linearGradient>
+    <linearGradient id="topEdge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFB000"/>
+      <stop offset="1" stop-color="#F06A00"/>
+    </linearGradient>
+    <linearGradient id="blueGrad" x1="0.15" y1="0.05" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#139FEF"/>
+      <stop offset="0.52" stop-color="#0788ED"/>
+      <stop offset="1" stop-color="#0062DE"/>
+    </linearGradient>
+    <linearGradient id="blueEdge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#006DDB"/>
+      <stop offset="1" stop-color="#004CBF"/>
+    </linearGradient>
+    <linearGradient id="greenGrad" x1="0.9" y1="0.05" x2="0.18" y2="1">
+      <stop offset="0" stop-color="#39D99D"/>
+      <stop offset="0.55" stop-color="#11C3A0"/>
+      <stop offset="1" stop-color="#00A997"/>
+    </linearGradient>
+    <linearGradient id="greenEdge" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#05B893"/>
+      <stop offset="1" stop-color="#008D86"/>
+    </linearGradient>
+    <linearGradient id="blueHighlight" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8CE8FF" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#E5FDFF" stop-opacity=".25"/>
+    </linearGradient>
+    <linearGradient id="greenHighlight" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8AFFD0" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#E6FFF7" stop-opacity=".25"/>
+    </linearGradient>
+    <radialGradient id="topSheen" cx="78%" cy="12%" r="86%">
+      <stop offset="0" stop-color="#FFF58A" stop-opacity=".48"/>
+      <stop offset=".45" stop-color="#FFF58A" stop-opacity=".05"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-25%" y="-25%" width="150%" height="170%">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#0A284A" flood-opacity=".18"/>
+    </filter>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#092D55" flood-opacity=".15"/>
+    </filter>
+    <clipPath id="topClip">
+      <path d="M167 265 Q166 238 191 223 L336 140 Q354 130 372 140 L405 158 Q421 167 438 158 L553 92 Q577 78 601 91 L842 229 Q868 244 868 272 Q868 295 845 308 L549 477 Q520 494 491 477 L190 307 Q166 294 167 265 Z"/>
+    </clipPath>
+  </defs>
+
+  <g filter="url(#shadow)" transform="translate(0 34)">
+    <!-- left face dark extrusion -->
+    <path fill="url(#blueEdge)" d="M124 339 Q124 309 150 294 Q168 284 186 295 L344 386 Q369 400 369 429 L369 450 Q369 467 384 476 L501 544 Q526 558 526 588 L526 848 Q526 877 500 892 L475 906 Q455 918 435 906 L150 742 Q124 727 124 697 Z" transform="translate(10 8)" opacity=".8"/>
+    <!-- right face dark extrusion -->
+    <path fill="url(#greenEdge)" d="M900 339 Q900 309 874 294 Q856 284 838 295 L680 386 Q655 400 655 429 L655 450 Q655 467 640 476 L523 544 Q498 558 498 588 L498 848 Q498 877 524 892 L549 906 Q569 918 589 906 L874 742 Q900 727 900 697 Z" transform="translate(-10 8)" opacity=".85"/>
+
+    <!-- left face -->
+    <path fill="url(#blueGrad)" d="M124 339 Q124 309 150 294 Q168 284 186 295 L344 386 Q369 400 369 429 L369 450 Q369 467 384 476 L501 544 Q526 558 526 588 L526 848 Q526 877 500 892 L475 906 Q455 918 435 906 L150 742 Q124 727 124 697 Z"/>
+    <!-- right face -->
+    <path fill="url(#greenGrad)" d="M900 339 Q900 309 874 294 Q856 284 838 295 L680 386 Q655 400 655 429 L655 450 Q655 467 640 476 L523 544 Q498 558 498 588 L498 848 Q498 877 524 892 L549 906 Q569 918 589 906 L874 742 Q900 727 900 697 Z"/>
+
+    <!-- crisp folded highlights -->
+    <path d="M143 326 Q153 308 172 318 L328 407 Q347 418 347 441 L347 456 Q347 482 370 495 L481 560 Q503 573 503 598 L503 855" fill="none" stroke="url(#blueHighlight)" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" opacity=".82"/>
+    <path d="M881 326 Q871 308 852 318 L696 407 Q677 418 677 441 L677 456 Q677 482 654 495 L543 560 Q521 573 521 598 L521 855" fill="none" stroke="url(#greenHighlight)" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" opacity=".82"/>
+
+    <!-- subtle face gloss -->
+    <path d="M145 329 Q154 310 174 320 L330 410 Q348 421 348 443 L348 461 Q348 489 373 503 L487 570 Q507 581 507 605 L507 688 Q405 636 304 577 Q211 523 145 472 Z" fill="#FFFFFF" opacity=".055"/>
+    <path d="M879 329 Q870 310 850 320 L694 410 Q676 421 676 443 L676 461 Q676 489 651 503 L537 570 Q517 581 517 605 L517 688 Q619 636 720 577 Q813 523 879 472 Z" fill="#FFFFFF" opacity=".06"/>
+  </g>
+
+  <!-- top bottom edge/extrusion -->
+  <path fill="url(#topEdge)" filter="url(#softShadow)" d="M167 276 Q166 249 191 234 L336 151 Q354 141 372 151 L405 169 Q421 178 438 169 L553 103 Q577 89 601 102 L842 240 Q868 255 868 283 Q868 306 845 319 L549 488 Q520 505 491 488 L190 318 Q166 305 167 276 Z"/>
+  <!-- top main -->
+  <path fill="url(#topGrad)" d="M167 265 Q166 238 191 223 L336 140 Q354 130 372 140 L405 158 Q421 167 438 158 L553 92 Q577 78 601 91 L842 229 Q868 244 868 272 Q868 295 845 308 L549 477 Q520 494 491 477 L190 307 Q166 294 167 265 Z"/>
+  <rect x="150" y="70" width="750" height="430" fill="url(#topSheen)" clip-path="url(#topClip)"/>
+  <path d="M190 249 Q190 237 203 229 L340 151 Q355 143 370 151 L402 169 Q421 180 441 169 L560 101 Q577 91 594 100 L830 235" fill="none" stroke="#FFF3A7" stroke-opacity=".44" stroke-width="9" stroke-linecap="round"/>
+</svg>

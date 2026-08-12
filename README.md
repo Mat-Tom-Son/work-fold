@@ -1,5 +1,12 @@
 # work-fold
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="desktop/assets/brand/lockup-horizontal-white.png" />
+    <img src="desktop/assets/brand/lockup-horizontal-black.png" alt="The work-fold folder-cube mark beside the wordmark" width="420" />
+  </picture>
+</p>
+
 [![CI](https://github.com/Mat-Tom-Son/work-fold/actions/workflows/ci.yml/badge.svg)](https://github.com/Mat-Tom-Son/work-fold/actions/workflows/ci.yml)
 [![Latest Mac release](https://img.shields.io/github/v/release/Mat-Tom-Son/work-fold-mac-releases?label=macOS)](https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
