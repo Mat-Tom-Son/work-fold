@@ -14,6 +14,9 @@ out/
 *.pfx
 *.cer
 
+# Local design explorations are preserved outside the shipping asset contract.
+desktop/assets/brand/concepts/
+
 .DS_Store
 Thumbs.db
 
