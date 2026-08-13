@@ -48,8 +48,6 @@
     "desktop:publish:mac": "node scripts/publish-mac-release.mjs",
     "desktop:release:mac": "npm run desktop:make:mac:release && npm run desktop:publish:mac",
     "desktop:release:mac:resume": "npm run desktop:make:mac:release:resume && npm run desktop:publish:mac",
-    "desktop:release:mac:first": "npm run desktop:make:mac:release && npm run desktop:publish:mac -- --mac-first",
-    "desktop:release:mac:first:resume": "npm run desktop:make:mac:release:resume && npm run desktop:publish:mac -- --mac-first",
     "desktop:finalize:release:mac": "node scripts/finalize-mac-release-artifacts.mjs",
     "desktop:manifest:release:mac": "node scripts/write-mac-release-manifest.mjs",
     "desktop:reset:mac-safe-storage": "node scripts/reset-mac-safe-storage.mjs",

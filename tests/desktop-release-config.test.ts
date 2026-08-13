@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -82,13 +82,14 @@ test("desktop release configuration uses the isolated work-fold identities and f
   assert.match(packageJson.scripts["desktop:make:mac"], /build-mac-desktop\.mjs/);
   assert.match(packageJson.scripts["desktop:make:mac:release"], /--release/);
   assert.match(packageJson.scripts["desktop:release:mac"], /desktop:publish:mac/);
-  assert.match(packageJson.scripts["desktop:release:mac:first"], /--mac-first/);
+  assert.equal(packageJson.scripts["desktop:release:mac:first"], undefined);
+  assert.equal(packageJson.scripts["desktop:release:mac:first:resume"], undefined);
   assert.match(packageJson.scripts["desktop:verify:installed:mac"], /verify-installed-mac-app/);
 });
 
-test("Updater and release workflow keep credentials out of the application", () => {
+test("Mac-only CI and publication keep credentials out of the application", () => {
   const updaterSource = read("desktop/src/updater.ts");
-  const workflow = read(".github/workflows/windows-release.yml");
+  const workflow = read(".github/workflows/ci.yml");
   const macPublisher = read("scripts/publish-mac-release.mjs");
 
   assert.doesNotMatch(updaterSource, /setFeedURL/);
@@ -96,22 +97,13 @@ test("Updater and release workflow keep credentials out of the application", () 
   assert.match(updaterSource, /checkForUpdates/);
   assert.match(updaterSource, /quitAndInstall/);
   assert.match(updaterSource, /platform === "darwin"/);
-  assert.match(workflow, /tags:/);
-  assert.match(workflow, /WIN_CSC_LINK/);
-  assert.match(workflow, /Require Windows release signing credentials/);
-  assert.match(workflow, /WORKFOLD_REQUIRE_CODE_SIGNING: "1"/);
-  assert.match(workflow, /WORKFOLD_TRUSTED_CODE_SIGNING/);
-  assert.match(workflow, /latest\.yml/);
-  assert.match(workflow, /docs\/releases\/\$version\.md/);
-  assert.match(workflow, /--notes-file \$notes/);
-  assert.doesNotMatch(workflow, /--generate-notes/);
-  assert.match(workflow, /--draft/);
-  assert.match(workflow, /--draft=false/);
-  assert.match(macPublisher, /assertSourceReleasePublished\(\)/);
-  assert.match(macPublisher, /process\.argv\.includes\("--mac-first"\)/);
-  assert.match(macPublisher, /source tag and public repository are verified/);
-  assert.match(macPublisher, /Source release .* must be public before publishing macOS/);
-  assert.match(macPublisher, /identity\.productName}-Setup-\$\{version\}\.exe\.blockmap/);
+  assert.match(workflow, /runs-on: macos-latest/);
+  assert.match(workflow, /npm run desktop:prepare/);
+  assert.doesNotMatch(workflow, /windows-latest|desktop:package:smoke/);
+  assert.equal(existsSync(join(rootDir, ".github", "workflows", "windows-release.yml")), false);
+  assert.match(macPublisher, /assertSourceTagPublished\(\)/);
+  assert.match(macPublisher, /Source tag .* public repository are verified/);
+  assert.doesNotMatch(macPublisher, /mac-first|Mac-first|Setup-\$\{version\}\.exe|latest\.yml/);
   assert.match(macPublisher, /remote\.digest !== `sha256:\$\{localDigest\}`/);
   assert.doesNotMatch(macPublisher, /allow-dirty|allowDirty/);
 });

@@ -37,8 +37,8 @@ that proves the requested behavior.
 - Use `npm run desktop:make:mac:release` for a fresh complete DMG/ZIP candidate
   without publication.
 - Use `npm run desktop:release:mac` only when the user explicitly requests the
-  normal guarded public release. Use `desktop:release:mac:first` only when the
-  user explicitly chooses the documented Mac-first exception.
+  guarded public Mac release. Windows is not an active release lane or a Mac
+  publication prerequisite.
 
 Do not use a signed or packaged lane to check ordinary UI copy or styling.
 
@@ -49,9 +49,7 @@ Do not use a signed or packaged lane to check ordinary UI copy or styling.
 2. Resume a compatible local distribution build with
    `npm run desktop:make:mac:release:resume`.
 3. Resume through normal publication with
-   `npm run desktop:release:mac:resume`, or use the matching
-   `desktop:release:mac:first:resume` only for the already-chosen Mac-first
-   policy.
+   `npm run desktop:release:mac:resume`.
 4. Start a fresh build when status reports changed source, package version,
    architecture, Node runtime, signing identity, feed, or artifact bytes.
 

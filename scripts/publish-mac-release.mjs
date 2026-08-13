@@ -16,7 +16,6 @@ const repo = stringValue(process.env.WORKFOLD_MAC_RELEASE_REPO) || identity.macR
 const releaseRepo = `${owner}/${repo}`;
 const sourceRepo = stringValue(process.env.WORKFOLD_SOURCE_RELEASE_REPO) || `${identity.sourceRepositoryOwner}/${identity.sourceRepositoryName}`;
 const tag = `v${version}`;
-const macFirst = process.argv.includes("--mac-first");
 const builderDir = join(rootDir, "out", "builder");
 const stem = `${identity.productName}-${version}-mac-${arch}`;
 const manifestName = `${identity.productName}-mac-release-manifest.json`;
@@ -36,7 +35,7 @@ if (!version) throw new Error("package.json does not declare a release version."
 
 assertSourceState();
 run("gh", ["auth", "status"], "GitHub CLI authentication is required");
-assertSourceReleasePublished();
+assertSourceTagPublished();
 const repoInfo = JSON.parse(run("gh", ["repo", "view", releaseRepo, "--json", "isPrivate,visibility,url"], `Mac release feed ${releaseRepo} was not found`));
 if (repoInfo.isPrivate || repoInfo.visibility !== "PUBLIC") {
   throw new Error(`${releaseRepo} must be public so installed ${identity.productName} apps can update without a GitHub token.`);
@@ -101,7 +100,7 @@ function assertSourceState() {
   if (head !== remoteHead) throw new Error(`Local HEAD ${head} does not match origin/main ${remoteHead}. Push the release commit first.`);
 }
 
-function assertSourceReleasePublished() {
+function assertSourceTagPublished() {
   run("git", ["fetch", "--quiet", "origin", "tag", tag], `Could not refresh source tag ${tag}`);
   const head = run("git", ["rev-parse", "HEAD"], "Could not read local HEAD");
   const taggedCommit = run("git", ["rev-parse", `${tag}^{commit}`], `Could not resolve source tag ${tag}`);
@@ -109,40 +108,15 @@ function assertSourceReleasePublished() {
     throw new Error(`Source tag ${tag} points to ${taggedCommit}, not the exact release commit ${head}.`);
   }
 
-  const sourceReleaseResult = spawnSync(
+  const sourceInfo = JSON.parse(run(
     "gh",
-    ["release", "view", tag, "--repo", sourceRepo, "--json", "tagName,isDraft,isPrerelease,assets,url"],
-    commandOptions(),
-  );
-  if (sourceReleaseResult.status !== 0) {
-    if (!macFirst) {
-      throw new Error(`Source release ${sourceRepo} ${tag} must be public before publishing macOS: ${compactText(sourceReleaseResult.stderr || sourceReleaseResult.stdout)}`);
-    }
-    const sourceInfo = JSON.parse(run(
-      "gh",
-      ["repo", "view", sourceRepo, "--json", "isPrivate,visibility,url"],
-      `Source repository ${sourceRepo} was not found`,
-    ));
-    if (sourceInfo.isPrivate || sourceInfo.visibility !== "PUBLIC") {
-      throw new Error(`${sourceRepo} must be public before a Mac-first release can be published.`);
-    }
-    console.log(`[${identity.productName} macOS release] Windows release ${sourceRepo} ${tag} is explicitly deferred; source tag and public repository are verified.`);
-    return;
+    ["repo", "view", sourceRepo, "--json", "isPrivate,visibility,url"],
+    `Source repository ${sourceRepo} was not found`,
+  ));
+  if (sourceInfo.isPrivate || sourceInfo.visibility !== "PUBLIC") {
+    throw new Error(`${sourceRepo} must be public before its tagged Mac release can be published.`);
   }
-
-  const release = JSON.parse(sourceReleaseResult.stdout);
-  if (release.tagName !== tag || release.isDraft || release.isPrerelease) {
-    throw new Error(`Source release ${sourceRepo} ${tag} is not a public stable release.`);
-  }
-  const assetNames = new Set((release.assets ?? []).map((asset) => asset.name));
-  for (const name of [
-    `${identity.productName}-Setup-${version}.exe`,
-    `${identity.productName}-Setup-${version}.exe.blockmap`,
-    "latest.yml",
-    "SHA256SUMS.txt",
-  ]) {
-    if (!assetNames.has(name)) throw new Error(`Source release ${sourceRepo} ${tag} is missing ${name}.`);
-  }
+  console.log(`[${identity.productName} macOS release] Source tag ${tag} and public repository are verified at ${head}.`);
 }
 
 function verifyRemoteRelease(expectDraft) {

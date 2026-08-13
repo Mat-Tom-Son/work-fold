@@ -61,7 +61,7 @@ npm test
 npm run desktop:prepare
 ```
 
-Use `npm run desktop:package:smoke` when packaged behavior or assets change. It verifies the canonical unpacked release layout without building an NSIS installer. Use `npm run desktop:make` only for an installer/release candidate. The purpose of each lane is explained in [Windows build](docs/windows-build.md).
+GitHub CI runs these gates on macOS. Windows package and installer commands are dormant manual diagnostics; they are not CI or release gates and should not be run as routine handoff evidence.
 
 For restricted-app manifest, bridge, broker, sandbox, storage, file, notification, connection, or lifecycle changes, run the focused tests and `npm run desktop:restricted-app:smoke`. That command exercises the real Electron visible and worker sandboxes; browser fixtures or Node-only tests do not prove the security boundary. `desktop:prepare`, the package lanes, and the release lane include this probe.
 

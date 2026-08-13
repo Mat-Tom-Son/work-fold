@@ -268,8 +268,7 @@ When a design is ambiguous, prefer the option that best preserves these properti
   its Project owns retained data; after explicit purge, source removal clears the
   machine-local Project/Release lineage and target removal cancels prepared
   operations aimed at that Space.
-- Build a Windows installer and deliver updates through GitHub Releases.
-- Build, Developer ID-sign, notarize, and publish macOS arm64 app, DMG, ZIP, blockmap, and update metadata from the same source version as Windows, with a verified installed two-version updater lane.
+- Build, Developer ID-sign, notarize, and publish the macOS arm64 app, DMG, ZIP, blockmap, and update metadata, with a verified installed two-version updater lane. This is the only active desktop distribution lane.
 
 - Meet the whole product through **the fold** — the one door above all Spaces: the management conversation, its menu-bar/tray popover, and "Your fold on the web" — with capture in and publishing out. See [the fold](fold.md).
 - Perform every product verb through the fold's receipted act lane at human parity: chat lifecycle and compaction, History restore with automation-aware fencing, file operations, content search, Library, Space rename/unregister and appearance, capability removal, and App Studio's authority-neutral lifecycle — each act journaled before it runs, receipted after, with typed undo references.
@@ -306,8 +305,8 @@ When a design is ambiguous, prefer the option that best preserves these properti
   revocation—before public discovery, an App Store, or generalized sync.
 - Verify and document supported provider OAuth flows account tier by account tier in packaged desktop releases; do not turn Pi's generic OAuth hook support into a blanket compatibility claim.
 - Add direct cloud-storage integrations behind a provider-neutral model with stable remote IDs, offline behavior, explicit conflicts, and no surprise deletion.
-- Move from personal or unsigned Windows artifacts to a publicly trusted code-signing identity.
-- Consider additional Windows architectures after the x64 release lane is stable.
+- Reactivate Windows distribution only as a deliberate future product decision with a publicly trusted code-signing identity, platform-native CI/package evidence, an updater proof, and revised release authority that does not silently gate the Mac lane.
+- Consider Windows architectures only after that release lane is deliberately restored and x64 is stable.
 
 Roadmap wording must distinguish shipped behavior from direction. Update this section when a capability moves between layers.
 

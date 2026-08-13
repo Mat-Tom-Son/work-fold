@@ -152,13 +152,9 @@ Optional publishing serves one explicitly designated Space file (or, later, a re
 
 ## Release integrity
 
-Public Windows releases are built from version tags and include an installer, blockmap, update manifest, and SHA-256 checksum file. The updater also validates the SHA-512 digest in `latest.yml`.
+Windows packaging and public distribution are inactive. Version tags do not
+start a Windows workflow, and Windows artifacts are not Mac release authority.
+The retained manual Windows scripts are development references only and must
+not be presented as a supported or publicly trusted release lane.
 
-Development artifacts may be unsigned or self-signed. The first public work-fold
-release requires a valid Authenticode signature from a new work-fold or
-product-neutral identity; a legacy product-branded certificate is not reused.
-A self-signed certificate provides artifact continuity but does not establish
-public Windows trust. Verify the release source, signature, and published
-checksums, and expect Windows warnings until a publicly trusted lane is used.
-
-Local Mac smoke candidates are ad hoc signed and are not public release artifacts. They use the distinct `work-fold Local Smoke` name, `com.work-fold.desktop.local-smoke` bundle id, build-channel marker and application-data directory, and never start the production updater. They must not be renamed or installed over `work-fold.app`; interactive release-workstation testing uses a Developer ID-signed candidate because a user-data override does not isolate macOS Keychain access control. Public Mac releases use the separate `Mat-Tom-Son/work-fold-mac-releases` feed and require Developer ID signing, hardened runtime, Apple notarization and stapling, Gatekeeper acceptance, matching DMG/ZIP update metadata, and remote size/SHA-256 verification. The manually installed first release establishes the new identity; a later higher work-fold release must prove the new updater path end to end.
+Local Mac smoke candidates are ad hoc signed and are not public release artifacts. They use the distinct `work-fold Local Smoke` name, `com.work-fold.desktop.local-smoke` bundle id, build-channel marker and application-data directory, and never start the production updater. They must not be renamed or installed over `work-fold.app`; interactive release-workstation testing uses a Developer ID-signed candidate because a user-data override does not isolate macOS Keychain access control. Public Mac releases use the separate `Mat-Tom-Son/work-fold-mac-releases` feed and require an exact public source tag, Developer ID signing, hardened runtime, Apple notarization and stapling, Gatekeeper acceptance, matching DMG/ZIP update metadata, and remote size/SHA-256 verification. The manually installed first release establishes the new identity; a later higher work-fold release must prove the new updater path end to end.

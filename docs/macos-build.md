@@ -1,6 +1,6 @@
 # macOS build and release lane
 
-work-fold uses one Electron, React, local API, Pi, management-kernel, restricted-app, and versioning codebase on Windows and macOS. macOS is a platform lane in this repository, not a fork.
+work-fold retains one Electron, React, local API, Pi, management-kernel, restricted-app, and versioning codebase with cross-platform seams, but Apple-silicon macOS is the only active CI packaging and public distribution lane. Windows build code is dormant future work, not a Mac release gate.
 
 ## Legacy Workspace baseline evidence
 
@@ -52,7 +52,7 @@ packaged assets, and leaves the full updater/distribution proof to the slower
 distribution lane. Electron Builder's unpacked `--dir` output has no updater
 metadata, so it cannot prove update discovery or installation.
 
-`desktop:make:mac` is the unsigned/ad hoc structural smoke lane. It performs desktop preparation, Pi and restricted-app smoke checks, Electron Builder DMG/ZIP assembly, packaged-asset and fuse verification, updater-manifest verification, mounted-DMG inspection, checksum generation, and release-manifest generation. Installer-only DMG artwork is generated under ignored `out/generated-assets` so Windows and macOS image encoders cannot rewrite tracked source bytes or make the guarded publisher reject its own build. The smoke build is not distributable and must not be renamed or installed over the production app.
+`desktop:make:mac` is the unsigned/ad hoc structural smoke lane. It performs desktop preparation, Pi and restricted-app smoke checks, Electron Builder DMG/ZIP assembly, packaged-asset and fuse verification, updater-manifest verification, mounted-DMG inspection, checksum generation, and release-manifest generation. Installer-only DMG artwork is generated under ignored `out/generated-assets` so image encoders cannot rewrite tracked source bytes or make the guarded publisher reject its own build. The smoke build is not distributable and must not be renamed or installed over the production app.
 
 Expected Apple silicon outputs:
 
@@ -155,7 +155,7 @@ not hand-edit the state file. The full verifier still runs before publication.
 
 ## Public releases
 
-Normal releases use one package version across Windows and Mac, but separate artifact feeds so the two publishers cannot race to own one GitHub release:
+The active public desktop release is the signed, notarized Apple-silicon Mac build. The source repository carries the exact source tag, while the separate Mac feed owns only the distribution artifacts:
 
 The first public work-fold version is `0.1.0`. The repository used `0.8.0` as a
 development holdover and reset it only when the first release commit and tag
@@ -171,7 +171,7 @@ legacy release repository must never receive these artifacts.
 npm run desktop:release:mac
 ```
 
-The publisher requires a clean worktree whose `HEAD` equals `origin/main`, the matching source tag and complete public Windows release, a public feed repository, and an unused `v<version>` tag in that feed. It verifies the local release again, uploads all assets as a draft, checks remote names, sizes, and GitHub digests, then publishes the release as latest. There is no dirty-worktree bypass.
+The publisher requires a clean worktree whose `HEAD` equals `origin/main`, the matching source tag, public source and feed repositories, and an unused `v<version>` tag in the feed. It verifies the local release again, uploads all assets as a draft, checks remote names, sizes, and GitHub digests, then publishes the release as latest. It does not require a source-repository GitHub Release or any Windows artifact. There is no dirty-worktree bypass.
 
 See [macOS release runbook](macos-release.md) for the exact repeatable procedure and recovery rules.
 

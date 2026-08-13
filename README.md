@@ -19,7 +19,7 @@ The core idea is simple: the folder stays ordinary; work-fold makes it feel like
 
 ## Get work-fold
 
-[Download work-fold for Apple silicon Macs](https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/latest). The Mac app updates from that public feed; both the app and DMG are Developer ID-signed, notarized, and accepted by Gatekeeper. The public Windows build is deliberately deferred until it can be signed with a valid Authenticode identity—work-fold does not present a self-signed installer as publicly trusted.
+[Download work-fold for Apple silicon Macs](https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/latest). The Mac app updates from that public feed; both the app and DMG are Developer ID-signed, notarized, and accepted by Gatekeeper. macOS is the only active CI packaging and public distribution lane. Dormant Windows build code is retained for possible future work, but no Windows workflow or public release is active.
 
 work-fold is a clean product boundary, not an in-place rename of Workspace. It uses a new application profile, updater identity, CLI, repository, release feed, internal protocol, and `.work-fold/` Space metadata. It never imports, migrates, rewrites, wipes, or deletes legacy Workspace state or `.workspace/` content; those bytes remain preserved and inert. The old `Mat-Tom-Son/workspace` and `Mat-Tom-Son/workspace-mac-releases` repositories are frozen legacy surfaces and never receive work-fold releases.
 
@@ -91,7 +91,7 @@ work-fold reserves two hidden support directories inside a Space: `.work-fold/` 
 - A separate restricted-app lane: strict non-evaluating review, content-addressed Development previews, arbitrary reviewed web UI in a sandboxed Space rail navigator, app-requested persistent Space-owned tabs, optional Assistant-action and automation workers, a shared machine-wide scheduler for named jobs, durable run receipts, bounded local app storage with active-view invalidation hints, reviewed History-covered Space-file grants, explicit public-HTTPS or loopback access, host-owned encrypted credentials, standards-only OAuth PKCE, and static reviewed system notifications from enabled automations.
 - A local App Studio that declares a machine-local App Project, prepares immutable version-2 Releases from reviewed previews, publishes them as a separate local decision, installs a published Release into a chosen registered Space, and prepares deterministic updates or rollbacks before activation.
 - [Agent Skills](https://agentskills.io) from standard `SKILL.md` directories, `.skill`/ZIP bundles, and skill-only imports from compatible multi-skill packs.
-- Assisted Windows installation and a signed/notarized Apple silicon DMG, with GitHub-hosted application updates on both platforms.
+- A signed/notarized Apple silicon DMG with GitHub-hosted application updates from a dedicated public Mac feed.
 - A versioned management layer and installed `work-fold` command: a content-free read lane for inspecting Space context, running work, and Pi capabilities, plus a per-launch-authenticated act lane that gives a shell-capable agent the product's receipted verbs while the app is running — Space lifecycle and appearance, Chats and their lifecycle, History saves and restores, restore-pointed file operations, Library copies, content search, Checks, and App Studio's authority-neutral lifecycle — every action journaled before it runs, replays refused by request id, and acts that install code, widen a power, or destroy something staged for a human decision instead of executed.
 - The fold — a management conversation above all Spaces (`work-fold manage …`): the same full-trust Assistant runtime with a machine-local transcript, taught by app-materialized instructions to work across Spaces through the work-fold CLI's read and act commands. Requests carry reference attachments (`--attach` paths and links), track every delegated Space turn, and support request-level status and stop.
 - A menu-bar popover that opens your fold ("Your fold" in the menu bar and tray): drop files, folders, or links on the macOS menu-bar icon or the popover, add an instruction — with material staged, the send button reads "Fold it in" — and follow the request through working, needs-you, handed-off, and done, with an explicitly attributed action trail backed by act receipts and a Stop that names everything it aborts. New chat starts a clean saved transcript without deleting the previous one. The Windows tray offers the same popover from its menu.
@@ -192,19 +192,17 @@ Useful checks:
 npm run check
 npm test
 npm run desktop:prepare
-npm run desktop:package:smoke
-npm run desktop:make
 npm run desktop:make:mac
 npm run desktop:rc:mac
 ```
 
-`desktop:package:smoke` creates and verifies the canonical Windows Electron Builder unpacked app while skipping NSIS installer and updater-artifact creation. The slower `desktop:package` command retains a Forge package lane for targeted diagnostics. `desktop:make` builds the Windows NSIS candidate; `desktop:make:mac` builds the non-interactive, separately identified `work-fold Local Smoke` artifacts; `desktop:rc:mac` creates an app-only signed/notarized Mac candidate for interactive QA; and `desktop:release:mac` signs, notarizes, verifies, and publishes the complete production Mac artifacts. Interrupted full Mac builds can be inspected with `desktop:release:mac:status` and resumed only while their source-bound artifact checkpoint validates.
+`desktop:make:mac` builds the non-interactive, separately identified `work-fold Local Smoke` artifacts; `desktop:rc:mac` creates an app-only signed/notarized Mac candidate for interactive QA; and `desktop:release:mac` signs, notarizes, verifies, and publishes the complete production Mac artifacts. Interrupted full Mac builds can be inspected with `desktop:release:mac:status` and resumed only while their source-bound artifact checkpoint validates. The Windows package and installer commands remain dormant manual diagnostics and are not part of CI or release authority.
 
-Use `npm run local:dev` for the fast UI loop, `check` and `test` for normal implementation feedback, and `desktop:prepare` for desktop integration. See [Windows builds](docs/windows-build.md) and [macOS builds](docs/macos-build.md) for platform packaging and release gates.
+Use `npm run local:dev` for the fast UI loop, `check` and `test` for normal implementation feedback, and `desktop:prepare` for desktop integration. See [macOS builds](docs/macos-build.md) for active platform packaging and release gates.
 
 `npm run local:api`, `npm run local:dev`, non-packaged Electron runs, and Windows package directories that have not been installed keep development data in a dedicated platform application-data directory by default (`%APPDATA%\work-fold Development` on Windows, `~/Library/Application Support/work-fold Development` on macOS, or the corresponding XDG configuration directory on Linux). This includes both feed-less smoke output and the feed-bearing `win-unpacked` release candidate: only an NSIS-installed Windows app with its installer-owned uninstaller selects the installed product's `work-fold` state. Set `WORKFOLD_STATE_DIR` for the local API or `WORKFOLD_DESKTOP_STATE_DIR` for Electron only when you intentionally want a specific disposable state tree. `WORKFOLD_CLI_STATE_DIR` is the separate exact broker root used by packaged CLI shims and is propagated only to child commands.
 
-CI runs `check`, `test`, and `desktop:package:smoke`, so every branch verifies the same unpacked Electron Builder layout used by the release lane without paying the NSIS cost.
+CI runs on macOS and executes `check`, `test`, and `desktop:prepare`. Signed packaging, notarization, stapling, and distribution remain guarded workstation release operations.
 
 ### Developing with Codex or Claude Code
 
@@ -269,13 +267,11 @@ Checks are optional and manual. An inert proposal names the exact Space-relative
 
 Human-readable output is the default. Use `--json` for automation and `--space <id-or-exact-name>` when the terminal's current folder is not enough context. See [work-fold management layer](docs/management-layer.md) for snapshot fields, resolution rules, broker limits, and the distinction between this CLI and `work-fold:drive`.
 
-## Windows releases
+## Windows status
 
-Pushing an exact version tag such as `v<package version>` runs the Windows release workflow and publishes the installer plus updater metadata to [GitHub Releases](https://github.com/Mat-Tom-Son/work-fold/releases). The installed app checks that public feed shortly after startup, every four hours, and when you choose **Help > Check for Updates…**. An unpacked `desktop:package:smoke` build intentionally disables updater controls because Electron Builder does not generate `resources/app-update.yml` for that lane.
+Windows distribution is inactive. Pushing a version tag does not build or publish a Windows installer, and Windows packaging does not gate Mac releases. The implementation and manual build references remain in the repository only so a future Windows effort can start from the existing cross-platform seams instead of pretending a release lane exists today.
 
-The release workflow supports an optional PFX certificate through GitHub secrets. The included personal certificate helper creates a self-signed identity outside the repository; this signs artifacts consistently but does not establish public Windows trust. Until a certificate-authority-backed identity is configured, users may still see Unknown Publisher or SmartScreen warnings.
-
-See [Windows builds](docs/windows-build.md) and [Windows releases and signing](docs/windows-release.md).
+See the dormant [Windows build](docs/windows-build.md) and [Windows release](docs/windows-release.md) references only when deliberately reactivating that platform.
 
 ## macOS status
 
@@ -302,7 +298,7 @@ See [Assistant capabilities](docs/assistant-capabilities.md) for the product-fac
 - [Assistant capabilities](docs/assistant-capabilities.md), [Extension surfaces](docs/extension-surfaces.md), [restricted app authoring](docs/restricted-app-authoring.md), [restricted app runtime](docs/restricted-app-runtime.md), and [Pi compatibility](docs/pi-resources.md) — Skills, full-trust Extensions, restricted apps, packages, scopes, authoring, and authorization.
 - [Legacy Workspace release notes](docs/releases/0.8.0.md) — the historical pre-rebrand release series is preserved byte-for-byte under `docs/releases/`; it is evidence, not the work-fold version lineage.
 - [Desktop parity](docs/ui-parity.md) and [visual system](docs/visual-design.md) — required interactions and design rules.
-- [Windows build](docs/windows-build.md), [Windows release runbook](docs/windows-release.md), [macOS build lane](docs/macos-build.md), and [macOS release runbook](docs/macos-release.md) — verification, signing, updater, and publishing boundaries.
+- [macOS build lane](docs/macos-build.md) and [macOS release runbook](docs/macos-release.md) — active verification, signing, updater, and publishing boundaries. The [Windows build](docs/windows-build.md) and [Windows release](docs/windows-release.md) references are dormant future notes.
 - [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), and [Privacy](PRIVACY.md) — repository and user-data policies.
 
 ## Project policies

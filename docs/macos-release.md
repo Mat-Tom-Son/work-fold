@@ -1,6 +1,6 @@
 # macOS release runbook
 
-This runbook publishes the Apple silicon work-fold artifacts to the separate public feed at [`Mat-Tom-Son/work-fold-mac-releases`](https://github.com/Mat-Tom-Son/work-fold-mac-releases). Windows artifacts continue to use the source repository's releases. Both platforms use the same `package.json` version.
+This runbook publishes the active Apple silicon work-fold desktop release to the separate public feed at [`Mat-Tom-Son/work-fold-mac-releases`](https://github.com/Mat-Tom-Son/work-fold-mac-releases). Windows distribution is inactive: it has no CI package gate, tag workflow, or public-release prerequisite.
 
 ## One-time workstation setup
 
@@ -60,9 +60,8 @@ artifacts, or metadata.
 
 ## Release procedure
 
-1. Sync `main`, complete the shared version bump/release notes, and finish the
-   source-repository work for that version. Ordinarily the signed Windows
-   source release is published first.
+1. Sync `main`, complete the version bump/release notes, and finish the
+   source-repository work for that version.
 2. Run the normal gates with Node 24:
 
    ```bash
@@ -79,19 +78,6 @@ artifacts, or metadata.
    npm run desktop:release:mac
    ```
 
-   When Windows signing is deliberately deferred, use the explicit Mac-first
-   lane instead:
-
-   ```bash
-   npm run desktop:release:mac:first
-   ```
-
-   This exception still requires a public source repository, a source tag on
-   the exact pushed release commit, all Mac signing/notarization gates, and the
-   full remote digest audit. It skips only the already-published Windows asset
-   prerequisite. The Windows workflow remains fail-closed until its signing
-   secrets are configured and may be rerun later on the unchanged tag.
-
    If a local build or pre-publication check is interrupted, inspect it first:
 
    ```bash
@@ -99,18 +85,16 @@ artifacts, or metadata.
    ```
 
    When the command reports that its inputs and artifacts still match, resume
-   the normal or Mac-first lane without repeating completed Apple work:
+   the release lane without repeating completed Apple work:
 
    ```bash
    npm run desktop:release:mac:resume
-   npm run desktop:release:mac:first:resume
    ```
 
-   Use only the command matching the original release policy. If status reports
-   changed source, version, architecture, Node runtime, signing identity, feed,
-   or artifact bytes, start a fresh build. A draft already created on GitHub is
-   intentionally not overwritten by resume; apply the failed-draft recovery
-   rule below before retrying publication.
+   If status reports changed source, version, architecture, Node runtime,
+   signing identity, feed, or artifact bytes, start a fresh build. A draft
+   already created on GitHub is intentionally not overwritten by resume; apply
+   the failed-draft recovery rule below before retrying publication.
 
 5. Confirm the command reports a public, non-draft `v<version>` release. It must contain the DMG, ZIP, both blockmaps, `latest-mac.yml`, checksums, and both release manifests.
 6. Install or update the app, then verify the exact installed bundle:
@@ -121,15 +105,14 @@ artifacts, or metadata.
 
 7. Open work-fold normally and check **Settings > About** and **work-fold > Check for Updates...**.
 
-The normal publisher refuses a dirty/unpushed source tree, a source tag that
-does not point at the exact release commit, a missing/draft/incomplete Windows
-source release, a private Mac feed, an existing Mac tag, an unsigned manifest,
-a missing asset, or any remote size/digest mismatch. The explicit Mac-first
-lane replaces only the Windows-release check with a public-source-repository
-check. Installer-only artwork is generated under ignored `out/` build output
-so the release build cannot dirty its own source checkout. The publisher
-uploads a draft first and publishes only after every Mac asset's GitHub
-SHA-256 matches the local file.
+The publisher refuses a dirty/unpushed source tree, a source tag that does not
+point at the exact release commit, a private source repository or Mac feed, an
+existing Mac tag, an unsigned manifest, a missing asset, or any remote
+size/digest mismatch. It does not inspect or require Windows artifacts or a
+source-repository GitHub Release. Installer-only artwork is generated under
+ignored `out/` build output so the release build cannot dirty its own source
+checkout. The publisher uploads a draft first and publishes only after every
+Mac asset's GitHub SHA-256 matches the local file.
 
 ## Updater evidence
 
@@ -215,4 +198,4 @@ Workspace 0.4.14 to 0.4.15 passed the same proof on July 27, 2026. Invoking the 
 
 ## Release ownership
 
-The source repository owns code, Windows releases, issues, and documentation. `work-fold-mac-releases` is an artifact feed only. Do not develop or hand-edit release metadata in the feed repository, and do not add a second tag workflow that competes with the Windows publisher.
+The source repository owns code, exact release tags, issues, and documentation. `work-fold-mac-releases` is the active desktop artifact feed only. Do not develop or hand-edit release metadata in the feed repository, and do not add a competing tag publisher. Windows distribution remains dormant until it is deliberately redesigned, documented, and reactivated.

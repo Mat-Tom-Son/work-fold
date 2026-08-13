@@ -1,4 +1,9 @@
-# Windows releases and signing
+# Windows releases and signing (inactive reference)
+
+> There is no active Windows release workflow or public Windows distribution.
+> This document preserves prior signing and installer research for a future
+> deliberate reactivation only. Pushing a version tag does not build or publish
+> Windows artifacts, and Windows is not a prerequisite for the Mac release.
 
 work-fold updates from the public releases in `Mat-Tom-Son/work-fold`. Keep the application id, executable name, package name, repository, and updater cache name stable so installed copies continue to recognize later versions.
 

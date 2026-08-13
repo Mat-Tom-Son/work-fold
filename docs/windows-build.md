@@ -1,4 +1,10 @@
-# Windows build
+# Windows build (inactive reference)
+
+> Windows CI packaging and public distribution are inactive. These commands are
+> retained as dormant manual diagnostics for a future deliberate Windows
+> reactivation; they are not release gates and must not be added to CI or tag
+> automation without first updating the contributor contract and release
+> architecture.
 
 work-fold requires Node 22.19.0 or newer. GitHub CI and releases use Node 24; use that runtime for release work when it is available.
 
