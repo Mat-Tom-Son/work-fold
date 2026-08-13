@@ -948,7 +948,13 @@ test("terminal provider failures persist partial output and leave the Chat resum
     assert.equal(failedTurn.status, 202, await failedTurn.text());
     await waitForAsync(async () => {
       const transcript = await json(conversationUrl) as any;
-      return transcript.messages.some((message: any) => message.interruption?.reason === "provider_error");
+      const tasks = await api.kernel.getTasks({ kind: "system" });
+      return transcript.messages.some((message: any) => message.interruption?.reason === "provider_error")
+        && !tasks.tasks.some((task) => (
+          task.kind === "assistant_turn"
+          && task.spaceId === spaceId
+          && task.conversationId === conversationId
+        ));
     });
 
     const interruptedTranscript = await json(conversationUrl) as any;

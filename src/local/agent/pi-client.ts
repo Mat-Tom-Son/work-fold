@@ -137,6 +137,8 @@ export class PiConversationClient extends EventEmitter {
   private streamedAssistantText = "";
   private assistantAttemptStartOffset = 0;
   private promptInFlight = false;
+  private rejectPrompt: ((error: Error) => void) | null = null;
+  private runtimeGeneration = 0;
   private cancellationRequested: Error | null = null;
   private turnError: Error | null = null;
   private pendingAssistantError: string | null = null;
@@ -160,10 +162,10 @@ export class PiConversationClient extends EventEmitter {
     this.cancellationRequested = null;
     this.promptInFlight = true;
     try {
-      const session = await this.ensureSession();
+      const session = await this.awaitCancellation(this.ensureSession(), { settleOperationAfterCancellation: true });
       this.throwIfCancellationRequested();
 
-      const builtInResult = await this.executeBuiltInCommand(message);
+      const builtInResult = await this.awaitCancellation(this.executeBuiltInCommand(message));
       if (builtInResult !== null) {
         this.assistantText = builtInResult;
         this.emitEvent({ type: "assistant_message", text: builtInResult });
@@ -173,12 +175,12 @@ export class PiConversationClient extends EventEmitter {
       if (!isRegisteredExtensionCommand(session, message)) {
         const contextMessage = buildTurnContextMessage(context);
         if (contextMessage) {
-          await session.sendCustomMessage({
+          await this.awaitCancellation(session.sendCustomMessage({
             customType: "work-fold-turn-context",
             content: contextMessage,
             display: false,
             details: { selectedPath: context.selectedPath ?? null },
-          }, { deliverAs: "nextTurn" });
+          }, { deliverAs: "nextTurn" }));
         }
       }
 
@@ -216,7 +218,8 @@ export class PiConversationClient extends EventEmitter {
     this.cancellationRequested = error;
     this.turnError = error;
     this.emitEvent({ type: "status", message: reason });
-    if (session) await session.abort().catch(() => undefined);
+    this.rejectPrompt?.(error);
+    if (session) void session.abort().catch(() => undefined);
     return true;
   }
 
@@ -288,13 +291,23 @@ export class PiConversationClient extends EventEmitter {
   }
 
   async stop(): Promise<void> {
+    this.runtimeGeneration += 1;
+    const session = this.runtimeHost?.session;
+    if (this.promptInFlight) {
+      const error = new Error("Assistant turn stopped because work-fold is closing.");
+      error.name = "PiTurnCancelledError";
+      this.cancellationRequested = error;
+      this.turnError = error;
+      this.rejectPrompt?.(error);
+      if (session) void session.abort().catch(() => undefined);
+    }
     this.unsubscribeSession?.();
     this.unsubscribeSession = null;
     const runtime = this.runtimeHost;
     this.runtimeHost = null;
     this.resolvedRuntime = null;
     this.resetTurnState();
-    if (runtime) await runtime.dispose().catch(() => undefined);
+    if (runtime) await settleWithin(runtime.dispose(), 2_000).catch(() => undefined);
   }
 
   private get session(): AgentSession {
@@ -304,6 +317,7 @@ export class PiConversationClient extends EventEmitter {
 
   private async ensureSession(): Promise<AgentSession> {
     if (this.runtimeHost) return this.runtimeHost.session;
+    const generation = this.runtimeGeneration;
 
     const initialRuntime = await resolvePiRuntime(this.spaceRoot, this.runtimeProvider);
     await mkdir(initialRuntime.sessionDir, { recursive: true });
@@ -374,6 +388,13 @@ export class PiConversationClient extends EventEmitter {
       agentDir: initialRuntime.agentDir,
       sessionManager,
     });
+    if (generation !== this.runtimeGeneration) {
+      this.resolvedRuntime = null;
+      await settleWithin(runtimeHost.dispose(), 2_000).catch(() => undefined);
+      const error = new Error("Assistant session initialization was cancelled.");
+      error.name = "PiTurnCancelledError";
+      throw error;
+    }
     this.runtimeHost = runtimeHost;
     runtimeHost.setRebindSession((session) => this.bindSession(session));
     runtimeHost.setBeforeSessionInvalidate(() => {
@@ -450,11 +471,13 @@ export class PiConversationClient extends EventEmitter {
           settled = true;
           callback();
         };
+        this.rejectPrompt = (error) => finish(() => rejectPromise(error));
         if (timeoutMs > 0) {
           timeout = setTimeout(() => {
             const error = new Error(`Timed out waiting for Pi after ${Math.round(timeoutMs / 60_000)} minutes.`);
             error.name = "PiTurnTimeoutError";
-            void session.abort().finally(() => finish(() => rejectPromise(error)));
+            finish(() => rejectPromise(error));
+            void session.abort().catch(() => undefined);
           }, timeoutMs);
         }
         session.prompt(message, { source: "rpc" }).then(
@@ -463,6 +486,7 @@ export class PiConversationClient extends EventEmitter {
         );
       });
     } finally {
+      this.rejectPrompt = null;
       if (heartbeat) clearInterval(heartbeat);
       if (timeout) clearTimeout(timeout);
     }
@@ -743,6 +767,32 @@ export class PiConversationClient extends EventEmitter {
 
   private throwIfCancellationRequested(): void {
     if (this.cancellationRequested) throw this.cancellationRequested;
+  }
+
+  private async awaitCancellation<T>(
+    operation: Promise<T>,
+    options: { settleOperationAfterCancellation?: boolean } = {},
+  ): Promise<T> {
+    let rejectCancellation!: (error: Error) => void;
+    const cancellation = new Promise<never>((_resolve, reject) => {
+      rejectCancellation = reject;
+    });
+    const rejecter = (error: Error) => rejectCancellation(error);
+    this.rejectPrompt = rejecter;
+    try {
+      return await Promise.race([operation, cancellation]);
+    } catch (error) {
+      // Session initialization touches the filesystem even before a session is
+      // bound. Give that background work a short bounded drain after an abort
+      // so callers do not observe a rejected prompt while initialization is
+      // still creating files behind them.
+      if (options.settleOperationAfterCancellation && isPiTurnCancelledError(error)) {
+        await settleWithin(operation, 2_000).catch(() => undefined);
+      }
+      throw error;
+    } finally {
+      if (this.rejectPrompt === rejecter) this.rejectPrompt = null;
+    }
   }
 
   private emitEvent(event: Omit<PiChatEvent, "conversationId">): void {
@@ -1101,6 +1151,21 @@ function piTurnTimeoutMs(): number {
 function positiveNumber(value: string | undefined, fallback: number, allowZero = false): number {
   const parsed = Number(value ?? fallback);
   return Number.isFinite(parsed) && (allowZero ? parsed >= 0 : parsed > 0) ? parsed : fallback;
+}
+
+async function settleWithin(operation: Promise<unknown>, timeoutMs: number): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      operation.then(() => undefined),
+      new Promise<void>((resolvePromise) => {
+        timer = setTimeout(resolvePromise, timeoutMs);
+        timer.unref();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function asError(error: unknown): Error {

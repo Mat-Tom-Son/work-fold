@@ -135,6 +135,37 @@ test("aborting during Pi session initialization latches cancellation before prom
   assert.equal(events.some((event) => event.type === "assistant_message"), false);
 });
 
+test("a never-settling Pi abort cannot strand the accepted turn", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-pi-stuck-abort-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const agentDir = join(root, "agent");
+  const spaceRoot = join(root, "space");
+  await mkdir(join(agentDir, "extensions"), { recursive: true });
+  await mkdir(spaceRoot, { recursive: true });
+  await writeFile(join(agentDir, "extensions", "never.ts"), `export default function (pi) {
+    pi.registerCommand("never", { description: "Never settles", handler: async () => await new Promise(() => {}) });
+  }\n`, "utf8");
+  const client = new PiConversationClient("stuck-abort", spaceRoot, {
+    async resolveRuntime() { return { agentDir }; },
+  });
+  await client.prompt("/trust");
+  const runtimeHost = (client as unknown as { runtimeHost: { session: { abort: () => Promise<void> } } }).runtimeHost;
+  runtimeHost.session.abort = () => new Promise<void>(() => {});
+
+  let markStarted!: () => void;
+  const started = new Promise<void>((resolvePromise) => { markStarted = resolvePromise; });
+  client.on("event", (event: PiChatEvent) => {
+    if (event.type === "status" && event.message?.includes("working")) markStarted();
+  });
+  const prompt = client.prompt("/never");
+  await started;
+  const before = Date.now();
+  assert.equal(await client.abort(), true);
+  await assert.rejects(prompt, (error: unknown) => (error as Error).name === "PiTurnCancelledError");
+  assert.ok(Date.now() - before < 500, "turn cancellation must not await the SDK abort promise");
+  await client.stop();
+});
+
 test("routed extension UI bridge resolves host responses", async () => {
   const bridge = new RoutedPiExtensionUiBridge();
   bridge.publish({ id: "editor-1", method: "setEditorText", text: "hello", conversationId: "conversation", spaceRoot: "C:/workspace" });

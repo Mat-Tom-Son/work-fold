@@ -108,10 +108,12 @@ export interface ChatMessage {
   lifecycle?: { archived?: boolean; snoozedUntil?: string | null };
   landing?: ChatMessageLanding;
   interruption?: ChatMessageInterruption;
+  turnId?: string;
+  requestId?: string;
 }
 
 export interface ChatMessageInterruption {
-  reason: "provider_error" | "setup_error" | "assistant_error";
+  reason: "provider_error" | "setup_error" | "assistant_error" | "cancelled" | "app_interrupted";
   message: string;
   retryAttempts: number;
   provider: string | null;
@@ -179,6 +181,8 @@ export interface ChatContextPathRequest {
 export interface PendingChatSend {
   conversation: ConversationSummary;
   content: string;
+  requestId: string;
+  userMessageId: string;
   localUserMessage: ChatMessage;
   selectedPath: string | null;
   contextPaths: string[];
@@ -841,9 +845,10 @@ export interface FileVersionRestoreOutcome {
 }
 
 export interface LocalEventStream {
-  onmessage: ((event: { data: string }) => void) | null;
+  onmessage: ((event: { data: string; lastEventId?: string }) => void) | null;
   onopen: (() => void) | null;
   onerror: ((error: unknown) => void) | null;
+  lastEventId?: string;
   close: () => void;
 }
 
@@ -864,9 +869,10 @@ export interface ExtensionUiRequest {
 }
 
 export interface ChatStreamEvent {
-  type: "status" | "turn_state" | "assistant_delta" | "assistant_message" | "assistant_thinking" | "tool" | "resources_changed" | "error" | "done" | "extension_ui_request" | "restricted_app_proposal" | "restricted_app_proposal_settled" | "editor";
+  type: "status" | "turn_state" | "turn_snapshot" | "assistant_delta" | "assistant_message" | "assistant_thinking" | "tool" | "resources_changed" | "error" | "done" | "extension_ui_request" | "restricted_app_proposal" | "restricted_app_proposal_settled" | "editor";
   conversationId: string;
   running?: boolean;
+  turnId?: string | null;
   message?: string;
   text?: string;
   toolName?: string;

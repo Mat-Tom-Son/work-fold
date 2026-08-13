@@ -188,6 +188,22 @@ function InterruptedTurn({ interruption }: { interruption: NonNullable<ChatMessa
       </section>
     );
   }
+  if (interruption.reason === "cancelled") {
+    return (
+      <section className="turn-interruption" role="status" aria-label="Stopped Assistant response">
+        <strong>Response stopped</strong>
+        <span>work-fold saved the response produced before you stopped the Assistant.</span>
+      </section>
+    );
+  }
+  if (interruption.reason === "app_interrupted") {
+    return (
+      <section className="turn-interruption" role="status" aria-label="Assistant response interrupted by app close">
+        <strong>App interrupted this response</strong>
+        <span>work-fold saved the partial response and did not rerun the turn because tools may already have changed something.</span>
+      </section>
+    );
+  }
   const retryText = interruption.retryAttempts > 0
     ? `${interruption.retryAttempts} automatic ${interruption.retryAttempts === 1 ? "retry" : "retries"} were attempted.`
     : "The provider did not identify this as safely retryable.";

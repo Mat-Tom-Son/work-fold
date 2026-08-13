@@ -10,7 +10,7 @@ export class ApiError extends Error {
 
 export async function api<T>(
   path: string,
-  options: { method?: string; body?: unknown; signal?: AbortSignal } = {},
+  options: { method?: string; body?: unknown; signal?: AbortSignal; idempotent?: boolean } = {},
 ): Promise<T> {
   const method = (options.method ?? "GET").toUpperCase();
   const response = await fetchApiWithRetry(
@@ -21,7 +21,7 @@ export async function api<T>(
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
       signal: options.signal,
     }),
-    method === "GET" ? [...apiGetRetryDelaysMs] : [],
+    method === "GET" || options.idempotent ? [...apiGetRetryDelaysMs] : [],
   );
   if (!response.ok) throw await readApiError(response);
   if (response.status === 204) return undefined as T;
@@ -65,6 +65,7 @@ export function createEventSource(path: string): LocalEventStream {
     onmessage: null,
     onopen: null,
     onerror: null,
+    lastEventId: "",
     close: () => {
       closed = true;
       removeWakeListeners();
@@ -101,13 +102,16 @@ export function createEventSource(path: string): LocalEventStream {
         }
       })
       .catch((streamError) => {
-        if (closed || activeController.signal.aborted) return;
-        if (shouldReconnectEventStream(streamError, reconnectAttempts)) {
-          scheduleReconnect(streamError);
+        if (closed) return;
+        const effectiveError = activeController.signal.aborted && activeController.signal.reason instanceof Error
+          ? activeController.signal.reason
+          : streamError;
+        if (shouldReconnectEventStream(effectiveError, reconnectAttempts)) {
+          scheduleReconnect(effectiveError);
           return;
         }
-        if (isTransientNetworkError(rawErrorMessage(streamError))) exhausted = true;
-        source.onerror?.(streamError);
+        if (isTransientNetworkError(rawErrorMessage(effectiveError))) exhausted = true;
+        source.onerror?.(effectiveError);
       });
   };
 
@@ -139,7 +143,10 @@ export async function readEventStream(
   onOpen?: () => void,
 ): Promise<void> {
   const response = await fetch(apiUrl(path), {
-    headers: await apiHeaders({ accept: "text/event-stream" }),
+    headers: await apiHeaders({
+      accept: "text/event-stream",
+      ...(source.lastEventId ? { "last-event-id": source.lastEventId } : {}),
+    }),
     signal: controller.signal,
   });
   if (!response.ok) throw await readApiError(response);
@@ -149,17 +156,31 @@ export async function readEventStream(
   source.onopen?.();
   const decoder = new TextDecoder();
   let buffer = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) return;
-    buffer += decoder.decode(value, { stream: true });
-    let boundary = nextSseBoundary(buffer);
-    while (boundary >= 0) {
-      const frame = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + (buffer[boundary] === "\r" ? 4 : 2));
-      dispatchSseFrame(frame, source);
-      boundary = nextSseBoundary(buffer);
+  let inactivityTimer: number | null = null;
+  const resetInactivityTimer = () => {
+    if (inactivityTimer !== null) window.clearTimeout(inactivityTimer);
+    inactivityTimer = window.setTimeout(() => {
+      controller.abort(new Error("Local service event stream became inactive."));
+    }, 45_000);
+  };
+  resetInactivityTimer();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      resetInactivityTimer();
+      buffer += decoder.decode(value, { stream: true });
+      if (buffer.length > 2 * 1024 * 1024) throw new Error("Local service event stream frame exceeded its safety limit.");
+      let boundary = nextSseBoundary(buffer);
+      while (boundary >= 0) {
+        const frame = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + (buffer[boundary] === "\r" ? 4 : 2));
+        dispatchSseFrame(frame, source);
+        boundary = nextSseBoundary(buffer);
+      }
     }
+  } finally {
+    if (inactivityTimer !== null) window.clearTimeout(inactivityTimer);
   }
 }
 
@@ -172,12 +193,17 @@ export function nextSseBoundary(buffer: string): number {
 }
 
 export function dispatchSseFrame(frame: string, source: LocalEventStream): void {
+  const id = frame
+    .split(/\r?\n/)
+    .find((line) => line.startsWith("id:"))
+    ?.slice(3).trimStart();
+  if (id !== undefined && !id.includes("\u0000")) source.lastEventId = id;
   const data = frame
     .split(/\r?\n/)
     .filter((line) => line.startsWith("data:"))
     .map((line) => line.slice(5).trimStart())
     .join("\n");
-  if (data) source.onmessage?.({ data });
+  if (data) source.onmessage?.({ data, ...(source.lastEventId ? { lastEventId: source.lastEventId } : {}) });
 }
 
 export function apiUrl(path: string): string {
@@ -235,13 +261,16 @@ export function isTransientNetworkError(message: string): boolean {
     "load failed",
     "name not resolved",
     "temporary failure in name resolution",
+    "still reconnecting",
   ].some((needle) => normalized.includes(needle));
 }
 
 export function shouldReconnectEventStream(error: unknown, attempts: number): boolean {
   if (eventStreamReconnectDelaysMs[attempts] === undefined) return false;
   const message = rawErrorMessage(error);
-  return isTransientNetworkError(message) || message === "Local service event stream ended.";
+  return isTransientNetworkError(message)
+    || message === "Local service event stream ended."
+    || message === "Local service event stream became inactive.";
 }
 
 export function delay(ms: number): Promise<void> {

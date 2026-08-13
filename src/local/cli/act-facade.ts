@@ -48,9 +48,9 @@ export interface WorkFoldActConversationRef {
 export type WorkFoldActChatState = "idle" | "running" | "compacting";
 
 /**
- * Task-scoped view of one accepted Assistant turn. `unknown` means the app
- * run holding the record has ended or the id was never accepted here — turn
- * outcomes are kept in memory for the app run; transcripts stay durable.
+ * Task-scoped view of one accepted Assistant turn. `unknown` means the id was
+ * never accepted here or has aged out of the bounded durable turn journal;
+ * transcripts remain the long-lived content authority.
  */
 export type WorkFoldActTurnState = "running" | "succeeded" | "failed" | "aborted" | "unknown";
 
@@ -511,6 +511,8 @@ export interface WorkFoldActFacade {
     conversationId?: string;
     newConversation?: boolean;
     content: string;
+    /** Act-envelope request id reused as the durable Assistant-turn identity. */
+    requestId?: string;
     /** Explicit active management request that initiated this action. */
     parentTaskId?: string;
   }): Promise<{ space: WorkFoldActSpaceRef; conversationId: string; messageId: string; taskId: string }>;
@@ -1374,6 +1376,8 @@ export interface WorkFoldActFacade {
     conversationId?: string;
     newConversation?: boolean;
     content: string;
+    /** Act-envelope request id reused as the durable Assistant-turn identity. */
+    requestId?: string;
     /** Raw --attach values: absolute or cwd-relative paths, or http(s) links. */
     attachments?: string[];
     cwd?: string;

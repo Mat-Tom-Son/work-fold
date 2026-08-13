@@ -16,6 +16,12 @@ import {
   type PiRuntimeProvider,
 } from "./agent/pi-client.js";
 import {
+  maxDurableTurnTextChars,
+  WorkFoldTurnReplayConflictError,
+  WorkFoldTurnStore,
+  type WorkFoldDurableTurnRecord,
+} from "./agent/turn-store.js";
+import {
   RoutedPiExtensionUiBridge,
   type PiExtensionUiEvent,
   type PiExtensionUiRequest,
@@ -352,6 +358,8 @@ export interface LocalApiOptions {
    * one over the same state-root path the host uses.
    */
   actReceipts?: WorkFoldCliActReceipts;
+  /** Test seam for the machine-local durable Assistant-turn journal. */
+  turnStore?: WorkFoldTurnStore;
   /** Test seam for the staged-act store; defaults to the state-root store. */
   foldStagedActStore?: FoldStagedActStore;
   /** Test seam for the standing-policy store; defaults to the state-root store. */
@@ -438,6 +446,7 @@ interface LocalApiState {
   checks: WorkFoldCheckService;
   settleSignal: WorkFoldSettleSignal;
   actReceipts: WorkFoldCliActReceipts;
+  turnStore: WorkFoldTurnStore;
   stagedActs: FoldStagedActStore;
   /**
    * Exactly one standing-policy store and exactly one minted Settings writer
@@ -495,6 +504,9 @@ interface LocalApiState {
   beforeRestrictedAppSpaceRevalidation?: (spaceId: string) => Promise<void>;
   managementRequests: ManagementRequestRegistry;
   chatStreams: Map<string, Set<ServerResponse>>;
+  chatEventLogs: Map<string, ChatEventLog>;
+  activeTurnIdsByKey: Map<string, string>;
+  turnCheckpointTimers: Map<string, NodeJS.Timeout>;
   clients: Map<string, PiConversationClient>;
   runningTurns: Set<string>;
   activeTurnPromises: Set<Promise<void>>;
@@ -510,6 +522,7 @@ interface LocalApiState {
   /** In-process observers of turn-boundary History checkpoints (routing chat hops). */
   turnCheckpointListeners: Set<(event: TurnCheckpointEvent) => void>;
   activeTurns: number;
+  acceptingTurns: boolean;
   onAgentTurnActivity?: (activeTurns: number) => void;
   beforeAgentPrompt?: LocalApiOptions["beforeAgentPrompt"];
   beforeManagementActionRecord?: LocalApiOptions["beforeManagementActionRecord"];
@@ -530,6 +543,19 @@ interface SettledTurnRecord {
   endedAt: string;
   messageId?: string;
   error?: string;
+}
+
+interface ChatEventLogEntry {
+  id: number;
+  data: unknown;
+  bytes: number;
+}
+
+interface ChatEventLog {
+  nextId: number;
+  events: ChatEventLogEntry[];
+  bytes: number;
+  assistantText: string;
 }
 
 interface TurnCheckpointEvent {
@@ -623,6 +649,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   // appends. Both instances write the identical state-root path, so decisions
   // and publications land in the journal the act lane already audits.
   const actReceipts = options.actReceipts ?? new WorkFoldCliActReceipts({ stateRoot: workFoldStateRoot() });
+  const turnStore = options.turnStore ?? await WorkFoldTurnStore.create({ stateRoot: workFoldStateRoot() });
   const stagedActs = options.foldStagedActStore ?? await FoldStagedActStore.create();
   const foldPolicies = options.foldPolicyStore ?? await FoldStandingPolicyStore.create();
   const routingStore = await WorkFoldRoutingStore.create();
@@ -674,6 +701,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     checks,
     settleSignal,
     actReceipts,
+    turnStore,
     stagedActs,
     foldPolicies,
     foldPolicyWriter: mintFoldPolicySettingsWriter(),
@@ -694,6 +722,9 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     beforeRestrictedAppSpaceRevalidation: options.beforeRestrictedAppSpaceRevalidation,
     managementRequests: new ManagementRequestRegistry(),
     chatStreams: new Map(),
+    chatEventLogs: new Map(),
+    activeTurnIdsByKey: new Map(),
+    turnCheckpointTimers: new Map(),
     clients: new Map(),
     runningTurns: new Set(),
     activeTurnPromises: new Set(),
@@ -708,6 +739,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     fileStreams: new Set(),
     turnCheckpointListeners: new Set(),
     activeTurns: 0,
+    acceptingTurns: true,
     onAgentTurnActivity: options.onAgentTurnActivity,
     beforeAgentPrompt: options.beforeAgentPrompt,
     beforeManagementActionRecord: options.beforeManagementActionRecord,
@@ -774,6 +806,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
           .map((run) => ({ appId: run.appId, automationId: run.automationId, runId: run.runId })),
     },
   });
+  await recoverDurableTurnState(state);
 
   const requestListener = (request: PiExtensionUiRequest) => routeExtensionRequest(state, request);
   const eventListener = (event: PiExtensionUiEvent) => routeExtensionEvent(state, event);
@@ -821,6 +854,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     routings: state.routings,
     publications,
     close: async () => {
+      state.acceptingTurns = false;
       clearInterval(remoteUploadPruneTimer);
       extensionUi.off("request", requestListener);
       extensionUi.off("event", eventListener);
@@ -835,8 +869,10 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       state.routings.close();
       for (const streams of state.chatStreams.values()) for (const response of streams) response.end();
       for (const close of [...state.fileStreams]) close();
-      for (const client of state.clients.values()) await client.stop().catch(() => undefined);
+      await Promise.allSettled([...state.clients.values()].map((client) => client.stop()));
       await Promise.allSettled([...state.activeTurnPromises]);
+      await flushAllTurnCheckpoints(state);
+      await state.turnStore.flush();
       await state.checks.close();
       await state.appearance.flush();
       await state.restrictedApps.close();
@@ -1935,7 +1971,11 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   }
   if (conversationsMatch && method === "POST") {
     const space = await getSpace(conversationsMatch[1]);
-    sendJson(res, { conversation: await createConversation(space.spaceRoot) }, 201);
+    const body = await readJsonBody<{ conversationId?: unknown }>(state, req);
+    const conversationId = body.conversationId === undefined
+      ? undefined
+      : conversationIdentity(body.conversationId);
+    sendJson(res, { conversation: await createConversation(space.spaceRoot, undefined, conversationId) }, 201);
     return;
   }
 
@@ -2002,18 +2042,26 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   if (method === "POST" && messagesPostMatch) {
     const space = await getSpace(messagesPostMatch[1]);
     const conversationId = messagesPostMatch[2];
-    const body = await readJsonBody<{ content?: string; contextPaths?: string[]; selectedPath?: string | null }>(state, req);
+    const body = await readJsonBody<{
+      content?: string;
+      contextPaths?: string[];
+      selectedPath?: string | null;
+      requestId?: unknown;
+      userMessageId?: unknown;
+    }>(state, req);
     const content = body.content?.trim();
     if (!content) throw badRequest("Message content is required.");
     const selectedPath = normalizeSelectedPath(space.spaceRoot, body.selectedPath);
     const contextPaths = normalizeContextPaths(space.spaceRoot, body.contextPaths);
-    const { message } = await acceptConversationTurn(state, space, conversationId, {
+    const { message, taskId, replayed } = await acceptConversationTurn(state, space, conversationId, {
       content,
       contextPaths,
       selectedPath,
       actorKind: "assistant",
+      requestId: optionalTurnIdentity(body.requestId, "requestId"),
+      userMessageId: optionalTurnIdentity(body.userMessageId, "userMessageId"),
     });
-    sendJson(res, { accepted: true, message }, 202);
+    sendJson(res, { accepted: true, message, taskId, replayed }, 202);
     return;
   }
   const abortMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/conversations\/([^/]+)\/abort$/);
@@ -2084,6 +2132,8 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       conversationId?: unknown;
       newConversation?: unknown;
       continuationTaskId?: unknown;
+      requestId?: unknown;
+      userMessageId?: unknown;
     }>(state, req);
     const content = body.content?.trim();
     if (!content) throw badRequest("Message content is required.");
@@ -2096,6 +2146,8 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     }
     const conversationIdInput = boundedOptionalId(body.conversationId, "conversationId");
     const continuationTaskId = boundedOptionalId(body.continuationTaskId, "continuationTaskId");
+    const requestId = optionalTurnIdentity(body.requestId, "requestId");
+    const userMessageId = optionalTurnIdentity(body.userMessageId, "userMessageId");
     if (body.newConversation !== undefined && typeof body.newConversation !== "boolean") {
       throw badRequest("newConversation must be a boolean.");
     }
@@ -2112,9 +2164,14 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       throw badRequest(errorMessage(error));
     }
     const scope = managementScopeForRoutes(state);
-    const conversationId = body.newConversation === true
-      ? (await createConversation(scope.rootPath)).id
-      : conversationIdInput ?? (await resolveManagementConversation(true)).id;
+    const priorAcceptance = requestId ? state.turnStore.findScopeRequest(scope.id, requestId) : null;
+    if (priorAcceptance && conversationIdInput && priorAcceptance.conversationId !== conversationIdInput) {
+      throw httpError(409, "This turn request id was already accepted in another management Chat.");
+    }
+    const conversationId = priorAcceptance?.conversationId
+      ?? (body.newConversation === true
+        ? (await createConversation(scope.rootPath)).id
+        : conversationIdInput ?? (await resolveManagementConversation(true)).id);
     if (continuationTaskId) {
       const previous = await managementRequestView(state, continuationTaskId);
       if (!previous || previous.conversationId !== conversationId || previous.phase !== "needs_you") {
@@ -2134,6 +2191,8 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       actorKind: "renderer",
       managementAttachments: attachments,
       ...(continuationTaskId ? { continuedFromManagementTaskId: continuationTaskId } : {}),
+      requestId,
+      userMessageId,
     });
     sendJson(res, { accepted: true, conversationId, message, taskId, attachments }, 202);
     return;
@@ -2483,11 +2542,41 @@ async function acceptConversationTurn(
     continuedFromManagementTaskId?: string;
     /** Remote provenance is persisted with the message and management request. */
     remotePrincipal?: WorkFoldRemotePrincipal;
+    /** Stable caller identity. Replays with the same input return the original acceptance. */
+    requestId?: string;
+    /** Stable optimistic message identity supplied by renderer clients. */
+    userMessageId?: string;
   },
-): Promise<{ message: { id: string; role: "user"; content: string; createdAt: string }; taskId: string }> {
+): Promise<{ message: { id: string; role: "user"; content: string; createdAt: string }; taskId: string; replayed: boolean }> {
+  if (!state.acceptingTurns) throw httpError(503, "work-fold is closing and cannot accept another Assistant turn.");
   const turnKey = clientKey(space.id, conversationId);
   const existing = await readConversationSummary(space.spaceRoot, conversationId);
   if (!existing) throw notFound("Conversation not found.");
+  const requestId = turnIdentity(input.requestId ?? (input.remotePrincipal
+    ? `remote-${createHash("sha256").update(`${input.remotePrincipal.browserId}\u0000${input.remotePrincipal.grantId}\u0000${input.remotePrincipal.requestId}`).digest("hex")}`
+    : `request-${randomUUID()}`), "request id");
+  const requestDigest = assistantTurnRequestDigest(input);
+  const prior = state.turnStore.findRequest(space.id, conversationId, requestId);
+  let durable: WorkFoldDurableTurnRecord | null = null;
+  if (prior) {
+    if (prior.requestDigest !== requestDigest) throw httpError(409, "This turn request id was already used for different input.");
+    if (!prior.userMessagePersisted) {
+      if (state.runningTurns.has(turnKey)) throw httpError(409, "This Assistant turn is still being accepted.");
+      durable = await state.turnStore.resumeUnpersisted(prior.turnId);
+      if (!durable || durable.userMessagePersisted) throw httpError(409, "This Assistant turn can no longer be resumed safely.");
+      state.settledTurns.delete(prior.turnId);
+    } else {
+      const messages = await readConversation(space.spaceRoot, conversationId);
+      const persisted = messages.find((candidate) => candidate.id === prior.userMessageId && candidate.role === "user");
+      return {
+        message: persisted
+          ? { id: persisted.id, role: "user", content: persisted.content, createdAt: persisted.createdAt }
+          : { id: prior.userMessageId, role: "user", content: input.content, createdAt: prior.userMessageCreatedAt },
+        taskId: prior.turnId,
+        replayed: true,
+      };
+    }
+  }
   if (existing.archivedAt) throw httpError(409, "Restore this Chat before sending another message.");
   if (existing.snoozedUntil && Date.parse(existing.snoozedUntil) > Date.now()) {
     throw httpError(409, "Resume this Chat before sending another message.");
@@ -2496,13 +2585,47 @@ async function acceptConversationTurn(
   if (state.compactingConversations.has(turnKey)) throw httpError(409, "Wait for the current Chat compaction to finish.");
   if (state.runningTurns.has(turnKey)) throw httpError(409, "Wait for the current agent turn to finish.");
   state.runningTurns.add(turnKey);
+  const userMessageId = turnIdentity(input.userMessageId ?? `message-${randomUUID()}`, "user message id");
+  const userMessageCreatedAt = new Date().toISOString();
+  try {
+    if (durable) {
+      // The durable reservation was reopened above after an explicit retry.
+    } else {
+      const accepted = await state.turnStore.accept({
+        requestId,
+        requestDigest,
+        userMessageId,
+        userMessageCreatedAt,
+        spaceId: space.id,
+        conversationId,
+        actorKind: input.actorKind,
+      });
+      if (accepted.replayed) {
+        state.runningTurns.delete(turnKey);
+        return {
+          message: { id: accepted.record.userMessageId, role: "user", content: input.content, createdAt: accepted.record.userMessageCreatedAt },
+          taskId: accepted.record.turnId,
+          replayed: true,
+        };
+      }
+      durable = accepted.record;
+    }
+  } catch (error) {
+    state.runningTurns.delete(turnKey);
+    if (error instanceof WorkFoldTurnReplayConflictError) throw httpError(409, error.message);
+    throw error;
+  }
+  if (!durable) throw new Error("Assistant turn reservation was not created.");
   const task = state.kernel.startTask({
+    id: durable.turnId,
     kind: "assistant_turn",
     spaceId: space.id,
     conversationId,
     actor: { kind: input.actorKind, cwd: space.spaceRoot, spaceId: space.id, conversationId },
   });
   state.activeTurnTasks.set(task.id, { spaceId: space.id, conversationId });
+  state.activeTurnIdsByKey.set(turnKey, task.id);
+  resetChatEventTurn(state, turnKey);
   const managementAttachments = space.id === workFoldManagementScopeId
     ? input.managementAttachments ?? []
     : undefined;
@@ -2525,10 +2648,12 @@ async function acceptConversationTurn(
   }
   broadcast(state, turnKey, turnStateEvent(conversationId, true));
   const message = {
-    id: randomUUID(),
+    id: durable.userMessageId,
     role: "user" as const,
     content: input.content,
-    createdAt: new Date().toISOString(),
+    createdAt: durable.userMessageCreatedAt,
+    turnId: task.id,
+    requestId,
     ...(managementAttachments?.length
       ? { attachments: managementAttachments.map((ref) => ({ kind: ref.kind, target: ref.target, name: ref.name })) }
       : {}),
@@ -2541,11 +2666,14 @@ async function acceptConversationTurn(
   };
   try {
     await appendMessage(space.spaceRoot, conversationId, message);
+    await state.turnStore.markRunning(task.id);
   } catch (error) {
     state.runningTurns.delete(turnKey);
     state.activeTurnTasks.delete(task.id);
     state.cancelledTurnTasks.delete(task.id);
+    state.activeTurnIdsByKey.delete(turnKey);
     state.kernel.finishTask(task.id);
+    await state.turnStore.settle(task.id, { status: "failed", error: "The accepted user message could not be persisted." }).catch(() => undefined);
     if (managementAttachments) state.managementRequests.finish(task.id, "failed");
     broadcast(state, turnKey, turnStateEvent(conversationId, false));
     throw error;
@@ -2569,7 +2697,47 @@ async function acceptConversationTurn(
       console.error(`Accepted Assistant turn escaped its settlement path: ${errorMessage(error)}`);
     },
   );
-  return { message, taskId: task.id };
+  return { message, taskId: task.id, replayed: false };
+}
+
+function assistantTurnRequestDigest(input: {
+  content: string;
+  contextPaths: string[];
+  selectedPath: string | null;
+  managementAttachments?: ManagementAttachmentRef[];
+  actorKind?: string;
+  continuedFromManagementTaskId?: string;
+}): string {
+  return createHash("sha256").update(JSON.stringify({
+    content: input.content,
+    contextPaths: input.contextPaths,
+    selectedPath: input.selectedPath,
+    actorKind: input.actorKind ?? null,
+    continuedFromManagementTaskId: input.continuedFromManagementTaskId ?? null,
+    managementAttachments: (input.managementAttachments ?? []).map((attachment) => ({
+      kind: attachment.kind,
+      target: attachment.target,
+      name: attachment.name,
+    })),
+  })).digest("hex");
+}
+
+function optionalTurnIdentity(value: unknown, label: string): string | undefined {
+  return value === undefined ? undefined : turnIdentity(value, label);
+}
+
+function turnIdentity(value: unknown, label: string): string {
+  if (typeof value !== "string" || value.length < 1 || value.length > 160 || !/^[A-Za-z0-9._:-]+$/.test(value)) {
+    throw badRequest(`${label} is invalid.`);
+  }
+  return value;
+}
+
+function conversationIdentity(value: unknown): string {
+  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(value)) {
+    throw badRequest("conversationId is invalid.");
+  }
+  return value;
 }
 
 async function createSpaceInternal(state: LocalApiState, name: string): Promise<SpaceSummary> {
@@ -3574,6 +3742,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           contextPaths: [],
           selectedPath: null,
           actorKind: "cli",
+          requestId: input.requestId,
         });
         if (input.parentTaskId) {
           await state.beforeManagementActionRecord?.({ parentTaskId: input.parentTaskId, command: "chat.send", taskId });
@@ -5493,6 +5662,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           selectedPath: null,
           actorKind: "cli",
           managementAttachments: attachments,
+          requestId: input.requestId,
         });
         return { conversationId, messageId: message.id, taskId, attachments };
       });
@@ -5805,7 +5975,7 @@ async function turnResultForScope(
     throw new WorkFoldCliError("conflict", "The turn is still running. Use chat wait or chat status --task.");
   }
   if (task.state === "unknown") {
-    throw new WorkFoldCliError("notFound", "Task not found. Turn outcomes are kept while the Space app stays running.");
+    throw new WorkFoldCliError("notFound", "Task not found. Recent turn outcomes are kept in a bounded durable journal.");
   }
   if (task.state === "aborted") throw new WorkFoldCliError("conflict", "The turn was aborted before it finished.");
   if (task.state === "failed") throw new WorkFoldCliError("failure", task.error ?? "The turn failed.");
@@ -6453,14 +6623,8 @@ async function runAgentTurn(
       ...(managementSpaces ? { managementSpaces } : {}),
       ...(attachedLinks.length ? { attachedLinks } : {}),
     });
-    const assistantMessage = {
-      id: randomUUID(),
-      role: "assistant" as const,
-      content: finalText,
-      createdAt: new Date().toISOString(),
-    };
-    await appendMessage(spaceRoot, conversationId, assistantMessage);
-    settledMessageId = assistantMessage.id;
+    promptStarted = false;
+    await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "post_turn");
     try {
       const firstUserMessage = (await readConversation(spaceRoot, conversationId))
         .find((message) => message.role === "user")
@@ -6475,38 +6639,59 @@ async function runAgentTurn(
       // Assistant response into a failed turn.
       console.warn(`Could not persist a generated Chat title: ${errorMessage(error)}`);
     }
-    broadcast(state, streamKey(spaceId, conversationId), { type: "done", conversationId });
+    await flushTurnCheckpoint(state, key, taskId);
+    const durable = state.turnStore.get(taskId);
+    const assistantMessage = {
+      id: randomUUID(),
+      role: "assistant" as const,
+      content: finalText,
+      createdAt: new Date().toISOString(),
+      turnId: taskId,
+      ...(durable?.requestId ? { requestId: durable.requestId } : {}),
+    };
+    await appendMessage(spaceRoot, conversationId, assistantMessage);
+    settledMessageId = assistantMessage.id;
   } catch (error) {
     const cancelled = isPiTurnCancelledError(error);
+    if (promptStarted) {
+      promptStarted = false;
+      await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "post_turn");
+    }
+    await flushTurnCheckpoint(state, key, taskId);
+    const durable = state.turnStore.get(taskId);
     let failureResultPreserved = false;
     if (!cancelled) {
       console.warn(`Assistant turn failed in ${spaceId}/${conversationId}: ${errorMessage(error)}`);
-      const interruptedMessage = {
-        id: randomUUID(),
-        role: "assistant" as const,
-        content: assistantFailureTranscriptContent(error),
-        createdAt: new Date().toISOString(),
-        interruption: {
-          reason: assistantFailureReason(error),
-          message: assistantFailurePublicDetail(error),
-          retryAttempts: error instanceof PiTurnFailure ? error.retryAttempts : 0,
-          provider: error instanceof PiTurnFailure ? error.provider : null,
-          model: error instanceof PiTurnFailure ? error.model : null,
-          activities: error instanceof PiTurnFailure ? error.activities : [],
-        },
-      };
-      try {
-        await appendMessage(spaceRoot, conversationId, interruptedMessage);
-        failureResultPreserved = true;
-        settledMessageId = interruptedMessage.id;
-      } catch (preservationError) {
-        console.error(`Could not preserve a failed Assistant result: ${errorMessage(preservationError)}`);
-      }
+    }
+    const publicDetail = cancelled
+      ? "The Assistant was stopped before it completed this response."
+      : assistantFailurePublicDetail(error);
+    const interruptedMessage = {
+      id: randomUUID(),
+      role: "assistant" as const,
+      content: assistantFailureTranscriptContent(error, durable?.assistantText ?? "", cancelled),
+      createdAt: new Date().toISOString(),
+      turnId: taskId,
+      ...(durable?.requestId ? { requestId: durable.requestId } : {}),
+      interruption: {
+        reason: cancelled ? "cancelled" as const : assistantFailureReason(error),
+        message: publicDetail,
+        retryAttempts: error instanceof PiTurnFailure ? error.retryAttempts : 0,
+        provider: error instanceof PiTurnFailure ? error.provider : null,
+        model: error instanceof PiTurnFailure ? error.model : null,
+        activities: error instanceof PiTurnFailure ? error.activities : [],
+      },
+    };
+    try {
+      await appendMessage(spaceRoot, conversationId, interruptedMessage);
+      failureResultPreserved = true;
+      settledMessageId = interruptedMessage.id;
+    } catch (preservationError) {
+      console.error(`Could not preserve an interrupted Assistant result: ${errorMessage(preservationError)}`);
     }
     const message = assistantTurnFailureMessage(error, failureResultPreserved);
     settledStatus = cancelled ? "aborted" : "failed";
     settledError = message;
-    broadcast(state, streamKey(spaceId, conversationId), { type: "error", conversationId, message });
     // A provider failure settles the Pi session cleanly after its bounded retry
     // path. Keep that live session so the next user message can continue from
     // completed tool results. Unexpected runtime failures still rebuild the
@@ -6517,8 +6702,20 @@ async function runAgentTurn(
     }
   } finally {
     if (promptStarted) await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "post_turn");
+    await flushTurnCheckpoint(state, key, taskId);
+    const durableText = state.turnStore.get(taskId)?.assistantText ?? "";
+    await state.turnStore.settle(taskId, {
+      status: settledStatus,
+      ...(settledMessageId ? { messageId: settledMessageId } : {}),
+      ...(settledError ? { error: settledError } : {}),
+      assistantText: durableText,
+    }).catch((error) => {
+      console.error(`Could not persist Assistant turn settlement: ${errorMessage(error)}`);
+      return null;
+    });
     state.runningTurns.delete(key);
     state.cancelledTurnTasks.delete(taskId);
+    state.activeTurnIdsByKey.delete(key);
     state.kernel.finishTask(taskId);
     if (spaceId === workFoldManagementScopeId) state.managementRequests.finish(taskId, settledStatus);
     settleTurnTask(state, taskId, {
@@ -6528,12 +6725,108 @@ async function runAgentTurn(
       ...(settledMessageId ? { messageId: settledMessageId } : {}),
       ...(settledError ? { error: settledError } : {}),
     });
+    broadcast(state, key, settledStatus === "succeeded"
+      ? { type: "done", conversationId }
+      : { type: "error", conversationId, message: settledError ?? "The Assistant turn did not finish." });
     broadcast(state, key, turnStateEvent(conversationId, false));
     changeTurnCount(state, -1);
   }
 }
 
 const maxSettledTurnRecords = 500;
+
+async function recoverDurableTurnState(state: LocalApiState): Promise<void> {
+  const records = state.turnStore.list().sort((left, right) => left.updatedAt.localeCompare(right.updatedAt));
+  for (const record of records.filter((candidate) => candidate.status !== "accepted" && candidate.status !== "running").slice(-maxSettledTurnRecords)) {
+    rememberDurableSettledTurn(state, record);
+  }
+  for (const record of records.filter((candidate) => candidate.status === "accepted" || candidate.status === "running")) {
+    const rootPath = record.spaceId === workFoldManagementScopeId
+      ? workFoldManagementRoot()
+      : await getSpace(record.spaceId).then((space) => space.spaceRoot).catch(() => null);
+    if (!rootPath) {
+      const settled = await state.turnStore.settle(record.turnId, {
+        status: "interrupted",
+        error: "The app closed before this Assistant turn finished, and its Space is no longer registered.",
+      });
+      if (settled) rememberDurableSettledTurn(state, settled);
+      continue;
+    }
+    const messages = await readConversation(rootPath, record.conversationId).catch(() => []);
+    const existingResponse = messages.find((message) => message.role === "assistant" && message.turnId === record.turnId);
+    if (existingResponse) {
+      const status = existingResponse.interruption?.reason === "cancelled"
+        ? "aborted" as const
+        : existingResponse.interruption ? "failed" as const : "succeeded" as const;
+      const settled = await state.turnStore.settle(record.turnId, {
+        status,
+        messageId: existingResponse.id,
+        ...(existingResponse.interruption ? { error: existingResponse.interruption.message } : {}),
+      });
+      if (settled) rememberDurableSettledTurn(state, settled);
+      continue;
+    }
+    const userMessage = messages.find((message) => message.role === "user" && message.id === record.userMessageId);
+    if (!userMessage) {
+      const settled = await state.turnStore.settle(record.turnId, {
+        status: "interrupted",
+        error: "Turn acceptance was interrupted before the user message was saved.",
+      });
+      if (settled) rememberDurableSettledTurn(state, settled);
+      continue;
+    }
+    const detail = "work-fold closed before this Assistant turn finished. It was not run again because completed tools may already have changed something.";
+    const recoveredMessage: ChatMessage = {
+      id: randomUUID(),
+      role: "assistant",
+      content: record.assistantText.trim() || detail,
+      createdAt: new Date().toISOString(),
+      turnId: record.turnId,
+      requestId: record.requestId,
+      interruption: {
+        reason: "app_interrupted",
+        message: detail,
+        retryAttempts: 0,
+        provider: null,
+        model: null,
+        activities: [],
+      },
+    };
+    let messageId: string | undefined;
+    try {
+      await appendMessage(rootPath, record.conversationId, recoveredMessage);
+      messageId = recoveredMessage.id;
+    } catch (error) {
+      console.error(`Could not append an interrupted Assistant result during startup recovery: ${errorMessage(error)}`);
+    }
+    const settled = await state.turnStore.settle(record.turnId, {
+      status: "interrupted",
+      ...(messageId ? { messageId } : {}),
+      error: detail,
+    });
+    if (settled) rememberDurableSettledTurn(state, settled);
+  }
+}
+
+function rememberDurableSettledTurn(state: LocalApiState, record: WorkFoldDurableTurnRecord): void {
+  const status: SettledTurnRecord["status"] = record.status === "succeeded"
+    ? "succeeded"
+    : record.status === "aborted" ? "aborted" : "failed";
+  state.settledTurns.set(record.turnId, {
+    taskId: record.turnId,
+    spaceId: record.spaceId,
+    conversationId: record.conversationId,
+    status,
+    endedAt: record.updatedAt,
+    ...(record.messageId ? { messageId: record.messageId } : {}),
+    ...(record.error ? { error: record.error } : {}),
+  });
+  while (state.settledTurns.size > maxSettledTurnRecords) {
+    const oldest = state.settledTurns.keys().next().value;
+    if (oldest === undefined) break;
+    state.settledTurns.delete(oldest);
+  }
+}
 
 function settleTurnTask(
   state: LocalApiState,
@@ -6573,10 +6866,13 @@ function assistantFailureReason(error: unknown): "provider_error" | "setup_error
   return isAssistantSetupError(error) ? "setup_error" : "assistant_error";
 }
 
-function assistantFailureTranscriptContent(error: unknown): string {
+function assistantFailureTranscriptContent(error: unknown, checkpointText = "", cancelled = false): string {
+  const checkpoint = checkpointText.trim();
   if (error instanceof PiTurnFailure) {
-    return error.partialText || "The model stopped responding before it could finish a response.";
+    return error.partialText || checkpoint || "The model stopped responding before it could finish a response.";
   }
+  if (checkpoint) return checkpoint;
+  if (cancelled) return "The Assistant was stopped before it completed a response.";
   return assistantFailurePublicDetail(error);
 }
 
@@ -8551,8 +8847,27 @@ function openChatStream(
     connection: "keep-alive",
     "x-accel-buffering": "no",
   });
-  res.write(`data: ${JSON.stringify({ type: "status", conversationId, message: "Connected." })}\n\n`);
-  res.write(`data: ${JSON.stringify(turnStateEvent(conversationId, state.runningTurns.has(key)))}\n\n`);
+  writeSseData(res, { type: "status", conversationId, message: "Connected." });
+  const log = chatEventLog(state, key);
+  const cursor = parseSseCursor(req.headers["last-event-id"]);
+  const firstRetainedId = log.events[0]?.id ?? log.nextId;
+  const canReplay = cursor !== null && cursor >= firstRetainedId - 1 && cursor < log.nextId;
+  if (canReplay) {
+    for (const event of log.events) if (event.id > cursor) writeSseEntry(res, event);
+  } else {
+    const snapshotId = log.nextId - 1;
+    writeSseData(res, {
+      type: "turn_snapshot",
+      conversationId,
+      running: state.runningTurns.has(key),
+      turnId: state.activeTurnIdsByKey.get(key) ?? null,
+      text: log.assistantText,
+    }, snapshotId > 0 ? snapshotId : undefined);
+  }
+  // Keep the original handshake event for older local consumers while the
+  // richer snapshot provides cursor/text reconciliation to newer renderers.
+  const handshakeId = log.nextId - 1;
+  writeSseData(res, turnStateEvent(conversationId, state.runningTurns.has(key)), handshakeId > 0 ? handshakeId : undefined);
   const streams = state.chatStreams.get(key) ?? new Set<ServerResponse>();
   streams.add(res);
   state.chatStreams.set(key, streams);
@@ -8565,7 +8880,10 @@ function openChatStream(
     }
   }).catch(() => undefined);
   const heartbeat = setInterval(() => {
-    try { res.write(": keepalive\n\n"); } catch { /* disconnected */ }
+    try {
+      if (res.writableLength > maxChatStreamQueuedBytes) res.end();
+      else res.write(": keepalive\n\n");
+    } catch { /* disconnected */ }
   }, 15_000);
   req.on("close", () => {
     clearInterval(heartbeat);
@@ -8770,10 +9088,127 @@ function contentTypeForPath(path: string): string {
   }
 }
 
-function broadcast(state: LocalApiState, key: string, event: unknown): void {
-  for (const response of state.chatStreams.get(key) ?? []) {
-    try { response.write(`data: ${JSON.stringify(event)}\n\n`); } catch { /* disconnected */ }
+const maxChatEventEntries = 512;
+const maxChatEventBytes = 1024 * 1024;
+const maxIdleChatEventLogs = 200;
+const maxChatStreamQueuedBytes = 512 * 1024;
+const turnCheckpointDelayMs = 500;
+
+function resetChatEventTurn(state: LocalApiState, key: string): void {
+  const log = chatEventLog(state, key);
+  log.events = [];
+  log.bytes = 0;
+  log.assistantText = "";
+}
+
+function chatEventLog(state: LocalApiState, key: string): ChatEventLog {
+  let log = state.chatEventLogs.get(key);
+  if (log) {
+    state.chatEventLogs.delete(key);
+    state.chatEventLogs.set(key, log);
+    return log;
   }
+  while (state.chatEventLogs.size >= maxIdleChatEventLogs) {
+    const removable = [...state.chatEventLogs.keys()].find((candidate) =>
+      !state.runningTurns.has(candidate) && !state.chatStreams.has(candidate));
+    if (!removable) break;
+    state.chatEventLogs.delete(removable);
+  }
+  log = { nextId: 1, events: [], bytes: 0, assistantText: "" };
+  state.chatEventLogs.set(key, log);
+  return log;
+}
+
+function appendChatEvent(state: LocalApiState, key: string, data: unknown): ChatEventLogEntry {
+  const log = chatEventLog(state, key);
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const event = data as { type?: unknown; text?: unknown };
+    if (event.type === "assistant_delta" && typeof event.text === "string") {
+      const remaining = maxDurableTurnTextChars - log.assistantText.length;
+      if (remaining > 0) log.assistantText += event.text.slice(0, remaining);
+    }
+    if (event.type === "assistant_message" && typeof event.text === "string") {
+      log.assistantText = event.text.slice(0, maxDurableTurnTextChars);
+    }
+  }
+  const bytes = Buffer.byteLength(JSON.stringify(data));
+  const entry = { id: log.nextId++, data, bytes };
+  log.events.push(entry);
+  log.bytes += bytes;
+  while (log.events.length > maxChatEventEntries || log.bytes > maxChatEventBytes) {
+    const removed = log.events.shift();
+    if (!removed) break;
+    log.bytes -= removed.bytes;
+  }
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const type = (data as { type?: unknown }).type;
+    if (type === "assistant_delta" || type === "assistant_message") scheduleTurnCheckpoint(state, key);
+  }
+  return entry;
+}
+
+function scheduleTurnCheckpoint(state: LocalApiState, key: string): void {
+  if (!state.activeTurnIdsByKey.has(key) || state.turnCheckpointTimers.has(key)) return;
+  const timer = setTimeout(() => {
+    state.turnCheckpointTimers.delete(key);
+    const taskId = state.activeTurnIdsByKey.get(key);
+    if (!taskId) return;
+    void state.turnStore.checkpoint(taskId, chatEventLog(state, key).assistantText).catch((error) => {
+      console.error(`Could not persist Assistant stream checkpoint: ${errorMessage(error)}`);
+    });
+  }, turnCheckpointDelayMs);
+  timer.unref();
+  state.turnCheckpointTimers.set(key, timer);
+}
+
+async function flushTurnCheckpoint(state: LocalApiState, key: string, taskId: string): Promise<void> {
+  const timer = state.turnCheckpointTimers.get(key);
+  if (timer) {
+    clearTimeout(timer);
+    state.turnCheckpointTimers.delete(key);
+  }
+  await state.turnStore.checkpoint(taskId, chatEventLog(state, key).assistantText).catch((error) => {
+    console.error(`Could not flush Assistant stream checkpoint: ${errorMessage(error)}`);
+    return null;
+  });
+}
+
+async function flushAllTurnCheckpoints(state: LocalApiState): Promise<void> {
+  await Promise.all([...state.activeTurnIdsByKey].map(([key, taskId]) => flushTurnCheckpoint(state, key, taskId)));
+}
+
+function parseSseCursor(value: string | string[] | undefined): number | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw || !/^\d+$/.test(raw)) return null;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function writeSseEntry(response: ServerResponse, entry: ChatEventLogEntry): void {
+  writeSseData(response, entry.data, entry.id);
+}
+
+function writeSseData(response: ServerResponse, data: unknown, id?: number): void {
+  response.write(`${id !== undefined ? `id: ${id}\n` : ""}data: ${JSON.stringify(data)}\n\n`);
+}
+
+function broadcast(state: LocalApiState, key: string, event: unknown): void {
+  const entry = appendChatEvent(state, key, event);
+  const streams = state.chatStreams.get(key);
+  if (!streams) return;
+  for (const response of [...streams]) {
+    try {
+      if (response.writableEnded || response.destroyed || response.writableLength > maxChatStreamQueuedBytes) {
+        response.end();
+        streams.delete(response);
+        continue;
+      }
+      writeSseEntry(response, entry);
+    } catch {
+      streams.delete(response);
+    }
+  }
+  if (!streams.size) state.chatStreams.delete(key);
 }
 
 async function readJsonBody<T>(state: LocalApiState, req: IncomingMessage): Promise<T> {
@@ -8850,7 +9285,7 @@ function setCorsHeaders(state: LocalApiState, req: IncomingMessage, res: ServerR
   const origin = req.headers.origin;
   if (origin && state.allowedOrigins.includes(origin)) res.setHeader("access-control-allow-origin", origin);
   res.setHeader("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-  res.setHeader("access-control-allow-headers", "content-type,x-work-fold-session");
+  res.setHeader("access-control-allow-headers", "content-type,last-event-id,x-work-fold-session");
   res.setHeader("vary", "Origin");
   res.setHeader("x-content-type-options", "nosniff");
 }

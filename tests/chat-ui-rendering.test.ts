@@ -3,8 +3,11 @@ import test from "node:test";
 
 import {
   chatDraftStorageKey,
+  clearStoredPendingChatSend,
   modelConversationTitle,
   optimisticChatTitleFromFirstUserMessage,
+  readStoredPendingChatSend,
+  writeStoredPendingChatSend,
 } from "../web-local/src/lib/format.js";
 import { collectSpacePathCandidates, spacePathCandidate } from "../web-local/src/lib/space-path-links.js";
 
@@ -18,6 +21,41 @@ test("blank Chat tabs keep independent drafts while saved conversations keep sta
     chatDraftStorageKey("space-1", "conversation-1", "chat:space-1:draft:second"),
   );
   assert.equal(chatDraftStorageKey("space-1", null), "work-fold.space.chat-draft:space-1:new-chat");
+});
+
+test("pending Chat sends preserve one stable acceptance identity across renderer recovery", () => {
+  const values = new Map<string, string>();
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      localStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+        removeItem: (key: string) => values.delete(key),
+      },
+    },
+  });
+  try {
+    const pending = {
+      version: 1 as const,
+      requestId: "request-recovery-1",
+      userMessageId: "message-recovery-1",
+      content: "Continue exactly once.",
+      createdAt: "2026-08-13T12:00:00.000Z",
+      selectedPath: "notes.md",
+      contextPaths: ["notes.md"],
+      transientConversation: false,
+      draftStorageKey: "draft-key",
+    };
+    assert.equal(writeStoredPendingChatSend("space-1", "chat-1", pending), true);
+    assert.deepEqual(readStoredPendingChatSend("space-1", "chat-1"), pending);
+    clearStoredPendingChatSend("space-1", "chat-1");
+    assert.equal(readStoredPendingChatSend("space-1", "chat-1"), null);
+  } finally {
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
 });
 
 test("Chat title rendering ignores only the initial placeholder and accepts generated or manual titles", () => {
