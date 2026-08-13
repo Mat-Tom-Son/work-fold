@@ -5,11 +5,19 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+  directorySyncUnsupported,
   WorkFoldTurnReplayConflictError,
   WorkFoldTurnStore,
 } from "../src/local/agent/turn-store.js";
 
 const digest = (value: string) => value.repeat(64).slice(0, 64);
+
+test("directory durability falls back only for known unsupported platform errors", () => {
+  assert.equal(directorySyncUnsupported(Object.assign(new Error("unsupported"), { code: "EINVAL" }), "darwin"), true);
+  assert.equal(directorySyncUnsupported(Object.assign(new Error("denied"), { code: "EPERM" }), "win32"), true);
+  assert.equal(directorySyncUnsupported(Object.assign(new Error("denied"), { code: "EPERM" }), "darwin"), false);
+  assert.equal(directorySyncUnsupported(Object.assign(new Error("full"), { code: "ENOSPC" }), "win32"), false);
+});
 
 test("durable turn records make acceptance idempotent and survive restart", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-turn-store-"));

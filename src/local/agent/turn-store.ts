@@ -248,8 +248,7 @@ export class WorkFoldTurnStore {
       flush: true,
     });
     await rename(tempPath, this.path);
-    const directory = await open(dirname(this.path), "r").catch(() => null);
-    try { await directory?.sync(); } finally { await directory?.close(); }
+    await syncDirectory(dirname(this.path));
   }
 
   #remember(record: WorkFoldDurableTurnRecord): void {
@@ -272,6 +271,25 @@ export class WorkFoldTurnReplayConflictError extends Error {
     super(message);
     this.name = "WorkFoldTurnReplayConflictError";
   }
+}
+
+async function syncDirectory(path: string): Promise<void> {
+  let directory: Awaited<ReturnType<typeof open>> | null = null;
+  try {
+    directory = await open(path, "r");
+    await directory.sync();
+  } catch (error) {
+    if (!directorySyncUnsupported(error)) throw error;
+  } finally {
+    await directory?.close().catch(() => undefined);
+  }
+}
+
+export function directorySyncUnsupported(error: unknown, platform = process.platform): boolean {
+  if (!error || typeof error !== "object" || !("code" in error)) return false;
+  const code = (error as NodeJS.ErrnoException).code ?? "";
+  if (["EINVAL", "ENOTSUP", "EISDIR", "EBADF"].includes(code)) return true;
+  return platform === "win32" && ["EPERM", "EACCES"].includes(code);
 }
 
 function parseRecord(value: unknown): WorkFoldDurableTurnRecord {
