@@ -122,7 +122,6 @@ async function runSmoke() {
       storage,
       resolveSpaceRoot: async (spaceId) => spaceId === "ws-electron-smoke" ? spaceRoot : null,
       preloadPath: join(rootDir, "dist", "desktop", "desktop", "src", "restricted-app-preload.cjs"),
-      invocationTimeoutMs: 2_000,
       notifications: notificationBroker,
       onTabCommand: (command) => tabCommands.push(command),
     });
