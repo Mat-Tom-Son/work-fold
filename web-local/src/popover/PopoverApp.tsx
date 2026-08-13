@@ -48,6 +48,12 @@ interface ManagementRequestView {
   reply: { messageId: string; content: string } | null;
 }
 
+function managementTurnIdentity(prefix: "request" | "message"): string {
+  const value = globalThis.crypto?.randomUUID?.()
+    ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `${prefix}-${value}`;
+}
+
 interface ManagementSummary {
   available: boolean;
   reason?: string;
@@ -113,6 +119,11 @@ export function PopoverApp() {
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const transcriptRef = useRef<HTMLElement | null>(null);
   const requestRef = useRef<ManagementRequestView | null>(null);
+  const pendingSendIdentityRef = useRef<{
+    signature: string;
+    requestId: string;
+    userMessageId: string;
+  } | null>(null);
   const startingNewChatRef = useRef(false);
   const openSectionRef = useRef<FoldSection | null>(null);
   const menuAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -328,9 +339,28 @@ export function PopoverApp() {
     setBanner("");
     setActivity("");
     try {
-      const body: Record<string, unknown> = { content };
-      if (staged.length) body.attachments = staged.map((item) => item.value);
       const current = requestRef.current;
+      const signature = JSON.stringify({
+        content,
+        attachments: staged.map((item) => item.value),
+        newConversation: startingNewChatRef.current,
+        conversationId: current?.phase === "needs_you" ? current.conversationId : null,
+        continuationTaskId: current?.phase === "needs_you" ? current.taskId : null,
+      });
+      const identity = pendingSendIdentityRef.current?.signature === signature
+        ? pendingSendIdentityRef.current
+        : {
+            signature,
+            requestId: managementTurnIdentity("request"),
+            userMessageId: managementTurnIdentity("message"),
+          };
+      pendingSendIdentityRef.current = identity;
+      const body: Record<string, unknown> = {
+        content,
+        requestId: identity.requestId,
+        userMessageId: identity.userMessageId,
+      };
+      if (staged.length) body.attachments = staged.map((item) => item.value);
       if (startingNewChatRef.current) {
         body.newConversation = true;
       } else if (current && current.phase === "needs_you") {
@@ -339,9 +369,10 @@ export function PopoverApp() {
       }
       const result = await api<{ taskId: string; conversationId: string }>(
         "/api/management/messages",
-        { method: "POST", body },
+        { method: "POST", body, idempotent: true },
       );
       startingNewChatRef.current = false;
+      pendingSendIdentityRef.current = null;
       setStartingNewChat(false);
       setText("");
       setStaged([]);
@@ -357,6 +388,7 @@ export function PopoverApp() {
   const startNewChat = useCallback(() => {
     if (sending || startingNewChatRef.current) return;
     startingNewChatRef.current = true;
+    pendingSendIdentityRef.current = null;
     setStartingNewChat(true);
     setRequest(null);
     setConversationId(null);

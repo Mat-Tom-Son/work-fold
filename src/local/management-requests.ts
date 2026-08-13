@@ -3,9 +3,9 @@ import { maxManagementAttachments, type ManagementAttachmentRef } from "./manage
 /**
  * In-memory record of one management request: a single accepted management
  * turn plus every explicitly attributed act-lane action the management
- * Assistant performed, and every Space Assistant turn it started. Records live for the app
- * run, like settled turn outcomes; the transcript and the act receipts
- * journal remain the durable records.
+ * Assistant performed, and every Space Assistant turn it started. These rich
+ * request projections live for the app run; the transcript, bounded turn
+ * journal, and act receipts remain the durable records.
  *
  * The turn id is carried explicitly in act-command argv and checked while the
  * parent is active. This avoids crediting an unrelated same-user CLI command

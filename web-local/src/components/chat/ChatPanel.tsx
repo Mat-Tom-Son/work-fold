@@ -5,10 +5,22 @@ import { AlertTriangle, Archive, CircleCheck, Clock3, Loader2, Square, X } from 
 
 import { agentActivityLogLimit, chatDraftDebounceMs, genericChatEmptyGreetings, spacePathDragType } from "../../constants";
 import { createFixtureContextAttachment, fixtureAgentActivityEvents, fixtureConversationSummary } from "../../fixtures/shared";
-import { api, createEventSource, errorText } from "../../lib/api";
+import { api, createEventSource, errorText, isTransientNetworkError, rawErrorMessage } from "../../lib/api";
 import { createChatTurnStateGate, observeChatTurnState } from "../../lib/chat-turn-state";
 import { hasNativeFiles } from "../../lib/file-actions";
-import { chatDisplayTitle, chatDraftStorageKey, clearStoredChatDraft, formatBytes, latestTranscriptTime, modelConversationTitle, readStoredChatDraft, writeStoredChatDraft } from "../../lib/format";
+import {
+  chatDisplayTitle,
+  chatDraftStorageKey,
+  clearStoredChatDraft,
+  clearStoredPendingChatSend,
+  formatBytes,
+  latestTranscriptTime,
+  modelConversationTitle,
+  readStoredChatDraft,
+  readStoredPendingChatSend,
+  writeStoredChatDraft,
+  writeStoredPendingChatSend,
+} from "../../lib/format";
 import { latestAssistantMessageId as findLatestAssistantMessageId, settledTurnHasNewAssistantMessage } from "../../lib/chat-turn-artifacts";
 import { dismissRestrictedAppProposal, installRestrictedAppProposal } from "../../lib/restricted-apps";
 import { resolveFixtureSpacePathCandidates } from "../../lib/space-path-links";
@@ -43,6 +55,12 @@ const fixtureConversationRuntime: ConversationRuntime = {
   isStreaming: false,
   isCompacting: false,
 };
+
+function clientTurnIdentity(prefix: "request" | "message" | "chat"): string {
+  const value = globalThis.crypto?.randomUUID?.()
+    ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `${prefix}-${value}`;
+}
 
 export function ChatPanel({
   surfaceTabId,
@@ -443,7 +461,12 @@ export function ChatPanel({
       if (eventStreamReadyConversationIdRef.current === conversationId) eventStreamReadyConversationIdRef.current = null;
       const pending = pendingSendRef.current;
       if (pending?.conversation.id === conversationId) {
+        if (isTransientNetworkError(rawErrorMessage(streamError))) {
+          setError(errorText(streamError));
+          return;
+        }
         pendingSendRef.current = null;
+        clearStoredPendingChatSend(space.id, conversationId);
         postingPendingSendRef.current = false;
         runningRef.current = false;
         setRunning(false);
@@ -466,7 +489,11 @@ export function ChatPanel({
       if (data.type === "status" && data.message && data.message !== "Connected.") {
         addAgentEvent({ message: data.message, phase: "running" });
       }
-      if (data.type === "turn_state") {
+      if (data.type === "turn_state" || data.type === "turn_snapshot") {
+        if (data.type === "turn_snapshot" && typeof data.text === "string") {
+          flushStreamingText();
+          setStreamingAssistant(data.text);
+        }
         const sendTransitioning = pendingSendRef.current?.conversation.id === conversationId
           || postingPendingSendRef.current;
         const decision = observeChatTurnState(turnStateGate, data.running === true, sendTransitioning);
@@ -964,7 +991,11 @@ export function ChatPanel({
     setActiveContextPath(null);
     userPinnedToBottomRef.current = true;
     setUserPinnedToBottom(true);
-    const result = await api<{ conversation: ConversationSummary }>(`/api/spaces/${space.id}/conversations`, { method: "POST" });
+    const result = await api<{ conversation: ConversationSummary }>(`/api/spaces/${space.id}/conversations`, {
+      method: "POST",
+      idempotent: true,
+      body: { conversationId: clientTurnIdentity("chat") },
+    });
     transientConversationIdsRef.current.add(result.conversation.id);
     setConversation(result.conversation);
     onConversationActivated?.(result.conversation);
@@ -988,7 +1019,37 @@ export function ChatPanel({
     setActiveContextPath(null);
     userPinnedToBottomRef.current = true;
     setUserPinnedToBottom(true);
-    await loadMessages(selected.id, true);
+    const transcript = await loadMessages(selected.id, true);
+    const stored = readStoredPendingChatSend(space.id, selected.id);
+    if (!stored) return;
+    if (transcript.some((message) => message.role === "user" && message.id === stored.userMessageId)) {
+      clearStoredPendingChatSend(space.id, selected.id);
+      return;
+    }
+    const localUserMessage: ChatMessage = {
+      id: stored.userMessageId,
+      role: "user",
+      content: stored.content,
+      createdAt: stored.createdAt,
+      requestId: stored.requestId,
+    };
+    pendingSendRef.current = {
+      conversation: selected,
+      content: stored.content,
+      requestId: stored.requestId,
+      userMessageId: stored.userMessageId,
+      localUserMessage,
+      selectedPath: stored.selectedPath,
+      contextPaths: stored.contextPaths,
+      transientConversation: stored.transientConversation,
+      draftStorageKey: stored.draftStorageKey,
+    };
+    if (stored.transientConversation) transientConversationIdsRef.current.add(selected.id);
+    beginTurnArtifactTracking();
+    runningRef.current = true;
+    setRunning(true);
+    setMessages((current) => [...current, localUserMessage]);
+    if (eventStreamReadyConversationIdRef.current === selected.id) void postPendingMessage();
   }
 
   const hasRuntimePreview = runtimePreviews.length > 0;
@@ -1005,13 +1066,18 @@ export function ChatPanel({
     }
   }
 
-  async function loadMessages(conversationId: string, pinToBottom = false, options: { settleStreamingTurn?: boolean } = {}) {
+  async function loadMessages(
+    conversationId: string,
+    pinToBottom = false,
+    options: { settleStreamingTurn?: boolean } = {},
+  ): Promise<ChatMessage[]> {
     const settleStreamingTurn = options.settleStreamingTurn ?? false;
     let keepSettledTurnArtifacts = false;
+    let transcript: ChatMessage[] = [];
     try {
-      if (fixtureMode) return;
+      if (fixtureMode) return [];
       const result = await api<{ messages: ChatMessage[] }>(`/api/spaces/${space.id}/conversations/${conversationId}`);
-      const transcript = result.messages.filter((message) => message.role !== "system");
+      transcript = result.messages.filter((message) => message.role !== "system");
       if (settleStreamingTurn) {
         keepSettledTurnArtifacts = settledTurnHasNewAssistantMessage(
           turnPreviousAssistantMessageIdRef.current,
@@ -1049,6 +1115,7 @@ export function ChatPanel({
         setRunning(false);
       }
     }
+    return transcript;
   }
 
   function applyKnownFirstUserConversationTitle(conversationId: string, transcript: ChatMessage[]) {
@@ -1106,7 +1173,9 @@ export function ChatPanel({
     userPinnedToBottomRef.current = true;
     setUserPinnedToBottom(true);
     const now = Date.now();
-    const localUserMessage: ChatMessage = { id: `local-${now}`, role: "user", content, createdAt: new Date(now).toISOString() };
+    const requestId = clientTurnIdentity("request");
+    const userMessageId = clientTurnIdentity("message");
+    const localUserMessage: ChatMessage = { id: userMessageId, role: "user", content, createdAt: new Date(now).toISOString() };
     setMessages((current) => [...current, localUserMessage]);
     scrollMessagesToBottom("auto");
     if (fixtureMode) {
@@ -1130,7 +1199,11 @@ export function ChatPanel({
       return;
     }
     try {
-      const activeConversation = conversation ?? (await api<{ conversation: ConversationSummary }>(`/api/spaces/${space.id}/conversations`, { method: "POST" })).conversation;
+      const activeConversation = conversation ?? (await api<{ conversation: ConversationSummary }>(`/api/spaces/${space.id}/conversations`, {
+        method: "POST",
+        idempotent: true,
+        body: { conversationId: clientTurnIdentity("chat") },
+      })).conversation;
       const shouldUseOptimisticFirstPromptTitle = !conversation || transientConversationIdsRef.current.has(activeConversation.id) || activeConversation.title === "work-fold chat";
       const optimisticConversation = shouldUseOptimisticFirstPromptTitle
         ? {
@@ -1147,15 +1220,29 @@ export function ChatPanel({
         onConversationActivated?.(optimisticConversation);
         commitConversations((current) => [optimisticConversation, ...current.filter((item) => item.id !== optimisticConversation.id)]);
       }
-      pendingSendRef.current = {
+      const pending: PendingChatSend = {
         conversation: activeConversation,
         content,
+        requestId,
+        userMessageId,
         localUserMessage,
         selectedPath,
         contextPaths: contextAttachments.map((attachment) => attachment.sourcePath),
         transientConversation: transientConversationIdsRef.current.has(activeConversation.id),
         draftStorageKey: sentDraftStorageKey,
       };
+      pendingSendRef.current = pending;
+      writeStoredPendingChatSend(space.id, activeConversation.id, {
+        version: 1,
+        requestId,
+        userMessageId,
+        content,
+        createdAt: localUserMessage.createdAt,
+        selectedPath,
+        contextPaths: pending.contextPaths,
+        transientConversation: pending.transientConversation,
+        draftStorageKey: sentDraftStorageKey,
+      });
       if (eventStreamReadyConversationIdRef.current === activeConversation.id) void postPendingMessage();
     } catch (sendError) {
       setRunning(false);
@@ -1176,13 +1263,17 @@ export function ChatPanel({
     try {
       const result = await api<{ accepted: boolean; message: ChatMessage }>(`/api/spaces/${space.id}/conversations/${pending.conversation.id}/messages`, {
         method: "POST",
+        idempotent: true,
         body: {
           content: pending.content,
           selectedPath: pending.selectedPath,
           contextPaths: pending.contextPaths,
+          requestId: pending.requestId,
+          userMessageId: pending.userMessageId,
         },
       });
       clearStoredChatDraft(pending.draftStorageKey);
+      clearStoredPendingChatSend(space.id, pending.conversation.id);
       const shouldUseFirstPromptTitle = pending.transientConversation || pending.conversation.title === "work-fold chat";
       const updatedConversation = {
         ...pending.conversation,
@@ -1198,6 +1289,12 @@ export function ChatPanel({
       suppressMessageEnterIdsRef.current.add(result.message.id);
       setMessages((current) => current.map((message) => message.id === pending.localUserMessage.id ? result.message : message));
     } catch (sendError) {
+      if (isTransientNetworkError(rawErrorMessage(sendError))) {
+        pendingSendRef.current = pending;
+        setError(errorText(sendError));
+        return;
+      }
+      clearStoredPendingChatSend(space.id, pending.conversation.id);
       setRunning(false);
       clearRuntimePreviews();
       resetTurnArtifactTracking();
@@ -1220,6 +1317,7 @@ export function ChatPanel({
     if (pendingSendRef.current) {
       const pending = pendingSendRef.current;
       pendingSendRef.current = null;
+      clearStoredPendingChatSend(space.id, pending.conversation.id);
       postingPendingSendRef.current = false;
       setRunning(false);
       clearRuntimePreviews();

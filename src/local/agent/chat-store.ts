@@ -25,6 +25,10 @@ export interface ChatMessage {
   remotePrincipalId?: string;
   remoteGrantId?: string;
   remoteRequestId?: string;
+  /** Stable host-owned identity for one accepted Assistant turn. */
+  turnId?: string;
+  /** Stable caller identity used to make turn acceptance idempotent. */
+  requestId?: string;
 }
 
 /**
@@ -39,7 +43,7 @@ export interface ChatMessageAttachmentRef {
 }
 
 export interface ChatMessageInterruption {
-  reason: "provider_error" | "setup_error" | "assistant_error";
+  reason: "provider_error" | "setup_error" | "assistant_error" | "cancelled" | "app_interrupted";
   message: string;
   retryAttempts: number;
   provider: string | null;
@@ -125,11 +129,17 @@ export async function listConversations(spaceRoot: string): Promise<Conversation
   return summaries.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
-export async function createConversation(spaceRoot: string, title = untitledConversationTitle): Promise<ConversationSummary> {
+export async function createConversation(
+  spaceRoot: string,
+  title = untitledConversationTitle,
+  conversationId = `chat-${randomUUID()}`,
+): Promise<ConversationSummary> {
+  assertValidConversationId(conversationId);
+  const existing = await readConversation(spaceRoot, conversationId);
+  if (existing.length) return conversationSummary(conversationId, existing);
   const now = new Date().toISOString();
-  const id = `chat-${randomUUID()}`;
   const normalizedTitle = normalizeConversationTitle(title) || untitledConversationTitle;
-  await appendMessage(spaceRoot, id, {
+  await appendMessage(spaceRoot, conversationId, {
     id: randomUUID(),
     role: "system",
     kind: "conversation_title",
@@ -137,7 +147,7 @@ export async function createConversation(spaceRoot: string, title = untitledConv
     content: normalizedTitle,
     createdAt: now,
   });
-  return { id, title: normalizedTitle, createdAt: now, updatedAt: now, archivedAt: null, snoozedUntil: null };
+  return { id: conversationId, title: normalizedTitle, createdAt: now, updatedAt: now, archivedAt: null, snoozedUntil: null };
 }
 
 export async function findRemoteConversationTitleRename(
@@ -255,10 +265,21 @@ async function readConversationFile(spaceRoot: string, conversationId: string): 
 
 export async function appendMessage(spaceRoot: string, conversationId: string, message: ChatMessage): Promise<void> {
   const path = conversationPath(spaceRoot, conversationId);
-  await mkdir(conversationsDir(spaceRoot), { recursive: true });
-  const prefix = await needsLineBreakBeforeAppend(path) ? "\n" : "";
-  await appendFile(path, `${prefix}${JSON.stringify(message)}\n`, "utf8");
+  const previous = conversationAppendQueues.get(path) ?? Promise.resolve();
+  const operation = previous.catch(() => undefined).then(async () => {
+    await mkdir(conversationsDir(spaceRoot), { recursive: true });
+    const prefix = await needsLineBreakBeforeAppend(path) ? "\n" : "";
+    await appendFile(path, `${prefix}${JSON.stringify(message)}\n`, { encoding: "utf8", flush: true });
+  });
+  conversationAppendQueues.set(path, operation);
+  try {
+    await operation;
+  } finally {
+    if (conversationAppendQueues.get(path) === operation) conversationAppendQueues.delete(path);
+  }
 }
+
+const conversationAppendQueues = new Map<string, Promise<void>>();
 
 export function conversationsDir(spaceRoot: string): string {
   return spaceConversationDir(spaceRoot);
@@ -437,6 +458,8 @@ function parseChatMessage(line: string): ChatMessage | null {
       if (isRemoteProvenanceId(parsed.remoteGrantId)) message.remoteGrantId = parsed.remoteGrantId;
       message.remoteRequestId = parsed.remoteRequestId;
     }
+    if (isTurnIdentity(parsed.turnId)) message.turnId = parsed.turnId;
+    if (isTurnIdentity(parsed.requestId)) message.requestId = parsed.requestId;
     return message;
   } catch {
     return null;
@@ -444,6 +467,10 @@ function parseChatMessage(line: string): ChatMessage | null {
 }
 
 function isRemoteProvenanceId(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 160 && /^[A-Za-z0-9._:-]+$/.test(value);
+}
+
+function isTurnIdentity(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 160 && /^[A-Za-z0-9._:-]+$/.test(value);
 }
 
@@ -462,7 +489,8 @@ function isChatMessageAttachmentRef(value: unknown): value is ChatMessageAttachm
 function isChatMessageInterruption(value: unknown): value is ChatMessageInterruption {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as Partial<ChatMessageInterruption>;
-  return (record.reason === "provider_error" || record.reason === "setup_error" || record.reason === "assistant_error")
+  return (record.reason === "provider_error" || record.reason === "setup_error" || record.reason === "assistant_error"
+      || record.reason === "cancelled" || record.reason === "app_interrupted")
     && typeof record.message === "string"
     && typeof record.retryAttempts === "number"
     && Number.isInteger(record.retryAttempts)

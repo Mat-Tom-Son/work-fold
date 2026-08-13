@@ -1571,6 +1571,7 @@ async function runActCommand(
         ...(command.conversation ? { conversationId: command.conversation } : {}),
         ...(command.newConversation ? { newConversation: true } : {}),
         content,
+        requestId: request.id,
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));
     }
@@ -1596,6 +1597,7 @@ async function runActCommand(
         ...(command.conversation ? { conversationId: command.conversation } : {}),
         ...(command.newConversation ? { newConversation: true } : {}),
         content,
+        requestId: request.id,
         ...(command.attachments?.length ? { attachments: command.attachments, cwd: request.cwd } : {}),
       }));
     }

@@ -25,6 +25,7 @@ test("the canonical brand sources are the designer icon pack and lockups", async
     "web/favicon.ico",
     "master/work-fold-icon.svg",
     "master/work-fold-icon-small.svg",
+    "monochrome/macOS-template/WorkFoldTemplate-source.png",
     "monochrome/macOS-template/WorkFoldTemplate.png",
     "monochrome/macOS-template/WorkFoldTemplate@2x.png",
     "png/transparent/work-fold-icon-512.png",
@@ -46,7 +47,7 @@ test("the canonical brand sources are the designer icon pack and lockups", async
   ]);
   assert.match(generator, /WorkFold\.icns/);
   assert.match(generator, /WorkFold\.ico/);
-  assert.match(generator, /WorkFoldTemplate/);
+  assert.match(generator, /WorkFoldTemplate-source\.png/);
   assert.match(bridgeGenerator, /favicon-32x32\.png/);
   assert.match(bridgeGenerator, /lockup-horizontal-black/);
   assert.match(bridgeGenerator, /work-fold-icon-512\.png/);
@@ -88,11 +89,26 @@ test("installed desktop icons are byte-for-byte pack exports", async () => {
     await assertBytesEqual(asset(installed), packAsset(packSource), `${installed} must be the pack export exactly`);
   }
 
+  const icns = await readFile(asset("icon.icns"));
+  assert.equal(icns.subarray(0, 4).toString("ascii"), "icns");
+  assert.equal(icns.readUInt32BE(4), icns.length, "the ICNS header must cover the complete file");
+  const chunkTypes: string[] = [];
+  for (let offset = 8; offset < icns.length;) {
+    const length = icns.readUInt32BE(offset + 4);
+    assert.ok(length > 8 && offset + length <= icns.length, "every ICNS chunk must be bounded");
+    chunkTypes.push(icns.subarray(offset, offset + 4).toString("ascii"));
+    offset += length;
+  }
+  assert.deepEqual(chunkTypes, ["icp4", "ic11", "icp5", "ic12", "icp6", "ic07", "ic13", "ic08", "ic14", "ic09", "ic10"]);
+
   for (const [name, size] of [["iconTemplate.png", 18], ["iconTemplate@2x.png", 36]] as const) {
     const summary = await pixelSummary(asset(name));
     assert.equal(summary.width, size);
     assert.equal(summary.height, size);
     assert.equal(summary.colored, 0, `${name} must remain black-plus-alpha for native template recoloring`);
+    const components = await opaqueComponentSizes(asset(name));
+    assert.equal(components.length, 3, `${name} must keep all three fold faces visually separated`);
+    assert.ok(components.every((componentSize) => componentSize >= (size === 18 ? 30 : 120)), `${name} must not contain stray opaque fragments`);
   }
 });
 
@@ -253,4 +269,37 @@ async function pixelSummary(path: string) {
     if (alpha > 20 && (red !== green || green !== blue)) colored += 1;
   }
   return { width: info.width, height: info.height, colored };
+}
+
+async function opaqueComponentSizes(path: string, threshold = 80) {
+  const { data, info } = await sharp(path).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const pixelCount = info.width * info.height;
+  const seen = new Uint8Array(pixelCount);
+  const sizes: number[] = [];
+
+  for (let start = 0; start < pixelCount; start += 1) {
+    if (seen[start] || (data[(start * 4) + 3] ?? 0) < threshold) continue;
+    const queue = [start];
+    seen[start] = 1;
+    let size = 0;
+    for (let cursor = 0; cursor < queue.length; cursor += 1) {
+      const index = queue[cursor] ?? 0;
+      const x = index % info.width;
+      const y = Math.floor(index / info.width);
+      size += 1;
+      for (const neighbor of [
+        x > 0 ? index - 1 : -1,
+        x + 1 < info.width ? index + 1 : -1,
+        y > 0 ? index - info.width : -1,
+        y + 1 < info.height ? index + info.width : -1,
+      ]) {
+        if (neighbor < 0 || seen[neighbor] || (data[(neighbor * 4) + 3] ?? 0) < threshold) continue;
+        seen[neighbor] = 1;
+        queue.push(neighbor);
+      }
+    }
+    sizes.push(size);
+  }
+
+  return sizes.sort((left, right) => right - left);
 }

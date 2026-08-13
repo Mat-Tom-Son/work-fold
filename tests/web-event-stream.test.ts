@@ -22,8 +22,9 @@ test("SSE frames preserve multiline data and recognize both boundary styles", ()
 
   assert.equal(nextSseBoundary("data: unix\n\nnext"), 10);
   assert.equal(nextSseBoundary("data: windows\r\n\r\nnext"), 13);
-  dispatchSseFrame("event: update\ndata: first\ndata: second", source);
+  dispatchSseFrame("id: 42\nevent: update\ndata: first\ndata: second", source);
   assert.deepEqual(messages, ["first\nsecond"]);
+  assert.equal(source.lastEventId, "42");
   assert.equal(shouldReconnectEventStream(new Error("Local service event stream ended."), 0), true);
   assert.equal(shouldReconnectEventStream(new Error("Unauthorized"), 0), false);
   assert.equal(shouldReconnectEventStream(new Error("Failed to fetch"), eventStreamReconnectDelaysMs.length), false);

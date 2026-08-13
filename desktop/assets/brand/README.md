@@ -6,9 +6,12 @@ files; nothing else in the repo should carry its own copy of the mark.
 
 ## Layout
 
-- `pack/` — the designer icon pack, committed verbatim (see `pack/README.md`).
-  It is built from one vector master with an optically simplified small-size
-  variant, and ships purpose-built exports: `macOS/` (icns + iconset, tiled),
+- `pack/` — the designer icon pack (see `pack/README.md`). Its shared brand
+  ladder is built from one vector master with an optically simplified
+  small-size variant. The macOS application icon instead uses the supplied
+  Apple Icon Composer Default export, and the menu-bar pair is rendered from
+  its own optically compensated monochrome source. The pack ships:
+  `macOS/` (icns + iconset, tiled),
   `Windows/` (ico + png ladder, tiled), `web/` (favicons, PWA icons, apple
   touch), `monochrome/` (black/white ladders and the macOS menu-bar template),
   `png/transparent/` (the bare cube at every size), `master/` (the SVGs), and
@@ -25,8 +28,10 @@ pack's rendering style for marketing surfaces.
 
 ## Regeneration
 
-Both installers are copy-and-verify — outputs are byte-for-byte pack exports
-(`tests/work-fold-brand.test.ts` enforces this):
+Application outputs are copy-and-verify pack exports. The menu-bar 1x/2x pair
+is deterministically rendered from its committed source; the same bytes are
+written to the pack and installed asset locations (`tests/work-fold-brand.test.ts`
+enforces both contracts):
 
 ```
 npm run desktop:icons                        # desktop icons + DMG background

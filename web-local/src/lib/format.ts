@@ -1,7 +1,19 @@
 import { chatDraftKeyPrefix, chatDraftMaxStoredChars, chatDraftNewConversationId, untitledChatLabel } from "../constants";
 import type { ChangeEntry, ChangeKindCounts, ChatMessage } from "../types";
 import { conversationTitleFromFirstUserMessage } from "../../../src/shared/chat-title";
-import { readStoredValue, writeStoredValue } from "./storage";
+import { readStoredJsonValue, readStoredValue, writeStoredJsonValue, writeStoredValue } from "./storage";
+
+export interface StoredPendingChatSend {
+  version: 1;
+  requestId: string;
+  userMessageId: string;
+  content: string;
+  createdAt: string;
+  selectedPath: string | null;
+  contextPaths: string[];
+  transientConversation: boolean;
+  draftStorageKey: string;
+}
 
 export function normalizeSearchQuery(value: string): string {
   return value.toLocaleLowerCase().replace(/\s+/g, " ").trim();
@@ -36,6 +48,47 @@ export function writeStoredChatDraft(key: string, draft: string): void {
 
 export function clearStoredChatDraft(key: string): void {
   writeStoredValue(key, null);
+}
+
+export function pendingChatSendStorageKey(spaceId: string, conversationId: string): string {
+  return `work-fold.space.pending-chat-send:${spaceId}:${conversationId}`;
+}
+
+export function readStoredPendingChatSend(spaceId: string, conversationId: string): StoredPendingChatSend | null {
+  return readStoredJsonValue(pendingChatSendStorageKey(spaceId, conversationId), normalizePendingChatSend, null);
+}
+
+export function writeStoredPendingChatSend(spaceId: string, conversationId: string, value: StoredPendingChatSend): boolean {
+  return writeStoredJsonValue(pendingChatSendStorageKey(spaceId, conversationId), value);
+}
+
+export function clearStoredPendingChatSend(spaceId: string, conversationId: string): void {
+  writeStoredValue(pendingChatSendStorageKey(spaceId, conversationId), null);
+}
+
+function normalizePendingChatSend(value: unknown): StoredPendingChatSend | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Partial<StoredPendingChatSend>;
+  if (record.version !== 1
+    || typeof record.requestId !== "string" || !/^[A-Za-z0-9._:-]{1,160}$/.test(record.requestId)
+    || typeof record.userMessageId !== "string" || !/^[A-Za-z0-9._:-]{1,160}$/.test(record.userMessageId)
+    || typeof record.content !== "string" || !record.content.trim() || record.content.length > chatDraftMaxStoredChars
+    || typeof record.createdAt !== "string" || !Number.isFinite(Date.parse(record.createdAt))
+    || (record.selectedPath !== null && typeof record.selectedPath !== "string")
+    || !Array.isArray(record.contextPaths) || record.contextPaths.some((path) => typeof path !== "string")
+    || typeof record.transientConversation !== "boolean"
+    || typeof record.draftStorageKey !== "string") return null;
+  return {
+    version: 1,
+    requestId: record.requestId,
+    userMessageId: record.userMessageId,
+    content: record.content,
+    createdAt: record.createdAt,
+    selectedPath: record.selectedPath,
+    contextPaths: record.contextPaths.slice(0, 32),
+    transientConversation: record.transientConversation,
+    draftStorageKey: record.draftStorageKey,
+  };
 }
 
 export function compactUrlLabel(value: string): string {
