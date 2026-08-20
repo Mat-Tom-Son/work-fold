@@ -8,6 +8,9 @@ const app = document.querySelector("#app");
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const localSlug = new URL(location.href).searchParams.get("slug") || "";
+// Touch keyboards have no Shift+Enter, so their return key writes newlines
+// and the send button sends; hardware keyboards keep Enter-to-send.
+const coarsePointer = matchMedia("(pointer: coarse)").matches;
 
 // ?fixture=home|chat|files renders canned local state for QA (the desktop
 // renderer's ?fixture=space precedent). Fixture mode is client-side only and
@@ -69,12 +72,47 @@ const state = {
   startingNewChat: false,
   renamingConversationId: null,
   renameSaving: false,
+  conversationsLoaded: false,
+  spacesLoaded: false,
+  transcriptLoading: false,
+  sessionRebooting: false,
 };
 
 void boot();
 
+window.addEventListener("popstate", onPopState);
+window.addEventListener("online", () => resumeLiveConnection());
+window.addEventListener("pagehide", () => {
+  saveComposerDraft();
+});
+// Web fonts reflow the transcript after the boot pin; once they settle, a
+// still-near-bottom view re-pins so the newest message stays on screen.
+document.fonts?.ready?.then(() => {
+  if (state.contextName !== "chat") return;
+  const container = document.querySelector("#messages");
+  if (!container) return;
+  if (container.scrollHeight - container.scrollTop - container.clientHeight < 360) {
+    container.scrollTo({ top: container.scrollHeight, behavior: "instant" });
+  }
+  updateJumpLatest();
+});
+
+// With the on-screen keyboard up, keep the newest message pinned above it.
+window.visualViewport?.addEventListener("resize", () => {
+  if (state.contextName !== "chat") return;
+  const container = document.querySelector("#messages");
+  if (!container) return;
+  if (container.scrollHeight - container.scrollTop - container.clientHeight < 120) {
+    container.scrollTo({ top: container.scrollHeight, behavior: "instant" });
+  }
+});
+
 async function boot() {
+  // One microtask so every module-level declaration below finishes
+  // initializing before the synchronous fixture path renders.
+  await Promise.resolve();
   if (fixtureName) return bootFixture(fixtureName);
+  state.sessionRebooting = false;
   try {
     state.identity = await loadIdentity();
     state.context = await api(`/api/public/context${localSlug ? `?slug=${encodeURIComponent(localSlug)}` : ""}`);
@@ -178,7 +216,23 @@ async function login(form) {
     });
     await continueAuthenticated();
   } catch (error) {
-    renderLogin(errorText(error));
+    // The error lands in the standing form instead of a full re-render, so
+    // focus stays in the field and the phone keyboard stays up.
+    const standing = document.querySelector("#login-form");
+    if (!standing) return renderLogin(errorText(error));
+    button.disabled = false;
+    button.textContent = "Continue";
+    let errorNode = standing.querySelector(".form-error");
+    if (!errorNode) {
+      errorNode = document.createElement("p");
+      errorNode.className = "form-error";
+      errorNode.setAttribute("role", "alert");
+      standing.append(errorNode);
+    }
+    if (errorNode.textContent !== errorText(error)) errorNode.textContent = errorText(error);
+    const password = standing.querySelector("#password");
+    password?.focus();
+    password?.select();
   }
 }
 
@@ -189,7 +243,24 @@ async function startPairing() {
       headline: "Open work-fold to continue.",
       supporting: "The desktop app holds your conversation and approves new browsers. Once it is running, refresh this page.",
       panel: `<h2>Waiting for your desktop</h2><p>Nothing can be read or sent while work-fold is offline.</p><button id="retry" class="primary">Try again</button>`,
-    }, () => document.querySelector("#retry")?.addEventListener("click", () => location.reload()));
+    }, () => {
+      const retry = document.querySelector("#retry");
+      retry?.addEventListener("click", () => location.reload());
+      // The gate notices the desktop coming online by itself and continues
+      // to pairing without needing the button.
+      const timer = setInterval(async () => {
+        if (!retry || !document.contains(retry)) return clearInterval(timer);
+        try {
+          const session = await api("/api/auth/session");
+          if (!session.desktopOnline) return;
+          clearInterval(timer);
+          state.session = session;
+          await startPairing();
+        } catch {
+          // Keep waiting; the button and a reload both remain available.
+        }
+      }, 4_000);
+    });
   }
   if (!state.identity) state.identity = await createBrowserIdentity();
   // The browser contributes the commitment nonce. Letting the bridge choose
@@ -230,9 +301,16 @@ function renderPairing(error = "") {
       <h2>Approve ${escapeHtml(browserLabel())}</h2>
       <p>Confirm that the same six digits appear in the desktop prompt.</p>
       <div class="pairing-code" aria-label="Pairing code ${escapeHtml(state.pairingExpectedCode || "")}">${escapeHtml(state.pairingExpectedCode || "")}</div>
-      <div class="pairing-status"><span class="spinner" aria-hidden="true"></span><span>Waiting for approval…</span></div>
-      ${error ? `<p class="form-error">${escapeHtml(error)}</p>` : ""}
+      ${error
+        ? `<p class="form-error">${escapeHtml(error)}</p><button id="pairing-retry" class="primary" type="button">Try again</button>`
+        : `<div class="pairing-status"><span class="spinner" aria-hidden="true"></span><span>Waiting for approval…</span></div>`}
     `,
+  }, () => {
+    // A declined, expired, or failed pairing restarts with a fresh code in
+    // place — the installed PWA has no address bar to reload from.
+    document.querySelector("#pairing-retry")?.addEventListener("click", () => {
+      void startPairing().catch((retryError) => renderPairing(errorText(retryError)));
+    });
   });
 }
 
@@ -311,13 +389,66 @@ async function bindIdentity() {
 }
 
 async function openApplication() {
+  restorePersistedDrafts();
   renderApplication();
-  showContext("home");
+  const requested = parseLocationHash();
+  showContext(requested.context === "chat" && requested.conversationId ? "home" : requested.context, { fromHistory: true });
+  restoreComposerDraft();
   openEvents();
   await loadSpaces();
-  await loadConversations();
+  // The desktop being asleep is presence, not a broken app: the shell stays
+  // up with the honest presence line and the refresh loop keeps trying.
+  try {
+    await loadConversations(requested.conversationId ? { preferredConversationId: requested.conversationId } : {});
+    if (requested.context === "chat" && requested.conversationId && state.selectedConversationId === requested.conversationId) {
+      showContext("chat", { fromHistory: true });
+    }
+  } catch (error) {
+    state.banner = errorText(error);
+    if (state.banner.toLowerCase().includes("offline")) updateConnection(false);
+    renderBanner();
+  }
+  history.replaceState({ context: state.contextName }, "", contextHash(state.contextName));
   void refreshFoldHome();
   scheduleRefresh();
+}
+
+// --- History: each screen is a history entry, so the browser's back gesture
+// walks Chat → Chats → Home instead of leaving the app, and a reload restores
+// the screen (and conversation) it left. ----------------------------------
+
+function contextHash(name) {
+  if (name === "chat" && state.selectedConversationId) return `#chat=${encodeURIComponent(state.selectedConversationId)}`;
+  return `#${name}`;
+}
+
+function parseLocationHash() {
+  const raw = location.hash.replace(/^#/, "");
+  if (raw.startsWith("chat=")) {
+    const conversationId = decodeURIComponent(raw.slice("chat=".length));
+    return { context: "chat", conversationId: conversationId || null };
+  }
+  return { context: contextNames.includes(raw) ? raw : "home", conversationId: null };
+}
+
+function onPopState() {
+  if (fixtureName || !document.querySelector(".app-shell")) return;
+  const requested = parseLocationHash();
+  if (requested.context === "chat" && requested.conversationId
+    && requested.conversationId !== state.selectedConversationId
+    && !state.sending && !state.renameSaving) {
+    saveComposerDraft();
+    cancelChatRename({ restoreFocus: false });
+    state.startingNewChat = false;
+    state.selectedConversationId = requested.conversationId;
+    showContext("chat", { fromHistory: true });
+    restoreComposerDraft();
+    renderConversations();
+    renderConversationChrome();
+    void refreshConversation();
+    return;
+  }
+  showContext(requested.context, { fromHistory: true });
 }
 
 // --- The shell: four single-column contexts, one visible at a time ---------
@@ -333,6 +464,7 @@ function renderApplication() {
         <span class="rail-mark"><img src="/brand-mark.png" alt="work-fold" title="work-fold" /></span>
         <button class="rail-item" type="button" data-nav-context="home" aria-label="Home" title="Home" aria-current="page">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 10.5 12 4l7.5 6.5" /><path d="M6.5 9.5V19h11V9.5" /></svg>
+          <span class="nav-badge" data-nav-badge hidden></span>
         </button>
         <button class="rail-item" type="button" data-nav-context="chats" aria-label="Chats" title="Chats">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v11h-9l-4 3.5v-3.5H4Z" /></svg>
@@ -420,7 +552,7 @@ function renderApplication() {
             </div>
             <div class="conversation-actions"><button id="stop-task" class="toolbar-button danger" type="button" hidden>Stop</button></div>
           </header>
-          <section id="messages" class="messages"><div class="message-stream"><div id="transcript-notice"></div><div id="message-rows"></div><div id="work-status"></div></div></section>
+          <section id="messages" class="messages" tabindex="0"><div class="message-stream"><div id="transcript-notice"></div><div id="message-rows"></div><div id="work-status"></div></div><button id="jump-latest" class="jump-latest" type="button" aria-label="Latest" title="Latest" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14m-5-5 5 5 5-5" /></svg></button></section>
           <footer class="composer-wrap" id="chat-composer-slot"></footer>
         </section>
         <section id="context-files" class="context context-files" aria-label="Files" hidden>
@@ -441,6 +573,7 @@ function renderApplication() {
         <button class="tab-item" type="button" data-nav-context="home" aria-current="page">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 10.5 12 4l7.5 6.5" /><path d="M6.5 9.5V19h11V9.5" /></svg>
           <span>Home</span>
+          <span class="nav-badge" data-nav-badge hidden></span>
         </button>
         <button class="tab-item" type="button" data-nav-context="chats">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v11h-9l-4 3.5v-3.5H4Z" /></svg>
@@ -462,7 +595,7 @@ function renderApplication() {
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8.5 12.5 5.7-5.7a3 3 0 1 1 4.2 4.2l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.2-8.2" /></svg>
       </button>
       <input id="file-input" type="file" multiple hidden />
-      <textarea id="prompt" rows="1" maxlength="12000" placeholder="Message work-fold" aria-label="Message work-fold" aria-describedby="composer-note" autofocus></textarea>
+      <textarea id="prompt" rows="1" maxlength="12000" placeholder="Message work-fold" aria-label="Message work-fold" aria-describedby="composer-note"${coarsePointer ? "" : " autofocus"}></textarea>
       <button class="send-button" type="submit" aria-label="Send message" aria-keyshortcuts="Enter" title="Send message" disabled>
         <svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-5 5 5-5 5 5" /></svg>
       </button>
@@ -520,7 +653,16 @@ function renderApplication() {
     else state.openNotes.delete(cardId);
   }, true);
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState !== "hidden") acknowledgeGlance();
+    if (document.visibilityState === "hidden") {
+      // A backgrounded phone tab may never come back: park the draft.
+      saveComposerDraft();
+      persistDrafts();
+      return;
+    }
+    acknowledgeGlance();
+    // iOS kills background event streams and throttles timers; returning to
+    // the app refreshes immediately instead of waiting out the next tick.
+    resumeLiveConnection();
   });
   document.querySelector("#rename-chat")?.addEventListener("click", beginChatRename);
   document.querySelector("#rename-chat-form")?.addEventListener("submit", (event) => {
@@ -548,10 +690,21 @@ function renderApplication() {
   const prompt = document.querySelector("#prompt");
   prompt?.addEventListener("input", syncComposer);
   prompt?.addEventListener("keydown", (event) => {
-    if (shouldSubmitComposerKey(event)) {
+    if (shouldSubmitComposerKey(event, { coarsePointer })) {
       event.preventDefault();
       document.querySelector("#composer")?.requestSubmit();
     }
+  });
+  document.querySelector("#messages")?.addEventListener("scroll", updateJumpLatest, { passive: true });
+  document.querySelector("#jump-latest")?.addEventListener("click", () => {
+    const container = document.querySelector("#messages");
+    container?.scrollTo({ top: container.scrollHeight, behavior: "instant" });
+    updateJumpLatest();
+  });
+  document.querySelector("#banner")?.addEventListener("click", (event) => {
+    if (!event.target.closest?.(".banner-dismiss")) return;
+    state.banner = "";
+    renderBanner();
   });
   syncComposer();
   renderConversationChrome();
@@ -561,7 +714,7 @@ function renderApplication() {
   updateConnection();
 }
 
-function showContext(name, { moveFocus = false } = {}) {
+function showContext(name, { moveFocus = false, fromHistory = false } = {}) {
   if (!contextNames.includes(name)) name = "home";
   if (state.contextName !== name) {
     // Only Home and Chat host the composer; drafts save under the outgoing
@@ -585,9 +738,16 @@ function showContext(name, { moveFocus = false } = {}) {
     }
     if (name === "chat") {
       const messages = document.querySelector("#messages");
-      if (messages) messages.scrollTop = messages.scrollHeight;
+      // Entering a chat lands on the newest message immediately; the CSS
+      // smooth behavior is for people, not programmatic pins.
+      messages?.scrollTo({ top: messages.scrollHeight, behavior: "instant" });
+      updateJumpLatest();
     }
     renderConversationChrome();
+  }
+  if (!fromHistory && !fixtureName && document.querySelector(".app-shell")) {
+    const hash = contextHash(name);
+    if (location.hash !== hash) history.pushState({ context: name }, "", hash);
   }
   if (moveFocus) focusContextHeading(name);
 }
@@ -634,7 +794,9 @@ function renderMessages() {
   }
   const noticeChanged = replaceHtmlIfChanged(
     notice,
-    state.transcriptTruncated ? `<div class="projection-notice">Earlier messages are hidden.</div>` : "",
+    state.transcriptLoading && !sameConversation
+      ? `<div class="working-row"><span class="spinner"></span></div>`
+      : state.transcriptTruncated ? `<div class="projection-notice">Earlier messages are hidden.</div>` : "",
   );
   const messagesChanged = reconcileMessageRows(rows, visible, sameConversation && container.dataset.rendered === "true");
   const workChanged = replaceHtmlIfChanged(workStatus, `
@@ -643,9 +805,28 @@ function renderMessages() {
   `);
   if (container.dataset.rendered !== "true") container.dataset.rendered = "true";
   if (wasNearBottom && (noticeChanged || messagesChanged || workChanged || !sameConversation)) {
-    container.scrollTop = container.scrollHeight;
+    // Instant, not smooth: an animated pin momentarily reads as "not at the
+    // bottom" and would un-pin the very next render.
+    container.scrollTo({ top: container.scrollHeight, behavior: "instant" });
   }
+  updateJumpLatest();
   renderBanner();
+}
+
+// The floating jump-to-latest affordance: visible only while the reader has
+// scrolled up in a chat, so returning to the newest message is one tap.
+// Measured after layout (rAF) so mid-render heights never flash it.
+let jumpLatestFrame = 0;
+function updateJumpLatest() {
+  if (jumpLatestFrame) return;
+  jumpLatestFrame = requestAnimationFrame(() => {
+    jumpLatestFrame = 0;
+    const container = document.querySelector("#messages");
+    const button = document.querySelector("#jump-latest");
+    if (!container || !button) return;
+    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 120;
+    button.hidden = nearBottom || state.contextName !== "chat";
+  });
 }
 
 function reconcileMessageRows(container, messages, animateNew) {
@@ -673,8 +854,9 @@ function reconcileMessageRows(container, messages, animateNew) {
     row.classList.toggle("user", message.role === "user");
     row.classList.toggle("assistant", message.role === "assistant");
     row.classList.toggle("web", message.source === "remote_web");
+    row.classList.toggle("pending", message.pending === true);
     changed = replaceHtmlIfChanged(row, `
-      <div class="message-role">${message.role === "assistant" ? escapeHtml(assistantLabel()) : "You"}</div>
+      <div class="message-role"${message.createdAt ? ` title="${escapeAttribute(cardTime(message.createdAt))}"` : ""}>${message.role === "assistant" ? escapeHtml(assistantLabel()) : "You"}</div>
       <div class="message-content"><div class="message-body markdown">${renderMarkdown(message.content)}</div>${message.attachments?.length ? `<div class="message-attachments">${message.attachments.map((attachment) => `<span>${fileGlyph(attachment.kind)}${escapeHtml(attachment.name)}</span>`).join("")}</div>` : ""}</div>
     `) || changed;
     if (row !== cursor) {
@@ -775,17 +957,23 @@ async function refreshConversation({ loadTranscript = true } = {}) {
     if (loadTranscript) {
       if (state.transcriptConversationId !== conversationId) {
         document.querySelector("#messages")?.removeAttribute("data-latest-message-id");
+        // A switched-to chat shows its loading state instead of a blank
+        // transcript while the fetch is in flight.
+        state.transcriptLoading = true;
+        renderMessages();
       }
       const transcript = await remote("management.transcript", { conversationId });
       if (!conversationRefreshIsCurrent(refreshVersion, conversationId)) return;
       state.messages = transcript.messages ?? [];
       state.transcriptConversationId = conversationId;
       state.transcriptTruncated = transcript.truncated === true;
+      state.transcriptLoading = false;
     }
     renderConversationChrome();
     renderMessages();
     renderFoldHome();
   } catch (error) {
+    state.transcriptLoading = false;
     if (refreshVersion !== state.conversationRefreshVersion) return;
     state.banner = errorText(error);
     if (state.banner.toLowerCase().includes("offline")) updateConnection(false);
@@ -809,6 +997,9 @@ async function sendPrompt() {
   state.banner = "";
   const sentFromHome = state.contextName === "home";
   const sentDraftKey = currentComposerDraftKey();
+  const toExistingConversation = !sentFromHome && !state.startingNewChat && Boolean(state.selectedConversationId);
+  let pendingId = null;
+  let sentUploads = [];
   try {
     const attachments = await serializeUploads();
     // The Home composer always starts a new request — the same path as the
@@ -820,6 +1011,25 @@ async function sendPrompt() {
         : { conversationId: state.selectedConversationId }),
       ...(attachments.length ? { attachments } : {}),
     };
+    // Sends into an open chat render immediately as a pending bubble; the
+    // transcript refresh after acceptance replaces it with the recorded one.
+    if (toExistingConversation) {
+      pendingId = `pending-${crypto.randomUUID()}`;
+      state.messages = [...state.messages, {
+        id: pendingId,
+        role: "user",
+        content,
+        pending: true,
+        ...(state.uploads.length ? { attachments: state.uploads.map((file) => ({ kind: "file", name: file.name })) } : {}),
+      }];
+      sentUploads = state.uploads;
+      state.composerDrafts.delete(sentDraftKey);
+      persistDrafts();
+      input.value = "";
+      state.uploads = [];
+      syncComposer();
+      renderMessages();
+    }
     const result = await remote("management.send", request);
     state.startingNewChat = false;
     state.selectedConversationId = result.conversationId;
@@ -828,13 +1038,24 @@ async function sendPrompt() {
       conversationId: result.conversationId,
     });
     else state.activeTasks.delete(result.conversationId);
-    state.composerDrafts.delete(sentDraftKey);
-    input.value = "";
-    state.uploads = [];
-    syncComposer();
+    if (!toExistingConversation) {
+      state.composerDrafts.delete(sentDraftKey);
+      persistDrafts();
+      input.value = "";
+      state.uploads = [];
+      syncComposer();
+    }
     if (sentFromHome) showContext("chat");
     await loadConversations({ preferredConversationId: result.conversationId });
   } catch (error) {
+    if (pendingId) {
+      // Nothing was accepted: the message returns to the composer, ahead of
+      // anything typed while it was in flight, with its attachments restored.
+      state.messages = state.messages.filter((message) => message.id !== pendingId);
+      input.value = input.value.trim() ? `${content}\n${input.value}` : content;
+      state.uploads = sentUploads;
+      renderMessages();
+    }
     state.banner = errorText(error);
     renderBanner();
   } finally {
@@ -869,6 +1090,31 @@ function composerContextActive() {
   return state.contextName === "home" || state.contextName === "chat";
 }
 
+// Draft text survives reloads, tab discards, and session reboots in this
+// tab's sessionStorage; picked files cannot be persisted and stay in memory.
+const draftStorageKey = "work-fold-remote-drafts-v1";
+const explorerSpaceStorageKey = "work-fold-remote-files-space-v1";
+
+function persistDrafts() {
+  try {
+    const drafts = {};
+    for (const [key, value] of state.composerDrafts) if (value?.content) drafts[key] = value.content;
+    if (Object.keys(drafts).length) sessionStorage.setItem(draftStorageKey, JSON.stringify(drafts));
+    else sessionStorage.removeItem(draftStorageKey);
+  } catch {}
+}
+
+function restorePersistedDrafts() {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(draftStorageKey) ?? "{}");
+    for (const [key, content] of Object.entries(parsed)) {
+      if (typeof content === "string" && content && !state.composerDrafts.has(key)) {
+        state.composerDrafts.set(key, { content, uploads: [] });
+      }
+    }
+  } catch {}
+}
+
 function currentComposerDraftKey() {
   return state.contextName === "home" || state.startingNewChat || !state.selectedConversationId
     ? "new-chat"
@@ -882,6 +1128,7 @@ function saveComposerDraft() {
   const content = input.value;
   if (!content && !state.uploads.length) state.composerDrafts.delete(currentComposerDraftKey());
   else state.composerDrafts.set(currentComposerDraftKey(), { content, uploads: [...state.uploads] });
+  persistDrafts();
 }
 
 function restoreComposerDraft() {
@@ -920,7 +1167,15 @@ async function loadSpaces() {
   try {
     const result = await remote("spaces.list");
     state.spaces = result.spaces ?? [];
-    if (!state.explorerSpaceId && state.spaces[0]) state.explorerSpaceId = state.spaces[0].id;
+    state.spacesLoaded = true;
+    if (!state.explorerSpaceId && state.spaces.length) {
+      // The Files context remembers its Space across reloads on this tab.
+      let remembered = null;
+      try { remembered = sessionStorage.getItem(explorerSpaceStorageKey); } catch {}
+      state.explorerSpaceId = remembered && state.spaces.some((space) => space.id === remembered)
+        ? remembered
+        : state.spaces[0].id;
+    }
     renderWorkspace();
     if (state.explorerSpaceId) await loadTree(state.explorerSpaceId, "");
   } catch (error) {
@@ -940,6 +1195,7 @@ async function loadConversations(options = {}) {
   const result = await remote("management.chats");
   if (requestVersion !== state.conversationListRequestVersion) return;
   state.conversations = (result.conversations ?? []).filter((conversation) => !conversation.archivedAt);
+  state.conversationsLoaded = true;
   state.chatListTruncated = result.truncated === true;
   const renaming = state.conversations.find((conversation) => conversation.id === state.renamingConversationId);
   if (renaming && renaming.state !== "idle") cancelChatRename({ restoreFocus: false });
@@ -1006,16 +1262,23 @@ function renderConversations() {
   }
   for (const item of existing.values()) item.remove();
 
-  const noteText = state.conversations.length ? (state.chatListTruncated ? "Older chats hidden" : "") : "No chats";
+  // "No chats" is an answer, not a guess: before the first load the list
+  // shows its loading state instead of a false empty.
+  const loading = !state.conversationsLoaded && !state.conversations.length;
+  const noteText = state.conversations.length
+    ? (state.chatListTruncated ? "Older chats hidden" : "")
+    : state.conversationsLoaded ? "No chats" : "";
   let note = list.querySelector("[data-chat-list-note]");
-  if (!noteText) note?.remove();
+  if (!noteText && !loading) note?.remove();
   else {
     if (!note) {
       note = document.createElement("li");
       note.dataset.chatListNote = "true";
       note.className = "empty-list";
     }
-    if (note.textContent !== noteText) note.textContent = noteText;
+    if (loading) {
+      if (!note.querySelector(".spinner")) note.innerHTML = `<span class="spinner" aria-hidden="true"></span>`;
+    } else if (note.textContent !== noteText) note.textContent = noteText;
     list.append(note);
   }
   renderHomeChats();
@@ -1034,7 +1297,9 @@ function renderHomeChats() {
       const metaText = conversation.state === "running" ? "Working" : shortDate(conversation.updatedAt);
       return `<li><button class="chat-button${active ? " active" : ""}" type="button" data-chat-id="${escapeAttribute(conversation.id)}"${state.sending || state.renameSaving ? " disabled" : ""}><span class="chat-title">${escapeHtml(conversation.title)}</span><span class="chat-meta">${escapeHtml(metaText)}</span></button></li>`;
     }).join("")
-    : `<li class="empty-list">No chats</li>`;
+    : state.conversationsLoaded
+      ? `<li class="empty-list">No chats</li>`
+      : `<li class="empty-list"><span class="spinner" aria-hidden="true"></span></li>`;
   replaceHtmlIfChanged(list, markup);
   if (allChats) allChats.hidden = state.conversations.length <= recent.length;
 }
@@ -1182,8 +1447,8 @@ function renderWorkspace() {
   }
   if (!tree) return;
   if (!state.explorerSpaceId) {
-    tree.setAttribute("aria-busy", "false");
-    replaceHtmlIfChanged(tree, `<div class="file-empty">No Spaces</div>`);
+    tree.setAttribute("aria-busy", String(!state.spacesLoaded));
+    replaceHtmlIfChanged(tree, state.spacesLoaded ? `<div class="file-empty">No Spaces</div>` : `<div class="file-empty">Loading…</div>`);
     return;
   }
   const entries = state.trees.get(`${state.explorerSpaceId}:`) ?? [];
@@ -1219,6 +1484,7 @@ function renderTreeRows(spaceId, entries, path, depth) {
 
 async function selectExplorerSpace(spaceId) {
   state.explorerSpaceId = spaceId;
+  try { sessionStorage.setItem(explorerSpaceStorageKey, spaceId); } catch {}
   renderWorkspace();
   if (spaceId) await loadTree(spaceId, "");
 }
@@ -1315,9 +1581,21 @@ function acknowledgeGlance() {
   });
 }
 
+function updateNavBadges() {
+  const count = state.decisions.length;
+  const label = count > 9 ? "9+" : String(count);
+  for (const badge of document.querySelectorAll("[data-nav-badge]")) {
+    badge.hidden = !count;
+    if (badge.textContent !== label) badge.textContent = label;
+  }
+}
+
 function renderFoldHome() {
   const container = document.querySelector("#fold-home");
   if (!container) return;
+  // Pending decisions surface on the Home tab from every context, not only
+  // for someone who happens to be looking at Home.
+  updateNavBadges();
   // Decisions come first, then the live request tail, then the glance.
   const markup = `${renderNeedsYou()}${renderHomeActivity()}${renderGlance()}`;
   container.hidden = !markup;
@@ -1387,7 +1665,7 @@ function renderDecisionCard(card) {
         <button type="button" class="needs-you-approve" data-decide-card="${escapeAttribute(card.id)}" data-decision="approved"${busy || needsChosenFolder ? " disabled" : ""}>Approve</button>
         <button type="button" class="needs-you-deny" data-decide-card="${escapeAttribute(card.id)}" data-decision="denied"${busy ? " disabled" : ""}>Deny</button>
       </div>`;
-  return `<article class="needs-you-card" data-category="${escapeAttribute(card.category ?? "")}">
+  return `<article class="needs-you-card${busy ? " busy" : ""}" data-category="${escapeAttribute(card.category ?? "")}"${busy ? ` aria-busy="true"` : ""}>
     <p class="needs-you-category">${escapeHtml(card.categoryLine ?? "")}</p>
     <h3 class="needs-you-title">${escapeHtml(card.title ?? "")}</h3>
     ${facts}
@@ -1577,20 +1855,17 @@ function addUploads(files) {
   const maximumFileBytes = 6 * 1024 * 1024;
   const maximumTotalBytes = 8 * 1024 * 1024;
   const next = [...state.uploads];
+  // One offending file rejects itself, not the rest of the batch.
+  let error = "";
   for (const file of files) {
-    if (next.length >= maximumFiles) return showUploadError(`Attach up to ${maximumFiles} files.`);
-    if (file.size > maximumFileBytes) return showUploadError(`${file.name} is larger than 6 MB.`);
-    if (next.reduce((total, item) => total + item.size, 0) + file.size > maximumTotalBytes) return showUploadError("Attachments are limited to 8 MB per message.");
+    if (next.length >= maximumFiles) { error = `Attach up to ${maximumFiles} files.`; break; }
+    if (file.size > maximumFileBytes) { error = `${file.name} is larger than 6 MB.`; continue; }
+    if (next.reduce((total, item) => total + item.size, 0) + file.size > maximumTotalBytes) { error = "Attachments are limited to 8 MB per message."; continue; }
     next.push(file);
   }
   state.uploads = next;
-  state.banner = "";
+  state.banner = error;
   syncComposer();
-  renderBanner();
-}
-
-function showUploadError(message) {
-  state.banner = message;
   renderBanner();
 }
 
@@ -1692,7 +1967,11 @@ function openEvents() {
 
 async function receiveRemoteEvent(event) {
   if (event.type === "presence") {
+    const wasOnline = Boolean(state.session?.desktopOnline);
     updateConnection(event.desktopOnline === true);
+    // A desktop waking up refreshes the stale projections right away instead
+    // of waiting out the idle poll interval.
+    if (!wasOnline && event.desktopOnline === true) resumeLiveConnection();
     return;
   }
   const pending = state.pendingOperations.get(event.operationId);
@@ -1888,8 +2167,38 @@ async function api(path, { method = "GET", body, csrf = false } = {}) {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw Object.assign(new Error(result.error || `Request failed (${response.status}).`), { status: response.status, code: result.code });
+  if (!response.ok) {
+    // An expired or revoked session returns to sign-in once, instead of a
+    // zombie shell repeating the same failure every poll.
+    if (response.status === 401 && state.session && path !== "/api/auth/login") scheduleSessionReboot();
+    throw Object.assign(new Error(result.error || `Request failed (${response.status}).`), { status: response.status, code: result.code });
+  }
   return result;
+}
+
+function scheduleSessionReboot() {
+  if (state.sessionRebooting) return;
+  state.sessionRebooting = true;
+  saveComposerDraft();
+  if (state.refreshTimer) clearTimeout(state.refreshTimer);
+  state.refreshTimer = null;
+  state.eventSource?.close();
+  state.eventSource = null;
+  setTimeout(() => void boot(), 0);
+}
+
+// Reopens the live lane after a phone unlock, tab restore, or network return:
+// the event stream is recreated if the browser killed it, and the projections
+// refresh immediately instead of waiting out the poll interval.
+function resumeLiveConnection() {
+  if (fixtureName || state.sessionRebooting || !state.session?.paired) return;
+  if (!document.querySelector(".app-shell")) return;
+  if (!state.eventSource || state.eventSource.readyState === EventSource.CLOSED) openEvents();
+  void refreshFoldHome();
+  void loadConversations().catch((error) => {
+    state.banner = errorText(error);
+    renderBanner();
+  });
 }
 
 async function logout() {
@@ -1909,7 +2218,7 @@ function updateConnection(online = state.session?.desktopOnline) {
 
 function renderBanner() {
   const element = document.querySelector("#banner");
-  if (element) replaceHtmlIfChanged(element, state.banner ? `<div class="banner" role="alert">${escapeHtml(state.banner)}</div>` : "");
+  if (element) replaceHtmlIfChanged(element, state.banner ? `<div class="banner" role="alert"><span>${escapeHtml(state.banner)}</span><button type="button" class="banner-dismiss" aria-label="Dismiss">✕</button></div>` : "");
 }
 
 function renderAuth({ eyebrow, headline, supporting, panel }, afterRender) {
@@ -1932,6 +2241,11 @@ function browserLabel() {
 }
 function browserName() {
   const ua = navigator.userAgent;
+  // iOS third-party browsers carry their own tokens (CriOS/FxiOS/EdgiOS) and
+  // would otherwise all read "Safari" in the approval prompt.
+  if (ua.includes("EdgiOS/")) return "Edge";
+  if (ua.includes("CriOS/")) return "Chrome";
+  if (ua.includes("FxiOS/")) return "Firefox";
   if (ua.includes("Edg/")) return "Edge";
   if (ua.includes("Chrome/")) return "Chrome";
   if (ua.includes("Safari/") && !ua.includes("Chrome/")) return "Safari";

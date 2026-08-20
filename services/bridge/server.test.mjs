@@ -199,11 +199,15 @@ test("fixture previews render canned state and stay inert against the real API",
   assert.match(applicationSource, />Fixture preview<\/div>/);
 });
 
-test("composer sends with Enter and preserves Shift+Enter for a new line", () => {
+test("composer sends with Enter on hardware keyboards and writes a newline on touch", () => {
   assert.equal(shouldSubmitComposerKey({ key: "Enter", shiftKey: false, isComposing: false }), true);
   assert.equal(shouldSubmitComposerKey({ key: "Enter", shiftKey: true, isComposing: false }), false);
   assert.equal(shouldSubmitComposerKey({ key: "Enter", shiftKey: false, isComposing: true }), false);
   assert.equal(shouldSubmitComposerKey({ key: "a", shiftKey: false, isComposing: false }), false);
+  // Touch keyboards have no Shift+Enter: the return key inserts the newline
+  // and the visible send button sends.
+  assert.equal(shouldSubmitComposerKey({ key: "Enter", shiftKey: false, isComposing: false }, { coarsePointer: true }), false);
+  assert.equal(shouldSubmitComposerKey({ key: "Enter", shiftKey: false, isComposing: false }, { coarsePointer: false }), true);
 });
 
 test("stable rendering skips identical DOM replacements and Chat titles share desktop normalization", () => {
