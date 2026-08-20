@@ -170,18 +170,50 @@ function renderLanding() {
         </a>
       </nav>
     </header>
-    <section class="landing-stage">
+    <section class="landing-hero">
       <div class="landing-copy">
         <p class="eyebrow">Folders first</p>
         <h1>Work with your desktop folders.</h1>
         <p>work-fold gives ordinary folders an Assistant, a running history, and simple Spaces—without turning your files into a proprietary workspace.</p>
+        <div class="landing-cta"><a class="header-download" href="/download/macos">Download for macOS</a></div>
       </div>
-      <div class="landing-details" aria-label="How work-fold works">
-        <section><span>01</span><div><h2>Keep folders ordinary</h2><p>Create a Space or register an existing folder. Your files stay visible in Finder and usable by the tools you already have.</p></div></section>
-        <section><span>02</span><div><h2>Work with an Assistant</h2><p>Chat in the context you choose, keep a running local log, and move between Spaces without hiding where anything lives.</p></div></section>
-        <section><span>03</span><div><h2>Your fold on the web</h2><p>One private address opens the same conversation your menu bar does, while your desktop is online.</p></div></section>
+      <div class="landing-vignette" aria-hidden="true">
+        <div class="vig-app">
+          <div class="vig-titlebar"><i></i><i></i><i></i></div>
+          <div class="vig-body">
+            <div class="vig-rail"><i></i><i class="vig-rail-active"></i><i></i><i></i></div>
+            <div class="vig-tree">
+              <i class="w72"></i><i class="w52 in"></i><i class="w62 in"></i><i class="w44"></i><i class="w58 in"></i><i class="w34 in"></i><i class="w48"></i>
+            </div>
+            <div class="vig-chat">
+              <span class="vig-bubble user w56"></span>
+              <span class="vig-bubble w82"></span>
+              <span class="vig-bubble w64"></span>
+              <div class="vig-composer"><i></i><b></b></div>
+            </div>
+          </div>
+        </div>
+        <div class="vig-popover">
+          <div class="vig-pop-head"><i class="w40"></i></div>
+          <span class="vig-line w74"></span>
+          <span class="vig-line w52"></span>
+          <div class="vig-pop-composer"><i></i><b></b></div>
+        </div>
+        <div class="vig-phone">
+          <i class="vig-phone-notch"></i>
+          <span class="vig-bubble w78"></span>
+          <span class="vig-bubble user w50"></span>
+          <span class="vig-line w64"></span>
+          <div class="vig-phone-tabs"><i></i><i></i><i></i></div>
+        </div>
       </div>
     </section>
+    <section class="landing-details" aria-label="How work-fold works">
+      <section><span>01</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l1.8 2h9.2v9H3.5Z" /></svg><div><h2>Keep folders ordinary</h2><p>Create a Space or register an existing folder. Your files stay visible in Finder and usable by the tools you already have.</p></div></section>
+      <section><span>02</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v11h-9l-4 3.5v-3.5H4Z" /></svg><div><h2>Work with an Assistant</h2><p>Chat in the context you choose, keep a running local log, and move between Spaces without hiding where anything lives.</p></div></section>
+      <section><span>03</span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" /><path d="M3.5 12h17M12 3.5c2.7 2.8 2.7 14.2 0 17-2.7-2.8-2.7-14.2 0-17Z" /></svg><div><h2>Your fold on the web</h2><p>One private address opens the same conversation your menu bar does, while your desktop is online.</p></div></section>
+    </section>
+    <footer class="landing-foot" aria-hidden="true"><img src="/brand-mark.png" alt="" /></footer>
   </main>`;
 }
 
