@@ -1,3 +1,4 @@
+import type * as React from "react";
 import { productName } from "../../constants";
 import lockupBlackUrl from "../../assets/brand/work-fold-lockup-black.png";
 import lockupWhiteUrl from "../../assets/brand/work-fold-lockup-white.png";
@@ -31,11 +32,12 @@ export function WorkFoldLockup({ className = "", animated = false }: { className
   );
 }
 
-export function WorkFoldLoadingState({ message }: { message: string }) {
+export function WorkFoldLoadingState({ message, action }: { message: string; action?: React.ReactNode }) {
   return (
     <div className="work-fold-loading-state" role="status" aria-live="polite">
       <WorkFoldLockup className="work-fold-loading-lockup" animated />
       <p>{message}</p>
+      {action}
     </div>
   );
 }

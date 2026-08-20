@@ -163,12 +163,27 @@ export function ToastHost() {
   useEffect(() => {
     toastDispatch = (toast) => setToasts((current) => {
       const next = [...current, toast];
-      // Evicted toasts still settle their onClose contract (must stay idempotent:
-      // StrictMode can run this updater twice).
-      for (const dropped of next.slice(0, Math.max(0, next.length - 4))) {
+      if (next.length <= 4) return next;
+      // Capacity evicts plain notices before action-bearing toasts: dropping
+      // an Undo toast settles its contract early and silently shortens the
+      // promised undo window. Evicted toasts still settle their onClose
+      // contract (must stay idempotent: StrictMode can run this twice).
+      const keep = [...next];
+      const evicted: ToastEntry[] = [];
+      for (const candidate of next) {
+        if (keep.length <= 4) break;
+        if (candidate.actionLabel && candidate.onAction) continue;
+        evicted.push(candidate);
+        keep.splice(keep.indexOf(candidate), 1);
+      }
+      while (keep.length > 4) {
+        const oldest = keep.shift();
+        if (oldest) evicted.push(oldest);
+      }
+      for (const dropped of evicted) {
         queueMicrotask(() => dropped.onClose?.("timeout"));
       }
-      return next.slice(-4);
+      return keep;
     });
     return () => {
       toastDispatch = null;

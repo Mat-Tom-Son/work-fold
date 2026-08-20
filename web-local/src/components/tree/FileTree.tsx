@@ -21,9 +21,12 @@ export function FileTree({
   level = 1,
   onToggleFolder,
   onSelectFile,
+  onFocusEntry,
   onPreviewFile,
   onOpenFile,
   onOpenContextMenu,
+  onRenameEntry,
+  onDeleteEntry,
   onUpdateDropTarget,
   onDropOnTarget,
   onNativeDragStartFile,
@@ -43,9 +46,13 @@ export function FileTree({
   level?: number;
   onToggleFolder: (path: string) => void;
   onSelectFile: (path: string) => void;
+  /** Keyboard focus lands on a row: move the visual selection with it without opening anything. */
+  onFocusEntry?: (path: string) => void;
   onPreviewFile?: (path: string) => void;
   onOpenFile: (path: string) => void;
   onOpenContextMenu: (entry: TreeEntry, event: React.MouseEvent<HTMLElement>) => void;
+  onRenameEntry?: (path: string) => void;
+  onDeleteEntry?: (path: string) => void;
   onUpdateDropTarget: (event: React.DragEvent<HTMLElement>, targetFolderPath: string) => void;
   onDropOnTarget: (event: React.DragEvent<HTMLElement>, targetFolderPath: string) => void | Promise<void>;
   onNativeDragStartFile?: (path: string, event: React.DragEvent<HTMLElement>) => boolean;
@@ -55,15 +62,38 @@ export function FileTree({
   if (!entries.length) return emptyContent ? <div className="empty-inline">{emptyContent}</div> : <EmptyInline text={emptyText} />;
   const searching = Boolean(searchQuery.trim());
 
+  // After a keyboard move lands focus on a row, the visual selection follows
+  // it — the way Finder's arrow keys select — without opening any tab.
+  function reportFocusedTreeRow() {
+    if (!onFocusEntry) return;
+    const focused = document.activeElement;
+    if (focused instanceof HTMLElement && focused.dataset.treeRow === "true" && focused.dataset.treePath) {
+      onFocusEntry(focused.dataset.treePath);
+    }
+  }
+
   function handleTreeRowKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, entry: TreeEntry) {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       focusAdjacentTreeRow(event.currentTarget, event.key === "ArrowDown" ? 1 : -1);
+      reportFocusedTreeRow();
       return;
     }
     if (event.key === "Home" || event.key === "End") {
       event.preventDefault();
       focusEdgeTreeRow(event.currentTarget, event.key === "Home" ? "first" : "last");
+      reportFocusedTreeRow();
+      return;
+    }
+    if (event.key === "F2" && onRenameEntry && !searching) {
+      event.preventDefault();
+      onRenameEntry(entry.path);
+      return;
+    }
+    if (onDeleteEntry && !searching
+      && (event.key === "Delete" || (event.key === "Backspace" && (event.metaKey || event.ctrlKey)))) {
+      event.preventDefault();
+      onDeleteEntry(entry.path);
       return;
     }
     if (entry.kind === "folder") {
@@ -74,17 +104,24 @@ export function FileTree({
       } else if (event.key === "ArrowRight") {
         event.preventDefault();
         if (collapsed && !searching) onToggleFolder(entry.path);
-        else focusFirstChildTreeRow(event.currentTarget, entry.path);
+        else {
+          focusFirstChildTreeRow(event.currentTarget, entry.path);
+          reportFocusedTreeRow();
+        }
       } else if (event.key === "ArrowLeft") {
         event.preventDefault();
         if (!collapsed && !searching) onToggleFolder(entry.path);
-        else focusParentTreeRow(event.currentTarget, entry.path);
+        else {
+          focusParentTreeRow(event.currentTarget, entry.path);
+          reportFocusedTreeRow();
+        }
       }
       return;
     }
     if (event.key === "ArrowLeft") {
       event.preventDefault();
       focusParentTreeRow(event.currentTarget, entry.path);
+      reportFocusedTreeRow();
     } else if (event.key === "Enter") {
       event.preventDefault();
       onOpenFile(entry.path);
@@ -178,8 +215,12 @@ export function FileTree({
                   level={level + 1}
                   onToggleFolder={onToggleFolder}
                   onSelectFile={onSelectFile}
+                  onFocusEntry={onFocusEntry}
+                  onPreviewFile={onPreviewFile}
                   onOpenFile={onOpenFile}
                   onOpenContextMenu={onOpenContextMenu}
+                  onRenameEntry={onRenameEntry}
+                  onDeleteEntry={onDeleteEntry}
                   onUpdateDropTarget={onUpdateDropTarget}
                   onDropOnTarget={onDropOnTarget}
                   onNativeDragStartFile={onNativeDragStartFile}

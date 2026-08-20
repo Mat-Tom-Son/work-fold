@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
+import type * as React from "react";
 import {
   ArrowClockwise20Regular,
   Checkmark16Regular,
@@ -13,6 +14,7 @@ import {
 import { textSizeOptions, typographyFontOptionsForPlatform } from "../../constants";
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { api, errorText } from "../../lib/api";
+import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
 import type { AgentStatus, AppTheme, AppThemePreference, AppTypographyPreference, DesktopUpdateStatus, SpaceSummary } from "../../types";
 import { foldPoliciesSettings, foldPublicationsSettings } from "../../ui-contract";
 import { WorkFoldLockup } from "../brand/WorkFoldBrand";
@@ -92,7 +94,7 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
           </div>
           <button ref={closeRef} className="minimal-icon-button settings-close-button" type="button" onClick={onClose} aria-label="Close settings"><Dismiss20Regular /></button>
         </div>
-        <div className="settings-form">
+        <div className="settings-form" onKeyDown={settingsRovingKeyDown}>
           <div className="settings-tabs" role="tablist" aria-label="Settings sections">
             {tabs.map((tab) => (
               <button
@@ -1083,6 +1085,28 @@ function PolicyMatcherFields({ fields, values, disabled, onChange }: {
       </label>
     ))}
   </>;
+}
+
+/**
+ * Arrow keys rove and select inside the settings tablist and radio groups,
+ * per the roles they already declare. Focus outside those groups (inputs,
+ * plain buttons) is untouched.
+ */
+function settingsRovingKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+  const key: MenuNavigationKey | null = event.key === "ArrowRight" || event.key === "ArrowDown" ? "ArrowDown"
+    : event.key === "ArrowLeft" || event.key === "ArrowUp" ? "ArrowUp"
+      : event.key === "Home" || event.key === "End" ? event.key : null;
+  if (!key) return;
+  const focused = document.activeElement;
+  if (!(focused instanceof HTMLElement)) return;
+  const group = focused.closest<HTMLElement>('[role="tablist"], [role="radiogroup"]');
+  if (!group || !event.currentTarget.contains(group)) return;
+  const items = Array.from(group.querySelectorAll<HTMLElement>('[role="tab"], [role="radio"]')).filter((item) => !item.hasAttribute("disabled"));
+  const next = nextMenuItemIndex(items.indexOf(focused), items.length, key);
+  if (next === null) return;
+  event.preventDefault();
+  items[next]?.focus();
+  items[next]?.click();
 }
 
 function settingsUpdateActionLabel(status: DesktopUpdateStatus) {

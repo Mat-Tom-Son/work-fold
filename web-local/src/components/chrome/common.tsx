@@ -1,6 +1,6 @@
 import type React from "react";
 import { ChatAdd20Filled, ChatAdd20Regular, bundleIcon, type FluentIcon } from "@fluentui/react-icons";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, X } from "lucide-react";
 import type { SpaceIconOption } from "../../space-icons";
 
 const NewChatIcon = bundleIcon(ChatAdd20Filled, ChatAdd20Regular);
@@ -56,11 +56,16 @@ function PanelTitle({ icon, title, action }: { icon?: React.ReactNode; title: st
   );
 }
 
-function Banner({ tone, text }: { tone: "error" | "info"; text: string }) {
+function Banner({ tone, text, onDismiss }: { tone: "error" | "info"; text: string; onDismiss?: () => void }) {
   return (
     <div className={`banner ${tone}`}>
       <AlertTriangle size={16} />
       <span>{text}</span>
+      {onDismiss ? (
+        <button className="banner-dismiss" type="button" aria-label="Dismiss" onClick={onDismiss}>
+          <X size={14} />
+        </button>
+      ) : null}
     </div>
   );
 }

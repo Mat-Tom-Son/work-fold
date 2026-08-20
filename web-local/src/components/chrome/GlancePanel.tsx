@@ -48,11 +48,18 @@ export function GlanceHeaderControl() {
       setOpen(false);
       window.requestAnimationFrame(() => buttonRef.current?.focus());
     }
+    // The portal panel sits at fixed coordinates measured from the trigger;
+    // a window resize would strand it, so the panel closes instead.
+    function closeFromResize(): void {
+      setOpen(false);
+    }
     document.addEventListener("pointerdown", closeFromOutside, true);
     document.addEventListener("keydown", closeFromEscape, true);
+    window.addEventListener("resize", closeFromResize);
     return () => {
       document.removeEventListener("pointerdown", closeFromOutside, true);
       document.removeEventListener("keydown", closeFromEscape, true);
+      window.removeEventListener("resize", closeFromResize);
     };
   }, [open]);
 
