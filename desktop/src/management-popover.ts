@@ -103,6 +103,15 @@ export class ManagementPopover {
     window.hide();
   }
 
+  /**
+   * Creates and loads the hidden window ahead of the first summon so the
+   * first tray click paints the ready surface instead of a loading beat.
+   */
+  async warm(): Promise<void> {
+    if (this.#destroyed || this.#window) return;
+    await this.#ensureWindow();
+  }
+
   /** Queues dropped material for the renderer; delivered once it has loaded. */
   async stage(items: ManagementPopoverStagedItem[], anchor: Rectangle | null): Promise<void> {
     if (this.#destroyed || !items.length) return;

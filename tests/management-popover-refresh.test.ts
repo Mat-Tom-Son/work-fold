@@ -263,6 +263,31 @@ test("the popover's strips are accessible disclosures and Escape still hides the
   assert.match(popover, /if \(event\.key === "Escape"\) \{\s*setMenuOpen\(false\);\s*bridge\?\.management\?\.hide\(\);/);
 });
 
+test("the popover composer behaves like every other work-fold composer", async () => {
+  const popover = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
+  const css = await readFile(resolve(rootDir, "web-local/src/popover/popover.css"), "utf8");
+  // Enter sends, Shift+Enter keeps the newline, and a mid-IME-composition
+  // Enter never sends — the same contract as the main window and the web
+  // client's composer (services/bridge/public/composer.js).
+  assert.match(popover, /event\.key === "Enter" && !event\.shiftKey && !event\.nativeEvent\.isComposing/);
+  // Escape never dismisses the surface mid-IME-composition.
+  assert.match(popover, /if \(event\.isComposing\) return;/);
+  // The draft box grows with its content instead of scrolling in a fixed slit.
+  assert.match(css, /field-sizing: content/);
+  // The transcript follows new entries only while pinned near the bottom, so
+  // reading scrollback is never yanked away by the poll cadence — and a
+  // refetch that changes nothing keeps the old array identity.
+  assert.match(popover, /transcriptPinnedRef/);
+  assert.match(popover, /sameTranscript\(current, next\) \? current : next/);
+  // Staged chips render outside the composer conditional so a mid-turn drop
+  // is confirmed on screen instead of surfacing after the turn settles.
+  const chips = popover.indexOf('className="chips"');
+  const composer = popover.indexOf('className="composer"');
+  assert.ok(chips >= 0 && composer > chips, "the chips list renders before (outside) the composer section");
+  // New chat cannot orphan a running request's live tail and Stop button.
+  assert.match(popover, /if \(current && activePhases\.has\(current\.phase\)\) return;\s*startingNewChatRef\.current = true/);
+});
+
 test("the menu-bar popover starts a clean saved management chat from the overflow menu", async () => {
   const source = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
   // New chat moves from the header into the ⋯ overflow menu with its exact

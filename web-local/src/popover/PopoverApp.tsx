@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, Ellipsis, File, Link2, SquarePen, X } from "lucide-react";
+import { AppWindow, ChevronRight, Ellipsis, File, Link2, SquarePen, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { ApiError, api, createEventSource, errorText } from "../lib/api";
+import { nextMenuItemIndex, type MenuNavigationKey } from "../lib/menu-navigation";
 import { WorkFoldLockup } from "../components/brand/WorkFoldBrand";
 import { NeedsYouStack, useNeedsYouDecisions } from "../components/NeedsYouDecisions";
 import { GlanceSection, glanceIsEmpty, glanceSpaceCount, glanceUnseenChangeCount, useGlance } from "./GlanceSection";
@@ -155,8 +156,12 @@ export function PopoverApp() {
         return;
       }
       const transcript = await api<{ messages: ManagementMessage[] }>(`/api/management/conversations/${encodeURIComponent(nextConversationId)}`);
-      setMessages(transcript.messages.filter((message) =>
-        (message.role === "user" || message.role === "assistant") && !message.kind));
+      const next = transcript.messages.filter((message) =>
+        (message.role === "user" || message.role === "assistant") && !message.kind);
+      // Polling refetches the same transcript most ticks; keeping the old
+      // array identity for identical content spares re-renders and the
+      // follow-scroll effect.
+      setMessages((current) => (sameTranscript(current, next) ? current : next));
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
         setRequest(null);
@@ -268,9 +273,16 @@ export function PopoverApp() {
     }
   }, [phase, decisionCount]);
 
+  // The transcript follows new entries only while the person is at (or near)
+  // the bottom; scrolling up to read pins nothing back down until they return.
+  // Opening the drawer always starts at the latest entry.
+  const transcriptPinnedRef = useRef(true);
+  useEffect(() => {
+    if (openSection === "conversation") transcriptPinnedRef.current = true;
+  }, [openSection]);
   useEffect(() => {
     const transcript = transcriptRef.current;
-    if (transcript) transcript.scrollTop = transcript.scrollHeight;
+    if (transcript && transcriptPinnedRef.current) transcript.scrollTop = transcript.scrollHeight;
   }, [messages, openSection, phase]);
 
   // The door comes first: whenever the shown popover has nothing that outranks
@@ -278,6 +290,8 @@ export function PopoverApp() {
   // has not landed anywhere yet, the composer takes it.
   useEffect(() => {
     if (available !== true) return;
+    // `phase` is a dependency so the composer regains focus the moment a
+    // settled request brings it back, not only on the next window focus.
     const focusComposerFirst = () => {
       if (document.visibilityState === "hidden") return;
       if (decisionCount > 0) return;
@@ -294,18 +308,23 @@ export function PopoverApp() {
       window.removeEventListener("focus", focusComposerFirst);
       document.removeEventListener("visibilitychange", focusComposerFirst);
     };
-  }, [available, decisionCount]);
+  }, [available, decisionCount, phase]);
 
+  // Hiding the popover releases focus parked on a button or strip: Chromium
+  // keeps DOM focus across hide/show, and a stale button would otherwise
+  // swallow both the reopen keystrokes and the composer's first-focus claim.
+  // Text entry (composer, a decision note) keeps its focus across reopens.
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setMenuOpen(false);
-        bridge?.management?.hide();
-      }
+    const releaseStaleFocus = () => {
+      if (document.visibilityState !== "hidden") return;
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement) || active === document.body) return;
+      if (active.matches("textarea, input, [contenteditable]")) return;
+      active.blur();
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [bridge]);
+    document.addEventListener("visibilitychange", releaseStaleFocus);
+    return () => document.removeEventListener("visibilitychange", releaseStaleFocus);
+  }, []);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -316,6 +335,21 @@ export function PopoverApp() {
     document.addEventListener("pointerdown", closeFromOutside, true);
     return () => document.removeEventListener("pointerdown", closeFromOutside, true);
   }, [menuOpen]);
+
+  // The ⋯ menu behaves like the menu its roles declare: opening moves focus
+  // to the first available item and arrow keys rove through the rest.
+  useEffect(() => {
+    if (!menuOpen) return;
+    menuAnchorRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
+  }, [menuOpen]);
+
+  const onMenuKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp" && event.key !== "Home" && event.key !== "End") return;
+    event.preventDefault();
+    const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)'));
+    const next = nextMenuItemIndex(items.indexOf(document.activeElement as HTMLElement), items.length, event.key as MenuNavigationKey);
+    if (next !== null) items[next]?.focus();
+  }, []);
 
   // A person's strip click toggles that section; expanding moves focus to the
   // section's first actionable element, collapsing leaves focus on the strip
@@ -374,7 +408,9 @@ export function PopoverApp() {
       startingNewChatRef.current = false;
       pendingSendIdentityRef.current = null;
       setStartingNewChat(false);
-      setText("");
+      // Clear only what was submitted; keystrokes that landed while the send
+      // was in flight stay in the box.
+      setText((current) => (current === text ? "" : current));
       setStaged([]);
       setConversationId(result.conversationId);
       await refreshConversation();
@@ -387,6 +423,10 @@ export function PopoverApp() {
 
   const startNewChat = useCallback(() => {
     if (sending || startingNewChatRef.current) return;
+    // While work runs, the request keeps its live tail and Stop on screen; a
+    // clean slate now would orphan a turn that continues server-side.
+    const current = requestRef.current;
+    if (current && activePhases.has(current.phase)) return;
     startingNewChatRef.current = true;
     pendingSendIdentityRef.current = null;
     setStartingNewChat(true);
@@ -397,6 +437,24 @@ export function PopoverApp() {
     setBanner("New chat ready. Your previous chat is still saved on this desktop.");
     window.setTimeout(() => composerRef.current?.focus(), 0);
   }, [sending]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      // Cancelling an IME composition must not dismiss the surface.
+      if (event.isComposing) return;
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        bridge?.management?.hide();
+      }
+      // ⌘N/Ctrl+N mirrors the overflow menu's New chat.
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "n") {
+        event.preventDefault();
+        startNewChat();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [bridge, startNewChat]);
 
   const stop = useCallback(async () => {
     const current = requestRef.current;
@@ -442,7 +500,21 @@ export function PopoverApp() {
     if (!added && transfer.files.length) {
       setBanner("Dropped files need the work-fold desktop app; links and paths still work here.");
     }
+    // A staged chip waits for its instruction — put the cursor where the
+    // instruction goes.
+    if (added) composerRef.current?.focus();
   }, [bridge]);
+
+  // Pasting a lone link into an empty composer stages it as a reference chip,
+  // the same treatment a dropped or tray-staged link gets. Pasting into or
+  // around existing text stays plain text.
+  const onComposerPaste = useCallback((event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const pasted = event.clipboardData.getData("text/plain").trim();
+    if (!pasted || !looksLikeLink(pasted) || /\s/.test(pasted)) return;
+    if (event.currentTarget.value.trim()) return;
+    event.preventDefault();
+    addStagedValue(pasted, setStaged);
+  }, []);
 
   const removeStaged = useCallback((value: string) => {
     setStaged((current) => current.filter((item) => item.value !== value));
@@ -520,25 +592,41 @@ export function PopoverApp() {
               <Ellipsis aria-hidden="true" />
             </button>
             {menuOpen ? (
-              <div id="popover-overflow-menu" className="popover-menu" role="menu" aria-label="More">
+              <div id="popover-overflow-menu" className="popover-menu" role="menu" aria-label="More" onKeyDown={onMenuKeyDown}>
                 <button
                   className="popover-menu-item"
                   type="button"
                   role="menuitem"
                   onClick={() => { setMenuOpen(false); startNewChat(); }}
-                  disabled={sending || startingNewChat}
+                  disabled={sending || startingNewChat || (request !== null && activePhases.has(request.phase))}
                   title="Start a new chat. This chat stays saved on your desktop."
                 >
                   <SquarePen aria-hidden="true" />
                   <span>New chat</span>
                 </button>
+                {bridge?.management ? (
+                  <button
+                    className="popover-menu-item"
+                    type="button"
+                    role="menuitem"
+                    onClick={() => { setMenuOpen(false); void bridge.management?.openMainWindow(); }}
+                  >
+                    <AppWindow aria-hidden="true" />
+                    <span>Open work-fold</span>
+                  </button>
+                ) : null}
               </div>
             ) : null}
           </div>
         </div>
       </header>
 
-      {banner ? <div className="banner" role="alert">{banner}</div> : null}
+      {banner ? (
+        <div className="banner" role="alert">
+          <span className="banner-text">{banner}</span>
+          <button className="banner-dismiss" type="button" aria-label="Dismiss" onClick={() => setBanner("")}><X aria-hidden="true" /></button>
+        </div>
+      ) : null}
 
       {decisionCount > 0 || decisionNotice ? (
         <section className="fold-section fold-section-decisions">
@@ -575,10 +663,20 @@ export function PopoverApp() {
             <ChevronRight className="fold-strip-chevron" aria-hidden="true" />
           </button>
           {openSection === "conversation" ? (
-            <section className="popover-transcript" id="popover-conversation" ref={transcriptRef} aria-label="Your fold" aria-live="polite" tabIndex={-1}>
+            <section
+              className="popover-transcript"
+              id="popover-conversation"
+              ref={transcriptRef}
+              aria-label="Your fold" aria-live="polite"
+              tabIndex={-1}
+              onScroll={(event) => {
+                const target = event.currentTarget;
+                transcriptPinnedRef.current = target.scrollHeight - target.scrollTop - target.clientHeight < 48;
+              }}
+            >
               {messages.map((message) => (
                 <article className={`popover-message ${message.role}`} key={message.id}>
-                  <div className="popover-message-role">{message.role === "assistant" ? "work-fold" : "You"}{message.source === "remote_web" ? " · Web" : ""}</div>
+                  <div className="popover-message-role" title={timestampTitle(message.createdAt)}>{message.role === "assistant" ? "work-fold" : "You"}{message.source === "remote_web" ? " · Web" : ""}</div>
                   <div className="popover-message-body">
                     {message.role === "assistant"
                       ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
@@ -630,21 +728,24 @@ export function PopoverApp() {
         </section>
       ) : null}
 
+      {staged.length ? (
+        // Staged material renders even while a turn hides the composer, so a
+        // mid-turn drop is confirmed on screen instead of surfacing later.
+        <ul className="chips">
+          {staged.map((item) => (
+            <li key={item.value} className="chip" title={item.value}>
+              <span className="chip-kind" aria-hidden="true">{item.isLink ? <Link2 /> : <File />}</span>
+              <span className="chip-label">{item.label}</span>
+              <button className="chip-remove" aria-label={`Remove ${item.label}`} onClick={() => removeStaged(item.value)}><X /></button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {showComposer ? (
         <section className="composer">
-          {staged.length ? (
-            <ul className="chips">
-              {staged.map((item) => (
-                <li key={item.value} className="chip" title={item.value}>
-                  <span className="chip-kind" aria-hidden="true">{item.isLink ? <Link2 /> : <File />}</span>
-                  <span className="chip-label">{item.label}</span>
-                  <button className="chip-remove" aria-label={`Remove ${item.label}`} onClick={() => removeStaged(item.value)}><X /></button>
-                </li>
-              ))}
-            </ul>
-          ) : (
+          {staged.length === 0 ? (
             <div className="drop-hint">Drop files, folders, or links here</div>
-          )}
+          ) : null}
           <textarea
             ref={composerRef}
             rows={3}
@@ -652,8 +753,12 @@ export function PopoverApp() {
             placeholder={composerPlaceholder}
             value={text}
             onChange={(event) => setText(event.target.value)}
+            onPaste={onComposerPaste}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              // Enter sends, matching the main window and web composers;
+              // Shift+Enter keeps the newline, and a mid-composition Enter
+              // (IME) is never a send.
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 void send();
               }
@@ -796,6 +901,19 @@ function childStateLabel(state: "running" | "succeeded" | "failed" | "aborted" |
 
 function shortId(value: string): string {
   return value.length > 8 ? value.slice(0, 8) : value;
+}
+
+function timestampTitle(value: string): string | undefined {
+  const at = Date.parse(value);
+  return Number.isFinite(at) ? new Date(at).toLocaleString() : undefined;
+}
+
+function sameTranscript(current: ManagementMessage[], next: ManagementMessage[]): boolean {
+  if (current.length !== next.length) return false;
+  return current.every((message, index) => {
+    const candidate = next[index];
+    return candidate !== undefined && message.id === candidate.id && message.content === candidate.content;
+  });
 }
 
 function looksLikeLink(value: string): boolean {

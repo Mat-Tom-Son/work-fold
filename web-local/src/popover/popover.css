@@ -140,12 +140,28 @@ body {
 .pill-failed, .pill-stopped { background: var(--pop-surface-2); color: var(--pop-text-muted); }
 
 .banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
   background: var(--pop-warning-bg);
   color: var(--pop-warning-text);
   border-radius: 8px;
   padding: 8px 10px;
   font-size: 12px;
+  user-select: text;
 }
+.banner-text { flex: 1; }
+.banner-dismiss {
+  flex: none;
+  margin: -4px -6px -4px 0;
+  padding: 4px 6px;
+  border: none;
+  background: none;
+  color: var(--pop-warning-text);
+}
+.banner-dismiss svg { width: 13px; height: 13px; display: block; }
+.banner-dismiss:hover { color: var(--pop-text); }
 
 .card {
   background: var(--pop-surface);
@@ -212,7 +228,7 @@ body {
   text-align: left;
   cursor: pointer;
 }
-.fold-strip:hover { color: var(--pop-text); }
+.fold-strip:hover { color: var(--pop-text); background: var(--pop-surface-2); }
 .fold-strip-chevron { width: 12px; height: 12px; stroke-width: 2; flex: none; transition: transform 120ms ease; }
 .fold-strip[aria-expanded="true"] .fold-strip-chevron { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) {
@@ -299,12 +315,18 @@ body {
 .chip-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chip-remove {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: none;
   color: var(--pop-text-muted);
   font-size: 14px;
   cursor: pointer;
-  padding: 0 2px;
+  /* A comfortably tappable target without growing the chip row. */
+  padding: 5px;
+  margin: -5px -3px -5px 0;
+  border-radius: 6px;
 }
 .chip-remove svg { width: 13px; height: 13px; display: block; }
 .chip-remove:hover { color: var(--pop-text); }
@@ -318,6 +340,13 @@ textarea {
   color: var(--pop-text);
   font: inherit;
   padding: 8px 10px;
+  /* Grows with the draft between the roomy 3-line door and ~8 lines, then
+     scrolls, so a longer instruction never has to be written through a
+     3-line slit. */
+  field-sizing: content;
+  min-height: 74px;
+  max-height: 170px;
+  overflow-y: auto;
 }
 
 textarea:focus { outline: 2px solid var(--pop-accent); outline-offset: -1px; }
@@ -344,11 +373,17 @@ button.primary {
   color: var(--pop-accent-text);
   font-weight: 600;
 }
+button.primary:not(:disabled):hover { filter: brightness(1.06); }
+button.primary:not(:disabled):active { filter: brightness(0.92); }
 
 button.ghost { border-color: transparent; background: none; color: var(--pop-text-muted); }
 button.ghost:hover { color: var(--pop-text); }
 
 button.danger-quiet { color: var(--pop-danger); border-color: var(--pop-danger-border); background: none; }
+button.danger-quiet:not(:disabled):hover { background: color-mix(in srgb, var(--pop-danger) 8%, transparent); }
+
+/* The live tail's status lines are readable output — let them be copied. */
+.fold-tail, .needs-you-title { user-select: text; }
 
 /* Needs-you decision cards: durable pending decisions behind the
    warning-tinted strip below the header, present only while at least one
