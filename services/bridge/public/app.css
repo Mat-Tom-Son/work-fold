@@ -811,3 +811,93 @@ button.file-main:focus-visible { outline: 2px solid var(--accent); outline-offse
   .file-row, .file-main { min-height: 34px; }
   .file-name { font-size: 12px; }
 }
+
+/* --- Behavioral affordances: boot splash, jump-to-latest, pending sends,
+   nav badges, banner dismissal, and touch ergonomics. ---------------------- */
+
+/* Paints while the client boots; the first real render replaces it. */
+.boot-splash { min-height: 100svh; display: grid; place-items: center; }
+
+/* Inner scrollers own their overscroll, so a drag past the top of a
+   transcript can't trigger the browser's pull-to-refresh and drop state. */
+body { overscroll-behavior-y: none; }
+.context-scroll, .messages { overscroll-behavior-y: contain; }
+
+/* Keyboard users can focus and scroll the transcript directly. */
+.messages:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Floating return-to-newest control; visible only after scrolling up. */
+.jump-latest {
+  position: sticky;
+  bottom: 10px;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin: 10px 0 0 auto;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.16);
+}
+.jump-latest[hidden] { display: none; }
+.jump-latest svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.jump-latest:hover { background: var(--paper); }
+.jump-latest:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* A sent-but-not-yet-recorded message renders provisionally. */
+.message.pending { opacity: 0.62; }
+
+/* A card whose decision is in flight reads as busy instead of dead. */
+.needs-you-card.busy { opacity: 0.62; }
+
+/* Pending-decision count on the Home destination, every context. */
+.rail-item, .tab-item { position: relative; }
+.nav-badge {
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  display: grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1;
+}
+.tab-item .nav-badge { top: 2px; right: calc(50% - 22px); }
+
+/* Error banners carry their own dismissal. */
+.banner { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.banner-dismiss {
+  flex: none;
+  margin: -4px -7px -4px 0;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.banner-dismiss:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.banner-dismiss:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The auth screens respect the notch in standalone display. */
+.auth-shell, .landing-shell { padding-top: max(28px, env(safe-area-inset-top, 0px)); }
+
+@media (pointer: coarse) {
+  /* iOS zooms the page into any sub-16px field and the zoom sticks. */
+  .conversation-title-form input, .needs-you-note input, .space-picker { font-size: 16px; }
+  /* Thumb-sized targets for the controls tapped most. */
+  .attach-button, .send-button { width: 44px; height: 44px; }
+  .conversation-title-button, .title-edit-action { min-width: 42px; min-height: 42px; }
+  .context-chip button { min-width: 30px; min-height: 30px; }
+}

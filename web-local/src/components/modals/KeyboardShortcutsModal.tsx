@@ -13,10 +13,22 @@ function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
     {
       title: "Open surfaces",
       rows: [
+        { keys: [modifier, "T"], action: "Open a new Chat tab in the current Space." },
+        { keys: ["Ctrl", "Tab"], action: "Move to the next surface tab." },
+        { keys: ["Ctrl", "Shift", "Tab"], action: "Move to the previous surface tab." },
+        { keys: [modifier, "1–9"], action: "Jump to a surface tab by position; 9 is the last tab." },
+        { keys: macOS ? [modifier, "W"] : ["Ctrl", "W"], action: "Close the active surface tab." },
+        ...(macOS ? [{ keys: [modifier, "Shift", "W"], action: "Close the window." }] : []),
         { keys: ["Arrow left"], action: "Move to the previous surface tab when focus is on the tab list." },
         { keys: ["Arrow right"], action: "Move to the next surface tab when focus is on the tab list." },
         { keys: ["Home"], action: "Move to the first surface tab." },
         { keys: ["End"], action: "Move to the last surface tab." },
+      ],
+    },
+    {
+      title: "Chat",
+      rows: [
+        { keys: [modifier, "."], action: "Stop the running Assistant turn in the active Chat." },
       ],
     },
     {
@@ -47,7 +59,7 @@ function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
     },
   ];
   if (window.workFoldDesktop) {
-    shortcutGroups.splice(3, 0, {
+    shortcutGroups.splice(4, 0, {
       title: "Desktop File menu",
       rows: [
         { keys: [modifier, "N"], action: "Create a new Space." },

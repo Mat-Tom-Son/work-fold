@@ -146,9 +146,15 @@ export function glanceIsEmpty(snapshot: GlanceSnapshotView): boolean {
  */
 export function GlanceSection({ state, surface }: { state: GlanceState; surface: GlanceSurface }) {
   const [showEarlier, setShowEarlier] = useState(false);
+  // What counts as "new" freezes at the moment the digest opens: this
+  // component mounts per look, and the acknowledgement that follows must not
+  // grey out or collapse the very items the person just expanded to read.
+  // The next look starts from the advanced marker.
+  const openedSeenRef = useRef<string | null>(null);
   const snapshot = state.snapshot;
   if (!snapshot) return null;
-  const seenThrough = snapshot.seen[surface] ?? "";
+  if (openedSeenRef.current === null) openedSeenRef.current = snapshot.seen[surface] ?? "";
+  const seenThrough = openedSeenRef.current;
   // Pending decisions are the card stack's job (one card contract, decided
   // there); the glance section renders the digest's other needs-you kinds.
   const questions = snapshot.needsYou.filter((item) => item.kind !== "pending-decision");

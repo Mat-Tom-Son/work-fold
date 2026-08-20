@@ -64,7 +64,7 @@ const fixtureRequested = new URLSearchParams(window.location.search).get("fixtur
 const supportedSpaceIconNames = new Set(spaceIconOptions.flatMap((option) => [option.name, ...(option.aliases ?? [])]));
 
 interface DroppedUploadFile { file: File; relativePath: string }
-type DesktopActionCommand = "new-chat" | "reload-space-state" | "open-capabilities" | "open-skills" | "open-extensions" | "open-command-palette";
+type DesktopActionCommand = "new-chat" | "reload-space-state" | "open-capabilities" | "open-skills" | "open-extensions" | "open-command-palette" | "close-tab";
 interface PendingDelete {
   spaceId: string;
   path: string;
@@ -192,7 +192,7 @@ export function App() {
       else if (command === "open-settings") openSettings();
       else if (command === "open-about") openSettings("about");
       else if (command === "open-keyboard-shortcuts") openKeyboardShortcuts();
-      else if (command === "new-chat" || command === "reload-space-state" || command === "open-capabilities" || command === "open-skills" || command === "open-extensions" || command === "open-command-palette") {
+      else if (command === "new-chat" || command === "reload-space-state" || command === "open-capabilities" || command === "open-skills" || command === "open-extensions" || command === "open-command-palette" || command === "close-tab") {
         setDesktopAction({ id: Date.now(), command });
       }
     });
@@ -258,7 +258,7 @@ export function App() {
     } catch (caught) { setError(errorText(caught)); }
   }
 
-  if (!boot || (fixtureRequested && !fixture)) return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>{showDesktopTitleBar ? <DesktopTitleBar /> : null}<WorkFoldLoadingState message={error ?? "Loading your Spaces and Assistant."} /></div>;
+  if (!boot || (fixtureRequested && !fixture)) return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>{showDesktopTitleBar ? <DesktopTitleBar /> : null}<WorkFoldLoadingState message={error ?? "Loading your Spaces and Assistant."} action={error ? <button className="secondary-button" type="button" onClick={() => { setError(null); void refreshBootstrap(); }}>Try again</button> : undefined} /></div>;
 
   return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>
     {showDesktopTitleBar ? <DesktopTitleBar /> : null}
@@ -527,7 +527,49 @@ function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, u
     else if (desktopAction.command === "reload-space-state") void refreshSpaceState();
     else if (desktopAction.command === "open-capabilities" || desktopAction.command === "open-skills" || desktopAction.command === "open-extensions") tabs.openAssistantToolsSurfaceTab(space, "installed");
     else if (desktopAction.command === "open-command-palette") openCommandPalette();
+    else if (desktopAction.command === "close-tab" && tabs.activeSurfaceTabId) tabs.closeSurfaceTab(tabs.activeSurfaceTabId);
   }, [desktopAction?.id, openCommandPalette]);
+  // Tab-strip keyboard reach without focusing the tablist: Ctrl+Tab cycles,
+  // Cmd/Ctrl+1..9 jumps (9 is the last tab), Cmd/Ctrl+T opens a new Chat tab,
+  // and Ctrl+W covers close on platforms whose menu does not own it.
+  useEffect(() => {
+    function keydown(event: KeyboardEvent) {
+      if (event.altKey || document.querySelector('[role="dialog"]')) return;
+      const command = event.metaKey || event.ctrlKey;
+      if (event.ctrlKey && !event.metaKey && event.key === "Tab") {
+        if (!tabs.surfaceTabs.length) return;
+        event.preventDefault();
+        const index = tabs.surfaceTabs.findIndex((tab) => tab.id === tabs.activeSurfaceTabId);
+        const step = event.shiftKey ? -1 : 1;
+        const next = tabs.surfaceTabs[(index + step + tabs.surfaceTabs.length) % tabs.surfaceTabs.length];
+        if (next) tabs.setActiveSurfaceTabId(next.id);
+        return;
+      }
+      if (!command || event.shiftKey) return;
+      if (event.key.toLocaleLowerCase() === "t") {
+        event.preventDefault();
+        openChat(space, null);
+        return;
+      }
+      if (!isMacOS() && event.key.toLocaleLowerCase() === "w") {
+        if (!tabs.activeSurfaceTabId) return;
+        event.preventDefault();
+        tabs.closeSurfaceTab(tabs.activeSurfaceTabId);
+        return;
+      }
+      if (event.key >= "1" && event.key <= "9") {
+        if (!tabs.surfaceTabs.length) return;
+        const target = event.key === "9"
+          ? tabs.surfaceTabs.at(-1)
+          : tabs.surfaceTabs[Number(event.key) - 1];
+        if (!target) return;
+        event.preventDefault();
+        tabs.setActiveSurfaceTabId(target.id);
+      }
+    }
+    window.addEventListener("keydown", keydown);
+    return () => window.removeEventListener("keydown", keydown);
+  }, [tabs.surfaceTabs, tabs.activeSurfaceTabId, space.id]);
   useEffect(() => {
     const flushBeforeUnload = () => flushAllPendingDeletes(true);
     window.addEventListener("beforeunload", flushBeforeUnload);
@@ -1166,7 +1208,7 @@ function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, u
         >
           {uploadingFiles ? <div className="file-upload-progress" aria-live="polite"><Loader2 className="spin" size={14} />Adding files</div> : null}
           {tree.status === "refreshing" ? <div className="file-tree-refresh-progress" aria-live="polite"><Loader2 className="spin" size={14} />Updating files</div> : null}
-          {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <EmptyInline text="Couldn't load this Space. Refresh to try again." /> : <FileTree entries={tree.visibleEntries} collapsedPaths={tree.query ? new Set() : tree.collapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} movingTreePath={tree.movingTreePath} dropTargetFolderPath={tree.dropTargetFolderPath} checkAttentionPaths={checks.attentionPaths} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); }} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} />}
+          {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <EmptyInline text="Couldn't load this Space. Refresh to try again." /> : <FileTree entries={tree.visibleEntries} collapsedPaths={tree.query ? new Set() : tree.collapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} movingTreePath={tree.movingTreePath} dropTargetFolderPath={tree.dropTargetFolderPath} checkAttentionPaths={checks.attentionPaths} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); }} onFocusEntry={tree.setSelectedPath} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onRenameEntry={renameEntry} onDeleteEntry={(path) => void deleteEntry(path)} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} />}
         </div>
         {fixture ? null : (
           <FileContentSearch

@@ -1265,6 +1265,7 @@ type RendererMenuCommand =
   | "new-space"
   | "open-local-folder"
   | "new-chat"
+  | "close-tab"
   | "reload-space-state"
   | "check-for-updates"
   | "open-settings"
@@ -1328,7 +1329,17 @@ function buildApplicationSubmenuTemplate(menuId: ApplicationMenuId): MenuItemCon
         { label: "Settings...", accelerator: "CommandOrControl+,", click: () => sendRendererMenuCommand("open-settings") },
       );
     }
-    items.push({ type: "separator" }, process.platform === "darwin" ? { role: "close" } : { role: "quit" });
+    if (process.platform === "darwin") {
+      // Cmd+W follows tab-strip muscle memory and closes the active surface
+      // tab; the window keeps the conventional Shift+Cmd+W.
+      items.push(
+        { type: "separator" },
+        { id: "close-tab", label: "Close Tab", accelerator: "CommandOrControl+W", enabled: rendererMenuState.spaceOpen, click: () => sendRendererMenuCommand("close-tab") },
+        { role: "close", accelerator: "Shift+CommandOrControl+W" },
+      );
+    } else {
+      items.push({ type: "separator" }, { role: "quit" });
+    }
     return items;
   }
   if (menuId === "edit") {
@@ -1931,6 +1942,11 @@ function createTrayIfSupported(): void {
     tray.on("double-click", showWindow);
   }
   updateTrayTooltip();
+  // Warm the hidden popover renderer off the startup critical path so the
+  // first "Your fold" summon paints the ready surface immediately.
+  setTimeout(() => {
+    void ensureManagementPopover().then((popover) => popover.warm()).catch(() => {});
+  }, 2_500);
 }
 
 function resolveTrayIcon(): Electron.NativeImage | string | null {

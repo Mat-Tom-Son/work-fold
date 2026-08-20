@@ -26,6 +26,7 @@ import { dismissRestrictedAppProposal, installRestrictedAppProposal } from "../.
 import { resolveFixtureSpacePathCandidates } from "../../lib/space-path-links";
 import { spaceIdentityFor, spaceIdentityStyle, type SpaceIdentity } from "../../lib/space-identity";
 import type { AgentActivityEvent, AgentActivityLogEntry, AgentCatalog, AgentCommand, AgentStatus, ChatContextPathRequest, ChatLifecycleView, ChatMessage, ChatStreamEvent, ContextAttachment, ConversationRuntime, ConversationSummary, ExtensionUiRequest, PendingChatSend, RestrictedAppInstalled, RestrictedAppProposal, RuntimePreviewEntry, TreeEntry, SpaceCustomizationMap, SpaceFixtureConversation, SpaceSummary } from "../../types";
+import { useModalDialog } from "../../hooks/useModalDialog";
 import { Banner, FluentGlyph, SpaceIconGlyph } from "../chrome/common";
 import { RestrictedAppReviewDialog } from "../panes/RestrictedAppsSection";
 import { FileTypeIcon } from "../tree/FileTree";
@@ -162,6 +163,33 @@ export function ChatPanel({
   useEffect(() => {
     if (active && conversation?.id) onViewedRef.current?.(conversation.id);
   }, [active, conversation?.id]);
+  // The composer takes focus whenever this Chat tab becomes the active one, so
+  // typing works immediately — without stealing from a dialog, another text
+  // field, or an editor the person is already in.
+  useEffect(() => {
+    if (!active || lifecycleView !== "active") return;
+    // A zero timeout (not rAF) so the focus claim also lands while the window
+    // is occluded or freshly restored, after the activation commit settles.
+    const timer = window.setTimeout(() => {
+      const focused = document.activeElement;
+      if (focused instanceof HTMLElement && focused !== document.body
+        && (focused.matches("input, textarea, select, [contenteditable]") || focused.closest('[role="dialog"]'))) return;
+      composerTextareaRef.current?.focus({ preventScroll: true });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [active, conversation?.id, lifecycleView]);
+  // Cmd/Ctrl+. stops the running turn from anywhere in the active Chat.
+  useEffect(() => {
+    if (!active || !running) return;
+    function stopKeydown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key === ".") {
+        event.preventDefault();
+        void abortTurn();
+      }
+    }
+    window.addEventListener("keydown", stopKeydown);
+    return () => window.removeEventListener("keydown", stopKeydown);
+  }, [active, running]);
   const [userPinnedToBottom, setUserPinnedToBottom] = useState(true);
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
@@ -1249,7 +1277,10 @@ export function ChatPanel({
       clearRuntimePreviews();
       resetTurnArtifactTracking();
       setError(errorText(sendError));
-      setDraft(content);
+      // Restore the failed message only into an empty composer — never over a
+      // newer draft — and put the cursor back where retrying happens.
+      setDraft((current) => (current.trim() ? current : content));
+      window.requestAnimationFrame(() => composerTextareaRef.current?.focus());
       setMessages((current) => current.filter((message) => message.id !== localUserMessage.id));
     }
   }
@@ -1299,7 +1330,8 @@ export function ChatPanel({
       clearRuntimePreviews();
       resetTurnArtifactTracking();
       setError(errorText(sendError));
-      setDraft(pending.content);
+      setDraft((current) => (current.trim() ? current : pending.content));
+      window.requestAnimationFrame(() => composerTextareaRef.current?.focus());
       setMessages((current) => current.filter((message) => message.id !== pending.localUserMessage.id));
       if (pending.transientConversation) {
         transientConversationIdsRef.current.delete(pending.conversation.id);
@@ -1590,7 +1622,7 @@ export function ChatPanel({
     >
       <div className={error ? "chat-top-chrome" : "chat-top-chrome empty"}>
         <div className="chat-top-notice">
-          {error ? <Banner tone="error" text={error} /> : null}
+          {error ? <Banner tone="error" text={error} onDismiss={() => setError(null)} /> : null}
         </div>
       </div>
       <div className="chat-scroll-shell">
@@ -1911,13 +1943,21 @@ function formatTokenCount(value: number | null): string {
 
 function ExtensionRequestDialog({ request, onRespond }: { request: ExtensionUiRequest; onRespond: (value: unknown, cancelled?: boolean) => Promise<void> }) {
   const [value, setValue] = useState(request.initialValue ?? "");
+  // The Assistant's question rides the shared dialog contract like every
+  // other modal: focus enters and stays, Escape cancels, Enter answers an
+  // input, and focus returns to the invoking control after close.
+  const entryFieldRef = useRef<HTMLElement | null>(null);
+  const dialogRef = useModalDialog({
+    onClose: () => void onRespond(null, true),
+    initialFocusRef: entryFieldRef,
+  });
   return <div className="modal-backdrop extension-request-backdrop" role="presentation" onMouseDown={() => void onRespond(null, true)}>
-    <section className="modal-card extension-request-dialog" role="dialog" aria-modal="true" aria-labelledby={`extension-request-${request.id}`} onMouseDown={(event) => event.stopPropagation()}>
+    <section ref={dialogRef} tabIndex={-1} className="modal-card extension-request-dialog" role="dialog" aria-modal="true" aria-labelledby={`extension-request-${request.id}`} onMouseDown={(event) => event.stopPropagation()}>
       <header><div><h2 id={`extension-request-${request.id}`}>{request.title || "Extension request"}</h2>{request.message ? <p>{request.message}</p> : null}</div><button className="minimal-icon-button" type="button" onClick={() => void onRespond(null, true)} aria-label="Cancel extension request"><X size={16} /></button></header>
       <div className="modal-body extension-dialog-content">
         {request.method === "select" ? <div className="select-options">{request.options?.map((option) => <button className="secondary-button" type="button" key={option} onClick={() => void onRespond(option)}>{option}</button>)}</div> : null}
         {request.method === "confirm" ? <div className="modal-actions"><button className="secondary-button" type="button" onClick={() => void onRespond(false)}>No</button><button className="primary-button" type="button" onClick={() => void onRespond(true)}>Yes</button></div> : null}
-        {request.method === "input" || request.method === "editor" ? <><label>{request.method === "editor" ? "Response" : "Value"}{request.method === "editor" ? <textarea rows={9} value={value} onChange={(event) => setValue(event.target.value)} placeholder={request.placeholder} autoFocus /> : <input type={request.secret ? "password" : "text"} value={value} onChange={(event) => setValue(event.target.value)} placeholder={request.placeholder} autoFocus autoComplete={request.secret ? "off" : undefined} />}</label><div className="modal-actions"><button className="secondary-button" type="button" onClick={() => void onRespond(null, true)}>Cancel</button><button className="primary-button" type="button" onClick={() => void onRespond(value)}>Continue</button></div></> : null}
+        {request.method === "input" || request.method === "editor" ? <form onSubmit={(event) => { event.preventDefault(); void onRespond(value); }}><label>{request.method === "editor" ? "Response" : "Value"}{request.method === "editor" ? <textarea ref={(node) => { entryFieldRef.current = node; }} rows={9} value={value} onChange={(event) => setValue(event.target.value)} placeholder={request.placeholder} /> : <input ref={(node) => { entryFieldRef.current = node; }} type={request.secret ? "password" : "text"} value={value} onChange={(event) => setValue(event.target.value)} placeholder={request.placeholder} autoComplete={request.secret ? "off" : undefined} />}</label><div className="modal-actions"><button className="secondary-button" type="button" onClick={() => void onRespond(null, true)}>Cancel</button><button className="primary-button" type="submit">Continue</button></div></form> : null}
       </div>
     </section>
   </div>;

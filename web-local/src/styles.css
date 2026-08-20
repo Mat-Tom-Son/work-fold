@@ -14491,6 +14491,25 @@ textarea,
   line-height: 1.4;
 }
 
+.banner > span { flex: 1; min-width: 0; }
+
+.banner-dismiss {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: -4px -6px -4px 0;
+  padding: 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.banner-dismiss:hover { background: rgba(0, 0, 0, 0.07); }
+.banner-dismiss:focus-visible { outline: 2px solid var(--accent, #0b6fd6); outline-offset: 1px; }
+
 .banner svg {
   flex: 0 0 auto;
   margin-top: 2px;
