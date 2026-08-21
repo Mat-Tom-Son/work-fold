@@ -66,9 +66,10 @@ the person compares unless it hits the short authentication string's six-digit
 collision space.
 The resulting desktop-signed grant is bound to the account, browser keys, and a
 revocation generation. The desktop re-reads its operating-system-encrypted
-grant state immediately before an operation; disabling Remote access, revoking
+grant state immediately before an operation and before each progress event a
+live watch streams; disabling Remote access, revoking
 one browser, revoking every grant generation, or deleting the address stops
-later operations. The bridge enforces exact origins, host-only SameSite secure
+later operations and silences an in-flight watch. The bridge enforces exact origins, host-only SameSite secure
 cookies, stable session-bound CSRF tokens, bounded bodies, fresh signatures,
 login/enrollment/operation rate limits, and security headers. Malformed login
 addresses are rejected before scrypt; well-formed checks pass through bounded
