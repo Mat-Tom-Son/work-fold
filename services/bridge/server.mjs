@@ -83,6 +83,7 @@ const allowedOperations = new Set([
   "management.send",
   "management.request",
   "management.stop",
+  "management.watch",
   "management.glance",
   "management.glanceSeen",
   "decisions.list",

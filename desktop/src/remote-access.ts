@@ -30,7 +30,7 @@ const maximumRemoteRequestCiphertextCharacters = Math.floor(12 * 1024 * 1024 * 1
 const maximumProtocolErrorFramesPerConnection = 1;
 const operationSet = new Set<WorkFoldRemoteOperation>([
   "management.summary", "management.chats", "management.transcript", "management.rename", "management.send", "management.request",
-  "management.stop", "management.glance", "management.glanceSeen", "decisions.list", "decisions.decide",
+  "management.stop", "management.watch", "management.glance", "management.glanceSeen", "decisions.list", "decisions.decide",
   "spaces.list", "spaces.tree",
 ]);
 /**
@@ -646,10 +646,25 @@ export class RemoteAccessClient {
       // Re-read immediately before execution so disabling or revoking cannot
       // leave a stale envelope authorized in a queued microtask.
       if (!await this.#currentOperationAuthority(grant, operationFence)) return;
+      // Live-watch progress ticks ride the operation's event envelopes with
+      // strictly increasing sequences. Each tick is serialized behind the
+      // previous one and re-checks grant authority before it leaves the
+      // desktop, so revocation silences an in-flight watch immediately.
+      let nextSequence = 2;
+      let emitChain: Promise<void> = Promise.resolve();
+      const emitProgress = (progress: unknown) => {
+        emitChain = emitChain.then(async () => {
+          const authority = await this.#currentOperationAuthority(grant, operationFence);
+          if (!authority) return;
+          this.sendEncrypted(authority.settings, authority.grant, operation, nextSequence++, true, { progress }, "operation.event");
+        }).catch(() => {});
+      };
       let ok = true;
       let responsePayload: unknown;
       try {
-        const value = await this.#facade.execute(remoteOperation, input, principal);
+        const value = remoteOperation === "management.watch" && this.#facade.watch
+          ? await this.#facade.watch(input, principal, emitProgress)
+          : await this.#facade.execute(remoteOperation, input, principal);
         if (remoteOperation === "management.glance"
           && Buffer.byteLength(JSON.stringify(value ?? null), "utf8") > maximumRemoteGlanceProjectionBytes) {
           throw new Error("The glance digest exceeded its 64 KB remote bound. Open work-fold on the desktop to see it.");
@@ -669,13 +684,16 @@ export class RemoteAccessClient {
       // requested. Re-read settings and both fence scopes at the serialized
       // completion point so a same-grant/all-grants revoke wins, while an
       // unrelated browser mutation cannot discard this result.
+      // Drain in-flight progress ticks so the completion's sequence stays
+      // strictly above every event the bridge will relay.
+      await emitChain;
       const completion = await this.#currentOperationAuthority(grant, operationFence);
       if (!completion) return;
       const response = this.sendEncrypted(
         completion.settings,
         completion.grant,
         operation,
-        2,
+        nextSequence,
         ok,
         responsePayload,
         "operation.complete",

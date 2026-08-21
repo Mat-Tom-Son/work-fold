@@ -218,6 +218,26 @@ test("the client stays inside the relay's operation budget and backs off on 429"
   assert.match(applicationSource, /attempt < 5 \? 1_000 : streamHealthy \? 3_000 : 2_000/);
 });
 
+test("the live watch is capability-gated, single, and falls back to polling", async () => {
+  const applicationSource = await readFile(new URL("./public/app.js", import.meta.url), "utf8");
+  const serverSource = await readFile(new URL("./server.mjs", import.meta.url), "utf8");
+  // The relay allowlists the operation name content-blind, like every other
+  // management operation; progress rides the existing operation.event lane.
+  assert.match(serverSource, /"management\.watch",/);
+  // The client starts a watch only when the desktop's summary advertises the
+  // capability — an older desktop is never asked — keeps at most one watch,
+  // ignores ticks from a superseded watch, refreshes immediately on settle,
+  // and one failed watch quietly returns the page to polling.
+  assert.match(applicationSource, /if \(state\.summary\?\.capabilities\?\.watch !== true\) return;/);
+  assert.match(applicationSource, /if \(state\.watchToken\) return;/);
+  assert.match(applicationSource, /event\.operationId !== state\.watchOperationId\) return;/);
+  assert.match(applicationSource, /state\.watchUnsupported = true;/);
+  assert.match(applicationSource, /result && result\.settled === true/);
+  // The watch's status-poll fallback idles at ten seconds; completion arrives
+  // over the event stream.
+  assert.match(applicationSource, /fallbackIntervalMs: 10_000,/);
+});
+
 test("composer sends with Enter on hardware keyboards and writes a newline on touch", () => {
   assert.equal(shouldSubmitComposerKey({ key: "Enter", shiftKey: false, isComposing: false }), true);
   assert.equal(shouldSubmitComposerKey({ key: "Enter", shiftKey: true, isComposing: false }), false);

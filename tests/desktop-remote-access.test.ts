@@ -1422,3 +1422,41 @@ test("the publication bridge sync lane is content-free, idempotent, and honest a
     "slot creation without an enrolled address fails instead of pretending",
   );
 });
+
+test("a live watch streams sequenced progress events under its completion", async () => {
+  const browser = remoteTestBrowser("grant-watch");
+  const settings = remoteTestSettings([browser]);
+  const fixture = remoteOperationClient(settings, {
+    async execute() { throw new Error("management.watch must route through the watch port"); },
+    async watch(input, _principal, emit) {
+      assert.deepEqual(input, { conversationId: "management-chat" });
+      emit({ activity: "Reading the folder" });
+      emit({ activity: "Writing the reply" });
+      return { state: "settled", settled: true };
+    },
+    async purgeUploads() {},
+  });
+  await fixture.client.start();
+  fixture.socket.open();
+  fixture.socket.receive(JSON.stringify(
+    remoteOperationFrame(settings, browser, "request-watch", "management.watch", { conversationId: "management-chat" }),
+  ));
+  await waitForRemoteTest(
+    () => fixture.socket.sent.some((value) => {
+      const message = JSON.parse(value) as { envelope?: { header?: { eventKind?: string; requestId?: string } } };
+      return message.envelope?.header?.requestId === "request-watch"
+        && message.envelope.header.eventKind === "operation.complete";
+    }),
+    "the watch never completed",
+  );
+  const headers = fixture.socket.sent
+    .map((value) => JSON.parse(value) as { envelope?: { header?: { eventKind?: string; sequence?: number; requestId?: string } } })
+    .filter((message) => message.envelope?.header?.requestId === "request-watch")
+    .map((message) => message.envelope?.header);
+  // The running event, both progress ticks, then the completion — with
+  // strictly increasing sequences so the bridge's monotonic guard admits all.
+  assert.deepEqual(headers.map((header) => header?.eventKind), [
+    "operation.event", "operation.event", "operation.event", "operation.complete",
+  ]);
+  assert.deepEqual(headers.map((header) => header?.sequence), [1, 2, 3, 4]);
+});

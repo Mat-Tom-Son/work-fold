@@ -79,6 +79,10 @@ const state = {
   rateLimitedUntil: 0,
   refreshTick: 0,
   lastResumeAt: 0,
+  watchToken: null,
+  watchOperationId: null,
+  watchUnsupported: false,
+  liveActivity: "",
 };
 
 void boot();
@@ -472,6 +476,7 @@ function onPopState() {
   if (requested.context === "chat" && requested.conversationId
     && requested.conversationId !== state.selectedConversationId
     && !state.sending && !state.renameSaving) {
+    releaseConversationWatch();
     saveComposerDraft();
     cancelChatRename({ restoreFocus: false });
     state.startingNewChat = false;
@@ -836,7 +841,7 @@ function renderMessages() {
   const messagesChanged = reconcileMessageRows(rows, visible, sameConversation && container.dataset.rendered === "true");
   const workChanged = replaceHtmlIfChanged(workStatus, `
     ${workEvents.map((event) => `<div class="work-event ${event.state}"${event.title ? ` title="${escapeAttribute(event.title)}"` : ""}><span class="work-event-mark" aria-hidden="true"></span><span>${event.html}</span></div>`).join("")}
-    ${working && !workEvents.some((event) => event.state === "running") ? `<div class="working-row"><span class="spinner"></span><span>Working</span></div>` : ""}
+    ${working && !workEvents.some((event) => event.state === "running") ? `<div class="working-row"><span class="spinner"></span><span>${escapeHtml(state.liveActivity || "Working")}</span></div>` : ""}
   `);
   if (container.dataset.rendered !== "true") container.dataset.rendered = "true";
   if (wasNearBottom && (noticeChanged || messagesChanged || workChanged || !sameConversation)) {
@@ -1007,6 +1012,7 @@ async function refreshConversation({ loadTranscript = true } = {}) {
     renderConversationChrome();
     renderMessages();
     renderFoldHome();
+    ensureConversationWatch();
   } catch (error) {
     state.transcriptLoading = false;
     if (refreshVersion !== state.conversationRefreshVersion) return;
@@ -1014,6 +1020,57 @@ async function refreshConversation({ loadTranscript = true } = {}) {
     if (state.banner.toLowerCase().includes("offline")) updateConnection(false);
     renderBanner();
   }
+}
+
+// --- Live watch: while the desktop advertises the capability and a turn is
+// running in the selected chat, one bounded management.watch operation at a
+// time streams the desktop's activity line and settles the moment the turn
+// does — replies arrive on the event, not the next poll tick. Old desktops
+// never advertise it, so the client simply keeps polling. -------------------
+
+function ensureConversationWatch() {
+  if (fixtureName || state.watchUnsupported || state.sessionRebooting) return;
+  if (!state.session?.desktopOnline || Date.now() < state.rateLimitedUntil) return;
+  if (state.summary?.capabilities?.watch !== true) return;
+  const conversationId = state.startingNewChat ? null : state.selectedConversationId;
+  const running = state.summary?.state === "running" || state.summary?.latestRequest?.phase === "working";
+  if (!conversationId || !running) return;
+  if (state.watchToken) return;
+  const token = { conversationId };
+  state.watchToken = token;
+  remote("management.watch", { conversationId }, {
+    fallbackIntervalMs: 10_000,
+    onAccepted: (operationId) => {
+      if (state.watchToken === token) state.watchOperationId = operationId;
+    },
+  }).then((result) => {
+    if (state.watchToken !== token) return;
+    state.watchToken = null;
+    state.watchOperationId = null;
+    state.liveActivity = "";
+    if (result && result.settled === true) {
+      void loadConversations({ preferredConversationId: conversationId })
+        .then(() => ensureConversationWatch())
+        .catch(() => {});
+    } else if (result && result.state === "running") {
+      ensureConversationWatch();
+    }
+  }).catch(() => {
+    if (state.watchToken !== token) return;
+    state.watchToken = null;
+    state.watchOperationId = null;
+    state.liveActivity = "";
+    // Fail quiet and stay on polling for this page; a reload re-tries.
+    state.watchUnsupported = true;
+  });
+}
+
+function releaseConversationWatch() {
+  // Switching chats or starting fresh: the pending watch keeps running to its
+  // window server-side, but its ticks and resolution no longer touch state.
+  state.watchToken = null;
+  state.watchOperationId = null;
+  state.liveActivity = "";
 }
 
 function conversationRefreshIsCurrent(refreshVersion, conversationId) {
@@ -1102,6 +1159,7 @@ async function sendPrompt() {
 
 function startNewChat() {
   if (state.sending || state.startingNewChat || state.renameSaving) return;
+  releaseConversationWatch();
   saveComposerDraft();
   state.conversationRefreshVersion += 1;
   cancelChatRename({ restoreFocus: false });
@@ -1341,6 +1399,7 @@ function renderHomeChats() {
 
 async function selectConversation(conversationId) {
   if (state.sending || state.renameSaving || !conversationId) return;
+  releaseConversationWatch();
   saveComposerDraft();
   cancelChatRename({ restoreFocus: false });
   state.startingNewChat = false;
@@ -1725,7 +1784,7 @@ function renderHomeActivity() {
   const canStop = Boolean(state.selectedConversationId && state.activeTasks.has(state.selectedConversationId));
   return `<section class="home-activity" aria-label="Running now in your latest chat">
     ${workEvents.map((event) => `<div class="work-event ${event.state}"${event.title ? ` title="${escapeAttribute(event.title)}"` : ""}><span class="work-event-mark" aria-hidden="true"></span><span>${event.html}</span></div>`).join("")}
-    ${!workEvents.some((event) => event.state === "running") ? `<div class="working-row"><span class="spinner"></span><span>Working</span></div>` : ""}
+    ${!workEvents.some((event) => event.state === "running") ? `<div class="working-row"><span class="spinner"></span><span>${escapeHtml(state.liveActivity || "Working")}</span></div>` : ""}
     ${canStop ? `<button type="button" class="toolbar-button danger" data-stop-task="true"${state.stoppingTask ? " disabled" : ""}>Stop</button>` : ""}
   </section>`;
 }
@@ -2016,6 +2075,24 @@ async function receiveRemoteEvent(event) {
     if (!wasOnline && event.desktopOnline === true) resumeLiveConnection();
     return;
   }
+  if (event.type === "operation.event") {
+    // Live-watch progress ticks: decrypt, verify the envelope against the
+    // watch's own pending request, and paint the activity line. Ticks from a
+    // superseded watch are ignored.
+    const pendingEvent = state.pendingOperations.get(event.operationId);
+    if (!pendingEvent || event.operationId !== state.watchOperationId) return;
+    assertResponseEnvelope(event.envelope, event.operationId, pendingEvent.requestId, event.type);
+    const payload = await decryptResponse(event.envelope);
+    const activity = payload && typeof payload === "object" && payload.progress && typeof payload.progress.activity === "string"
+      ? payload.progress.activity
+      : "";
+    if (activity) {
+      state.liveActivity = activity;
+      renderMessages();
+      renderFoldHome();
+    }
+    return;
+  }
   const pending = state.pendingOperations.get(event.operationId);
   if (event.type === "operation.complete" && !pending) {
     state.earlyEvents.set(event.operationId, event);
@@ -2030,7 +2107,7 @@ async function receiveRemoteEvent(event) {
   }
 }
 
-async function remote(operation, input = {}) {
+async function remote(operation, input = {}, options = {}) {
   if (fixtureName) throw new Error("Fixture preview is inert; nothing is sent.");
   if (!state.session?.paired || !state.identity?.grantId) throw new Error("This browser is not approved.");
   const requestId = crypto.randomUUID();
@@ -2046,6 +2123,7 @@ async function remote(operation, input = {}) {
   };
   const envelope = await encryptRequest(header, { input });
   const accepted = await api("/api/operations", { method: "POST", csrf: true, body: { envelope } });
+  options.onAccepted?.(accepted.operation.id);
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       state.pendingOperations.delete(accepted.operation.id);
@@ -2064,18 +2142,18 @@ async function remote(operation, input = {}) {
       state.earlyEvents.delete(accepted.operation.id);
       void receiveRemoteEvent(early).catch((error) => state.pendingOperations.get(accepted.operation.id)?.reject(error));
     }
-    void pollOperationFallback(accepted.operation.id);
+    void pollOperationFallback(accepted.operation.id, options.fallbackIntervalMs);
   });
 }
 
-async function pollOperationFallback(operationId) {
+async function pollOperationFallback(operationId, fallbackIntervalMs) {
   // The event stream normally delivers completion first; this fallback exists
   // for a dead or throttled stream. It starts fast, then backs off — further
   // while the stream is healthy — instead of holding a 1Hz poll per request.
   const deadline = Date.now() + 120_000;
   for (let attempt = 0; Date.now() < deadline && state.pendingOperations.has(operationId); attempt += 1) {
     const streamHealthy = state.eventSource?.readyState === EventSource.OPEN;
-    await delay(attempt < 5 ? 1_000 : streamHealthy ? 3_000 : 2_000);
+    await delay(fallbackIntervalMs ?? (attempt < 5 ? 1_000 : streamHealthy ? 3_000 : 2_000));
     let status;
     try { status = await api(`/api/operations/${encodeURIComponent(operationId)}`); } catch { continue; }
     updateConnection(status.desktopOnline);

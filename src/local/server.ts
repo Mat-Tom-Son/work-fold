@@ -102,6 +102,7 @@ import type {
   WorkFoldRemoteFacade,
   WorkFoldRemoteOperation,
   WorkFoldRemotePrincipal,
+  WorkFoldRemoteWatchProgress,
   WorkFoldRemoteTreeResult,
 } from "./remote-management.js";
 import {
@@ -505,6 +506,8 @@ interface LocalApiState {
   beforeRestrictedAppSpaceRevalidation?: (spaceId: string) => Promise<void>;
   managementRequests: ManagementRequestRegistry;
   chatStreams: Map<string, Set<ServerResponse>>;
+  /** In-process subscribers riding the same publish point as the SSE streams (remote watch). */
+  chatEventListeners: Map<string, Set<(event: unknown) => void>>;
   chatEventLogs: Map<string, ChatEventLog>;
   activeTurnIdsByKey: Map<string, string>;
   turnCheckpointTimers: Map<string, NodeJS.Timeout>;
@@ -723,6 +726,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     beforeRestrictedAppSpaceRevalidation: options.beforeRestrictedAppSpaceRevalidation,
     managementRequests: new ManagementRequestRegistry(),
     chatStreams: new Map(),
+    chatEventListeners: new Map(),
     chatEventLogs: new Map(),
     activeTurnIdsByKey: new Map(),
     turnCheckpointTimers: new Map(),
@@ -2871,6 +2875,77 @@ const maxActAddSources = 25;
  * management conversation through the shared acceptance path.
  */
 function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade {
+  /**
+   * Bounded live watch (management.watch): subscribes to the same in-process
+   * publish point the local SSE streams ride, forwards the popover's
+   * activity vocabulary as throttled ticks, and resolves on settle or when
+   * the watch window closes — always under the remote operation timeout so
+   * the browser is never left waiting on a dead watch.
+   */
+  async function watchManagementTurn(
+    rawInput: unknown,
+    principal: WorkFoldRemotePrincipal,
+    emit: (progress: WorkFoldRemoteWatchProgress) => void,
+  ): Promise<unknown> {
+    assertRemotePrincipal(principal);
+    const input = remoteInput(rawInput);
+    assertRemoteKeys(input, ["conversationId"]);
+    assertManagementReadyForRoutes(state);
+    const conversationId = remoteStableId(input.conversationId, "conversation id", 160);
+    const conversation = await readConversationSummary(workFoldManagementRoot(), conversationId);
+    if (!conversation) throw notFound("Conversation not found.");
+    const key = streamKey(workFoldManagementScopeId, conversationId);
+    if (!state.runningTurns.has(key)) return { state: "idle", settled: false };
+    return new Promise((resolveWatch) => {
+      const watchWindowMs = 90_000;
+      const minimumTickMs = 1_000;
+      let lastActivity = "";
+      let lastEmitAt = 0;
+      let pendingActivity: string | null = null;
+      let tickTimer: NodeJS.Timeout | null = null;
+      let windowTimer: NodeJS.Timeout | null = null;
+      const listeners = state.chatEventListeners.get(key) ?? new Set<(event: unknown) => void>();
+      state.chatEventListeners.set(key, listeners);
+      const finish = (result: { state: "settled" | "running"; settled: boolean }) => {
+        listeners.delete(listener);
+        if (!listeners.size) state.chatEventListeners.delete(key);
+        if (windowTimer) clearTimeout(windowTimer);
+        if (tickTimer) clearTimeout(tickTimer);
+        resolveWatch(result);
+      };
+      const flush = () => {
+        tickTimer = null;
+        if (pendingActivity === null || pendingActivity === lastActivity) { pendingActivity = null; return; }
+        lastActivity = pendingActivity;
+        pendingActivity = null;
+        lastEmitAt = Date.now();
+        emit({ activity: lastActivity });
+      };
+      const queueActivity = (activity: string) => {
+        pendingActivity = activity;
+        if (tickTimer) return;
+        tickTimer = setTimeout(flush, Math.max(0, minimumTickMs - (Date.now() - lastEmitAt)));
+      };
+      const listener = (event: unknown) => {
+        if (!event || typeof event !== "object") return;
+        const data = event as { type?: unknown; message?: unknown; toolName?: unknown; running?: unknown };
+        if (data.type === "status" || data.type === "tool") {
+          const message = typeof data.message === "string" && data.message !== "Connected." ? data.message.trim() : "";
+          const tool = data.type === "tool" && typeof data.toolName === "string" ? data.toolName.trim() : "";
+          const activity = message || tool;
+          if (activity) queueActivity(activity);
+          return;
+        }
+        if (data.type === "done" || data.type === "error" || (data.type === "turn_state" && data.running === false)) {
+          finish({ state: "settled", settled: true });
+        }
+      };
+      listeners.add(listener);
+      windowTimer = setTimeout(() => finish({ state: "running", settled: false }), watchWindowMs);
+      // The turn can settle between the running check and this subscription.
+      if (!state.runningTurns.has(key)) finish({ state: "settled", settled: true });
+    });
+  }
   return {
     async purgeUploads(grantId) {
       const root = remoteManagementUploadRoot(workFoldManagementRoot());
@@ -2919,6 +2994,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
       }
       if (failures.length) throw new Error(failures.join(" "));
     },
+    watch: watchManagementTurn,
     async execute(operation, rawInput, principal) {
       assertRemotePrincipal(principal);
       const input = remoteInput(rawInput);
@@ -2944,6 +3020,10 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
             latestRequest: latest
               ? remoteManagementRequest(await managementRequestView(state, latest.taskId), { owned })
               : null,
+            // Capability advertisement: the browser starts a live watch only
+            // after seeing this, so an older desktop is never asked for an
+            // operation it cannot answer.
+            capabilities: { watch: true },
           };
         }
         case "management.chats": {
@@ -3184,6 +3264,8 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
           }));
           return { tree, truncated: scan.truncated || scan.entries.length > maximumEntries } satisfies WorkFoldRemoteTreeResult;
         }
+        case "management.watch":
+          return watchManagementTurn(rawInput, principal, () => {});
         default:
           return remoteOperationExhaustive(operation);
       }
@@ -9204,6 +9286,12 @@ function writeSseData(response: ServerResponse, data: unknown, id?: number): voi
 
 function broadcast(state: LocalApiState, key: string, event: unknown): void {
   const entry = appendChatEvent(state, key, event);
+  const listeners = state.chatEventListeners.get(key);
+  if (listeners) {
+    for (const listener of [...listeners]) {
+      try { listener(event); } catch { listeners.delete(listener); }
+    }
+  }
   const streams = state.chatStreams.get(key);
   if (!streams) return;
   for (const response of [...streams]) {
