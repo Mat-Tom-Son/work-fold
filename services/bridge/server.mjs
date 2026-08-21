@@ -376,7 +376,10 @@ async function handleRequest(state, request, response) {
     const { session } = await requireBrowserSession(state, request, account);
     await state.database.assertCsrf(session, request.headers["x-work-fold-csrf"]);
     if (!validPairedSession(session)) throw httpError(403, "Approve this browser from the work-fold desktop app.");
-    enforceRateLimit(state.rateLimits, `operation:${session.id}`, 30, 60_000);
+    // One person's session at the hosted client's decimated refresh cadence
+    // peaks near half this budget; the rest is headroom for sends, uploads,
+    // decisions, resume bursts, and a second open tab sharing the session.
+    enforceRateLimit(state.rateLimits, `operation:${session.id}`, 60, 60_000);
     if (!state.devices.has(account.id)) throw httpError(409, "Your work-fold desktop is offline.");
     const body = await readJsonBody(request, maximumOperationBodyBytes);
     if (Object.keys(body).some((key) => key !== "envelope" && key !== "recover")

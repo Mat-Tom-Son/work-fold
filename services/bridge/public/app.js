@@ -76,6 +76,9 @@ const state = {
   spacesLoaded: false,
   transcriptLoading: false,
   sessionRebooting: false,
+  rateLimitedUntil: 0,
+  refreshTick: 0,
+  lastResumeAt: 0,
 };
 
 void boot();
@@ -1970,14 +1973,21 @@ function scheduleRefresh() {
   const phase = state.summary?.latestRequest?.phase;
   const active = state.summary?.state === "running" || phase === "working" || phase === "handed_off";
   state.refreshTimer = setTimeout(() => {
-    void refreshFoldHome();
+    // Honor the relay's cooldown: keep the timer chain alive but send nothing
+    // until the window passes.
+    if (Date.now() < state.rateLimitedUntil) return scheduleRefresh();
+    state.refreshTick += 1;
+    // The chat lane refreshes every tick; the fold-home digest (two relay
+    // operations) rides a slower multiple of it, keeping an active turn's
+    // total operation rate at a fraction of the per-session budget.
+    if (state.refreshTick % (active ? 3 : 2) === 0) void refreshFoldHome();
     void loadConversations({ refreshTranscript: true })
       .catch((error) => {
         state.banner = errorText(error);
         renderBanner();
       })
       .finally(scheduleRefresh);
-  }, active ? 4_000 : 10_000);
+  }, active ? 5_000 : 10_000);
 }
 
 function openEvents() {
@@ -2059,8 +2069,13 @@ async function remote(operation, input = {}) {
 }
 
 async function pollOperationFallback(operationId) {
-  for (let attempt = 0; attempt < 120 && state.pendingOperations.has(operationId); attempt += 1) {
-    await delay(1_000);
+  // The event stream normally delivers completion first; this fallback exists
+  // for a dead or throttled stream. It starts fast, then backs off — further
+  // while the stream is healthy — instead of holding a 1Hz poll per request.
+  const deadline = Date.now() + 120_000;
+  for (let attempt = 0; Date.now() < deadline && state.pendingOperations.has(operationId); attempt += 1) {
+    const streamHealthy = state.eventSource?.readyState === EventSource.OPEN;
+    await delay(attempt < 5 ? 1_000 : streamHealthy ? 3_000 : 2_000);
     let status;
     try { status = await api(`/api/operations/${encodeURIComponent(operationId)}`); } catch { continue; }
     updateConnection(status.desktopOnline);
@@ -2074,7 +2089,9 @@ async function pollOperationFallback(operationId) {
       || (new Set(["done", "failed"]).has(status.operation.state) && eventKind !== "operation.complete")) {
       const pending = state.pendingOperations.get(operationId);
       if (!pending) return;
-      if (Date.now() < pending.nextRecoveryAt) continue;
+      // Recovery re-POSTs count against the operation budget; wait out a
+      // cooldown rather than converting throttling into failed recoveries.
+      if (Date.now() < pending.nextRecoveryAt || Date.now() < state.rateLimitedUntil) continue;
       if (pending.recoveryAttempts >= 5) {
         state.pendingOperations.delete(operationId);
         pending.reject(new Error("work-fold could not reconcile this request after the connection changed. Check the running log before sending anything again."));
@@ -2203,6 +2220,9 @@ async function api(path, { method = "GET", body, csrf = false } = {}) {
     // An expired or revoked session returns to sign-in once, instead of a
     // zombie shell repeating the same failure every poll.
     if (response.status === 401 && state.session && path !== "/api/auth/login") scheduleSessionReboot();
+    // The relay said slow down: background refresh and recovery hold off for
+    // a cooldown instead of hammering through the limit at full cadence.
+    if (response.status === 429) state.rateLimitedUntil = Date.now() + 15_000;
     throw Object.assign(new Error(result.error || `Request failed (${response.status}).`), { status: response.status, code: result.code });
   }
   return result;
@@ -2226,6 +2246,10 @@ function resumeLiveConnection() {
   if (fixtureName || state.sessionRebooting || !state.session?.paired) return;
   if (!document.querySelector(".app-shell")) return;
   if (!state.eventSource || state.eventSource.readyState === EventSource.CLOSED) openEvents();
+  // Visibility and connectivity can flap (screen lock, app switching, weak
+  // signal); one burst per ten seconds is plenty, and none during a cooldown.
+  if (Date.now() - state.lastResumeAt < 10_000 || Date.now() < state.rateLimitedUntil) return;
+  state.lastResumeAt = Date.now();
   void refreshFoldHome();
   void loadConversations().catch((error) => {
     state.banner = errorText(error);

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createCipheriv, createDecipheriv, createHash, generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { newDb } from "pg-mem";
@@ -197,6 +198,24 @@ test("fixture previews render canned state and stay inert against the real API",
   assert.match(applicationSource, /function acknowledgeGlance\(\) \{\s*\n\s*if \(fixtureName\) return;/);
   // The preview is labeled for what it is.
   assert.match(applicationSource, />Fixture preview<\/div>/);
+});
+
+test("the client stays inside the relay's operation budget and backs off on 429", async () => {
+  const applicationSource = await readFile(new URL("./public/app.js", import.meta.url), "utf8");
+  const serverSource = await readFile(new URL("./server.mjs", import.meta.url), "utf8");
+  // The per-session operation budget and the client's discipline move
+  // together: a 429 arms a cooldown that pauses background refresh, resume
+  // bursts, and recovery re-POSTs, while the fold-home digest rides a slower
+  // multiple of the chat lane's tick.
+  assert.match(serverSource, /enforceRateLimit\(state\.rateLimits, `operation:\$\{session\.id\}`, 60, 60_000\);/);
+  assert.match(applicationSource, /if \(response\.status === 429\) state\.rateLimitedUntil = Date\.now\(\) \+ 15_000;/);
+  assert.match(applicationSource, /if \(Date\.now\(\) < state\.rateLimitedUntil\) return scheduleRefresh\(\);/);
+  assert.match(applicationSource, /state\.refreshTick % \(active \? 3 : 2\) === 0/);
+  assert.match(applicationSource, /Date\.now\(\) < pending\.nextRecoveryAt \|\| Date\.now\(\) < state\.rateLimitedUntil/);
+  assert.match(applicationSource, /Date\.now\(\) - state\.lastResumeAt < 10_000/);
+  // The status-poll fallback backs off after its first fast checks, further
+  // while the event stream is healthy.
+  assert.match(applicationSource, /attempt < 5 \? 1_000 : streamHealthy \? 3_000 : 2_000/);
 });
 
 test("composer sends with Enter on hardware keyboards and writes a newline on touch", () => {
