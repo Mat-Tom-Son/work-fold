@@ -9823,6 +9823,44 @@ textarea,
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
+/* A draft queued behind the running turn: shaped like the user bubble it is
+   about to become, visibly not yet sent (dashed, dimmed), with its cancel. */
+.queued-send-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 7px;
+  margin-top: 10px;
+}
+.queued-send-bubble {
+  width: fit-content;
+  max-width: min(88%, 590px);
+  padding: 12px 15px;
+  border: 1.5px dashed color-mix(in srgb, var(--space-accent-solid, var(--work-fold-blue-600)) 55%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--space-accent-solid, var(--work-fold-blue-600)) 8%, transparent);
+  opacity: 0.85;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.queued-send-cancel {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-top: 4px;
+  padding: 0;
+  border: 1px solid var(--border-color, rgba(16, 35, 60, 0.16));
+  border-radius: 50%;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.queued-send-cancel:hover { opacity: 1; }
+.queued-send-cancel:focus-visible { outline: 2px solid var(--space-accent-solid, var(--work-fold-blue-600)); outline-offset: 2px; }
+
 .message.user .message-body,
 .message.user .message-body h1,
 .message.user .message-body h2,
@@ -10615,6 +10653,41 @@ textarea,
   gap: 8px;
   align-items: center;
   padding-top: 4px;
+}
+
+/* The inline preview under the actions: the file itself, read-only. */
+.file-preview {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color, rgba(16, 35, 60, 0.12));
+  min-width: 0;
+}
+.file-preview-text {
+  margin: 0;
+  max-height: 52vh;
+  overflow: auto;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color, rgba(16, 35, 60, 0.12));
+  border-radius: 10px;
+  background: var(--panel-muted-background, rgba(16, 35, 60, 0.03));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.file-preview-truncated {
+  margin: 8px 0 0;
+  color: var(--text-muted, #616b79);
+  font-size: 12px;
+}
+.file-preview-image {
+  display: block;
+  max-width: 100%;
+  max-height: 58vh;
+  border: 1px solid var(--border-color, rgba(16, 35, 60, 0.12));
+  border-radius: 10px;
 }
 
 .file-details-actions button {

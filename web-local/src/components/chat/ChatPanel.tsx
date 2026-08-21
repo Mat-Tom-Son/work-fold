@@ -127,6 +127,10 @@ export function ChatPanel({
   const messagesRef = useRef<ChatMessage[]>([]);
   const turnPreviousAssistantMessageIdRef = useRef<string | null | undefined>(undefined);
   const [draft, setDraft] = useState("");
+  // One draft queued behind the running turn: Enter mid-turn holds it as a
+  // visible, cancellable bubble and it sends when the turn settles. Further
+  // Enters append to it; Stop and cancel return it to the composer.
+  const [queuedSend, setQueuedSend] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const runningRef = useRef(false);
   const [streamingAssistant, setStreamingAssistant] = useState("");
@@ -1184,14 +1188,14 @@ export function ChatPanel({
     }
   }
 
-  async function sendMessage() {
-    if (!draft.trim() || running) return;
+  async function sendMessage(contentOverride?: string) {
+    const content = (contentOverride ?? draft).trim();
+    if (!content || running) return;
     // While a fixture script is replaying, the composer belongs to the playback — ignore manual sends.
     if (fixtureMode && scriptPlaybackStateRef.current === "playing") return;
-    const content = draft.trim();
     beginTurnArtifactTracking();
     const sentDraftStorageKey = draftStorageKey;
-    setDraft("");
+    if (contentOverride === undefined) setDraft("");
     setRunning(true);
     setError(null);
     setEvents([]);
@@ -1343,8 +1347,28 @@ export function ChatPanel({
     }
   }
 
+  // The queued draft fires through the ordinary send path the moment the
+  // turn settles; the Enter that queued it was the explicit act.
+  useEffect(() => {
+    if (running || !queuedSend || lifecycleView !== "active") return;
+    const content = queuedSend;
+    setQueuedSend(null);
+    void sendMessage(content);
+  }, [running, queuedSend, lifecycleView]);
+
+  function returnQueuedSendToComposer() {
+    if (!queuedSend) return;
+    const content = queuedSend;
+    setQueuedSend(null);
+    setDraft((current) => (current.trim() ? `${content}\n${current}` : content));
+    window.requestAnimationFrame(() => composerTextareaRef.current?.focus());
+  }
+
   async function abortTurn() {
     if (!running) return;
+    // Stop means everything: a queued follow-up returns to the composer
+    // instead of firing into the stopped turn's aftermath.
+    returnQueuedSendToComposer();
     addAgentEvent({ message: "Stopping the Assistant", phase: "running" });
     if (pendingSendRef.current) {
       const pending = pendingSendRef.current;
@@ -1663,6 +1687,14 @@ export function ChatPanel({
           {!hasTranscript ? (
             <ChatEmptyState greeting={emptyStateGreeting} space={space} identity={spaceIdentity} />
           ) : null}
+          {queuedSend ? (
+            <div className="queued-send-row">
+              <div className="queued-send-bubble">{queuedSend}</div>
+              <button type="button" className="queued-send-cancel" aria-label="Cancel queued message" title="Cancel" onClick={returnQueuedSendToComposer}>
+                <X size={13} />
+              </button>
+            </div>
+          ) : null}
           <div className="message-end-sentinel" ref={messageEndRef} aria-hidden="true" />
         </div>
         {!userPinnedToBottom ? (
@@ -1829,7 +1861,17 @@ export function ChatPanel({
               }
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
-                if (draft.trim() && !running) void sendMessage();
+                if (!draft.trim()) return;
+                if (running) {
+                  // Mid-turn Enter queues the draft instead of silently
+                  // no-oping; it sends when the turn settles.
+                  const content = draft.trim();
+                  setQueuedSend((current) => (current ? `${current}\n${content}` : content));
+                  setDraft("");
+                  scrollMessagesToBottom("auto");
+                  return;
+                }
+                void sendMessage();
               }
             }}
             placeholder="Message Assistant"

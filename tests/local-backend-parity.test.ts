@@ -129,6 +129,23 @@ test("local API exposes path-safe file operations, undo checkpoints, chat rename
   const info = await json(`${api.origin}/api/spaces/${id}/file-info?path=Drafts%2Fnote.txt`) as { kind: string; hashSha256: string };
   assert.equal(info.kind, "file");
   assert.equal(info.hashSha256.length, 64);
+
+  // The file tab's inline preview: bounded text renders with its size, a
+  // recognized image extension defers to the raw-file route, and binary
+  // content declines with its reason instead of decoding garbage.
+  const textPreview = await json(`${api.origin}/api/spaces/${id}/file-preview?path=Drafts%2Fnote.txt`) as { preview: { kind: string; content: string; truncated: boolean } };
+  assert.equal(textPreview.preview.kind, "text");
+  assert.equal(textPreview.preview.content, "before\n");
+  assert.equal(textPreview.preview.truncated, false);
+  await writeFile(join(spaceRoot, "photo.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]));
+  const imagePreview = await json(`${api.origin}/api/spaces/${id}/file-preview?path=photo.png`) as { preview: { kind: string } };
+  assert.equal(imagePreview.preview.kind, "image");
+  await writeFile(join(spaceRoot, "blob.bin"), Buffer.from([0, 1, 2, 3, 0, 5, 6, 7]));
+  const binaryPreview = await json(`${api.origin}/api/spaces/${id}/file-preview?path=blob.bin`) as { preview: { kind: string; reason: string } };
+  assert.equal(binaryPreview.preview.kind, "none");
+  assert.equal(binaryPreview.preview.reason, "binary");
+  const previewTraversal = await fetch(`${api.origin}/api/spaces/${id}/file-preview?path=..%2Foutside.txt`);
+  assert.equal(previewTraversal.ok, false);
   const existing = await json(`${api.origin}/api/spaces/${id}/paths-exist`, {
     method: "POST",
     headers: { "content-type": "application/json" },

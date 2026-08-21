@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { CirclePlus, ExternalLink, FolderOpen, History, Loader2, PencilLine } from "lucide-react";
-import { api, errorText } from "../../lib/api";
+import { api, apiUrl, errorText } from "../../lib/api";
 import { nativeOpenLabel, revealInFileManagerLabel } from "../../lib/file-actions";
 import { formatBytes, formatDateTime } from "../../lib/format";
 import { fileExtension, parentFolderPath } from "../../lib/tree";
@@ -21,6 +21,18 @@ export function FileDetailsPane({ space, path, entry, fixtureMode = false, onOpe
   const [info, setInfo] = useState<{ name: string; path: string; kind: "file" | "folder"; sizeBytes: number; createdAt: string; modifiedAt: string; mimeType: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [missing, setMissing] = useState(false);
+  const [preview, setPreview] = useState<{ kind: "text" | "image" | "none"; reason?: string; content?: string; truncated?: boolean; sizeBytes: number } | null>(null);
+  // The tab shows the file itself, not only facts about it: bounded text and
+  // common image types render inline; everything else keeps the Open actions.
+  useEffect(() => {
+    let cancelled = false;
+    setPreview(null);
+    if (fixtureMode) return () => { cancelled = true; };
+    void api<{ preview: { kind: "text" | "image" | "none"; reason?: string; content?: string; truncated?: boolean; sizeBytes: number } }>(`/api/spaces/${space.id}/file-preview?path=${encodeURIComponent(path)}`)
+      .then((result) => { if (!cancelled) setPreview(result.preview); })
+      .catch(() => { if (!cancelled) setPreview(null); });
+    return () => { cancelled = true; };
+  }, [fixtureMode, path, space.id, info?.modifiedAt]);
   useEffect(() => {
     let cancelled = false;
     setLoading(true); setMissing(false); setInfo(null);
@@ -60,6 +72,21 @@ export function FileDetailsPane({ space, path, entry, fixtureMode = false, onOpe
         <button className="secondary-button compact no-margin" type="button" onClick={() => onShowVersionHistory(path)}><History size={15} />Version history</button>
         {onRename ? <button className="secondary-button compact no-margin" type="button" onClick={() => onRename(path)}><PencilLine size={15} />Rename</button> : null}
       </div>
+      {preview?.kind === "text" && preview.content ? (
+        <div className="file-preview">
+          <pre className="file-preview-text">{preview.content}</pre>
+          {preview.truncated ? <p className="file-preview-truncated">Preview stops at 256 KB.</p> : null}
+        </div>
+      ) : null}
+      {preview?.kind === "image" ? (
+        <div className="file-preview">
+          <img
+            className="file-preview-image"
+            src={apiUrl(`/api/spaces/${space.id}/raw-file?path=${encodeURIComponent(path)}${info?.modifiedAt ? `&at=${encodeURIComponent(info.modifiedAt)}` : ""}`)}
+            alt={fileName}
+          />
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -20,6 +20,38 @@ const [app, tabBar, chatPanel, chatActions, messages, activity, panes, chrome, s
   read("src/local/server.ts"),
 ]);
 
+test("mid-turn Enter queues one visible, cancellable draft that sends on settle", () => {
+  // Enter while a turn runs holds the draft as a dashed queued bubble instead
+  // of silently no-oping; further Enters append; the queued draft fires
+  // through the ordinary send path when the turn settles; Stop and the
+  // bubble's cancel return it to the composer ahead of any newer text.
+  assert.match(chatPanel, /setQueuedSend\(\(current\) => \(current \? `\$\{current\}\\n\$\{content\}` : content\)\);/);
+  assert.match(chatPanel, /if \(running \|\| !queuedSend \|\| lifecycleView !== "active"\) return;/);
+  assert.match(chatPanel, /className="queued-send-row"/);
+  assert.match(chatPanel, /aria-label="Cancel queued message"/);
+  assert.match(chatPanel, /returnQueuedSendToComposer\(\);\s*\n\s*addAgentEvent\(\{ message: "Stopping the Assistant"/);
+  assert.match(styles, /\.queued-send-bubble \{/);
+});
+
+test("the file tab previews bounded text and images inline through Space-policy routes", () => {
+  // The preview endpoint reads a bounded head under the same path policy as
+  // every entry route, declines binary and oversized content with a reason,
+  // and images ride the existing same-origin raw-file route.
+  assert.match(localServer, /file-preview\$\//);
+  assert.match(localServer, /getSpaceFilePreview\(space\.spaceRoot, path\)/);
+  const pane = readFileSyncLike("web-local/src/components/panes/FileDetailsPane.tsx");
+  return pane.then((source) => {
+    assert.match(source, /file-preview\?path=/);
+    assert.match(source, /apiUrl\(`\/api\/spaces\/\$\{space\.id\}\/raw-file\?path=/);
+    assert.match(source, /className="file-preview-text"/);
+    assert.match(source, /Preview stops at 256 KB\./);
+  });
+});
+
+function readFileSyncLike(relativePath: string): Promise<string> {
+  return readFile(join(root, relativePath), "utf8");
+}
+
 test("Files removes unsupported create controls and naming uses in-app UI", () => {
   assert.doesNotMatch(app, /aria-label="New (?:file|folder)"/i);
   assert.doesNotMatch(app, /onNewFolder=|onNewFile=/);

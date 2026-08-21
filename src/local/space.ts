@@ -542,6 +542,62 @@ export async function getSpaceEntryInfo(spaceRoot: string, relativePath: string)
   };
 }
 
+/**
+ * The file tab's read-only inline preview. Text renders from a bounded head
+ * read with the truncation disclosed; recognized image types defer to the
+ * raw-file route; binary or oversized content declines with its reason
+ * instead of decoding garbage. The read honors the same Space path policy as
+ * every other entry route.
+ */
+const previewTextByteLimit = 256 * 1024;
+const previewImageByteLimit = 12 * 1024 * 1024;
+const previewImageExtensions = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".avif", ".svg"]);
+
+export interface SpaceFilePreview {
+  kind: "text" | "image" | "none";
+  reason?: "folder" | "binary" | "too-large";
+  content?: string;
+  truncated?: boolean;
+  sizeBytes: number;
+}
+
+export async function getSpaceFilePreview(spaceRoot: string, relativePath: string): Promise<SpaceFilePreview> {
+  const root = ensureSafeSpaceRoot(spaceRoot);
+  const path = resolveSpacePath(root, relativePath);
+  const info = await stat(path).catch(() => null);
+  if (!info || (!info.isFile() && !info.isDirectory())) throw notFound("Space item not found.");
+  if (info.isDirectory()) return { kind: "none", reason: "folder", sizeBytes: 0 };
+  const extension = extname(path).toLowerCase();
+  if (previewImageExtensions.has(extension)) {
+    return info.size <= previewImageByteLimit
+      ? { kind: "image", sizeBytes: info.size }
+      : { kind: "none", reason: "too-large", sizeBytes: info.size };
+  }
+  const handle = await open(path, "r");
+  try {
+    const bytes = Buffer.alloc(Math.min(info.size, previewTextByteLimit));
+    const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
+    const head = bytes.subarray(0, bytesRead);
+    if (previewLooksBinary(head)) return { kind: "none", reason: "binary", sizeBytes: info.size };
+    const truncated = info.size > previewTextByteLimit;
+    // A bounded read can split a UTF-8 sequence; drop the dangling
+    // replacement character rather than rendering it as content.
+    const content = truncated ? head.toString("utf8").replace(/�+$/, "") : head.toString("utf8");
+    return { kind: "text", content, truncated, sizeBytes: info.size };
+  } finally {
+    await handle.close();
+  }
+}
+
+/** Mirrors the content-search admission rule in search.ts (looksBinary). */
+function previewLooksBinary(bytes: Buffer): boolean {
+  const sample = bytes.subarray(0, Math.min(bytes.length, 8192));
+  if (sample.includes(0)) return true;
+  let controls = 0;
+  for (const byte of sample) if (byte < 9 || (byte > 13 && byte < 32)) controls += 1;
+  return sample.length > 0 && controls / sample.length > 0.1;
+}
+
 export async function findExistingSpaceFilePaths(spaceRoot: string, requestedPaths: string[]): Promise<string[]> {
   const root = ensureSafeSpaceRoot(spaceRoot);
   const requests = [...new Set(requestedPaths.map(normalizeRelative).filter(Boolean))].slice(0, 32);

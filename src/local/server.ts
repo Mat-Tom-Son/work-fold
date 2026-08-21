@@ -297,6 +297,7 @@ import {
   findExistingSpaceFilePaths,
   getSpace,
   getSpaceEntryInfo,
+  getSpaceFilePreview,
   listSpaces,
   listPendingSpaceRemovals,
   markSpaceRemovalAppStateRemoved,
@@ -1562,6 +1563,15 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const path = url.searchParams.get("path") ?? "";
     if (!path) throw badRequest("Space item path is required.");
     sendJson(res, await getSpaceEntryInfo(space.spaceRoot, path));
+    return;
+  }
+
+  const filePreviewMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/file-preview$/);
+  if (method === "GET" && filePreviewMatch) {
+    const space = await getSpace(filePreviewMatch[1]);
+    const path = url.searchParams.get("path") ?? "";
+    if (!path) throw badRequest("Space item path is required.");
+    sendJson(res, { preview: await getSpaceFilePreview(space.spaceRoot, path) });
     return;
   }
 
