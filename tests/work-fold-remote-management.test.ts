@@ -228,3 +228,31 @@ test("remote glance serves the digest with per-grant seen hygiene and revocation
     await rm(sandbox, { recursive: true, force: true });
   }
 });
+
+test("the summary advertises the live-watch capability and watch validates its conversation", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-remote-watch-test-"));
+  const api = await startLocalApi({
+    port: 0,
+    stateBase: join(sandbox, "state"),
+    spaceBase: join(sandbox, "content"),
+    loadEnv: false,
+  });
+  const principal: WorkFoldRemotePrincipal = { browserId: "browser-w", grantId: "grant-w", requestId: "request-w-1" };
+  try {
+    // The browser starts a watch only after seeing this advertisement, so an
+    // older desktop — which never sends it — is never asked to watch.
+    const summary = await api.remoteFacade.execute("management.summary", {}, principal) as {
+      capabilities?: { watch?: boolean };
+    };
+    assert.equal(summary.capabilities?.watch, true);
+    // A watch names an existing management conversation or is refused.
+    assert.ok(api.remoteFacade.watch, "the facade exposes the watch port");
+    await assert.rejects(
+      () => api.remoteFacade.watch!({ conversationId: "missing-conversation" }, principal, () => {}),
+      /Conversation not found/,
+    );
+  } finally {
+    await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
