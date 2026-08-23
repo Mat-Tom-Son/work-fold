@@ -1,11 +1,19 @@
-// Canned local state for ?fixture=home|chat|files QA previews (the pattern
-// set by the desktop renderer's ?fixture=space). Fixture mode is client-side
-// only and inert against the real API: app.js refuses to attach auth, open
-// the event stream, or call fetch while a fixture is showing, so nothing in
-// this file can touch or confuse real state. Keep it small: just enough
-// recorded-state shapes to render every screen.
+// Canned local state for ?fixture=new|chat|needs|files QA previews (the
+// pattern set by the desktop renderer's ?fixture=space). Fixture mode is
+// client-side only and inert against the real API: app.js refuses to attach
+// auth, open the event stream, or call fetch while a fixture is showing, so
+// nothing in this file can touch or confuse real state. Keep it small: just
+// enough recorded-state shapes to render every screen.
 
 const minutes = (count) => new Date(Date.now() - count * 60_000).toISOString();
+// Calendar days, so the sidebar's Today / Yesterday / Earlier groups are the
+// same in a screenshot taken at any hour.
+const daysAgo = (count) => {
+  const date = new Date();
+  date.setDate(date.getDate() - count);
+  date.setHours(9, 40, 0, 0);
+  return date.toISOString();
+};
 
 export function buildFixture(name) {
   const grantId = "fixture-grant";
@@ -31,8 +39,8 @@ export function buildFixture(name) {
   const conversations = [
     { id: "chat-1", title: "Quarterly report", updatedAt: minutes(2), state: "running" },
     { id: "chat-2", title: "Field notes cleanup", updatedAt: minutes(140), state: "idle" },
-    { id: "chat-3", title: "Grant application draft", updatedAt: minutes(60 * 26), state: "idle" },
-    { id: "chat-4", title: "Reading list", updatedAt: minutes(60 * 50), state: "idle" },
+    { id: "chat-3", title: "Grant application draft", updatedAt: daysAgo(1), state: "idle" },
+    { id: "chat-4", title: "Reading list", updatedAt: daysAgo(4), state: "idle" },
   ];
   const decisions = [
     {
@@ -79,14 +87,19 @@ export function buildFixture(name) {
     cursor: `${minutes(4)}/change-1`,
     seen: { [`remote:${grantId}`]: `${minutes(90)}/change-4` },
     running: [
-      { id: "run-1", spaceName: "Quarterly report", headline: "Assistant turn running" },
+      { id: "run-1", spaceName: "Launch plan", headline: "Assistant turn running" },
       { id: "run-2", spaceName: "Field notes", headline: "Check run in progress" },
     ],
     needsYou: [
-      { kind: "chat-question", spaceName: "Field notes", headline: "Keep the older duplicates or archive them?" },
+      {
+        kind: "chat-question",
+        spaceName: "Field notes",
+        headline: "Keep the older duplicates or archive them?",
+        ref: { conversationId: "chat-2" },
+      },
     ],
     changes: [
-      { id: "change-1", at: minutes(4), spaceName: "Quarterly report", headline: "Checkpoint saved before edits" },
+      { id: "change-1", at: minutes(4), spaceName: "Launch plan", headline: "Checkpoint saved before edits" },
       { id: "change-2", at: minutes(26), headline: "Chat renamed to Grant application draft" },
       { id: "change-3", at: minutes(70), spaceName: "Field notes", headline: "Turn finished" },
       { id: "change-4", at: minutes(95), headline: "Denied: install weather-widget 0.2.1" },
@@ -94,7 +107,7 @@ export function buildFixture(name) {
     ],
     checks: [
       { spaceName: "Old scans", state: "needs-attention", needsAttention: 2 },
-      { spaceName: "Quarterly report", state: "current-clear" },
+      { spaceName: "Launch plan", state: "current-clear" },
     ],
     truncated: { changes: true },
     unavailable: [],
@@ -107,7 +120,7 @@ export function buildFixture(name) {
       taskId: "task-1",
       startedAt: minutes(2),
       children: [
-        { spaceName: "Quarterly report", state: "running" },
+        { spaceName: "Launch plan", state: "running" },
         { spaceName: "Field notes", state: "succeeded" },
       ],
       dispositions: [{ attachment: { name: "q3-numbers.csv" }, status: "library" }],
@@ -120,7 +133,7 @@ export function buildFixture(name) {
       session: { paired: true, desktopOnline: true, slug: "casey", grant: { id: grantId } },
       identity: { grantId },
       spaces: [
-        { id: "space-1", name: "Quarterly report" },
+        { id: "space-1", name: "Launch plan" },
         { id: "space-2", name: "Field notes" },
       ],
       explorerSpaceId: "space-1",

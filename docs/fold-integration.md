@@ -41,7 +41,7 @@ claimed by the canonical documents.
 | Held item | Gate |
 |---|---|
 | V-2 — the visual-design bullet admitting a menu-bar/tray attention dot while decisions pend | The visual-acceptance pass must accept the dot; it is not implemented and no acceptance is recorded. Until then the dot exists only as the pass-gated possibility U-3 names. |
-| README walkthrough screenshots (`output/playwright/work-fold-0.1.4-*.png`) | "Refresh README collateral only once builds show the new strings" — a packaged build showing "Your fold" and "Fold it in" must exist first. The surrounding walkthrough sentences already said "the fold" and were deliberately unchanged. |
+| README walkthrough screenshots | Discharged 2026-08-23: the 0.1.4 captures were replaced by `output/playwright/work-fold-0.3.6-*.png` (main window, popover, web client) alongside the web-client redesign, and the walkthrough was rewritten around them. |
 
 Two originally held items were discharged at ship time with the 0.3.0
 release commit: the fold's release notes landed as
@@ -73,9 +73,9 @@ future changes across siblings.
    the 32-pending cap are consecrations' dials; staged routing enablements
    and staged publications inherit them.
 6. **Needs-you rendering is one card contract.** The popover stack, the
-   main-window flyout, and the remote client home render the same
-   host-composed card component contract; glance needs-you items reference
-   the same pending records and never a second store.
+   main-window flyout, and the remote client's Needs you screen render the
+   same host-composed card component contract; glance needs-you items
+   reference the same pending records and never a second store.
 7. **The remote operation vocabulary grows in coordinated waves,
    allowlist-first at the bridge.** `decisions.list`/`decisions.decide`,
    `management.glance`/`management.glanceSeen`, and `viewer.fetch` plus the

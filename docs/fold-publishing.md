@@ -103,10 +103,10 @@ Consequences, consistent with the fold doctrine:
 ## Rung 1 — the glance on your phone
 
 Rung 1 is not a publishing feature and introduces no viewer: it is
-[the glance](fold-glance.md) rendered at the top of the approved remote
-client's home. Same approved-browser grant, same envelope encryption, zero
-new audience — and its needs-you cards are where remote publish approvals
-surface.
+[the glance](fold-glance.md) rendered on the approved remote client's
+**Needs you** screen. Same approved-browser grant, same envelope
+encryption, zero new audience — and its needs-you cards are where remote
+publish approvals surface.
 
 ## Rung 2 — share a page
 

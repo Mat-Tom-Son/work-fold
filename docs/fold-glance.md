@@ -151,15 +151,21 @@ app-composed and does not require the management Pi session, so the glance
 stays available even when management commands fail closed; only narration
 needs the conversation.
 
-**The remote client home.** The approved-browser client shows the same
-digest on its home screen, above the saved-Chat list, through the
+**The remote client's Needs you screen.** The approved-browser client shows
+the same digest on its **Needs you** screen, below that screen's pending
+decision cards: the digest's needs-you items that are not pending decisions
+list there as **From chats**, then **Running now**, **Since you last
+looked**, and the Checks rows. The digest arrives through the
 `management.glance`/`management.glanceSeen` operations — signed envelopes,
 no digest content persisted at the bridge, only the requesting grant's own
 marker in the projection, and the serialized digest bounded to 64 KB.
-Desktop offline means no digest: the client shows its honest offline state
-rather than a stale digest presented as current. Viewers never receive the
-glance — rung 1 of [publishing](fold-publishing.md) is deliberately the
-approved-browser trust and nothing weaker.
+Acknowledgement is screen-gated: the marker advances only while **Needs
+you** is the visible screen, under the same rendered-digest rule every
+surface follows. Desktop offline means no digest: the client shows its
+honest offline state rather than a stale digest presented as current.
+Viewers never receive the glance — rung 1 of
+[publishing](fold-publishing.md) is deliberately the approved-browser trust
+and nothing weaker.
 
 **The main window.** The same digest as a compact panel reachable from the
 Space-identity header region — deliberately not a new rail destination,

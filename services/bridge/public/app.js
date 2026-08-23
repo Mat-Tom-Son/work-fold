@@ -13,19 +13,36 @@ const localSlug = new URL(location.href).searchParams.get("slug") || "";
 // and the send button sends; hardware keyboards keep Enter-to-send.
 const coarsePointer = matchMedia("(pointer: coarse)").matches;
 
-// ?fixture=home|chat|files renders canned local state for QA (the desktop
+// ?fixture=new|chat|needs|files renders canned local state for QA (the desktop
 // renderer's ?fixture=space precedent). Fixture mode is client-side only and
 // inert against the real API: api() and remote() refuse before any fetch or
 // auth material is touched, and the event stream never opens.
 const fixtureName = (() => {
   const requested = new URL(location.href).searchParams.get("fixture");
-  return requested === "home" || requested === "chat" || requested === "files" ? requested : null;
+  if (requested === "home" || requested === "chats") return "new";
+  return requested === "new" || requested === "chat" || requested === "needs" || requested === "files" ? requested : null;
 })();
 
-// The four contexts of the single-column client. One is visible at a time on
-// every width; desktop adds an icon rail and phone adds bottom tabs, but the
-// screens themselves are the same.
-const contextNames = ["home", "chats", "chat", "files"];
+// Fixture-only chrome overrides, so a QA screenshot can capture the collapsed
+// sidebar and the open drawer. They are read only while a fixture is showing.
+const fixtureChrome = (() => {
+  if (!fixtureName) return { sidebar: null, drawer: false };
+  const parameters = new URL(location.href).searchParams;
+  return {
+    sidebar: parameters.get("sidebar") === "collapsed" ? "collapsed" : parameters.get("sidebar") === "expanded" ? "expanded" : null,
+    drawer: parameters.get("drawer") === "open",
+  };
+})();
+
+// The four screens of the client. One is visible at a time on every width; the
+// chrome around them differs (sidebar on desktop, top bar plus drawer on the
+// phone) but the screens themselves are the same.
+const contextNames = ["new", "chat", "needs", "files"];
+
+// The sidebar's desktop state outlives the tab: it is a workspace preference,
+// not a per-visit one.
+const sidebarStorageKey = "work-fold-remote-sidebar-v1";
+const phoneQuery = matchMedia("(max-width: 859.98px)");
 
 const state = {
   context: null,
@@ -46,7 +63,9 @@ const state = {
   selectedConversationId: null,
   uploads: [],
   composerDrafts: new Map(),
-  contextName: "home",
+  contextName: "new",
+  sidebarState: readSidebarState(),
+  drawerOpen: false,
   messages: [],
   transcriptConversationId: null,
   transcriptTruncated: false,
@@ -136,9 +155,17 @@ async function boot() {
 function bootFixture(name) {
   const fixture = buildFixture(name);
   Object.assign(state, fixture.state);
+  if (fixtureChrome.sidebar) state.sidebarState = fixtureChrome.sidebar;
   renderApplication();
   renderMessages();
-  showContext(name === "chat" ? "chat" : name);
+  showContext(name);
+  if (fixtureChrome.drawer) openDrawer({ moveFocus: false });
+}
+
+function readSidebarState() {
+  try {
+    return localStorage.getItem(sidebarStorageKey) === "collapsed" ? "collapsed" : "expanded";
+  } catch { return "expanded"; }
 }
 
 async function continueAuthenticated() {
@@ -162,8 +189,8 @@ function renderAddressUnavailable() {
   renderAuth({
     eyebrow: "Your fold",
     headline: "This address isn’t active.",
-    supporting: "Check the address, or enable web access from the work-fold desktop app.",
-    panel: "<h2>Address unavailable</h2><p>Nothing is published here.</p>",
+    supporting: `Check the address, or enable web access from the <span class="nobr">work-fold</span> desktop app.`,
+    panel: "",
   });
 }
 
@@ -175,9 +202,8 @@ function renderLogin(error = "") {
     panel: `
       <form id="login-form">
         <h2>Sign in</h2>
-        <p>Use the password you set when you created this address.</p>
         <div class="field"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" minlength="8" required autofocus /></div>
-        <button class="primary" type="submit">Continue</button>
+        <button class="primary" type="submit">Sign in</button>
         ${error ? `<p class="form-error" role="alert">${escapeHtml(error)}</p>` : ""}
       </form>`,
   });
@@ -203,7 +229,7 @@ async function login(form) {
     const standing = document.querySelector("#login-form");
     if (!standing) return renderLogin(errorText(error));
     button.disabled = false;
-    button.textContent = "Continue";
+    button.textContent = "Sign in";
     let errorNode = standing.querySelector(".form-error");
     if (!errorNode) {
       errorNode = document.createElement("p");
@@ -222,9 +248,9 @@ async function startPairing() {
   if (!state.session.desktopOnline) {
     return renderAuth({
       eyebrow: "Desktop offline",
-      headline: "Open work-fold to continue.",
-      supporting: "The desktop app holds your conversation and approves new browsers. Once it is running, refresh this page.",
-      panel: `<h2>Waiting for your desktop</h2><p>Nothing can be read or sent while work-fold is offline.</p><button id="retry" class="primary">Try again</button>`,
+      headline: `Open <span class="nobr">work-fold</span> to continue.`,
+      supporting: "The desktop app holds your conversation and approves new browsers.",
+      panel: `<button id="retry" class="primary">Try again</button>`,
     }, () => {
       const retry = document.querySelector("#retry");
       retry?.addEventListener("click", () => location.reload());
@@ -277,8 +303,8 @@ async function startPairing() {
 function renderPairing(error = "") {
   renderAuth({
     eyebrow: "Approve this browser once",
-    headline: "Match the code in work-fold.",
-    supporting: "You’ll only match a code the first time you use this browser, unless you revoke it or clear its site data. Approval binds a non-exportable browser key to your desktop.",
+    headline: `Match the code in <span class="nobr">work-fold</span>.`,
+    supporting: "After this approval, this browser stays signed in until you revoke it.",
     panel: `
       <h2>Approve ${escapeHtml(browserLabel())}</h2>
       <p>Confirm that the same six digits appear in the desktop prompt.</p>
@@ -374,11 +400,11 @@ async function openApplication() {
   restorePersistedDrafts();
   renderApplication();
   const requested = parseLocationHash();
-  showContext(requested.context === "chat" && requested.conversationId ? "home" : requested.context, { fromHistory: true });
+  showContext(requested.context === "chat" && requested.conversationId ? "new" : requested.context, { fromHistory: true });
   restoreComposerDraft();
   openEvents();
   await loadSpaces();
-  // The desktop being asleep is presence, not a broken app: the shell stays
+  // The desktop being offline is presence, not a broken app: the shell stays
   // up with the honest presence line and the refresh loop keeps trying.
   try {
     await loadConversations(requested.conversationId ? { preferredConversationId: requested.conversationId } : {});
@@ -396,8 +422,9 @@ async function openApplication() {
 }
 
 // --- History: each screen is a history entry, so the browser's back gesture
-// walks Chat → Chats → Home instead of leaving the app, and a reload restores
-// the screen (and conversation) it left. ----------------------------------
+// walks Chat → New chat instead of leaving the app, and a reload restores the
+// screen (and conversation) it left. The retired `#home` and `#chats` hashes
+// land on the New chat screen rather than dead-ending. --------------------
 
 function contextHash(name) {
   if (name === "chat" && state.selectedConversationId) return `#chat=${encodeURIComponent(state.selectedConversationId)}`;
@@ -410,7 +437,7 @@ function parseLocationHash() {
     const conversationId = decodeURIComponent(raw.slice("chat=".length));
     return { context: "chat", conversationId: conversationId || null };
   }
-  return { context: contextNames.includes(raw) ? raw : "home", conversationId: null };
+  return { context: contextNames.includes(raw) ? raw : "new", conversationId: null };
 }
 
 function onPopState() {
@@ -434,139 +461,137 @@ function onPopState() {
   showContext(requested.context, { fromHistory: true });
 }
 
-// --- The shell: four single-column contexts, one visible at a time ---------
-// Home is the door and the glance; Chats is the saved-conversation list; Chat
-// is one transcript with a back affordance; Files is the read-only tree. The
-// icon rail (wide) and the bottom tab bar (narrow) are chrome over the same
-// four screens — no context is exclusive to a width.
+// --- The shell: one sidebar, four screens ---------------------------------
+// New chat is the door; Chat is one transcript; Needs you carries the fold's
+// decisions and its digest; Files is the read-only tree. The sidebar exists
+// once in the DOM: from 860px up it is the left column (expanded or collapsed
+// to an icon rail), and below that the same markup is the drawer behind ☰.
 
 function renderApplication() {
+  // A rebuilt shell starts from no context so the next showContext call
+  // re-toggles every section even when the name is unchanged (session reboot
+  // while on Needs you or Files).
+  state.contextName = null;
   app.innerHTML = `
-    <div class="app-shell" data-context="home">
-      <nav class="icon-rail" aria-label="Primary">
-        <span class="rail-mark"><img src="/brand-mark.png" alt="work-fold" title="work-fold" /></span>
-        <button class="rail-item" type="button" data-nav-context="home" aria-label="Home" title="Home" aria-current="page">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 10.5 12 4l7.5 6.5" /><path d="M6.5 9.5V19h11V9.5" /></svg>
-          <span class="nav-badge" data-nav-badge hidden></span>
-        </button>
-        <button class="rail-item" type="button" data-nav-context="chats" aria-label="Chats" title="Chats">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v11h-9l-4 3.5v-3.5H4Z" /></svg>
-        </button>
-        <button class="rail-item" type="button" data-nav-context="files" aria-label="Files" title="Files">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l1.8 2h9.2v9H3.5Z" /></svg>
-        </button>
-        <div class="rail-spacer"></div>
-        <button id="rail-new-chat" class="rail-item" type="button" aria-label="New chat" title="New chat">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" /></svg>
-        </button>
-        <div class="rail-account">
-          <button id="account-settings" class="account-settings" type="button" aria-label="Settings" title="Settings" aria-controls="account-menu" aria-expanded="false" data-account-toggle="account-menu">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
+    <div class="app-shell" data-context="new" data-sidebar="${escapeAttribute(state.sidebarState)}" data-drawer="closed">
+      <div id="drawer-scrim" class="drawer-scrim"></div>
+      <aside id="drawer" class="sidebar" aria-label="Menu">
+        <div class="sidebar-head">
+          <span class="sidebar-brand"><img src="/brand-mark.png" alt="" /><span>work-fold</span></span>
+          <button id="sidebar-toggle" class="rail-item sidebar-toggle" type="button" aria-label="Hide menu" data-tip="Hide menu" aria-controls="drawer">
+            <svg class="glyph-collapse" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v13H4Z" /><path d="M9.5 5.5v13" /><path d="m16 9.5-2.5 2.5 2.5 2.5" /></svg>
+            <svg class="glyph-expand" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v13H4Z" /><path d="M9.5 5.5v13" /><path d="m13.5 9.5 2.5 2.5-2.5 2.5" /></svg>
+            <svg class="glyph-close" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
           </button>
-          <div id="account-menu" class="account-menu" hidden><button type="button" data-logout="true">Sign out</button></div>
         </div>
-      </nav>
-      <div class="app-contexts">
-        ${fixtureName ? `<div class="fixture-badge" role="status">Fixture preview</div>` : ""}
-        <div id="banner"></div>
-        <div id="chat-status" class="sr-only" role="status" aria-live="polite"></div>
-        <section id="context-home" class="context context-home" aria-label="Home">
-          <div class="context-scroll">
-            <div class="context-column">
-              <header class="home-header">
-                <div class="home-head-row">
-                  <h1 class="context-title" tabindex="-1">Your fold</h1>
-                  <div class="home-account">
-                    <button id="home-account-settings" class="account-settings" type="button" aria-label="Settings" title="Settings" aria-controls="home-account-menu" aria-expanded="false" data-account-toggle="home-account-menu">
-                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
-                    </button>
-                    <div id="home-account-menu" class="account-menu" hidden><button type="button" data-logout="true">Sign out</button></div>
-                  </div>
-                </div>
-                <p class="home-address">${escapeHtml(location.host)}</p>
-                <p id="desktop-presence" class="home-presence"><span class="presence-dot" aria-hidden="true"></span><span id="desktop-presence-text"></span></p>
-              </header>
-              <section id="fold-home" class="fold-home" aria-label="Your fold at a glance" hidden></section>
-              <section class="home-chats" aria-label="Recent chats">
-                <h2 class="home-heading">Recent chats</h2>
-                <ul id="recent-chats" class="chat-list"></ul>
-                <button id="all-chats" class="text-button" type="button">All chats</button>
-              </section>
+        <div class="sidebar-actions">
+          <button id="new-chat" class="rail-new-chat" type="button" data-nav-current="new" data-tip="New chat" aria-label="New chat">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" /></svg>
+            <span class="sidebar-label">New chat</span>
+          </button>
+          <button class="sidebar-item sidebar-chats-item" type="button" data-sidebar-expand="true" data-tip="Chats" aria-label="Chats">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v11h-9l-4 3.5v-3.5H4Z" /></svg>
+            <span class="sidebar-label">Chats</span>
+          </button>
+          <button class="sidebar-item" type="button" data-nav-context="needs" data-nav-current="needs" data-tip="Needs you" aria-label="Needs you">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 13.5h5l1.5 2.5h4l1.5-2.5h5" /><path d="M3.5 13.5v5h17v-5" /><path d="M6.3 13.5 8 6h8l1.7 7.5" /></svg>
+            <span class="sidebar-label">Needs you</span>
+            <span class="nav-badge" data-nav-badge hidden></span>
+          </button>
+        </div>
+        <div class="sidebar-chats">
+          <ul id="chats" class="chat-list"></ul>
+        </div>
+        <div class="sidebar-foot">
+          <button class="sidebar-item" type="button" data-nav-context="files" data-nav-current="files" data-tip="Files" aria-label="Files">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l1.8 2h9.2v9H3.5Z" /></svg>
+            <span class="sidebar-label">Files</span>
+          </button>
+          <div class="presence-row">
+            <p id="desktop-presence" class="presence"><span class="presence-dot" aria-hidden="true"></span><span id="desktop-presence-text"></span></p>
+            <div class="rail-account">
+              <button id="account-settings" class="account-settings" type="button" aria-label="Settings" data-tip="Settings" aria-controls="account-menu" aria-expanded="false" data-account-toggle="account-menu">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
+              </button>
+              <div id="account-menu" class="account-menu" hidden><button type="button" data-logout="true">Sign out</button></div>
             </div>
           </div>
-          <footer class="composer-wrap" id="home-composer-slot"></footer>
-        </section>
-        <section id="context-chats" class="context context-chats" aria-label="Chats" hidden>
-          <div class="context-scroll">
-            <div class="context-column">
-              <header class="context-head">
-                <h1 class="context-title" tabindex="-1">Chats</h1>
-                <button id="new-chat" class="rail-new-chat" type="button">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" /></svg>
-                  <span>New chat</span>
-                </button>
-              </header>
-              <ul id="chats" class="chat-list"></ul>
-            </div>
-          </div>
-        </section>
-        <section id="context-chat" class="context context-chat" aria-label="Chat" hidden>
-          <header class="conversation-bar">
-            <button id="back-to-chats" class="back-button" type="button" aria-label="Back to chats" title="Back to chats">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6" /></svg>
-            </button>
+        </div>
+      </aside>
+      <div class="app-main">
+        <header class="top-bar">
+          <button id="menu-button" class="rail-item top-bar-menu" type="button" aria-label="Menu" title="Menu" aria-controls="drawer" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+            <span class="menu-dot" data-nav-dot hidden></span>
+          </button>
+          <div class="top-bar-center">
+            <img class="top-bar-mark" src="/brand-mark.png" alt="work-fold" />
+            <span id="top-bar-title" class="top-bar-title"></span>
             <div class="conversation-title-shell">
               <div id="conversation-title-view" class="conversation-title-view">
                 <h1 id="conversation-title"></h1>
-                <button id="rename-chat" class="conversation-title-button" type="button" aria-label="Rename Chat title" title="Rename Chat">
+                <button id="rename-chat" class="conversation-title-button" type="button" aria-label="Rename chat" title="Rename chat">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" /></svg>
                 </button>
               </div>
               <form id="rename-chat-form" class="conversation-title-form" hidden>
                 <label class="sr-only" for="rename-chat-input">Chat title</label>
                 <input id="rename-chat-input" maxlength="80" autocomplete="off" />
-                <button class="title-edit-action save" type="submit" aria-label="Save Chat title" title="Save">
+                <button class="title-edit-action save" type="submit" aria-label="Save title" title="Save title">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
                 </button>
-                <button id="cancel-chat-rename" class="title-edit-action" type="button" aria-label="Cancel Chat title edit" title="Cancel">
+                <button id="cancel-chat-rename" class="title-edit-action" type="button" aria-label="Cancel" title="Cancel">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
                 </button>
               </form>
             </div>
-            <div class="conversation-actions"><button id="stop-task" class="toolbar-button danger" type="button" hidden>Stop</button></div>
-          </header>
-          <section id="messages" class="messages" tabindex="0"><div class="message-stream"><div id="transcript-notice"></div><div id="message-rows"></div><div id="work-status"></div></div><button id="jump-latest" class="jump-latest" type="button" aria-label="Latest" title="Latest" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14m-5-5 5 5 5-5" /></svg></button></section>
-          <footer class="composer-wrap" id="chat-composer-slot"></footer>
-        </section>
-        <section id="context-files" class="context context-files" aria-label="Files" hidden>
-          <div class="context-scroll">
-            <div class="context-column">
-              <header class="context-head">
-                <h1 class="context-title" tabindex="-1">Files</h1>
-              </header>
-              <div id="workspace-pane" class="workspace-pane">
-                <select id="space-picker" class="space-picker" aria-label="Choose a Space"></select>
-                <div id="file-tree" class="file-tree"></div>
+          </div>
+          <div class="top-bar-actions">
+            <button id="top-new-chat" class="rail-item top-bar-new-chat" type="button" aria-label="New chat" title="New chat">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" /></svg>
+            </button>
+            <button id="stop-task" class="toolbar-button danger" type="button" hidden>Stop</button>
+          </div>
+        </header>
+        <div class="app-contexts">
+          ${fixtureName ? `<div class="fixture-badge" role="status">Fixture preview</div>` : ""}
+          <div id="banner"></div>
+          <div id="chat-status" class="sr-only" role="status" aria-live="polite"></div>
+          <section id="context-new" class="context context-new" aria-label="New chat">
+            <div class="new-stage">
+              <h1 class="new-heading" tabindex="-1">What are we working on?</h1>
+            </div>
+            <footer class="composer-wrap" id="new-composer-slot"></footer>
+          </section>
+          <section id="context-chat" class="context context-chat" aria-label="Chat" hidden>
+            <section id="messages" class="messages" tabindex="0"><div class="message-stream"><div id="transcript-notice"></div><div id="message-rows"></div><div id="work-status"></div></div><button id="jump-latest" class="jump-latest" type="button" aria-label="Jump to newest" title="Jump to newest" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14m-5-5 5 5 5-5" /></svg></button></section>
+            <footer class="composer-wrap" id="chat-composer-slot"></footer>
+          </section>
+          <section id="context-needs" class="context context-needs" aria-label="Needs you" hidden>
+            <div class="context-scroll">
+              <div class="context-column">
+                <header class="context-head">
+                  <h1 id="needs-title" class="context-title" tabindex="-1">Needs you</h1>
+                </header>
+                <div id="fold-home" class="fold-home"></div>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
+          <section id="context-files" class="context context-files" aria-label="Files" hidden>
+            <div class="context-scroll">
+              <div class="context-column">
+                <header class="context-head">
+                  <h1 class="context-title" tabindex="-1">Files</h1>
+                </header>
+                <div id="workspace-pane" class="workspace-pane">
+                  <select id="space-picker" class="space-picker" aria-label="Choose a Space"></select>
+                  <div id="file-tree" class="file-tree"></div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
       </div>
-      <nav class="tab-bar" aria-label="Primary">
-        <button class="tab-item" type="button" data-nav-context="home" aria-current="page">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 10.5 12 4l7.5 6.5" /><path d="M6.5 9.5V19h11V9.5" /></svg>
-          <span>Home</span>
-          <span class="nav-badge" data-nav-badge hidden></span>
-        </button>
-        <button class="tab-item" type="button" data-nav-context="chats">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v11h-9l-4 3.5v-3.5H4Z" /></svg>
-          <span>Chats</span>
-        </button>
-        <button class="tab-item" type="button" data-nav-context="files">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l1.8 2h9.2v9H3.5Z" /></svg>
-          <span>Files</span>
-        </button>
-      </nav>
     </div>`;
   const composer = document.createElement("form");
   composer.id = "composer";
@@ -578,26 +603,46 @@ function renderApplication() {
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8.5 12.5 5.7-5.7a3 3 0 1 1 4.2 4.2l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.2-8.2" /></svg>
       </button>
       <input id="file-input" type="file" multiple hidden />
-      <textarea id="prompt" rows="1" maxlength="12000" placeholder="Message work-fold" aria-label="Message work-fold" aria-describedby="composer-note"${coarsePointer ? "" : " autofocus"}></textarea>
+      <textarea id="prompt" rows="1" maxlength="12000" placeholder="Message work-fold" aria-label="Message work-fold"${coarsePointer ? "" : " autofocus"}></textarea>
       <button class="send-button" type="submit" aria-label="Send message" aria-keyshortcuts="Enter" title="Send message" disabled>
         <svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-5 5 5-5 5 5" /></svg>
       </button>
-    </div>
-    <div id="composer-note" class="composer-note">
-      <span><kbd>Enter</kbd> to send · <kbd>Shift</kbd> + <kbd>Enter</kbd> for a new line</span>
     </div>`;
-  document.querySelector("#home-composer-slot")?.append(composer);
+  document.querySelector("#new-composer-slot")?.append(composer);
 
   for (const button of document.querySelectorAll("[data-nav-context]")) {
-    button.addEventListener("click", () => showContext(button.dataset.navContext));
+    button.addEventListener("click", () => {
+      closeDrawer({ restoreFocus: false });
+      showContext(button.dataset.navContext, { moveFocus: true });
+    });
   }
-  document.querySelector("#back-to-chats")?.addEventListener("click", () => showContext("chats", { moveFocus: true }));
-  document.querySelector("#all-chats")?.addEventListener("click", () => showContext("chats", { moveFocus: true }));
-  document.querySelector("#rail-new-chat")?.addEventListener("click", startNewChat);
-  document.querySelector("#new-chat")?.addEventListener("click", startNewChat);
-  document.querySelector("#recent-chats")?.addEventListener("click", (event) => {
+  for (const button of document.querySelectorAll("#new-chat, #top-new-chat")) {
+    button.addEventListener("click", () => {
+      closeDrawer({ restoreFocus: false });
+      startNewChat();
+    });
+  }
+  // The collapsed rail's Chats item has nowhere of its own to go: it opens the
+  // list by expanding the sidebar.
+  document.querySelector("[data-sidebar-expand]")?.addEventListener("click", () => setSidebarState("expanded", { moveFocus: true }));
+  document.querySelector("#sidebar-toggle")?.addEventListener("click", () => {
+    if (phoneQuery.matches) return closeDrawer();
+    setSidebarState(state.sidebarState === "collapsed" ? "expanded" : "collapsed");
+  });
+  document.querySelector("#menu-button")?.addEventListener("click", () => openDrawer());
+  document.querySelector("#drawer-scrim")?.addEventListener("click", () => closeDrawer());
+  // A window that grows past the breakpoint leaves no drawer behind, and the
+  // composer re-measures for the width it now has.
+  phoneQuery.addEventListener("change", () => {
+    if (!phoneQuery.matches) closeDrawer({ restoreFocus: false });
+    syncSidebarChrome();
+    syncComposer();
+  });
+  document.querySelector("#chats")?.addEventListener("click", (event) => {
     const chat = event.target.closest?.("[data-chat-id]");
-    if (chat) void selectConversation(chat.dataset.chatId);
+    if (!chat) return;
+    closeDrawer({ restoreFocus: false });
+    void selectConversation(chat.dataset.chatId);
   });
   for (const button of document.querySelectorAll("[data-account-toggle]")) {
     button.addEventListener("click", (event) => {
@@ -616,11 +661,18 @@ function renderApplication() {
   }
   document.addEventListener("click", () => closeAccountMenus());
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Tab" && state.drawerOpen) return trapDrawerFocus(event);
     if (event.key !== "Escape") return;
     const openMenu = [...document.querySelectorAll(".account-menu")].find((menu) => menu.hidden === false);
-    if (!openMenu) return;
-    closeAccountMenus();
-    document.querySelector(`[data-account-toggle="${openMenu.id}"]`)?.focus();
+    if (openMenu) {
+      closeAccountMenus();
+      document.querySelector(`[data-account-toggle="${openMenu.id}"]`)?.focus();
+      return;
+    }
+    if (state.drawerOpen) {
+      event.preventDefault();
+      closeDrawer();
+    }
   });
   const foldHome = document.querySelector("#fold-home");
   // Delegated listeners survive the section's innerHTML refreshes.
@@ -689,6 +741,7 @@ function renderApplication() {
     state.banner = "";
     renderBanner();
   });
+  syncSidebarChrome();
   syncComposer();
   renderConversationChrome();
   renderConversations();
@@ -698,9 +751,9 @@ function renderApplication() {
 }
 
 function showContext(name, { moveFocus = false, fromHistory = false } = {}) {
-  if (!contextNames.includes(name)) name = "home";
+  if (!contextNames.includes(name)) name = "new";
   if (state.contextName !== name) {
-    // Only Home and Chat host the composer; drafts save under the outgoing
+    // Only New chat and Chat host the composer; drafts save under the outgoing
     // context's key and restore under the incoming one.
     saveComposerDraft();
     state.contextName = name;
@@ -709,16 +762,11 @@ function showContext(name, { moveFocus = false, fromHistory = false } = {}) {
       const section = document.querySelector(`#context-${context}`);
       if (section) section.hidden = context !== name;
     }
-    const slot = name === "home" ? "#home-composer-slot" : name === "chat" ? "#chat-composer-slot" : null;
+    const slot = name === "new" ? "#new-composer-slot" : name === "chat" ? "#chat-composer-slot" : null;
     const composer = document.querySelector("#composer");
     if (slot && composer) document.querySelector(slot)?.append(composer);
     restoreComposerDraft();
-    // The Chat screen belongs to the Chats destination in the rail and tabs.
-    const highlighted = name === "chat" ? "chats" : name;
-    for (const button of document.querySelectorAll("[data-nav-context]")) {
-      if (button.dataset.navContext === highlighted) button.setAttribute("aria-current", "page");
-      else button.removeAttribute("aria-current");
-    }
+    syncComposer();
     if (name === "chat") {
       const messages = document.querySelector("#messages");
       // Entering a chat lands on the newest message immediately; the CSS
@@ -727,7 +775,17 @@ function showContext(name, { moveFocus = false, fromHistory = false } = {}) {
       updateJumpLatest();
     }
     renderConversationChrome();
+    renderConversations();
+    // The digest is marked seen only from the surface that shows it.
+    if (name === "needs") acknowledgeGlance();
   }
+  // Outside the change guard: the first render lands on a screen the shell
+  // already claims, and its destination still has to read as the current one.
+  for (const button of document.querySelectorAll("[data-nav-current]")) {
+    if (button.dataset.navCurrent === name) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  }
+  updateNavBadges();
   if (!fromHistory && !fixtureName && document.querySelector(".app-shell")) {
     const hash = contextHash(name);
     if (location.hash !== hash) history.pushState({ context: name }, "", hash);
@@ -736,10 +794,81 @@ function showContext(name, { moveFocus = false, fromHistory = false } = {}) {
 }
 
 function focusContextHeading(name) {
-  const heading = document.querySelector(`#context-${name} h1`);
+  // The Chat screen's heading is its title in the bar above the transcript.
+  const heading = name === "chat"
+    ? document.querySelector("#conversation-title")
+    : document.querySelector(`#context-${name} h1`);
   if (!heading) return;
   if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
   heading.focus({ preventScroll: true });
+}
+
+// --- The sidebar and its phone form, the drawer ---------------------------
+// One markup, two presentations: `data-sidebar` chooses the desktop width and
+// `data-drawer` opens the phone overlay. Tooltips belong to the collapsed
+// state alone (app.css), so the expanded sidebar and the drawer stay quiet.
+
+function setSidebarState(next, { moveFocus = false } = {}) {
+  state.sidebarState = next === "collapsed" ? "collapsed" : "expanded";
+  document.querySelector(".app-shell")?.setAttribute("data-sidebar", state.sidebarState);
+  try { localStorage.setItem(sidebarStorageKey, state.sidebarState); } catch {}
+  syncSidebarChrome();
+  if (moveFocus) document.querySelector("#sidebar-toggle")?.focus({ preventScroll: true });
+}
+
+function syncSidebarChrome() {
+  const toggle = document.querySelector("#sidebar-toggle");
+  if (!toggle) return;
+  const label = phoneQuery.matches
+    ? "Close menu"
+    : state.sidebarState === "collapsed" ? "Show menu" : "Hide menu";
+  toggle.setAttribute("aria-label", label);
+  toggle.dataset.tip = label;
+}
+
+function openDrawer({ moveFocus = true } = {}) {
+  if (state.drawerOpen) return;
+  state.drawerOpen = true;
+  document.querySelector(".app-shell")?.setAttribute("data-drawer", "open");
+  const drawer = document.querySelector("#drawer");
+  drawer?.setAttribute("role", "dialog");
+  drawer?.setAttribute("aria-modal", "true");
+  document.querySelector("#menu-button")?.setAttribute("aria-expanded", "true");
+  document.body.classList.add("drawer-locked");
+  syncSidebarChrome();
+  // The open state is already on the shell, so the drawer is focusable now.
+  if (moveFocus) document.querySelector("#sidebar-toggle")?.focus({ preventScroll: true });
+}
+
+function closeDrawer({ restoreFocus = true } = {}) {
+  if (!state.drawerOpen) return;
+  state.drawerOpen = false;
+  document.querySelector(".app-shell")?.setAttribute("data-drawer", "closed");
+  const drawer = document.querySelector("#drawer");
+  drawer?.removeAttribute("role");
+  drawer?.removeAttribute("aria-modal");
+  document.querySelector("#menu-button")?.setAttribute("aria-expanded", "false");
+  document.body.classList.remove("drawer-locked");
+  syncSidebarChrome();
+  if (restoreFocus) document.querySelector("#menu-button")?.focus({ preventScroll: true });
+}
+
+function trapDrawerFocus(event) {
+  const drawer = document.querySelector("#drawer");
+  if (!drawer) return;
+  const focusable = [...drawer.querySelectorAll("button:not([disabled]), a[href], input:not([disabled]), select:not([disabled])")]
+    .filter((element) => element.offsetParent !== null);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  const active = document.activeElement;
+  if (event.shiftKey && (active === first || !drawer.contains(active))) {
+    event.preventDefault();
+    last.focus({ preventScroll: true });
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus({ preventScroll: true });
+  }
 }
 
 function renderMessages() {
@@ -864,7 +993,7 @@ function requestEvents(request) {
     if (!child?.spaceName) continue;
     const spaceName = `<strong>${escapeHtml(child.spaceName)}</strong>`;
     if (child.state === "running") events.push({ state: "running", html: `Working in ${spaceName}` });
-    else if (child.state === "succeeded") events.push({ state: "succeeded", html: `Worked in ${spaceName}` });
+    else if (child.state === "succeeded") events.push({ state: "succeeded", html: `Finished in ${spaceName}` });
     else if (child.state === "aborted") events.push({ state: "stopped", html: `Stopped in ${spaceName}` });
     else if (child.state === "failed" || child.state === "unknown") {
       events.push({ state: "failed", html: `Couldn’t finish in ${spaceName}`, title: child.error || request.error || "" });
@@ -1030,18 +1159,18 @@ async function sendPrompt() {
   state.sending = true;
   syncComposer();
   state.banner = "";
-  const sentFromHome = state.contextName === "home";
+  const sentFromNewChat = state.contextName === "new";
   const sentDraftKey = currentComposerDraftKey();
-  const toExistingConversation = !sentFromHome && !state.startingNewChat && Boolean(state.selectedConversationId);
+  const toExistingConversation = !sentFromNewChat && !state.startingNewChat && Boolean(state.selectedConversationId);
   let pendingId = null;
   let sentUploads = [];
   try {
     const attachments = await serializeUploads();
-    // The Home composer always starts a new request — the same path as the
-    // Chats screen's New chat followed by a send.
+    // The New chat screen's composer always starts a new request — the same
+    // path as New chat followed by a send.
     const request = {
       content,
-      ...(sentFromHome || state.startingNewChat || !state.selectedConversationId
+      ...(sentFromNewChat || state.startingNewChat || !state.selectedConversationId
         ? { newConversation: true }
         : { conversationId: state.selectedConversationId }),
       ...(attachments.length ? { attachments } : {}),
@@ -1080,7 +1209,7 @@ async function sendPrompt() {
       state.uploads = [];
       syncComposer();
     }
-    if (sentFromHome) showContext("chat");
+    if (sentFromNewChat) showContext("chat");
     await loadConversations({ preferredConversationId: result.conversationId });
   } catch (error) {
     if (pendingId) {
@@ -1101,9 +1230,19 @@ async function sendPrompt() {
 }
 
 function startNewChat() {
-  if (state.sending || state.startingNewChat || state.renameSaving) return;
+  if (state.sending || state.renameSaving) return;
+  // Already staging a new chat elsewhere in the app: this is navigation back
+  // to the door, not a second reset that would discard the draft.
+  if (state.startingNewChat) {
+    showContext("new");
+    document.querySelector("#prompt")?.focus({ preventScroll: true });
+    return;
+  }
   releaseConversationWatch();
   saveComposerDraft();
+  // The screen changes before the selection does, so the outgoing draft is
+  // parked under the chat it was typed in rather than under the new one.
+  showContext("new");
   state.conversationRefreshVersion += 1;
   cancelChatRename({ restoreFocus: false });
   state.startingNewChat = true;
@@ -1113,7 +1252,6 @@ function startNewChat() {
   document.querySelector("#messages")?.removeAttribute("data-latest-message-id");
   state.transcriptTruncated = false;
   state.banner = "";
-  showContext("chat");
   restoreComposerDraft();
   renderConversationChrome();
   renderConversations();
@@ -1123,7 +1261,7 @@ function startNewChat() {
 }
 
 function composerContextActive() {
-  return state.contextName === "home" || state.contextName === "chat";
+  return state.contextName === "new" || state.contextName === "chat";
 }
 
 // Draft text survives reloads, tab discards, and session reboots in this
@@ -1152,7 +1290,7 @@ function restorePersistedDrafts() {
 }
 
 function currentComposerDraftKey() {
-  return state.contextName === "home" || state.startingNewChat || !state.selectedConversationId
+  return state.contextName === "new" || state.startingNewChat || !state.selectedConversationId
     ? "new-chat"
     : `chat:${state.selectedConversationId}`;
 }
@@ -1181,19 +1319,21 @@ function syncComposer() {
   const input = document.querySelector("#prompt");
   const button = document.querySelector(".send-button");
   if (!input || !button) return;
+  // The New chat screen opens with a taller field on desktop, so the first
+  // sentence has room; every other placement keeps the one-line field.
+  const minimumHeight = state.contextName === "new" && !phoneQuery.matches ? 108 : 56;
   input.style.height = "auto";
-  input.style.height = `${Math.min(Math.max(input.scrollHeight, 56), 180)}px`;
+  input.style.height = `${Math.min(Math.max(input.scrollHeight, minimumHeight), 180)}px`;
   const unavailable = !state.session?.desktopOnline;
-  // "Fold it in" is the capture verb: it appears exactly when material is
-  // staged on the message; a message without material is just Send.
-  const sendLabel = state.uploads.length ? "Fold it in" : "Send message";
   button.disabled = state.sending || state.renameSaving || unavailable || !input.value.trim();
   button.dataset.sending = String(state.sending);
-  button.setAttribute("aria-label", state.sending ? "Sending message" : unavailable ? "Desktop offline" : sendLabel);
-  button.title = state.sending ? "Sending…" : unavailable ? "Desktop offline" : sendLabel;
+  button.setAttribute("aria-label", state.sending ? "Sending message" : unavailable ? "Desktop offline" : "Send message");
+  button.title = state.sending ? "Sending…" : unavailable ? "Desktop offline" : "Send message";
   input.setAttribute("aria-busy", String(state.sending));
-  for (const newChatButton of document.querySelectorAll("#new-chat, #rail-new-chat")) {
-    newChatButton.disabled = state.sending || state.renameSaving || state.startingNewChat;
+  for (const newChatButton of document.querySelectorAll("#new-chat, #top-new-chat")) {
+    // New chat stays reachable from every other screen while a new chat is
+    // staged; only the screen it leads to disables it.
+    newChatButton.disabled = state.sending || state.renameSaving || state.contextName === "new";
   }
   renderComposerContext();
 }
@@ -1261,83 +1401,53 @@ async function loadConversations(options = {}) {
   }
 }
 
+// The sidebar's saved-chat list, grouped by the day it last moved. The group
+// heading is the date, so a row carries only its title and — while a turn is
+// running — the Working mark.
 function renderConversations() {
   const list = document.querySelector("#chats");
   if (!list) return;
-  const existing = new Map(
-    [...list.children]
-      .filter((item) => item.dataset.chatId)
-      .map((item) => [item.dataset.chatId, item]),
-  );
-  let cursor = list.firstElementChild;
-  for (const conversation of state.conversations) {
-    let item = existing.get(conversation.id);
-    if (!item) {
-      item = document.createElement("li");
-      item.dataset.chatId = conversation.id;
-      item.innerHTML = `<button class="chat-button" type="button"><span class="chat-title"></span><span class="chat-meta"></span></button>`;
-      item.querySelector("button")?.addEventListener("click", (event) => {
-        void selectConversation(event.currentTarget.dataset.chatId);
-      });
-    }
-    const button = item.querySelector("button");
-    const title = item.querySelector(".chat-title");
-    const meta = item.querySelector(".chat-meta");
-    const active = conversation.id === state.selectedConversationId && !state.startingNewChat;
-    button.dataset.chatId = conversation.id;
-    button.classList.toggle("active", active);
-    button.disabled = state.sending || state.renameSaving;
-    if (active) button.setAttribute("aria-current", "page");
-    else button.removeAttribute("aria-current");
-    if (title.textContent !== conversation.title) title.textContent = conversation.title;
-    const metaText = conversation.state === "running" ? "Working" : shortDate(conversation.updatedAt);
-    if (meta.textContent !== metaText) meta.textContent = metaText;
-    if (item !== cursor) list.insertBefore(item, cursor);
-    cursor = item.nextElementSibling;
-    existing.delete(conversation.id);
-  }
-  for (const item of existing.values()) item.remove();
-
-  // "No chats" is an answer, not a guess: before the first load the list
+  const groups = groupConversations(state.conversations);
+  const busy = state.sending || state.renameSaving;
+  const rows = groups.map((group) => `
+    <li class="chat-group" role="presentation"><span class="chat-group-heading">${escapeHtml(group.label)}</span></li>
+    ${group.conversations.map((conversation) => {
+      const active = conversation.id === state.selectedConversationId && !state.startingNewChat && state.contextName !== "new";
+      // The open chat keeps its fill from anywhere in the app, but it is only
+      // the current page while its transcript is the screen being shown.
+      return `<li><button class="chat-button${active ? " active" : ""}" type="button" data-chat-id="${escapeAttribute(conversation.id)}"${active && state.contextName === "chat" ? ` aria-current="page"` : ""}${busy ? " disabled" : ""}><span class="chat-title">${escapeHtml(conversation.title)}</span>${conversation.state === "running" ? `<span class="chat-working"><span class="chat-working-dot" aria-hidden="true"></span>Working</span>` : ""}</button></li>`;
+    }).join("")}`).join("");
+  // "No chats yet" is an answer, not a guess: before the first load the list
   // shows its loading state instead of a false empty.
   const loading = !state.conversationsLoaded && !state.conversations.length;
   const noteText = state.conversations.length
     ? (state.chatListTruncated ? "Older chats hidden" : "")
-    : state.conversationsLoaded ? "No chats" : "";
-  let note = list.querySelector("[data-chat-list-note]");
-  if (!noteText && !loading) note?.remove();
-  else {
-    if (!note) {
-      note = document.createElement("li");
-      note.dataset.chatListNote = "true";
-      note.className = "empty-list";
-    }
-    if (loading) {
-      if (!note.querySelector(".spinner")) note.innerHTML = `<span class="spinner" aria-hidden="true"></span>`;
-    } else if (note.textContent !== noteText) note.textContent = noteText;
-    list.append(note);
-  }
-  renderHomeChats();
+    : state.conversationsLoaded ? "No chats yet" : "";
+  const note = loading
+    ? `<li class="empty-list"><span class="spinner" aria-hidden="true"></span></li>`
+    : noteText ? `<li class="empty-list">${escapeHtml(noteText)}</li>` : "";
+  const focusedChatId = document.activeElement?.closest?.("#chats [data-chat-id]")?.dataset.chatId ?? "";
+  if (!replaceHtmlIfChanged(list, `${rows}${note}`)) return;
+  // A background refresh must not drop the keyboard out of the list.
+  if (focusedChatId) list.querySelector(`[data-chat-id="${CSS.escape(focusedChatId)}"]`)?.focus({ preventScroll: true });
 }
 
-// Home shows a short tail of the same saved-Chat list; the Chats screen holds
-// the full list.
-function renderHomeChats() {
-  const list = document.querySelector("#recent-chats");
-  const allChats = document.querySelector("#all-chats");
-  if (!list) return;
-  const recent = state.conversations.slice(0, 4);
-  const markup = recent.length
-    ? recent.map((conversation) => {
-      const active = conversation.id === state.selectedConversationId && !state.startingNewChat;
-      const metaText = conversation.state === "running" ? "Working" : shortDate(conversation.updatedAt);
-      return `<li><button class="chat-button${active ? " active" : ""}" type="button" data-chat-id="${escapeAttribute(conversation.id)}"${state.sending || state.renameSaving ? " disabled" : ""}><span class="chat-title">${escapeHtml(conversation.title)}</span><span class="chat-meta">${escapeHtml(metaText)}</span></button></li>`;
-    }).join("")
-    : state.conversationsLoaded
-      ? `<li class="empty-list">No chats</li>`
-      : `<li class="empty-list"><span class="spinner" aria-hidden="true"></span></li>`;
-  replaceHtmlIfChanged(list, markup);
-  if (allChats) allChats.hidden = state.conversations.length <= recent.length;
+function groupConversations(conversations) {
+  const startOfDay = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const today = startOfDay(new Date());
+  const yesterday = today - 86_400_000;
+  const groups = [
+    { label: "Today", conversations: [] },
+    { label: "Yesterday", conversations: [] },
+    { label: "Earlier", conversations: [] },
+  ];
+  for (const conversation of conversations) {
+    const updated = new Date(conversation.updatedAt);
+    const day = Number.isFinite(updated.getTime()) ? startOfDay(updated) : 0;
+    const bucket = day >= today ? 0 : day >= yesterday ? 1 : 2;
+    groups[bucket].conversations.push(conversation);
+  }
+  return groups.filter((group) => group.conversations.length);
 }
 
 async function selectConversation(conversationId) {
@@ -1481,11 +1591,12 @@ function renderWorkspace() {
   if (picker) {
     replaceHtmlIfChanged(picker, state.spaces.map((space) => `<option value="${escapeAttribute(space.id)}" ${space.id === state.explorerSpaceId ? "selected" : ""}>${escapeHtml(space.name)}</option>`).join(""));
     picker.disabled = !state.spaces.length;
+    picker.hidden = !state.spaces.length;
   }
   if (!tree) return;
   if (!state.explorerSpaceId) {
     tree.setAttribute("aria-busy", String(!state.spacesLoaded));
-    replaceHtmlIfChanged(tree, state.spacesLoaded ? `<div class="file-empty">No Spaces</div>` : `<div class="file-empty">Loading…</div>`);
+    replaceHtmlIfChanged(tree, state.spacesLoaded ? `<div class="file-empty">No Spaces yet</div>` : `<div class="file-empty">Loading…</div>`);
     return;
   }
   const entries = state.trees.get(`${state.explorerSpaceId}:`) ?? [];
@@ -1609,6 +1720,9 @@ async function refreshFoldHome() {
 function acknowledgeGlance() {
   if (fixtureName) return;
   const cursor = state.glance?.cursor;
+  // Needs you is the only surface that shows the digest, so it is the only
+  // surface that can mark it seen.
+  if (state.contextName !== "needs") return;
   if (!cursor || document.visibilityState === "hidden" || !state.identity?.grantId) return;
   const seenThrough = state.glance.seen?.[`remote:${state.identity.grantId}`] ?? "";
   if (cursor === seenThrough || state.glanceAcknowledged === cursor) return;
@@ -1618,6 +1732,9 @@ function acknowledgeGlance() {
   });
 }
 
+// Pending decisions surface on the Needs you destination from every screen,
+// not only for someone who happens to be looking at it: the sidebar count, the
+// screen title, and the ☰ dot all read the same list.
 function updateNavBadges() {
   const count = state.decisions.length;
   const label = count > 9 ? "9+" : String(count);
@@ -1625,17 +1742,27 @@ function updateNavBadges() {
     badge.hidden = !count;
     if (badge.textContent !== label) badge.textContent = label;
   }
+  for (const dot of document.querySelectorAll("[data-nav-dot]")) dot.hidden = !count;
+  const heading = needsHeading();
+  const title = document.querySelector("#needs-title");
+  if (title && title.textContent !== heading) title.textContent = heading;
+  const barTitle = document.querySelector("#top-bar-title");
+  const barText = state.contextName === "needs" ? heading : state.contextName === "files" ? "Files" : "";
+  if (barTitle && barTitle.textContent !== barText) barTitle.textContent = barText;
+}
+
+function needsHeading() {
+  return "Needs you";
 }
 
 function renderFoldHome() {
   const container = document.querySelector("#fold-home");
   if (!container) return;
-  // Pending decisions surface on the Home tab from every context, not only
-  // for someone who happens to be looking at Home.
   updateNavBadges();
-  // Decisions come first, then the live request tail, then the glance.
-  const markup = `${renderNeedsYou()}${renderHomeActivity()}${renderGlance()}`;
-  container.hidden = !markup;
+  // Decisions come first, then the questions asked inside chats, then the
+  // glance — the needs-you stack is never below the digest.
+  const body = `${renderNeedsYou()}${renderFromChats()}${renderGlance()}`;
+  const markup = body || `<p class="glance-empty">Nothing needs you right now.</p>`;
   if (!replaceHtmlIfChanged(container, markup)) return;
   // Attribute values are render-time snapshots; live values survive refreshes.
   for (const input of container.querySelectorAll("[data-decision-note]")) {
@@ -1645,17 +1772,29 @@ function renderFoldHome() {
 }
 
 function renderNeedsYou() {
-  const questions = (state.glance?.needsYou ?? []).filter((item) => item.kind !== "pending-decision");
-  if (!state.decisions.length && !questions.length && !state.foldHomeNotice) return "";
-  const heading = state.decisions.length > 1 ? `Needs you (${state.decisions.length})` : "Needs you";
+  if (!state.decisions.length && !state.foldHomeNotice) return "";
   const notice = state.foldHomeNotice
     ? `<p class="needs-you-notice" role="status"><span>${escapeHtml(state.foldHomeNotice)}</span><button type="button" data-dismiss-fold-notice="true" aria-label="Dismiss">✕</button></p>`
     : "";
-  return `<section class="needs-you-stack" aria-label="Needs you">
-    <header class="needs-you-heading">${escapeHtml(heading)}</header>
+  return `<section class="needs-you-stack">
     ${notice}
     ${state.decisions.map((card) => renderDecisionCard(card)).join("")}
-    ${questions.length ? `<ul class="glance-list">${questions.map((item) => glanceRow(item)).join("")}</ul>` : ""}
+  </section>`;
+}
+
+// Questions the fold raised inside a chat. They are answered in that chat, so
+// the row offers a way in whenever the chat is one this browser can open.
+function renderFromChats() {
+  const questions = (state.glance?.needsYou ?? []).filter((item) => item.kind !== "pending-decision");
+  if (!questions.length) return "";
+  return `<section class="glance">
+    <h3 class="glance-heading">From chats</h3>
+    <ul class="glance-list">${questions.map((item) => {
+      const conversationId = typeof item.ref?.conversationId === "string" ? item.ref.conversationId : "";
+      const known = conversationId && state.conversations.some((conversation) => conversation.id === conversationId);
+      const space = item.spaceName ? `<strong>${escapeHtml(item.spaceName)}</strong> · ` : "";
+      return `<li class="glance-item from-chat"><span>${space}${escapeHtml(item.headline ?? "")}</span>${known ? `<button type="button" class="text-button" data-open-chat="${escapeAttribute(conversationId)}">Open chat</button>` : ""}</li>`;
+    }).join("")}</ul>
   </section>`;
 }
 
@@ -1665,17 +1804,17 @@ function renderDecisionCard(card) {
     ? `<dl class="needs-you-facts">${card.facts.map((fact) =>
       `<div class="needs-you-fact"><dt>${escapeHtml(fact.label)}</dt><dd>${escapeHtml(fact.value)}</dd></div>`).join("")}</dl>`
     : "";
-  const stagedVia = card.provenance?.stagedVia === "management-conversation"
-    ? "Staged by your fold"
-    : "Staged from the command lane";
+  const askedBy = card.provenance?.stagedVia === "management-conversation"
+    ? "Asked in a chat"
+    : "Asked from the command line";
   // The surface rules are stated on the card up front, never discovered at
   // refusal time: Personal-scope make-runnable acts are decided on the
   // desktop, the browser whose request staged a card never decides it, and a
   // rootless file grant approves only where the folder picker lives.
   const rule = card.desktopOnly
-    ? `<p class="needs-you-rule">Loads into the fold's own runtime, so its decision belongs to your desktop.</p>`
+    ? `<p class="needs-you-rule">Decide this on your desktop.</p>`
     : card.stagedByGrantId && card.stagedByGrantId === state.identity?.grantId
-      ? `<p class="needs-you-rule">Staged at this browser's request, so this browser cannot decide it. Decide it on the desktop or from a different approved browser.</p>`
+      ? `<p class="needs-you-rule">This browser asked for this. Decide it on your desktop, or in another approved browser.</p>`
       : "";
   // Approval binds an app.grant.files card to a person-chosen folder, and the
   // folder picker exists only in the main work-fold window — so Approve is
@@ -1683,7 +1822,7 @@ function renderDecisionCard(card) {
   // stays available from this browser.
   const needsChosenFolder = !rule && Boolean(card.needsDesktopChosenFolder);
   const chosenFolderRule = needsChosenFolder
-    ? `<p class="needs-you-rule">Approving binds this grant to a folder chosen in the main work-fold window's needs-you flyout, so Approve lives there. You can still deny it here.</p>`
+    ? `<p class="needs-you-rule">Approving picks a folder in the work-fold app, so approve it there. You can still deny it from here.</p>`
     : "";
   const confirming = state.confirmingDestroy.has(card.id);
   const actions = rule ? "" : confirming
@@ -1706,30 +1845,12 @@ function renderDecisionCard(card) {
     <p class="needs-you-category">${escapeHtml(card.categoryLine ?? "")}</p>
     <h3 class="needs-you-title">${escapeHtml(card.title ?? "")}</h3>
     ${facts}
-    <p class="needs-you-provenance">${escapeHtml(stagedVia)} · ${escapeHtml(cardTime(card.provenance?.stagedAt))} · expires ${escapeHtml(cardTime(card.expiresAt))}</p>
-    ${card.priorDenialAt ? `<p class="needs-you-prior-denial">Denied before (${escapeHtml(cardTime(card.priorDenialAt))}), now staged again.</p>` : ""}
+    <p class="needs-you-provenance">${escapeHtml(askedBy)} · ${escapeHtml(relativeTime(card.provenance?.stagedAt))} · ${escapeHtml(expiryPhrase(card.expiresAt))}</p>
+    ${card.priorDenialAt ? `<p class="needs-you-prior-denial">You denied this on ${escapeHtml(calendarDay(card.priorDenialAt))}. It has been asked again.</p>` : ""}
     ${rule}
     ${chosenFolderRule}
     ${actions}
   </article>`;
-}
-
-// The live request tail: the latest request's activity, with Stop, exactly as
-// the Chat screen tells it — shown on Home only while work is running.
-function renderHomeActivity() {
-  const request = state.startingNewChat ? null : state.summary?.latestRequest;
-  const requestPhase = request?.phase;
-  const working = !state.startingNewChat && (
-    state.summary?.state === "running" || requestPhase === "working" || requestPhase === "handed_off"
-  );
-  if (!working) return "";
-  const workEvents = requestEvents(request);
-  const canStop = Boolean(state.selectedConversationId && state.activeTasks.has(state.selectedConversationId));
-  return `<section class="home-activity" aria-label="Running now in your latest chat">
-    ${workEvents.map((event) => `<div class="work-event ${event.state}"${event.title ? ` title="${escapeAttribute(event.title)}"` : ""}><span class="work-event-mark" aria-hidden="true"></span><span>${event.html}</span></div>`).join("")}
-    ${!workEvents.some((event) => event.state === "running") ? `<div class="working-row"><span class="spinner"></span><span>${escapeHtml(state.liveActivity || "Working")}</span></div>` : ""}
-    ${canStop ? `<button type="button" class="toolbar-button danger" data-stop-task="true"${state.stoppingTask ? " disabled" : ""}>Stop</button>` : ""}
-  </section>`;
 }
 
 function renderGlance() {
@@ -1745,7 +1866,7 @@ function renderGlance() {
   if (running.length) {
     parts.push(`<h3 class="glance-heading">Running now</h3>
       <ul class="glance-list">${running.map((item) => glanceRow(item)).join("")}</ul>
-      ${glance.truncated?.running ? `<p class="glance-truncated">More is running than fits in this digest.</p>` : ""}`);
+      ${glance.truncated?.running ? `<p class="glance-truncated">More is running than fits here.</p>` : ""}`);
   }
   if (changes.length) {
     const isNew = (item) => glanceCursorIsNewer(`${item.at}/${item.id}`, seenThrough);
@@ -1757,17 +1878,17 @@ function renderGlance() {
         ? `<ul class="glance-list">${shown.map((item) => glanceRow(item, !isNew(item))).join("")}</ul>`
         : `<p class="glance-empty">Nothing new since you last looked.</p>`}
       ${!state.showEarlierChanges && earlierCount ? `<button type="button" class="glance-show-earlier" data-show-earlier="true">Show earlier (${earlierCount})</button>` : ""}
-      ${glance.truncated?.changes ? `<p class="glance-truncated">Older changes are beyond this digest.</p>` : ""}`);
+      ${glance.truncated?.changes ? `<p class="glance-truncated">Older changes don’t fit here.</p>` : ""}`);
   }
   if (checks.length) {
     parts.push(`<h3 class="glance-heading">Checks</h3>
-      <ul class="glance-list">${checks.map((row) => `<li class="glance-item"><strong>${escapeHtml(row.spaceName)}</strong> · ${escapeHtml(checkStateLabel(row.state))}${row.needsAttention ? ` · ${row.needsAttention} need${row.needsAttention === 1 ? "s" : ""} attention` : ""}</li>`).join("")}</ul>
-      ${glance.truncated?.checks ? `<p class="glance-truncated">More Spaces have Checks than fit in this digest.</p>` : ""}`);
+      <ul class="glance-list">${checks.map((row) => `<li class="glance-item"><strong>${escapeHtml(row.spaceName)}</strong>${row.state === "needs-attention" && row.needsAttention ? "" : ` · ${escapeHtml(checkStateLabel(row.state))}`}${row.needsAttention ? ` · ${row.needsAttention} need${row.needsAttention === 1 ? "s" : ""} attention` : ""}</li>`).join("")}</ul>
+      ${glance.truncated?.checks ? `<p class="glance-truncated">More Spaces have Checks than fit here.</p>` : ""}`);
   }
   if (unavailable.length) {
     parts.push(`<p class="glance-unavailable">Some records could not be read just now: ${unavailable.map((source) => escapeHtml(source)).join(", ")}.</p>`);
   }
-  return `<section class="glance" aria-label="The glance">${parts.join("")}</section>`;
+  return `<section class="glance" aria-label="Recent activity">${parts.join("")}</section>`;
 }
 
 function glanceRow(item, quiet = false) {
@@ -1808,11 +1929,39 @@ function cardTime(value) {
   return date.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+/** How long ago, in the words a person would use, then a plain date. */
+function relativeTime(value) {
+  const date = new Date(value ?? "");
+  if (!Number.isFinite(date.getTime())) return String(value ?? "");
+  const minutesAgo = Math.round((Date.now() - date.getTime()) / 60_000);
+  if (minutesAgo < 1) return "just now";
+  if (minutesAgo < 60) return `${minutesAgo} min ago`;
+  const hoursAgo = Math.round(minutesAgo / 60);
+  if (hoursAgo < 24) return `${hoursAgo} h ago`;
+  return calendarDay(value);
+}
+
+/** A staged act's remaining life; expiry is not approval, so it says so. */
+function expiryPhrase(value) {
+  const date = new Date(value ?? "");
+  if (!Number.isFinite(date.getTime())) return "";
+  const minutesLeft = Math.round((date.getTime() - Date.now()) / 60_000);
+  if (minutesLeft <= 0) return "expired";
+  if (minutesLeft < 60) return `expires in ${minutesLeft} min`;
+  return `expires in ${Math.round(minutesLeft / 60)} h`;
+}
+
+function calendarDay(value) {
+  const date = new Date(value ?? "");
+  if (!Number.isFinite(date.getTime())) return String(value ?? "");
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
 function onFoldHomeClick(event) {
   const button = event.target.closest?.("button");
   if (!button) return;
-  if (button.dataset.stopTask) {
-    void stopCurrentTask();
+  if (button.dataset.openChat) {
+    void selectConversation(button.dataset.openChat);
     return;
   }
   if (button.dataset.dismissFoldNotice) {
@@ -1947,26 +2096,20 @@ function formatBytes(value) {
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function shortDate(value) {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "";
-  const today = new Date();
-  if (date.toDateString() === today.toDateString()) return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  return date.toLocaleDateString([], { month: "short", day: "numeric" });
-}
-
 function assistantLabel() { return "work-fold"; }
 
-// The quiet Home status line: the address is where you are; the desktop is
-// online or asleep, never an error page pretending otherwise.
+// The quiet presence line in the sidebar footer: the desktop is online or
+// offline, never an error page pretending otherwise.
 function renderDesktopPresence() {
   const presence = document.querySelector("#desktop-presence");
   const text = document.querySelector("#desktop-presence-text");
   if (!presence || !text) return;
   const online = Boolean(state.session?.desktopOnline);
   presence.dataset.online = String(online);
-  const label = online ? "Desktop online" : "Desktop asleep";
+  const label = online ? "Desktop online" : "Desktop offline";
   if (text.textContent !== label) text.textContent = label;
+  // In the collapsed rail only the dot is visible; its name rides the tooltip.
+  if (presence.dataset.tip !== label) presence.dataset.tip = label;
 }
 
 function scheduleRefresh() {
@@ -2307,7 +2450,7 @@ function renderAuth({ eyebrow, headline, supporting, panel }, afterRender) {
 }
 
 function renderFatal(message) {
-  renderAuth({ eyebrow: "Could not connect", headline: "work-fold is unavailable.", supporting: "Your local files and conversation have not moved.", panel: `<h2>Connection error</h2><p class="form-error">${escapeHtml(message)}</p><button id="fatal-retry" class="primary">Try again</button>` }, () => {
+  renderAuth({ eyebrow: "Could not connect", headline: `<span class="nobr">work-fold</span> is unavailable.`, supporting: "Your local files and conversation have not moved.", panel: `<p class="form-error">${escapeHtml(message)}</p><button id="fatal-retry" class="primary">Try again</button>` }, () => {
     document.querySelector("#fatal-retry")?.addEventListener("click", () => location.reload());
   });
 }
