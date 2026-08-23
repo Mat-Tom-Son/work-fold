@@ -8110,11 +8110,12 @@ function capabilityFenceBusyReason(state: LocalApiState, scope: FoldDecisionFenc
 /**
  * Per-kind execution adapters for the decision path: each binds one staged-act
  * kind to the same domain internals the equivalent desktop ceremony uses.
- * `app.data.purge`, `app.storage.clear`, `files.destroy`, and hosted-app
- * `publish.viewer.expose` exposure stay deliberately unbound in this build —
- * staging, denying, and canceling them works, and approving them is refused
- * honestly (EXECUTION_UNAVAILABLE or a pending eligibility reason) before
- * anything is consumed.
+ * `app.data.purge`, `app.storage.clear`, and `files.destroy` stay deliberately
+ * unbound in this build — staging, denying, and canceling them works, and
+ * approving them is refused honestly (EXECUTION_UNAVAILABLE or a pending
+ * eligibility reason) before anything is consumed. Both `publish.viewer.expose`
+ * exposures are bound: page exposure re-verifies the designated source and
+ * hosted-app exposure re-resolves the pinned Release.
  */
 function createFoldDecisionAdapters(state: LocalApiState): FoldDecisionAdapters {
   const spaceRefById = async (spaceId: string): Promise<{ id: string; spaceRoot: string }> => {
