@@ -121,9 +121,10 @@ decisions, not around them.
    conversation's name, not a second persona — so imperative strings
    ("Tell work-fold what to do", "Message work-fold") keep the product as
    addressee.
-3. **"Fold it in"** is the capture verb, shown exactly when material is
-   being handed over (staged reference chips present). A message without
-   material is just "Send".
+3. **"Fold it in"** is the popover composer's capture verb, shown exactly
+   when material is being handed over (staged reference chips present). A
+   message without material is just "Send". The web client does not carry
+   the two-state label: its send button is always "Send message".
 4. **"Your fold on the web"** is the user-facing name of the web-access
    area inside **Settings → The fold** (decision F15). "Web access" is the
    short operational form inside that area (toggle, danger actions, errors).

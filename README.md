@@ -26,25 +26,23 @@ work-fold is a clean product boundary, not an in-place rename of Workspace. It u
 ## A quick walkthrough
 
 Choose an ordinary folder—or let work-fold create one—and it becomes a Space.
-The files stay where they are. In this launch-planning Space, the Assistant used
-only the three attached source files, returned a brief with links back to the
-evidence, and kept the work beside its source material.
+The files stay where they are: the left side lists the folder exactly as
+Finder shows it, and the Chat on the right runs the Assistant in that folder,
+using the files you attach as its context.
 
-![A Client Launch Space with ordinary files and a grounded Assistant brief](output/playwright/work-fold-0.1.4-space.png)
+![The work-fold main window: a Space's files on the left, a Chat with the Assistant on the right](output/playwright/work-fold-0.3.6-space.png)
 
-Checks are optional, manual expectations over files you explicitly designate.
-Here work-fold re-verifies that the generated launch brief exists without
-inspecting unrelated files in the Space.
+On a Mac, the fold also lives in the menu bar, open even after the last
+window closes. Drop files, folders, or links on it, add an instruction, and
+it files them into the right Space with a restore point where they land.
 
-![A successful bounded Check for the launch-brief deliverable](output/playwright/work-fold-0.1.4-checks.png)
+![The work-fold menu-bar popover: a drop zone and message box above the What's new strip](output/playwright/work-fold-0.3.6-popover.png)
 
-On a Mac, the fold also lives in the menu bar. The example below is the real
-completed request with the main window closed: work-fold copied an attached
-handoff into the Client Launch Space and recorded a restore point. Click the
-fold—or drop files, folders, or links on it—from anywhere to start another
-request.
+The same conversation is reachable from any browser at a private address you
+choose (`<name>.work-fold.com`), after a password sign-in and a one-time
+six-digit approval on your Mac, while your desktop is online.
 
-![The real work-fold menu-bar popover showing a completed file placement with the main window closed](output/playwright/work-fold-0.1.4-menubar.png)
+![Your fold on the web: the saved-chat sidebar beside a conversation](output/playwright/work-fold-0.3.6-web.png)
 
 ## Product model
 
@@ -96,7 +94,7 @@ work-fold reserves two hidden support directories inside a Space: `.work-fold/` 
 - The fold — a management conversation above all Spaces (`work-fold manage …`): the same full-trust Assistant runtime with a machine-local transcript, taught by app-materialized instructions to work across Spaces through the work-fold CLI's read and act commands. Requests carry reference attachments (`--attach` paths and links), track every delegated Space turn, and support request-level status and stop.
 - A menu-bar popover that opens your fold ("Your fold" in the menu bar and tray): drop files, folders, or links on the macOS menu-bar icon or the popover, add an instruction — with material staged, the send button reads "Fold it in" — and follow the request through working, needs-you, handed-off, and done, with an explicitly attributed action trail backed by act receipts and a Stop that names everything it aborts. New chat starts a clean saved transcript without deleting the previous one. The Windows tray offers the same popover from its menu.
 - Needs-you decisions: the fold can fully stage installing code, widening a standing power, or destroying something — and only a click on the desktop, the popover, or an approved browser completes it. Cards are host-composed from pinned facts, staged acts expire, denial is recorded rather than retried, and every decision leaves a receipt naming the surface that approved it. Narrow person-authored standing policies, created in Settings and never by the fold, can pre-approve exactly named categories — never destruction or outward exposure.
-- The glance: a deterministic digest of running work, needs-you items, what changed since you last looked, and Check status — composed by app code from recorded state only, with no model call, no file scanning, and no background watching, shown at the popover's top, the remote client's home, and a compact main-window panel.
+- The glance: a deterministic digest of running work, needs-you items, what changed since you last looked, and Check status — composed by app code from recorded state only, with no model call, no file scanning, and no background watching, shown behind the popover footer's What's new strip, on the remote client's Needs you screen, and in a compact main-window panel.
 - Routings: declared cross-Space glue — a reviewed trigger and up to eight deterministic steps (start a Space chat with a fixed message, copy files with a restore point, run a Check), executed by app code on the shared scheduler discipline with per-hop receipts. Enabling one is a needs-you decision; cross-Space work never runs inside a Space chat, because Space transcripts travel with their folders.
 - Private-alpha web access to your fold ("Your fold on the web") at a chosen `<name>.work-fold.com`: set the address and password in Settings, approve each new browser with a matching code on the desktop, then open saved management Chats, browse filtered Space-relative file trees, and ask the one management Assistant to work across Spaces or delegate to their Assistants. Files selection never changes who the person is chatting with. Bounded encrypted uploads use short-lived app-owned staging until the management Assistant uses or places them through the normal restore-pointed path. New-address enrollment is controlled by the hosted bridge instead of an invitation code or a credential embedded in the app. Payloads cross the hosted service as application-encrypted signed envelopes rather than durable plaintext records, but the hosted client and bridge are trusted parts of this full-authority feature and an active service compromise is outside that protection. While a management turn runs, an up-to-date desktop streams its live activity line to the approved browser inside those same envelopes, and the reply lands when the turn settles rather than on the next refresh. The desktop must be online and remains the local execution endpoint.
 - Share a page ("pages your fold serves"): after a needs-you decision, one explicitly designated file is served as a rendered page at your `<name>.work-fold.com` address — live from your desktop through the relay, encrypted with a key carried in the link fragment, with an honest "asleep" state when the desktop is offline. Revoking kills every copy of the link; nothing else in the Space is exposed; there is no uptime promise, discovery, or App Store.

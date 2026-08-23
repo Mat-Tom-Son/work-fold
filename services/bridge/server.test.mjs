@@ -51,11 +51,21 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.match(renderingModule.headers.get("content-type"), /^text\/javascript/);
   assert.match(await renderingModule.text(), /export function replaceHtmlIfChanged/);
 
+  const landingModule = await fetch(`${baseUrl}/landing.js`);
+  assert.equal(landingModule.status, 200);
+  assert.match(landingModule.headers.get("content-type"), /^text\/javascript/);
+  const landingSource = await landingModule.text();
+  assert.match(landingSource, /export function renderLanding/);
+  assert.match(landingSource, /href="\/download\/macos"/);
+  assert.match(landingSource, /href="https:\/\/github\.com\/Mat-Tom-Son\/work-fold"/);
+
+  const landingStyles = await fetch(`${baseUrl}/landing.css`);
+  assert.equal(landingStyles.status, 200);
+  assert.match(landingStyles.headers.get("content-type"), /^text\/css/);
+
   const applicationScript = await fetch(`${baseUrl}/app.js`);
   const applicationSource = await applicationScript.text();
-  assert.match(applicationSource, /class="landing-actions"/);
-  assert.match(applicationSource, /href="\/download\/macos"/);
-  assert.match(applicationSource, /href="https:\/\/github\.com\/Mat-Tom-Son\/work-fold"/);
+  assert.match(applicationSource, /import \{ renderLanding \} from "\.\/landing\.js"/);
   assert.match(applicationSource, /id="new-chat"/);
   assert.match(applicationSource, /<h1 id="conversation-title"><\/h1>/);
   assert.match(applicationSource, /id="rename-chat"/);
@@ -76,16 +86,19 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.doesNotMatch(applicationSource, /spaces\.(?:chats|transcript|send|stop)/);
   assert.doesNotMatch(applicationSource, /Chat with Space|id="scope-name"|id="management-home"/);
   assert.match(applicationSource, /id="account-settings"[\s\S]*?id="account-menu"[\s\S]*?>Sign out</);
-  // The four-context single-column shell: Home carries decisions, the tail,
-  // the glance, and recent chats above its composer; the saved-chat list is
-  // the Chats context; Chat is one transcript with a back affordance; Files
-  // is the read-only tree as its own context.
-  assert.match(applicationSource, /id="context-home"[\s\S]*?id="fold-home"[\s\S]*?id="recent-chats"[\s\S]*?id="home-composer-slot"/);
-  assert.match(applicationSource, /id="context-chats"[\s\S]*?<ul id="chats"[\s\S]*?id="context-chat"[\s\S]*?id="back-to-chats"[\s\S]*?id="messages"[\s\S]*?id="chat-composer-slot"/);
+  // The shell: one sidebar (the desktop column and the phone drawer) holding
+  // New chat, Needs you, the saved-chat list, and Files; then the screens —
+  // New chat (heading plus composer), Chat (one transcript plus composer),
+  // Needs you (the cards and the digest), and Files (the read-only tree).
+  assert.match(applicationSource, /<aside id="drawer" class="sidebar"[\s\S]*?id="new-chat"[\s\S]*?data-nav-context="needs"[\s\S]*?class="sidebar-chats"[\s\S]*?data-nav-context="files"/);
+  assert.match(applicationSource, /id="context-new"[\s\S]*?>What are we working on\?<[\s\S]*?id="new-composer-slot"/);
+  assert.match(applicationSource, /id="context-chat"[\s\S]*?id="messages"[\s\S]*?id="chat-composer-slot"/);
+  assert.match(applicationSource, /id="context-needs"[\s\S]*?class="context-title" tabindex="-1">Needs you<[\s\S]*?id="fold-home"/);
   assert.match(applicationSource, /id="context-files"[\s\S]*?class="context-title" tabindex="-1">Files<[\s\S]*?id="workspace-pane"[\s\S]*?id="space-picker"[\s\S]*?id="file-tree"/);
-  // Phone tabs and the desktop icon rail carry the same three destinations.
-  assert.match(applicationSource, /class="tab-bar"[\s\S]*?data-nav-context="home"[\s\S]*?<span>Home<\/span>[\s\S]*?data-nav-context="chats"[\s\S]*?<span>Chats<\/span>[\s\S]*?data-nav-context="files"[\s\S]*?<span>Files<\/span>/);
-  assert.match(applicationSource, /class="icon-rail"[\s\S]*?data-nav-context="home"[\s\S]*?data-nav-context="chats"[\s\S]*?data-nav-context="files"[\s\S]*?id="rail-new-chat"/);
+  // The phone opens the same sidebar as a drawer from the top bar; there is
+  // no bottom tab bar and no second icon rail.
+  assert.match(applicationSource, /class="top-bar"[\s\S]*?id="menu-button"[\s\S]*?aria-controls="drawer"/);
+  assert.doesNotMatch(applicationSource, /class="tab-bar"|class="icon-rail"|id="back-to-chats"|id="context-home"|id="context-chats"/);
   assert.match(applicationSource, /Working in \$\{spaceName\}/);
   assert.match(applicationSource, /Couldn’t finish in \$\{spaceName\}/);
   assert.doesNotMatch(applicationSource, /previous chat is still saved on your desktop/);
@@ -106,7 +119,10 @@ test("serves the web client and healthy no-store API responses", async (context)
   for (const retiredBreakpoint of ["max-width: 980px", "max-width: 680px"]) {
     assert.equal(applicationStyles.includes(retiredBreakpoint), false);
   }
-  assert.match(applicationStyles, /\.tab-bar\s*\{[^}]*padding-bottom:\s*env\(safe-area-inset-bottom/);
+  // The sidebar (the phone drawer) and the composer honor the safe areas.
+  assert.match(applicationStyles, /\.composer-wrap \{[^}]*calc\(12px \+ env\(safe-area-inset-bottom/);
+  assert.match(applicationStyles, /\.sidebar \{[^}]*env\(safe-area-inset-bottom/);
+  assert.equal(applicationStyles.includes(".tab-bar"), false);
   // "Needs you" left this list deliberately: the fold's decision cards
   // (docs/fold-consecrations.md, remote client) reintroduced the heading as
   // the shared card contract's vocabulary, pinned in copy.test.mjs.
@@ -185,8 +201,8 @@ test("fixture previews render canned state and stay inert against the real API",
   assert.doesNotMatch(fixturesSource, /fetch\(|EventSource|indexedDB|crypto\.subtle|api\(|remote\(/);
 
   const applicationSource = await (await fetch(`${baseUrl}/app.js`)).text();
-  // ?fixture accepts exactly the three preview screens.
-  assert.match(applicationSource, /requested === "home" \|\| requested === "chat" \|\| requested === "files"/);
+  // ?fixture accepts exactly the four preview screens.
+  assert.match(applicationSource, /requested === "new" \|\| requested === "chat" \|\| requested === "needs" \|\| requested === "files"/);
   // The guard: fixture mode never attaches auth or calls fetch. api() and
   // remote() refuse before touching identity or the network, the event
   // stream and refresh loop never start, and no seen marker is posted from

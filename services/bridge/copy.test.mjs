@@ -19,11 +19,12 @@ test("remote client uses the fold vocabulary for its entry surfaces", async () =
 
   // Address-unavailable eyebrow and supporting line.
   assert.match(app, /eyebrow: "Your fold",\s*\n\s*headline: "This address isn’t active\."/);
-  assert.ok(app.includes("Check the address, or enable web access from the work-fold desktop app."));
+  assert.ok(app.includes('Check the address, or enable web access from the <span class="nobr">work-fold</span> desktop app.'));
 
-  // Landing detail 03.
-  assert.ok(app.includes("<h2>Your fold on the web</h2>"));
-  assert.ok(app.includes("One private address opens the same conversation your menu bar does, while your desktop is online."));
+  // Landing detail 03 (the landing page lives in landing.js).
+  const landing = await clientSource("landing.js");
+  assert.ok(landing.includes("<h2>Your fold on the web</h2>"));
+  assert.ok(landing.includes("One private address opens the same conversation your menu bar does, while your desktop is online — with your saved chats, the decisions waiting on you, and your files beside it."));
 
   // The retired phrasings must not come back.
   assert.equal(app.includes('eyebrow: "Remote access"'), false);
@@ -38,19 +39,37 @@ test("remote client keeps the load-bearing copy exact", async () => {
   assert.ok(app.includes('placeholder="Message work-fold"'));
   assert.ok(app.includes('prompt.placeholder = "Message work-fold"'));
 
-  // Desktop-offline gate: approval and presence language stays exact.
-  assert.match(app, /eyebrow: "Desktop offline",\s*\n\s*headline: "Open work-fold to continue\."/);
+  // Desktop-offline gate: it says the situation once, not four times.
+  assert.ok(app.includes('eyebrow: "Desktop offline"'));
+  assert.ok(app.includes('Open <span class="nobr">work-fold</span> to continue.'));
   assert.ok(app.includes("The desktop app holds your conversation and approves new browsers."));
+  assert.equal(app.includes("Waiting for your desktop"), false);
+  assert.equal(app.includes("Nothing can be read or sent"), false);
 
-  // Pairing copy: security copy is load-bearing.
+  // Pairing copy: one instruction, and the one-time nature said once.
   assert.ok(app.includes('eyebrow: "Approve this browser once"'));
-  assert.ok(app.includes('headline: "Match the code in work-fold."'));
-  assert.ok(app.includes("Approval binds a non-exportable browser key to your desktop."));
+  assert.ok(app.includes('Match the code in <span class="nobr">work-fold</span>.'));
+  assert.ok(app.includes("Confirm that the same six digits appear in the desktop prompt."));
+  assert.ok(app.includes("After this approval, this browser stays signed in until you revoke it."));
 
-  // The Chats screen lists the fold's saved chats; Home is the door and
-  // carries the quiet fold header.
-  assert.ok(app.includes('<h1 class="context-title" tabindex="-1">Chats</h1>'));
-  assert.ok(app.includes('<h1 class="context-title" tabindex="-1">Your fold</h1>'));
+  // The screens name themselves: the door asks the question, and Needs you
+  // and Files carry their own titles.
+  assert.ok(app.includes('<h1 class="new-heading" tabindex="-1">What are we working on?</h1>'));
+  assert.ok(app.includes('<h1 id="needs-title" class="context-title" tabindex="-1">Needs you</h1>'));
+  assert.ok(app.includes('<h1 class="context-title" tabindex="-1">Files</h1>'));
+
+  // The retired shell's copy is gone, not hidden: the Home heading and its
+  // address line, the recent-chat tail, the back affordance, the composer
+  // keyboard note, the capture verb, and the asleep presence word.
+  for (const retired of [
+    "Your fold</h1>",
+    "Recent chats",
+    "All chats",
+    "Back to chats",
+    "Fold it in",
+    "Desktop asleep",
+    "for a new line",
+  ]) assert.equal(app.includes(retired), false, `retired copy still present: ${retired}`);
 
   // Page title stays the product name.
   const page = await clientSource("index.html");
@@ -69,13 +88,24 @@ test("remote needs-you cards keep the decision vocabulary and state the surface 
   assert.ok(app.includes("This deletes something for good. There is no undo."));
   assert.ok(app.includes(">Yes, delete for good</button>"));
   assert.ok(app.includes(">Keep it</button>"));
-  assert.ok(app.includes("`Needs you (${state.decisions.length})`"));
+  // The screen title stays plain; the count lives on the navigation badge.
+  assert.equal(app.includes("`Needs you (${state.decisions.length})`"), false);
+
+  // Provenance reads as a person would say it: who asked, how long ago, and
+  // how long the staged act still stands. Expiry is not approval.
+  assert.ok(app.includes('"Asked in a chat"'));
+  assert.ok(app.includes('"Asked from the command line"'));
+  assert.match(app, /relativeTime\(card\.provenance\?\.stagedAt\)/);
+  assert.match(app, /expiryPhrase\(card\.expiresAt\)/);
+  for (const phrase of ['"just now"', "${minutesAgo} min ago", "${hoursAgo} h ago", '"expired"', "expires in ${minutesLeft} min"]) {
+    assert.ok(app.includes(phrase), `missing relative-time phrase: ${phrase}`);
+  }
 
   // The surface rules are stated on the card, not discovered at refusal
   // time (docs/fold-consecrations.md): desktop-only Personal-scope
   // make-runnable, and no self-approval by the staging grant.
-  assert.ok(app.includes("Loads into the fold's own runtime, so its decision belongs to your desktop."));
-  assert.ok(app.includes("Staged at this browser's request, so this browser cannot decide it."));
+  assert.ok(app.includes("Decide this on your desktop."));
+  assert.ok(app.includes("This browser asked for this. Decide it on your desktop, or in another approved browser."));
   assert.match(app, /card\.stagedByGrantId === state\.identity\?\.grantId/);
   assert.match(app, /card\.secondConfirmation && !state\.confirmingDestroy\.has\(cardId\)/);
   assert.doesNotMatch(app, /approve all/i);
@@ -83,31 +113,43 @@ test("remote needs-you cards keep the decision vocabulary and state the surface 
   // A rootless file grant approves only where the folder picker lives: the
   // typed card flag disables Approve up front, states the rule, and keeps
   // denial available from this browser.
-  assert.ok(app.includes("Approving binds this grant to a folder chosen in the main work-fold window's needs-you flyout"));
+  assert.ok(app.includes("Approving picks a folder in the work-fold app, so approve it there. You can still deny it from here."));
   assert.match(app, /const needsChosenFolder = !rule && Boolean\(card\.needsDesktopChosenFolder\)/);
   assert.match(app, /data-decision="approved"\$\{busy \|\| needsChosenFolder \? " disabled" : ""\}>Approve<\/button>/);
 
   // Denial memory and outcome sentences match the desktop surfaces.
-  assert.ok(app.includes("now staged again."));
+  assert.ok(app.includes("You denied this on ${escapeHtml(calendarDay(card.priorDenialAt))}. It has been asked again."));
   assert.ok(app.includes("work-fold never retries a denied act."));
   assert.ok(app.includes("Approved, but interrupted before it finished. It was not replayed."));
+
+  // The reworded lines replaced their predecessors instead of joining them.
+  for (const retired of [
+    "Staged by your fold",
+    "Staged from the command lane",
+    "now staged again.",
+    "Loads into the fold's own runtime",
+    "Staged at this browser's request",
+    "needs-you flyout",
+  ]) assert.equal(app.includes(retired), false, `retired card copy still present: ${retired}`);
 
   // Person-facing copy never says "consecration" — that is a contract term.
   const withoutComments = app.replace(/^\s*\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
   assert.doesNotMatch(withoutComments, /consecration/i);
 });
 
-test("remote glance home renders the digest sections with quiet-not-hidden seen items", async () => {
+test("remote glance renders the digest sections with quiet-not-hidden seen items", async () => {
   const app = await clientSource("app.js");
 
-  // Section vocabulary from docs/fold-glance.md's remote-home spec.
+  // Section vocabulary from docs/fold-glance.md's remote spec.
   assert.ok(app.includes(">Running now</h3>"));
   assert.ok(app.includes(">Since you last looked</h3>"));
   assert.ok(app.includes(">Checks</h3>"));
+  assert.ok(app.includes(">From chats</h3>"));
 
   // Marking seen advances only this grant's own marker, only after the digest
-  // rendered on a visible surface; fetching never advances it.
+  // rendered on the visible surface that shows it; fetching never advances it.
   assert.match(app, /renderFoldHome\(\);\s*\n\s*acknowledgeGlance\(\);/);
+  assert.match(app, /if \(state\.contextName !== "needs"\) return;/);
   assert.match(app, /document\.visibilityState === "hidden"/);
   assert.match(app, /remote\("management\.glanceSeen", \{ cursor \}\)/);
 
@@ -116,39 +158,85 @@ test("remote glance home renders the digest sections with quiet-not-hidden seen 
   assert.ok(app.includes("Show earlier"));
   assert.match(app, /glance-item\$\{quiet \? " quiet" : ""\}/);
   assert.ok(app.includes("Nothing new since you last looked."));
-  assert.ok(app.includes("More is running than fits in this digest."));
+  assert.ok(app.includes("More is running than fits here."));
+  // "digest" is contract vocabulary; the client never says it to a person.
+  assert.equal(app.includes("this digest"), false);
   assert.ok(app.includes("Some records could not be read just now:"));
+
+  // A question raised inside a chat is answered in that chat — but only when
+  // this browser can actually open it.
+  assert.match(app, /state\.conversations\.some\(\(conversation\) => conversation\.id === conversationId\)/);
+  assert.ok(app.includes(">Open chat</button>"));
 
   // Desktop offline means no digest: the client refreshes only while online
   // and keeps its honest offline state otherwise.
   assert.match(app, /if \(state\.foldHomeRefreshing \|\| !state\.session\?\.desktopOnline\) return;/);
 });
 
-test("remote client navigation keeps the four-context single-column shell", async () => {
+test("remote client navigation is one sidebar over four screens", async () => {
   const app = await clientSource("app.js");
+  const styles = await clientSource("app.css");
 
-  // Bottom tabs on the phone; the icon rail from 860px up. The same three
-  // destinations either way, and the Chat screen belongs to Chats in both.
-  assert.match(app, /class="tab-bar"[\s\S]*?<span>Home<\/span>[\s\S]*?<span>Chats<\/span>[\s\S]*?<span>Files<\/span>/);
-  assert.match(app, /class="icon-rail"[\s\S]*?aria-label="Home"[\s\S]*?aria-label="Chats"[\s\S]*?aria-label="Files"[\s\S]*?aria-label="New chat"/);
-  assert.match(app, /const highlighted = name === "chat" \? "chats" : name;/);
-  assert.match(app, /setAttribute\("aria-current", "page"\)/);
+  // Four screens, New chat as the door; the retired hashes land there too.
+  assert.match(app, /const contextNames = \["new", "chat", "needs", "files"\];/);
+  assert.match(app, /contextNames\.includes\(raw\) \? raw : "new"/);
+  assert.match(app, /requested === "home" \|\| requested === "chats"\) return "new"/);
+  assert.match(app, /id="context-new"[\s\S]*?id="context-chat"[\s\S]*?id="context-needs"[\s\S]*?id="context-files"/);
+  assert.match(app, /id="new-composer-slot"[\s\S]*?id="messages"[\s\S]*?id="chat-composer-slot"/);
 
-  // Chat is a single column with a back affordance at every width; the saved
-  // list lives only in the Chats context — there is no desktop sidebar.
-  assert.match(app, /id="context-chats"[\s\S]*?<ul id="chats"[\s\S]*?id="context-chat"[\s\S]*?id="back-to-chats"/);
-  assert.ok(app.includes('aria-label="Back to chats"'));
+  // The sidebar exists once in the DOM and is both the desktop column and the
+  // phone drawer; its state is remembered, and the bottom tab bar is gone.
+  assert.equal(app.match(/class="sidebar"/g).length, 1);
+  assert.ok(app.includes('<aside id="drawer" class="sidebar" aria-label="Menu">'));
+  assert.ok(app.includes('const sidebarStorageKey = "work-fold-remote-sidebar-v1"'));
+  assert.match(styles, /\.app-shell\[data-sidebar="collapsed"\] \.sidebar \{[^}]*width: 60px/);
+  assert.equal(app.includes("tab-bar"), false);
+  assert.equal(styles.includes(".tab-bar"), false);
 
-  // The Home status line stays honest: the desktop is online or asleep,
-  // never an error page pretending otherwise.
-  assert.ok(app.includes('online ? "Desktop online" : "Desktop asleep"'));
+  // Expanded order: New chat, Needs you with its count, the grouped chat
+  // list, then Files, presence, and Settings in the footer.
+  assert.match(app, /id="new-chat"[\s\S]*?data-nav-context="needs"[\s\S]*?data-nav-badge[\s\S]*?<ul id="chats"[\s\S]*?data-nav-context="files"[\s\S]*?id="desktop-presence"[\s\S]*?id="account-settings"/);
+  assert.match(app, /"Today"[\s\S]*?"Yesterday"[\s\S]*?"Earlier"/);
+  assert.ok(app.includes("No chats yet"));
+  assert.ok(app.includes("Older chats hidden"));
 
-  // The Home composer always starts a new request, and "Fold it in" appears
-  // exactly when material is staged on the message (fold.md rule 3).
-  assert.match(app, /sentFromHome \|\| state\.startingNewChat \|\| !state\.selectedConversationId/);
-  assert.ok(app.includes('state.uploads.length ? "Fold it in" : "Send message"'));
+  // Collapsed, Chats is an icon that opens the list by expanding the sidebar.
+  assert.match(app, /data-sidebar-expand="true" data-tip="Chats" aria-label="Chats"/);
+  assert.match(app, /setSidebarState\("expanded"/);
 
-  // Home renders pending decisions first, then the live request tail, then
-  // the glance body — the needs-you stack is never below the digest.
-  assert.ok(app.includes("${renderNeedsYou()}${renderHomeActivity()}${renderGlance()}"));
+  // Tooltips are the collapsed rail's labels only, and each one repeats the
+  // button's accessible name rather than inventing a second word for it.
+  assert.match(styles, /\.app-shell\[data-sidebar="collapsed"\] \.sidebar \[data-tip\]::after \{\s*\n\s*content: attr\(data-tip\)/);
+  assert.match(styles, /@media \(min-width: 860px\) and \(hover: hover\)[\s\S]*?\[data-tip\]:hover::after/);
+  assert.match(styles, /\[data-tip\]:focus-visible::after/);
+  for (const name of ["New chat", "Chats", "Needs you", "Files", "Settings"]) {
+    assert.ok(app.includes(`data-tip="${name}" aria-label="${name}"`) || app.includes(`aria-label="${name}" data-tip="${name}"`),
+      `tooltip and accessible name disagree for ${name}`);
+  }
+  // The CSS tooltip is the only tooltip: no native title doubles it up.
+  assert.equal(app.includes('title="Settings"'), false);
+
+  // The phone's top bar: ☰ with the pending-decision dot, and a drawer that
+  // is a real dialog — focus trapped, Escape closing, body scroll locked.
+  assert.match(app, /id="menu-button"[\s\S]*?aria-label="Menu"[\s\S]*?aria-controls="drawer"[\s\S]*?aria-expanded="false"/);
+  assert.match(app, /class="menu-dot" data-nav-dot hidden/);
+  assert.match(app, /drawer\?\.setAttribute\("role", "dialog"\);\s*\n\s*drawer\?\.setAttribute\("aria-modal", "true"\);/);
+  assert.match(app, /document\.body\.classList\.add\("drawer-locked"\)/);
+  assert.match(app, /if \(event\.key === "Tab" && state\.drawerOpen\) return trapDrawerFocus\(event\)/);
+  assert.match(app, /if \(state\.drawerOpen\) \{\s*\n\s*event\.preventDefault\(\);\s*\n\s*closeDrawer\(\);/);
+  assert.ok(app.includes('"Close menu"'));
+
+  // The New chat screen sends the way Home did — always a new conversation —
+  // and the send button says one thing.
+  assert.match(app, /sentFromNewChat \|\| state\.startingNewChat \|\| !state\.selectedConversationId/);
+  assert.match(app, /if \(sentFromNewChat\) showContext\("chat"\)/);
+  assert.match(app, /state\.sending \? "Sending message" : unavailable \? "Desktop offline" : "Send message"/);
+
+  // Needs you renders decisions first, then the questions from chats, then
+  // the digest — the needs-you stack is never below the glance.
+  assert.ok(app.includes("${renderNeedsYou()}${renderFromChats()}${renderGlance()}"));
+  assert.ok(app.includes("Nothing needs you right now."));
+
+  // Presence is a sidebar-footer line, honest in both directions.
+  assert.ok(app.includes('online ? "Desktop online" : "Desktop offline"'));
 });
