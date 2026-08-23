@@ -53,10 +53,10 @@ test("remote client keeps the load-bearing copy exact", async () => {
   assert.ok(app.includes("After this approval, this browser stays signed in until you revoke it."));
 
   // The screens name themselves: the door asks the question, and Needs you
-  // and Files carry their own titles.
+  // and Spaces carry their own titles.
   assert.ok(app.includes('<h1 class="new-heading" tabindex="-1">What are we working on?</h1>'));
   assert.ok(app.includes('<h1 id="needs-title" class="context-title" tabindex="-1">Needs you</h1>'));
-  assert.ok(app.includes('<h1 class="context-title" tabindex="-1">Files</h1>'));
+  assert.ok(app.includes('<h1 class="context-title" tabindex="-1">Spaces</h1>'));
 
   // The retired shell's copy is gone, not hidden: the Home heading and its
   // address line, the recent-chat tail, the back affordance, the composer
@@ -178,10 +178,12 @@ test("remote client navigation is one sidebar over four screens", async () => {
   const styles = await clientSource("app.css");
 
   // Four screens, New chat as the door; the retired hashes land there too.
-  assert.match(app, /const contextNames = \["new", "chat", "needs", "files"\];/);
+  assert.match(app, /const contextNames = \["new", "chat", "needs", "spaces"\];/);
+  // The Space browser is named for where it goes; `#files` still lands there.
+  assert.match(app, /if \(raw === "files"\) return \{ context: "spaces"/);
   assert.match(app, /contextNames\.includes\(raw\) \? raw : "new"/);
   assert.match(app, /requested === "home" \|\| requested === "chats"\) return "new"/);
-  assert.match(app, /id="context-new"[\s\S]*?id="context-chat"[\s\S]*?id="context-needs"[\s\S]*?id="context-files"/);
+  assert.match(app, /id="context-new"[\s\S]*?id="context-chat"[\s\S]*?id="context-needs"[\s\S]*?id="context-spaces"/);
   assert.match(app, /id="new-composer-slot"[\s\S]*?id="messages"[\s\S]*?id="chat-composer-slot"/);
 
   // The sidebar exists once in the DOM and is both the desktop column and the
@@ -194,8 +196,8 @@ test("remote client navigation is one sidebar over four screens", async () => {
   assert.equal(styles.includes(".tab-bar"), false);
 
   // Expanded order: New chat, Needs you with its count, the grouped chat
-  // list, then Files, presence, and Settings in the footer.
-  assert.match(app, /id="new-chat"[\s\S]*?data-nav-context="needs"[\s\S]*?data-nav-badge[\s\S]*?<ul id="chats"[\s\S]*?data-nav-context="files"[\s\S]*?id="desktop-presence"[\s\S]*?id="account-settings"/);
+  // list, then Spaces, presence, and Settings in the footer.
+  assert.match(app, /id="new-chat"[\s\S]*?data-nav-context="needs"[\s\S]*?data-nav-badge[\s\S]*?<ul id="chats"[\s\S]*?data-nav-context="spaces"[\s\S]*?id="desktop-presence"[\s\S]*?id="account-settings"/);
   assert.match(app, /"Today"[\s\S]*?"Yesterday"[\s\S]*?"Earlier"/);
   assert.ok(app.includes("No chats yet"));
   assert.ok(app.includes("Older chats hidden"));
@@ -209,7 +211,7 @@ test("remote client navigation is one sidebar over four screens", async () => {
   assert.match(styles, /\.app-shell\[data-sidebar="collapsed"\] \.sidebar \[data-tip\]::after \{\s*\n\s*content: attr\(data-tip\)/);
   assert.match(styles, /@media \(min-width: 860px\) and \(hover: hover\)[\s\S]*?\[data-tip\]:hover::after/);
   assert.match(styles, /\[data-tip\]:focus-visible::after/);
-  for (const name of ["New chat", "Chats", "Needs you", "Files", "Settings"]) {
+  for (const name of ["New chat", "Chats", "Needs you", "Spaces", "Settings"]) {
     assert.ok(app.includes(`data-tip="${name}" aria-label="${name}"`) || app.includes(`aria-label="${name}" data-tip="${name}"`),
       `tooltip and accessible name disagree for ${name}`);
   }

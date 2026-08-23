@@ -13,14 +13,15 @@ const localSlug = new URL(location.href).searchParams.get("slug") || "";
 // and the send button sends; hardware keyboards keep Enter-to-send.
 const coarsePointer = matchMedia("(pointer: coarse)").matches;
 
-// ?fixture=new|chat|needs|files renders canned local state for QA (the desktop
+// ?fixture=new|chat|needs|spaces renders canned local state for QA (the desktop
 // renderer's ?fixture=space precedent). Fixture mode is client-side only and
 // inert against the real API: api() and remote() refuse before any fetch or
 // auth material is touched, and the event stream never opens.
 const fixtureName = (() => {
   const requested = new URL(location.href).searchParams.get("fixture");
   if (requested === "home" || requested === "chats") return "new";
-  return requested === "new" || requested === "chat" || requested === "needs" || requested === "files" ? requested : null;
+  if (requested === "files") return "spaces";
+  return requested === "new" || requested === "chat" || requested === "needs" || requested === "spaces" ? requested : null;
 })();
 
 // Fixture-only chrome overrides, so a QA screenshot can capture the collapsed
@@ -37,7 +38,7 @@ const fixtureChrome = (() => {
 // The four screens of the client. One is visible at a time on every width; the
 // chrome around them differs (sidebar on desktop, top bar plus drawer on the
 // phone) but the screens themselves are the same.
-const contextNames = ["new", "chat", "needs", "files"];
+const contextNames = ["new", "chat", "needs", "spaces"];
 
 // The sidebar's desktop state outlives the tab: it is a workspace preference,
 // not a per-visit one.
@@ -437,6 +438,9 @@ function parseLocationHash() {
     const conversationId = decodeURIComponent(raw.slice("chat=".length));
     return { context: "chat", conversationId: conversationId || null };
   }
+  // `#files` was this screen's name before it was called Spaces; a link from
+  // that window still lands where it meant to.
+  if (raw === "files") return { context: "spaces", conversationId: null };
   return { context: contextNames.includes(raw) ? raw : "new", conversationId: null };
 }
 
@@ -503,9 +507,9 @@ function renderApplication() {
           <ul id="chats" class="chat-list"></ul>
         </div>
         <div class="sidebar-foot">
-          <button class="sidebar-item" type="button" data-nav-context="files" data-nav-current="files" data-tip="Files" aria-label="Files">
+          <button class="sidebar-item" type="button" data-nav-context="spaces" data-nav-current="spaces" data-tip="Spaces" aria-label="Spaces">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l1.8 2h9.2v9H3.5Z" /></svg>
-            <span class="sidebar-label">Files</span>
+            <span class="sidebar-label">Spaces</span>
           </button>
           <div class="presence-row">
             <p id="desktop-presence" class="presence"><span class="presence-dot" aria-hidden="true"></span><span id="desktop-presence-text"></span></p>
@@ -577,11 +581,11 @@ function renderApplication() {
               </div>
             </div>
           </section>
-          <section id="context-files" class="context context-files" aria-label="Files" hidden>
+          <section id="context-spaces" class="context context-spaces" aria-label="Spaces" hidden>
             <div class="context-scroll">
               <div class="context-column">
                 <header class="context-head">
-                  <h1 class="context-title" tabindex="-1">Files</h1>
+                  <h1 class="context-title" tabindex="-1">Spaces</h1>
                 </header>
                 <div id="workspace-pane" class="workspace-pane">
                   <select id="space-picker" class="space-picker" aria-label="Choose a Space"></select>
@@ -1747,7 +1751,7 @@ function updateNavBadges() {
   const title = document.querySelector("#needs-title");
   if (title && title.textContent !== heading) title.textContent = heading;
   const barTitle = document.querySelector("#top-bar-title");
-  const barText = state.contextName === "needs" ? heading : state.contextName === "files" ? "Files" : "";
+  const barText = state.contextName === "needs" ? heading : state.contextName === "spaces" ? "Spaces" : "";
   if (barTitle && barTitle.textContent !== barText) barTitle.textContent = barText;
 }
 

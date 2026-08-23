@@ -1,4 +1,4 @@
-// Canned local state for ?fixture=new|chat|needs|files QA previews (the
+// Canned local state for ?fixture=new|chat|needs|spaces QA previews (the
 // pattern set by the desktop renderer's ?fixture=space). Fixture mode is
 // client-side only and inert against the real API: app.js refuses to attach
 // auth, open the event stream, or call fetch while a fixture is showing, so

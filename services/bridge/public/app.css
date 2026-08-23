@@ -407,12 +407,12 @@ body.drawer-locked { overflow: hidden; }
 .top-bar-mark, .top-bar-title, .top-bar-center .conversation-title-shell { display: none; }
 .app-shell[data-context="new"] .top-bar-mark { display: block; width: 28px; height: 28px; border-radius: 7px; }
 .app-shell[data-context="needs"] .top-bar-title,
-.app-shell[data-context="files"] .top-bar-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 650; letter-spacing: -.015em; }
+.app-shell[data-context="spaces"] .top-bar-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 650; letter-spacing: -.015em; }
 .app-shell[data-context="chat"] .top-bar-center .conversation-title-shell { display: block; }
 .top-bar-actions { justify-self: end; min-width: 44px; display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
 .app-shell:not([data-context="chat"]) #stop-task { display: none; }
 .app-shell[data-context="needs"] .top-bar-new-chat,
-.app-shell[data-context="files"] .top-bar-new-chat { display: none; }
+.app-shell[data-context="spaces"] .top-bar-new-chat { display: none; }
 /* On a chat that can be stopped, Stop takes the right-hand slot. */
 .app-shell[data-context="chat"] .top-bar-actions:has(#stop-task:not([hidden])) .top-bar-new-chat { display: none; }
 
@@ -781,7 +781,7 @@ button.file-main:focus-visible { outline: 2px solid var(--accent); outline-offse
   .glyph-close { display: block; }
   /* The heading stays for assistive technology and focus management; the
      visible title is the one in the top bar, so it is not said twice. */
-  .context-needs .context-title, .context-files .context-title {
+  .context-needs .context-title, .context-spaces .context-title {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -791,7 +791,7 @@ button.file-main:focus-visible { outline: 2px solid var(--accent); outline-offse
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
   }
-  .context-needs .context-head, .context-files .context-head { margin: 0; }
+  .context-needs .context-head, .context-spaces .context-head { margin: 0; }
 }
 
 /* --- 860px and up: the sidebar becomes the left column -------------------- */

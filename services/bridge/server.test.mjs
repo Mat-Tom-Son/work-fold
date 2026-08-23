@@ -87,14 +87,14 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.doesNotMatch(applicationSource, /Chat with Space|id="scope-name"|id="management-home"/);
   assert.match(applicationSource, /id="account-settings"[\s\S]*?id="account-menu"[\s\S]*?>Sign out</);
   // The shell: one sidebar (the desktop column and the phone drawer) holding
-  // New chat, Needs you, the saved-chat list, and Files; then the screens —
+  // New chat, Needs you, the saved-chat list, and Spaces; then the screens —
   // New chat (heading plus composer), Chat (one transcript plus composer),
-  // Needs you (the cards and the digest), and Files (the read-only tree).
-  assert.match(applicationSource, /<aside id="drawer" class="sidebar"[\s\S]*?id="new-chat"[\s\S]*?data-nav-context="needs"[\s\S]*?class="sidebar-chats"[\s\S]*?data-nav-context="files"/);
+  // Needs you (the cards and the digest), and Spaces (the read-only tree).
+  assert.match(applicationSource, /<aside id="drawer" class="sidebar"[\s\S]*?id="new-chat"[\s\S]*?data-nav-context="needs"[\s\S]*?class="sidebar-chats"[\s\S]*?data-nav-context="spaces"/);
   assert.match(applicationSource, /id="context-new"[\s\S]*?>What are we working on\?<[\s\S]*?id="new-composer-slot"/);
   assert.match(applicationSource, /id="context-chat"[\s\S]*?id="messages"[\s\S]*?id="chat-composer-slot"/);
   assert.match(applicationSource, /id="context-needs"[\s\S]*?class="context-title" tabindex="-1">Needs you<[\s\S]*?id="fold-home"/);
-  assert.match(applicationSource, /id="context-files"[\s\S]*?class="context-title" tabindex="-1">Files<[\s\S]*?id="workspace-pane"[\s\S]*?id="space-picker"[\s\S]*?id="file-tree"/);
+  assert.match(applicationSource, /id="context-spaces"[\s\S]*?class="context-title" tabindex="-1">Spaces<[\s\S]*?id="workspace-pane"[\s\S]*?id="space-picker"[\s\S]*?id="file-tree"/);
   // The phone opens the same sidebar as a drawer from the top bar; there is
   // no bottom tab bar and no second icon rail.
   assert.match(applicationSource, /class="top-bar"[\s\S]*?id="menu-button"[\s\S]*?aria-controls="drawer"/);
@@ -202,7 +202,7 @@ test("fixture previews render canned state and stay inert against the real API",
 
   const applicationSource = await (await fetch(`${baseUrl}/app.js`)).text();
   // ?fixture accepts exactly the four preview screens.
-  assert.match(applicationSource, /requested === "new" \|\| requested === "chat" \|\| requested === "needs" \|\| requested === "files"/);
+  assert.match(applicationSource, /requested === "new" \|\| requested === "chat" \|\| requested === "needs" \|\| requested === "spaces"/);
   // The guard: fixture mode never attaches auth or calls fetch. api() and
   // remote() refuse before touching identity or the network, the event
   // stream and refresh loop never start, and no seen marker is posted from
