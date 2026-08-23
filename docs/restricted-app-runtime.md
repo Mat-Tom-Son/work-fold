@@ -337,7 +337,7 @@ work-fold-only skill.
 Human approval adds the receipt's exact revision as a Local preview in the
 source Space's Development Instance, with network, file, and notification
 access off and every automation disabled. Source changes require a new review.
-**Assistant tools → Installed → Apps in this Space** manages destination, file,
+The Space's **Apps** tab manages destination, file,
 and notification grants, connections, each automation's schedule and run
 history, local data, and removal; advanced
 local preview remains a recovery/developer path. A reviewed update preserves

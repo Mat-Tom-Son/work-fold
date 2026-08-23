@@ -61,6 +61,7 @@ import {
 } from "./work-fold-cli-host.js";
 import { ManagementPopover, type ManagementPopoverStagedItem } from "./management-popover.js";
 import { PackagedPiRuntimeProvider } from "./pi-runtime.js";
+import { applyLoginShellEnvironment, formatLoginShellEnvironmentResult, type LoginShellEnvironmentResult } from "./shell-environment.js";
 import { createRestrictedAppConnectionStore } from "./restricted-app-connections.js";
 import { createRestrictedAppOAuthClient } from "./restricted-app-oauth.js";
 import { RestrictedAppHost, restrictedAppProtocol } from "./restricted-app-host.js";
@@ -314,6 +315,7 @@ if (ownsInstance) {
   app.whenReady().then(async () => {
     configureStableUserDataPath();
     configureWorkFoldStateRoot(app.getPath("userData"));
+    await ensureLoginShellEnvironment();
     configureCliEnvironment();
     if (initialCliArgumentError) throw initialCliArgumentError;
     if (initialCliRequestId) {
@@ -380,9 +382,28 @@ interface DesktopHost {
   settleSignal: WorkFoldSettleSignal;
 }
 
+let loginShellEnvironmentPromise: Promise<LoginShellEnvironmentResult> | null = null;
+
+/**
+ * Dock, Finder, Spotlight, and `open` launches inherit launchd's minimal
+ * environment, so Pi's shell tools would miss everything the person's shell
+ * profile adds to PATH. Resolve the login shell once, before any Pi session or
+ * CLI PATH pin can observe process.env; a terminal launch is left untouched.
+ */
+function ensureLoginShellEnvironment(): Promise<LoginShellEnvironmentResult> {
+  loginShellEnvironmentPromise ??= applyLoginShellEnvironment().then((result) => {
+    const line = formatLoginShellEnvironmentResult(result);
+    if (result.status === "failed") console.warn(`${productName}: ${line}`);
+    else console.log(`${productName}: ${line}`);
+    return result;
+  });
+  return loginShellEnvironmentPromise;
+}
+
 async function ensureDesktopHost(): Promise<DesktopHost> {
   if (desktopHostPromise) return desktopHostPromise;
   desktopHostPromise = (async () => {
+    await ensureLoginShellEnvironment();
     const userData = app.getPath("userData");
     configureWorkFoldStateRoot(userData);
     const settings = new SecureSettingsStore(join(userData, "secure-settings.bin"));

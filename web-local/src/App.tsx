@@ -28,6 +28,7 @@ import { FileDetailsPane } from "./components/panes/FileDetailsPane";
 import { ChecksPane, ChecksToolbarButton } from "./components/panes/ChecksPane";
 import { AppStudioPane } from "./components/panes/AppStudioPane";
 import { CapabilitiesPane } from "./components/panes/CapabilitiesPane";
+import { SpaceAppsPane } from "./components/panes/SpaceAppsPane";
 import { ExtensionSurfacePane, ExtensionSurfaceUnavailable, ExtensionSurfaceView } from "./components/panes/ExtensionSurface";
 import { RestrictedAppViewport } from "./components/panes/RestrictedAppViewport";
 import { SpaceAppearancePanel, SpaceModeRail, SpacePaneHeader } from "./components/panes/spaceChrome";
@@ -44,7 +45,7 @@ import { useSpaceTree } from "./hooks/useSpaceTree";
 import { useSpaceChecks } from "./hooks/useSpaceChecks";
 import { api, apiForm, apiUrl, errorText } from "./lib/api";
 import { chatActivityKey, conversationLifecycleView } from "./lib/chat-lifecycle";
-import { chatContextRequestForTab } from "./lib/chat-context-request";
+import { appBuildDraft, chatContextRequestForTab, chatDraftRequestForTab } from "./lib/chat-context-request";
 import { contributedSurfaces, resolveSurfaceForKey, surfaceMatchesTab } from "./lib/capability-surfaces";
 import { canOpenDirectly, hasNativeFiles, hasSpacePathDrag, nativeOpenLabel } from "./lib/file-actions";
 import { formatItemCount } from "./lib/format";
@@ -56,7 +57,7 @@ import { collectLoadedFileEntries, findTreeEntry, isInsideFolder, moveTreeEntry,
 import { normalizeSpaceCustomizations } from "./lib/space-customization";
 import { spaceIdentityFor, spaceIdentityStyle } from "./lib/space-identity";
 import { removeSpaceConfirmText, surfacePanelDomId, surfaceTabDomId, spaceHeaderSourceBadgeLabel } from "./lib/space-ui";
-import type { AgentCatalog, AgentExtensionSurface, AppTheme, AppThemePreference, AppTypographyFont, AppTypographyPreference, BootstrapResponse, ChatActionsState, ChatContextPathRequest, ConversationSummary, DesktopUpdateStatus, FileContextMenuState, RestrictedAppInstalled, TreeEntry, SpaceCustomization, SpaceCustomizationMap, SpaceCustomizationPatch, SpacePane, SpaceRailMode, SpaceSummary } from "./types";
+import type { AgentCatalog, AgentExtensionSurface, AppTheme, AppThemePreference, AppTypographyFont, AppTypographyPreference, BootstrapResponse, ChatActionsState, ChatContextPathRequest, ChatDraftRequest, ConversationSummary, DesktopUpdateStatus, FileContextMenuState, RestrictedAppInstalled, TreeEntry, SpaceCustomization, SpaceCustomizationMap, SpaceCustomizationPatch, SpacePane, SpaceRailMode, SpaceSummary } from "./types";
 import { ConfirmDialogHost, requestConfirm, showToast, ToastHost } from "./ui/feedback";
 import { spaceIconOptions } from "./space-icons";
 
@@ -347,6 +348,8 @@ function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, u
   const [chatActions, setChatActions] = useState<ChatActionsState | null>(null);
   const [versionHistory, setVersionHistory] = useState<{ space: SpaceSummary; path: string; name: string } | null>(null);
   const [contextRequest, setContextRequest] = useState<ChatContextPathRequest | null>(null);
+  const [draftRequest, setDraftRequest] = useState<ChatDraftRequest | null>(null);
+  const draftRequestId = useRef(0);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const commandPaletteReturnFocusRef = useRef<HTMLElement | null>(null);
   const [historyRefreshRequest, setHistoryRefreshRequest] = useState(0);
@@ -765,6 +768,12 @@ function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, u
     tabs.openChatSurfaceTab(targetSpace, conversation);
   }
 
+  /** Opens a fresh Chat with the app-building starter text, cursor at the end. */
+  function startAppBuildChat(targetSpace: SpaceSummary) {
+    const surfaceTabId = tabs.openChatSurfaceTab(targetSpace, null);
+    setDraftRequest({ id: ++draftRequestId.current, text: appBuildDraft(targetSpace.name), spaceId: targetSpace.id, surfaceTabId });
+  }
+
   function openChatActions(
     targetSpace: SpaceSummary,
     conversation: ConversationSummary,
@@ -1111,11 +1120,12 @@ function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, u
   const commands = useMemo<CommandPaletteCommand[]>(() => [
     ...(["files", "chats", "history"] as SpacePane[]).map((mode) => ({ id: `go:${mode}`, groupId: "go-to" as const, groupLabel: "Go to", label: mode[0]!.toUpperCase() + mode.slice(1), defaultVisible: true, run: () => selectRailMode(mode) })),
     { id: "go:library", groupId: "go-to" as const, groupLabel: "Go to", label: "Library", detail: "Reusable personal files", defaultVisible: true, run: () => openLibrary(space) },
-    { id: "go:assistant-tools", groupId: "go-to" as const, groupLabel: "Go to", label: "Assistant tools", detail: "Installed Skills, Extensions, and apps", defaultVisible: true, run: () => tabs.openAssistantToolsSurfaceTab(space, "installed") },
+    { id: "go:space-apps", groupId: "go-to" as const, groupLabel: "Go to", label: "Apps", detail: "Apps built for this Space: access, connections, automations", defaultVisible: true, run: () => tabs.openSpaceAppsSurfaceTab(space) },
+    { id: "go:assistant-tools", groupId: "go-to" as const, groupLabel: "Go to", label: "Skills & Extensions", detail: "What the Assistant can use: installed Skills and Extensions", defaultVisible: true, run: () => tabs.openAssistantToolsSurfaceTab(space, "installed") },
     ...(checks.status?.configured ? [{ id: "go:checks", groupId: "go-to" as const, groupLabel: "Go to", label: "Checks", detail: checks.status.needsAttention ? `${checks.status.needsAttention} need attention` : "Designated file expectations", defaultVisible: true, run: () => tabs.openChecksSurfaceTab(space) }] : []),
-    { id: "action:discover-assistant-tools", groupId: "actions" as const, groupLabel: "Actions", label: "Browse Skills & Extensions", keywords: ["capabilities", "discover", "install", "tools"], run: () => tabs.openAssistantToolsSurfaceTab(space, "discover") },
-    ...surfaces.map((surface) => ({ id: `app:${surface.key}`, groupId: "go-to" as const, groupLabel: "Go to", label: surface.title, detail: surface.scope === "project" ? "Pi Extension · This Space" : "Pi Extension · Personal", run: () => selectRailMode(`app:${surface.key}`) })),
-    ...restrictedApps.map((app) => ({ id: `restricted-app:${app.manifest.id}`, groupId: "go-to" as const, groupLabel: "Go to", label: app.manifest.title, detail: "Sandboxed app · This Space", run: () => selectRailMode(restrictedAppRailMode(space.id, app.manifest.id)) })),
+    { id: "action:discover-assistant-tools", groupId: "actions" as const, groupLabel: "Actions", label: "Discover Skills & Extensions", keywords: ["capabilities", "discover", "install", "tools", "browse"], run: () => tabs.openAssistantToolsSurfaceTab(space, "discover") },
+    ...surfaces.map((surface) => ({ id: `app:${surface.key}`, groupId: "go-to" as const, groupLabel: "Go to", label: surface.title, detail: surface.scope === "project" ? "Pi Extension · This Space" : "Pi Extension · Everywhere", run: () => selectRailMode(`app:${surface.key}`) })),
+    ...restrictedApps.map((app) => ({ id: `restricted-app:${app.manifest.id}`, groupId: "go-to" as const, groupLabel: "Go to", label: app.manifest.title, detail: "App · This Space", run: () => selectRailMode(restrictedAppRailMode(space.id, app.manifest.id)) })),
     ...spaces.map((item) => ({ id: `space:${item.id}`, groupId: "switch-space" as const, groupLabel: "Switch Space", label: item.name, detail: spaceHeaderSourceBadgeLabel(item), matchTargets: [item.rootPath], run: () => onSwitchSpace(item) })),
     ...Object.entries(conversationGroups).flatMap(([spaceId, conversations]) => conversations.map((conversation) => {
       const lifecycle = conversationLifecycleView(conversation);
@@ -1156,7 +1166,7 @@ function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, u
   </>;
 
   return <main className={paneResize.sidebarResizing ? "space-layout resizing" : "space-layout"} ref={paneResize.spaceLayoutRef} style={layoutStyle}>
-    <SpaceModeRail activeMode={activeMode} space={space} surfaces={surfaces} apps={restrictedApps} onModeChange={selectRailMode} onOpenLibrary={() => openLibrary(space)} onOpenAssistantTools={(view) => tabs.openAssistantToolsSurfaceTab(space, view)} onBuildApp={() => openChat(space, null)} accountControl={<>{needsYouControl}<button className="space-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings" data-rail-tooltip="Settings"><Settings24Regular aria-hidden="true" /></button></>} onOpenKeyboardShortcuts={onOpenShortcuts} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
+    <SpaceModeRail activeMode={activeMode} space={space} surfaces={surfaces} apps={restrictedApps} onModeChange={selectRailMode} onOpenLibrary={() => openLibrary(space)} onOpenApps={() => tabs.openSpaceAppsSurfaceTab(space)} onOpenAssistantTools={(view) => tabs.openAssistantToolsSurfaceTab(space, view)} accountControl={<>{needsYouControl}<button className="space-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings" data-rail-tooltip="Settings"><Settings24Regular aria-hidden="true" /></button></>} onOpenKeyboardShortcuts={onOpenShortcuts} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
     <section className={`space-mode-pane space-mode-pane-${activeMode}`} id="space-file-panel">
       <SpacePaneHeader space={space} identity={identity} spaces={spaces} spaceCustomizations={customizations} onSwitchSpace={onSwitchSpace} onCreateSpace={onCreateSpace} onOpenFolder={onOpenFolder} onManageSpaces={() => setActiveMode("spaces")} managingSpaces={activeMode === "spaces"} action={headerAction} />
       {activeMode === "spaces" ? <SpacesPane space={space} spaces={spaces} identities={customizations} onSwitch={onSwitchSpace} onCreate={onCreateSpace} onOpenFolder={onOpenFolder} onCustomize={(target) => tabs.openAppearanceSurfaceTab(target)} onRename={renameSpace} onRemove={(target) => void removeSpace(target)} /> : null}
@@ -1255,16 +1265,22 @@ function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, u
                 status={agent}
                 view={tab.view}
                 fixtureMode={Boolean(fixture)}
-                restrictedApps={restrictedAppsState.appsBySpace[targetSpace.id] ?? []}
-                restrictedAppsLoading={restrictedAppsState.loadingSpaceIds.has(targetSpace.id)}
                 onViewChange={(view) => tabs.openAssistantToolsSurfaceTab(targetSpace, view)}
                 onOpenSettings={() => onOpenSettings("assistant")}
                 onError={onError}
                 onCatalogChanged={(catalog) => updateSurfaceCatalog(targetSpace.id, catalog)}
-                onRestrictedAppChanged={restrictedAppsState.upsertApp}
-                onRestrictedAppRemoved={(appId) => restrictedAppsState.removeApp(targetSpace.id, appId)}
-                onBuildApp={() => openChat(targetSpace, null)}
+              />
+            ) : tab.kind === "space-apps" ? (
+              <SpaceAppsPane
+                space={targetSpace}
+                apps={restrictedAppsState.appsBySpace[targetSpace.id] ?? []}
+                loading={restrictedAppsState.loadingSpaceIds.has(targetSpace.id)}
+                fixtureMode={Boolean(fixture)}
+                onBuildApp={() => startAppBuildChat(targetSpace)}
                 onOpenAppStudio={(sourceSpaceId) => tabs.openAppStudioSurfaceTab(spaces.find((item) => item.id === sourceSpaceId) ?? targetSpace)}
+                onUpsertApp={restrictedAppsState.upsertApp}
+                onRemoveApp={(appId) => restrictedAppsState.removeApp(targetSpace.id, appId)}
+                onError={onError}
               />
             ) : tab.kind === "checks" ? (
               <ChecksPane
@@ -1329,7 +1345,7 @@ function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, u
                 ? <RestrictedAppViewport app={app} placement="tab" appTabId={tab.appTabId} route={tab.route} state={tab.state} active={active} />
                 : <CenteredState icon={<AlertTriangle size={24} />} title="App unavailable" text="This tab belongs to an app revision that is no longer installed in this Space." />;
             })() : tab.kind === "chat" ? (
-              <ChatPanel surfaceTabId={tab.id} space={targetSpace} spaceCustomizations={customizations} active={active} targetConversationId={tab.conversationId ?? null} lifecycleView={targetConversationLifecycle} onResumeConversation={targetConversation ? () => updateChatLifecycle(targetSpace, targetConversation, targetConversationLifecycle === "archived" ? { archived: false } : { snoozedUntil: null }).then(() => {}).catch((caught) => onError(errorText(caught))) : undefined} contextPathRequest={chatContextRequestForTab(contextRequest, targetSpace.id, tab.id)} onAddPathToChatContext={active && targetSpace.id === space.id ? attachToChat : undefined} onUploadDroppedFiles={active && targetSpace.id === space.id ? uploadDroppedFilesForChat : undefined} onOpenSpaceFile={active && targetSpace.id === space.id ? (path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); } : undefined} selectedPath={active && targetSpace.id === space.id ? tree.selectedPath : null} onConversationActivated={(conversation) => tabs.handleTabConversationActivated(tab.id, targetSpace, conversation)} onConversationsChanged={(conversations) => setConversationGroups((current) => ({ ...current, [targetSpace.id]: conversations }))} onRunningChange={(conversationId, running) => chatActivity.setRunning(chatActivityKey(targetSpace.id, conversationId), running)} onSettled={(conversationId, needsAttention) => chatActivity.setAttention(chatActivityKey(targetSpace.id, conversationId), needsAttention)} onViewed={(conversationId) => chatActivity.setAttention(chatActivityKey(targetSpace.id, conversationId), false)} onAgentFinished={() => targetSpace.id === space.id ? tree.refresh() : undefined} onRestrictedAppProposalRequested={() => tabs.setActiveSurfaceTabId(tab.id)} onRestrictedAppInstalled={(app) => openInstalledRestrictedApp(targetSpace, app)} fixtureMode={Boolean(fixture)} fixtureConversations={fixture && (tab.conversationId || tab.id === `chat:${targetSpace.id}:new`) ? fixture.conversations[targetSpace.id] : undefined} fixtureTreeEntries={fixture?.trees[targetSpace.id]} />
+              <ChatPanel surfaceTabId={tab.id} space={targetSpace} spaceCustomizations={customizations} active={active} targetConversationId={tab.conversationId ?? null} lifecycleView={targetConversationLifecycle} onResumeConversation={targetConversation ? () => updateChatLifecycle(targetSpace, targetConversation, targetConversationLifecycle === "archived" ? { archived: false } : { snoozedUntil: null }).then(() => {}).catch((caught) => onError(errorText(caught))) : undefined} contextPathRequest={chatContextRequestForTab(contextRequest, targetSpace.id, tab.id)} draftRequest={chatDraftRequestForTab(draftRequest, targetSpace.id, tab.id)} onAddPathToChatContext={active && targetSpace.id === space.id ? attachToChat : undefined} onUploadDroppedFiles={active && targetSpace.id === space.id ? uploadDroppedFilesForChat : undefined} onOpenSpaceFile={active && targetSpace.id === space.id ? (path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); } : undefined} selectedPath={active && targetSpace.id === space.id ? tree.selectedPath : null} onConversationActivated={(conversation) => tabs.handleTabConversationActivated(tab.id, targetSpace, conversation)} onConversationsChanged={(conversations) => setConversationGroups((current) => ({ ...current, [targetSpace.id]: conversations }))} onRunningChange={(conversationId, running) => chatActivity.setRunning(chatActivityKey(targetSpace.id, conversationId), running)} onSettled={(conversationId, needsAttention) => chatActivity.setAttention(chatActivityKey(targetSpace.id, conversationId), needsAttention)} onViewed={(conversationId) => chatActivity.setAttention(chatActivityKey(targetSpace.id, conversationId), false)} onAgentFinished={() => targetSpace.id === space.id ? tree.refresh() : undefined} onRestrictedAppProposalRequested={() => tabs.setActiveSurfaceTabId(tab.id)} onRestrictedAppInstalled={(app) => openInstalledRestrictedApp(targetSpace, app)} fixtureMode={Boolean(fixture)} fixtureConversations={fixture && (tab.conversationId || tab.id === `chat:${targetSpace.id}:new`) ? fixture.conversations[targetSpace.id] : undefined} fixtureTreeEntries={fixture?.trees[targetSpace.id]} />
             ) : null}
           </div>
         );

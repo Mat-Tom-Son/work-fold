@@ -89,6 +89,9 @@ export const ChatMessageRow = memo(function ChatMessageRow({
       ) : showRecap ? <AgentActivityRecap events={activityRecap} /> : null}
       <footer className="message-footer">
         <span className="message-footer-meta">
+          {message.role === "user" && message.delivery === "steer" ? (
+            <span className="message-delivery" title="Sent while the Assistant was working; it applied after the step in progress.">Sent mid-turn</span>
+          ) : null}
           {message.createdAt && messageTime ? (
             <time className="message-time" dateTime={message.createdAt} title={formatDateTime(message.createdAt)}>
               {messageTime}
@@ -115,6 +118,7 @@ function areChatMessageRowPropsEqual(previous: ChatMessageRowProps, next: ChatMe
     && previousMessage.kind === nextMessage.kind
     && previousMessage.landing === nextMessage.landing
     && previousMessage.interruption === nextMessage.interruption
+    && previousMessage.delivery === nextMessage.delivery
   );
   const sameRuntimePreview = !previous.showRuntimePreview && !next.showRuntimePreview
     ? true

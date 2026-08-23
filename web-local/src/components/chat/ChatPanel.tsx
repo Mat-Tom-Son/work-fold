@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type * as React from "react";
 import { ArrowDown20Regular, ArrowUp20Regular } from "@fluentui/react-icons";
-import { AlertTriangle, Archive, CircleCheck, Clock3, Loader2, Square, X } from "lucide-react";
+import { AlertTriangle, Archive, Brain, CircleCheck, Clock3, Loader2, Square, X } from "lucide-react";
 
 import { agentActivityLogLimit, chatDraftDebounceMs, genericChatEmptyGreetings, spacePathDragType } from "../../constants";
 import { createFixtureContextAttachment, fixtureAgentActivityEvents, fixtureConversationSummary } from "../../fixtures/shared";
-import { api, createEventSource, errorText, isTransientNetworkError, rawErrorMessage } from "../../lib/api";
+import { ApiError, api, createEventSource, errorText, isTransientNetworkError, rawErrorMessage } from "../../lib/api";
 import { createChatTurnStateGate, observeChatTurnState } from "../../lib/chat-turn-state";
 import { hasNativeFiles } from "../../lib/file-actions";
 import {
@@ -25,7 +25,8 @@ import { latestAssistantMessageId as findLatestAssistantMessageId, settledTurnHa
 import { dismissRestrictedAppProposal, installRestrictedAppProposal } from "../../lib/restricted-apps";
 import { resolveFixtureSpacePathCandidates } from "../../lib/space-path-links";
 import { spaceIdentityFor, spaceIdentityStyle, type SpaceIdentity } from "../../lib/space-identity";
-import type { AgentActivityEvent, AgentActivityLogEntry, AgentCatalog, AgentCommand, AgentStatus, ChatContextPathRequest, ChatLifecycleView, ChatMessage, ChatStreamEvent, ContextAttachment, ConversationRuntime, ConversationSummary, ExtensionUiRequest, PendingChatSend, RestrictedAppInstalled, RestrictedAppProposal, RuntimePreviewEntry, TreeEntry, SpaceCustomizationMap, SpaceFixtureConversation, SpaceSummary } from "../../types";
+import type { AgentActivityEvent, AgentActivityLogEntry, AgentCatalog, AgentCommand, AgentStatus, ChatContextPathRequest,
+  ChatDraftRequest, ChatLifecycleView, ChatMessage, ChatStreamEvent, ContextAttachment, ConversationRuntime, ConversationSummary, ExtensionUiRequest, PendingChatSend, RestrictedAppInstalled, RestrictedAppProposal, RuntimePreviewEntry, TreeEntry, SpaceCustomizationMap, SpaceFixtureConversation, SpaceSummary } from "../../types";
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { Banner, FluentGlyph, SpaceIconGlyph } from "../chrome/common";
 import { RestrictedAppReviewDialog } from "../panes/RestrictedAppsSection";
@@ -52,10 +53,32 @@ const fixtureConversationRuntime: ConversationRuntime = {
     cost: 0,
   },
   thinkingLevel: "medium",
+  thinkingLevels: ["off", "minimal", "low", "medium", "high"],
   activeTools: [],
   isStreaming: false,
   isCompacting: false,
 };
+
+/**
+ * Extracts pasted image files from the clipboard as a fresh DataTransfer with
+ * descriptive names, or null when the paste carries no images (plain text
+ * pastes stay untouched).
+ */
+export function pastedImageTransfer(clipboard: DataTransfer | null, now: Date = new Date()): DataTransfer | null {
+  if (!clipboard) return null;
+  const images = Array.from(clipboard.files).filter((file) => file.type.startsWith("image/"));
+  if (!images.length) return null;
+  const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}.${String(now.getMinutes()).padStart(2, "0")}.${String(now.getSeconds()).padStart(2, "0")}`;
+  const transfer = new DataTransfer();
+  images.forEach((file, index) => {
+    const extension = file.name.includes(".") ? file.name.slice(file.name.lastIndexOf(".")) : `.${file.type.split("/")[1] ?? "png"}`;
+    const name = file.name && file.name !== `image${extension}`
+      ? file.name
+      : `Pasted image ${stamp}${images.length > 1 ? ` (${index + 1})` : ""}${extension}`;
+    transfer.items.add(new File([file], name, { type: file.type, lastModified: file.lastModified }));
+  });
+  return transfer;
+}
 
 function clientTurnIdentity(prefix: "request" | "message" | "chat"): string {
   const value = globalThis.crypto?.randomUUID?.()
@@ -70,6 +93,7 @@ export function ChatPanel({
   active = true,
   targetConversationId = null,
   contextPathRequest,
+  draftRequest = null,
   onAddPathToChatContext,
   onUploadDroppedFiles,
   onOpenSpaceFile,
@@ -94,6 +118,7 @@ export function ChatPanel({
   active?: boolean;
   targetConversationId?: string | null;
   contextPathRequest: ChatContextPathRequest | null;
+  draftRequest?: ChatDraftRequest | null;
   onAddPathToChatContext?: (path: string) => void;
   onUploadDroppedFiles?: (dataTransfer: DataTransfer) => Promise<string[]>;
   onOpenSpaceFile?: (path: string) => void;
@@ -630,6 +655,21 @@ export function ChatPanel({
     if (!contextPathRequest) return;
     void attachContextPath(contextPathRequest.path);
   }, [contextPathRequest?.id]);
+
+  useEffect(() => {
+    if (!draftRequest) return;
+    // Seed the composer and leave the caret at the end so the person simply
+    // keeps typing what they want.
+    setDraft(draftRequest.text);
+    window.requestAnimationFrame(() => {
+      const textarea = composerTextareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      const end = textarea.value.length;
+      textarea.setSelectionRange(end, end);
+      resizeComposerTextarea();
+    });
+  }, [draftRequest?.id]);
 
   useEffect(() => {
     if (userPinnedToBottomRef.current) scrollMessagesToBottom("auto");
@@ -1289,6 +1329,42 @@ export function ChatPanel({
     }
   }
 
+  async function steerMessage(content: string): Promise<void> {
+    if (!conversation || fixtureMode) return;
+    const requestId = clientTurnIdentity("request");
+    const userMessageId = clientTurnIdentity("message");
+    const localMessage: ChatMessage = {
+      id: userMessageId,
+      role: "user",
+      content,
+      createdAt: new Date().toISOString(),
+      delivery: "steer",
+    };
+    setMessages((current) => [...current, localMessage]);
+    scrollMessagesToBottom("auto");
+    try {
+      const result = await api<{ accepted: boolean; message: ChatMessage }>(`/api/spaces/${space.id}/conversations/${conversation.id}/messages`, {
+        method: "POST",
+        idempotent: true,
+        body: { content, delivery: "steer", requestId, userMessageId },
+      });
+      suppressMessageEnterIdsRef.current.add(result.message.id);
+      setMessages((current) => current.map((message) => message.id === localMessage.id ? result.message : message));
+    } catch (caught) {
+      setMessages((current) => current.filter((message) => message.id !== localMessage.id));
+      if (caught instanceof ApiError && caught.status === 409) {
+        // The turn settled before the message could reach it: send it as the
+        // next message instead, which the queued-send effect does the moment
+        // `running` clears.
+        setQueuedSend((current) => (current ? `${current}\n${content}` : content));
+        return;
+      }
+      setError(errorText(caught));
+      setDraft((current) => (current.trim() ? current : content));
+      window.requestAnimationFrame(() => composerTextareaRef.current?.focus());
+    }
+  }
+
   async function postPendingMessage() {
     const pending = pendingSendRef.current;
     if (!pending || postingPendingSendRef.current) return;
@@ -1418,6 +1494,20 @@ export function ChatPanel({
     } catch (compactError) {
       setRunning(false);
       setError(errorText(compactError));
+    }
+  }
+
+  async function changeThinkingLevel(conversationId: string, level: string): Promise<void> {
+    if (fixtureMode) return;
+    try {
+      const result = await api<{ thinking: { level: string; available: string[] }; runtime: ConversationRuntime }>(
+        `/api/spaces/${space.id}/conversations/${conversationId}/thinking`,
+        { method: "POST", body: { level } },
+      );
+      setConversationRuntime(result.runtime);
+      showToast({ text: `Thinking level: ${result.thinking.level}`, tone: "success" });
+    } catch (caught) {
+      setError(errorText(caught));
     }
   }
 
@@ -1585,7 +1675,7 @@ export function ChatPanel({
       const app = await installRestrictedAppProposal(space.id, proposal.conversationId, proposal.id);
       setAppProposal(null);
       onRestrictedAppInstalled?.(app);
-      showToast({ text: `${app.manifest.title} installed. Review its access in Assistant tools when you are ready to connect it.`, tone: "success" });
+      showToast({ text: `${app.manifest.title} installed. Review its access in this Space’s Apps tab when you are ready to connect it.`, tone: "success" });
     } catch (caught) {
       setError(errorText(caught));
     } finally {
@@ -1837,6 +1927,15 @@ export function ChatPanel({
               setDraft(event.target.value);
               if (event.target.value !== dismissedCommandDraft) setDismissedCommandDraft(null);
             }}
+            onPaste={(event) => {
+              // A pasted image (screenshot, copied picture) is an explicit act:
+              // it lands in the Space's dated Dropped/ folder like a dropped
+              // file and is attached to this turn as an image the model sees.
+              const transfer = pastedImageTransfer(event.clipboardData);
+              if (!transfer || !onUploadDroppedFiles) return;
+              event.preventDefault();
+              void attachDroppedNativeFiles(transfer);
+            }}
             onKeyDown={(event) => {
               if (commandMenuOpen && event.key === "ArrowDown") {
                 event.preventDefault();
@@ -1863,18 +1962,25 @@ export function ChatPanel({
                 event.preventDefault();
                 if (!draft.trim()) return;
                 if (running) {
-                  // Mid-turn Enter queues the draft instead of silently
-                  // no-oping; it sends when the turn settles.
                   const content = draft.trim();
-                  setQueuedSend((current) => (current ? `${current}\n${content}` : content));
+                  if (event.metaKey || event.ctrlKey || pendingSendRef.current || fixtureMode) {
+                    // ⌘/Ctrl+Enter holds the draft for after this turn; a turn
+                    // that has not been accepted yet cannot be steered either.
+                    setQueuedSend((current) => (current ? `${current}\n${content}` : content));
+                    setDraft("");
+                    scrollMessagesToBottom("auto");
+                    return;
+                  }
+                  // Plain Enter mid-turn steers: the Assistant reads it after
+                  // its current step, the way typing during a Pi turn does.
                   setDraft("");
-                  scrollMessagesToBottom("auto");
+                  void steerMessage(content);
                   return;
                 }
                 void sendMessage();
               }
             }}
-            placeholder="Message Assistant"
+            placeholder={running && !pendingSendRef.current ? "Steer the Assistant (Enter) · queue for after this turn (⌘Enter)" : "Message Assistant"}
           />
           <div className="composer-capability-bar">
             <button
@@ -1892,6 +1998,15 @@ export function ChatPanel({
               : configuredAssistant?.configured && configuredAssistant.provider && configuredAssistant.model
                 ? <ConfiguredAssistantModel status={configuredAssistant} />
                 : null}
+            {configuredAssistant?.configured && conversationRuntime && conversation
+              ? (
+                <ThinkingLevelControl
+                  runtime={conversationRuntime}
+                  disabled={running || fixtureMode}
+                  onChange={(level) => changeThinkingLevel(conversation.id, level)}
+                />
+              )
+              : null}
           </div>
           {running ? (
             <button className="send-button stop-send-button" type="button" onClick={() => void abortTurn()} aria-label="Stop Assistant" title="Stop Assistant">
@@ -1938,6 +2053,91 @@ function ConversationContextMeter({ runtime }: { runtime: ConversationRuntime })
       <span className="conversation-context-value">
         {percent === null ? "Context —" : `${Math.round(percent)}%`}
       </span>
+    </div>
+  );
+}
+
+const thinkingLevelHints: Record<string, string> = {
+  off: "No extended reasoning",
+  minimal: "A brief think before answering",
+  low: "Light reasoning",
+  medium: "Balanced reasoning (Pi's default)",
+  high: "Deeper reasoning for harder work",
+  xhigh: "Very deep reasoning",
+  max: "Maximum reasoning budget",
+};
+
+function ThinkingLevelControl({
+  runtime,
+  disabled,
+  onChange,
+}: {
+  runtime: ConversationRuntime;
+  disabled: boolean;
+  onChange: (level: string) => void | Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const levels = runtime.thinkingLevels ?? [];
+  useEffect(() => {
+    if (!open) return;
+    function handlePointerDown(event: PointerEvent): void {
+      if (event.target instanceof Node && containerRef.current?.contains(event.target)) return;
+      setOpen(false);
+    }
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [open]);
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+  // A model without adjustable thinking offers nothing to choose.
+  if (levels.length < 2) return null;
+  const title = `Thinking level for this Chat: ${runtime.thinkingLevel}`;
+  return (
+    <div className="composer-thinking-control" ref={containerRef}>
+      <button
+        className={open ? "composer-command-trigger composer-thinking-trigger active" : "composer-command-trigger composer-thinking-trigger"}
+        type="button"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={title}
+        title={disabled ? "Thinking level changes apply between turns" : title}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span aria-hidden="true"><Brain size={12} /></span>
+        <span className="composer-thinking-label">{runtime.thinkingLevel}</span>
+      </button>
+      {open ? (
+        <div className="composer-command-menu composer-thinking-menu" role="listbox" aria-label="Thinking level">
+          <div className="composer-command-menu-heading"><span>Thinking level</span></div>
+          {levels.map((level) => (
+            <button
+              key={level}
+              type="button"
+              role="option"
+              aria-selected={level === runtime.thinkingLevel}
+              className={level === runtime.thinkingLevel ? "active" : undefined}
+              onClick={() => {
+                setOpen(false);
+                if (level !== runtime.thinkingLevel) void onChange(level);
+              }}
+            >
+              <span className="composer-command-name">{level}</span>
+              <span className="composer-command-description">{thinkingLevelHints[level] ?? ""}</span>
+              <span className="composer-command-source">{level === runtime.thinkingLevel ? "current" : ""}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { createWriteStream, existsSync } from "node:fs";
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, join } from "node:path";
+import { lstat, mkdir, mkdtemp, readdir, rename, rm, rmdir, writeFile } from "node:fs/promises";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
@@ -272,4 +272,62 @@ function isSymlink(entry: JSZip.JSZipObject): boolean {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+
+export interface PiSkillRemovalResult {
+  scope: "user" | "project";
+  /** The Skill directory that was deleted. */
+  removedPath: string;
+}
+
+/**
+ * Removes one imported Skill: the directory holding its `SKILL.md`, plus any
+ * bundle folders above it that became empty. Only Skills inside work-fold's
+ * own import roots (`<agentDir>/skills` for Everywhere, `.pi/skills` in the
+ * Space) are eligible; Skills that arrived through a Pi package, a settings
+ * path, or another location are managed where they were installed.
+ */
+export async function removePiSkill(
+  spaceRoot: string,
+  input: { skillPath: string; scope?: "user" | "project" },
+  runtimeProvider?: PiRuntimeProvider,
+): Promise<PiSkillRemovalResult> {
+  const runtime = await resolvePiRuntime(spaceRoot, runtimeProvider, { requestProjectTrust: false });
+  const scope = input.scope ?? "user";
+  if (scope === "project" && !hasExplicitPiProjectMutationTrust(runtime)) {
+    throw new Error("Trust this Space before removing Space-scoped Skills.");
+  }
+  const root = resolve(scope === "project" ? join(spaceRoot, ".pi", "skills") : join(runtime.agentDir, "skills"));
+  const skillFile = resolve(input.skillPath);
+  if (basename(skillFile).toLowerCase() !== "skill.md") throw new Error("Only a Skill's SKILL.md identifies it for removal.");
+  const skillDir = dirname(skillFile);
+  const relativeDir = relative(root, skillDir);
+  if (!relativeDir || relativeDir === "." || relativeDir.startsWith("..") || isAbsolute(relativeDir)) {
+    throw new Error(scope === "project"
+      ? "This Skill is not stored in this Space's .pi/skills folder, so work-fold cannot remove it from here."
+      : "This Skill is not stored in your Pi skills folder, so work-fold cannot remove it from here.");
+  }
+  for (const segment of relativeDir.split(sep)) {
+    if (!segment || segment === "." || segment === "..") throw new Error("The Skill path is invalid.");
+  }
+  const info = await lstat(skillDir).catch(() => null);
+  if (!info) throw new Error("The Skill folder no longer exists.");
+  if (info.isSymbolicLink() || !info.isDirectory()) throw new Error("The Skill folder is not an ordinary directory.");
+  const fileInfo = await lstat(skillFile).catch(() => null);
+  if (!fileInfo || !fileInfo.isFile()) throw new Error("The Skill's SKILL.md no longer exists.");
+  await rm(skillDir, { recursive: true, force: true });
+
+  // A multi-Skill bundle folder that is now empty is removed as well so the
+  // same bundle can be imported again later.
+  let parent = dirname(skillDir);
+  while (parent !== root) {
+    const parentRelative = relative(root, parent);
+    if (!parentRelative || parentRelative.startsWith("..") || isAbsolute(parentRelative)) break;
+    const entries = await readdir(parent).catch(() => null);
+    if (entries === null || entries.length > 0) break;
+    await rmdir(parent).catch(() => undefined);
+    parent = dirname(parent);
+  }
+  return { scope, removedPath: skillDir };
 }

@@ -167,7 +167,10 @@ test("desktop Assistant shells inherit the exact running profile in development 
     helper.indexOf("WORKFOLD_CLI_STATE_DIR") < helper.indexOf("if (!app.isPackaged"),
     "state binding must happen before the packaged-only executable and PATH setup",
   );
-  assert.match(main, /configureWorkFoldStateRoot\(app\.getPath\("userData"\)\);\s+configureCliEnvironment\(\);/);
+  // The login-shell environment is adopted before the CLI PATH pin so the
+  // packaged `work-fold` executable stays first on PATH for Assistant shells.
+  assert.match(main, /configureWorkFoldStateRoot\(app\.getPath\("userData"\)\);\s+await ensureLoginShellEnvironment\(\);\s+configureCliEnvironment\(\);/);
+  assert.match(main, /desktopHostPromise = \(async \(\) => \{\s+await ensureLoginShellEnvironment\(\);/);
 });
 
 test("packaged Remote access enrollment carries no shared client credential", async () => {

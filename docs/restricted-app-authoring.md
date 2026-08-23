@@ -32,14 +32,15 @@ The normal product path begins in a Chat belonging to the target Space:
 4. Review and add that digest in the owning Chat as a **Local preview** in
    the Space's Development Instance. Proposal does not add a preview, grant a
    permission, or collect a credential.
-5. Manage the preview under **Assistant tools → Installed → Apps in this
-   Space**. Network destinations, file targets, notification categories,
-   connections, and each named automation are separate controls.
+5. Manage the preview under the Space's **Apps** tab. Network destinations,
+   file targets, notification categories, connections, and each named
+   automation are separate controls.
 
-**Advanced local preview** in that Assistant tools section is the developer and
-recovery path for a completed package already inside the current Space. It
-does not replace the Chat-bound proposal and review flow for agent-created
-apps.
+The Apps tab deliberately shows no developer path. A completed package that is
+already inside the Space and was not proposed from a Chat is added with
+`work-fold apps install-preview --space <id-or-name> --package <space-path>`
+(a recovery and developer lane in the CLI's act family); it does not replace
+the Chat-bound proposal and review flow for agent-created apps.
 
 ## From preview to an installed App
 

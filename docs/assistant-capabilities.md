@@ -2,7 +2,7 @@
 
 work-fold uses Pi's native capability system for full-trust Skills and Extensions and includes a separate restricted-app package lane for agent-created browser apps. This guide explains how Skills, Extensions, packages, scopes, and authorization fit the product without confusing them with the user-facing Library.
 
-The rail's **Add** menu opens one Space-owned **Assistant tools** work tab. Its **Installed** view answers what is present, where it came from, which scope owns it, and whether Pi loaded it. Its **Discover** view searches first-party/reference sources and community Pi packages. Skills and Extensions remain distinct item types inside both views because their behavior and risk are different. Add also opens one persistent Library tab per Space, all backed by the same passive personal collection. Its explicit destination selector copies to any registered Space. Executable tools are never mixed into its tree or install path.
+The rail's **Add** menu opens one Space-owned **Assistant tools** work tab, titled **Skills & Extensions**. Its **Installed** view answers what is present, where it came from, which scope owns it, and whether Pi loaded it, grouping tools as **Everywhere** (the fold and every Space) above **This Space only** (stored in the Space folder). Its **Discover** view searches first-party/reference sources and community Pi packages. Skills and Extensions remain distinct item types inside both views because their behavior and risk are different. Add also opens one persistent Library tab per Space, all backed by the same passive personal collection. Its explicit destination selector copies to any registered Space. Executable tools are never mixed into its tree or install path.
 
 ## Management visibility
 
@@ -82,7 +82,7 @@ Pi's built-in tools remain available alongside loaded Extensions. work-fold does
 
 A loaded Extension may place a versioned `surface.json` manifest beside its entry point. For the model, the creation and lifecycle unit is the normal Pi package containing that Extension, its tools or connection logic, and the adjacent manifest. work-fold validates the static manifest and can contribute an app destination below the stable primary rail, a left-pane navigator, and Space-bound view tabs. The renderer owns every component; manifests cannot provide HTML, scripts, styles, React modules, event handlers, or direct renderer access. This is the **full-trust Pi Extension lane**.
 
-Surface discovery follows Pi's loaded Extension catalog rather than scanning arbitrary files. Personal surfaces appear where their Personal Extension is loaded. This Space surfaces appear while their folder is registered and Pi loads the adjacent Extension. Invalid, oversized, linked, or unsupported manifests produce capability diagnostics and do not take down other Extensions. See [Extension surfaces](extension-surfaces.md) for the version 1 schema and limits.
+Surface discovery follows Pi's loaded Extension catalog rather than scanning arbitrary files. Everywhere surfaces appear where their user-scope Extension is loaded. This Space surfaces appear while their folder is registered and Pi loads the adjacent Extension. Invalid, oversized, linked, or unsupported manifests produce capability diagnostics and do not take down other Extensions. See [Extension surfaces](extension-surfaces.md) for the version 1 schema and limits.
 
 The declarative surface does not reduce the trust level of its owning Extension. Extension code still runs with the current user's permissions and can make network requests. The UI must label these contributions as full-trust even though their visible blocks are host-rendered.
 
@@ -96,12 +96,12 @@ That parser feeds a machine-local reviewed-digest lifecycle and separate sandbox
 
 | Product label | Pi scope | Typical location | Availability |
 |---|---|---|---|
-| **Personal** | User/global | The configured Pi agent directory, normally `~/.pi/agent` | Available across Spaces. |
+| **Everywhere** | User/global | The configured Pi agent directory, normally `~/.pi/agent` | Available to the fold and every Space. (Earlier builds labeled this scope **Personal**.) |
 | **This Space** | Project/local | `.pi/` inside the Space folder | Portable with that folder and authorized while it is registered as a Space. |
 
-Personal Skills commonly live below `~/.pi/agent/skills`; personal Extensions below `~/.pi/agent/extensions`. Space-scoped equivalents live below `.pi/skills` and `.pi/extensions` in the Space. Pi also discovers global and project `.agents/skills` locations, packages, and paths added through settings. The Pi catalog is therefore the authority rather than a hard-coded directory scan in the renderer.
+Everywhere Skills commonly live below `~/.pi/agent/skills`; Everywhere Extensions below `~/.pi/agent/extensions`. Space-scoped equivalents live below `.pi/skills` and `.pi/extensions` in the Space. Pi also discovers global and project `.agents/skills` locations, packages, and paths added through settings. The Pi catalog is therefore the authority rather than a hard-coded directory scan in the renderer.
 
-Personal scope is convenient for capabilities a person wants everywhere. This Space scope is appropriate when a capability belongs with one activity or should travel with that folder. Scope does not indicate safety: personal executable code still deserves inspection.
+Everywhere scope (Pi's user scope) is for capabilities a person wants in every Space — it is what the fold's Assistant loads, too. This Space scope is appropriate when a capability belongs with one activity or should travel with that folder. The install review step asks **Where should it live?** with the same two choices, illustrated as the fold above a row of Spaces so the reach of each option is visible before confirming. Scope does not indicate safety: personal executable code still deserves inspection.
 
 ## Registered-Space authorization
 
@@ -109,7 +109,7 @@ Creating or registering a Space is work-fold's authorization to load project Ski
 
 This choice removes redundant ceremony; it does not certify the folder as safe. Existing native Pi Extension code can execute during the first catalog load, and `.pi` content can change later through local edits, source control, or a synchronization tool. Package installation review, restricted-app grants, external connections, provider credentials, and Chat attachments remain separate decisions.
 
-Importing a Skill directly into **This Space** requires a registered Space. Importing it into **Personal** scope is an explicit global install action and does not write to the Space.
+Importing a Skill directly into **This Space** requires a registered Space. Importing it for **Everywhere** is an explicit global install action and does not write to the Space.
 
 ## Packages
 
@@ -150,7 +150,7 @@ For every new Assistant capability, keep these answers visible in code and UI:
 
 1. What will the Assistant gain: instructions, files, tools, commands, or network access?
 2. Where did it come from?
-3. Is it Personal or This Space?
+3. Is it Everywhere or This Space?
 4. Is it a full-trust Pi Extension or a restricted app package?
 5. Which Space, network destinations, file roots, notification categories, actions, connections, and named automations are granted?
 6. Is it loaded, staged, disabled, or failing diagnostics?

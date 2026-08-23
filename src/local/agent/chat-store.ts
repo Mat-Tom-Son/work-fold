@@ -29,6 +29,8 @@ export interface ChatMessage {
   turnId?: string;
   /** Stable caller identity used to make turn acceptance idempotent. */
   requestId?: string;
+  /** A user message delivered into an already-running turn through Pi's steering queue. */
+  delivery?: "steer";
 }
 
 /**
@@ -460,6 +462,7 @@ function parseChatMessage(line: string): ChatMessage | null {
     }
     if (isTurnIdentity(parsed.turnId)) message.turnId = parsed.turnId;
     if (isTurnIdentity(parsed.requestId)) message.requestId = parsed.requestId;
+    if (parsed.role === "user" && parsed.delivery === "steer") message.delivery = "steer";
     return message;
   } catch {
     return null;

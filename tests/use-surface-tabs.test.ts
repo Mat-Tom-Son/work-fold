@@ -185,7 +185,7 @@ test("tab restore accepts only known, well-formed surface types", () => {
       { id: "history:space-1", kind: "history", spaceId: "space-1", checkpointId: undefined, title: "History" },
       { id: "library:space-1", kind: "library", spaceId: "space-1", title: "Library" },
       { id: "app-studio:space-1", kind: "app-studio", spaceId: "space-1", title: "Renamed Studio" },
-      { id: "assistant-tools:space-1", kind: "assistant-tools", spaceId: "space-1", view: "discover", title: "Assistant tools" },
+      { id: "assistant-tools:space-1", kind: "assistant-tools", spaceId: "space-1", view: "discover", title: "Skills & Extensions" },
       { id: "checks:space-1", kind: "checks", spaceId: "space-1", title: "Checks" },
       { id: "extension:space-1:inbox:overview", kind: "extension", spaceId: "space-1", surfaceId: "inbox", surfaceExecution: "full-trust-pi", viewId: "overview", title: "Overview" },
       { id: restrictedAppSurfaceTabId("space-1", "mail", "a".repeat(64), "message:release"), kind: "restricted-app", spaceId: "space-1", appId: "mail", digest: "a".repeat(64), appTabId: "message:release", route: "/message/release", state: { selected: true }, title: "Release checklist" },
@@ -347,7 +347,7 @@ test("Assistant tools uses one canonical persistent tab per Space and updates it
     kind: "assistant-tools",
     spaceId: "space-1",
     view: "installed",
-    title: "Assistant tools",
+    title: "Skills & Extensions",
   });
   assert.deepEqual(upsertSurfaceTab(upsertSurfaceTab([], installed), discover), [discover]);
 });

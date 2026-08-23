@@ -279,6 +279,7 @@ export async function buildPiResourceCatalog(
 export const builtInPiCommands: PiCommandCatalogItem[] = [
   ["settings", "Open settings"],
   ["model", "Select a model"],
+  ["thinking", "Set the thinking level for this Chat"],
   ["scoped-models", "Choose models for cycling"],
   ["export", "Export the session"],
   ["share", "Share the session as a secret GitHub gist"],

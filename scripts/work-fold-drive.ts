@@ -291,21 +291,21 @@ async function main(): Promise<void> {
   }
 
   try {
-    let space: { id: string; rootPath: string };
+    let space: { id: string; spaceRoot: string };
     if (args.spaceId) {
-      const result = await api<{ spaces: Array<{ id: string; rootPath: string }> }>(origin, "GET", "/api/bootstrap");
+      const result = await api<{ spaces: Array<{ id: string; spaceRoot: string }> }>(origin, "GET", "/api/bootstrap");
       const selected = result.spaces.find((item) => item.id === args.spaceId);
       if (!selected) throw new Error(`Space not found: ${args.spaceId}`);
       space = selected;
     } else {
-      const rootPath = resolve(args.space!);
-      if (!existsSync(rootPath)) await mkdir(rootPath, { recursive: true });
-      const result = await api<{ space: { id: string; rootPath: string } }>(
-        origin, "POST", "/api/spaces/local-folder", { rootPath },
+      const spaceRoot = resolve(args.space!);
+      if (!existsSync(spaceRoot)) await mkdir(spaceRoot, { recursive: true });
+      const result = await api<{ space: { id: string; spaceRoot: string } }>(
+        origin, "POST", "/api/spaces/local-folder", { spaceRoot },
       );
       space = result.space;
     }
-    narrate(`work-fold-drive: Space ${space.id} at ${space.rootPath}`);
+    narrate(`work-fold-drive: Space ${space.id} at ${space.spaceRoot}`);
 
     let conversationId = args.conversation;
     if (!conversationId) {
@@ -364,7 +364,7 @@ async function main(): Promise<void> {
       durationMs,
       origin,
       spaceId: space.id,
-      spaceRoot: space.rootPath,
+      spaceRoot: space.spaceRoot,
       conversationId,
       prompt,
       assistantText: lastAssistant?.content ?? assistantEvent?.text ?? "",

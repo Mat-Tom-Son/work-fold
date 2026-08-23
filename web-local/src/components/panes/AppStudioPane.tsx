@@ -45,7 +45,7 @@ import type {
   SpaceSummary,
 } from "../../types";
 import { requestConfirm, showToast } from "../../ui/feedback";
-import { spaceIconOptionFor } from "../../space-icons";
+import { spaceIconOptions } from "../../space-icons";
 import { SpaceIconGlyph } from "../chrome/common";
 
 type ContinuityPolicy = "eligible" | "reset";
@@ -228,7 +228,7 @@ export function AppStudioPane({
         await refreshStudio();
       }
       setEditingProject(false);
-      showToast({ text: studio?.project ? "App Project updated" : "App Project created", tone: "success" });
+      showToast({ text: studio?.project ? "App details saved" : "App created", tone: "success" });
     });
   }
 
@@ -479,7 +479,6 @@ export function AppStudioPane({
   }
 
   const project = studio?.project ?? null;
-  const projectIconOption = spaceIconOptionFor(project?.presentation.icon ?? "apps");
   const hasInstallTarget = Boolean(targetSpaceId && installTargetIds.has(targetSpaceId));
   const targetName = hasInstallTarget ? spaceName(targetSpaceId, spaceById) : "";
   const pendingForTarget = hasInstallTarget
@@ -491,26 +490,20 @@ export function AppStudioPane({
       <section className="app-studio-canvas" aria-labelledby={`${ids}-title`}>
         <header className="app-studio-header">
           <div className="app-studio-project-identity">
-            <span className="app-studio-project-mark" aria-hidden="true"><SpaceIconGlyph icon={projectIconOption.Icon} size={24} filled /></span>
             <div>
-              <span className="professional-kicker">Local App Studio</span>
-              <h1 id={`${ids}-title`}>{project?.presentation.title ?? "Create an App Project"}</h1>
-              <p>{project?.presentation.description ?? `Build and release a local App from reviewed previews in ${space.name}.`}</p>
-              {project ? <small>Project in {space.name} · Releases stay on this device</small> : null}
+              <span className="professional-kicker">App Studio</span>
+              <h1 id={`${ids}-title`}>{project?.presentation.title ?? "Edit your app"}</h1>
+              {project?.presentation.description ? <p>{project.presentation.description}</p> : null}
+              {project ? <small>Built from {space.name} · Releases stay on this device</small> : null}
             </div>
           </div>
-          <div className="app-studio-header-actions">
-            {project ? (
+          {project ? (
+            <div className="app-studio-header-actions">
               <button className="professional-button professional-button-secondary" type="button" onClick={() => setEditingProject((current) => !current)} disabled={Boolean(busyKey)}>
-                {editingProject ? <Dismiss16Regular /> : <Edit16Regular />}{editingProject ? "Close editor" : "Edit Project"}
+                {editingProject ? <Dismiss16Regular /> : <Edit16Regular />}{editingProject ? "Close" : "Edit details"}
               </button>
-            ) : null}
-            {!fixtureMode ? (
-              <button className="app-studio-icon-button" type="button" onClick={() => void refreshStudio()} disabled={Boolean(busyKey)} aria-label="Refresh App Studio" title="Refresh App Studio">
-                <ArrowSync16Regular />
-              </button>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
         </header>
 
         {!project || editingProject ? (
@@ -542,7 +535,7 @@ export function AppStudioPane({
                 <StageHeader
                   titleId={`${ids}-build-title`}
                   title="Build"
-                  description="Reviewed sandboxed Features in this Space make up the development preview."
+                  description="Apps reviewed in this Space make up the development preview."
                   status={`${studio?.previews.length ?? 0} preview${studio?.previews.length === 1 ? "" : "s"}`}
                 />
                 {studio?.previews.length ? (
@@ -555,7 +548,7 @@ export function AppStudioPane({
                             <strong>{preview.manifest.title}</strong>
                             <span className="professional-status-badge enabled">Local preview</span>
                           </div>
-                          <p>{preview.manifest.description ?? "Sandboxed Feature ready for local release."}</p>
+                          <p>{preview.manifest.description ?? "Ready for a local Release."}</p>
                           <small>{preview.manifest.id} · package {preview.version} · reviewed digest {shortDigest(preview.digest)}</small>
                         </div>
                       </article>
@@ -564,7 +557,7 @@ export function AppStudioPane({
                 ) : (
                   <div className="app-studio-empty-row">
                     <Box16Regular aria-hidden="true" />
-                    <div><strong>No development previews</strong><p>Review and add a sandboxed app in Assistant tools before preparing a Release.</p></div>
+                    <div><strong>No development previews</strong><p>Build an app in this Space’s Apps tab before preparing a Release.</p></div>
                   </div>
                 )}
                 <form className="app-studio-release-form" onSubmit={(event) => void prepareRelease(event)}>
@@ -834,14 +827,8 @@ function ProjectEditor({
   onCancel?: () => void;
 }) {
   return (
-    <section className={`app-studio-project-editor${creating ? " creating" : ""}`} aria-labelledby={`${ids}-project-editor-title`}>
-      <div className="app-studio-project-editor-copy">
-        <span className="app-studio-project-editor-icon" aria-hidden="true"><Apps24Regular /></span>
-        <div>
-          <h2 id={`${ids}-project-editor-title`}>{creating ? "Name this App Project" : "Project presentation"}</h2>
-          <p>{creating ? "This machine-local Project groups the previews and Releases built from this Space." : "These details are frozen into every new Release. Existing Releases do not change."}</p>
-        </div>
-      </div>
+    <section className={`app-studio-project-editor${creating ? " creating" : ""}`} aria-label={creating ? "Edit your app" : "App details"}>
+      {!creating ? <p className="app-studio-project-editor-note">Changes apply to new Releases; existing Releases keep their details.</p> : null}
       <form className="app-studio-project-form" onSubmit={onSubmit}>
         <label htmlFor={`${ids}-project-title`}>
           <span>App name</span>
@@ -851,19 +838,48 @@ function ProjectEditor({
           <span>Description <small>Optional</small></span>
           <textarea id={`${ids}-project-description`} value={description} onChange={(event) => onDescriptionChange(event.target.value)} maxLength={280} rows={3} disabled={busy} />
         </label>
-        <label htmlFor={`${ids}-project-icon`}>
-          <span>Icon id <small>Optional</small></span>
-          <input id={`${ids}-project-icon`} value={icon} onChange={(event) => onIconChange(event.target.value.toLocaleLowerCase())} maxLength={64} pattern="[a-z0-9][a-z0-9-]{0,63}" placeholder="apps" disabled={busy} autoComplete="off" />
-          <small>Lowercase letters, numbers, and hyphens.</small>
-        </label>
+        <div className="app-studio-project-icon wide">
+          <span className="app-studio-project-icon-label">Icon <small>Shown in the rail</small></span>
+          <AppIconPicker value={icon} disabled={busy} onChange={onIconChange} />
+        </div>
         <div className="app-studio-project-form-actions">
           {onCancel ? <button className="professional-button professional-button-secondary" type="button" onClick={onCancel} disabled={busy}>Cancel</button> : null}
           <button className="professional-button professional-button-primary" type="submit" disabled={busy || !title.trim()}>
-            {busy ? <ArrowSync16Regular className="spin" /> : null}{creating ? "Create App Project" : "Save Project"}
+            {busy ? <ArrowSync16Regular className="spin" /> : null}{creating ? "Create app" : "Save"}
           </button>
         </div>
       </form>
     </section>
+  );
+}
+
+/** The whole Fluent icon catalog Customize Space uses, picking the app's icon id. */
+function AppIconPicker({ value, disabled, onChange }: { value: string; disabled: boolean; onChange: (value: string) => void }) {
+  const selected = value.trim() || "apps";
+  return (
+    <div className="space-icon-picker app-studio-icon-picker">
+      <div className="space-icon-grid" role="listbox" aria-label="App icon">
+        {spaceIconOptions.map((option) => {
+          const Icon = option.Icon;
+          const active = option.name === selected;
+          return (
+            <button
+              className={active ? "space-icon-option active" : "space-icon-option"}
+              key={option.name}
+              type="button"
+              role="option"
+              aria-selected={active}
+              disabled={disabled}
+              onClick={() => onChange(option.name)}
+              aria-label={`Use ${option.label} icon`}
+              title={option.label}
+            >
+              <SpaceIconGlyph icon={Icon} size={18} filled={active} />
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

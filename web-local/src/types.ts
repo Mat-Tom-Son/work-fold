@@ -110,6 +110,8 @@ export interface ChatMessage {
   interruption?: ChatMessageInterruption;
   turnId?: string;
   requestId?: string;
+  /** Sent into an already-running turn; the Assistant saw it after its current step. */
+  delivery?: "steer";
 }
 
 export interface ChatMessageInterruption {
@@ -157,7 +159,7 @@ export interface ChatActionsState {
 export type ChatActivityStatus = "running" | "attention";
 export type ChatLifecycleView = "active" | "snoozed" | "archived";
 
-export type ContextAttachmentMode = "full_original_text" | "full_extracted_text" | "path_only_reference";
+export type ContextAttachmentMode = "full_original_text" | "full_extracted_text" | "image" | "path_only_reference";
 export interface ContextAttachment {
   sourcePath: string;
   sourceFileName: string;
@@ -175,6 +177,13 @@ export interface ContextAttachment {
 export interface ChatContextPathRequest {
   id: number;
   path: string;
+  spaceId: string;
+  surfaceTabId: string;
+}
+/** Seeds a Chat composer with starter text; the person finishes the sentence and sends. */
+export interface ChatDraftRequest {
+  id: number;
+  text: string;
   spaceId: string;
   surfaceTabId: string;
 }
@@ -214,6 +223,7 @@ export type SpaceSurfaceTab =
   | (SpaceSurfaceTabBase & { kind: "appearance" })
   | (SpaceSurfaceTabBase & { kind: "app-studio" })
   | (SpaceSurfaceTabBase & { kind: "assistant-tools"; view: AssistantToolsView })
+  | (SpaceSurfaceTabBase & { kind: "space-apps" })
   | (SpaceSurfaceTabBase & { kind: "checks" })
   | (SpaceSurfaceTabBase & { kind: "extension"; surfaceId: string; surfaceExecution: "full-trust-pi"; viewId: string })
   | (SpaceSurfaceTabBase & {
@@ -272,6 +282,8 @@ export interface ConversationRuntime {
     cost: number;
   };
   thinkingLevel: string;
+  /** Levels the current model supports, in Pi's ascending order. */
+  thinkingLevels?: string[];
   activeTools: string[];
   isStreaming: boolean;
   isCompacting: boolean;

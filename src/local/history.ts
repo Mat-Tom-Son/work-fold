@@ -1,8 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { createReadStream, existsSync } from "node:fs";
+import { copyFile, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
+import {
+  createFullHistoryCapturePolicy,
+  createTargetedHistoryCapturePolicy,
+  type HistoryCapturePolicy,
+} from "./history-capture-policy.js";
 import { isOfficeLockFileName } from "./office-lock-files.js";
 import { spaceHistoryRoot } from "./state-paths.js";
 import { assertSpaceDoesNotContainState, ensureSafeSpaceRoot, resolveSpacePath } from "./space.js";
@@ -72,7 +77,10 @@ export interface StoredBlobRef {
 }
 
 const checkpointIdPattern = /^cp-[A-Za-z0-9-]{10,80}$/;
-const versionScopeSkippedSegments = new Set([".git", ".pi", ".work-fold", ".workspace", "node_modules"]);
+/** Files hashed concurrently during a capture; bounds memory for in-memory reads. */
+const captureHashConcurrency = 8;
+/** Files at or above this size are hashed from a stream instead of being read whole. */
+const captureStreamHashBytes = 8 * 1024 * 1024;
 
 export async function storeSpaceBlob(spaceRoot: string, bytes: Buffer): Promise<StoredBlobRef> {
   const root = ensureHistoryRoot(spaceRoot);
@@ -91,6 +99,59 @@ export async function storeSpaceBlob(spaceRoot: string, bytes: Buffer): Promise<
   }
   await ensureHistoryMeta(root);
   return { hashSha256, sizeBytes: bytes.byteLength };
+}
+
+/**
+ * Captures one Space file into the blob store without holding large files in
+ * memory. The common case — content already stored — costs one streamed read.
+ * A new blob is copied (a clone on APFS) into a private staging file and then
+ * hashed again from that copy, so the stored bytes always match the recorded
+ * hash even if the source file changes mid-capture.
+ */
+async function storeSpaceBlobFromFile(root: string, absolutePath: string, sizeBytes: number): Promise<StoredBlobRef> {
+  if (sizeBytes < captureStreamHashBytes) {
+    return storeSpaceBlob(root, await readFile(absolutePath));
+  }
+  const hashSha256 = await sha256File(absolutePath);
+  const blobPath = spaceBlobPath(root, hashSha256);
+  if (existsSync(blobPath)) {
+    await ensureHistoryMeta(root);
+    return { hashSha256, sizeBytes };
+  }
+  await mkdir(dirname(blobPath), { recursive: true });
+  const stagingPath = `${blobPath}.tmp-${randomUUID().slice(0, 8)}`;
+  try {
+    await copyFile(absolutePath, stagingPath);
+    const stagedHash = await sha256File(stagingPath);
+    const stagedInfo = await stat(stagingPath);
+    const finalPath = spaceBlobPath(root, stagedHash);
+    if (existsSync(finalPath)) {
+      await rm(stagingPath, { force: true });
+    } else {
+      await mkdir(dirname(finalPath), { recursive: true });
+      try {
+        await rename(stagingPath, finalPath);
+      } catch (error) {
+        await rm(stagingPath, { force: true }).catch(() => undefined);
+        if (!existsSync(finalPath)) throw error;
+      }
+    }
+    await ensureHistoryMeta(root);
+    return { hashSha256: stagedHash, sizeBytes: stagedInfo.size };
+  } catch (error) {
+    await rm(stagingPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+function sha256File(path: string): Promise<string> {
+  return new Promise((resolvePromise, reject) => {
+    const hash = createHash("sha256");
+    const stream = createReadStream(path);
+    stream.on("error", reject);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("end", () => resolvePromise(hash.digest("hex")));
+  });
 }
 
 export async function captureSpaceBlobSafe(spaceRoot: string, bytes: Buffer): Promise<StoredBlobRef | null> {
@@ -115,7 +176,7 @@ export async function createSpaceCheckpoint(
   options: { label?: string; reason?: string } = {},
 ): Promise<SpaceCheckpoint> {
   const root = ensureHistoryRoot(spaceRoot);
-  const captured = await capturePaths(root, [""], true);
+  const captured = await capturePaths(root, [""], await createFullHistoryCapturePolicy(root));
   return persistCheckpoint(root, {
     reason: options.reason?.trim() || "manual",
     label: options.label,
@@ -144,7 +205,7 @@ export async function createSpaceMutationCheckpoint(
     fromPath: canonicalPath(root, move.fromPath, true).path,
     toPath: canonicalPath(root, move.toPath, true).path,
   }));
-  const captured = await capturePaths(root, captureRoots, false);
+  const captured = await capturePaths(root, captureRoots, createTargetedHistoryCapturePolicy());
   return persistCheckpoint(root, {
     reason: options.reason?.trim() || "mutation",
     label: options.label,
@@ -309,7 +370,7 @@ export async function restoreFileVersion(
   };
 }
 
-async function capturePaths(root: string, requestedPaths: string[], full: boolean): Promise<{
+async function capturePaths(root: string, requestedPaths: string[], policy: HistoryCapturePolicy): Promise<{
   directories: string[];
   files: CheckpointFileEntry[];
   skippedFiles: CheckpointSkippedFile[];
@@ -317,22 +378,23 @@ async function capturePaths(root: string, requestedPaths: string[], full: boolea
   const directories = new Set<string>();
   const files = new Map<string, CheckpointFileEntry>();
   const skipped = new Map<string, CheckpointSkippedFile>();
+  const pendingFiles: Array<{ path: string; absolutePath: string; sizeBytes: number; modifiedAt: string }> = [];
+
   const visit = async (absolutePath: string): Promise<void> => {
     const info = await lstat(absolutePath).catch(() => null);
     if (!info) return;
     const path = toPosix(relative(root, absolutePath));
-    if (path && path.split("/").some((segment) => versionScopeSkippedSegments.has(
-      process.platform === "win32" ? segment.toLocaleLowerCase("en-US") : segment,
-    ))) {
-      skipped.set(path, { path, sizeBytes: info.isFile() ? info.size : 0, reason: "excluded" });
-      return;
-    }
     if (info.isSymbolicLink()) {
       if (path) skipped.set(path, { path, sizeBytes: 0, reason: "symbolic_link" });
       return;
     }
     if (info.isDirectory()) {
+      if (path && await policy.excludeDirectory(path, absolutePath)) {
+        skipped.set(path, { path, sizeBytes: 0, reason: "excluded" });
+        return;
+      }
       if (path) directories.add(path);
+      await policy.enterDirectory(path, absolutePath);
       const entries = await readdir(absolutePath, { withFileTypes: true }).catch(() => []);
       for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
         if (isOfficeLockFileName(entry.name)) continue;
@@ -341,25 +403,39 @@ async function capturePaths(root: string, requestedPaths: string[], full: boolea
       return;
     }
     if (!info.isFile() || !path) return;
+    if (policy.excludeFile(path)) {
+      skipped.set(path, { path, sizeBytes: info.size, reason: "excluded" });
+      return;
+    }
     if (info.size > maxVersionedFileBytes()) {
       skipped.set(path, { path, sizeBytes: info.size, reason: "too_large" });
       return;
     }
-    const modifiedAt = info.mtime.toISOString();
-    // History is a recovery boundary, so metadata is never treated as proof of
-    // content identity. External tools can preserve both size and mtime while
-    // replacing bytes; every capture hashes what is actually on disk.
-    const bytes = await readFile(absolutePath).catch(() => null);
-    if (!bytes) {
-      skipped.set(path, { path, sizeBytes: info.size, reason: "unreadable" });
-      return;
-    }
-    const blob = await storeSpaceBlob(root, bytes);
-    files.set(path, { path, hashSha256: blob.hashSha256, sizeBytes: blob.sizeBytes, modifiedAt });
+    pendingFiles.push({ path, absolutePath, sizeBytes: info.size, modifiedAt: info.mtime.toISOString() });
   };
 
-  if (full) await visit(root);
+  if (requestedPaths.includes("")) await visit(root);
   else for (const path of collapsePaths(requestedPaths)) await visit(canonicalPath(root, path, true).absolutePath);
+
+  // History is a recovery boundary, so metadata is never treated as proof of
+  // content identity. External tools can preserve both size and mtime while
+  // replacing bytes; every capture hashes what is actually on disk. The hashing
+  // itself runs a bounded number of files at a time.
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < pendingFiles.length) {
+      const file = pendingFiles[next]!;
+      next += 1;
+      try {
+        const blob = await storeSpaceBlobFromFile(root, file.absolutePath, file.sizeBytes);
+        files.set(file.path, { path: file.path, hashSha256: blob.hashSha256, sizeBytes: blob.sizeBytes, modifiedAt: file.modifiedAt });
+      } catch {
+        skipped.set(file.path, { path: file.path, sizeBytes: file.sizeBytes, reason: "unreadable" });
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(captureHashConcurrency, pendingFiles.length) }, () => worker()));
+
   return {
     directories: [...directories].sort((left, right) => left.localeCompare(right)),
     files: [...files.values()].sort((left, right) => left.path.localeCompare(right.path)),

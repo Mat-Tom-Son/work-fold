@@ -20,11 +20,20 @@ const [app, tabBar, chatPanel, chatActions, messages, activity, panes, chrome, s
   read("src/local/server.ts"),
 ]);
 
-test("mid-turn Enter queues one visible, cancellable draft that sends on settle", () => {
-  // Enter while a turn runs holds the draft as a dashed queued bubble instead
-  // of silently no-oping; further Enters append; the queued draft fires
-  // through the ordinary send path when the turn settles; Stop and the
-  // bubble's cancel return it to the composer ahead of any newer text.
+test("mid-turn Enter steers the running turn; ⌘Enter queues one visible, cancellable draft that sends on settle", () => {
+  // Plain Enter while a turn runs delivers the text through Pi's steering
+  // queue (the Assistant reads it after its current step) and shows it as a
+  // mid-turn user message; if the turn settles first (409) it becomes the
+  // queued draft. ⌘/Ctrl+Enter holds the draft as a dashed queued bubble;
+  // further Enters append; the queued draft fires through the ordinary send
+  // path when the turn settles; Stop and the bubble's cancel return it to the
+  // composer ahead of any newer text.
+  assert.match(chatPanel, /void steerMessage\(content\);/);
+  assert.match(chatPanel, /body: \{ content, delivery: "steer", requestId, userMessageId \}/);
+  assert.match(chatPanel, /caught instanceof ApiError && caught\.status === 409/);
+  assert.match(chatPanel, /event\.metaKey \|\| event\.ctrlKey \|\| pendingSendRef\.current \|\| fixtureMode/);
+  assert.match(localServer, /body\.delivery === "steer"/);
+  assert.match(localServer, /await client\.steer\(input\.content\);/);
   assert.match(chatPanel, /setQueuedSend\(\(current\) => \(current \? `\$\{current\}\\n\$\{content\}` : content\)\);/);
   assert.match(chatPanel, /if \(running \|\| !queuedSend \|\| lifecycleView !== "active"\) return;/);
   assert.match(chatPanel, /className="queued-send-row"/);

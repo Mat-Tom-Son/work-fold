@@ -44,7 +44,7 @@ export function removeSpaceConfirmText(
       formatRemovalCount(appStudio.releases.length, "Release"),
       formatRemovalCount(appStudio.operations.length, "prepared operation"),
     ].join(", ");
-    consequences.push(`This also permanently clears this computer's App Project and App Studio history (${appState}), including its receipts and unreferenced Release objects. Keeping the folder does not preserve that state.`);
+    consequences.push(`This also permanently clears this computer's App Studio history for it (${appState}), including its receipts and unreferenced Release objects. Keeping the folder does not preserve that state.`);
   }
   if (appStudio.incomingPreparedOperationCount) {
     consequences.push(`This also cancels ${formatRemovalCount(appStudio.incomingPreparedOperationCount, "prepared App operation")} aimed at this Space.`);

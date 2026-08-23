@@ -10,6 +10,8 @@ import JSZip from "jszip";
 
 import {
   PiConversationClient,
+  isPiTurnNotRunningError,
+  isPiTurnTimeoutError,
   PiTurnFailure,
   isPiTurnCancelledError,
   type PiChatEvent,
@@ -47,7 +49,7 @@ import {
   type CapabilitySort,
   type CapabilityType,
 } from "./agent/capability-registry.js";
-import { importPiSkillBundle, piSkillBundleContentDigest } from "./agent/skill-import.js";
+import { importPiSkillBundle, piSkillBundleContentDigest, removePiSkill } from "./agent/skill-import.js";
 import {
   RegisteredSpaceRuntimeProvider,
   RegisteredSpaceTrustAuthority,
@@ -510,6 +512,8 @@ interface LocalApiState {
   chatEventListeners: Map<string, Set<(event: unknown) => void>>;
   chatEventLogs: Map<string, ChatEventLog>;
   activeTurnIdsByKey: Map<string, string>;
+  /** Mid-turn steering messages already appended, keyed by client key + request id, for idempotent retries. */
+  steeredMessages: Map<string, ChatMessage>;
   turnCheckpointTimers: Map<string, NodeJS.Timeout>;
   clients: Map<string, PiConversationClient>;
   runningTurns: Set<string>;
@@ -729,6 +733,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     chatEventListeners: new Map(),
     chatEventLogs: new Map(),
     activeTurnIdsByKey: new Map(),
+    steeredMessages: new Map(),
     turnCheckpointTimers: new Map(),
     clients: new Map(),
     runningTurns: new Set(),
@@ -1949,6 +1954,19 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     sendJson(res, { removed });
     return;
   }
+  if (method === "POST" && url.pathname === "/api/agent/skills/remove") {
+    const body = await readJsonBody<{ spaceId?: string; path?: string; scope?: "global" | "project" }>(state, req);
+    if (!body.spaceId || !body.path?.trim()) throw badRequest("A Space and Skill path are required.");
+    const space = await getSpace(body.spaceId);
+    const scope = capabilityScope(body.scope);
+    const removed = await runCapabilityMutation(state, space, scope, async () =>
+      await removePiSkill(space.spaceRoot, {
+        skillPath: body.path!,
+        scope: scope === "project" ? "project" : "user",
+      }, state.runtimeProvider));
+    sendJson(res, { removed: true, path: removed.removedPath });
+    return;
+  }
   if (method === "POST" && url.pathname === "/api/agent/skills/import") {
     const multipart = await readMultipartBody(state, req);
     const spaceId = multipart.fields.get("spaceId");
@@ -2036,6 +2054,26 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
 
+  const conversationThinkingMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/conversations\/([^/]+)\/thinking$/);
+  if (conversationThinkingMatch && method === "POST") {
+    const space = await getSpace(conversationThinkingMatch[1]);
+    const conversationId = conversationThinkingMatch[2];
+    if (!(await readConversation(space.spaceRoot, conversationId)).length) throw notFound("Conversation not found.");
+    const body = await readJsonBody<{ level?: unknown }>(state, req);
+    if (typeof body.level !== "string" || !body.level.trim()) throw badRequest("A thinking level is required.");
+    const key = clientKey(space.id, conversationId);
+    if (state.runningTurns.has(key)) throw httpError(409, "Wait for the current agent turn to finish before changing the thinking level.");
+    const client = await getClient(state, space.id, space.spaceRoot, conversationId);
+    let result: { level: string; available: string[] };
+    try {
+      result = await client.setThinkingLevel(body.level);
+    } catch (error) {
+      throw badRequest(errorMessage(error));
+    }
+    sendJson(res, { thinking: result, runtime: await client.getState() });
+    return;
+  }
+
   const contextAttachmentMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/context-attachments$/);
   if (contextAttachmentMatch && method === "POST") {
     const space = await getSpace(contextAttachmentMatch[1]);
@@ -2062,9 +2100,20 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       selectedPath?: string | null;
       requestId?: unknown;
       userMessageId?: unknown;
+      delivery?: unknown;
     }>(state, req);
     const content = body.content?.trim();
     if (!content) throw badRequest("Message content is required.");
+    if (body.delivery !== undefined && body.delivery !== "steer") throw badRequest("Message delivery must be \"steer\" when present.");
+    if (body.delivery === "steer") {
+      const steered = await steerConversationTurn(state, space, conversationId, {
+        content,
+        requestId: optionalTurnIdentity(body.requestId, "requestId"),
+        userMessageId: optionalTurnIdentity(body.userMessageId, "userMessageId"),
+      });
+      sendJson(res, { accepted: true, delivery: "steer", message: steered.message, taskId: steered.taskId, replayed: steered.replayed }, 202);
+      return;
+    }
     const selectedPath = normalizeSelectedPath(space.spaceRoot, body.selectedPath);
     const contextPaths = normalizeContextPaths(space.spaceRoot, body.contextPaths);
     const { message, taskId, replayed } = await acceptConversationTurn(state, space, conversationId, {
@@ -2713,6 +2762,59 @@ async function acceptConversationTurn(
   );
   return { message, taskId: task.id, replayed: false };
 }
+
+/**
+ * Delivers a message into the Chat's running turn through Pi's steering queue
+ * and records it in the transcript as part of that turn. When no turn is
+ * running (or it settles first) the caller receives 409 and sends normally;
+ * nothing is appended in that case.
+ */
+async function steerConversationTurn(
+  state: LocalApiState,
+  space: { id: string; spaceRoot: string },
+  conversationId: string,
+  input: { content: string; requestId?: string; userMessageId?: string },
+): Promise<{ message: ChatMessage; taskId: string; replayed: boolean }> {
+  const key = clientKey(space.id, conversationId);
+  const taskId = state.activeTurnIdsByKey.get(key);
+  const client = state.clients.get(key);
+  if (!taskId || !client || !state.runningTurns.has(key)) {
+    throw httpError(409, "No Assistant turn is running in this Chat; send the message normally.");
+  }
+  const requestId = turnIdentity(input.requestId ?? `steer-${randomUUID()}`, "request id");
+  const replayKey = `${key}\u0000${requestId}`;
+  const prior = state.steeredMessages.get(replayKey);
+  if (prior) return { message: prior, taskId, replayed: true };
+  const message: ChatMessage = {
+    id: turnIdentity(input.userMessageId ?? `message-${randomUUID()}`, "user message id"),
+    role: "user",
+    content: input.content,
+    createdAt: new Date().toISOString(),
+    turnId: taskId,
+    requestId,
+    delivery: "steer",
+  };
+  try {
+    await client.steer(input.content);
+  } catch (error) {
+    if (isPiTurnNotRunningError(error)) throw httpError(409, errorMessage(error));
+    throw error;
+  }
+  await appendMessage(space.spaceRoot, conversationId, message);
+  state.steeredMessages.set(replayKey, message);
+  if (state.steeredMessages.size > maxRememberedSteeredMessages) {
+    const oldest = state.steeredMessages.keys().next().value;
+    if (oldest !== undefined) state.steeredMessages.delete(oldest);
+  }
+  broadcast(state, streamKey(space.id, conversationId), {
+    type: "status",
+    conversationId,
+    message: "Your message will reach the Assistant after its current step.",
+  });
+  return { message, taskId, replayed: false };
+}
+
+const maxRememberedSteeredMessages = 500;
 
 function assistantTurnRequestDigest(input: {
   content: string;
@@ -3599,6 +3701,7 @@ function remoteChatMessage(message: ChatMessage | { id: string; role: "user"; co
     ...("kind" in message && message.kind ? { kind: message.kind } : {}),
     ...("source" in message && message.source ? { source: message.source } : {}),
     ...("interruption" in message && message.interruption ? { interruption: message.interruption } : {}),
+    ...("delivery" in message && message.delivery ? { delivery: message.delivery } : {}),
     ...("attachments" in message && message.attachments?.length
       ? { attachments: message.attachments.map((attachment) => ({ kind: attachment.kind, name: attachment.name })) }
       : {}),
@@ -6977,6 +7080,9 @@ function assistantFailurePublicDetail(error: unknown): string {
   }
   if (isAssistantSetupError(error)) {
     return "The Assistant isn’t set up yet. Open Settings → Assistant to choose a provider and model, then try again.";
+  }
+  if (isPiTurnTimeoutError(error)) {
+    return `${errorMessage(error)} Raise or clear that limit to let long turns finish.`;
   }
   if (/timed?\s*out|timeout/i.test(errorMessage(error))) {
     return "The Assistant took too long to respond. Try again when you’re ready.";

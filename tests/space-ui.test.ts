@@ -18,7 +18,7 @@ test("Space removal warns when it will erase machine-local App Studio lineage", 
     operations: [{}],
   });
   assert.match(copy, /original folder and everything inside it will stay/i);
-  assert.match(copy, /permanently clears this computer's App Project and App Studio history/i);
+  assert.match(copy, /permanently clears this computer's App Studio history for it/i);
   assert.match(copy, /1 Development preview, 2 Releases, 1 prepared operation/i);
   assert.match(copy, /Keeping the folder does not preserve that state/i);
 });

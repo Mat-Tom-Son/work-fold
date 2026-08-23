@@ -67,7 +67,7 @@ function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
         { keys: [modifier, "Shift", "N"], action: "Start a new Chat in the current Space." },
         { keys: [modifier, "R"], action: "Refresh the current Space." },
         { keys: [modifier, ","], action: "Open Settings." },
-        { keys: [modifier, "Shift", "S"], action: "Open Assistant tools." },
+        { keys: [modifier, "Shift", "S"], action: "Open Skills & Extensions." },
       ],
     });
   }

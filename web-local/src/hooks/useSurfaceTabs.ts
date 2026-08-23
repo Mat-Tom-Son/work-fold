@@ -188,6 +188,12 @@ export function useSurfaceTabs({
     setActiveSurfaceTabId(tab.id);
   }
 
+  function openSpaceAppsSurfaceTab(targetSpace: SpaceSummary): void {
+    const tab = spaceAppsSurfaceTab(targetSpace);
+    setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
+    setActiveSurfaceTabId(tab.id);
+  }
+
   function openExtensionSurfaceTab(
     targetSpace: SpaceSummary,
     surface: CapabilitySurface,
@@ -309,6 +315,7 @@ export function useSurfaceTabs({
     openAppStudioSurfaceTab,
     openAssistantToolsSurfaceTab,
     openChecksSurfaceTab,
+    openSpaceAppsSurfaceTab,
     openExtensionSurfaceTab,
     openRestrictedAppSurfaceTab,
     updateRestrictedAppSurfaceTab,
@@ -445,7 +452,15 @@ function normalizeStoredSurfaceTab(value: unknown): SpaceSurfaceTab | null {
       kind: "assistant-tools",
       spaceId: record.spaceId,
       view: record.view,
-      title: "Assistant tools",
+      title: "Skills & Extensions",
+    };
+  }
+  if (record.kind === "space-apps") {
+    return {
+      id: `space-apps:${record.spaceId}`,
+      kind: "space-apps",
+      spaceId: record.spaceId,
+      title: "Apps",
     };
   }
   if (record.kind === "checks") {
@@ -649,7 +664,17 @@ export function assistantToolsSurfaceTab(space: SpaceSummary, view: AssistantToo
     kind: "assistant-tools",
     spaceId: space.id,
     view,
-    title: "Assistant tools",
+    title: "Skills & Extensions",
+  };
+}
+
+/** One Space-owned tab for installed sandboxed apps: their access, connections, automations, and removal. */
+export function spaceAppsSurfaceTab(space: SpaceSummary): SpaceSurfaceTab {
+  return {
+    id: `space-apps:${space.id}`,
+    kind: "space-apps",
+    spaceId: space.id,
+    title: "Apps",
   };
 }
 

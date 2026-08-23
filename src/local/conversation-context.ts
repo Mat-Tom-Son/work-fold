@@ -1,12 +1,24 @@
 import { readFile, stat } from "node:fs/promises";
 import { basename, extname } from "node:path";
 
+import { resizeImage } from "@earendil-works/pi-coding-agent";
 import JSZip from "jszip";
 
 import { OFFICE_OPEN_DOCUMENT_READ_NOTE, officeDocumentLockPresent } from "./office-lock-files.js";
 import { resolveSpacePath } from "./space.js";
 
-export type ConversationContextMode = "full_original_text" | "full_extracted_text" | "path_only_reference";
+export type ConversationContextMode = "full_original_text" | "full_extracted_text" | "image" | "path_only_reference";
+
+/** An image attachment prepared for the model: Pi's resize keeps it within provider limits. */
+export interface ConversationContextImage {
+  /** Base64-encoded image bytes. */
+  data: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  originalWidth: number;
+  originalHeight: number;
+}
 
 export interface ConversationContextAttachment {
   sourcePath: string;
@@ -25,6 +37,8 @@ export interface ConversationContextAttachment {
 
 export interface LoadedConversationContextAttachment extends ConversationContextAttachment {
   text: string | null;
+  /** Present for `image` attachments; sent with the user message as image content. */
+  image?: ConversationContextImage;
 }
 
 export async function previewConversationContextAttachment(
@@ -32,7 +46,7 @@ export async function previewConversationContextAttachment(
   input: { path: string },
 ): Promise<ConversationContextAttachment> {
   const loaded = await loadAttachment(spaceRoot, normalizePath(input.path), chatContextBudgetTokens(), chatContextBudgetTokens());
-  const { text: _text, ...attachment } = loaded;
+  const { text: _text, image: _image, ...attachment } = loaded;
   return attachment;
 }
 
@@ -67,6 +81,10 @@ async function loadAttachment(
     sourceSizeBytes = info.size;
     if (sourceSizeBytes > 32 * 1024 * 1024) throw new Error("The file is larger than the 32 MB chat attachment limit.");
     const bytes = await readFile(path);
+    const imageMimeType = imageAttachmentMimeType(sourceFileName, bytes);
+    if (imageMimeType) {
+      return loadImageAttachment({ sourcePath, sourceFileName, sourceSizeBytes, bytes, mimeType: imageMimeType, remaining, budgetTokens });
+    }
     const extracted = await readableAttachmentText(sourceFileName, bytes);
     const text = normalizeText(extracted.text);
     const estimatedTokens = estimateTokens(text);
@@ -113,6 +131,89 @@ async function loadAttachment(
       warnings: [],
     });
   }
+}
+
+const imageExtensions = new Map([
+  [".png", "image/png"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".gif", "image/gif"],
+  [".webp", "image/webp"],
+]);
+
+/** Recognizes the inline image formats providers accept, by extension and magic bytes. */
+export function imageAttachmentMimeType(fileName: string, bytes: Buffer): string | null {
+  const byExtension = imageExtensions.get(extname(fileName).toLowerCase());
+  if (!byExtension) return null;
+  const sniffed = sniffImageMimeType(bytes);
+  return sniffed === byExtension ? sniffed : null;
+}
+
+function sniffImageMimeType(bytes: Buffer): string | null {
+  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  if (bytes.length >= 6 && (bytes.subarray(0, 6).toString("latin1") === "GIF87a" || bytes.subarray(0, 6).toString("latin1") === "GIF89a")) return "image/gif";
+  if (bytes.length >= 12 && bytes.subarray(0, 4).toString("latin1") === "RIFF" && bytes.subarray(8, 12).toString("latin1") === "WEBP") return "image/webp";
+  return null;
+}
+
+/** Provider-style image token estimate (pixels / 750), with a floor for tiny images. */
+export function estimateImageTokens(width: number, height: number): number {
+  return Math.max(85, Math.ceil((width * height) / 750));
+}
+
+async function loadImageAttachment(input: {
+  sourcePath: string;
+  sourceFileName: string;
+  sourceSizeBytes: number;
+  bytes: Buffer;
+  mimeType: string;
+  remaining: number;
+  budgetTokens: number;
+}): Promise<LoadedConversationContextAttachment> {
+  const resized = await resizeImage(input.bytes, input.mimeType);
+  if (!resized) throw new Error("The image could not be prepared for the model; Pi can still inspect it with the read tool.");
+  const estimatedTokens = estimateImageTokens(resized.width, resized.height);
+  const provenance = [
+    resized.wasResized
+      ? `Image resized locally from ${resized.originalWidth}×${resized.originalHeight} to ${resized.width}×${resized.height} for the model.`
+      : `Image sent at its original ${resized.width}×${resized.height} size.`,
+  ];
+  if (estimatedTokens > input.remaining) {
+    return pathOnlyAttachment({
+      sourcePath: input.sourcePath,
+      sourceFileName: input.sourceFileName,
+      sourceSizeBytes: input.sourceSizeBytes,
+      budgetTokens: input.budgetTokens,
+      estimatedTokens,
+      reason: `The image is about ${estimatedTokens.toLocaleString()} tokens, which does not fit the remaining ${input.remaining.toLocaleString()} tokens of the chat context budget.`,
+      provenance,
+      warnings: [],
+    });
+  }
+  return {
+    sourcePath: input.sourcePath,
+    sourceFileName: input.sourceFileName,
+    sourceSizeBytes: input.sourceSizeBytes,
+    mode: "image",
+    includedInPrompt: true,
+    reason: null,
+    estimatedTokens,
+    budgetTokens: input.budgetTokens,
+    provenance,
+    warnings: [],
+    userLabel: "Image",
+    detail: `Image attached to this turn (${resized.width}×${resized.height}, about ${estimatedTokens.toLocaleString()} tokens).`,
+    text: null,
+    image: {
+      data: resized.data,
+      mimeType: resized.mimeType,
+      width: resized.width,
+      height: resized.height,
+      originalWidth: resized.originalWidth,
+      originalHeight: resized.originalHeight,
+    },
+  };
 }
 
 export async function readableAttachmentText(

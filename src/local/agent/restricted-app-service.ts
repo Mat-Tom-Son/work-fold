@@ -1696,12 +1696,16 @@ export class RestrictedAppService {
       const timestamp = this.#now().toISOString();
       const hadProject = hasProject;
       const context = developmentContext(this.#registry, input.spaceId, timestamp);
-      const project = hadProject ? context.project : {
-        ...context.project,
-        presentation: presentationFromManifest(staged.manifest),
-        updatedAt: timestamp,
-      };
-      const projects = hadProject
+      // The App Project's presentation follows the manifest the Assistant wrote
+      // — on first install, and on later installs as long as nobody edited the
+      // details by hand in App Studio (a hand-edited presentation no longer
+      // matches the previously installed manifest and is left alone).
+      const followsManifest = !hadProject || (existing !== undefined
+        && presentationEquals(context.project.presentation, presentationFromManifest(existing.manifest)));
+      const project = followsManifest
+        ? { ...context.project, presentation: presentationFromManifest(staged.manifest), updatedAt: timestamp }
+        : context.project;
+      const projects = project === context.project
         ? context.projects
         : context.projects.map((item) => item === context.project ? project : item);
       const entry: RestrictedAppRegistryEntry = {
@@ -4002,6 +4006,10 @@ function stringIdArray(value: unknown, label: string): string[] {
   const sorted = [...result].sort((left, right) => left.localeCompare(right));
   if (sorted.some((item, index) => item !== result[index])) throw new Error(`${label} must be canonically sorted.`);
   return result;
+}
+
+function presentationEquals(left: AppReleasePresentation, right: AppReleasePresentation): boolean {
+  return left.title === right.title && (left.description ?? null) === (right.description ?? null) && (left.icon ?? null) === (right.icon ?? null);
 }
 
 function presentationFromManifest(manifest: RestrictedAppManifest): AppReleasePresentation {
