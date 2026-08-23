@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createWriteStream, existsSync } from "node:fs";
-import { lstat, mkdir, mkdtemp, readdir, rename, rm, rmdir, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, realpath, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -316,6 +316,14 @@ export async function removePiSkill(
   if (info.isSymbolicLink() || !info.isDirectory()) throw new Error("The Skill folder is not an ordinary directory.");
   const fileInfo = await lstat(skillFile).catch(() => null);
   if (!fileInfo || !fileInfo.isFile()) throw new Error("The Skill's SKILL.md no longer exists.");
+  // Lexical containment is not enough: an ancestor below the import root may
+  // itself be a symlink. Resolve both existing directories before a recursive
+  // delete so `skills/linked/nested/SKILL.md` cannot remove bytes elsewhere.
+  const [realRoot, realSkillDir] = await Promise.all([realpath(root), realpath(skillDir)]);
+  const realRelativeDir = relative(realRoot, realSkillDir);
+  if (!realRelativeDir || realRelativeDir === "." || realRelativeDir.startsWith("..") || isAbsolute(realRelativeDir)) {
+    throw new Error("The Skill folder resolves outside work-fold's import root and cannot be removed.");
+  }
   await rm(skillDir, { recursive: true, force: true });
 
   // A multi-Skill bundle folder that is now empty is removed as well so the

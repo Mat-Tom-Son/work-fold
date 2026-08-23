@@ -1339,7 +1339,7 @@ function SpaceView({ space, spaces, agent, appearance, fixture, desktopAction, u
               const view = surface?.views.find((item) => item.id === tab.viewId);
               return surface && view ? <ExtensionSurfaceView surface={surface} view={view} /> : <ExtensionSurfaceUnavailable surfaceId={tab.surfaceId} viewId={tab.viewId} execution={tab.surfaceExecution} />;
             })() : tab.kind === "restricted-app" ? (() => {
-              if (!restrictedAppsState.knownSpaceIds.has(targetSpace.id)) return <CenteredState icon={<Loader2 className="spin" size={24} />} title="Loading app" text="Checking the sandboxed apps installed for this Space." />;
+              if (!restrictedAppsState.knownSpaceIds.has(targetSpace.id)) return <CenteredState icon={<Loader2 className="spin" size={24} />} title="Loading app" text="Checking the apps installed for this Space." />;
               const app = restrictedAppsState.appsBySpace[targetSpace.id]?.find((item) => item.manifest.id === tab.appId && item.digest === tab.digest);
               return app
                 ? <RestrictedAppViewport app={app} placement="tab" appTabId={tab.appTabId} route={tab.route} state={tab.state} active={active} />

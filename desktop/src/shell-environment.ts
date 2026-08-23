@@ -203,10 +203,11 @@ export async function resolveLoginShellEnvironment(
   const timeoutMs = options.timeoutMs ?? 10_000;
   return new Promise((resolvePromise) => {
     let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const finish = (value: { shell: string; env: Record<string, string> } | { shell: string | null; error: string }) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       resolvePromise(value);
     };
     let child: ReturnType<typeof spawn>;
@@ -235,7 +236,7 @@ export async function resolveLoginShellEnvironment(
       }
       child.stdout?.destroy();
     };
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       killProbe();
       finish({ shell, error: `The login shell did not answer within ${Math.round(timeoutMs / 1000)} seconds.` });
     }, timeoutMs);

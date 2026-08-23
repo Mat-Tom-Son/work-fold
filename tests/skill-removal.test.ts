@@ -44,11 +44,14 @@ test("Skill removal refuses anything outside work-fold's import roots, links, an
   const provider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir }; } };
   await mkdir(join(agentDir, "skills", "real"), { recursive: true });
   await mkdir(join(sandbox, "elsewhere", "other"), { recursive: true });
+  await mkdir(join(sandbox, "elsewhere", "nested", "skill"), { recursive: true });
   await mkdir(spaceRoot, { recursive: true });
   await writeFile(join(agentDir, "skills", "real", "SKILL.md"), "---\nname: real\n---\n");
   await writeFile(join(agentDir, "skills", "SKILL.md"), "---\nname: root-level\n---\n");
   await writeFile(join(sandbox, "elsewhere", "other", "SKILL.md"), "---\nname: other\n---\n");
+  await writeFile(join(sandbox, "elsewhere", "nested", "skill", "SKILL.md"), "---\nname: nested\n---\n");
   await symlink(join(sandbox, "elsewhere", "other"), join(agentDir, "skills", "linked"));
+  await symlink(join(sandbox, "elsewhere", "nested"), join(agentDir, "skills", "linked-parent"));
 
   await assert.rejects(
     removePiSkill(spaceRoot, { skillPath: join(sandbox, "elsewhere", "other", "SKILL.md"), scope: "user" }, provider),
@@ -64,6 +67,11 @@ test("Skill removal refuses anything outside work-fold's import roots, links, an
     /not an ordinary directory/,
   );
   await assert.rejects(
+    removePiSkill(spaceRoot, { skillPath: join(agentDir, "skills", "linked-parent", "skill", "SKILL.md"), scope: "user" }, provider),
+    /resolves outside work-fold's import root/,
+    "a symlink above the Skill directory cannot redirect recursive removal outside the import root",
+  );
+  await assert.rejects(
     removePiSkill(spaceRoot, { skillPath: join(agentDir, "skills", "real", "notes.md"), scope: "user" }, provider),
     /SKILL\.md identifies it/,
   );
@@ -73,5 +81,6 @@ test("Skill removal refuses anything outside work-fold's import roots, links, an
     "Space-scoped removal needs the same explicit trust as Space-scoped installs",
   );
   assert.equal(existsSync(join(sandbox, "elsewhere", "other", "SKILL.md")), true);
+  assert.equal(existsSync(join(sandbox, "elsewhere", "nested", "skill", "SKILL.md")), true);
   assert.equal(existsSync(join(agentDir, "skills", "real", "SKILL.md")), true);
 });

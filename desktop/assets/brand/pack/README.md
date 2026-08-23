@@ -1,6 +1,6 @@
 # work-fold icon pack
 
-This pack carries the shared vector brand masters plus platform-specific designer exports. The macOS application icon is the flattened Default appearance exported from Apple Icon Composer on August 13, 2026; its iconset and ICNS are derived from that 1024 px export. Small shared-brand exports continue to use the optically simplified vector master.
+This pack carries the shared vector brand masters plus platform-specific designer exports. The macOS application icon is the flattened Default appearance exported from Apple Icon Composer on August 23, 2026; its iconset and ICNS are derived from that 1024 px export. Small shared-brand exports continue to use the optically simplified vector master.
 
 ## What to use
 
