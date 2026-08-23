@@ -15,7 +15,8 @@ import type {
  * integration reconciliation 6). Every line a person reads before clicking is
  * composed here, by app code, from the staged act's typed `parameters` and
  * `pins` — model prose never becomes card copy. The popover stack, the
- * main-window flyout, and the remote client home all render this projection;
+ * main-window flyout, and the remote client's Needs you screen all render this
+ * projection;
  * none of them composes copy of its own, so a persuasive paragraph cannot
  * dress up a destructive act on any surface.
  *
