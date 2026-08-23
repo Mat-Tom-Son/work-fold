@@ -21,9 +21,10 @@ test("remote client uses the fold vocabulary for its entry surfaces", async () =
   assert.match(app, /eyebrow: "Your fold",\s*\n\s*headline: "This address isn’t active\."/);
   assert.ok(app.includes("Check the address, or enable web access from the work-fold desktop app."));
 
-  // Landing detail 03.
-  assert.ok(app.includes("<h2>Your fold on the web</h2>"));
-  assert.ok(app.includes("One private address opens the same conversation your menu bar does, while your desktop is online."));
+  // Landing detail 03 (the landing page lives in landing.js).
+  const landing = await clientSource("landing.js");
+  assert.ok(landing.includes("<h2>Your fold on the web</h2>"));
+  assert.ok(landing.includes("One private address opens the same conversation your menu bar does, while your desktop is online."));
 
   // The retired phrasings must not come back.
   assert.equal(app.includes('eyebrow: "Remote access"'), false);

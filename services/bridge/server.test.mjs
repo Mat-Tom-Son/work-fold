@@ -51,11 +51,21 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.match(renderingModule.headers.get("content-type"), /^text\/javascript/);
   assert.match(await renderingModule.text(), /export function replaceHtmlIfChanged/);
 
+  const landingModule = await fetch(`${baseUrl}/landing.js`);
+  assert.equal(landingModule.status, 200);
+  assert.match(landingModule.headers.get("content-type"), /^text\/javascript/);
+  const landingSource = await landingModule.text();
+  assert.match(landingSource, /export function renderLanding/);
+  assert.match(landingSource, /href="\/download\/macos"/);
+  assert.match(landingSource, /href="https:\/\/github\.com\/Mat-Tom-Son\/work-fold"/);
+
+  const landingStyles = await fetch(`${baseUrl}/landing.css`);
+  assert.equal(landingStyles.status, 200);
+  assert.match(landingStyles.headers.get("content-type"), /^text\/css/);
+
   const applicationScript = await fetch(`${baseUrl}/app.js`);
   const applicationSource = await applicationScript.text();
-  assert.match(applicationSource, /class="landing-actions"/);
-  assert.match(applicationSource, /href="\/download\/macos"/);
-  assert.match(applicationSource, /href="https:\/\/github\.com\/Mat-Tom-Son\/work-fold"/);
+  assert.match(applicationSource, /import \{ renderLanding \} from "\.\/landing\.js"/);
   assert.match(applicationSource, /id="new-chat"/);
   assert.match(applicationSource, /<h1 id="conversation-title"><\/h1>/);
   assert.match(applicationSource, /id="rename-chat"/);
