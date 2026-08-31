@@ -66,6 +66,16 @@ test("Settings makes saved state explicit and locks configured credentials", () 
   assert.match(settings, /!remoteSettingsChanged/);
 });
 
+test("the fold authority control is Settings-only, explicit, and inherited by approved browsers", () => {
+  const settings = desktopDialogs[0] ?? "";
+  assert.match(settings, /\/api\/settings\/fold-authority/);
+  assert.match(settings, /window\.confirm\(foldAuthoritySettings\.unrestrictedConfirm\)/);
+  assert.match(settings, /body: \{ mode \}/);
+  assert.match(settings, /FoldPoliciesPane dormant=\{authority\.mode === "unrestricted"\}/);
+  assert.match(settings, /foldAuthoritySettings\.policiesPaused/);
+  assert.match(settings, /foldAuthoritySettings\.approvedBrowserInheritance/);
+});
+
 test("the publications Settings section reveals links transiently and only narrows", () => {
   // Settings → The fold → Pages your fold serves (docs/fold-publishing.md,
   // plan item 5): the pane is a read-and-narrow surface over the renderer

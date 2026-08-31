@@ -142,8 +142,9 @@ test("CLI help covers every landed act family and is honest about staging", () =
     assert.match(workFoldCliHelp("work-fold", family), /decision/, `help ${family} must explain staging for ${stagedName}`);
   }
   assert.match(workFoldCliHelp("work-fold", "apps"), /--purge-data/);
-  // The never-list stays visible where an agent looks first.
-  assert.match(overview, /desktop-only/);
+  // The setup-only boundary stays visible where an agent looks first.
+  assert.match(overview, /local setup/);
+  assert.match(overview, /Unrestricted lets the desktop host decide/);
 });
 
 test("CLI executor passes actor cwd and Space scope through the narrow kernel", async () => {

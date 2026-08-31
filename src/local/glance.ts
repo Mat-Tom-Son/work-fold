@@ -262,7 +262,7 @@ export type WorkFoldGlanceStagedActState =
   | "canceled"
   | "invalidated";
 
-export type WorkFoldGlanceDecisionSurface = "popover" | "main-window" | "remote_web" | "policy";
+export type WorkFoldGlanceDecisionSurface = "popover" | "main-window" | "remote_web" | "policy" | "unrestricted";
 
 export interface WorkFoldGlanceStagedActRecord {
   id: string;
@@ -1249,7 +1249,11 @@ function recordedDecision(
     // Policy-approved acts produced no needs-you card, so their one
     // visibility is here and on the receipt — listed distinctly, never
     // blended into clicked approvals.
-    const label = act.decisionSurface === "policy" ? "Auto-approved by standing policy" : "Approved";
+    const label = act.decisionSurface === "policy"
+      ? "Auto-approved by standing policy"
+      : act.decisionSurface === "unrestricted"
+        ? "Executed under Unrestricted authority"
+        : "Approved";
     return { at: act.decidedAt ?? act.createdAt, label };
   }
   if (act.state === "denied") return { at: act.decidedAt ?? act.createdAt, label: "Denied" };
@@ -1371,7 +1375,7 @@ function parseStagedActRecord(entry: unknown): WorkFoldGlanceStagedActRecord | n
 function decisionSurfaceOf(decision: unknown): WorkFoldGlanceDecisionSurface | null {
   if (!decision || typeof decision !== "object" || Array.isArray(decision)) return null;
   const surface = (decision as { surface?: unknown }).surface;
-  return surface === "popover" || surface === "main-window" || surface === "remote_web" || surface === "policy"
+  return surface === "popover" || surface === "main-window" || surface === "remote_web" || surface === "policy" || surface === "unrestricted"
     ? surface
     : null;
 }

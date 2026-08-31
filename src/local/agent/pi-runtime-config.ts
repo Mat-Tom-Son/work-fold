@@ -11,6 +11,7 @@ import {
   createAgentSessionServices,
   hasTrustRequiringProjectResources,
   type AuthStatus,
+  type ProviderConfig,
   type ProgressEvent,
 } from "@earendil-works/pi-coding-agent";
 
@@ -60,6 +61,8 @@ export interface PiRuntimeConfig {
   flushAuthStorage?: () => Promise<void>;
   settingsManager?: SettingsManager;
   modelRegistry?: ModelRegistry;
+  /** Host-fetched catalogs applied to each fresh cwd-specific registry. */
+  modelCatalogs?: PiModelCatalog[];
   preferredModel?: PiPreferredModel;
   projectTrust?: PiProjectTrustPolicy;
   extensionUi?: PiExtensionUiBridge;
@@ -72,6 +75,30 @@ export interface PiRuntimeConfig {
 
 export interface PiRuntimeProvider {
   resolveRuntime(spaceRoot: string): Promise<PiRuntimeConfig>;
+  setPreferredModel?(spaceRoot: string, model: PiPreferredModel): Promise<void>;
+  refreshModelCatalog?(providerId: string): Promise<PiModelCatalogRefreshResult>;
+  listModelCatalogs?(): Promise<PiModelCatalogStatus[]>;
+}
+
+export interface PiModelCatalog {
+  provider: string;
+  refreshedAt: string;
+  liveModelCount: number;
+  config: ProviderConfig;
+}
+
+export interface PiModelCatalogStatus {
+  provider: string;
+  refreshable: boolean;
+  source: "built_in" | "live";
+  refreshedAt?: string;
+  modelCount?: number;
+}
+
+export interface PiModelCatalogRefreshResult {
+  provider: string;
+  refreshedAt: string;
+  modelCount: number;
 }
 
 export interface ResolvedPiRuntime {
@@ -210,6 +237,7 @@ export async function resolvePiRuntime(
 
   const modelRegistry = config.modelRegistry
     ?? ModelRegistry.create(authStorage, join(agentDir, "models.json"));
+  applyModelCatalogs(modelRegistry, config.modelCatalogs ?? []);
   const settingsPreferred = preferredModelFromSettings(initialSettings);
   const metadataPreferred = config.metadata?.provider && config.metadata.model
     ? { provider: config.metadata.provider, id: config.metadata.model }
@@ -382,8 +410,25 @@ export async function setPiDefaultModel(
   await loadRuntimeProviders(spaceRoot, runtime);
   const selected = runtime.modelRegistry.find(model.provider.trim(), model.id.trim());
   if (!selected) throw new Error(`Model not found: ${model.provider}/${model.id}`);
+  if (runtimeProvider?.setPreferredModel) {
+    await runtimeProvider.setPreferredModel(spaceRoot, { provider: selected.provider, id: selected.id });
+    return;
+  }
   runtime.settingsManager.setDefaultModelAndProvider(selected.provider, selected.id);
   await runtime.settingsManager.flush();
+}
+
+export async function listPiModelCatalogs(runtimeProvider?: PiRuntimeProvider): Promise<PiModelCatalogStatus[]> {
+  return runtimeProvider?.listModelCatalogs ? runtimeProvider.listModelCatalogs() : [];
+}
+
+export async function refreshPiModelCatalog(
+  providerId: string,
+  runtimeProvider?: PiRuntimeProvider,
+): Promise<PiModelCatalogRefreshResult> {
+  const provider = cleanProviderId(providerId);
+  if (!runtimeProvider?.refreshModelCatalog) throw new Error(`${provider} does not offer live model refresh.`);
+  return runtimeProvider.refreshModelCatalog(provider);
 }
 
 export async function setPiProjectTrust(
@@ -491,6 +536,33 @@ function preferredModelFromSettings(settings: SettingsManager): PiPreferredModel
   const provider = settings.getDefaultProvider()?.trim();
   const id = settings.getDefaultModel()?.trim();
   return provider && id ? { provider, id } : undefined;
+}
+
+function applyModelCatalogs(registry: ModelRegistry, catalogs: PiModelCatalog[]): void {
+  for (const catalog of catalogs) {
+    const provider = catalog.provider.trim();
+    if (!provider || !catalog.config.models?.length) continue;
+    const models = new Map(catalog.config.models.map((model) => [model.id, model]));
+    // Keep Pi custom/static entries that are absent from the live response so
+    // refreshing cannot silently remove a person's models.json additions.
+    for (const model of registry.getAll()) {
+      if (model.provider !== provider || models.has(model.id)) continue;
+      models.set(model.id, {
+        id: model.id,
+        name: model.name,
+        api: model.api,
+        baseUrl: model.baseUrl,
+        reasoning: model.reasoning,
+        thinkingLevelMap: model.thinkingLevelMap,
+        input: [...model.input],
+        cost: { ...model.cost },
+        contextWindow: model.contextWindow,
+        maxTokens: model.maxTokens,
+        ...(model.compat ? { compat: { ...model.compat } } : {}),
+      });
+    }
+    registry.registerProvider(provider, { ...catalog.config, models: [...models.values()] });
+  }
 }
 
 async function loadRuntimeProviders(

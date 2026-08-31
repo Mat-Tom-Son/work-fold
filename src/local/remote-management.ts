@@ -17,13 +17,17 @@ export type WorkFoldRemoteOperation =
   | "spaces.tree";
 
 /**
- * One bounded live-progress tick from a `management.watch` operation: the
- * same activity line the popover's local stream shows, carried to the
- * approved browser inside the operation's signed encrypted event envelopes.
- * Content never rides plaintext; the bridge relays ciphertext only.
+ * One bounded live-progress tick from a `management.watch` operation. Activity
+ * and Assistant text use the same signed encrypted event envelope; the bridge
+ * remains content-blind. A fresh watch starts with `assistantText`, then
+ * appends `assistantDelta` ticks until settlement. The final transcript remains
+ * authoritative and replaces this transient projection after the turn lands.
  */
 export interface WorkFoldRemoteWatchProgress {
-  activity: string;
+  activity?: string;
+  assistantText?: string;
+  assistantDelta?: string;
+  assistantTextTruncated?: boolean;
 }
 
 export interface WorkFoldRemotePrincipal {

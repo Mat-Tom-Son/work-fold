@@ -8,8 +8,8 @@ through it (drops, attachments, uploads, `files add`) and go out through it
 (the publishing ladder). Spaces are the rooms; the fold is the door.
 
 > **The fold is the one door to all your Spaces: what you hand it gets put
-> where it belongs, what you ask for gets done with a receipt, and the few
-> decisions that must stay yours come back to you as a click.**
+> where it belongs, what you ask for gets done with a receipt, and its
+> operating authority is one explicit machine-level choice.**
 
 This document records the decisions the fold's implementation and product
 surfaces must preserve, alongside the canonical registers that absorbed the
@@ -23,7 +23,7 @@ remote operations, the verification map), `README.md`, `SECURITY.md`,
 contract references retaining the detail canon does not carry:
 
 - [The verb ledger](fold-act-ledger.md) — every product verb's classification, command shape, receipt additions, undo path, and conflict rules.
-- [Consecrations](fold-consecrations.md) — staged acts, the needs-you decision path, standing policies, the never-list, and the threat model.
+- [Consecrations](fold-consecrations.md) — staged acts, the Reviewed/Unrestricted decision path, standing policies, the setup-only boundary, and the threat model.
 - [Routings](fold-routings.md) — declared deterministic cross-Space glue: triggers, declarations, the executor, and bounds.
 - [The glance](fold-glance.md) — the deterministic digest: sources, sections, markers, surfaces, and non-goals.
 - [The publishing ladder](fold-publishing.md) — the viewer audience class, rungs 1–3, origin isolation, and the bridge's viewer plane.
@@ -31,15 +31,16 @@ contract references retaining the detail canon does not carry:
 
 ## The doctrine in one paragraph
 
-The fold is god-mode with a ledger: every product verb a person can perform
-in the app is a receipted act-lane verb available to the fold — journaled
-before execution, durable receipt after — **except** the three consecrations
-(make bytes runnable, widen a power, destroy irreversibly), which the fold
-may fully stage but never decide, and the never-list, which it may neither do
-nor stage. The click is the product's definition of authorization; it exists
-because the fold reads untrusted content, and the click is the one signal
-content cannot synthesize. Standing policies are the person-authored friction
-dial over narrow consecration categories. Above Spaces, only declared
+The fold is god-mode with a ledger: every admitted product verb is pinned,
+journaled before execution, and receipted after. Runnable-code,
+standing-power, and irreversible-destruction verbs always enter the staged
+decision path. In **Reviewed** mode they remain inert for a person or a
+matching standing policy. In **Unrestricted** mode the host immediately
+consumes every newly admitted act, including permanent deletion; approved
+browsers inherit the mode, and receipts name surface `unrestricted` plus the
+remote browser/grant when applicable. Only local Settings changes this root
+authority. Setup that establishes principals or secrets stays outside the
+act vocabulary. Above Spaces, only declared
 deterministic routings run unattended. The glance is the app-composed digest
 of recorded state; narration of it is interactive, never scheduled. Outward,
 the publishing ladder serves "pages your fold serves" to link-scoped viewers
@@ -65,7 +66,9 @@ What the fold is **not**:
 Recorded from the product owner on **2026-08-10**; promoted into the
 canonical documents on 2026-08-11 through the amendment blocks recorded in
 [Integration](fold-integration.md). The siblings design within these
-decisions, not around them.
+decisions, not around them. F3–F6 record the original Reviewed-only contract;
+F17 deliberately supersedes their claims that a click is the only completing
+authority while preserving their staged-act taxonomy and safety mechanics.
 
 | # | Decision (2026-08-10) | What it does not change |
 |---|---|---|
@@ -85,21 +88,22 @@ decisions, not around them.
 | F14 | Routing chat-step provenance: the message a routing sends into a Space chat is an **ordinary user-role message** — the portable transcript carries no automation marker. Attribution is machine-local: routing run receipts, hop journals, run history, and the glance. | The interruption-marker semantics of Space chats and the F9 leak rule are untouched; the fixed message is still reviewed at enablement and names nothing cross-Space. |
 | F15 | The fold's Settings surface is one section named **Settings → The fold**, hosting **Your fold on the web** (web access) as a subsection alongside standing policies, routing management, and publication controls. | Page ids and routes stay technical per F12; "Remote access" survives in contract and security prose. |
 | F16 | At promotion, [fold.md](fold.md) shrinks into a compact fold decision register named by AGENTS.md's required reading (the Checks precedent); the siblings shrink into it as their sections ship. | product-model.md remains the constitution; the amendment blocks in [Integration](fold-integration.md) still apply exactly as written. |
+| F17 | **Authority modes** (2026-08-31): Settings → The fold → Authority offers **Reviewed** and **Unrestricted**. Reviewed preserves host-composed cards and standing policies. Unrestricted executes every newly admitted staged act, including irreversible destruction, viewer exposure, routing enablement, and whole-Space file grants. Approved browsers inherit it structurally through the desktop host. Mode changes, pairing, and credential entry remain local setup surfaces with no Assistant/CLI/remote verb. Existing pending cards are not drained when the mode changes. | Pins, eligibility, effect-time rechecks, journal-first consumption, receipts, fences, at-most-once execution, and failure-without-auto-retry remain intact. The five setup-only families are boundaries of identity and secret handling, not recurring approvals. |
 
 ## One-sentence definitions
 
 - **The verb ledger:** every product verb is a receipted act-lane verb —
   explicit selection, journal-first receipt, at-most-once execution, desktop
-  conflict rules — except the consecrations and the never-list.
-- **A consecration:** an act the fold may fully stage (prepared, inspectable,
-  inert) that only a person's click on a work-fold decision surface completes.
+  conflict rules — except the consecrations and the setup-only boundary.
+- **A staged authority act:** a prepared, inspectable, identity-pinned act in
+  one of the three consequential families. Reviewed leaves it inert for a
+  person or policy; Unrestricted executes it through the same decision path.
 - **A standing policy:** one narrow, person-authored, Settings-only
   pre-approval of a consecration category, host-evaluated and receipted when
   exercised — never destruction, outward exposure, or routing enablement.
-- **The never-list:** the five families the fold can neither do nor stage:
+- **Setup-only authority:** the five families with no model/CLI/remote verb:
   Remote access administration, act-token and pairing machinery, provider
-  credentials, standing-policy authoring, and anything widening the
-  principals that control the fold.
+  credentials, standing-policy authoring, and root-authority selection.
 - **A routing:** a machine-local, inert-until-enabled declaration of at most
   eight deterministic steps on one reviewed trigger, executed by app code
   with per-hop receipts; enabling it is a consecration.

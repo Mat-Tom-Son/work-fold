@@ -706,7 +706,7 @@ test("ledger command flag validation refuses malformed and misplaced shapes", ()
   }
 });
 
-test("the never-list is refused at parse time as desktop-human-only", () => {
+test("setup-only authority families are refused at parse time", () => {
   const refusals: Array<[string[], RegExp]> = [
     [["remote", "disable"], /Remote access administration/],
     [["browsers", "approve"], /Remote access administration/],
@@ -730,13 +730,13 @@ test("the never-list is refused at parse time as desktop-human-only", () => {
         error instanceof WorkFoldCliError
         && error.code === "permissionDenied"
         && category.test(error.message)
-        && /desktop-human-only/.test(error.message)
+        && /local setup only/.test(error.message)
         && /neither perform nor stage/.test(error.message),
-      `expected never-list refusal for '${argv.join(" ")}'`,
+      `expected setup-only refusal for '${argv.join(" ")}'`,
     );
   }
 
-  // Never-list family words remain usable as ordinary flag values.
+  // Setup-only family words remain usable as ordinary flag values.
   assert.deepEqual(
     parseWorkFoldCliActArgv(["chats", "list", "--space", "settings"]),
     { name: "chats.list", output: "human", space: "settings" },
@@ -1002,11 +1002,11 @@ test("consecrated verbs stage through the facade, stamp decisionId on receipts, 
   assert.equal(lastOk().decisionId, "act-11111111");
   assert.match(lastOk().detail ?? "", /^staged app\.review\.approve/);
 
-  // A never-list refusal happens at parse time: no journal entry at all.
+  // A setup-only refusal happens at parse time: no journal entry at all.
   records.length = 0;
   const neverList = await execute(["provider", "set-key"]);
   assert.equal(neverList.exitCode, 4);
-  assert.match(neverList.stderr, /Provider credentials is desktop-human-only/);
+  assert.match(neverList.stderr, /Provider credentials is local setup only/);
   assert.deepEqual(records, []);
 });
 

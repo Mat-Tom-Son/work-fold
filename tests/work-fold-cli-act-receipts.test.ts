@@ -148,10 +148,10 @@ test("readers accept version 1 lines beside version 2 appends", async () => {
   }
 });
 
-test("the recorded surface vocabulary is the closed five-value set", () => {
+test("the recorded surface vocabulary is the closed six-value set", () => {
   assert.deepEqual(
     [...WORKFOLD_CLI_ACT_SURFACES],
-    ["cli", "popover", "main-window", "remote_web", "policy"],
+    ["cli", "popover", "main-window", "remote_web", "policy", "unrestricted"],
   );
 });
 

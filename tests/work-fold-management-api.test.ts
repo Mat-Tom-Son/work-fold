@@ -424,8 +424,8 @@ test("renderer decision routes list, decide, and cancel needs-you cards with sur
     const kept = await api.actFacade.createSpace({ name: "Kept Space" });
     const stagedDoomed = await api.actFacade.spacesDelete({ space: doomed.space.id });
     const stagedKept = await api.actFacade.spacesDelete({ space: kept.space.id });
-    // An unbound kind in this build: stageable, deniable, cancelable — but an
-    // approval must be refused honestly before anything is consumed.
+    // A third pending card exercises cancellation and renderer-surface
+    // validation independently of the two managed-deletion decisions.
     const unbound = await api.stagedActs.stage({
       kind: "app.data.purge",
       parameters: { spaceId: kept.space.id, appInstanceId: "app-1" },
@@ -517,14 +517,7 @@ test("renderer decision routes list, decide, and cancel needs-you cards with sur
       assert.equal(entry.spaceId, doomed.space.id);
     }
 
-    // An unbound kind refuses approval before anything is consumed; the card
-    // stays pending, and denying or canceling it remains available.
-    const unavailable = await postJson(api.origin, `/api/management/decisions/${unbound.act.id}/decide`, {
-      decision: "approved",
-      surface: "popover",
-    });
-    assert.equal(unavailable.status, 409);
-    assert.equal((unavailable.body as { code?: string }).code, "EXECUTION_UNAVAILABLE");
+    // The untouched third card is still pending and remains cancelable.
     const stillPending = await getJson(api.origin, "/api/management/decisions");
     assert.deepEqual(
       (stillPending.decisions as Array<{ id: string }>).map((card) => card.id),

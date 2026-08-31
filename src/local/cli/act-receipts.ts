@@ -37,11 +37,11 @@ export interface WorkFoldCliActReceiptV1 {
 /**
  * Closed surface vocabulary shared between act receipts and consecration
  * decision records. `cli`, `popover`, and `remote_web` name the authenticated
- * surface that initiated an act; `main-window` and `policy` additionally
- * appear on decision receipts. `remote_web` matches the provenance spelling
- * already durable in conversation logs.
+ * surface that initiated an act; `main-window`, `policy`, and `unrestricted`
+ * additionally appear on decision receipts. `remote_web` matches the
+ * provenance spelling already durable in conversation logs.
  */
-export const WORKFOLD_CLI_ACT_SURFACES = ["cli", "popover", "main-window", "remote_web", "policy"] as const;
+export const WORKFOLD_CLI_ACT_SURFACES = ["cli", "popover", "main-window", "remote_web", "policy", "unrestricted"] as const;
 
 export type WorkFoldCliActSurface = (typeof WORKFOLD_CLI_ACT_SURFACES)[number];
 

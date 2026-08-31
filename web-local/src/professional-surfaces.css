@@ -689,27 +689,54 @@
 .professional-assistant .assistant-setup-card {
   width: min(720px, 100%);
   display: grid;
-  gap: 16px;
+  gap: 14px;
   margin: 0 auto;
   padding: 16px;
 }
 
-.professional-assistant .setup-intro {
-  min-width: 0;
+.professional-assistant .assistant-scope-control {
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr);
-  align-items: start;
-  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--ui-border);
+  border-radius: 10px;
+  background: var(--ui-surface-muted);
 }
 
-.professional-assistant .setup-intro > div {
+.professional-assistant .assistant-scope-control button {
   min-width: 0;
   display: grid;
-  gap: 4px;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--ui-text-muted);
+  background: transparent;
+  text-align: left;
 }
 
-.professional-assistant .setup-intro p {
-  font-size: 14px;
+.professional-assistant .assistant-scope-control button.active {
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-menu);
+}
+
+.professional-assistant .assistant-scope-control button:only-child {
+  grid-column: 1 / -1;
+}
+
+.professional-assistant .assistant-scope-control span {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.professional-assistant .assistant-scope-control small {
+  overflow: hidden;
+  color: var(--ui-text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .professional-assistant .setup-grid {
@@ -736,6 +763,40 @@
   color: var(--ui-text);
   font-size: 13px;
   font-weight: 600;
+}
+
+.professional-assistant .assistant-model-field-heading {
+  min-height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.professional-assistant .assistant-refresh-models {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  color: var(--ui-accent);
+  background: transparent;
+  font-size: 12px;
+}
+
+.professional-assistant .assistant-refresh-models:disabled {
+  color: var(--ui-text-subtle);
+}
+
+.professional-assistant .assistant-refresh-models svg {
+  width: 14px;
+  height: 14px;
+}
+
+.professional-assistant .assistant-scope-summary {
+  margin: 0;
+  color: var(--ui-text-muted);
+  font-size: 12px;
 }
 
 .professional-field-hint {

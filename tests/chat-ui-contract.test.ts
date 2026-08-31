@@ -167,8 +167,10 @@ test("assistant rendering has complete Markdown chrome and Space-aware accents",
     assert.match(styles, new RegExp(`\\.${contract}`));
   }
   const userRule = styles.match(/(?:^|\n)\.message\.user\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+  const userSurfaceRule = styles.match(/(?:^|\n)\.message\.user \.message-surface\s*\{([\s\S]*?)\}/)?.[1] ?? "";
   const darkUserRule = styles.match(/\.app-shell\[data-theme="dark"\] \.message\.user\s*\{([\s\S]*?)\}/)?.[1] ?? "";
-  for (const rule of [userRule, darkUserRule]) {
+  const darkUserSurfaceRule = styles.match(/\.app-shell\[data-theme="dark"\] \.message\.user \.message-surface\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+  for (const rule of [userSurfaceRule, darkUserSurfaceRule]) {
     assert.match(
       rule,
       /background:\s*var\(--space-accent-solid,\s*var\(--space-custom-color,\s*var\(--work-fold-blue-600\)\)\)/,
@@ -176,6 +178,12 @@ test("assistant rendering has complete Markdown chrome and Space-aware accents",
     assert.match(rule, /color:\s*var\(--space-on-accent-solid,\s*var\(--space-on-primary-accent/);
     assert.doesNotMatch(rule, /linear-gradient|space-selection-accent2/);
   }
+  for (const rule of [userRule, darkUserRule]) {
+    assert.match(rule, /background:\s*transparent/);
+    assert.match(rule, /box-shadow:\s*none/);
+  }
+  assert.match(messages, /<div className="message-surface">[\s\S]*?<\/div>\s*<footer className="message-footer">/);
+  assert.match(styles, /\.message\.assistant \.message-footer\s*\{[^}]*justify-content:\s*flex-start/);
   const userInlineCodeRule = styles.match(/(?:^|\n)\.message\.user \.message-body code\s*\{([\s\S]*?)\}/)?.[1] ?? "";
   const darkUserInlineCodeRule = styles.match(/\.app-shell\[data-theme="dark"\] \.message\.user \.message-body code\s*\{([\s\S]*?)\}/)?.[1] ?? "";
   for (const rule of [userInlineCodeRule, darkUserInlineCodeRule]) {
@@ -223,9 +231,11 @@ test("dark user messages keep their audited foregrounds and quiet icon-only acti
         <div class="app-shell" data-theme="dark">
           <main style="--space-accent-solid:#fafafa;--space-on-accent-solid:#182846;--space-on-accent-muted:#4e5a71">
             <article class="message user">
-              <div class="message-body">
-                <p>Plain text</p>
-                <h1>Heading</h1>
+              <div class="message-surface">
+                <div class="message-body">
+                  <p>Plain text</p>
+                  <h1>Heading</h1>
+                </div>
               </div>
               <footer class="message-footer">
                 <span class="message-footer-meta">
@@ -245,7 +255,7 @@ test("dark user messages keep their audited foregrounds and quiet icon-only acti
   const document = window.document;
   const styleFor = (selector: string) => window.getComputedStyle(document.querySelector(selector)!);
 
-  for (const selector of [".message.user", ".message.user .message-body", ".message.user .message-body p", ".message.user .message-body h1"]) {
+  for (const selector of [".message.user .message-surface", ".message.user .message-body", ".message.user .message-body p", ".message.user .message-body h1"]) {
     assert.match(
       styleFor(selector).color,
       /--space-on-accent-solid/,
@@ -253,11 +263,7 @@ test("dark user messages keep their audited foregrounds and quiet icon-only acti
     );
   }
   for (const selector of [".message.user .message-time", ".message.user .message-copy-button"]) {
-    assert.match(
-      styleFor(selector).color,
-      /--space-on-accent-muted/,
-      `${selector} must use the muted on-solid role`,
-    );
+    assert.equal(styleFor(selector).color, "rgb(148, 163, 184)", `${selector} must sit neutrally below the bubble`);
   }
 
   const copyStyle = styleFor(".message.user .message-copy-button");
@@ -265,7 +271,7 @@ test("dark user messages keep their audited foregrounds and quiet icon-only acti
   assert.equal(copyStyle.height, "24px");
   assert.equal(copyStyle.opacity, "0.42");
   assert.equal(copyStyle.backgroundColor, "rgba(0, 0, 0, 0)");
-  assert.match(messages, /<MarkdownMessage[\s\S]*?<footer className="message-footer">[\s\S]*?<MessageActions/);
+  assert.match(messages, /<div className="message-surface">[\s\S]*?<MarkdownMessage[\s\S]*?<\/div>\s*<footer className="message-footer">[\s\S]*?<MessageActions/);
   assert.doesNotMatch(`${messages}\n${chatPanel}`, /message-author|>You<|assistantName/);
   const messageActionsSource = messages.match(/export function MessageActions[\s\S]*?(?=\nexport function TurnLanding)/)?.[0] ?? "";
   assert.doesNotMatch(messageActionsSource, /<span>\{copied \? "Copied" : "Copy"\}<\/span>/);

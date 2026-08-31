@@ -23,7 +23,7 @@ import { workFoldStateRoot } from "./state-paths.js";
  * Everything here is machine-local authority state beside the staged-act store
  * (`fold/policies.json` under the work-fold state root), never portable and
  * never inside a Space folder. Policies are inspectable and citable by the
- * fold, exercised host-side at decision time, and — per never-list entry 4 —
+ * fold, exercised host-side at decision time, and — per the setup-only boundary —
  * written only by a person in Settings: there is no act-lane verb, no remote
  * operation, and no popover control that writes one, and the store's API shape
  * enforces that (see {@link FoldPolicySettingsWriter}).
@@ -46,7 +46,7 @@ export type FoldPolicyCategory = Exclude<FoldStagedActCategory, "destroy">;
  * The closed classification of every staged-act kind. It is deliberately a
  * total record over {@link FoldStagedActKind}: adding a staged-act kind
  * without classifying it here is a compile error, so policy eligibility is
- * reviewed — against the never-list, per the consecrations doc — every time
+ * reviewed — against the setup-only boundary, per the consecrations doc — every time
  * the kind vocabulary grows. Admitting an ineligible kind later is its own
  * register decision, not a schema tweak.
  *
@@ -197,7 +197,7 @@ export class FoldPolicyError extends Error {
 
 /**
  * The Settings-only authoring seam. Policy authoring is a desktop-human act —
- * never-list entry 4 — so every mutating store method demands this capability
+ * setup-only policy boundary — so every mutating store method demands this capability
  * marker, and the marker is mintable only through
  * {@link mintFoldPolicySettingsWriter}. The desktop wiring mints exactly one
  * writer at startup and hands it only to the renderer-session Settings routes

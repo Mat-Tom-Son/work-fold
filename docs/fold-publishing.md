@@ -82,11 +82,12 @@ app at your address").
 
 Consequences, consistent with the fold doctrine:
 
-- **Remote clicks count.** A publish decision may be approved from the
-  desktop or any approved browser; the receipt records the approving
-  surface and exact grant, and revoking a browser cancels its pending
-  decisions, including pending publish decisions.
-- **The never-list is untouched.** Publishing rides the existing Remote
+- **Approved browsers inherit authority.** In Reviewed, a publish decision
+  may be approved from the desktop or any eligible approved browser. In
+  Unrestricted, a remote-originated staging request is consumed by the
+  desktop host and its receipt records `unrestricted` plus the exact browser
+  and grant. Revoking a browser still cancels its pending decisions.
+- **The setup-only boundary is untouched.** Publishing rides the existing Remote
   access account. The fold cannot bootstrap an address in order to publish
   to it: staging with no enrolled address fails with a typed `no-address`
   state and no card appears. Setting up "your fold on the web" is a
@@ -94,7 +95,9 @@ Consequences, consistent with the fold doctrine:
 - **Not policy-eligible.** `publish.viewer.expose` is excluded from
   standing policies in the policy schema itself — outward exposure is the
   one category whose blast radius includes people who are not the person.
-  Every new exposure takes a click; revocation, as always, takes none.
+  In Reviewed every new exposure takes a click; Unrestricted is the only
+  broader authority that can consume it automatically. Revocation, as
+  always, takes none.
 - **Narrowing never needs a click.** Revoking a publication, cutting its
   budgets, and turning snapshot caching off are direct receipted verbs.
   Widening — a new slot, a rebound source, raised budgets, snapshot on —

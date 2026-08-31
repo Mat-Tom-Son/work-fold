@@ -160,6 +160,8 @@ export function buildFixture(name) {
       transcriptTruncated: false,
       summary,
       activeTasks: new Map([["chat-1", { taskId: "task-1", conversationId: "chat-1" }]]),
+      liveAssistantText: "I’m reconciling the two missing purchase orders now and checking the draft’s sentence case.",
+      liveAssistantTextTruncated: false,
       decisions,
       glance,
     },

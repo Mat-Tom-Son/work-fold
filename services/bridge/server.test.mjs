@@ -249,9 +249,27 @@ test("the live watch is capability-gated, single, and falls back to polling", as
   assert.match(applicationSource, /event\.operationId !== state\.watchOperationId\) return;/);
   assert.match(applicationSource, /state\.watchUnsupported = true;/);
   assert.match(applicationSource, /result && result\.settled === true/);
+  // Each watch begins with a bounded cumulative snapshot, then applies
+  // throttled deltas until the durable transcript replaces the live row.
+  assert.match(applicationSource, /progress\?\.assistantText/);
+  assert.match(applicationSource, /progress\?\.assistantDelta/);
+  assert.match(applicationSource, /assistantTextTruncated/);
+  assert.match(applicationSource, /id: `live-assistant:/);
   // The watch's status-poll fallback idles at ten seconds; completion arrives
   // over the event stream.
   assert.match(applicationSource, /fallbackIntervalMs: 10_000,/);
+});
+
+test("the running control replaces Send inside the composer", async () => {
+  const applicationSource = await readFile(new URL("./public/app.js", import.meta.url), "utf8");
+  const applicationStyles = await readFile(new URL("./public/app.css", import.meta.url), "utf8");
+  const topBar = applicationSource.match(/<header class="top-bar">[\s\S]*?<\/header>/)?.[0] ?? "";
+  const composer = applicationSource.match(/<div class="composer-field">[\s\S]*?<\/div>`/)?.[0] ?? "";
+  assert.doesNotMatch(topBar, /stop-task/);
+  assert.match(composer, /class="send-button"[\s\S]*?id="stop-task" class="send-button stop-button"/);
+  assert.match(applicationStyles, /\.send-button\[hidden\]\s*\{\s*display:\s*none/);
+  assert.match(applicationStyles, /\.stop-button\s*\{/);
+  assert.match(applicationSource, /selectedTaskRunning[\s\S]{0,180}if \(!content[\s\S]{0,180}selectedTaskRunning\) return/);
 });
 
 test("composer sends with Enter on hardware keyboards and writes a newline on touch", () => {

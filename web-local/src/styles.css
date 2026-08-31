@@ -2228,6 +2228,34 @@ textarea,
   gap: 12px;
 }
 
+.settings-subtabs {
+  width: fit-content;
+  max-width: 100%;
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid #d8e0e8;
+  border-radius: 9px;
+  background: #f3f6f9;
+}
+
+.settings-subtabs button {
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 6px;
+  color: #667085;
+  background: transparent;
+  font-size: 0.78rem;
+  font-weight: 680;
+}
+
+.settings-subtabs button.active {
+  color: #184e77;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(20, 33, 61, 0.12);
+}
+
 .settings-section {
   display: grid;
   align-content: start;
@@ -9057,6 +9085,10 @@ textarea,
   animation: chat-message-enter 0.24s var(--work-fold-ease-smooth);
 }
 
+.message-surface {
+  min-width: 0;
+}
+
 /* Rows that replace content already on screen (streamed reply, optimistic
    user bubble) mount silently instead of replaying the enter animation. */
 .message.settled {
@@ -9131,18 +9163,18 @@ textarea,
 }
 
 .message.user .message-copy-button {
-  color: var(--space-on-accent-muted, var(--space-on-primary-accent, #ffffff));
+  color: #6b7688;
   background: transparent;
 }
 
 .message.user .message-footer {
-  margin: 7px -3px -5px 0;
+  margin: 5px 0 0;
 }
 
 .message.user .message-copy-button:hover,
 .message.user .message-copy-button:focus-visible {
-  color: var(--space-on-accent-solid, var(--space-on-primary-accent, #ffffff));
-  background: color-mix(in srgb, var(--space-on-accent-solid, var(--space-on-primary-accent, #ffffff)) 12%, transparent);
+  color: var(--space-accent-text-ui, var(--space-custom-color));
+  background: var(--space-accent-soft-fill, var(--space-custom-color-soft));
   border-color: transparent;
 }
 
@@ -9817,9 +9849,19 @@ textarea,
   align-self: flex-end;
   width: fit-content;
   max-width: min(88%, 590px);
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  box-shadow: none;
+}
+
+.message.user .message-surface {
+  width: fit-content;
+  margin-left: auto;
   padding: 14px 16px;
   color: var(--space-on-accent-solid, var(--space-on-primary-accent, #ffffff));
   background: var(--space-accent-solid, var(--space-custom-color, var(--work-fold-blue-600)));
+  border-radius: 8px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
@@ -9872,7 +9914,7 @@ textarea,
 }
 
 .message.user .message-time {
-  color: var(--space-on-accent-muted, var(--space-on-primary-accent, #ffffff));
+  color: #98a2b3;
 }
 
 .message.user .message-body a {
@@ -9892,6 +9934,10 @@ textarea,
   border-color: transparent;
   background: transparent;
   box-shadow: none;
+}
+
+.message.assistant .message-footer {
+  justify-content: flex-start;
 }
 
 .message.assistant.streaming {
@@ -13300,6 +13346,20 @@ textarea,
     inset -1px 0 0 rgba(148, 163, 184, 0.18);
 }
 
+.app-shell[data-theme="dark"] .settings-subtabs {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.62);
+}
+
+.app-shell[data-theme="dark"] .settings-subtabs button {
+  color: #94a3b8;
+}
+
+.app-shell[data-theme="dark"] .settings-subtabs button.active {
+  color: #dbeafe;
+  background: rgba(30, 41, 59, 0.96);
+}
+
 .app-shell[data-theme="dark"] .settings-section {
   background: rgba(15, 23, 42, 0.72);
   border-color: rgba(148, 163, 184, 0.2);
@@ -14255,6 +14315,13 @@ textarea,
 }
 
 .app-shell[data-theme="dark"] .message.user {
+  color: inherit;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.app-shell[data-theme="dark"] .message.user .message-surface {
   color: var(--space-on-accent-solid, var(--space-on-primary-accent, #ffffff));
   background: var(--space-accent-solid, var(--space-custom-color, var(--work-fold-blue-600)));
   border: 1px solid var(--space-accent-border-state, var(--space-custom-color));
@@ -14273,7 +14340,7 @@ textarea,
 
 .app-shell[data-theme="dark"] .message.user .message-time,
 .app-shell[data-theme="dark"] .message.user .message-copy-button {
-  color: var(--space-on-accent-muted, var(--space-on-primary-accent, #ffffff));
+  color: #94a3b8;
 }
 
 .app-shell[data-theme="dark"] .message.user .message-copy-button {
@@ -14283,8 +14350,8 @@ textarea,
 
 .app-shell[data-theme="dark"] .message.user .message-copy-button:hover,
 .app-shell[data-theme="dark"] .message.user .message-copy-button:focus-visible {
-  color: var(--space-on-accent-solid, var(--space-on-primary-accent, #ffffff));
-  background: color-mix(in srgb, var(--space-on-accent-solid, var(--space-on-primary-accent, #ffffff)) 12%, transparent);
+  color: var(--space-accent-text-ui, var(--space-custom-color));
+  background: var(--space-accent-soft-fill, var(--space-custom-color-soft));
   border-color: transparent;
 }
 

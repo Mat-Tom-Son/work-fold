@@ -2,6 +2,7 @@ import {
   VERSION as PI_SDK_VERSION,
   type ProgressEvent,
 } from "@earendil-works/pi-coding-agent";
+import { join } from "node:path";
 
 import {
   createPersistentPiAuthStorage,
@@ -9,6 +10,8 @@ import {
   type PiAuthStorageHost,
 } from "../../src/local/agent/auth-storage.js";
 import type { PiExtensionUiBridge } from "../../src/local/agent/extension-ui.js";
+import { AssistantModelPreferenceStore } from "../../src/local/agent/model-preferences.js";
+import { OpenRouterModelCatalog } from "../../src/local/agent/openrouter-model-catalog.js";
 import { importPiSkillBundle, type PiSkillBundleImportResult } from "../../src/local/agent/skill-import.js";
 import {
   getPiSetupStatus,
@@ -23,6 +26,8 @@ import {
   setPiProjectTrust,
   updatePiPackages,
   type PiConfiguredPackage,
+  type PiModelCatalogRefreshResult,
+  type PiModelCatalogStatus,
   type PiModelSummary,
   type PiOAuthHooks,
   type PiPackageMutationOptions,
@@ -38,6 +43,12 @@ export interface PackagedPiRuntimeOptions {
   agentDir: string;
   /** Optional Electron-safeStorage implementation; native auth.json is the fallback. */
   authStorageHost?: PiAuthStorageHost;
+  /** Machine-local, non-secret model choices keyed by Space identity. */
+  assistantPreferencesPath?: string;
+  /** Machine-local cache of OpenRouter's live model catalog. */
+  openRouterCatalogPath?: string;
+  /** App-owned root for the fold's distinct Assistant preference. */
+  managementRoot?: string;
   /** Shared HTTP/SSE or IPC bridge used by all extension sessions. */
   extensionUi?: PiExtensionUiBridge;
   preferredModel?: PiPreferredModel;
@@ -58,17 +69,31 @@ export interface PackagedPiRuntimeHealth {
 /** Native, provider-neutral Pi host used by the Electron main process. */
 export class PackagedPiRuntimeProvider implements PiRuntimeProvider {
   private authStoragePromise: Promise<PersistentPiAuthStorage> | null = null;
+  private readonly preferences: AssistantModelPreferenceStore;
+  private readonly openRouterCatalog: OpenRouterModelCatalog;
 
-  constructor(private readonly options: PackagedPiRuntimeOptions) {}
+  constructor(private readonly options: PackagedPiRuntimeOptions) {
+    this.preferences = new AssistantModelPreferenceStore({
+      filePath: options.assistantPreferencesPath ?? join(options.agentDir, "work-fold-model-preferences.json"),
+      ...(options.managementRoot ? { managementRoot: options.managementRoot } : {}),
+    });
+    this.openRouterCatalog = new OpenRouterModelCatalog({
+      cachePath: options.openRouterCatalogPath ?? join(options.agentDir, "openrouter-models.json"),
+    });
+  }
 
-  async resolveRuntime(): Promise<PiRuntimeConfig> {
+  async resolveRuntime(spaceRoot: string): Promise<PiRuntimeConfig> {
     const auth = await this.authStorage();
+    const scopedPreferredModel = await this.preferences.get(spaceRoot).catch(() => undefined);
+    const openRouterCatalog = await this.openRouterCatalog.load().catch(() => undefined);
+    const preferredModel = this.options.preferredModel ?? scopedPreferredModel;
     return {
       agentDir: this.options.agentDir,
       authStorage: auth.authStorage,
       flushAuthStorage: () => auth.flush(),
+      ...(openRouterCatalog ? { modelCatalogs: [openRouterCatalog] } : {}),
       ...(this.options.extensionUi ? { extensionUi: this.options.extensionUi } : {}),
-      ...(this.options.preferredModel ? { preferredModel: this.options.preferredModel } : {}),
+      ...(preferredModel ? { preferredModel } : {}),
       ...(this.options.projectTrust ? { projectTrust: this.options.projectTrust } : {}),
       ...(this.options.additionalExtensionPaths ? { additionalExtensionPaths: this.options.additionalExtensionPaths } : {}),
       ...(this.options.additionalSkillPaths ? { additionalSkillPaths: this.options.additionalSkillPaths } : {}),
@@ -77,9 +102,9 @@ export class PackagedPiRuntimeProvider implements PiRuntimeProvider {
       metadata: {
         piVersion: PI_SDK_VERSION,
         nodeVersion: process.version,
-        ...(this.options.preferredModel ? {
-          provider: this.options.preferredModel.provider,
-          model: this.options.preferredModel.id,
+        ...(preferredModel ? {
+          provider: preferredModel.provider,
+          model: preferredModel.id,
         } : {}),
       },
     };
@@ -131,6 +156,22 @@ export class PackagedPiRuntimeProvider implements PiRuntimeProvider {
 
   setDefaultModel(spaceRoot: string, model: PiPreferredModel): Promise<void> {
     return setPiDefaultModel(spaceRoot, model, this);
+  }
+
+  setPreferredModel(spaceRoot: string, model: PiPreferredModel): Promise<void> {
+    return this.preferences.set(spaceRoot, model);
+  }
+
+  async refreshModelCatalog(providerId: string): Promise<PiModelCatalogRefreshResult> {
+    if (providerId !== "openrouter") throw new Error(`${providerId} does not offer live model refresh.`);
+    const auth = await this.authStorage();
+    const apiKey = await auth.authStorage.getApiKey("openrouter");
+    if (!apiKey) throw new Error("Connect OpenRouter before refreshing its models.");
+    return this.openRouterCatalog.refresh(apiKey);
+  }
+
+  async listModelCatalogs(): Promise<PiModelCatalogStatus[]> {
+    return [await this.openRouterCatalog.status()];
   }
 
   setProjectTrust(spaceRoot: string, decision: boolean | null): Promise<void> {

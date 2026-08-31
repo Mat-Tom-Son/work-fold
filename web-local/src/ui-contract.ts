@@ -86,7 +86,7 @@ export const foldPoliciesSettings = {
   heading: "Standing policies",
   intro: "Pre-approve one narrow kind of act you have decided to trust, so it does not wait on a needs-you card. "
     + "Every exercised policy still leaves a decision receipt. You write policies only here — the fold can cite them, "
-    + "never write them — and deleting something for good or sharing a page always takes a click.",
+    + "never write them. Policies apply in Reviewed mode.",
   attestationBroken: "Your standing policies were changed outside Settings, so every policy is off until you review and re-save them here.",
   reattest: "Review and re-save",
   addHeading: "Add a standing policy",
@@ -102,4 +102,16 @@ export const foldPoliciesSettings = {
   remove: "Delete",
   removeConfirm: "Delete this standing policy? Acts it would have pre-approved will wait on a needs-you card instead.",
   empty: "No standing policies. Every act that needs approval waits on a needs-you card.",
+} as const;
+
+export const foldAuthoritySettings = {
+  heading: "Operating mode",
+  reviewed: "Reviewed",
+  reviewedDetail: "Consequential acts wait for you or use a standing policy.",
+  unrestricted: "Unrestricted",
+  unrestrictedDetail: "Run every admitted act immediately, including permanent deletion.",
+  unrestrictedConfirm: "Turn on Unrestricted mode? The fold and every approved browser can install code, grant whole-Space file access, share pages, enable routings, and permanently delete without another approval.",
+  approvedBrowserInheritance: "Every new browser must show a six-digit code that you approve on this desktop. Approval is full trust: that browser may ask work-fold to read or change accessible files and run local commands, and it inherits the fold’s current authority mode.",
+  damaged: "work-fold is using Reviewed mode because the authority setting is damaged. Recover the authority file outside the app before changing it here.",
+  policiesPaused: "Saved policies are paused while Unrestricted mode is on. They resume if you return to Reviewed mode.",
 } as const;

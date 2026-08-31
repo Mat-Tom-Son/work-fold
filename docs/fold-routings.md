@@ -270,12 +270,14 @@ are not queued. Routing runs register as the experimental kernel task kind
    inspectable, inert. Staged decisions expire; expiry is not approval;
    denial is recorded, not retried.
 3. **Consecrate.** Enabling a routing is consecration 2 — widening a power
-   into standing behavior — and requires the human click on a needs-you
-   card, per [fold-consecrations.md](fold-consecrations.md); no standing
-   policy can pre-approve it. The decision may be approved from the desktop
-   or an approved remote browser; the receipt records the approving surface
-   and browser identity, and revoking a browser cancels its pending
-   decisions. The card shows the whole declaration in review form: every
+   into standing behavior — and no standing policy can pre-approve it. In
+   Reviewed it requires the human click described by
+   [fold-consecrations.md](fold-consecrations.md), from the desktop or an
+   eligible approved browser. In Unrestricted the desktop host consumes a
+   fresh admission automatically, including when the staging request came
+   from an approved browser. The receipt records the decision surface and
+   browser identity, and revoking a browser cancels its pending decisions.
+   In Reviewed, the card shows the whole declaration in review form: every
    Space by current name and folder, the Chat step's message verbatim —
    labeled as text that will enter that Space's portable transcript — exact
    paths, selectors, filters and bounds, the Check by title, and the
@@ -292,7 +294,8 @@ are not queued. Routing runs register as the experimental kernel task kind
    changes its digest and returns the routing to proposed until a fresh
    consecration — an edited routing never coasts on a stale approval.
 5. **Disable.** A direct verb (and a desktop control): narrowing authority
-   never needs a click. Re-enable is a fresh consecration.
+   is always direct. Re-enable is a fresh consecration governed by the mode
+   active at that admission.
 6. **Delete.** A direct verb on a disabled or suspended routing: removes
    the declaration, grant history pointer, and cadence anchor. The receipts
    journal is retained — audit records survive the object, as with Checks.
@@ -302,7 +305,7 @@ The five questions, per mutation:
 | Mutation | Journaled by | Receipt contains | Revoked / undone by | Mid-act failure | Replay prevented by |
 |---|---|---|---|---|---|
 | Stage enablement | Act-lane journal (`accepted` before, terminal after) plus the pending-decision record | Proposal digest, routing summary, staging actor, parent-task lineage | Expiry, explicit denial, browser revocation cancelling its pending decisions | Staging is inert; a torn stage is an absent decision, refused at decision time | Act request-id at-most-once; single-use decision ids |
-| Enable (the click) | Consecration decision record plus routing store commit | Routing id, declaration digest, approving surface/browser identity, timestamp | Disable; Space removal (automatic revocation to `suspended`) | Declaration-then-grant as one logical operation; failure leaves inert declaration, never digest-mismatched authority | Single-use decision id; expired stages cannot be approved |
+| Enable | Consecration decision record plus routing store commit | Routing id, declaration digest, decision surface/browser identity, timestamp | Disable; Space removal (automatic revocation to `suspended`) | Declaration-then-grant as one logical operation; failure leaves inert declaration, never digest-mismatched authority | Single-use decision id; expired stages cannot be approved |
 | Run (scheduled / on-settled) | Routing receipts journal, run `accepted` before hop 1, per-hop accepted/terminal pairs | Trigger cause, digest, per-hop domain evidence (task ids, run ids, conversation id, restore-point id, copied paths) | Stop (active); files effects restorable via the hop's restore point; chat effects are an ordinary archivable Chat | Startup records `interrupted`; completed hops keep receipts; in-flight hop resolves by its domain's crash rule; never replayed | Host-minted run ids; journal-first accepted gate; serialized in-process trigger funnel; anchor-collapsed catch-up |
 | Run-now | Act-lane journal plus the same run journal | As above, plus the act request id | Same as a run | Same as a run | Act request-id at-most-once plus run-id gate |
 | Stop | Act-lane journal (or desktop action record) plus run terminal record | Run id, aborted hop task ids, skipped hops | Not applicable — stop is itself the revocation act | Abort signals are idempotent; a second stop finds a settled run | Act request-id at-most-once; a settled run refuses stop with its terminal state |

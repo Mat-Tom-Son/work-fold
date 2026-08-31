@@ -1,6 +1,12 @@
 import { resolve } from "node:path";
 
-import type { PiRuntimeConfig, PiRuntimeProvider } from "./pi-runtime-config.js";
+import type {
+  PiModelCatalogRefreshResult,
+  PiModelCatalogStatus,
+  PiPreferredModel,
+  PiRuntimeConfig,
+  PiRuntimeProvider,
+} from "./pi-runtime-config.js";
 
 /**
  * In work-fold, registering a Space is the host-level grant to load its Pi
@@ -33,10 +39,24 @@ export class RegisteredSpaceTrustAuthority {
  * trusted that folder independently.
  */
 export class RegisteredSpaceRuntimeProvider implements PiRuntimeProvider {
+  readonly setPreferredModel?: (spaceRoot: string, model: PiPreferredModel) => Promise<void>;
+  readonly refreshModelCatalog?: (providerId: string) => Promise<PiModelCatalogRefreshResult>;
+  readonly listModelCatalogs?: () => Promise<PiModelCatalogStatus[]>;
+
   constructor(
     private readonly base: PiRuntimeProvider,
     private readonly authority: RegisteredSpaceTrustAuthority,
-  ) {}
+  ) {
+    if (base.setPreferredModel) {
+      this.setPreferredModel = (spaceRoot, model) => base.setPreferredModel!(spaceRoot, model);
+    }
+    if (base.refreshModelCatalog) {
+      this.refreshModelCatalog = (providerId) => base.refreshModelCatalog!(providerId);
+    }
+    if (base.listModelCatalogs) {
+      this.listModelCatalogs = () => base.listModelCatalogs!();
+    }
+  }
 
   async resolveRuntime(spaceRoot: string): Promise<PiRuntimeConfig> {
     const runtime = await this.base.resolveRuntime(spaceRoot);
@@ -48,6 +68,7 @@ export class RegisteredSpaceRuntimeProvider implements PiRuntimeProvider {
       },
     };
   }
+
 }
 
 function rootKey(rootPath: string): string {

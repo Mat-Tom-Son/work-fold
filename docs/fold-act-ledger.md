@@ -20,22 +20,22 @@ by [Routings](fold-routings.md), [the glance](fold-glance.md), and
 
 The doctrine, in one paragraph: every product verb is a receipted act-lane
 verb **except** the three consecrations — make bytes runnable, widen a
-power, destroy irreversibly — which the fold may fully stage but never
-decide, and the never-list, which the fold may neither do nor stage. The
-click exists because the fold reads untrusted content (attachments, links,
-Space files); a click on a desktop or approved-browser surface is the one
-signal that content cannot synthesize. The ledger removes the accidental
-gaps on the safe side of that line and nothing on the other side of it.
+power, destroy irreversibly — which always stage first, and the setup-only
+boundary, which the fold may neither do nor stage. In **Reviewed**, a person
+or narrow standing policy decides a staged act. In **Unrestricted**, the
+desktop host decides every newly admitted staged act under the machine-local
+root mode. The ledger keeps typed pins, conflict checks, at-most-once
+consumption, and receipts in both modes.
 
 ## Terms the ledger uses
 
 | Target | Meaning |
 |---|---|
 | **direct verb** | The fold performs it through the act lane: explicit selection, journal-first receipt, at-most-once execution, desktop conflict rules. |
-| **consecration 1 — make bytes runnable** | The fold stages a fully prepared, inert act; a person approves it on the desktop or an approved remote browser. Covers restricted-app review approval, Pi package/Extension install or update, executable skill-bundle import. |
+| **consecration 1 — make bytes runnable** | The fold stages a fully prepared, inert act; Reviewed waits for a person or eligible standing policy, while Unrestricted lets the host consume it. Covers restricted-app review approval, Pi package/Extension install or update, executable skill-bundle import. |
 | **consecration 2 — widen a power** | Same staging path. Covers restricted-app network/file/notification grants, saving a connection, enabling a named automation, enabling a routing, and creating outward viewer exposure ([Publishing](fold-publishing.md), consecration 2). |
 | **consecration 3 — destroy irreversibly** | Same staging path. Covers deleting a managed Space's folder, purging app data, and any deletion with no restore path. |
-| **never-list** | Desktop-human-only. The fold can neither perform nor stage it: Remote access administration, act-token and pairing machinery, provider credentials, standing-policy authoring, anything that widens the set of principals controlling the fold. |
+| **setup-only boundary** | The fold can neither perform nor stage it: Remote access administration, act-token and pairing machinery, provider credentials, standing-policy authoring, root-authority mode selection, and anything that widens the set of principals controlling the fold. |
 | **deliberately absent** | Not a product verb — desktop-session mechanics, machine-local UI preference, or a surface whose meaning does not survive leaving the desktop. Listed so absence is a decision, not a gap. |
 
 The tables' "Fold today" column is historical: it records what the act lane
@@ -87,10 +87,11 @@ Act-protocol conventions carry over unchanged: protocol version 2 envelope
 on every Space-scoped write (never working-directory resolution),
 `--parent-task` lineage validated against an active management request, and
 `--json` output. Consecration verbs use the same grammar; invoking one
-**stages** it and returns a decision id — it never executes. Where a
-[standing policy](fold-consecrations.md) pre-approves the exact category,
-the host applies the policy at decision time and the receipt cites the
-policy id; the model never evaluates policy.
+**stages** it and returns a decision id. In Reviewed it remains pending
+unless a [standing policy](fold-consecrations.md) pre-approves the exact
+category. In Unrestricted the host consumes a fresh admission immediately
+and returns the automatic decision result. The model evaluates neither
+policies nor authority mode.
 
 ## The ledger
 
@@ -223,9 +224,10 @@ noun.
 | Remove Pi package | Installed → Remove | none | direct verb | `tools remove --source <pkg> --scope … [--space <id>]` | source, scope | reinstall is a fresh consecration | blocked while affected work is active — the kernel's capability-mutation fencing, unchanged |
 
 Scope is authority: `--scope personal` makes bytes runnable inside the fold's
-own runtime, so the staged card names that scope for what it is, and its
-decision is desktop-only — never remote — per the surface rules in
-[Consecrations](fold-consecrations.md).
+own runtime, so the staged card names that scope for what it is. In Reviewed
+its decision is desktop-only — never remote — per the surface rules in
+[Consecrations](fold-consecrations.md). Unrestricted is a host decision and
+may consume it while retaining any remote staging provenance.
 
 ### Space app authority
 
@@ -274,13 +276,14 @@ joined by `manage glance` ([the glance](fold-glance.md)). The CLI group
 keeps the contract name `manage`; "the fold" is user-facing copy per
 [The fold](fold.md). Staged-act inspection and cancellation
 (`staged list|show|cancel`) belong to
-[Consecrations](fold-consecrations.md); **deciding** a staged act has no CLI
-or act-lane shape anywhere, permanently — decisions exist only on the
-desktop renderer surfaces and the approved remote browser's signed envelope.
+[Consecrations](fold-consecrations.md); **deciding** a staged act and
+selecting the root authority mode have no CLI or act-lane shape. Reviewed
+decisions come from renderer surfaces or approved-browser envelopes;
+Unrestricted decisions originate inside the desktop host after admission.
 Routing verbs are in [Routings](fold-routings.md); publication verbs in
 [Publishing](fold-publishing.md).
 
-### Settings and fold administration — the never-list
+### Settings and fold administration — the setup-only boundary
 
 No command shapes. The fold can neither perform nor stage these; the act
 lane never grows a verb for them, and a staged act that would amount to one
@@ -288,19 +291,19 @@ is refused at parse time, not at decision time.
 
 | Verb | Human surface | Target |
 |---|---|---|
-| Configure provider, model, API key, provider OAuth | Settings → Assistant | **never-list** (provider credentials) |
-| Remove or replace stored provider credential | Settings → Assistant | **never-list** |
-| Remote access: create/change address, password, approve or revoke a browser, revoke generations, disable, delete | Settings → The fold ("Your fold on the web") | **never-list** (fold-authority surface) |
-| Act-token and pairing machinery: minting, scope, lifetime | none (app-owned) | **never-list** |
-| Author, edit, or delete a standing policy | Settings → The fold | **never-list** (the fold may cite policies, never write them) |
+| Configure provider, model, API key, provider OAuth | Settings → Assistant | **setup-only** (provider credentials) |
+| Remove or replace stored provider credential | Settings → Assistant | **setup-only** |
+| Remote access: create/change address, password, approve or revoke a browser, revoke generations, disable, delete | Settings → The fold ("Your fold on the web") | **setup-only** (fold-authority surface) |
+| Act-token and pairing machinery: minting, scope, lifetime | none (app-owned) | **setup-only** |
+| Author, edit, or delete a standing policy | Settings → The fold | **setup-only** (the fold may cite policies, never write them) |
+| Select Reviewed or Unrestricted root authority | Settings → The fold → Authority | **setup-only** (no Assistant, CLI, act-token, or remote verb) |
 
-Approved remote browsers may *decide* staged consecrations (a recorded
-product decision), subject to two surface rules owned by
-[Consecrations](fold-consecrations.md): never from the same grant whose
-request staged the act, and never for Personal-scope make-runnable, which is
-desktop-only. They still cannot touch this table, and receipts for remotely
-decided acts carry the approving surface and exact browser/grant identity so
-revoking a browser can cancel its pending decisions.
+Approved remote browsers inherit the current root mode. In Reviewed they may
+*decide* eligible staged consecrations subject to the two surface rules in
+[Consecrations](fold-consecrations.md). In Unrestricted their newly admitted
+requests are consumed by the desktop host, and the receipt preserves the
+initiating browser/grant identity. They cannot touch this table or select the
+mode.
 
 ### Deliberately absent
 
@@ -372,14 +375,17 @@ Consolidated, so implementations and tests can point at one list:
 `WorkFoldCliActReceiptV1` (`src/local/cli/act-receipts.ts`) carries four
 optional receipts-v2 fields at `v: 2`; readers accept both versions:
 
-- `surface` — one value from the closed five-value vocabulary shared with
-  decision records: `cli`, `popover`, `main-window`, `remote_web`, `policy`.
+- `surface` — one value from the closed six-value vocabulary shared with
+  decision records: `cli`, `popover`, `main-window`, `remote_web`, `policy`,
+  `unrestricted`.
   Act receipts record the authenticated surface that initiated the act
   (`cli`, `popover`, or `remote_web`, plus browser and grant ids when
-  remote); decision receipts additionally use `main-window` and `policy`.
+  remote); decision receipts additionally use `main-window`, `policy`, and
+  `unrestricted`.
   This is the compensating control for remote consecration decisions.
 - `decisionId` — links a staging receipt to its pending decision and the
-  eventual execution receipt to the click (or policy) that authorized it.
+  eventual execution receipt to the click, policy, or Unrestricted host
+  decision that authorized it.
 - `policyId` — present exactly when a standing policy, not a click,
   satisfied a consecration; policies are receipted when exercised.
 - `undoRef` — a typed reference to the prior state an undo verb needs:
@@ -397,7 +403,7 @@ The ledger's plan items shipped as follows (suites named in
 [the management layer](management-layer.md)'s verification map):
 
 1. Receipt schema v2 — `src/local/cli/act-receipts.ts`; `tests/work-fold-cli-act-receipts.test.ts`.
-2. Act argv and command table, with parse-time never-list refusal — `src/local/cli/act-commands.ts`; `tests/work-fold-cli-act-protocol.test.ts`.
+2. Act argv and command table, with parse-time setup-only refusal — `src/local/cli/act-commands.ts`; `tests/work-fold-cli-act-protocol.test.ts`.
 3. Facade growth over the exact route internals — `src/local/cli/act-facade.ts`, `src/local/server.ts`; `tests/work-fold-act-facade.test.ts` plus the owning domain suites.
 4. History-restore fencing and `chat compact` — `src/local/work-fold-kernel.ts`; `tests/work-fold-kernel.test.ts`.
 5. Consecration-staged rows returning `staged` results — with [Consecrations](fold-consecrations.md)'s store; `tests/work-fold-cli-staged-verbs.test.ts`.

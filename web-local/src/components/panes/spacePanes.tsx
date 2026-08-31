@@ -9,7 +9,6 @@ import {
 import {
   ArrowSync16Regular,
   ArrowUpload16Regular,
-  Bot20Regular,
   Chat16Regular,
   Checkmark12Regular,
   Checkmark16Regular,
@@ -38,6 +37,7 @@ import { formatChatListTime, formatItemCount } from "../../lib/format";
 import { spaceIdentityFor, spaceIdentityStyle } from "../../lib/space-identity";
 import type {
   AgentModel,
+  AgentModelCatalog,
   AgentStatus,
   ChatActivityStatus,
   ChatLifecycleView,
@@ -600,54 +600,67 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
   );
 }
 
-export function AssistantSetupPane({ space, status, fixtureMode = false, embedded = false, onConfigured }: { space: SpaceSummary; status: AgentStatus; fixtureMode?: boolean; embedded?: boolean; onConfigured: (status: AgentStatus) => void }) {
+type AssistantModelScope = "space" | "management";
+
+export function AssistantSetupPane({ space, status, fixtureMode = false, embedded = false, onConfigured }: { space: SpaceSummary | null; status: AgentStatus; fixtureMode?: boolean; embedded?: boolean; onConfigured: (status: AgentStatus) => void }) {
+  const [scope, setScope] = useState<AssistantModelScope>(space ? "space" : "management");
+  const [scopeStatus, setScopeStatus] = useState<AgentStatus>(status);
   const [models, setModels] = useState<AgentModel[]>([]);
+  const [catalogs, setCatalogs] = useState<AgentModelCatalog[]>([]);
   const [provider, setProvider] = useState(status.provider ?? "openrouter");
   const [model, setModel] = useState(status.model ?? "");
   const [apiKey, setApiKey] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (fixtureMode) {
       setModels([{ provider: "openrouter", id: "anthropic/claude-sonnet-4", name: "Claude Sonnet", authConfigured: true, oauthSupported: false }]);
+      setCatalogs([{ provider: "openrouter", refreshable: true, source: "live", refreshedAt: new Date().toISOString(), modelCount: 1 }]);
       setProvider("openrouter");
       setModel("anthropic/claude-sonnet-4");
+      setScopeStatus({ ...status, configured: true, provider: "openrouter", model: "anthropic/claude-sonnet-4" });
       setLoading(false);
       return;
     }
-    void api<{ models: AgentModel[] }>(`/api/agent/models?spaceId=${encodeURIComponent(space.id)}`)
+    setLoading(true);
+    setError(null);
+    setNotice(null);
+    const params = assistantScopeParams(scope, space);
+    void api<{ models: AgentModel[]; status: AgentStatus; catalogs: AgentModelCatalog[] }>(`/api/agent/models?${params}`)
       .then((result) => {
         setModels(result.models);
-        const first = result.models.find((item) => item.provider === status.provider)
+        setCatalogs(result.catalogs);
+        setScopeStatus(result.status);
+        const first = result.models.find((item) => item.provider === result.status.provider)
           ?? result.models.find((item) => item.provider === "openrouter")
           ?? result.models[0];
         if (first) {
           setProvider(first.provider);
-          setModel((current) => resolveAssistantModelSelection(
-            result.models,
-            first.provider,
-            current || status.model || "",
-          ));
+          setModel(resolveAssistantModelSelection(result.models, first.provider, result.status.model || ""));
         }
       })
       .catch((caught) => setError(errorText(caught)))
       .finally(() => setLoading(false));
-  }, [fixtureMode, space.id]);
+  }, [fixtureMode, scope, space?.id]);
 
   const providers = unique(models.map((item) => item.provider)).sort((left, right) =>
     providerDisplayName(models, left).localeCompare(providerDisplayName(models, right)));
   const providerModels = models.filter((item) => item.provider === provider);
   const oauthSupported = providerModels.some((item) => item.oauthSupported);
+  const accountOnly = providerAccountOnly(provider);
   const authConfigured = providerModels.some((item) => item.authConfigured);
   const providerAuth = providerModels.find((item) => item.authConfigured);
   const removableAuth = providerAuth?.authSource === "stored";
   const removeCredentialLabel = providerAuth?.authType === "oauth" ? "Disconnect account" : "Remove API key";
   const credentialStatus = assistantCredentialStatus(providerAuth);
-  const setupChanged = !status.configured || provider !== status.provider || model !== status.model || Boolean(apiKey.trim());
+  const setupChanged = !scopeStatus.configured || provider !== scopeStatus.provider || model !== scopeStatus.model || Boolean(apiKey.trim());
   const subscriptionNote = oauthSupported ? providerSubscriptionNote(provider) : null;
+  const catalog = catalogs.find((item) => item.provider === provider);
+  const scopeLabel = scope === "management" ? "The fold" : space?.name ?? "This Space";
 
   useEffect(() => {
     if (!models.length) return;
@@ -656,7 +669,9 @@ export function AssistantSetupPane({ space, status, fixtureMode = false, embedde
 
   async function configure(oauth = false) {
     if (fixtureMode) {
-      onConfigured({ ...status, configured: true, provider, model });
+      const next = { ...scopeStatus, configured: true, provider, model };
+      setScopeStatus(next);
+      if (scope === "space") onConfigured(next);
       setNotice(oauth ? "Account connected" : "Setup saved");
       return;
     }
@@ -665,7 +680,10 @@ export function AssistantSetupPane({ space, status, fixtureMode = false, embedde
     setNotice(null);
     try {
       const submittedApiKey = apiKey.trim();
-      const result = await api<{ status: AgentStatus }>(oauth ? "/api/agent/oauth" : "/api/agent/configure", { method: "POST", body: { spaceId: space.id, provider, model, ...(oauth ? {} : { apiKey: submittedApiKey || undefined }) } });
+      const result = await api<{ status: AgentStatus }>(oauth ? "/api/agent/oauth" : "/api/agent/configure", {
+        method: "POST",
+        body: { ...assistantScopeBody(scope, space), provider, model, ...(oauth ? {} : { apiKey: submittedApiKey || undefined }) },
+      });
       if (oauth || submittedApiKey) {
         setModels((current) => current.map((item) => item.provider === provider ? {
           ...item,
@@ -675,8 +693,9 @@ export function AssistantSetupPane({ space, status, fixtureMode = false, embedde
         } : item));
       }
       setApiKey("");
-      onConfigured(result.status);
-      setNotice(oauth ? "Account connected" : "Setup saved");
+      setScopeStatus(result.status);
+      if (scope === "space") onConfigured(result.status);
+      setNotice(oauth ? "Account connected" : "Model saved");
     } catch (caught) { setError(errorText(caught)); }
     finally { setSaving(false); }
   }
@@ -689,14 +708,37 @@ export function AssistantSetupPane({ space, status, fixtureMode = false, embedde
     try {
       const result = await api<{ models: AgentModel[]; status: AgentStatus }>("/api/agent/auth", {
         method: "DELETE",
-        body: { spaceId: space.id, provider },
+        body: { ...assistantScopeBody(scope, space), provider },
       });
       setModels(result.models);
       setApiKey("");
-      onConfigured(result.status);
-      setNotice("Credential removed. You can enter a new API key.");
+      setScopeStatus(result.status);
+      if (scope === "space") onConfigured(result.status);
+      setNotice(providerAuth?.authType === "oauth" ? "Account disconnected" : "API key removed");
     } catch (caught) { setError(errorText(caught)); }
     finally { setSaving(false); }
+  }
+
+  async function refreshModels() {
+    if (fixtureMode) {
+      setNotice("1 model refreshed from OpenRouter");
+      return;
+    }
+    setRefreshing(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api<{ models: AgentModel[]; status: AgentStatus; catalogs: AgentModelCatalog[]; refresh: { modelCount: number } }>("/api/agent/models/refresh", {
+        method: "POST",
+        body: { ...assistantScopeBody(scope, space), provider },
+      });
+      setModels(result.models);
+      setCatalogs(result.catalogs);
+      setScopeStatus(result.status);
+      setModel((current) => resolveAssistantModelSelection(result.models, provider, current));
+      setNotice(`${result.refresh.modelCount} models refreshed from OpenRouter`);
+    } catch (caught) { setError(errorText(caught)); }
+    finally { setRefreshing(false); }
   }
 
   function submitSetup(event: FormEvent<HTMLFormElement>) {
@@ -706,10 +748,10 @@ export function AssistantSetupPane({ space, status, fixtureMode = false, embedde
 
   return (
     <div className={embedded ? "assistant-settings-panel professional-assistant" : "space-pane-content assistant-pane professional-surface professional-assistant"}>
-      <section className="assistant-setup-card professional-card" aria-labelledby="assistant-setup-title">
-        <div className="setup-intro">
-          <span className="professional-icon-tile" aria-hidden="true"><Bot20Regular /></span>
-          <div><h2 id="assistant-setup-title">Your Assistant, your provider</h2><p>work-fold uses Pi with its built-in tools, Skills, and Extensions.</p></div>
+      <section className="assistant-setup-card professional-card" aria-label="Assistant model settings">
+        <div className="assistant-scope-control" role="radiogroup" aria-label="Use this model for">
+          {space ? <button className={scope === "space" ? "active" : ""} type="button" role="radio" aria-checked={scope === "space"} onClick={() => setScope("space")}><span>This Space</span><small>{space.name}</small></button> : null}
+          <button className={scope === "management" ? "active" : ""} type="button" role="radio" aria-checked={scope === "management"} onClick={() => setScope("management")}><span>The fold</span><small>Menu bar and web</small></button>
         </div>
         {loading ? <LoadingRow label="Loading Pi models" /> : (
           <form className="setup-grid" onSubmit={submitSetup}>
@@ -718,27 +760,32 @@ export function AssistantSetupPane({ space, status, fixtureMode = false, embedde
               <span className="professional-field-label">Provider</span>
               <select value={provider} onChange={(event) => { setProvider(event.target.value); setApiKey(""); setError(null); setNotice(null); }}>{providers.map((item) => <option value={item} key={item}>{providerDisplayName(models, item)}</option>)}</select>
             </label>
-            <label className="professional-field">
-              <span className="professional-field-label">Model</span>
-              <select value={model} onChange={(event) => { setModel(event.target.value); setError(null); setNotice(null); }}>{providerModels.map((item) => <option value={item.id} key={item.id}>{item.name || item.id}</option>)}</select>
-            </label>
-            <div className="professional-field professional-field-wide">
+            <div className="professional-field">
+              <div className="assistant-model-field-heading">
+                <label className="professional-field-label" htmlFor="assistant-model">Model</label>
+                {catalog?.refreshable ? <button className="assistant-refresh-models" type="button" disabled={saving || refreshing || !authConfigured} title={authConfigured ? "Refresh OpenRouter models" : "Connect OpenRouter before refreshing"} onClick={() => void refreshModels()}><ArrowSync16Regular className={refreshing ? "spin" : undefined} />{refreshing ? "Refreshing" : "Refresh"}</button> : null}
+              </div>
+              <select id="assistant-model" value={model} onChange={(event) => { setModel(event.target.value); setError(null); setNotice(null); }}>{providerModels.map((item) => <option value={item.id} key={item.id}>{item.name || item.id}</option>)}</select>
+              {catalog?.source === "live" && catalog.refreshedAt ? <span className="professional-field-hint">OpenRouter list updated {formatCatalogDate(catalog.refreshedAt)}</span> : null}
+            </div>
+            {!accountOnly ? <div className="professional-field professional-field-wide">
               <label className="professional-field-label" htmlFor="assistant-api-key">API key</label>
               <span className="professional-field-hint" id="assistant-api-key-hint">{credentialStatus ?? "Stored securely on this computer"}</span>
               <div className="assistant-credential-control">
                 <input id="assistant-api-key" type="password" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setError(null); setNotice(null); }} placeholder={authConfigured ? "••••••••••••••••" : "Paste a key"} autoComplete="off" disabled={saving || authConfigured} aria-describedby="assistant-api-key-hint" />
                 {removableAuth ? <button className="professional-button professional-button-secondary" type="button" onClick={() => void removeCredential()} disabled={saving}>{removeCredentialLabel}</button> : null}
               </div>
-            </div>
+            </div> : null}
             <div className="professional-actions professional-field-wide">
               <button className="professional-button professional-button-primary" type="submit" disabled={saving || !model || !setupChanged || (!authConfigured && !apiKey.trim())}>
-                {saving ? <ArrowSync16Regular className="spin" /> : <Checkmark16Regular />}Save setup
+                {saving ? <ArrowSync16Regular className="spin" /> : <Checkmark16Regular />}Save model
               </button>
-              {oauthSupported ? <button className="professional-button professional-button-secondary" type="button" onClick={() => void configure(true)} disabled={saving}>{authConfigured ? "Reconnect account" : "Connect account"}</button> : null}
+              {oauthSupported ? <button className="professional-button professional-button-secondary" type="button" onClick={() => void configure(true)} disabled={saving}>{assistantAccountAction(provider, providerAuth?.authType === "oauth")}</button> : null}
+              {accountOnly && removableAuth ? <button className="professional-button professional-button-secondary" type="button" onClick={() => void removeCredential()} disabled={saving}>{removeCredentialLabel}</button> : null}
               {notice ? <span className="professional-save-status" role="status"><Checkmark16Regular />{notice}</span> : null}
             </div>
             {subscriptionNote ? <p className="security-note professional-field-wide"><ShieldCheckmark16Regular />{subscriptionNote}</p> : null}
-            <p className="security-note professional-field-wide"><ShieldCheckmark16Regular />Creating or registering a Space allows its local Pi configuration. Review packages separately before installing them.</p>
+            <p className="assistant-scope-summary professional-field-wide">Saved for {scopeLabel}. Provider connections are shared on this computer.</p>
           </form>
         )}
       </section>
@@ -784,8 +831,32 @@ function assistantCredentialStatus(model: AgentModel | undefined) {
   if (model.authSource === "models_json_key" || model.authSource === "models_json_command") return "Credential configured in Pi models settings";
   return "Credential supplied outside work-fold";
 }
-function providerSubscriptionNote(_provider: string) {
-  return "work-fold opens the provider's sign-in flow in your system browser and stores the resulting tokens in its encrypted desktop credential store. Availability and billing follow that provider's current account terms.";
+function providerAccountOnly(provider: string) {
+  return provider === "openai-codex" || provider === "github-copilot";
+}
+function assistantAccountAction(provider: string, configured: boolean) {
+  if (configured) return "Reconnect account";
+  if (provider === "openai-codex") return "Sign in with ChatGPT";
+  if (provider === "github-copilot") return "Sign in with GitHub";
+  if (provider === "anthropic") return "Connect Anthropic account";
+  return "Connect account";
+}
+function providerSubscriptionNote(provider: string) {
+  if (provider === "openai-codex") return "Connects to OpenAI’s Codex subscription service. Eligibility and limits follow your ChatGPT plan; OpenAI API usage is a separate connection under the OpenAI provider.";
+  if (provider === "github-copilot") return "Connects through GitHub OAuth. GitHub controls account eligibility, available models, and billing.";
+  if (provider === "anthropic") return "Anthropic recommends API-key authentication for third-party tools. A Claude subscription may not cover work-fold; usage credits and current account terms can apply.";
+  return "Availability and limits follow the provider’s current account terms.";
+}
+function assistantScopeParams(scope: AssistantModelScope, space: SpaceSummary | null) {
+  const params = new URLSearchParams({ scope });
+  if (scope === "space" && space) params.set("spaceId", space.id);
+  return params.toString();
+}
+function assistantScopeBody(scope: AssistantModelScope, space: SpaceSummary | null) {
+  return scope === "management" ? { scope } : { scope, spaceId: space?.id };
+}
+function formatCatalogDate(value: string) {
+  return new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 function libraryDestinationLabel(space: SpaceSummary, spaces: SpaceSummary[]) {
   const duplicateName = spaces.some((item) => item.id !== space.id && item.name.localeCompare(space.name, undefined, { sensitivity: "base" }) === 0);

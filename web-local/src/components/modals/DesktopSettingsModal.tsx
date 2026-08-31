@@ -16,11 +16,12 @@ import { useModalDialog } from "../../hooks/useModalDialog";
 import { api, errorText } from "../../lib/api";
 import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
 import type { AgentStatus, AppTheme, AppThemePreference, AppTypographyPreference, DesktopUpdateStatus, SpaceSummary } from "../../types";
-import { foldPoliciesSettings, foldPublicationsSettings } from "../../ui-contract";
+import { foldAuthoritySettings, foldPoliciesSettings, foldPublicationsSettings } from "../../ui-contract";
 import { WorkFoldLockup } from "../brand/WorkFoldBrand";
 import { AssistantSetupPane } from "../panes/spacePanes";
 
 export type SettingsPage = "appearance" | "assistant" | "remote" | "desktop" | "about";
+type FoldSettingsSection = "access" | "pages" | "authority";
 
 export function DesktopSettingsModal({ theme, themePreference, onThemePreferenceChange, typography, onTypographyChange, space, agentStatus, fixtureMode = false, initialPage = "appearance", onAgentConfigured, onClose, updateStatus, onUpdateAction }: {
   theme: AppTheme;
@@ -39,6 +40,7 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
 }) {
   const typographyFontOptions = typographyFontOptionsForPlatform(window.workFoldDesktop?.app.platform);
   const [page, setPage] = useState<SettingsPage>(initialPage);
+  const [foldSection, setFoldSection] = useState<FoldSettingsSection>("access");
   const [closeToTray, setCloseToTray] = useState<{ supported: boolean; enabled: boolean } | null>(null);
   const [closeToTrayBusy, setCloseToTrayBusy] = useState(false);
   const [closeToTrayError, setCloseToTrayError] = useState<string | null>(null);
@@ -158,21 +160,28 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
             ) : null}
             {page === "assistant" ? (
               <div className="settings-tab-panel" id="settings-panel-assistant" role="tabpanel" aria-labelledby="settings-tab-assistant">
-                {space ? (
-                  <AssistantSetupPane space={space} status={agentStatus} fixtureMode={fixtureMode} embedded onConfigured={onAgentConfigured} />
-                ) : (
-                  <section className="settings-section" aria-labelledby="assistant-settings-title">
-                    <div className="settings-section-heading"><h3 id="assistant-settings-title">Assistant</h3></div>
-                    <p>Create a Space or turn a folder into one before choosing a provider and model.</p>
-                  </section>
-                )}
+                <AssistantSetupPane space={space} status={agentStatus} fixtureMode={fixtureMode} embedded onConfigured={onAgentConfigured} />
               </div>
             ) : null}
             {page === "remote" ? (
               <div className="settings-tab-panel" id="settings-panel-remote" role="tabpanel" aria-labelledby="settings-tab-remote">
-                <RemoteAccessPane />
-                <FoldPublicationsPane />
-                <FoldPoliciesPane />
+                <div className="settings-subtabs" role="tablist" aria-label="The fold settings">
+                  {([[
+                    "access",
+                    "Web access",
+                  ], [
+                    "pages",
+                    "Shared pages",
+                  ], [
+                    "authority",
+                    "Authority",
+                  ]] as Array<[FoldSettingsSection, string]>).map(([id, label]) => (
+                    <button className={foldSection === id ? "active" : ""} type="button" role="tab" aria-selected={foldSection === id} key={id} onClick={() => setFoldSection(id)}>{label}</button>
+                  ))}
+                </div>
+                {foldSection === "access" ? <RemoteAccessPane /> : null}
+                {foldSection === "pages" ? <FoldPublicationsPane /> : null}
+                {foldSection === "authority" ? <FoldAuthorityPane /> : null}
               </div>
             ) : null}
             {page === "desktop" ? (
@@ -201,8 +210,6 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
               <div className="settings-tab-panel" id="settings-panel-about" role="tabpanel" aria-labelledby="settings-tab-about">
                 <section className="settings-section">
                   <WorkFoldLockup className="about-work-fold-brand" />
-                  <div className="settings-section-heading"><h3>About work-fold</h3></div>
-                  <p>A local-first place for files, Chats, reusable materials, and Assistant tools.</p>
                   <dl className="context-meta-grid"><div><dt>Version</dt><dd>{window.workFoldDesktop?.app.version ?? "Development"}</dd></div><div><dt>Storage</dt><dd>Local</dd></div><div><dt>License</dt><dd>MIT</dd></div></dl>
                 </section>
               </div>
@@ -346,7 +353,7 @@ function RemoteAccessPane() {
       {status?.configured ? (
         <section className="settings-section" aria-labelledby="approved-browsers-title">
           <div className="settings-section-heading"><h3 id="approved-browsers-title">Approved browsers</h3><span>{status.approvedBrowsers.length}</span></div>
-          <p>Every new browser must show a six-digit code that you approve on this desktop. Approval is full trust: that browser may ask work-fold to read or change accessible files and run local commands.</p>
+          <p>{foldAuthoritySettings.approvedBrowserInheritance}</p>
           {status.approvedBrowsers.length ? <div className="remote-browser-list">{status.approvedBrowsers.map((browser) => (
             <div className="remote-browser-row" key={browser.id}><div><strong>{browser.label}</strong><small>Approved {new Date(browser.approvedAt).toLocaleDateString()}</small></div><button className="secondary-button" type="button" disabled={Boolean(busy)} onClick={() => void run(`revoke-${browser.id}`, () => remote.revokeBrowser(browser.id))}>Revoke</button></div>
           ))}</div> : <div className="remote-browser-empty">No browser has been approved yet.</div>}
@@ -724,6 +731,104 @@ interface FoldPoliciesResponse {
   contract: { cap: number; labelMaxChars: number; firstPartyRegistries: string[]; kinds: FoldPolicyKindView[] };
 }
 
+interface FoldAuthorityResponse {
+  status: {
+    mode: "reviewed" | "unrestricted";
+    revision: number;
+    updatedAt: string | null;
+    damaged: boolean;
+    damageReason?: string;
+  };
+}
+
+/**
+ * Visual thesis: one calm, explicit operating-mode choice above the narrower
+ * policy editor. The mode is the dominant control; supporting copy is limited
+ * to behavior and scope, and approved browsers are named at the decision.
+ */
+function FoldAuthorityPane() {
+  const [authority, setAuthority] = useState<FoldAuthorityResponse["status"] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api<FoldAuthorityResponse>("/api/settings/fold-authority")
+      .then((response) => {
+        if (!cancelled) {
+          setAuthority(response.status);
+          setError(null);
+        }
+      })
+      .catch((caught) => { if (!cancelled) setError(errorText(caught)); });
+    return () => { cancelled = true; };
+  }, []);
+
+  async function setMode(mode: "reviewed" | "unrestricted") {
+    if (!authority || busy || authority.damaged || authority.mode === mode) return;
+    if (mode === "unrestricted" && !window.confirm(foldAuthoritySettings.unrestrictedConfirm)) return;
+    const previous = authority;
+    setAuthority({ ...authority, mode });
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await api<FoldAuthorityResponse>("/api/settings/fold-authority", {
+        method: "PUT",
+        body: { mode },
+      });
+      setAuthority(response.status);
+      setNotice("Saved");
+    } catch (caught) {
+      setAuthority(previous);
+      setError(errorText(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <section className="settings-section fold-authority-mode" aria-labelledby="fold-authority-mode-title">
+        <div className="settings-section-heading">
+          <h3 id="fold-authority-mode-title">{foldAuthoritySettings.heading}</h3>
+          {notice ? <span className="settings-save-status" role="status"><Checkmark16Regular />{notice}</span> : null}
+        </div>
+        <div className="theme-segmented-control two-options" role="radiogroup" aria-label="The fold operating mode">
+          <button
+            className={authority?.mode === "reviewed" ? "active" : ""}
+            type="button"
+            role="radio"
+            aria-checked={authority?.mode === "reviewed"}
+            disabled={!authority || busy || authority.damaged}
+            onClick={() => void setMode("reviewed")}
+          >
+            <span className="theme-choice-copy"><span>{foldAuthoritySettings.reviewed}</span><small>{foldAuthoritySettings.reviewedDetail}</small></span>
+          </button>
+          <button
+            className={authority?.mode === "unrestricted" ? "active unrestricted" : "unrestricted"}
+            type="button"
+            role="radio"
+            aria-checked={authority?.mode === "unrestricted"}
+            disabled={!authority || busy || authority.damaged}
+            onClick={() => void setMode("unrestricted")}
+          >
+            <span className="theme-choice-copy"><span>{foldAuthoritySettings.unrestricted}</span><small>{foldAuthoritySettings.unrestrictedDetail}</small></span>
+          </button>
+        </div>
+        {authority?.damaged ? (
+          <span className="settings-inline-error" role="alert">
+            {authority.damageReason ? `${authority.damageReason} ${foldAuthoritySettings.damaged}` : foldAuthoritySettings.damaged}
+          </span>
+        ) : null}
+        {error ? <span className="settings-inline-error" role="alert">{error}</span> : null}
+      </section>
+      {authority ? <FoldPoliciesPane dormant={authority.mode === "unrestricted"} /> : null}
+    </>
+  );
+}
+
 /**
  * Settings → The fold → Standing policies (docs/fold-consecrations.md
  * §Standing policies). Authoring happens only on this desktop Settings
@@ -733,7 +838,7 @@ interface FoldPoliciesResponse {
  * The category and kind pickers plus each kind's matcher fields come from the
  * host-composed contract, so the closed vocabulary lives server-side.
  */
-function FoldPoliciesPane() {
+function FoldPoliciesPane({ dormant = false }: { dormant?: boolean }) {
   const [data, setData] = useState<FoldPoliciesResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -860,6 +965,15 @@ function FoldPoliciesPane() {
       setEditing(null);
       setNotice("Policy updated");
     });
+  }
+
+  if (dormant) {
+    return (
+      <section className="settings-section" aria-labelledby="fold-policies-title">
+        <div className="settings-section-heading"><h3 id="fold-policies-title">{foldPoliciesSettings.heading}</h3></div>
+        <p>{foldAuthoritySettings.policiesPaused}</p>
+      </section>
+    );
   }
 
   return (

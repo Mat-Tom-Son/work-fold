@@ -410,18 +410,16 @@ export interface WorkFoldActPublicationRef {
 
 /**
  * The ledger's staged result shape (docs/fold-act-ledger.md,
- * docs/fold-consecrations.md): a consecrated verb never executes — it stages a
- * fully prepared, inert act and returns the pending decision's identity. The
+ * docs/fold-consecrations.md): a consecrated verb always stages a fully
+ * prepared, pinned act and returns the decision's identity. The
  * `decisionId` is the staged-act id; the staged act and its decision share one
  * identity by construction, and the staging receipt stamps the same id.
  *
- * `state` is `"staged"` except when an enabled standing policy
- * (docs/fold-consecrations.md §Standing policies) matched the freshly
- * admitted act: host-side evaluation then short-circuits into the same
- * decision path as a click, no card appears, and the result reports the
- * exercised policy in `autoApproval` with `state: "approved"`. The act lane
- * still never decides anything — the policy is a person-authored decision
- * made in advance, exercised by app code.
+ * `state` is `"staged"` except when an enabled standing policy matches or
+ * the machine is in Unrestricted mode. Host-side evaluation then
+ * short-circuits into the same decision path, no card appears, and the result
+ * reports the basis in `autoApproval` with `state: "approved"`. The act lane
+ * still never selects authority; local Settings owns both mechanisms.
  */
 export interface WorkFoldActStagedDecision {
   decisionId: string;
@@ -446,9 +444,10 @@ export interface WorkFoldActStagedDecision {
  * snapshot at exercise time.
  */
 export interface WorkFoldActStagedAutoApproval {
-  policyId: string;
+  basis: "policy" | "unrestricted";
+  policyId?: string;
   /** The policy's person-authored label at exercise time, as on the receipt. */
-  policyLabel: string;
+  policyLabel?: string;
   executionOutcome: FoldStagedActExecutionOutcome;
   /** Host-observed error text when the approved execution failed. */
   detail?: string;

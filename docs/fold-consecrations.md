@@ -4,33 +4,46 @@
 with the fold build — `src/local/fold-staged-acts.ts`,
 `src/local/fold-decisions.ts`, `src/local/fold-decision-cards.ts`, and
 `src/local/fold-policies.ts` with their suites are the implementation
-authority — and its decisions were promoted on 2026-08-11 into
-[the fold](fold.md) decision register (F5–F7), [Product model](product-model.md)
+authority — and its original Reviewed-mode decisions were promoted on
+2026-08-11 into [the fold](fold.md) decision register (F5–F7). The
+2026-08-31 root-authority amendment is recorded there as F17. See also
+[Product model](product-model.md)
 (rails 9–10, the staged/decide/policy context rows), `AGENTS.md`,
 [the management layer](management-layer.md) (ML-2 receipt fields, the
 staged-decisions bullet, the remote-operation paragraph), `README.md`,
 `SECURITY.md`, `PRIVACY.md`, [Desktop parity](ui-parity.md), and
 [the visual system](visual-design.md). This document retains what canon does
 not carry: the closed kind vocabulary and pins, the decision path's exact
-rules, the card contract, the policy matcher rules, the never-list's
+rules, the card contract, the policy matcher rules, the setup-only boundary's
 reasoning, and the threat model. The promotion record is
 [Fold integration](fold-integration.md).
 
-The one-sentence architecture: **the fold stages; a person consecrates.**
-The click is the product's definition of authorization for three verb
-families — make bytes runnable, widen a standing power, destroy irreversibly.
-It exists because the fold reads untrusted content — attachments, links,
-Space files, delegated transcripts — and hidden instructions can steer a
-full-trust Assistant. The click is the one signal content cannot synthesize.
+The one-sentence architecture: **the fold always stages; the machine's
+authority mode determines who consumes the staged act.** In **Reviewed**,
+the original contract remains intact: a person clicks, or a narrow standing
+policy the person authored supplies the decision. In **Unrestricted**, the
+host consumes every newly admitted staged act immediately after the same pin
+and eligibility checks. The mode is machine-local, journaled, writable only
+in Settings, and inherited by approved browsers; changing it does not drain
+cards that were already pending.
+
+The three verb families remain make bytes runnable, widen a standing power,
+and destroy irreversibly. Staging stays mandatory in both modes because it
+provides typed host-composed facts, identity rechecks, at-most-once
+consumption, and receipts. Reviewed exists because the fold reads untrusted
+content — attachments, links, Space files, delegated transcripts — and a
+click is the one signal that content cannot synthesize. Unrestricted is the
+person's explicit choice to trade that recurring signal for low-friction,
+machine-wide execution, including permanent deletion.
 
 "Consecration" and "staged act" are contract terms, like `sensor` and
-`admission` in [Checks](checks.md). Person-facing copy says **Needs you**
-and describes the act in plain words; it never says "consecration." Copy is
-owned by [The fold](fold.md).
+`admission` in [Checks](checks.md). In Reviewed mode, person-facing copy says
+**Needs you** and describes the act in plain words; it never says
+"consecration." Copy is owned by [The fold](fold.md).
 
 ## The three consecrations
 
-| Category | Acts in it | Why a click |
+| Category | Acts in it | Why the staged gate exists |
 |---|---|---|
 | **Make bytes runnable** | Approving a restricted-app review (initial or update); installing or updating a Pi package or Extension; importing an executable skill bundle | Runnable bytes outlive the conversation and act with the person's full local authority |
 | **Widen a power** | Any restricted-app grant (network destination, file root, notification category); saving an app connection; enabling a named automation; enabling a [routing](fold-routings.md); creating outward viewer exposure ([Publishing](fold-publishing.md): every new exposure is this consecration) | Standing powers execute later, while nobody is watching |
@@ -45,14 +58,14 @@ Scope boundaries that are decisions, not gaps:
 - Direct verbs stay direct — the [act ledger](fold-act-ledger.md) classifies
   every verb, and enabling a Check stays direct because manual-run
   capability is not standing behavior.
-- There are exactly two tiers plus the never-list. A general "co-sign
+- There are exactly two act tiers plus a setup-only boundary. A general "co-sign
   everything big" middle tier was considered and rejected; blast radius is
   expressed by category membership, not by a sliding scale.
 - A desktop human using the existing ceremonies — the Assistant tools
   review, grant, connection, and automation controls, or the
   managed-deletion warning — is already the click. Those ceremonies are not
   rerouted through staged acts and deliberately gain no act-journal
-  receipts: they keep their existing durable domain records, and the fold's
+  receipts in Reviewed mode: they keep their existing durable domain records, and the fold's
   receipts journal records the fold's acts and decisions, not every desktop
   click. Staged acts exist for acts initiated where no human hand is
   present: fold conversations and shell-capable agents on the act lane.
@@ -120,7 +133,7 @@ supersession, browser revocation of the staging grant), or `invalidated`
 ### Pins by kind
 
 The kind vocabulary is closed; the store rejects unknown kinds, so adding
-one is a deliberate contract change reviewed against the never-list.
+one is a deliberate contract change reviewed against the setup-only boundary.
 
 | Kind | Category | Staging prepares | Pinned identities | Executes through |
 |---|---|---|---|---|
@@ -144,22 +157,24 @@ explicit `--space` where applicable, `--parent-task` lineage, the per-launch
 act token, broker freshness, journal-first at-most-once receipts, and
 membership in the management request's recorded action trail.
 
-Deciding is **not** an act-lane verb. There is no CLI approval, no local-API
-route reachable with the act token, and no remote operation a desktop-side
-model call can invoke. The decision path exists in exactly two places: the
-desktop renderer surfaces (popover and main window, over the renderer
-session) and the approved remote browser (over its signed envelope). The act
-facade never exposes decision or policy-mutation internals — that exclusion
-is the enforcement of "the click is not a command."
+Choosing the authority mode and manually deciding are **not** act-lane
+verbs. There is no CLI authority switch or approval command and no remote
+operation that can change the mode. Reviewed decisions enter from the
+desktop renderer surfaces or an approved remote browser's signed envelope.
+Unrestricted decisions originate inside the host immediately after a fresh
+staging admission; neither the model nor the initiating browser submits a
+decision command. The act facade never exposes decision, authority-mode, or
+policy-mutation internals.
 
 The decision path runs host-side, in order:
 
 1. **Eligibility precheck** — the same checks the equivalent desktop
    ceremony performs (capability-mutation locks, Space registration state,
-   app lifecycle state) plus the two surface rules under
-   [The remote client](#the-remote-client): no self-approval from the
-   staging grant, and Personal-scope make-runnable is desktop-only. An
-   ineligible act refuses the decision *without consuming it*.
+   app lifecycle state). Reviewed remote clicks additionally enforce the two
+   surface rules under [The remote client](#the-remote-client). Unrestricted
+   is a host decision and does not impersonate a remote click, but its
+   receipt preserves the initiating browser and grant. An ineligible act
+   refuses the decision *without consuming it*.
 2. **Pin recheck** — every pinned identity is re-verified against current
    state. A mismatch transitions the act to `invalidated`, the card
    explains, and nothing executes.
@@ -175,7 +190,7 @@ The decision path runs host-side, in order:
 
 Failure answers, inherited by every kind: a failed execution leaves the act
 `approved` with outcome `failed`, never auto-retried — another attempt means
-restaging and a fresh click. A crash leaves the honest `accepted`-without-
+restaging and a fresh decision. A crash leaves the honest `accepted`-without-
 terminal signal; startup marks the execution `interrupted` and never replays
 it. Replay is prevented by the single-use act id, the atomic check-and-set,
 the journal's deterministic decision request id as durable backstop, and —
@@ -225,8 +240,10 @@ dot remains held on the visual-acceptance gate recorded in
 
 ### The remote client
 
-Per the recorded remote-clicks decision (F5), a consecration may be approved
-from the desktop or from any approved, full-trust remote browser:
+Approved, full-trust remote browsers inherit the machine's current authority
+mode. In Reviewed, a consecration may be approved from the desktop or from an
+approved browser. In Unrestricted, a request admitted from an approved browser
+is consumed by the desktop host automatically; the bridge never decides it:
 
 - `decisions.list` and `decisions.decide` are closed remote operations over
   the existing signed envelopes; the bridge relays and persists no card
@@ -234,7 +251,7 @@ from the desktop or from any approved, full-trust remote browser:
   projections, served only while the desktop is online.
 - Every approved browser sees the same pending cards; hiding cards from one
   of the person's own browsers would be theater.
-- Two surface rules bound what a remote click can complete, enforced in the
+- In Reviewed, two surface rules bound what a remote click can complete, enforced in the
   eligibility precheck and stated on the card. **No self-approval**: a
   staged act whose provenance records a remote browser's grant is never
   decidable from that same grant, so one compromised browser cannot both
@@ -244,20 +261,21 @@ from the desktop or from any approved, full-trust remote browser:
   and name the desktop as the deciding surface.
 
 Origin-attributed decisions — the compensating controls: every decision
-receipt records `surface` (the closed five-value vocabulary) and, for
-remote, the exact browser, grant, and generation. Revoking a browser refuses
+receipt records `surface` (the closed six-value vocabulary, including
+`unrestricted`) and, for remote-originated acts, the exact browser, grant,
+and generation. Revoking a browser refuses
 its in-flight `decisions.decide` before consumption, voids accepted-but-
 unexecuted decision operations, and cancels pending staged acts whose
 staging provenance traces to that grant — a compromised browser cannot leave
 a card behind as a time bomb. A decision that already executed stands — it
 was authorized when clicked — and its receipt names the browser, which is
 what makes later review possible. Pin recheck, eligibility, journaling, and
-execution all run desktop-side. The never-list is untouched: never-list acts
-cannot be staged by anyone, so no card for them can exist on any surface.
+execution all run desktop-side. Setup-only acts cannot be staged by anyone,
+so neither Reviewed nor Unrestricted creates a route to them.
 
 ## Standing policies
 
-Standing policies are the friction dial: person-authored records that
+In Reviewed mode, standing policies are the friction dial: person-authored records that
 pre-approve one narrow consecration category so a click is not demanded for
 acts the person has deliberately decided to trust in advance. The record
 shape lives in `src/local/fold-policies.ts` (one kind per policy, closed
@@ -287,7 +305,7 @@ disabled, and deleted **only** in **Settings → The fold** over
 renderer-session-only routes. There is no act-lane verb, no remote
 operation, and no popover control that writes a policy; the fold may
 **cite** policies — list them, report when one was exercised — but never
-write them, and standing-policy authoring is on the never-list so this can
+write them, and standing-policy authoring is setup-only so this can
 never be relaxed as a convenience. The store carries a content-attestation
 digest recorded on each Settings write; evaluation re-hashes the store
 first, and a mismatch disables **all** policies until a person re-saves them
@@ -304,10 +322,14 @@ verb's response says the act was auto-approved and by which policy, and the
 glance lists policy-approved acts distinctly. Disabling or deleting a
 policy affects only future staged acts; exercised receipts stand.
 
-## The never-list
+Policies are dormant while Unrestricted is active. They remain stored and
+become eligible again if the person returns the machine to Reviewed; the mode
+switch does not rewrite, delete, or reinterpret them.
 
-The fold can neither perform nor stage the following. They are
-desktop-human-only, in their existing Settings and desktop ceremonies:
+## The setup-only boundary
+
+The fold can neither perform nor stage the following. They are local setup
+and identity acts in their existing Settings and desktop ceremonies:
 
 1. **Remote access administration** — enrollment and address creation or
    change, browser approval, browser or generation revocation, disabling
@@ -318,25 +340,27 @@ desktop-human-only, in their existing Settings and desktop ceremonies:
    API keys or provider OAuth in Settings → Assistant.
 4. **Standing-policy authoring** — creating, editing, enabling, disabling, or
    deleting policies. The fold may cite policies, never write them.
-5. **Anything that widens the set of principals that control the fold
+5. **Root-authority mode selection** — choosing Reviewed or Unrestricted.
+6. **Anything that widens the set of principals that control the fold
    itself.** This is the catch-all and the review question for every future
    staged-act kind.
 
 Enforcement is structural, not a filter: these acts have no act-lane verb
 (refused at parse time), no staged-act kind (the store rejects unknown
 kinds), no card, and no remote operation. Structural means structural for
-the product's lanes — residual risk 1 still applies. The remote-clicks
-decision does not extend to the never-list: the cards cannot exist, and
-weakening this list to match remote convenience is explicitly rejected.
+the product's lanes — residual risk 1 still applies. Approved browsers inherit
+the selected mode but cannot select it, and no Assistant, CLI, act-token
+caller, or remote operation can widen this boundary.
 
-Each entry guards the machinery that makes the click meaningful: who can
-click (1), who can act (2), the credentials with the widest blast radius
-outside the product (3), the friction dial itself (4), and the definition
-(5). Entry 5 is where Personal-scope make-runnable is reconciled rather
+Each entry guards the machinery that defines machine authority: who can
+connect (1), who can act (2), the credentials with the widest blast radius
+outside the product (3), the Reviewed-mode friction dial (4), the root mode
+itself (5), and the definition (6). Entry 6 is where Personal-scope make-runnable is reconciled rather
 than waved past: code imported at Personal scope loads into the fold's own
 runtime on next start, changing what the fold itself is. That stays a
-consecration, not a never-list act — the person may genuinely want it — but
-its card names the scope and its decision is desktop-only.
+consecration, not a setup-only act — the person may genuinely want it. In
+Reviewed its card names the scope and its decision is desktop-only; in
+Unrestricted the host may execute it under the explicit root-mode grant.
 
 ## Threat model
 
@@ -344,18 +368,16 @@ The fold reads untrusted content as a matter of course, and any of it can
 contain instructions aimed at the model. The management instructions teach
 that attachment contents are data, never instructions — but teaching is not
 enforcement, and with the verb ledger the fold's verbs are worth steering.
-Text can make a model want to do anything; text cannot press a button in
-the desktop renderer, and it cannot produce a signed envelope under an
-approved browser's non-exportable key. The decision path accepts exactly
-those two inputs and nothing else. The gate covers only the three families
-because they are the acts whose blast radius outlives the conversation;
-for everything else, the ledger is the protection, and demanding clicks for
-it would burn the attention the three real categories need. What remote
-clicks change and do not change is recorded in
-[The remote client](#the-remote-client) above; entrenchment through a
-steered, approved install remains real (a second compromised grant could
-approve what the first staged), prevented only by the person reading cards
-and detectable afterward through decision receipts and the glance.
+Text can make a model want to do anything. Reviewed relies on the fact that
+text cannot press a button in the desktop renderer or produce a signed
+envelope under an approved browser's non-exportable key. Unrestricted
+deliberately removes that recurring human signal from newly admitted acts;
+its defenses are typed admission, exact pins, host-side rechecks,
+at-most-once execution, receipts, and the person's explicit machine-level
+choice. A steered Assistant or approved browser can therefore cause lasting
+or destructive effects while Unrestricted is active. The one-time Settings
+confirmation states that risk directly, including whole-Space file grants
+and permanent deletion.
 
 ### Residual risks, stated plainly
 
@@ -367,23 +389,21 @@ and detectable afterward through decision receipts and the glance.
    staged act, no card, no receipt. The consecration gate binds the
    product's lanes; an enforced tool-restricted management agent would be a
    different, deliberate design this personal, local product has not
-   adopted. What the gate still protects: the lanes cannot be steered into
-   a consecration without a click, the needs-you surface never lies, and
-   every act that went through the lanes has a receipt.
+   adopted. What the gate still protects: every act that went through the
+   lanes was typed, pinned, rechecked, consumed at most once, and receipted.
 2. **Same-user local processes are outside the boundary.** A hostile
    process running as this user could drive UI or rewrite state, including
    the policy store — the attestation digest makes a quiet policy edit
    visible, not impossible. The existing posture, unchanged.
-3. **The hosted origin and bridge are trusted in the alpha.** A compromised
-   hosted client can click approve on an existing card — though never a
-   card its own grant staged, and never a Personal-scope make-runnable
-   card. An approval that executed before revocation stands, which is why
-   decision receipts name the browser.
-4. **Friction fatigue is real.** A person who rubber-stamps cards has
-   reconstructed the pre-gate world with extra steps. The mitigations are
-   structural — policies keep clicks rare, cards carry exact host-composed
-   facts, the pending cap and dedupe prevent flooding, denial memory
-   exposes nagging — but reading remains the person's part of the contract.
+3. **The hosted origin and bridge are trusted in the alpha.** In Reviewed, a
+   compromised hosted client can click an eligible existing card. In
+   Unrestricted, it can cause newly admitted acts to execute through the
+   host without a click. The receipt preserves its browser and grant, and
+   revocation stops future admission; effects already executed stand.
+4. **Authority mode is a real tradeoff.** Reviewed can produce attention
+   fatigue; policies, exact cards, dedupe, and denial memory reduce it.
+   Unrestricted removes that friction by accepting the larger blast radius
+   stated above. The product must not soften either side in its copy.
 5. **The card shows facts, not intent.** A steered fold can stage an act
    whose facts are accurate and whose purpose is bad. The provenance link
    to the staging conversation exists so the person can read the why, not
@@ -402,9 +422,11 @@ and detectable afterward through decision receipts and the glance.
 |---|---|---|---|---|---|
 | Stage a consecrated act (act lane) | Act executor: `accepted` before store admission, terminal after | Command, kind, category, Space id where applicable, staged-act id, `parentTaskId` lineage | Stager cancel, person deny, expiry; Space removal, app uninstall, and browser revocation cancel dependent acts | `accepted` without a terminal line is the honest interrupted signal; an act absent from the store was never admitted | Broker freshness plus the journal's `accepted` gate on request ids |
 | Cancel a staged act (act lane) | Same journal-first path | Staged-act id and resulting state | Nothing to revoke; cancellation is terminal for the record | Same accepted/terminal pair | Same request-id gate; canceling a non-pending act is a typed refusal, not a second transition |
-| Decide and execute (click) | Decision path: `accepted` after eligibility and pin recheck, before the mutation | Decision, `decisionId` (the staged-act id), kind, category, surface, browser id/grant/generation for remote, execution outcome and effect ids | Record is append-only; effects revoke through the same product paths as the equivalent desktop act; destroys do not undo | Approval consumed inside the atomic transition; failed execution is `approved`+`failed`, never auto-retried; a crash marks `interrupted` at startup and never replays | One atomic staged→approved check-and-set per act id — the primary at-most-once gate; the journal's deterministic decision request id is a durable backstop; remote decisions also ride grant-scoped signed request ids and delivery claims |
+| Decide and execute (Reviewed click) | Decision path: `accepted` after eligibility and pin recheck, before the mutation | Decision, `decisionId` (the staged-act id), kind, category, surface, browser id/grant/generation for remote, execution outcome and effect ids | Record is append-only; effects revoke through the same product paths as the equivalent desktop act; destroys do not undo | Approval consumed inside the atomic transition; failed execution is `approved`+`failed`, never auto-retried; a crash marks `interrupted` at startup and never replays | One atomic staged→approved check-and-set per act id — the primary at-most-once gate; the journal's deterministic decision request id is a durable backstop; remote decisions also ride grant-scoped signed request ids and delivery claims |
+| Decide and execute (Unrestricted) | Host admission path under the authority store's serialized mode lease | Everything above with `surface: "unrestricted"`; initiating browser/grant/generation when remote-originated | Return to Reviewed in Settings for future acts; executed effects revoke through their normal paths | Identical to a clicked decision; no retry and no startup replay | The mode lease stays held through the atomic staged→approved transition and execution, so a concurrent return to Reviewed cannot race a half-authorized act |
 | Policy exercise (auto-approval) | Same decision path, same journal | Everything a click receipt has, with `surface: "policy"`, policy id, label snapshot | Disable or delete the policy in Settings; exercised receipts stand | Identical to a clicked decision | Identical to a clicked decision; evaluation is deterministic at admission, so one staged act exercises at most one decision |
 | Policy create/edit/disable/delete (Settings, renderer lane) | The policy store, with a new attestation digest per write; the change appears in the glance's change list | Policy id, label, category, kind, matcher, enabled state, timestamps | Edit or delete in Settings; changes bind only future staged acts | Atomic single-file replace; a torn or tampered store fails closed to no auto-approvals | The only writer is the desktop Settings session; no act-lane or remote verb exists to replay |
+| Authority mode change (Settings, renderer lane) | `fold/authority-changes.jsonl` before the atomic `fold/authority.json` replace | Prior and next mode, timestamp, content attestation | Select the other mode; already admitted pending cards and executed effects are unchanged | A damaged or out-of-band-edited live store fails closed to Reviewed | The mode writer is unforgeable outside the Settings-owned route; no Assistant, CLI, act-token, or remote verb exists |
 
 ## Implementation record
 
@@ -421,13 +443,16 @@ The plan items shipped as follows (suites in
 8. Cascade coverage — Space removal, app uninstall, browser revocation; `tests/local-space.test.ts`, `tests/restricted-app-service.test.ts`, `tests/desktop-remote-access.test.ts`.
 9. Glance integration — pending decisions, settled outcomes, exercised policies in the digest; `tests/work-fold-glance.test.ts`.
 10. Registers and verification — recorded in [Fold integration](fold-integration.md).
+11. Root authority — `src/local/fold-authority.ts`, the Settings-only routes
+    in `src/local/server.ts`, and `tests/fold-authority.test.ts`.
 
 ## Deliberately not in this design
 
-- **No third tier.** Two tiers plus the never-list is the recorded decision;
+- **No third act tier.** Two act tiers plus the setup-only boundary is the recorded decision;
   no "co-sign everything big" middle tier, and no per-act risk scoring.
-- **No CLI or act-lane approval path — permanently.** This is a property,
-  not a gap. Any future "headless approval" idea is a never-list question.
+- **No CLI, act-lane, or remote authority-mode path.** Unrestricted is a
+  host decision under a locally selected root mode, not an approval verb a
+  caller can invoke.
 - **No destroy-category policies and no auto-deny effect.** Both would be
   new register decisions with their own analysis, not schema growth.
 - **No notifications or push for needs-you items.** The surfaces are quiet
@@ -443,6 +468,6 @@ The plan items shipped as follows (suites in
   per-launch same-user posture; decisions harden what the *product* will
   execute, not who the operating-system user is.
 - **No rerouting of desktop ceremonies**, per the scope note above.
-- **No expansion or contraction of the never-list** beyond the five entries
-  recorded here; every future staged-act kind is reviewed against entry
-  five.
+- **No caller-writable setup boundary.** Every future staged-act kind is
+  reviewed against the setup-only catch-all; approved-browser inheritance
+  must never grow into browser control over the root mode.

@@ -265,6 +265,14 @@ export interface AgentModel {
   contextWindow?: number;
 }
 
+export interface AgentModelCatalog {
+  provider: string;
+  refreshable: boolean;
+  source: "built_in" | "live";
+  refreshedAt?: string;
+  modelCount?: number;
+}
+
 export interface AgentCommand {
   name: string;
   description?: string;

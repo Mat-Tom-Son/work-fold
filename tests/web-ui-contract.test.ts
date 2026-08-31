@@ -17,14 +17,14 @@ test("Space navigation separates the active Space from its surfaces", () => {
 
 test("the standing-policies Settings section keeps the authoring boundary in its copy", () => {
   // Settings → The fold → Standing policies is the ONLY authoring surface
-  // (docs/fold-consecrations.md, never-list entry 4): the copy states that
-  // the fold cites policies and never writes them, and that destroy-category
-  // acts and page sharing keep their click. The attestation-broken banner is
+  // (docs/fold-consecrations.md, setup-only boundary): the copy states that
+  // the fold cites policies and never writes them, and that policies apply
+  // only in Reviewed mode. The attestation-broken banner is
   // the fail-closed recovery: review and re-save, in Settings, by a person.
   assert.equal(foldPoliciesSettings.heading, "Standing policies");
   assert.match(foldPoliciesSettings.intro, /cite them,\s*never write them/i);
   assert.match(foldPoliciesSettings.intro, /decision receipt/i);
-  assert.match(foldPoliciesSettings.intro, /takes a click/i);
+  assert.match(foldPoliciesSettings.intro, /Reviewed mode/i);
   assert.match(foldPoliciesSettings.attestationBroken, /changed outside Settings/i);
   assert.match(foldPoliciesSettings.attestationBroken, /re-save/i);
   assert.equal(foldPoliciesSettings.reattest, "Review and re-save");

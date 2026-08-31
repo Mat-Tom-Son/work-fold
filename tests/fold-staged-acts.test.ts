@@ -372,6 +372,7 @@ test("decision surfaces keep the receipts vocabulary: the act lane never decides
       ["policy without its id", { decision: "approved", surface: "policy" }],
       ["policy id on a click", { decision: "approved", surface: "popover", policyId: "policy-1" }],
       ["remote without its browser", { decision: "approved", surface: "remote_web" }],
+      ["partial inherited browser identity", { decision: "approved", surface: "unrestricted", browserId: "browser-1" }],
       ["browser identity on a desktop click", { decision: "approved", surface: "popover", browserId: "browser-1", grantId: "grant-1" }],
       ["note on an approval", { decision: "approved", surface: "popover", note: "why not" }],
       ["unknown decision", { decision: "maybe" as unknown as "approved", surface: "popover" }],
@@ -388,6 +389,25 @@ test("decision surfaces keep the receipts vocabulary: the act lane never decides
     });
     assert.equal(byPolicy.decision?.surface, "policy");
     assert.equal(byPolicy.decision?.policyId, "policy-marketplace-skills");
+
+    const unrestrictedLocal = (await store.stage(grantInput({ declarationId: "net-unrestricted-local.example.com", requestId: "req-unrestricted-local" }))).act;
+    const decidedLocally = await store.decide(unrestrictedLocal.id, {
+      decision: "approved",
+      surface: "unrestricted",
+    });
+    assert.equal(decidedLocally.decision?.surface, "unrestricted");
+    assert.equal(decidedLocally.decision?.browserId, undefined);
+
+    const unrestrictedRemote = (await store.stage(grantInput({ declarationId: "net-unrestricted-remote.example.com", requestId: "req-unrestricted-remote" }))).act;
+    const inherited = await store.decide(unrestrictedRemote.id, {
+      decision: "approved",
+      surface: "unrestricted",
+      browserId: "browser-inherited",
+      grantId: "grant-inherited",
+    });
+    assert.equal(inherited.decision?.surface, "unrestricted");
+    assert.equal(inherited.decision?.browserId, "browser-inherited");
+    assert.equal(inherited.decision?.grantId, "grant-inherited");
 
     const second = (await store.stage(grantInput({ declarationId: "net-2.example.com", requestId: "req-2" }))).act;
     const denied = await store.decide(second.id, {

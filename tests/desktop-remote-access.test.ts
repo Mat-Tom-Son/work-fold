@@ -1431,6 +1431,8 @@ test("a live watch streams sequenced progress events under its completion", asyn
     async watch(input, _principal, emit) {
       assert.deepEqual(input, { conversationId: "management-chat" });
       emit({ activity: "Reading the folder" });
+      emit({ assistantText: "Here is" });
+      emit({ assistantDelta: " the reply." });
       emit({ activity: "Writing the reply" });
       return { state: "settled", settled: true };
     },
@@ -1453,10 +1455,10 @@ test("a live watch streams sequenced progress events under its completion", asyn
     .map((value) => JSON.parse(value) as { envelope?: { header?: { eventKind?: string; sequence?: number; requestId?: string } } })
     .filter((message) => message.envelope?.header?.requestId === "request-watch")
     .map((message) => message.envelope?.header);
-  // The running event, both progress ticks, then the completion — with
+  // The running event, all encrypted progress ticks, then the completion — with
   // strictly increasing sequences so the bridge's monotonic guard admits all.
   assert.deepEqual(headers.map((header) => header?.eventKind), [
-    "operation.event", "operation.event", "operation.event", "operation.complete",
+    "operation.event", "operation.event", "operation.event", "operation.event", "operation.event", "operation.complete",
   ]);
-  assert.deepEqual(headers.map((header) => header?.sequence), [1, 2, 3, 4]);
+  assert.deepEqual(headers.map((header) => header?.sequence), [1, 2, 3, 4, 5, 6]);
 });

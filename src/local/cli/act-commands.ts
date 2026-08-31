@@ -266,12 +266,12 @@ const maxChecksOutputHealthErrors = 20;
 const cliControlCharacters = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u;
 
 /**
- * Never-list families (docs/fold-act-ledger.md): desktop-human-only authority
+ * Setup-only families (docs/fold-act-ledger.md): authority and secret
  * surfaces the act lane can neither perform nor stage. They are refused at
  * parse time — before any journal entry — so an act that would amount to one
  * can never even be shaped, and the act lane never grows a verb for them.
  */
-const workFoldCliActNeverListFamilies = new Map<string, string>([
+const workFoldCliActSetupOnlyFamilies = new Map<string, string>([
   ["remote", "Remote access administration"],
   ["browser", "Remote access administration"],
   ["browsers", "Remote access administration"],
@@ -386,14 +386,14 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     }
     if (token.startsWith("-")) throw usageError(`Unknown option: ${token}`);
     if (!positional.length) {
-      // Never-list refusal happens here, at parse time: these families are
-      // desktop-human-only and must not even reach an unknown-command error,
+      // Setup-only refusal happens here, at parse time: these families must
+      // not even reach an unknown-command error,
       // let alone a journal entry or a staged act.
-      const neverListCategory = workFoldCliActNeverListFamilies.get(token);
-      if (neverListCategory !== undefined) {
+      const setupOnlyCategory = workFoldCliActSetupOnlyFamilies.get(token);
+      if (setupOnlyCategory !== undefined) {
         throw new WorkFoldCliError(
           "permissionDenied",
-          `${neverListCategory} is desktop-human-only. The act lane can neither perform nor stage it.`,
+          `${setupOnlyCategory} is local setup only. The act lane can neither perform nor stage it.`,
         );
       }
     }
@@ -3023,6 +3023,7 @@ function stagedHumanOutput(
     deduplicated?: unknown;
     priorDenialAt?: unknown;
     autoApproval?: {
+      basis?: unknown;
       policyId?: unknown;
       policyLabel?: unknown;
       executionOutcome?: unknown;
@@ -3092,6 +3093,10 @@ function stagedHumanOutput(
     const unreceipted = auto.receipted === false
       ? " Warning: the decision receipt could not be fully written."
       : "";
+    if (auto.basis === "unrestricted") {
+      return `${lead}\nThis ${categoryLine(staged.category)}. Unrestricted authority admitted it, so no needs-you card appeared. ${outcome}`
+        + `\nDecision ${terminalText(staged.decisionId)} is receipted with surface "unrestricted".${unreceipted}${denial}\n`;
+    }
     return `${lead}\nThis ${categoryLine(staged.category)}. Your standing policy "${terminalText(auto.policyLabel)}" `
       + `[${terminalText(auto.policyId)}] pre-approved it, so no needs-you card appeared. ${outcome}`
       + `\nDecision ${terminalText(staged.decisionId)} is receipted with surface "policy" and the policy id.${unreceipted}${denial}\n`;

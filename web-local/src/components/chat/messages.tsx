@@ -70,23 +70,25 @@ export const ChatMessageRow = memo(function ChatMessageRow({
 
   return (
     <article className={`message ${message.role}${suppressEnterAnimation ? " settled" : ""}`}>
-      {showRuntimePreview ? <RuntimeContextPreview entries={runtimePreviews} /> : null}
-      <MarkdownMessage
-        content={message.content}
-        spaceLinks={message.role === "assistant" ? spaceLinks : null}
-        onOpenSpaceFile={message.role === "assistant" ? onOpenSpaceFile : undefined}
-        key={spaceLinkVersion}
-      />
-      {message.role === "assistant" && showLanding && message.landing ? <TurnLanding landing={message.landing} /> : null}
-      {message.role === "assistant" && message.interruption ? <InterruptedTurn interruption={message.interruption} /> : null}
-      {message.role === "assistant" && message.interruption?.activities.length ? (
-        <AgentActivityRecap
-          events={message.interruption.activities.map((activity, index) => ({
-            ...activity,
-            id: `interrupted-${message.id}-${index}`,
-          }))}
+      <div className="message-surface">
+        {showRuntimePreview ? <RuntimeContextPreview entries={runtimePreviews} /> : null}
+        <MarkdownMessage
+          content={message.content}
+          spaceLinks={message.role === "assistant" ? spaceLinks : null}
+          onOpenSpaceFile={message.role === "assistant" ? onOpenSpaceFile : undefined}
+          key={spaceLinkVersion}
         />
-      ) : showRecap ? <AgentActivityRecap events={activityRecap} /> : null}
+        {message.role === "assistant" && showLanding && message.landing ? <TurnLanding landing={message.landing} /> : null}
+        {message.role === "assistant" && message.interruption ? <InterruptedTurn interruption={message.interruption} /> : null}
+        {message.role === "assistant" && message.interruption?.activities.length ? (
+          <AgentActivityRecap
+            events={message.interruption.activities.map((activity, index) => ({
+              ...activity,
+              id: `interrupted-${message.id}-${index}`,
+            }))}
+          />
+        ) : showRecap ? <AgentActivityRecap events={activityRecap} /> : null}
+      </div>
       <footer className="message-footer">
         <span className="message-footer-meta">
           {message.role === "user" && message.delivery === "steer" ? (

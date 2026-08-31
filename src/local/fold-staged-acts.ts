@@ -90,7 +90,7 @@ function opt(type: FoldStagedActFieldType, values?: readonly string[]): FoldStag
  * kind: its consecration category, the typed parameters the staging path
  * supplies, and the pinned identities decision-time recheck verifies. Unknown
  * kinds fail closed, so adding one is a deliberate contract change reviewed
- * against the never-list.
+ * against the setup-only authority boundary.
  */
 const KIND_DESCRIPTORS = {
   "app.review.approve": {
@@ -216,8 +216,18 @@ const KIND_DESCRIPTORS = {
   },
   "app.data.purge": {
     category: "destroy",
-    parameters: { spaceId: req("string"), appInstanceId: req("string") },
-    pins: { appInstanceId: req("string"), dataNamespaceIds: req("string-list") },
+    parameters: {
+      spaceId: req("string"),
+      appInstanceId: req("string"),
+      purgeTarget: opt("string", ["retained", "runtime-instance"]),
+    },
+    pins: {
+      appInstanceId: req("string"),
+      dataNamespaceIds: req("string-list"),
+      retainedDataId: opt("string"),
+      runtimeInstanceId: opt("string"),
+      sourceSpaceId: opt("string"),
+    },
   },
   "app.storage.clear": {
     category: "destroy",
@@ -268,7 +278,7 @@ export interface FoldDecisionRecord {
   surface: FoldDecisionSurface;
   browserId?: string;
   grantId?: string;
-  /** Present exactly when a standing policy, not a click, satisfied the consecration. */
+  /** Present exactly when a standing policy, not a click or Unrestricted mode, satisfied the act. */
   policyId?: string;
   /** Optional person-authored denial note; offered, never required. */
   note?: string;
@@ -1031,8 +1041,17 @@ function decisionInputIssue(input: FoldStagedActDecisionInput): string | null {
       const issue = textIssue(value, label);
       if (issue) return issue;
     }
+  } else if (input.surface === "unrestricted") {
+    if ((input.browserId === undefined) !== (input.grantId === undefined)) {
+      return "an Unrestricted decision records both remote browserId and grantId, or neither.";
+    }
+    for (const [label, value] of [["browserId", input.browserId], ["grantId", input.grantId]] as const) {
+      if (value === undefined) continue;
+      const issue = textIssue(value, label);
+      if (issue) return issue;
+    }
   } else if (input.browserId !== undefined || input.grantId !== undefined) {
-    return "browser identity belongs only to remote decisions.";
+    return "browser identity belongs only to remote or inherited Unrestricted decisions.";
   }
   if (input.note !== undefined) {
     if (typeof input.note !== "string") return "the note must be a string.";

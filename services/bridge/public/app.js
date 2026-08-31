@@ -104,6 +104,8 @@ const state = {
   watchOperationId: null,
   watchUnsupported: false,
   liveActivity: "",
+  liveAssistantText: "",
+  liveAssistantTextTruncated: false,
 };
 
 void boot();
@@ -554,7 +556,6 @@ function renderApplication() {
             <button id="top-new-chat" class="rail-item top-bar-new-chat" type="button" aria-label="New chat" title="New chat">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" /></svg>
             </button>
-            <button id="stop-task" class="toolbar-button danger" type="button" hidden>Stop</button>
           </div>
         </header>
         <div class="app-contexts">
@@ -610,6 +611,9 @@ function renderApplication() {
       <textarea id="prompt" rows="1" maxlength="12000" placeholder="Message work-fold" aria-label="Message work-fold"${coarsePointer ? "" : " autofocus"}></textarea>
       <button class="send-button" type="submit" aria-label="Send message" aria-keyshortcuts="Enter" title="Send message" disabled>
         <svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-5 5 5-5 5 5" /></svg>
+      </button>
+      <button id="stop-task" class="send-button stop-button" type="button" aria-label="Stop work-fold" title="Stop work-fold" hidden>
+        <svg class="stop-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5" /></svg>
       </button>
     </div>`;
   document.querySelector("#new-composer-slot")?.append(composer);
@@ -888,8 +892,20 @@ function renderMessages() {
   const requestPhase = request?.phase;
   const workEvents = requestEvents(request);
   const working = !state.startingNewChat && (
-    state.summary?.state === "running" || requestPhase === "working" || requestPhase === "handed_off"
+    state.summary?.state === "running"
+    || requestPhase === "working"
+    || requestPhase === "handed_off"
+    || Boolean(state.selectedConversationId && state.activeTasks.has(state.selectedConversationId))
   );
+  if (working && state.liveAssistantText) {
+    visible.push({
+      id: `live-assistant:${state.selectedConversationId ?? "management"}`,
+      role: "assistant",
+      content: state.liveAssistantText,
+      streaming: true,
+      truncated: state.liveAssistantTextTruncated,
+    });
+  }
   const conversationKey = state.startingNewChat ? "new-chat" : state.selectedConversationId ?? "none";
   const sameConversation = container.dataset.conversationId === conversationKey;
   if (!sameConversation) {
@@ -971,9 +987,10 @@ function reconcileMessageRows(container, messages, animateNew) {
     row.classList.toggle("assistant", message.role === "assistant");
     row.classList.toggle("web", message.source === "remote_web");
     row.classList.toggle("pending", message.pending === true);
+    row.classList.toggle("streaming", message.streaming === true);
     changed = replaceHtmlIfChanged(row, `
       <div class="message-role"${message.createdAt ? ` title="${escapeAttribute(cardTime(message.createdAt))}"` : ""}>${message.role === "assistant" ? escapeHtml(assistantLabel()) : "You"}</div>
-      <div class="message-content"><div class="message-body markdown">${renderMarkdown(message.content)}</div>${message.attachments?.length ? `<div class="message-attachments">${message.attachments.map((attachment) => `<span>${fileGlyph(attachment.kind)}${escapeHtml(attachment.name)}</span>`).join("")}</div>` : ""}</div>
+      <div class="message-content"><div class="message-body markdown">${renderMarkdown(message.content)}</div>${message.attachments?.length ? `<div class="message-attachments">${message.attachments.map((attachment) => `<span>${fileGlyph(attachment.kind)}${escapeHtml(attachment.name)}</span>`).join("")}</div>` : ""}${message.streaming && message.truncated ? `<div class="live-reply-limit">The rest will appear when this reply finishes.</div>` : ""}</div>
     `) || changed;
     if (row !== cursor) {
       container.insertBefore(row, cursor);
@@ -1084,6 +1101,10 @@ async function refreshConversation({ loadTranscript = true } = {}) {
       state.transcriptConversationId = conversationId;
       state.transcriptTruncated = transcript.truncated === true;
       state.transcriptLoading = false;
+      if (!active) {
+        state.liveAssistantText = "";
+        state.liveAssistantTextTruncated = false;
+      }
     }
     renderConversationChrome();
     renderMessages();
@@ -1147,6 +1168,8 @@ function releaseConversationWatch() {
   state.watchToken = null;
   state.watchOperationId = null;
   state.liveActivity = "";
+  state.liveAssistantText = "";
+  state.liveAssistantTextTruncated = false;
 }
 
 function conversationRefreshIsCurrent(refreshVersion, conversationId) {
@@ -1158,9 +1181,12 @@ function conversationRefreshIsCurrent(refreshVersion, conversationId) {
 async function sendPrompt() {
   const input = document.querySelector("#prompt");
   const content = input.value.trim();
-  if (!content || state.sending || state.renameSaving) return;
+  const selectedTaskRunning = Boolean(state.selectedConversationId && state.activeTasks.has(state.selectedConversationId));
+  if (!content || state.sending || state.renameSaving || selectedTaskRunning) return;
   cancelChatRename({ restoreFocus: false });
   state.sending = true;
+  state.liveAssistantText = "";
+  state.liveAssistantTextTruncated = false;
   syncComposer();
   state.banner = "";
   const sentFromNewChat = state.contextName === "new";
@@ -1321,15 +1347,19 @@ function restoreComposerDraft() {
 
 function syncComposer() {
   const input = document.querySelector("#prompt");
-  const button = document.querySelector(".send-button");
-  if (!input || !button) return;
+  const button = document.querySelector(".send-button:not(.stop-button)");
+  const stop = document.querySelector("#stop-task");
+  if (!input || !button || !stop) return;
   // The New chat screen opens with a taller field on desktop, so the first
   // sentence has room; every other placement keeps the one-line field.
   const minimumHeight = state.contextName === "new" && !phoneQuery.matches ? 108 : 56;
   input.style.height = "auto";
   input.style.height = `${Math.min(Math.max(input.scrollHeight, minimumHeight), 180)}px`;
   const unavailable = !state.session?.desktopOnline;
-  button.disabled = state.sending || state.renameSaving || unavailable || !input.value.trim();
+  const running = Boolean(state.selectedConversationId && state.activeTasks.has(state.selectedConversationId));
+  button.hidden = running;
+  stop.hidden = !running || state.contextName !== "chat";
+  button.disabled = state.sending || state.renameSaving || unavailable || running || !input.value.trim();
   button.dataset.sending = String(state.sending);
   button.setAttribute("aria-label", state.sending ? "Sending message" : unavailable ? "Desktop offline" : "Send message");
   button.title = state.sending ? "Sending…" : unavailable ? "Desktop offline" : "Send message";
@@ -1515,7 +1545,10 @@ function renderConversationChrome() {
   for (const button of renameForm?.querySelectorAll("button") ?? []) button.disabled = state.renameSaving;
   if (prompt) prompt.placeholder = "Message work-fold";
   const stop = document.querySelector("#stop-task");
-  if (stop) stop.hidden = !state.selectedConversationId || !state.activeTasks.has(state.selectedConversationId);
+  const send = document.querySelector(".send-button:not(.stop-button)");
+  const running = Boolean(state.selectedConversationId && state.activeTasks.has(state.selectedConversationId));
+  if (stop) stop.hidden = !running || state.contextName !== "chat";
+  if (send) send.hidden = running;
 }
 
 function beginChatRename() {
@@ -2173,11 +2206,17 @@ async function receiveRemoteEvent(event) {
     if (!pendingEvent || event.operationId !== state.watchOperationId) return;
     assertResponseEnvelope(event.envelope, event.operationId, pendingEvent.requestId, event.type);
     const payload = await decryptResponse(event.envelope);
-    const activity = payload && typeof payload === "object" && payload.progress && typeof payload.progress.activity === "string"
-      ? payload.progress.activity
-      : "";
-    if (activity) {
-      state.liveActivity = activity;
+    const progress = payload && typeof payload === "object" && payload.progress && typeof payload.progress === "object"
+      ? payload.progress
+      : null;
+    const activity = typeof progress?.activity === "string" ? progress.activity : "";
+    const assistantText = typeof progress?.assistantText === "string" ? progress.assistantText : null;
+    const assistantDelta = typeof progress?.assistantDelta === "string" ? progress.assistantDelta : "";
+    if (activity) state.liveActivity = activity;
+    if (assistantText !== null) state.liveAssistantText = assistantText;
+    else if (assistantDelta) state.liveAssistantText += assistantDelta;
+    if (progress?.assistantTextTruncated === true) state.liveAssistantTextTruncated = true;
+    if (activity || assistantText !== null || assistantDelta) {
       renderMessages();
       renderFoldHome();
     }

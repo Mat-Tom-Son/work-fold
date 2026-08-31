@@ -42,7 +42,7 @@ import {
   removeWorkFoldCliActTokenFile,
   writeWorkFoldCliActTokenFile,
 } from "../../src/local/cli/act-token.js";
-import { configureWorkFoldStateRoot, managedSpaceRoot } from "../../src/local/state-paths.js";
+import { configureWorkFoldStateRoot, managedSpaceRoot, workFoldManagementRoot } from "../../src/local/state-paths.js";
 import { getSpace, listSpaces } from "../../src/local/space.js";
 import { containsReservedSpacePathSegment } from "../../src/local/space-path-policy.js";
 import { WorkFoldCliKernelAdapter } from "../../src/local/work-fold-cli-adapter.js";
@@ -479,10 +479,13 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       else if (event.method === "quit") app.quit();
       });
       const runtime = new PackagedPiRuntimeProvider({
-      agentDir: defaultAgentSdkDir(),
-      authStorageHost: settings,
-      extensionUi,
-    });
+        agentDir: defaultAgentSdkDir(),
+        authStorageHost: settings,
+        assistantPreferencesPath: join(userData, "assistant-model-preferences.json"),
+        openRouterCatalogPath: join(userData, "model-catalogs", "openrouter.json"),
+        managementRoot: workFoldManagementRoot(),
+        extensionUi,
+      });
       const spaceTrustAuthority = new RegisteredSpaceTrustAuthority((await listSpaces()).map((space) => space.spaceRoot));
       const runtimeProvider = new RegisteredSpaceRuntimeProvider(runtime, spaceTrustAuthority);
       const kernel = new WorkFoldKernel({ runtimeProvider });

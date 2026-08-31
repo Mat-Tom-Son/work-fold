@@ -74,11 +74,13 @@ import {
   getPiSetupStatus,
   installPiPackage,
   isPiProjectMutationTrusted,
+  listPiModelCatalogs,
   listPiModels,
   listPiPackages,
   loginPiOAuth,
   removePiProviderAuth,
   removePiPackage,
+  refreshPiModelCatalog,
   savePiApiKey,
   setPiDefaultModel,
   updatePiPackages,
@@ -158,6 +160,13 @@ import {
   type FoldStagedActKindAdapter,
 } from "./fold-decisions.js";
 import { foldDecisionCard, type FoldDecisionCard } from "./fold-decision-cards.js";
+import {
+  FoldAuthorityError,
+  FoldAuthorityStore,
+  mintFoldAuthoritySettingsWriter,
+  type FoldAuthorityMode,
+  type FoldAuthoritySettingsWriter,
+} from "./fold-authority.js";
 import {
   FOLD_POLICY_CAP,
   FOLD_POLICY_ELIGIBLE_KINDS,
@@ -368,6 +377,8 @@ export interface LocalApiOptions {
   foldStagedActStore?: FoldStagedActStore;
   /** Test seam for the standing-policy store; defaults to the state-root store. */
   foldPolicyStore?: FoldStandingPolicyStore;
+  /** Test seam for the machine-local Reviewed/Unrestricted authority store. */
+  foldAuthorityStore?: FoldAuthorityStore;
   /**
    * Publication page keys. The desktop passes the operating-system-encrypted
    * secure-settings store (`desktop/src/settings.ts`); without one, keys live
@@ -455,13 +466,16 @@ interface LocalApiState {
   /**
    * Exactly one standing-policy store and exactly one minted Settings writer
    * per API. The writer exists so policy authoring is structurally a
-   * desktop-Settings act (never-list entry 4): only the renderer-session
+   * desktop-Settings setup act: only the renderer-session
    * Settings routes pass it to the store, the act facade and remote facade
    * have no policy mutation surface at all, and the fold can cite policies
    * through reads that need no writer.
    */
   foldPolicies: FoldStandingPolicyStore;
   foldPolicyWriter: FoldPolicySettingsWriter;
+  /** Root authority selected only by the local Settings surface. */
+  foldAuthority: FoldAuthorityStore;
+  foldAuthorityWriter: FoldAuthoritySettingsWriter;
   /**
    * Label snapshots for in-flight policy exercises, keyed by staged-act id:
    * registered immediately before the host-side decision runs so the decision
@@ -606,6 +620,15 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
         extensionUi,
       };
     },
+    ...(options.piRuntimeProvider?.setPreferredModel ? {
+      setPreferredModel: (spaceRoot, model) => options.piRuntimeProvider!.setPreferredModel!(spaceRoot, model),
+    } : {}),
+    ...(options.piRuntimeProvider?.refreshModelCatalog ? {
+      refreshModelCatalog: (providerId) => options.piRuntimeProvider!.refreshModelCatalog!(providerId),
+    } : {}),
+    ...(options.piRuntimeProvider?.listModelCatalogs ? {
+      listModelCatalogs: () => options.piRuntimeProvider!.listModelCatalogs!(),
+    } : {}),
   };
   const restrictedApps = options.restrictedAppService ?? await RestrictedAppService.create({
     rootPath: restrictedAppRoot(),
@@ -660,6 +683,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   const turnStore = options.turnStore ?? await WorkFoldTurnStore.create({ stateRoot: workFoldStateRoot() });
   const stagedActs = options.foldStagedActStore ?? await FoldStagedActStore.create();
   const foldPolicies = options.foldPolicyStore ?? await FoldStandingPolicyStore.create();
+  const foldAuthority = options.foldAuthorityStore ?? await FoldAuthorityStore.create();
   const routingStore = await WorkFoldRoutingStore.create();
   const publicationKeys = options.publicationKeys ?? createEphemeralPublicationKeyStore();
   // The rung-3 viewer adapter (docs/fold-publishing.md): the viewer-safe
@@ -713,6 +737,8 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     stagedActs,
     foldPolicies,
     foldPolicyWriter: mintFoldPolicySettingsWriter(),
+    foldAuthority,
+    foldAuthorityWriter: mintFoldAuthoritySettingsWriter(),
     policyLabelSnapshots: new Map(),
     publications,
     restrictedAppViewer,
@@ -1804,61 +1830,74 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
 
   if (method === "GET" && url.pathname === "/api/agent/models") {
     const spaceId = url.searchParams.get("spaceId");
-    if (!spaceId) throw badRequest("Space id is required.");
-    const space = await getSpace(spaceId);
-    const models = await listPiModels(space.spaceRoot, state.runtimeProvider);
+    const scope = await assistantModelScope(url.searchParams.get("scope"), spaceId);
+    const models = await listPiModels(scope.spaceRoot, state.runtimeProvider);
     sendJson(res, {
       models: models.map((model) => ({
         ...model,
         oauthSupported: model.oauthSupported && Boolean(state.piOAuthHooks),
       })),
+      status: normalizeStatus(await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider)),
+      catalogs: await listPiModelCatalogs(state.runtimeProvider),
+    });
+    return;
+  }
+  if (method === "POST" && url.pathname === "/api/agent/models/refresh") {
+    const body = await readJsonBody<{ spaceId?: string; scope?: string; provider?: string }>(state, req);
+    const scope = await assistantModelScope(body.scope, body.spaceId);
+    if (!body.provider?.trim()) throw badRequest("A provider is required.");
+    const refresh = await refreshPiModelCatalog(body.provider, state.runtimeProvider);
+    sendJson(res, {
+      refresh,
+      models: await listPiModels(scope.spaceRoot, state.runtimeProvider),
+      status: normalizeStatus(await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider)),
+      catalogs: await listPiModelCatalogs(state.runtimeProvider),
     });
     return;
   }
   if (method === "GET" && url.pathname === "/api/agent/status") {
     const spaceId = url.searchParams.get("spaceId");
-    if (!spaceId) throw badRequest("Space id is required.");
-    const space = await getSpace(spaceId);
-    sendJson(res, { status: await safeAgentStatus(space.spaceRoot, state.runtimeProvider) });
+    const scope = await assistantModelScope(url.searchParams.get("scope"), spaceId);
+    sendJson(res, { status: await safeAgentStatus(scope.spaceRoot, state.runtimeProvider) });
     return;
   }
   if (method === "POST" && url.pathname === "/api/agent/configure") {
-    const body = await readJsonBody<{ spaceId?: string; provider?: string; model?: string; apiKey?: string }>(state, req);
-    const space = await configuredSpace(body.spaceId, body.provider, body.model);
-    const selected = (await listPiModels(space.spaceRoot, state.runtimeProvider))
+    const body = await readJsonBody<{ spaceId?: string; scope?: string; provider?: string; model?: string; apiKey?: string }>(state, req);
+    const scope = await configuredAssistantModelScope(body.scope, body.spaceId, body.provider, body.model);
+    const selected = (await listPiModels(scope.spaceRoot, state.runtimeProvider))
       .find((model) => model.provider === body.provider && model.id === body.model);
-    if (!selected) throw badRequest("The selected Pi model is not available in this Space.");
+    if (!selected) throw badRequest(`The selected Pi model is not available for ${scope.label}.`);
     if (!body.apiKey?.trim() && !selected.authConfigured) {
       throw badRequest(`Enter an API key for ${selected.providerName}.`);
     }
     if (body.apiKey?.trim()) {
-      await savePiApiKey(space.spaceRoot, body.provider!, body.apiKey, { runtimeProvider: state.runtimeProvider });
+      await savePiApiKey(scope.spaceRoot, body.provider!, body.apiKey, { runtimeProvider: state.runtimeProvider });
     }
-    await setPiDefaultModel(space.spaceRoot, { provider: body.provider!, id: body.model! }, state.runtimeProvider);
+    await setPiDefaultModel(scope.spaceRoot, { provider: body.provider!, id: body.model! }, state.runtimeProvider);
     await invalidateAllClients(state);
-    sendJson(res, { status: normalizeStatus(await getPiSetupStatus(space.spaceRoot, state.runtimeProvider)) });
+    sendJson(res, { status: normalizeStatus(await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider)) });
     return;
   }
   if (method === "DELETE" && url.pathname === "/api/agent/auth") {
-    const body = await readJsonBody<{ spaceId?: string; provider?: string }>(state, req);
-    if (!body.spaceId || !body.provider?.trim()) throw badRequest("A Space and provider are required.");
-    const space = await getSpace(body.spaceId);
-    await removePiProviderAuth(space.spaceRoot, body.provider, state.runtimeProvider);
+    const body = await readJsonBody<{ spaceId?: string; scope?: string; provider?: string }>(state, req);
+    const scope = await assistantModelScope(body.scope, body.spaceId);
+    if (!body.provider?.trim()) throw badRequest("A provider is required.");
+    await removePiProviderAuth(scope.spaceRoot, body.provider, state.runtimeProvider);
     await invalidateAllClients(state);
     sendJson(res, {
-      models: await listPiModels(space.spaceRoot, state.runtimeProvider),
-      status: normalizeStatus(await getPiSetupStatus(space.spaceRoot, state.runtimeProvider)),
+      models: await listPiModels(scope.spaceRoot, state.runtimeProvider),
+      status: normalizeStatus(await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider)),
     });
     return;
   }
   if (method === "POST" && url.pathname === "/api/agent/oauth") {
-    if (!state.piOAuthHooks) throw unavailable("Provider account sign-in requires the Space desktop app. You can use an API key for this provider instead.");
-    const body = await readJsonBody<{ spaceId?: string; provider?: string; model?: string }>(state, req);
-    const space = await configuredSpace(body.spaceId, body.provider, body.model);
-    await loginPiOAuth(space.spaceRoot, body.provider!, state.piOAuthHooks, state.runtimeProvider);
-    await setPiDefaultModel(space.spaceRoot, { provider: body.provider!, id: body.model! }, state.runtimeProvider);
+    if (!state.piOAuthHooks) throw unavailable("Provider account sign-in requires the work-fold desktop app. You can use an API key for this provider instead.");
+    const body = await readJsonBody<{ spaceId?: string; scope?: string; provider?: string; model?: string }>(state, req);
+    const scope = await configuredAssistantModelScope(body.scope, body.spaceId, body.provider, body.model);
+    await loginPiOAuth(scope.spaceRoot, body.provider!, state.piOAuthHooks, state.runtimeProvider);
+    await setPiDefaultModel(scope.spaceRoot, { provider: body.provider!, id: body.model! }, state.runtimeProvider);
     await invalidateAllClients(state);
-    sendJson(res, { status: normalizeStatus(await getPiSetupStatus(space.spaceRoot, state.runtimeProvider)) });
+    sendJson(res, { status: normalizeStatus(await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider)) });
     return;
   }
   if (method === "GET" && url.pathname === "/api/agent/capabilities/discover") {
@@ -2403,13 +2442,42 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
 
+  // Root authority is a machine-local desktop-Settings choice. Approved
+  // browsers inherit it because all staged execution still happens here on
+  // the desktop; neither the act facade nor the remote operation vocabulary
+  // has a route that can change it.
+  if (url.pathname === "/api/settings/fold-authority" && method === "GET") {
+    try {
+      sendJson(res, { status: await state.foldAuthority.status() });
+    } catch (error) {
+      sendFoldAuthorityError(res, error);
+    }
+    return;
+  }
+  if (url.pathname === "/api/settings/fold-authority" && method === "PUT") {
+    const body = await readJsonBody<{ mode?: unknown }>(state, req);
+    try {
+      if (Object.keys(body).some((key) => key !== "mode")) {
+        throw new FoldAuthorityError("INPUT_INVALID", "The authority update accepts only mode.");
+      }
+      const status = await state.foldAuthority.setMode(
+        state.foldAuthorityWriter,
+        body.mode as FoldAuthorityMode,
+      );
+      sendJson(res, { status });
+    } catch (error) {
+      sendFoldAuthorityError(res, error);
+    }
+    return;
+  }
+
   // Standing policies (docs/fold-consecrations.md §Standing policies):
   // authoring is a desktop-human act in Settings → The fold, so these routes
   // exist only on the renderer session and hold the one minted Settings
   // writer. Refusal elsewhere is by construction, not by filter: the act
   // facade has no policy methods, the act CLI has no policy verbs, and the
   // remote operation vocabulary has no policy operation — standing-policy
-  // authoring is never-list entry 4, and the fold may cite policies (reads,
+  // authoring is a setup-only authority boundary, and the fold may cite policies (reads,
   // exercised receipts) but never write them.
   if (url.pathname === "/api/settings/fold-policies" && method === "GET") {
     try {
@@ -2977,12 +3045,13 @@ const maxActAddSources = 25;
  * management conversation through the shared acceptance path.
  */
 function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade {
+  const maximumRemoteLiveAssistantChars = 256 * 1024;
   /**
    * Bounded live watch (management.watch): subscribes to the same in-process
-   * publish point the local SSE streams ride, forwards the popover's
-   * activity vocabulary as throttled ticks, and resolves on settle or when
-   * the watch window closes — always under the remote operation timeout so
-   * the browser is never left waiting on a dead watch.
+   * publish point the local SSE streams ride, forwards the popover's activity
+   * vocabulary plus a bounded live Assistant-text projection, and resolves on
+   * settle or when the watch window closes — always under the remote operation
+   * timeout so the browser is never left waiting on a dead watch.
    */
   async function watchManagementTurn(
     rawInput: unknown,
@@ -3000,11 +3069,16 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
     if (!state.runningTurns.has(key)) return { state: "idle", settled: false };
     return new Promise((resolveWatch) => {
       const watchWindowMs = 90_000;
-      const minimumTickMs = 1_000;
+      const minimumActivityTickMs = 1_000;
+      const minimumTextTickMs = 100;
       let lastActivity = "";
-      let lastEmitAt = 0;
+      let lastActivityEmitAt = 0;
+      let lastTextEmitAt = 0;
       let pendingActivity: string | null = null;
-      let tickTimer: NodeJS.Timeout | null = null;
+      let pendingAssistantDelta = "";
+      let emittedAssistantChars = 0;
+      let activityTimer: NodeJS.Timeout | null = null;
+      let textTimer: NodeJS.Timeout | null = null;
       let windowTimer: NodeJS.Timeout | null = null;
       const listeners = state.chatEventListeners.get(key) ?? new Set<(event: unknown) => void>();
       state.chatEventListeners.set(key, listeners);
@@ -3012,25 +3086,47 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
         listeners.delete(listener);
         if (!listeners.size) state.chatEventListeners.delete(key);
         if (windowTimer) clearTimeout(windowTimer);
-        if (tickTimer) clearTimeout(tickTimer);
+        if (activityTimer) clearTimeout(activityTimer);
+        if (textTimer) clearTimeout(textTimer);
         resolveWatch(result);
       };
-      const flush = () => {
-        tickTimer = null;
+      const flushActivity = () => {
+        activityTimer = null;
         if (pendingActivity === null || pendingActivity === lastActivity) { pendingActivity = null; return; }
         lastActivity = pendingActivity;
         pendingActivity = null;
-        lastEmitAt = Date.now();
+        lastActivityEmitAt = Date.now();
         emit({ activity: lastActivity });
       };
       const queueActivity = (activity: string) => {
         pendingActivity = activity;
-        if (tickTimer) return;
-        tickTimer = setTimeout(flush, Math.max(0, minimumTickMs - (Date.now() - lastEmitAt)));
+        if (activityTimer) return;
+        activityTimer = setTimeout(flushActivity, Math.max(0, minimumActivityTickMs - (Date.now() - lastActivityEmitAt)));
+      };
+      const flushAssistantDelta = () => {
+        textTimer = null;
+        if (!pendingAssistantDelta) return;
+        const assistantDelta = pendingAssistantDelta;
+        pendingAssistantDelta = "";
+        lastTextEmitAt = Date.now();
+        emit({
+          assistantDelta,
+          ...(emittedAssistantChars >= maximumRemoteLiveAssistantChars ? { assistantTextTruncated: true } : {}),
+        });
+      };
+      const queueAssistantDelta = (delta: string) => {
+        const remaining = maximumRemoteLiveAssistantChars - emittedAssistantChars;
+        if (remaining <= 0) return;
+        const admitted = delta.slice(0, remaining);
+        if (!admitted) return;
+        pendingAssistantDelta += admitted;
+        emittedAssistantChars += admitted.length;
+        if (textTimer) return;
+        textTimer = setTimeout(flushAssistantDelta, Math.max(0, minimumTextTickMs - (Date.now() - lastTextEmitAt)));
       };
       const listener = (event: unknown) => {
         if (!event || typeof event !== "object") return;
-        const data = event as { type?: unknown; message?: unknown; toolName?: unknown; running?: unknown };
+        const data = event as { type?: unknown; message?: unknown; text?: unknown; toolName?: unknown; running?: unknown };
         if (data.type === "status" || data.type === "tool") {
           const message = typeof data.message === "string" && data.message !== "Connected." ? data.message.trim() : "";
           const tool = data.type === "tool" && typeof data.toolName === "string" ? data.toolName.trim() : "";
@@ -3038,12 +3134,42 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
           if (activity) queueActivity(activity);
           return;
         }
+        if (data.type === "assistant_delta" && typeof data.text === "string") {
+          queueAssistantDelta(data.text);
+          return;
+        }
+        if (data.type === "assistant_message" && typeof data.text === "string") {
+          const assistantText = data.text.slice(0, maximumRemoteLiveAssistantChars);
+          emittedAssistantChars = assistantText.length;
+          pendingAssistantDelta = "";
+          if (textTimer) { clearTimeout(textTimer); textTimer = null; }
+          lastTextEmitAt = Date.now();
+          emit({
+            assistantText,
+            ...(data.text.length > assistantText.length ? { assistantTextTruncated: true } : {}),
+          });
+          return;
+        }
         if (data.type === "done" || data.type === "error" || (data.type === "turn_state" && data.running === false)) {
+          if (activityTimer) { clearTimeout(activityTimer); activityTimer = null; }
+          if (textTimer) { clearTimeout(textTimer); textTimer = null; }
+          flushActivity();
+          flushAssistantDelta();
           finish({ state: "settled", settled: true });
         }
       };
       listeners.add(listener);
       windowTimer = setTimeout(() => finish({ state: "running", settled: false }), watchWindowMs);
+      const initialAssistantText = chatEventLog(state, key).assistantText;
+      if (initialAssistantText) {
+        const assistantText = initialAssistantText.slice(0, maximumRemoteLiveAssistantChars);
+        emittedAssistantChars = assistantText.length;
+        lastTextEmitAt = Date.now();
+        emit({
+          assistantText,
+          ...(initialAssistantText.length > assistantText.length ? { assistantTextTruncated: true } : {}),
+        });
+      }
       // The turn can settle between the running check and this subscription.
       if (!state.runningTurns.has(key)) finish({ state: "settled", settled: true });
     });
@@ -3851,18 +3977,16 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
    * The one staging door for every consecrated verb: typed parameters and
    * pins composed by the calling method from live state, provenance from the
    * validated management lineage, admission through the staged-act store's
-   * serialized path, and the ledger's staged result shape back. Nothing here
-   * executes anything; deciding has no facade shape, permanently.
+   * serialized path, and the ledger's staged result shape back. Callers never
+   * supply a decision; the host may consume a fresh admission under the
+   * machine's Settings-owned authority.
    *
-   * The one exception a person authored in advance: after a fresh admission,
-   * enabled standing policies are evaluated host-side against the act's typed
-   * fields (docs/fold-consecrations.md §Standing policies). A match
-   * short-circuits into the same decision path as a click — with
-   * `surface: "policy"` and the exercised policy's identity — and the staged
-   * result reports the auto-approval instead of a pending card. A
-   * deduplicated admission returns the existing pending card unevaluated:
-   * policies bind acts staged after they were authored, never a card that was
-   * already waiting.
+   * Local Settings may authorize one of two host-side short circuits after a
+   * fresh admission: Unrestricted mode admits every kind first; otherwise an
+   * enabled standing policy may match its narrow typed fields. Both use the
+   * same decision path as a click and leave decision receipts. A deduplicated
+   * admission returns the existing pending card unevaluated: authority changes
+   * apply to future requests and never silently consume an older backlog.
    */
   const stageConsecration = async (input: {
     kind: FoldStagedActKind;
@@ -3878,7 +4002,8 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       provenance: stagingProvenance(state, input.parentTaskId, input.requestId),
     }));
     if (admission.deduplicated) return toStagedDecision(admission);
-    const exercised = await exerciseStandingPolicyAtAdmission(state, admission.act);
+    const exercised = await exerciseUnrestrictedAuthorityAtAdmission(state, admission.act)
+      ?? await exerciseStandingPolicyAtAdmission(state, admission.act);
     if (!exercised) return toStagedDecision(admission);
     return {
       ...toStagedDecision(admission),
@@ -5365,10 +5490,12 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       if (!retained) throw new WorkFoldCliError("notFound", "Retained App data record not found in this Space's App Studio.");
       const staged = await stageConsecration({
         kind: "app.data.purge",
-        parameters: { spaceId: space.id, appInstanceId: retained.featureInstallationId },
+        parameters: { spaceId: space.id, appInstanceId: retained.featureInstallationId, purgeTarget: "retained" },
         pins: {
           appInstanceId: retained.featureInstallationId,
           dataNamespaceIds: [retained.dataNamespaceId],
+          retainedDataId: retained.retainedDataId,
+          sourceSpaceId: space.id,
         },
         parentTaskId: input.parentTaskId,
         requestId: input.requestId,
@@ -5390,10 +5517,12 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       if (!installed) throw new WorkFoldCliError("notFound", "Local App Instance not found.");
       const staged = await stageConsecration({
         kind: "app.data.purge",
-        parameters: { spaceId: space.id, appInstanceId: installed.featureInstallationId },
+        parameters: { spaceId: space.id, appInstanceId: installed.featureInstallationId, purgeTarget: "runtime-instance" },
         pins: {
           appInstanceId: installed.featureInstallationId,
           dataNamespaceIds: [installed.dataNamespaceId],
+          runtimeInstanceId: installed.runtimeInstanceId,
+          sourceSpaceId: installed.sourceSpaceId,
         },
         parentTaskId: input.parentTaskId,
         requestId: input.requestId,
@@ -7521,6 +7650,19 @@ function sendFoldPolicyError(res: ServerResponse, error: unknown): void {
   sendError(res, error);
 }
 
+function sendFoldAuthorityError(res: ServerResponse, error: unknown): void {
+  if (error instanceof FoldAuthorityError) {
+    const status = error.code === "INPUT_INVALID"
+      ? 400
+      : error.code === "SETTINGS_ONLY"
+        ? 403
+        : 503;
+    sendJson(res, { error: error.message, code: error.code }, status);
+    return;
+  }
+  sendError(res, error);
+}
+
 /** Light route-shape pass; the store's matcher validation is the authority. */
 function foldPolicyMatchInput(value: unknown): FoldPolicyMatch {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -7682,6 +7824,13 @@ function createPolicyLabelAwareDecisionReceipts(state: LocalApiState): FoldDecis
       const label = entry.policyId !== undefined && typeof entry.decisionId === "string"
         ? state.policyLabelSnapshots.get(entry.decisionId)
         : undefined;
+      if (entry.surface === "unrestricted") {
+        const suffix = "executed under Unrestricted authority";
+        return await state.actReceipts.append({
+          ...entry,
+          detail: entry.detail !== undefined ? `${entry.detail} — ${suffix}` : suffix,
+        });
+      }
       if (label === undefined) return await state.actReceipts.append(entry);
       const suffix = `auto-approved by standing policy "${label}"`;
       return await state.actReceipts.append({
@@ -7727,6 +7876,7 @@ async function exerciseStandingPolicyAtAdmission(
   try {
     const result = await state.foldDecisions.decide(act.id, evaluation.decisionInput);
     return {
+      basis: "policy",
       policyId: evaluation.policy.id,
       policyLabel: evaluation.labelSnapshot,
       executionOutcome: result.act.execution?.outcome ?? "executed",
@@ -7741,6 +7891,7 @@ async function exerciseStandingPolicyAtAdmission(
       // (for example the execution-record write failed); the approval stands
       // and the response must say so.
       return {
+        basis: "policy",
         policyId: current.decision.policyId,
         policyLabel: evaluation.labelSnapshot,
         executionOutcome: current.execution?.outcome ?? "interrupted",
@@ -7755,6 +7906,62 @@ async function exerciseStandingPolicyAtAdmission(
     );
   } finally {
     state.policyLabelSnapshots.delete(act.id);
+  }
+}
+
+/**
+ * The host-side Unrestricted-mode inheritance point. The authority store holds
+ * its serialized lane for the complete decision, so a concurrent switch back
+ * to Reviewed cannot race a stale read. Remote provenance is copied into the
+ * receipt to show which approved browser initiated the automatically
+ * authorized act; the browser cannot select the mode or invoke this routine.
+ *
+ * A file grant deliberately resolves to the whole Space in Unrestricted mode.
+ * That is the mode's explicit broad-authority meaning and is named in the one-
+ * time Settings confirmation. Reviewed mode retains the per-decision picker.
+ */
+async function exerciseUnrestrictedAuthorityAtAdmission(
+  state: LocalApiState,
+  act: FoldStagedAct,
+): Promise<WorkFoldActStagedAutoApproval | null> {
+  try {
+    const exercised = await state.foldAuthority.runIfUnrestricted(async () => {
+      if (act.kind === "app.grant.files") state.fileGrantRootChoices.set(act.id, ".");
+      try {
+        const result = await state.foldDecisions.decide(act.id, {
+          decision: "approved",
+          surface: "unrestricted",
+          ...(act.provenance.browserId && act.provenance.grantId
+            ? { browserId: act.provenance.browserId, grantId: act.provenance.grantId }
+            : {}),
+        });
+        return {
+          basis: "unrestricted" as const,
+          executionOutcome: result.act.execution?.outcome ?? "executed",
+          ...(result.act.execution?.errorDetail !== undefined ? { detail: result.act.execution.errorDetail } : {}),
+          receipted: result.receipted,
+        };
+      } finally {
+        if (act.kind === "app.grant.files") state.fileGrantRootChoices.delete(act.id);
+      }
+    });
+    return exercised.matched ? exercised.value : null;
+  } catch (error) {
+    const current = await state.stagedActs.get(act.id).catch(() => undefined);
+    if (!current || current.state === "staged") return null;
+    if (current.state === "approved" && current.decision?.surface === "unrestricted") {
+      return {
+        basis: "unrestricted",
+        executionOutcome: current.execution?.outcome ?? "interrupted",
+        ...(current.execution?.errorDetail !== undefined ? { detail: current.execution.errorDetail } : {}),
+        receipted: false,
+      };
+    }
+    throw new WorkFoldCliError(
+      "conflict",
+      `Unrestricted authority admitted this act, but execution could not complete and the staged act is now ${current.state}: ${errorMessage(error)}`,
+      { cause: error },
+    );
   }
 }
 
@@ -8110,12 +8317,10 @@ function capabilityFenceBusyReason(state: LocalApiState, scope: FoldDecisionFenc
 /**
  * Per-kind execution adapters for the decision path: each binds one staged-act
  * kind to the same domain internals the equivalent desktop ceremony uses.
- * `app.data.purge`, `app.storage.clear`, and `files.destroy` stay deliberately
- * unbound in this build — staging, denying, and canceling them works, and
- * approving them is refused honestly (EXECUTION_UNAVAILABLE or a pending
- * eligibility reason) before anything is consumed. Both `publish.viewer.expose`
- * exposures are bound: page exposure re-verifies the designated source and
- * hosted-app exposure re-resolves the pinned Release.
+ * Every admitted staged-act kind has an execution adapter. Destructive paths
+ * re-observe their exact identities immediately before consumption; both
+ * `publish.viewer.expose` shapes likewise re-verify their designated source
+ * or installed Release.
  */
 function createFoldDecisionAdapters(state: LocalApiState): FoldDecisionAdapters {
   const spaceRefById = async (spaceId: string): Promise<{ id: string; spaceRoot: string }> => {
@@ -8153,6 +8358,9 @@ function createFoldDecisionAdapters(state: LocalApiState): FoldDecisionAdapters 
     "capability.package.install": createCapabilityPackageDecisionAdapter(state, "install"),
     "capability.package.update": createCapabilityPackageDecisionAdapter(state, "update"),
     "app.connection.save": createAppConnectionSaveDecisionAdapter(state),
+    "app.data.purge": createAppDataPurgeDecisionAdapter(state),
+    "app.storage.clear": createAppStorageClearDecisionAdapter(state),
+    "files.destroy": createFilesDestroyDecisionAdapter(),
     "space.delete-folder": createManagedSpaceDeletionAdapter({
       // The complete desktop removal orchestration — impact checks, Check,
       // routing, staged-act, and app-state revocation, claim-verified managed
@@ -8169,6 +8377,171 @@ function createFoldDecisionAdapters(state: LocalApiState): FoldDecisionAdapters 
         };
       },
     }),
+  };
+}
+
+function createAppStorageClearDecisionAdapter(state: LocalApiState): FoldStagedActKindAdapter {
+  const resolve = async (act: FoldStagedAct): Promise<
+    | { issue: string }
+    | { app: RestrictedAppInstalled; observedBytes: number }
+  > => {
+    const spaceId = String(act.parameters.spaceId);
+    const app = await state.restrictedApps.findByFeatureInstallation(
+      spaceId,
+      String(act.pins.appInstanceId ?? act.parameters.appInstanceId),
+    );
+    if (!app) return { issue: "The pinned App Instance is no longer installed in this Space." };
+    const namespaces = act.pins.dataNamespaceIds;
+    if (!Array.isArray(namespaces) || namespaces.length !== 1 || namespaces[0] !== app.dataNamespaceId) {
+      return { issue: "The app's Data Namespace no longer matches the staged storage identity." };
+    }
+    try {
+      const usage = await state.restrictedApps.storageUsage(spaceId, app.manifest.id, app.digest);
+      if (usage.usageBytes !== act.pins.observedBytes) {
+        return { issue: `The app's live storage changed after staging (${String(act.pins.observedBytes)} → ${usage.usageBytes} bytes).` };
+      }
+      return { app, observedBytes: usage.usageBytes };
+    } catch (error) {
+      return { issue: errorMessage(error) };
+    }
+  };
+  return {
+    async eligibilityIssue(act) {
+      const resolved = await resolve(act);
+      return "issue" in resolved ? resolved.issue : null;
+    },
+    async recheckPins(act) {
+      const resolved = await resolve(act);
+      return "issue" in resolved ? resolved.issue : null;
+    },
+    async execute(act) {
+      const resolved = await resolve(act);
+      if ("issue" in resolved) throw new Error(resolved.issue);
+      const cleared = await state.restrictedApps.clearStorage(
+        resolved.app.spaceId,
+        resolved.app.manifest.id,
+        resolved.app.digest,
+      );
+      return { detail: `Cleared ${resolved.observedBytes} bytes of live storage; ${cleared.usageBytes} bytes remain.` };
+    },
+  };
+}
+
+function createAppDataPurgeDecisionAdapter(state: LocalApiState): FoldStagedActKindAdapter {
+  type PurgeResolution =
+    | { issue: string }
+    | { target: "retained"; retainedDataId: string; namespaceId: string }
+    | { target: "runtime-instance"; runtimeInstanceId: string; namespaceId: string };
+  const resolve = async (act: FoldStagedAct): Promise<PurgeResolution> => {
+    const target = act.parameters.purgeTarget;
+    const namespaceIds = act.pins.dataNamespaceIds;
+    if (!Array.isArray(namespaceIds) || namespaceIds.length !== 1) {
+      return { issue: "This purge must pin exactly one Data Namespace." };
+    }
+    const namespaceId = namespaceIds[0]!;
+    if (target === "retained") {
+      const sourceSpaceId = String(act.pins.sourceSpaceId ?? act.parameters.spaceId);
+      const retainedDataId = String(act.pins.retainedDataId ?? "");
+      const studio = await state.restrictedApps.localAppStudio(sourceSpaceId).catch(() => null);
+      const retained = studio?.retainedData.find((item) => item.retainedDataId === retainedDataId);
+      if (!retained) return { issue: "The pinned retained App data record no longer exists." };
+      if (retained.featureInstallationId !== act.pins.appInstanceId || retained.dataNamespaceId !== namespaceId) {
+        return { issue: "The retained App data identity changed after staging." };
+      }
+      return { target, retainedDataId, namespaceId };
+    }
+    if (target === "runtime-instance") {
+      const spaceId = String(act.parameters.spaceId);
+      const runtimeInstanceId = String(act.pins.runtimeInstanceId ?? "");
+      const installed = (await state.restrictedApps.list(spaceId)).find((app) => (
+        app.runtimeInstanceKind === "app" && app.runtimeInstanceId === runtimeInstanceId
+      ));
+      if (!installed) return { issue: "The pinned Local App Instance is no longer installed." };
+      if (installed.featureInstallationId !== act.pins.appInstanceId || installed.dataNamespaceId !== namespaceId) {
+        return { issue: "The Local App Instance data identity changed after staging." };
+      }
+      if (act.pins.sourceSpaceId !== undefined && installed.sourceSpaceId !== act.pins.sourceSpaceId) {
+        return { issue: "The Local App Instance source Space changed after staging." };
+      }
+      return { target, runtimeInstanceId, namespaceId };
+    }
+    return {
+      issue: "This older purge card does not identify whether it targets retained data or an installed App Instance; restage it.",
+    };
+  };
+  return {
+    fenceScope: () => ({ scope: "global" }),
+    async recheckPins(act) {
+      const resolved = await resolve(act);
+      return "issue" in resolved ? resolved.issue : null;
+    },
+    async execute(act) {
+      const resolved = await resolve(act);
+      if ("issue" in resolved) throw new Error(resolved.issue);
+      if (resolved.target === "retained") {
+        const result = await state.restrictedApps.purgeLocalAppRetainedData(resolved.retainedDataId);
+        if (!result.purged) throw new Error("The retained App data record disappeared before execution.");
+        return {
+          detail: result.cleanupPending
+            ? `Purged Data Namespace ${resolved.namespaceId}; secure cleanup is pending.`
+            : `Purged Data Namespace ${resolved.namespaceId}.`,
+        };
+      }
+      const result = await state.restrictedApps.uninstallLocalApp({
+        runtimeInstanceId: resolved.runtimeInstanceId,
+        dataDisposition: "purge",
+      });
+      if (!result.removed) throw new Error("The Local App Instance disappeared before execution.");
+      return {
+        detail: result.cleanupPending
+          ? `Uninstalled ${resolved.runtimeInstanceId} and purged its data; secure cleanup is pending.`
+          : `Uninstalled ${resolved.runtimeInstanceId} and purged its data.`,
+      };
+    },
+  };
+}
+
+function createFilesDestroyDecisionAdapter(): FoldStagedActKindAdapter {
+  const resolve = async (act: FoldStagedAct): Promise<
+    | { issue: string }
+    | { spaceRoot: string; paths: string[] }
+  > => {
+    const space = await getSpace(String(act.parameters.spaceId)).catch(() => null);
+    if (!space) return { issue: "The pinned Space is no longer registered." };
+    const paths = act.pins.paths;
+    const identities = act.pins.contentIdentities;
+    if (!Array.isArray(paths) || !Array.isArray(identities) || paths.length !== identities.length) {
+      return { issue: "The staged paths and content identities no longer form a valid deletion set." };
+    }
+    for (let index = 0; index < paths.length; index += 1) {
+      const path = paths[index]!;
+      let observed: string;
+      try {
+        observed = await observedDestroyIdentity(resolveSpacePath(space.spaceRoot, path));
+      } catch (error) {
+        return { issue: `The staged target "${path}" is no longer safely readable: ${errorMessage(error)}` };
+      }
+      if (observed !== identities[index]) {
+        return { issue: `The staged target "${path}" changed after staging.` };
+      }
+    }
+    return { spaceRoot: space.spaceRoot, paths: [...paths] };
+  };
+  return {
+    async recheckPins(act) {
+      const resolved = await resolve(act);
+      return "issue" in resolved ? resolved.issue : null;
+    },
+    async execute(act) {
+      const resolved = await resolve(act);
+      if ("issue" in resolved) throw new Error(resolved.issue);
+      // Children before parents makes overlapping selections deterministic.
+      const ordered = [...new Set(resolved.paths)].sort((left, right) => (
+        right.split("/").length - left.split("/").length || right.localeCompare(left)
+      ));
+      for (const path of ordered) await deleteSpaceEntry(resolved.spaceRoot, path);
+      return { detail: `Permanently deleted ${ordered.length} path${ordered.length === 1 ? "" : "s"}.` };
+    },
   };
 }
 
@@ -9027,9 +9400,30 @@ async function safeAgentStatus(spaceRoot: string, provider: PiRuntimeProvider): 
   }
 }
 
-async function configuredSpace(spaceId?: string, provider?: string, model?: string) {
-  if (!spaceId || !provider?.trim() || !model?.trim()) throw badRequest("A Space, provider, and model are required.");
-  return getSpace(spaceId);
+interface AssistantModelScope {
+  id: string;
+  spaceRoot: string;
+  label: string;
+}
+
+async function assistantModelScope(scope: string | null | undefined, spaceId?: string | null): Promise<AssistantModelScope> {
+  if (scope === "management") {
+    return { id: workFoldManagementScopeId, spaceRoot: workFoldManagementRoot(), label: "the fold" };
+  }
+  if (scope && scope !== "space") throw badRequest("Assistant scope must be space or management.");
+  if (!spaceId) throw badRequest("Space id is required.");
+  const space = await getSpace(spaceId);
+  return { id: space.id, spaceRoot: space.spaceRoot, label: "this Space" };
+}
+
+async function configuredAssistantModelScope(
+  scope: string | null | undefined,
+  spaceId?: string,
+  provider?: string,
+  model?: string,
+): Promise<AssistantModelScope> {
+  if (!provider?.trim() || !model?.trim()) throw badRequest("A provider and model are required.");
+  return assistantModelScope(scope, spaceId);
 }
 
 function openChatStream(

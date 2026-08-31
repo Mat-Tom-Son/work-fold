@@ -260,7 +260,8 @@ test("every referenced elevation and radius token is defined", () => {
 test("every used P0 pane class has a CSS selector", () => {
   const p0Classes = [
     "assistant-setup-card",
-    "setup-intro",
+    "assistant-scope-control",
+    "assistant-refresh-models",
     "setup-grid",
     "security-note",
     "trust-banner",
@@ -388,8 +389,8 @@ test("Space customization is visible, compact, and separate from structural chro
   assert.doesNotMatch(activeRailMarkerRule, /box-shadow/, "the active pill must not resurrect the legacy full-row shadow");
   assert.match(customizationCss, /\.professional-spaces \.space-card-shell\.active[\s\S]*?background:\s*var\(--space-accent-soft-fill\)/);
   assert.match(customizationCss, /\.professional-chats \.chat-space-heading > span:first-child[\s\S]*?color:\s*var\(--space-accent-glyph\)/);
-  assert.match(legacyCss, /\.message\.user\s*\{[\s\S]*?background:\s*var\(--space-accent-solid/, "user messages must use the resolved solid role");
-  assert.match(legacyCss, /\.message\.user \.message-time\s*\{[\s\S]*?color:\s*var\(--space-on-accent-muted/, "message footer metadata must use its audited composite role");
+  assert.match(legacyCss, /\.message\.user \.message-surface\s*\{[\s\S]*?background:\s*var\(--space-accent-solid/, "user message surfaces must use the resolved solid role");
+  assert.match(legacyCss, /\.message\.user \.message-time\s*\{[\s\S]*?color:\s*#98a2b3/, "message footer metadata must sit neutrally below the accent surface");
   assert.match(spaceIdentitySource, /"--space-selection-accent":\s*identity\.color/, "transitional aliases must preserve the v1 accent until their consumers are assigned roles");
   assert.match(spaceIdentitySource, /"--space-selection-border":\s*identity\.borderColor/);
   assert.match(spaceIdentitySource, /"--space-selection-surface":\s*identity\.softColor/);

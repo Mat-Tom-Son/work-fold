@@ -1155,19 +1155,19 @@ test("the constructed decision path executes consecrations behind fences, receip
     const doomed = await facade.createSpace({ name: "Doomed" });
     const provenance = { stagedVia: "act-cli" as const, requestId: "req-stage-1" };
 
-    // An unbound kind stages, but approving it is refused before anything is
-    // consumed; the card stays pending and can still be denied.
-    const unbound = await api.stagedActs.stage({
-      kind: "files.destroy",
-      parameters: { spaceId: doomed.space.id, paths: ["big.iso"] },
-      pins: { spaceId: doomed.space.id, paths: ["big.iso"], contentIdentities: ["file:unreadable:9000000000"] },
-      provenance,
-    });
-    await assert.rejects(
-      () => api.foldDecisions.decide(unbound.act.id, { decision: "approved", surface: "main-window" }),
-      (error: unknown) => (error as { code?: string }).code === "EXECUTION_UNAVAILABLE",
+    // Permanent file deletion now binds to the same host file path as the
+    // staged verb, rechecking the observed identity before it consumes the
+    // decision. A second file stays pending for the glance assertion below.
+    await writeFile(join(doomed.space.spaceRoot, "big.iso"), "large enough for this identity test", "utf8");
+    const destructive = await facade.filesDestroy({ space: doomed.space.id, paths: ["big.iso"] });
+    const destroyed = await api.foldDecisions.decide(
+      destructive.staged.decisionId,
+      { decision: "approved", surface: "main-window" },
     );
-    assert.equal((await api.stagedActs.get(unbound.act.id))?.state, "staged", "a refused approval consumes nothing");
+    assert.equal(destroyed.act.execution?.outcome, "executed");
+    assert.equal(existsSync(join(doomed.space.spaceRoot, "big.iso")), false);
+    await writeFile(join(doomed.space.spaceRoot, "waiting.iso"), "still pending", "utf8");
+    const waiting = await facade.filesDestroy({ space: doomed.space.id, paths: ["waiting.iso"] });
 
     // The fence probe refuses while Assistant work runs anywhere for a
     // global-scope act, without consuming the card.
@@ -1205,7 +1205,7 @@ test("the constructed decision path executes consecrations behind fences, receip
     const glance = await facade.manageGlance();
     assert.equal(glance.kind, "work-fold.glance.experimental");
     assert.ok(
-      glance.needsYou.some((item) => item.kind === "pending-decision" && item.ref?.decisionId === unbound.act.id),
+      glance.needsYou.some((item) => item.kind === "pending-decision" && item.ref?.decisionId === waiting.staged.decisionId),
       "a pending card is a needs-you item",
     );
     assert.ok(

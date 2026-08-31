@@ -51,7 +51,7 @@ PM-6's accepted-direction bullet.
 
 ## Cross-document reconciliations
 
-Cross-thread decisions recorded so no thread ships a variant. All fourteen
+Cross-thread decisions recorded so no thread ships a variant. All fifteen
 are implemented in the build; they remain recorded here because they bind
 future changes across siblings.
 
@@ -59,7 +59,8 @@ future changes across siblings.
    and its decision share one identity by construction (the decision request
    id is derived from the staged-act id).
 2. **One surface vocabulary.** Wherever a surface is recorded, the closed set
-   is `cli`, `popover`, `main-window`, `remote_web`, and `policy`. Glance
+   is `cli`, `popover`, `main-window`, `remote_web`, `policy`, and
+   `unrestricted`. Glance
    marker keys stay as designed — they key per-grant presentation state, not
    receipts.
 3. **`publish.viewer.expose` pins both shapes.** Page slots pin Space id,
@@ -108,7 +109,13 @@ future changes across siblings.
     whenever any matched content lacks restore coverage, and the staged
     `files destroy` consecration is the only path to such a deletion; no
     lane may delete content the restore point cannot bring back without a
-    click.
+    staged decision under the current authority mode.
+15. **Root authority is one inherited machine setting** (owner decision,
+    2026-08-31, F17 in [the fold](fold.md)). Reviewed retains cards and
+    standing policies. Unrestricted consumes every newly admitted staged act
+    through the desktop host, including remote-originated acts, and records
+    the initiating browser/grant. Only local Settings changes the mode;
+    existing pending cards are never drained by the switch.
 
 ## Governance
 
