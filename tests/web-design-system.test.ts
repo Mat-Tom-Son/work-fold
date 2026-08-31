@@ -206,7 +206,8 @@ test("Skills, Extensions, and apps open as an on-demand Assistant tools work tab
 test("Assistant configuration lives in Settings instead of the rail", () => {
   assert.match(desktopSettingsSource, /id:\s*"assistant"[\s\S]*?label:\s*"Assistant"/);
   assert.match(desktopSettingsSource, /<AssistantSetupPane[\s\S]*?embedded/);
-  assert.match(appSource, /openSettings\("assistant"\)/);
+  assert.match(appSource, /openSettings\("assistant", scope, true\)/);
+  assert.match(appSource, /onOpenSettings\("assistant", "space", true\)/);
   assert.doesNotMatch(appSource, /activeMode\s*===\s*"setup"/);
   assert.doesNotMatch(spaceChromeSource, /Assistant ·/);
 });
