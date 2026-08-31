@@ -311,7 +311,6 @@ export function SpaceSurfaceTabBar({
                 <span className="surface-tab-menu-check" aria-hidden="true">{groupBySpace ? <Checkmark16Regular /> : null}</span>
                 <span className="surface-tab-space-menu-copy">
                   <strong>Group by Space</strong>
-                  <small>{openSpaceCount > 1 ? "Keep each Space together" : "Applies when multiple Spaces are open"}</small>
                 </span>
               </button>
             </div>

@@ -40,7 +40,7 @@ test("mid-turn Enter steers the running turn; ⌘Enter queues one visible, cance
   assert.match(chatPanel, /if \(running \|\| !queuedSend \|\| lifecycleView !== "active"\) return;/);
   assert.match(chatPanel, /className="queued-send-row"/);
   assert.match(chatPanel, /aria-label="Cancel queued message"/);
-  assert.match(chatPanel, /returnQueuedSendToComposer\(\);\s*\n\s*addAgentEvent\(\{ message: "Stopping the Assistant"/);
+  assert.match(chatPanel, /returnQueuedSendToComposer\(\);\s*\n\s*if \(pendingSendRef\.current\)/);
   assert.match(styles, /\.queued-send-bubble \{/);
 });
 
@@ -79,6 +79,7 @@ test("one Space menu trigger can create a Chat in every Space", () => {
   const tabBarCall = app.match(/<SpaceSurfaceTabBar[\s\S]*?\/>/)?.[0] ?? "";
   assert.doesNotMatch(tabBarCall, /newChatSpaceName=|onNewChat=\{/);
   assert.doesNotMatch(app, /fixtureConversations=\{[^}]*:\s*\[\]\s*\}/, "blank fixture tabs must not receive a fresh array on every render");
+  assert.doesNotMatch(tabBar, /Keep each Space together|Applies when multiple Spaces are open/);
 });
 
 test("Chat work can be deferred, found again, and resumed without interrupting active turns", () => {
@@ -206,13 +207,15 @@ test("assistant rendering has complete Markdown chrome and Space-aware accents",
 test("provider interruptions stay visible and the configured model is disclosed before first send", () => {
   assert.match(chatPanel, /ConfiguredAssistantModel/);
   assert.match(chatPanel, /\/api\/agent\/status\?spaceId=/);
+  assert.match(chatPanel, /\/api\/agent\/composer\?scope=space&spaceId=/);
+  assert.match(chatPanel, /setAssistantComposer\(composerResult\.status === "fulfilled"/);
   assert.match(chatPanel, /loadMessages\(conversationId, false, \{ settleStreamingTurn: true \}\)/);
   assert.match(messages, /Response interrupted/);
   assert.match(messages, /work-fold preserved/);
   assert.match(messages, /Assistant setup needed/);
   assert.match(messages, /Request stopped/);
-  assert.match(messages, /interruption\.activities/);
-  assert.match(chatPanel, /data\.message !== "Connected\."/);
+  assert.doesNotMatch(messages, /interruption\.activities/);
+  assert.doesNotMatch(chatPanel, /addAgentEvent/);
   assert.match(chatPanel, /configuredAssistant\?\.configured && conversationRuntime/);
   assert.match(chatPanel, /if \(!configuredAssistant \|\| !configuredAssistant\.configured\) \{[\s\S]*?setConversationRuntime\(null\)/);
   assert.match(styles, /\.turn-interruption/);
@@ -236,11 +239,23 @@ test("Chat composer model and reasoning controls are truthful, scoped, and funct
   assert.match(chatPanel, /\/conversations\/\$\{conversationId\}\/thinking/);
   assert.match(chatPanel, /body: \{ level \}/);
   assert.match(chatPanel, /setConversationRuntime\(result\.runtime\)/);
-  assert.match(chatPanel, /className="composer-thinking-label">\{runtime\.thinkingLevel\}/);
+  assert.match(chatPanel, /className="composer-thinking-label">\{state\.thinkingLevel\}/);
+  assert.match(chatPanel, /conversationRuntime \?\? assistantComposer/);
+  assert.match(chatPanel, /"\/api\/agent\/thinking"/);
+  assert.match(chatPanel, /body: \{ scope: "space", spaceId: space\.id, level \}/);
   assert.doesNotMatch(chatPanel, /No extended reasoning|A brief think before answering|Balanced reasoning|Deeper reasoning/);
   assert.match(styles, /\.composer-thinking-trigger > span:first-child \{[\s\S]*?font: inherit;/);
   assert.match(styles, /\.conversation-context-meter \{[\s\S]*?font-family: inherit;[\s\S]*?font-size: 0\.7rem;[\s\S]*?font-weight: 750;/);
   assert.match(localServer, /await client\.setThinkingLevel\(body\.level\)/);
+});
+
+test("reasoning output is plain model text and the misleading Activity surface is gone", () => {
+  assert.match(activity, /entry\.kind === "thinking"/);
+  assert.match(activity, /<div className="runtime-preview-text">[\s\S]*?<ReactMarkdown/);
+  assert.doesNotMatch(activity, /Brain|THINKING|Complete|Working through the request|AgentActivity/);
+  assert.doesNotMatch(chatPanel, /agent-activity-toggle|agent-activity-log|>Activity</);
+  assert.match(styles, /\.runtime-preview\s*\{[^}]*border-left:/);
+  assert.match(styles, /\.runtime-preview-text\s*\{/);
 });
 
 test("manual restore points distinguish a new snapshot from already-covered files", () => {

@@ -139,14 +139,12 @@ export interface AgentActivityEvent {
   toolCallId?: string;
   phase?: AgentActivityPhase;
 }
-export interface AgentActivityLogEntry extends AgentActivityEvent { arrivedAt: string }
 export interface RuntimePreviewEntry {
   id: string;
   kind: "thinking" | "tool";
   text: string;
   phase?: "streaming" | "complete";
 }
-export interface RuntimeThinkingSection { id: string; title: string; text: string; pending?: boolean }
 
 export interface ChatActionsState {
   space: SpaceSummary;
@@ -271,6 +269,12 @@ export interface AgentModelCatalog {
   source: "built_in" | "live";
   refreshedAt?: string;
   modelCount?: number;
+}
+
+export interface AssistantComposerState {
+  model?: { provider: string; id: string; name: string };
+  thinkingLevel: string;
+  thinkingLevels: string[];
 }
 
 export interface AgentCommand {

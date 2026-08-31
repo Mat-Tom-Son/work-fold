@@ -252,15 +252,17 @@ test("the fold composer names its model and exposes real text-only reasoning con
   const preload = await readFile(resolve(rootDir, "desktop/src/management-popover-preload.cts"), "utf8");
   const main = await readFile(resolve(rootDir, "desktop/src/main.ts"), "utf8");
 
-  assert.match(popover, /\/api\/agent\/status\?scope=management/);
-  assert.match(popover, /displayAssistantModelLabel\(result\.status\.provider \?\? "", result\.status\.model \?\? ""\)/);
+  assert.match(popover, /\/api\/agent\/composer\?scope=management/);
+  assert.match(popover, /setManagementComposer\(result\.composer\)/);
   assert.match(popover, /bridge\?\.management\?\.openAssistantSettings\(\)/);
   assert.match(preload, /openAssistantSettings: \(\) => ipcRenderer\.invoke\("work-fold:management:open-assistant-settings"\)/);
   assert.match(main, /mainWindow\?\.webContents\.send\("work-fold:agent:open-settings", "management"\)/);
 
   assert.doesNotMatch(popover, /Brain(?:Circuit)?\d+(?:Filled|Regular)/);
-  assert.match(popover, /thinkingLevels\.length >= 2 && conversationRuntime/);
+  assert.match(popover, /thinkingLevels\.length >= 2 && composerThinking/);
   assert.match(popover, /\/api\/management\/conversations\/\$\{encodeURIComponent\(conversationId\)\}\/thinking/);
+  assert.match(popover, /"\/api\/agent\/thinking"/);
+  assert.match(popover, /body: \{ scope: "management", level \}/);
   assert.match(popover, /body: \{ level \}/);
   assert.match(popover, /setConversationRuntime\(result\.runtime\)/);
   const css = await readFile(resolve(rootDir, "web-local/src/popover/popover.css"), "utf8");

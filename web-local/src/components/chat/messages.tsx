@@ -7,9 +7,9 @@ import { safeExternalHref } from "../../lib/api";
 import { formatDateTime } from "../../lib/format";
 import { resolveMessageImageSource } from "../../lib/message-images";
 import { collectSpacePathCandidates, findSpacePathMentions, spacePathCandidate } from "../../lib/space-path-links";
-import type { AgentActivityEvent, ChatMessage, ChatMessageLanding, RuntimePreviewEntry } from "../../types";
+import type { ChatMessage, ChatMessageLanding, RuntimePreviewEntry } from "../../types";
 import { FluentGlyph } from "../chrome/common";
-import { AgentActivityRecap, RuntimeContextPreview } from "./activity";
+import { RuntimeContextPreview } from "./activity";
 
 export type SpacePathLinkResolver = (paths: string[]) => Promise<Map<string, string>>;
 
@@ -24,10 +24,8 @@ interface ChatMessageRowProps {
   copied: boolean;
   showLanding: boolean;
   suppressEnterAnimation: boolean;
-  showRecap: boolean;
   showRuntimePreview: boolean;
   runtimePreviews: RuntimePreviewEntry[];
-  activityRecap: AgentActivityEvent[];
   spaceId: string;
   onOpenSpaceFile?: (path: string) => void;
   resolveSpacePathLinks?: SpacePathLinkResolver;
@@ -39,10 +37,8 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   copied,
   showLanding,
   suppressEnterAnimation,
-  showRecap,
   showRuntimePreview,
   runtimePreviews,
-  activityRecap,
   spaceId,
   onOpenSpaceFile,
   resolveSpacePathLinks,
@@ -80,14 +76,6 @@ export const ChatMessageRow = memo(function ChatMessageRow({
         />
         {message.role === "assistant" && showLanding && message.landing ? <TurnLanding landing={message.landing} /> : null}
         {message.role === "assistant" && message.interruption ? <InterruptedTurn interruption={message.interruption} /> : null}
-        {message.role === "assistant" && message.interruption?.activities.length ? (
-          <AgentActivityRecap
-            events={message.interruption.activities.map((activity, index) => ({
-              ...activity,
-              id: `interrupted-${message.id}-${index}`,
-            }))}
-          />
-        ) : showRecap ? <AgentActivityRecap events={activityRecap} /> : null}
       </div>
       <footer className="message-footer">
         <span className="message-footer-meta">
@@ -125,17 +113,12 @@ function areChatMessageRowPropsEqual(previous: ChatMessageRowProps, next: ChatMe
   const sameRuntimePreview = !previous.showRuntimePreview && !next.showRuntimePreview
     ? true
     : previous.runtimePreviews === next.runtimePreviews;
-  const sameActivityRecap = !previous.showRecap && !next.showRecap
-    ? true
-    : previous.activityRecap === next.activityRecap;
   return sameMessage
     && previous.copied === next.copied
     && previous.showLanding === next.showLanding
     && previous.suppressEnterAnimation === next.suppressEnterAnimation
-    && previous.showRecap === next.showRecap
     && previous.showRuntimePreview === next.showRuntimePreview
     && sameRuntimePreview
-    && sameActivityRecap
     && previous.spaceId === next.spaceId
     && previous.onOpenSpaceFile === next.onOpenSpaceFile
     && previous.resolveSpacePathLinks === next.resolveSpacePathLinks

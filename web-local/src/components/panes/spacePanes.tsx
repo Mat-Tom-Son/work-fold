@@ -602,7 +602,7 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
 
 export type AssistantModelScope = "space" | "management";
 
-export function AssistantSetupPane({ space, status, fixtureMode = false, embedded = false, initialScope, focusModelOnOpen = false, onConfigured }: { space: SpaceSummary | null; status: AgentStatus; fixtureMode?: boolean; embedded?: boolean; initialScope?: AssistantModelScope; focusModelOnOpen?: boolean; onConfigured: (status: AgentStatus) => void }) {
+export function AssistantSetupPane({ space, status, fixtureMode = false, embedded = false, initialScope, focusModelOnOpen = false, onConfigured, onAssistantChanged }: { space: SpaceSummary | null; status: AgentStatus; fixtureMode?: boolean; embedded?: boolean; initialScope?: AssistantModelScope; focusModelOnOpen?: boolean; onConfigured: (status: AgentStatus) => void; onAssistantChanged?: (scope: AssistantModelScope, status: AgentStatus) => void }) {
   const resolvedInitialScope = initialScope === "management" || (initialScope === "space" && space)
     ? initialScope
     : space ? "space" : "management";
@@ -681,6 +681,7 @@ export function AssistantSetupPane({ space, status, fixtureMode = false, embedde
       const next = { ...scopeStatus, configured: true, provider, model };
       setScopeStatus(next);
       if (scope === "space") onConfigured(next);
+      onAssistantChanged?.(scope, next);
       setNotice(oauth ? "Account connected" : "Setup saved");
       return;
     }
@@ -704,6 +705,7 @@ export function AssistantSetupPane({ space, status, fixtureMode = false, embedde
       setApiKey("");
       setScopeStatus(result.status);
       if (scope === "space") onConfigured(result.status);
+      onAssistantChanged?.(scope, result.status);
       setNotice(oauth ? "Account connected" : "Model saved");
     } catch (caught) { setError(errorText(caught)); }
     finally { setSaving(false); }
@@ -723,6 +725,7 @@ export function AssistantSetupPane({ space, status, fixtureMode = false, embedde
       setApiKey("");
       setScopeStatus(result.status);
       if (scope === "space") onConfigured(result.status);
+      onAssistantChanged?.(scope, result.status);
       setNotice(providerAuth?.authType === "oauth" ? "Account disconnected" : "API key removed");
     } catch (caught) { setError(errorText(caught)); }
     finally { setSaving(false); }
@@ -745,6 +748,7 @@ export function AssistantSetupPane({ space, status, fixtureMode = false, embedde
       setCatalogs(result.catalogs);
       setScopeStatus(result.status);
       setModel((current) => resolveAssistantModelSelection(result.models, provider, current));
+      onAssistantChanged?.(scope, result.status);
       setNotice(`${result.refresh.modelCount} models refreshed from OpenRouter`);
     } catch (caught) { setError(errorText(caught)); }
     finally { setRefreshing(false); }

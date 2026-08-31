@@ -13,7 +13,6 @@ export const desktopTitleBarMenus = [
 
 export const spaceFileRefreshDelayMs = 160;
 export const loadedTreeRefreshConcurrency = 4;
-export const agentActivityLogLimit = 200;
 export const spacePathDragType = "application/x-work-fold-space-path";
 export const themePreferenceKey = "work-fold.theme";
 export const typographyPreferenceKey = "work-fold.typography.v1";
@@ -53,7 +52,6 @@ export const untitledChatLabel = "Untitled chat";
 export const commandPaletteGroupOrder: CommandPaletteGroupId[] = ["go-to", "switch-space", "chats", "files", "actions"];
 export const commandPaletteGroupCap = 8;
 export const commandPaletteOverallCap = 24;
-export const runtimeThinkingFallbackTitle = "Working through the request";
 export const genericChatEmptyGreetings = [
   "What should we work on?",
   "Ready when you are.",

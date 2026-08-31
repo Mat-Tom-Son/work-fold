@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type * as React from "react";
 import { ArrowDown20Regular, ArrowUp20Regular } from "@fluentui/react-icons";
 import { AlertTriangle, Archive, CircleCheck, Clock3, Loader2, Square, X } from "lucide-react";
 
-import { agentActivityLogLimit, chatDraftDebounceMs, genericChatEmptyGreetings, spacePathDragType } from "../../constants";
-import { createFixtureContextAttachment, fixtureAgentActivityEvents, fixtureConversationSummary } from "../../fixtures/shared";
+import { chatDraftDebounceMs, genericChatEmptyGreetings, spacePathDragType } from "../../constants";
+import { createFixtureContextAttachment, fixtureConversationSummary } from "../../fixtures/shared";
 import { ApiError, api, createEventSource, errorText, isTransientNetworkError, rawErrorMessage } from "../../lib/api";
 import { createChatTurnStateGate, observeChatTurnState } from "../../lib/chat-turn-state";
 import { hasNativeFiles } from "../../lib/file-actions";
@@ -26,13 +26,13 @@ import { latestAssistantMessageId as findLatestAssistantMessageId, settledTurnHa
 import { dismissRestrictedAppProposal, installRestrictedAppProposal } from "../../lib/restricted-apps";
 import { resolveFixtureSpacePathCandidates } from "../../lib/space-path-links";
 import { spaceIdentityFor, spaceIdentityStyle, type SpaceIdentity } from "../../lib/space-identity";
-import type { AgentActivityEvent, AgentActivityLogEntry, AgentCatalog, AgentCommand, AgentStatus, ChatContextPathRequest,
+import type { AgentCatalog, AgentCommand, AgentStatus, AssistantComposerState, ChatContextPathRequest,
   ChatDraftRequest, ChatLifecycleView, ChatMessage, ChatStreamEvent, ContextAttachment, ConversationRuntime, ConversationSummary, ExtensionUiRequest, PendingChatSend, RestrictedAppInstalled, RestrictedAppProposal, RuntimePreviewEntry, TreeEntry, SpaceCustomizationMap, SpaceFixtureConversation, SpaceSummary } from "../../types";
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { Banner, FluentGlyph, SpaceIconGlyph } from "../chrome/common";
 import { RestrictedAppReviewDialog } from "../panes/RestrictedAppsSection";
 import { FileTypeIcon } from "../tree/FileTree";
-import { AgentActivityLog, AgentActivityTicker, RuntimeContextPreview, activityRecapKey, normalizeAgentActivityEvent, shouldKeepActivityRecap } from "./activity";
+import { RuntimeContextPreview } from "./activity";
 import { composerCommandQuery, composerCommandValue, matchingComposerCommands } from "./command-menu";
 import { ChatMessageRow, MarkdownMessage, copyMarkdownToClipboard } from "./messages";
 import { showToast } from "../../ui/feedback";
@@ -91,6 +91,7 @@ export function ChatPanel({
   surfaceTabId,
   space,
   spaceCustomizations,
+  assistantConfigurationRevision = 0,
   active = true,
   targetConversationId = null,
   contextPathRequest,
@@ -117,6 +118,7 @@ export function ChatPanel({
   surfaceTabId: string;
   space: SpaceSummary;
   spaceCustomizations: SpaceCustomizationMap;
+  assistantConfigurationRevision?: number;
   active?: boolean;
   targetConversationId?: string | null;
   contextPathRequest: ChatContextPathRequest | null;
@@ -163,10 +165,6 @@ export function ChatPanel({
   const runningRef = useRef(false);
   const [streamingAssistant, setStreamingAssistant] = useState("");
   const [runtimePreviews, setRuntimePreviews] = useState<RuntimePreviewEntry[]>([]);
-  const [events, setEvents] = useState<AgentActivityEvent[]>([]);
-  const [activityLog, setActivityLog] = useState<AgentActivityLogEntry[]>([]);
-  const [activityLogOpen, setActivityLogOpen] = useState(false);
-  const [activityRecap, setActivityRecap] = useState<AgentActivityEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [contextAttachments, setContextAttachments] = useState<ContextAttachment[]>([]);
   const [attachingPath, setAttachingPath] = useState<string | null>(null);
@@ -178,6 +176,7 @@ export function ChatPanel({
   const [dismissedCommandDraft, setDismissedCommandDraft] = useState<string | null>(null);
   const [conversationRuntime, setConversationRuntime] = useState<ConversationRuntime | null>(null);
   const [configuredAssistant, setConfiguredAssistant] = useState<AgentStatus | null>(null);
+  const [assistantComposer, setAssistantComposer] = useState<AssistantComposerState | null>(null);
   const [extensionRequest, setExtensionRequest] = useState<ExtensionUiRequest | null>(null);
   const [appProposal, setAppProposal] = useState<RestrictedAppProposal | null>(null);
   const [appProposalBusy, setAppProposalBusy] = useState(false);
@@ -225,16 +224,12 @@ export function ChatPanel({
   const [userPinnedToBottom, setUserPinnedToBottom] = useState(true);
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
-  const activityLogListRef = useRef<HTMLDivElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const userPinnedToBottomRef = useRef(true);
-  const activityLogPinnedToBottomRef = useRef(true);
   const streamingBufferRef = useRef("");
   const streamingFlushRef = useRef<number | null>(null);
   const activeThinkingPreviewIdRef = useRef<string | null>(null);
   const runtimePreviewIdRef = useRef(0);
-  const eventIdRef = useRef(0);
-  const eventClearTimerRef = useRef<number | null>(null);
   const spaceIdRef = useRef(space.id);
   const eventStreamReadyConversationIdRef = useRef<string | null>(null);
   const pendingSendRef = useRef<PendingChatSend | null>(null);
@@ -245,7 +240,6 @@ export function ChatPanel({
   const scriptPlaybackTimerRef = useRef<number | null>(null);
   const activeDraftStorageKeyRef = useRef<string | null>(null);
   const draftRef = useRef(draft);
-  const activityLogId = useId();
   const draftStorageKey = useMemo(
     () => chatDraftStorageKey(
       space.id,
@@ -291,15 +285,12 @@ export function ChatPanel({
 
   useEffect(() => () => {
     if (!fixtureMode && activeDraftStorageKeyRef.current) writeStoredChatDraft(activeDraftStorageKeyRef.current, draftRef.current);
-    clearAgentEventTimer();
     cancelStreamingFlush();
     releaseScriptPlayback();
   }, []);
 
   useEffect(() => {
     spaceIdRef.current = space.id;
-    setActivityRecap([]);
-    resetActivityLog();
     clearRuntimePreviews();
     resetTurnArtifactTracking();
     pendingSendRef.current = null;
@@ -371,19 +362,25 @@ export function ChatPanel({
         piVersion: null,
         error: null,
       });
+      setAssistantComposer({
+        model: fixtureConversationRuntime.model,
+        thinkingLevel: fixtureConversationRuntime.thinkingLevel,
+        thinkingLevels: fixtureConversationRuntime.thinkingLevels ?? [],
+      });
       return;
     }
-    void api<{ status: AgentStatus }>(`/api/agent/status?spaceId=${encodeURIComponent(space.id)}`)
-      .then(({ status }) => {
-        if (!cancelled) setConfiguredAssistant(status);
-      })
-      .catch(() => {
-        if (!cancelled) setConfiguredAssistant(null);
-      });
+    void Promise.allSettled([
+      api<{ status: AgentStatus }>(`/api/agent/status?spaceId=${encodeURIComponent(space.id)}`),
+      api<{ composer: AssistantComposerState }>(`/api/agent/composer?scope=space&spaceId=${encodeURIComponent(space.id)}`),
+    ]).then(([statusResult, composerResult]) => {
+      if (cancelled) return;
+      setConfiguredAssistant(statusResult.status === "fulfilled" ? statusResult.value.status : null);
+      setAssistantComposer(composerResult.status === "fulfilled" ? composerResult.value.composer : null);
+    });
     return () => {
       cancelled = true;
     };
-  }, [space.id, fixtureMode]);
+  }, [space.id, fixtureMode, assistantConfigurationRevision]);
 
   useEffect(() => {
     setConversationRuntime(null);
@@ -411,7 +408,7 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [space.id, conversation?.id, messages.length, running, fixtureMode, configuredAssistant?.configured]);
+  }, [space.id, conversation?.id, messages.length, running, fixtureMode, configuredAssistant?.configured, assistantConfigurationRevision]);
 
   useEffect(() => {
     if (!fixtureMode) return;
@@ -437,7 +434,6 @@ export function ChatPanel({
     const fixtureConversationSummaryValue = fixtureConversation ? fixtureConversationSummary(fixtureConversation) : null;
     const fixtureRunning = fixtureConversation?.running ?? fixtureAgentRunning();
     setError(null);
-    const fixtureEvents = fixtureConversation?.activityEvents ?? fixtureAgentActivityEvents();
     const fixturePreviews = fixtureConversation?.runtimePreviews ?? fixtureRuntimePreviews();
     commitConversations((fixtureConversations ?? []).map(fixtureConversationSummary));
     if (fixtureConversation && fixtureConversationSummaryValue) {
@@ -456,9 +452,6 @@ export function ChatPanel({
       setActiveContextPath(null);
     }
     setRunning(fixtureRunning);
-    setEvents(fixtureEvents);
-    seedActivityLog(fixtureEvents);
-    setActivityRecap(fixtureEvents);
     setRuntimePreviews(fixturePreviews);
   }, [space.id, fixtureMode, targetConversationId, fixtureConversations]);
 
@@ -473,9 +466,6 @@ export function ChatPanel({
       setMessages([]);
       setStreamingAssistant("");
       setRunning(false);
-      setEvents([]);
-      setActivityRecap([]);
-      resetActivityLog();
       clearRuntimePreviews();
       cancelStreamingFlush();
       setContextAttachments([]);
@@ -546,9 +536,6 @@ export function ChatPanel({
     };
     source.onmessage = (event) => {
       const data = JSON.parse(event.data) as ChatStreamEvent;
-      if (data.type === "status" && data.message && data.message !== "Connected.") {
-        addAgentEvent({ message: data.message, phase: "running" });
-      }
       if (data.type === "turn_state" || data.type === "turn_snapshot") {
         if (data.type === "turn_snapshot" && typeof data.text === "string") {
           flushStreamingText();
@@ -575,13 +562,6 @@ export function ChatPanel({
       }
       if (data.type === "tool") {
         beginTurnArtifactTracking();
-        addAgentEvent({
-          message: data.message ?? "Agent activity",
-          detail: data.detail,
-          phase: data.phase,
-          toolCallId: data.toolCallId,
-          toolName: data.toolName,
-        });
       }
       if (data.type === "assistant_thinking") {
         beginTurnArtifactTracking();
@@ -605,7 +585,6 @@ export function ChatPanel({
       if (data.type === "extension_ui_request" && data.request) {
         if (data.request.method === "notify") {
           showToast({ text: data.request.message ?? "Extension notification", tone: "info" });
-          addAgentEvent({ message: data.request.message ?? "Extension notification", phase: "complete" });
         } else {
           setExtensionRequest(data.request);
         }
@@ -627,8 +606,6 @@ export function ChatPanel({
         setError(data.message ?? "Agent error");
         runningRef.current = false;
         setRunning(false);
-        addAgentEvent({ message: "Assistant request stopped", phase: "error" });
-        scheduleEventClear();
         void loadMessages(conversationId, false, { settleStreamingTurn: true })
           .then(() => setError(null))
           .catch((loadError) => setError(errorText(loadError)));
@@ -638,7 +615,6 @@ export function ChatPanel({
         runningRef.current = false;
         flushStreamingText();
         finishThinkingPreview();
-        scheduleEventClear();
         // Keep the streamed bubble on screen until the persisted transcript
         // arrives, then swap in one commit so the reply never blinks out.
         void loadMessages(conversationId, false, { settleStreamingTurn: true });
@@ -676,12 +652,7 @@ export function ChatPanel({
 
   useEffect(() => {
     if (userPinnedToBottomRef.current) scrollMessagesToBottom("auto");
-  }, [messages, streamingAssistant, runtimePreviewScrollKey, running, events.length]);
-
-  useEffect(() => {
-    if (!activityLogOpen || !activityLogPinnedToBottomRef.current) return;
-    scrollActivityLogToBottom("auto");
-  }, [activityLog.length, activityLogOpen]);
+  }, [messages, streamingAssistant, runtimePreviewScrollKey, running]);
 
   function scrollMessagesToBottom(behavior: ScrollBehavior = "smooth") {
     window.requestAnimationFrame(() => {
@@ -701,33 +672,6 @@ export function ChatPanel({
     const isPinned = distanceFromBottom < 120;
     userPinnedToBottomRef.current = isPinned;
     setUserPinnedToBottom(isPinned);
-  }
-
-  function scrollActivityLogToBottom(behavior: ScrollBehavior = "smooth") {
-    window.requestAnimationFrame(() => {
-      const list = activityLogListRef.current;
-      if (!list) return;
-      list.scrollTo({ top: list.scrollHeight, behavior });
-      activityLogPinnedToBottomRef.current = true;
-    });
-  }
-
-  function updateActivityLogScrollPosition() {
-    const list = activityLogListRef.current;
-    if (!list) return;
-    const distanceFromBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
-    activityLogPinnedToBottomRef.current = distanceFromBottom < 24;
-  }
-
-  function toggleActivityLog() {
-    setActivityLogOpen((open) => {
-      const nextOpen = !open;
-      if (nextOpen) {
-        activityLogPinnedToBottomRef.current = true;
-        scrollActivityLogToBottom("auto");
-      }
-      return nextOpen;
-    });
   }
 
   function queueStreamingText(text: string) {
@@ -805,68 +749,6 @@ export function ChatPanel({
     setRuntimePreviews([]);
   }
 
-  function resetActivityLog() {
-    activityLogPinnedToBottomRef.current = true;
-    setActivityLog([]);
-    setActivityLogOpen(false);
-  }
-
-  function seedActivityLog(seedEvents: AgentActivityEvent[]) {
-    const now = Date.now();
-    activityLogPinnedToBottomRef.current = true;
-    setActivityLog(seedEvents.slice(-agentActivityLogLimit).map((event, index) => ({
-      ...event,
-      arrivedAt: new Date(now + index).toISOString(),
-    })));
-  }
-
-  function addAgentEvent(event: Omit<AgentActivityEvent, "id">) {
-    clearAgentEventTimer();
-    const normalized = normalizeAgentActivityEvent(event);
-    if (!normalized) return;
-    const message = normalized.message;
-    const detail = normalized.detail;
-    if (!message) return;
-    const nextEvent = {
-      id: `activity-${++eventIdRef.current}`,
-      message,
-      detail,
-      phase: normalized.phase,
-      toolCallId: normalized.toolCallId,
-      toolName: normalized.toolName,
-    };
-    setActivityLog((current) => [...current, { ...nextEvent, arrivedAt: new Date().toISOString() }].slice(-agentActivityLogLimit));
-    setEvents((current) => {
-      if (nextEvent.toolCallId) {
-        const existingIndex = current.findIndex((item) => item.toolCallId === nextEvent.toolCallId);
-        if (existingIndex >= 0) {
-          const updated = [...current];
-          updated[existingIndex] = { ...nextEvent, id: current[existingIndex]?.id ?? nextEvent.id };
-          return updated;
-        }
-      }
-      const last = current[current.length - 1];
-      if (last?.message === message && last.detail === detail && last.phase === normalized.phase) return current;
-      return [...current, nextEvent];
-    });
-    if (shouldKeepActivityRecap(nextEvent)) {
-      setActivityRecap((current) => {
-        const withoutDuplicate = current.filter((item) => activityRecapKey(item) !== activityRecapKey(nextEvent));
-        return [...withoutDuplicate, nextEvent];
-      });
-    }
-  }
-
-  function scheduleEventClear() {
-    clearAgentEventTimer();
-    eventClearTimerRef.current = window.setTimeout(() => setEvents([]), 2400);
-  }
-
-  function clearAgentEventTimer() {
-    if (eventClearTimerRef.current !== null) window.clearTimeout(eventClearTimerRef.current);
-    eventClearTimerRef.current = null;
-  }
-
   function reportChatSettled(conversationId: string): void {
     onSettledRef.current?.(conversationId, !activeRef.current);
   }
@@ -893,8 +775,8 @@ export function ChatPanel({
   }
 
   // Dev-only fixture script playback (`?fixture=space&script=<conversationId>`): replays the
-  // conversation's first user+assistant pair as live action — typed prompt, activity events, streamed
-  // reply — for product-video recording. Drives the same state setters the live event stream uses.
+  // conversation's first user+assistant pair as live action — typed prompt,
+  // model reasoning, and streamed reply — for product-video recording.
   function startScriptPlayback(conversation: SpaceFixtureConversation, initialDelayMs: number) {
     scriptPlaybackStateRef.current = "playing";
     setError(null);
@@ -903,9 +785,6 @@ export function ChatPanel({
     setMessages([]);
     setStreamingAssistant("");
     setRunning(false);
-    setEvents([]);
-    setActivityRecap([]);
-    resetActivityLog();
     setRuntimePreviews([]);
     setContextAttachments(conversation.contextAttachments ?? []);
     setActiveContextPath(null);
@@ -919,7 +798,6 @@ export function ChatPanel({
       scriptPlaybackStateRef.current = "done";
       return;
     }
-    const seededEvents = conversation.activityEvents ?? [];
     const firstPreview = (conversation.runtimePreviews ?? []).find((entry) => entry.kind === "thinking") ?? null;
     const prompt = firstUser.content;
     const chunks = scriptAssistantChunks(firstAssistant.content);
@@ -936,9 +814,6 @@ export function ChatPanel({
       setMessages([firstUser, firstAssistant]);
       setStreamingAssistant("");
       setRunning(false);
-      setEvents(seededEvents);
-      seedActivityLog(seededEvents);
-      setActivityRecap(seededEvents);
       setRuntimePreviews(conversation.runtimePreviews ?? []);
       scriptPlaybackStateRef.current = "done";
       reportChatSettled(conversation.id);
@@ -954,22 +829,8 @@ export function ChatPanel({
     };
 
     const startStreaming = () => {
-      setEvents(seededEvents);
-      seedActivityLog(seededEvents);
       if (firstPreview) setRuntimePreviews([firstPreview]);
       schedule(420, () => streamChunk(0));
-    };
-
-    const revealEvent = (index: number) => {
-      if (index >= seededEvents.length) {
-        startStreaming();
-        return;
-      }
-      setEvents(seededEvents.slice(0, index + 1).map((event, i) => (i === index ? { ...event, phase: "running" as const } : event)));
-      if (firstPreview && index === Math.min(1, seededEvents.length - 1)) {
-        setRuntimePreviews([{ ...firstPreview, phase: "streaming" }]);
-      }
-      schedule(700 + Math.random() * 200, () => revealEvent(index + 1));
     };
 
     const sendPrompt = () => {
@@ -982,7 +843,7 @@ export function ChatPanel({
       userPinnedToBottomRef.current = true;
       setUserPinnedToBottom(true);
       scrollMessagesToBottom("auto");
-      schedule(650, () => revealEvent(0));
+      schedule(650, startStreaming);
     };
 
     const typeChar = (index: number) => {
@@ -1017,9 +878,6 @@ export function ChatPanel({
     setStreamingAssistant("");
     clearRuntimePreviews();
     resetTurnArtifactTracking();
-    setEvents([]);
-    setActivityRecap([]);
-    resetActivityLog();
     setContextAttachments([]);
     setActiveContextPath(null);
     setConversation(null);
@@ -1044,9 +902,6 @@ export function ChatPanel({
       setDraft("");
       setRunning(false);
       setError(null);
-      setEvents([]);
-      setActivityRecap([]);
-      resetActivityLog();
       setStreamingAssistant("");
       clearRuntimePreviews();
       setContextAttachments([]);
@@ -1056,9 +911,6 @@ export function ChatPanel({
     }
     setRunning(false);
     setError(null);
-    setEvents([]);
-    setActivityRecap([]);
-    resetActivityLog();
     setStreamingAssistant("");
     clearRuntimePreviews();
     resetTurnArtifactTracking();
@@ -1084,9 +936,6 @@ export function ChatPanel({
     onConversationActivated?.(selected);
     setRunning(false);
     setError(null);
-    setEvents([]);
-    setActivityRecap([]);
-    resetActivityLog();
     setStreamingAssistant("");
     clearRuntimePreviews();
     cancelStreamingFlush();
@@ -1127,8 +976,8 @@ export function ChatPanel({
     if (eventStreamReadyConversationIdRef.current === selected.id) void postPendingMessage();
   }
 
-  const hasRuntimePreview = runtimePreviews.length > 0;
-  const hasTranscript = messages.length > 0 || Boolean(streamingAssistant) || hasRuntimePreview || running;
+  const hasVisibleRuntimePreview = runtimePreviews.some((entry) => entry.kind === "thinking" && Boolean(entry.text.trim()));
+  const hasTranscript = messages.length > 0 || Boolean(streamingAssistant) || hasVisibleRuntimePreview || running;
 
   async function loadConversationRuntime(conversationId: string): Promise<ConversationRuntime | null> {
     try {
@@ -1183,7 +1032,6 @@ export function ChatPanel({
       if (settleStreamingTurn) {
         if (!keepSettledTurnArtifacts) {
           clearRuntimePreviews();
-          setActivityRecap([]);
         }
         resetTurnArtifactTracking();
         setStreamingAssistant("");
@@ -1241,10 +1089,7 @@ export function ChatPanel({
     if (contentOverride === undefined) setDraft("");
     setRunning(true);
     setError(null);
-    setEvents([]);
-    setActivityRecap([]);
     clearRuntimePreviews();
-    clearAgentEventTimer();
     userPinnedToBottomRef.current = true;
     setUserPinnedToBottom(true);
     const now = Date.now();
@@ -1448,7 +1293,6 @@ export function ChatPanel({
     // Stop means everything: a queued follow-up returns to the composer
     // instead of firing into the stopped turn's aftermath.
     returnQueuedSendToComposer();
-    addAgentEvent({ message: "Stopping the Assistant", phase: "running" });
     if (pendingSendRef.current) {
       const pending = pendingSendRef.current;
       pendingSendRef.current = null;
@@ -1456,7 +1300,6 @@ export function ChatPanel({
       postingPendingSendRef.current = false;
       setRunning(false);
       clearRuntimePreviews();
-      setActivityRecap([]);
       resetTurnArtifactTracking();
       setMessages((current) => current.filter((message) => message.id !== pending.localUserMessage.id));
       if (pending.transientConversation) {
@@ -1470,14 +1313,12 @@ export function ChatPanel({
       setRunning(false);
       setStreamingAssistant("");
       clearRuntimePreviews();
-      setActivityRecap([]);
       resetTurnArtifactTracking();
       return;
     }
     if (!conversation) return;
     try {
-      const result = await api<{ aborted: boolean }>(`/api/spaces/${space.id}/conversations/${conversation.id}/abort`, { method: "POST" });
-      if (!result.aborted) addAgentEvent({ message: "No running Assistant turn found", phase: "complete" });
+      await api<{ aborted: boolean }>(`/api/spaces/${space.id}/conversations/${conversation.id}/abort`, { method: "POST" });
     } catch (abortError) {
       setError(errorText(abortError));
     }
@@ -1487,26 +1328,36 @@ export function ChatPanel({
     if (running || fixtureMode || !conversation) return;
     setRunning(true);
     setError(null);
-    addAgentEvent({ message: "Compacting chat context", phase: "running" });
     try {
       await api<{ compacted: boolean }>(`/api/spaces/${space.id}/conversations/${conversation.id}/compact`, { method: "POST" });
       setRunning(false);
       setConversationRuntime(await loadConversationRuntime(conversation.id));
-      addAgentEvent({ message: "Chat context compacted", phase: "complete" });
-      scheduleEventClear();
     } catch (compactError) {
       setRunning(false);
       setError(errorText(compactError));
     }
   }
 
-  async function changeThinkingLevel(conversationId: string, level: string): Promise<void> {
+  async function changeThinkingLevel(conversationId: string | null, level: string): Promise<void> {
     if (fixtureMode) {
-      setConversationRuntime((current) => current ? { ...current, thinkingLevel: level } : current);
+      if (conversationId && conversationRuntime) {
+        setConversationRuntime((current) => current ? { ...current, thinkingLevel: level } : current);
+      } else {
+        setAssistantComposer((current) => current ? { ...current, thinkingLevel: level } : current);
+      }
       showToast({ text: `Thinking level: ${level}`, tone: "success" });
       return;
     }
     try {
+      if (!conversationId || !conversationRuntime) {
+        const result = await api<{ composer: AssistantComposerState }>("/api/agent/thinking", {
+          method: "POST",
+          body: { scope: "space", spaceId: space.id, level },
+        });
+        setAssistantComposer(result.composer);
+        showToast({ text: `Thinking level: ${result.composer.thinkingLevel}`, tone: "success" });
+        return;
+      }
       const result = await api<{ thinking: { level: string; available: string[] }; runtime: ConversationRuntime }>(
         `/api/spaces/${space.id}/conversations/${conversationId}/thinking`,
         { method: "POST", body: { level } },
@@ -1645,13 +1496,6 @@ export function ChatPanel({
   const suggestedNextPrompt = !running && !streamingAssistant
     ? latestAssistantMessage?.landing?.followUpPrompt?.trim() ?? ""
     : "";
-  const activityToggleClassName = [
-    "agent-activity-toggle",
-    activityLogOpen ? "open" : "",
-    activityLog.length ? "has-activity" : "",
-    activityLog.some((event) => event.phase === "error") ? "has-error" : "",
-  ].filter(Boolean).join(" ");
-
   async function respondToExtension(value: unknown, cancelled = false) {
     if (!extensionRequest || !conversation) return;
     const request = extensionRequest;
@@ -1750,18 +1594,15 @@ export function ChatPanel({
         <div className="message-list" ref={messageListRef} onScroll={updateScrollPosition}>
           {messages.map((message) => {
             const isLatestAssistantAtRest = message.role === "assistant" && message.id === latestAssistantMessageId && !running && !streamingAssistant;
-            const showRecap = isLatestAssistantAtRest && activityRecap.length > 0;
-            const showRuntimePreview = isLatestAssistantAtRest && hasRuntimePreview;
+            const showRuntimePreview = isLatestAssistantAtRest && hasVisibleRuntimePreview;
             return (
               <ChatMessageRow
                 message={message}
                 copied={copiedMessageId === message.id}
                 showLanding={isLatestAssistantAtRest}
                 suppressEnterAnimation={suppressMessageEnterIdsRef.current.has(message.id)}
-                showRecap={showRecap}
                 showRuntimePreview={showRuntimePreview}
                 runtimePreviews={runtimePreviews}
-                activityRecap={activityRecap}
                 spaceId={space.id}
                 onOpenSpaceFile={onOpenSpaceFile}
                 resolveSpacePathLinks={resolveSpacePathLinks}
@@ -1770,13 +1611,13 @@ export function ChatPanel({
               />
             );
           })}
-          {running && (streamingAssistant || hasRuntimePreview) ? (
+          {running && (streamingAssistant || hasVisibleRuntimePreview) ? (
             <article className="message assistant streaming">
-              {hasRuntimePreview ? <RuntimeContextPreview entries={runtimePreviews} running={running} /> : null}
+              {hasVisibleRuntimePreview ? <RuntimeContextPreview entries={runtimePreviews} running={running} /> : null}
               {streamingAssistant ? <MarkdownMessage content={streamingAssistant} /> : null}
             </article>
           ) : null}
-          {running && !streamingAssistant && !hasRuntimePreview ? (
+          {running && !streamingAssistant && !hasVisibleRuntimePreview ? (
             <article className="message assistant streaming working-message">
               <div className="typing-line"><Loader2 className="spin" size={14} /> Working</div>
             </article>
@@ -1828,9 +1669,8 @@ export function ChatPanel({
         }}
       >
         {dragActive ? <div className="composer-drop-affordance" aria-hidden="true">Attach to chat</div> : null}
-        <div className="agent-activity-row">
-          {events.length ? <AgentActivityTicker events={events} /> : <span className="agent-events-spacer" aria-hidden="true" />}
-          {suggestedNextPrompt ? (
+        {suggestedNextPrompt ? (
+          <div className="suggested-prompt-row">
             <button
               className="suggested-prompt-button"
               type="button"
@@ -1840,25 +1680,7 @@ export function ChatPanel({
             >
               <span>{suggestedNextPrompt}</span>
             </button>
-          ) : null}
-          <button
-            className={activityToggleClassName}
-            type="button"
-            onClick={toggleActivityLog}
-            aria-expanded={activityLogOpen}
-            aria-controls={activityLogId}
-            title="Activity"
-          >
-            <span>Activity</span>
-          </button>
-        </div>
-        {activityLogOpen ? (
-          <AgentActivityLog
-            id={activityLogId}
-            events={activityLog}
-            listRef={activityLogListRef}
-            onScroll={updateActivityLogScrollPosition}
-          />
+          </div>
         ) : null}
         {contextAttachments.length || attachingPath ? (
           <div
@@ -2002,15 +1824,15 @@ export function ChatPanel({
             </button>
             {configuredAssistant?.configured && conversationRuntime
               ? <ConversationContextMeter runtime={conversationRuntime} status={configuredAssistant} spaceName={space.name} onOpenModelSettings={onOpenModelSettings} />
-              : configuredAssistant?.configured && configuredAssistant.provider && configuredAssistant.model
-                ? <ConfiguredAssistantModel status={configuredAssistant} spaceName={space.name} onOpenModelSettings={onOpenModelSettings} />
+              : configuredAssistant?.configured && assistantComposer?.model
+                ? <ConfiguredAssistantModel model={assistantComposer.model} spaceName={space.name} onOpenModelSettings={onOpenModelSettings} />
                 : null}
-            {configuredAssistant?.configured && conversationRuntime && conversation
+            {configuredAssistant?.configured && (conversationRuntime ?? assistantComposer)
               ? (
                 <ThinkingLevelControl
-                  runtime={conversationRuntime}
+                  state={conversationRuntime ?? assistantComposer!}
                   disabled={running}
-                  onChange={(level) => changeThinkingLevel(conversation.id, level)}
+                  onChange={(level) => changeThinkingLevel(conversationRuntime ? conversation?.id ?? null : null, level)}
                 />
               )
               : null}
@@ -2068,17 +1890,17 @@ function ConversationContextMeter({ runtime, status, spaceName, onOpenModelSetti
 }
 
 function ThinkingLevelControl({
-  runtime,
+  state,
   disabled,
   onChange,
 }: {
-  runtime: ConversationRuntime;
+  state: Pick<ConversationRuntime, "thinkingLevel" | "thinkingLevels">;
   disabled: boolean;
   onChange: (level: string) => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const levels = runtime.thinkingLevels ?? [];
+  const levels = state.thinkingLevels ?? [];
   useEffect(() => {
     if (!open) return;
     function handlePointerDown(event: PointerEvent): void {
@@ -2100,7 +1922,7 @@ function ThinkingLevelControl({
   }, [disabled]);
   // A model without adjustable thinking offers nothing to choose.
   if (levels.length < 2) return null;
-  const title = `Reasoning level for this Chat: ${runtime.thinkingLevel}`;
+  const title = `Reasoning level for this Chat: ${state.thinkingLevel}`;
   return (
     <div className="composer-thinking-control" ref={containerRef}>
       <button
@@ -2113,7 +1935,7 @@ function ThinkingLevelControl({
         title={disabled ? "Thinking level changes apply between turns" : title}
         onClick={() => setOpen((current) => !current)}
       >
-        <span className="composer-thinking-label">{runtime.thinkingLevel}</span>
+        <span className="composer-thinking-label">{state.thinkingLevel}</span>
       </button>
       {open ? (
         <div className="composer-command-menu composer-thinking-menu" role="listbox" aria-label="Reasoning level">
@@ -2123,11 +1945,11 @@ function ThinkingLevelControl({
               key={level}
               type="button"
               role="option"
-              aria-selected={level === runtime.thinkingLevel}
-              className={level === runtime.thinkingLevel ? "active" : undefined}
+              aria-selected={level === state.thinkingLevel}
+              className={level === state.thinkingLevel ? "active" : undefined}
               onClick={() => {
                 setOpen(false);
-                if (level !== runtime.thinkingLevel) void onChange(level);
+                if (level !== state.thinkingLevel) void onChange(level);
               }}
             >
               <span className="composer-command-name">{level}</span>
@@ -2139,8 +1961,8 @@ function ThinkingLevelControl({
   );
 }
 
-function ConfiguredAssistantModel({ status, spaceName, onOpenModelSettings }: { status: AgentStatus; spaceName: string; onOpenModelSettings?: () => void }) {
-  const label = displayAssistantModelLabel(status.provider ?? "", status.model ?? "");
+function ConfiguredAssistantModel({ model, spaceName, onOpenModelSettings }: { model: NonNullable<AssistantComposerState["model"]>; spaceName: string; onOpenModelSettings?: () => void }) {
+  const label = model.name || displayAssistantModelLabel(model.provider, model.id);
   return (
     <button
       className="conversation-context-meter configured"

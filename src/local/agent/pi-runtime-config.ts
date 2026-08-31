@@ -14,6 +14,11 @@ import {
   type ProviderConfig,
   type ProgressEvent,
 } from "@earendil-works/pi-coding-agent";
+import {
+  clampThinkingLevel,
+  getSupportedThinkingLevels,
+  type ModelThinkingLevel,
+} from "@earendil-works/pi-ai/compat";
 
 import { defaultAgentSdkDir, spaceSessionDir } from "./agent-data-dir.js";
 import type { PiExtensionUiBridge } from "./extension-ui.js";
@@ -158,6 +163,12 @@ export interface PiModelSummary {
   input: string[];
   contextWindow: number;
   maxTokens: number;
+}
+
+export interface PiComposerState {
+  model?: { provider: string; id: string; name: string };
+  thinkingLevel: string;
+  thinkingLevels: string[];
 }
 
 export interface PiOAuthHooks {
@@ -338,6 +349,65 @@ export async function listPiModels(
     } satisfies PiModelSummary;
   }).sort((left, right) =>
     left.providerName.localeCompare(right.providerName) || left.name.localeCompare(right.name));
+}
+
+/**
+ * Projects the model and reasoning state a brand-new Chat will start with.
+ * This intentionally uses Pi's own capability/clamping helpers so the
+ * composer can be truthful before a conversation session has been created.
+ */
+export async function getPiComposerState(
+  spaceRoot: string,
+  provider?: PiRuntimeProvider,
+): Promise<PiComposerState> {
+  const runtime = await resolvePiRuntime(spaceRoot, provider, { requestProjectTrust: false });
+  await loadRuntimeProviders(spaceRoot, runtime);
+  const preferred = runtime.preferredModel
+    ? runtime.modelRegistry.find(runtime.preferredModel.provider, runtime.preferredModel.id)
+    : undefined;
+  const model = preferred && runtime.modelRegistry.hasConfiguredAuth(preferred)
+    ? preferred
+    : runtime.modelRegistry.getAvailable()[0];
+  if (!model) return { thinkingLevel: "off", thinkingLevels: [] };
+  const thinkingLevels = [...getSupportedThinkingLevels(model)];
+  const requested = runtime.settingsManager.getDefaultThinkingLevel() ?? "medium";
+  return {
+    model: { provider: model.provider, id: model.id, name: model.name },
+    thinkingLevel: clampThinkingLevel(model, requested),
+    thinkingLevels,
+  };
+}
+
+/**
+ * Saves the level Pi will apply to the next Chat session. Once a Chat exists,
+ * its conversation endpoint remains authoritative and persists the choice in
+ * that session as usual.
+ */
+export async function setPiDefaultThinkingLevel(
+  spaceRoot: string,
+  level: string,
+  provider?: PiRuntimeProvider,
+): Promise<PiComposerState> {
+  const runtime = await resolvePiRuntime(spaceRoot, provider, { requestProjectTrust: false });
+  await loadRuntimeProviders(spaceRoot, runtime);
+  const preferred = runtime.preferredModel
+    ? runtime.modelRegistry.find(runtime.preferredModel.provider, runtime.preferredModel.id)
+    : undefined;
+  const model = preferred && runtime.modelRegistry.hasConfiguredAuth(preferred)
+    ? preferred
+    : runtime.modelRegistry.getAvailable()[0];
+  if (!model) throw new Error("Choose a model before setting a thinking level.");
+  const available = [...getSupportedThinkingLevels(model)];
+  const requested = level.trim().toLowerCase();
+  if (!available.includes(requested as ModelThinkingLevel)) {
+    throw new Error(`Thinking level must be one of: ${available.join(", ")}.`);
+  }
+  runtime.settingsManager.setDefaultThinkingLevel(requested as ModelThinkingLevel);
+  return {
+    model: { provider: model.provider, id: model.id, name: model.name },
+    thinkingLevel: requested,
+    thinkingLevels: available,
+  };
 }
 
 export async function savePiApiKey(

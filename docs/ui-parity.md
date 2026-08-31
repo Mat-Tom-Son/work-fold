@@ -50,7 +50,7 @@ The translation is intentionally narrow. It does not justify replacing the shell
 
 ### Chat and navigation
 
-- Preserve conversation history, rename, drafts, streaming activity, tool/runtime detail, stop behavior, context attachments, copy actions, suggested prompts, and extension UI requests.
+- Preserve conversation history, rename, drafts, streamed replies and actual model reasoning text, stop behavior, context attachments, copy actions, suggested prompts, and extension UI requests. Do not reintroduce a separate Activity drawer or app-authored reasoning status card.
 - Preserve the command palette, keyboard shortcuts, toast/confirm feedback, onboarding, Space creation/linking, themes, typography, and resizable layout.
 - The persistent Space-identity header menu chooses the root-folder entity and offers compact create/register/manage actions on every left-pane surface. Primary rail navigation uses `Files`, `Chats`, and `History`; Chats in other Spaces stay collapsed below the selected Space's list. The bottom-rail Add menu has three entries, Your Library, Skills & Extensions, and Apps; apps are managed in the Space-owned Apps tab, and Build with Assistant there seeds a fresh Chat with starter text. Library stays one shared personal collection: the owning Space is the default copy target, and any registered Space can be selected explicitly. The Space-owned Assistant tools work tab combines Installed and Discover views for Skills and Extensions while retaining scope, provenance, load state, diagnostics, and package lifecycle. Provider, model, API-key, and OAuth setup lives in `Settings → Assistant`.
 

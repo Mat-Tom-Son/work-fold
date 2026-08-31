@@ -23,7 +23,7 @@ import { AssistantSetupPane, type AssistantModelScope } from "../panes/spacePane
 export type SettingsPage = "appearance" | "assistant" | "remote" | "desktop" | "about";
 type FoldSettingsSection = "access" | "pages" | "authority";
 
-export function DesktopSettingsModal({ theme, themePreference, onThemePreferenceChange, typography, onTypographyChange, space, agentStatus, fixtureMode = false, initialPage = "appearance", initialAssistantScope, focusAssistantModel = false, onAgentConfigured, onClose, updateStatus, onUpdateAction }: {
+export function DesktopSettingsModal({ theme, themePreference, onThemePreferenceChange, typography, onTypographyChange, space, agentStatus, fixtureMode = false, initialPage = "appearance", initialAssistantScope, focusAssistantModel = false, onAgentConfigured, onAssistantChanged, onClose, updateStatus, onUpdateAction }: {
   theme: AppTheme;
   themePreference: AppThemePreference;
   onThemePreferenceChange: (theme: AppThemePreference) => void;
@@ -36,6 +36,7 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
   initialAssistantScope?: AssistantModelScope;
   focusAssistantModel?: boolean;
   onAgentConfigured: (status: AgentStatus) => void;
+  onAssistantChanged?: (scope: AssistantModelScope, status: AgentStatus) => void;
   onClose: () => void;
   updateStatus: DesktopUpdateStatus | null;
   onUpdateAction?: () => void;
@@ -162,7 +163,7 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
             ) : null}
             {page === "assistant" ? (
               <div className="settings-tab-panel" id="settings-panel-assistant" role="tabpanel" aria-labelledby="settings-tab-assistant">
-                <AssistantSetupPane space={space} status={agentStatus} fixtureMode={fixtureMode} embedded initialScope={initialAssistantScope} focusModelOnOpen={focusAssistantModel} onConfigured={onAgentConfigured} />
+                <AssistantSetupPane space={space} status={agentStatus} fixtureMode={fixtureMode} embedded initialScope={initialAssistantScope} focusModelOnOpen={focusAssistantModel} onConfigured={onAgentConfigured} onAssistantChanged={onAssistantChanged} />
               </div>
             ) : null}
             {page === "remote" ? (

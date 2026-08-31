@@ -71,6 +71,7 @@ import {
 } from "./agent/restricted-app-service.js";
 import type { RestrictedAppNetworkDeclaration } from "./agent/restricted-app-manifest.js";
 import {
+  getPiComposerState,
   getPiSetupStatus,
   installPiPackage,
   isPiProjectMutationTrusted,
@@ -83,6 +84,7 @@ import {
   refreshPiModelCatalog,
   savePiApiKey,
   setPiDefaultModel,
+  setPiDefaultThinkingLevel,
   updatePiPackages,
   type PiOAuthHooks,
   type PiSetupStatus,
@@ -130,7 +132,7 @@ import {
 } from "./resources.js";
 import { searchSpace } from "./search.js";
 import { SpaceAppearanceStore } from "./space-appearance-store.js";
-import { conversationTitleFromFirstUserMessage, normalizeConversationTitle } from "../shared/chat-title.js";
+import { conversationTitleFromFirstUserMessage, normalizeConversationTitle, normalizeGeneratedConversationTitle } from "../shared/chat-title.js";
 import {
   hasSpaceAppearanceCustomization,
   parseSpaceAppearanceProposal,
@@ -1859,6 +1861,23 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const spaceId = url.searchParams.get("spaceId");
     const scope = await assistantModelScope(url.searchParams.get("scope"), spaceId);
     sendJson(res, { status: await safeAgentStatus(scope.spaceRoot, state.runtimeProvider) });
+    return;
+  }
+  if (method === "GET" && url.pathname === "/api/agent/composer") {
+    const spaceId = url.searchParams.get("spaceId");
+    const scope = await assistantModelScope(url.searchParams.get("scope"), spaceId);
+    sendJson(res, { composer: await getPiComposerState(scope.spaceRoot, state.runtimeProvider) });
+    return;
+  }
+  if (method === "POST" && url.pathname === "/api/agent/thinking") {
+    const body = await readJsonBody<{ spaceId?: string; scope?: string; level?: unknown }>(state, req);
+    const scope = await assistantModelScope(body.scope, body.spaceId);
+    if (typeof body.level !== "string" || !body.level.trim()) throw badRequest("A thinking level is required.");
+    try {
+      sendJson(res, { composer: await setPiDefaultThinkingLevel(scope.spaceRoot, body.level, state.runtimeProvider) });
+    } catch (error) {
+      throw badRequest(errorMessage(error));
+    }
     return;
   }
   if (method === "POST" && url.pathname === "/api/agent/configure") {
@@ -6977,20 +6996,6 @@ async function runAgentTurn(
     });
     promptStarted = false;
     await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "post_turn");
-    try {
-      const firstUserMessage = (await readConversation(spaceRoot, conversationId))
-        .find((message) => message.role === "user")
-        ?.content;
-      const generatedTitle = conversationTitleFromFirstUserMessage(firstUserMessage);
-      if (generatedTitle) {
-        const conversation = await setGeneratedConversationTitle(spaceRoot, conversationId, generatedTitle);
-        client.setSessionName(conversation.title);
-      }
-    } catch (error) {
-      // A derived title must never turn an otherwise persisted successful
-      // Assistant response into a failed turn.
-      console.warn(`Could not persist a generated Chat title: ${errorMessage(error)}`);
-    }
     await flushTurnCheckpoint(state, key, taskId);
     const durable = state.turnStore.get(taskId);
     const assistantMessage = {
@@ -7003,6 +7008,28 @@ async function runAgentTurn(
     };
     await appendMessage(spaceRoot, conversationId, assistantMessage);
     settledMessageId = assistantMessage.id;
+    try {
+      const transcript = await readConversation(spaceRoot, conversationId);
+      const hasSavedTitle = transcript.some((message) =>
+        message.kind === "conversation_title" && message.titleSource !== "placeholder");
+      if (!hasSavedTitle) {
+        const firstUserMessage = transcript.find((message) => message.role === "user")?.content;
+        const modelTitle = firstUserMessage
+          ? normalizeGeneratedConversationTitle(
+            await client.generateConversationTitle(firstUserMessage, finalText).catch(() => null),
+          )
+          : null;
+        const generatedTitle = modelTitle ?? conversationTitleFromFirstUserMessage(firstUserMessage);
+        if (generatedTitle) {
+          const titledConversation = await setGeneratedConversationTitle(spaceRoot, conversationId, generatedTitle);
+          client.setSessionName(titledConversation.title);
+        }
+      }
+    } catch (error) {
+      // Naming is deliberately best-effort: a title provider failure must not
+      // turn a successfully persisted Assistant response into a failed turn.
+      console.warn(`Could not persist a generated Chat title: ${errorMessage(error)}`);
+    }
   } catch (error) {
     const cancelled = isPiTurnCancelledError(error);
     if (promptStarted) {

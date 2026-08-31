@@ -15,6 +15,7 @@ import {
   type AgentSessionRuntime,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { completeSimple } from "@earendil-works/pi-ai/compat";
 
 /** Pi's inline image content shape, as accepted by `AgentSession.prompt`. */
 type ImageContent = NonNullable<NonNullable<Parameters<AgentSession["prompt"]>[1]>["images"]>[number];
@@ -334,6 +335,44 @@ export class PiConversationClient extends EventEmitter {
     const session = this.runtimeHost?.session;
     if (!title || !session || session.sessionName === title) return;
     session.setSessionName(title);
+  }
+
+  /**
+   * Uses this Chat's actual model to name its first exchange without adding a
+   * title prompt to the persisted Pi session or transcript.
+   */
+  async generateConversationTitle(firstUserMessage: string, firstAssistantMessage: string): Promise<string | null> {
+    const request = firstUserMessage.trim().slice(0, 2_000);
+    const response = firstAssistantMessage.trim().slice(0, 3_000);
+    if (!request || !response) return null;
+    const session = await this.ensureSession();
+    const model = session.model;
+    const runtime = this.resolvedRuntime;
+    if (!model || !runtime) return null;
+    const auth = await runtime.modelRegistry.getApiKeyAndHeaders(model);
+    if (!auth.ok) return null;
+    const result = await completeSimple(model, {
+      systemPrompt: "Write a specific 3 to 7 word title for this conversation. Return only the title: no quotes, label, markdown, or trailing punctuation.",
+      messages: [{
+        role: "user",
+        content: `First request:\n${request}\n\nFirst response:\n${response}`,
+        timestamp: Date.now(),
+      }],
+    }, {
+      ...auth,
+      maxTokens: 48,
+      temperature: 0.2,
+      maxRetries: 0,
+      timeoutMs: 8_000,
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (result.stopReason === "error" || result.stopReason === "aborted") return null;
+    const title = result.content
+      .filter((part): part is Extract<(typeof result.content)[number], { type: "text" }> => part.type === "text")
+      .map((part) => part.text)
+      .join(" ")
+      .trim();
+    return title || null;
   }
 
   async stop(): Promise<void> {

@@ -17,15 +17,64 @@ import { RoutedPiExtensionUiBridge, type PiExtensionUiRequest } from "../src/loc
 import { importPiSkillBundle } from "../src/local/agent/skill-import.js";
 import { loadAgentSkillCatalog } from "../src/local/agent/skill-catalog.js";
 import {
+  getPiComposerState,
   installPiPackage,
   isPiProjectMutationTrusted,
   listPiModels,
   listPiPackages,
   removePiProviderAuth,
   removePiPackage,
+  setPiDefaultThinkingLevel,
   updatePiPackages,
   type PiRuntimeProvider,
 } from "../src/local/agent/pi-runtime-config.js";
+
+test("the composer exposes the preferred model and reasoning before a Chat session exists", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-pi-composer-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const agentDir = join(root, "agent");
+  const spaceRoot = join(root, "space");
+  await mkdir(spaceRoot, { recursive: true });
+  const authStorage = AuthStorage.inMemory({ composer: { type: "api_key", key: "test-key" } });
+  const modelRegistry = ModelRegistry.inMemory(authStorage);
+  modelRegistry.registerProvider("composer", {
+    api: "openai-completions",
+    baseUrl: "http://127.0.0.1:1/v1",
+    apiKey: "test-key",
+    models: [{
+      id: "composer-model",
+      name: "Composer Model",
+      reasoning: true,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 4096,
+      maxTokens: 1024,
+    }],
+  });
+  const settingsManager = SettingsManager.inMemory();
+  settingsManager.setDefaultThinkingLevel("low");
+  const provider: PiRuntimeProvider = {
+    async resolveRuntime() {
+      return {
+        agentDir,
+        authStorage,
+        modelRegistry,
+        settingsManager,
+        preferredModel: { provider: "composer", id: "composer-model" },
+      };
+    },
+  };
+
+  const initial = await getPiComposerState(spaceRoot, provider);
+  assert.deepEqual(initial.model, { provider: "composer", id: "composer-model", name: "Composer Model" });
+  assert.ok(initial.thinkingLevels.includes("low"));
+  assert.equal(initial.thinkingLevel, "low");
+  const nextLevel = initial.thinkingLevels.find((level) => level !== "low");
+  assert.ok(nextLevel);
+  const changed = await setPiDefaultThinkingLevel(spaceRoot, nextLevel!, provider);
+  assert.equal(changed.thinkingLevel, nextLevel);
+  assert.equal((await getPiComposerState(spaceRoot, provider)).thinkingLevel, nextLevel);
+});
 
 test("Pi model summaries distinguish stored credentials and reflect explicit removal", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-pi-credential-status-"));

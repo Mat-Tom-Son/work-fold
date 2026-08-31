@@ -4,10 +4,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { ApiError, api, createEventSource, errorText } from "../lib/api";
-import { displayAssistantModelLabel } from "../lib/model-display";
 import { WorkFoldLockup } from "../components/brand/WorkFoldBrand";
 import { NeedsYouStack, useNeedsYouDecisions } from "../components/NeedsYouDecisions";
-import type { ConversationRuntime } from "../types";
+import type { AssistantComposerState, ConversationRuntime } from "../types";
 
 /** Mirrors the server's WorkFoldActManagementRequest projection. */
 interface ManagementRequestView {
@@ -72,12 +71,6 @@ interface ManagementMessage {
   source?: string;
 }
 
-interface ManagementAgentStatus {
-  configured: boolean;
-  provider?: string;
-  model?: string;
-}
-
 interface StagedItem {
   value: string;
   label: string;
@@ -105,7 +98,7 @@ export function PopoverApp() {
   const [dropActive, setDropActive] = useState(false);
   const [activity, setActivity] = useState<string>("");
   const [streamingAssistant, setStreamingAssistant] = useState("");
-  const [managementModelLabel, setManagementModelLabel] = useState("Choose model");
+  const [managementComposer, setManagementComposer] = useState<AssistantComposerState | null>(null);
   const [conversationRuntime, setConversationRuntime] = useState<ConversationRuntime | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [decisionsOpen, setDecisionsOpen] = useState(false);
@@ -127,15 +120,13 @@ export function PopoverApp() {
   const needsYou = useNeedsYouDecisions({ surface: "popover" });
   const refreshNeedsYou = needsYou.refresh;
 
-  const refreshManagementModel = useCallback(async () => {
+  const refreshManagementComposer = useCallback(async () => {
     try {
-      const result = await api<{ status: ManagementAgentStatus }>("/api/agent/status?scope=management");
-      setManagementModelLabel(result.status.configured
-        ? displayAssistantModelLabel(result.status.provider ?? "", result.status.model ?? "")
-        : "Choose model");
+      const result = await api<{ composer: AssistantComposerState }>("/api/agent/composer?scope=management");
+      setManagementComposer(result.composer);
     } catch {
       // Model setup is a convenience affordance, not popover availability.
-      // Keep the last known label if this optional status read is unavailable.
+      // Keep the last known composer state if this optional read is unavailable.
     }
   }, []);
 
@@ -217,8 +208,8 @@ export function PopoverApp() {
 
   useEffect(() => {
     void refreshConversation();
-    void refreshManagementModel();
-  }, [refreshConversation, refreshManagementModel]);
+    void refreshManagementComposer();
+  }, [refreshConversation, refreshManagementComposer]);
 
   // Staged material handed over by the tray (macOS icon drops).
   useEffect(() => {
@@ -291,7 +282,7 @@ export function PopoverApp() {
     const refreshWhenVisible = () => {
       if (document.visibilityState !== "hidden") {
         void refreshConversation();
-        void refreshManagementModel();
+        void refreshManagementComposer();
       }
     };
     window.addEventListener("focus", refreshWhenVisible);
@@ -300,7 +291,7 @@ export function PopoverApp() {
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [refreshConversation, refreshManagementModel]);
+  }, [refreshConversation, refreshManagementComposer]);
 
   // Pending decisions stay a compact disclosure above the always-visible
   // conversation. A newly pending decision opens once, and the disclosure
@@ -579,16 +570,26 @@ export function PopoverApp() {
     : request?.phase === "needs_you"
       ? "Reply to work-fold"
       : "Tell work-fold what to do";
-  const thinkingLevels = conversationRuntime?.thinkingLevels ?? [];
+  const composerThinking = conversationRuntime && !startingNewChat ? conversationRuntime : managementComposer;
+  const thinkingLevels = composerThinking?.thinkingLevels ?? [];
+  const managementModelLabel = managementComposer?.model?.name || managementComposer?.model?.id || "Choose model";
 
   const changeThinkingLevel = async (level: string) => {
-    if (!conversationId || requestRunning || level === conversationRuntime?.thinkingLevel) return;
+    if (requestRunning || level === composerThinking?.thinkingLevel) return;
     try {
-      const result = await api<{ runtime: ConversationRuntime }>(`/api/management/conversations/${encodeURIComponent(conversationId)}/thinking`, {
-        method: "POST",
-        body: { level },
-      });
-      setConversationRuntime(result.runtime);
+      if (conversationId && conversationRuntime && !startingNewChat) {
+        const result = await api<{ runtime: ConversationRuntime }>(`/api/management/conversations/${encodeURIComponent(conversationId)}/thinking`, {
+          method: "POST",
+          body: { level },
+        });
+        setConversationRuntime(result.runtime);
+      } else {
+        const result = await api<{ composer: AssistantComposerState }>("/api/agent/thinking", {
+          method: "POST",
+          body: { scope: "management", level },
+        });
+        setManagementComposer(result.composer);
+      }
     } catch (error) {
       setBanner(errorText(error));
     }
@@ -757,13 +758,13 @@ export function PopoverApp() {
               >
                 <span>{managementModelLabel}</span>
               </button>
-              {thinkingLevels.length >= 2 && conversationRuntime ? (
+              {thinkingLevels.length >= 2 && composerThinking ? (
                 <select
                   className="composer-thinking"
-                  value={conversationRuntime.thinkingLevel}
+                  value={composerThinking.thinkingLevel}
                   disabled={requestRunning}
                   onChange={(event) => { void changeThinkingLevel(event.target.value); }}
-                  aria-label={`Reasoning level for this fold chat: ${conversationRuntime.thinkingLevel}`}
+                  aria-label={`Reasoning level for this fold chat: ${composerThinking.thinkingLevel}`}
                   title={requestRunning ? "Reasoning can change between turns" : "Reasoning level for this fold chat"}
                 >
                   {thinkingLevels.map((level) => <option key={level} value={level}>{formatThinkingLevel(level)}</option>)}
