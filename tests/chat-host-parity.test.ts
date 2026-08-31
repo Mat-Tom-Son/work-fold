@@ -99,6 +99,17 @@ test("steering requires a running agent turn and never appends a message it coul
     assert.ok(Array.isArray(runtime.runtime.thinkingLevels), "runtime state lists the levels the current model supports");
     assert.ok(runtime.runtime.thinkingLevels.includes(runtime.runtime.thinkingLevel));
 
+    const nextLevel = runtime.runtime.thinkingLevels.find((level) => level !== runtime.runtime.thinkingLevel);
+    if (nextLevel) {
+      const changed = await json(`${api.origin}/api/spaces/${spaceId}/conversations/${conversationId}/thinking`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ level: nextLevel }),
+      }) as { thinking: { level: string }; runtime: { thinkingLevel: string } };
+      assert.equal(changed.thinking.level, nextLevel);
+      assert.equal(changed.runtime.thinkingLevel, nextLevel, "the selected reasoning level updates the live Pi session");
+    }
+
     const badLevel = await fetch(`${api.origin}/api/spaces/${spaceId}/conversations/${conversationId}/thinking`, {
       method: "POST",
       headers: { "content-type": "application/json" },

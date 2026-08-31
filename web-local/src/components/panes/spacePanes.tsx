@@ -600,10 +600,13 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
   );
 }
 
-type AssistantModelScope = "space" | "management";
+export type AssistantModelScope = "space" | "management";
 
-export function AssistantSetupPane({ space, status, fixtureMode = false, embedded = false, onConfigured }: { space: SpaceSummary | null; status: AgentStatus; fixtureMode?: boolean; embedded?: boolean; onConfigured: (status: AgentStatus) => void }) {
-  const [scope, setScope] = useState<AssistantModelScope>(space ? "space" : "management");
+export function AssistantSetupPane({ space, status, fixtureMode = false, embedded = false, initialScope, focusModelOnOpen = false, onConfigured }: { space: SpaceSummary | null; status: AgentStatus; fixtureMode?: boolean; embedded?: boolean; initialScope?: AssistantModelScope; focusModelOnOpen?: boolean; onConfigured: (status: AgentStatus) => void }) {
+  const resolvedInitialScope = initialScope === "management" || (initialScope === "space" && space)
+    ? initialScope
+    : space ? "space" : "management";
+  const [scope, setScope] = useState<AssistantModelScope>(resolvedInitialScope);
   const [scopeStatus, setScopeStatus] = useState<AgentStatus>(status);
   const [models, setModels] = useState<AgentModel[]>([]);
   const [catalogs, setCatalogs] = useState<AgentModelCatalog[]>([]);
@@ -615,6 +618,12 @@ export function AssistantSetupPane({ space, status, fixtureMode = false, embedde
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    setScope(initialScope === "management" || (initialScope === "space" && space)
+      ? initialScope
+      : space ? "space" : "management");
+  }, [initialScope, space?.id]);
 
   useEffect(() => {
     if (fixtureMode) {
@@ -765,7 +774,7 @@ export function AssistantSetupPane({ space, status, fixtureMode = false, embedde
                 <label className="professional-field-label" htmlFor="assistant-model">Model</label>
                 {catalog?.refreshable ? <button className="assistant-refresh-models" type="button" disabled={saving || refreshing || !authConfigured} title={authConfigured ? "Refresh OpenRouter models" : "Connect OpenRouter before refreshing"} onClick={() => void refreshModels()}><ArrowSync16Regular className={refreshing ? "spin" : undefined} />{refreshing ? "Refreshing" : "Refresh"}</button> : null}
               </div>
-              <select id="assistant-model" value={model} onChange={(event) => { setModel(event.target.value); setError(null); setNotice(null); }}>{providerModels.map((item) => <option value={item.id} key={item.id}>{item.name || item.id}</option>)}</select>
+              <select id="assistant-model" autoFocus={focusModelOnOpen} value={model} onChange={(event) => { setModel(event.target.value); setError(null); setNotice(null); }}>{providerModels.map((item) => <option value={item.id} key={item.id}>{item.name || item.id}</option>)}</select>
               {catalog?.source === "live" && catalog.refreshedAt ? <span className="professional-field-hint">OpenRouter list updated {formatCatalogDate(catalog.refreshedAt)}</span> : null}
             </div>
             {!accountOnly ? <div className="professional-field professional-field-wide">

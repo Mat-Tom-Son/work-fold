@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type * as React from "react";
 import { ArrowDown20Regular, ArrowUp20Regular } from "@fluentui/react-icons";
-import { AlertTriangle, Archive, Brain, CircleCheck, Clock3, Loader2, Square, X } from "lucide-react";
+import { AlertTriangle, Archive, CircleCheck, Clock3, Loader2, Square, X } from "lucide-react";
 
 import { agentActivityLogLimit, chatDraftDebounceMs, genericChatEmptyGreetings, spacePathDragType } from "../../constants";
 import { createFixtureContextAttachment, fixtureAgentActivityEvents, fixtureConversationSummary } from "../../fixtures/shared";
 import { ApiError, api, createEventSource, errorText, isTransientNetworkError, rawErrorMessage } from "../../lib/api";
 import { createChatTurnStateGate, observeChatTurnState } from "../../lib/chat-turn-state";
 import { hasNativeFiles } from "../../lib/file-actions";
+import { displayAssistantModelLabel } from "../../lib/model-display";
 import {
   chatDisplayTitle,
   chatDraftStorageKey,
@@ -44,7 +45,7 @@ const fixtureComposerCommands: AgentCommand[] = [
 ];
 const fixtureConversationRuntime: ConversationRuntime = {
   sessionId: "fixture-session",
-  model: { provider: "fixture", id: "work-fold-assistant", name: "work-fold Assistant" },
+  model: { provider: "openrouter", id: "anthropic/claude-sonnet-4", name: "Claude Sonnet" },
   usage: {
     contextTokens: 18_400,
     contextWindow: 128_000,
@@ -108,6 +109,7 @@ export function ChatPanel({
   onAgentFinished,
   onRestrictedAppInstalled,
   onRestrictedAppProposalRequested,
+  onOpenModelSettings,
   fixtureMode = false,
   fixtureConversations,
   fixtureTreeEntries = emptyFixtureTreeEntries,
@@ -133,6 +135,7 @@ export function ChatPanel({
   onAgentFinished: () => void | Promise<void>;
   onRestrictedAppInstalled?: (app: RestrictedAppInstalled) => void;
   onRestrictedAppProposalRequested?: () => void;
+  onOpenModelSettings?: () => void;
   fixtureMode?: boolean;
   fixtureConversations?: SpaceFixtureConversation[];
   fixtureTreeEntries?: TreeEntry[];
@@ -1498,7 +1501,11 @@ export function ChatPanel({
   }
 
   async function changeThinkingLevel(conversationId: string, level: string): Promise<void> {
-    if (fixtureMode) return;
+    if (fixtureMode) {
+      setConversationRuntime((current) => current ? { ...current, thinkingLevel: level } : current);
+      showToast({ text: `Thinking level: ${level}`, tone: "success" });
+      return;
+    }
     try {
       const result = await api<{ thinking: { level: string; available: string[] }; runtime: ConversationRuntime }>(
         `/api/spaces/${space.id}/conversations/${conversationId}/thinking`,
@@ -1994,15 +2001,15 @@ export function ChatPanel({
               <span>Commands</span>
             </button>
             {configuredAssistant?.configured && conversationRuntime
-              ? <ConversationContextMeter runtime={conversationRuntime} />
+              ? <ConversationContextMeter runtime={conversationRuntime} status={configuredAssistant} spaceName={space.name} onOpenModelSettings={onOpenModelSettings} />
               : configuredAssistant?.configured && configuredAssistant.provider && configuredAssistant.model
-                ? <ConfiguredAssistantModel status={configuredAssistant} />
+                ? <ConfiguredAssistantModel status={configuredAssistant} spaceName={space.name} onOpenModelSettings={onOpenModelSettings} />
                 : null}
             {configuredAssistant?.configured && conversationRuntime && conversation
               ? (
                 <ThinkingLevelControl
                   runtime={conversationRuntime}
-                  disabled={running || fixtureMode}
+                  disabled={running}
                   onChange={(level) => changeThinkingLevel(conversation.id, level)}
                 />
               )
@@ -2025,25 +2032,28 @@ export function ChatPanel({
   );
 }
 
-function ConversationContextMeter({ runtime }: { runtime: ConversationRuntime }) {
+function ConversationContextMeter({ runtime, status, spaceName, onOpenModelSettings }: { runtime: ConversationRuntime; status: AgentStatus; spaceName: string; onOpenModelSettings?: () => void }) {
   const percent = runtime.usage.contextPercent === null
     ? null
     : Math.max(0, Math.min(100, runtime.usage.contextPercent));
   const contextLabel = runtime.usage.contextTokens === null
     ? "Context recalculates after the next reply"
     : `${formatTokenCount(runtime.usage.contextTokens)} of ${formatTokenCount(runtime.usage.contextWindow)} context`;
-  const modelLabel = runtime.model?.name ?? runtime.model?.id ?? "Assistant";
+  const modelLabel = runtime.model?.name
+    ?? runtime.model?.id
+    ?? displayAssistantModelLabel(status.provider ?? "", status.model ?? "");
   const title = [
     modelLabel,
     contextLabel,
     `${formatTokenCount(runtime.usage.totalTokens)} processed this Chat`,
   ].join(" · ");
   return (
-    <div
+    <button
       className={`conversation-context-meter${percent !== null && percent >= 85 ? " warning" : ""}`}
-      role="status"
-      aria-label={title}
-      title={title}
+      type="button"
+      onClick={onOpenModelSettings}
+      aria-label={`Change the model saved for ${spaceName}. ${title}`}
+      title={`${title} · Change the model saved for ${spaceName}`}
     >
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <circle className="track" cx="12" cy="12" r="9" pathLength="100" />
@@ -2053,19 +2063,9 @@ function ConversationContextMeter({ runtime }: { runtime: ConversationRuntime })
       <span className="conversation-context-value">
         {percent === null ? "Context —" : `${Math.round(percent)}%`}
       </span>
-    </div>
+    </button>
   );
 }
-
-const thinkingLevelHints: Record<string, string> = {
-  off: "No extended reasoning",
-  minimal: "A brief think before answering",
-  low: "Light reasoning",
-  medium: "Balanced reasoning (Pi's default)",
-  high: "Deeper reasoning for harder work",
-  xhigh: "Very deep reasoning",
-  max: "Maximum reasoning budget",
-};
 
 function ThinkingLevelControl({
   runtime,
@@ -2100,7 +2100,7 @@ function ThinkingLevelControl({
   }, [disabled]);
   // A model without adjustable thinking offers nothing to choose.
   if (levels.length < 2) return null;
-  const title = `Thinking level for this Chat: ${runtime.thinkingLevel}`;
+  const title = `Reasoning level for this Chat: ${runtime.thinkingLevel}`;
   return (
     <div className="composer-thinking-control" ref={containerRef}>
       <button
@@ -2113,12 +2113,11 @@ function ThinkingLevelControl({
         title={disabled ? "Thinking level changes apply between turns" : title}
         onClick={() => setOpen((current) => !current)}
       >
-        <span aria-hidden="true"><Brain size={12} /></span>
         <span className="composer-thinking-label">{runtime.thinkingLevel}</span>
       </button>
       {open ? (
-        <div className="composer-command-menu composer-thinking-menu" role="listbox" aria-label="Thinking level">
-          <div className="composer-command-menu-heading"><span>Thinking level</span></div>
+        <div className="composer-command-menu composer-thinking-menu" role="listbox" aria-label="Reasoning level">
+          <div className="composer-command-menu-heading"><span>Reasoning</span></div>
           {levels.map((level) => (
             <button
               key={level}
@@ -2132,8 +2131,6 @@ function ThinkingLevelControl({
               }}
             >
               <span className="composer-command-name">{level}</span>
-              <span className="composer-command-description">{thinkingLevelHints[level] ?? ""}</span>
-              <span className="composer-command-source">{level === runtime.thinkingLevel ? "current" : ""}</span>
             </button>
           ))}
         </div>
@@ -2142,31 +2139,22 @@ function ThinkingLevelControl({
   );
 }
 
-function ConfiguredAssistantModel({ status }: { status: AgentStatus }) {
-  const provider = displayModelIdentifier(status.provider ?? "");
-  const model = displayModelIdentifier(status.model ?? "");
-  const label = provider && model ? `${provider} · ${model}` : model || provider || "Assistant";
+function ConfiguredAssistantModel({ status, spaceName, onOpenModelSettings }: { status: AgentStatus; spaceName: string; onOpenModelSettings?: () => void }) {
+  const label = displayAssistantModelLabel(status.provider ?? "", status.model ?? "");
   return (
-    <div
+    <button
       className="conversation-context-meter configured"
-      role="status"
-      aria-label={`Selected model: ${label}`}
-      title={`Selected model for new Chats: ${label}`}
+      type="button"
+      onClick={onOpenModelSettings}
+      aria-label={`Change the model saved for ${spaceName}. Selected model: ${label}`}
+      title={`Selected model for new Chats: ${label} · Change the model saved for ${spaceName}`}
     >
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <circle className="track" cx="12" cy="12" r="9" pathLength="100" />
       </svg>
       <span className="conversation-context-model">{label}</span>
-    </div>
+    </button>
   );
-}
-
-function displayModelIdentifier(value: string): string {
-  const leaf = value.split("/").filter(Boolean).at(-1) ?? value;
-  return leaf
-    .replace(/[-_]+/g, " ")
-    .replace(/\b(?:glm|gpt|ai|api)\b/gi, (part) => part.toUpperCase())
-    .replace(/\b\w/g, (part) => part.toUpperCase());
 }
 
 function commandSourceLabel(source: AgentCommand["source"]): string {

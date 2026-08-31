@@ -18,7 +18,7 @@ const internalProtocol = argumentValue("internal-protocol");
 const maxStagedItems = 16;
 const maxStagedValueLength = 4_096;
 
-// This window only needs the local API session and four popover actions. Keep
+// This window only needs the local API session and five fixed popover actions. Keep
 // it separate from the main renderer preload so a UI bug here cannot reach
 // folder pickers, restricted-app brokers, updates, settings, or shell actions.
 contextBridge.exposeInMainWorld("workFoldDesktop", {
@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
     },
     hide: () => ipcRenderer.send("work-fold:management:hide"),
     openMainWindow: () => ipcRenderer.invoke("work-fold:management:open-main"),
+    openAssistantSettings: () => ipcRenderer.invoke("work-fold:management:open-assistant-settings"),
     onStaged: (callback: (items: Array<{ kind: "path" | "text"; value: string }>) => void) => {
       const listener = (_event: unknown, items: unknown) => {
         if (!Array.isArray(items)) return;

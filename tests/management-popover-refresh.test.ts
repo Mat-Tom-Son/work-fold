@@ -247,6 +247,27 @@ test("the popover composer behaves like every other work-fold composer", async (
   assert.match(popover, /if \(current && activePhases\.has\(current\.phase\)\) return;\s*startingNewChatRef\.current = true/);
 });
 
+test("the fold composer names its model and exposes real text-only reasoning controls", async () => {
+  const popover = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
+  const preload = await readFile(resolve(rootDir, "desktop/src/management-popover-preload.cts"), "utf8");
+  const main = await readFile(resolve(rootDir, "desktop/src/main.ts"), "utf8");
+
+  assert.match(popover, /\/api\/agent\/status\?scope=management/);
+  assert.match(popover, /displayAssistantModelLabel\(result\.status\.provider \?\? "", result\.status\.model \?\? ""\)/);
+  assert.match(popover, /bridge\?\.management\?\.openAssistantSettings\(\)/);
+  assert.match(preload, /openAssistantSettings: \(\) => ipcRenderer\.invoke\("work-fold:management:open-assistant-settings"\)/);
+  assert.match(main, /mainWindow\?\.webContents\.send\("work-fold:agent:open-settings", "management"\)/);
+
+  assert.doesNotMatch(popover, /Brain(?:Circuit)?\d+(?:Filled|Regular)/);
+  assert.match(popover, /thinkingLevels\.length >= 2 && conversationRuntime/);
+  assert.match(popover, /\/api\/management\/conversations\/\$\{encodeURIComponent\(conversationId\)\}\/thinking/);
+  assert.match(popover, /body: \{ level \}/);
+  assert.match(popover, /setConversationRuntime\(result\.runtime\)/);
+  const css = await readFile(resolve(rootDir, "web-local/src/popover/popover.css"), "utf8");
+  assert.match(css, /\.composer-thinking \{\s*flex: none;[\s\S]*?field-sizing: content;[\s\S]*?\}/);
+  assert.match(css, /\.composer-thinking \{\s*flex: none;[\s\S]*?padding: 1px 14px 1px 6px;/);
+});
+
 test("the header exposes Open app and New chat directly", async () => {
   const source = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
   assert.match(source, /className="popover-open-app" type="button" onClick=\{\(\) => \{ void bridge\?\.management\?\.openMainWindow\(\); \}\}>Open app<\/button>/);

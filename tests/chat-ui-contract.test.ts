@@ -5,7 +5,7 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 
 const root = process.cwd();
-const [app, tabBar, chatPanel, chatActions, messages, activity, panes, chrome, styles, identity, desktopMain, localServer] = await Promise.all([
+const [app, tabBar, chatPanel, chatActions, messages, activity, panes, settingsModal, chrome, styles, identity, modelDisplay, desktopMain, localServer] = await Promise.all([
   read("web-local/src/App.tsx"),
   read("web-local/src/components/chat/SpaceSurfaceTabBar.tsx"),
   read("web-local/src/components/chat/ChatPanel.tsx"),
@@ -13,9 +13,11 @@ const [app, tabBar, chatPanel, chatActions, messages, activity, panes, chrome, s
   read("web-local/src/components/chat/messages.tsx"),
   read("web-local/src/components/chat/activity.tsx"),
   read("web-local/src/components/panes/spacePanes.tsx"),
+  read("web-local/src/components/modals/DesktopSettingsModal.tsx"),
   read("web-local/src/components/panes/spaceChrome.tsx"),
   read("web-local/src/styles.css"),
   read("web-local/src/lib/space-identity.ts"),
+  read("web-local/src/lib/model-display.ts"),
   read("desktop/src/main.ts"),
   read("src/local/server.ts"),
 ]);
@@ -214,6 +216,31 @@ test("provider interruptions stay visible and the configured model is disclosed 
   assert.match(chatPanel, /configuredAssistant\?\.configured && conversationRuntime/);
   assert.match(chatPanel, /if \(!configuredAssistant \|\| !configuredAssistant\.configured\) \{[\s\S]*?setConversationRuntime\(null\)/);
   assert.match(styles, /\.turn-interruption/);
+});
+
+test("Chat composer model and reasoning controls are truthful, scoped, and functional", () => {
+  // The control names the actual provider model, never the product, and its
+  // click opens the Assistant page already scoped to this Space's model.
+  assert.match(chatPanel, /runtime\.model\?\.name\s*\n\s*\?\? runtime\.model\?\.id/);
+  assert.match(chatPanel, /displayAssistantModelLabel\(status\.provider \?\? "", status\.model \?\? ""\)/);
+  assert.doesNotMatch(modelDisplay, /work-fold Assistant/i);
+  assert.match(chatPanel, /onClick=\{onOpenModelSettings\}/);
+  assert.match(app, /onOpenModelSettings=\{\(\) => onOpenSettings\("assistant", "space", true\)\}/);
+  assert.match(settingsModal, /initialScope=\{initialAssistantScope\} focusModelOnOpen=\{focusAssistantModel\}/);
+  assert.match(panes, /<select id="assistant-model" autoFocus=\{focusModelOnOpen\}/);
+
+  // Thinking is text-only and calls the real per-conversation endpoint. The
+  // control appears only when the current model reports an actual choice.
+  assert.doesNotMatch(chatPanel, /Brain(?:Circuit)?\d+(?:Filled|Regular)/);
+  assert.match(chatPanel, /if \(levels\.length < 2\) return null;/);
+  assert.match(chatPanel, /\/conversations\/\$\{conversationId\}\/thinking/);
+  assert.match(chatPanel, /body: \{ level \}/);
+  assert.match(chatPanel, /setConversationRuntime\(result\.runtime\)/);
+  assert.match(chatPanel, /className="composer-thinking-label">\{runtime\.thinkingLevel\}/);
+  assert.doesNotMatch(chatPanel, /No extended reasoning|A brief think before answering|Balanced reasoning|Deeper reasoning/);
+  assert.match(styles, /\.composer-thinking-trigger > span:first-child \{[\s\S]*?font: inherit;/);
+  assert.match(styles, /\.conversation-context-meter \{[\s\S]*?font-family: inherit;[\s\S]*?font-size: 0\.7rem;[\s\S]*?font-weight: 750;/);
+  assert.match(localServer, /await client\.setThinkingLevel\(body\.level\)/);
 });
 
 test("manual restore points distinguish a new snapshot from already-covered files", () => {

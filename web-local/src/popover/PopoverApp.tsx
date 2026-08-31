@@ -4,8 +4,10 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { ApiError, api, createEventSource, errorText } from "../lib/api";
+import { displayAssistantModelLabel } from "../lib/model-display";
 import { WorkFoldLockup } from "../components/brand/WorkFoldBrand";
 import { NeedsYouStack, useNeedsYouDecisions } from "../components/NeedsYouDecisions";
+import type { ConversationRuntime } from "../types";
 
 /** Mirrors the server's WorkFoldActManagementRequest projection. */
 interface ManagementRequestView {
@@ -70,6 +72,12 @@ interface ManagementMessage {
   source?: string;
 }
 
+interface ManagementAgentStatus {
+  configured: boolean;
+  provider?: string;
+  model?: string;
+}
+
 interface StagedItem {
   value: string;
   label: string;
@@ -97,6 +105,8 @@ export function PopoverApp() {
   const [dropActive, setDropActive] = useState(false);
   const [activity, setActivity] = useState<string>("");
   const [streamingAssistant, setStreamingAssistant] = useState("");
+  const [managementModelLabel, setManagementModelLabel] = useState("Choose model");
+  const [conversationRuntime, setConversationRuntime] = useState<ConversationRuntime | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [decisionsOpen, setDecisionsOpen] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -116,6 +126,27 @@ export function PopoverApp() {
   // conversational needs_you phase; deciding here records surface "popover".
   const needsYou = useNeedsYouDecisions({ surface: "popover" });
   const refreshNeedsYou = needsYou.refresh;
+
+  const refreshManagementModel = useCallback(async () => {
+    try {
+      const result = await api<{ status: ManagementAgentStatus }>("/api/agent/status?scope=management");
+      setManagementModelLabel(result.status.configured
+        ? displayAssistantModelLabel(result.status.provider ?? "", result.status.model ?? "")
+        : "Choose model");
+    } catch {
+      // Model setup is a convenience affordance, not popover availability.
+      // Keep the last known label if this optional status read is unavailable.
+    }
+  }, []);
+
+  const refreshConversationRuntime = useCallback(async (id: string) => {
+    try {
+      const result = await api<{ runtime: ConversationRuntime }>(`/api/management/conversations/${encodeURIComponent(id)}/runtime`);
+      setConversationRuntime(result.runtime);
+    } catch {
+      setConversationRuntime(null);
+    }
+  }, []);
 
   const flushStreamingAssistant = useCallback(() => {
     if (streamingFrameRef.current !== null) {
@@ -186,7 +217,8 @@ export function PopoverApp() {
 
   useEffect(() => {
     void refreshConversation();
-  }, [refreshConversation]);
+    void refreshManagementModel();
+  }, [refreshConversation, refreshManagementModel]);
 
   // Staged material handed over by the tray (macOS icon drops).
   useEffect(() => {
@@ -227,15 +259,18 @@ export function PopoverApp() {
       }
       if (event.type === "turn_state" || event.type === "done" || event.type === "error") {
         if (event.type === "done" || event.type === "error" || event.running === false) flushStreamingAssistant();
+        if (event.type === "done" || event.type === "error" || event.running === false) void refreshConversationRuntime(conversationId);
         void refreshConversation();
       }
     };
     return () => stream.close();
-  }, [conversationId, refreshConversation, flushStreamingAssistant, queueStreamingAssistant, replaceStreamingAssistant]);
+  }, [conversationId, refreshConversation, refreshConversationRuntime, flushStreamingAssistant, queueStreamingAssistant, replaceStreamingAssistant]);
 
   useEffect(() => {
     replaceStreamingAssistant("");
-  }, [conversationId, replaceStreamingAssistant]);
+    if (conversationId) void refreshConversationRuntime(conversationId);
+    else setConversationRuntime(null);
+  }, [conversationId, refreshConversationRuntime, replaceStreamingAssistant]);
 
   // Poll quickly while work is active and quietly while idle. The latter keeps
   // the persistent popover aligned when the web surface starts a fresh chat.
@@ -254,7 +289,10 @@ export function PopoverApp() {
   // renders the old Working state again.
   useEffect(() => {
     const refreshWhenVisible = () => {
-      if (document.visibilityState !== "hidden") void refreshConversation();
+      if (document.visibilityState !== "hidden") {
+        void refreshConversation();
+        void refreshManagementModel();
+      }
     };
     window.addEventListener("focus", refreshWhenVisible);
     document.addEventListener("visibilitychange", refreshWhenVisible);
@@ -262,7 +300,7 @@ export function PopoverApp() {
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [refreshConversation]);
+  }, [refreshConversation, refreshManagementModel]);
 
   // Pending decisions stay a compact disclosure above the always-visible
   // conversation. A newly pending decision opens once, and the disclosure
@@ -541,6 +579,20 @@ export function PopoverApp() {
     : request?.phase === "needs_you"
       ? "Reply to work-fold"
       : "Tell work-fold what to do";
+  const thinkingLevels = conversationRuntime?.thinkingLevels ?? [];
+
+  const changeThinkingLevel = async (level: string) => {
+    if (!conversationId || requestRunning || level === conversationRuntime?.thinkingLevel) return;
+    try {
+      const result = await api<{ runtime: ConversationRuntime }>(`/api/management/conversations/${encodeURIComponent(conversationId)}/thinking`, {
+        method: "POST",
+        body: { level },
+      });
+      setConversationRuntime(result.runtime);
+    } catch (error) {
+      setBanner(errorText(error));
+    }
+  };
 
   return (
     <div
@@ -677,23 +729,48 @@ export function PopoverApp() {
       ) : null}
       <section className="composer">
         <div className="composer-field">
-          <textarea
-            ref={composerRef}
-            rows={1}
-            aria-label={composerPlaceholder}
-            placeholder={composerPlaceholder}
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            onPaste={onComposerPaste}
-            onKeyDown={(event) => {
-              // Enter sends when idle; while a turn streams, the composer is a
-              // safe draft area and the action becomes Stop.
-              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && !requestRunning) {
-                event.preventDefault();
-                void send();
-              }
-            }}
-          />
+          <div className="composer-input">
+            <textarea
+              ref={composerRef}
+              rows={1}
+              aria-label={composerPlaceholder}
+              placeholder={composerPlaceholder}
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              onPaste={onComposerPaste}
+              onKeyDown={(event) => {
+                // Enter sends when idle; while a turn streams, the composer is a
+                // safe draft area and the action becomes Stop.
+                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && !requestRunning) {
+                  event.preventDefault();
+                  void send();
+                }
+              }}
+            />
+            <div className="composer-controls">
+              <button
+                className="composer-model"
+                type="button"
+                onClick={() => { void bridge?.management?.openAssistantSettings(); }}
+                aria-label={`Change the model used by The fold. Current model: ${managementModelLabel}`}
+                title="Change the model used by The fold"
+              >
+                <span>{managementModelLabel}</span>
+              </button>
+              {thinkingLevels.length >= 2 && conversationRuntime ? (
+                <select
+                  className="composer-thinking"
+                  value={conversationRuntime.thinkingLevel}
+                  disabled={requestRunning}
+                  onChange={(event) => { void changeThinkingLevel(event.target.value); }}
+                  aria-label={`Reasoning level for this fold chat: ${conversationRuntime.thinkingLevel}`}
+                  title={requestRunning ? "Reasoning can change between turns" : "Reasoning level for this fold chat"}
+                >
+                  {thinkingLevels.map((level) => <option key={level} value={level}>{formatThinkingLevel(level)}</option>)}
+                </select>
+              ) : null}
+            </div>
+          </div>
           <button
             className={`composer-action${requestRunning ? " composer-stop" : " primary"}`}
             onClick={() => { if (requestRunning) void stop(); else void send(); }}
@@ -816,6 +893,10 @@ function sameTranscript(current: ManagementMessage[], next: ManagementMessage[])
     const candidate = next[index];
     return candidate !== undefined && message.id === candidate.id && message.content === candidate.content;
   });
+}
+
+function formatThinkingLevel(level: string): string {
+  return level ? `${level[0]?.toLocaleUpperCase() ?? ""}${level.slice(1)}` : "Reasoning";
 }
 
 function looksLikeLink(value: string): boolean {

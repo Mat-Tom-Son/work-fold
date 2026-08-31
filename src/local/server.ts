@@ -2325,6 +2325,34 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     sendJson(res, { messages: await readConversation(workFoldManagementRoot(), managementConversationMatch[1]) });
     return;
   }
+  const managementRuntimeMatch = match(url.pathname, /^\/api\/management\/conversations\/([^/]+)\/runtime$/);
+  if (managementRuntimeMatch && method === "GET") {
+    assertManagementReadyForRoutes(state);
+    const conversationId = managementRuntimeMatch[1];
+    if (!(await readConversation(workFoldManagementRoot(), conversationId)).length) throw notFound("Conversation not found.");
+    const client = await getClient(state, workFoldManagementScopeId, workFoldManagementRoot(), conversationId);
+    sendJson(res, { runtime: await client.getState() });
+    return;
+  }
+  const managementThinkingMatch = match(url.pathname, /^\/api\/management\/conversations\/([^/]+)\/thinking$/);
+  if (managementThinkingMatch && method === "POST") {
+    assertManagementReadyForRoutes(state);
+    const conversationId = managementThinkingMatch[1];
+    if (!(await readConversation(workFoldManagementRoot(), conversationId)).length) throw notFound("Conversation not found.");
+    const body = await readJsonBody<{ level?: unknown }>(state, req);
+    if (typeof body.level !== "string" || !body.level.trim()) throw badRequest("A thinking level is required.");
+    const key = clientKey(workFoldManagementScopeId, conversationId);
+    if (state.runningTurns.has(key)) throw httpError(409, "Wait for the current fold turn to finish before changing the thinking level.");
+    const client = await getClient(state, workFoldManagementScopeId, workFoldManagementRoot(), conversationId);
+    let result: { level: string; available: string[] };
+    try {
+      result = await client.setThinkingLevel(body.level);
+    } catch (error) {
+      throw badRequest(errorMessage(error));
+    }
+    sendJson(res, { thinking: result, runtime: await client.getState() });
+    return;
+  }
   const managementEventsMatch = match(url.pathname, /^\/api\/management\/conversations\/([^/]+)\/events$/);
   if (managementEventsMatch && method === "GET") {
     assertManagementReadyForRoutes(state);

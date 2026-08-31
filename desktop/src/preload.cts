@@ -85,8 +85,8 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
     },
   },
   agent: {
-    onOpenSettings: (callback: () => void) => {
-      const listener = () => callback();
+    onOpenSettings: (callback: (scope?: "management") => void) => {
+      const listener = (_event: unknown, scope: unknown) => callback(scope === "management" ? "management" : undefined);
       ipcRenderer.on("work-fold:agent:open-settings", listener);
       return () => ipcRenderer.removeListener("work-fold:agent:open-settings", listener);
     },

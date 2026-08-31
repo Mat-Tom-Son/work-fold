@@ -18,12 +18,12 @@ import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-naviga
 import type { AgentStatus, AppTheme, AppThemePreference, AppTypographyPreference, DesktopUpdateStatus, SpaceSummary } from "../../types";
 import { foldAuthoritySettings, foldPoliciesSettings, foldPublicationsSettings } from "../../ui-contract";
 import { WorkFoldLockup } from "../brand/WorkFoldBrand";
-import { AssistantSetupPane } from "../panes/spacePanes";
+import { AssistantSetupPane, type AssistantModelScope } from "../panes/spacePanes";
 
 export type SettingsPage = "appearance" | "assistant" | "remote" | "desktop" | "about";
 type FoldSettingsSection = "access" | "pages" | "authority";
 
-export function DesktopSettingsModal({ theme, themePreference, onThemePreferenceChange, typography, onTypographyChange, space, agentStatus, fixtureMode = false, initialPage = "appearance", onAgentConfigured, onClose, updateStatus, onUpdateAction }: {
+export function DesktopSettingsModal({ theme, themePreference, onThemePreferenceChange, typography, onTypographyChange, space, agentStatus, fixtureMode = false, initialPage = "appearance", initialAssistantScope, focusAssistantModel = false, onAgentConfigured, onClose, updateStatus, onUpdateAction }: {
   theme: AppTheme;
   themePreference: AppThemePreference;
   onThemePreferenceChange: (theme: AppThemePreference) => void;
@@ -33,6 +33,8 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
   agentStatus: AgentStatus;
   fixtureMode?: boolean;
   initialPage?: SettingsPage;
+  initialAssistantScope?: AssistantModelScope;
+  focusAssistantModel?: boolean;
   onAgentConfigured: (status: AgentStatus) => void;
   onClose: () => void;
   updateStatus: DesktopUpdateStatus | null;
@@ -160,7 +162,7 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
             ) : null}
             {page === "assistant" ? (
               <div className="settings-tab-panel" id="settings-panel-assistant" role="tabpanel" aria-labelledby="settings-tab-assistant">
-                <AssistantSetupPane space={space} status={agentStatus} fixtureMode={fixtureMode} embedded onConfigured={onAgentConfigured} />
+                <AssistantSetupPane space={space} status={agentStatus} fixtureMode={fixtureMode} embedded initialScope={initialAssistantScope} focusModelOnOpen={focusAssistantModel} onConfigured={onAgentConfigured} />
               </div>
             ) : null}
             {page === "remote" ? (

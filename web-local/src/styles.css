@@ -10944,7 +10944,24 @@ textarea,
 
 .conversation-context-meter {
   max-width: min(260px, 50%);
-  cursor: help;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.7rem;
+  font-weight: 750;
+  line-height: normal;
+  text-align: left;
+}
+
+.conversation-context-meter:hover,
+.conversation-context-meter:focus-visible {
+  border-color: rgba(101, 116, 139, 0.15);
+  color: var(--surface-tab-accent, var(--space-selection-accent, var(--work-fold-blue-700)));
+  background: rgba(100, 116, 139, 0.07);
+}
+
+.conversation-context-meter:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--surface-tab-accent, var(--space-selection-accent, var(--work-fold-blue-600))) 46%, transparent);
+  outline-offset: 1px;
 }
 
 .message-delivery {
@@ -10974,13 +10991,22 @@ textarea,
 }
 
 .composer-thinking-trigger > span:first-child {
+  display: inline;
+  width: auto;
+  height: auto;
   background: transparent;
   color: inherit;
+  font: inherit;
 }
 
 .composer-thinking-menu {
-  width: 300px;
+  width: 148px;
   max-height: min(320px, 44vh);
+}
+
+.composer-thinking-menu > button {
+  display: block;
+  padding: 8px 10px;
 }
 
 .composer-thinking-menu > button .composer-command-name {
@@ -13653,7 +13679,9 @@ textarea,
 
 .app-shell[data-theme="dark"] .composer-command-menu > button.active,
 .app-shell[data-theme="dark"] .composer-command-trigger:hover,
-.app-shell[data-theme="dark"] .composer-command-trigger.active {
+.app-shell[data-theme="dark"] .composer-command-trigger.active,
+.app-shell[data-theme="dark"] .conversation-context-meter:hover,
+.app-shell[data-theme="dark"] .conversation-context-meter:focus-visible {
   color: #dbeafe;
   background: rgba(96, 165, 250, 0.12);
   border-color: rgba(96, 165, 250, 0.2);

@@ -129,7 +129,7 @@ declare global {
         onOpenFolder: (listener: () => void) => () => void;
       };
       agent: {
-        onOpenSettings: (listener: () => void) => () => void;
+        onOpenSettings: (listener: (scope?: "management") => void) => () => void;
       };
       /**
        * Main-window-only needs-you helpers; absent in the popover's narrow
@@ -142,6 +142,7 @@ declare global {
         getPathForFile: (file: File) => string;
         hide: () => void;
         openMainWindow: () => Promise<boolean>;
+        openAssistantSettings: () => Promise<boolean>;
         onStaged: (listener: (items: Array<{ kind: "path" | "text"; value: string }>) => void) => () => void;
       };
       restrictedApps: {

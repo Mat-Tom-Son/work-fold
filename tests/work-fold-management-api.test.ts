@@ -258,6 +258,20 @@ test("management requests carry attachments, record lineage, and expose honest p
     assert.ok(userMessage, "the management transcript persists attachment references");
     assert.deepEqual(userMessage!.attachments!.map((item) => item.kind), ["file", "folder", "file", "url"]);
 
+    // The fold composer reads and changes the same real Pi thinking state as
+    // a Space Chat. Unsupported decorative values are refused.
+    const managementRuntime = await getJson(api.origin, `/api/management/conversations/${send.conversationId}/runtime`);
+    const foldRuntime = managementRuntime.runtime as { thinkingLevel: string; thinkingLevels: string[] };
+    assert.ok(foldRuntime.thinkingLevels.includes(foldRuntime.thinkingLevel));
+    const nextThinkingLevel = foldRuntime.thinkingLevels.find((level) => level !== foldRuntime.thinkingLevel);
+    if (nextThinkingLevel) {
+      const changed = await postJson(api.origin, `/api/management/conversations/${send.conversationId}/thinking`, { level: nextThinkingLevel });
+      assert.equal(changed.status, 200);
+      assert.equal((changed.body as { runtime: { thinkingLevel: string } }).runtime.thinkingLevel, nextThinkingLevel);
+    }
+    const invalidThinking = await postJson(api.origin, `/api/management/conversations/${send.conversationId}/thinking`, { level: "galaxy-brain" });
+    assert.equal(invalidThinking.status, 400);
+
     // Stop is request-scoped and honest about what it touched.
     const stopped = await facade.manageStop({ taskId: send.taskId });
     assert.equal(stopped.managementAborted, false, "a settled turn has nothing to abort");

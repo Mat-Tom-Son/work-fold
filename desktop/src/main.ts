@@ -1163,6 +1163,14 @@ function registerIpc(): void {
     showWindow();
     return true;
   });
+  ipcMain.handle("work-fold:management:open-assistant-settings", async (event) => {
+    assertTrustedRenderer(event);
+    managementPopover?.hide();
+    await ensureMainWindow();
+    showWindow();
+    mainWindow?.webContents.send("work-fold:agent:open-settings", "management");
+    return true;
+  });
   ipcMain.handle("work-fold:window:get-close-to-tray", (event) => {
     assertTrustedRenderer(event);
     return closeToTrayStatus();
