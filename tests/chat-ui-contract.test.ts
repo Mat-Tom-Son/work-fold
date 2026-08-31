@@ -214,7 +214,8 @@ test("provider interruptions stay visible and the configured model is disclosed 
   assert.match(messages, /work-fold preserved/);
   assert.match(messages, /Assistant setup needed/);
   assert.match(messages, /Request stopped/);
-  assert.doesNotMatch(messages, /interruption\.activities/);
+  assert.match(messages, /message\.interruption\.activities\.map/);
+  assert.match(messages, /saved-tool-\$\{message\.id\}-\$\{index\}/);
   assert.doesNotMatch(chatPanel, /addAgentEvent/);
   assert.match(chatPanel, /configuredAssistant\?\.configured && conversationRuntime/);
   assert.match(chatPanel, /if \(!configuredAssistant \|\| !configuredAssistant\.configured\) \{[\s\S]*?setConversationRuntime\(null\)/);
@@ -249,13 +250,24 @@ test("Chat composer model and reasoning controls are truthful, scoped, and funct
   assert.match(localServer, /await client\.setThinkingLevel\(body\.level\)/);
 });
 
-test("reasoning output is plain model text and the misleading Activity surface is gone", () => {
+test("reasoning and real tool calls form one compact work trail", () => {
   assert.match(activity, /entry\.kind === "thinking"/);
+  assert.match(activity, /entry\.kind === "tool"/);
+  assert.match(activity, /runtime-thinking-label/);
+  assert.match(activity, /Thinking…/);
   assert.match(activity, /<div className="runtime-preview-text">[\s\S]*?<ReactMarkdown/);
-  assert.doesNotMatch(activity, /Brain|THINKING|Complete|Working through the request|AgentActivity/);
+  assert.match(activity, /runtime-tool-list/);
+  assert.match(activity, /runtime-tool-row/);
+  assert.match(activity, /phaseLabel/);
+  assert.match(chatPanel, /if \(data\.type === "tool"\)/);
+  assert.match(chatPanel, /kind: "tool"/);
+  assert.doesNotMatch(activity, /Brain|["']THINKING["']|Working through the request|AgentActivityEvent/);
+  assert.doesNotMatch(activity, /return "Complete"/);
   assert.doesNotMatch(chatPanel, /agent-activity-toggle|agent-activity-log|>Activity</);
   assert.match(styles, /\.runtime-preview\s*\{[^}]*border-left:/);
   assert.match(styles, /\.runtime-preview-text\s*\{/);
+  assert.match(styles, /\.runtime-tool-list\s*\{/);
+  assert.match(styles, /\.runtime-tool-row\s*\{/);
 });
 
 test("manual restore points distinguish a new snapshot from already-covered files", () => {

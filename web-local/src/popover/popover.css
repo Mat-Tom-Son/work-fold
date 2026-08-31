@@ -151,7 +151,17 @@ body {
 .center { text-align: center; margin-top: 40%; }
 .error-line { color: var(--pop-danger); }
 
-.working-line { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.working-line {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: var(--pop-text-muted);
+  font-size: 11.5px;
+}
+.working-copy { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.working-elapsed { flex: none; margin-left: auto; color: color-mix(in srgb, var(--pop-text-muted) 72%, transparent); font-variant-numeric: tabular-nums; }
 
 .spinner {
   width: 12px;
@@ -166,7 +176,7 @@ body {
 @keyframes pop-spin { to { transform: rotate(360deg); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .spinner, .popover-message.streaming .popover-message-role::after { animation: none; }
+  .spinner { animation: none; }
   .spinner { border-top-color: var(--pop-border); }
 }
 
@@ -217,20 +227,39 @@ body {
 .fold-strip-decisions:hover { color: var(--pop-warning-text); }
 .fold-drawer { display: flex; flex-direction: column; gap: 8px; padding: 6px 0 2px; }
 .fold-drawer:focus { outline: none; }
-/* The active request's live tail sits directly below the transcript. */
-.fold-tail { display: flex; flex-direction: column; gap: 6px; padding: 8px 2px 2px; }
+/* The active request gets one quiet live line, leaving the popover to the Chat. */
+.fold-tail { padding: 5px 4px 0; }
 /* An inline narrator entry inside the conversation (handed-off trail or
    settled result), separated like a message. */
-.popover-entry { display: flex; flex-direction: column; gap: 8px; padding: 10px 2px; }
-.popover-entry + .popover-entry, .popover-message + .popover-entry { border-top: 1px solid var(--pop-border); }
+.popover-entry { display: flex; flex-direction: column; gap: 8px; padding: 4px; }
 .popover-entry p { margin: 0; }
 
-.popover-transcript { min-height: 90px; flex: 1; overflow-y: auto; user-select: text; }
+.popover-transcript {
+  min-height: 90px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 4px 3px 8px;
+  overflow-y: auto;
+  scroll-padding-bottom: 8px;
+  user-select: text;
+}
 .popover-transcript:focus { outline: none; }
-.popover-message { padding: 10px 2px; }
-.popover-message + .popover-message { border-top: 1px solid var(--pop-border); }
-.popover-message-role { margin-bottom: 4px; color: var(--pop-text-muted); font-size: 11px; font-weight: 650; }
-.popover-message.user .popover-message-role { color: var(--pop-accent-strong); }
+.popover-message { min-width: 0; }
+.popover-message.user {
+  align-self: flex-end;
+  max-width: 84%;
+  padding: 8px 10px;
+  border-radius: 12px 12px 4px 12px;
+  background: var(--pop-accent);
+  color: var(--pop-accent-text);
+}
+.popover-message.assistant {
+  align-self: flex-start;
+  width: 100%;
+  padding: 3px 4px;
+}
 .popover-message-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; }
 .popover-message.assistant .popover-message-body { white-space: normal; }
 .popover-message-body > :first-child { margin-top: 0; }
@@ -239,26 +268,14 @@ body {
 .popover-message-body ul, .popover-message-body ol { margin: 7px 0; padding-left: 20px; }
 .popover-message-body li + li { margin-top: 3px; }
 .popover-message-body pre { max-width: 100%; margin: 8px 0; padding: 8px; overflow-x: auto; border: 1px solid var(--pop-border); border-radius: 6px; background: var(--pop-bg); }
-.popover-message-body code { padding: 1px 4px; border-radius: 4px; background: var(--pop-bg); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; }
+.popover-message-body code { padding: 1px 4px; border-radius: 4px; background: var(--pop-surface-2); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; }
 .popover-message-body pre code { padding: 0; background: transparent; }
 .popover-message-body table { width: 100%; margin: 8px 0; border-collapse: collapse; font-size: 11.5px; }
 .popover-message-body th, .popover-message-body td { padding: 5px 6px; border: 1px solid var(--pop-border); text-align: left; vertical-align: top; }
 .popover-message-body a { color: var(--pop-accent-strong); text-underline-offset: 2px; }
-.popover-message.streaming .popover-message-role::after {
-  content: "";
-  display: inline-block;
-  width: 5px;
-  height: 5px;
-  margin-left: 5px;
-  border-radius: 50%;
-  background: var(--pop-accent);
-  vertical-align: 1px;
-  animation: pop-stream-pulse 1.1s ease-in-out infinite;
-}
-
-@keyframes pop-stream-pulse {
-  0%, 100% { opacity: 0.35; }
-  50% { opacity: 1; }
+.popover-message.user .popover-message-body code {
+  background: color-mix(in srgb, var(--pop-accent-text) 16%, transparent);
+  color: inherit;
 }
 
 .composer { margin-top: auto; }

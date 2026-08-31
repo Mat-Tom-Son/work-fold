@@ -15,7 +15,6 @@ import {
   type AgentSessionRuntime,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { completeSimple } from "@earendil-works/pi-ai/compat";
 
 /** Pi's inline image content shape, as accepted by `AgentSession.prompt`. */
 type ImageContent = NonNullable<NonNullable<Parameters<AgentSession["prompt"]>[1]>["images"]>[number];
@@ -347,11 +346,12 @@ export class PiConversationClient extends EventEmitter {
     if (!request || !response) return null;
     const session = await this.ensureSession();
     const model = session.model;
-    const runtime = this.resolvedRuntime;
-    if (!model || !runtime) return null;
-    const auth = await runtime.modelRegistry.getApiKeyAndHeaders(model);
-    if (!auth.ok) return null;
-    const result = await completeSimple(model, {
+    if (!model) return null;
+    // Use the session's configured stream path. It carries the same live-model
+    // registration, auth, custom provider base URL, request headers, and
+    // transport policy that just produced the Chat response. Calling pi-ai's
+    // compatibility helper directly bypasses that path for live catalog models.
+    const stream = await session.agent.streamFn(model, {
       systemPrompt: "Write a specific 3 to 7 word title for this conversation. Return only the title: no quotes, label, markdown, or trailing punctuation.",
       messages: [{
         role: "user",
@@ -359,13 +359,13 @@ export class PiConversationClient extends EventEmitter {
         timestamp: Date.now(),
       }],
     }, {
-      ...auth,
       maxTokens: 48,
       temperature: 0.2,
-      maxRetries: 0,
-      timeoutMs: 8_000,
-      signal: AbortSignal.timeout(8_000),
+      maxRetries: 1,
+      timeoutMs: 15_000,
+      signal: AbortSignal.timeout(15_000),
     });
+    const result = await stream.result();
     if (result.stopReason === "error" || result.stopReason === "aborted") return null;
     const title = result.content
       .filter((part): part is Extract<(typeof result.content)[number], { type: "text" }> => part.type === "text")

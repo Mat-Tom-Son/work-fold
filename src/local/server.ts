@@ -31,10 +31,12 @@ import {
 } from "./agent/extension-ui.js";
 import {
   appendMessage,
+  conversationNeedsGeneratedTitle,
   conversationsDir,
   createConversation,
   findRemoteConversationTitleRename,
   listConversations,
+  markConversationTitleAttempted,
   readConversation,
   readConversationSummary,
   renameConversation,
@@ -132,7 +134,7 @@ import {
 } from "./resources.js";
 import { searchSpace } from "./search.js";
 import { SpaceAppearanceStore } from "./space-appearance-store.js";
-import { conversationTitleFromFirstUserMessage, normalizeConversationTitle, normalizeGeneratedConversationTitle } from "../shared/chat-title.js";
+import { normalizeConversationTitle, normalizeGeneratedConversationTitle } from "../shared/chat-title.js";
 import {
   hasSpaceAppearanceCustomization,
   parseSpaceAppearanceProposal,
@@ -7010,18 +7012,19 @@ async function runAgentTurn(
     settledMessageId = assistantMessage.id;
     try {
       const transcript = await readConversation(spaceRoot, conversationId);
-      const hasSavedTitle = transcript.some((message) =>
-        message.kind === "conversation_title" && message.titleSource !== "placeholder");
-      if (!hasSavedTitle) {
+      if (conversationNeedsGeneratedTitle(transcript)) {
+        // Record the one naming attempt before the isolated request. A crash or
+        // provider failure must not turn every later Chat turn into another
+        // hidden title request.
+        await markConversationTitleAttempted(spaceRoot, conversationId);
         const firstUserMessage = transcript.find((message) => message.role === "user")?.content;
         const modelTitle = firstUserMessage
           ? normalizeGeneratedConversationTitle(
             await client.generateConversationTitle(firstUserMessage, finalText).catch(() => null),
           )
           : null;
-        const generatedTitle = modelTitle ?? conversationTitleFromFirstUserMessage(firstUserMessage);
-        if (generatedTitle) {
-          const titledConversation = await setGeneratedConversationTitle(spaceRoot, conversationId, generatedTitle);
+        if (modelTitle) {
+          const titledConversation = await setGeneratedConversationTitle(spaceRoot, conversationId, modelTitle);
           client.setSessionName(titledConversation.title);
         }
       }

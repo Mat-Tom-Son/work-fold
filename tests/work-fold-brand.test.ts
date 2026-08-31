@@ -242,7 +242,6 @@ test("the fold names the popover surface, tray entry, and two-state capture butt
 
   assert.match(popover, /Your fold is unavailable\./);
   assert.match(popover, /aria-label="Your fold"/);
-  assert.match(popover, /You can close your fold — the work continues\./);
   assert.match(popover, /staged\.length \? "Fold it in" : "Send"/);
   // work-fold stays the actor: imperative composer copy keeps the product as addressee.
   assert.match(popover, /Tell work-fold what to do/);

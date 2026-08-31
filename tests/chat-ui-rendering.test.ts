@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  chatDisplayTitle,
   chatDraftStorageKey,
   clearStoredPendingChatSend,
   modelConversationTitle,
-  optimisticChatTitleFromFirstUserMessage,
   readStoredPendingChatSend,
   writeStoredPendingChatSend,
 } from "../web-local/src/lib/format.js";
@@ -69,7 +69,7 @@ test("Chat title rendering ignores only the initial placeholder and accepts gene
     createdAt,
   };
   assert.equal(modelConversationTitle([placeholder]), null);
-  assert.equal(optimisticChatTitleFromFirstUserMessage("Review the launch checklist and identify missing owners."), "Review the launch checklist and identify missing owners.");
+  assert.equal(chatDisplayTitle({ serverTitle: "New Chat" }), "New Chat");
   assert.equal(modelConversationTitle([
     placeholder,
     {
@@ -80,6 +80,35 @@ test("Chat title rendering ignores only the initial placeholder and accepts gene
       createdAt: "2026-01-01T00:00:01Z",
     },
   ]), "Launch checklist review");
+  assert.equal(modelConversationTitle([
+    placeholder,
+    { id: "request", role: "user", content: "Review the launch checklist and identify missing owners.", createdAt },
+    {
+      ...placeholder,
+      id: "legacy-fallback",
+      titleSource: "generated",
+      content: "Review the launch checklist and identify missing owners.",
+      createdAt: "2026-01-01T00:00:01Z",
+    },
+  ]), null, "the old first-message fallback is not presented as a model title");
+  assert.equal(modelConversationTitle([
+    placeholder,
+    { id: "request", role: "user", content: "Fix chat naming", createdAt },
+    {
+      ...placeholder,
+      id: "title-attempted",
+      titleSource: "attempted",
+      content: "New Chat",
+      createdAt: "2026-01-01T00:00:01Z",
+    },
+    {
+      ...placeholder,
+      id: "title-generated",
+      titleSource: "generated",
+      content: "Fix chat naming",
+      createdAt: "2026-01-01T00:00:02Z",
+    },
+  ]), "Fix chat naming", "a recorded model response may legitimately match a short first message");
   assert.equal(modelConversationTitle([
     placeholder,
     {

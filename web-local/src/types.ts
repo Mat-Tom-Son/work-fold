@@ -104,7 +104,7 @@ export interface ChatMessage {
   content: string;
   createdAt: string;
   kind?: "conversation_title" | "conversation_lifecycle";
-  titleSource?: "placeholder" | "generated" | "manual";
+  titleSource?: "placeholder" | "generated" | "attempted" | "manual";
   lifecycle?: { archived?: boolean; snoozedUntil?: string | null };
   landing?: ChatMessageLanding;
   interruption?: ChatMessageInterruption;
@@ -131,19 +131,13 @@ export interface ChatMessageInterruptionActivity {
 }
 
 export type AgentActivityPhase = "queued" | "running" | "streaming" | "complete" | "error";
-export interface AgentActivityEvent {
-  id: string;
-  message: string;
-  detail?: string;
-  toolName?: string;
-  toolCallId?: string;
-  phase?: AgentActivityPhase;
-}
 export interface RuntimePreviewEntry {
   id: string;
   kind: "thinking" | "tool";
   text: string;
-  phase?: "streaming" | "complete";
+  detail?: string;
+  toolName?: string;
+  phase?: AgentActivityPhase;
 }
 
 export interface ChatActionsState {
@@ -198,7 +192,6 @@ export interface PendingChatSend {
 }
 export interface SpaceFixtureConversation extends ConversationSummary {
   messages: ChatMessage[];
-  activityEvents?: AgentActivityEvent[];
   runtimePreviews?: RuntimePreviewEntry[];
   running?: boolean;
   streamingAssistant?: string;

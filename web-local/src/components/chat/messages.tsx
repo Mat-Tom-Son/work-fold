@@ -49,6 +49,10 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   const cachedSpaceLinks = assistantMessageSpacePathCache.get(spaceLinkCacheKey);
   const spaceLinks = cachedSpaceLinks?.content === message.content ? cachedSpaceLinks.resolved : null;
   const messageTime = message.createdAt ? formatDateTime(message.createdAt) : "";
+  const savedRuntimePreviews = interruptionToolPreviews(message);
+  const visibleRuntimePreviews = showRuntimePreview && runtimePreviews.length
+    ? runtimePreviews
+    : savedRuntimePreviews;
 
   useEffect(() => {
     if (message.role !== "assistant" || !resolveSpacePathLinks || !onOpenSpaceFile) return;
@@ -67,7 +71,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   return (
     <article className={`message ${message.role}${suppressEnterAnimation ? " settled" : ""}`}>
       <div className="message-surface">
-        {showRuntimePreview ? <RuntimeContextPreview entries={runtimePreviews} /> : null}
+        {visibleRuntimePreviews.length ? <RuntimeContextPreview entries={visibleRuntimePreviews} /> : null}
         <MarkdownMessage
           content={message.content}
           spaceLinks={message.role === "assistant" ? spaceLinks : null}
@@ -96,6 +100,18 @@ export const ChatMessageRow = memo(function ChatMessageRow({
     </article>
   );
 }, areChatMessageRowPropsEqual);
+
+function interruptionToolPreviews(message: ChatMessage): RuntimePreviewEntry[] {
+  if (message.role !== "assistant" || !message.interruption?.activities.length) return [];
+  return message.interruption.activities.map((activity, index) => ({
+    id: `saved-tool-${message.id}-${index}`,
+    kind: "tool",
+    text: activity.message,
+    ...(activity.detail ? { detail: activity.detail } : {}),
+    ...(activity.toolName ? { toolName: activity.toolName } : {}),
+    phase: activity.phase ?? "complete",
+  }));
+}
 
 function areChatMessageRowPropsEqual(previous: ChatMessageRowProps, next: ChatMessageRowProps): boolean {
   const previousMessage = previous.message;

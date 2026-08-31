@@ -6,10 +6,12 @@ import test, { after } from "node:test";
 
 import {
   appendMessage,
+  conversationNeedsGeneratedTitle,
   conversationsDir,
   createConversation,
   findRemoteConversationTitleRename,
   listConversations,
+  markConversationTitleAttempted,
   readConversation,
   renameConversation,
   setGeneratedConversationTitle,
@@ -97,7 +99,7 @@ test("chat store skips malformed JSONL lines without deleting the transcript", a
   const summaries = await listConversations(spaceRoot);
   assert.equal(summaries.length, 1);
   assert.equal(summaries[0]?.id, "chat-malformed");
-  assert.equal(summaries[0]?.title, "valid user message");
+  assert.equal(summaries[0]?.title, "New Chat");
   assert.equal(await readFile(path, "utf8"), original);
 });
 
@@ -252,6 +254,59 @@ test("generated title persists after the first successful turn without overridin
   assert.equal((await listConversations(spaceRoot))[0]?.title, "Launch owner review");
 });
 
+test("a failed first title request stays New Chat and is not repeated", async (t) => {
+  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-title-attempt-"));
+  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+
+  const created = await createConversation(spaceRoot);
+  await appendMessage(spaceRoot, created.id, message("1", "Please give this conversation a useful title."));
+  assert.equal(conversationNeedsGeneratedTitle(await readConversation(spaceRoot, created.id)), true);
+
+  const attempted = await markConversationTitleAttempted(spaceRoot, created.id);
+  assert.equal(attempted.title, "New Chat");
+  const transcript = await readConversation(spaceRoot, created.id);
+  assert.equal(transcript.filter((item) => item.titleSource === "attempted").length, 1);
+  assert.equal(conversationNeedsGeneratedTitle(transcript), false);
+
+  await markConversationTitleAttempted(spaceRoot, created.id);
+  assert.equal((await readConversation(spaceRoot, created.id)).filter((item) => item.titleSource === "attempted").length, 1);
+});
+
+test("a model title may legitimately match the first user message after the request is recorded", async (t) => {
+  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-title-matches-request-"));
+  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+
+  const created = await createConversation(spaceRoot);
+  const request = "Fix chat naming";
+  await appendMessage(spaceRoot, created.id, message("1", request));
+  await markConversationTitleAttempted(spaceRoot, created.id);
+
+  const generated = await setGeneratedConversationTitle(spaceRoot, created.id, request);
+  assert.equal(generated.title, request);
+  assert.equal(conversationNeedsGeneratedTitle(await readConversation(spaceRoot, created.id)), false);
+});
+
+test("the old first-message fallback is eligible for one real model title", async (t) => {
+  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-legacy-title-fallback-"));
+  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+
+  const created = await createConversation(spaceRoot);
+  const request = "hey, what's up what do you think of my game here in this space?";
+  await appendMessage(spaceRoot, created.id, message("1", request));
+  await appendMessage(spaceRoot, created.id, {
+    id: "old-fallback",
+    role: "system",
+    kind: "conversation_title",
+    titleSource: "generated",
+    content: "hey, what's up what do you think of my game here in this...",
+    createdAt: "2026-01-01T00:00:02Z",
+  });
+
+  assert.equal((await listConversations(spaceRoot))[0]?.title, "New Chat");
+  assert.equal(conversationNeedsGeneratedTitle(await readConversation(spaceRoot, created.id)), true);
+  assert.equal((await setGeneratedConversationTitle(spaceRoot, created.id, "Tic Tac Flow Game Review")).title, "Tic Tac Flow Game Review");
+});
+
 test("chat store manual conversation title overrides generated landing title", async (t) => {
   const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-manual-title-"));
   t.after(() => rm(spaceRoot, { recursive: true, force: true }));
@@ -393,7 +448,8 @@ test("chat store keeps messages when landing metadata is malformed", async (t) =
 test("chat listing reuses cached summaries and rebuilds them when a transcript changes", async (t) => {
   const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-index-"));
   t.after(() => rm(spaceRoot, { recursive: true, force: true }));
-  await appendMessage(spaceRoot, "chat-indexed", message("1", "alpha"));
+  await appendMessage(spaceRoot, "chat-indexed", message("1", "Give this Chat a compact cache title."));
+  await setGeneratedConversationTitle(spaceRoot, "chat-indexed", "alpha");
 
   assert.equal((await listConversations(spaceRoot))[0]?.title, "alpha");
 
@@ -420,7 +476,7 @@ test("chat listing ignores cache records that do not describe their own transcri
   const indexFile = join(spaceStateDir(spaceRoot), "conversation-index.json");
   const transcript = await stat(join(conversationsDir(spaceRoot), "chat-guarded.jsonl"));
   await writeFile(indexFile, `${JSON.stringify({
-    version: 3,
+    version: 4,
     entries: {
       "chat-guarded": {
         sizeBytes: transcript.size,
@@ -434,7 +490,7 @@ test("chat listing ignores cache records that do not describe their own transcri
     },
   })}\n`, "utf8");
 
-  assert.equal((await listConversations(spaceRoot))[0]?.title, "genuine", "a self-inconsistent cache record is discarded");
+  assert.equal((await listConversations(spaceRoot))[0]?.title, "New Chat", "a self-inconsistent cache record is discarded");
 });
 
 test("chat listing rebuilds a previous-version cache after title semantics change", async (t) => {
@@ -467,6 +523,6 @@ test("chat listing rebuilds a previous-version cache after title semantics chang
     },
   })}\n`, "utf8");
 
-  assert.equal((await listConversations(spaceRoot))[0]?.title, "Name this completed conversation");
-  assert.equal(JSON.parse(await readFile(indexFile, "utf8")).version, 3);
+  assert.equal((await listConversations(spaceRoot))[0]?.title, "New Chat");
+  assert.equal(JSON.parse(await readFile(indexFile, "utf8")).version, 4);
 });

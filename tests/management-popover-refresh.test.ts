@@ -141,20 +141,24 @@ test("the popover accounts for every attachment outcome, including the Space-fre
   assert.match(popover, /no recorded placement — see the reply below/);
 });
 
-test("one narrator: the always-visible conversation absorbs the request story and live tail", async () => {
+test("the fold uses ordinary chat geometry and one compact live line", async () => {
   const popover = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
   // The working line follows the always-visible transcript while a request is
-  // active, with the shipped strings intact (the close-your-fold line is
-  // additionally pinned in work-fold-brand.test.ts).
+  // active without taking a second status panel's worth of vertical space.
   const drawerStart = popover.indexOf('id="popover-conversation"');
   const drawerEnd = popover.indexOf('className="fold-tail"');
   assert.ok(drawerStart >= 0 && drawerEnd > drawerStart, "the conversation drawer precedes the live tail");
   assert.match(popover, /\{request && activePhases\.has\(request\.phase\) \? \(\s*<div className="fold-tail">/);
-  assert.match(popover, /\{activity \|\| "Working on your request"\}/);
-  assert.match(popover, /elapsedLabel \? `started \$\{elapsedLabel\} ago` : "just started"/);
-  assert.match(popover, /item\$\{request\.attachments\.length === 1 \? "" : "s"\} attached/);
-  assert.match(popover, /Handed off — work continues in \{request\.children\.filter\(\(child\) => child\.state === "running"\)\.length === 1 \? "a Space" : "Spaces"\}\./);
+  assert.match(popover, /\{activity \|\| "Thinking…"\}/);
+  assert.match(popover, /<span className="working-elapsed">\{elapsedLabel\}<\/span>/);
+  assert.match(popover, /Working in \{request\.children\.filter\(\(child\) => child\.state === "running"\)\.length === 1 \? "a Space" : "Spaces"\}…/);
   assert.match(popover, /className="working-line" role="status" aria-live="polite"/);
+  assert.doesNotMatch(popover, /You can close your fold|item\$\{request\.attachments\.length/);
+  assert.doesNotMatch(popover, /popover-message-role/);
+  const css = await readFile(resolve(rootDir, "web-local/src/popover/popover.css"), "utf8");
+  assert.match(css, /\.popover-message\.user \{[\s\S]*?align-self: flex-end;[\s\S]*?background: var\(--pop-accent\);/);
+  assert.match(css, /\.popover-message\.assistant \{[\s\S]*?align-self: flex-start;/);
+  assert.doesNotMatch(css, /\.popover-message \+ \.popover-message \{ border-top:/);
   // The handed-off per-child trail and the settled result render inside the
   // drawer as inline entries, after the transcript messages — every recorded
   // state keeps its shipped label, and nothing silently disappears.
@@ -229,6 +233,8 @@ test("the popover composer behaves like every other work-fold composer", async (
   // reading scrollback is never yanked away by the poll cadence — and a
   // refetch that changes nothing keeps the old array identity.
   assert.match(popover, /transcriptPinnedRef/);
+  assert.match(popover, /window\.requestAnimationFrame\(\(\) => \{[\s\S]*?transcript\.scrollTop = transcript\.scrollHeight/);
+  assert.match(popover, /\[messages, phase, streamingAssistant, activity, conversationId\]/);
   assert.match(popover, /sameTranscript\(current, next\) \? current : next/);
   // Staged chips render outside the composer conditional so a mid-turn drop
   // is confirmed on screen instead of surfacing after the turn settles.

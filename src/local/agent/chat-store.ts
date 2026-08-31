@@ -15,7 +15,7 @@ export interface ChatMessage {
   content: string;
   createdAt: string;
   kind?: "conversation_title" | "conversation_lifecycle";
-  titleSource?: "placeholder" | "generated" | "manual";
+  titleSource?: "placeholder" | "generated" | "attempted" | "manual";
   lifecycle?: ConversationLifecyclePatch;
   landing?: ChatMessageLanding;
   interruption?: ChatMessageInterruption;
@@ -210,6 +210,31 @@ export async function setGeneratedConversationTitle(
   return conversationSummary(conversationId, await readConversation(spaceRoot, conversationId));
 }
 
+export async function markConversationTitleAttempted(
+  spaceRoot: string,
+  conversationId: string,
+): Promise<ConversationSummary> {
+  const messages = await readConversation(spaceRoot, conversationId);
+  if (!messages.length) throw new Error("Conversation not found.");
+  const current = conversationSummary(conversationId, messages);
+  if (!conversationNeedsGeneratedTitle(messages)) return current;
+  await appendMessage(spaceRoot, conversationId, {
+    id: randomUUID(),
+    role: "system",
+    kind: "conversation_title",
+    titleSource: "attempted",
+    content: untitledConversationTitle,
+    createdAt: new Date().toISOString(),
+  });
+  return conversationSummary(conversationId, await readConversation(spaceRoot, conversationId));
+}
+
+export function conversationNeedsGeneratedTitle(messages: ChatMessage[]): boolean {
+  return !manualConversationTitle(messages)
+    && !generatedConversationTitle(messages)
+    && !messages.some((message) => message.kind === "conversation_title" && message.titleSource === "attempted");
+}
+
 export async function updateConversationLifecycle(
   spaceRoot: string,
   conversationId: string,
@@ -298,7 +323,7 @@ interface ConversationIndexEntry {
 
 // Bump whenever conversationSummary title or lifecycle semantics change so a
 // structurally valid cache cannot preserve an obsolete derived result.
-const conversationIndexVersion = 3;
+const conversationIndexVersion = 4;
 
 function conversationIndexFile(spaceRoot: string): string {
   return join(spaceStateDir(spaceRoot), "conversation-index.json");
@@ -437,7 +462,8 @@ function parseChatMessage(line: string): ChatMessage | null {
     };
     if (parsed.kind === "conversation_title") {
       message.kind = parsed.kind;
-      if (parsed.titleSource === "placeholder" || parsed.titleSource === "generated" || parsed.titleSource === "manual") {
+      if (parsed.titleSource === "placeholder" || parsed.titleSource === "generated"
+        || parsed.titleSource === "attempted" || parsed.titleSource === "manual") {
         message.titleSource = parsed.titleSource;
       }
     }
@@ -536,14 +562,12 @@ function isChatMessageLanding(value: unknown): value is ChatMessageLanding {
 }
 
 function conversationSummary(conversationId: string, messages: ChatMessage[]): ConversationSummary {
-  const firstUser = messages.find((message) => message.role === "user");
   const lastActivity = [...messages].reverse().find((message) => message.kind !== "conversation_lifecycle");
   const lifecycle = conversationLifecycle(messages);
   return {
     id: conversationId,
     title: manualConversationTitle(messages)
       || generatedConversationTitle(messages)
-      || firstUser?.content.slice(0, 70)
       || untitledConversationTitle,
     createdAt: messages[0]?.createdAt ?? new Date().toISOString(),
     updatedAt: lastActivity?.createdAt ?? new Date().toISOString(),
@@ -572,7 +596,7 @@ function manualConversationTitle(messages: ChatMessage[]): string | null {
     const message = messages[index];
     if (message.role !== "system" || message.kind !== "conversation_title") continue;
     const title = normalizeConversationTitle(message.content);
-    if (message.titleSource === "placeholder" || message.titleSource === "generated") continue;
+    if (message.titleSource === "placeholder" || message.titleSource === "generated" || message.titleSource === "attempted") continue;
     // createConversation historically seeded every transcript with a manual
     // "New Chat" title. Treat only that first seed as a placeholder so an
     // Assistant-generated landing title can win, while a later intentional
@@ -599,15 +623,31 @@ function remoteConversationTitleRenameIndex(
 }
 
 function generatedConversationTitle(messages: ChatMessage[]): string | null {
-  for (const message of [...messages].reverse()) {
+  const firstUser = messages.find((message) => message.role === "user")?.content;
+  const legacyFallback = legacyFirstMessageConversationTitle(firstUser);
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
     if (message.role === "system" && message.kind === "conversation_title" && message.titleSource === "generated") {
       const title = normalizeConversationTitle(message.content);
+      const hasRecordedAttempt = messages.slice(0, index).some((candidate) =>
+        candidate.kind === "conversation_title" && candidate.titleSource === "attempted");
+      if (title && title === legacyFallback && !hasRecordedAttempt) continue;
       if (title) return title;
     }
     const title = message.landing?.conversationTitle?.replace(/\s+/g, " ").trim();
     if (title) return title.slice(0, 80);
   }
   return null;
+}
+
+function legacyFirstMessageConversationTitle(content: string | null | undefined): string | null {
+  const normalized = content?.replace(/\s+/g, " ").trim() ?? "";
+  if (!normalized) return null;
+  if (normalized.length <= 60) return normalized;
+  const prefix = normalized.slice(0, 60);
+  const wordBoundary = prefix.search(/\s+\S*$/);
+  const trimmed = (wordBoundary > 0 ? prefix.slice(0, wordBoundary) : prefix).trim();
+  return `${trimmed || prefix.trim()}...`;
 }
 
 function normalizeLifecyclePatch(patch: ConversationLifecyclePatch): ConversationLifecyclePatch {

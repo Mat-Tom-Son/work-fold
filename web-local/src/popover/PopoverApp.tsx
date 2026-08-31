@@ -104,6 +104,7 @@ export function PopoverApp() {
   const [decisionsOpen, setDecisionsOpen] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const transcriptRef = useRef<HTMLElement | null>(null);
+  const transcriptPinnedRef = useRef(true);
   const dragDepthRef = useRef(0);
   const streamingDeltaRef = useRef("");
   const streamingFrameRef = useRef<number | null>(null);
@@ -306,13 +307,22 @@ export function PopoverApp() {
     else if (decisionCount === 0 && !decisionNotice) setDecisionsOpen(false);
   }, [decisionCount, decisionNotice]);
 
-  // The transcript follows new entries only while the person is at (or near)
-  // the bottom; scrolling up to read pins nothing back down until they return.
-  const transcriptPinnedRef = useRef(true);
+  useEffect(() => {
+    transcriptPinnedRef.current = true;
+  }, [conversationId]);
+
+  // The transcript follows every streamed frame and compact status change only
+  // while the person is at (or near) the bottom. A frame runs after layout so
+  // a growing Markdown reply and the shrinking/growing live tail are measured
+  // at their final height before the scroll is applied.
   useEffect(() => {
     const transcript = transcriptRef.current;
-    if (transcript && transcriptPinnedRef.current) transcript.scrollTop = transcript.scrollHeight;
-  }, [messages, phase]);
+    if (!transcript || !transcriptPinnedRef.current) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (transcriptPinnedRef.current) transcript.scrollTop = transcript.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [messages, phase, streamingAssistant, activity, conversationId]);
 
   // The door comes first: whenever the shown popover has nothing that outranks
   // it — no pending decision, no running work hiding the composer — and focus
@@ -661,8 +671,11 @@ export function PopoverApp() {
           }}
         >
           {messages.map((message) => (
-            <article className={`popover-message ${message.role}`} key={message.id}>
-              <div className="popover-message-role" title={timestampTitle(message.createdAt)}>{message.role === "assistant" ? "work-fold" : "You"}{message.source === "remote_web" ? " · Web" : ""}</div>
+            <article
+              className={`popover-message ${message.role}`}
+              key={message.id}
+              title={`${message.source === "remote_web" ? "Sent from the web · " : ""}${timestampTitle(message.createdAt)}`}
+            >
               <div className="popover-message-body">
                 {message.role === "assistant"
                   ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
@@ -672,7 +685,6 @@ export function PopoverApp() {
           ))}
           {streamingAssistant ? (
             <article className="popover-message assistant streaming" aria-label="work-fold is replying">
-              <div className="popover-message-role">work-fold</div>
               <div className="popover-message-body">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingAssistant}</ReactMarkdown>
               </div>
@@ -697,19 +709,13 @@ export function PopoverApp() {
           {request && activePhases.has(request.phase) ? (
             <div className="fold-tail">
               {request.phase === "working" ? (
-                <>
-                  <p className="working-line" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" />{activity || "Working on your request"}</p>
-                  <p className="muted small">
-                    {request.attachments.length ? `${request.attachments.length} item${request.attachments.length === 1 ? "" : "s"} attached · ` : ""}
-                    {elapsedLabel ? `started ${elapsedLabel} ago` : "just started"}
-                  </p>
-                  <p className="muted small">You can close your fold — the work continues.</p>
-                </>
+                <p className="working-line" role="status" aria-live="polite">
+                  <span className="spinner" aria-hidden="true" />
+                  <span className="working-copy">{activity || "Thinking…"}</span>
+                  {elapsedLabel ? <span className="working-elapsed">{elapsedLabel}</span> : null}
+                </p>
               ) : (
-                <>
-                  <p className="working-line" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" />Handed off — work continues in {request.children.filter((child) => child.state === "running").length === 1 ? "a Space" : "Spaces"}.</p>
-                  <p className="muted small">You can close your fold — the work continues.</p>
-                </>
+                <p className="working-line" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" /><span className="working-copy">Working in {request.children.filter((child) => child.state === "running").length === 1 ? "a Space" : "Spaces"}…</span></p>
               )}
             </div>
           ) : null}

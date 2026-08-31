@@ -106,31 +106,26 @@ export function formatTimeAgo(value: string): string {
   return relative === "now" ? "Just now" : `${relative} ago`;
 }
 
-export function optimisticChatTitleFromFirstUserMessage(content: string | null | undefined): string | null {
-  return conversationTitleFromFirstUserMessage(content);
-}
-
 export function chatDisplayTitle({
   serverTitle,
-  firstUserMessage,
-  messages,
 }: {
   serverTitle?: string | null;
-  firstUserMessage?: string | null;
-  messages?: ChatMessage[];
 }): string {
   const normalizedServerTitle = serverTitle?.replace(/\s+/g, " ").trim() ?? "";
-  if (normalizedServerTitle && normalizedServerTitle !== untitledChatLabel) return normalizedServerTitle;
-  const knownFirstUserMessage = firstUserMessage ?? messages?.find((message) => message.role === "user")?.content;
-  return (optimisticChatTitleFromFirstUserMessage(knownFirstUserMessage) ?? normalizedServerTitle) || untitledChatLabel;
+  return normalizedServerTitle || untitledChatLabel;
 }
 
 export function modelConversationTitle(messages: ChatMessage[]): string | null {
+  const firstUserMessage = messages.find((message) => message.role === "user")?.content;
+  const legacyFallback = conversationTitleFromFirstUserMessage(firstUserMessage);
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message.role !== "system" || message.kind !== "conversation_title") continue;
     const title = message.content.replace(/\s+/g, " ").trim();
-    if (message.titleSource === "placeholder") continue;
+    if (message.titleSource === "placeholder" || message.titleSource === "attempted") continue;
+    const hasRecordedAttempt = messages.slice(0, index).some((candidate) =>
+      candidate.kind === "conversation_title" && candidate.titleSource === "attempted");
+    if (message.titleSource === "generated" && title === legacyFallback && !hasRecordedAttempt) continue;
     if (index === 0 && title === untitledChatLabel) continue;
     if (title) return title.slice(0, 80);
   }

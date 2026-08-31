@@ -9272,6 +9272,8 @@ textarea,
 
 .runtime-preview {
   min-width: 0;
+  display: grid;
+  gap: 10px;
   margin: 0 0 14px;
   padding: 1px 0 1px 13px;
   border-left: 2px solid color-mix(in srgb, var(--space-custom-color, #64748b) 42%, transparent);
@@ -9282,9 +9284,27 @@ textarea,
   color: #526072;
 }
 
+.runtime-thinking {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.runtime-thinking-label {
+  color: #526072;
+  font-size: 0.74rem;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+}
+
+.runtime-preview.running .runtime-thinking-label {
+  color: var(--space-accent-text-ui, var(--space-custom-color, #526072));
+}
+
 .runtime-preview-text {
-  font-size: 0.86rem;
-  line-height: 1.6;
+  font-size: 0.83rem;
+  line-height: 1.55;
   overflow-wrap: anywhere;
 }
 
@@ -9312,6 +9332,101 @@ textarea,
   color: inherit;
   font: inherit;
   font-weight: 750;
+}
+
+.runtime-tool-list {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.runtime-tool-row {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: #667386;
+  animation: runtime-tool-enter 0.14s var(--work-fold-ease-smooth) both;
+}
+
+.runtime-tool-dot {
+  width: 6px;
+  height: 6px;
+  align-self: center;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.runtime-tool-row.queued .runtime-tool-dot {
+  background: #b4becb;
+}
+
+.runtime-tool-row.running .runtime-tool-dot,
+.runtime-tool-row.streaming .runtime-tool-dot {
+  background: var(--space-custom-color, #64748b);
+  animation: runtime-tool-pulse 1.25s ease-in-out infinite;
+}
+
+.runtime-tool-row.complete .runtime-tool-dot {
+  background: #6f8a77;
+}
+
+.runtime-tool-row.error .runtime-tool-dot {
+  background: #c45b5b;
+}
+
+.runtime-tool-main {
+  min-width: 0;
+  display: flex;
+  flex: 0 1 auto;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.runtime-tool-name {
+  flex: 0 0 auto;
+  color: #475569;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.runtime-tool-detail {
+  min-width: 0;
+  max-width: 38ch;
+  overflow: hidden;
+  color: #8792a3;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-tool-phase {
+  flex: 0 0 auto;
+  color: #9aa4b2;
+  font-size: 0.68rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.runtime-tool-row.error .runtime-tool-name,
+.runtime-tool-row.error .runtime-tool-phase {
+  color: #a94444;
+}
+
+@keyframes runtime-tool-enter {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+
+@keyframes runtime-tool-pulse {
+  50% {
+    opacity: 0.42;
+    transform: scale(0.8);
+  }
 }
 
 .agent-recap {
@@ -12290,6 +12405,29 @@ textarea,
   border-left-color: rgba(var(--space-selection-accent-rgb, 96, 165, 250), 0.38);
   background: transparent;
   box-shadow: none;
+}
+
+.app-shell[data-theme="dark"] .runtime-thinking-label,
+.app-shell[data-theme="dark"] .runtime-tool-name {
+  color: #c4cedb;
+}
+
+.app-shell[data-theme="dark"] .runtime-tool-row {
+  color: #9aa8b9;
+}
+
+.app-shell[data-theme="dark"] .runtime-tool-detail,
+.app-shell[data-theme="dark"] .runtime-tool-phase {
+  color: #7f8b9c;
+}
+
+.app-shell[data-theme="dark"] .runtime-tool-row.complete .runtime-tool-dot {
+  background: #82a58d;
+}
+
+.app-shell[data-theme="dark"] .runtime-tool-row.error .runtime-tool-name,
+.app-shell[data-theme="dark"] .runtime-tool-row.error .runtime-tool-phase {
+  color: #f0a1a1;
 }
 
 .app-shell[data-theme="dark"] .turn-landing {

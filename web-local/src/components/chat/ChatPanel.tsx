@@ -249,7 +249,7 @@ export function ChatPanel({
     [space.id, targetConversationId, conversation?.id, surfaceTabId],
   );
   const runtimePreviewScrollKey = useMemo(
-    () => runtimePreviews.map((entry) => `${entry.id}:${entry.phase ?? ""}:${entry.text.length}`).join("|"),
+    () => runtimePreviews.map((entry) => `${entry.id}:${entry.phase ?? ""}:${entry.text.length}:${entry.detail?.length ?? 0}`).join("|"),
     [runtimePreviews],
   );
   const commandQuery = useMemo(() => composerCommandQuery(draft), [draft]);
@@ -562,6 +562,17 @@ export function ChatPanel({
       }
       if (data.type === "tool") {
         beginTurnArtifactTracking();
+        const toolPreviewId = data.toolCallId?.trim()
+          ? `tool-${data.toolCallId.trim()}`
+          : `tool-${++runtimePreviewIdRef.current}`;
+        addRuntimePreview({
+          id: toolPreviewId,
+          kind: "tool",
+          text: data.message?.trim() || data.toolName?.trim() || "Assistant tool",
+          ...(data.detail?.trim() ? { detail: data.detail.trim() } : {}),
+          ...(data.toolName?.trim() ? { toolName: data.toolName.trim() } : {}),
+          phase: data.phase ?? "running",
+        });
       }
       if (data.type === "assistant_thinking") {
         beginTurnArtifactTracking();
@@ -976,7 +987,13 @@ export function ChatPanel({
     if (eventStreamReadyConversationIdRef.current === selected.id) void postPendingMessage();
   }
 
-  const hasVisibleRuntimePreview = runtimePreviews.some((entry) => entry.kind === "thinking" && Boolean(entry.text.trim()));
+  const hasVisibleRuntimePreview = runtimePreviews.some((entry) => (
+    entry.kind === "tool"
+    || Boolean(entry.text.trim())
+    || entry.phase === "queued"
+    || entry.phase === "running"
+    || entry.phase === "streaming"
+  ));
   const hasTranscript = messages.length > 0 || Boolean(streamingAssistant) || hasVisibleRuntimePreview || running;
 
   async function loadConversationRuntime(conversationId: string): Promise<ConversationRuntime | null> {
@@ -1022,7 +1039,6 @@ export function ChatPanel({
         return transcript;
       });
       applyModelConversationTitle(conversationId, result.messages);
-      applyKnownFirstUserConversationTitle(conversationId, result.messages);
       if (pinToBottom) {
         userPinnedToBottomRef.current = true;
         setUserPinnedToBottom(true);
@@ -1039,25 +1055,6 @@ export function ChatPanel({
       }
     }
     return transcript;
-  }
-
-  function applyKnownFirstUserConversationTitle(conversationId: string, transcript: ChatMessage[]) {
-    const existing = conversationsRef.current.find((item) => item.id === conversationId) ?? conversation;
-    if (!existing) return;
-    const title = chatDisplayTitle({ serverTitle: existing.title, messages: transcript });
-    if (existing.title === title) return;
-    const updatedAt = latestTranscriptTime(transcript) ?? existing.updatedAt;
-    const updatedConversation = { ...existing, title, updatedAt };
-    setConversation((current) => current?.id === conversationId ? updatedConversation : current);
-    commitConversations((current) => {
-      const next = current.some((item) => item.id === conversationId)
-        ? current.map((item) => item.id === conversationId ? updatedConversation : item)
-        : [updatedConversation, ...current];
-      return next.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-    });
-    if (conversation?.id === conversationId || targetConversationId === conversationId) {
-      onConversationActivated?.(updatedConversation);
-    }
   }
 
   function applyModelConversationTitle(conversationId: string, transcript: ChatMessage[]) {
@@ -1124,21 +1121,17 @@ export function ChatPanel({
         idempotent: true,
         body: { conversationId: clientTurnIdentity("chat") },
       })).conversation;
-      const shouldUseOptimisticFirstPromptTitle = !conversation || transientConversationIdsRef.current.has(activeConversation.id) || activeConversation.title === "work-fold chat";
-      const optimisticConversation = shouldUseOptimisticFirstPromptTitle
-        ? {
-            ...activeConversation,
-            title: chatDisplayTitle({ firstUserMessage: content }),
-            updatedAt: localUserMessage.createdAt,
-          }
+      const shouldActivateConversation = !conversation || transientConversationIdsRef.current.has(activeConversation.id) || activeConversation.title === "work-fold chat";
+      const activatedConversation = shouldActivateConversation
+        ? { ...activeConversation, title: chatDisplayTitle({ serverTitle: activeConversation.title }), updatedAt: localUserMessage.createdAt }
         : activeConversation;
       if (!conversation) {
         transientConversationIdsRef.current.add(activeConversation.id);
       }
-      if (shouldUseOptimisticFirstPromptTitle) {
-        setConversation(optimisticConversation);
-        onConversationActivated?.(optimisticConversation);
-        commitConversations((current) => [optimisticConversation, ...current.filter((item) => item.id !== optimisticConversation.id)]);
+      if (shouldActivateConversation) {
+        setConversation(activatedConversation);
+        onConversationActivated?.(activatedConversation);
+        commitConversations((current) => [activatedConversation, ...current.filter((item) => item.id !== activatedConversation.id)]);
       }
       const pending: PendingChatSend = {
         conversation: activeConversation,
@@ -1233,10 +1226,9 @@ export function ChatPanel({
       });
       clearStoredChatDraft(pending.draftStorageKey);
       clearStoredPendingChatSend(space.id, pending.conversation.id);
-      const shouldUseFirstPromptTitle = pending.transientConversation || pending.conversation.title === "work-fold chat";
       const updatedConversation = {
         ...pending.conversation,
-        title: shouldUseFirstPromptTitle ? chatDisplayTitle({ firstUserMessage: pending.content }) : chatDisplayTitle({ serverTitle: pending.conversation.title }),
+        title: chatDisplayTitle({ serverTitle: pending.conversation.title }),
         updatedAt: result.message.createdAt,
       };
       transientConversationIdsRef.current.delete(pending.conversation.id);
@@ -1619,7 +1611,7 @@ export function ChatPanel({
           ) : null}
           {running && !streamingAssistant && !hasVisibleRuntimePreview ? (
             <article className="message assistant streaming working-message">
-              <div className="typing-line"><Loader2 className="spin" size={14} /> Working</div>
+              <div className="typing-line"><Loader2 className="spin" size={14} /> Thinking…</div>
             </article>
           ) : null}
           {!hasTranscript ? (
@@ -2134,6 +2126,22 @@ function fixtureRuntimePreviews(): RuntimePreviewEntry[] {
       kind: "thinking",
       text: "**Organizing the result**\n\nI’m separating the cost differences from the open questions so the next action is easy to see.",
       phase: running ? "streaming" : "complete",
+    },
+    {
+      id: "fixture-tool-read",
+      kind: "tool",
+      toolName: "read",
+      text: running ? "Read running" : "Read finished",
+      detail: "Project Notes.docx",
+      phase: running ? "running" : "complete",
+    },
+    {
+      id: "fixture-tool-search",
+      kind: "tool",
+      toolName: "search",
+      text: "Search finished",
+      detail: "budget variance",
+      phase: "complete",
     },
   ];
   if (running) {
