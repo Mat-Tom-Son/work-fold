@@ -874,8 +874,14 @@ test("terminal provider failures persist partial output and leave the Chat resum
     if (requestCount <= 2) {
       send(`Durable partial ${requestCount}.`, null);
       send("", "error");
-    } else {
+    } else if (requestCount === 3) {
       send("Continued safely.", null);
+      send("", "stop");
+    } else if (requestCount === 4) {
+      send("Durable Conversation Recovery.", null);
+      send("", "stop");
+    } else {
+      send("Still titled safely.", null);
       send("", "stop");
     }
     response.end("data: [DONE]\n\n");
@@ -965,6 +971,11 @@ test("terminal provider failures persist partial output and leave the Chat resum
     assert.equal(interrupted.interruption.model, "durability-model");
     assert.deepEqual(interrupted.interruption.activities, []);
     assert.equal(requestCount, 2);
+    assert.equal(
+      interruptedTranscript.messages.some((message: any) => message.kind === "conversation_title" && message.titleSource === "generated"),
+      false,
+      "an interrupted first turn must not make or save a title",
+    );
 
     const resumedTurn = await fetch(messagesUrl, {
       method: "POST",
@@ -974,11 +985,46 @@ test("terminal provider failures persist partial output and leave the Chat resum
     assert.equal(resumedTurn.status, 202, await resumedTurn.text());
     await waitForAsync(async () => {
       const transcript = await json(conversationUrl) as any;
+      const tasks = await api.kernel.getTasks({ kind: "system" });
       return transcript.messages.some((message: any) => (
         message.role === "assistant" && message.content === "Continued safely."
+      )) && transcript.messages.some((message: any) => (
+        message.kind === "conversation_title"
+        && message.titleSource === "generated"
+        && message.content === "Durable Conversation Recovery"
+      )) && !tasks.tasks.some((task) => (
+        task.kind === "assistant_turn"
+        && task.spaceId === spaceId
+        && task.conversationId === conversationId
       ));
     });
-    assert.equal(requestCount, 3);
+    assert.equal(requestCount, 4, "the first successful turn makes exactly one isolated title request");
+
+    const laterTurn = await fetch(messagesUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: "Keep going without renaming this Chat." }),
+    });
+    assert.equal(laterTurn.status, 202, await laterTurn.text());
+    await waitForAsync(async () => {
+      const transcript = await json(conversationUrl) as any;
+      const tasks = await api.kernel.getTasks({ kind: "system" });
+      return transcript.messages.some((message: any) => (
+        message.role === "assistant" && message.content === "Still titled safely."
+      )) && !tasks.tasks.some((task) => (
+        task.kind === "assistant_turn"
+        && task.spaceId === spaceId
+        && task.conversationId === conversationId
+      ));
+    });
+    const stableTranscript = await json(conversationUrl) as any;
+    assert.equal(requestCount, 5, "later turns must not make another title request");
+    assert.deepEqual(
+      stableTranscript.messages
+        .filter((message: any) => message.kind === "conversation_title" && message.titleSource === "generated")
+        .map((message: any) => message.content),
+      ["Durable Conversation Recovery"],
+    );
   } finally {
     await api.close();
     await new Promise<void>((resolve, reject) => {

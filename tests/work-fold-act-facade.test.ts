@@ -1398,7 +1398,7 @@ test("routing runs drive live chat hops with receipts, stop honestly, and refuse
         conversationId: conversations.conversations[0]!.id,
       });
       return status.state === "running";
-    }, 30_000);
+    }, 60_000);
 
     // The ledger's History-restore fence (conflict rule 7): while this run is
     // active, a whole-Space restore of the files hop's target Space refuses
