@@ -17,26 +17,17 @@ test("the persistent menu-bar popover reconciles replies whenever it becomes vis
   assert.doesNotMatch(source, /\{request\.reply\.content\}/);
 });
 
-test("the popover keeps the door first: a quiet fold is the composer, one footer line, and nothing else", async () => {
+test("the popover keeps the conversation and composer visible without idle chrome", async () => {
   const popover = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
-  // The quiet state (no pending decisions, no active request) renders the
-  // header, the drop zone + composer, and one muted footer line. Every other
-  // region is conditional: decisions and the conversation render only when
-  // their content exists, drawers only while their section is open.
+  // Pending decisions remain conditional, but the transcript is an ordinary
+  // always-visible chat surface instead of a Conversation disclosure.
   assert.match(popover, /\{decisionCount > 0 \|\| decisionNotice \? \(/);
-  assert.match(popover, /\{conversationExists \? \(/);
-  assert.match(popover, /const conversationExists = messages\.length > 0 \|\| request !== null;/);
-  assert.match(popover, /\{openSection === "decisions" \? \(/);
-  assert.match(popover, /\{openSection === "conversation" \? \(/);
-  assert.match(popover, /\{openSection === "glance" \? \(/);
-  // The footer line: quiet status at the left — honest about recorded running
-  // work, deriving the Space count from the glance snapshot when it can — and
-  // the What's new strip trigger at the right.
-  assert.match(popover, /className="popover-foot"/);
-  assert.match(popover, /\{decisionCount === 0 && !requestActive \? quietStatus : ""\}/);
-  assert.match(popover, /`\$\{running\} running now`/);
-  assert.match(popover, /`All quiet across \$\{spaces\} Spaces` : "All quiet"/);
-  assert.match(popover, /glanceSpaceCount\(glance\.snapshot\)/);
+  assert.match(popover, /<section className="fold-section fold-section-conversation">\s*<section\s*className="popover-transcript"/);
+  assert.doesNotMatch(popover, />Conversation<\/span>/);
+  assert.doesNotMatch(popover, /conversationExists|aria-controls="popover-conversation"/);
+  // Idle status and glance chrome are absent from the compact menu-bar view.
+  assert.doesNotMatch(popover, /popover-foot|All quiet|What's new|useGlance\("popover"/);
+  assert.doesNotMatch(popover, /Drop files, folders, or links here/);
   // The composer keeps its shipped drop-staging and two-state capture verb
   // (pinned exactly in work-fold-brand.test.ts), and takes focus first in the
   // quiet state without stealing it from anything the person focused.
@@ -49,27 +40,13 @@ test("the popover keeps the door first: a quiet fold is the composer, one footer
   assert.match(popover, /document\.addEventListener\("visibilitychange", focusComposerFirst\)/);
 });
 
-test("the priority ladder auto-opens exactly one folded section at a time", async () => {
+test("pending decisions remain the popover's only disclosure", async () => {
   const popover = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
-  // One accordion: a single openSection state drives every drawer, so
-  // expanding one section collapses the rest to their strips.
-  assert.match(popover, /useState<FoldSection \| null>\(null\)/);
-  // Rung 1 — decisions outrank everything: newly pending decisions open their
-  // section, and it folds back once nothing pends and no just-settled outcome
-  // notice is on screen.
-  assert.match(popover, /if \(decisionCount > 0 && previous === 0\) setOpenSection\("decisions"\);/);
-  assert.match(popover, /else if \(decisionCount === 0 && !decisionNotice\) \{\s*setOpenSection\(\(current\) => \(current === "decisions" \? null : current\)\);/);
-  // Rung 2 — the active request: a needs_you reply opens the conversation,
-  // and a request that just settled auto-expands it once so the result entry
-  // is visible; both defer to pending decisions.
-  assert.match(popover, /if \(decisionCount > 0\) return;\s*if \(phase === "needs_you"\) setOpenSection\("conversation"\);/);
-  assert.match(popover, /activePhases\.has\(previous\) && terminalPhases\.has\(phase\)/);
-  // The ladder acts only on transitions, so a person's own strip choices are
-  // never fought mid-look.
+  assert.match(popover, /useState\(false\)/);
+  assert.match(popover, /if \(decisionCount > 0 && previous === 0\) setDecisionsOpen\(true\);/);
+  assert.match(popover, /else if \(decisionCount === 0 && !decisionNotice\) setDecisionsOpen\(false\);/);
   assert.match(popover, /prevDecisionCountRef/);
-  assert.match(popover, /prevPhaseRef/);
-  // The glance never auto-opens: no ladder effect assigns it.
-  assert.doesNotMatch(popover, /setOpenSection\("glance"\)/);
+  assert.doesNotMatch(popover, /FoldSection|openSection|prevPhaseRef/);
 });
 
 test("the popover surfaces pending decisions one card at a time behind the warning strip", async () => {
@@ -164,12 +141,11 @@ test("the popover accounts for every attachment outcome, including the Space-fre
   assert.match(popover, /no recorded placement — see the reply below/);
 });
 
-test("one narrator: the conversation drawer absorbs the request story and the live tail stays visible", async () => {
+test("one narrator: the always-visible conversation absorbs the request story and live tail", async () => {
   const popover = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
-  // The working line is the conversation's live tail while a request is
-  // active — rendered outside the collapsible drawer so it stays visible even
-  // when the transcript is folded — with the shipped strings intact (the
-  // close-your-fold line is additionally pinned in work-fold-brand.test.ts).
+  // The working line follows the always-visible transcript while a request is
+  // active, with the shipped strings intact (the close-your-fold line is
+  // additionally pinned in work-fold-brand.test.ts).
   const drawerStart = popover.indexOf('id="popover-conversation"');
   const drawerEnd = popover.indexOf('className="fold-tail"');
   assert.ok(drawerStart >= 0 && drawerEnd > drawerStart, "the conversation drawer precedes the live tail");
@@ -178,89 +154,52 @@ test("one narrator: the conversation drawer absorbs the request story and the li
   assert.match(popover, /elapsedLabel \? `started \$\{elapsedLabel\} ago` : "just started"/);
   assert.match(popover, /item\$\{request\.attachments\.length === 1 \? "" : "s"\} attached/);
   assert.match(popover, /Handed off — work continues in \{request\.children\.filter\(\(child\) => child\.state === "running"\)\.length === 1 \? "a Space" : "Spaces"\}\./);
-  assert.match(popover, /request\.phase === "handed_off" \? "Stop remaining work" : "Stop"/);
   assert.match(popover, /className="working-line" role="status" aria-live="polite"/);
   // The handed-off per-child trail and the settled result render inside the
   // drawer as inline entries, after the transcript messages — every recorded
   // state keeps its shipped label, and nothing silently disappears.
-  const handedOffTrail = popover.indexOf('request.phase === "handed_off" ? (\n                <article className="popover-entry">');
+  const handedOffTrail = popover.search(/request\.phase === "handed_off" \? \(\s*<article className="popover-entry">/);
   const resultEntry = popover.indexOf("<ResultEntry request={request} />");
   assert.ok(handedOffTrail > drawerStart && handedOffTrail < drawerEnd, "the handed-off trail is a conversation entry");
   assert.ok(resultEntry > handedOffTrail && resultEntry < drawerEnd, "the settled result is a conversation entry");
   assert.match(popover, /\{child\.spaceName\}: \{childStateLabel\(child\.state\)\}/);
   assert.match(popover, /Couldn't finish\{request\.error \? `: \$\{request\.error\}` : "\."\}/);
   assert.match(popover, /Stopped before it finished\./);
-  // The phase pill stays in the header only while a request is active.
-  assert.match(popover, /\{request && requestActive \? <PhasePill phase=\{request\.phase\} \/> : null\}/);
-  assert.match(popover, /const requestActive = request !== null && !terminalPhases\.has\(request\.phase\);/);
+  // The header carries no redundant phase badge: the live status line and the
+  // in-composer Stop action communicate the running state without crowding it.
+  assert.doesNotMatch(popover, /PhasePill|pill-working/);
 });
 
-test("the popover folds the glance behind What's new and marks seen only when the person expands it", async () => {
+test("the popover renders the live Assistant response and reconciles the durable transcript", async () => {
   const popover = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
-  const section = await readFile(resolve(rootDir, "web-local/src/popover/GlanceSection.tsx"), "utf8");
-
-  // The digest rides the popover's existing refresh cadence so the collapsed
-  // strip's unseen count stays honest, but the seen marker is gated on the
-  // person expanding the strip: fetching never acknowledges, and neither does
-  // a collapsed strip.
-  assert.match(popover, /useGlance\("popover", \{ acknowledge: openSection === "glance" \}\)/);
-  assert.match(popover, /void refreshGlance\(\);/);
-  assert.match(section, /const acknowledge = options\?\.acknowledge !== false;/);
-  assert.match(section, /if \(!acknowledge\) return;/);
-  const fetchBody = section.slice(section.indexOf("const refresh = useCallback"), section.indexOf("useEffect"));
-  assert.doesNotMatch(fetchBody, /glance\/seen/, "the fetch path never acknowledges");
-  assert.match(section, /document\.visibilityState === "hidden"\) return;/);
-  assert.match(section, /snapshot\.seen\[surface\] === snapshot\.cursor \|\| acknowledgedRef\.current === snapshot\.cursor/);
-  assert.match(section, /body: \{ surface, cursor: snapshot\.cursor \}/);
-  assert.match(section, /api<\{ glance: GlanceSnapshotView \}>\("\/api\/management\/glance"\)/);
-
-  // The strip trigger lives on the footer line, counts unseen change items
-  // from the snapshot, and the digest mounts only while expanded — with the
-  // main window's honest empty sentence when nothing is recorded.
-  assert.match(popover, /aria-controls="popover-glance"/);
-  assert.match(popover, /What's new\{unseenCount \? ` \(\$\{unseenCount\}\)` : ""\}/);
-  assert.match(popover, /glanceUnseenChangeCount\(glance\.snapshot, "popover"\)/);
-  assert.match(section, /export function glanceUnseenChangeCount/);
-  const glanceMount = popover.indexOf('<GlanceSection state={glance} surface="popover" />');
-  assert.ok(glanceMount > popover.indexOf('{openSection === "glance" ? ('), "the digest renders only inside the expanded drawer");
-  assert.match(popover, /Nothing recorded right now: no running work, nothing waiting on you, and no recorded changes\./);
-
-  // The digest's sections keep the recorded order and vocabulary, seen items
-  // render quieter — never hidden — and bounds are disclosed, not curated.
-  for (const heading of ["Needs you", "Running now", "Since you last looked", "Checks"]) {
-    assert.ok(section.includes(`>${heading}</h3>`), `the glance renders the ${heading} heading`);
-  }
-  assert.ok(section.indexOf(">Needs you</h3>") < section.indexOf(">Running now</h3>"));
-  assert.ok(section.indexOf(">Running now</h3>") < section.indexOf(">Since you last looked</h3>"));
-  assert.ok(section.indexOf(">Since you last looked</h3>") < section.indexOf(">Checks</h3>"));
-  assert.match(section, /quiet=\{!isNew\(item\)\}/);
-  assert.match(section, /Show earlier \(\{earlierCount\}\)/);
-  assert.match(section, /Nothing new since you last looked\./);
-  assert.match(section, /More is running than fits in this digest\./);
-  assert.match(section, /Some records could not be read just now:/);
-  // Pending decisions stay the card surface's job; the glance renders the
-  // digest's other needs-you kinds so no item appears twice.
-  assert.match(section, /item\.kind !== "pending-decision"/);
+  // Reconnect snapshots replace the transient projection, deltas are batched
+  // to an animation frame, and the authoritative final message replaces it.
+  assert.match(popover, /event\.type === "turn_snapshot" && typeof event\.text === "string"[\s\S]*replaceStreamingAssistant\(event\.text\)/);
+  assert.match(popover, /event\.type === "assistant_delta" && typeof event\.text === "string"[\s\S]*queueStreamingAssistant\(event\.text\)/);
+  assert.match(popover, /event\.type === "assistant_message" && typeof event\.text === "string"[\s\S]*replaceStreamingAssistant\(event\.text\)/);
+  assert.match(popover, /window\.requestAnimationFrame\(flushStreamingAssistant\)/);
+  assert.match(popover, /className="popover-message assistant streaming" aria-label="work-fold is replying"/);
+  assert.match(popover, /<ReactMarkdown remarkPlugins=\{\[remarkGfm\]\}>\{streamingAssistant\}<\/ReactMarkdown>/);
+  assert.match(popover, /if \(!summary\.latestRequest \|\| !activePhases\.has\(summary\.latestRequest\.phase\)\) replaceStreamingAssistant\(""\);/);
 });
 
-test("the popover's strips are accessible disclosures and Escape still hides the popover", async () => {
+test("the compact popover leaves the glance to the main window and approved web clients", async () => {
   const popover = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
-  // Every strip is a button carrying aria-expanded and aria-controls; the
-  // transcript keeps its polite live region and label.
-  assert.match(popover, /aria-expanded=\{openSection === "decisions"\}/);
-  assert.match(popover, /aria-expanded=\{openSection === "conversation"\}/);
-  assert.match(popover, /aria-expanded=\{openSection === "glance"\}/);
-  assert.match(popover, /aria-controls="popover-conversation"/);
+  assert.doesNotMatch(popover, /GlanceSection|useGlance|refreshGlance|popover-glance|What's new|All quiet/);
+  assert.doesNotMatch(popover, /\/api\/management\/glance/);
+});
+
+test("the decision disclosure is accessible and Escape still hides the popover", async () => {
+  const popover = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
+  assert.match(popover, /aria-expanded=\{decisionsOpen\}/);
+  assert.match(popover, /aria-controls="popover-decisions"/);
   assert.match(popover, /aria-label="Your fold" aria-live="polite"/);
-  // A person's strip click toggles the section: expanding moves focus to the
-  // section's first actionable element (falling back to the drawer region),
-  // collapsing leaves focus on the strip the click already focused, and the
-  // ladder's auto-opens never move focus.
-  assert.match(popover, /const toggleSection = useCallback\(\(section: FoldSection\) => \{/);
+  // Expanding moves focus to the first actionable element in the decision
+  // card, falling back to the drawer region itself.
+  assert.match(popover, /const toggleDecisions = useCallback\(\(\) => \{/);
   assert.match(popover, /drawer\.querySelector<HTMLElement>\("button, \[href\], input, textarea, select, summary"\)/);
   assert.match(popover, /\(target \?\? drawer\)\.focus\(\);/);
-  // Escape still hides the popover (and drops the overflow menu with it).
-  assert.match(popover, /if \(event\.key === "Escape"\) \{\s*setMenuOpen\(false\);\s*bridge\?\.management\?\.hide\(\);/);
+  assert.match(popover, /if \(event\.key === "Escape"\) \{\s*bridge\?\.management\?\.hide\(\);/);
 });
 
 test("the popover composer behaves like every other work-fold composer", async () => {
@@ -274,6 +213,18 @@ test("the popover composer behaves like every other work-fold composer", async (
   assert.match(popover, /if \(event\.isComposing\) return;/);
   // The draft box grows with its content instead of scrolling in a fixed slit.
   assert.match(css, /field-sizing: content/);
+  // The composer is one aligned field: a compact one-line textarea that grows
+  // beside its action, never an absolutely positioned or second-row button.
+  assert.match(popover, /className="composer-field"[\s\S]*rows=\{1\}[\s\S]*className=\{`composer-action\$\{requestRunning \? " composer-stop" : " primary"\}`\}/);
+  assert.match(css, /\.composer-field \{[\s\S]*display: flex;[\s\S]*align-items: flex-end;[\s\S]*gap: 6px;/);
+  assert.match(css, /\.composer-action \{[\s\S]*align-self: flex-end;[\s\S]*min-height: 32px;/);
+  assert.doesNotMatch(css, /\.composer-action \{[\s\S]*position: absolute;/);
+  assert.doesNotMatch(popover, /composer-footer/);
+  // The same action becomes Stop while work is active; the composer remains
+  // mounted as a safe draft area and sending is refused until the turn settles.
+  assert.match(popover, /if \(requestRunning\) void stop\(\); else void send\(\);/);
+  assert.match(popover, /requestRunning\s*\? stopping \? "Stopping…" : "Stop"/);
+  assert.match(popover, /if \(!content \|\| sending \|\| \(currentRequest && activePhases\.has\(currentRequest\.phase\)\)\) return;/);
   // The transcript follows new entries only while pinned near the bottom, so
   // reading scrollback is never yanked away by the poll cadence — and a
   // refetch that changes nothing keeps the old array identity.
@@ -284,21 +235,26 @@ test("the popover composer behaves like every other work-fold composer", async (
   const chips = popover.indexOf('className="chips"');
   const composer = popover.indexOf('className="composer"');
   assert.ok(chips >= 0 && composer > chips, "the chips list renders before (outside) the composer section");
+  // The whole surface becomes the drop target only during an actual drag;
+  // there is no permanent instructional row in the composer.
+  assert.match(popover, /onDragEnter=\{onDragEnter\}/);
+  assert.match(popover, /dragDepthRef\.current \+= 1/);
+  assert.match(popover, /\{dropActive \? \(\s*<div className="drop-overlay" role="status" aria-live="polite">/);
+  assert.match(popover, />Drop to add<\/strong>/);
+  assert.match(css, /\.drop-overlay \{[\s\S]*position: fixed;[\s\S]*inset: 6px;[\s\S]*pointer-events: none;/);
+  assert.doesNotMatch(popover, /className="drop-hint"/);
   // New chat cannot orphan a running request's live tail and Stop button.
   assert.match(popover, /if \(current && activePhases\.has\(current\.phase\)\) return;\s*startingNewChatRef\.current = true/);
 });
 
-test("the menu-bar popover starts a clean saved management chat from the overflow menu", async () => {
+test("the header exposes Open app and New chat directly", async () => {
   const source = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
-  // New chat moves from the header into the ⋯ overflow menu with its exact
-  // behavior and title text; the menu is a real menu with outside-click and
-  // Escape dismissal.
-  assert.match(source, /aria-haspopup="menu"/);
-  assert.match(source, /id="popover-overflow-menu" className="popover-menu" role="menu"/);
-  assert.match(source, /role="menuitem"/);
+  assert.match(source, /className="popover-open-app" type="button" onClick=\{\(\) => \{ void bridge\?\.management\?\.openMainWindow\(\); \}\}>Open app<\/button>/);
+  assert.doesNotMatch(source, /<WorkFoldLockup className="popover-brand"/);
+  assert.match(source, /className="popover-new-chat"/);
   assert.match(source, /title="Start a new chat\. This chat stays saved on your desktop\."/);
   assert.match(source, />\s*<SquarePen aria-hidden="true" \/>\s*<span>New chat<\/span>/);
-  assert.match(source, /document\.addEventListener\("pointerdown", closeFromOutside, true\)/);
+  assert.doesNotMatch(source, /popover-overflow-menu|aria-haspopup="menu"|Ellipsis|role="menuitem"/);
   assert.match(source, /startingNewChatRef\.current = true/);
   assert.match(source, /body\.newConversation = true/);
   assert.match(source, /previous chat is still saved on this desktop/);

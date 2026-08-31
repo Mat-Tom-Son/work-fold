@@ -128,7 +128,11 @@ authority while preserving their staged-act taxonomy and safety mechanics.
 3. **"Fold it in"** is the popover composer's capture verb, shown exactly
    when material is being handed over (staged reference chips present). A
    message without material is just "Send". The web client does not carry
-   the two-state label: its send button is always "Send message".
+   the two-state label: its send button is always "Send message". The
+   popover has no permanent drop-zone instruction; its whole surface shows a
+   drop affordance only while files, folders, or links are being dragged over
+   it. While a request runs, the same aligned composer action reads **Stop**;
+   it does not create a second action row.
 4. **"Your fold on the web"** is the user-facing name of the web-access
    area inside **Settings → The fold** (decision F15). "Web access" is the
    short operational form inside that area (toggle, danger actions, errors).

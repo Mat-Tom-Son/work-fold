@@ -171,7 +171,7 @@ test("the web surfaces ship the same pack exports", async () => {
   }
 });
 
-test("onboarding, loading, About, and the popover use the work-fold lockup", async () => {
+test("onboarding, loading, About, and the popover loading state use the work-fold lockup", async () => {
   const [brand, brandCss, onboarding, app, settings, popover, indexHtml, popoverHtml, foundation, popoverCss, mainEntry, constants] = await Promise.all([
     read("web-local/src/components/brand/WorkFoldBrand.tsx"),
     read("web-local/src/brand.css"),
@@ -216,9 +216,9 @@ test("onboarding, loading, About, and the popover use the work-fold lockup", asy
   assert.doesNotMatch(onboarding, />W<|space-wordmark|onboarding-kicker/);
   assert.match(app, /<WorkFoldLoadingState message=/);
   assert.match(settings, /<WorkFoldLockup className="about-work-fold-brand"/);
-  assert.match(popover, /<WorkFoldLockup className="popover-brand" \/>/);
   assert.match(popover, /<WorkFoldLockup className="popover-loading-brand" animated/);
-  assert.match(popover, />Open work-fold<\/button>/);
+  assert.doesNotMatch(popover, /<WorkFoldLockup className="popover-brand"/);
+  assert.match(popover, /className="popover-open-app"[\s\S]*?>Open app<\/button>/);
 
   // Brand fonts ship with the renderer bundle.
   assert.match(mainEntry, /@fontsource-variable\/inter/);

@@ -106,14 +106,17 @@ and evidence stay in the Space's Checks work tab.
 ## Last-seen markers
 
 One machine-local record (`glance-seen.json` under the state root,
-`src/local/glance-seen-store.ts`) maps surface ids — `popover`,
-`main-window`, and `remote:<grantId>`, one marker per approved browser
-grant so two phones do not clear each other — to the cursor each surface
-has acknowledged. Markers are presentation preference exactly as the
-product model defines for Chat attention state: machine-local, disposable,
-never portable, never authority. A marker advances only when a person
-viewing a surface acknowledges a rendered digest; fetching never advances a
-marker, and the fold narrating the glance never advances one either.
+`src/local/glance-seen-store.ts`) maps active surface ids — `main-window`
+and `remote:<grantId>`, one marker per approved browser grant so two phones
+do not clear each other — to the cursor each surface has acknowledged.
+`popover` remains an accepted legacy id so existing state and an older
+renderer cannot corrupt the store, but the current popover neither fetches
+the digest nor advances that marker. Markers are presentation preference
+exactly as the product model defines for Chat attention state: machine-local,
+disposable, never portable, never authority. A marker advances only when a
+person viewing a surface acknowledges a rendered digest; fetching never
+advances a marker, and the fold narrating the glance never advances one
+either.
 
 Marker advance is the glance's only mutation, and its standard answers:
 
@@ -135,21 +138,16 @@ Marker advance is the glance's only mutation, and its standard answers:
 
 ## Surfaces
 
-Three human surfaces read the digest; each owns one marker. No surface
+Two human surfaces read the digest; each owns one marker. No surface
 receives push: the digest is pulled when a surface is visible and never
 recomputed in the background for nobody.
 
-**The popover's What's new strip.** Since the 0.3.1 popover redesign the
-glance folds behind a footer strip labeled **What's new (N)** — N counts
-unseen change items — and expands to the same section order: **Needs you**,
-then **Running now**, then a compact **Since you last looked**, then the
-Checks rows, via `GET /api/management/glance` on the existing session and
-refresh cadence. Acknowledgement is expansion-gated: opening the strip is
-what posts the rendered cursor to `POST /api/management/glance/seen` as
-`popover`; a collapsed strip fetches but never marks seen. The digest is
-app-composed and does not require the management Pi session, so the glance
-stays available even when management commands fail closed; only narration
-needs the conversation.
+**Not the popover.** The compact menu-bar surface is reserved for the live
+conversation, capture, and pending decisions. It has no **What's new**
+footer, does not request `GET /api/management/glance`, and never advances a
+glance marker. Removing that presentation does not remove or clear any
+recorded state; the two reading surfaces below compose the same current
+digest when opened.
 
 **The remote client's Needs you screen.** The approved-browser client shows
 the same digest on its **Needs you** screen, below that screen's pending
@@ -226,7 +224,7 @@ The plan items shipped as follows:
 4. Local API routes (`/api/management/glance`, `/glance/seen`, served without management readiness) — `src/local/server.ts`; `tests/work-fold-management-api.test.ts`, `tests/local-server.test.ts`.
 5. CLI act command (`manage glance`) — `src/local/cli/act-commands.ts`, `src/local/cli/act-facade.ts`; `tests/work-fold-cli-act-protocol.test.ts`, `tests/work-fold-cli-commands.test.ts` (read-lane guard).
 6. Management-instruction narration teaching — `src/local/management-instructions.ts`; `tests/work-fold-management-conversation.test.ts`.
-7. Popover surface — `web-local/src/popover/GlanceSection.tsx`; `tests/management-popover-refresh.test.ts`, `tests/web-ui-contract.test.ts`.
+7. Shared renderer — `web-local/src/popover/GlanceSection.tsx`; the popover no longer mounts it, while `tests/management-popover-refresh.test.ts` pins that boundary.
 8. Remote surface — `src/local/remote-management.ts`, `desktop/src/remote-access.ts`, `services/bridge/`; `tests/desktop-remote-access.test.ts`, `tests/work-fold-remote-management.test.ts`, the bridge suite.
 9. Main-window panel — `web-local/src/components/chrome/GlancePanel.tsx`; `tests/web-ui-contract.test.ts`, `tests/frontend-interaction-contract.test.ts`.
 10. Documentation promotion — recorded in [Fold integration](fold-integration.md).

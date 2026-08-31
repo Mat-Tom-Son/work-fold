@@ -56,6 +56,7 @@ body {
 :root[data-window-material="vibrancy"] body { background: transparent; }
 
 .popover {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -66,58 +67,35 @@ body {
   border-radius: 10px;
 }
 
-.popover.drop-active { outline: 2px dashed var(--pop-accent); outline-offset: -6px; }
-
 .popover-header { display: flex; align-items: center; justify-content: space-between; }
 .popover-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
-.popover-brand { --work-fold-lockup-mark: 26px; }
-
-/* The ⋯ overflow menu: the header keeps the lockup and, while a request is
-   active, the phase pill; everything else folds into this quiet menu. */
-.popover-menu-anchor { position: relative; }
-.popover-menu-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 28px;
+.popover-open-app {
+  flex: none;
   min-height: 28px;
-  padding: 4px;
-  border-color: transparent;
-  background: none;
-  color: var(--pop-text-muted);
-}
-.popover-menu-button:hover,
-.popover-menu-button[aria-expanded="true"] { background: var(--pop-surface-2); color: var(--pop-text); }
-.popover-menu-button svg { width: 15px; height: 15px; stroke-width: 1.9; display: block; }
-.popover-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  min-width: 160px;
-  padding: 4px;
-  background: var(--pop-surface);
-  border: 1px solid var(--pop-border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-}
-.popover-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 6px 8px;
+  padding: 4px 7px;
   border: none;
   border-radius: 6px;
   background: none;
-  color: var(--pop-text);
+  color: var(--pop-text-muted);
   font-size: 12px;
-  text-align: left;
+  font-weight: 600;
 }
-.popover-menu-item:hover { background: var(--pop-surface-2); }
-.popover-menu-item svg { width: 13px; height: 13px; stroke-width: 1.9; flex: none; }
+.popover-open-app:hover { background: var(--pop-surface-2); color: var(--pop-text); }
+.popover-new-chat {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border-color: transparent;
+  background: none;
+  color: var(--pop-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.popover-new-chat:not(:disabled):hover { background: var(--pop-surface-2); color: var(--pop-text); }
+.popover-new-chat svg { width: 14px; height: 14px; stroke-width: 1.9; flex: none; }
 
 .popover-loading {
   place-content: center;
@@ -131,13 +109,6 @@ body {
   width: calc(var(--work-fold-lockup-mark) * 0.96);
 }
 .popover-loading p { margin: 0; }
-
-.pill { font-size: 11px; padding: 2px 10px; border-radius: 999px; background: var(--pop-surface-2); }
-.pill-working { background: var(--pop-accent-bg); color: var(--pop-accent-strong); }
-.pill-handed_off { background: var(--pop-accent-bg); color: var(--pop-accent-strong); }
-.pill-needs_you { background: var(--pop-warning-bg); color: var(--pop-warning-text); }
-.pill-done { background: var(--pop-success-bg); color: var(--pop-success); }
-.pill-failed, .pill-stopped { background: var(--pop-surface-2); color: var(--pop-text-muted); }
 
 .banner {
   display: flex;
@@ -195,7 +166,8 @@ body {
 @keyframes pop-spin { to { transform: rotate(360deg); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .spinner { animation: none; border-top-color: var(--pop-border); }
+  .spinner, .popover-message.streaming .popover-message-role::after { animation: none; }
+  .spinner { border-top-color: var(--pop-border); }
 }
 
 .trail { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -204,12 +176,11 @@ body {
 .cross { color: var(--pop-danger); font-weight: 600; }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--pop-text-muted); flex: none; align-self: center; }
 
-/* Folded sections: one calm surface, not stacked cards. Strips are quiet
-   full-width rows separated by hairlines; exactly one section is expanded at
-   a time and the rest stay reachable as their strips. */
+/* The ordinary conversation stays visible. Only the exceptional decision
+   stack uses a disclosure so it can demand attention without taking over the
+   whole popover. */
 .fold-section { display: flex; flex-direction: column; }
 .fold-section-conversation { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.fold-section-conversation:not(:has(.popover-transcript)) { flex: 0 0 auto; }
 .fold-strip {
   display: flex;
   align-items: center;
@@ -246,28 +217,13 @@ body {
 .fold-strip-decisions:hover { color: var(--pop-warning-text); }
 .fold-drawer { display: flex; flex-direction: column; gap: 8px; padding: 6px 0 2px; }
 .fold-drawer:focus { outline: none; }
-.fold-drawer-glance { max-height: 260px; overflow-y: auto; user-select: text; }
-/* The active request's live tail: visible below the Conversation strip even
-   while the drawer is collapsed. */
+/* The active request's live tail sits directly below the transcript. */
 .fold-tail { display: flex; flex-direction: column; gap: 6px; padding: 8px 2px 2px; }
-/* An inline narrator entry inside the conversation drawer (handed-off trail,
+/* An inline narrator entry inside the conversation (handed-off trail or
    settled result), separated like a message. */
 .popover-entry { display: flex; flex-direction: column; gap: 8px; padding: 10px 2px; }
 .popover-entry + .popover-entry, .popover-message + .popover-entry { border-top: 1px solid var(--pop-border); }
 .popover-entry p { margin: 0; }
-
-/* The footer line: quiet status at the left, the What's new strip trigger at
-   the right. In the quiet state this line and the composer are all there is. */
-.popover-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding-top: 4px;
-  border-top: 1px solid var(--pop-border);
-}
-.popover-foot-status { color: var(--pop-text-muted); font-size: 11.5px; }
-.popover-foot .fold-strip { width: auto; flex: none; border-top: none; padding: 4px 2px; }
 
 .popover-transcript { min-height: 90px; flex: 1; overflow-y: auto; user-select: text; }
 .popover-transcript:focus { outline: none; }
@@ -288,16 +244,36 @@ body {
 .popover-message-body table { width: 100%; margin: 8px 0; border-collapse: collapse; font-size: 11.5px; }
 .popover-message-body th, .popover-message-body td { padding: 5px 6px; border: 1px solid var(--pop-border); text-align: left; vertical-align: top; }
 .popover-message-body a { color: var(--pop-accent-strong); text-underline-offset: 2px; }
+.popover-message.streaming .popover-message-role::after {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: var(--pop-accent);
+  vertical-align: 1px;
+  animation: pop-stream-pulse 1.1s ease-in-out infinite;
+}
 
-.composer { display: flex; flex-direction: column; gap: 8px; margin-top: auto; }
+@keyframes pop-stream-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
 
-.drop-hint {
-  border: 1px dashed var(--pop-border);
-  border-radius: 8px;
-  padding: 10px;
-  text-align: center;
-  color: var(--pop-text-muted);
-  font-size: 12px;
+.composer { margin-top: auto; }
+.composer-field {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid var(--pop-border);
+  border-radius: 10px;
+  background: var(--pop-surface);
+}
+.composer-field:focus-within {
+  outline: 2px solid var(--pop-accent);
+  outline-offset: -1px;
 }
 
 .chips { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -332,27 +308,39 @@ body {
 .chip-remove:hover { color: var(--pop-text); }
 
 textarea {
+  flex: 1;
   width: 100%;
+  min-width: 0;
   resize: none;
-  border: 1px solid var(--pop-border);
-  border-radius: 8px;
-  background: var(--pop-surface);
+  border: none;
+  border-radius: 6px;
+  background: transparent;
   color: var(--pop-text);
   font: inherit;
-  padding: 8px 10px;
-  /* Grows with the draft between the roomy 3-line door and ~8 lines, then
-     scrolls, so a longer instruction never has to be written through a
-     3-line slit. */
+  padding: 7px 8px;
+  /* Starts as a compact bar, grows with the draft, then scrolls. */
   field-sizing: content;
-  min-height: 74px;
-  max-height: 170px;
+  min-height: 34px;
+  max-height: 150px;
   overflow-y: auto;
 }
 
-textarea:focus { outline: 2px solid var(--pop-accent); outline-offset: -1px; }
+textarea:focus { outline: none; }
 
-.composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.row-end { display: flex; justify-content: flex-end; }
+.composer-action {
+  flex: none;
+  align-self: flex-end;
+  min-width: 58px;
+  min-height: 32px;
+  padding: 5px 11px;
+}
+.composer-stop {
+  border-color: var(--pop-danger-border);
+  background: color-mix(in srgb, var(--pop-danger) 8%, transparent);
+  color: var(--pop-danger);
+  font-weight: 600;
+}
+.composer-stop:not(:disabled):hover { background: color-mix(in srgb, var(--pop-danger) 14%, transparent); }
 
 button {
   font: inherit;
@@ -375,12 +363,6 @@ button.primary {
 }
 button.primary:not(:disabled):hover { filter: brightness(1.06); }
 button.primary:not(:disabled):active { filter: brightness(0.92); }
-
-button.ghost { border-color: transparent; background: none; color: var(--pop-text-muted); }
-button.ghost:hover { color: var(--pop-text); }
-
-button.danger-quiet { color: var(--pop-danger); border-color: var(--pop-danger-border); background: none; }
-button.danger-quiet:not(:disabled):hover { background: color-mix(in srgb, var(--pop-danger) 8%, transparent); }
 
 /* The live tail's status lines are readable output — let them be copied. */
 .fold-tail, .needs-you-title { user-select: text; }
@@ -461,24 +443,22 @@ button.danger-quiet:not(:disabled):hover { background: color-mix(in srgb, var(--
 }
 .needs-you-advance:hover { color: var(--pop-text); }
 
-/* The glance (docs/fold-glance.md): the deterministic digest behind the
-   What's new strip on the footer line. Seen items render quieter, never
-   hidden, and a collapsed strip never marks anything seen. */
-.glance { display: flex; flex-direction: column; gap: 5px; }
-.glance-heading { margin: 4px 0 0; color: var(--pop-text-muted); font-size: 11px; font-weight: 650; }
-.glance-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
-.glance-item { font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
-.glance-item.quiet { color: var(--pop-text-muted); }
-.glance-empty, .glance-truncated, .glance-unavailable { margin: 0; color: var(--pop-text-muted); font-size: 11px; }
-.glance-unavailable { color: var(--pop-warning-text); }
-.glance-show-earlier {
-  align-self: flex-start;
-  margin: 2px 0 0;
-  padding: 2px 8px;
-  border: 1px solid var(--pop-border);
-  border-radius: 6px;
-  background: none;
-  color: var(--pop-text-muted);
-  font-size: 11px;
-  cursor: pointer;
+.drop-overlay {
+  position: fixed;
+  inset: 6px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 2px dashed color-mix(in srgb, var(--pop-accent) 72%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--pop-bg) 92%, transparent);
+  color: var(--pop-text);
+  backdrop-filter: blur(10px) saturate(110%);
+  pointer-events: none;
 }
+.drop-overlay svg { width: 24px; height: 24px; margin-bottom: 3px; color: var(--pop-accent); stroke-width: 1.6; }
+.drop-overlay strong { font-size: 14px; font-weight: 650; }
+.drop-overlay span { color: var(--pop-text-muted); font-size: 12px; }
