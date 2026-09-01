@@ -97,6 +97,19 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
   decisions: {
     chooseFileGrantRoot: (spaceId: string) => ipcRenderer.invoke("work-fold:decisions:choose-file-grant-root", spaceId),
   },
+  // Main-window-only Routing management. The popover preload deliberately
+  // omits this namespace; the matching main-process handlers also validate
+  // the exact main renderer before reaching the in-process Settings facade.
+  routings: {
+    list: () => ipcRenderer.invoke("work-fold:routings:list"),
+    show: (routingId: string) => ipcRenderer.invoke("work-fold:routings:show", routingId),
+    history: (routingId: string) => ipcRenderer.invoke("work-fold:routings:history", routingId),
+    stageEnable: (routingId: string) => ipcRenderer.invoke("work-fold:routings:stage-enable", routingId),
+    run: (routingId: string) => ipcRenderer.invoke("work-fold:routings:run", routingId),
+    stop: (routingId: string) => ipcRenderer.invoke("work-fold:routings:stop", routingId),
+    disable: (routingId: string) => ipcRenderer.invoke("work-fold:routings:disable", routingId),
+    delete: (routingId: string) => ipcRenderer.invoke("work-fold:routings:delete", routingId),
+  },
   restrictedApps: {
     mountView: (request: unknown) => ipcRenderer.invoke("work-fold:restricted-app-view:mount", request),
     layoutView: (request: unknown) => ipcRenderer.send("work-fold:restricted-app-view:layout", request),

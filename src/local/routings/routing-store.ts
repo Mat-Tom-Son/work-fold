@@ -1,10 +1,12 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { appendFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
+import { WORKFOLD_CLI_ACT_SURFACES, type WorkFoldCliActSurface } from "../cli/act-receipts.js";
 import { FOLD_DECISION_SURFACES, type FoldDecisionSurface } from "../fold-staged-acts.js";
 import { workFoldStateRoot } from "../state-paths.js";
 import {
+  assertWorkFoldRoutingAtAdmissionHorizon,
   normalizeWorkFoldRoutingDeclaration,
   workFoldRoutingBounds,
   workFoldRoutingDigest,
@@ -21,7 +23,7 @@ import {
  * claiming to be routing state is inert bytes anywhere else — authority
  * exists only in this store, and only over a digest a person consecrated.
  */
-export const WORKFOLD_ROUTING_STORE_SCHEMA_VERSION = 1;
+export const WORKFOLD_ROUTING_STORE_SCHEMA_VERSION = 2;
 
 export const WORKFOLD_ROUTING_RECEIPTS_MAX_BYTES = 1024 * 1024;
 
@@ -51,7 +53,7 @@ export function workFoldRoutingReceiptsRotatedFile(stateRoot?: string): string {
   return join(stateRoot ? resolve(stateRoot) : workFoldStateRoot(), "routings", "receipts.1.jsonl");
 }
 
-export type WorkFoldRoutingHealth = "enabled" | "disabled" | "suspended";
+export type WorkFoldRoutingHealth = "enabled" | "disabled" | "suspended" | "completed";
 
 /** Terminal and progress outcomes for run- and hop-scoped receipt records. */
 export type WorkFoldRoutingRunReceiptOutcome =
@@ -68,6 +70,7 @@ export type WorkFoldRoutingLifecycleReceiptOutcome =
   | "disabled"
   | "suspended"
   | "re-registered"
+  | "completed"
   | "deleted";
 
 export type WorkFoldRoutingReceiptScope = "routing" | "run" | "hop";
@@ -75,7 +78,7 @@ export type WorkFoldRoutingReceiptScope = "routing" | "run" | "hop";
 /** Why a run was admitted; the terminal record names the trigger cause exactly. */
 export type WorkFoldRoutingRunCause =
   | { kind: "scheduled" | "resume"; slotAt: string }
-  | { kind: "run-now"; requestId?: string }
+  | { kind: "run-now"; requestId?: string; surface?: WorkFoldCliActSurface }
   | {
       kind: "on-settled";
       source:
@@ -125,17 +128,21 @@ export interface WorkFoldRoutingReceiptV1 {
   failedHopId?: string;
   /** Hop task ids a stop aborted, exactly as `manage stop` names child turns. */
   stoppedHopTaskIds?: string[];
-  surface?: FoldDecisionSurface;
+  surface?: WorkFoldCliActSurface;
   decisionId?: string;
   browserId?: string;
   missingSpaceIds?: string[];
   requestId?: string;
+  occurrenceId?: string;
+  scheduledRunId?: string;
 }
 
 export interface WorkFoldRoutingOpenRun {
   routingId: string;
   runId: string;
   title?: string;
+  digest?: string;
+  cause?: Extract<WorkFoldRoutingRunCause, { kind: "scheduled" | "resume" }>;
   openHopIds: string[];
 }
 
@@ -231,7 +238,13 @@ export class WorkFoldRoutingReceipts {
    */
   scanOpenRuns(): Promise<WorkFoldRoutingOpenRun[]> {
     const operation = this.#queue.catch(() => undefined).then(async () => {
-      const open = new Map<string, { routingId: string; title?: string; openHopIds: Set<string> }>();
+      const open = new Map<string, {
+        routingId: string;
+        title?: string;
+        digest?: string;
+        cause?: Extract<WorkFoldRoutingRunCause, { kind: "scheduled" | "resume" }>;
+        openHopIds: Set<string>;
+      }>();
       for (const path of [this.rotatedPath, this.path]) {
         const text = await readFile(path, "utf8").catch((error: unknown) => {
           if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
@@ -261,6 +274,8 @@ export class WorkFoldRoutingReceipts {
               open.set(record.runId, {
                 routingId: record.routingId,
                 ...(typeof record.title === "string" ? { title: record.title } : {}),
+                ...(typeof record.digest === "string" ? { digest: record.digest } : {}),
+                ...(scheduledReceiptCause(record.cause) ? { cause: scheduledReceiptCause(record.cause) } : {}),
                 openHopIds: new Set(),
               });
             } else {
@@ -278,6 +293,8 @@ export class WorkFoldRoutingReceipts {
         routingId: run.routingId,
         runId,
         ...(run.title !== undefined ? { title: run.title } : {}),
+        ...(run.digest !== undefined ? { digest: run.digest } : {}),
+        ...(run.cause !== undefined ? { cause: run.cause } : {}),
         openHopIds: [...run.openHopIds],
       }));
     });
@@ -352,6 +369,19 @@ export interface WorkFoldRoutingRecord {
   lastScheduledAt?: string;
   disabledAt?: string;
   suspension?: WorkFoldRoutingSuspension;
+  /** Durable single-fire claim for a version-2 one-time trigger. */
+  atOccurrence?: {
+    occurrenceId: string;
+    slotAt: string;
+    consumedAt: string;
+    runId: string;
+    finishedAt?: string;
+  };
+}
+
+export interface WorkFoldRoutingActionReceiptContext {
+  requestId?: string;
+  surface?: WorkFoldCliActSurface;
 }
 
 export interface WorkFoldRoutingEnableInput {
@@ -486,7 +516,17 @@ export class WorkFoldRoutingStore {
         );
       }
       const decision = normalizeDecision(input.decision);
-      const now = (input.now ?? this.#now()).toISOString();
+      const admissionTime = input.now ?? this.#now();
+      try {
+        assertWorkFoldRoutingAtAdmissionHorizon(declaration, admissionTime);
+      } catch (error) {
+        throw new WorkFoldRoutingStoreError(
+          "INPUT_INVALID",
+          `work-fold refused this routing declaration: ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error },
+        );
+      }
+      const now = admissionTime.toISOString();
       const draft = structuredClone(this.#file);
       const existing = draft.routings.find((candidate) => candidate.declaration.id === declaration.id);
       if (!existing && draft.routings.length >= workFoldRoutingBounds.maxRoutingsPerMachine) {
@@ -529,9 +569,13 @@ export class WorkFoldRoutingStore {
    * runs and cancels admissions after this returns. Never destroys the
    * declaration, grant history, or receipts.
    */
-  async disable(routingId: string): Promise<WorkFoldRoutingRecord> {
+  async disable(
+    routingId: string,
+    receiptContext: WorkFoldRoutingActionReceiptContext = {},
+  ): Promise<WorkFoldRoutingRecord> {
     return await this.#mutate(async () => {
       this.#assertOperational();
+      const action = normalizeActionReceiptContext(receiptContext);
       const draft = structuredClone(this.#file);
       const routing = this.#requireRouting(draft, routingId);
       if (routing.health !== "enabled") {
@@ -539,7 +583,9 @@ export class WorkFoldRoutingStore {
           "HEALTH_INVALID",
           routing.health === "disabled"
             ? "This routing is already disabled."
-            : "This routing is suspended because a referenced Space was removed; there is no enablement left to disable, and leaving suspension is a fresh consecration.",
+            : routing.health === "completed"
+              ? "This one-time routing is completed; its scheduled occurrence has already been consumed."
+              : "This routing is suspended because a referenced Space was removed; there is no enablement left to disable, and leaving suspension is a fresh consecration.",
           { health: routing.health },
         );
       }
@@ -550,6 +596,7 @@ export class WorkFoldRoutingStore {
         outcome: "disabled",
         routingId,
         digest: routing.digest,
+        ...action,
       });
       await this.#commit(draft);
       return structuredClone(routing);
@@ -651,8 +698,70 @@ export class WorkFoldRoutingStore {
       const draft = structuredClone(this.#file);
       const routing = draft.routings.find((candidate) => candidate.declaration.id === routingId);
       if (!routing || routing.health !== "enabled") return false;
-      routing.lastScheduledAt = new Date(lastScheduledAt).toISOString();
+      const canonical = new Date(lastScheduledAt).toISOString();
+      if (routing.lastScheduledAt !== undefined && Date.parse(routing.lastScheduledAt) >= Date.parse(canonical)) return true;
+      routing.lastScheduledAt = canonical;
       await this.#commit(draft);
+      return true;
+    });
+  }
+
+  /**
+   * Atomically consumes one deterministic one-time occurrence before hop 1.
+   * The health transition is the at-most-once gate: startup never arms a
+   * completed record, even when the process stopped before a run receipt.
+   */
+  async claimAtOccurrence(
+    routingId: string,
+    slotAt: string,
+    runId: string,
+    now?: Date,
+  ): Promise<WorkFoldRoutingRecord | null> {
+    return await this.#mutate(async () => {
+      this.#assertOperational();
+      requireReference(runId, "Scheduled run id");
+      if (!isTimestamp(slotAt)) {
+        throw new WorkFoldRoutingStoreError("INPUT_INVALID", "A one-time occurrence slot must be an ISO timestamp.");
+      }
+      const canonicalSlot = new Date(slotAt).toISOString();
+      const draft = structuredClone(this.#file);
+      const routing = draft.routings.find((candidate) => candidate.declaration.id === routingId);
+      if (!routing || routing.health !== "enabled" || routing.declaration.trigger.kind !== "at") return null;
+      if (routing.declaration.trigger.at !== canonicalSlot) return null;
+      routing.health = "completed";
+      routing.atOccurrence = {
+        occurrenceId: workFoldRoutingAtOccurrenceId(routingId, routing.digest, canonicalSlot),
+        slotAt: canonicalSlot,
+        consumedAt: (now ?? this.#now()).toISOString(),
+        runId,
+      };
+      await this.#commit(draft);
+      return structuredClone(routing);
+    });
+  }
+
+  /** Adds the terminal time to an already-consumed occurrence; idempotent. */
+  async finishAtOccurrence(routingId: string, runId: string, finishedAt: string): Promise<boolean> {
+    return await this.#mutate(async () => {
+      this.#assertOperational();
+      if (!isTimestamp(finishedAt)) {
+        throw new WorkFoldRoutingStoreError("INPUT_INVALID", "A one-time occurrence finish time must be an ISO timestamp.");
+      }
+      const draft = structuredClone(this.#file);
+      const routing = draft.routings.find((candidate) => candidate.declaration.id === routingId);
+      if (routing?.health !== "completed" || routing.atOccurrence?.runId !== runId) return false;
+      if (routing.atOccurrence.finishedAt !== undefined) return true;
+      routing.atOccurrence.finishedAt = new Date(finishedAt).toISOString();
+      await this.#commit(draft);
+      await this.#journalBestEffort({
+        scope: "routing",
+        outcome: "completed",
+        routingId,
+        digest: routing.digest,
+        occurrenceId: routing.atOccurrence.occurrenceId,
+        scheduledRunId: runId,
+        detail: "The one-time scheduled occurrence was consumed and reached a terminal outcome.",
+      });
       return true;
     });
   }
@@ -662,9 +771,13 @@ export class WorkFoldRoutingStore {
    * and cadence anchor. The receipts journal is retained — audit records
    * survive the object — which is why deletion is strictly journal-first.
    */
-  async delete(routingId: string): Promise<WorkFoldRoutingRecord> {
+  async delete(
+    routingId: string,
+    receiptContext: WorkFoldRoutingActionReceiptContext = {},
+  ): Promise<WorkFoldRoutingRecord> {
     return await this.#mutate(async () => {
       this.#assertOperational();
+      const action = normalizeActionReceiptContext(receiptContext);
       const draft = structuredClone(this.#file);
       const routing = this.#requireRouting(draft, routingId);
       if (routing.health === "enabled") {
@@ -679,6 +792,7 @@ export class WorkFoldRoutingStore {
         outcome: "deleted",
         routingId,
         digest: routing.digest,
+        ...action,
         detail: `Deleted from ${routing.health}. Receipts are retained; audit records survive the object.`,
       });
       draft.routings = draft.routings.filter((candidate) => candidate.declaration.id !== routingId);
@@ -776,6 +890,22 @@ function normalizeDecision(value: WorkFoldRoutingEnableInput["decision"]): WorkF
   };
 }
 
+function normalizeActionReceiptContext(
+  value: WorkFoldRoutingActionReceiptContext,
+): WorkFoldRoutingActionReceiptContext {
+  if (!value || typeof value !== "object") {
+    throw new WorkFoldRoutingStoreError("INPUT_INVALID", "Routing receipt context must be an object.");
+  }
+  if (value.requestId !== undefined) requireReference(value.requestId, "Request id");
+  if (value.surface !== undefined && !WORKFOLD_CLI_ACT_SURFACES.includes(value.surface)) {
+    throw new WorkFoldRoutingStoreError("INPUT_INVALID", "Routing action surface is invalid.");
+  }
+  return {
+    ...(value.requestId !== undefined ? { requestId: value.requestId } : {}),
+    ...(value.surface !== undefined ? { surface: value.surface } : {}),
+  };
+}
+
 function requireReference(value: unknown, label: string): asserts value is string {
   if (typeof value !== "string" || !value.trim() || value.length > maximumTextLength || forbiddenTextPattern.test(value)) {
     throw new WorkFoldRoutingStoreError("INPUT_INVALID", `${label} is required and must be plain text.`);
@@ -822,7 +952,7 @@ async function loadRoutingStoreFile(
   const record = parsed as Record<string, unknown>;
   const unknown = Object.keys(record).find((key) => key !== "schemaVersion" && key !== "routings");
   if (unknown) return damaged(`carries the unknown field ${unknown}`);
-  if (record.schemaVersion !== WORKFOLD_ROUTING_STORE_SCHEMA_VERSION) {
+  if (record.schemaVersion !== 1 && record.schemaVersion !== WORKFOLD_ROUTING_STORE_SCHEMA_VERSION) {
     return typeof record.schemaVersion === "number" && record.schemaVersion > WORKFOLD_ROUTING_STORE_SCHEMA_VERSION
       ? damaged(`was written by a newer work-fold (schema version ${record.schemaVersion})`)
       : damaged(`uses the unsupported schema version ${String(record.schemaVersion)}`);
@@ -844,9 +974,19 @@ async function loadRoutingStoreFile(
   return { file: { schemaVersion: WORKFOLD_ROUTING_STORE_SCHEMA_VERSION, routings }, damageReason: null };
 }
 
-const ROUTING_RECORD_KEYS = ["declaration", "digest", "health", "grants", "lastScheduledAt", "disabledAt", "suspension"];
+const ROUTING_RECORD_KEYS = [
+  "declaration",
+  "digest",
+  "health",
+  "grants",
+  "lastScheduledAt",
+  "disabledAt",
+  "suspension",
+  "atOccurrence",
+];
 const GRANT_KEYS = ["digest", "decisionId", "approvedAt", "surface", "browserId", "browserGrantId"];
 const SUSPENSION_KEYS = ["at", "missingSpaceIds", "reRegisteredSpaceIds"];
+const AT_OCCURRENCE_KEYS = ["occurrenceId", "slotAt", "consumedAt", "runId", "finishedAt"];
 
 function routingRecordIssue(value: unknown): string | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return "a routing record must be an object";
@@ -862,7 +1002,7 @@ function routingRecordIssue(value: unknown): string | null {
   // Recompute rather than trust: a digest that does not match its declaration
   // is digest-mismatched authority, which must never load.
   if (record.digest !== workFoldRoutingDigest(declaration)) return "its digest does not match its declaration";
-  if (record.health !== "enabled" && record.health !== "disabled" && record.health !== "suspended") {
+  if (record.health !== "enabled" && record.health !== "disabled" && record.health !== "suspended" && record.health !== "completed") {
     return "its health state is unknown";
   }
   if (!Array.isArray(record.grants) || record.grants.length < 1 || record.grants.length > WORKFOLD_ROUTING_GRANT_HISTORY_LIMIT) {
@@ -873,10 +1013,13 @@ function routingRecordIssue(value: unknown): string | null {
     if (issue) return issue;
   }
   const newest = record.grants[record.grants.length - 1] as WorkFoldRoutingGrant;
-  if (record.health === "enabled" && newest.digest !== record.digest) {
+  if ((record.health === "enabled" || record.health === "completed") && newest.digest !== record.digest) {
     return "its live grant does not pin its declaration digest";
   }
   if (record.lastScheduledAt !== undefined && !isTimestamp(record.lastScheduledAt)) return "its cadence anchor is invalid";
+  if (record.lastScheduledAt !== undefined && declaration.trigger.kind !== "interval") {
+    return "only an interval routing may hold a cadence anchor";
+  }
   if (record.disabledAt !== undefined && !isTimestamp(record.disabledAt)) return "its disabledAt is invalid";
   if ((record.health === "suspended") !== (record.suspension !== undefined)) {
     return "suspension detail and suspended health must appear together";
@@ -885,7 +1028,55 @@ function routingRecordIssue(value: unknown): string | null {
     const issue = suspensionIssue(record.suspension, workFoldRoutingReferencedSpaceIds(declaration));
     if (issue) return issue;
   }
+  if ((record.health === "completed") !== (record.atOccurrence !== undefined)) {
+    return "one-time occurrence detail and completed health must appear together";
+  }
+  if (record.atOccurrence !== undefined) {
+    if (declaration.trigger.kind !== "at") return "only a one-time routing may hold occurrence detail";
+    const issue = atOccurrenceIssue(record.atOccurrence, declaration);
+    if (issue) return issue;
+  }
   return null;
+}
+
+function atOccurrenceIssue(value: unknown, declaration: WorkFoldRoutingDeclaration): string | null {
+  if (declaration.trigger.kind !== "at") return "only a one-time declaration may validate occurrence detail";
+  const trigger = declaration.trigger;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "one-time occurrence detail must be an object";
+  const occurrence = value as Record<string, unknown>;
+  const unknown = Object.keys(occurrence).find((key) => !AT_OCCURRENCE_KEYS.includes(key));
+  if (unknown) return `one-time occurrence field ${unknown} is not part of the contract`;
+  if (typeof occurrence.occurrenceId !== "string" || !/^at-[a-f0-9]{32}$/.test(occurrence.occurrenceId)) {
+    return "the one-time occurrence id is invalid";
+  }
+  if (!isTimestamp(occurrence.slotAt) || occurrence.slotAt !== trigger.at) {
+    return "the one-time occurrence slot does not match its declaration";
+  }
+  if (!isTimestamp(occurrence.consumedAt)) return "the one-time occurrence consumedAt is invalid";
+  if (typeof occurrence.runId !== "string" || !occurrence.runId.trim()) return "the one-time occurrence run id is invalid";
+  if (occurrence.finishedAt !== undefined && !isTimestamp(occurrence.finishedAt)) {
+    return "the one-time occurrence finishedAt is invalid";
+  }
+  if (
+    occurrence.finishedAt !== undefined
+    && Date.parse(occurrence.finishedAt as string) < Date.parse(occurrence.consumedAt as string)
+  ) return "the one-time occurrence finished before it was consumed";
+  const expected = workFoldRoutingAtOccurrenceId(declaration.id, workFoldRoutingDigest(declaration), trigger.at);
+  if (occurrence.occurrenceId !== expected) return "the one-time occurrence id does not match its declaration";
+  return null;
+}
+
+export function workFoldRoutingAtOccurrenceId(routingId: string, digest: string, slotAt: string): string {
+  return `at-${createHash("sha256").update(`${routingId}\0${digest}\0${slotAt}`).digest("hex").slice(0, 32)}`;
+}
+
+function scheduledReceiptCause(
+  value: unknown,
+): Extract<WorkFoldRoutingRunCause, { kind: "scheduled" | "resume" }> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const cause = value as Record<string, unknown>;
+  if ((cause.kind !== "scheduled" && cause.kind !== "resume") || !isTimestamp(cause.slotAt)) return undefined;
+  return { kind: cause.kind, slotAt: new Date(cause.slotAt as string).toISOString() };
 }
 
 function grantIssue(value: unknown): string | null {

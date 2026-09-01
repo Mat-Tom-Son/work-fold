@@ -13,6 +13,12 @@ declaration and step contracts, the executor's failure semantics, the
 lifecycle and five-questions record, and the bounds. The promotion record is
 [Fold integration](fold-integration.md).
 
+The first expansion shipped on 2026-09-01: the declaration contract now
+accepts versions 1 and 2, version 2 adds a bounded one-time `at` trigger,
+and Settings → The fold → Routings is the desktop management surface. The
+store schema is version 2; version-1 records load and are rewritten as
+version 2 on the next mutation, while newer schemas still fail closed.
+
 A **routing** is a machine-local, inert-until-enabled declaration of
 deterministic steps that move work between Spaces: start a Space Chat with a
 fixed message, copy files from one Space into another with a History restore
@@ -87,24 +93,50 @@ making routing chains structurally impossible — no cycles, no fan-out.
 Composition happens inside one routing, up to its step bound; chains would
 be a separate register decision with its own depth budget.
 
-**The schedule trigger** is `{"kind": "interval", "intervalMinutes": N}`
+**The recurring schedule trigger** is `{"kind": "interval", "intervalMinutes": N}`
 with the restricted-app automation bounds reused as-is (15–1440 minutes).
 Cadence is durable — a persisted `lastScheduledAt` anchor resumes across
 restarts — and catch-up is bounded to the existing `latest` policy: at most
 one make-up run for the most recent missed slot, staggered by the shared
-deterministic jitter. Missed slots never queue. Time-of-day and calendar
-schedules are deliberately out of version 1.
+deterministic jitter. Missed slots never queue.
+
+**The one-time schedule trigger** is
+`{"kind":"at","at":"2026-09-01T21:00:00-04:00","ifMissed":"run"}`
+and requires declaration version 2. `at` must carry an explicit UTC offset;
+normalization stores one UTC instant. Enablement rechecks that the instant is
+at least 1 minute and no more than 366 days ahead. `ifMissed` is `run` or
+`skip`: after launch or wake, `run` admits one bounded catch-up for the exact
+slot while `skip` records that the occurrence did not run. Nothing runs while
+work-fold is quit.
+
+Sleep does not spend work that never launched. If a due `run` occurrence is
+waiting for a scheduler slot when suspension cancels the admission, its
+durable record remains enabled and the exact slot is admitted once on resume.
+An `ifMissed: "skip"` occurrence instead records `run: skipped` followed by
+the routing lifecycle `completed`, with no hop execution.
+
+A scheduled one-time occurrence is consumed at most once. The executor
+writes the strict run `accepted` receipt, then commits a deterministic
+occurrence claim `{occurrenceId, slotAt, consumedAt, runId}`, then begins hop
+1. That claim moves the routing to `completed`; success, failure, Stop, or
+interruption do not re-arm it. Startup reconciles a crash between acceptance
+and claim by consuming the same deterministic occurrence and recording the
+run interrupted. Completed records remain visible until a person deletes
+them and keep counting against the 32-routing bound.
 
 **Manual run-now** (`work-fold routings run`) is a direct verb: available
 for every *enabled* routing, receipted, never a schedule mutation. Run-now
 on a merely proposed routing is refused: enablement is what binds the
 person's review to the exact declaration digest, and the executor must never
 run an unreviewed standing declaration, even once.
+For a one-time routing, Run now executes an independent copy and leaves its
+declared slot untouched. After the slot is consumed, completed health refuses
+Run now; another occurrence is a new proposal and enablement.
 
 ## The declaration
 
 Authoring follows the Check-proposal pattern: the fold writes an inert,
-typed, kind/version JSON file (`work-fold.routing-proposal`, version 1,
+typed, kind/version JSON file (`work-fold.routing-proposal`, version 1 or 2,
 `.work-fold-routing.json` suffix) in its own management working folder —
 never inside a Space folder, because the proposal names multiple Spaces and
 Space folders travel. `src/local/routings/routing-declarations.ts` is the
@@ -178,7 +210,7 @@ names the destination Space and the delivered file count.
 | Record | Location | Reason |
 |---|---|---|
 | Inert routing proposal | Ordinary file in the fold's management working folder | Reviewable and revisable without authority; never placed in a Space folder it names |
-| Enabled declaration, exact-digest grant, cadence anchor, health state | work-fold application state (`routings/` under the state root) | References multiple Spaces; must never travel with any folder |
+| Enabled declaration, exact-digest grant, cadence/occurrence claim, health state | work-fold application state (`routings/` under the state root) | References multiple Spaces; must never travel with any folder |
 | Routing-run and hop receipts | work-fold application state, append-only journal with rotation | Contains Space names, paths, and ids across Spaces |
 | Effects inside Spaces | Ordinary Space records: a new Chat transcript, copied files, a History restore point | The only portable traces are single-Space, ordinary, and restorable |
 
@@ -192,7 +224,8 @@ restricted-app service's instance was rejected: it would let one Space
 app's jobs starve cross-Space glue and couple two authority domains to one
 lifecycle. That buys, verbatim from the proven scheduler: FIFO admission,
 per-routing non-overlap (an overlapping admission settles `skipped` and is
-receipted as such), durable cadence, bounded `latest` catch-up with
+receipted as such), interval and one-time schedules, durable cadence,
+bounded catch-up with
 deterministic stagger, suspension and resumption across sleep and quit, and
 abort signals through every run.
 
@@ -238,13 +271,16 @@ declaration.
 **Crash mid-run.** Startup scans the journal for runs with an `accepted`
 record and no terminal record and appends `interrupted` — record, never
 replay. Completed hops keep their receipts; the in-flight hop resolves
-through its own domain's crash semantics. The schedule resumes from the
-durable anchor; additive copy with collision-rename keeps any catch-up
-re-run non-destructive by construction.
+through its own domain's crash semantics. Before writing that terminal,
+startup reconciles the accepted scheduled slot into the durable interval
+anchor or one-time occurrence claim. The same slot is therefore never
+replayed under a new run id, including a crash after acceptance but before
+the original process committed the claim.
 
 **Replay prevention.** Run ids are host-minted per admission; trigger
 evaluation is serialized in-process at the settlement funnels; scheduled
-slots are computed from the durable anchor with missed slots collapsed;
+slots are claimed durably after acceptance and before hop 1, with missed
+interval slots collapsed and one-time occurrences deterministically named;
 run-now rides the act lane's request-id at-most-once gate. The journal-first
 `accepted` gate plus startup `interrupted` recovery means a crash can
 interrupt a run but never execute it twice under one run id.
@@ -296,9 +332,11 @@ are not queued. Routing runs register as the experimental kernel task kind
 5. **Disable.** A direct verb (and a desktop control): narrowing authority
    is always direct. Re-enable is a fresh consecration governed by the mode
    active at that admission.
-6. **Delete.** A direct verb on a disabled or suspended routing: removes
-   the declaration, grant history pointer, and cadence anchor. The receipts
-   journal is retained — audit records survive the object, as with Checks.
+6. **Delete.** A direct verb on an inert disabled, suspended, or completed
+   routing: removes the declaration, grant history pointer, and cadence
+   anchor. An active or claimed-but-unfinished one-time run must settle or be
+   stopped first. The receipts journal is retained — audit records survive
+   the object, as with Checks.
 
 The five questions, per mutation:
 
@@ -306,22 +344,21 @@ The five questions, per mutation:
 |---|---|---|---|---|---|
 | Stage enablement | Act-lane journal (`accepted` before, terminal after) plus the pending-decision record | Proposal digest, routing summary, staging actor, parent-task lineage | Expiry, explicit denial, browser revocation cancelling its pending decisions | Staging is inert; a torn stage is an absent decision, refused at decision time | Act request-id at-most-once; single-use decision ids |
 | Enable | Consecration decision record plus routing store commit | Routing id, declaration digest, decision surface/browser identity, timestamp | Disable; Space removal (automatic revocation to `suspended`) | Declaration-then-grant as one logical operation; failure leaves inert declaration, never digest-mismatched authority | Single-use decision id; expired stages cannot be approved |
-| Run (scheduled / on-settled) | Routing receipts journal, run `accepted` before hop 1, per-hop accepted/terminal pairs | Trigger cause, digest, per-hop domain evidence (task ids, run ids, conversation id, restore-point id, copied paths) | Stop (active); files effects restorable via the hop's restore point; chat effects are an ordinary archivable Chat | Startup records `interrupted`; completed hops keep receipts; in-flight hop resolves by its domain's crash rule; never replayed | Host-minted run ids; journal-first accepted gate; serialized in-process trigger funnel; anchor-collapsed catch-up |
+| Run (scheduled / on-settled) | Routing receipts journal, run `accepted` then durable schedule claim before hop 1, per-hop accepted/terminal pairs | Trigger cause, digest, occurrence id for one-time work, per-hop domain evidence (task ids, run ids, conversation id, restore-point id, counts) | Stop (active); files effects restorable via the hop's restore point; chat effects are an ordinary archivable Chat | Startup reconciles an accepted slot, records `interrupted`, and never replays it; completed hops keep receipts | Host-minted run ids; journal-first accepted gate; pre-hop interval/occurrence claim; serialized trigger funnel |
 | Run-now | Act-lane journal plus the same run journal | As above, plus the act request id | Same as a run | Same as a run | Act request-id at-most-once plus run-id gate |
 | Stop | Act-lane journal (or desktop action record) plus run terminal record | Run id, aborted hop task ids, skipped hops | Not applicable — stop is itself the revocation act | Abort signals are idempotent; a second stop finds a settled run | Act request-id at-most-once; a settled run refuses stop with its terminal state |
 | Disable | Act-lane journal plus routing store | Prior state, stopped run id if one was aborted | Re-enable (fresh consecration) | Disabled intent persists first; startup refuses to arm a disabled routing; the active run at a crash is `interrupted` anyway | Act request-id at-most-once |
-| Delete | Act-lane journal plus routing store | Routing id, digest, final health state | Not undoable; the declaration was inert data and receipts are retained | Grant removed before declaration so no window holds authority without a declaration | Act request-id at-most-once |
+| Delete | Act-lane journal plus routing store | Routing id, digest, final health state | Not undoable; the declaration was inert data and receipts are retained | Active and claimed-but-unfinished occurrences are refused; grant is removed before declaration so no window holds authority without a declaration | Act request-id at-most-once |
 
 ## Where routings live in the product
 
 Routings are managed in **Settings → The fold** (decision F15) — Assistant
 tools was rejected because a routing is not one Space's object, and a
 management work tab was rejected because it would spend the Space-bound tab
-contract's own deliberate design. The Settings section carries the list
-with health states, full declaration review, run history and receipts,
-run-now, stop, disable, and delete; pending enablement decisions surface as
-needs-you cards; the fold narrates run history on demand, never on a
-schedule. A routing's effects remain visible where they land: the copied
+contract's own deliberate design. The Settings section carries the list,
+state, declaration, bounded run history, and valid actions; pending enablement
+decisions surface as needs-you cards. The fold narrates run history on demand,
+never on a schedule. A routing's effects remain visible where they land: the copied
 files and restore point in the destination Space's Files and History, the
 new conversation in the source Space's Chats.
 
@@ -346,6 +383,9 @@ execution:
 | Triggers per routing | 1 (plus always-available run-now) | This design |
 | Interval | 15–1440 minutes | `restrictedAppAutomationIntervalMinutes` |
 | Catch-up | `latest` only (one make-up run) | `WorkFoldAutomationService` |
+| One-time horizon | 1 minute–366 days ahead at enablement | Long enough for annual planning, bounded enough for intentional review |
+| One-time missed policy | `run` or `skip` | One bounded catch-up or one recorded non-run |
+| One-time occurrence | One scheduled/resume claim ever; completed retained until Delete | Durable completed health and deterministic occurrence id |
 | Concurrent routing runs | 2, FIFO, machine-wide | Scheduler default |
 | Exact source paths per files step | 25 | `maxActFromPaths` |
 | Tree selector resolution | The Check target resolver's hard limits; tighten-only | `src/local/checks/target-resolver.ts` |
@@ -365,8 +405,9 @@ The plan items shipped as follows:
 6. Act-lane verbs — `src/local/cli/act-commands.ts`, `src/local/cli/act-facade.ts`; `tests/work-fold-cli-act-protocol.test.ts`, `tests/work-fold-act-facade.test.ts`.
 7. Consecration wiring — staged enablement through [fold-consecrations.md](fold-consecrations.md)'s machinery; `tests/fold-decisions.test.ts`, `tests/work-fold-routing-service.test.ts`.
 8. Fold instruction teaching — `src/local/management-instructions.ts`; `tests/work-fold-management-conversation.test.ts`.
-9. Settings surface, needs-you cards, glance projection — `web-local/`; `tests/web-ui-contract.test.ts`, `tests/frontend-interaction-contract.test.ts`.
+9. Settings surface, needs-you cards, glance projection — `web-local/`; `tests/routings-settings-ui.test.ts`, `tests/fold-routing-settings.test.ts`, `tests/web-ui-contract.test.ts`, `tests/frontend-interaction-contract.test.ts`.
 10. Docs promotion — recorded in [Fold integration](fold-integration.md).
+11. Version-2 one-time scheduling and schema migration — `src/local/agent/work-fold-automation-service.ts`, `src/local/routings/`; `tests/work-fold-automation-service.test.ts`, `tests/work-fold-routing-declarations.test.ts`, `tests/work-fold-routing-store.test.ts`, `tests/work-fold-routing-service.test.ts`.
 
 ## Deliberately not in this design
 
@@ -381,8 +422,9 @@ The plan items shipped as follows:
 - **Cross-Space moves or deletions.** The files step only copies additively
   with restore points; destructive operations stay human, and irreversible
   destruction anywhere remains the third consecration.
-- **Time-of-day and calendar schedules.** Interval-only in version 1;
-  extending the trigger vocabulary is a later register decision.
+- **Recurring time-of-day and calendar schedules.** One-time absolute
+  instants are admitted in version 2; daily, weekday, monthly, and
+  RRULE-shaped recurrence remain later register decisions.
 - **A newer-than-last-successful-run filter on `files` steps.** Recopying
   unchanged selector matches is safe by construction (additive,
   collision-renamed, restore-pointed), just noisy; the filter is deferred
@@ -397,8 +439,7 @@ The plan items shipped as follows:
   sync, export, or any distribution lane.
 - **A routings rail destination, badge, or notification stream.** Settings
   owns management; the glance and receipts own visibility.
-- **Read-lane routing status.** All routing commands are act-lane in
-  version 1.
+- **Read-lane routing status.** All routing commands remain act-lane.
 - **Hosted or remote execution.** Routings run only on this desktop while
   the app runs; outward exposure of anything a routing produces stays in
   [the publishing ladder](fold-publishing.md) with its own grants, and no

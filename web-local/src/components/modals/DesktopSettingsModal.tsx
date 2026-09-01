@@ -19,9 +19,10 @@ import type { AgentStatus, AppTheme, AppThemePreference, AppTypographyPreference
 import { foldAuthoritySettings, foldPoliciesSettings, foldPublicationsSettings } from "../../ui-contract";
 import { WorkFoldLockup } from "../brand/WorkFoldBrand";
 import { AssistantSetupPane, type AssistantModelScope } from "../panes/spacePanes";
+import { FoldRoutingsPane } from "./FoldRoutingsPane";
 
 export type SettingsPage = "appearance" | "assistant" | "remote" | "desktop" | "about";
-type FoldSettingsSection = "access" | "pages" | "authority";
+type FoldSettingsSection = "access" | "pages" | "routings" | "authority";
 
 export function DesktopSettingsModal({ theme, themePreference, onThemePreferenceChange, typography, onTypographyChange, space, agentStatus, fixtureMode = false, initialPage = "appearance", initialAssistantScope, focusAssistantModel = false, onAgentConfigured, onAssistantChanged, onClose, updateStatus, onUpdateAction }: {
   theme: AppTheme;
@@ -176,6 +177,9 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
                     "pages",
                     "Shared pages",
                   ], [
+                    "routings",
+                    "Routings",
+                  ], [
                     "authority",
                     "Authority",
                   ]] as Array<[FoldSettingsSection, string]>).map(([id, label]) => (
@@ -184,6 +188,7 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
                 </div>
                 {foldSection === "access" ? <RemoteAccessPane /> : null}
                 {foldSection === "pages" ? <FoldPublicationsPane /> : null}
+                {foldSection === "routings" ? <FoldRoutingsPane /> : null}
                 {foldSection === "authority" ? <FoldAuthorityPane /> : null}
               </div>
             ) : null}

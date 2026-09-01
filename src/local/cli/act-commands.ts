@@ -2809,7 +2809,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         routingId?: unknown;
         title?: unknown;
         health?: unknown;
-        trigger?: { kind?: unknown; intervalMinutes?: unknown };
+        trigger?: { kind?: unknown; intervalMinutes?: unknown; at?: unknown; ifMissed?: unknown };
         stepCount?: unknown;
         nextScheduledAt?: unknown;
         suspension?: { missingSpaceIds?: unknown };
@@ -2818,6 +2818,8 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       const lines = routings.slice(0, 50).map((routing) => {
         const trigger = routing.trigger?.kind === "interval"
           ? `every ${terminalText(routing.trigger.intervalMinutes)} min`
+          : routing.trigger?.kind === "at"
+            ? `once at ${terminalText(routing.trigger.at)}`
           : terminalText(routing.trigger?.kind ?? "manual");
         const next = typeof routing.nextScheduledAt === "string" ? `; next ${terminalText(routing.nextScheduledAt)}` : "";
         const missing = Array.isArray(routing.suspension?.missingSpaceIds) && routing.suspension.missingSpaceIds.length
@@ -2833,7 +2835,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         title?: unknown;
         health?: unknown;
         digest?: unknown;
-        trigger?: { kind?: unknown; intervalMinutes?: unknown; source?: Record<string, unknown> };
+        trigger?: { kind?: unknown; intervalMinutes?: unknown; at?: unknown; ifMissed?: unknown; source?: Record<string, unknown> };
         steps?: unknown;
         grants?: unknown;
         enabledAt?: unknown;
@@ -2862,6 +2864,8 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       });
       const trigger = routing.trigger?.kind === "interval"
         ? `interval, every ${terminalText(routing.trigger.intervalMinutes)} minutes`
+        : routing.trigger?.kind === "at"
+          ? `once at ${terminalText(routing.trigger.at)}; if missed: ${terminalText(routing.trigger.ifMissed)}`
         : routing.trigger?.kind === "on-settled"
           ? `on-settled: ${terminalText(routing.trigger.source?.kind)} in Space ${terminalText(routing.trigger.source?.spaceId)}`
           : "manual (run-now only)";
@@ -2872,7 +2876,9 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         ? `suspended since ${terminalText(routing.suspension.at)} (missing Space ${(Array.isArray(routing.suspension.missingSpaceIds) ? routing.suspension.missingSpaceIds : []).map(terminalText).join(", ")}${Array.isArray(routing.suspension.reRegisteredSpaceIds) && routing.suspension.reRegisteredSpaceIds.length ? "; re-registered with preserved identity — re-enablement is still a fresh consecration" : ""})`
         : routing.health === "disabled"
           ? `disabled${typeof routing.disabledAt === "string" ? ` since ${terminalText(routing.disabledAt)}` : ""}`
-          : `enabled${typeof routing.enabledAt === "string" ? ` since ${terminalText(routing.enabledAt)}` : ""}`;
+          : routing.health === "completed"
+            ? "completed"
+            : `enabled${typeof routing.enabledAt === "string" ? ` since ${terminalText(routing.enabledAt)}` : ""}`;
       const lines = [
         `Routing "${terminalText(routing.title)}" [${terminalText(routing.routingId)}]`,
         `Health: ${health}`,

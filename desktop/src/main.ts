@@ -184,7 +184,7 @@ let resolveManagementLineageParent: ((taskId: string) => { taskId: string } | nu
  * re-arms cadences from the durable anchor). Set once the interactive local
  * API exists; both calls are safe no-ops after close.
  */
-let routingPowerLifecycle: { suspend: () => void; resume: () => void } | null = null;
+let routingPowerLifecycle: { suspend: () => void; resume: () => Promise<void> } | null = null;
 let quitting = false;
 let quittingForUpdate = false;
 let activeAgentTurns = 0;
@@ -1078,6 +1078,45 @@ function registerIpc(): void {
       return { error: "work-fold metadata folders cannot be granted to an app." };
     }
     return { root };
+  });
+  const routingSettings = async (event: IpcMainInvokeEvent, value?: unknown) => {
+    assertTrustedMainRenderer(event);
+    return {
+      facade: (await ensureInteractiveLocalApi()).routingSettings,
+      ...(value !== undefined ? { routingId: routingSettingsId(value) } : {}),
+    };
+  };
+  ipcMain.handle("work-fold:routings:list", async (event) => {
+    const { facade } = await routingSettings(event);
+    return facade.list();
+  });
+  ipcMain.handle("work-fold:routings:show", async (event, value: unknown) => {
+    const { facade, routingId } = await routingSettings(event, value);
+    return facade.show(routingId!);
+  });
+  ipcMain.handle("work-fold:routings:history", async (event, value: unknown) => {
+    const { facade, routingId } = await routingSettings(event, value);
+    return facade.history(routingId!);
+  });
+  ipcMain.handle("work-fold:routings:stage-enable", async (event, value: unknown) => {
+    const { facade, routingId } = await routingSettings(event, value);
+    return facade.stageEnable(routingId!);
+  });
+  ipcMain.handle("work-fold:routings:run", async (event, value: unknown) => {
+    const { facade, routingId } = await routingSettings(event, value);
+    return facade.run(routingId!);
+  });
+  ipcMain.handle("work-fold:routings:stop", async (event, value: unknown) => {
+    const { facade, routingId } = await routingSettings(event, value);
+    return facade.stop(routingId!);
+  });
+  ipcMain.handle("work-fold:routings:disable", async (event, value: unknown) => {
+    const { facade, routingId } = await routingSettings(event, value);
+    return facade.disable(routingId!);
+  });
+  ipcMain.handle("work-fold:routings:delete", async (event, value: unknown) => {
+    const { facade, routingId } = await routingSettings(event, value);
+    return facade.delete(routingId!);
   });
   ipcMain.handle("work-fold:space:reveal-folder", async (event, value: unknown) => {
     assertTrustedRenderer(event);
@@ -2077,7 +2116,9 @@ function configurePowerMonitor(): void {
   });
   powerMonitor.on("resume", () => {
     void desktopHostPromise?.then((host) => host.restrictedApps.resumeAutomations());
-    routingPowerLifecycle?.resume();
+    void routingPowerLifecycle?.resume().catch((error) => {
+      console.warn(`${productName} could not resume Routings after wake: ${errorMessage(error)}`);
+    });
     void remoteAccessClient?.recoverConnection().catch((error) => {
       console.warn(`${productName} could not recover Remote access after resume: ${errorMessage(error)}`);
     });
@@ -2272,6 +2313,16 @@ function assertTrustedMainRenderer(event: IpcMainInvokeEvent | IpcMainEvent): vo
   if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents || !mainFrameMatches) {
     throw new Error("Restricted app view requests require the main work-fold renderer.");
   }
+}
+
+function routingSettingsId(value: unknown): string {
+  if (typeof value !== "string") throw new Error("A Routing id is required.");
+  const routingId = value.trim();
+  if (!routingId || routingId.length > 256
+    || /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(routingId)) {
+    throw new Error("The Routing id is invalid.");
+  }
+  return routingId;
 }
 
 function restrictedAppViewIdentity(value: unknown): { spaceId: string; appId: string; digest: string } {

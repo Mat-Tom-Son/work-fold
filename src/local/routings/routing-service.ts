@@ -4,6 +4,7 @@ import {
   WorkFoldAutomationService,
   type WorkFoldAutomationClock,
   type WorkFoldAutomationJobKey,
+  type WorkFoldAutomationRunAdmission,
   type WorkFoldAutomationRunContext,
   type WorkFoldAutomationRunResult,
 } from "../agent/work-fold-automation-service.js";
@@ -19,11 +20,13 @@ import {
 } from "./routing-declarations.js";
 import {
   type WorkFoldRoutingEnableInput,
+  type WorkFoldRoutingActionReceiptContext,
   type WorkFoldRoutingHealth,
   type WorkFoldRoutingReceipts,
   type WorkFoldRoutingRecord,
   type WorkFoldRoutingRunCause,
   type WorkFoldRoutingStore,
+  workFoldRoutingAtOccurrenceId,
 } from "./routing-store.js";
 import type {
   WorkFoldRoutingHopLineage,
@@ -187,7 +190,11 @@ export interface WorkFoldRoutingServiceOptions {
 
 export interface WorkFoldRoutingProjection extends WorkFoldRoutingRecord {
   nextScheduledAt?: string;
+  /** Present only while a hop-bearing run is genuinely active. */
+  activeRunId?: string;
 }
+
+export interface WorkFoldRoutingRunAdmission extends WorkFoldAutomationRunAdmission {}
 
 interface ArmedRouting {
   digest: string;
@@ -201,6 +208,7 @@ interface ActiveRunState {
   controller: AbortController;
   stopRequested: boolean;
   stoppedHopTaskIds: string[];
+  stopReceipt?: WorkFoldRoutingActionReceiptContext;
 }
 
 type RunSummary =
@@ -208,6 +216,9 @@ type RunSummary =
   | { kind: "failed"; failedHopId: string; error: string }
   | { kind: "stopped" }
   | { kind: "interrupted"; detail: string };
+
+/** A terminal skipped receipt was already written for a non-exceptional claim refusal. */
+class PreHopClaimRefusal extends Error {}
 
 const causeMapGuard = 256;
 
@@ -217,6 +228,7 @@ export class WorkFoldRoutingService {
   readonly #ports: WorkFoldRoutingHopPorts;
   readonly #tasks: WorkFoldRoutingRunTaskPort | null;
   readonly #automation: WorkFoldAutomationService;
+  readonly #now: () => Date;
   readonly #armed = new Map<string, ArmedRouting>();
   readonly #causeByRunId = new Map<string, WorkFoldRoutingRunCause>();
   readonly #launchedRunIds = new Set<string>();
@@ -225,6 +237,8 @@ export class WorkFoldRoutingService {
   #stagedCause: WorkFoldRoutingRunCause | null = null;
   #unsubscribeSettle: (() => void) | null = null;
   #journalDamageReason: string | null = null;
+  #suspensionGeneration = 0;
+  #suspensionDesired = false;
   #closed = false;
 
   private constructor(options: WorkFoldRoutingServiceOptions) {
@@ -232,6 +246,7 @@ export class WorkFoldRoutingService {
     this.#receipts = options.store.receipts;
     this.#ports = options.ports;
     this.#tasks = options.tasks ?? null;
+    this.#now = options.clock ? () => options.clock!.now() : () => new Date();
     const createRunId = options.createRunId ?? randomUUID;
     this.#automation = new WorkFoldAutomationService({
       maxConcurrency: options.maxConcurrency ?? workFoldRoutingMaxConcurrentRuns,
@@ -310,16 +325,34 @@ export class WorkFoldRoutingService {
    * the stop path — and the result reports what it stopped. Narrowing is
    * never blocked by journal damage or a closed executor.
    */
-  async disable(routingId: string): Promise<{ record: WorkFoldRoutingRecord; stoppedRunId: string | null }> {
-    const record = await this.#store.disable(routingId);
-    const stopped = this.stopRun(routingId);
+  async disable(
+    routingId: string,
+    receiptContext: WorkFoldRoutingActionReceiptContext = {},
+  ): Promise<{ record: WorkFoldRoutingRecord; stoppedRunId: string | null }> {
+    const record = await this.#store.disable(routingId, receiptContext);
+    const stopped = this.stopRun(routingId, receiptContext);
     this.#disarm(routingId);
     return { record, stoppedRunId: stopped?.runId ?? null };
   }
 
-  /** Deletes a disabled or suspended routing; receipts are retained by the store. */
-  async deleteRouting(routingId: string): Promise<WorkFoldRoutingRecord> {
-    const record = await this.#store.delete(routingId);
+  /** Deletes an inert routing; receipts are retained by the store. */
+  async deleteRouting(
+    routingId: string,
+    receiptContext: WorkFoldRoutingActionReceiptContext = {},
+  ): Promise<WorkFoldRoutingRecord> {
+    const current = await this.#store.get(routingId);
+    const active = [...this.#activeRuns.values()].some((run) => run.routingId === routingId);
+    const claimedButUnfinished = current?.health === "completed"
+      && current.atOccurrence !== undefined
+      && current.atOccurrence.finishedAt === undefined;
+    if (active || claimedButUnfinished) {
+      throw new WorkFoldRoutingServiceError(
+        "HEALTH_INVALID",
+        "Stop this routing's active run before deleting it.",
+        { ...(current ? { health: current.health } : {}) },
+      );
+    }
+    const record = await this.#store.delete(routingId, receiptContext);
     this.#disarm(routingId);
     return record;
   }
@@ -329,7 +362,18 @@ export class WorkFoldRoutingService {
    * mutation. A merely proposed routing is refused — the executor never runs
    * an unreviewed standing declaration, even once.
    */
-  async runNow(routingId: string, options: { requestId?: string } = {}): Promise<WorkFoldAutomationRunResult> {
+  async runNow(
+    routingId: string,
+    options: WorkFoldRoutingActionReceiptContext = {},
+  ): Promise<WorkFoldAutomationRunResult> {
+    return (await this.runNowAdmission(routingId, options)).result;
+  }
+
+  /** Validates authority and returns the scheduler admission before the run settles. */
+  async runNowAdmission(
+    routingId: string,
+    options: WorkFoldRoutingActionReceiptContext = {},
+  ): Promise<WorkFoldRoutingRunAdmission> {
     this.#assertOperational();
     const record = await this.#store.get(routingId);
     if (!record) {
@@ -343,15 +387,18 @@ export class WorkFoldRoutingService {
         "HEALTH_INVALID",
         record.health === "suspended"
           ? "This routing is suspended because a referenced Space was removed; re-enablement is a fresh consecration."
-          : "This routing is disabled; re-enablement is a fresh consecration.",
+          : record.health === "completed"
+            ? "This one-time routing is completed; its scheduled occurrence has already been consumed."
+            : "This routing is disabled; re-enablement is a fresh consecration.",
         { health: record.health },
       );
     }
     const cause: WorkFoldRoutingRunCause = {
       kind: "run-now",
       ...(options.requestId !== undefined ? { requestId: options.requestId } : {}),
+      ...(options.surface !== undefined ? { surface: options.surface } : {}),
     };
-    return await this.#dispatch(routingId, cause);
+    return this.#dispatchAdmission(routingId, cause);
   }
 
   /**
@@ -361,10 +408,14 @@ export class WorkFoldRoutingService {
    * Returns null when no run is active — a settled run refuses stop with its
    * terminal state at the verb layer.
    */
-  stopRun(routingId: string): { runId: string } | null {
+  stopRun(
+    routingId: string,
+    receiptContext: WorkFoldRoutingActionReceiptContext = {},
+  ): { runId: string } | null {
     const active = [...this.#activeRuns.values()].find((run) => run.routingId === routingId);
     if (!active) return null;
     active.stopRequested = true;
+    active.stopReceipt = { ...receiptContext };
     active.controller.abort(new Error("Routing run was stopped."));
     return { runId: active.runId };
   }
@@ -409,16 +460,24 @@ export class WorkFoldRoutingService {
 
   /** Sleep/quit suspension: aborts active runs, which settle `interrupted`. */
   suspend(): void {
+    this.#suspensionDesired = true;
+    this.#suspensionGeneration += 1;
     this.#automation.suspend();
   }
 
-  resume(): void {
+  async resume(): Promise<void> {
+    this.#suspensionDesired = false;
+    const generation = ++this.#suspensionGeneration;
+    await this.#completeMissedSkips(await this.#store.list());
+    if (this.#closed || this.#suspensionDesired || generation !== this.#suspensionGeneration) return;
     this.#automation.resume();
   }
 
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
+    this.#suspensionDesired = true;
+    this.#suspensionGeneration += 1;
     this.#unsubscribeSettle?.();
     this.#unsubscribeSettle = null;
     this.#automation.close();
@@ -428,6 +487,9 @@ export class WorkFoldRoutingService {
     if (!this.#store.status().damaged) {
       await this.#recoverInterruptedRuns();
       if (this.#journalDamageReason === null) {
+        const records = await this.#store.list();
+        await this.#finishRecoveredAtOccurrences(records);
+        await this.#completeMissedSkips(await this.#store.list());
         for (const record of await this.#store.list()) {
           if (record.health !== "enabled") continue;
           this.#arm(record);
@@ -458,6 +520,31 @@ export class WorkFoldRoutingService {
       return;
     }
     for (const run of openRuns) {
+      let completedAtOccurrence = false;
+      if (run.cause && run.digest) {
+        try {
+          const record = await this.#store.get(run.routingId);
+          if (record?.digest === run.digest) {
+            if (record.health === "enabled" && record.declaration.trigger.kind === "interval") {
+              await this.#store.recordCadence(run.routingId, run.cause.slotAt);
+            } else if (record.health === "enabled" && record.declaration.trigger.kind === "at") {
+              completedAtOccurrence = (await this.#store.claimAtOccurrence(
+                run.routingId,
+                run.cause.slotAt,
+                run.runId,
+                this.#now(),
+              )) !== null;
+            } else if (record.health === "completed" && record.atOccurrence?.runId === run.runId) {
+              completedAtOccurrence = true;
+            }
+          }
+        } catch (error) {
+          this.#journalDamageReason = `work-fold could not reconcile the durable schedule claim for interrupted run ${run.runId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`;
+          return;
+        }
+      }
       for (const hopId of run.openHopIds) {
         await this.#receipts.append({
           scope: "hop",
@@ -482,12 +569,20 @@ export class WorkFoldRoutingService {
         return;
       }
       this.#recoveredRunIds.push(run.runId);
+      if (completedAtOccurrence) {
+        await this.#store.finishAtOccurrence(run.routingId, run.runId, this.#now().toISOString());
+      }
     }
   }
 
   #project(record: WorkFoldRoutingRecord): WorkFoldRoutingProjection {
     const next = this.#automation.nextScheduledAt(this.#jobKey(record.declaration.id));
-    return { ...record, ...(next !== undefined ? { nextScheduledAt: next } : {}) };
+    const active = [...this.#activeRuns.values()].find((run) => run.routingId === record.declaration.id);
+    return {
+      ...record,
+      ...(next !== undefined ? { nextScheduledAt: next } : {}),
+      ...(active !== undefined ? { activeRunId: active.runId } : {}),
+    };
   }
 
   #jobKey(routingId: string): WorkFoldAutomationJobKey {
@@ -502,19 +597,65 @@ export class WorkFoldRoutingService {
       title: record.declaration.title,
       trigger: structuredClone(trigger),
     });
-    const interval = trigger.kind === "interval" ? trigger : null;
+    const scheduled = trigger.kind === "interval" || trigger.kind === "at" ? trigger : null;
     // Manual and on-settled routings register disabled: the job then never
     // fires on a cadence, while dispatch (always reason "manual" to the
     // scheduler) still flows through the same FIFO admission, per-routing
     // non-overlap, suspension, and abort machinery.
     this.#automation.register({
       key: this.#jobKey(routingId),
-      intervalMinutes: interval ? interval.intervalMinutes : workFoldRoutingBounds.minIntervalMinutes,
-      enabled: interval !== null,
-      catchUp: interval ? "latest" : "none",
-      ...(interval && record.lastScheduledAt !== undefined ? { lastScheduledAt: record.lastScheduledAt } : {}),
+      schedule: scheduled?.kind === "at"
+        ? { kind: "at", at: scheduled.at, ifMissed: scheduled.ifMissed }
+        : {
+            kind: "interval",
+            intervalMinutes: scheduled?.kind === "interval"
+              ? scheduled.intervalMinutes
+              : workFoldRoutingBounds.minIntervalMinutes,
+            catchUp: scheduled?.kind === "interval" ? "latest" : "none",
+          },
+      enabled: scheduled !== null,
+      ...(scheduled?.kind === "interval" && record.lastScheduledAt !== undefined
+        ? { lastScheduledAt: record.lastScheduledAt }
+        : {}),
       run: (context) => this.#executeRun(context),
     });
+  }
+
+  async #finishRecoveredAtOccurrences(records: WorkFoldRoutingRecord[]): Promise<void> {
+    const finishedAt = this.#now().toISOString();
+    for (const record of records) {
+      if (record.health !== "completed" || !record.atOccurrence || record.atOccurrence.finishedAt !== undefined) continue;
+      await this.#store.finishAtOccurrence(record.declaration.id, record.atOccurrence.runId, finishedAt);
+    }
+  }
+
+  async #completeMissedSkips(records: WorkFoldRoutingRecord[]): Promise<void> {
+    const now = this.#now();
+    for (const record of records) {
+      const trigger = record.declaration.trigger;
+      if (
+        record.health !== "enabled"
+        || trigger.kind !== "at"
+        || trigger.ifMissed !== "skip"
+        || Date.parse(trigger.at) > now.getTime()
+      ) continue;
+      const runId = `missed-${record.declaration.id}-${Date.parse(trigger.at)}`;
+      const claimed = await this.#store.claimAtOccurrence(record.declaration.id, trigger.at, runId, now);
+      if (!claimed?.atOccurrence) continue;
+      await this.#receipts.append({
+        scope: "run",
+        outcome: "skipped",
+        routingId: record.declaration.id,
+        runId,
+        title: record.declaration.title,
+        digest: record.digest,
+        cause: { kind: "resume", slotAt: trigger.at },
+        occurrenceId: claimed.atOccurrence.occurrenceId,
+        detail: "The one-time occurrence passed while work-fold was unavailable and its missed policy is skip.",
+      });
+      await this.#store.finishAtOccurrence(record.declaration.id, runId, now.toISOString());
+      this.#disarm(record.declaration.id);
+    }
   }
 
   #disarm(routingId: string): void {
@@ -536,9 +677,13 @@ export class WorkFoldRoutingService {
   }
 
   #dispatch(routingId: string, cause: WorkFoldRoutingRunCause): Promise<WorkFoldAutomationRunResult> {
+    return this.#dispatchAdmission(routingId, cause).result;
+  }
+
+  #dispatchAdmission(routingId: string, cause: WorkFoldRoutingRunCause): WorkFoldAutomationRunAdmission {
     this.#stagedCause = cause;
     try {
-      return this.#automation.runNow(this.#jobKey(routingId));
+      return this.#automation.runNowAdmission(this.#jobKey(routingId));
     } finally {
       this.#stagedCause = null;
     }
@@ -575,9 +720,10 @@ export class WorkFoldRoutingService {
     const armed = this.#armed.get(routingId);
     if (refusal === null) {
       if (!record || !armed) refusal = "This routing's enablement was revoked before the run could start.";
-      else if (record.health !== "enabled") refusal = `This routing is ${record.health}; the admission was skipped.`;
       else if (record.digest !== armed.digest) {
         refusal = "This routing's declaration changed before the run could start; an edited routing never coasts on a stale approval.";
+      } else if (record.health !== "enabled") {
+        refusal = `This routing is ${record.health}; the admission was skipped.`;
       }
     }
     if (refusal !== null || !record) {
@@ -599,9 +745,51 @@ export class WorkFoldRoutingService {
       title: record.declaration.title,
       digest: record.digest,
       cause,
+      ...runReceiptFields(cause, record),
     });
     if (!accepted) {
       throw new Error("work-fold could not journal this routing run, so it was refused before any hop executed.");
+    }
+
+    // The accepted receipt is the recoverable intent. Persist the exact
+    // occurrence/cadence claim next, still before hop 1, so a process stop
+    // cannot replay effects for a slot that already crossed this boundary.
+    try {
+      if (cause.kind === "scheduled" || cause.kind === "resume") {
+        if (record.declaration.trigger.kind === "at") {
+          const claimed = await this.#store.claimAtOccurrence(routingId, cause.slotAt, runId, new Date(context.startedAt));
+          if (!claimed) {
+            const detail = "This one-time routing occurrence was already consumed or no longer holds authority.";
+            await this.#receipts.append({ scope: "run", outcome: "skipped", routingId, runId, cause, detail });
+            throw new PreHopClaimRefusal(detail);
+          }
+          record = claimed;
+        } else if (record.declaration.trigger.kind === "interval") {
+          const claimed = await this.#store.recordCadence(routingId, cause.slotAt);
+          if (!claimed) {
+            const detail = "This interval routing lost authority before its scheduled slot could be claimed.";
+            await this.#receipts.append({ scope: "run", outcome: "skipped", routingId, runId, cause, detail });
+            throw new PreHopClaimRefusal(detail);
+          }
+        }
+      }
+    } catch (error) {
+      if (error instanceof PreHopClaimRefusal) throw error;
+      const detail = `The durable schedule claim failed before any hop executed: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+      await this.#receipts.append({
+        scope: "run",
+        outcome: "failed",
+        routingId,
+        runId,
+        title: record.declaration.title,
+        digest: record.digest,
+        cause,
+        ...runReceiptFields(cause, record),
+        detail,
+      });
+      throw new Error(detail, { cause: error });
     }
 
     const controller = new AbortController();
@@ -627,7 +815,9 @@ export class WorkFoldRoutingService {
     try {
       const summary = await this.#executeHops(record.declaration, active);
       if (summary.kind === "succeeded") {
-        await this.#receipts.append({ scope: "run", outcome: "succeeded", routingId, runId, cause });
+        await this.#receipts.append({
+          scope: "run", outcome: "succeeded", routingId, runId, cause, ...runReceiptFields(cause, record),
+        });
         return;
       }
       if (summary.kind === "failed") {
@@ -639,6 +829,7 @@ export class WorkFoldRoutingService {
           cause,
           failedHopId: summary.failedHopId,
           detail: summary.error,
+          ...runReceiptFields(cause, record),
         });
         // There are no retries; the next trigger occurrence is the retry,
         // and the scheduler's run history records the failure too.
@@ -652,6 +843,8 @@ export class WorkFoldRoutingService {
           runId,
           cause,
           ...(active.stoppedHopTaskIds.length ? { stoppedHopTaskIds: [...active.stoppedHopTaskIds] } : {}),
+          ...runReceiptFields(cause, record),
+          ...(active.stopReceipt ?? {}),
           detail: "The run was stopped; later hops were skipped.",
         });
         throw new Error("Routing run was stopped.");
@@ -662,6 +855,7 @@ export class WorkFoldRoutingService {
         routingId,
         runId,
         cause,
+        ...runReceiptFields(cause, record),
         detail: summary.detail,
       });
     } finally {
@@ -957,20 +1151,71 @@ export class WorkFoldRoutingService {
         ?? (result.reason === "scheduled" || result.reason === "resume"
           ? { kind: result.reason, slotAt: result.scheduledAt }
           : { kind: "run-now" });
+      let occurrenceId: string | undefined;
+      const armed = this.#armed.get(routingId);
+      const record = await this.#store.get(routingId).catch(() => undefined);
+      const catchUpSurvivesLifecyclePause = (
+        result.notLaunchedReason === "suspended"
+        || result.notLaunchedReason === "closed"
+      ) && (cause.kind === "scheduled" || cause.kind === "resume") && (
+        record?.declaration.trigger.kind === "interval"
+        || (record?.declaration.trigger.kind === "at" && record.declaration.trigger.ifMissed === "run")
+      );
+      if (catchUpSurvivesLifecyclePause) {
+        await this.#receipts.append({
+          scope: "run",
+          outcome: "skipped",
+          routingId,
+          runId: result.runId,
+          cause,
+          detail: `${result.error ?? "The admission paused before launch."} Its durable schedule remains eligible for catch-up.`,
+        });
+        return;
+      }
+      if (
+        armed
+        && record?.health === "enabled"
+        && record.digest === armed.digest
+        && (cause.kind === "scheduled" || cause.kind === "resume")
+        && (record.declaration.trigger.kind === "at" || record.declaration.trigger.kind === "interval")
+      ) {
+        const accepted = await this.#receipts.append({
+          scope: "run",
+          outcome: "accepted",
+          routingId,
+          runId: result.runId,
+          title: record.declaration.title,
+          digest: record.digest,
+          cause,
+        });
+        if (accepted && record.declaration.trigger.kind === "at") {
+          const claimed = await this.#store.claimAtOccurrence(routingId, cause.slotAt, result.runId, new Date(result.startedAt));
+          occurrenceId = claimed?.atOccurrence?.occurrenceId;
+        } else if (accepted) {
+          await this.#store.recordCadence(routingId, cause.slotAt);
+        }
+      }
       await this.#receipts.append({
         scope: "run",
         outcome: "skipped",
         routingId,
         runId: result.runId,
         cause,
+        ...(occurrenceId !== undefined ? { occurrenceId } : {}),
         detail: result.error ?? `The admission settled ${result.outcome} before launch.`,
       });
+      if (occurrenceId !== undefined) {
+        await this.#store.finishAtOccurrence(routingId, result.runId, result.finishedAt);
+        this.#disarm(routingId);
+      }
       return;
     }
     if (result.reason !== "manual") {
-      // Durable cadence: the anchor advances to the slot that fired, so
-      // restarts resume the cadence instead of resetting it.
-      await this.#store.recordCadence(routingId, result.scheduledAt);
+      const record = await this.#store.get(routingId).catch(() => undefined);
+      if (record?.health === "completed" && record.atOccurrence?.runId === result.runId) {
+        await this.#store.finishAtOccurrence(routingId, result.runId, result.finishedAt);
+        this.#disarm(routingId);
+      }
     }
   }
 
@@ -1039,4 +1284,25 @@ function abortReasonText(reason: unknown): string {
   if (reason instanceof Error) return reason.message;
   if (typeof reason === "string" && reason.trim()) return reason;
   return "The run was aborted.";
+}
+
+function runReceiptFields(
+  cause: WorkFoldRoutingRunCause,
+  record: WorkFoldRoutingRecord,
+): Pick<WorkFoldRoutingActionReceiptContext, "requestId" | "surface"> & { occurrenceId?: string } {
+  return {
+    ...(cause.kind === "run-now" && cause.requestId !== undefined ? { requestId: cause.requestId } : {}),
+    ...(cause.kind === "run-now" && cause.surface !== undefined ? { surface: cause.surface } : {}),
+    ...(record.atOccurrence?.runId !== undefined
+      ? { occurrenceId: record.atOccurrence.occurrenceId }
+      : record.declaration.trigger.kind === "at" && (cause.kind === "scheduled" || cause.kind === "resume")
+        ? {
+          occurrenceId: workFoldRoutingAtOccurrenceId(
+            record.declaration.id,
+            record.digest,
+            cause.slotAt,
+          ),
+        }
+        : {}),
+  };
 }

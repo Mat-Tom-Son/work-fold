@@ -364,6 +364,401 @@ test("a scheduled run executes hops strictly in order with journal-first receipt
   ], "the glance's tolerant reader consumes the journal this executor writes");
 });
 
+test("an interval slot is claimed durably after acceptance and before hop 1", async (t) => {
+  const harness = await createHarness(t);
+  await harness.enable(declarationInput("routing-interval-pre-hop-claim", {
+    trigger: { kind: "interval", intervalMinutes: 60 },
+  }));
+  let anchorSeenByHop: string | undefined;
+  harness.ports.chatImpl = async (step, context) => {
+    anchorSeenByHop = (await harness.store.get(context.routingId))?.lastScheduledAt;
+    return await harness.ports.defaultChat(step, context);
+  };
+
+  harness.clock.advance(60 * minute);
+  await waitForCondition(
+    async () => (await harness.journal()).some((line) => line.scope === "run" && line.outcome === "succeeded"),
+    "the interval run to settle",
+  );
+  assert.equal(anchorSeenByHop, "2026-07-14T13:00:00.000Z");
+  assert.deepEqual(
+    (await harness.journal()).slice(0, 2).map((line) => `${line.scope}:${line.outcome}`),
+    ["routing:enabled", "run:accepted"],
+    "acceptance is durable before the cadence claim and hop receipts",
+  );
+});
+
+test("an interval cadence persistence failure closes the accepted run before any hop", async (t) => {
+  const harness = await createHarness(t);
+  await harness.enable(declarationInput("routing-interval-claim-fails", {
+    trigger: { kind: "interval", intervalMinutes: 60 },
+  }));
+  harness.store.recordCadence = async () => {
+    throw new Error("injected cadence write failure");
+  };
+
+  harness.clock.advance(60 * minute);
+  await waitForCondition(
+    async () => (await harness.journal()).some((line) => line.scope === "run" && line.outcome === "failed"),
+    "the cadence claim failure to receive a terminal receipt",
+  );
+  assert.deepEqual(harness.ports.calls, [], "a rejected cadence claim never reaches hop 1");
+  const runLines = (await harness.journal()).filter((line) => line.scope === "run");
+  assert.deepEqual(runLines.map((line) => line.outcome), ["accepted", "failed"]);
+  assert.match(runLines[1]?.detail ?? "", /injected cadence write failure/);
+});
+
+test("a one-time occurrence persistence failure closes the accepted run before any hop", async (t) => {
+  const harness = await createHarness(t);
+  await harness.enable(declarationInput("routing-at-claim-fails", {
+    version: 2,
+    trigger: { kind: "at", at: "2026-07-14T12:01:00.000Z", ifMissed: "run" },
+  }));
+  harness.store.claimAtOccurrence = async () => {
+    throw new Error("injected occurrence write failure");
+  };
+
+  harness.clock.advance(minute);
+  await waitForCondition(
+    async () => (await harness.journal()).some((line) => line.scope === "run" && line.outcome === "failed"),
+    "the occurrence claim failure to receive a terminal receipt",
+  );
+  assert.deepEqual(harness.ports.calls, [], "a rejected one-time claim never reaches hop 1");
+  const runLines = (await harness.journal()).filter((line) => line.scope === "run");
+  assert.deepEqual(runLines.map((line) => line.outcome), ["accepted", "failed"]);
+  assert.match(runLines[1]?.detail ?? "", /injected occurrence write failure/);
+});
+
+test("a one-time routing runs once, durably completes before hop 1, and run-now executes an independent copy", async (t) => {
+  const harness = await createHarness(t);
+  await harness.enable(declarationInput("routing-one-time", {
+    version: 2,
+    trigger: { kind: "at", at: "2026-07-14T12:02:00.000Z", ifMissed: "run" },
+  }));
+  assert.equal((await harness.service.getRouting("routing-one-time"))?.nextScheduledAt, "2026-07-14T12:02:00.000Z");
+
+  const manual = await harness.service.runNow("routing-one-time", { requestId: "request-copy", surface: "popover" });
+  assert.equal(manual.outcome, "success");
+  assert.equal((await harness.store.get("routing-one-time"))?.health, "enabled", "run-now does not consume the scheduled occurrence");
+
+  harness.clock.advance(2 * minute);
+  await waitForCondition(
+    async () => (await harness.store.get("routing-one-time"))?.atOccurrence?.finishedAt !== undefined,
+    "the one-time occurrence to finish",
+  );
+  const completed = await harness.service.getRouting("routing-one-time");
+  assert.equal(completed?.health, "completed");
+  assert.equal(completed?.nextScheduledAt, undefined);
+  assert.equal(completed?.activeRunId, undefined);
+  assert.equal(completed?.atOccurrence?.slotAt, "2026-07-14T12:02:00.000Z");
+  assert.match(completed?.atOccurrence?.occurrenceId ?? "", /^at-[a-f0-9]{32}$/);
+  assert.equal(harness.ports.calls.length, 2, "one manual copy and one scheduled occurrence executed");
+
+  const lines = await harness.journal();
+  const manualAccepted = lines.find((line) => line.scope === "run" && line.outcome === "accepted" && line.cause?.kind === "run-now");
+  assert.equal(manualAccepted?.requestId, "request-copy");
+  assert.equal(manualAccepted?.surface, "popover");
+  const scheduledAccepted = lines.find((line) => line.scope === "run" && line.outcome === "accepted" && line.cause?.kind === "scheduled");
+  assert.equal(scheduledAccepted?.occurrenceId, completed?.atOccurrence?.occurrenceId);
+
+  harness.clock.advance(24 * 60 * minute);
+  await new Promise<void>((resolve) => setTimeout(resolve, 20));
+  assert.equal(harness.ports.calls.length, 2, "completed one-time work never rearms");
+  await assert.rejects(
+    () => harness.service.runNow("routing-one-time"),
+    (error: unknown) => error instanceof WorkFoldRoutingServiceError
+      && error.code === "HEALTH_INVALID"
+      && error.health === "completed",
+  );
+});
+
+test("a crash after the durable one-time claim cannot replay the occurrence", async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-routing-at-claim-recovery-"));
+  t.after(() => rm(sandbox, { recursive: true, force: true }));
+  const clock = new FakeClock(startTime);
+  const now = () => clock.now();
+  const journalPath = join(sandbox, "routings", "receipts.jsonl");
+  const receipts = new WorkFoldRoutingReceipts({ path: journalPath, now });
+  const statePath = join(sandbox, "routings", "routings.json");
+  const store = await WorkFoldRoutingStore.create({ path: statePath, receipts, now });
+  const declaration = normalizeWorkFoldRoutingDeclaration(declarationInput("routing-claimed-before-crash", {
+    version: 2,
+    trigger: { kind: "at", at: "2026-07-14T12:02:00.000Z", ifMissed: "run" },
+  }));
+  await store.enable({
+    declaration,
+    expectedDigest: workFoldRoutingDigest(declaration),
+    decision: { decisionId: "decision-claim", surface: "popover" },
+  });
+  await store.claimAtOccurrence(
+    declaration.id,
+    "2026-07-14T12:02:00.000Z",
+    "run-claimed",
+    new Date("2026-07-14T12:02:00.000Z"),
+  );
+
+  const reloaded = await WorkFoldRoutingStore.create({ path: statePath, receipts, now });
+  const ports = new FakePorts();
+  const service = await WorkFoldRoutingService.create({ store: reloaded, ports, clock, catchUpStagger: () => 0 });
+  t.after(() => service.close());
+  assert.equal(service.status().armedRoutingCount, 0);
+  assert.deepEqual(ports.calls, []);
+  assert.equal((await service.getRouting(declaration.id))?.health, "completed");
+  assert.equal((await service.getRouting(declaration.id))?.atOccurrence?.finishedAt, clock.now().toISOString());
+
+  clock.advance(24 * 60 * minute);
+  await new Promise<void>((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(ports.calls, [], "startup records the unfinished claim but never replays it");
+});
+
+test("startup reconciles a crash between a one-time accepted receipt and its durable claim", async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-routing-at-accepted-recovery-"));
+  t.after(() => rm(sandbox, { recursive: true, force: true }));
+  const clock = new FakeClock(startTime);
+  const now = () => clock.now();
+  const journalPath = join(sandbox, "routings", "receipts.jsonl");
+  const receipts = new WorkFoldRoutingReceipts({ path: journalPath, now });
+  const statePath = join(sandbox, "routings", "routings.json");
+  const store = await WorkFoldRoutingStore.create({ path: statePath, receipts, now });
+  const declaration = normalizeWorkFoldRoutingDeclaration(declarationInput("routing-accepted-before-claim", {
+    version: 2,
+    trigger: { kind: "at", at: "2026-07-14T12:02:00.000Z", ifMissed: "run" },
+  }));
+  const enabled = await store.enable({
+    declaration,
+    expectedDigest: workFoldRoutingDigest(declaration),
+    decision: { decisionId: "decision-accepted", surface: "main-window" },
+  });
+  await receipts.append({
+    scope: "run",
+    outcome: "accepted",
+    routingId: declaration.id,
+    runId: "run-accepted",
+    title: declaration.title,
+    digest: enabled.digest,
+    cause: { kind: "scheduled", slotAt: declaration.trigger.kind === "at" ? declaration.trigger.at : "" },
+  });
+
+  const reloaded = await WorkFoldRoutingStore.create({ path: statePath, receipts, now });
+  const ports = new FakePorts();
+  const service = await WorkFoldRoutingService.create({ store: reloaded, ports, clock, catchUpStagger: () => 0 });
+  t.after(() => service.close());
+
+  const completed = await service.getRouting(declaration.id);
+  assert.equal(completed?.health, "completed");
+  assert.equal(completed?.atOccurrence?.runId, "run-accepted");
+  assert.ok(completed?.atOccurrence?.finishedAt);
+  assert.deepEqual(ports.calls, [], "the recovered accepted occurrence is consumed and never replayed");
+  const runLines = (await readFile(journalPath, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as WorkFoldRoutingReceiptV1)
+    .filter((line) => line.runId === "run-accepted" && line.scope === "run");
+  assert.deepEqual(runLines.map((line) => line.outcome), ["accepted", "interrupted"]);
+});
+
+test("failed and stopped scheduled one-time runs still consume their occurrence", async (t) => {
+  const harness = await createHarness(t);
+  await harness.enable(declarationInput("routing-at-failure", {
+    version: 2,
+    trigger: { kind: "at", at: "2026-07-14T12:01:00.000Z", ifMissed: "run" },
+  }), "decision-failure");
+  await harness.enable(declarationInput("routing-at-stopped", {
+    version: 2,
+    trigger: { kind: "at", at: "2026-07-14T12:02:00.000Z", ifMissed: "run" },
+  }), "decision-stopped");
+  harness.ports.chatImpl = (step, context) => context.routingId === "routing-at-failure"
+    ? Promise.resolve({
+        conversationId: "conversation-failed-at",
+        turnTaskId: "turn-task-failed-at",
+        outcome: "failed",
+        error: "The provider refused this turn.",
+      })
+    : harness.ports.abortableChat(step, context);
+
+  harness.clock.advance(minute);
+  await waitForCondition(
+    async () => (await harness.store.get("routing-at-failure"))?.atOccurrence?.finishedAt !== undefined,
+    "the failed occurrence to finish",
+  );
+  assert.equal((await harness.store.get("routing-at-failure"))?.health, "completed");
+
+  harness.clock.advance(minute);
+  await waitForCondition(
+    async () => (await harness.service.getRouting("routing-at-stopped"))?.activeRunId !== undefined,
+    "the stopped occurrence to become active",
+  );
+  harness.service.stopRun("routing-at-stopped", { requestId: "request-stop-at", surface: "main-window" });
+  await waitForCondition(
+    async () => (await harness.store.get("routing-at-stopped"))?.atOccurrence?.finishedAt !== undefined,
+    "the stopped occurrence to finish",
+  );
+  assert.equal((await harness.store.get("routing-at-stopped"))?.health, "completed");
+
+  harness.clock.advance(24 * 60 * minute);
+  await new Promise<void>((resolve) => setTimeout(resolve, 20));
+  assert.equal(harness.ports.calls.filter((call) => call.routingId === "routing-at-failure").length, 1);
+  assert.equal(harness.ports.calls.filter((call) => call.routingId === "routing-at-stopped").length, 1);
+});
+
+test("an active completed one-time routing must be stopped before deletion", async (t) => {
+  const harness = await createHarness(t);
+  await harness.enable(declarationInput("routing-at-delete-active", {
+    version: 2,
+    trigger: { kind: "at", at: "2026-07-14T12:01:00.000Z", ifMissed: "run" },
+  }));
+  harness.ports.chatImpl = harness.ports.abortableChat;
+
+  harness.clock.advance(minute);
+  await waitForCondition(
+    async () => (await harness.service.getRouting("routing-at-delete-active"))?.activeRunId !== undefined,
+    "the one-time run to become active",
+  );
+  assert.equal((await harness.store.get("routing-at-delete-active"))?.health, "completed");
+  await assert.rejects(
+    () => harness.service.deleteRouting("routing-at-delete-active"),
+    (error: unknown) => error instanceof WorkFoldRoutingServiceError
+      && error.code === "HEALTH_INVALID"
+      && error.health === "completed",
+  );
+
+  assert.ok(harness.service.stopRun("routing-at-delete-active"));
+  await waitForCondition(
+    async () => (await harness.service.getRouting("routing-at-delete-active"))?.activeRunId === undefined,
+    "the stopped one-time run to settle",
+  );
+  assert.equal((await harness.service.deleteRouting("routing-at-delete-active")).declaration.id, "routing-at-delete-active");
+});
+
+test("a queued due occurrence survives suspend and catches up exactly once on resume", async (t) => {
+  const harness = await createHarness(t, { maxConcurrency: 1 });
+  await harness.enable(declarationInput("routing-suspend-blocker"));
+  await harness.enable(declarationInput("routing-suspend-once", {
+    version: 2,
+    trigger: { kind: "at", at: "2026-07-14T12:01:00.000Z", ifMissed: "run" },
+  }));
+  harness.ports.chatImpl = (step, context) => context.routingId === "routing-suspend-blocker"
+    ? harness.ports.abortableChat(step, context)
+    : harness.ports.defaultChat(step, context);
+
+  const blocker = harness.service.runNow("routing-suspend-blocker");
+  await waitForCondition(
+    () => harness.ports.calls.some((call) => call.routingId === "routing-suspend-blocker"),
+    "the blocking route to acquire the only slot",
+  );
+  harness.clock.advance(minute);
+  harness.service.suspend();
+  await blocker;
+  await waitForCondition(
+    () => harness.service.listAutomationResults("routing-suspend-once")
+      .some((result) => result.notLaunchedReason === "suspended"),
+    "the queued one-time admission to settle as suspended",
+  );
+  assert.equal((await harness.store.get("routing-suspend-once"))?.health, "enabled");
+  assert.equal((await harness.store.get("routing-suspend-once"))?.atOccurrence, undefined);
+
+  await harness.service.resume();
+  harness.clock.advance(0);
+  await waitForCondition(
+    async () => (await harness.store.get("routing-suspend-once"))?.atOccurrence?.finishedAt !== undefined,
+    "the preserved occurrence to catch up",
+  );
+  assert.equal(
+    harness.ports.calls.filter((call) => call.routingId === "routing-suspend-once").length,
+    1,
+  );
+  harness.clock.advance(24 * 60 * minute);
+  await new Promise<void>((resolve) => setTimeout(resolve, 20));
+  assert.equal(
+    harness.ports.calls.filter((call) => call.routingId === "routing-suspend-once").length,
+    1,
+    "resume cannot replay the occurrence",
+  );
+});
+
+test("a newer suspend wins over an older asynchronous resume", async (t) => {
+  const harness = await createHarness(t);
+  await harness.enable(declarationInput("routing-resume-generation", {
+    trigger: { kind: "interval", intervalMinutes: 30 },
+  }));
+  const originalList = harness.store.list.bind(harness.store);
+  const entered = deferred();
+  const release = deferred();
+  let delayNextList = true;
+  (harness.store as unknown as { list: () => Promise<WorkFoldRoutingRecord[]> }).list = async () => {
+    if (delayNextList) {
+      delayNextList = false;
+      entered.resolve();
+      await release.promise;
+    }
+    return await originalList();
+  };
+
+  harness.service.suspend();
+  const staleResume = harness.service.resume();
+  await entered.promise;
+  harness.service.suspend();
+  release.resolve();
+  await staleResume;
+  harness.clock.advance(30 * minute);
+  await new Promise<void>((resolve) => setTimeout(resolve, 20));
+  assert.equal(harness.ports.calls.length, 0, "the stale continuation cannot re-enable scheduling");
+
+  await harness.service.resume();
+  harness.clock.advance(0);
+  await waitForCondition(() => harness.ports.calls.length === 1, "the later explicit resume to catch up");
+});
+
+test("restart catch-up runs or skips a missed one-time occurrence exactly as declared", async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-routing-at-missed-"));
+  t.after(() => rm(sandbox, { recursive: true, force: true }));
+  const clock = new FakeClock(startTime);
+  const now = () => clock.now();
+  const receipts = new WorkFoldRoutingReceipts({ path: join(sandbox, "receipts.jsonl"), now });
+  const store = await WorkFoldRoutingStore.create({ path: join(sandbox, "routings.json"), receipts, now });
+  const ports = new FakePorts();
+  const first = await WorkFoldRoutingService.create({ store, ports, clock, catchUpStagger: () => 0 });
+  for (const [id, ifMissed] of [["routing-missed-run", "run"], ["routing-missed-skip", "skip"]] as const) {
+    const declaration = normalizeWorkFoldRoutingDeclaration(declarationInput(id, {
+      version: 2,
+      trigger: { kind: "at", at: "2026-07-14T12:01:00.000Z", ifMissed },
+    }));
+    await first.enable({
+      declaration,
+      expectedDigest: workFoldRoutingDigest(declaration),
+      decision: { decisionId: `decision-${ifMissed}`, surface: "popover" },
+    });
+  }
+  first.close();
+  clock.advance(2 * minute);
+
+  const restarted = await WorkFoldRoutingService.create({
+    store,
+    ports,
+    clock,
+    createRunId: () => "run-catch-up",
+    catchUpStagger: () => 0,
+  });
+  t.after(() => restarted.close());
+  clock.advance(0);
+  await waitForCondition(
+    async () => (await store.get("routing-missed-run"))?.atOccurrence?.finishedAt !== undefined,
+    "the missed run policy occurrence to finish",
+  );
+  assert.equal((await store.get("routing-missed-run"))?.health, "completed");
+  assert.equal((await store.get("routing-missed-skip"))?.health, "completed");
+  assert.equal(ports.calls.filter((call) => call.routingId === "routing-missed-run").length, 1);
+  assert.equal(ports.calls.filter((call) => call.routingId === "routing-missed-skip").length, 0);
+  const missedReceipts = (await readFile(join(sandbox, "receipts.jsonl"), "utf8"))
+    .split("\n")
+    .filter((line) => line.trim())
+    .map((line) => JSON.parse(line) as WorkFoldRoutingReceiptV1);
+  const skipped = missedReceipts.filter((line) => line.routingId === "routing-missed-skip");
+  assert.ok(skipped.some((line) => line.scope === "run" && line.outcome === "skipped"));
+  assert.ok(skipped.some((line) => line.scope === "routing" && line.outcome === "completed"));
+  assert.ok(skipped.every((line) => line.outcome !== "lapsed"), "missed skip uses the canonical skipped + completed receipt pair");
+});
+
 test("an on-settled trigger admits matching settles only, and routing-caused settles never fire triggers", async (t) => {
   const harness = await createHarness(t);
   await harness.enable(declarationInput("routing-on-settle", {
@@ -465,7 +860,8 @@ test("stop aborts the current hop through its domain path, skips later hops, and
 
   const resultPromise = harness.service.runNow("routing-weekly-handoff", { requestId: "request-1" });
   await waitForCondition(() => harness.ports.calls.length === 1, "the chat hop to start");
-  const stopped = harness.service.stopRun("routing-weekly-handoff");
+  assert.match((await harness.service.getRouting("routing-weekly-handoff"))?.activeRunId ?? "", /^run-/);
+  const stopped = harness.service.stopRun("routing-weekly-handoff", { requestId: "request-stop", surface: "main-window" });
   assert.ok(stopped, "stop finds the active run");
 
   const result = await resultPromise;
@@ -482,6 +878,9 @@ test("stop aborts the current hop through its domain path, skips later hops, and
   const lines = await harness.journal();
   const stoppedRun = lines.find((line) => line.scope === "run" && line.outcome === "stopped");
   assert.deepEqual(stoppedRun?.stoppedHopTaskIds, ["turn-task-review"], "the receipt names every hop task the stop aborted");
+  assert.equal(stoppedRun?.requestId, "request-stop");
+  assert.equal(stoppedRun?.surface, "main-window");
+  assert.equal((await harness.service.getRouting("routing-weekly-handoff"))?.activeRunId, undefined);
   assert.equal(harness.service.stopRun("routing-weekly-handoff"), null, "a settled run refuses stop");
 });
 

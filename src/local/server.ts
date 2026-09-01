@@ -198,6 +198,7 @@ import {
   type FoldStagedActFields,
   type FoldStagedActKind,
   type FoldStagedActProvenance,
+  type FoldStagedActStagedVia,
 } from "./fold-staged-acts.js";
 import {
   createWorkFoldGlancePolicyChangeReader,
@@ -247,12 +248,15 @@ import {
   WorkFoldRoutingService,
   WorkFoldRoutingServiceError,
   type WorkFoldRoutingHopPorts,
+  type WorkFoldRoutingProjection,
+  type WorkFoldRoutingServiceStatus,
 } from "./routings/routing-service.js";
 import {
   WorkFoldRoutingStore,
   WorkFoldRoutingStoreError,
   workFoldRoutingReceiptsFile,
   workFoldRoutingReceiptsRotatedFile,
+  type WorkFoldRoutingReceiptV1,
   type WorkFoldRoutingRecord,
 } from "./routings/routing-store.js";
 import { WorkFoldSettleSignal } from "./routings/settle-signal.js";
@@ -264,7 +268,11 @@ import {
   workFoldStateRoot,
 } from "./state-paths.js";
 import { WorkFoldKernel } from "./work-fold-kernel.js";
-import { WorkFoldCliActReceipts, type WorkFoldCliActReceipt } from "./cli/act-receipts.js";
+import {
+  WORKFOLD_CLI_ACT_SURFACES,
+  WorkFoldCliActReceipts,
+  type WorkFoldCliActReceipt,
+} from "./cli/act-receipts.js";
 import { WorkFoldCliError } from "./cli/protocol.js";
 import type {
   WorkFoldActAppAutomationRunRef,
@@ -418,6 +426,79 @@ export interface LocalApiOptions {
   }) => void;
 }
 
+export type WorkFoldRoutingSettingsOutcome =
+  | "accepted"
+  | "succeeded"
+  | "failed"
+  | "stopped"
+  | "interrupted"
+  | "skipped"
+  | "lapsed";
+
+export interface WorkFoldRoutingSettingsSpaceRef {
+  spaceId: string;
+  spaceName?: string;
+}
+
+export interface WorkFoldRoutingSettingsRunView {
+  runId: string;
+  outcome: WorkFoldRoutingSettingsOutcome;
+  startedAt: string;
+  finishedAt?: string;
+  cause?: string;
+  detail?: string;
+  hops: Array<{
+    hopId: string;
+    kind: "chat" | "files" | "check";
+    outcome: WorkFoldRoutingSettingsOutcome;
+    spaceName?: string;
+    detail?: string;
+    evidence?: Array<{ label: string; value: string }>;
+  }>;
+}
+
+export interface WorkFoldRoutingSettingsSummary {
+  routingId: string;
+  title: string;
+  health: "enabled" | "disabled" | "suspended" | "completed";
+  trigger: WorkFoldActRoutingTriggerRef;
+  stepCount: number;
+  nextScheduledAt?: string;
+  lastScheduledAt?: string;
+  activeRun?: { runId: string; startedAt: string };
+  lastRun?: Omit<WorkFoldRoutingSettingsRunView, "hops" | "cause" | "detail">;
+  suspension?: { at: string; reason?: string; missingSpaces?: WorkFoldRoutingSettingsSpaceRef[] };
+}
+
+export interface WorkFoldRoutingSettingsFacade {
+  list(): Promise<{ routings: WorkFoldRoutingSettingsSummary[]; status: WorkFoldRoutingServiceStatus }>;
+  show(routingId: string): Promise<{
+    routing: WorkFoldRoutingSettingsSummary & {
+      createdAt: string;
+      spaces: WorkFoldRoutingSettingsSpaceRef[];
+      steps: Array<
+        | { id: string; kind: "chat"; space: WorkFoldRoutingSettingsSpaceRef; message: string }
+        | {
+          id: string;
+          kind: "files";
+          fromSpace: WorkFoldRoutingSettingsSpaceRef;
+          toSpace: WorkFoldRoutingSettingsSpaceRef;
+          to: string;
+          source: ReturnType<typeof toActRoutingFilesSource>;
+        }
+        | { id: string; kind: "check"; space: WorkFoldRoutingSettingsSpaceRef; checkId?: string }
+      >;
+      completedAt?: string;
+    };
+  }>;
+  history(routingId: string): Promise<{ runs: WorkFoldRoutingSettingsRunView[]; truncated: boolean; damagedLineCount: number }>;
+  stageEnable(routingId: string): Promise<{ routingId: string; decisionId: string; state: "staged" | "executed" }>;
+  run(routingId: string): Promise<{ routingId: string; requestId: string; runId: string; accepted: true }>;
+  stop(routingId: string): Promise<{ routingId: string; requestId: string; runId: string; stopped: true }>;
+  disable(routingId: string): Promise<{ routingId: string; requestId: string; disabled: true; stoppedRunId: string | null }>;
+  delete(routingId: string): Promise<{ routingId: string; requestId: string; deleted: true }>;
+}
+
 export interface LocalApiHandle {
   origin: string;
   port: number;
@@ -446,6 +527,8 @@ export interface LocalApiHandle {
   foldDecisions: FoldDecisionService;
   /** The routing executor (docs/fold-routings.md), for the desktop surfaces and lifecycle wiring. */
   routings: WorkFoldRoutingService;
+  /** Main-window Settings capability; never exposed on the local HTTP or remote facades. */
+  routingSettings: WorkFoldRoutingSettingsFacade;
   /** The publication authority (docs/fold-publishing.md rung 2); the desktop wires it as the remote viewer-page provider. */
   publications: WorkFoldPublicationService;
   close: () => Promise<void>;
@@ -901,6 +984,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     foldPolicies,
     foldDecisions: state.foldDecisions,
     routings: state.routings,
+    routingSettings: createWorkFoldRoutingSettingsFacade(state),
     publications,
     close: async () => {
       state.acceptingTurns = false;
@@ -4073,29 +4157,13 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
    * admission returns the existing pending card unevaluated: authority changes
    * apply to future requests and never silently consume an older backlog.
    */
-  const stageConsecration = async (input: {
+  const stageConsecration = (input: {
     kind: FoldStagedActKind;
     parameters: FoldStagedActFields;
     pins: FoldStagedActFields;
     parentTaskId?: string;
     requestId?: string;
-  }): Promise<WorkFoldActStagedDecision> => {
-    const admission = await runStagedActStoreOperation(() => state.stagedActs.stage({
-      kind: input.kind,
-      parameters: input.parameters,
-      pins: input.pins,
-      provenance: stagingProvenance(state, input.parentTaskId, input.requestId),
-    }));
-    if (admission.deduplicated) return toStagedDecision(admission);
-    const exercised = await exerciseUnrestrictedAuthorityAtAdmission(state, admission.act)
-      ?? await exerciseStandingPolicyAtAdmission(state, admission.act);
-    if (!exercised) return toStagedDecision(admission);
-    return {
-      ...toStagedDecision(admission),
-      state: "approved",
-      autoApproval: exercised,
-    };
-  };
+  }): Promise<WorkFoldActStagedDecision> => stageFoldConsecration(state, input);
   /**
    * Whole-Space restore replaces the working set running work may be reading,
    * so the act lane refuses concurrency the desktop still leaves to a confirm
@@ -5678,35 +5746,17 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
     async routingsStage(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
       const { declaration, digest } = await readRoutingStagingFile(input.proposalPath, input.cwd);
-      const referencedSpaceIds = workFoldRoutingReferencedSpaceIds(declaration);
-      for (const spaceId of referencedSpaceIds) {
-        const registered = await getSpace(spaceId).catch(() => null);
-        if (!registered) {
-          throw new WorkFoldCliError(
-            "conflict",
-            `The routing references a Space that is not registered on this machine (${spaceId}); the enablement card could not show it by name.`,
-          );
-        }
-      }
-      // Hold the exact normalized declaration before the card exists, so a
-      // pending card always has its reviewed bytes; pruning afterwards keeps
-      // only digests still pinned by pending cards.
-      await holdStagedRoutingDeclaration(declaration, digest);
-      const staged = await stageConsecration({
-        kind: "routing.enable",
-        parameters: { routingId: declaration.id },
-        pins: { routingId: declaration.id, declarationDigest: digest },
+      const stagedRouting = await stageStoredRoutingDeclaration(state, declaration, digest, {
         parentTaskId: input.parentTaskId,
         requestId: input.requestId,
       });
-      await pruneStagedRoutingDeclarations(state.stagedActs).catch(() => undefined);
-      recordFacadeAction(state, input.parentTaskId, { command: "routings.stage", decisionId: staged.decisionId });
+      recordFacadeAction(state, input.parentTaskId, { command: "routings.stage", decisionId: stagedRouting.staged.decisionId });
       return {
-        staged,
-        routingId: declaration.id,
-        declarationDigest: digest,
-        title: declaration.title,
-        referencedSpaceIds,
+        staged: stagedRouting.staged,
+        routingId: stagedRouting.routingId,
+        declarationDigest: stagedRouting.declarationDigest,
+        title: stagedRouting.title,
+        referencedSpaceIds: stagedRouting.referencedSpaceIds,
       };
     },
     async pagesStage(input) {
@@ -5890,44 +5940,14 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       assertManagementParentAccepting(state, input.parentTaskId);
       const routingId = input.routing.trim();
       const record = await runActOperation(() => state.routings.deleteRouting(routingId));
-      if (record.health !== "disabled" && record.health !== "suspended") {
+      if (record.health !== "disabled" && record.health !== "suspended" && record.health !== "completed") {
         throw new WorkFoldCliError("failure", "The routing was deleted in an unexpected health state.");
       }
       return { routingId, deleted: true as const, digest: record.digest, finalHealth: record.health };
     },
     async routingsReceipts(input) {
-      const routingFilter = input.routing?.trim();
-      const parsed: WorkFoldActRoutingReceipt[] = [];
-      let damagedLineCount = 0;
-      for (const path of [workFoldRoutingReceiptsRotatedFile(), workFoldRoutingReceiptsFile()]) {
-        const text = await readFile(path, "utf8").catch(() => null);
-        if (!text) continue;
-        for (const line of text.split("\n")) {
-          if (!line.trim()) continue;
-          let record: Record<string, unknown>;
-          try {
-            record = JSON.parse(line) as Record<string, unknown>;
-          } catch {
-            damagedLineCount += 1;
-            continue;
-          }
-          const { at, scope, outcome, routingId } = record;
-          if (
-            typeof at !== "string"
-            || typeof outcome !== "string"
-            || typeof routingId !== "string"
-            || (scope !== "routing" && scope !== "run" && scope !== "hop")
-          ) {
-            damagedLineCount += 1;
-            continue;
-          }
-          if (routingFilter && routingId !== routingFilter) continue;
-          const { v: _version, ...fields } = record;
-          parsed.push({ ...fields, at, scope, outcome, routingId } as WorkFoldActRoutingReceipt);
-        }
-      }
-      const receipts = parsed.slice(-500);
-      return { receipts, truncated: parsed.length > receipts.length, damagedLineCount };
+      const projection = await readRoutingReceiptProjection(input.routing?.trim());
+      return { ...projection, receipts: [...projection.receipts].reverse() };
     },
     async pagesList() {
       const views = await runActOperation(() => state.publications.list());
@@ -6814,19 +6834,9 @@ function toActAppAutomationRunRef(run: RestrictedAppAutomationRunReceipt): WorkF
   };
 }
 
-function toActRoutingTriggerRef(trigger: WorkFoldRoutingDeclaration["trigger"]): {
-  kind: "manual" | "interval" | "on-settled";
-  intervalMinutes?: number;
-  source?: {
-    kind: "check-run" | "app-automation-run";
-    spaceId: string;
-    checkId?: string;
-    appId?: string;
-    automationId?: string;
-    outcomes: string[];
-  };
-} {
+function toActRoutingTriggerRef(trigger: WorkFoldRoutingDeclaration["trigger"]): WorkFoldActRoutingTriggerRef {
   if (trigger.kind === "interval") return { kind: "interval", intervalMinutes: trigger.intervalMinutes };
+  if (trigger.kind === "at") return { kind: "at", at: trigger.at, ifMissed: trigger.ifMissed };
   if (trigger.kind === "on-settled") {
     const source = trigger.source;
     if (source.kind === "check-run") {
@@ -6854,16 +6864,7 @@ function toActRoutingTriggerRef(trigger: WorkFoldRoutingDeclaration["trigger"]):
   return { kind: "manual" };
 }
 
-function toActRoutingSummary(projection: {
-  declaration: WorkFoldRoutingDeclaration;
-  digest: string;
-  health: "enabled" | "disabled" | "suspended";
-  grants: Array<{ approvedAt: string }>;
-  lastScheduledAt?: string;
-  disabledAt?: string;
-  suspension?: { at: string; missingSpaceIds: string[]; reRegisteredSpaceIds: string[] };
-  nextScheduledAt?: string;
-}) {
+function toActRoutingSummary(projection: WorkFoldRoutingProjection): WorkFoldActRoutingSummary {
   return {
     routingId: projection.declaration.id,
     title: projection.declaration.title,
@@ -6887,6 +6888,11 @@ function toActRoutingSummary(projection: {
       : {}),
     ...(projection.lastScheduledAt ? { lastScheduledAt: projection.lastScheduledAt } : {}),
     ...(projection.nextScheduledAt ? { nextScheduledAt: projection.nextScheduledAt } : {}),
+    ...(projection.atOccurrence?.finishedAt
+      ? { completedAt: projection.atOccurrence.finishedAt }
+      : projection.atOccurrence?.consumedAt
+        ? { completedAt: projection.atOccurrence.consumedAt }
+        : {}),
   };
 }
 
@@ -6904,6 +6910,572 @@ function toActRoutingFilesSource(
     maxFiles: source.maxFiles,
     maxTotalBytes: source.maxTotalBytes,
   };
+}
+
+const routingReceiptProjectionLimit = 500;
+const routingReceiptTextLimit = 4_096;
+const routingReceiptListLimit = 128;
+
+async function readRoutingReceiptProjection(routingId?: string): Promise<{
+  receipts: WorkFoldActRoutingReceipt[];
+  truncated: boolean;
+  damagedLineCount: number;
+}> {
+  const matching: WorkFoldActRoutingReceipt[] = [];
+  const damagedLineCount = await visitRoutingReceipts((projected) => {
+    if (routingId === undefined || projected.routingId === routingId) matching.push(projected);
+  });
+  return {
+    receipts: matching.slice(-routingReceiptProjectionLimit).reverse(),
+    truncated: matching.length > routingReceiptProjectionLimit,
+    damagedLineCount,
+  };
+}
+
+async function readRoutingReceiptProjectionsByRouting(): Promise<{
+  receipts: WorkFoldActRoutingReceipt[];
+  truncated: boolean;
+  damagedLineCount: number;
+}> {
+  const matchingByRouting = new Map<string, WorkFoldActRoutingReceipt[]>();
+  let truncated = false;
+  const damagedLineCount = await visitRoutingReceipts((projected) => {
+    const bucket = matchingByRouting.get(projected.routingId) ?? [];
+    bucket.push(projected);
+    if (bucket.length > routingReceiptProjectionLimit) {
+      bucket.shift();
+      truncated = true;
+    }
+    matchingByRouting.set(projected.routingId, bucket);
+  });
+  return {
+    receipts: [...matchingByRouting.values()].flat().sort((left, right) => Date.parse(right.at) - Date.parse(left.at)),
+    truncated,
+    damagedLineCount,
+  };
+}
+
+async function visitRoutingReceipts(visitor: (receipt: WorkFoldActRoutingReceipt) => void): Promise<number> {
+  let damagedLineCount = 0;
+  for (const path of [workFoldRoutingReceiptsRotatedFile(), workFoldRoutingReceiptsFile()]) {
+    const text = await readFile(path, "utf8").catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw new WorkFoldCliError("failure", "work-fold could not read the routing run history.", { cause: error });
+    });
+    if (text === null) continue;
+    for (const line of text.split("\n")) {
+      if (!line.trim()) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line) as unknown;
+      } catch {
+        damagedLineCount += 1;
+        continue;
+      }
+      const projected = projectRoutingReceipt(parsed);
+      if (!projected) {
+        damagedLineCount += 1;
+        continue;
+      }
+      visitor(projected);
+    }
+  }
+  return damagedLineCount;
+}
+
+function projectRoutingReceipt(value: unknown): WorkFoldActRoutingReceipt | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const receipt = value as Partial<WorkFoldRoutingReceiptV1>;
+  const at = routingReceiptTimestamp(receipt.at);
+  const routingId = routingReceiptText(receipt.routingId);
+  const outcome = routingReceiptText(receipt.outcome);
+  if (!at || !routingId || !outcome || (receipt.scope !== "routing" && receipt.scope !== "run" && receipt.scope !== "hop")) {
+    return null;
+  }
+  const projected: WorkFoldActRoutingReceipt = { at, scope: receipt.scope, outcome, routingId };
+  const addText = (key: keyof WorkFoldActRoutingReceipt, candidate: unknown) => {
+    const text = routingReceiptText(candidate);
+    if (text !== undefined) (projected as unknown as Record<string, unknown>)[key] = text;
+  };
+  addText("runId", receipt.runId);
+  addText("hopId", receipt.hopId);
+  if (receipt.hopKind === "chat" || receipt.hopKind === "files" || receipt.hopKind === "check") projected.hopKind = receipt.hopKind;
+  addText("title", receipt.title);
+  addText("digest", receipt.digest);
+  addText("detail", receipt.detail);
+  const cause = projectRoutingReceiptCause(receipt.cause);
+  if (cause !== undefined) projected.cause = cause;
+  addText("spaceId", receipt.spaceId);
+  addText("fromSpaceId", receipt.fromSpaceId);
+  addText("toSpaceId", receipt.toSpaceId);
+  addText("conversationId", receipt.conversationId);
+  addText("taskId", receipt.taskId);
+  addText("restorePointId", receipt.restorePointId);
+  addText("checkRunId", receipt.checkRunId);
+  addText("failedHopId", receipt.failedHopId);
+  addText("surface", receipt.surface);
+  addText("decisionId", receipt.decisionId);
+  addText("requestId", receipt.requestId);
+  addText("occurrenceId", receipt.occurrenceId);
+  addText("scheduledRunId", receipt.scheduledRunId);
+  const addList = (key: keyof WorkFoldActRoutingReceipt, candidate: unknown) => {
+    const list = routingReceiptTextList(candidate);
+    if (list !== undefined) (projected as unknown as Record<string, unknown>)[key] = list;
+  };
+  addList("checkpointIds", receipt.checkpointIds);
+  addList("sourcePaths", receipt.sourcePaths);
+  addList("copiedPaths", receipt.copiedPaths);
+  addList("checkIds", receipt.checkIds);
+  addList("stoppedHopTaskIds", receipt.stoppedHopTaskIds);
+  addList("missingSpaceIds", receipt.missingSpaceIds);
+  const addCount = (key: keyof WorkFoldActRoutingReceipt, candidate: unknown) => {
+    if (typeof candidate === "number" && Number.isFinite(candidate) && candidate >= 0) {
+      (projected as unknown as Record<string, unknown>)[key] = Math.floor(candidate);
+    }
+  };
+  addCount("fileCount", receipt.fileCount);
+  addCount("totalBytes", receipt.totalBytes);
+  addCount("findingCount", receipt.findingCount);
+  addCount("admittedCount", receipt.admittedCount);
+  return projected;
+}
+
+function projectRoutingReceiptCause(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const cause = value as Record<string, unknown>;
+  if ((cause.kind === "scheduled" || cause.kind === "resume") && routingReceiptTimestamp(cause.slotAt)) {
+    return { kind: cause.kind, slotAt: routingReceiptTimestamp(cause.slotAt)! };
+  }
+  if (cause.kind === "run-now") {
+    const surface = typeof cause.surface === "string" && WORKFOLD_CLI_ACT_SURFACES.includes(cause.surface as never)
+      ? cause.surface
+      : undefined;
+    return {
+      kind: "run-now",
+      ...(routingReceiptText(cause.requestId) ? { requestId: routingReceiptText(cause.requestId) } : {}),
+      ...(surface ? { surface } : {}),
+    };
+  }
+  if (cause.kind !== "on-settled" || !cause.source || typeof cause.source !== "object" || Array.isArray(cause.source)) {
+    return undefined;
+  }
+  const source = cause.source as Record<string, unknown>;
+  const spaceId = routingReceiptText(source.spaceId);
+  const runId = routingReceiptText(source.runId);
+  const outcome = routingReceiptText(source.outcome);
+  if (!spaceId || !runId || !outcome) return undefined;
+  if (source.kind === "check-run") {
+    return {
+      kind: "on-settled",
+      source: {
+        kind: "check-run",
+        spaceId,
+        runId,
+        outcome,
+        ...(routingReceiptText(source.checkId) ? { checkId: routingReceiptText(source.checkId) } : {}),
+      },
+    };
+  }
+  if (source.kind === "app-automation-run") {
+    const appId = routingReceiptText(source.appId);
+    const automationId = routingReceiptText(source.automationId);
+    if (!appId || !automationId) return undefined;
+    return { kind: "on-settled", source: { kind: "app-automation-run", spaceId, appId, automationId, runId, outcome } };
+  }
+  return undefined;
+}
+
+function routingReceiptText(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value || value.length > routingReceiptTextLimit) return undefined;
+  if (/\p{Cc}|\p{Cf}/u.test(value)) return undefined;
+  return value;
+}
+
+function routingReceiptTimestamp(value: unknown): string | undefined {
+  const text = routingReceiptText(value);
+  return text && Number.isFinite(Date.parse(text)) ? new Date(text).toISOString() : undefined;
+}
+
+function routingReceiptTextList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value) || value.length > routingReceiptListLimit) return undefined;
+  const values = value.map(routingReceiptText);
+  return values.every((item): item is string => item !== undefined) ? values : undefined;
+}
+
+function createWorkFoldRoutingSettingsFacade(state: LocalApiState): WorkFoldRoutingSettingsFacade {
+  return {
+    async list() {
+      const projections = await runActOperation(() => state.routings.listRoutings());
+      const receiptProjection = await readRoutingReceiptProjectionsByRouting();
+      const historyByRouting = new Map<string, WorkFoldRoutingSettingsRunView[]>();
+      for (const projection of projections) {
+        const history = await routingSettingsHistoryFromProjection(
+          projection.declaration.id,
+          receiptProjection,
+        );
+        historyByRouting.set(projection.declaration.id, history.runs);
+      }
+      return {
+        routings: await Promise.all(projections.map(async (projection) =>
+          await routingSettingsSummary(projection, historyByRouting.get(projection.declaration.id) ?? []))),
+        status: state.routings.status(),
+      };
+    },
+    async show(routingId) {
+      const projection = await requireSettingsRouting(state, routingId);
+      const history = await routingSettingsHistory(projection.declaration.id);
+      const summary = await routingSettingsSummary(projection, history.runs);
+      const ids = workFoldRoutingReferencedSpaceIds(projection.declaration);
+      const spaces = await routingSettingsSpaceRefs(ids);
+      const byId = new Map(spaces.map((space) => [space.spaceId, space]));
+      const named = (spaceId: string): WorkFoldRoutingSettingsSpaceRef => byId.get(spaceId) ?? { spaceId };
+      return {
+        routing: {
+          ...summary,
+          createdAt: projection.declaration.createdAt,
+          spaces,
+          steps: projection.declaration.steps.map((step) => step.kind === "chat"
+            ? { id: step.id, kind: "chat" as const, space: named(step.space), message: step.message }
+            : step.kind === "files"
+              ? {
+                id: step.id,
+                kind: "files" as const,
+                fromSpace: named(step.fromSpace),
+                toSpace: named(step.toSpace),
+                to: step.to,
+                source: toActRoutingFilesSource(step.from),
+              }
+              : {
+                id: step.id,
+                kind: "check" as const,
+                space: named(step.space),
+                ...(step.check ? { checkId: step.check } : {}),
+              }),
+          ...(projection.atOccurrence?.finishedAt
+            ? { completedAt: projection.atOccurrence.finishedAt }
+            : projection.atOccurrence?.consumedAt
+              ? { completedAt: projection.atOccurrence.consumedAt }
+              : {}),
+        },
+      };
+    },
+    async history(routingId) {
+      await requireSettingsRouting(state, routingId);
+      return await routingSettingsHistory(routingId);
+    },
+    async stageEnable(routingId) {
+      const projection = await requireSettingsRouting(state, routingId);
+      if (projection.health === "enabled") {
+        throw new WorkFoldCliError("conflict", "This routing is already on.");
+      }
+      if (projection.health === "completed") {
+        throw new WorkFoldCliError(
+          "conflict",
+          "This one-time routing is complete. Ask the fold to create a new routing for another occurrence.",
+        );
+      }
+      const result = await runDesktopSettingsAct(state, "routings.stage", async (requestId) => {
+        const staged = await stageStoredRoutingDeclaration(state, projection.declaration, projection.digest, {
+          requestId,
+          stagedVia: "desktop-settings",
+        });
+        if (staged.staged.state === "approved" && staged.staged.autoApproval?.executionOutcome !== "executed") {
+          throw new WorkFoldCliError(
+            "failure",
+            staged.staged.autoApproval?.detail ?? "The routing was approved, but enabling it did not complete.",
+          );
+        }
+        return {
+          value: {
+            routingId: staged.routingId,
+            decisionId: staged.staged.decisionId,
+            state: staged.staged.state === "approved" ? "executed" as const : "staged" as const,
+          },
+          detail: staged.staged.state === "approved"
+            ? `Enabled routing ${staged.routingId}.`
+            : `Staged routing ${staged.routingId} for review.`,
+        };
+      });
+      return result.value;
+    },
+    async run(routingId) {
+      const projection = await requireSettingsRouting(state, routingId);
+      if (projection.health !== "enabled") throw routingHealthConflict(projection.health);
+      const requestId = `settings:${randomUUID()}`;
+      const receipt = { requestId, command: "routings.run", surface: "main-window" as const };
+      if (!await state.actReceipts.append({ ...receipt, outcome: "accepted" })) {
+        throw new WorkFoldCliError(
+          "failure",
+          "work-fold could not journal this Settings action, so nothing was changed.",
+        );
+      }
+      let admission;
+      try {
+        admission = await runActOperation(() => state.routings.runNowAdmission(projection.declaration.id, {
+          requestId,
+          surface: "main-window",
+        }));
+      } catch (error) {
+        await state.actReceipts.append({
+          ...receipt,
+          outcome: "error",
+          ...(error instanceof WorkFoldCliError ? { errorCode: error.code } : {}),
+          detail: errorMessage(error),
+        }).catch(() => false);
+        throw error;
+      }
+      void admission.result.then(async (result) => {
+        await state.actReceipts.append({
+          ...receipt,
+          outcome: "ok",
+          detail: `Routing ${projection.declaration.id} settled ${result.outcome} as run ${result.runId}.`,
+        }).catch(() => false);
+      });
+      return {
+        routingId: projection.declaration.id,
+        requestId,
+        runId: admission.runId,
+        accepted: true,
+      };
+    },
+    async stop(routingId) {
+      const projection = await requireSettingsRouting(state, routingId);
+      const result = await runDesktopSettingsAct(state, "routings.stop", async (requestId) => {
+        const stopped = state.routings.stopRun(projection.declaration.id, { requestId, surface: "main-window" });
+        if (!stopped) throw new WorkFoldCliError("conflict", "This routing has no active run.");
+        return {
+          value: stopped,
+          detail: `Stopped routing ${projection.declaration.id} run ${stopped.runId}.`,
+        };
+      });
+      return {
+        routingId: projection.declaration.id,
+        requestId: result.requestId,
+        runId: result.value.runId,
+        stopped: true,
+      };
+    },
+    async disable(routingId) {
+      const projection = await requireSettingsRouting(state, routingId);
+      const result = await runDesktopSettingsAct(state, "routings.disable", async (requestId) => {
+        const disabled = await runActOperation(() => state.routings.disable(projection.declaration.id, {
+          requestId,
+          surface: "main-window",
+        }));
+        return {
+          value: disabled,
+          detail: `Disabled routing ${projection.declaration.id}.`,
+        };
+      });
+      return {
+        routingId: projection.declaration.id,
+        requestId: result.requestId,
+        disabled: true,
+        stoppedRunId: result.value.stoppedRunId,
+      };
+    },
+    async delete(routingId) {
+      const projection = await requireSettingsRouting(state, routingId);
+      if (projection.health === "enabled") {
+        throw new WorkFoldCliError("conflict", "Turn this routing off before deleting it.");
+      }
+      if (projection.activeRunId) {
+        throw new WorkFoldCliError("conflict", "Stop this routing's active run before deleting it.");
+      }
+      const result = await runDesktopSettingsAct(state, "routings.delete", async (requestId) => {
+        await runActOperation(() => state.routings.deleteRouting(projection.declaration.id, {
+          requestId,
+          surface: "main-window",
+        }));
+        return { value: true, detail: `Deleted routing ${projection.declaration.id}; its run history was retained.` };
+      });
+      return { routingId: projection.declaration.id, requestId: result.requestId, deleted: true };
+    },
+  };
+}
+
+async function requireSettingsRouting(state: LocalApiState, routingId: string): Promise<WorkFoldRoutingProjection> {
+  const id = routingId.trim();
+  if (!id) throw new WorkFoldCliError("usage", "A routing id is required.");
+  const projection = await runActOperation(() => state.routings.getRouting(id));
+  if (!projection) throw new WorkFoldCliError("notFound", "No routing has this id on this machine.");
+  return projection;
+}
+
+function routingHealthConflict(health: WorkFoldRoutingProjection["health"]): WorkFoldCliError {
+  return new WorkFoldCliError(
+    "conflict",
+    health === "completed"
+      ? "This one-time routing is complete."
+      : health === "suspended"
+        ? "This routing is suspended because a referenced Space was removed."
+        : "This routing is off.",
+  );
+}
+
+async function routingSettingsSpaceRefs(spaceIds: string[]): Promise<WorkFoldRoutingSettingsSpaceRef[]> {
+  return await Promise.all(spaceIds.map(async (spaceId) => {
+    const space = await getSpace(spaceId).catch(() => null);
+    return { spaceId, ...(space ? { spaceName: space.name } : {}) };
+  }));
+}
+
+async function routingSettingsSummary(
+  projection: WorkFoldRoutingProjection,
+  runs: WorkFoldRoutingSettingsRunView[],
+): Promise<WorkFoldRoutingSettingsSummary> {
+  const lastRun = runs[0];
+  const active = projection.activeRunId ? runs.find((run) => run.runId === projection.activeRunId) : undefined;
+  const missingSpaces = projection.suspension
+    ? await routingSettingsSpaceRefs(projection.suspension.missingSpaceIds)
+    : undefined;
+  return {
+    routingId: projection.declaration.id,
+    title: projection.declaration.title,
+    health: projection.health,
+    trigger: toActRoutingTriggerRef(projection.declaration.trigger),
+    stepCount: projection.declaration.steps.length,
+    ...(projection.nextScheduledAt ? { nextScheduledAt: projection.nextScheduledAt } : {}),
+    ...(projection.lastScheduledAt ? { lastScheduledAt: projection.lastScheduledAt } : {}),
+    ...(projection.activeRunId && active ? { activeRun: { runId: projection.activeRunId, startedAt: active.startedAt } } : {}),
+    ...(lastRun
+      ? {
+        lastRun: {
+          runId: lastRun.runId,
+          outcome: lastRun.outcome,
+          startedAt: lastRun.startedAt,
+          ...(lastRun.finishedAt ? { finishedAt: lastRun.finishedAt } : {}),
+        },
+      }
+      : {}),
+    ...(projection.suspension
+      ? {
+        suspension: {
+          at: projection.suspension.at,
+          reason: "A referenced Space was removed. Review the routing before turning it on again.",
+          ...(missingSpaces?.length ? { missingSpaces } : {}),
+        },
+      }
+      : {}),
+  };
+}
+
+async function routingSettingsHistory(routingId: string): Promise<{
+  runs: WorkFoldRoutingSettingsRunView[];
+  truncated: boolean;
+  damagedLineCount: number;
+}> {
+  const projected = await readRoutingReceiptProjection(routingId);
+  return await routingSettingsHistoryFromProjection(routingId, projected);
+}
+
+async function routingSettingsHistoryFromProjection(
+  routingId: string,
+  projection: Awaited<ReturnType<typeof readRoutingReceiptProjection>>,
+): Promise<{
+  runs: WorkFoldRoutingSettingsRunView[];
+  truncated: boolean;
+  damagedLineCount: number;
+}> {
+  const projected = {
+    ...projection,
+    receipts: projection.receipts.filter((receipt) => receipt.routingId === routingId),
+  };
+  const spaceIds = new Set<string>();
+  for (const receipt of projected.receipts) {
+    if (receipt.spaceId) spaceIds.add(receipt.spaceId);
+    if (receipt.fromSpaceId) spaceIds.add(receipt.fromSpaceId);
+    if (receipt.toSpaceId) spaceIds.add(receipt.toSpaceId);
+  }
+  const spaces = await routingSettingsSpaceRefs([...spaceIds]);
+  const spaceNames = new Map(spaces.filter((space) => space.spaceName).map((space) => [space.spaceId, space.spaceName!]));
+  const runs = new Map<string, WorkFoldRoutingSettingsRunView & { hopsById: Map<string, WorkFoldRoutingSettingsRunView["hops"][number]> }>();
+  for (const receipt of [...projected.receipts].reverse()) {
+    if (!receipt.runId || (receipt.scope !== "run" && receipt.scope !== "hop")) continue;
+    let run = runs.get(receipt.runId);
+    if (!run) {
+      run = {
+        runId: receipt.runId,
+        outcome: "accepted",
+        startedAt: receipt.at,
+        hops: [],
+        hopsById: new Map(),
+      };
+      runs.set(receipt.runId, run);
+    }
+    if (receipt.scope === "run") {
+      if (receipt.outcome === "accepted") {
+        run.startedAt = receipt.at;
+        const cause = routingSettingsCause(receipt.cause);
+        if (cause) run.cause = cause;
+      } else if (isRoutingSettingsOutcome(receipt.outcome)) {
+        run.outcome = receipt.outcome;
+        run.finishedAt = receipt.at;
+        if (receipt.detail) run.detail = receipt.detail;
+      }
+      continue;
+    }
+    if (!receipt.hopId || !receipt.hopKind) continue;
+    let hop = run.hopsById.get(receipt.hopId);
+    if (!hop) {
+      hop = { hopId: receipt.hopId, kind: receipt.hopKind, outcome: "accepted" };
+      run.hopsById.set(receipt.hopId, hop);
+      run.hops.push(hop);
+    }
+    if (isRoutingSettingsOutcome(receipt.outcome)) hop.outcome = receipt.outcome;
+    const spaceId = receipt.spaceId ?? receipt.toSpaceId ?? receipt.fromSpaceId;
+    if (spaceId && spaceNames.has(spaceId)) hop.spaceName = spaceNames.get(spaceId);
+    if (receipt.detail) hop.detail = receipt.detail;
+    const evidence = routingSettingsEvidence(receipt);
+    if (evidence.length) hop.evidence = evidence;
+  }
+  return {
+    runs: [...runs.values()]
+      .sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt))
+      .slice(0, 50)
+      .map(({ hopsById: _hopsById, ...run }) => run),
+    truncated: projected.truncated || runs.size > 50,
+    damagedLineCount: projected.damagedLineCount,
+  };
+}
+
+function isRoutingSettingsOutcome(value: string): value is WorkFoldRoutingSettingsOutcome {
+  return value === "accepted"
+    || value === "succeeded"
+    || value === "failed"
+    || value === "stopped"
+    || value === "interrupted"
+    || value === "skipped"
+    || value === "lapsed";
+}
+
+function routingSettingsCause(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const cause = value as Record<string, unknown>;
+  if (cause.kind === "run-now") return "Run now";
+  if ((cause.kind === "scheduled" || cause.kind === "resume") && typeof cause.slotAt === "string") {
+    return cause.kind === "resume" ? `Caught up from ${cause.slotAt}` : `Scheduled for ${cause.slotAt}`;
+  }
+  if (cause.kind === "on-settled" && cause.source && typeof cause.source === "object" && !Array.isArray(cause.source)) {
+    const source = cause.source as Record<string, unknown>;
+    return source.kind === "check-run" ? "After a Check run" : "After an app automation run";
+  }
+  return undefined;
+}
+
+function routingSettingsEvidence(receipt: WorkFoldActRoutingReceipt): Array<{ label: string; value: string }> {
+  const evidence: Array<{ label: string; value: string }> = [];
+  if (receipt.conversationId) evidence.push({ label: "Chat", value: receipt.conversationId });
+  if (receipt.taskId) evidence.push({ label: "Task", value: receipt.taskId });
+  if (receipt.checkpointIds?.length) evidence.push({ label: "History", value: receipt.checkpointIds.join(", ") });
+  if (receipt.restorePointId) evidence.push({ label: "Restore point", value: receipt.restorePointId });
+  if (receipt.fileCount !== undefined) evidence.push({ label: "Files", value: String(receipt.fileCount) });
+  if (receipt.totalBytes !== undefined) evidence.push({ label: "Bytes", value: String(receipt.totalBytes) });
+  if (receipt.checkRunId) evidence.push({ label: "Check run", value: receipt.checkRunId });
+  if (receipt.checkIds?.length) evidence.push({ label: "Checks", value: receipt.checkIds.join(", ") });
+  if (receipt.findingCount !== undefined) evidence.push({ label: "Findings", value: String(receipt.findingCount) });
+  if (receipt.admittedCount !== undefined) evidence.push({ label: "Admitted", value: String(receipt.admittedCount) });
+  return evidence;
 }
 
 function toActPublicationRef(view: WorkFoldPublicationView, spaceName?: string) {
@@ -6946,7 +7518,7 @@ async function runActOperation<T>(operation: () => Promise<T>): Promise<T> {
     // restricted-app or route error means the same thing on both surfaces.
     const statusCode = typeof (error as { statusCode?: unknown })?.statusCode === "number"
       ? (error as { statusCode: number }).statusCode
-      : restrictedAppErrorStatus(error);
+      : routingErrorStatus(error) ?? restrictedAppErrorStatus(error);
     const message = error instanceof Error ? error.message : String(error ?? "Space act command failed.");
     if (statusCode === 400) throw new WorkFoldCliError("usage", message, { cause: error });
     if (statusCode === 403) throw new WorkFoldCliError("permissionDenied", message, { cause: error });
@@ -6954,6 +7526,53 @@ async function runActOperation<T>(operation: () => Promise<T>): Promise<T> {
     if (statusCode === 409) throw new WorkFoldCliError("conflict", message, { cause: error });
     throw new WorkFoldCliError("failure", message, { cause: error });
   }
+}
+
+/**
+ * Journal-first wrapper for a mutation initiated from trusted desktop
+ * Settings. Routing-domain receipts remain the effect evidence; this global
+ * pair records the product verb and the main-window surface exactly as the
+ * act lane would. The returned promise lets callers separate durable command
+ * acceptance from their own terminal domain result when needed.
+ */
+async function beginDesktopSettingsAct<T>(
+  state: LocalApiState,
+  command: string,
+  operation: (requestId: string) => Promise<{ value: T; detail: string }>,
+): Promise<{ requestId: string; result: Promise<T> }> {
+  const requestId = `settings:${randomUUID()}`;
+  const base = { requestId, command, surface: "main-window" as const };
+  if (!await state.actReceipts.append({ ...base, outcome: "accepted" })) {
+    throw new WorkFoldCliError(
+      "failure",
+      "work-fold could not journal this Settings action, so nothing was changed.",
+    );
+  }
+  const result = (async () => {
+    try {
+      const applied = await operation(requestId);
+      await state.actReceipts.append({ ...base, outcome: "ok", detail: applied.detail }).catch(() => false);
+      return applied.value;
+    } catch (error) {
+      await state.actReceipts.append({
+        ...base,
+        outcome: "error",
+        ...(error instanceof WorkFoldCliError ? { errorCode: error.code } : {}),
+        detail: errorMessage(error),
+      }).catch(() => false);
+      throw error;
+    }
+  })();
+  return { requestId, result };
+}
+
+async function runDesktopSettingsAct<T>(
+  state: LocalApiState,
+  command: string,
+  operation: (requestId: string) => Promise<{ value: T; detail: string }>,
+): Promise<{ requestId: string; value: T }> {
+  const started = await beginDesktopSettingsAct(state, command, operation);
+  return { requestId: started.requestId, value: await started.result };
 }
 
 function turnStatusFor(state: LocalApiState, spaceId: string, taskId: string): WorkFoldActTurnStatus {
@@ -8123,6 +8742,39 @@ async function exerciseUnrestrictedAuthorityAtAdmission(
 }
 
 /**
+ * The shared staging door for CLI/management requests and trusted desktop
+ * Settings. Every caller supplies typed parameters and pins, then admission
+ * alone decides whether Reviewed leaves a card waiting or Unrestricted
+ * consumes the freshly admitted act. Keeping this outside the act-facade
+ * closure prevents Settings from growing a second, subtly different routing
+ * enablement path.
+ */
+async function stageFoldConsecration(state: LocalApiState, input: {
+  kind: FoldStagedActKind;
+  parameters: FoldStagedActFields;
+  pins: FoldStagedActFields;
+  parentTaskId?: string;
+  requestId?: string;
+  stagedVia?: FoldStagedActStagedVia;
+}): Promise<WorkFoldActStagedDecision> {
+  const admission = await runStagedActStoreOperation(() => state.stagedActs.stage({
+    kind: input.kind,
+    parameters: input.parameters,
+    pins: input.pins,
+    provenance: stagingProvenance(state, input.parentTaskId, input.requestId, input.stagedVia),
+  }));
+  if (admission.deduplicated) return toStagedDecision(admission);
+  const exercised = await exerciseUnrestrictedAuthorityAtAdmission(state, admission.act)
+    ?? await exerciseStandingPolicyAtAdmission(state, admission.act);
+  if (!exercised) return toStagedDecision(admission);
+  return {
+    ...toStagedDecision(admission),
+    state: "approved",
+    autoApproval: exercised,
+  };
+}
+
+/**
  * Provenance for one staged act. `requestId` is the staging act's journal id.
  * When the act carries explicit management lineage, the staged card records
  * the management conversation that holds the fold's reasoning — and, when
@@ -8134,10 +8786,11 @@ function stagingProvenance(
   state: LocalApiState,
   parentTaskId: string | undefined,
   requestId: string | undefined,
+  stagedVia?: FoldStagedActStagedVia,
 ): FoldStagedActProvenance {
   const record = parentTaskId ? state.managementRequests.get(parentTaskId) : null;
   return {
-    stagedVia: record ? "management-conversation" : "act-cli",
+    stagedVia: record ? "management-conversation" : stagedVia ?? "act-cli",
     requestId: requestId?.trim() || randomUUID(),
     ...(parentTaskId ? { parentTaskId } : {}),
     ...(record ? { conversationId: record.conversationId } : {}),
@@ -8216,6 +8869,62 @@ function stagedRoutingDeclarationsDir(): string {
 function stagedRoutingDeclarationFile(digest: string): string {
   if (!/^[a-f0-9]{16,128}$/.test(digest)) throw new WorkFoldCliError("usage", "The routing declaration digest is malformed.");
   return join(stagedRoutingDeclarationsDir(), `${digest}.json`);
+}
+
+async function stageStoredRoutingDeclaration(
+  state: LocalApiState,
+  declaration: WorkFoldRoutingDeclaration,
+  digest: string,
+  context: {
+    parentTaskId?: string;
+    requestId?: string;
+    stagedVia?: FoldStagedActStagedVia;
+  } = {},
+): Promise<{
+  staged: WorkFoldActStagedDecision;
+  routingId: string;
+  declarationDigest: string;
+  title: string;
+  referencedSpaceIds: string[];
+}> {
+  const normalized = normalizeWorkFoldRoutingDeclaration(declaration);
+  const actualDigest = workFoldRoutingDigest(normalized);
+  if (actualDigest !== digest) {
+    throw new WorkFoldCliError(
+      "conflict",
+      "The stored Routing declaration no longer matches its reviewed digest; nothing was staged.",
+    );
+  }
+  const referencedSpaceIds = workFoldRoutingReferencedSpaceIds(normalized);
+  for (const spaceId of referencedSpaceIds) {
+    const registered = await getSpace(spaceId).catch(() => null);
+    if (!registered) {
+      throw new WorkFoldCliError(
+        "conflict",
+        `The Routing references a Space that is not registered on this machine (${spaceId}); the review card could not show it by name.`,
+      );
+    }
+  }
+  // Hold the exact normalized declaration before the card exists, so a
+  // pending card always has its reviewed bytes; pruning afterwards keeps
+  // only digests still pinned by pending cards.
+  await holdStagedRoutingDeclaration(normalized, digest);
+  const staged = await stageFoldConsecration(state, {
+    kind: "routing.enable",
+    parameters: { routingId: normalized.id },
+    pins: { routingId: normalized.id, declarationDigest: digest },
+    ...(context.parentTaskId !== undefined ? { parentTaskId: context.parentTaskId } : {}),
+    ...(context.requestId !== undefined ? { requestId: context.requestId } : {}),
+    ...(context.stagedVia !== undefined ? { stagedVia: context.stagedVia } : {}),
+  });
+  await pruneStagedRoutingDeclarations(state.stagedActs).catch(() => undefined);
+  return {
+    staged,
+    routingId: normalized.id,
+    declarationDigest: digest,
+    title: normalized.title,
+    referencedSpaceIds,
+  };
 }
 
 async function holdStagedRoutingDeclaration(declaration: WorkFoldRoutingDeclaration, digest: string): Promise<void> {
@@ -10059,10 +10768,12 @@ function sendError(res: ServerResponse, error: unknown): void {
   const status = explicit
     ?? workFoldCliErrorStatus(error)
     ?? (error instanceof WorkFoldCheckOperationConflictError ? 409 : null)
+    ?? routingErrorStatus(error)
     ?? restrictedAppErrorStatus(error)
     ?? 500;
   sendJson(res, {
     error: errorMessage(error),
+    ...((error instanceof WorkFoldRoutingServiceError || error instanceof WorkFoldRoutingStoreError) ? { code: error.code } : {}),
     ...(error instanceof RestrictedAppError ? { code: error.code } : {}),
   }, status);
 }
@@ -10079,6 +10790,30 @@ function workFoldCliErrorStatus(error: unknown): number | null {
     case "timeout": return 504;
     case "failure": return 500;
   }
+}
+
+function routingErrorStatus(error: unknown): number | null {
+  if (error instanceof WorkFoldRoutingServiceError) {
+    switch (error.code) {
+      case "INPUT_INVALID": return 400;
+      case "NOT_FOUND": return 404;
+      case "HEALTH_INVALID": return 409;
+      case "SERVICE_DAMAGED": return 503;
+    }
+  }
+  if (error instanceof WorkFoldRoutingStoreError) {
+    switch (error.code) {
+      case "INPUT_INVALID": return 400;
+      case "NOT_FOUND": return 404;
+      case "BOUND_EXCEEDED":
+      case "HEALTH_INVALID":
+      case "DIGEST_MISMATCH": return 409;
+      case "STORE_DAMAGED":
+      case "JOURNAL_UNAVAILABLE":
+      case "JOURNAL_DAMAGED": return 503;
+    }
+  }
+  return null;
 }
 
 function restrictedAppErrorStatus(error: unknown): number | null {

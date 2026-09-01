@@ -265,8 +265,10 @@ export interface WorkFoldActAppAutomationRunRef {
 
 /** Bounded projection of a routing's reviewed trigger (docs/fold-routings.md). */
 export interface WorkFoldActRoutingTriggerRef {
-  kind: "manual" | "interval" | "on-settled";
+  kind: "manual" | "interval" | "at" | "on-settled";
   intervalMinutes?: number;
+  at?: string;
+  ifMissed?: "run" | "skip";
   source?: {
     kind: "check-run" | "app-automation-run";
     spaceId: string;
@@ -294,7 +296,7 @@ export interface WorkFoldActRoutingGrantRef {
 export interface WorkFoldActRoutingSummary {
   routingId: string;
   title: string;
-  health: "enabled" | "disabled" | "suspended";
+  health: "enabled" | "disabled" | "suspended" | "completed";
   digest: string;
   trigger: WorkFoldActRoutingTriggerRef;
   stepCount: number;
@@ -305,6 +307,7 @@ export interface WorkFoldActRoutingSummary {
   suspension?: { at: string; missingSpaceIds: string[]; reRegisteredSpaceIds: string[] };
   lastScheduledAt?: string;
   nextScheduledAt?: string;
+  completedAt?: string;
 }
 
 /**
@@ -373,6 +376,8 @@ export interface WorkFoldActRoutingReceipt {
   decisionId?: string;
   missingSpaceIds?: string[];
   requestId?: string;
+  occurrenceId?: string;
+  scheduledRunId?: string;
 }
 
 /**
@@ -1210,7 +1215,7 @@ export interface WorkFoldActFacade {
    * showing, and receipts are content-bearing act reads (titles, Space names,
    * the chat message a person reviewed); run-now is a direct verb on an
    * enabled routing only; stop and disable are narrowing and never need a
-   * click; delete removes a disabled or suspended declaration while the
+   * click; delete removes a disabled, suspended, or completed declaration while the
    * receipts journal is retained — audit records survive the object.
    * Enabling has no method here: it is consecration 2, staged by
    * `routingsStage` and decided on a needs-you card.
@@ -1246,12 +1251,12 @@ export interface WorkFoldActFacade {
     digest: string;
     stoppedRunId: string | null;
   }>;
-  /** Deletes a disabled or suspended routing; an enabled one must be disabled first so revocation stops stale work. */
+  /** Deletes a disabled, suspended, or completed routing; an enabled one must be disabled first so revocation stops stale work. */
   routingsDelete(input: { routing: string; parentTaskId?: string }): Promise<{
     routingId: string;
     deleted: true;
     digest: string;
-    finalHealth: "disabled" | "suspended";
+    finalHealth: "disabled" | "suspended" | "completed";
   }>;
   /** Bounded read of the routing receipts journal, optionally scoped to one routing id. */
   routingsReceipts(input: { routing?: string }): Promise<{

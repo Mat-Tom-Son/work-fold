@@ -1097,6 +1097,37 @@ test("manage glance parses strictly, dispatches to the facade, journals, and ren
   ], "the shared journal-first executor covers the glance with no special casing");
 });
 
+test("routing receipt JSON stays chronological and human output shows its newest bounded tail", async () => {
+  const receipts = Array.from({ length: 60 }, (_, index) => ({
+    at: new Date(Date.parse("2026-09-01T12:00:00.000Z") + index * 1_000).toISOString(),
+    scope: "routing" as const,
+    outcome: "enabled" as const,
+    routingId: `routing-${String(index).padStart(2, "0")}`,
+  }));
+  const facade = {
+    routingsReceipts: async () => ({ receipts, truncated: false, damagedLineCount: 0 }),
+  } as unknown as WorkFoldActFacade;
+  const execute = (argv: string[]) => executeWorkFoldCliActRequest(
+    createWorkFoldCliActRequest({ id: randomUUID(), argv, cwd, actToken: token }),
+    {
+      version: "test",
+      getActFacade: () => ({ facade, token }),
+      receipts: { hasAccepted: async () => false, append: async () => true },
+    },
+  );
+
+  const json = await execute(["routings", "receipts", "--json"]);
+  assert.equal(json.exitCode, 0);
+  const parsed = JSON.parse(json.stdout) as { data: { receipts: typeof receipts } };
+  assert.equal(parsed.data.receipts[0]?.routingId, "routing-00");
+  assert.equal(parsed.data.receipts.at(-1)?.routingId, "routing-59");
+
+  const human = await execute(["routings", "receipts"]);
+  assert.match(human.stdout, /10 older receipt\(s\) in the --json result\./);
+  assert.doesNotMatch(human.stdout, /\[routing-09\]/);
+  assert.ok(human.stdout.indexOf("[routing-10]") < human.stdout.indexOf("[routing-59]"));
+});
+
 test("Chat lifecycle and History acts dispatch to the facade, stamp undo references, and render bespoke output", async () => {
   const spaceRef = { id: "space-1", name: "Fold Space", spaceRoot: "/tmp/fold" };
   const conversationRef = (over: Record<string, unknown> = {}) => ({

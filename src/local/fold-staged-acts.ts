@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { WORKFOLD_CLI_ACT_SURFACES, type WorkFoldCliActSurface } from "./cli/act-receipts.js";
 import { workFoldStateRoot } from "./state-paths.js";
 
-export const FOLD_STAGED_ACT_SCHEMA_VERSION = 1;
+export const FOLD_STAGED_ACT_SCHEMA_VERSION = 2;
 
 /** 24 hours from staging, matching the remote upload-staging precedent. */
 export const FOLD_STAGED_ACT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -36,7 +36,7 @@ export const FOLD_STAGED_ACT_EXECUTION_OUTCOMES = ["executed", "failed", "interr
 
 export type FoldStagedActExecutionOutcome = (typeof FOLD_STAGED_ACT_EXECUTION_OUTCOMES)[number];
 
-export const FOLD_STAGED_ACT_STAGED_VIA = ["management-conversation", "act-cli"] as const;
+export const FOLD_STAGED_ACT_STAGED_VIA = ["management-conversation", "act-cli", "desktop-settings"] as const;
 
 export type FoldStagedActStagedVia = (typeof FOLD_STAGED_ACT_STAGED_VIA)[number];
 
@@ -1004,7 +1004,7 @@ function provenanceIssue(value: unknown): string | null {
   const unknown = Object.keys(value).find((key) => !PROVENANCE_KEYS.includes(key));
   if (unknown) return `provenance.${unknown} is not part of the staged-act contract.`;
   if (!FOLD_STAGED_ACT_STAGED_VIA.includes(value.stagedVia as FoldStagedActStagedVia)) {
-    return "provenance.stagedVia must be management-conversation or act-cli.";
+    return "provenance.stagedVia must be management-conversation, act-cli, or desktop-settings.";
   }
   const requestIssue = textIssue(value.requestId, "provenance.requestId");
   if (requestIssue) return requestIssue;
@@ -1270,8 +1270,9 @@ async function loadStagedActsFile(
   if (!isPlainRecord(parsed)) return damaged("is not a staged-act record");
   const unknown = Object.keys(parsed).find((key) => key !== "schemaVersion" && key !== "acts");
   if (unknown) return damaged(`carries the unknown field ${unknown}`);
-  if (parsed.schemaVersion !== FOLD_STAGED_ACT_SCHEMA_VERSION) {
-    return typeof parsed.schemaVersion === "number" && parsed.schemaVersion > FOLD_STAGED_ACT_SCHEMA_VERSION
+  const sourceSchemaVersion = parsed.schemaVersion;
+  if (sourceSchemaVersion !== 1 && sourceSchemaVersion !== FOLD_STAGED_ACT_SCHEMA_VERSION) {
+    return typeof sourceSchemaVersion === "number" && sourceSchemaVersion > FOLD_STAGED_ACT_SCHEMA_VERSION
       ? damaged(`was written by a newer work-fold (schema version ${parsed.schemaVersion})`)
       : damaged(`uses the unsupported schema version ${String(parsed.schemaVersion)}`);
   }
@@ -1280,9 +1281,12 @@ async function loadStagedActsFile(
   const ids = new Set<string>();
   const pendingIdentities = new Set<string>();
   for (const [index, candidate] of parsed.acts.entries()) {
-    const issue = stagedActIssue(candidate);
+    const migrated = sourceSchemaVersion === 1 && isPlainRecord(candidate)
+      ? { ...candidate, schemaVersion: FOLD_STAGED_ACT_SCHEMA_VERSION }
+      : candidate;
+    const issue = stagedActIssue(migrated);
     if (issue) return damaged(`holds an invalid act at index ${index}: ${issue}`);
-    const act = candidate as FoldStagedAct;
+    const act = migrated as FoldStagedAct;
     if (ids.has(act.id)) return damaged(`holds the duplicate act id ${act.id}`);
     ids.add(act.id);
     if (act.state === "staged") {

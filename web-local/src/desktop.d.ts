@@ -1,3 +1,11 @@
+import type {
+  FoldRoutingDetailResponse,
+  FoldRoutingHistoryResponse,
+  FoldRoutingsResponse,
+  FoldRoutingRunResponse,
+  FoldRoutingStageResponse,
+} from "./components/modals/FoldRoutingsPane";
+
 export {};
 
 interface WorkFoldDesktopUpdateStatus {
@@ -137,6 +145,17 @@ declare global {
        */
       decisions?: {
         chooseFileGrantRoot: (spaceId: string) => Promise<{ root?: string; error?: string } | null>;
+      };
+      /** Main-window-only routing management; absent from the popover preload. */
+      routings?: {
+        list: () => Promise<FoldRoutingsResponse>;
+        show: (routingId: string) => Promise<FoldRoutingDetailResponse>;
+        history: (routingId: string) => Promise<FoldRoutingHistoryResponse>;
+        stageEnable: (routingId: string) => Promise<FoldRoutingStageResponse>;
+        run: (routingId: string) => Promise<FoldRoutingRunResponse>;
+        stop: (routingId: string) => Promise<unknown>;
+        disable: (routingId: string) => Promise<unknown>;
+        delete: (routingId: string) => Promise<unknown>;
       };
       management?: {
         getPathForFile: (file: File) => string;

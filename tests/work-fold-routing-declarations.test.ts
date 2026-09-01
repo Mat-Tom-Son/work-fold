@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+  assertWorkFoldRoutingAtAdmissionHorizon,
   declarationFromWorkFoldRoutingProposal,
   normalizeWorkFoldRoutingDeclaration,
   normalizeWorkFoldRoutingProposal,
@@ -163,6 +164,55 @@ test("on-settled triggers admit only recorded settle outcomes with fail-closed d
   assert.throws(() => normalizeWorkFoldRoutingProposal(settled({ kind: "app-automation-run", space: collectorSpace, appId: "collector" })), /missing required field: automationId/);
 });
 
+test("version 2 admits explicit-offset one-time triggers and keeps their time-sensitive horizon out of stable parsing", () => {
+  const oneTime = mutated((value) => {
+    value.version = 2;
+    value.routing.trigger = { kind: "at", at: "2026-08-10T14:30:00-04:00", ifMissed: "run" };
+  });
+  const normalized = normalizeWorkFoldRoutingProposal(oneTime);
+  assert.equal(normalized.version, 2);
+  assert.deepEqual(normalized.routing.trigger, {
+    kind: "at",
+    at: "2026-08-10T18:30:00.000Z",
+    ifMissed: "run",
+  });
+  assert.doesNotThrow(() => assertWorkFoldRoutingAtAdmissionHorizon(
+    normalized.routing,
+    new Date("2026-08-10T18:29:00.000Z"),
+  ));
+  assert.throws(() => assertWorkFoldRoutingAtAdmissionHorizon(
+    normalized.routing,
+    new Date("2026-08-10T18:29:00.001Z"),
+  ), /between 1 minute and 366 days/);
+
+  assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
+    value.routing.trigger = { kind: "at", at: "2026-08-10T18:30:00Z", ifMissed: "run" };
+  })), /require contract version 2/);
+  for (const at of ["2026-08-10T18:30:00", "not-a-time"]) {
+    assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
+      value.version = 2;
+      value.routing.trigger = { kind: "at", at, ifMissed: "skip" };
+    })), /explicit UTC offset/);
+  }
+  assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
+    value.version = 2;
+    value.routing.trigger = { kind: "at", at: "2026-08-10T18:30:00Z", ifMissed: "later" };
+  })), /ifMissed/);
+
+  const maximum = normalizeWorkFoldRoutingProposal(mutated((value) => {
+    value.version = 2;
+    value.routing.trigger = { kind: "at", at: "2027-08-11T00:00:00Z", ifMissed: "skip" };
+  }));
+  assert.doesNotThrow(() => assertWorkFoldRoutingAtAdmissionHorizon(
+    maximum.routing,
+    new Date("2026-08-10T00:00:00Z"),
+  ));
+  assert.throws(() => assertWorkFoldRoutingAtAdmissionHorizon(
+    maximum.routing,
+    new Date("2026-08-09T23:59:59.999Z"),
+  ), /between 1 minute and 366 days/);
+});
+
 test("every bounds-table limit refuses at parse", () => {
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
     value.routing.steps = Array.from({ length: workFoldRoutingBounds.maxSteps + 1 }, (_, index) => ({
@@ -251,8 +301,8 @@ test("unknown kinds, versions, fields, and unpinned references fail closed", () 
     value.kind = "work-fold.check-proposal";
   })), /kind must be work-fold\.routing-proposal/);
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
-    value.version = 2;
-  })), /unsupported version 2/);
+    value.version = 3;
+  })), /unsupported version 3/);
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
     value.enabled = true;
   })), /unsupported field: enabled/);
@@ -292,7 +342,7 @@ test("unknown kinds, versions, fields, and unpinned references fail closed", () 
 
   const declaration = declarationFromWorkFoldRoutingProposal(normalizeWorkFoldRoutingProposal(proposalValue), "routing-12345678");
   assert.throws(() => normalizeWorkFoldRoutingDeclaration({ ...declaration, enabled: true }), /unsupported field: enabled/);
-  assert.throws(() => normalizeWorkFoldRoutingDeclaration({ ...declaration, version: 2 }), /unsupported version 2/);
+  assert.throws(() => normalizeWorkFoldRoutingDeclaration({ ...declaration, version: 3 }), /unsupported version 3/);
   assert.throws(() => normalizeWorkFoldRoutingDeclaration({ ...declaration, id: "check-12345678" }), /Routing id is invalid/);
 });
 

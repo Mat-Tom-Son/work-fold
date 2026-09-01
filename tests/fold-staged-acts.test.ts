@@ -7,6 +7,7 @@ import test from "node:test";
 import { WORKFOLD_CLI_ACT_SURFACES } from "../src/local/cli/act-receipts.js";
 import {
   FOLD_DECISION_SURFACES,
+  FOLD_STAGED_ACT_SCHEMA_VERSION,
   FOLD_STAGED_ACT_PENDING_CAP,
   FOLD_STAGED_ACT_SETTLED_RETENTION,
   FOLD_STAGED_ACT_TTL_MS,
@@ -71,7 +72,7 @@ test("staging admits a typed act, derives its category, persists across reopen, 
     const admission = await store.stage(grantInput());
     assert.equal(admission.deduplicated, false);
     const act = admission.act;
-    assert.equal(act.schemaVersion, 1);
+    assert.equal(act.schemaVersion, FOLD_STAGED_ACT_SCHEMA_VERSION);
     assert.equal(act.state, "staged");
     assert.equal(act.category, "widen-power", "the store, not the caller, derives the consecration category");
     assert.equal(act.kind, "app.grant.network");
@@ -95,6 +96,39 @@ test("staging admits a typed act, derives its category, persists across reopen, 
     assert.equal(reopened.status().pendingCount, 2);
     assert.equal((await reopened.list({ spaceId: "space-alpha" })).length, 2);
     assert.equal(foldStagedActsFile(sandbox), path);
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("schema 1 staged acts migrate in memory and the next mutation writes schema 2", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-staged-acts-v1-"));
+  const path = join(sandbox, "fold", "staged-acts.json");
+  const clock = fixedClock();
+  try {
+    const donor = await FoldStagedActStore.create({ path, now: clock.now });
+    const admitted = await donor.stage(grantInput());
+    const legacy = JSON.parse(await readFile(path, "utf8")) as {
+      schemaVersion: number;
+      acts: Array<Record<string, unknown>>;
+    };
+    legacy.schemaVersion = 1;
+    legacy.acts[0]!.schemaVersion = 1;
+    await writeFile(path, `${JSON.stringify(legacy, null, 2)}\n`, "utf8");
+
+    const reopened = await FoldStagedActStore.create({ path, now: clock.now });
+    assert.equal(reopened.status().damaged, false);
+    assert.equal((await reopened.get(admitted.act.id))?.schemaVersion, FOLD_STAGED_ACT_SCHEMA_VERSION);
+    await reopened.stage({
+      ...grantInput({ appInstanceId: "app-migration-2" }),
+      provenance: { stagedVia: "desktop-settings", requestId: "settings:test-migration" },
+    });
+    const persisted = JSON.parse(await readFile(path, "utf8")) as {
+      schemaVersion: number;
+      acts: Array<{ schemaVersion: number }>;
+    };
+    assert.equal(persisted.schemaVersion, FOLD_STAGED_ACT_SCHEMA_VERSION);
+    assert.ok(persisted.acts.every((act) => act.schemaVersion === FOLD_STAGED_ACT_SCHEMA_VERSION));
   } finally {
     await rm(sandbox, { recursive: true, force: true });
   }
@@ -548,7 +582,7 @@ test("damaged or future-versioned state disables staging and deciding rather tha
     await donor.stage(grantInput());
     const donorText = await readFile(donorPath, "utf8");
 
-    const futureText = `${JSON.stringify({ schemaVersion: 2, acts: [] }, null, 2)}\n`;
+    const futureText = `${JSON.stringify({ schemaVersion: FOLD_STAGED_ACT_SCHEMA_VERSION + 1, acts: [] }, null, 2)}\n`;
     await writeFile(path, futureText, "utf8");
     const futureStore = await FoldStagedActStore.create({ path, now: clock.now });
     assert.equal(futureStore.status().damaged, true);

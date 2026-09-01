@@ -1,6 +1,6 @@
 {
   "name": "work-fold-desktop",
-  "version": "0.3.13",
+  "version": "0.3.14",
   "private": true,
   "type": "module",
   "description": "A local-first desktop app powered by Pi.",

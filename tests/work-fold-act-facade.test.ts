@@ -1484,15 +1484,16 @@ test("facade staging binds routing enablement and page exposure into the decisio
     // `routing.enable`; the click executes the routing service's enablement
     // with decisionId = staged act id (the wave-2 binding).
     const proposalPath = join(sandbox, "weekly.work-fold-routing.json");
+    const oneTimeAt = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
     await writeFile(proposalPath, JSON.stringify({
       kind: "work-fold.routing-proposal",
-      version: 1,
+      version: 2,
       name: "Weekly glue",
       createdBy: "assistant",
       createdAt: "2026-08-01T00:00:00.000Z",
       routing: {
         title: "Weekly glue",
-        trigger: { kind: "manual" },
+        trigger: { kind: "at", at: oneTimeAt, ifMissed: "run" },
         steps: [{ id: "review", kind: "chat", space: space.space.id, message: "Review the report." }],
       },
     }, null, 2), "utf8");
@@ -1517,6 +1518,7 @@ test("facade staging binds routing enablement and page exposure into the decisio
     const routing = await api.routings.getRouting(stagedRouting.routingId);
     assert.equal(routing?.health, "enabled");
     assert.equal(routing?.digest, stagedRouting.declarationDigest);
+    assert.deepEqual(routing?.declaration.trigger, { kind: "at", at: oneTimeAt, ifMissed: "run" });
     assert.equal(
       routing?.grants.at(-1)?.decisionId,
       stagedRouting.staged.decisionId,

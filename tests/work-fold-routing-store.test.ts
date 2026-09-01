@@ -277,6 +277,80 @@ test("the cadence anchor persists for enabled interval routings only", async (t)
   );
 });
 
+test("one-time enablement rechecks the 1-minute to 366-day horizon and a durable claim completes exactly one occurrence", async (t) => {
+  const { sandbox, receipts, store, statePath, journalPath } = await createSandbox("work-fold-routing-store-at-");
+  t.after(() => rm(sandbox, { recursive: true, force: true }));
+  const atDeclaration = (id: string, at: string) => declarationInput(id, {
+    version: 2,
+    trigger: { kind: "at", at, ifMissed: "run" },
+  });
+
+  await assert.rejects(
+    () => store.enable(enableInput(atDeclaration("routing-at-too-soon", "2026-08-10T17:00:59.999Z"), "decision-too-soon")),
+    /between 1 minute and 366 days/,
+  );
+  await assert.rejects(
+    () => store.enable(enableInput(atDeclaration("routing-at-too-far", "2027-08-11T17:00:00.001Z"), "decision-too-far")),
+    /between 1 minute and 366 days/,
+  );
+
+  const enabled = await store.enable(enableInput(
+    atDeclaration("routing-at-once1", "2026-08-10T17:01:00.000Z"),
+    "decision-at",
+  ));
+  assert.equal(enabled.health, "enabled");
+  assert.equal(enabled.lastScheduledAt, undefined);
+  const claimed = await store.claimAtOccurrence(
+    "routing-at-once1",
+    "2026-08-10T17:01:00.000Z",
+    "run-at-1",
+    new Date("2026-08-10T17:01:00.000Z"),
+  );
+  assert.equal(claimed?.health, "completed");
+  assert.match(claimed?.atOccurrence?.occurrenceId ?? "", /^at-[a-f0-9]{32}$/);
+  assert.equal(claimed?.atOccurrence?.runId, "run-at-1");
+  assert.equal(await store.claimAtOccurrence(
+    "routing-at-once1",
+    "2026-08-10T17:01:00.000Z",
+    "run-at-2",
+  ), null, "the completed health transition is the single-fire gate");
+  assert.equal(await store.finishAtOccurrence(
+    "routing-at-once1",
+    "run-at-1",
+    "2026-08-10T17:01:05.000Z",
+  ), true);
+
+  const reloaded = await WorkFoldRoutingStore.create({ path: statePath, receipts, now: () => fixedNow });
+  const durable = await reloaded.get("routing-at-once1");
+  assert.equal(durable?.health, "completed");
+  assert.equal(durable?.atOccurrence?.finishedAt, "2026-08-10T17:01:05.000Z");
+  await assert.rejects(
+    () => reloaded.disable("routing-at-once1"),
+    (error: unknown) => error instanceof WorkFoldRoutingStoreError
+      && error.code === "HEALTH_INVALID"
+      && error.health === "completed",
+  );
+  await reloaded.delete("routing-at-once1", { requestId: "request-delete-at", surface: "main-window" });
+  const deleted = (await readJournal(journalPath)).at(-1);
+  assert.equal(deleted?.requestId, "request-delete-at");
+  assert.equal(deleted?.surface, "main-window");
+});
+
+test("schema 1 stores load into the version 2 writer while newer stores still fail closed", async (t) => {
+  const { sandbox, store, statePath } = await createSandbox("work-fold-routing-store-v1-upgrade-");
+  t.after(() => rm(sandbox, { recursive: true, force: true }));
+  await store.enable(enableInput(declarationInput("routing-v1-upgrade"), "decision-v1"));
+  const legacy = JSON.parse(await readFile(statePath, "utf8")) as { schemaVersion: number };
+  legacy.schemaVersion = 1;
+  await writeFile(statePath, `${JSON.stringify(legacy, null, 2)}\n`, "utf8");
+
+  const upgraded = await WorkFoldRoutingStore.create({ path: statePath, now: () => fixedNow });
+  assert.equal(upgraded.status().damaged, false);
+  await upgraded.disable("routing-v1-upgrade");
+  const rewritten = JSON.parse(await readFile(statePath, "utf8")) as { schemaVersion: number };
+  assert.equal(rewritten.schemaVersion, 2);
+});
+
 test("damaged or tampered state disables the store and is never overwritten", async (t) => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-routing-store-damage-"));
   t.after(() => rm(sandbox, { recursive: true, force: true }));

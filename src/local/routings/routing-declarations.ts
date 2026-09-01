@@ -21,7 +21,9 @@ import { workFoldCheckTargetHardLimits } from "../checks/target-resolver.js";
  */
 export const workFoldRoutingProposalKind = "work-fold.routing-proposal" as const;
 export const workFoldRoutingDeclarationKind = "work-fold.routing" as const;
-export const workFoldRoutingContractVersion = 1 as const;
+export const workFoldRoutingContractVersion = 2 as const;
+export const workFoldRoutingSupportedContractVersions = [1, workFoldRoutingContractVersion] as const;
+export type WorkFoldRoutingContractVersion = (typeof workFoldRoutingSupportedContractVersions)[number];
 
 /** Filename convention for inert routing proposals in the fold's management working folder. */
 export const workFoldRoutingProposalFileSuffix = ".work-fold-routing.json" as const;
@@ -44,6 +46,8 @@ export const workFoldRoutingBounds = Object.freeze({
   maxChatMessageBytes: 16 * 1024,
   minIntervalMinutes: restrictedAppAutomationIntervalMinutes.minimum,
   maxIntervalMinutes: restrictedAppAutomationIntervalMinutes.maximum,
+  minAtAdvanceMs: 60_000,
+  maxAtAdvanceMs: 366 * 24 * 60 * 60 * 1_000,
   maxHandoffFiles: workFoldCheckTargetHardLimits.maxFiles,
   maxHandoffTotalBytes: workFoldCheckTargetHardLimits.maxTotalBytes,
 });
@@ -93,6 +97,13 @@ export interface WorkFoldRoutingIntervalTrigger {
   intervalMinutes: number;
 }
 
+export interface WorkFoldRoutingAtTrigger {
+  kind: "at";
+  /** Canonical absolute time; proposal input must name an explicit offset. */
+  at: string;
+  ifMissed: "run" | "skip";
+}
+
 export interface WorkFoldRoutingOnSettledTrigger {
   kind: "on-settled";
   source: WorkFoldRoutingSettleSource;
@@ -101,6 +112,7 @@ export interface WorkFoldRoutingOnSettledTrigger {
 export type WorkFoldRoutingTrigger =
   | WorkFoldRoutingManualTrigger
   | WorkFoldRoutingIntervalTrigger
+  | WorkFoldRoutingAtTrigger
   | WorkFoldRoutingOnSettledTrigger;
 
 /**
@@ -176,7 +188,7 @@ export interface WorkFoldRoutingDefinition {
 
 export interface WorkFoldRoutingProposal {
   kind: typeof workFoldRoutingProposalKind;
-  version: typeof workFoldRoutingContractVersion;
+  version: WorkFoldRoutingContractVersion;
   name: string;
   createdBy: "human" | "assistant" | "codex" | "claude-code" | "other";
   createdAt: string;
@@ -185,7 +197,7 @@ export interface WorkFoldRoutingProposal {
 
 export interface WorkFoldRoutingDeclaration extends WorkFoldRoutingDefinition {
   kind: typeof workFoldRoutingDeclarationKind;
-  version: typeof workFoldRoutingContractVersion;
+  version: WorkFoldRoutingContractVersion;
   id: string;
   createdBy: WorkFoldRoutingProposal["createdBy"];
   createdAt: string;
@@ -218,14 +230,14 @@ export function normalizeWorkFoldRoutingProposal(value: unknown): WorkFoldRoutin
   const record = objectRecord(value, "Routing proposal must be a JSON object.");
   assertKeys(record, ["kind", "version", "name", "createdBy", "createdAt", "routing"], [], "Routing proposal");
   if (record.kind !== workFoldRoutingProposalKind) throw new Error(`Routing proposal kind must be ${workFoldRoutingProposalKind}.`);
-  assertVersion(record.version, "Routing proposal");
+  const version = contractVersion(record.version, "Routing proposal");
   return {
     kind: workFoldRoutingProposalKind,
-    version: workFoldRoutingContractVersion,
+    version,
     name: boundedText(record.name, "Routing proposal name", 120),
     createdBy: normalizeCreator(record.createdBy),
     createdAt: isoTimestamp(record.createdAt, "Routing proposal createdAt"),
-    routing: normalizeRoutingDefinition(record.routing),
+    routing: normalizeRoutingDefinition(record.routing, version),
   };
 }
 
@@ -238,12 +250,12 @@ export function normalizeWorkFoldRoutingDeclaration(value: unknown): WorkFoldRou
     "Routing declaration",
   );
   if (record.kind !== workFoldRoutingDeclarationKind) throw new Error(`Routing declaration kind must be ${workFoldRoutingDeclarationKind}.`);
-  assertVersion(record.version, "Routing declaration");
+  const version = contractVersion(record.version, "Routing declaration");
   return {
     kind: workFoldRoutingDeclarationKind,
-    version: workFoldRoutingContractVersion,
+    version,
     id: routingId(record.id),
-    ...normalizeRoutingDefinition({ title: record.title, trigger: record.trigger, steps: record.steps }),
+    ...normalizeRoutingDefinition({ title: record.title, trigger: record.trigger, steps: record.steps }, version),
     createdBy: normalizeCreator(record.createdBy),
     createdAt: isoTimestamp(record.createdAt, "Routing declaration createdAt"),
   };
@@ -255,7 +267,7 @@ export function declarationFromWorkFoldRoutingProposal(
 ): WorkFoldRoutingDeclaration {
   return normalizeWorkFoldRoutingDeclaration({
     kind: workFoldRoutingDeclarationKind,
-    version: workFoldRoutingContractVersion,
+    version: proposal.version,
     id,
     ...proposal.routing,
     createdBy: proposal.createdBy,
@@ -292,12 +304,30 @@ export function workFoldRoutingReferencedSpaceIds(definition: WorkFoldRoutingDef
   return [...ids].sort();
 }
 
+/**
+ * Rechecks the time-sensitive one-time horizon at authority admission. The
+ * declaration parser validates only the stable shape because a stored inert
+ * proposal must not become syntactically damaged merely as time passes.
+ */
+export function assertWorkFoldRoutingAtAdmissionHorizon(
+  definition: Pick<WorkFoldRoutingDefinition, "trigger">,
+  now: Date,
+): void {
+  if (definition.trigger.kind !== "at") return;
+  const nowMs = now.getTime();
+  if (!Number.isFinite(nowMs)) throw new Error("Routing admission time is invalid.");
+  const advanceMs = Date.parse(definition.trigger.at) - nowMs;
+  if (advanceMs < workFoldRoutingBounds.minAtAdvanceMs || advanceMs > workFoldRoutingBounds.maxAtAdvanceMs) {
+    throw new Error("Routing one-time trigger must be between 1 minute and 366 days in the future when it is enabled.");
+  }
+}
+
 export async function readWorkFoldRoutingProposal(path: string): Promise<WorkFoldRoutingProposal> {
   const resolved = resolve(path);
   return normalizeWorkFoldRoutingProposal(JSON.parse(await readBoundedOrdinaryFile(resolved)));
 }
 
-function normalizeRoutingDefinition(value: unknown): WorkFoldRoutingDefinition {
+function normalizeRoutingDefinition(value: unknown, version: WorkFoldRoutingContractVersion): WorkFoldRoutingDefinition {
   const record = objectRecord(value, "Routing definition must be a JSON object.");
   assertKeys(record, ["title", "trigger", "steps"], [], "Routing definition");
   if (!Array.isArray(record.steps) || record.steps.length < 1 || record.steps.length > workFoldRoutingBounds.maxSteps) {
@@ -325,12 +355,12 @@ function normalizeRoutingDefinition(value: unknown): WorkFoldRoutingDefinition {
   }
   return {
     title: boundedText(record.title, "Routing title", 160),
-    trigger: normalizeTrigger(record.trigger),
+    trigger: normalizeTrigger(record.trigger, version),
     steps,
   };
 }
 
-function normalizeTrigger(value: unknown): WorkFoldRoutingTrigger {
+function normalizeTrigger(value: unknown, version: WorkFoldRoutingContractVersion): WorkFoldRoutingTrigger {
   const record = objectRecord(value, "Routing trigger must be a JSON object.");
   if (record.kind === "manual") {
     assertKeys(record, ["kind"], [], "Routing manual trigger");
@@ -348,11 +378,25 @@ function normalizeTrigger(value: unknown): WorkFoldRoutingTrigger {
       ),
     };
   }
+  if (record.kind === "at") {
+    if (version < 2) throw new Error("Routing one-time triggers require contract version 2.");
+    assertKeys(record, ["kind", "at", "ifMissed"], [], "Routing one-time trigger");
+    if (record.ifMissed !== "run" && record.ifMissed !== "skip") {
+      throw new Error('Routing one-time trigger ifMissed must be "run" or "skip".');
+    }
+    return {
+      kind: "at",
+      at: explicitOffsetTimestamp(record.at, "Routing one-time trigger at"),
+      ifMissed: record.ifMissed,
+    };
+  }
   if (record.kind === "on-settled") {
     assertKeys(record, ["kind", "source"], [], "Routing on-settled trigger");
     return { kind: "on-settled", source: normalizeSettleSource(record.source) };
   }
-  throw new Error("Routing trigger kind must be manual, interval, or on-settled.");
+  throw new Error(version >= 2
+    ? "Routing trigger kind must be manual, interval, at, or on-settled."
+    : "Routing trigger kind must be manual, interval, or on-settled.");
 }
 
 function normalizeSettleSource(value: unknown): WorkFoldRoutingSettleSource {
@@ -547,10 +591,22 @@ function isoTimestamp(value: unknown, label: string): string {
   return new Date(value).toISOString();
 }
 
-function assertVersion(value: unknown, label: string): void {
-  if (value !== workFoldRoutingContractVersion) {
+function explicitOffsetTimestamp(value: unknown, label: string): string {
+  if (
+    typeof value !== "string"
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+    || !Number.isFinite(Date.parse(value))
+  ) {
+    throw new Error(`${label} must be an ISO timestamp with an explicit UTC offset.`);
+  }
+  return new Date(value).toISOString();
+}
+
+function contractVersion(value: unknown, label: string): WorkFoldRoutingContractVersion {
+  if (!(workFoldRoutingSupportedContractVersions as readonly unknown[]).includes(value)) {
     throw new Error(`${label} uses unsupported version ${String(value)}.`);
   }
+  return value as WorkFoldRoutingContractVersion;
 }
 
 function boundedText(value: unknown, label: string, maximum: number): string {

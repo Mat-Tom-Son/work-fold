@@ -265,7 +265,8 @@ test("desktop main wires one settle seam, one receipts ledger, and routing sleep
   assert.match(suspendBody, /routingPowerLifecycle\?\.suspend\(\);/);
   const resumeBody = powerBody.slice(powerBody.indexOf('powerMonitor.on("resume"'), powerBody.indexOf('powerMonitor.on("shutdown"'));
   assert.match(resumeBody, /resumeAutomations\(\)/);
-  assert.match(resumeBody, /routingPowerLifecycle\?\.resume\(\);/);
+  assert.match(resumeBody, /routingPowerLifecycle\?\.resume\(\)\.catch\(\(error\) =>/);
+  assert.match(resumeBody, /could not resume Routings after wake/);
 
   // The remote client keeps the viewer-page provider wired to the
   // publication authority, and reconnects re-drive pending bridge syncs.

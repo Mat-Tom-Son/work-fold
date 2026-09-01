@@ -13,8 +13,17 @@ export interface WorkFoldAutomationJobKey {
 }
 
 export type WorkFoldAutomationCatchUp = "none" | "latest";
+export type WorkFoldAutomationSchedule =
+  | { kind: "interval"; intervalMinutes: number; catchUp: WorkFoldAutomationCatchUp }
+  | { kind: "at"; at: string; ifMissed: "run" | "skip" };
 export type WorkFoldAutomationRunReason = "scheduled" | "manual" | "resume";
 export type WorkFoldAutomationRunOutcome = "success" | "failure" | "skipped" | "cancelled";
+export type WorkFoldAutomationNoLaunchReason =
+  | "closed"
+  | "suspended"
+  | "disabled"
+  | "overlap"
+  | "registration-changed";
 
 export interface WorkFoldAutomationRunContext {
   runId: string;
@@ -33,7 +42,14 @@ export interface WorkFoldAutomationRunResult {
   startedAt: string;
   finishedAt: string;
   outcome: WorkFoldAutomationRunOutcome;
+  /** Present only when scheduler admission settled before the callback launched. */
+  notLaunchedReason?: WorkFoldAutomationNoLaunchReason;
   error?: string;
+}
+
+export interface WorkFoldAutomationRunAdmission {
+  runId: string;
+  result: Promise<WorkFoldAutomationRunResult>;
 }
 
 export interface WorkFoldAutomationResultCallbackError {
@@ -45,9 +61,15 @@ export interface WorkFoldAutomationResultCallbackError {
 
 export interface WorkFoldAutomationJobDefinition {
   key: WorkFoldAutomationJobKey;
-  intervalMinutes: number;
+  /** Canonical scheduling contract. */
+  schedule?: WorkFoldAutomationSchedule;
+  /**
+   * Compatibility input for restricted-app callers. It is normalized
+   * immediately into an interval schedule and may not accompany `schedule`.
+   */
+  intervalMinutes?: number;
   enabled: boolean;
-  catchUp: WorkFoldAutomationCatchUp;
+  catchUp?: WorkFoldAutomationCatchUp;
   /** Optional durable cadence anchor supplied by the owning domain. */
   lastScheduledAt?: string;
   run(context: WorkFoldAutomationRunContext): void | Promise<void>;
@@ -73,14 +95,22 @@ export interface WorkFoldAutomationServiceOptions {
 }
 
 interface RegisteredJob {
-  definition: WorkFoldAutomationJobDefinition;
+  definition: NormalizedAutomationJobDefinition;
   encodedKey: string;
   registration: symbol;
-  intervalMs: number;
-  nextScheduledAt: number;
+  nextScheduledAt?: number;
   pendingCatchUpAt?: number;
+  atConsumed: boolean;
   scheduleTimer?: unknown;
   catchUpTimer?: unknown;
+}
+
+interface NormalizedAutomationJobDefinition {
+  key: WorkFoldAutomationJobKey;
+  schedule: WorkFoldAutomationSchedule;
+  enabled: boolean;
+  lastScheduledAt?: string;
+  run(context: WorkFoldAutomationRunContext): void | Promise<void>;
 }
 
 interface PendingRun {
@@ -155,7 +185,7 @@ export class WorkFoldAutomationService {
 
   nextScheduledAt(key: WorkFoldAutomationJobKey): string | undefined {
     const job = this.#jobs.get(automationKey(key));
-    return job?.definition.enabled ? isoTime(job.nextScheduledAt) : undefined;
+    return job?.definition.enabled && job.nextScheduledAt !== undefined ? isoTime(job.nextScheduledAt) : undefined;
   }
 
   register(definition: WorkFoldAutomationJobDefinition): void {
@@ -166,14 +196,13 @@ export class WorkFoldAutomationService {
       throw new Error(`Automation ${displayKey(normalized.key)} is already registered.`);
     }
     const now = this.#now();
-    const intervalMs = intervalMilliseconds(normalized.intervalMinutes);
-    const initial = initialSchedule(normalized, intervalMs, now);
+    const initial = initialSchedule(normalized, now);
     const job: RegisteredJob = {
       definition: normalized,
       encodedKey,
       registration: Symbol(encodedKey),
-      intervalMs,
       nextScheduledAt: initial.nextScheduledAt,
+      atConsumed: initial.atConsumed,
       ...(initial.pendingCatchUpAt === undefined ? {} : { pendingCatchUpAt: initial.pendingCatchUpAt }),
     };
     this.#jobs.set(encodedKey, job);
@@ -189,32 +218,32 @@ export class WorkFoldAutomationService {
     if (!job) throw new Error(`Automation ${displayKey(normalized.key)} is not registered.`);
 
     const wasEnabled = job.definition.enabled;
-    const intervalMs = intervalMilliseconds(normalized.intervalMinutes);
-    const intervalChanged = intervalMs !== job.intervalMs;
+    const scheduleChanged = !schedulesEqual(normalized.schedule, job.definition.schedule);
     const anchorChanged = normalized.lastScheduledAt !== job.definition.lastScheduledAt;
     job.definition = normalized;
 
     if (!normalized.enabled) {
       this.#clearJobTimers(job);
       job.pendingCatchUpAt = undefined;
-      this.#cancelPending(job, "Automation was disabled before this run could start.", (pending) => pending.reason !== "manual");
+      this.#cancelPending(job, "disabled", "Automation was disabled before this run could start.", (pending) => pending.reason !== "manual");
       this.#abortActive(job, "Automation was disabled while this run was active.");
       return;
     }
 
-    if (!wasEnabled || intervalChanged || anchorChanged) {
+    if (!wasEnabled || scheduleChanged || anchorChanged) {
       this.#clearJobTimers(job);
-      job.intervalMs = intervalMs;
-      const initial = initialSchedule(normalized, intervalMs, this.#now());
+      const initial = normalized.schedule.kind === "at" && !scheduleChanged && job.atConsumed
+        ? { atConsumed: true }
+        : initialSchedule(normalized, this.#now());
       job.nextScheduledAt = initial.nextScheduledAt;
       job.pendingCatchUpAt = initial.pendingCatchUpAt;
+      job.atConsumed = initial.atConsumed;
       this.#armCatchUp(job);
       this.#armSchedule(job);
       return;
     }
 
-    job.intervalMs = intervalMs;
-    if (normalized.catchUp === "none") {
+    if (!scheduleCatchesUp(normalized.schedule)) {
       this.#clearCatchUpTimer(job);
       job.pendingCatchUpAt = undefined;
     }
@@ -226,22 +255,37 @@ export class WorkFoldAutomationService {
     if (!job) return false;
     this.#jobs.delete(encodedKey);
     this.#clearJobTimers(job);
-    this.#cancelPending(job, "Automation was unregistered before this run could start.");
+    this.#cancelPending(job, "registration-changed", "Automation was unregistered before this run could start.");
     this.#abortActive(job, "Automation was unregistered while this run was active.");
     return true;
   }
 
   runNow(key: WorkFoldAutomationJobKey): Promise<WorkFoldAutomationRunResult> {
+    return this.runNowAdmission(key).result;
+  }
+
+  /**
+   * Admits a manual run and exposes its host-minted id immediately. The
+   * result still settles only after the callback (and result observer) does.
+   */
+  runNowAdmission(key: WorkFoldAutomationJobKey): WorkFoldAutomationRunAdmission {
     const normalizedKey = normalizeKey(key);
     const scheduledAt = this.#now();
+    const runId = this.#nextRunId();
     if (this.#closed) {
-      return this.#immediateResult(normalizedKey, "manual", scheduledAt, "cancelled", "Automation service is closed.");
+      return {
+        runId,
+        result: this.#immediateResult(runId, normalizedKey, "manual", scheduledAt, "cancelled", "closed", "Automation service is closed."),
+      };
     }
     const job = this.#jobs.get(automationKey(normalizedKey));
     if (!job) {
-      return this.#immediateResult(normalizedKey, "manual", scheduledAt, "cancelled", "Automation is not registered.");
+      return {
+        runId,
+        result: this.#immediateResult(runId, normalizedKey, "manual", scheduledAt, "cancelled", "registration-changed", "Automation is not registered."),
+      };
     }
-    return this.#requestRun(job, "manual", scheduledAt);
+    return this.#requestRun(job, "manual", scheduledAt, runId);
   }
 
   listRunResults(key?: WorkFoldAutomationJobKey): WorkFoldAutomationRunResult[] {
@@ -262,7 +306,11 @@ export class WorkFoldAutomationService {
       this.#clearJobTimers(job);
       this.#abortActive(job, "Automation scheduling was suspended while this run was active.");
     }
-    this.#cancelAllPending("Automation scheduling was suspended before this run could start.");
+    this.#cancelAllPending(
+      "suspended",
+      "Automation scheduling was suspended before this run could start.",
+      true,
+    );
   }
 
   resume(): void {
@@ -271,12 +319,20 @@ export class WorkFoldAutomationService {
     const now = this.#now();
     for (const job of this.#jobs.values()) {
       if (!job.definition.enabled) continue;
-      if (job.nextScheduledAt <= now) {
-        const latestDue = latestDueAt(job.nextScheduledAt, job.intervalMs, now);
-        job.nextScheduledAt = latestDue + job.intervalMs;
-        if (job.definition.catchUp === "latest") job.pendingCatchUpAt = latestDue;
+      if (job.nextScheduledAt !== undefined && job.nextScheduledAt <= now) {
+        if (job.definition.schedule.kind === "interval") {
+          const intervalMs = intervalMilliseconds(job.definition.schedule.intervalMinutes);
+          const latestDue = latestDueAt(job.nextScheduledAt, intervalMs, now);
+          job.nextScheduledAt = latestDue + intervalMs;
+          if (job.definition.schedule.catchUp === "latest") job.pendingCatchUpAt = latestDue;
+        } else {
+          const dueAt = job.nextScheduledAt;
+          job.nextScheduledAt = undefined;
+          job.atConsumed = true;
+          if (job.definition.schedule.ifMissed === "run") job.pendingCatchUpAt = dueAt;
+        }
       }
-      if (job.definition.catchUp === "latest" && job.pendingCatchUpAt !== undefined) this.#armCatchUp(job);
+      if (scheduleCatchesUp(job.definition.schedule) && job.pendingCatchUpAt !== undefined) this.#armCatchUp(job);
       this.#armSchedule(job);
     }
   }
@@ -285,7 +341,7 @@ export class WorkFoldAutomationService {
     if (this.#closed) return;
     this.#closed = true;
     this.#suspended = false;
-    this.#cancelAllPending("Automation service closed before this run could start.");
+    this.#cancelAllPending("closed", "Automation service closed before this run could start.");
     for (const job of this.#jobs.values()) {
       this.#clearJobTimers(job);
       this.#abortActive(job, "Automation service closed while this run was active.");
@@ -297,8 +353,9 @@ export class WorkFoldAutomationService {
     job: RegisteredJob,
     reason: WorkFoldAutomationRunReason,
     scheduledAt: number,
-  ): Promise<WorkFoldAutomationRunResult> {
-    const runId = this.#nextRunId();
+    requestedRunId?: string,
+  ): WorkFoldAutomationRunAdmission {
+    const runId = requestedRunId ?? this.#nextRunId();
     let resolveResult!: (result: WorkFoldAutomationRunResult) => void;
     const result = new Promise<WorkFoldAutomationRunResult>((resolve) => {
       resolveResult = resolve;
@@ -313,25 +370,25 @@ export class WorkFoldAutomationService {
       resolve: resolveResult,
     };
     if (this.#closed) {
-      this.#finishWithoutLaunch(pending, "cancelled", "Automation service is closed.");
-      return result;
+      this.#finishWithoutLaunch(pending, "cancelled", "closed", "Automation service is closed.");
+      return { runId, result };
     }
     if (this.#suspended) {
-      this.#finishWithoutLaunch(pending, "skipped", "Automation scheduling is suspended.");
-      return result;
+      this.#finishWithoutLaunch(pending, "skipped", "suspended", "Automation scheduling is suspended.");
+      return { runId, result };
     }
     if (reason !== "manual" && !job.definition.enabled) {
-      this.#finishWithoutLaunch(pending, "skipped", "Automation is disabled.");
-      return result;
+      this.#finishWithoutLaunch(pending, "skipped", "disabled", "Automation is disabled.");
+      return { runId, result };
     }
     if (this.#busyKeys.has(job.encodedKey)) {
-      this.#finishWithoutLaunch(pending, "skipped", "Another run of this automation is already pending or active.");
-      return result;
+      this.#finishWithoutLaunch(pending, "skipped", "overlap", "Another run of this automation is already pending or active.");
+      return { runId, result };
     }
     this.#busyKeys.add(job.encodedKey);
     this.#pending.push(pending);
     this.#pump();
-    return result;
+    return { runId, result };
   }
 
   #pump(): void {
@@ -341,12 +398,12 @@ export class WorkFoldAutomationService {
       const job = this.#jobs.get(pending.encodedKey);
       if (!job || job.registration !== pending.registration) {
         this.#busyKeys.delete(pending.encodedKey);
-        this.#finishWithoutLaunch(pending, "cancelled", "Automation registration changed before this run could start.");
+        this.#finishWithoutLaunch(pending, "cancelled", "registration-changed", "Automation registration changed before this run could start.");
         continue;
       }
       if (pending.reason !== "manual" && !job.definition.enabled) {
         this.#busyKeys.delete(pending.encodedKey);
-        this.#finishWithoutLaunch(pending, "skipped", "Automation was disabled before this run could start.");
+        this.#finishWithoutLaunch(pending, "skipped", "disabled", "Automation was disabled before this run could start.");
         continue;
       }
 
@@ -364,7 +421,7 @@ export class WorkFoldAutomationService {
 
   async #execute(
     pending: PendingRun,
-    run: WorkFoldAutomationJobDefinition["run"],
+    run: NormalizedAutomationJobDefinition["run"],
     startedAt: number,
     controller: AbortController,
   ): Promise<void> {
@@ -409,6 +466,7 @@ export class WorkFoldAutomationService {
   async #finishWithoutLaunch(
     pending: PendingRun,
     outcome: Extract<WorkFoldAutomationRunOutcome, "skipped" | "cancelled">,
+    notLaunchedReason: WorkFoldAutomationNoLaunchReason,
     error: string,
   ): Promise<void> {
     const now = this.#now();
@@ -420,18 +478,20 @@ export class WorkFoldAutomationService {
       startedAt: isoTime(now),
       finishedAt: isoTime(now),
       outcome,
+      notLaunchedReason,
       error: boundedError(error),
     });
   }
 
   async #immediateResult(
+    runId: string,
     key: WorkFoldAutomationJobKey,
     reason: WorkFoldAutomationRunReason,
     scheduledAt: number,
     outcome: Extract<WorkFoldAutomationRunOutcome, "skipped" | "cancelled">,
+    notLaunchedReason: WorkFoldAutomationNoLaunchReason,
     error: string,
   ): Promise<WorkFoldAutomationRunResult> {
-    const runId = this.#nextRunId();
     const now = this.#now();
     const result: WorkFoldAutomationRunResult = {
       runId,
@@ -441,6 +501,7 @@ export class WorkFoldAutomationService {
       startedAt: isoTime(now),
       finishedAt: isoTime(now),
       outcome,
+      notLaunchedReason,
       error: boundedError(error),
     };
     await this.#record(result);
@@ -472,20 +533,35 @@ export class WorkFoldAutomationService {
   }
 
   #armSchedule(job: RegisteredJob): void {
-    if (this.#closed || this.#suspended || !job.definition.enabled || job.scheduleTimer !== undefined) return;
+    if (
+      this.#closed
+      || this.#suspended
+      || !job.definition.enabled
+      || job.nextScheduledAt === undefined
+      || job.scheduleTimer !== undefined
+    ) return;
     const delay = boundedTimerDelay(job.nextScheduledAt - this.#now());
     job.scheduleTimer = this.#clock.setTimeout(() => {
       job.scheduleTimer = undefined;
       const current = this.#jobs.get(job.encodedKey);
       if (this.#closed || this.#suspended || current !== job || !job.definition.enabled) return;
       const now = this.#now();
+      if (job.nextScheduledAt === undefined) return;
       if (job.nextScheduledAt > now) {
         this.#armSchedule(job);
         return;
       }
-      const scheduledAt = latestDueAt(job.nextScheduledAt, job.intervalMs, now);
-      job.nextScheduledAt = scheduledAt + job.intervalMs;
-      this.#armSchedule(job);
+      let scheduledAt: number;
+      if (job.definition.schedule.kind === "interval") {
+        const intervalMs = intervalMilliseconds(job.definition.schedule.intervalMinutes);
+        scheduledAt = latestDueAt(job.nextScheduledAt, intervalMs, now);
+        job.nextScheduledAt = scheduledAt + intervalMs;
+        this.#armSchedule(job);
+      } else {
+        scheduledAt = job.nextScheduledAt;
+        job.nextScheduledAt = undefined;
+        job.atConsumed = true;
+      }
       void this.#requestRun(job, "scheduled", scheduledAt);
     }, delay);
   }
@@ -495,7 +571,7 @@ export class WorkFoldAutomationService {
       this.#closed
       || this.#suspended
       || !job.definition.enabled
-      || job.definition.catchUp !== "latest"
+      || !scheduleCatchesUp(job.definition.schedule)
       || job.pendingCatchUpAt === undefined
       || job.catchUpTimer !== undefined
     ) return;
@@ -510,11 +586,12 @@ export class WorkFoldAutomationService {
         || this.#suspended
         || current !== job
         || !job.definition.enabled
-        || job.definition.catchUp !== "latest"
+        || !scheduleCatchesUp(job.definition.schedule)
         || job.pendingCatchUpAt === undefined
       ) return;
       const scheduledAt = job.pendingCatchUpAt;
       job.pendingCatchUpAt = undefined;
+      if (job.definition.schedule.kind === "at") job.atConsumed = true;
       void this.#requestRun(job, "resume", scheduledAt);
     }, delay);
   }
@@ -530,7 +607,12 @@ export class WorkFoldAutomationService {
     job.catchUpTimer = undefined;
   }
 
-  #cancelPending(job: RegisteredJob, reason: string, shouldCancel: (pending: PendingRun) => boolean = () => true): void {
+  #cancelPending(
+    job: RegisteredJob,
+    notLaunchedReason: WorkFoldAutomationNoLaunchReason,
+    reason: string,
+    shouldCancel: (pending: PendingRun) => boolean = () => true,
+  ): void {
     const cancelled: PendingRun[] = [];
     const retained: PendingRun[] = [];
     for (const pending of this.#pending) {
@@ -541,14 +623,30 @@ export class WorkFoldAutomationService {
     this.#pending.splice(0, this.#pending.length, ...retained);
     for (const pending of cancelled) {
       this.#busyKeys.delete(pending.encodedKey);
-      void this.#finishWithoutLaunch(pending, "cancelled", reason);
+      void this.#finishWithoutLaunch(pending, "cancelled", notLaunchedReason, reason);
     }
   }
 
-  #cancelAllPending(reason: string): void {
+  #cancelAllPending(
+    notLaunchedReason: WorkFoldAutomationNoLaunchReason,
+    reason: string,
+    preserveCatchUp = false,
+  ): void {
     for (const pending of this.#pending.splice(0)) {
       this.#busyKeys.delete(pending.encodedKey);
-      void this.#finishWithoutLaunch(pending, "cancelled", reason);
+      const job = this.#jobs.get(pending.encodedKey);
+      if (
+        preserveCatchUp
+        && pending.reason !== "manual"
+        && job?.registration === pending.registration
+        && scheduleCatchesUp(job.definition.schedule)
+      ) {
+        job.pendingCatchUpAt = job.pendingCatchUpAt === undefined
+          ? pending.scheduledAt
+          : Math.max(job.pendingCatchUpAt, pending.scheduledAt);
+        if (job.definition.schedule.kind === "at") job.atConsumed = false;
+      }
+      void this.#finishWithoutLaunch(pending, "cancelled", notLaunchedReason, reason);
     }
   }
 
@@ -597,19 +695,57 @@ const systemAutomationClock: WorkFoldAutomationClock = {
   },
 };
 
-function normalizeDefinition(definition: WorkFoldAutomationJobDefinition): WorkFoldAutomationJobDefinition {
+function normalizeDefinition(definition: WorkFoldAutomationJobDefinition): NormalizedAutomationJobDefinition {
   if (!definition || typeof definition !== "object") throw new Error("Automation definition is required.");
   const key = normalizeKey(definition.key);
-  intervalMilliseconds(definition.intervalMinutes);
   if (typeof definition.enabled !== "boolean") throw new Error("Automation enabled state must be a boolean.");
-  if (definition.catchUp !== "none" && definition.catchUp !== "latest") {
-    throw new Error('Automation catch-up policy must be "none" or "latest".');
-  }
   if (typeof definition.run !== "function") throw new Error("Automation run callback is required.");
+  const schedule = normalizeSchedule(definition);
   const lastScheduledAt = definition.lastScheduledAt === undefined
     ? undefined
     : normalizedIsoTime(definition.lastScheduledAt, "Automation scheduling anchor");
-  return { ...definition, key, ...(lastScheduledAt === undefined ? {} : { lastScheduledAt }) };
+  if (schedule.kind === "at" && lastScheduledAt !== undefined) {
+    throw new Error("A one-time automation cannot carry an interval cadence anchor.");
+  }
+  return {
+    key,
+    schedule,
+    enabled: definition.enabled,
+    ...(lastScheduledAt === undefined ? {} : { lastScheduledAt }),
+    run: definition.run,
+  };
+}
+
+function normalizeSchedule(definition: WorkFoldAutomationJobDefinition): WorkFoldAutomationSchedule {
+  if (definition.schedule !== undefined) {
+    if (definition.intervalMinutes !== undefined || definition.catchUp !== undefined) {
+      throw new Error("Automation schedule cannot be combined with legacy interval fields.");
+    }
+    if (definition.schedule.kind === "interval") {
+      intervalMilliseconds(definition.schedule.intervalMinutes);
+      if (definition.schedule.catchUp !== "none" && definition.schedule.catchUp !== "latest") {
+        throw new Error('Automation catch-up policy must be "none" or "latest".');
+      }
+      return { ...definition.schedule };
+    }
+    if (definition.schedule.kind === "at") {
+      if (definition.schedule.ifMissed !== "run" && definition.schedule.ifMissed !== "skip") {
+        throw new Error('Automation one-time missed policy must be "run" or "skip".');
+      }
+      return {
+        kind: "at",
+        at: normalizedIsoTime(definition.schedule.at, "Automation one-time schedule"),
+        ifMissed: definition.schedule.ifMissed,
+      };
+    }
+    throw new Error("Automation schedule kind is unsupported.");
+  }
+  if (definition.intervalMinutes === undefined) throw new Error("Automation schedule is required.");
+  intervalMilliseconds(definition.intervalMinutes);
+  if (definition.catchUp !== "none" && definition.catchUp !== "latest") {
+    throw new Error('Automation catch-up policy must be "none" or "latest".');
+  }
+  return { kind: "interval", intervalMinutes: definition.intervalMinutes, catchUp: definition.catchUp };
 }
 
 function normalizeKey(key: WorkFoldAutomationJobKey): WorkFoldAutomationJobKey {
@@ -667,18 +803,37 @@ function latestDueAt(firstDueAt: number, intervalMs: number, now: number): numbe
 }
 
 function initialSchedule(
-  definition: WorkFoldAutomationJobDefinition,
-  intervalMs: number,
+  definition: NormalizedAutomationJobDefinition,
   now: number,
-): { nextScheduledAt: number; pendingCatchUpAt?: number } {
-  if (definition.lastScheduledAt === undefined) return { nextScheduledAt: now + intervalMs };
+): { nextScheduledAt?: number; pendingCatchUpAt?: number; atConsumed: boolean } {
+  if (definition.schedule.kind === "at") {
+    const at = Date.parse(definition.schedule.at);
+    if (at > now) return { nextScheduledAt: at, atConsumed: false };
+    return definition.enabled && definition.schedule.ifMissed === "run"
+      ? { pendingCatchUpAt: at, atConsumed: false }
+      : { atConsumed: true };
+  }
+  const intervalMs = intervalMilliseconds(definition.schedule.intervalMinutes);
+  if (definition.lastScheduledAt === undefined) return { nextScheduledAt: now + intervalMs, atConsumed: false };
   const firstDueAt = Date.parse(definition.lastScheduledAt) + intervalMs;
-  if (firstDueAt > now) return { nextScheduledAt: firstDueAt };
+  if (firstDueAt > now) return { nextScheduledAt: firstDueAt, atConsumed: false };
   const latestDue = latestDueAt(firstDueAt, intervalMs, now);
   return {
     nextScheduledAt: latestDue + intervalMs,
-    ...(definition.enabled && definition.catchUp === "latest" ? { pendingCatchUpAt: latestDue } : {}),
+    atConsumed: false,
+    ...(definition.enabled && definition.schedule.catchUp === "latest" ? { pendingCatchUpAt: latestDue } : {}),
   };
+}
+
+function scheduleCatchesUp(schedule: WorkFoldAutomationSchedule): boolean {
+  return schedule.kind === "interval" ? schedule.catchUp === "latest" : schedule.ifMissed === "run";
+}
+
+function schedulesEqual(left: WorkFoldAutomationSchedule, right: WorkFoldAutomationSchedule): boolean {
+  if (left.kind !== right.kind) return false;
+  return left.kind === "interval" && right.kind === "interval"
+    ? left.intervalMinutes === right.intervalMinutes && left.catchUp === right.catchUp
+    : left.kind === "at" && right.kind === "at" && left.at === right.at && left.ifMissed === right.ifMissed;
 }
 
 function boundedTimerDelay(value: number): number {

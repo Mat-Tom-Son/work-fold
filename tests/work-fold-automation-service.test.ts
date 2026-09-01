@@ -125,6 +125,112 @@ test("WorkFoldAutomationService schedules intervals, exposes the next due time, 
   service.close();
 });
 
+test("WorkFoldAutomationService schedules one-time jobs once, keeps run-now independent, and applies missed policy", async () => {
+  const clock = new FakeClock(startTime);
+  const contexts: WorkFoldAutomationRunContext[] = [];
+  const future = key("owner", "future-once");
+  const missedRun = key("owner", "missed-run");
+  const missedSkip = key("owner", "missed-skip");
+  const service = new WorkFoldAutomationService({
+    clock,
+    createRunId: runIds().next,
+    catchUpStagger: () => 0,
+  });
+  service.register({
+    key: future,
+    schedule: { kind: "at", at: "2026-07-14T12:02:00.000Z", ifMissed: "run" },
+    enabled: true,
+    run: (context) => { contexts.push(context); },
+  });
+  assert.equal(service.nextScheduledAt(future), "2026-07-14T12:02:00.000Z");
+  assert.equal((await service.runNow(future)).reason, "manual");
+  assert.equal(service.nextScheduledAt(future), "2026-07-14T12:02:00.000Z", "run-now never consumes the one-time slot");
+
+  clock.advance(2 * minute);
+  await flushTasks();
+  assert.deepEqual(contexts.map(({ reason }) => reason), ["manual", "scheduled"]);
+  assert.equal(service.nextScheduledAt(future), undefined);
+  clock.advance(10 * minute);
+  await flushTasks();
+  assert.equal(contexts.filter(({ key: value }) => value.jobId === future.jobId).length, 2, "the scheduled occurrence fires once");
+  for (const enabled of [false, true]) {
+    service.update({
+      key: future,
+      schedule: { kind: "at", at: "2026-07-14T12:02:00.000Z", ifMissed: "run" },
+      enabled,
+      run: (context) => { contexts.push(context); },
+    });
+  }
+  clock.advance(minute);
+  await flushTasks();
+  assert.equal(contexts.filter(({ key: value }) => value.jobId === future.jobId).length, 2, "disable/re-enable cannot rearm a consumed occurrence");
+
+  service.register({
+    key: missedRun,
+    schedule: { kind: "at", at: "2026-07-14T12:01:00.000Z", ifMissed: "run" },
+    enabled: true,
+    run: (context) => { contexts.push(context); },
+  });
+  service.register({
+    key: missedSkip,
+    schedule: { kind: "at", at: "2026-07-14T12:01:00.000Z", ifMissed: "skip" },
+    enabled: true,
+    run: (context) => { contexts.push(context); },
+  });
+  clock.advance(0);
+  await flushTasks();
+  assert.equal(contexts.some(({ key: value, reason }) => value.jobId === missedRun.jobId && reason === "resume"), true);
+  assert.equal(contexts.some(({ key: value }) => value.jobId === missedSkip.jobId), false);
+  assert.equal(service.nextScheduledAt(missedRun), undefined);
+  assert.equal(service.nextScheduledAt(missedSkip), undefined);
+  service.close();
+});
+
+test("suspension preserves a queued one-time catch-up until resume", async () => {
+  const clock = new FakeClock(startTime);
+  const releases: Array<() => void> = [];
+  const contexts: WorkFoldAutomationRunContext[] = [];
+  const blocker = key("owner", "blocker");
+  const once = key("owner", "once");
+  const service = new WorkFoldAutomationService({
+    clock,
+    maxConcurrency: 1,
+    createRunId: runIds().next,
+    catchUpStagger: () => 0,
+  });
+  service.register(job(blocker, async () => {
+    await new Promise<void>((resolve) => releases.push(resolve));
+  }));
+  service.register({
+    key: once,
+    schedule: { kind: "at", at: "2026-07-14T12:01:00.000Z", ifMissed: "run" },
+    enabled: true,
+    run: (context) => { contexts.push(context); },
+  });
+
+  const blockingRun = service.runNow(blocker);
+  clock.advance(minute);
+  assert.equal(service.pendingCount, 1, "the due occurrence waits behind the machine-wide slot");
+  service.suspend();
+  await flushTasks();
+  const paused = service.listRunResults(once)[0];
+  assert.equal(paused?.notLaunchedReason, "suspended");
+  assert.deepEqual(contexts, []);
+
+  releases.shift()?.();
+  await blockingRun;
+  service.resume();
+  clock.advance(0);
+  await flushTasks();
+  assert.equal(contexts.length, 1);
+  assert.equal(contexts[0]?.reason, "resume");
+  assert.equal(contexts[0]?.scheduledAt, "2026-07-14T12:01:00.000Z");
+  clock.advance(24 * 60 * minute);
+  await flushTasks();
+  assert.equal(contexts.length, 1, "the preserved occurrence still launches only once");
+  service.close();
+});
+
 test("WorkFoldAutomationService restores a persisted cadence and performs at most one deterministically staggered latest catch-up", async () => {
   const clock = new FakeClock(startTime);
   const contexts: WorkFoldAutomationRunContext[] = [];
