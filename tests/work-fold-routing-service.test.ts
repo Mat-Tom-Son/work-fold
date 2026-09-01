@@ -493,9 +493,16 @@ test("a one-time slot due during run-now waits and executes after the manual cop
     );
     harness.clock.advance(minute);
     await waitForCondition(
-      () => harness.service.listAutomationResults(routingId).some((result) => (
-        result.reason === "scheduled" && result.notLaunchedReason === "overlap"
-      )),
+      () => {
+        // The scheduler and this test both use the fake clock. If an async
+        // continuation arms a zero-delay timer after the first advance, real
+        // wall time cannot fire it; keep driving the owned clock while the
+        // admission settles instead of depending on event-loop ordering.
+        harness.clock.advance(0);
+        return harness.service.listAutomationResults(routingId).some((result) => (
+          result.reason === "scheduled" && result.notLaunchedReason === "overlap"
+        ));
+      },
       "the scheduled admission to reach the in-memory non-overlap fence",
     );
     const overlap = harness.service.listAutomationResults(routingId).find((result) => (
@@ -507,9 +514,14 @@ test("a one-time slot due during run-now waits and executes after the manual cop
 
     release.resolve();
     await manual;
-    harness.clock.advance(0);
     await waitForCondition(
-      async () => (await harness.store.get(routingId))?.atOccurrence?.finishedAt !== undefined,
+      async () => {
+        // Manual completion arms the preserved one-time catch-up after its
+        // async result observer settles. Pump the fake clock until that exact
+        // timer fires, regardless of microtask ordering on the host runner.
+        harness.clock.advance(0);
+        return (await harness.store.get(routingId))?.atOccurrence?.finishedAt !== undefined;
+      },
       "the preserved one-time slot to finish after the manual copy",
     );
     assert.equal((await harness.store.get(routingId))?.health, "completed");

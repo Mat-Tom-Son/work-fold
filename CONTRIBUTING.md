@@ -76,7 +76,9 @@ Tests that observe asynchronous work should wait on the owned in-memory or
 domain completion signal, then verify durable persistence separately. Do not
 make correctness depend on a journal file becoming visible within one event-loop
 turn or on an arbitrary sleep; those checks are fast locally and unreliable on
-shared CI runners.
+shared CI runners. When a test installs a fake clock, keep advancing that clock
+while asynchronous continuations settle; waiting in real time cannot fire a
+fake timer that was armed after the first advance.
 
 For restricted-app manifest, bridge, broker, sandbox, storage, file, notification, connection, or lifecycle changes, run the focused tests and `npm run desktop:restricted-app:smoke`. That command exercises the real Electron visible and worker sandboxes; browser fixtures or Node-only tests do not prove the security boundary. `desktop:prepare`, the package lanes, and the release lane include this probe.
 
