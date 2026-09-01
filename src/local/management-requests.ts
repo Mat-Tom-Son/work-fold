@@ -21,6 +21,8 @@ export type ManagementRequestOutcome = "succeeded" | "failed" | "aborted";
  * versions, glance) are deliberately absent — reads carry no lineage.
  */
 export type ManagementRequestActionCommand =
+  | "spaces.assistant.model"
+  | "spaces.assistant.instructions"
   | "chat.send"
   | "chat.rename"
   | "chat.snooze"

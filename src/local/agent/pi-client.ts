@@ -33,6 +33,7 @@ import {
 } from "./skill-catalog.js";
 import { configurePiHttpTransport } from "./pi-http.js";
 import {
+  appendAssistantInstructions,
   resolvePiRuntime,
   type PiRuntimeProvider,
   type ResolvedPiRuntime,
@@ -359,8 +360,10 @@ export class PiConversationClient extends EventEmitter {
         timestamp: Date.now(),
       }],
     }, {
-      maxTokens: 48,
-      temperature: 0.2,
+      // Reasoning models can spend a small token cap entirely on hidden
+      // reasoning and return no title. Keep this bounded, but leave enough
+      // room for that preamble plus the requested 3–7 words.
+      maxTokens: Math.min(model.maxTokens > 0 ? model.maxTokens : 512, 512),
       maxRetries: 1,
       timeoutMs: 15_000,
       signal: AbortSignal.timeout(15_000),
@@ -431,6 +434,7 @@ export class PiConversationClient extends EventEmitter {
           additionalSkillPaths: runtime.config.additionalSkillPaths,
           additionalPromptTemplatePaths: runtime.config.additionalPromptTemplatePaths,
           additionalThemePaths: runtime.config.additionalThemePaths,
+          appendSystemPromptOverride: (base) => appendAssistantInstructions(base, runtime.config.assistantInstructions),
         },
       });
       const preferred = options.sessionManager.buildSessionContext().messages.length === 0
@@ -661,6 +665,13 @@ export class PiConversationClient extends EventEmitter {
     if (!event) return;
     const toolCallId = event.toolCallId;
     if (!toolCallId) return;
+    const previous = this.turnActivities.get(toolCallId);
+    if (event.phase === "streaming" || event.phase === "complete" || event.phase === "error") {
+      // Result payloads are often directory listings, whole file bodies, or
+      // command output. Keep the invocation's useful target in the work trail
+      // instead of replacing it with debug-like output as the call settles.
+      event.detail = previous?.detail || event.detail || "";
+    }
     const key = [toolCallId, event.phase, event.detail].join("\0");
     if (key === this.lastToolEventKey) return;
     this.lastToolEventKey = key;
@@ -1249,7 +1260,7 @@ function toolEvent(raw: any): Omit<PiChatEvent, "conversationId" | "raw"> | null
   if (!toolName) return null;
   const toolCallId = String(raw.toolCallId ?? assistantEvent.toolCallId ?? call.toolCallId ?? call.id ?? `${toolName}:unknown`);
   const args = raw.args ?? raw.input ?? call.args ?? call.input;
-  const detail = summarizeToolValue(args ?? raw.result ?? raw.partialResult);
+  const detail = summarizeToolValue(args);
   const subtype = String(assistantEvent.type ?? "");
   const type = String(raw.type ?? "");
   const label = humanize(toolName);

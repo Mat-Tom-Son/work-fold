@@ -112,6 +112,9 @@ rules, which mirror the desktop's.
 | Apply appearance | Customize Space → Import proposal | none | direct verb (argued below) | `spaces appearance apply --space <id> --proposal <path>` | prior customization ref | `spaces appearance undo --space <id>` | proposal must parse as the typed `space-appearance` proposal; nothing else is accepted |
 | Reset appearance | Customize Space → Reset | none | direct verb | `spaces appearance reset --space <id>` | prior customization ref | `spaces appearance undo` | — |
 | Undo appearance | — (the desktop re-imports or resets instead) | none | direct verb | `spaces appearance undo --space <id>` | restored and displaced customization refs | apply the displaced ref again — undo is its own inverse | refused with a typed error when the receipt chain records no prior customization ref for that Space, including when the current appearance was last changed on the desktop rather than through a receipted act |
+| Inspect Space Assistant preferences | Settings → Assistant | none | direct verb (content-bearing act read) | `spaces assistant show --space <id>` | — | n/a | returns only connected model choices plus the current model and instruction text; provider credentials never enter the result |
+| Set the default model for new Chats | Settings → Assistant | none | direct verb | `spaces assistant model --space <id> --provider <id> --model <id>` | provider and model ids | choose the prior model again | selected model must exist and already have configured auth; fenced against active Assistant, compaction, or Check work; existing Chat sessions keep their session model |
+| Set or clear Space instructions | Settings → Assistant | none | direct verb | `spaces assistant instructions --space <id> (--instructions <text> \| --clear)` | updated character count or cleared marker — never text | set the prior text again or clear | bounded validated text; fenced against active Assistant, compaction, or Check work; applies to subsequent turns after scoped client invalidation |
 
 The desktop couples managed-Space removal with folder deletion in one
 confirm dialog; the ledger splits them. Unregistration is recoverable and
@@ -291,7 +294,7 @@ is refused at parse time, not at decision time.
 
 | Verb | Human surface | Target |
 |---|---|---|
-| Configure provider, model, API key, provider OAuth | Settings → Assistant | **setup-only** (provider credentials) |
+| Configure a provider connection, API key, or provider OAuth | Settings → Assistant | **setup-only** (provider credentials) |
 | Remove or replace stored provider credential | Settings → Assistant | **setup-only** |
 | Remote access: create/change address, password, approve or revoke a browser, revoke generations, disable, delete | Settings → The fold ("Your fold on the web") | **setup-only** (fold-authority surface) |
 | Act-token and pairing machinery: minting, scope, lifetime | none (app-owned) | **setup-only** |

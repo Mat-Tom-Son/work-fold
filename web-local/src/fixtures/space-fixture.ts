@@ -34,7 +34,11 @@ export function buildSpaceFixture(): SpaceUiFixture {
     },
     conversations: {
       [home.id]: [
-        { id: "fixture-chat-1", title: "Compare contractor estimates", createdAt: now, updatedAt: now, messages: [{ id: "u1", role: "user", content: "Compare the two estimates and make me a short decision table.", createdAt: now }, { id: "a1", role: "assistant", content: [
+        { id: "fixture-chat-1", title: "Compare contractor estimates", createdAt: now, updatedAt: now, runtimePreviews: [
+          { id: "thinking-1", kind: "thinking", text: "I compared the scope and **checked the allowance assumptions before summarizing the tradeoffs.", phase: "complete" },
+          { id: "tool-1", kind: "tool", toolName: "read", text: "Read finished", detail: "Kitchen refresh/estimates", phase: "complete" },
+          { id: "tool-2", kind: "tool", toolName: "bash", text: "Bash finished", detail: "Compare line-item totals", phase: "complete" },
+        ], messages: [{ id: "u1", role: "user", content: "Compare the two estimates and make me a short decision table.", createdAt: now }, { id: "a1", role: "assistant", content: [
           "I compared the scope, allowances, and timelines. The biggest difference is cabinetry: one quote is fixed-price, while the other leaves it as an allowance.",
           "",
           "### Short decision table",

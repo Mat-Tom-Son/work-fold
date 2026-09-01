@@ -452,6 +452,26 @@ test("ledger Chat, History, file, search, Library, and Space commands parse with
     parseWorkFoldCliActArgv(["spaces", "appearance", "undo", "--space", "space-1"]),
     { name: "spaces.appearance.undo", output: "human", space: "space-1" },
   );
+  assert.deepEqual(
+    parseWorkFoldCliActArgv(["spaces", "assistant", "show", "--space", "space-1"]),
+    { name: "spaces.assistant.show", output: "human", space: "space-1" },
+  );
+  assert.deepEqual(
+    parseWorkFoldCliActArgv(["spaces", "assistant", "model", "--space", "space-1", "--provider", "openrouter", "--model", "example/model"]),
+    { name: "spaces.assistant.model", output: "human", space: "space-1", provider: "openrouter", model: "example/model" },
+  );
+  assert.deepEqual(
+    parseWorkFoldCliActArgv(["spaces", "assistant", "instructions", "--space", "space-1", "--instructions", "Keep it concise.", "--parent-task", "task-9"]),
+    { name: "spaces.assistant.instructions", output: "human", space: "space-1", instructions: "Keep it concise.", parentTaskId: "task-9" },
+  );
+  assert.deepEqual(
+    parseWorkFoldCliActArgv(["spaces", "assistant", "instructions", "--space", "space-1", "--clear"]),
+    { name: "spaces.assistant.instructions", output: "human", space: "space-1", instructions: "", clear: true },
+  );
+  assert.throws(
+    () => parseWorkFoldCliActArgv(["spaces", "assistant", "instructions", "--space", "space-1", "--instructions", "x", "--clear"]),
+    /exactly one of --instructions .* or --clear/,
+  );
 });
 
 test("ledger tools and apps commands parse with strict shapes", () => {
@@ -1541,6 +1561,23 @@ test("Space, appearance, tools, and App Studio acts dispatch to the facade, stam
   const calls: Array<{ method: string; input?: unknown }> = [];
   let toolsRemoved = true;
   const facade = {
+    assistantShow: async (input: unknown) => {
+      calls.push({ method: "assistantShow", input });
+      return {
+        space: spaceRef,
+        model: { provider: "openrouter", id: "example/model" },
+        availableModels: [{ provider: "openrouter", id: "example/model", name: "Example Model", reasoning: true }],
+        instructions: "Keep it concise.",
+      };
+    },
+    assistantSetModel: async (input: unknown) => {
+      calls.push({ method: "assistantSetModel", input });
+      return { space: spaceRef, model: { provider: "openrouter", id: "example/model" } };
+    },
+    assistantSetInstructions: async (input: unknown) => {
+      calls.push({ method: "assistantSetInstructions", input });
+      return { space: spaceRef, instructions: (input as { instructions: string }).instructions };
+    },
     spacesRename: async (input: unknown) => {
       calls.push({ method: "spacesRename", input });
       return { space: { ...spaceRef, name: "Fold Prime" }, priorName: "Fold Space" };
@@ -1792,6 +1829,23 @@ test("Space, appearance, tools, and App Studio acts dispatch to the facade, stam
   assert.equal(lastOk().parentTaskId, "task-9");
   assert.equal(lastOk().detail, "storage linked");
   assert.deepEqual(lastOk().undoRef, { kind: "space-root", value: "/tmp/fold" });
+
+  const assistant = await execute(["spaces", "assistant", "show", "--space", "space-1"]);
+  assert.match(assistant.stdout, /Default model for new Chats: openrouter\/example\/model/);
+  assert.match(assistant.stdout, /Example Model \(openrouter\/example\/model\)/);
+  assert.match(assistant.stdout, /Keep it concise\./);
+  assert.deepEqual(calls.at(-1)?.input, { space: "space-1" });
+
+  const assigned = await execute(["spaces", "assistant", "model", "--space", "space-1", "--provider", "openrouter", "--model", "example/model", "--parent-task", "task-9"]);
+  assert.match(assigned.stdout, /default for new Chats/);
+  assert.deepEqual(calls.at(-1)?.input, { space: "space-1", provider: "openrouter", model: "example/model", parentTaskId: "task-9" });
+  assert.equal(lastOk().detail, "provider openrouter; model example/model");
+
+  const instructed = await execute(["spaces", "assistant", "instructions", "--space", "space-1", "--instructions", "Use the glossary.", "--parent-task", "task-9"]);
+  assert.match(instructed.stdout, /Saved Space instructions/);
+  assert.deepEqual(calls.at(-1)?.input, { space: "space-1", instructions: "Use the glossary.", parentTaskId: "task-9" });
+  assert.equal(lastOk().detail, "updated; 17 character(s)");
+  assert.doesNotMatch(JSON.stringify(records), /Use the glossary\./, "receipts never record Space instruction content");
 
   const applied = await execute(["spaces", "appearance", "apply", "--space", "space-1", "--proposal", "calm.work-fold-appearance.json"]);
   assert.match(applied.stdout, /Applied appearance proposal "Calm blue" to Fold Space \[space-1\] \(was the default appearance\)\./);

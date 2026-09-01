@@ -820,6 +820,35 @@
   font-size: 14px;
 }
 
+.professional-assistant .assistant-instructions-field textarea {
+  min-width: 0;
+  width: 100%;
+  min-height: 118px;
+  resize: vertical;
+  padding: 10px 12px;
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-md);
+  font-family: var(--work-fold-ui-font);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.professional-assistant .assistant-instructions-field textarea::placeholder {
+  color: var(--ui-text-subtle);
+}
+
+.professional-assistant .assistant-instructions-field textarea:focus {
+  border-color: var(--ui-accent);
+  outline: 2px solid color-mix(in srgb, var(--ui-accent) 18%, transparent);
+  outline-offset: 1px;
+}
+
+.professional-assistant .assistant-instructions-actions {
+  margin-top: -4px;
+}
+
 .professional-field input::placeholder,
 .professional-package-input input::placeholder {
   color: var(--ui-text-subtle);

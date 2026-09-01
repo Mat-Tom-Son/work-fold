@@ -112,7 +112,11 @@ test("CLI help covers every landed act family and is honest about staging", () =
     search: [""],
     files: ["add", "move", "rename", "delete", "mkdir", "create", "destroy"],
     library: ["list", "add", "folder create", "copy"],
-    spaces: ["list", "create", "register", "rename", "unregister", "delete", "appearance apply", "appearance reset", "appearance undo"],
+    spaces: [
+      "list", "create", "register", "rename", "unregister", "delete",
+      "appearance apply", "appearance reset", "appearance undo",
+      "assistant show", "assistant model", "assistant instructions",
+    ],
     tools: ["import-skill", "install", "update", "remove"],
     apps: [
       "proposals list", "proposals dismiss", "install-proposal", "install-preview", "remove",

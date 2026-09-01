@@ -9275,8 +9275,7 @@ textarea,
   display: grid;
   gap: 10px;
   margin: 0 0 14px;
-  padding: 1px 0 1px 13px;
-  border-left: 2px solid color-mix(in srgb, var(--space-custom-color, #64748b) 42%, transparent);
+  padding: 1px 0;
   color: #64748b;
 }
 
@@ -9337,7 +9336,8 @@ textarea,
 .runtime-tool-list {
   min-width: 0;
   display: grid;
-  gap: 6px;
+  gap: 5px;
+  padding-left: 1px;
 }
 
 .runtime-tool-row {
@@ -9350,8 +9350,10 @@ textarea,
 }
 
 .runtime-tool-dot {
-  width: 6px;
-  height: 6px;
+  width: 11px;
+  height: 11px;
+  display: grid;
+  place-items: center;
   align-self: center;
   border-radius: 50%;
   background: #94a3b8;
@@ -9368,7 +9370,15 @@ textarea,
 }
 
 .runtime-tool-row.complete .runtime-tool-dot {
-  background: #6f8a77;
+  color: #6f8a77;
+  background: transparent;
+}
+
+.runtime-tool-row.complete .runtime-tool-dot::before {
+  content: "✓";
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .runtime-tool-row.error .runtime-tool-dot {
@@ -9387,7 +9397,7 @@ textarea,
   flex: 0 0 auto;
   color: #475569;
   font-size: 0.75rem;
-  font-weight: 700;
+  font-weight: 650;
   line-height: 1.35;
 }
 
@@ -9409,6 +9419,7 @@ textarea,
   font-weight: 650;
   line-height: 1.35;
 }
+
 
 .runtime-tool-row.error .runtime-tool-name,
 .runtime-tool-row.error .runtime-tool-phase {

@@ -52,6 +52,7 @@ import {
   type CapabilityType,
 } from "./agent/capability-registry.js";
 import { importPiSkillBundle, piSkillBundleContentDigest, removePiSkill } from "./agent/skill-import.js";
+import { normalizeAssistantInstructions } from "./agent/model-preferences.js";
 import {
   RegisteredSpaceRuntimeProvider,
   RegisteredSpaceTrustAuthority,
@@ -74,6 +75,7 @@ import {
 import type { RestrictedAppNetworkDeclaration } from "./agent/restricted-app-manifest.js";
 import {
   getPiComposerState,
+  getPiAssistantInstructions,
   getPiSetupStatus,
   installPiPackage,
   isPiProjectMutationTrusted,
@@ -87,6 +89,7 @@ import {
   savePiApiKey,
   setPiDefaultModel,
   setPiDefaultThinkingLevel,
+  setPiAssistantInstructions,
   updatePiPackages,
   type PiOAuthHooks,
   type PiSetupStatus,
@@ -626,6 +629,12 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     },
     ...(options.piRuntimeProvider?.setPreferredModel ? {
       setPreferredModel: (spaceRoot, model) => options.piRuntimeProvider!.setPreferredModel!(spaceRoot, model),
+    } : {}),
+    ...(options.piRuntimeProvider?.getAssistantInstructions ? {
+      getAssistantInstructions: (spaceRoot) => options.piRuntimeProvider!.getAssistantInstructions!(spaceRoot),
+    } : {}),
+    ...(options.piRuntimeProvider?.setAssistantInstructions ? {
+      setAssistantInstructions: (spaceRoot, instructions) => options.piRuntimeProvider!.setAssistantInstructions!(spaceRoot, instructions),
     } : {}),
     ...(options.piRuntimeProvider?.refreshModelCatalog ? {
       refreshModelCatalog: (providerId) => options.piRuntimeProvider!.refreshModelCatalog!(providerId),
@@ -1843,6 +1852,9 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       })),
       status: normalizeStatus(await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider)),
       catalogs: await listPiModelCatalogs(state.runtimeProvider),
+      instructions: scope.id === workFoldManagementScopeId
+        ? null
+        : await getPiAssistantInstructions(scope.spaceRoot, state.runtimeProvider),
     });
     return;
   }
@@ -1869,6 +1881,27 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const spaceId = url.searchParams.get("spaceId");
     const scope = await assistantModelScope(url.searchParams.get("scope"), spaceId);
     sendJson(res, { composer: await getPiComposerState(scope.spaceRoot, state.runtimeProvider) });
+    return;
+  }
+  if (method === "POST" && url.pathname === "/api/agent/instructions") {
+    const body = await readJsonBody<{ spaceId?: string; scope?: string; instructions?: unknown }>(state, req);
+    const scope = await assistantModelScope(body.scope, body.spaceId);
+    if (scope.id === workFoldManagementScopeId) throw badRequest("Space instructions require a Space.");
+    if (typeof body.instructions !== "string") throw badRequest("Space instructions must be text.");
+    let instructions: string;
+    try {
+      instructions = normalizeAssistantInstructions(body.instructions);
+    } catch (error) {
+      throw badRequest(errorMessage(error));
+    }
+    await runCapabilityMutation(
+      state,
+      scope,
+      "project",
+      () => setPiAssistantInstructions(scope.spaceRoot, instructions, state.runtimeProvider),
+      { requireProjectTrust: false },
+    );
+    sendJson(res, { instructions });
     return;
   }
   if (method === "POST" && url.pathname === "/api/agent/thinking") {
@@ -4084,6 +4117,61 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
     if (blockers.length) throw new WorkFoldCliError("conflict", blockers[0]!);
   };
   return {
+    async assistantShow(input) {
+      const space = await resolveSpace(input.space);
+      const [status, instructions, models] = await Promise.all([
+        runActOperation(() => getPiSetupStatus(space.spaceRoot, state.runtimeProvider)),
+        runActOperation(() => getPiAssistantInstructions(space.spaceRoot, state.runtimeProvider)),
+        runActOperation(() => listPiModels(space.spaceRoot, state.runtimeProvider)),
+      ]);
+      return {
+        space: toActSpaceRef(space),
+        model: status.provider && status.model ? { provider: status.provider, id: status.model } : null,
+        availableModels: models
+          .filter((model) => model.authConfigured)
+          .map((model) => ({ provider: model.provider, id: model.id, name: model.name, reasoning: model.reasoning })),
+        instructions,
+      };
+    },
+    async assistantSetModel(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const selected = await runActOperation(() => runCapabilityMutation(state, space, "project", async () => {
+        const match = (await listPiModels(space.spaceRoot, state.runtimeProvider))
+          .find((model) => model.provider === input.provider.trim() && model.id === input.model.trim());
+        if (!match) throw new WorkFoldCliError("usage", "The selected model is not available in this Space.");
+        if (!match.authConfigured) {
+          throw new WorkFoldCliError("permissionDenied", "Connect this provider in Settings → Assistant before assigning its model.");
+        }
+        await setPiDefaultModel(
+          space.spaceRoot,
+          { provider: match.provider, id: match.id },
+          state.runtimeProvider,
+        );
+        return match;
+      }, { requireProjectTrust: false }));
+      recordFacadeAction(state, input.parentTaskId, { command: "spaces.assistant.model", space });
+      return { space: toActSpaceRef(space), model: { provider: selected.provider, id: selected.id } };
+    },
+    async assistantSetInstructions(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      let instructions: string;
+      try {
+        instructions = normalizeAssistantInstructions(input.instructions);
+      } catch (error) {
+        throw new WorkFoldCliError("usage", errorMessage(error));
+      }
+      await runActOperation(() => runCapabilityMutation(
+        state,
+        space,
+        "project",
+        () => setPiAssistantInstructions(space.spaceRoot, instructions, state.runtimeProvider),
+        { requireProjectTrust: false },
+      ));
+      recordFacadeAction(state, input.parentTaskId, { command: "spaces.assistant.instructions", space });
+      return { space: toActSpaceRef(space), instructions };
+    },
     async createConversation(input) {
       const space = await resolveSpace(input.space);
       const conversation = await runActOperation(() => createConversation(space.spaceRoot));

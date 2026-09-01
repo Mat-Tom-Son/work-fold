@@ -5,7 +5,7 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 
 const root = process.cwd();
-const [app, tabBar, chatPanel, chatActions, messages, activity, panes, settingsModal, chrome, styles, identity, modelDisplay, desktopMain, localServer] = await Promise.all([
+const [app, tabBar, chatPanel, chatActions, messages, activity, panes, settingsModal, chrome, styles, identity, modelDisplay, desktopMain, localServer, piClient] = await Promise.all([
   read("web-local/src/App.tsx"),
   read("web-local/src/components/chat/SpaceSurfaceTabBar.tsx"),
   read("web-local/src/components/chat/ChatPanel.tsx"),
@@ -20,6 +20,7 @@ const [app, tabBar, chatPanel, chatActions, messages, activity, panes, settingsM
   read("web-local/src/lib/model-display.ts"),
   read("desktop/src/main.ts"),
   read("src/local/server.ts"),
+  read("src/local/agent/pi-client.ts"),
 ]);
 
 test("mid-turn Enter steers the running turn; ⌘Enter queues one visible, cancellable draft that sends on settle", () => {
@@ -261,10 +262,15 @@ test("reasoning and real tool calls form one compact work trail", () => {
   assert.match(activity, /phaseLabel/);
   assert.match(chatPanel, /if \(data\.type === "tool"\)/);
   assert.match(chatPanel, /kind: "tool"/);
+  assert.match(activity, /repairReasoningMarkdownArtifacts/);
+  assert.match(activity, /node\.type === "text"/);
+  assert.match(piClient, /event\.detail = previous\?\.detail \|\| event\.detail \|\| ""/);
+  assert.match(piClient, /summarizeToolValue\(args\)/);
+  assert.doesNotMatch(piClient, /summarizeToolValue\(args \?\? result\)/);
   assert.doesNotMatch(activity, /Brain|["']THINKING["']|Working through the request|AgentActivityEvent/);
   assert.doesNotMatch(activity, /return "Complete"/);
   assert.doesNotMatch(chatPanel, /agent-activity-toggle|agent-activity-log|>Activity</);
-  assert.match(styles, /\.runtime-preview\s*\{[^}]*border-left:/);
+  assert.doesNotMatch(styles, /\.runtime-preview\s*\{[^}]*border-left:/);
   assert.match(styles, /\.runtime-preview-text\s*\{/);
   assert.match(styles, /\.runtime-tool-list\s*\{/);
   assert.match(styles, /\.runtime-tool-row\s*\{/);

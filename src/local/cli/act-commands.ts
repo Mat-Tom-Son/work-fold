@@ -16,6 +16,7 @@ import type {
 } from "../checks/check-types.js";
 import type { WorkFoldCliActRequestV2 } from "./act-protocol.js";
 import type { WorkFoldCliActReceipts, WorkFoldCliActUndoRef } from "./act-receipts.js";
+import { maximumAssistantInstructionsLength } from "../agent/model-preferences.js";
 import {
   WorkFoldCliError,
   WorkFoldCliExitCode,
@@ -70,6 +71,9 @@ export type WorkFoldCliActCommandName =
   | "spaces.appearance.apply"
   | "spaces.appearance.reset"
   | "spaces.appearance.undo"
+  | "spaces.assistant.show"
+  | "spaces.assistant.model"
+  | "spaces.assistant.instructions"
   | "files.add"
   | "files.move"
   | "files.rename"
@@ -148,6 +152,10 @@ export interface WorkFoldCliActParsedCommand {
   until?: string;
   /** New Chat title for chat.rename. */
   title?: string;
+  provider?: string;
+  model?: string;
+  instructions?: string;
+  clear?: boolean;
   /** Optional restore-point label for history.save. */
   label?: string;
   checkpoint?: string;
@@ -339,10 +347,13 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "--retained",
     "--routing",
     "--publication",
+    "--provider",
+    "--model",
+    "--instructions",
     "--serve-rate",
     "--byte-budget",
   ]);
-  const booleanFlags = new Set(["--new", "--message-from-payload", "--retain-data", "--purge-data", "--snapshot"]);
+  const booleanFlags = new Set(["--new", "--message-from-payload", "--retain-data", "--purge-data", "--snapshot", "--clear"]);
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index] ?? "";
@@ -529,6 +540,8 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "spaces appearance apply",
     "spaces appearance reset",
     "spaces appearance undo",
+    "spaces assistant model",
+    "spaces assistant instructions",
     "tools import-skill",
     "tools install",
     "tools update",
@@ -1014,6 +1027,38 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         space: requireSpace(),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
+    case "spaces assistant show":
+      allowOnlyFlags("--space");
+      return { name: "spaces.assistant.show", output, space: requireSpace() };
+    case "spaces assistant model":
+      allowOnlyFlags("--space", "--provider", "--model", "--parent-task");
+      return {
+        name: "spaces.assistant.model",
+        output,
+        space: requireSpace(),
+        provider: requireBoundedFlag("--provider", "provider-id"),
+        model: requireBoundedFlag("--model", "model-id"),
+        ...(parentTaskId ? { parentTaskId } : {}),
+      };
+    case "spaces assistant instructions": {
+      allowOnlyFlags("--space", "--instructions", "--clear", "--parent-task");
+      const clear = flags.get("--clear") === true;
+      const rawInstructions = stringFlag("--instructions");
+      if (clear === (rawInstructions !== undefined)) {
+        throw usageError("Provide exactly one of --instructions <text> or --clear.");
+      }
+      if (rawInstructions !== undefined && rawInstructions.length > maximumAssistantInstructionsLength) {
+        throw usageError(`--instructions must be at most ${maximumAssistantInstructionsLength} characters.`);
+      }
+      return {
+        name: "spaces.assistant.instructions",
+        output,
+        space: requireSpace(),
+        instructions: clear ? "" : rawInstructions!,
+        ...(clear ? { clear: true } : {}),
+        ...(parentTaskId ? { parentTaskId } : {}),
+      };
+    }
     case "files add": {
       allowOnlyFlags("--space", "--to", "--parent-task");
       if (!fromPaths.length) throw usageError("Provide at least one --from <path>.");
@@ -1562,6 +1607,21 @@ async function runActCommand(
   facade: WorkFoldActFacade,
 ): Promise<WorkFoldCliJson> {
   switch (command.name) {
+    case "spaces.assistant.show":
+      return toJson(await facade.assistantShow({ space: command.space! }));
+    case "spaces.assistant.model":
+      return toJson(await facade.assistantSetModel({
+        space: command.space!,
+        provider: command.provider!,
+        model: command.model!,
+        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
+      }));
+    case "spaces.assistant.instructions":
+      return toJson(await facade.assistantSetInstructions({
+        space: command.space!,
+        instructions: command.instructions ?? "",
+        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
+      }));
     case "chat.create":
       return toJson(await facade.createConversation({ space: command.space! }));
     case "chat.send": {
@@ -2453,6 +2513,27 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
     case "spaces.create":
     case "spaces.register":
       return `Space ${spaceLabel} — ${terminalText(record.space?.spaceRoot)}\n`;
+    case "spaces.assistant.show": {
+      const model = record.model as { provider?: unknown; id?: unknown } | null | undefined;
+      const availableModels = Array.isArray(record.availableModels)
+        ? record.availableModels as Array<{ provider?: unknown; id?: unknown; name?: unknown }>
+        : [];
+      const instructions = typeof record.instructions === "string" && record.instructions
+        ? record.instructions
+        : "(none)";
+      const choices = availableModels.length
+        ? availableModels.map((item) => `- ${terminalText(item.name)} (${terminalText(item.provider)}/${terminalText(item.id)})`).join("\n")
+        : "(none connected)";
+      return `${spaceLabel}\nDefault model for new Chats: ${model ? `${terminalText(model.provider)}/${terminalText(model.id)}` : "not selected"}\nAvailable connected models:\n${choices}\nSpace instructions:\n${terminalText(instructions)}\n`;
+    }
+    case "spaces.assistant.model": {
+      const model = record.model as { provider?: unknown; id?: unknown } | null | undefined;
+      return `Saved ${terminalText(model?.provider)}/${terminalText(model?.id)} as the default for new Chats in ${spaceLabel}.\n`;
+    }
+    case "spaces.assistant.instructions":
+      return typeof record.instructions === "string" && record.instructions
+        ? `Saved Space instructions for ${spaceLabel}.\n`
+        : `Cleared Space instructions for ${spaceLabel}.\n`;
     case "files.add": {
       const copied = Array.isArray(record.copied) ? record.copied : [];
       const lines = copied.map((path) => `- ${terminalText(path)}`);
@@ -3272,6 +3353,8 @@ function actReceiptDetail(
     target?: unknown;
     adapterKind?: unknown;
     scheduleSummary?: unknown;
+    model?: { provider?: unknown; id?: unknown } | null;
+    instructions?: unknown;
     act?: { id?: unknown; kind?: unknown; state?: unknown };
   },
 ): string | undefined {
@@ -3334,6 +3417,14 @@ function actReceiptDetail(
     return `canceled staged ${String(record.act.kind)}; state ${String(record.act.state)}`;
   }
   switch (name) {
+    case "spaces.assistant.model":
+      return typeof record.model?.provider === "string" && typeof record.model?.id === "string"
+        ? `provider ${record.model.provider}; model ${record.model.id}`
+        : undefined;
+    case "spaces.assistant.instructions":
+      return typeof record.instructions === "string"
+        ? record.instructions ? `updated; ${record.instructions.length} character(s)` : "cleared"
+        : undefined;
     case "history.save":
       return typeof record.created === "boolean"
         ? record.created ? "created restore point" : "already matches the latest restore point"

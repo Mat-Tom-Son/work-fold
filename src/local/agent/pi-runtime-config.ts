@@ -69,6 +69,8 @@ export interface PiRuntimeConfig {
   /** Host-fetched catalogs applied to each fresh cwd-specific registry. */
   modelCatalogs?: PiModelCatalog[];
   preferredModel?: PiPreferredModel;
+  /** Machine-local instructions appended to this Space's Pi system prompt. */
+  assistantInstructions?: string;
   projectTrust?: PiProjectTrustPolicy;
   extensionUi?: PiExtensionUiBridge;
   additionalExtensionPaths?: string[];
@@ -81,8 +83,34 @@ export interface PiRuntimeConfig {
 export interface PiRuntimeProvider {
   resolveRuntime(spaceRoot: string): Promise<PiRuntimeConfig>;
   setPreferredModel?(spaceRoot: string, model: PiPreferredModel): Promise<void>;
+  getAssistantInstructions?(spaceRoot: string): Promise<string>;
+  setAssistantInstructions?(spaceRoot: string, instructions: string): Promise<void>;
   refreshModelCatalog?(providerId: string): Promise<PiModelCatalogRefreshResult>;
   listModelCatalogs?(): Promise<PiModelCatalogStatus[]>;
+}
+
+export async function getPiAssistantInstructions(
+  spaceRoot: string,
+  provider?: PiRuntimeProvider,
+): Promise<string> {
+  if (provider?.getAssistantInstructions) return provider.getAssistantInstructions(spaceRoot);
+  return (await provider?.resolveRuntime(spaceRoot))?.assistantInstructions ?? "";
+}
+
+export async function setPiAssistantInstructions(
+  spaceRoot: string,
+  instructions: string,
+  provider?: PiRuntimeProvider,
+): Promise<void> {
+  if (!provider?.setAssistantInstructions) {
+    throw new Error("This Assistant runtime does not support Space instructions.");
+  }
+  await provider.setAssistantInstructions(spaceRoot, instructions);
+}
+
+export function appendAssistantInstructions(base: string[], instructions: string | undefined): string[] {
+  const value = instructions?.trim();
+  return value ? [...base, `## Space instructions\n\n${value}`] : base;
 }
 
 export interface PiModelCatalog {
@@ -651,6 +679,7 @@ async function loadRuntimeProviders(
       additionalSkillPaths: runtime.config.additionalSkillPaths,
       additionalPromptTemplatePaths: runtime.config.additionalPromptTemplatePaths,
       additionalThemePaths: runtime.config.additionalThemePaths,
+      appendSystemPromptOverride: (base) => appendAssistantInstructions(base, runtime.config.assistantInstructions),
     },
   });
   return [

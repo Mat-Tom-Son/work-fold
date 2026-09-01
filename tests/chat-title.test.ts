@@ -17,6 +17,8 @@ test("successful first turns name chats with the conversation's active Pi model"
   const server = await readFile(resolve("src/local/server.ts"), "utf8");
   assert.match(client, /const model = session\.model;/);
   assert.match(client, /session\.agent\.streamFn\(model,/);
+  assert.match(client, /maxTokens: Math\.min\(model\.maxTokens > 0 \? model\.maxTokens : 512, 512\)/);
+  assert.doesNotMatch(client, /temperature:\s*0\.2/);
   assert.doesNotMatch(client, /completeSimple\(model,/);
   assert.match(server, /await client\.generateConversationTitle\(firstUserMessage, finalText\)/);
   assert.match(server, /await markConversationTitleAttempted\(spaceRoot, conversationId\)/);

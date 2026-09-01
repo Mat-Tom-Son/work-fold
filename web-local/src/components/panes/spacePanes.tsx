@@ -613,11 +613,15 @@ export function AssistantSetupPane({ space, status, fixtureMode = false, embedde
   const [provider, setProvider] = useState(status.provider ?? "openrouter");
   const [model, setModel] = useState(status.model ?? "");
   const [apiKey, setApiKey] = useState("");
+  const [instructions, setInstructions] = useState("");
+  const [savedInstructions, setSavedInstructions] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingInstructions, setSavingInstructions] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [instructionsNotice, setInstructionsNotice] = useState<string | null>(null);
 
   useEffect(() => {
     setScope(initialScope === "management" || (initialScope === "space" && space)
@@ -632,18 +636,23 @@ export function AssistantSetupPane({ space, status, fixtureMode = false, embedde
       setProvider("openrouter");
       setModel("anthropic/claude-sonnet-4");
       setScopeStatus({ ...status, configured: true, provider: "openrouter", model: "anthropic/claude-sonnet-4" });
+      setInstructions(scope === "space" ? "Keep answers concise and test changes in this Space." : "");
+      setSavedInstructions(scope === "space" ? "Keep answers concise and test changes in this Space." : "");
       setLoading(false);
       return;
     }
     setLoading(true);
     setError(null);
     setNotice(null);
+    setInstructionsNotice(null);
     const params = assistantScopeParams(scope, space);
-    void api<{ models: AgentModel[]; status: AgentStatus; catalogs: AgentModelCatalog[] }>(`/api/agent/models?${params}`)
+    void api<{ models: AgentModel[]; status: AgentStatus; catalogs: AgentModelCatalog[]; instructions: string | null }>(`/api/agent/models?${params}`)
       .then((result) => {
         setModels(result.models);
         setCatalogs(result.catalogs);
         setScopeStatus(result.status);
+        setInstructions(result.instructions ?? "");
+        setSavedInstructions(result.instructions ?? "");
         const first = result.models.find((item) => item.provider === result.status.provider)
           ?? result.models.find((item) => item.provider === "openrouter")
           ?? result.models[0];
@@ -754,6 +763,29 @@ export function AssistantSetupPane({ space, status, fixtureMode = false, embedde
     finally { setRefreshing(false); }
   }
 
+  async function saveInstructions() {
+    if (scope !== "space" || !space || savingInstructions) return;
+    if (fixtureMode) {
+      setSavedInstructions(instructions.trim());
+      setInstructions(instructions.trim());
+      setInstructionsNotice("Instructions saved");
+      return;
+    }
+    setSavingInstructions(true);
+    setError(null);
+    setInstructionsNotice(null);
+    try {
+      const result = await api<{ instructions: string }>("/api/agent/instructions", {
+        method: "POST",
+        body: { scope: "space", spaceId: space.id, instructions },
+      });
+      setInstructions(result.instructions);
+      setSavedInstructions(result.instructions);
+      setInstructionsNotice("Instructions saved");
+    } catch (caught) { setError(errorText(caught)); }
+    finally { setSavingInstructions(false); }
+  }
+
   function submitSetup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void configure();
@@ -781,6 +813,18 @@ export function AssistantSetupPane({ space, status, fixtureMode = false, embedde
               <select id="assistant-model" autoFocus={focusModelOnOpen} value={model} onChange={(event) => { setModel(event.target.value); setError(null); setNotice(null); }}>{providerModels.map((item) => <option value={item.id} key={item.id}>{item.name || item.id}</option>)}</select>
               {catalog?.source === "live" && catalog.refreshedAt ? <span className="professional-field-hint">OpenRouter list updated {formatCatalogDate(catalog.refreshedAt)}</span> : null}
             </div>
+            {scope === "space" ? <>
+              <label className="professional-field professional-field-wide assistant-instructions-field">
+                <span className="professional-field-label">Space instructions</span>
+                <textarea value={instructions} maxLength={8000} rows={6} onChange={(event) => { setInstructions(event.target.value); setError(null); setInstructionsNotice(null); }} placeholder="How should the Assistant work in this Space?" />
+              </label>
+              <div className="professional-actions professional-field-wide assistant-instructions-actions">
+                <button className="professional-button professional-button-secondary" type="button" disabled={savingInstructions || instructions.trim() === savedInstructions} onClick={() => void saveInstructions()}>
+                  {savingInstructions ? <ArrowSync16Regular className="spin" /> : <Checkmark16Regular />}Save instructions
+                </button>
+                {instructionsNotice ? <span className="professional-field-hint">{instructionsNotice}</span> : null}
+              </div>
+            </> : null}
             {!accountOnly ? <div className="professional-field professional-field-wide">
               <label className="professional-field-label" htmlFor="assistant-api-key">API key</label>
               <span className="professional-field-hint" id="assistant-api-key-hint">{credentialStatus ?? "Stored securely on this computer"}</span>

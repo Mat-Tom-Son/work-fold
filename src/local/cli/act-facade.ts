@@ -503,6 +503,20 @@ export interface WorkFoldActStagedActDetail extends WorkFoldActStagedActSummary 
 }
 
 export interface WorkFoldActFacade {
+  assistantShow(input: { space: string }): Promise<{
+    space: WorkFoldActSpaceRef;
+    model: { provider: string; id: string } | null;
+    availableModels: Array<{ provider: string; id: string; name: string; reasoning: boolean }>;
+    instructions: string;
+  }>;
+  assistantSetModel(input: { space: string; provider: string; model: string; parentTaskId?: string }): Promise<{
+    space: WorkFoldActSpaceRef;
+    model: { provider: string; id: string };
+  }>;
+  assistantSetInstructions(input: { space: string; instructions: string; parentTaskId?: string }): Promise<{
+    space: WorkFoldActSpaceRef;
+    instructions: string;
+  }>;
   createConversation(input: { space: string }): Promise<{ space: WorkFoldActSpaceRef; conversation: WorkFoldActConversationRef }>;
   listConversations(input: { space: string }): Promise<{ space: WorkFoldActSpaceRef; conversations: WorkFoldActConversationRef[] }>;
   sendMessage(input: {

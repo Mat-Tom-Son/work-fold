@@ -40,6 +40,8 @@ export class RegisteredSpaceTrustAuthority {
  */
 export class RegisteredSpaceRuntimeProvider implements PiRuntimeProvider {
   readonly setPreferredModel?: (spaceRoot: string, model: PiPreferredModel) => Promise<void>;
+  readonly getAssistantInstructions?: (spaceRoot: string) => Promise<string>;
+  readonly setAssistantInstructions?: (spaceRoot: string, instructions: string) => Promise<void>;
   readonly refreshModelCatalog?: (providerId: string) => Promise<PiModelCatalogRefreshResult>;
   readonly listModelCatalogs?: () => Promise<PiModelCatalogStatus[]>;
 
@@ -49,6 +51,12 @@ export class RegisteredSpaceRuntimeProvider implements PiRuntimeProvider {
   ) {
     if (base.setPreferredModel) {
       this.setPreferredModel = (spaceRoot, model) => base.setPreferredModel!(spaceRoot, model);
+    }
+    if (base.getAssistantInstructions) {
+      this.getAssistantInstructions = (spaceRoot) => base.getAssistantInstructions!(spaceRoot);
+    }
+    if (base.setAssistantInstructions) {
+      this.setAssistantInstructions = (spaceRoot, instructions) => base.setAssistantInstructions!(spaceRoot, instructions);
     }
     if (base.refreshModelCatalog) {
       this.refreshModelCatalog = (providerId) => base.refreshModelCatalog!(providerId);

@@ -43,7 +43,7 @@ export interface PackagedPiRuntimeOptions {
   agentDir: string;
   /** Optional Electron-safeStorage implementation; native auth.json is the fallback. */
   authStorageHost?: PiAuthStorageHost;
-  /** Machine-local, non-secret model choices keyed by Space identity. */
+  /** Machine-local, non-secret Assistant preferences keyed by Space identity. */
   assistantPreferencesPath?: string;
   /** Machine-local cache of OpenRouter's live model catalog. */
   openRouterCatalogPath?: string;
@@ -85,6 +85,7 @@ export class PackagedPiRuntimeProvider implements PiRuntimeProvider {
   async resolveRuntime(spaceRoot: string): Promise<PiRuntimeConfig> {
     const auth = await this.authStorage();
     const scopedPreferredModel = await this.preferences.get(spaceRoot).catch(() => undefined);
+    const assistantInstructions = await this.preferences.getInstructions(spaceRoot).catch(() => "");
     const openRouterCatalog = await this.openRouterCatalog.load().catch(() => undefined);
     const preferredModel = this.options.preferredModel ?? scopedPreferredModel;
     return {
@@ -94,6 +95,7 @@ export class PackagedPiRuntimeProvider implements PiRuntimeProvider {
       ...(openRouterCatalog ? { modelCatalogs: [openRouterCatalog] } : {}),
       ...(this.options.extensionUi ? { extensionUi: this.options.extensionUi } : {}),
       ...(preferredModel ? { preferredModel } : {}),
+      ...(assistantInstructions ? { assistantInstructions } : {}),
       ...(this.options.projectTrust ? { projectTrust: this.options.projectTrust } : {}),
       ...(this.options.additionalExtensionPaths ? { additionalExtensionPaths: this.options.additionalExtensionPaths } : {}),
       ...(this.options.additionalSkillPaths ? { additionalSkillPaths: this.options.additionalSkillPaths } : {}),
@@ -160,6 +162,14 @@ export class PackagedPiRuntimeProvider implements PiRuntimeProvider {
 
   setPreferredModel(spaceRoot: string, model: PiPreferredModel): Promise<void> {
     return this.preferences.set(spaceRoot, model);
+  }
+
+  getAssistantInstructions(spaceRoot: string): Promise<string> {
+    return this.preferences.getInstructions(spaceRoot);
+  }
+
+  setAssistantInstructions(spaceRoot: string, instructions: string): Promise<void> {
+    return this.preferences.setInstructions(spaceRoot, instructions);
   }
 
   async refreshModelCatalog(providerId: string): Promise<PiModelCatalogRefreshResult> {
