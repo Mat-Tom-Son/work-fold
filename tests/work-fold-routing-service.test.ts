@@ -492,6 +492,12 @@ test("a one-time slot due during run-now waits and executes after the manual cop
       "the manual copy to start",
     );
     harness.clock.advance(minute);
+    await waitForCondition(
+      () => harness.service.listAutomationResults(routingId).some((result) => (
+        result.reason === "scheduled" && result.notLaunchedReason === "overlap"
+      )),
+      "the scheduled admission to reach the in-memory non-overlap fence",
+    );
     const overlap = harness.service.listAutomationResults(routingId).find((result) => (
       result.reason === "scheduled" && result.notLaunchedReason === "overlap"
     ));

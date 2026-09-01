@@ -308,7 +308,7 @@ See [Assistant capabilities](docs/assistant-capabilities.md) for the product-fac
 - [Architecture](docs/architecture.md), [management layer](docs/management-layer.md), and [Checks](docs/checks.md) — runtime boundaries, shared kernel/CLI, agent harness, and optional evidence-backed expectations over designated files.
 - [The fold](docs/fold.md) — the fold's decision register: the verb ledger, needs-you decisions and standing policies, routings, the glance, and the publishing ladder.
 - [Assistant capabilities](docs/assistant-capabilities.md), [Extension surfaces](docs/extension-surfaces.md), [restricted app authoring](docs/restricted-app-authoring.md), [restricted app runtime](docs/restricted-app-runtime.md), and [Pi compatibility](docs/pi-resources.md) — Skills, full-trust Extensions, restricted apps, packages, scopes, authoring, and authorization.
-- [Current release notes](docs/releases/0.3.16.md) — the shipped work-fold 0.3.16 behavior and verification record.
+- [Current release notes](docs/releases/0.3.17.md) — the shipped work-fold 0.3.17 behavior and verification record.
 - [Legacy Workspace release evidence](docs/releases/0.8.0.md) — retained pre-rebrand notes are historical evidence, not the work-fold version lineage.
 - [Desktop parity](docs/ui-parity.md) and [visual system](docs/visual-design.md) — required interactions and design rules.
 - [macOS build lane](docs/macos-build.md) and [macOS release runbook](docs/macos-release.md) — active verification, signing, updater, and publishing boundaries. The [Windows build](docs/windows-build.md) and [Windows release](docs/windows-release.md) references are dormant future notes.
