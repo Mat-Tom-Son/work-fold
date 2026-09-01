@@ -11,11 +11,15 @@
 [![Latest Mac release](https://img.shields.io/github/v/release/Mat-Tom-Son/work-fold-mac-releases?label=macOS)](https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-work-fold is a local-first Electron app that gives every kind of computer work a place, with a native [Pi](https://pi.dev) assistant built in.
+work-fold is an open-source, local-first desktop environment for **AI work you can hand off**. Every **Space** is one ordinary folder with its own native [Pi](https://pi.dev) Assistant, model choice, instructions, Chats, and tools. The folder stays open to Finder, Git, backup, and sync tools; work-fold never converts it into a proprietary container.
 
-In the product, that place is called a **Space**: an understandable working context backed by an ordinary folder. A person can create a new Space and let work-fold create its folder, or turn an existing folder on their computer into a Space without moving or converting its files. Each Space keeps its portable identity and Chats in a hidden `.work-fold/` directory. Executable project capabilities remain separate under `.pi/`; provider credentials, trust, History objects, sessions, ignore rules, and app preferences stay in protected application or Pi storage outside the Space.
+The portable part is exact: `.work-fold/` keeps the Space's stable identity and append-only conversation logs beside the work, while project-owned Pi configuration may live in `.pi/`. Machine-specific model choices, instructions, credentials, trust, History objects, sessions, ignore rules, and app preferences stay in protected application or Pi storage on each computer.
 
-The core idea is simple: the folder stays ordinary; work-fold makes it feel like a place you can understand, return to, and work in with an Assistant.
+Above the Spaces, **the fold** is one manager Assistant that can inspect, organize, and delegate without flattening every project into one context. **Checks** and **Routings** provide deterministic validation and cross-Space coordination; durable receipts record what was accepted and what happened. Assistant-built Space apps run in a separate sandbox with narrow, independently granted powers.
+
+That is the promise: the files remain ordinary, the recorded AI work stays with them, and the authority to act remains explicit.
+
+![The work-fold main window: a Space's files on the left, with its own Assistant Chat on the right](docs/images/work-fold-main-window.png)
 
 ## Get work-fold
 
@@ -29,8 +33,6 @@ Choose an ordinary folder—or let work-fold create one—and it becomes a Space
 The files stay where they are: the left side lists the folder exactly as
 Finder shows it, and the Chat on the right runs the Assistant in that folder,
 using the files you attach as its context.
-
-![The work-fold main window: a Space's files on the left, a Chat with the Assistant on the right](docs/images/work-fold-main-window.png)
 
 On a Mac, the fold also lives in the menu bar, open even after the last
 window closes. Drop files, folders, or links on it, add an instruction, and

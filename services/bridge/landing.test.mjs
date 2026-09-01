@@ -17,40 +17,38 @@ const screenshots = [
   "/screens/web-phone.png",
 ];
 
-test("the landing page keeps its explanatory sections in order", async () => {
+test("the landing page keeps its product story in order", async () => {
   const landing = await clientSource("landing.js");
 
   const titles = [...landing.matchAll(/<h2>([^<]*)<\/h2>/g)].map(([, title]) => title.trim());
   assert.deepEqual(titles, [
-    "The main window",
-    "The fold in the menu bar",
+    "Every Space keeps its own context.",
+    "Automation you can account for.",
     "Your fold on the web",
-    "What stays on your computer",
+    "The folder is the handoff.",
+    "Keep the work. Keep the context.",
   ]);
 
-  // The intro names the product and stays plain: no eyebrow, no slogan.
-  assert.match(landing, /<h1>work-fold<\/h1>/);
-  assert.ok(landing.includes("work-fold is a Mac app that gives an ordinary folder an Assistant."));
-  assert.doesNotMatch(landing, /class="eyebrow"/);
+  assert.match(landing, /<h1>AI work you can hand off\.<\/h1>/);
+  assert.ok(landing.includes("Your files stay files. The Space remembers."));
 
-  // The web section stays marked as what it is.
-  assert.ok(landing.includes('<span class="tag">Private alpha</span>'));
-  assert.ok(landing.includes("One private address opens the same conversation your menu bar does, while your desktop is online — with your saved chats, the decisions waiting on you, and your files beside it."));
+  assert.ok(landing.includes('<span class="section-label">Private alpha</span>'));
+  assert.ok(landing.includes("One private address opens the same conversation your menu bar does, while your desktop is online"));
 
-  // The four factual rows.
-  assert.ok(landing.includes("<dt>Spaces</dt>"));
-  assert.ok(landing.includes("<dt>History</dt>"));
-  assert.ok(landing.includes("<dt>Library</dt>"));
-  assert.ok(landing.includes("<dt>Web access</dt>"));
-  // History objects live in application storage, not in the Space folder.
-  assert.ok(landing.includes("Restore points live in work-fold's own application storage, not in your folder."));
+  for (const term of ["Checks", "Routings", "Receipts", "Space apps"]) {
+    assert.ok(landing.includes(`<dt>${term}</dt>`));
+  }
+
+  assert.ok(landing.includes("<dt>Travels with the Space</dt>"));
+  assert.ok(landing.includes("<dt>Stays on each computer</dt>"));
+  assert.ok(landing.includes("Credentials, model choices, Space instructions, trust settings, History restore points, sessions, and app preferences."));
 });
 
 test("the landing page keeps one download verb and an unlabeled source link", async () => {
   const landing = await clientSource("landing.js");
 
-  // Header and footer: the same literal action, twice, and nothing else.
-  const downloads = landing.match(/<a class="header-download" href="\/download\/macos">Download for macOS<\/a>/g);
+  // Hero and footer: the same literal action, twice, and nothing else.
+  const downloads = landing.match(/<a class="primary-download" href="\/download\/macos">Download for macOS<\/a>/g);
   assert.equal(downloads?.length, 2);
   assert.match(landing, /href="https:\/\/github\.com\/Mat-Tom-Son\/work-fold"/);
 
@@ -94,11 +92,11 @@ test("the landing page never brings back the retired marketing copy", async () =
     "Work with your desktop folders.",
     "without turning your files into a proprietary workspace",
     "a running history, and simple Spaces",
+    "work-fold is a Mac app that gives an ordinary folder an Assistant.",
   ]) {
     assert.equal(landing.includes(retired), false, `${retired} stays retired`);
     assert.equal(page.includes(retired), false, `${retired} stays retired in the page metadata`);
   }
 
-  // Jargon the product model keeps out of user-facing copy.
-  assert.doesNotMatch(landing, /sandboxed|restricted app/i);
+  assert.doesNotMatch(landing, /restricted app/i);
 });
