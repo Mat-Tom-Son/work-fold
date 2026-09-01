@@ -23,6 +23,10 @@ that proves the requested behavior.
 5. Treat public publication, tag creation, installation over `/Applications`,
    and deletion of a failed GitHub draft as separate external actions requiring
    explicit user authorization.
+6. Before public publication, verify that GitHub CI succeeded for the exact
+   release SHA on pushed `main` and succeeded again for the matching pushed
+   source tag. If either run fails, stop. Never move, reuse, or delete the
+   pushed tag; advance to a higher version and create a new commit and tag.
 
 ## Choose the lane
 

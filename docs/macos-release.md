@@ -71,8 +71,22 @@ artifacts, or metadata.
    npm audit --audit-level=high
    ```
 
-3. Confirm the worktree is clean and `HEAD` is pushed to `origin/main`.
-4. Build, verify, and publish in one command:
+3. Confirm the worktree is clean and `HEAD` is pushed to `origin/main`. Wait
+   for the GitHub CI run whose `headSha` is that exact commit to finish
+   successfully; a green run for an older commit is not release evidence.
+4. Create and push the annotated source tag for that same commit, then wait for
+   the tag-triggered CI run to finish successfully:
+
+   ```bash
+   git tag -a v<version> -m "work-fold <version>"
+   git push origin v<version>
+   ```
+
+   Confirm both CI runs name the same SHA as local `HEAD` and the tag. If either
+   run fails, stop before publication. Preserve the pushed tag, correct the
+   cause on `main`, advance to a higher unique version, and repeat with a new
+   commit and tag.
+5. Build, verify, and publish in one command:
 
    ```bash
    npm run desktop:release:mac
@@ -96,14 +110,14 @@ artifacts, or metadata.
    already created on GitHub is intentionally not overwritten by resume; apply
    the failed-draft recovery rule below before retrying publication.
 
-5. Confirm the command reports a public, non-draft `v<version>` release. It must contain the DMG, ZIP, both blockmaps, `latest-mac.yml`, checksums, and both release manifests.
-6. Install or update the app, then verify the exact installed bundle:
+6. Confirm the command reports a public, non-draft `v<version>` release. It must contain the DMG, ZIP, both blockmaps, `latest-mac.yml`, checksums, and both release manifests.
+7. Install or update the app, then verify the exact installed bundle:
 
    ```bash
    npm run desktop:verify:installed:mac
    ```
 
-7. Open work-fold normally and check **Settings > About** and **work-fold > Check for Updates...**.
+8. Open work-fold normally and check **Settings > About** and **work-fold > Check for Updates...**.
 
 The publisher refuses a dirty/unpushed source tree, a source tag that does not
 point at the exact release commit, a private source repository or Mac feed, an
@@ -189,6 +203,7 @@ Workspace 0.4.14 to 0.4.15 passed the same proof on July 27, 2026. Invoking the 
 ## Recovery rules
 
 - Never replace assets in a published release. Correct a bad release with a higher shared version.
+- Never move, reuse, or delete a pushed source tag after failed CI. It is immutable candidate evidence even when no Mac-feed draft or public release exists; fix forward with a higher package version, release commit, and tag.
 - A failed draft may be deleted only after confirming it was never published or consumed by an installed app.
 - Use `npm run desktop:release:mac:status` before retrying. If its checkpoint is compatible, use the matching `:resume` build/release command instead of rebuilding the app and repeating notarization.
 - If a build fails inside DMG finalization before its checkpoint is written, the resumable lane reruns the finalizer. It detects an already valid signed/stapled DMG and refreshes only updater metadata.

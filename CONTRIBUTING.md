@@ -72,6 +72,12 @@ npm run desktop:prepare
 
 GitHub CI runs these gates on macOS. Windows package and installer commands are dormant manual diagnostics; they are not CI or release gates and should not be run as routine handoff evidence.
 
+Tests that observe asynchronous work should wait on the owned in-memory or
+domain completion signal, then verify durable persistence separately. Do not
+make correctness depend on a journal file becoming visible within one event-loop
+turn or on an arbitrary sleep; those checks are fast locally and unreliable on
+shared CI runners.
+
 For restricted-app manifest, bridge, broker, sandbox, storage, file, notification, connection, or lifecycle changes, run the focused tests and `npm run desktop:restricted-app:smoke`. That command exercises the real Electron visible and worker sandboxes; browser fixtures or Node-only tests do not prove the security boundary. `desktop:prepare`, the package lanes, and the release lane include this probe.
 
 On macOS, use Node 24 and `npm run desktop:make:mac` for the non-interactive `work-fold Local Smoke` app/DMG/ZIP structural candidate. Do not rename or install that ad hoc app over production. Developer ID, notarized, interactive candidates use `npm run desktop:make:mac:release`; see [macOS build and release lane](docs/macos-build.md). Never publish ad hoc artifacts as releases.
@@ -97,9 +103,12 @@ A useful pull request:
 
 Maintainers publish releases from clean version tags. Contributors should not rewrite a released tag or replace artifacts beneath an existing version.
 
-The full active maintainer sequence—local candidate, green main CI, exact
-annotated tag, guarded publication, public asset verification, and installed
-updater smoke—is documented in the [macOS release runbook](docs/macos-release.md).
+The full active maintainer sequence—local gates, green CI for the exact pushed
+`main` commit, a matching annotated source tag, green CI for that tag, guarded
+publication, public asset verification, and installed updater smoke—is
+documented in the [macOS release runbook](docs/macos-release.md). A failed
+pushed candidate tag remains immutable source evidence; the correction uses a
+higher version and a new tag rather than moving or reusing the failed one.
 The Windows references are dormant notes for a future deliberate reactivation.
 
 ## License

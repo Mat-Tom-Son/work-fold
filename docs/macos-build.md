@@ -171,6 +171,13 @@ legacy release repository must never receive these artifacts.
 npm run desktop:release:mac
 ```
 
+Publication starts only after GitHub CI succeeds for the exact release commit
+on pushed `main` and succeeds again for the matching pushed source tag. These
+are separate runs over the same SHA: the tag run catches tag-only release
+conditions without making tag creation itself a publisher. A failed pushed tag
+remains immutable evidence; correct the source, advance the package version,
+and create a new commit and tag.
+
 The publisher requires a clean worktree whose `HEAD` equals `origin/main`, the matching source tag, public source and feed repositories, and an unused `v<version>` tag in the feed. It verifies the local release again, uploads all assets as a draft, checks remote names, sizes, and GitHub digests, then publishes the release as latest. It does not require a source-repository GitHub Release or any Windows artifact. There is no dirty-worktree bypass.
 
 See [macOS release runbook](macos-release.md) for the exact repeatable procedure and recovery rules.
