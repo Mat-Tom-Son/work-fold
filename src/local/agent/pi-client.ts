@@ -74,6 +74,14 @@ export interface PiTurnActivity {
   phase?: "queued" | "running" | "streaming" | "complete" | "error";
 }
 
+export interface PiTurnWorkTrailEntry {
+  kind: "thinking" | "tool";
+  text: string;
+  detail?: string;
+  toolName?: string;
+  phase?: "queued" | "running" | "streaming" | "complete" | "error";
+}
+
 export class PiTurnFailure extends Error {
   readonly partialText: string;
   readonly retryAttempts: number;
@@ -156,6 +164,9 @@ export class PiConversationClient extends EventEmitter {
   private pendingAssistantError: string | null = null;
   private retryAttempts = 0;
   private turnActivities = new Map<string, PiTurnActivity>();
+  private turnWorkTrail = new Map<string, PiTurnWorkTrailEntry>();
+  private activeThinkingTrailId: string | null = null;
+  private thinkingTrailSequence = 0;
   private lastToolEventKey = "";
 
   constructor(
@@ -348,6 +359,7 @@ export class PiConversationClient extends EventEmitter {
     const session = await this.ensureSession();
     const model = session.model;
     if (!model) return null;
+    const titleReasoning = session.getAvailableThinkingLevels().find((level) => level !== "off");
     // Use the session's configured stream path. It carries the same live-model
     // registration, auth, custom provider base URL, request headers, and
     // transport policy that just produced the Chat response. Calling pi-ai's
@@ -363,22 +375,38 @@ export class PiConversationClient extends EventEmitter {
       // Reasoning models can spend a small token cap entirely on hidden
       // reasoning and return no title. Keep this bounded, but leave enough
       // room for that preamble plus the requested 3–7 words.
-      maxTokens: Math.min(model.maxTokens > 0 ? model.maxTokens : 512, 512),
-      maxRetries: 1,
-      timeoutMs: 15_000,
-      signal: AbortSignal.timeout(15_000),
+      maxTokens: Math.min(model.maxTokens > 0 ? model.maxTokens : 2_048, 2_048),
+      maxRetries: 0,
+      timeoutMs: 30_000,
+      signal: AbortSignal.timeout(30_000),
+      ...(titleReasoning ? { reasoning: titleReasoning } : {}),
     });
     const result = await stream.result();
-    if (result.stopReason === "error" || result.stopReason === "aborted") return null;
+    if (result.stopReason === "error" || result.stopReason === "aborted") {
+      throw new Error(`Chat title request ${result.stopReason}${result.errorMessage ? `: ${result.errorMessage}` : "."}`);
+    }
     const title = result.content
       .filter((part): part is Extract<(typeof result.content)[number], { type: "text" }> => part.type === "text")
       .map((part) => part.text)
       .join(" ")
       .trim();
-    return title || null;
+    if (!title) throw new Error(`Chat title request returned no text (stop reason: ${result.stopReason}).`);
+    return title;
+  }
+
+  /** A bounded, settled copy of the thinking and tool trail shown for this turn. */
+  getTurnWorkTrail(): PiTurnWorkTrailEntry[] {
+    return [...this.turnWorkTrail.values()]
+      .filter((entry) => entry.kind === "tool" || entry.text.trim().length > 0)
+      .slice(0, 64)
+      .map((entry) => ({
+        ...entry,
+        phase: entry.phase === "error" ? "error" : "complete",
+      }));
   }
 
   async stop(): Promise<void> {
+    const preserveActiveTurnTrail = this.promptInFlight;
     this.runtimeGeneration += 1;
     const session = this.runtimeHost?.session;
     if (this.promptInFlight) {
@@ -394,7 +422,9 @@ export class PiConversationClient extends EventEmitter {
     const runtime = this.runtimeHost;
     this.runtimeHost = null;
     this.resolvedRuntime = null;
-    this.resetTurnState();
+    // The server snapshots the trail in the running turn's catch path after a
+    // shutdown-triggered stop. Keep it alive until that settlement completes.
+    if (!preserveActiveTurnTrail) this.resetTurnState();
     if (runtime) await settleWithin(runtime.dispose(), 2_000).catch(() => undefined);
   }
 
@@ -595,11 +625,19 @@ export class PiConversationClient extends EventEmitter {
     if (raw.type === "message_update") {
       const subtype = String(raw.assistantMessageEvent?.type ?? "");
       if (subtype.startsWith("toolcall_")) this.emitToolEvent(raw);
-      if (subtype === "thinking_start") this.emitEvent({ type: "assistant_thinking", thinkingPhase: "start", raw });
-      if (subtype === "thinking_delta") {
-        this.emitEvent({ type: "assistant_thinking", thinkingPhase: "delta", text: String(raw.assistantMessageEvent.delta ?? ""), raw });
+      if (subtype === "thinking_start") {
+        this.startThinkingTrail();
+        this.emitEvent({ type: "assistant_thinking", thinkingPhase: "start", raw });
       }
-      if (subtype === "thinking_end") this.emitEvent({ type: "assistant_thinking", thinkingPhase: "end", raw });
+      if (subtype === "thinking_delta") {
+        const delta = String(raw.assistantMessageEvent.delta ?? "");
+        this.appendThinkingTrail(delta);
+        this.emitEvent({ type: "assistant_thinking", thinkingPhase: "delta", text: delta, raw });
+      }
+      if (subtype === "thinking_end") {
+        this.finishThinkingTrail();
+        this.emitEvent({ type: "assistant_thinking", thinkingPhase: "end", raw });
+      }
       if (subtype === "text_delta") {
         const delta = String(raw.assistantMessageEvent.delta ?? "");
         if (delta) this.emitEvent({ type: "assistant_delta", text: this.appendAssistantDelta(delta), raw });
@@ -681,7 +719,36 @@ export class PiConversationClient extends EventEmitter {
       ...(event.toolName ? { toolName: event.toolName } : {}),
       ...(event.phase ? { phase: event.phase } : {}),
     });
+    this.turnWorkTrail.set(`tool:${toolCallId}`, {
+      kind: "tool",
+      text: event.message ?? humanize(event.toolName ?? "Assistant tool"),
+      ...(event.detail ? { detail: event.detail } : {}),
+      ...(event.toolName ? { toolName: event.toolName } : {}),
+      ...(event.phase ? { phase: event.phase } : {}),
+    });
     this.emitEvent({ ...event, raw });
+  }
+
+  private startThinkingTrail(): void {
+    const id = `thinking:${++this.thinkingTrailSequence}`;
+    this.activeThinkingTrailId = id;
+    this.turnWorkTrail.set(id, { kind: "thinking", text: "", phase: "streaming" });
+  }
+
+  private appendThinkingTrail(delta: string): void {
+    if (!delta) return;
+    if (!this.activeThinkingTrailId) this.startThinkingTrail();
+    const id = this.activeThinkingTrailId!;
+    const previous = this.turnWorkTrail.get(id);
+    const text = `${previous?.text ?? ""}${delta}`.slice(0, 32_000);
+    this.turnWorkTrail.set(id, { kind: "thinking", text, phase: "streaming" });
+  }
+
+  private finishThinkingTrail(): void {
+    if (!this.activeThinkingTrailId) return;
+    const previous = this.turnWorkTrail.get(this.activeThinkingTrailId);
+    if (previous) this.turnWorkTrail.set(this.activeThinkingTrailId, { ...previous, phase: "complete" });
+    this.activeThinkingTrailId = null;
   }
 
   /** The turn's assistant text so far: non-empty segments joined as paragraphs. */
@@ -910,6 +977,9 @@ export class PiConversationClient extends EventEmitter {
     this.pendingAssistantError = null;
     this.retryAttempts = 0;
     this.turnActivities.clear();
+    this.turnWorkTrail.clear();
+    this.activeThinkingTrailId = null;
+    this.thinkingTrailSequence = 0;
     this.lastToolEventKey = "";
   }
 

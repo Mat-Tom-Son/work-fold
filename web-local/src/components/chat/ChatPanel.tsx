@@ -537,12 +537,12 @@ export function ChatPanel({
     source.onmessage = (event) => {
       const data = JSON.parse(event.data) as ChatStreamEvent;
       if (data.type === "turn_state" || data.type === "turn_snapshot") {
-        if (data.type === "turn_snapshot" && typeof data.text === "string") {
+        const sendTransitioning = pendingSendRef.current?.conversation.id === conversationId
+          || postingPendingSendRef.current;
+        if (data.type === "turn_snapshot" && typeof data.text === "string" && (!sendTransitioning || data.running === true)) {
           flushStreamingText();
           setStreamingAssistant(data.text);
         }
-        const sendTransitioning = pendingSendRef.current?.conversation.id === conversationId
-          || postingPendingSendRef.current;
         const decision = observeChatTurnState(turnStateGate, data.running === true, sendTransitioning);
         if (decision === "running") {
           beginTurnArtifactTracking();
@@ -1046,7 +1046,10 @@ export function ChatPanel({
       }
     } finally {
       if (settleStreamingTurn) {
-        if (!keepSettledTurnArtifacts) {
+        const hasPersistedWorkTrail = [...transcript].reverse()
+          .find((message) => message.role === "assistant")
+          ?.workTrail?.length;
+        if (!keepSettledTurnArtifacts || hasPersistedWorkTrail) {
           clearRuntimePreviews();
         }
         resetTurnArtifactTracking();
@@ -1082,6 +1085,8 @@ export function ChatPanel({
     // While a fixture script is replaying, the composer belongs to the playback — ignore manual sends.
     if (fixtureMode && scriptPlaybackStateRef.current === "playing") return;
     beginTurnArtifactTracking();
+    cancelStreamingFlush();
+    setStreamingAssistant("");
     const sentDraftStorageKey = draftStorageKey;
     if (contentOverride === undefined) setDraft("");
     setRunning(true);

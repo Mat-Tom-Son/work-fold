@@ -18,6 +18,7 @@ export interface ChatMessage {
   titleSource?: "placeholder" | "generated" | "attempted" | "manual";
   lifecycle?: ConversationLifecyclePatch;
   landing?: ChatMessageLanding;
+  workTrail?: ChatMessageWorkTrailEntry[];
   interruption?: ChatMessageInterruption;
   attachments?: ChatMessageAttachmentRef[];
   /** Durable surface provenance for messages accepted through remote access. */
@@ -55,6 +56,14 @@ export interface ChatMessageInterruption {
 
 export interface ChatMessageInterruptionActivity {
   message: string;
+  detail?: string;
+  toolName?: string;
+  phase?: "queued" | "running" | "streaming" | "complete" | "error";
+}
+
+export interface ChatMessageWorkTrailEntry {
+  kind: "thinking" | "tool";
+  text: string;
   detail?: string;
   toolName?: string;
   phase?: "queued" | "running" | "streaming" | "complete" | "error";
@@ -473,6 +482,8 @@ function parseChatMessage(line: string): ChatMessage | null {
       message.lifecycle = normalizeLifecyclePatch(parsed.lifecycle);
     }
     if (isChatMessageLanding(parsed.landing)) message.landing = parsed.landing;
+    const workTrail = parseChatMessageWorkTrail(parsed.workTrail);
+    if (workTrail?.length) message.workTrail = workTrail;
     if (isChatMessageInterruption(parsed.interruption)) message.interruption = parsed.interruption;
     if (Array.isArray(parsed.attachments)) {
       const attachments = parsed.attachments.filter(isChatMessageAttachmentRef).slice(0, 32);
@@ -536,6 +547,32 @@ function isChatMessageInterruptionActivity(value: unknown): value is ChatMessage
   return typeof record.message === "string"
     && (record.detail === undefined || typeof record.detail === "string")
     && (record.toolName === undefined || typeof record.toolName === "string")
+    && (
+      record.phase === undefined
+      || record.phase === "queued"
+      || record.phase === "running"
+      || record.phase === "streaming"
+      || record.phase === "complete"
+      || record.phase === "error"
+    );
+}
+
+function parseChatMessageWorkTrail(value: unknown): ChatMessageWorkTrailEntry[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const entries = value.slice(0, 64);
+  if (!entries.every(isChatMessageWorkTrailEntry)) return undefined;
+  return entries.map((entry) => ({ ...entry }));
+}
+
+function isChatMessageWorkTrailEntry(value: unknown): value is ChatMessageWorkTrailEntry {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Partial<ChatMessageWorkTrailEntry>;
+  return (record.kind === "thinking" || record.kind === "tool")
+    && typeof record.text === "string"
+    && record.text.trim().length > 0
+    && record.text.length <= 32_000
+    && (record.detail === undefined || (typeof record.detail === "string" && record.detail.length <= 4_096))
+    && (record.toolName === undefined || (typeof record.toolName === "string" && record.toolName.length <= 256))
     && (
       record.phase === undefined
       || record.phase === "queued"

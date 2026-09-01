@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { RuntimeContextPreview } from "../web-local/src/components/chat/activity.js";
+import { savedWorkTrailPreviews } from "../web-local/src/lib/chat-work-trail.js";
 
 test("reasoning cleanup removes orphan emphasis without damaging valid Markdown or code", () => {
   const html = renderToStaticMarkup(createElement(RuntimeContextPreview, {
@@ -43,4 +44,23 @@ test("tool activity uses compact human labels while retaining its safe target", 
   assert.match(html, />Read file</);
   assert.match(html, />src\/local\/server\.ts</);
   assert.doesNotMatch(html, />Done</);
+});
+
+test("saved successful-turn work trails restore thinking and tools without a spinner", () => {
+  const previews = savedWorkTrailPreviews({
+    id: "assistant-1",
+    role: "assistant",
+    content: "Done.",
+    createdAt: "2026-08-31T20:00:00.000Z",
+    workTrail: [
+      { kind: "thinking", text: "I should inspect the file.", phase: "complete" },
+      { kind: "tool", text: "Read complete", detail: "notes.md", toolName: "read", phase: "complete" },
+    ],
+  });
+
+  assert.deepEqual(previews.map(({ kind, text, phase }) => ({ kind, text, phase })), [
+    { kind: "thinking", text: "I should inspect the file.", phase: "complete" },
+    { kind: "tool", text: "Read complete", phase: "complete" },
+  ]);
+  assert.equal(previews[1]?.detail, "notes.md");
 });

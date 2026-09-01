@@ -2798,6 +2798,10 @@ async function acceptConversationTurn(
   if (state.compactingConversations.has(turnKey)) throw httpError(409, "Wait for the current Chat compaction to finish.");
   if (state.runningTurns.has(turnKey)) throw httpError(409, "Wait for the current agent turn to finish.");
   state.runningTurns.add(turnKey);
+  // Clear the settled turn's retained stream state in the same synchronous
+  // admission step that marks this Chat running. A reconnect can never observe
+  // `running: true` paired with the previous reply's text.
+  resetChatEventTurn(state, turnKey);
   const userMessageId = turnIdentity(input.userMessageId ?? `message-${randomUUID()}`, "user message id");
   const userMessageCreatedAt = new Date().toISOString();
   try {
@@ -2838,7 +2842,6 @@ async function acceptConversationTurn(
   });
   state.activeTurnTasks.set(task.id, { spaceId: space.id, conversationId });
   state.activeTurnIdsByKey.set(turnKey, task.id);
-  resetChatEventTurn(state, turnKey);
   const managementAttachments = space.id === workFoldManagementScopeId
     ? input.managementAttachments ?? []
     : undefined;
@@ -7059,6 +7062,7 @@ async function runAgentTurn(
   let settledStatus: SettledTurnRecord["status"] = "succeeded";
   let settledMessageId: string | undefined;
   let settledError: string | undefined;
+  let capturedWorkTrail: ReturnType<PiConversationClient["getTurnWorkTrail"]> = [];
   changeTurnCount(state, 1);
   try {
     client = await getClient(state, spaceId, spaceRoot, conversationId);
@@ -7084,10 +7088,14 @@ async function runAgentTurn(
       ...(managementSpaces ? { managementSpaces } : {}),
       ...(attachedLinks.length ? { attachedLinks } : {}),
     });
+    // Capture synchronously with prompt completion. Shutdown may dispose the
+    // client while the server awaits checkpoint persistence below.
+    capturedWorkTrail = client.getTurnWorkTrail();
     promptStarted = false;
     await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "post_turn");
     await flushTurnCheckpoint(state, key, taskId);
     const durable = state.turnStore.get(taskId);
+    const workTrail = capturedWorkTrail;
     const assistantMessage = {
       id: randomUUID(),
       role: "assistant" as const,
@@ -7095,6 +7103,7 @@ async function runAgentTurn(
       createdAt: new Date().toISOString(),
       turnId: taskId,
       ...(durable?.requestId ? { requestId: durable.requestId } : {}),
+      ...(workTrail.length ? { workTrail } : {}),
     };
     await appendMessage(spaceRoot, conversationId, assistantMessage);
     settledMessageId = assistantMessage.id;
@@ -7108,7 +7117,7 @@ async function runAgentTurn(
         const firstUserMessage = transcript.find((message) => message.role === "user")?.content;
         const modelTitle = firstUserMessage
           ? normalizeGeneratedConversationTitle(
-            await client.generateConversationTitle(firstUserMessage, finalText).catch(() => null),
+            await client.generateConversationTitle(firstUserMessage, finalText),
           )
           : null;
         if (modelTitle) {
@@ -7136,6 +7145,7 @@ async function runAgentTurn(
     const publicDetail = cancelled
       ? "The Assistant was stopped before it completed this response."
       : assistantFailurePublicDetail(error);
+    const workTrail = capturedWorkTrail.length ? capturedWorkTrail : client?.getTurnWorkTrail() ?? [];
     const interruptedMessage = {
       id: randomUUID(),
       role: "assistant" as const,
@@ -7143,6 +7153,7 @@ async function runAgentTurn(
       createdAt: new Date().toISOString(),
       turnId: taskId,
       ...(durable?.requestId ? { requestId: durable.requestId } : {}),
+      ...(workTrail.length ? { workTrail } : {}),
       interruption: {
         reason: cancelled ? "cancelled" as const : assistantFailureReason(error),
         message: publicDetail,

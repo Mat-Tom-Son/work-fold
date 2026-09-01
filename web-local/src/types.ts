@@ -107,6 +107,7 @@ export interface ChatMessage {
   titleSource?: "placeholder" | "generated" | "attempted" | "manual";
   lifecycle?: { archived?: boolean; snoozedUntil?: string | null };
   landing?: ChatMessageLanding;
+  workTrail?: ChatMessageWorkTrailEntry[];
   interruption?: ChatMessageInterruption;
   turnId?: string;
   requestId?: string;
@@ -125,6 +126,14 @@ export interface ChatMessageInterruption {
 
 export interface ChatMessageInterruptionActivity {
   message: string;
+  detail?: string;
+  toolName?: string;
+  phase?: AgentActivityPhase;
+}
+
+export interface ChatMessageWorkTrailEntry {
+  kind: "thinking" | "tool";
+  text: string;
   detail?: string;
   toolName?: string;
   phase?: AgentActivityPhase;

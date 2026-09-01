@@ -6,6 +6,7 @@ import { Checkmark20Regular, Copy20Regular, Sparkle20Regular } from "@fluentui/r
 import { safeExternalHref } from "../../lib/api";
 import { formatDateTime } from "../../lib/format";
 import { resolveMessageImageSource } from "../../lib/message-images";
+import { savedWorkTrailPreviews } from "../../lib/chat-work-trail";
 import { collectSpacePathCandidates, findSpacePathMentions, spacePathCandidate } from "../../lib/space-path-links";
 import type { ChatMessage, ChatMessageLanding, RuntimePreviewEntry } from "../../types";
 import { FluentGlyph } from "../chrome/common";
@@ -49,7 +50,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   const cachedSpaceLinks = assistantMessageSpacePathCache.get(spaceLinkCacheKey);
   const spaceLinks = cachedSpaceLinks?.content === message.content ? cachedSpaceLinks.resolved : null;
   const messageTime = message.createdAt ? formatDateTime(message.createdAt) : "";
-  const savedRuntimePreviews = interruptionToolPreviews(message);
+  const savedRuntimePreviews = savedWorkTrailPreviews(message);
   const visibleRuntimePreviews = showRuntimePreview && runtimePreviews.length
     ? runtimePreviews
     : savedRuntimePreviews;
@@ -101,18 +102,6 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   );
 }, areChatMessageRowPropsEqual);
 
-function interruptionToolPreviews(message: ChatMessage): RuntimePreviewEntry[] {
-  if (message.role !== "assistant" || !message.interruption?.activities.length) return [];
-  return message.interruption.activities.map((activity, index) => ({
-    id: `saved-tool-${message.id}-${index}`,
-    kind: "tool",
-    text: activity.message,
-    ...(activity.detail ? { detail: activity.detail } : {}),
-    ...(activity.toolName ? { toolName: activity.toolName } : {}),
-    phase: activity.phase ?? "complete",
-  }));
-}
-
 function areChatMessageRowPropsEqual(previous: ChatMessageRowProps, next: ChatMessageRowProps): boolean {
   const previousMessage = previous.message;
   const nextMessage = next.message;
@@ -123,6 +112,7 @@ function areChatMessageRowPropsEqual(previous: ChatMessageRowProps, next: ChatMe
     && previousMessage.createdAt === nextMessage.createdAt
     && previousMessage.kind === nextMessage.kind
     && previousMessage.landing === nextMessage.landing
+    && previousMessage.workTrail === nextMessage.workTrail
     && previousMessage.interruption === nextMessage.interruption
     && previousMessage.delivery === nextMessage.delivery
   );

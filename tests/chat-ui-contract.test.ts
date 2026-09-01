@@ -5,12 +5,13 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 
 const root = process.cwd();
-const [app, tabBar, chatPanel, chatActions, messages, activity, panes, settingsModal, chrome, styles, identity, modelDisplay, desktopMain, localServer, piClient] = await Promise.all([
+const [app, tabBar, chatPanel, chatActions, messages, workTrail, activity, panes, settingsModal, chrome, styles, identity, modelDisplay, desktopMain, localServer, piClient] = await Promise.all([
   read("web-local/src/App.tsx"),
   read("web-local/src/components/chat/SpaceSurfaceTabBar.tsx"),
   read("web-local/src/components/chat/ChatPanel.tsx"),
   read("web-local/src/components/chat/ChatActionsPopover.tsx"),
   read("web-local/src/components/chat/messages.tsx"),
+  read("web-local/src/lib/chat-work-trail.ts"),
   read("web-local/src/components/chat/activity.tsx"),
   read("web-local/src/components/panes/spacePanes.tsx"),
   read("web-local/src/components/modals/DesktopSettingsModal.tsx"),
@@ -215,12 +216,33 @@ test("provider interruptions stay visible and the configured model is disclosed 
   assert.match(messages, /work-fold preserved/);
   assert.match(messages, /Assistant setup needed/);
   assert.match(messages, /Request stopped/);
-  assert.match(messages, /message\.interruption\.activities\.map/);
-  assert.match(messages, /saved-tool-\$\{message\.id\}-\$\{index\}/);
+  assert.match(messages, /savedWorkTrailPreviews\(message\)/);
+  assert.match(workTrail, /message\.workTrail\?\.length/);
+  assert.match(workTrail, /message\.interruption\?\.activities \?\? \[\]/);
+  assert.match(workTrail, /saved-\$\{entry\.kind\}-\$\{message\.id\}-\$\{index\}/);
+  assert.match(workTrail, /saved-tool-\$\{message\.id\}-\$\{index\}/);
   assert.doesNotMatch(chatPanel, /addAgentEvent/);
   assert.match(chatPanel, /configuredAssistant\?\.configured && conversationRuntime/);
   assert.match(chatPanel, /if \(!configuredAssistant \|\| !configuredAssistant\.configured\) \{[\s\S]*?setConversationRuntime\(null\)/);
   assert.match(styles, /\.turn-interruption/);
+});
+
+test("a new turn clears the prior idle stream snapshot before running becomes visible", () => {
+  const sendMessage = chatPanel.match(/async function sendMessage\(contentOverride\?: string\) \{[\s\S]*?\n  async function steerMessage/)?.[0] ?? "";
+  assert.match(sendMessage, /cancelStreamingFlush\(\);\s*\n\s*setStreamingAssistant\(""\);/);
+  assert.ok(sendMessage.indexOf('setStreamingAssistant("");') < sendMessage.indexOf("setRunning(true);"));
+  assert.match(chatPanel, /typeof data\.text === "string" && \(!sendTransitioning \|\| data\.running === true\)/);
+  const admissionStart = localServer.match(/state\.runningTurns\.add\(turnKey\);[\s\S]*?const userMessageId/)?.[0] ?? "";
+  assert.match(admissionStart, /state\.runningTurns\.add\(turnKey\);\s*\n[\s\S]*?resetChatEventTurn\(state, turnKey\);/);
+  assert.doesNotMatch(admissionStart, /await /);
+});
+
+test("settlement prefers a persisted work trail over still-running live previews", () => {
+  assert.match(chatPanel, /const hasPersistedWorkTrail = \[\.\.\.transcript\]\.reverse\(\)/);
+  assert.match(chatPanel, /if \(!keepSettledTurnArtifacts \|\| hasPersistedWorkTrail\) \{\s*\n\s*clearRuntimePreviews\(\)/);
+  assert.match(piClient, /const preserveActiveTurnTrail = this\.promptInFlight/);
+  assert.match(piClient, /if \(!preserveActiveTurnTrail\) this\.resetTurnState\(\)/);
+  assert.match(localServer, /const finalText = await client\.prompt[\s\S]*?capturedWorkTrail = client\.getTurnWorkTrail\(\);\s*\n\s*promptStarted = false;/);
 });
 
 test("Chat composer model and reasoning controls are truthful, scoped, and functional", () => {

@@ -172,6 +172,33 @@ test("chat store preserves interrupted assistant output and completed activity",
   assert.deepEqual(await readConversation(spaceRoot, "chat-interrupted"), [assistantMessage]);
 });
 
+test("chat store preserves bounded thinking and tool trails on successful replies", async (t) => {
+  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-work-trail-"));
+  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+
+  const assistantMessage: ChatMessage = {
+    id: "assistant-work-trail-1",
+    role: "assistant",
+    content: "The file is ready.",
+    createdAt: "2026-01-01T00:00:01Z",
+    workTrail: [
+      { kind: "thinking", text: "I should inspect the requested file.", phase: "complete" },
+      { kind: "tool", text: "Read complete", detail: "notes.md", toolName: "read", phase: "complete" },
+    ],
+  };
+
+  await appendMessage(spaceRoot, "chat-work-trail", assistantMessage);
+  assert.deepEqual(await readConversation(spaceRoot, "chat-work-trail"), [assistantMessage]);
+
+  await appendMessage(spaceRoot, "chat-invalid-work-trail", {
+    ...assistantMessage,
+    id: "assistant-invalid-work-trail",
+    workTrail: [{ kind: "thinking", text: "x".repeat(32_001), phase: "complete" }],
+  });
+  const [sanitized] = await readConversation(spaceRoot, "chat-invalid-work-trail");
+  assert.equal(sanitized?.workTrail, undefined);
+});
+
 test("chat store prefers generated landing title in conversation summaries", async (t) => {
   const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-title-"));
   t.after(() => rm(spaceRoot, { recursive: true, force: true }));
