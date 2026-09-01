@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { ArrowSync16Regular, Color20Regular, Settings24Regular } from "@fluentui/react-icons";
+import { ArrowSync16Regular, Settings24Regular } from "@fluentui/react-icons";
 import { AlertTriangle, CirclePlus, Download, FolderOpen, Loader2, Search, Upload, X } from "lucide-react";
 import {
   accentIdentityFromHex,
@@ -31,7 +31,7 @@ import { CapabilitiesPane } from "./components/panes/CapabilitiesPane";
 import { SpaceAppsPane } from "./components/panes/SpaceAppsPane";
 import { ExtensionSurfacePane, ExtensionSurfaceUnavailable, ExtensionSurfaceView } from "./components/panes/ExtensionSurface";
 import { RestrictedAppViewport } from "./components/panes/RestrictedAppViewport";
-import { SpaceAppearancePanel, SpaceModeRail, SpacePaneHeader } from "./components/panes/spaceChrome";
+import { SpaceAppearancePanel, SpaceModeRail, SpaceNameEditor, SpacePaneHeader } from "./components/panes/spaceChrome";
 import { FileContentSearch } from "./components/panes/FileContentSearch";
 import { ChatsPane, HistoryPane, LibraryPane, SpacesPane, type AssistantModelScope } from "./components/panes/spacePanes";
 import { FileContextMenu } from "./components/tree/FileContextMenu";
@@ -452,7 +452,6 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     if (tree.status === "ready" && activeTab?.kind !== "checks") void checks.refresh();
   }, [activeTab?.kind, checks.refresh, tree.status, tree.tree]);
   useEffect(() => { void refreshLibraryTree(); }, [refreshLibraryTree]);
-  useEffect(() => { setActiveMode((current) => current === "spaces" ? "files" : current); }, [space.id]);
   useEffect(() => {
     if (!isMacOS() || !window.workFoldDesktop?.space.previewFile) return;
     function previewSelectedFile(event: KeyboardEvent) {
@@ -1175,7 +1174,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     <SpaceModeRail activeMode={activeMode} space={space} surfaces={surfaces} apps={restrictedApps} onModeChange={selectRailMode} onOpenLibrary={() => openLibrary(space)} onOpenApps={() => tabs.openSpaceAppsSurfaceTab(space)} onOpenAssistantTools={(view) => tabs.openAssistantToolsSurfaceTab(space, view)} accountControl={<>{needsYouControl}<button className="space-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings" data-rail-tooltip="Settings"><Settings24Regular aria-hidden="true" /></button></>} onOpenKeyboardShortcuts={onOpenShortcuts} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
     <section className={`space-mode-pane space-mode-pane-${activeMode}`} id="space-file-panel">
       <SpacePaneHeader space={space} identity={identity} spaces={spaces} spaceCustomizations={customizations} onSwitchSpace={onSwitchSpace} onCreateSpace={onCreateSpace} onOpenFolder={onOpenFolder} onManageSpaces={() => setActiveMode("spaces")} managingSpaces={activeMode === "spaces"} action={headerAction} />
-      {activeMode === "spaces" ? <SpacesPane space={space} spaces={spaces} identities={customizations} onSwitch={onSwitchSpace} onCreate={onCreateSpace} onOpenFolder={onOpenFolder} onCustomize={(target) => tabs.openAppearanceSurfaceTab(target)} onRename={renameSpace} onRemove={(target) => void removeSpace(target)} /> : null}
+      {activeMode === "spaces" ? <SpacesPane space={space} spaces={spaces} identities={customizations} onCreate={onCreateSpace} onOpenFolder={onOpenFolder} onCustomize={(target) => tabs.openAppearanceSurfaceTab(target)} onRemove={(target) => void removeSpace(target)} /> : null}
       {activeMode === "files" ? <div className="local-files-panel">
         <input
           ref={uploadRef}
@@ -1321,8 +1320,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
             ) : tab.kind === "appearance" ? (
               <div className="space-appearance-surface professional-appearance-surface">
                 <div className="space-appearance-surface-heading">
-                  <span className="space-appearance-surface-icon" aria-hidden="true"><Color20Regular /></span>
-                  <div><h2>Customize {targetSpace.name}</h2><p>Give this Space a recognizable identity without changing the rest of work-fold.</p></div>
+                  <SpaceNameEditor space={targetSpace} onRenameSpace={renameSpace} />
                 </div>
                 <SpaceAppearancePanel
                   space={targetSpace}
@@ -1358,7 +1356,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
       }) : <SpaceSurfaceEmptyState space={space} identity={identity} onNewChat={() => openChat(space, null)} />}
     </aside>
     {fileContextMenu ? <FileContextMenu state={fileContextMenu} onSelect={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(space, path); }} onOpenLocal={openLocalPath} onAddToChatContext={attachToChat} onCopyPath={copyPath} onShowVersionHistory={(path) => openVersionHistory(space, path)} onRename={fileContextMenu.entry.path ? renameEntry : undefined} onUploadHere={chooseUpload} onDelete={deleteEntry} onClose={() => setFileContextMenu(null)} /> : null}
-    {renameEntryRequest ? <TextInputModal title={`Rename ${renameEntryRequest.name}`} description="Choose a new name. The item stays in the same folder." label="Name" initialValue={renameEntryRequest.name} confirmLabel="Rename" onSubmit={submitEntryRename} onClose={() => setRenameEntryRequest(null)} /> : null}
+    {renameEntryRequest ? <TextInputModal title={`Rename ${renameEntryRequest.name}`} label="Name" initialValue={renameEntryRequest.name} confirmLabel="Rename" onSubmit={submitEntryRename} onClose={() => setRenameEntryRequest(null)} /> : null}
     {chatActions ? <ChatActionsPopover state={chatActions} onRename={renameChat} onLifecycle={(target, conversation, patch) => updateChatLifecycle(target, conversation, patch).then(() => {})} onClose={() => setChatActions(null)} /> : null}
     {versionHistory ? <FileVersionHistoryModal space={versionHistory.space} filePath={versionHistory.path} fileName={versionHistory.name} onClose={() => setVersionHistory(null)} onRestored={() => void tree.refresh()} /> : null}
     {commandPaletteOpen ? <CommandPaletteHost commands={commands} onClose={closeCommandPalette} /> : null}
@@ -1366,7 +1364,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
 }
 
 function SpaceSurfaceEmptyState({ space, identity, onNewChat }: { space: SpaceSummary; identity: ReturnType<typeof spaceIdentityFor>; onNewChat: () => void }) {
-  return <div className="space-surface-body space-surface-body-empty"><div className="space-surface-empty" style={spaceIdentityStyle(identity)}><span className="space-surface-empty-icon"><SpaceIconGlyph icon={identity.Icon} size={24} /></span><h2>{space.name}</h2><p>Open a file, Chat, Library, restore point, or appearance tab here.</p><button className="primary-button" type="button" onClick={onNewChat}><CirclePlus size={16} />New Chat</button></div></div>;
+  return <div className="space-surface-body space-surface-body-empty"><div className="space-surface-empty" style={spaceIdentityStyle(identity)}><span className="space-surface-empty-icon"><SpaceIconGlyph icon={identity.Icon} size={24} /></span><h2>{space.name}</h2><p>Choose something from the left, or start a Chat.</p><button className="primary-button" type="button" onClick={onNewChat}><CirclePlus size={16} />New Chat</button></div></div>;
 }
 
 function applyFixtureChatLifecycle(

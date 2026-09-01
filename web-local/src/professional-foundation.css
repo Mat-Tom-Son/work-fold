@@ -120,6 +120,10 @@ textarea:focus-visible,
   outline-offset: 2px;
 }
 
+.composer textarea:focus-visible {
+  outline: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

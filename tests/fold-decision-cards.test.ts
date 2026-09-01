@@ -216,3 +216,20 @@ test("the card is deterministic over the typed record", () => {
   assert.deepEqual(foldDecisionCard(act), foldDecisionCard(act));
   assert.equal(foldDecisionCard(act).title, "Enable the routing routing-1");
 });
+
+test("routing cards carry the exact host-composed declaration review", () => {
+  const act = stagedAct({
+    kind: "routing.enable",
+    category: "widen-power",
+    parameters: { routingId: "routing-1" },
+    pins: { routingId: "routing-1", declarationDigest: "f".repeat(64) },
+  });
+  const routingFacts = new Map([[act.id, [
+    { label: "Title", value: "Morning handoff" },
+    { label: "Trigger", value: "Once · Sep 1, 2026, 9:00 PM local (2026-09-02T01:00:00.000Z) · Run if missed" },
+    { label: "Step 1 · Chat · prepare", value: "Inbox — /Users/person/Inbox\nPrepare the daily handoff." },
+  ]] as const]);
+  const card = foldDecisionCard(act, { routingFacts });
+  assert.deepEqual(card.facts.slice(-3), routingFacts.get(act.id));
+  assert.match(card.facts.at(-1)?.value ?? "", /Prepare the daily handoff\./);
+});

@@ -420,7 +420,6 @@ export function CapabilitiesPane({
         <div>
           <span className="professional-kicker">Assistant tools</span>
           <h1>Skills &amp; Extensions</h1>
-          <p>What the Assistant can use in {space.name} — and what it can use everywhere.</p>
         </div>
         <button className="professional-button professional-button-primary capabilities-add-trigger" type="button" onClick={() => openAddDialog()}><Add16Regular />Add</button>
       </header>
@@ -478,8 +477,7 @@ export function CapabilitiesPane({
           {catalog && !query.trim() ? (
             <section className="capabilities-panel capabilities-supporting-details" aria-labelledby="capabilities-supporting-title">
               <div className="capabilities-supporting-heading">
-                <h3 id="capabilities-supporting-title">Also available</h3>
-                <p>Pi's built-in tools and package sources.</p>
+                <h3 id="capabilities-supporting-title">Built-in tools and packages</h3>
               </div>
               <div className="capabilities-supporting-list">
                 <CoreToolsSection tools={catalog.tools} management={catalog.toolManagement} />

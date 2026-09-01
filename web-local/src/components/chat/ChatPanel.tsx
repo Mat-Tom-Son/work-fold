@@ -1806,7 +1806,7 @@ export function ChatPanel({
                 void sendMessage();
               }
             }}
-            placeholder={running && !pendingSendRef.current ? "Steer the Assistant (Enter) · queue for after this turn (⌘Enter)" : "Message Assistant"}
+            placeholder={running && !pendingSendRef.current ? "Steer (Enter) · Queue (⌘Enter)" : "Message Assistant"}
           />
           <div className="composer-capability-bar">
             <button

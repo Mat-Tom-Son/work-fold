@@ -207,6 +207,20 @@ test("restored tabs belonging to removed Spaces are discarded", () => {
   });
 });
 
+test("restored appearance tabs follow a renamed Space", () => {
+  assert.deepEqual(restoreStoredSurfaceTabsForSpaces({
+    tabs: [
+      { id: "appearance:space-1", kind: "appearance", spaceId: "space-1", title: "Customize Old name" },
+    ],
+    activeTabId: "appearance:space-1",
+  }, [space]), {
+    tabs: [
+      { id: "appearance:space-1", kind: "appearance", spaceId: "space-1", title: "Customize First Space" },
+    ],
+    activeTabId: "appearance:space-1",
+  });
+});
+
 test("restricted app tabs close when their installed revision changes", () => {
   const currentDigest = "a".repeat(64);
   const staleDigest = "b".repeat(64);

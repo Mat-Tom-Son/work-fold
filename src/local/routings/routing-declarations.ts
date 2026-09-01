@@ -53,6 +53,14 @@ export const workFoldRoutingBounds = Object.freeze({
 });
 
 /**
+ * A pending Reviewed-mode card needs a small usable decision window. The
+ * store still performs the canonical one-minute admission recheck; staging
+ * uses two minutes so it never creates a card that is already destined to
+ * expire before an ordinary person can inspect it.
+ */
+export const workFoldRoutingMinAtStagingAdvanceMs = 2 * 60_000;
+
+/**
  * Check-run settles an on-settled trigger may admit. `interrupted` is never
  * admissible — it records a crashed run, not a result.
  */
@@ -319,6 +327,20 @@ export function assertWorkFoldRoutingAtAdmissionHorizon(
   const advanceMs = Date.parse(definition.trigger.at) - nowMs;
   if (advanceMs < workFoldRoutingBounds.minAtAdvanceMs || advanceMs > workFoldRoutingBounds.maxAtAdvanceMs) {
     throw new Error("Routing one-time trigger must be between 1 minute and 366 days in the future when it is enabled.");
+  }
+}
+
+/** Rejects a one-time proposal before work-fold creates an unusable card. */
+export function assertWorkFoldRoutingAtStagingHorizon(
+  definition: Pick<WorkFoldRoutingDefinition, "trigger">,
+  now: Date,
+): void {
+  if (definition.trigger.kind !== "at") return;
+  const nowMs = now.getTime();
+  if (!Number.isFinite(nowMs)) throw new Error("Routing staging time is invalid.");
+  const advanceMs = Date.parse(definition.trigger.at) - nowMs;
+  if (advanceMs < workFoldRoutingMinAtStagingAdvanceMs || advanceMs > workFoldRoutingBounds.maxAtAdvanceMs) {
+    throw new Error("Routing one-time trigger must be between 2 minutes and 366 days in the future when it is staged.");
   }
 }
 

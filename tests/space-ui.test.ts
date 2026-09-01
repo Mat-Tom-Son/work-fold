@@ -10,6 +10,21 @@ const linkedSpace = {
   location: { storage: "linked", providerHint: "local" },
 } as SpaceSummary;
 
+const managedSpace = {
+  ...linkedSpace,
+  id: "space-managed",
+  name: "Managed work",
+  location: { storage: "managed", providerHint: "local" },
+} as SpaceSummary;
+
+test("managed Space deletion names every recursively deleted content class", () => {
+  const copy = removeSpaceConfirmText(managedSpace);
+  assert.match(copy, /permanently deletes the managed Space folder/i);
+  assert.match(copy, /every file and folder inside it/i);
+  assert.match(copy, /local chat history/i);
+  assert.match(copy, /cannot be undone/i);
+});
+
 test("Space removal warns when it will erase machine-local App Studio lineage", () => {
   const copy = removeSpaceConfirmText(linkedSpace, {
     project: { projectId: "project_fixture" },

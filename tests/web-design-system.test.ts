@@ -53,7 +53,8 @@ test("Files is the first primary surface and Space actions live in the persisten
   assert.match(spaceChromeSource, /<span>Manage Spaces<\/span>/);
   assert.match(spaceChromeSource, /aria-current=\{activeMode === item\.mode \? "page" : undefined\}/, "the active icon-only destination must be announced");
   assert.match(spaceChromeSource, /data-rail-tooltip=\{item\.title\}/, "icon-only destinations need visible hover and focus labels");
-  assert.doesNotMatch(spaceChromeSource, /<span>Space<\/span>|ChevronRight20Regular|space-rail-space-caret/);
+  assert.doesNotMatch(spaceChromeSource, /<span>Space<\/span>|space-rail-space-caret/);
+  assert.doesNotMatch(primaryItems, /ChevronRight20Regular/);
 });
 
 test("pane navigation uses one Fluent icon contract", () => {
@@ -98,7 +99,7 @@ test("Library opens from Add as a persistent Space-owned work tab", () => {
   assert.doesNotMatch(spacePanesSource, /const \[tree, setTree\]/);
   assert.match(spacePanesSource, /Personal · available across Spaces/);
   assert.match(spacePanesSource, /Add a copy to[\s\S]*?spaces\.map/);
-  assert.match(spacePanesSource, /Your Library stays unchanged; only the new copy belongs to the selected Space/);
+  assert.match(spacePanesSource, /Copies go to <strong>From Library<\/strong>\. Your Library stays unchanged, and the copy is not added to Chat context/);
   assert.match(spacePanesSource, /targetFolderPath", ""/);
   assert.match(spacePanesSource, /parentPath: ""/);
   assert.match(surfacesCss, /\.space-surface-body:has\(> \.library-pane\)[\s\S]*?container-type:\s*inline-size/);
@@ -355,7 +356,16 @@ test("Space customization is visible, compact, and separate from structural chro
   assert.match(spaceChromeSource, /space-appearance-preview/);
   assert.match(spaceChromeSource, /spaceLookOptions\.map/);
   assert.match(spaceChromeSource, /aria-label="Curated Space looks"/);
-  assert.match(spaceChromeSource, /<strong>Fine tune<\/strong>/);
+  assert.match(spaceChromeSource, /function SpaceNameEditor/);
+  assert.match(spaceChromeSource, /<span>Space name<\/span>/);
+  assert.match(spaceChromeSource, /finally\s*\{\s*setSaving\(false\);\s*\}/);
+  assert.doesNotMatch(spaceChromeSource, /Fine tune|Saved on this computer|Start with a balanced color pair|Shown in the Space menu and tabs/);
+  assert.match(spaceChromeSource, /const spaceIconPageSize = 96/);
+  assert.match(spaceChromeSource, /className="space-icon-browser"/);
+  assert.match(spaceChromeSource, /aria-label="Previous icon page"/);
+  assert.match(spaceChromeSource, /aria-label="Next icon page"/);
+  assert.match(spaceChromeSource, /\}, \[spaceId, identity\.iconName\]\);/);
+  assert.doesNotMatch(spaceChromeSource, /Browse all|Show recommended|\$\{spaceIconOptions\.length\}/);
   assert.match(spaceChromeSource, /onResetSpace/);
   assert.match(customizationCss, /\.space-banner-surface\.banner-none/);
 
@@ -412,8 +422,28 @@ test("Space customization is visible, compact, and separate from structural chro
   assert.match(rendererMainSource, /delete document\.documentElement\.dataset\.windowMaterial/, "solid-material sessions must clear stale material state");
   assert.doesNotMatch(appSource, /dataset\.windowMaterial/, "window material must not wait for a passive React effect");
   assert.doesNotMatch(foundationCss, /--work-fold-font-size:/, "the professional layer must not override the user's text-size preference");
+  assert.match(foundationCss, /\.composer textarea:focus-visible\s*\{[\s\S]*?outline:\s*0/, "the Space-colored composer shell must own the visible focus treatment");
   assert.doesNotMatch(desktopSettingsSource, /from\s+["']lucide-react["']/);
   assert.match(desktopSettingsSource, /from\s+["']@fluentui\/react-icons["']/);
+});
+
+test("Manage Spaces is a compact launcher into customization", () => {
+  assert.doesNotMatch(spacePanesSource, /Where does this work live\?|Use an existing folder or create a clean one|professional-space-intro/);
+  assert.doesNotMatch(spacePanesSource, /Turn it into a Space|Start with a clean folder|professional-space-action-copy/);
+  assert.match(spacePanesSource, /className="professional-space-actions" aria-label="Add a Space"/);
+  const actionRule = cssRuleBody(surfacesCss, ".professional-space-actions");
+  assert.match(actionRule, /grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+  assert.doesNotMatch(surfacesCss.slice(surfacesCss.indexOf("@container space-pane (max-width: 520px)")), /\.professional-space-actions,[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.match(spacePanesSource, /onClick=\{\(\) => onCustomize\(item\)\}/);
+  assert.doesNotMatch(appSource, /current === "spaces" \? "files" : current/);
+  assert.doesNotMatch(spacePanesSource, /space-card-rename|space-card-customize/);
+  assert.match(spacePanesSource, /space-card-delete/);
+  assert.match(spacePanesSource, /const deletesFolder = item\.location\.storage === "managed"/);
+  assert.match(spacePanesSource, /aria-label=\{`\$\{deletesFolder \? "Delete" : "Remove"\} \$\{item\.name\}`\}/);
+  assert.doesNotMatch(legacyCss, /\.space-card-actions\s*\{[^}]*linear-gradient/s);
+  assert.match(surfacesCss, /\.professional-spaces \.space-card-main\s*\{[^}]*padding-right:\s*52px/);
+  assert.match(appSource, /<SpaceNameEditor space=\{targetSpace\} onRenameSpace=\{renameSpace\} \/>/);
+  assert.doesNotMatch(appSource, /Give this Space a recognizable identity|<h2>Customize \{targetSpace\.name\}<\/h2>/);
 });
 
 test("the left header is inherited Space identity on every mode, not a surface title", () => {

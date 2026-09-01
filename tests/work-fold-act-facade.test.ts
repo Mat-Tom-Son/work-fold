@@ -1479,6 +1479,25 @@ test("facade staging binds routing enablement and page exposure into the decisio
     const space = await facade.createSpace({ name: "Glue Space" });
     await writeFile(join(space.space.spaceRoot, "weekly.md"), "# Weekly\n", "utf8");
 
+    const tooSoonPath = join(sandbox, "too-soon.work-fold-routing.json");
+    await writeFile(tooSoonPath, JSON.stringify({
+      kind: "work-fold.routing-proposal",
+      version: 2,
+      name: "Too soon",
+      createdBy: "assistant",
+      createdAt: new Date().toISOString(),
+      routing: {
+        title: "Too soon",
+        trigger: { kind: "at", at: new Date(Date.now() + 90_000).toISOString(), ifMissed: "run" },
+        steps: [{ id: "review", kind: "chat", space: space.space.id, message: "Review the report." }],
+      },
+    }, null, 2), "utf8");
+    await assert.rejects(
+      () => facade.routingsStage({ proposalPath: tooSoonPath, cwd: sandbox, requestId: "req-routing-too-soon" }),
+      /between 2 minutes and 366 days/,
+      "an unusable one-time card is refused before staging",
+    );
+
     // Routing enablement: `routings stage` normalizes the inert typed
     // proposal, holds the digest-addressed declaration, and stages
     // `routing.enable`; the click executes the routing service's enablement

@@ -14,7 +14,8 @@ import type {
  * The one needs-you card contract (docs/fold-consecrations.md; fold
  * integration reconciliation 6). Every line a person reads before clicking is
  * composed here, by app code, from the staged act's typed `parameters` and
- * `pins` — model prose never becomes card copy. The popover stack, the
+ * `pins` plus exact host-verified held artifacts — model narration never
+ * becomes card copy. The popover stack, the
  * main-window flyout, and the remote client's Needs you screen all render this
  * projection;
  * none of them composes copy of its own, so a persuasive paragraph cannot
@@ -98,6 +99,13 @@ export interface FoldDecisionCard {
 export interface FoldDecisionCardOptions {
   /** Registered Space names; an unknown id renders as "<id> (removed)". */
   spaceNames?: ReadonlyMap<string, string>;
+  /**
+   * Exact host-composed routing review facts, keyed by staged-act id. The
+   * declaration remains in the digest-addressed holding area; this projection
+   * gives every decision surface the same complete review without widening
+   * the staged-act field schema or accepting model-authored card copy.
+   */
+  routingFacts?: ReadonlyMap<string, readonly FoldDecisionCardFact[]>;
 }
 
 /** Working category copy from docs/fold-consecrations.md; final wording is owned by docs/fold.md. */
@@ -179,7 +187,7 @@ export function foldDecisionCard(act: FoldStagedAct, options: FoldDecisionCardOp
     state: act.state,
     categoryLine: categoryLine(act),
     title: cardTitle(act),
-    facts: cardFacts(act, spaceName),
+    facts: cardFacts(act, spaceName, options.routingFacts?.get(act.id)),
     ...(spaceId !== undefined ? { spaceId } : {}),
     ...(spaceName !== undefined ? { spaceName } : {}),
     provenance: {
@@ -293,11 +301,15 @@ function cardTitle(act: FoldStagedAct): string {
 
 /**
  * The exact facts the pins hold, plus staging parameters the pins do not
- * repeat, labeled for a person. Values are the store's typed, bounded fields;
- * digest-shaped identities render as short ids (the complete values stay
- * inspectable through `staged show`).
+ * repeat and any exact host-verified held routing review, labeled for a
+ * person. Values are typed and bounded; digest-shaped identities render as
+ * short ids (the complete values stay inspectable through `staged show`).
  */
-function cardFacts(act: FoldStagedAct, spaceName: string | undefined): FoldDecisionCardFact[] {
+function cardFacts(
+  act: FoldStagedAct,
+  spaceName: string | undefined,
+  routingFacts: readonly FoldDecisionCardFact[] | undefined,
+): FoldDecisionCardFact[] {
   const facts: FoldDecisionCardFact[] = [];
   const seen = new Set<string>();
   const add = (name: string, value: FoldStagedActFieldValue): void => {
@@ -307,6 +319,9 @@ function cardFacts(act: FoldStagedAct, spaceName: string | undefined): FoldDecis
   };
   for (const [name, value] of Object.entries(act.pins)) add(name, value);
   for (const [name, value] of Object.entries(act.parameters)) add(name, value);
+  if (act.kind === "routing.enable" && routingFacts) {
+    for (const fact of routingFacts) facts.push({ ...fact });
+  }
   if (act.kind === "app.connection.save") {
     facts.push({
       label: "Credential",

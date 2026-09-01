@@ -35,7 +35,7 @@ export function removeSpaceConfirmText(
 ): string {
   const folderOutcome = space.location.storage === "linked"
     ? `Remove ${space.name} from work-fold? The original folder and everything inside it will stay on your computer.`
-    : `Delete ${space.name} from this computer? This permanently deletes the managed Space folder and its local chat history. This cannot be undone.`;
+    : `Delete ${space.name} from this computer? This permanently deletes the managed Space folder, every file and folder inside it, and its local chat history. This cannot be undone.`;
   if (!appStudio) return folderOutcome;
   const consequences: string[] = [];
   if (appStudio.project) {

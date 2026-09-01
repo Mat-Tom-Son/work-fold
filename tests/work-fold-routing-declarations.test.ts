@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   assertWorkFoldRoutingAtAdmissionHorizon,
+  assertWorkFoldRoutingAtStagingHorizon,
   declarationFromWorkFoldRoutingProposal,
   normalizeWorkFoldRoutingDeclaration,
   normalizeWorkFoldRoutingProposal,
@@ -184,6 +185,14 @@ test("version 2 admits explicit-offset one-time triggers and keeps their time-se
     normalized.routing,
     new Date("2026-08-10T18:29:00.001Z"),
   ), /between 1 minute and 366 days/);
+  assert.doesNotThrow(() => assertWorkFoldRoutingAtStagingHorizon(
+    normalized.routing,
+    new Date("2026-08-10T18:28:00.000Z"),
+  ));
+  assert.throws(() => assertWorkFoldRoutingAtStagingHorizon(
+    normalized.routing,
+    new Date("2026-08-10T18:28:00.001Z"),
+  ), /between 2 minutes and 366 days/);
 
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
     value.routing.trigger = { kind: "at", at: "2026-08-10T18:30:00Z", ifMissed: "run" };

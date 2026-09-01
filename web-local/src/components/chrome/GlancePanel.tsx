@@ -131,7 +131,7 @@ function GlancePanelBody() {
     && !snapshot.checks.length && !snapshot.unavailable.length;
   if (empty) {
     // An empty digest means nothing is recorded, not that nothing happened.
-    return <p className="glance-empty">Nothing recorded right now: no running work, nothing waiting on you, and no recorded changes.</p>;
+    return <p className="glance-empty">Nothing recorded right now.</p>;
   }
   return <GlanceSection state={state} surface="main-window" />;
 }

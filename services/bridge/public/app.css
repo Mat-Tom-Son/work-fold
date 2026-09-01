@@ -705,7 +705,7 @@ body.drawer-locked { overflow: hidden; }
 .needs-you-facts { display: grid; gap: 3px; margin: 0 0 9px; }
 .needs-you-fact { display: flex; gap: 6px; align-items: baseline; }
 .needs-you-fact dt { flex: none; color: var(--muted); }
-.needs-you-fact dd { margin: 0; overflow-wrap: anywhere; }
+.needs-you-fact dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .needs-you-provenance, .needs-you-prior-denial, .needs-you-rule { margin: 0 0 7px; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .needs-you-prior-denial { color: var(--warning); }
 .needs-you-rule { color: var(--warning); }

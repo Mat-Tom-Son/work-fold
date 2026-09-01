@@ -263,35 +263,20 @@
   scrollbar-gutter: auto;
 }
 
-.professional-space-intro {
-  min-width: 0;
-  display: grid;
-  gap: 8px;
-  padding: 16px;
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-lg);
-}
-
-.professional-space-intro > p {
-  max-width: 580px;
-}
-
 .professional-space-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  margin-top: 4px;
 }
 
 .professional-space-action {
   min-width: 0;
-  min-height: 56px;
+  min-height: 48px;
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
-  padding: 12px;
+  gap: 10px;
+  padding: 8px 10px;
   color: var(--ui-text);
   text-align: left;
   background: var(--ui-surface-subtle);
@@ -311,27 +296,13 @@
   border-radius: var(--ui-radius-md);
 }
 
-.professional-space-action-copy {
+.professional-space-action > strong {
   min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-
-.professional-space-action-copy strong,
-.professional-space-action-copy small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.professional-space-action-copy strong {
   font-size: 14px;
   font-weight: 600;
-}
-
-.professional-space-action-copy small {
-  color: var(--ui-text-muted);
-  font-size: 12px;
 }
 
 .professional-spaces .professional-section-card {
@@ -392,6 +363,10 @@
   box-shadow: none;
 }
 
+.professional-spaces .space-card-main {
+  padding-right: 52px;
+}
+
 .professional-spaces .space-card-main:hover,
 .professional-spaces .space-card-main:focus-visible {
   background: var(--ui-surface-hover);
@@ -423,6 +398,17 @@
   color: var(--ui-text);
   background: var(--ui-surface-hover);
   border-color: var(--ui-border);
+}
+
+.professional-spaces .space-card-actions .space-card-delete {
+  color: var(--ui-danger);
+}
+
+.professional-spaces .space-card-actions .space-card-delete:hover,
+.professional-spaces .space-card-actions .space-card-delete:focus-visible {
+  color: var(--ui-danger);
+  background: color-mix(in srgb, var(--ui-danger) 8%, var(--ui-surface));
+  border-color: color-mix(in srgb, var(--ui-danger) 28%, var(--ui-border));
 }
 
 .professional-spaces .active-dot {
@@ -3018,7 +3004,6 @@
 }
 
 @container space-pane (max-width: 520px) {
-  .professional-space-actions,
   .professional-assistant .setup-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -3138,6 +3123,18 @@
   .professional-import-row {
     grid-template-columns: minmax(0, 1fr);
     justify-items: start;
+  }
+
+  .professional-space-action {
+    min-height: 48px;
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 8px;
+    padding: 9px;
+  }
+
+  .professional-space-action-icon {
+    width: 28px;
+    height: 28px;
   }
 
   .professional-package-input {

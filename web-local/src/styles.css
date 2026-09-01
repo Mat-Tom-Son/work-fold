@@ -6454,7 +6454,7 @@ textarea,
   padding: 3px;
   margin: 0;
   border-radius: 6px;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0), #ffffff 16px);
+  background: transparent;
   opacity: 0;
   pointer-events: none;
   transform: translateY(-50%) scale(0.98);
@@ -12975,7 +12975,7 @@ textarea,
 }
 
 .app-shell[data-theme="dark"] .space-card-actions {
-  background: linear-gradient(90deg, rgba(15, 23, 42, 0), rgba(15, 23, 42, 0.98) 16px);
+  background: transparent;
 }
 
 .app-shell[data-theme="dark"] .space-start-tip {

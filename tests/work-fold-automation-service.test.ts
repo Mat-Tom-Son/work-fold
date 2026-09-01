@@ -14,6 +14,14 @@ import {
 const startTime = Date.parse("2026-07-14T12:00:00.000Z");
 const minute = 60_000;
 
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolvePromise!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return { promise, resolve: resolvePromise };
+}
+
 test("WorkFoldAutomationService defaults to two machine-wide execution slots", async () => {
   const clock = new FakeClock(startTime);
   const starts: string[] = [];
@@ -229,6 +237,50 @@ test("suspension preserves a queued one-time catch-up until resume", async () =>
   await flushTasks();
   assert.equal(contexts.length, 1, "the preserved occurrence still launches only once");
   service.close();
+});
+
+test("a due one-time slot waits for its own manual copy instead of being consumed as overlap", async () => {
+  for (const ifMissed of ["run", "skip"] as const) {
+    const clock = new FakeClock(startTime);
+    const release = deferred();
+    const contexts: WorkFoldAutomationRunContext[] = [];
+    const once = key("owner", `once-${ifMissed}`);
+    const service = new WorkFoldAutomationService({
+      clock,
+      createRunId: runIds().next,
+      catchUpStagger: () => 0,
+    });
+    service.register({
+      key: once,
+      schedule: { kind: "at", at: "2026-07-14T12:01:00.000Z", ifMissed },
+      enabled: true,
+      run: async (context) => {
+        contexts.push(context);
+        if (context.reason === "manual") await release.promise;
+      },
+    });
+
+    const manual = service.runNow(once);
+    clock.advance(minute);
+    await flushTasks();
+    assert.equal(service.listRunResults(once).at(-1)?.notLaunchedReason, "overlap");
+    assert.deepEqual(contexts.map(({ reason }) => reason), ["manual"]);
+
+    if (ifMissed === "skip") service.suspend();
+    release.resolve();
+    await manual;
+    if (ifMissed === "skip") service.resume();
+    await flushTasks();
+    clock.advance(0);
+    await flushTasks();
+    assert.deepEqual(contexts.map(({ reason }) => reason), ["manual", "resume"]);
+    assert.equal(contexts[1]?.scheduledAt, "2026-07-14T12:01:00.000Z");
+
+    clock.advance(24 * 60 * minute);
+    await flushTasks();
+    assert.equal(contexts.length, 2, "the preserved slot still launches exactly once");
+    service.close();
+  }
 });
 
 test("WorkFoldAutomationService restores a persisted cadence and performs at most one deterministically staggered latest catch-up", async () => {

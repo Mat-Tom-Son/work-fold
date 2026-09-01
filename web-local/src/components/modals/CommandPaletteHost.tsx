@@ -165,7 +165,6 @@ function CommandPaletteHost({
           )}
         </div>
         <div id="command-palette-hint" className="command-palette-footer">
-          <span>Type to filter</span>
           <span><kbd>{modifier}</kbd><kbd>K</kbd> closes</span>
         </div>
       </section>

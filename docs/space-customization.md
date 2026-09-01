@@ -10,7 +10,9 @@ Read [the role inventory](customization-role-inventory.md) for the audited CSS c
 
 ## Person-facing experience
 
-**Customize Space** opens one Space-owned work tab. The editor keeps the common path direct:
+Selecting a Space in **Manage Spaces** opens its Space-owned **Customize Space** work tab directly.
+The Space name is editable at the top, followed by the appearance controls. The editor keeps the
+common path direct:
 
 - choose a primary colour and optional banner partner;
 - choose a compact pattern or safe raster image;

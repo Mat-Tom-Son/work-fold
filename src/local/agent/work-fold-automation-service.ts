@@ -243,7 +243,10 @@ export class WorkFoldAutomationService {
       return;
     }
 
-    if (!scheduleCatchesUp(normalized.schedule)) {
+    if (
+      !scheduleCatchesUp(normalized.schedule)
+      && !(normalized.schedule.kind === "at" && job.pendingCatchUpAt !== undefined)
+    ) {
       this.#clearCatchUpTimer(job);
       job.pendingCatchUpAt = undefined;
     }
@@ -332,7 +335,7 @@ export class WorkFoldAutomationService {
           if (job.definition.schedule.ifMissed === "run") job.pendingCatchUpAt = dueAt;
         }
       }
-      if (scheduleCatchesUp(job.definition.schedule) && job.pendingCatchUpAt !== undefined) this.#armCatchUp(job);
+      if (canLaunchPendingCatchUp(job) && job.pendingCatchUpAt !== undefined) this.#armCatchUp(job);
       this.#armSchedule(job);
     }
   }
@@ -382,6 +385,14 @@ export class WorkFoldAutomationService {
       return { runId, result };
     }
     if (this.#busyKeys.has(job.encodedKey)) {
+      // A manual copy must never spend a one-time slot. Keep the exact due
+      // instant pending until that copy settles, including for `ifMissed:
+      // skip`: the app was awake and admitted the occurrence on time; it was
+      // only this job's own non-overlap fence that delayed launch.
+      if (reason !== "manual" && job.definition.schedule.kind === "at") {
+        job.pendingCatchUpAt = scheduledAt;
+        job.atConsumed = false;
+      }
       this.#finishWithoutLaunch(pending, "skipped", "overlap", "Another run of this automation is already pending or active.");
       return { runId, result };
     }
@@ -461,6 +472,8 @@ export class WorkFoldAutomationService {
     });
     this.#pump();
     await completion;
+    const job = this.#jobs.get(pending.encodedKey);
+    if (job?.registration === pending.registration) this.#armCatchUp(job);
   }
 
   async #finishWithoutLaunch(
@@ -571,7 +584,7 @@ export class WorkFoldAutomationService {
       this.#closed
       || this.#suspended
       || !job.definition.enabled
-      || !scheduleCatchesUp(job.definition.schedule)
+      || !canLaunchPendingCatchUp(job)
       || job.pendingCatchUpAt === undefined
       || job.catchUpTimer !== undefined
     ) return;
@@ -586,7 +599,7 @@ export class WorkFoldAutomationService {
         || this.#suspended
         || current !== job
         || !job.definition.enabled
-        || !scheduleCatchesUp(job.definition.schedule)
+        || !canLaunchPendingCatchUp(job)
         || job.pendingCatchUpAt === undefined
       ) return;
       const scheduledAt = job.pendingCatchUpAt;
@@ -827,6 +840,17 @@ function initialSchedule(
 
 function scheduleCatchesUp(schedule: WorkFoldAutomationSchedule): boolean {
   return schedule.kind === "interval" ? schedule.catchUp === "latest" : schedule.ifMissed === "run";
+}
+
+/**
+ * A one-time `ifMissed: skip` schedule normally has no catch-up. The sole
+ * exception is an exact due occurrence held behind its own manual copy: that
+ * pending instant is not a missed launch/wake slot, and run-now is specified
+ * not to mutate it.
+ */
+function canLaunchPendingCatchUp(job: RegisteredJob): boolean {
+  return scheduleCatchesUp(job.definition.schedule)
+    || (job.definition.schedule.kind === "at" && job.pendingCatchUpAt !== undefined);
 }
 
 function schedulesEqual(left: WorkFoldAutomationSchedule, right: WorkFoldAutomationSchedule): boolean {

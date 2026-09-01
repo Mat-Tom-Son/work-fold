@@ -14,11 +14,9 @@ import {
   Checkmark16Regular,
   ChevronRight16Regular,
   Clock16Regular,
-  Color16Regular,
   Copy16Regular,
   Delete16Regular,
   Dismiss16Regular,
-  Edit16Regular,
   Folder16Regular,
   Folder20Regular,
   FolderAdd16Regular,
@@ -51,49 +49,37 @@ import { SpaceIconGlyph } from "../chrome/common";
 import { FileTypeIcon } from "../tree/FileTree";
 import { TextInputModal } from "../modals/TextInputModal";
 import { requestConfirm } from "../../ui/feedback";
-import { SpaceRenameEditor } from "./spaceChrome";
 import { ChatContentSearch } from "./ChatContentSearch";
 
 export function SpacesPane({
   space,
   spaces,
   identities,
-  onSwitch,
   onCreate,
   onOpenFolder,
   onCustomize,
-  onRename,
   onRemove,
 }: {
   space: SpaceSummary;
   spaces: SpaceSummary[];
   identities: SpaceCustomizationMap;
-  onSwitch: (space: SpaceSummary) => void;
   onCreate: () => void;
   onOpenFolder: () => void;
   onCustomize: (space: SpaceSummary) => void;
-  onRename: (space: SpaceSummary, name: string) => Promise<void>;
   onRemove?: (space: SpaceSummary) => void;
 }) {
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-
   return (
     <div className="space-pane-content spaces-pane professional-surface professional-spaces">
-      <section className="professional-space-intro">
-        <span className="professional-kicker">Spaces</span>
-        <h1>Where does this work live?</h1>
-        <p>Use an existing folder or create a clean one. Either way, it remains an ordinary folder you control.</p>
-        <div className="professional-space-actions">
-          <button className="professional-space-action" type="button" onClick={onOpenFolder}>
-            <span className="professional-space-action-icon" aria-hidden="true"><FolderOpen20Regular /></span>
-            <span className="professional-space-action-copy"><strong>Existing folder</strong><small>Turn it into a Space</small></span>
-          </button>
-          <button className="professional-space-action" type="button" onClick={onCreate}>
-            <span className="professional-space-action-icon" aria-hidden="true"><FolderAdd20Regular /></span>
-            <span className="professional-space-action-copy"><strong>New Space</strong><small>Start with a clean folder</small></span>
-          </button>
-        </div>
-      </section>
+      <div className="professional-space-actions" aria-label="Add a Space">
+        <button className="professional-space-action" type="button" onClick={onOpenFolder}>
+          <span className="professional-space-action-icon" aria-hidden="true"><FolderOpen20Regular /></span>
+          <strong>Existing folder</strong>
+        </button>
+        <button className="professional-space-action" type="button" onClick={onCreate}>
+          <span className="professional-space-action-icon" aria-hidden="true"><FolderAdd20Regular /></span>
+          <strong>New Space</strong>
+        </button>
+      </div>
 
       <section className="space-pane-section professional-section-card">
         <div className="professional-section-heading">
@@ -104,10 +90,17 @@ export function SpacesPane({
           {spaces.map((item) => {
             const identity = spaceIdentityFor(item, identities);
             const active = item.id === space.id;
+            const deletesFolder = item.location.storage === "managed";
             return (
               <div className={active ? "space-card-shell active" : "space-card-shell"} key={item.id} style={spaceIdentityStyle(identity)}>
                 <div className="space-card-row">
-                  <button className={active ? "space-tab space-card-main active" : "space-tab space-card-main"} type="button" onClick={() => onSwitch(item)}>
+                  <button
+                    className={active ? "space-tab space-card-main active" : "space-tab space-card-main"}
+                    type="button"
+                    onClick={() => onCustomize(item)}
+                    aria-label={`Customize ${item.name}`}
+                    title="Customize Space"
+                  >
                     <span className="space-tab-icon space-identity-icon"><SpaceIconGlyph icon={identity.Icon} size={16} /></span>
                     <span className="space-tab-copy">
                       <strong>{item.name}</strong>
@@ -116,12 +109,19 @@ export function SpacesPane({
                     {active ? <span className="active-dot" aria-label="Active Space"><Checkmark12Regular /></span> : null}
                   </button>
                   <span className="space-card-actions">
-                    <button className="space-card-rename" type="button" onClick={() => setRenamingId((current) => current === item.id ? null : item.id)} aria-label={`Rename ${item.name}`} title="Rename Space"><Edit16Regular /></button>
-                    <button className="space-card-customize" type="button" onClick={() => onCustomize(item)} aria-label={`Customize ${item.name}`} title="Customize Space"><Color16Regular /></button>
-                    {onRemove ? <button className="space-card-delete" type="button" onClick={() => onRemove(item)} aria-label={`Remove ${item.name}`} title="Remove Space"><Delete16Regular /></button> : null}
+                    {onRemove ? (
+                      <button
+                        className="space-card-delete"
+                        type="button"
+                        onClick={() => onRemove(item)}
+                        aria-label={`${deletesFolder ? "Delete" : "Remove"} ${item.name}`}
+                        title={deletesFolder ? "Delete Space" : "Remove Space"}
+                      >
+                        <Delete16Regular />
+                      </button>
+                    ) : null}
                   </span>
                 </div>
-                <SpaceRenameEditor open={renamingId === item.id} space={item} onRenameSpace={onRename} onClose={() => setRenamingId(null)} />
               </div>
             );
           })}
@@ -492,8 +492,8 @@ export function LibraryPane({
         <div className="professional-library-empty">
           <EmptyState
             icon={<Library20Regular />}
-            title={noMatches ? "No Library items match" : "Your reusable Library"}
-            detail={noMatches ? "Try a different search." : "Keep templates, examples, and reference files here so they can be copied into any Space."}
+            title={noMatches ? "No Library items match" : "No Library items yet"}
+            detail={noMatches ? "Try a different search." : "Add files to reuse across Spaces."}
           />
         </div>
       ) : (
@@ -507,13 +507,12 @@ export function LibraryPane({
                   <div><span className="professional-kicker">Library item</span><h2>{selectedEntry.name}</h2></div>
                 </div>
                 <code className="professional-resource-path">{selectedEntry.path}</code>
-                <p>work-fold makes an independent copy under <strong>From Library</strong>. It is not automatically included in a Chat.</p>
                 <label className="professional-field library-destination-field">
                   <span className="professional-field-label">Add a copy to</span>
                   <select value={destinationSpace.id} disabled={busy} onChange={(event) => { setDestinationSpaceId(event.target.value); setNotice(""); }}>
                     {spaces.map((item) => <option value={item.id} key={item.id}>{libraryDestinationLabel(item, spaces)}</option>)}
                   </select>
-                  <span className="professional-field-hint">Your Library stays unchanged; only the new copy belongs to the selected Space.</span>
+                  <span className="professional-field-hint">Copies go to <strong>From Library</strong>. Your Library stays unchanged, and the copy is not added to Chat context.</span>
                 </label>
                 <div className="professional-actions">
                   <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={() => void copyToSpace()}>
@@ -523,7 +522,7 @@ export function LibraryPane({
                 {notice ? <p className="professional-status" role="status"><Checkmark16Regular />{notice}</p> : null}
               </div>
             ) : (
-              <EmptyState icon={<Library20Regular />} title="Choose a Library item" detail="Select a file or folder to see where it lives and add a copy to any registered Space." />
+              <EmptyState icon={<Library20Regular />} title="Choose a Library item" />
             )}
           </div>
         </div>
@@ -866,11 +865,11 @@ function LibraryTree({ entries, selected, onSelect, disabled = false, level = 0 
   );
 }
 
-function EmptyState({ icon, title, detail }: { icon: ReactNode; title: string; detail: string }) {
+function EmptyState({ icon, title, detail }: { icon: ReactNode; title: string; detail?: string }) {
   return (
     <div className="professional-empty-state">
       <span className="professional-empty-icon" aria-hidden="true">{icon}</span>
-      <div><h2>{title}</h2><p>{detail}</p></div>
+      <div><h2>{title}</h2>{detail ? <p>{detail}</p> : null}</div>
     </div>
   );
 }

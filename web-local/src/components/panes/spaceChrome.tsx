@@ -13,6 +13,8 @@ import {
   Checkmark16Regular,
   Checkmark20Regular,
   ChevronDown20Regular,
+  ChevronLeft20Regular,
+  ChevronRight20Regular,
   Dismiss20Regular,
   DocumentFolder24Filled,
   DocumentFolder24Regular,
@@ -577,35 +579,22 @@ function SpaceHeaderSwitcher({
   );
 }
 
-function SpaceRenameEditor({
-  open,
+function SpaceNameEditor({
   space,
   onRenameSpace,
-  onClose,
 }: {
-  open: boolean;
   space: SpaceSummary;
   onRenameSpace: (space: SpaceSummary, name: string) => Promise<void>;
-  onClose: () => void;
 }) {
   const [name, setName] = useState(space.name);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!open) return;
     setName(space.name);
     setSaving(false);
     setError(null);
-    const frame = window.requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [open, space.id, space.name]);
-
-  if (!open) return null;
+  }, [space.id, space.name]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -615,55 +604,54 @@ function SpaceRenameEditor({
       return;
     }
     if (nextName === space.name) {
-      onClose();
       return;
     }
     setSaving(true);
     setError(null);
     try {
       await onRenameSpace(space, nextName);
-      onClose();
     } catch (renameError) {
       setError(errorText(renameError));
+    } finally {
       setSaving(false);
     }
   }
 
   function handleKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
-    if (event.key !== "Escape" || saving) return;
+    if (event.key !== "Escape" || saving || name === space.name) return;
     event.preventDefault();
-    onClose();
+    setName(space.name);
+    setError(null);
   }
 
   return (
-    <div className="space-rename-panel">
-      <form className="space-rename-form" onSubmit={(event) => void handleSubmit(event)}>
-        <input
-          ref={inputRef}
-          value={name}
-          maxLength={80}
-          autoComplete="off"
-          disabled={saving}
-          onChange={(event) => {
-            setName(event.currentTarget.value);
-            if (error) setError(null);
-          }}
-          onKeyDown={handleKeyDown}
-          aria-label={`Space name for ${space.name}`}
-        />
-        <button className="space-rename-action save" type="submit" disabled={saving || !name.trim()} aria-label="Save Space name" title="Save">
-          {saving ? <ArrowClockwise20Regular className="spin" /> : <Checkmark20Regular />}
-        </button>
-        <button className="space-rename-action" type="button" disabled={saving} onClick={onClose} aria-label="Cancel rename" title="Cancel">
-          <Dismiss20Regular />
+    <div className="space-name-editor">
+      <form className="space-name-form" onSubmit={(event) => void handleSubmit(event)}>
+        <label>
+          <span>Space name</span>
+          <input
+            value={name}
+            maxLength={80}
+            autoComplete="off"
+            disabled={saving}
+            onChange={(event) => {
+              setName(event.currentTarget.value);
+              if (error) setError(null);
+            }}
+            onKeyDown={handleKeyDown}
+            aria-label={`Space name for ${space.name}`}
+          />
+        </label>
+        <button className="space-name-save" type="submit" disabled={saving || !name.trim() || name.trim() === space.name}>
+          {saving ? <ArrowClockwise20Regular className="spin" /> : "Save"}
         </button>
       </form>
-      {error ? <span className="space-rename-error">{error}</span> : null}
+      {error ? <span className="space-name-error" role="alert">{error}</span> : null}
     </div>
   );
 }
 
-const recommendedSpaceIconNames = new Set(["folder", "home", "briefcase", "files", "messages", "notebook", "calendar", "target", "people-team", "airplane", "star", "rocket"]);
+export const spaceIconPageSize = 96;
 
 function SpaceAppearancePanel({
   space,
@@ -685,18 +673,17 @@ function SpaceAppearancePanel({
   onResetSpace: (spaceId: string) => void;
 }) {
   const [iconSearchQuery, setIconSearchQuery] = useState("");
-  const [showAllIcons, setShowAllIcons] = useState(false);
+  const [iconPage, setIconPage] = useState(0);
   const [bannerUploadBusy, setBannerUploadBusy] = useState(false);
   const [bannerUploadError, setBannerUploadError] = useState<string | null>(null);
   const [proposalImportError, setProposalImportError] = useState<string | null>(null);
+  const previousIconSpaceRef = useRef(space.id);
   const bannerFileInputRef = useRef<HTMLInputElement>(null);
   const proposalFileInputRef = useRef<HTMLInputElement>(null);
   const spaceId = space.id;
-  const filteredSpaceIconOptions = useMemo(() => {
-    const matches = filterSpaceIconOptions(iconSearchQuery);
-    if (iconSearchQuery.trim() || showAllIcons) return matches;
-    return matches.filter((option) => recommendedSpaceIconNames.has(option.name));
-  }, [iconSearchQuery, showAllIcons]);
+  const matchingSpaceIconOptions = useMemo(() => filterSpaceIconOptions(iconSearchQuery), [iconSearchQuery]);
+  const iconPageCount = Math.max(1, Math.ceil(matchingSpaceIconOptions.length / spaceIconPageSize));
+  const visibleSpaceIconOptions = matchingSpaceIconOptions.slice(iconPage * spaceIconPageSize, (iconPage + 1) * spaceIconPageSize);
   const looks = useMemo(() => spaceLookOptions.map((look) => ({
     ...look,
     identity: spaceIdentityFor(space, {
@@ -713,12 +700,17 @@ function SpaceAppearancePanel({
   const customized = Boolean(customization && Object.values(customization).some((value) => value !== undefined && value !== null && value !== ""));
 
   useEffect(() => {
+    const changedSpace = previousIconSpaceRef.current !== spaceId;
+    previousIconSpaceRef.current = spaceId;
+    const options = changedSpace ? spaceIconOptions : matchingSpaceIconOptions;
+    const selectedIconIndex = options.findIndex((option) => option.name === identity.iconName);
+    setIconPage(selectedIconIndex < 0 ? 0 : Math.floor(selectedIconIndex / spaceIconPageSize));
+    if (!changedSpace) return;
     setIconSearchQuery("");
-    setShowAllIcons(false);
     setBannerUploadBusy(false);
     setBannerUploadError(null);
     setProposalImportError(null);
-  }, [spaceId]);
+  }, [spaceId, identity.iconName]);
 
   const appearancePasses = identity.resolved.passes;
   const uncertified = identity.resolved.uncertified.length > 0;
@@ -790,7 +782,6 @@ function SpaceAppearancePanel({
       <div className="space-appearance-toolbar">
         <div>
           <strong>Space appearance</strong>
-          <span>Saved on this computer. Importing a preset never runs code.</span>
         </div>
         <div className="space-appearance-toolbar-actions">
           <button type="button" disabled={!canUndo} onClick={() => onUndoSpace(spaceId)} title="Undo the last appearance change">
@@ -849,7 +840,6 @@ function SpaceAppearancePanel({
       <div className="space-appearance-row looks">
         <span className="space-appearance-label">
           <strong>Looks</strong>
-          <small>{activeLook ? `${activeLook.name} selected. Fine-tune anything below.` : "Start with a balanced color pair and finish."}</small>
         </span>
         <div className="space-look-gallery" role="group" aria-label="Curated Space looks">
           {looks.map((look) => {
@@ -879,12 +869,8 @@ function SpaceAppearancePanel({
           })}
         </div>
       </div>
-      <div className="space-appearance-fine-tune">
-        <strong>Fine tune</strong>
-        <span>Adjust one part without losing the rest of the look.</span>
-      </div>
       <div className="space-appearance-row colors">
-        <span className="space-appearance-label"><strong>Accent</strong><small>Identify this Space without recoloring the app.</small></span>
+        <span className="space-appearance-label"><strong>Accent</strong></span>
         <div className="space-color-controls">
           <div className="space-color-swatches" role="group" aria-label="Space color presets">
             {spaceColorOptions.map((option) => (
@@ -946,7 +932,7 @@ function SpaceAppearancePanel({
         </div>
       </div>
       <div className="space-appearance-row banners">
-        <span className="space-appearance-label"><strong>Banner</strong><small>Choose a restrained pattern or your own image.</small></span>
+        <span className="space-appearance-label"><strong>Banner</strong></span>
         <div className="space-banner-picker" style={spaceIdentityStyle(identity)}>
           <div className="space-banner-gallery" role="group" aria-label="Space banner styles">
             {spaceBannerOptions.map((option) => {
@@ -1019,44 +1005,53 @@ function SpaceAppearancePanel({
         </div>
       </div>
       <div className="space-appearance-row icons">
-        <span className="space-appearance-label"><strong>Icon</strong><small>Shown in the Space menu and tabs.</small></span>
+        <span className="space-appearance-label"><strong>Icon</strong></span>
         <div className="space-icon-picker">
           <label className="space-icon-search">
             <Search20Regular aria-hidden="true" />
             <input
               type="search"
               value={iconSearchQuery}
-              onChange={(event) => setIconSearchQuery(event.currentTarget.value)}
-              placeholder={`Search ${spaceIconOptions.length} icons`}
+              onChange={(event) => {
+                setIconSearchQuery(event.currentTarget.value);
+                setIconPage(0);
+              }}
+              placeholder="Search icons"
               aria-label="Search Space icons"
             />
           </label>
-          <div className="space-icon-grid" aria-label="Space icon">
-            {filteredSpaceIconOptions.map((option) => {
-              const Icon = option.Icon;
-              return (
-                <button
-                  className={identity.iconName === option.name ? "space-icon-option active" : "space-icon-option"}
-                  key={option.name}
-                  type="button"
-                  onClick={() => onCustomizeSpace(spaceId, { iconName: option.name })}
-                  aria-label={`Use ${option.label} icon`}
-                  aria-pressed={identity.iconName === option.name}
-                  title={option.label}
-                >
-                  <SpaceIconGlyph icon={Icon} size={18} filled={identity.iconName === option.name} />
-                </button>
-              );
-            })}
+          <div className="space-icon-browser">
+            <div className="space-icon-grid" aria-label="Space icon">
+              {visibleSpaceIconOptions.map((option) => {
+                const Icon = option.Icon;
+                return (
+                  <button
+                    className={identity.iconName === option.name ? "space-icon-option active" : "space-icon-option"}
+                    key={option.name}
+                    type="button"
+                    onClick={() => onCustomizeSpace(spaceId, { iconName: option.name })}
+                    aria-label={`Use ${option.label} icon`}
+                    aria-pressed={identity.iconName === option.name}
+                    title={option.label}
+                  >
+                    <SpaceIconGlyph icon={Icon} size={18} filled={identity.iconName === option.name} />
+                  </button>
+                );
+              })}
+              {!visibleSpaceIconOptions.length ? <span className="space-icon-empty">No icons found</span> : null}
+            </div>
           </div>
-          <span className="space-icon-result-count">
-            {filteredSpaceIconOptions.length ? `${filteredSpaceIconOptions.length} icons` : "No icons found"}
-          </span>
-          {!iconSearchQuery.trim() ? <button className="space-icon-browse" type="button" onClick={() => setShowAllIcons((current) => !current)}>{showAllIcons ? "Show recommended" : `Browse all ${spaceIconOptions.length}`}</button> : null}
+          {iconPageCount > 1 ? (
+            <div className="space-icon-pages" aria-label="Icon pages">
+              <button type="button" onClick={() => setIconPage((current) => Math.max(0, current - 1))} disabled={iconPage === 0} aria-label="Previous icon page"><ChevronLeft20Regular /></button>
+              <span className="space-icon-pager-status">{iconPage + 1} / {iconPageCount}</span>
+              <button type="button" onClick={() => setIconPage((current) => Math.min(iconPageCount - 1, current + 1))} disabled={iconPage >= iconPageCount - 1} aria-label="Next icon page"><ChevronRight20Regular /></button>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
   );
 }
 
-export { SpaceAppearancePanel, SpaceHeaderSwitcher, SpaceModeRail, SpacePaneHeader, SpaceRenameEditor };
+export { SpaceAppearancePanel, SpaceHeaderSwitcher, SpaceModeRail, SpaceNameEditor, SpacePaneHeader };

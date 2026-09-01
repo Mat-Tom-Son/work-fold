@@ -130,7 +130,7 @@ export function ChatActionsPopover({
           </div>
           <button ref={firstActionRef} type="button" disabled={busy} onClick={() => setView("rename")}>
             <Pencil size={14} />
-            <span><strong>Rename</strong><small>Change the Chat title</small></span>
+            <span><strong>Rename</strong></span>
           </button>
           {lifecycleView === "snoozed" ? (
             <button type="button" disabled={busy} onClick={() => void handleLifecycle({ snoozedUntil: null })}>

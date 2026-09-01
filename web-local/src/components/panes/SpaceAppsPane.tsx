@@ -35,10 +35,7 @@ export function SpaceAppsPane({
         <div>
           <span className="professional-kicker">Apps</span>
           <h1>Apps in {space.name}</h1>
-          <p>
-            Apps extend a Space the way Skills and Extensions do, with one difference: an app has its own screen.
-            It opens from the rail, and it can reach the network, your files, or notifications only where you allow it.
-          </p>
+          <p>Apps have their own screens. Network, file, and notification access stays off until you allow it.</p>
         </div>
         <div className="space-apps-actions">
           <button className="professional-button professional-button-primary" type="button" onClick={onBuildApp}><Add16Regular />Build with Assistant</button>
@@ -46,7 +43,7 @@ export function SpaceAppsPane({
       </header>
       <section className="capabilities-panel">
         {!loading && !apps.length ? (
-          <p className="space-apps-empty">No apps yet. Describe what you want and the Assistant builds it here for review.</p>
+          <p className="space-apps-empty">No apps yet.</p>
         ) : null}
         <RestrictedAppsSection
           space={space}

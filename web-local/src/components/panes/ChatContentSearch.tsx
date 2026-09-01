@@ -119,7 +119,7 @@ export function ChatContentSearch({
             </ul>
           )}
       {truncated
-        ? <p className="chat-content-search-note">Showing the first {visible.length} matches. Narrow the search to see fewer.</p>
+        ? <p className="chat-content-search-note">Showing the first {visible.length} matches.</p>
         : null}
       {state.result?.failedSpaces
         ? <p className="chat-content-search-note">Some Spaces couldn&rsquo;t be searched.</p>

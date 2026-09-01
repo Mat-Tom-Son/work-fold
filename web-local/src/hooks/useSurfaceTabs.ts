@@ -513,8 +513,17 @@ function restoreStoredSurfaceTabsForSpaces(state: SurfaceTabsState, spaces: Spac
 }
 
 function filterSurfaceTabsToSpaces(tabs: SpaceSurfaceTab[], spaces: SpaceSummary[]): SpaceSurfaceTab[] {
-  const spaceIds = new Set(spaces.map((item) => item.id));
-  return tabs.filter((tab) => spaceIds.has(tab.spaceId));
+  const spacesById = new Map(spaces.map((item) => [item.id, item]));
+  return tabs.reduce<SpaceSurfaceTab[]>((next, tab) => {
+    const owningSpace = spacesById.get(tab.spaceId);
+    if (!owningSpace) return next;
+    if (tab.kind !== "appearance") next.push(tab);
+    else {
+      const title = `Customize ${owningSpace.name}`;
+      next.push(tab.title === title ? tab : { ...tab, title });
+    }
+    return next;
+  }, []);
 }
 
 function normalizeActiveSurfaceTab(state: SurfaceTabsState): SurfaceTabsState {

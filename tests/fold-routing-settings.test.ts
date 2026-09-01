@@ -103,6 +103,19 @@ test("trusted Settings manages routings through staged authority with bounded ru
   const stagedAct = await api.stagedActs.get(staged.decisionId);
   assert.equal(stagedAct?.provenance.stagedVia, "desktop-settings");
   assert.match(stagedAct?.provenance.requestId ?? "", /^settings:/);
+  const cardsResponse = await fetch(`${api.origin}/api/management/decisions`);
+  assert.equal(cardsResponse.status, 200);
+  const cards = (await cardsResponse.json()) as {
+    decisions: Array<{ id: string; facts: Array<{ label: string; value: string }> }>;
+  };
+  const routingCard = cards.decisions.find((decision) => decision.id === staged.decisionId);
+  assert.ok(routingCard);
+  const routingFacts = new Map(routingCard.facts.map((fact) => [fact.label, fact.value]));
+  assert.equal(routingFacts.get("Title"), "Settings handoff");
+  assert.equal(routingFacts.get("Trigger"), "Manual only");
+  assert.match(routingFacts.get("Step 1 · Files · handoff") ?? "", /Routing source/);
+  assert.match(routingFacts.get("Step 1 · Files · handoff") ?? "", /notes\.txt/);
+  assert.match(routingFacts.get("Step 1 · Files · handoff") ?? "", /Routing destination/);
   await api.foldDecisions.decide(staged.decisionId, { decision: "approved", surface: "main-window" });
   assert.equal((await api.routings.getRouting(declaration.id))?.health, "enabled");
   await api.routingSettings.disable(declaration.id);

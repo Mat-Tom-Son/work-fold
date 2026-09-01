@@ -126,7 +126,7 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
                     <div className="settings-section-heading"><h3 id="appearance-theme-title">Theme</h3></div>
                     <div className="theme-segmented-control" role="radiogroup" aria-label="Color mode">
                       <button className={themePreference === "system" ? "active" : ""} type="button" role="radio" aria-checked={themePreference === "system"} aria-label={`Device setting, currently ${theme}`} onClick={() => { onThemePreferenceChange("system"); setAppearanceNotice("Saved"); }}>
-                        <Laptop20Regular /><span className="theme-choice-copy"><span>Device setting</span><small>Match your device’s appearance</small></span>
+                        <Laptop20Regular /><span className="theme-choice-copy"><span>Device setting</span></span>
                       </button>
                       <button className={themePreference === "light" ? "active" : ""} type="button" role="radio" aria-checked={themePreference === "light"} onClick={() => { onThemePreferenceChange("light"); setAppearanceNotice("Saved"); }}>
                         <WeatherSunny20Regular /><span className="theme-choice-copy"><span>Light</span></span>

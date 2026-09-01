@@ -166,7 +166,11 @@ import {
   type FoldDecisionReceiptsWriter,
   type FoldStagedActKindAdapter,
 } from "./fold-decisions.js";
-import { foldDecisionCard, type FoldDecisionCard } from "./fold-decision-cards.js";
+import {
+  foldDecisionCard,
+  type FoldDecisionCard,
+  type FoldDecisionCardFact,
+} from "./fold-decision-cards.js";
 import {
   FoldAuthorityError,
   FoldAuthorityStore,
@@ -233,6 +237,7 @@ import {
   type RestrictedAppViewerAdapter,
 } from "./agent/restricted-app-viewer.js";
 import {
+  assertWorkFoldRoutingAtStagingHorizon,
   declarationFromWorkFoldRoutingProposal,
   normalizeWorkFoldRoutingDeclaration,
   normalizeWorkFoldRoutingProposal,
@@ -8323,8 +8328,31 @@ function capabilityGlobalMutationScope(): { id: string; spaceRoot: string } {
  * surface; nothing here reads model prose.
  */
 async function composeDecisionCards(acts: FoldStagedAct[]): Promise<FoldDecisionCard[]> {
-  const spaceNames = new Map((await listSpaces()).map((space) => [space.id, space.name]));
-  return acts.map((act) => foldDecisionCard(act, { spaceNames }));
+  const spaces = await listSpaces();
+  const spacesById = new Map(spaces.map((space) => [space.id, space]));
+  const spaceNames = new Map(spaces.map((space) => [space.id, space.name]));
+  const routingFacts = new Map<string, readonly FoldDecisionCardFact[]>();
+  await Promise.all(acts.map(async (act) => {
+    if (act.kind !== "routing.enable") return;
+    const digest = typeof act.pins.declarationDigest === "string" ? act.pins.declarationDigest : "";
+    let declaration: WorkFoldRoutingDeclaration | null = null;
+    try {
+      declaration = digest ? await loadStagedRoutingDeclaration(digest) : null;
+    } catch {
+      declaration = null;
+    }
+    if (!declaration || declaration.id !== act.pins.routingId) {
+      if (act.state === "staged") {
+        routingFacts.set(act.id, [{
+          label: "Review",
+          value: "Exact declaration unavailable. Approval will be refused; restage this routing.",
+        }]);
+      }
+      return;
+    }
+    routingFacts.set(act.id, routingDecisionFacts(declaration, spacesById));
+  }));
+  return acts.map((act) => foldDecisionCard(act, { spaceNames, routingFacts }));
 }
 
 function compareIsoStrings(left: string, right: string): number {
@@ -8888,6 +8916,11 @@ async function stageStoredRoutingDeclaration(
   referencedSpaceIds: string[];
 }> {
   const normalized = normalizeWorkFoldRoutingDeclaration(declaration);
+  try {
+    assertWorkFoldRoutingAtStagingHorizon(normalized, new Date());
+  } catch (error) {
+    throw new WorkFoldCliError("conflict", errorMessage(error), { cause: error });
+  }
   const actualDigest = workFoldRoutingDigest(normalized);
   if (actualDigest !== digest) {
     throw new WorkFoldCliError(
@@ -8960,6 +8993,70 @@ async function loadStagedRoutingDeclaration(digest: string): Promise<WorkFoldRou
   }
   const declaration = normalizeWorkFoldRoutingDeclaration(JSON.parse(text));
   return workFoldRoutingDigest(declaration) === digest ? declaration : null;
+}
+
+function routingDecisionFacts(
+  declaration: WorkFoldRoutingDeclaration,
+  spacesById: ReadonlyMap<string, SpaceSummary>,
+): FoldDecisionCardFact[] {
+  const facts: FoldDecisionCardFact[] = [
+    { label: "Title", value: declaration.title },
+    { label: "Trigger", value: routingDecisionTrigger(declaration, spacesById) },
+  ];
+  for (const [index, step] of declaration.steps.entries()) {
+    const label = `Step ${index + 1} · ${step.kind === "chat" ? "Chat" : step.kind === "files" ? "Files" : "Check"} · ${step.id}`;
+    if (step.kind === "chat") {
+      facts.push({
+        label,
+        value: `${routingDecisionSpace(step.space, spacesById)}\nMessage:\n${step.message}\nUses this Space's current Assistant authority.`,
+      });
+      continue;
+    }
+    if (step.kind === "files") {
+      const source = step.from.kind === "paths"
+        ? `Paths: ${step.from.paths.join(", ")}`
+        : step.from.kind === "tree"
+          ? `Tree: ${step.from.path} · ${step.from.recursive ? "recursive" : "this folder"} · ${step.from.extensions.join(", ")}`
+          : `Files created by step ${step.from.step} · up to ${step.from.maxFiles} files / ${step.from.maxTotalBytes} bytes${
+            step.from.extensions ? ` · ${step.from.extensions.join(", ")}` : ""
+          }`;
+      const destination = spacesById.get(step.toSpace);
+      const destinationRoot = destination?.spaceRoot ?? step.toSpace;
+      facts.push({
+        label,
+        value: `From ${routingDecisionSpace(step.fromSpace, spacesById)}\n${source}\nTo ${routingDecisionSpace(step.toSpace, spacesById)}\nDestination: ${step.to === "." ? destinationRoot : join(destinationRoot, step.to)}`,
+      });
+      continue;
+    }
+    facts.push({
+      label,
+      value: `${routingDecisionSpace(step.space, spacesById)}\n${step.check ? `Check: ${step.check}` : "All enabled Checks"}`,
+    });
+  }
+  return facts;
+}
+
+function routingDecisionTrigger(
+  declaration: WorkFoldRoutingDeclaration,
+  spacesById: ReadonlyMap<string, SpaceSummary>,
+): string {
+  const trigger = declaration.trigger;
+  if (trigger.kind === "manual") return "Manual only";
+  if (trigger.kind === "interval") return `Every ${trigger.intervalMinutes} minutes`;
+  if (trigger.kind === "at") {
+    const local = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(trigger.at));
+    return `Once · ${local} local (${trigger.at}) · ${trigger.ifMissed === "run" ? "Run if missed" : "Skip if missed"}`;
+  }
+  const source = trigger.source;
+  if (source.kind === "check-run") {
+    return `After ${source.check ? `Check ${source.check}` : "any Check"} in ${routingDecisionSpace(source.space, spacesById)} · ${source.outcomes.join(", ")}`;
+  }
+  return `After app automation ${source.appId}/${source.automationId} in ${routingDecisionSpace(source.space, spacesById)} · ${source.outcomes.join(", ")}`;
+}
+
+function routingDecisionSpace(spaceId: string, spacesById: ReadonlyMap<string, SpaceSummary>): string {
+  const space = spacesById.get(spaceId);
+  return space ? `${space.name} — ${space.spaceRoot}` : `${spaceId} (removed)`;
 }
 
 /**

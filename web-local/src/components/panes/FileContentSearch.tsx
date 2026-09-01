@@ -84,7 +84,7 @@ export function FileContentSearch({ spaceId, query, onOpenFile }: {
             </ul>
           )}
       {matches.length > visible.length || state.result?.truncated
-        ? <p className="file-content-search-note">Showing the first {visible.length} matches. Narrow the search to see fewer.</p>
+        ? <p className="file-content-search-note">Showing the first {visible.length} matches.</p>
         : null}
     </section>
   );

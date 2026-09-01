@@ -472,6 +472,54 @@ test("a one-time routing runs once, durably completes before hop 1, and run-now 
   );
 });
 
+test("a one-time slot due during run-now waits and executes after the manual copy", async (t) => {
+  for (const ifMissed of ["run", "skip"] as const) {
+    const harness = await createHarness(t);
+    const release = deferred();
+    harness.ports.chatImpl = async (_step, context) => {
+      if (context.lineage.cause.kind === "run-now") await release.promise;
+      return harness.ports.defaultChat(_step, context);
+    };
+    const routingId = `routing-at-manual-overlap-${ifMissed}`;
+    await harness.enable(declarationInput(routingId, {
+      version: 2,
+      trigger: { kind: "at", at: "2026-07-14T12:01:00.000Z", ifMissed },
+    }));
+
+    const manual = harness.service.runNow(routingId, { requestId: `manual-${ifMissed}` });
+    await waitForCondition(
+      () => harness.ports.calls.filter((call) => call.routingId === routingId).length === 1,
+      "the manual copy to start",
+    );
+    harness.clock.advance(minute);
+    await waitForCondition(
+      async () => (await harness.journal()).some((line) => (
+        line.routingId === routingId
+        && line.scope === "run"
+        && line.outcome === "skipped"
+        && line.cause?.kind === "scheduled"
+      )),
+      "the overlapping scheduled admission to record without consuming the slot",
+    );
+    assert.equal((await harness.store.get(routingId))?.health, "enabled");
+    assert.equal((await harness.store.get(routingId))?.atOccurrence, undefined);
+
+    release.resolve();
+    await manual;
+    harness.clock.advance(0);
+    await waitForCondition(
+      async () => (await harness.store.get(routingId))?.atOccurrence?.finishedAt !== undefined,
+      "the preserved one-time slot to finish after the manual copy",
+    );
+    assert.equal((await harness.store.get(routingId))?.health, "completed");
+    assert.equal(
+      harness.ports.calls.filter((call) => call.routingId === routingId).length,
+      2,
+      "the manual copy and the exact scheduled slot each run once",
+    );
+  }
+});
+
 test("a crash after the durable one-time claim cannot replay the occurrence", async (t) => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-routing-at-claim-recovery-"));
   t.after(() => rm(sandbox, { recursive: true, force: true }));

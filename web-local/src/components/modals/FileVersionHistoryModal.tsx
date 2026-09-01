@@ -175,7 +175,7 @@ function FileVersionHistoryModal({
           )}
         </div>
         <p className="file-history-footnote">
-          Restoring writes the older contents back to this file. If it is open in Word, Excel, or PowerPoint, close and reopen it to see the restored version.
+          If the file is open in Word, Excel, or PowerPoint, close and reopen it to see the restored version.
         </p>
       </section>
     </div>

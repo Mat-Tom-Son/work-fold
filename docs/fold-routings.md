@@ -104,10 +104,11 @@ deterministic jitter. Missed slots never queue.
 `{"kind":"at","at":"2026-09-01T21:00:00-04:00","ifMissed":"run"}`
 and requires declaration version 2. `at` must carry an explicit UTC offset;
 normalization stores one UTC instant. Enablement rechecks that the instant is
-at least 1 minute and no more than 366 days ahead. `ifMissed` is `run` or
-`skip`: after launch or wake, `run` admits one bounded catch-up for the exact
-slot while `skip` records that the occurrence did not run. Nothing runs while
-work-fold is quit.
+at least 1 minute and no more than 366 days ahead. Staging requires at least
+2 minutes so Reviewed mode never creates a card already destined to fail
+while a person reads it. `ifMissed` is `run` or `skip`: after launch or wake,
+`run` admits one bounded catch-up for the exact slot while `skip` records that
+the occurrence did not run. Nothing runs while work-fold is quit.
 
 Sleep does not spend work that never launched. If a due `run` occurrence is
 waiting for a scheduler slot when suspension cancels the admission, its
@@ -130,8 +131,11 @@ on a merely proposed routing is refused: enablement is what binds the
 person's review to the exact declaration digest, and the executor must never
 run an unreviewed standing declaration, even once.
 For a one-time routing, Run now executes an independent copy and leaves its
-declared slot untouched. After the slot is consumed, completed health refuses
-Run now; another occurrence is a new proposal and enablement.
+declared slot untouched. If that copy is still running when the slot becomes
+due, the exact slot waits behind the copy and launches once it settles; the
+overlap receipt does not claim or complete the occurrence. After the slot is
+consumed, completed health refuses Run now; another occurrence is a new
+proposal and enablement.
 
 ## The declaration
 
@@ -224,7 +228,8 @@ restricted-app service's instance was rejected: it would let one Space
 app's jobs starve cross-Space glue and couple two authority domains to one
 lifecycle. That buys, verbatim from the proven scheduler: FIFO admission,
 per-routing non-overlap (an overlapping admission settles `skipped` and is
-receipted as such), interval and one-time schedules, durable cadence,
+receipted as such; a one-time slot overlapping its own run-now copy remains
+pending), interval and one-time schedules, durable cadence,
 bounded catch-up with
 deterministic stagger, suspension and resumption across sleep and quit, and
 abort signals through every run.
@@ -314,9 +319,8 @@ are not queued. Routing runs register as the experimental kernel task kind
    from an approved browser. The receipt records the decision surface and
    browser identity, and revoking a browser cancels its pending decisions.
    In Reviewed, the card shows the whole declaration in review form: every
-   Space by current name and folder, the Chat step's message verbatim —
-   labeled as text that will enter that Space's portable transcript — exact
-   paths, selectors, filters and bounds, the Check by title, and the
+   Space by current name and folder, the Chat step's message verbatim, exact
+   paths, selectors, filters and bounds, the Check by exact id, and the
    trigger; a created-files handoff is stated plainly as future model
    output shaped by the source Space's content. Enablement records an
    exact-authority grant over the declaration digest. The digest pins the

@@ -1161,14 +1161,19 @@ export class WorkFoldRoutingService {
         record?.declaration.trigger.kind === "interval"
         || (record?.declaration.trigger.kind === "at" && record.declaration.trigger.ifMissed === "run")
       );
-      if (catchUpSurvivesLifecyclePause) {
+      const oneTimeSlotSurvivesManualOverlap = result.notLaunchedReason === "overlap"
+        && (cause.kind === "scheduled" || cause.kind === "resume")
+        && record?.declaration.trigger.kind === "at";
+      if (catchUpSurvivesLifecyclePause || oneTimeSlotSurvivesManualOverlap) {
         await this.#receipts.append({
           scope: "run",
           outcome: "skipped",
           routingId,
           runId: result.runId,
           cause,
-          detail: `${result.error ?? "The admission paused before launch."} Its durable schedule remains eligible for catch-up.`,
+          detail: oneTimeSlotSurvivesManualOverlap
+            ? `${result.error ?? "The admission paused before launch."} The one-time slot remains pending until the manual copy settles.`
+            : `${result.error ?? "The admission paused before launch."} Its durable schedule remains eligible for catch-up.`,
         });
         return;
       }
