@@ -276,7 +276,10 @@ const checkSettle: WorkFoldCheckRunSettleRecord = {
 };
 
 async function waitForCondition(predicate: () => Promise<boolean> | boolean, label: string): Promise<void> {
-  for (let attempt = 0; attempt < 400; attempt += 1) {
+  // CI runs the filesystem-heavy routing suite beside the rest of the test
+  // matrix, so a durable receipt can take longer than the old two-second
+  // polling window even though the fake scheduler has already fired.
+  for (let attempt = 0; attempt < 2_000; attempt += 1) {
     if (await predicate()) return;
     await new Promise<void>((resolve) => setTimeout(resolve, 5));
   }
