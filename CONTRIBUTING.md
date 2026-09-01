@@ -7,7 +7,10 @@ Thanks for helping make folder-based computer work more understandable and more 
 Before changing navigation, terminology, storage, trust, or Assistant behavior, read:
 
 - [Product model and roadmap](docs/product-model.md)
+- [App platform foundation](docs/app-platform-foundation.md)
 - [Assistant capabilities](docs/assistant-capabilities.md)
+- [Checks](docs/checks.md)
+- [The fold](docs/fold.md)
 - [Restricted app runtime](docs/restricted-app-runtime.md)
 - [Restricted app authoring](docs/restricted-app-authoring.md)
 - [Architecture](docs/architecture.md)
@@ -29,10 +32,10 @@ Do not put API keys, tokens, private file contents, personal paths, or security 
 
 work-fold requires Node 22.19.0 or newer.
 
-```powershell
+```bash
 git clone https://github.com/Mat-Tom-Son/work-fold.git
 cd work-fold
-npm install
+npm ci
 npm run local:dev
 ```
 
@@ -42,11 +45,17 @@ Keep changes focused and avoid committing generated `dist/`, `out/`, user-data, 
 
 Codex reads the root `AGENTS.md` directly. Claude Code reads the tracked root `CLAUDE.md`, which imports `AGENTS.md` with `@AGENTS.md`. Update shared rules only in `AGENTS.md`; do not create a parallel harness-specific build, test, release, terminology, architecture, Skill, Extension, or tool contract. Both harnesses work against the same Pi-owned capability catalog and the same product documentation.
 
+Shared project Skills have one source in `.agents/skills/`. Codex discovers that
+tree directly. Tracked symlinks under `.claude/skills/` expose the same Skills to
+Claude Code without duplicating their contents. Everything else under `.claude/`
+and `.codex/` is ignored machine-local launch, permission, session, or worktree
+state. A fresh clone therefore gives both harnesses the same rules and workflows.
+
 Both harnesses can inspect an installed app through `work-fold ... --json`. To drive one real Assistant turn through the development local API and native Pi runtime:
 
-```powershell
-npm run work-fold:drive -- --space-root C:\path\to\space --prompt "Summarize this Space"
-npm run work-fold:drive -- --space-root C:\path\to\space --prompt "..." --json --agent-dir C:\temp\isolated-pi
+```bash
+npm run work-fold:drive -- --space-root /path/to/space --prompt "Summarize this Space"
+npm run work-fold:drive -- --space-root /path/to/space --prompt "..." --json --agent-dir /tmp/isolated-pi
 ```
 
 Use the installed CLI for read-only management snapshots and `work-fold:drive` for an end-to-end Pi turn. See [work-fold management layer](docs/management-layer.md) for their different boundaries.
@@ -88,7 +97,10 @@ A useful pull request:
 
 Maintainers publish releases from clean version tags. Contributors should not rewrite a released tag or replace artifacts beneath an existing version.
 
-The full maintainer sequence—local candidate, green main CI, exact annotated tag, tagged release workflow, public asset verification, and installed updater smoke—is documented in [Windows releases and signing](docs/windows-release.md).
+The full active maintainer sequence—local candidate, green main CI, exact
+annotated tag, guarded publication, public asset verification, and installed
+updater smoke—is documented in the [macOS release runbook](docs/macos-release.md).
+The Windows references are dormant notes for a future deliberate reactivation.
 
 ## License
 

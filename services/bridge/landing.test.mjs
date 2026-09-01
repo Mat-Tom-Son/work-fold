@@ -70,11 +70,11 @@ test("the landing page shows the four app screenshots at a fixed aspect ratio", 
 
   // Intrinsic sizes plus a CSS aspect-ratio keep the layout stable while the
   // images load, and keep them from being stretched.
-  assert.ok(landing.includes('width="2880" height="1800"'));
+  assert.ok(landing.includes('width="1440" height="900"'));
   assert.ok(landing.includes('width="800" height="1120"'));
-  assert.ok(landing.includes('width="2560" height="1600"'));
-  assert.ok(landing.includes('width="750" height="1624"'));
-  for (const rule of ["aspect-ratio: 16 / 10", "aspect-ratio: 400 / 560", "aspect-ratio: 750 / 1624"]) {
+  assert.ok(landing.includes('width="1280" height="800"'));
+  assert.ok(landing.includes('width="375" height="812"'));
+  for (const rule of ["aspect-ratio: 16 / 10", "aspect-ratio: 400 / 560", "aspect-ratio: 375 / 812"]) {
     assert.ok(styles.includes(rule), `${rule} is declared`);
   }
 

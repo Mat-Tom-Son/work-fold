@@ -144,7 +144,7 @@
 .shot-desktop img { aspect-ratio: 16 / 10; }
 .shot-popover img { aspect-ratio: 400 / 560; }
 .shot-web img { aspect-ratio: 16 / 10; }
-.shot-phone img { aspect-ratio: 750 / 1624; }
+.shot-phone img { aspect-ratio: 375 / 812; }
 
 /* Text beside the tall menu-bar popover. */
 .landing-split {

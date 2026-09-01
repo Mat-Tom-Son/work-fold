@@ -30,7 +30,7 @@ export function renderLanding(app) {
         <p>The left side lists the files in that Space's folder — the same files Finder shows. The Chat on the right runs the Assistant in that folder, using the files you attach as its context. History records a restore point around file changes and Assistant turns, so you can put the folder back the way it was.</p>
       </div>
       <figure class="shot shot-desktop">
-        <img src="/screens/desktop-space.png" width="2880" height="1800" decoding="async" alt="The work-fold main window with a Space open: the folder's files listed on the left, a Chat with the Assistant on the right." />
+        <img src="/screens/desktop-space.png" width="1440" height="900" decoding="async" alt="The work-fold main window with a Space open: the folder's files listed on the left, a Chat with the Assistant on the right." />
       </figure>
     </section>
 
@@ -40,7 +40,7 @@ export function renderLanding(app) {
         <p>The fold is one conversation that sits above all your Spaces, open from the menu bar even after the last window closes. Drop files, folders, or links on it, add an instruction, and it files them into the right Space with a restore point where they land.</p>
       </div>
       <figure class="shot shot-popover">
-        <img src="/screens/fold-popover.png" width="800" height="1120" loading="lazy" decoding="async" alt="The work-fold menu-bar popover: a drop zone for files, folders, and links above the message box, with the What’s new strip at the bottom." />
+        <img src="/screens/fold-popover.png" width="800" height="1120" loading="lazy" decoding="async" alt="The work-fold menu-bar popover in a clean new chat state, with the model and reasoning level beside the composer action." />
       </figure>
     </section>
 
@@ -51,10 +51,10 @@ export function renderLanding(app) {
       </div>
       <div class="shot-pair">
         <figure class="shot shot-web">
-          <img src="/screens/web-chat.png" width="2560" height="1600" loading="lazy" decoding="async" alt="The work-fold web client in a desktop browser: the fold's conversation beside its list of saved chats." />
+          <img src="/screens/web-chat.png" width="1280" height="800" loading="lazy" decoding="async" alt="The work-fold web client in a desktop browser: the fold's conversation beside its list of saved chats." />
         </figure>
         <figure class="shot shot-phone">
-          <img src="/screens/web-phone.png" width="750" height="1624" loading="lazy" decoding="async" alt="The same conversation in a phone browser, with the menu button and composer." />
+          <img src="/screens/web-phone.png" width="375" height="812" loading="lazy" decoding="async" alt="The same conversation in a phone browser, with the menu button and composer." />
         </figure>
       </div>
     </section>

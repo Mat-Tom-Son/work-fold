@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile, readlink } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 
 const root = process.cwd();
 
 test("Claude Code imports the canonical Codex contributor contract", async () => {
-  const [claude, agents] = await Promise.all([
+  const [claude, agents, gitignore] = await Promise.all([
     readFile(join(root, "CLAUDE.md"), "utf8"),
     readFile(join(root, "AGENTS.md"), "utf8"),
+    readFile(join(root, ".gitignore"), "utf8"),
   ]);
 
   assert.match(claude, /^@AGENTS\.md$/m);
@@ -16,7 +17,29 @@ test("Claude Code imports the canonical Codex contributor contract", async () =>
   assert.match(agents, /Harness parity/);
   assert.match(agents, /Native full-trust Skills, Extensions, built-in tools, and their catalog\/runtime remain Pi-owned/);
   assert.match(agents, /work-fold owns the product documentation and restricted-app lane, but both remain harness-neutral/);
+  assert.match(agents, /\.agents\/skills\//);
+  assert.match(gitignore, /^\/\.claude\/\*$/m);
+  assert.match(gitignore, /^!\/\.claude\/skills\/ship-macos-release$/m);
+  assert.match(gitignore, /^\.codex\/$/m);
+  assert.equal(
+    await readlink(join(root, ".claude", "skills", "ship-macos-release")),
+    "../../.agents/skills/ship-macos-release",
+  );
   assert.doesNotMatch(claude, /npm run desktop:make/);
+});
+
+test("README walkthrough uses stable tracked screenshots", async () => {
+  const readme = await readFile(join(root, "README.md"), "utf8");
+  const screenshots = [
+    "docs/images/work-fold-main-window.png",
+    "docs/images/work-fold-popover.png",
+    "docs/images/work-fold-web.png",
+  ];
+  for (const screenshot of screenshots) {
+    assert.ok(readme.includes(screenshot));
+    await access(join(root, screenshot));
+  }
+  assert.doesNotMatch(readme, /output\/playwright\/work-fold-/);
 });
 
 test("canonical product docs keep Library and Assistant tools in Space-owned tabs", async () => {

@@ -4,11 +4,20 @@ node_modules/
 !.env.example
 .railway/
 .tools/railway/
-.claude/
+.codex/
+.playwright-cli/
 CLAUDE.local.md
+
+# Claude Code project Skills are thin symlinks to the canonical .agents source.
+# Everything else under .claude remains machine-local.
+/.claude/*
+!/.claude/skills/
+/.claude/skills/*
+!/.claude/skills/ship-macos-release
 
 dist/
 out/
+output/
 *.log
 *.p12
 *.pfx

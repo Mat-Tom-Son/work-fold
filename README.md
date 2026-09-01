@@ -30,19 +30,19 @@ The files stay where they are: the left side lists the folder exactly as
 Finder shows it, and the Chat on the right runs the Assistant in that folder,
 using the files you attach as its context.
 
-![The work-fold main window: a Space's files on the left, a Chat with the Assistant on the right](output/playwright/work-fold-0.3.6-space.png)
+![The work-fold main window: a Space's files on the left, a Chat with the Assistant on the right](docs/images/work-fold-main-window.png)
 
 On a Mac, the fold also lives in the menu bar, open even after the last
 window closes. Drop files, folders, or links on it, add an instruction, and
 it files them into the right Space with a restore point where they land.
 
-![The work-fold menu-bar popover: an always-visible conversation above one compact composer](output/playwright/work-fold-0.3.6-popover.png)
+![The work-fold menu-bar popover in a clean new-chat state, with model and reasoning controls inside the composer](docs/images/work-fold-popover.png)
 
 The same conversation is reachable from any browser at a private address you
 choose (`<name>.work-fold.com`), after a password sign-in and a one-time
 six-digit approval on your Mac, while your desktop is online.
 
-![Your fold on the web: the saved-chat sidebar beside a conversation](output/playwright/work-fold-0.3.6-web.png)
+![Your fold on the web: the saved-chat sidebar beside a conversation](docs/images/work-fold-web.png)
 
 ## Product model
 
@@ -80,6 +80,7 @@ work-fold reserves two hidden support directories inside a Space: `.work-fold/` 
 - A personal Library for organizing reusable files and copying them into Spaces when needed.
 - Pi's normal built-in tools, provider/model selection, API-key and supported provider OAuth authentication, prompt templates, context files, and packages.
 - Chat composer discovery for installed Skills, prompts, Extension commands, and supported built-ins, plus clickable active-model/context visibility and a text-only reasoning selector when the model supports multiple levels.
+- One model-generated title request after a Chat's first successful turn, plus a bounded Thinking/tool trail that remains readable after tab switches and app restarts without replaying completed work.
 - Active, snoozed, and archived Chat views with automatic resurfacing, undoable lifecycle actions, read-only deferred transcripts, quiet running/finished indicators for background work, and collapsed groups for Chats in other Spaces.
 - Per-Space identity customization with curated one-click Looks, semantic light/dark colour roles, paired banner colours, safe images, searchable Fluent icons, dual previews, contrast auditing, undo/reset, and code-free proposal import/export.
 - One Space-owned Assistant tools work tab for installed Skills and Extensions, official/reference sources, community Pi packages, provenance, scope, diagnostics, update, and removal, opened on demand from Add, the command palette, or the desktop shortcut.
@@ -161,7 +162,7 @@ This is the first management primitive for a future cross-Space Assistant and co
 Use Node 22.19.0 or newer.
 
 ```bash
-npm install
+npm ci
 npm run local:dev
 ```
 
@@ -207,6 +208,13 @@ CI runs on macOS and executes `check`, `test`, and `desktop:prepare`. Signed pac
 
 The repository has one contributor contract: [AGENTS.md](AGENTS.md). Codex reads it directly. The tracked [CLAUDE.md](CLAUDE.md) uses Claude Code's `@AGENTS.md` import so both harnesses receive the same product rails, commands, test expectations, release rules, and Pi Skill/Extension/tool boundaries without duplicated prose. Product tools remain the same native Pi catalog regardless of which development harness edits the repository.
 
+Shared project Skills have one source under `.agents/skills/`. Codex discovers
+that tree directly, while tracked symlinks under `.claude/skills/` expose those
+same Skills to Claude Code. Everything else under `.claude/` and `.codex/` stays
+ignored as machine-local launch, permission, session, or worktree state. A fresh
+clone therefore gets the same contributor contract and workflows in either
+harness without maintaining duplicate instructions.
+
 The standard project Skill [Ship macOS Release](.agents/skills/ship-macos-release/SKILL.md) routes agents through the same documented candidate, checkpoint, recovery, verification, and publication lanes; it does not define a harness-specific release path.
 
 Both harnesses can author and audit the exact same inert Space-appearance proposal:
@@ -231,16 +239,21 @@ The proposal is ordinary reviewable JSON. Enablement remains a separate authenti
 
 To exercise one real Assistant turn through the same local API, Pi runtime, tools, Skills, Extensions, persistence, and event stream as the desktop app:
 
-```powershell
-npm run work-fold:drive -- --space-root C:\path\to\space --prompt "Summarize this Space"
-npm run work-fold:drive -- --space-root C:\path\to\space --prompt "..." --json --agent-dir C:\temp\isolated-pi
+```bash
+npm run work-fold:drive -- --space-root /path/to/space --prompt "Summarize this Space"
+npm run work-fold:drive -- --space-root /path/to/space --prompt "..." --json --agent-dir /tmp/isolated-pi
 ```
 
 In-process driver runs use temporary application state unless `WORKFOLD_STATE_DIR` is set. Use `--attach http://127.0.0.1:4327` to drive an already-running development API. This driver performs a real agent turn; it is distinct from the read-only installed management CLI below.
 
 ## work-fold CLI
 
-The Windows installer includes a `work-fold` command and adds its package-root `bin` directory to the current user's `PATH`. The Mac app carries the same command under `work-fold.app/Contents/bin`; work-fold adds that directory to child processes so Pi shell tools can use it. A DMG does not silently edit shell profiles, so exposing the command to unrelated Terminal sessions remains an explicit installation action.
+The Mac app carries the `work-fold` command under
+`work-fold.app/Contents/bin`; work-fold adds that directory to child processes
+so Pi shell tools can use it. A DMG does not silently edit shell profiles, so
+exposing the command to unrelated Terminal sessions remains an explicit
+installation action. Dormant Windows installer code retains the equivalent
+package-root `bin` integration for a future reactivation.
 
 The command uses a bounded protocol-v1 handoff under the owning app's platform application-data directory. Installed production apps use `%APPDATA%\work-fold\cli` on Windows and `~/Library/Application Support/work-fold/cli` on macOS; uninstalled Windows packages use `%APPDATA%\work-fold Development\cli`, and the separately identified Mac smoke app uses its own directory. It writes one atomic request, starts or contacts the packaged app, returns stdout, stderr, and the exit code, and removes the response. Platform helpers remain outside `app.asar`, Electron's `RunAsNode` fuse stays disabled, and the CLI-only state root cannot opt another desktop process into the parent's data.
 
@@ -295,7 +308,8 @@ See [Assistant capabilities](docs/assistant-capabilities.md) for the product-fac
 - [Architecture](docs/architecture.md), [management layer](docs/management-layer.md), and [Checks](docs/checks.md) — runtime boundaries, shared kernel/CLI, agent harness, and optional evidence-backed expectations over designated files.
 - [The fold](docs/fold.md) — the fold's decision register: the verb ledger, needs-you decisions and standing policies, routings, the glance, and the publishing ladder.
 - [Assistant capabilities](docs/assistant-capabilities.md), [Extension surfaces](docs/extension-surfaces.md), [restricted app authoring](docs/restricted-app-authoring.md), [restricted app runtime](docs/restricted-app-runtime.md), and [Pi compatibility](docs/pi-resources.md) — Skills, full-trust Extensions, restricted apps, packages, scopes, authoring, and authorization.
-- [Legacy Workspace release notes](docs/releases/0.8.0.md) — the historical pre-rebrand release series is preserved byte-for-byte under `docs/releases/`; it is evidence, not the work-fold version lineage.
+- [Current release notes](docs/releases/0.3.13.md) — the shipped work-fold 0.3.13 behavior and verification record.
+- [Legacy Workspace release evidence](docs/releases/0.8.0.md) — retained pre-rebrand notes are historical evidence, not the work-fold version lineage.
 - [Desktop parity](docs/ui-parity.md) and [visual system](docs/visual-design.md) — required interactions and design rules.
 - [macOS build lane](docs/macos-build.md) and [macOS release runbook](docs/macos-release.md) — active verification, signing, updater, and publishing boundaries. The [Windows build](docs/windows-build.md) and [Windows release](docs/windows-release.md) references are dormant future notes.
 - [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), and [Privacy](PRIVACY.md) — repository and user-data policies.

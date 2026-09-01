@@ -41,7 +41,7 @@ claimed by the canonical documents.
 | Held item | Gate |
 |---|---|
 | V-2 — the visual-design bullet admitting a menu-bar/tray attention dot while decisions pend | The visual-acceptance pass must accept the dot; it is not implemented and no acceptance is recorded. Until then the dot exists only as the pass-gated possibility U-3 names. |
-| README walkthrough screenshots | Discharged 2026-08-23: the 0.1.4 captures were replaced by `output/playwright/work-fold-0.3.6-*.png` (main window, popover, web client) alongside the web-client redesign, and the walkthrough was rewritten around them. |
+| README walkthrough screenshots | Discharged 2026-08-23 and refreshed 2026-09-01: the tracked `docs/images/work-fold-*.png` captures show the current main window, menu-bar popover, and web client without personal data. |
 
 Two originally held items were discharged at ship time with the 0.3.0
 release commit: the fold's release notes landed as
