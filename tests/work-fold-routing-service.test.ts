@@ -276,10 +276,7 @@ const checkSettle: WorkFoldCheckRunSettleRecord = {
 };
 
 async function waitForCondition(predicate: () => Promise<boolean> | boolean, label: string): Promise<void> {
-  // CI runs the filesystem-heavy routing suite beside the rest of the test
-  // matrix, so a durable receipt can take longer than the old two-second
-  // polling window even though the fake scheduler has already fired.
-  for (let attempt = 0; attempt < 2_000; attempt += 1) {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
     if (await predicate()) return;
     await new Promise<void>((resolve) => setTimeout(resolve, 5));
   }
@@ -495,15 +492,10 @@ test("a one-time slot due during run-now waits and executes after the manual cop
       "the manual copy to start",
     );
     harness.clock.advance(minute);
-    await waitForCondition(
-      async () => (await harness.journal()).some((line) => (
-        line.routingId === routingId
-        && line.scope === "run"
-        && line.outcome === "skipped"
-        && line.cause?.kind === "scheduled"
-      )),
-      "the overlapping scheduled admission to record without consuming the slot",
-    );
+    const overlap = harness.service.listAutomationResults(routingId).find((result) => (
+      result.reason === "scheduled" && result.notLaunchedReason === "overlap"
+    ));
+    assert.equal(overlap?.outcome, "skipped", "the due slot reaches the per-routing non-overlap fence");
     assert.equal((await harness.store.get(routingId))?.health, "enabled");
     assert.equal((await harness.store.get(routingId))?.atOccurrence, undefined);
 
@@ -520,6 +512,12 @@ test("a one-time slot due during run-now waits and executes after the manual cop
       2,
       "the manual copy and the exact scheduled slot each run once",
     );
+    assert.ok((await harness.journal()).some((line) => (
+      line.routingId === routingId
+      && line.scope === "run"
+      && line.outcome === "skipped"
+      && line.cause?.kind === "scheduled"
+    )), "the overlap is durably receipted before the preserved slot finishes");
   }
 });
 
