@@ -23,8 +23,8 @@ test("remote client uses the fold vocabulary for its entry surfaces", async () =
 
   // Landing detail 03 (the landing page lives in landing.js).
   const landing = await clientSource("landing.js");
-  assert.ok(landing.includes("<h2>Your fold on the web</h2>"));
-  assert.ok(landing.includes("One private address opens the same conversation your menu bar does, while your desktop is online — with your saved chats, the decisions waiting on you, and your files beside it."));
+  assert.ok(landing.includes("<h2>Your fold, wherever you are.</h2>"));
+  assert.ok(landing.includes("Continue the same management conversation from a browser while your Mac is online."));
 
   // The retired phrasings must not come back.
   assert.equal(app.includes('eyebrow: "Remote access"'), false);

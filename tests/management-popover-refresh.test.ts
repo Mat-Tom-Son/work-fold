@@ -56,7 +56,7 @@ test("the popover surfaces pending decisions one card at a time behind the warni
   // conversational needs_you phase, rendered from the shared card component
   // the main-window flyout also mounts (one card contract). The popover asks
   // for the single-card presentation; the flyout keeps the full stack.
-  assert.match(popover, /useNeedsYouDecisions\(\{ surface: "popover" \}\)/);
+  assert.match(popover, /useNeedsYouDecisions\(\{ surface: "popover", enabled: !popoverFixtureRequested \}\)/);
   const stackIndex = popover.indexOf('<NeedsYouStack state={needsYou} presentation="single" />');
   assert.ok(stackIndex >= 0, "the popover mounts the shared needs-you machinery in its single-card presentation");
   assert.ok(stackIndex > popover.indexOf('<header className="popover-header">'), "the decisions section sits below the header");

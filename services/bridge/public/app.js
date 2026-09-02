@@ -23,6 +23,7 @@ const fixtureName = (() => {
   if (requested === "files") return "spaces";
   return requested === "new" || requested === "chat" || requested === "needs" || requested === "spaces" ? requested : null;
 })();
+const fixtureCapture = fixtureName !== null && new URL(location.href).searchParams.get("capture") === "1";
 
 // Fixture-only chrome overrides, so a QA screenshot can capture the collapsed
 // sidebar and the open drawer. They are read only while a fixture is showing.
@@ -559,7 +560,7 @@ function renderApplication() {
           </div>
         </header>
         <div class="app-contexts">
-          ${fixtureName ? `<div class="fixture-badge" role="status">Fixture preview</div>` : ""}
+          ${fixtureName && !fixtureCapture ? `<div class="fixture-badge" role="status">Fixture preview</div>` : ""}
           <div id="banner"></div>
           <div id="chat-status" class="sr-only" role="status" aria-live="polite"></div>
           <section id="context-new" class="context context-new" aria-label="New chat">

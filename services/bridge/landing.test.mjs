@@ -22,20 +22,21 @@ test("the landing page keeps its product story in order", async () => {
 
   const titles = [...landing.matchAll(/<h2>([^<]*)<\/h2>/g)].map(([, title]) => title.trim());
   assert.deepEqual(titles, [
-    "Every Space keeps its own context.",
-    "Automation you can account for.",
-    "Your fold on the web",
+    "The work stays where it belongs.",
+    "One Assistant above every Space.",
+    "Do it now. Pick it up later.",
+    "Your fold, wherever you are.",
     "The folder is the handoff.",
-    "Keep the work. Keep the context.",
+    "Put an Assistant where the work lives.",
   ]);
 
-  assert.match(landing, /<h1>AI work you can hand off\.<\/h1>/);
-  assert.ok(landing.includes("Your files stay files. The Space remembers."));
+  assert.match(landing, /<h1>Every folder,<br \/>its own Assistant\.<\/h1>/);
+  assert.ok(landing.includes("Your files stay files."));
 
-  assert.ok(landing.includes('<span class="section-label">Private alpha</span>'));
-  assert.ok(landing.includes("One private address opens the same conversation your menu bar does, while your desktop is online"));
+  assert.ok(landing.includes('<p class="section-kicker">Private alpha</p>'));
+  assert.ok(landing.includes("Continue the same management conversation from a browser while your Mac is online."));
 
-  for (const term of ["Checks", "Routings", "Receipts", "Space apps"]) {
+  for (const term of ["Checks", "Routings", "Apps", "Pages"]) {
     assert.ok(landing.includes(`<dt>${term}</dt>`));
   }
 
@@ -69,10 +70,10 @@ test("the landing page shows the four app screenshots at a fixed aspect ratio", 
   // Intrinsic sizes plus a CSS aspect-ratio keep the layout stable while the
   // images load, and keep them from being stretched.
   assert.ok(landing.includes('width="1440" height="900"'));
-  assert.ok(landing.includes('width="800" height="1120"'));
-  assert.ok(landing.includes('width="1280" height="800"'));
+  assert.ok(landing.includes('width="400" height="560"'));
+  assert.ok(landing.includes('width="1280" height="720"'));
   assert.ok(landing.includes('width="375" height="812"'));
-  for (const rule of ["aspect-ratio: 16 / 10", "aspect-ratio: 400 / 560", "aspect-ratio: 375 / 812"]) {
+  for (const rule of ["aspect-ratio: 16 / 10", "aspect-ratio: 5 / 7", "aspect-ratio: 16 / 9", "aspect-ratio: 375 / 812"]) {
     assert.ok(styles.includes(rule), `${rule} is declared`);
   }
 

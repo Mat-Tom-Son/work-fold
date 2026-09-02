@@ -31,9 +31,9 @@ test("Claude Code imports the canonical Codex contributor contract", async () =>
 test("README walkthrough uses stable tracked screenshots", async () => {
   const readme = await readFile(join(root, "README.md"), "utf8");
   const screenshots = [
-    "docs/images/work-fold-main-window.png",
-    "docs/images/work-fold-popover.png",
-    "docs/images/work-fold-web.png",
+    "services/bridge/public/screens/desktop-space.png",
+    "services/bridge/public/screens/fold-popover.png",
+    "services/bridge/public/screens/web-chat.png",
   ];
   for (const screenshot of screenshots) {
     assert.ok(readme.includes(screenshot));

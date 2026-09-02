@@ -81,14 +81,43 @@ const activePhases = new Set(["working", "handed_off"]);
 const terminalPhases = new Set(["done", "failed", "stopped"]);
 const pollIntervalMs = 1_500;
 const idlePollIntervalMs = 5_000;
+const popoverFixtureRequested = new URLSearchParams(window.location.search).get("fixture") === "fold";
+
+const popoverFixtureMessages: ManagementMessage[] = [
+  {
+    id: "fixture-user-1",
+    role: "user",
+    content: "What changed while I was away?",
+    createdAt: "2026-09-02T13:30:00.000Z",
+  },
+  {
+    id: "fixture-assistant-1",
+    role: "assistant",
+    content: [
+      "Two Spaces moved forward:",
+      "",
+      "- **Launch plan** — the draft is ready and its Check passed.",
+      "- **Field notes** — three duplicates need your choice.",
+      "",
+      "I can open either one or hand off the next step.",
+    ].join("\n"),
+    createdAt: "2026-09-02T13:31:00.000Z",
+  },
+];
+
+const popoverFixtureComposer: AssistantComposerState = {
+  model: { provider: "openrouter", id: "anthropic/claude-sonnet-4", name: "Claude Sonnet" },
+  thinkingLevel: "medium",
+  thinkingLevels: ["low", "medium", "high"],
+};
 
 export function PopoverApp() {
   const bridge = window.workFoldDesktop;
-  const [available, setAvailable] = useState<boolean | null>(null);
+  const [available, setAvailable] = useState<boolean | null>(popoverFixtureRequested ? true : null);
   const [unavailableReason, setUnavailableReason] = useState<string>("");
   const [request, setRequest] = useState<ManagementRequestView | null>(null);
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ManagementMessage[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(popoverFixtureRequested ? "fixture-fold" : null);
+  const [messages, setMessages] = useState<ManagementMessage[]>(popoverFixtureRequested ? popoverFixtureMessages : []);
   const [staged, setStaged] = useState<StagedItem[]>([]);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -98,7 +127,7 @@ export function PopoverApp() {
   const [dropActive, setDropActive] = useState(false);
   const [activity, setActivity] = useState<string>("");
   const [streamingAssistant, setStreamingAssistant] = useState("");
-  const [managementComposer, setManagementComposer] = useState<AssistantComposerState | null>(null);
+  const [managementComposer, setManagementComposer] = useState<AssistantComposerState | null>(popoverFixtureRequested ? popoverFixtureComposer : null);
   const [conversationRuntime, setConversationRuntime] = useState<ConversationRuntime | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [decisionsOpen, setDecisionsOpen] = useState(false);
@@ -118,10 +147,11 @@ export function PopoverApp() {
   requestRef.current = request;
   // Durable pending decisions are their own object, distinct from the
   // conversational needs_you phase; deciding here records surface "popover".
-  const needsYou = useNeedsYouDecisions({ surface: "popover" });
+  const needsYou = useNeedsYouDecisions({ surface: "popover", enabled: !popoverFixtureRequested });
   const refreshNeedsYou = needsYou.refresh;
 
   const refreshManagementComposer = useCallback(async () => {
+    if (popoverFixtureRequested) return;
     try {
       const result = await api<{ composer: AssistantComposerState }>("/api/agent/composer?scope=management");
       setManagementComposer(result.composer);
@@ -132,6 +162,7 @@ export function PopoverApp() {
   }, []);
 
   const refreshConversationRuntime = useCallback(async (id: string) => {
+    if (popoverFixtureRequested) return;
     try {
       const result = await api<{ runtime: ConversationRuntime }>(`/api/management/conversations/${encodeURIComponent(id)}/runtime`);
       setConversationRuntime(result.runtime);
@@ -168,6 +199,7 @@ export function PopoverApp() {
   }, []);
 
   const refreshConversation = useCallback(async () => {
+    if (popoverFixtureRequested) return;
     void refreshNeedsYou();
     try {
       const summary = await api<ManagementSummary>("/api/management/summary");
@@ -214,6 +246,7 @@ export function PopoverApp() {
 
   // Staged material handed over by the tray (macOS icon drops).
   useEffect(() => {
+    if (popoverFixtureRequested) return;
     const unsubscribe = bridge?.management?.onStaged((items) => {
       for (const item of items) {
         if (item.kind === "path") addStagedValue(item.value, setStaged);
@@ -226,7 +259,7 @@ export function PopoverApp() {
 
   // Live turn events for the active request's conversation.
   useEffect(() => {
-    if (!conversationId) return;
+    if (!conversationId || popoverFixtureRequested) return;
     const stream = createEventSource(`/api/management/conversations/${encodeURIComponent(conversationId)}/events`);
     stream.onmessage = (raw) => {
       let event: { type?: string; message?: string; toolName?: string; text?: string; running?: boolean };
@@ -259,6 +292,7 @@ export function PopoverApp() {
   }, [conversationId, refreshConversation, refreshConversationRuntime, flushStreamingAssistant, queueStreamingAssistant, replaceStreamingAssistant]);
 
   useEffect(() => {
+    if (popoverFixtureRequested) return;
     replaceStreamingAssistant("");
     if (conversationId) void refreshConversationRuntime(conversationId);
     else setConversationRuntime(null);
@@ -268,6 +302,7 @@ export function PopoverApp() {
   // the persistent popover aligned when the web surface starts a fresh chat.
   const phase = request?.phase ?? null;
   useEffect(() => {
+    if (popoverFixtureRequested) return;
     const timer = window.setInterval(() => {
       void refreshConversation();
       setNow(Date.now());
@@ -280,6 +315,7 @@ export function PopoverApp() {
   // newly shown/focused popover must reconcile the persisted request before it
   // renders the old Working state again.
   useEffect(() => {
+    if (popoverFixtureRequested) return;
     const refreshWhenVisible = () => {
       if (document.visibilityState !== "hidden") {
         void refreshConversation();
@@ -607,7 +643,7 @@ export function PopoverApp() {
 
   return (
     <div
-      className={`popover${dropActive ? " drop-active" : ""}`}
+      className={`popover${dropActive ? " drop-active" : ""}${popoverFixtureRequested ? " popover-fixture" : ""}`}
       onDragEnter={onDragEnter}
       onDragOver={(event) => { event.preventDefault(); }}
       onDragLeave={onDragLeave}
