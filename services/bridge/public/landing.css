@@ -15,9 +15,10 @@
 
 .landing-top {
   width: var(--band);
-  min-height: 78px;
+  min-height: 84px;
   margin-inline: auto;
 }
+.landing-top .brand-lockup { height: 42px; }
 .landing-actions { display: flex; align-items: center; gap: 10px; }
 
 .primary-download {
@@ -269,8 +270,8 @@
 
 @media (max-width: 620px) {
   .landing-shell { --band: min(100% - 32px, 1120px); }
-  .landing-top { min-height: 68px; }
-  .brand-lockup { height: 29px; }
+  .landing-top { min-height: 72px; }
+  .landing-top .brand-lockup { height: 35px; }
   .landing-hero { padding: 58px 16px 0; gap: 46px; }
   .hero-copy h1 { font-size: clamp(46px, 14vw, 66px); }
   .hero-copy p { margin-block: 22px 26px; }
