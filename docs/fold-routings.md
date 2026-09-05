@@ -14,7 +14,7 @@ lifecycle and five-questions record, and the bounds. The promotion record is
 [Fold integration](fold-integration.md).
 
 The first expansion shipped on 2026-09-01: the declaration contract now
-accepts versions 1 and 2, version 2 adds a bounded one-time `at` trigger,
+accepts versions 1, 2, and 3. Version 2 adds a bounded one-time `at` trigger,
 and Settings → The fold → Routings is the desktop management surface. The
 store schema is version 2; version-1 records load and are rewritten as
 version 2 on the next mutation, while newer schemas still fail closed.
@@ -63,8 +63,13 @@ run history shows every dispatch, and the glance lists routing runs.
 
 A routing has exactly one declared trigger; manual run-now is additionally
 available for every enabled routing. Triggers are evaluated by app code from
-state the product already records — no file watcher, no polling of Space
-content, no model involvement.
+recorded settle/schedule state, or explicitly granted bounded folder metadata observation. Trigger evaluation never calls a model or reads file contents.
+
+**Folder changes (version 3)** use `{"kind":"files-changed","space":"<Space id>","watch":{"kind":"tree","path":"Incoming","recursive":true,"extensions":[".md",".txt"]},"debounceSeconds":5,"cooldownMinutes":1}`. The exact named folder must exist at enablement. The host observes matching ordinary files every two seconds, within 512 files, 2,000 visited entries, depth 16, and the existing target byte bounds. Metadata identities include size, nanosecond modification/change times, and inode; file contents are not read or sent anywhere by the observer. Symlinks and overlap with separately registered Spaces fail closed. The extension list and recursion are explicit; reserved metadata stays excluded.
+
+A fresh enable, restart, wake, or recovered observer error first establishes a baseline without firing. Changes must settle for the declared 2–120 seconds, with at least 1–1440 minutes between firings. Bursts coalesce into the latest snapshot, not a queue of events. An accepted run records its source Space, snapshot digest, and change count before any hop. Every launch rechecks the exact declaration grant; revocation invalidates in-flight scans. The observer reports starting/watching/paused/error state and errors in Settings → The fold → Routings.
+
+All folder observers pause while any routing executes and establish fresh baselines afterward. This deliberately absorbs routing-generated edits and prevents cross-routing file loops. Changes made during that pause, while asleep, or while quit are **not replayed**. This is an awake-app convenience trigger, not a durable filesystem event bus. Keep a complete cross-Space sequence in one routing: wait for A's Chat, copy its created files, then run B's Chat or Check. There is no transcript relay or ambient context injection. Stop, disable, removal, shutdown, journaling, non-overlap, and FIFO limits use the existing executor paths.
 
 **Admitted on-settled sources** (both durable and already receipted):
 
@@ -140,7 +145,7 @@ proposal and enablement.
 ## The declaration
 
 Authoring follows the Check-proposal pattern: the fold writes an inert,
-typed, kind/version JSON file (`work-fold.routing-proposal`, version 1 or 2,
+typed, kind/version JSON file (`work-fold.routing-proposal`, version 1, 2, or 3,
 `.work-fold-routing.json` suffix) in its own management working folder —
 never inside a Space folder, because the proposal names multiple Spaces and
 Space folders travel. `src/local/routings/routing-declarations.ts` is the
@@ -419,8 +424,7 @@ The plan items shipped as follows:
   behavior across routings is excluded structurally, not merely bounded.
 - **Assistant-turn, compaction, and management-request triggers**, for the
   reasons recorded under Triggers.
-- **File-change triggers.** That is a watcher; [Checks](checks.md) already
-  rejects background watchers, and routings do not reintroduce one.
+- **Ambient or durable file watching.** Version 3 admits only the explicitly reviewed bounded folder observation described above; it never watches an unselected Space or replays offline events.
 - **Templating, expressions, conditions, branching, retries, or any
   step-output piping** beyond the declared created-files handoff.
 - **Cross-Space moves or deletions.** The files step only copies additively

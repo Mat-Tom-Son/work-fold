@@ -1,3 +1,4 @@
+import { observeWorkFoldRoutingFiles } from "./routings/routing-file-observer.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -125,6 +126,7 @@ import {
   listSpaceCheckpoints,
   restoreFileVersion,
   restoreSpaceCheckpoint,
+  previewSpaceCheckpointRestore,
   type CheckpointSkippedFile,
   type SpaceCheckpoint,
   type SpaceFileVersion,
@@ -467,6 +469,7 @@ export interface WorkFoldRoutingSettingsSummary {
   title: string;
   health: "enabled" | "disabled" | "suspended" | "completed";
   trigger: WorkFoldActRoutingTriggerRef;
+  fileWatch?: import("./routings/routing-file-observer.js").WorkFoldRoutingFileWatchStatus;
   stepCount: number;
   nextScheduledAt?: string;
   lastScheduledAt?: string;
@@ -776,7 +779,20 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   const runtimeProvider = new RegisteredSpaceRuntimeProvider(extensionRuntimeProvider, spaceTrustAuthority);
   const kernel = options.kernel ?? new WorkFoldKernel({ runtimeProvider });
   const settleSignal = options.settleSignal ?? new WorkFoldSettleSignal();
-  const checks = options.checkService ?? new WorkFoldCheckService({ kernel, settleSignal });
+  let modelReviewQueue = Promise.resolve();
+  const checks = options.checkService ?? new WorkFoldCheckService({ kernel, settleSignal,
+    reviewModel: async (request) => {
+      const previous = modelReviewQueue;
+      let release!: () => void;
+      modelReviewQueue = new Promise<void>((resolve) => { release = resolve; });
+      try {
+        await previous;
+        request.signal.throwIfAborted();
+        const client = await getClient(state, workFoldManagementScopeId, workFoldManagementRoot(), "check-review");
+        return await client.reviewCheck(request);
+      } finally { release(); }
+    },
+  });
   // The fold's one ledger: the same act-receipts journal the desktop CLI host
   // appends. Both instances write the identical state-root path, so decisions
   // and publications land in the journal the act lane already audits.
@@ -897,6 +913,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   state.routings = await WorkFoldRoutingService.create({
     store: routingStore,
     ports: createRoutingHopPorts(state),
+    observeFiles: observeWorkFoldRoutingFiles,
     settleSignal,
     tasks: {
       start: ({ routingId, runId }) =>
@@ -1071,6 +1088,31 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       () => state.checks.overview(space),
     );
     sendJson(res, { overview });
+    return;
+  }
+
+  const checksConfigureMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/checks\/configure$/);
+  if (checksConfigureMatch && method === "POST") {
+    const space = await getSpace(checksConfigureMatch[1]);
+    const body = await readJsonBody<{ proposal?: unknown }>(state, req);
+    const enabled = await runReservedCheckOperation(state, space.id, () => state.checks.enable({ space, proposal: body.proposal, actor: "human" }));
+    sendJson(res, enabled);
+    return;
+  }
+  const checksEnableMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/checks\/([^/]+)\/enable$/);
+  if (checksEnableMatch && method === "POST") {
+    const space = await getSpace(checksEnableMatch[1]);
+    const body = await readJsonBody<{ expectedDigest?: string }>(state, req);
+    const enabled = await runReservedCheckOperation(state, space.id, () => state.checks.enable({ space, checkId: checksEnableMatch[2], expectedDigest: body.expectedDigest, actor: "human" }));
+    sendJson(res, enabled);
+    return;
+  }
+  const checksDisableMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/checks\/([^/]+)\/disable$/);
+  if (checksDisableMatch && method === "POST") {
+    const space = await getSpace(checksDisableMatch[1]);
+    await readJsonBody<Record<string, never>>(state, req);
+    const disabled = await runReservedCheckOperation(state, space.id, () => state.checks.disable(space, checksDisableMatch[2]));
+    sendJson(res, { disabled });
     return;
   }
 
@@ -1813,7 +1855,10 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       reason: "pre_delete",
       label: `Before deleting ${body.path}`,
     });
-    const deleted = await runWithHistorySafety(space.spaceRoot, safety.checkpointId, () => deleteSpaceEntry(space.spaceRoot, body.path!));
+    const deleted = await runWithHistorySafety(space.spaceRoot, safety.checkpointId, () => {
+      assertDeleteRestoreCoverage(safety);
+      return deleteSpaceEntry(space.spaceRoot, body.path!);
+    });
     sendJson(res, { ...deleted, safetyCheckpointId: safety.checkpointId, historySkippedPaths: safety.skippedLargeFiles });
     return;
   }
@@ -1910,7 +1955,14 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   const checkpointRestoreMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/history\/checkpoints\/([^/]+)\/restore$/);
   if (method === "POST" && checkpointRestoreMatch) {
     const space = await getSpace(checkpointRestoreMatch[1]);
-    sendJson(res, await restoreSpaceCheckpoint(space.spaceRoot, checkpointRestoreMatch[2]));
+    sendJson(res, await runHistoryRestore(state, space.id, () => restoreSpaceCheckpoint(space.spaceRoot, checkpointRestoreMatch[2])));
+    return;
+  }
+
+  const checkpointPreviewMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/history\/checkpoints\/([^/]+)\/preview$/);
+  if (method === "GET" && checkpointPreviewMatch) {
+    const space = await getSpace(checkpointPreviewMatch[1]);
+    sendJson(res, { preview: await previewSpaceCheckpointRestore(space.spaceRoot, checkpointPreviewMatch[2]) });
     return;
   }
 
@@ -1926,7 +1978,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const space = await getSpace(fileVersionsMatch[1]);
     const body = await readJsonBody<{ path?: string; hashSha256?: string }>(state, req);
     if (!body.path?.trim() || !body.hashSha256?.trim()) throw badRequest("A file path and version hash are required.");
-    sendJson(res, { result: await restoreFileVersion(space.spaceRoot, body.path, body.hashSha256) });
+    sendJson(res, { result: await runHistoryRestore(state, space.id, () => restoreFileVersion(space.spaceRoot, body.path!, body.hashSha256!)) });
     return;
   }
 
@@ -2013,11 +2065,12 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     if (!body.apiKey?.trim() && !selected.authConfigured) {
       throw badRequest(`Enter an API key for ${selected.providerName}.`);
     }
-    if (body.apiKey?.trim()) {
-      await savePiApiKey(scope.spaceRoot, body.provider!, body.apiKey, { runtimeProvider: state.runtimeProvider });
-    }
-    await setPiDefaultModel(scope.spaceRoot, { provider: body.provider!, id: body.model! }, state.runtimeProvider);
-    await invalidateAllClients(state);
+    await runCapabilityMutation(state, scope, "global", async () => {
+      if (body.apiKey?.trim()) {
+        await savePiApiKey(scope.spaceRoot, body.provider!, body.apiKey, { runtimeProvider: state.runtimeProvider });
+      }
+      await setPiDefaultModel(scope.spaceRoot, { provider: body.provider!, id: body.model! }, state.runtimeProvider);
+    }, { requireProjectTrust: false });
     sendJson(res, { status: normalizeStatus(await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider)) });
     return;
   }
@@ -2025,8 +2078,9 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const body = await readJsonBody<{ spaceId?: string; scope?: string; provider?: string }>(state, req);
     const scope = await assistantModelScope(body.scope, body.spaceId);
     if (!body.provider?.trim()) throw badRequest("A provider is required.");
-    await removePiProviderAuth(scope.spaceRoot, body.provider, state.runtimeProvider);
-    await invalidateAllClients(state);
+    await runCapabilityMutation(state, scope, "global", async () => {
+      await removePiProviderAuth(scope.spaceRoot, body.provider!, state.runtimeProvider);
+    }, { requireProjectTrust: false });
     sendJson(res, {
       models: await listPiModels(scope.spaceRoot, state.runtimeProvider),
       status: normalizeStatus(await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider)),
@@ -2037,9 +2091,10 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     if (!state.piOAuthHooks) throw unavailable("Provider account sign-in requires the work-fold desktop app. You can use an API key for this provider instead.");
     const body = await readJsonBody<{ spaceId?: string; scope?: string; provider?: string; model?: string }>(state, req);
     const scope = await configuredAssistantModelScope(body.scope, body.spaceId, body.provider, body.model);
-    await loginPiOAuth(scope.spaceRoot, body.provider!, state.piOAuthHooks, state.runtimeProvider);
-    await setPiDefaultModel(scope.spaceRoot, { provider: body.provider!, id: body.model! }, state.runtimeProvider);
-    await invalidateAllClients(state);
+    await runCapabilityMutation(state, scope, "global", async () => {
+      await loginPiOAuth(scope.spaceRoot, body.provider!, state.piOAuthHooks!, state.runtimeProvider);
+      await setPiDefaultModel(scope.spaceRoot, { provider: body.provider!, id: body.model! }, state.runtimeProvider);
+    }, { requireProjectTrust: false });
     sendJson(res, { status: normalizeStatus(await getPiSetupStatus(scope.spaceRoot, state.runtimeProvider)) });
     return;
   }
@@ -4481,7 +4536,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       assertManagementParentAccepting(state, input.parentTaskId);
       const space = await resolveSpace(input.space);
       await assertSpaceQuietForHistoryRestore(space.id);
-      const result = await runActOperation(() => restoreSpaceCheckpoint(space.spaceRoot, input.checkpointId));
+      const result = await runActOperation(() => runHistoryRestore(state, space.id, () => restoreSpaceCheckpoint(space.spaceRoot, input.checkpointId)));
       recordFacadeAction(state, input.parentTaskId, {
         command: "history.restore",
         space,
@@ -4517,7 +4572,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         if (target && !target.isFile()) {
           throw new WorkFoldCliError("conflict", "The selected path is currently a folder.");
         }
-        const result = await restoreFileVersion(space.spaceRoot, input.path, input.version.trim());
+        const result = await runHistoryRestore(state, space.id, () => restoreFileVersion(space.spaceRoot, input.path, input.version.trim()));
         recordFacadeAction(state, input.parentTaskId, {
           command: "history.restore-file",
           space,
@@ -6638,13 +6693,9 @@ const actDeleteSkipReasonLabels: Record<CheckpointSkippedFile["reason"], string>
 };
 
 /**
- * The act lane's deliberate strengthening over the desktop delete route
- * (docs/fold-act-ledger.md, conflict rule 10): the route takes its safety
- * restore point and proceeds even when the capture skipped a file it could
- * not cover, which for the act lane would mean irreversible loss with no
- * click. A delete the restore point cannot cover is a destroy, so it is
- * refused here — naming the uncoverable paths — into the staged
- * `files destroy` consecration.
+ * Desktop and CLI share this coverage rule: an ordinary delete must be
+ * recoverable. Uncovered content requires the explicitly staged files destroy
+ * path, rather than making the Undo promise false.
  */
 function assertDeleteRestoreCoverage(safety: SpaceCheckpoint): void {
   if (!safety.skippedFiles.length) return;
@@ -6840,6 +6891,7 @@ function toActAppAutomationRunRef(run: RestrictedAppAutomationRunReceipt): WorkF
 }
 
 function toActRoutingTriggerRef(trigger: WorkFoldRoutingDeclaration["trigger"]): WorkFoldActRoutingTriggerRef {
+  if (trigger.kind === "files-changed") return { kind: trigger.kind, spaceId: trigger.space, watch: structuredClone(trigger.watch), debounceSeconds: trigger.debounceSeconds, cooldownMinutes: trigger.cooldownMinutes };
   if (trigger.kind === "interval") return { kind: "interval", intervalMinutes: trigger.intervalMinutes };
   if (trigger.kind === "at") return { kind: "at", at: trigger.at, ifMissed: trigger.ifMissed };
   if (trigger.kind === "on-settled") {
@@ -6876,6 +6928,7 @@ function toActRoutingSummary(projection: WorkFoldRoutingProjection): WorkFoldAct
     health: projection.health,
     digest: projection.digest,
     trigger: toActRoutingTriggerRef(projection.declaration.trigger),
+    ...(projection.fileWatch ? { fileWatch: projection.fileWatch } : {}),
     stepCount: projection.declaration.steps.length,
     referencedSpaceIds: workFoldRoutingReferencedSpaceIds(projection.declaration),
     ...(projection.health === "enabled" && projection.grants.length > 0
@@ -7051,6 +7104,7 @@ function projectRoutingReceiptCause(value: unknown): unknown {
   if ((cause.kind === "scheduled" || cause.kind === "resume") && routingReceiptTimestamp(cause.slotAt)) {
     return { kind: cause.kind, slotAt: routingReceiptTimestamp(cause.slotAt)! };
   }
+  if (cause.kind === "files-changed" && typeof cause.snapshotDigest === "string" && /^[a-f0-9]{64}$/.test(cause.snapshotDigest) && Number.isSafeInteger(cause.changedCount) && (cause.changedCount as number) > 0 && (cause.changedCount as number) <= 1024 && routingReceiptText(cause.spaceId)) return { kind: cause.kind, spaceId: routingReceiptText(cause.spaceId), snapshotDigest: cause.snapshotDigest, changedCount: cause.changedCount };
   if (cause.kind === "run-now") {
     const surface = typeof cause.surface === "string" && WORKFOLD_CLI_ACT_SURFACES.includes(cause.surface as never)
       ? cause.surface
@@ -7339,6 +7393,7 @@ async function routingSettingsSummary(
     title: projection.declaration.title,
     health: projection.health,
     trigger: toActRoutingTriggerRef(projection.declaration.trigger),
+    ...(projection.fileWatch ? { fileWatch: projection.fileWatch } : {}),
     stepCount: projection.declaration.steps.length,
     ...(projection.nextScheduledAt ? { nextScheduledAt: projection.nextScheduledAt } : {}),
     ...(projection.lastScheduledAt ? { lastScheduledAt: projection.lastScheduledAt } : {}),
@@ -7457,6 +7512,7 @@ function isRoutingSettingsOutcome(value: string): value is WorkFoldRoutingSettin
 function routingSettingsCause(value: unknown): string | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const cause = value as Record<string, unknown>;
+  if (cause.kind === "files-changed") return `Folder changed · ${cause.changedCount} file(s)`;
   if (cause.kind === "run-now") return "Run now";
   if ((cause.kind === "scheduled" || cause.kind === "resume") && typeof cause.slotAt === "string") {
     return cause.kind === "resume" ? `Caught up from ${cause.slotAt}` : `Scheduled for ${cause.slotAt}`;
@@ -8088,6 +8144,18 @@ function capabilityScope(value: unknown): CapabilityScope {
   if (value === undefined || value === null || value === "global") return "global";
   if (value === "project") return "project";
   throw badRequest("Capability scope must be global or project.");
+}
+
+async function runHistoryRestore<T>(state: LocalApiState, spaceId: string, operation: () => Promise<T>): Promise<T> {
+  reserveCapabilityMutation(state, spaceId, "project", spaceId);
+  try {
+    return await state.restrictedApps.withHistoryRestoreReservation(spaceId, async () => {
+      const blockers = await state.kernel.listExperimentalHistoryRestoreBlockers(spaceId);
+      if (blockers.length) throw httpError(409, blockers[0]!);
+      await getSpace(spaceId);
+      return await operation();
+    });
+  } finally { state.capabilityMutations.delete(spaceId); }
 }
 
 async function runCapabilityMutation<T>(
@@ -9047,6 +9115,7 @@ function routingDecisionTrigger(
     const local = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(trigger.at));
     return `Once · ${local} local (${trigger.at}) · ${trigger.ifMissed === "run" ? "Run if missed" : "Skip if missed"}`;
   }
+  if (trigger.kind === "files-changed") return `When ${trigger.watch.path}${trigger.watch.recursive ? " and its subfolders" : ""} changes in ${routingDecisionSpace(trigger.space, spacesById)} · ${trigger.watch.extensions.join(", ")} · wait ${trigger.debounceSeconds}s · at most once per ${trigger.cooldownMinutes} minute(s). Observation pauses during routing work and starts fresh after wake or restart; offline changes are not replayed.`;
   const source = trigger.source;
   if (source.kind === "check-run") {
     return `After ${source.check ? `Check ${source.check}` : "any Check"} in ${routingDecisionSpace(source.space, spacesById)} · ${source.outcomes.join(", ")}`;
@@ -9855,36 +9924,43 @@ function createRoutingHopPorts(state: LocalApiState): WorkFoldRoutingHopPorts {
       }
     },
     async files(step, source, context) {
-      // A files hop is deliberately not interruptible mid-copy: it completes
-      // with its restore point or fails as one unit, so the signal is only a
-      // pre-flight refusal here.
-      if (context.signal.aborted) throw new Error("The run was aborted before this hop copied anything.");
-      const from = await getSpace(step.fromSpace);
-      const to = await getSpace(step.toSpace);
-      const absoluteSources = await resolveRoutingFilesSources(from.spaceRoot, source);
-      const copied: string[] = [];
+      const reserved: string[] = [];
       try {
-        for (const sourcePath of absoluteSources) {
-          copied.push(await copyPathIntoSpace(sourcePath, to.spaceRoot, step.to));
+        for (const id of [...new Set([step.fromSpace, step.toSpace])].sort()) {
+          reserveCapabilityMutation(state, id, "project", id);
+          reserved.push(id);
         }
-      } catch (error) {
-        // A mid-batch failure must not strand earlier copies without a
-        // restore point: undo them best-effort, then surface the failure.
-        await Promise.all(copied.map((path) =>
-          rm(resolveSpacePath(to.spaceRoot, path), { recursive: true, force: true }).catch(() => undefined)));
-        throw error;
-      }
-      const safety = await checkpointAdditiveWritesOrUndo(to.spaceRoot, copied, {
-        reason: "pre_add",
-        label: `Before routing hop ${step.id} added ${copied.length} item${copied.length === 1 ? "" : "s"}`,
-      });
-      const measured = await measureSpaceEntries(to.spaceRoot, copied);
-      return {
-        ...(safety ? { restorePointId: safety.checkpointId } : {}),
-        copiedPaths: copied,
-        fileCount: measured.fileCount,
-        totalBytes: measured.totalBytes,
-      };
+        // A files hop is deliberately not interruptible mid-copy: it completes
+        // with its restore point or fails as one unit, so the signal is only a
+        // pre-flight refusal here.
+        if (context.signal.aborted) throw new Error("The run was aborted before this hop copied anything.");
+        const from = await getSpace(step.fromSpace);
+        const to = await getSpace(step.toSpace);
+        const absoluteSources = await resolveRoutingFilesSources(from.spaceRoot, source);
+        const copied: string[] = [];
+        try {
+          for (const sourcePath of absoluteSources) {
+            copied.push(await copyPathIntoSpace(sourcePath, to.spaceRoot, step.to));
+          }
+        } catch (error) {
+          // A mid-batch failure must not strand earlier copies without a
+          // restore point: undo them best-effort, then surface the failure.
+          await Promise.all(copied.map((path) =>
+            rm(resolveSpacePath(to.spaceRoot, path), { recursive: true, force: true }).catch(() => undefined)));
+          throw error;
+        }
+        const safety = await checkpointAdditiveWritesOrUndo(to.spaceRoot, copied, {
+          reason: "pre_add",
+          label: `Before routing hop ${step.id} added ${copied.length} item${copied.length === 1 ? "" : "s"}`,
+        });
+        const measured = await measureSpaceEntries(to.spaceRoot, copied);
+        return {
+          ...(safety ? { restorePointId: safety.checkpointId } : {}),
+          copiedPaths: copied,
+          fileCount: measured.fileCount,
+          totalBytes: measured.totalBytes,
+        };
+      } finally { for (const id of reserved) state.capabilityMutations.delete(id); }
     },
     async check(step, context) {
       const space = await getSpace(step.space);

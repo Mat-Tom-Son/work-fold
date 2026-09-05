@@ -21,8 +21,8 @@ import { workFoldCheckTargetHardLimits } from "../checks/target-resolver.js";
  */
 export const workFoldRoutingProposalKind = "work-fold.routing-proposal" as const;
 export const workFoldRoutingDeclarationKind = "work-fold.routing" as const;
-export const workFoldRoutingContractVersion = 2 as const;
-export const workFoldRoutingSupportedContractVersions = [1, workFoldRoutingContractVersion] as const;
+export const workFoldRoutingContractVersion = 3 as const;
+export const workFoldRoutingSupportedContractVersions = [1, 2, workFoldRoutingContractVersion] as const;
 export type WorkFoldRoutingContractVersion = (typeof workFoldRoutingSupportedContractVersions)[number];
 
 /** Filename convention for inert routing proposals in the fold's management working folder. */
@@ -117,11 +117,20 @@ export interface WorkFoldRoutingOnSettledTrigger {
   source: WorkFoldRoutingSettleSource;
 }
 
+export interface WorkFoldRoutingFilesChangedTrigger {
+  kind: "files-changed";
+  space: string;
+  watch: WorkFoldRoutingTreeSource;
+  debounceSeconds: number;
+  cooldownMinutes: number;
+}
+
 export type WorkFoldRoutingTrigger =
   | WorkFoldRoutingManualTrigger
   | WorkFoldRoutingIntervalTrigger
   | WorkFoldRoutingAtTrigger
-  | WorkFoldRoutingOnSettledTrigger;
+  | WorkFoldRoutingOnSettledTrigger
+  | WorkFoldRoutingFilesChangedTrigger;
 
 /**
  * Starts a new conversation in the named Space with exactly this message —
@@ -300,6 +309,7 @@ export function workFoldRoutingDigest(value: unknown): string {
  */
 export function workFoldRoutingReferencedSpaceIds(definition: WorkFoldRoutingDefinition): string[] {
   const ids = new Set<string>();
+  if (definition.trigger.kind === "files-changed") ids.add(definition.trigger.space);
   if (definition.trigger.kind === "on-settled") ids.add(definition.trigger.source.space);
   for (const step of definition.steps) {
     if (step.kind === "files") {
@@ -412,11 +422,20 @@ function normalizeTrigger(value: unknown, version: WorkFoldRoutingContractVersio
       ifMissed: record.ifMissed,
     };
   }
+  if (record.kind === "files-changed") {
+    if (version < 3) throw new Error("Folder-change triggers require contract version 3.");
+    assertKeys(record, ["kind", "space", "watch", "debounceSeconds", "cooldownMinutes"], [], "Folder-change trigger");
+    const watch = normalizeFilesSource(record.watch, "Watched folder");
+    if (watch.kind !== "tree") throw new Error("A folder-change trigger requires one bounded folder selector.");
+    return { kind: "files-changed", space: spaceId(record.space, "Watched Space"), watch,
+      debounceSeconds: boundedInteger(record.debounceSeconds, "Folder-change debounce seconds", 2, 120),
+      cooldownMinutes: boundedInteger(record.cooldownMinutes, "Folder-change cooldown minutes", 1, 1440) };
+  }
   if (record.kind === "on-settled") {
     assertKeys(record, ["kind", "source"], [], "Routing on-settled trigger");
     return { kind: "on-settled", source: normalizeSettleSource(record.source) };
   }
-  throw new Error(version >= 2
+  throw new Error(version >= 3 ? "Routing trigger kind must be manual, interval, at, on-settled, or files-changed." : version >= 2
     ? "Routing trigger kind must be manual, interval, at, or on-settled."
     : "Routing trigger kind must be manual, interval, or on-settled.");
 }

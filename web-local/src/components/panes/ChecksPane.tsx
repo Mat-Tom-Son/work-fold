@@ -1,3 +1,4 @@
+import { CheckSetup } from "./CheckSetup";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Check, Clock3, FileCheck2, Loader2, RefreshCw, X } from "lucide-react";
 
@@ -57,6 +58,7 @@ export function ChecksPane({
   onOpenFile: (path: string) => void;
   onChecksChanged: () => void | Promise<void>;
 }) {
+  const [configuring, setConfiguring] = useState(false);
   const [overview, setOverview] = useState<ChecksOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -187,6 +189,18 @@ export function ChecksPane({
     [overview?.checks],
   );
 
+  async function toggleCheck(check: ChecksOverview["checks"][number]): Promise<void> {
+    if (mutationRef.current) return;
+    const enabled = check.authority === "enabled";
+    if (!enabled && !await requestConfirm({ title: `Enable ${check.title}?`, body: `Allow this Check to inspect the displayed targets when requested${check.execution === "model" ? ", using the fold’s model and displayed criteria. Provider charges may apply" : ""}. Enabling does not start a run.`, confirmLabel: "Enable Check" })) return;
+    mutationRef.current = "run";
+    try {
+      await api(`/api/spaces/${encodeURIComponent(spaceId)}/checks/${encodeURIComponent(check.id)}/${enabled ? "disable" : "enable"}`, { method: "POST", body: enabled ? {} : { expectedDigest: check.digest } });
+      await loadOverview(true);
+    } catch (caught) { setError(errorText(caught)); }
+    finally { mutationRef.current = null; }
+  }
+
   async function runChecks(): Promise<void> {
     if (mutationRef.current) return;
     mutationRef.current = "run";
@@ -282,11 +296,12 @@ export function ChecksPane({
     <div className="space-pane-content checks-pane professional-surface">
       <header className="checks-header">
         <div>
-          <span className="checks-eyebrow"><FileCheck2 size={14} />Optional · manual</span>
+          <span className="checks-eyebrow"><FileCheck2 size={14} />On demand · optional automation</span>
           <h1>Checks</h1>
-          <p>Expectations for files you explicitly chose. work-fold does not inspect anything else.</p>
+          <p>These Checks inspect only their designated files.</p>
         </div>
         <div className="checks-header-actions">
+          <button type="button" className="professional-button professional-button-secondary" disabled={running} onClick={() => setConfiguring(true)}>New Check</button>
           {status?.lastRunAt ? <span className="checks-last-run">Last run {formatTimeAgo(status.lastRunAt)}</span> : null}
           {runSubmitting ? (
             <button className="professional-button professional-button-secondary" type="button" disabled>
@@ -308,11 +323,12 @@ export function ChecksPane({
         </div>
       </header>
 
+      {configuring ? <CheckSetup spaceId={spaceId} onCancel={() => setConfiguring(false)} onSaved={async () => { setConfiguring(false); await loadOverview(true); }} /> : null}
       {error ? <div className="checks-health-message error" role="alert"><AlertCircle size={15} /><span>{error}</span><button type="button" onClick={() => void loadOverview(true)}>Try again</button></div> : null}
       {running ? <div className="checks-running" aria-live="polite"><Loader2 className="spin" size={15} /><span>Checking only the designated files…</span></div> : null}
       {overviewUnavailable
         ? <div className="checks-status-line check-error"><span aria-hidden="true" /><p>Current Check results are unavailable. work-fold is not labeling your files as clear or failed.</p></div>
-        : status ? <ChecksStatusLine status={status} /> : null}
+        : status && !running ? <ChecksStatusLine status={status} /> : null}
 
       <section className="checks-section" aria-labelledby={`checks-findings-${spaceId}`}>
         <div className="checks-section-heading">
@@ -326,7 +342,7 @@ export function ChecksPane({
             {overview.findings.map((finding) => {
               const check = checksById.get(finding.checkId);
               const targetExists = finding.evidence.some(
-                (evidence) => evidence.path === finding.targetPath && evidence.observed === "file",
+                (evidence) => evidence.path === finding.targetPath && (evidence.kind === "text-span" || evidence.observed === "file"),
               );
               return (
                 <article className="checks-finding" key={finding.id}>
@@ -337,6 +353,8 @@ export function ChecksPane({
                       {targetExists ? <button type="button" onClick={() => onOpenFile(finding.targetPath)}>{finding.targetPath}</button> : <code>{finding.targetPath}</code>}
                       {check ? <span>{check.title}</span> : null}
                     </div>
+                    {finding.evidence.some((evidence) => evidence.kind === "text-span") ? <p><strong>Model suggestion</strong> · The quoted text is verified; the assessment is yours to judge.</p> : null}
+                    {finding.evidence.map((evidence, index) => evidence.kind === "text-span" ? <blockquote key={index}><p>{evidence.quote}</p></blockquote> : null)}
                     {finding.detail ? <p>{finding.detail}</p> : null}
                     {finding.remediation ? <p className="checks-remediation">{finding.remediation}</p> : null}
                     <div className="checks-finding-actions" role="group" aria-label={`Decisions for ${finding.title}`}>
@@ -349,7 +367,7 @@ export function ChecksPane({
               );
             })}
           </div>
-        ) : <ChecksEmptyFindings overview={overview} />}
+        ) : running ? <p>Results will appear when this review finishes.</p> : <ChecksEmptyFindings overview={overview} />}
         {!overviewUnavailable && overview?.truncated ? <p className="checks-truncated">More current findings exist. Narrow the Check or review them with the management CLI.</p> : null}
       </section>
 
@@ -363,12 +381,15 @@ export function ChecksPane({
       <section className="checks-section" aria-labelledby={`checks-expectations-${spaceId}`}>
         <div className="checks-section-heading"><div><h2 id={`checks-expectations-${spaceId}`}>Designated expectations</h2><p>Only these bounded targets may be inspected when you run Checks.</p></div></div>
         {overviewUnavailable ? (
-          <div className="checks-empty-config"><strong>Check configuration could not be refreshed.</strong><p>No Check is running automatically. Try again to verify the currently designated targets.</p></div>
+          <div className="checks-empty-config"><strong>Check configuration could not be refreshed.</strong><p>Try again to verify the currently designated targets and Check state.</p></div>
         ) : overview?.checks.length ? (
           <div className="checks-definition-list">
             {overview.checks.map((check) => (
               <div className="checks-definition" key={check.id}>
                 <div className="checks-definition-main"><strong>{check.title}</strong><span className={`checks-authority ${check.authority}`}>{authorityLabel(check.authority)}</span></div>
+                {check.criteria ? <p>{check.criteria}</p> : null}
+                {check.execution === "model" ? <p>Text review · fold model · suggestions only</p> : null}
+                <button type="button" className="professional-button professional-button-secondary" disabled={Boolean(mutationRef.current) || (check.authority !== "enabled" && !check.digest)} onClick={() => void toggleCheck(check)}>{check.authority === "enabled" ? "Disable" : "Review and enable"}</button>
                 <div className="checks-target-list">
                   {check.targets.map((target, index) => (
                     <span key={`${target.role}:${target.path}:${index}`}>
@@ -381,7 +402,7 @@ export function ChecksPane({
             ))}
           </div>
         ) : overview ? (
-          <div className="checks-empty-config"><strong>No Checks are configured.</strong><p>Nothing in this Space is being inspected. A Check starts as a reviewable proposal created in conversation, then must be enabled explicitly.</p></div>
+          <div className="checks-empty-config"><strong>No Checks are configured.</strong><p>Nothing in this Space is being inspected. Choose New Check to define a review rubric or required files, then enable it explicitly.</p></div>
         ) : null}
       </section>
     </div>

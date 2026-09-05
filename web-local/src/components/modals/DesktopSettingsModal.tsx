@@ -803,6 +803,7 @@ function FoldAuthorityPane() {
           <h3 id="fold-authority-mode-title">{foldAuthoritySettings.heading}</h3>
           {notice ? <span className="settings-save-status" role="status"><Checkmark16Regular />{notice}</span> : null}
         </div>
+        <p className="settings-note">{foldAuthoritySettings.assistantAccess}</p>
         <div className="theme-segmented-control two-options" role="radiogroup" aria-label="The fold operating mode">
           <button
             className={authority?.mode === "reviewed" ? "active" : ""}

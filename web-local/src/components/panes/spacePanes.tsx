@@ -48,7 +48,7 @@ import type {
 import { SpaceIconGlyph } from "../chrome/common";
 import { FileTypeIcon } from "../tree/FileTree";
 import { TextInputModal } from "../modals/TextInputModal";
-import { requestConfirm } from "../../ui/feedback";
+import { requestConfirm, showToast } from "../../ui/feedback";
 import { ChatContentSearch } from "./ChatContentSearch";
 
 export function SpacesPane({
@@ -532,17 +532,44 @@ export function LibraryPane({
   );
 }
 
-export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedCheckpointId, onOpen, onError }: {
+interface HistoryRestorePreview {
+  checkpointId: string;
+  scope: "full" | "targeted";
+  restoreFiles: string[];
+  removePaths: string[];
+  moves: Array<{ fromPath: string; toPath: string }>;
+  excludedPaths: string[];
+  uncoveredPaths: string[];
+  conflicts: string[];
+}
+
+export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedCheckpointId, onOpen, onRestored, onError }: {
   space: SpaceSummary;
   fixtureItems?: SpaceCheckpoint[];
   refreshRequest?: number;
   selectedCheckpointId?: string;
   onOpen?: (item: SpaceCheckpoint) => void;
+  onRestored?: () => void | Promise<void>;
   onError: (message: string | null) => void;
 }) {
   const [items, setItems] = useState<SpaceCheckpoint[]>(fixtureItems ?? []);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [preview, setPreview] = useState<HistoryRestorePreview | null>(null);
+  const [previewRevision, setPreviewRevision] = useState(0);
+  const [previewError, setPreviewError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setPreview(null); setPreviewError("");
+    if (selectedCheckpointId && fixtureItems) setPreviewError("Restore previews are unavailable for demonstration data.");
+    if (selectedCheckpointId && !fixtureItems) {
+      api<{ preview: HistoryRestorePreview }>(`/api/spaces/${space.id}/history/checkpoints/${selectedCheckpointId}/preview`)
+        .then((result) => { if (!cancelled) setPreview(result.preview); })
+        .catch((error) => { if (!cancelled) setPreviewError(errorText(error)); });
+    }
+    return () => { cancelled = true; };
+  }, [space.id, selectedCheckpointId, fixtureItems, refreshRequest, previewRevision]);
 
   useEffect(() => { setNotice(""); if (!fixtureItems) void load(); }, [space.id, fixtureItems]);
   useEffect(() => { if (!fixtureItems && refreshRequest > 0) void load(); }, [refreshRequest]);
@@ -566,12 +593,55 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
 
   async function restore(item: SpaceCheckpoint) {
     if (fixtureItems) return;
-    const confirmed = await requestConfirm({ title: `Restore ${space.name}?`, body: `Return the Space to ${formatDate(item.createdAt)}. Current files will be replaced by that restore point.`, confirmLabel: "Restore", tone: "danger" });
+    if (selectedCheckpointId !== item.checkpointId && onOpen) { onOpen(item); return; }
+    let reviewed: HistoryRestorePreview;
+    try {
+      reviewed = (await api<{ preview: HistoryRestorePreview }>(`/api/spaces/${space.id}/history/checkpoints/${item.checkpointId}/preview`)).preview;
+      setPreview(reviewed);
+    } catch (error) { setPreviewError(errorText(error)); return; }
+    if (reviewed.conflicts.length) return;
+    const confirmed = await requestConfirm({
+      title: reviewed.scope === "targeted" ? "Undo these file changes?" : `Restore files in ${space.name}?`,
+      body: `${reviewed.restoreFiles.length} ${reviewed.restoreFiles.length === 1 ? "file" : "files"} restored, ${reviewed.removePaths.length} ${reviewed.removePaths.length === 1 ? "path" : "paths"} removed, and ${reviewed.moves.length} ${reviewed.moves.length === 1 ? "entry" : "entries"} moved. A safety restore point preserves the affected current content. Excluded content stays untouched.`,
+      confirmLabel: reviewed.scope === "targeted" ? "Undo changes" : "Restore files", tone: "danger",
+    });
     if (!confirmed) return;
     setBusy(true);
-    try { await api(`/api/spaces/${space.id}/history/checkpoints/${item.checkpointId}/restore`, { method: "POST", body: {} }); await load(); }
+    try {
+      await api(`/api/spaces/${space.id}/history/checkpoints/${item.checkpointId}/restore`, { method: "POST", body: {} });
+      await load(); setPreviewRevision((value) => value + 1);
+      setNotice("Restore complete. The previous files are preserved in a new safety restore point.");
+      showToast({ text: "Files restored. Safety restore point saved in History.", tone: "success" });
+      await onRestored?.();
+    }
     catch (caught) { onError(errorText(caught)); }
     finally { setBusy(false); }
+  }
+
+  if (selectedCheckpointId) {
+    const selected = items.find((item) => item.checkpointId === selectedCheckpointId);
+    return <div className="space-pane-content history-pane professional-surface professional-history">
+      <h1>{selected?.label || "Review restore point"}</h1>
+      {notice ? <p role="status">{notice}</p> : null}
+      <p>{preview?.scope === "targeted" ? "Undo only the file changes recorded by this action." : "Review the effects of restoring this Space's captured files."}</p>
+      {previewError ? <p role="alert">{previewError}</p> : null}
+      {!preview && !previewError ? <p role="status">Inspecting current files…</p> : null}
+      {preview ? <>
+        {preview.conflicts.map((conflict) => <p role="alert" key={conflict}>{conflict}</p>)}
+        {([ ["Restore files", preview.restoreFiles], ["Remove paths", preview.removePaths],
+          ["Move entries", preview.moves.map((move) => `${move.fromPath} → ${move.toPath}`)],
+          ["Excluded from this restore point", preview.excludedPaths],
+          ["Current content outside History coverage", preview.uncoveredPaths],
+        ] as Array<[string, string[]]>).map(([title, paths]) => <section key={title}>
+          <h2>{title} · {paths.length}</h2>
+          {paths.length ? <ul>{paths.map((path) => <li key={path}><code>{path}</code></li>)}</ul> : <p>None</p>}
+        </section>)}
+        <p>work-fold rechecks ownership and recovery coverage before applying these changes.</p>
+        <button className="professional-button professional-button-primary" type="button" disabled={busy || !selected || preview.conflicts.length > 0 || (preview.restoreFiles.length + preview.removePaths.length + preview.moves.length === 0)} onClick={() => selected && void restore(selected)}>
+          {busy ? "Restoring…" : preview.scope === "targeted" ? "Undo these changes" : "Restore these files"}
+        </button>
+      </> : null}
+    </div>;
   }
 
   return (
@@ -586,10 +656,10 @@ export function HistoryPane({ space, fixtureItems, refreshRequest = 0, selectedC
         {items.map((item) => (
           <article className={item.checkpointId === selectedCheckpointId ? "professional-history-card selected" : "professional-history-card"} key={item.checkpointId} aria-current={item.checkpointId === selectedCheckpointId ? "true" : undefined}>
             <span className="professional-icon-tile" aria-hidden="true"><History16Regular /></span>
-            <div className="professional-history-copy"><strong>{item.label || item.reason}</strong><span>{formatDate(item.createdAt)} · {item.fileCount} {item.fileCount === 1 ? "file" : "files"}</span></div>
+            <div className="professional-history-copy"><strong>{item.label || item.reason}</strong><span>{formatDate(item.createdAt)} · {item.fileCount} captured {item.fileCount === 1 ? "file" : "files"}</span></div>
             <div className="professional-history-actions">
               {onOpen ? <button className="professional-button professional-button-secondary" type="button" onClick={() => onOpen(item)}>Open</button> : null}
-              <button className="professional-button professional-button-secondary" type="button" disabled={busy || Boolean(fixtureItems)} onClick={() => void restore(item)}>Restore</button>
+              <button className="professional-button professional-button-secondary" type="button" disabled={busy || Boolean(fixtureItems)} onClick={() => void restore(item)}>Review restore</button>
             </div>
           </article>
         ))}

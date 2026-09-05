@@ -1,7 +1,7 @@
 import type { WorkFoldCheckSeverity, WorkFoldCheckTarget } from "../../shared/checks.js";
 
-export const workFoldCheckStateVersion = 1 as const;
-export const workFoldCheckExperimentalSnapshotVersion = 0 as const;
+export const workFoldCheckStateVersion = 2 as const;
+export const workFoldCheckExperimentalSnapshotVersion = 1 as const;
 
 export type WorkFoldCheckAggregateState =
   | "not-configured"
@@ -39,8 +39,18 @@ export interface WorkFoldCheckPathStateEvidence {
   identity: WorkFoldCheckFileIdentity;
 }
 
-/** Contract 0 admits path-state evidence only. Broader typed evidence requires a later protocol revision. */
-export type WorkFoldCheckEvidence = WorkFoldCheckPathStateEvidence;
+export interface WorkFoldCheckTextSpanEvidence {
+  kind: "text-span";
+  path: string;
+  start: number;
+  end: number;
+  quote: string;
+  identity: WorkFoldCheckFileIdentity;
+  /** All reviewed inputs, including references, bind the judgment's context. */
+  context: WorkFoldCheckFileIdentity[];
+}
+
+export type WorkFoldCheckEvidence = WorkFoldCheckPathStateEvidence | WorkFoldCheckTextSpanEvidence;
 
 export interface WorkFoldCheckCandidateFinding {
   title: string;
@@ -156,10 +166,13 @@ export interface WorkFoldCheckRendererOverview {
   status: WorkFoldCheckStatusSnapshot;
   checks: Array<{
     id: string;
+    digest?: string;
     title: string;
     severity: WorkFoldCheckSeverity;
     trigger: "manual";
     sensor: { id: string; revision: number };
+    criteria?: string;
+    execution?: "deterministic" | "model";
     targets: WorkFoldCheckTarget[];
     authority: WorkFoldCheckRendererAuthorityState;
   }>;

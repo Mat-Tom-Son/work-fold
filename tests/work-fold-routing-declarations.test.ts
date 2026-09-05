@@ -310,8 +310,8 @@ test("unknown kinds, versions, fields, and unpinned references fail closed", () 
     value.kind = "work-fold.check-proposal";
   })), /kind must be work-fold\.routing-proposal/);
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
-    value.version = 3;
-  })), /unsupported version 3/);
+    value.version = 4;
+  })), /unsupported version 4/);
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
     value.enabled = true;
   })), /unsupported field: enabled/);
@@ -351,7 +351,7 @@ test("unknown kinds, versions, fields, and unpinned references fail closed", () 
 
   const declaration = declarationFromWorkFoldRoutingProposal(normalizeWorkFoldRoutingProposal(proposalValue), "routing-12345678");
   assert.throws(() => normalizeWorkFoldRoutingDeclaration({ ...declaration, enabled: true }), /unsupported field: enabled/);
-  assert.throws(() => normalizeWorkFoldRoutingDeclaration({ ...declaration, version: 3 }), /unsupported version 3/);
+  assert.throws(() => normalizeWorkFoldRoutingDeclaration({ ...declaration, version: 4 }), /unsupported version 4/);
   assert.throws(() => normalizeWorkFoldRoutingDeclaration({ ...declaration, id: "check-12345678" }), /Routing id is invalid/);
 });
 

@@ -1,3 +1,5 @@
+import { Type } from "@earendil-works/pi-ai/compat";
+import { modelReviewSystemPrompt, type WorkFoldModelCheckRequest, type WorkFoldModelCheckResponse } from "../checks/model-review-sensor.js";
 import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
@@ -392,6 +394,29 @@ export class PiConversationClient extends EventEmitter {
       .trim();
     if (!title) throw new Error(`Chat title request returned no text (stop reason: ${result.stopReason}).`);
     return title;
+  }
+
+  /** Uses the native configured transport, but no conversation messages,
+   * extensions' tools, or tool-execution loop enter the review request. */
+  async reviewCheck(input: WorkFoldModelCheckRequest): Promise<WorkFoldModelCheckResponse> {
+    const session = await this.ensureSession();
+    const model = session.model;
+    if (!model) throw new Error("Connect a model for the fold in Settings → Assistant before running model-backed Checks.");
+    const reviewReasoning = session.getAvailableThinkingLevels().find((level) => level !== "off");
+    const payload = JSON.stringify({ criteria: input.criteria, files: input.files.map(({ path, text, roles }) => ({ path, text, roles })) });
+    if (payload.length / 2 + 6144 > model.contextWindow) throw new Error("These Check inputs exceed the selected model's bounded context allowance. Narrow the targets or select a larger-context fold model.");
+    const stream = await session.agent.streamFn(model, {
+      systemPrompt: modelReviewSystemPrompt,
+      messages: [{ role: "user", content: payload, timestamp: Date.now() }],
+      tools: [{ name: "submit_review", description: "Submit the completed review once. Quotes must exactly and uniquely match primary text.", parameters: Type.Object({
+        findings: Type.Array(Type.Object({ path: Type.String(), quote: Type.String({ minLength: 1, maxLength: 2000 }), title: Type.String({ maxLength: 300 }), detail: Type.String({ maxLength: 2000 }), remediation: Type.Optional(Type.String({ maxLength: 2000 })) }, { additionalProperties: false }), { maxItems: 32 }),
+      }, { additionalProperties: false }) }],
+    }, { maxTokens: Math.min(model.maxTokens > 0 ? model.maxTokens : 6144, 6144), maxRetries: 0, timeoutMs: 120_000, signal: input.signal, ...(reviewReasoning ? { reasoning: reviewReasoning } : {}) });
+    const result = await stream.result();
+    if (result.stopReason === "error" || result.stopReason === "aborted" || result.stopReason === "length") throw new Error("The model review did not complete. Check the fold's provider connection or narrow the selected files, then run again.");
+    const calls = result.content.filter((part) => part.type === "toolCall");
+    if (calls.length !== 1 || calls[0]?.name !== "submit_review") throw new Error("The model did not return the required complete review submission. No findings were admitted.");
+    return { submission: calls[0].arguments, cost: { model: `${model.provider}/${model.id}`, inputTokens: result.usage.input, outputTokens: result.usage.output, amountUsd: result.usage.cost.total } };
   }
 
   /** A bounded, settled copy of the thinking and tool trail shown for this turn. */

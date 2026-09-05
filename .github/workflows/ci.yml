@@ -17,4 +17,6 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
+      - run: npm ci --prefix services/bridge
+      - run: npm test --prefix services/bridge
       - run: npm run desktop:prepare

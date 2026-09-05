@@ -135,3 +135,12 @@ work-fold uses a clean product profile and never imports, migrates, rewrites, or
 - [Security](SECURITY.md)
 - [Privacy](PRIVACY.md)
 - [MIT License](LICENSE)
+
+
+### Folder triggers and text Checks
+
+Open **Checks** from the command palette, then **New Check** to define required files or a text-review rubric. Text review uses the fold's selected model with only the files and references you designate; it returns quoted suggestions without editing. Enabling saves the Check; **Run Checks** starts work. Model requests may incur provider charges, and supported inputs are bounded UTF-8 text (not automatic PDF/Word extraction).
+
+Ask the fold to prepare a routing for a folder you name. A reviewed folder-change trigger combines stable edits with debounce and cooldown; its steps can wait for a Chat in one Space, copy that turn's outputs, then start a Chat or Check in another. Inspect and manage it in **Settings → The fold → Routings**. The awake desktop observes only the selected folder/types. Observation pauses during routing work and starts from a fresh baseline after work, sleep, or restart; edits during those pauses do not queue another run. See [Routings](docs/fold-routings.md) and [Checks](docs/checks.md).
+
+History now previews the files a restore will write/remove and refuses changes that its safety checkpoint cannot recover. Nested registered Spaces and excluded descendants are protected; relinking a moved folder on this computer preserves its History. History remains bounded local recovery, not a substitute for an independent backup.

@@ -1,3 +1,4 @@
+import { WorkFoldRoutingFileWatch, type WorkFoldRoutingFileObserver, type WorkFoldRoutingFileWatchStatus } from "./routing-file-observer.js";
 import { randomUUID } from "node:crypto";
 
 import {
@@ -10,6 +11,7 @@ import {
 } from "../agent/work-fold-automation-service.js";
 import {
   workFoldRoutingBounds,
+  normalizeWorkFoldRoutingDeclaration,
   type WorkFoldRoutingChatStep,
   type WorkFoldRoutingCheckStep,
   type WorkFoldRoutingDeclaration,
@@ -186,9 +188,13 @@ export interface WorkFoldRoutingServiceOptions {
   createRunId?: () => string;
   catchUpStagger?: (key: WorkFoldAutomationJobKey) => number;
   maxConcurrency?: number;
+  observeFiles?: WorkFoldRoutingFileObserver;
+  /** Tests can drive observation explicitly. Production scans every two seconds. */
+  filePollIntervalMs?: number;
 }
 
 export interface WorkFoldRoutingProjection extends WorkFoldRoutingRecord {
+  fileWatch?: WorkFoldRoutingFileWatchStatus;
   nextScheduledAt?: string;
   /** Present only while a hop-bearing run is genuinely active. */
   activeRunId?: string;
@@ -223,6 +229,11 @@ class PreHopClaimRefusal extends Error {}
 const causeMapGuard = 256;
 
 export class WorkFoldRoutingService {
+  readonly #fileWatches = new Map<string, WorkFoldRoutingFileWatch>();
+  readonly #observeFiles?: WorkFoldRoutingFileObserver;
+  #filePollTimer?: ReturnType<typeof setInterval>;
+  #filePollBusy = false;
+  #fileEpoch = 0;
   readonly #store: WorkFoldRoutingStore;
   readonly #receipts: WorkFoldRoutingReceipts;
   readonly #ports: WorkFoldRoutingHopPorts;
@@ -242,6 +253,7 @@ export class WorkFoldRoutingService {
   #closed = false;
 
   private constructor(options: WorkFoldRoutingServiceOptions) {
+    this.#observeFiles = options.observeFiles;
     this.#store = options.store;
     this.#receipts = options.store.receipts;
     this.#ports = options.ports;
@@ -276,6 +288,10 @@ export class WorkFoldRoutingService {
   static async create(options: WorkFoldRoutingServiceOptions): Promise<WorkFoldRoutingService> {
     const service = new WorkFoldRoutingService(options);
     await service.#initialize(options.settleSignal);
+    if (options.observeFiles && options.filePollIntervalMs !== 0) {
+      service.#filePollTimer = setInterval(() => { void service.pollFileChanges(); }, Math.max(2000, options.filePollIntervalMs ?? 2000));
+      service.#filePollTimer.unref?.();
+    }
     return service;
   }
 
@@ -310,6 +326,11 @@ export class WorkFoldRoutingService {
    */
   async enable(input: WorkFoldRoutingEnableInput): Promise<WorkFoldRoutingRecord> {
     this.#assertOperational();
+    const declaration = normalizeWorkFoldRoutingDeclaration(input.declaration);
+    if (declaration.trigger.kind === "files-changed") {
+      if (!this.#observeFiles) throw new Error("Folder-change triggers are unavailable in this runtime.");
+      await this.#observeFiles(declaration.trigger);
+    }
     const record = await this.#store.enable(input);
     const routingId = record.declaration.id;
     this.stopRun(routingId);
@@ -460,6 +481,7 @@ export class WorkFoldRoutingService {
 
   /** Sleep/quit suspension: aborts active runs, which settle `interrupted`. */
   suspend(): void {
+    this.#resetFileWatches(true);
     this.#suspensionDesired = true;
     this.#suspensionGeneration += 1;
     this.#automation.suspend();
@@ -470,12 +492,15 @@ export class WorkFoldRoutingService {
     const generation = ++this.#suspensionGeneration;
     await this.#completeMissedSkips(await this.#store.list());
     if (this.#closed || this.#suspensionDesired || generation !== this.#suspensionGeneration) return;
+    this.#resetFileWatches();
     this.#automation.resume();
   }
 
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
+    if (this.#filePollTimer) clearInterval(this.#filePollTimer);
+    this.#resetFileWatches(true);
     this.#suspensionDesired = true;
     this.#suspensionGeneration += 1;
     this.#unsubscribeSettle?.();
@@ -580,6 +605,7 @@ export class WorkFoldRoutingService {
     const active = [...this.#activeRuns.values()].find((run) => run.routingId === record.declaration.id);
     return {
       ...record,
+      ...(this.#fileWatches.has(record.declaration.id) ? { fileWatch: structuredClone(this.#fileWatches.get(record.declaration.id)!.status) } : {}),
       ...(next !== undefined ? { nextScheduledAt: next } : {}),
       ...(active !== undefined ? { activeRunId: active.runId } : {}),
     };
@@ -592,6 +618,7 @@ export class WorkFoldRoutingService {
   #arm(record: WorkFoldRoutingRecord): void {
     const routingId = record.declaration.id;
     const trigger = record.declaration.trigger;
+    if (trigger.kind === "files-changed") this.#fileWatches.set(routingId, new WorkFoldRoutingFileWatch());
     this.#armed.set(routingId, {
       digest: record.digest,
       title: record.declaration.title,
@@ -660,8 +687,39 @@ export class WorkFoldRoutingService {
 
   #disarm(routingId: string): void {
     this.#armed.delete(routingId);
+    this.#fileWatches.delete(routingId);
+    this.#fileEpoch += 1;
     const key = this.#jobKey(routingId);
     if (this.#automation.has(key)) this.#automation.unregister(key);
+  }
+
+  #resetFileWatches(paused = false): void {
+    this.#fileEpoch += 1;
+    for (const watch of this.#fileWatches.values()) watch.reset(paused);
+  }
+
+  async pollFileChanges(): Promise<void> {
+    if (this.#closed || this.#suspensionDesired || this.#activeRuns.size || this.#filePollBusy || !this.#observeFiles) return;
+    this.#filePollBusy = true;
+    const epoch = this.#fileEpoch;
+    try {
+      for (const [routingId, watch] of this.#fileWatches) {
+        const armed = this.#armed.get(routingId);
+        if (armed?.trigger.kind !== "files-changed") continue;
+        try {
+          const snapshot = await this.#observeFiles(armed.trigger);
+          if (epoch !== this.#fileEpoch || this.#closed || this.#suspensionDesired || this.#activeRuns.size) return;
+          const count = watch.observe(snapshot, this.#now().getTime(), armed.trigger);
+          if (count !== null) {
+            const admission = this.#dispatchAdmission(routingId, { kind: "files-changed", spaceId: armed.trigger.space, snapshotDigest: snapshot.digest, changedCount: count });
+            void admission.result.catch(() => undefined);
+          }
+        } catch (error) {
+          if (epoch !== this.#fileEpoch) return;
+          watch.fail(error);
+        }
+      }
+    } finally { this.#filePollBusy = false; }
   }
 
   #onSettle(record: WorkFoldSettleRecord): void {
@@ -811,6 +869,7 @@ export class WorkFoldRoutingService {
       taskId = null;
     }
     const active: ActiveRunState = { routingId, runId, controller, stopRequested: false, stoppedHopTaskIds: [] };
+    this.#resetFileWatches(true);
     this.#activeRuns.set(runId, active);
     try {
       const summary = await this.#executeHops(record.declaration, active);
@@ -861,6 +920,7 @@ export class WorkFoldRoutingService {
     } finally {
       releaseOuterAbort();
       this.#activeRuns.delete(runId);
+      this.#resetFileWatches(this.#activeRuns.size > 0 || this.#suspensionDesired);
       if (taskId !== null) {
         try {
           this.#tasks?.finish(taskId);

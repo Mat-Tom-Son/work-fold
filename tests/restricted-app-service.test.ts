@@ -2098,3 +2098,43 @@ function changedAuthorityFields(left: AuthorityStamp, right: AuthorityStamp): st
     .filter((field) => left[field] !== right[field])
     .sort();
 }
+
+test("a History reservation blocks new automation launches and releases without changing grants", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-restricted-service-automation-removal-fence-"));
+  const spaceRoot = join(sandbox, "space");
+  const rootPath = join(sandbox, "state", "restricted-apps");
+  const runtime = new FenceDuringAuthoritySyncRuntimeHost();
+  try {
+    await writePackage(join(spaceRoot, "apps", "inbox"));
+    const service = await RestrictedAppService.create({
+      rootPath,
+      runtimeHost: runtime,
+      deferAutomationStart: false,
+    });
+    const review = await service.inspect({ spaceId: spaceOne, spaceRoot, sourcePath: "apps/inbox" });
+    await service.install({ spaceId: spaceOne, spaceRoot, sourcePath: "apps/inbox", expectedDigest: review.digest });
+    await service.setAutomationEnabled({
+      spaceId: spaceOne,
+      appId: "connected-inbox",
+      expectedDigest: review.digest,
+      automationId: refreshAutomation,
+      enabled: true,
+    });
+
+    const result = await service.withHistoryRestoreReservation(spaceOne, () => service.runAutomationNow({
+      spaceId: spaceOne,
+      appId: "connected-inbox",
+      expectedDigest: review.digest,
+      automationId: refreshAutomation,
+    }));
+
+    assert.notEqual(result.run.outcome, "success");
+    assert.equal(runtime.automationRuns, 0, "the runtime host cannot launch during restoration");
+    assert.equal((await service.list(spaceOne))[0]?.automations[0]?.enabled, true);
+    const subsequent = await service.runAutomationNow({ spaceId: spaceOne, appId: "connected-inbox", expectedDigest: review.digest, automationId: refreshAutomation });
+    assert.equal(subsequent.run.outcome, "success");
+    await service.close();
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});

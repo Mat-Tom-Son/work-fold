@@ -1,3 +1,6 @@
+import { normalizeWorkFoldCheckProposal } from "../../shared/checks.js";
+import { createModelReviewSensor, type WorkFoldModelCheckReviewer } from "./model-review-sensor.js";
+import { loadCheckTextSnapshots, modelCheckLimits, type WorkFoldCheckTextSnapshot } from "./check-text.js";
 import { randomUUID } from "node:crypto";
 import { relative, resolve, sep } from "node:path";
 
@@ -53,6 +56,7 @@ export interface WorkFoldCheckServiceOptions {
   createTaskId?: () => string;
   storeFactory?: (spaceId: string) => Promise<WorkFoldCheckStore>;
   listSpaces?: () => Promise<SpaceSummary[]>;
+  reviewModel?: WorkFoldModelCheckReviewer;
   resolveSensor?: (id: string, revision: number) => WorkFoldCheckSensor | null;
   /** Routing-trigger seam; terminal runs are published only after they are durable. */
   settleSignal?: WorkFoldSettleSignal;
@@ -132,18 +136,29 @@ export class WorkFoldCheckService {
     this.#createTaskId = options.createTaskId ?? (() => `check-task-${randomUUID()}`);
     this.#storeFactory = options.storeFactory ?? ((spaceId) => WorkFoldCheckStore.create(spaceId));
     this.#listSpaces = options.listSpaces ?? listSpaces;
-    this.#resolveSensor = options.resolveSensor ?? resolveWorkFoldCheckSensor;
+    const modelSensor = createModelReviewSensor(options.reviewModel);
+    this.#resolveSensor = options.resolveSensor ?? ((id, revision) => id === modelSensor.id && revision === modelSensor.revision ? modelSensor : resolveWorkFoldCheckSensor(id, revision));
     this.#settleSignal = options.settleSignal ?? null;
   }
 
   enable(input: {
     space: WorkFoldCheckSpaceRef;
-    proposalPath: string;
+    proposalPath?: string;
+    proposal?: unknown;
+    checkId?: string;
+    expectedDigest?: string;
     actor: WorkFoldCheckAuthorization["enabledBy"];
   }): Promise<{ declaration: WorkFoldCheckDeclaration; digest: string }> {
     return this.#withOperationReservation(input.space.id, async () => {
       const space = await this.#registeredSpace(input.space);
-      const proposal = await readWorkFoldCheckProposal(input.proposalPath);
+      if ([input.proposalPath, input.proposal, input.checkId].filter((value) => value !== undefined).length !== 1) throw new Error("Provide exactly one Check proposal or existing Check.");
+      let proposal: WorkFoldCheckProposal;
+      if (input.checkId !== undefined) {
+        const existing = (await discoverWorkFoldCheckDeclarations(space.spaceRoot)).declarations.find((item) => item.declaration.id === input.checkId);
+        if (!existing || existing.digest !== input.expectedDigest) throw new WorkFoldCheckOperationConflictError("This Check changed since review. Refresh and inspect it again.");
+        const { title, severity, trigger, sensor, targets, createdAt, createdBy } = existing.declaration;
+        proposal = normalizeWorkFoldCheckProposal({ kind: "work-fold.check-proposal", version: 1, name: title.slice(0, 120), createdAt, createdBy, check: { title, severity, trigger, sensor, targets } });
+      } else proposal = input.proposalPath !== undefined ? await readWorkFoldCheckProposal(input.proposalPath) : normalizeWorkFoldCheckProposal(input.proposal);
       const sensor = this.#resolveSensor(proposal.check.sensor.id, proposal.check.sensor.revision);
       if (!sensor) throw new Error("The proposed Check requires a sensor revision that is not installed.");
       const preview: WorkFoldCheckDeclaration = {
@@ -156,11 +171,12 @@ export class WorkFoldCheckService {
       };
       sensor.validate(preview);
       await this.#assertNoNestedSpaceTargets(space, preview);
+      const limits = sensor.execution === "model" ? modelCheckLimits : defaultRunLimits;
       await resolveWorkFoldCheckTargets(space.spaceRoot, preview.targets, {
         limits: {
-          maxFiles: defaultRunLimits.maximumFiles,
-          maxFileBytes: defaultRunLimits.maximumFileBytes,
-          maxTotalBytes: defaultRunLimits.maximumTotalBytes,
+          maxFiles: limits.maximumFiles,
+          maxFileBytes: limits.maximumFileBytes,
+          maxTotalBytes: limits.maximumTotalBytes,
         },
       });
       const discovery = await discoverWorkFoldCheckDeclarations(space.spaceRoot);
@@ -182,7 +198,7 @@ export class WorkFoldCheckService {
         sensor.implementationDigest,
         this.#now(),
         sensor.execution,
-        defaultRunLimits,
+        limits,
       );
       return { declaration: written.declaration, digest: written.digest };
     });
@@ -310,6 +326,7 @@ export class WorkFoldCheckService {
       for (const record of discovery.declarations) {
         checks.push({
           id: record.declaration.id,
+          digest: record.digest,
           title: record.declaration.title,
           severity: record.declaration.severity,
           trigger: record.declaration.trigger,
@@ -318,6 +335,8 @@ export class WorkFoldCheckService {
             revision: record.declaration.sensor.revision,
           },
           targets: structuredClone(record.declaration.targets),
+          execution: this.#resolveSensor(record.declaration.sensor.id, record.declaration.sensor.revision)?.execution,
+          ...(typeof record.declaration.sensor.parameters.criteria === "string" ? { criteria: record.declaration.sensor.parameters.criteria } : {}),
           authority: await this.#rendererAuthorityState(registered, record, state.authorizations[record.declaration.id]),
         });
       }
@@ -648,6 +667,7 @@ export class WorkFoldCheckService {
     let skippedCount = 0;
     let usedFiles = 0;
     let usedBytes = 0;
+    let cost: WorkFoldCheckRunRecord["cost"];
     let terminal: WorkFoldCheckRunRecord;
     try {
       const currentRecords = new Map(
@@ -683,14 +703,17 @@ export class WorkFoldCheckService {
         if (resolution.totalBytes > remainingBytes) throw new Error("Check run exceeded its approved total-byte budget.");
         usedFiles += resolvedCount;
         usedBytes += resolution.totalBytes;
-        const runnerInputs = runnerOwnedInputs(record.declaration.id, resolution);
+        const snapshots = sensor.execution === "model" ? await loadCheckTextSnapshots(space.spaceRoot, resolution, signal) : undefined;
+        const runnerInputs = runnerOwnedInputs(record.declaration.id, resolution, snapshots);
         inputs.push(...runnerInputs);
         throwIfAborted(signal);
         const result = await withAbort(sensor.run({
           declaration: record.declaration,
-          inputs: closedSensorInputs(resolution),
+          inputs: { ...closedSensorInputs(resolution), ...(snapshots ? { snapshots } : {}) },
           signal,
         }), signal);
+        if (result.cost) cost = { model: result.cost.model, inputTokens: (cost?.inputTokens ?? 0) + (result.cost.inputTokens ?? 0), outputTokens: (cost?.outputTokens ?? 0) + (result.cost.outputTokens ?? 0), amountUsd: (cost?.amountUsd ?? 0) + (result.cost.amountUsd ?? 0) };
+        if (snapshots && !sameSemanticInputs(runnerInputs, await resolveCurrentInputs(record, authorization, space.spaceRoot))) throw new Error("Review inputs changed during the model request. Run the Check again.");
         skippedCount += result.skippedCount;
         if (skippedCount > 0) throw new Error("Check sensor skipped designated input; the run is incomplete.");
         const remainingFindings = accepted.limits.maximumFindings - findings.length;
@@ -719,6 +742,7 @@ export class WorkFoldCheckService {
         state: "succeeded",
         endedAt: this.#now().toISOString(),
         inputs,
+        ...(cost ? { cost } : {}),
         findings,
         admittedCount: findings.length,
         discardedCount,
@@ -731,6 +755,7 @@ export class WorkFoldCheckService {
         state: aborted ? "aborted" : "failed",
         endedAt: this.#now().toISOString(),
         inputs,
+        ...(cost ? { cost } : {}),
         findings: [],
         admittedCount: 0,
         discardedCount,
@@ -1021,12 +1046,13 @@ async function resolveCurrentInputs(
       maxTotalBytes: authorization.limits.maximumTotalBytes,
     },
   });
-  return runnerOwnedInputs(record.declaration.id, resolution);
+  const snapshots = authorization.execution === "model" ? await loadCheckTextSnapshots(root, resolution) : undefined;
+  return runnerOwnedInputs(record.declaration.id, resolution, snapshots);
 }
 
-function runnerOwnedInputs(checkId: string, resolution: WorkFoldCheckTargetResolution): WorkFoldCheckRunRecord["inputs"] {
+function runnerOwnedInputs(checkId: string, resolution: WorkFoldCheckTargetResolution, snapshots?: WorkFoldCheckTextSnapshot[]): WorkFoldCheckRunRecord["inputs"] {
   return [
-    ...resolution.files.map((file) => ({ checkId, path: file.path, state: "file" as const, size: file.sizeBytes })),
+    ...resolution.files.map((file) => ({ checkId, path: file.path, state: "file" as const, size: file.sizeBytes, ...(snapshots ? { sha256: snapshots.find((snapshot) => snapshot.path === file.path)!.sha256 } : {}) })),
     ...resolution.missingExactTargets.map((target) => ({ checkId, path: target.path, state: "missing" as const })),
   ].sort((left, right) => left.path.localeCompare(right.path, "en-US"));
 }

@@ -162,7 +162,7 @@ stay renderer conveniences — the verb takes an explicit `--until`.
 |---|---|---|---|---|---|---|---|
 | List restore points | History pane | none | direct verb (content-bearing act read) | `history list --space <id>` | — | n/a | — |
 | Save restore point | History pane, palette | none | direct verb | `history save --space <id> [--label <t>]` | checkpointId, `created` flag | none needed (additive) | unchanged files → honest "already matches" result, not a new checkpoint |
-| Restore a restore point | History pane → Restore | none | direct verb | `history restore --space <id> --checkpoint <id>` | restored checkpointId + pre-restore safety checkpointId | restore the safety checkpoint the act itself recorded | **refused while any Assistant turn, compaction, or Check run is active in that Space, while a restricted-app automation run whose app holds a file grant into that Space is active, or while a routing run with a files hop targeting that Space is active** — stricter than the desktop's confirm dialog, recorded as a deliberate strengthening |
+| Restore a restore point | History pane → Restore | none | direct verb | `history restore --space <id> --checkpoint <id>` | restored checkpointId + pre-restore safety checkpointId | restore the safety checkpoint the act itself recorded | **refused while any Assistant turn, compaction, or Check run is active in that Space, while a restricted-app automation run whose app holds a file grant into that Space is active, or while a routing run with a files hop targeting that Space is active** — shared with desktop recovery |
 | List file versions | File version history modal | none | direct verb (content-bearing act read) | `history versions --space <id> --path <p>` | — | n/a | — |
 | Restore file version | File version history modal | none | direct verb | `history restore-file --space <id> --path <p> --version <sha256>` | safety checkpointId | restore the safety checkpoint (the modal's own Undo does the same) | missing version → not-found; folder at path → refused |
 
@@ -181,19 +181,17 @@ to honestly present.
 | Move entry | Drag in tree, context menu | none | direct verb | `files move --space <id> --from <space-path> --to <space-folder>` | safety checkpointId, moved path | restore the safety checkpoint | into-own-subtree refused; `.work-fold/`, `.pi/`, `.workspace/` never valid endpoints (same path policy as the renderer) |
 | Rename entry | Context menu → Rename | none | direct verb | `files rename --space <id> --path <p> --name <n>` | safety checkpointId, prior name | restore the safety checkpoint or rename back | same path policy |
 | Delete entry | Context menu → Delete (+ Undo toast) | none | direct verb | `files delete --space <id> --path <p>` | safety checkpointId | restore the safety checkpoint — the durable form of the desktop's 6.5-second Undo toast | **refused whenever the safety checkpoint would skip any matched file** (oversized, unreadable, symlink — the checkpoint's own skip rules): a delete the restore point cannot cover is a destroy, and only the staged `files destroy` may perform it. The refusal names the uncoverable paths |
-| Destroy entry without restore coverage | Context menu → Delete (the desktop's pre-commit Undo toast is its ceremony) | none | **consecration 3** | `files destroy --space <id> --path <p>…` (stages) | decisionId, exact paths, observed content identities (sizes; content hashes where readable) | denial or expiry; after execution there is deliberately no undo | identities re-verified at decision time — changed content invalidates the act; same `.work-fold/`/`.pi/`/`.workspace/` path policy as delete |
+| Destroy entry without restore coverage | Staged decision in the fold | none | **consecration 3** | `files destroy --space <id> --path <p>…` (stages) | decisionId, exact paths, observed content identities (sizes; content hashes where readable) | denial or expiry; after execution there is deliberately no undo | identities re-verified at decision time — changed content invalidates the act; same `.work-fold/`/`.pi/`/`.workspace/` path policy as delete |
 | New folder | Context menu → New folder here | none | direct verb | `files mkdir --space <id> --path <folder>` | created path — no safety checkpoint, stated deliberately: creation is additive and destroys nothing | `files delete` (an empty folder is fully checkpoint-coverable) | existing name refused; same `.work-fold/`/`.pi/`/`.workspace/` path policy |
 | New empty file | Context menu → New file here | none | direct verb | `files create --space <id> --path <p>` | created path — same no-checkpoint note as `files mkdir` | `files delete` | existing name refused; same path policy |
 | Content search | Files search field, Chats search | none | direct verb (content-bearing act read) | `search --space <id> --query <q> [--scope files\|chats\|all]` | scope only — **not** the query text | n/a | honours ignore rules, skips binary/oversized files, and reports when a bound stopped the search rather than implying completeness — same contract as `/api/spaces/:id/search` |
 
-The file verbs are the renderer's own mutations with receipts, not a new
-mutation path — plus one deliberate strengthening: the desktop's delete
-route takes its checkpoint and proceeds even when the checkpoint skipped a
-file it could not capture, which for the act lane would mean irreversible
-loss with no click. The fold's `files delete` refuses that case into
-`files destroy` instead; anything the checkpoint cannot cover is a
-consecration, never a deletion with a weaker recovery story than the toast
-had.
+The file verbs use the renderer's own mutation paths and add receipts.
+Desktop and CLI delete both refuse content their safety checkpoint cannot cover.
+Such content requires an explicitly staged `files destroy` decision. History
+recovery also refuses overlapping uncovered content, protects registered child
+Spaces and excluded descendants, and reserves affected work against concurrent
+launches and ownership changes.
 
 ### Library
 
@@ -363,7 +361,7 @@ Consolidated, so implementations and tests can point at one list:
    compaction, or Check run is active in that Space, while a restricted-app
    automation run whose app holds a file grant into that Space is active,
    or while a routing run with a files hop targeting that Space is active
-   (a deliberate strengthening over the desktop's confirm dialog).
+   (the desktop uses the same reservation and refusal).
 8. Restricted-app proposal execution inherits the desktop's
    no-active-turn install rule; automation runs obey the machine-wide
    scheduler's admission and non-overlap rules.

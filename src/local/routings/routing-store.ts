@@ -78,6 +78,7 @@ export type WorkFoldRoutingReceiptScope = "routing" | "run" | "hop";
 /** Why a run was admitted; the terminal record names the trigger cause exactly. */
 export type WorkFoldRoutingRunCause =
   | { kind: "scheduled" | "resume"; slotAt: string }
+  | { kind: "files-changed"; spaceId: string; snapshotDigest: string; changedCount: number }
   | { kind: "run-now"; requestId?: string; surface?: WorkFoldCliActSurface }
   | {
       kind: "on-settled";

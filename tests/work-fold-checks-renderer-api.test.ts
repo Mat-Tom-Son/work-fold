@@ -176,3 +176,30 @@ async function request<T = unknown>(
   assert.equal(response.status, expectedStatus, text);
   return JSON.parse(text) as T;
 }
+
+test("desktop text Check setup is inert, re-enable pins review, and provider removal cannot interrupt a run", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-text-check-api-"));
+  const kernel = new WorkFoldKernel();
+  let release!: () => void;
+  const hold = new Promise<void>((resolve) => { release = resolve; });
+  let requests = 0;
+  const service = new WorkFoldCheckService({ kernel, reviewModel: async () => { requests++; await hold; return { submission: { findings: [] } }; } });
+  const api = await startLocalApi({ port: 0, stateBase: join(sandbox, "state"), spaceBase: join(sandbox, "content"), loadEnv: false, kernel, checkService: service });
+  try {
+    const { space } = await request<{ space: { id: string; spaceRoot: string } }>(api.origin, "/api/spaces", { method: "POST", body: { name: "Text review" } }, 201);
+    await writeFile(join(space.spaceRoot, "draft.md"), "An ordinary paragraph.");
+    const configured = await request<{ declaration: { id: string }; digest: string }>(api.origin, `/api/spaces/${space.id}/checks/configure`, { method: "POST", body: { proposal: { ...proposal, check: { ...proposal.check, sensor: { id: "work-fold.text-review", revision: 1, parameters: { criteria: "Flag unclear prose." } }, targets: [{ kind: "file", role: "primary", path: "draft.md" }] } } } });
+    assert.equal(requests, 0);
+    await request(api.origin, `/api/spaces/${space.id}/checks/${configured.declaration.id}/disable`, { method: "POST", body: {} });
+    const stale = await fetch(`${api.origin}/api/spaces/${space.id}/checks/${configured.declaration.id}/enable`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedDigest: "0".repeat(64) }) });
+    assert.equal(stale.status, 409);
+    const enabled = await request<{ declaration: { id: string } }>(api.origin, `/api/spaces/${space.id}/checks/${configured.declaration.id}/enable`, { method: "POST", body: { expectedDigest: configured.digest } });
+    assert.equal(enabled.declaration.id, configured.declaration.id);
+    const accepted = await request<{ task: { taskId: string } }>(api.origin, `/api/spaces/${space.id}/checks/run`, { method: "POST", body: {} }, 202);
+    const removal = await fetch(`${api.origin}/api/agent/auth`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ spaceId: space.id, provider: "test" }) });
+    assert.equal(removal.status, 409, await removal.text());
+    release();
+    assert.equal((await waitForTerminal(api.origin, space.id, accepted.task.taskId)).state, "succeeded");
+    assert.equal(requests, 1);
+  } finally { release(); await api.close(); await rm(sandbox, { recursive: true, force: true }); }
+});

@@ -2835,7 +2835,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         title?: unknown;
         health?: unknown;
         digest?: unknown;
-        trigger?: { kind?: unknown; intervalMinutes?: unknown; at?: unknown; ifMissed?: unknown; source?: Record<string, unknown> };
+        trigger?: { kind?: unknown; intervalMinutes?: unknown; at?: unknown; ifMissed?: unknown; source?: Record<string, unknown>; spaceId?: unknown; watch?: Record<string, unknown>; debounceSeconds?: unknown; cooldownMinutes?: unknown };
         steps?: unknown;
         grants?: unknown;
         enabledAt?: unknown;
@@ -2866,6 +2866,8 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         ? `interval, every ${terminalText(routing.trigger.intervalMinutes)} minutes`
         : routing.trigger?.kind === "at"
           ? `once at ${terminalText(routing.trigger.at)}; if missed: ${terminalText(routing.trigger.ifMissed)}`
+        : routing.trigger?.kind === "files-changed"
+          ? `folder changes in Space ${terminalText(routing.trigger.spaceId)}: ${terminalText(routing.trigger.watch?.path)}; debounce ${terminalText(routing.trigger.debounceSeconds)}s; cooldown ${terminalText(routing.trigger.cooldownMinutes)} minutes`
         : routing.trigger?.kind === "on-settled"
           ? `on-settled: ${terminalText(routing.trigger.source?.kind)} in Space ${terminalText(routing.trigger.source?.spaceId)}`
           : "manual (run-now only)";

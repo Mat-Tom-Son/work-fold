@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, existsSync, lstatSync } from "node:fs";
 import {
@@ -246,7 +247,7 @@ export async function beginSpaceRemoval(
 ): Promise<SpaceRemovalIntent> {
   assertId(spaceId);
   const requestedDisposition = options.folderDisposition ?? "delete";
-  return withRegistryMutation(async () => {
+  return withRegistryOwnershipMutation(async () => {
     const registry = await readRegistry({ strict: true });
     const existing = registry.pendingRemovals.find((intent) => intent.spaceId === spaceId);
     if (existing) {
@@ -316,7 +317,7 @@ export async function finalizeSpaceRemoval(
   io: Partial<SpaceRemovalIo> = {},
 ): Promise<SpaceRemovalResult> {
   assertId(spaceId);
-  return withRegistryMutation(async () => {
+  return withRegistryOwnershipMutation(async () => {
     const registry = await readRegistry({ strict: true });
     const intent = registry.pendingRemovals.find((item) => item.spaceId === spaceId);
     if (!intent) throw new Error("Space removal intent not found.");
@@ -832,7 +833,7 @@ export async function sha256File(path: string): Promise<string> {
 }
 
 async function registerSpace(input: Omit<SpaceSummary, "id" | "createdAt" | "updatedAt">): Promise<SpaceSummary> {
-  return withRegistryMutation(async () => {
+  return withRegistryOwnershipMutation(async () => {
     const registry = await readRegistry({ strict: true });
     const spaceRoot = resolve(input.spaceRoot);
     const existing = registry.spaces.find((space) => samePath(space.spaceRoot, spaceRoot));
@@ -854,6 +855,7 @@ async function registerSpace(input: Omit<SpaceSummary, "id" | "createdAt" | "upd
         if (existsSync(identityOwner.spaceRoot)) {
           throw new Error("This Space identity is already linked to another folder.");
         }
+        await relocateSpaceState(identityOwner.spaceRoot, spaceRoot, identityOwner.id);
         identityOwner.name = portableIdentity.name;
         identityOwner.spaceRoot = spaceRoot;
         identityOwner.location = input.location;
@@ -1067,6 +1069,60 @@ async function syncDirectoriesBestEffort(paths: readonly string[]): Promise<void
       // rename remains the claim point and exact identity is rechecked afterward.
     }
   }
+}
+
+const historyContext = new AsyncLocalStorage<Set<string>>();
+const activeHistoryRoots = new Set<string>();
+let ownershipMutations = 0;
+
+/** Holds folder ownership stable through a complete capture or restore. Nested
+ * captures for the same restore are reentrant; independent writers conflict. */
+export async function withSpaceHistoryOperation<T>(spaceRoot: string, operation: () => Promise<T>): Promise<T> {
+  const root = resolve(spaceRoot);
+  if (historyContext.getStore()?.has(root)) return operation();
+  if (ownershipMutations || activeHistoryRoots.has(root)) {
+    throw Object.assign(new Error("Wait for the current History or Space registration operation to finish."), { status: 409, statusCode: 409 });
+  }
+  activeHistoryRoots.add(root);
+  try {
+    return await historyContext.run(new Set([...(historyContext.getStore() ?? []), root]), operation);
+  } finally { activeHistoryRoots.delete(root); }
+}
+
+async function withRegistryOwnershipMutation<T>(operation: () => Promise<T>): Promise<T> {
+  if (activeHistoryRoots.size) throw Object.assign(new Error("Wait for History to finish before changing registered Spaces."), { status: 409, statusCode: 409 });
+  ownershipMutations += 1;
+  try { return await withRegistryMutation(operation); }
+  finally { ownershipMutations -= 1; }
+}
+
+/** Includes pending removals: their content is still separately owned. */
+export async function nestedRegisteredSpacePaths(spaceRoot: string): Promise<string[]> {
+  const root = resolve(spaceRoot);
+  const registry = await readRegistry({ strict: true });
+  return registry.spaces.filter((space) => !samePath(root, space.spaceRoot) && pathContains(root, space.spaceRoot))
+    .map((space) => normalizeRelative(relative(root, space.spaceRoot)));
+}
+
+/** Moves only this product's machine-local state. A marker makes a crash before
+ * the registry commit resumable; conflicting destination state is never merged. */
+async function relocateSpaceState(fromRoot: string, toRoot: string, spaceId: string): Promise<void> {
+  const from = spaceStateDir(fromRoot);
+  const to = spaceStateDir(toRoot);
+  if (from === to) return;
+  const marker = { version: 1, spaceId, fromRoot, toRoot };
+  const markerName = "state-relocation.json";
+  if (!existsSync(from)) {
+    if (existsSync(join(to, markerName))) {
+      const prior = JSON.parse(await readFile(join(to, markerName), "utf8"));
+      if (JSON.stringify(prior) !== JSON.stringify(marker)) throw new Error("Space state relocation does not match this folder.");
+    } else if (existsSync(to)) throw new Error("Space state relocation has unrelated destination state.");
+    return;
+  }
+  if ((await lstat(from)).isSymbolicLink() || existsSync(to)) throw new Error("Space state relocation has a conflicting destination.");
+  await atomicJsonWrite(join(from, markerName), marker);
+  await mkdir(dirname(to), { recursive: true });
+  await rename(from, to);
 }
 
 let registryMutationQueue: Promise<void> = Promise.resolve();

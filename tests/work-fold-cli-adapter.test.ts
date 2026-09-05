@@ -236,7 +236,7 @@ test("WorkFoldCliKernelAdapter resolves Check status scope and projects only agg
       calls.push(input);
       return {
         kind: "work-fold.checks.experimental",
-        version: 0,
+        version: 1,
         spaceId: input.spaceId,
         state: "needs-attention",
         configured: 4,
@@ -267,7 +267,7 @@ test("WorkFoldCliKernelAdapter resolves Check status scope and projects only agg
   assert.deepEqual(calls, [{ spaceId: betaId, spaceRoot: betaRoot }]);
   assert.deepEqual(result, {
     kind: "work-fold.checks.experimental",
-    version: 0,
+    version: 1,
     available: true,
     spaceId: betaId,
     state: "needs-attention",
@@ -295,7 +295,7 @@ test("WorkFoldCliKernelAdapter reports unavailable status when no safe aggregate
   const actor = { kind: "cli" as const, cwd: join(root, "documents") };
   const expected = {
     kind: "work-fold.checks.experimental" as const,
-    version: 0 as const,
+    version: 1 as const,
     available: false,
     spaceId: spaceSummary.id,
     state: "unavailable" as const,
@@ -328,7 +328,7 @@ test("WorkFoldCliKernelAdapter reports unavailable status when no safe aggregate
     async checksStatusProvider() {
       return {
         kind: "work-fold.checks.experimental",
-        version: 0,
+        version: 1,
         spaceId: spaceSummary.id,
         state: "not-configured",
         configured: -1,
@@ -351,7 +351,7 @@ test("WorkFoldCliKernelAdapter reports unavailable status when no safe aggregate
     async checksStatusProvider() {
       return {
         kind: "work-fold.checks.experimental",
-        version: 0,
+        version: 1,
         spaceId: spaceSummary.id,
         state: "stale",
         configured: 1,

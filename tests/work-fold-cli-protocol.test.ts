@@ -195,7 +195,7 @@ test("CLI Checks status emits aggregate-only JSON and human output", async () =>
     command: "checks.status",
     data: {
       kind: "work-fold.checks.experimental",
-      version: 0,
+      version: 1,
       available: true,
       spaceId: "space-aaaaaaaaaaaaaaaa",
       state: "needs-attention",
@@ -275,7 +275,7 @@ test("CLI human output neutralizes terminal control sequences from host metadata
     },
     async getChecksStatus() {
       return {
-        kind: "work-fold.checks.experimental", version: 0, available: true, spaceId: hostile,
+        kind: "work-fold.checks.experimental", version: 1, available: true, spaceId: hostile,
         state: "current-clear", configured: 1, proposed: 0, enabled: 1, current: 1, neverRun: 0,
         stale: 0, blocked: 0, errors: 0, needsAttention: 0, running: 0, lastRunAt: null,
       };
@@ -346,7 +346,7 @@ function fixtureKernel(calls: Array<{ method: string; actor: WorkFoldCliActor; s
       calls.push({ method: "checks", actor, space: options.space });
       return {
         kind: "work-fold.checks.experimental",
-        version: 0,
+        version: 1,
         available: true,
         spaceId: "space-aaaaaaaaaaaaaaaa",
         state: "needs-attention",

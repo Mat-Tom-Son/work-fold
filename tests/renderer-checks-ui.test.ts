@@ -8,11 +8,11 @@ import { createDomHarness } from "./support/dom.js";
 
 const overview: WorkFoldCheckRendererOverview = {
   kind: "work-fold.checks.renderer",
-  version: 0,
+  version: 1,
   spaceId: "space-checks-ui",
   status: {
     kind: "work-fold.checks.experimental",
-    version: 0,
+    version: 1,
     spaceId: "space-checks-ui",
     state: "current-clear",
     configured: 1,

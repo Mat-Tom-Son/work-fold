@@ -1127,7 +1127,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     { id: "go:library", groupId: "go-to" as const, groupLabel: "Go to", label: "Library", detail: "Reusable personal files", defaultVisible: true, run: () => openLibrary(space) },
     { id: "go:space-apps", groupId: "go-to" as const, groupLabel: "Go to", label: "Apps", detail: "Apps built for this Space: access, connections, automations", defaultVisible: true, run: () => tabs.openSpaceAppsSurfaceTab(space) },
     { id: "go:assistant-tools", groupId: "go-to" as const, groupLabel: "Go to", label: "Skills & Extensions", detail: "What the Assistant can use: installed Skills and Extensions", defaultVisible: true, run: () => tabs.openAssistantToolsSurfaceTab(space, "installed") },
-    ...(checks.status?.configured ? [{ id: "go:checks", groupId: "go-to" as const, groupLabel: "Go to", label: "Checks", detail: checks.status.needsAttention ? `${checks.status.needsAttention} need attention` : "Designated file expectations", defaultVisible: true, run: () => tabs.openChecksSurfaceTab(space) }] : []),
+    ...([{ id: "go:checks", groupId: "go-to" as const, groupLabel: "Go to", label: "Checks", detail: checks.status?.needsAttention ? `${checks.status.needsAttention} need attention` : "Designated file expectations", defaultVisible: true, run: () => tabs.openChecksSurfaceTab(space) }]),
     { id: "action:discover-assistant-tools", groupId: "actions" as const, groupLabel: "Actions", label: "Discover Skills & Extensions", keywords: ["capabilities", "discover", "install", "tools", "browse"], run: () => tabs.openAssistantToolsSurfaceTab(space, "discover") },
     ...surfaces.map((surface) => ({ id: `app:${surface.key}`, groupId: "go-to" as const, groupLabel: "Go to", label: surface.title, detail: surface.scope === "project" ? "Pi Extension · This Space" : "Pi Extension · Everywhere", run: () => selectRailMode(`app:${surface.key}`) })),
     ...restrictedApps.map((app) => ({ id: `restricted-app:${app.manifest.id}`, groupId: "go-to" as const, groupLabel: "Go to", label: app.manifest.title, detail: "App · This Space", run: () => selectRailMode(restrictedAppRailMode(space.id, app.manifest.id)) })),
@@ -1234,7 +1234,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
         )}
       </div> : null}
       {activeMode === "chats" ? <ChatsPane space={space} spaces={spaces} conversations={conversationGroups} customizations={customizations} activityStatuses={chatActivity.statuses} activeConversationId={activeTab?.kind === "chat" ? activeTab.conversationId ?? undefined : undefined} onOpen={(target, conversation) => openChat(target, conversation)} onNew={(target) => openChat(target, null)} onActions={openChatActions} /> : null}
-      {activeMode === "history" ? <HistoryPane space={space} fixtureItems={fixture?.checkpoints[space.id]} refreshRequest={historyRefreshRequest} onOpen={(item) => tabs.openHistorySurfaceTab(space, item.checkpointId, item.label || "Restore point")} onError={onError} /> : null}
+      {activeMode === "history" ? <HistoryPane onRestored={async () => { setHistoryRefreshRequest((value) => value + 1); await tree.refresh(false); await checks.refresh(); }} space={space} fixtureItems={fixture?.checkpoints[space.id]} refreshRequest={historyRefreshRequest} onOpen={(item) => tabs.openHistorySurfaceTab(space, item.checkpointId, item.label || "Restore point")} onError={onError} /> : null}
       {activeSurface ? <ExtensionSurfacePane surface={activeSurface} activeViewId={activeTab?.kind === "extension" && surfaceMatchesTab(activeSurface, activeTab) ? activeTab.viewId : null} onOpenView={(view) => tabs.openExtensionSurfaceTab(space, activeSurface, view)} /> : null}
       {activeRestrictedApp ? <RestrictedAppViewport app={activeRestrictedApp} placement="navigator" route="/" active /> : null}
     </section>
@@ -1334,7 +1334,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
                 />
               </div>
             ) : tab.kind === "history" ? (
-              <HistoryPane space={targetSpace} fixtureItems={fixture?.checkpoints[targetSpace.id]} refreshRequest={targetSpace.id === space.id ? historyRefreshRequest : 0} selectedCheckpointId={tab.checkpointId} onOpen={(item) => tabs.openHistorySurfaceTab(targetSpace, item.checkpointId, item.label || "Restore point")} onError={onError} />
+              <HistoryPane onRestored={async () => { setHistoryRefreshRequest((value) => value + 1); await tree.refresh(false); await checks.refresh(); }} space={targetSpace} fixtureItems={fixture?.checkpoints[targetSpace.id]} refreshRequest={targetSpace.id === space.id ? historyRefreshRequest : 0} selectedCheckpointId={tab.checkpointId} onOpen={(item) => tabs.openHistorySurfaceTab(targetSpace, item.checkpointId, item.label || "Restore point")} onError={onError} />
             ) : tab.kind === "extension" ? (() => {
               const targetSurfaceInventoryKnown = Object.prototype.hasOwnProperty.call(surfaceCatalogs, targetSpace.id);
               if (!targetSurfaceInventoryKnown) return <CenteredState icon={<Loader2 className="spin" size={24} />} title="Loading app view" text="Checking the tools installed for this Space." />;

@@ -347,7 +347,7 @@ function normalizeMachineState(value: unknown): WorkFoldCheckMachineState {
     throw Object.assign(new Error(`Check state uses unsupported version ${record.version}.`), { code: "ERR_WORK_FOLD_CHECKS_VERSION" });
   }
   assertExactKeys(record, ["version", "revision", "authorizations", "decisions", "runs"], "Check state");
-  if (record.version !== workFoldCheckStateVersion) throw new Error("Check state version is invalid.");
+  if (record.version !== 1 && record.version !== workFoldCheckStateVersion) throw new Error("Check state version is invalid.");
   if (!Number.isSafeInteger(record.revision) || (record.revision as number) < 0) throw new Error("Check state revision is invalid.");
   const authorizations = objectRecord(record.authorizations, "Check authorizations must be an object.");
   const decisions = objectRecord(record.decisions, "Check decisions must be an object.");
@@ -534,6 +534,20 @@ function normalizeInput(value: unknown): WorkFoldCheckRunRecord["inputs"][number
 
 function normalizeEvidence(value: unknown): WorkFoldCheckFinding["evidence"][number] {
   const record = objectRecord(value, "Check evidence must be an object.");
+  if (record.kind === "text-span") {
+    assertExactKeys(record, ["kind", "path", "start", "end", "quote", "identity", "context"], "Check text evidence");
+    const path = normalizeWorkFoldCheckTargetPath(record.path, "Check evidence path");
+    const identity = normalizeInput(record.identity);
+    if (identity.path !== path || identity.state !== "file" || !identity.sha256
+      || !Number.isSafeInteger(record.start) || !Number.isSafeInteger(record.end) || (record.start as number) < 0
+      || typeof record.quote !== "string" || !record.quote.trim() || record.quote.length > 2000
+      || (record.end as number) - (record.start as number) !== record.quote.length
+      || !Array.isArray(record.context) || !record.context.length || record.context.length > 16) throw new Error("Check text evidence is invalid.");
+    const context = record.context.map(normalizeInput);
+    if (context.some((input) => input.checkId !== identity.checkId || input.state !== "file" || !input.sha256)
+      || !context.some((input) => input.path === path && input.sha256 === identity.sha256)) throw new Error("Check text evidence context is invalid.");
+    return { kind: "text-span", path, start: record.start as number, end: record.end as number, quote: record.quote, identity, context };
+  }
   assertExactKeys(record, ["kind", "path", "expected", "observed", "identity"], "Check path-state evidence");
   if (record.kind !== "path-state") throw new Error("This Check state contains unsupported evidence.");
   if ((record.expected !== "file" && record.expected !== "missing")

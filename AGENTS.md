@@ -43,7 +43,7 @@ work-fold is a local-first Electron shell around ordinary folders and the native
 - **General computer work:** avoid code-only assumptions in primary UI copy and workflows.
 - **Layered app authority:** proposing, reviewing, installing, granting one destination/file/notification category, saving a connection, and enabling each named automation are distinct actions. Revocation must stop stale launches before authority changes take effect.
 - **Explicit root authority:** staged acts always pin and recheck their exact identities, journal before execution, and run through the same domain path as the desktop. **Reviewed** mode leaves runnable-code, standing-power, and irreversible-destruction acts inert for a person or a matching standing policy; **Unrestricted** mode executes every newly admitted staged act immediately, including permanent deletion, and approved browsers inherit it. Only local desktop Settings changes this machine-level mode. Pairing, provider-secret entry, standing-policy authoring, and root-authority selection remain setup surfaces rather than model/CLI verbs.
-- **Above-Space cadence:** agency on a schedule lives in Spaces. Above them, only declared deterministic routings run unattended, their enablement is a clicked decision, and cross-Space work never runs inside a Space chat because Space transcripts travel.
+- **Above-Space cadence:** agency on a schedule lives in Spaces. Above them, only declared deterministic routings run unattended (including explicitly enabled bounded folder-change triggers; see docs/fold-routings.md), their enablement is a clicked decision, and cross-Space work never runs inside a Space chat because Space transcripts travel.
 
 ## Stable information architecture
 
@@ -83,3 +83,8 @@ Read [Restricted app runtime](docs/restricted-app-runtime.md) and [Restricted ap
 - Keep README claims and the docs in sync with shipped behavior. In particular, do not claim native Google Drive, provider OAuth, package lifecycle controls, or public signing until the corresponding user path is verified.
 
 The active verification and publication boundaries are documented in [macOS build and release lane](docs/macos-build.md) and [macOS release runbook](docs/macos-release.md). The dormant Windows references are retained in [Windows build](docs/windows-build.md) and [Windows releases and signing](docs/windows-release.md) for a future deliberate reactivation only. The control-plane boundary and real-agent driver are documented in [work-fold management layer](docs/management-layer.md).
+
+
+## Bounded text Checks and folder observation
+
+The built-in text-review Check accepts one reviewed `criteria` rubric and explicit primary/reference UTF-8 targets; it uses the fold's model without the fold transcript, general tools, or edits. Preserve quote/digest admission, source-pinned sensor authority, visible provider-use limits, and failure-as-health semantics. Desktop setup and CLI use the same Check service. Routing folder observation is an explicit v3 standing grant with bounded selectors, debounce, cooldown, and visible health. It rebaselines after startup/wake and pauses during routing work without replay; cross-Space handoffs remain ordered steps in one routing. Do not silently turn it into an ambient or durable event bus.

@@ -1,3 +1,4 @@
+import type { WorkFoldRoutingFileObserver } from "../src/local/routings/routing-file-observer.js";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -177,7 +178,7 @@ interface Harness {
   runLines(): Promise<string[]>;
 }
 
-async function createHarness(t: TestContext, options: { maxConcurrency?: number } = {}): Promise<Harness> {
+async function createHarness(t: TestContext, options: { maxConcurrency?: number; observeFiles?: WorkFoldRoutingFileObserver } = {}): Promise<Harness> {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-routing-service-"));
   const clock = new FakeClock(startTime);
   const now = () => clock.now();
@@ -195,6 +196,7 @@ async function createHarness(t: TestContext, options: { maxConcurrency?: number 
     store,
     ports,
     settleSignal: signal,
+    ...(options.observeFiles ? { observeFiles: options.observeFiles, filePollIntervalMs: 0 } : {}),
     clock,
     createRunId: () => `run-${++nextRunId}`,
     catchUpStagger: () => 0,
@@ -1257,4 +1259,73 @@ test("an admission that outlived its authority is skipped at the launch boundary
   assert.deepEqual(targetLines.map((line) => `${line.scope}:${line.outcome}`), ["run:skipped"], "no accepted record, no hops — stale authority never runs");
   assert.deepEqual(targetLines[0]?.cause, { kind: "run-now", requestId: "request-target" });
   assert.equal(harness.ports.calls.filter((call) => call.routingId === "routing-target-tidy").length, 0);
+});
+
+test("folder changes debounce into one receipted cross-Space sequence and absorb routing outputs", async (t) => {
+  let revision = "1";
+  let observations = 0;
+  const harness = await createHarness(t, { observeFiles: async () => {
+    observations++;
+    return { digest: revision.repeat(64), entries: { "Drafts/notes.md": revision } };
+  } });
+  const trigger = { kind: "files-changed", space: spaceA, watch: { kind: "tree", path: "Drafts", recursive: true, extensions: [".md"] }, debounceSeconds: 2, cooldownMinutes: 1 };
+  await harness.enable(declarationInput("routing-folder-handoff", { version: 3, trigger, steps: pipelineSteps }));
+  await harness.service.pollFileChanges();
+  harness.clock.advance(10_000);
+  await harness.service.pollFileChanges();
+  assert.equal(harness.ports.calls.length, 0, "enablement seeds a baseline without running");
+  revision = "2";
+  await harness.service.pollFileChanges();
+  harness.clock.advance(1000);
+  revision = "3";
+  await harness.service.pollFileChanges();
+  harness.clock.advance(2000);
+  await harness.service.pollFileChanges();
+  await waitForCondition(async () => (await harness.journal()).some((line) => line.scope === "run" && line.outcome === "succeeded"), "folder handoff");
+  assert.deepEqual(harness.ports.calls.map(({ kind }) => kind), ["chat", "files", "check"]);
+  const accepted = (await harness.journal()).find((line) => line.scope === "run" && line.outcome === "accepted");
+  assert.deepEqual(accepted?.cause, { kind: "files-changed", spaceId: spaceA, snapshotDigest: "3".repeat(64), changedCount: 1 });
+  revision = "4";
+  harness.clock.advance(120_000);
+  await harness.service.pollFileChanges();
+  harness.clock.advance(2000);
+  await harness.service.pollFileChanges();
+  assert.equal(harness.ports.calls.length, 3, "post-run baseline absorbs generated output");
+  harness.service.suspend();
+  const beforePause = observations;
+  revision = "5";
+  await harness.service.pollFileChanges();
+  assert.equal(observations, beforePause);
+  await harness.service.resume();
+  await harness.service.pollFileChanges();
+  harness.clock.advance(2000);
+  await harness.service.pollFileChanges();
+  assert.equal(harness.ports.calls.length, 3, "wake never replays missed edits");
+  await harness.service.disable("routing-folder-handoff");
+  revision = "6";
+  await harness.service.pollFileChanges();
+  assert.equal((await harness.service.getRouting("routing-folder-handoff"))?.health, "disabled");
+});
+
+test("folder observer failures stay visible and a scan cannot outlive revocation", async (t) => {
+  let fail = false;
+  let hold: ReturnType<typeof deferred> | undefined;
+  const harness = await createHarness(t, { observeFiles: async () => {
+    if (hold) await hold.promise;
+    if (fail) throw new Error("Watched folder is unavailable");
+    return { digest: "a".repeat(64), entries: { "Drafts/a.md": "a" } };
+  } });
+  const trigger = { kind: "files-changed", space: spaceA, watch: { kind: "tree", path: "Drafts", recursive: false, extensions: [".md"] }, debounceSeconds: 2, cooldownMinutes: 1 };
+  await harness.enable(declarationInput("routing-folder-health", { version: 3, trigger }));
+  fail = true;
+  await harness.service.pollFileChanges();
+  assert.equal((await harness.service.getRouting("routing-folder-health"))?.fileWatch?.state, "error");
+  fail = false;
+  hold = deferred();
+  const scan = harness.service.pollFileChanges();
+  await harness.service.disable("routing-folder-health");
+  hold.resolve();
+  await scan;
+  assert.equal(harness.ports.calls.length, 0);
+  await assert.rejects(harness.enable(declarationInput("routing-folder-health", { version: 2, trigger })), /version 3/);
 });

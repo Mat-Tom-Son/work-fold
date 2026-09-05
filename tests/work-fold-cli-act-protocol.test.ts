@@ -1040,7 +1040,7 @@ test("manage glance parses strictly, dispatches to the facade, journals, and ren
 
   const snapshot = {
     kind: "work-fold.glance.experimental",
-    version: 0,
+    version: 1,
     composedAt: "2026-08-10T12:00:00.000Z",
     cursor: "2026-08-10T11:00:00.000Z/settled-turns:task-1",
     running: [{ id: "kernel-tasks:task-2", at: createdAt, kind: "assistant-turn", spaceName: "Fold Space", headline: "Assistant turn running" }],

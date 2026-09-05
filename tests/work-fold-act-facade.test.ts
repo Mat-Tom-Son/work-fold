@@ -417,6 +417,14 @@ test("the act facade drives Chat lifecycle and History families with ledger conf
       () => facade.historyRestore({ space: space.id, checkpointId: secondSave.checkpoint.checkpointId }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict" && /running Assistant turn in this Space/.test(error.message),
     );
+    const desktopRestore = await fetch(`${api.origin}/api/spaces/${space.id}/history/checkpoints/${secondSave.checkpoint.checkpointId}/restore`, { method: "POST" });
+    assert.equal(desktopRestore.status, 409, "desktop checkpoint restore uses the same running-work fence");
+    const desktopFileRestore = await fetch(`${api.origin}/api/spaces/${space.id}/history/file-versions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: "notes.md", hashSha256: firstVersion.hashSha256 }),
+    });
+    assert.equal(desktopFileRestore.status, 409, "desktop file restore cannot bypass the Space fence");
     await waitForAsync(async () =>
       (await facade.turnStatus({ space: space.id, taskId: running.taskId })).task.state !== "running");
 

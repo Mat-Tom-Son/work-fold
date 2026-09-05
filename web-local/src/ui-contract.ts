@@ -106,6 +106,7 @@ export const foldPoliciesSettings = {
 
 export const foldAuthoritySettings = {
   heading: "Operating mode",
+  assistantAccess: "The Assistant can use local files and commands with your account’s permissions. Reviewed mode adds approval to consequential work-fold operations.",
   reviewed: "Reviewed",
   reviewedDetail: "Consequential acts wait for you or use a standing policy.",
   unrestricted: "Unrestricted",

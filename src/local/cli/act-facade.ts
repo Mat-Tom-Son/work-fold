@@ -265,7 +265,11 @@ export interface WorkFoldActAppAutomationRunRef {
 
 /** Bounded projection of a routing's reviewed trigger (docs/fold-routings.md). */
 export interface WorkFoldActRoutingTriggerRef {
-  kind: "manual" | "interval" | "at" | "on-settled";
+  kind: "manual" | "interval" | "at" | "on-settled" | "files-changed";
+  spaceId?: string;
+  watch?: { kind: "tree"; path: string; recursive: boolean; extensions: string[] };
+  debounceSeconds?: number;
+  cooldownMinutes?: number;
   intervalMinutes?: number;
   at?: string;
   ifMissed?: "run" | "skip";

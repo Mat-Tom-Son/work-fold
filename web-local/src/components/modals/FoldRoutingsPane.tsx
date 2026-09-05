@@ -11,6 +11,7 @@ export interface FoldRoutingSpaceRef {
 }
 
 export type FoldRoutingTriggerView =
+  | { kind: "files-changed"; spaceId: string; watch: { kind: "tree"; path: string; recursive: boolean; extensions: string[] }; debounceSeconds: number; cooldownMinutes: number; summary?: string }
   | { kind: "manual"; summary?: string }
   | { kind: "interval"; intervalMinutes: number; summary?: string }
   | { kind: "at"; at: string; ifMissed: "run" | "skip"; summary?: string }
@@ -58,6 +59,7 @@ export interface FoldRoutingSummaryView {
   title: string;
   health: FoldRoutingHealth;
   trigger: FoldRoutingTriggerView;
+  fileWatch?: { state: "starting" | "watching" | "paused" | "error"; detail?: string; lastObservedAt?: string; lastTriggeredAt?: string };
   stepCount: number;
   nextScheduledAt?: string;
   lastScheduledAt?: string;
@@ -228,8 +230,9 @@ export function FoldRoutingsPane() {
   const hasActiveRun = Boolean(data?.routings.some((routing) => routing.activeRun))
     || pending.some((key) => key.startsWith("run:"))
     || Object.keys(runWatches).length > 0;
+  const hasFileWatch = Boolean(data?.routings.some((routing) => routing.trigger.kind === "files-changed" && routing.health === "enabled"));
   useEffect(() => {
-    if (!hasActiveRun) return;
+    if (!hasActiveRun && !hasFileWatch) return;
     const timer = window.setInterval(() => {
       void loadList()
         .then(async (next) => {
@@ -259,7 +262,7 @@ export function FoldRoutingsPane() {
         .catch(() => undefined);
     }, 1_500);
     return () => window.clearInterval(timer);
-  }, [hasActiveRun, loadList, loadSelected, runWatches, selectedId]);
+  }, [hasActiveRun, hasFileWatch, loadList, loadSelected, runWatches, selectedId]);
 
   const selectedSummary = useMemo(
     () => data?.routings.find((routing) => routing.routingId === selectedId) ?? null,
@@ -384,6 +387,12 @@ export function FoldRoutingsPane() {
                   </p>
                 ) : null}
 
+                {detail.trigger.kind === "files-changed" ? <section className="fold-routing-detail-section">
+                  <h5>Watched folder</h5>
+                  <p>{detail.trigger.watch.path}{detail.trigger.watch.recursive ? " and subfolders" : ""} · {detail.trigger.watch.extensions.join(", ")}</p>
+                  <p>Observer: {detail.fileWatch?.state ?? "off"}{detail.fileWatch?.detail ? ` · ${detail.fileWatch.detail}` : ""}</p>
+                  <p>Changes are combined until stable. Observation pauses while any routing works and starts fresh after wake or restart. Changes during those pauses do not queue another run. Put all handoff steps in this routing.</p>
+                </section> : null}
                 <dl className="fold-routing-facts">
                   <div><dt>Next</dt><dd>{detail.nextScheduledAt ? formatDateTime(detail.nextScheduledAt) : "—"}</dd></div>
                   <div><dt>Last run</dt><dd>{detail.lastRun ? `${outcomeLabel(detail.lastRun.outcome)} · ${formatDateTime(detail.lastRun.startedAt)}` : "Not run yet"}</dd></div>
@@ -595,6 +604,7 @@ function RoutingRun({ run }: { run: FoldRoutingHistoryRunView }) {
 
 function triggerSummary(trigger: FoldRoutingTriggerView): string {
   if (trigger.summary) return trigger.summary;
+  if (trigger.kind === "files-changed") return `When ${trigger.watch.path} changes · wait ${trigger.debounceSeconds}s · ${trigger.cooldownMinutes} minute cooldown`;
   if (trigger.kind === "manual") return "Manual only";
   if (trigger.kind === "interval") return `Every ${formatMinutes(trigger.intervalMinutes)}`;
   if (trigger.kind === "at") return `Once · ${formatDateTime(trigger.at)}`;

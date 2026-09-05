@@ -10,7 +10,7 @@ import {
 } from "./history-capture-policy.js";
 import { isOfficeLockFileName } from "./office-lock-files.js";
 import { spaceHistoryRoot } from "./state-paths.js";
-import { assertSpaceDoesNotContainState, ensureSafeSpaceRoot, resolveSpacePath } from "./space.js";
+import { assertSpaceDoesNotContainState, ensureSafeSpaceRoot, resolveSpacePath, nestedRegisteredSpacePaths, withSpaceHistoryOperation } from "./space.js";
 
 export interface CheckpointFileEntry {
   path: string;
@@ -171,7 +171,7 @@ export async function readSpaceBlob(spaceRoot: string, hashSha256: string): Prom
   return bytes;
 }
 
-export async function createSpaceCheckpoint(
+async function createSpaceCheckpointUnlocked(
   spaceRoot: string,
   options: { label?: string; reason?: string } = {},
 ): Promise<SpaceCheckpoint> {
@@ -188,7 +188,7 @@ export async function createSpaceCheckpoint(
   });
 }
 
-export async function createSpaceMutationCheckpoint(
+async function createSpaceMutationCheckpointUnlocked(
   spaceRoot: string,
   options: {
     paths?: string[];
@@ -228,14 +228,14 @@ export async function getSpaceCheckpoint(spaceRoot: string, checkpointId: string
   return readCheckpointManifest(join(checkpointsDir(root), `${checkpointId}.json`));
 }
 
-export async function discardSpaceCheckpoint(spaceRoot: string, checkpointId: string): Promise<void> {
+async function discardSpaceCheckpointUnlocked(spaceRoot: string, checkpointId: string): Promise<void> {
   if (!checkpointIdPattern.test(checkpointId)) return;
   const root = ensureHistoryRoot(spaceRoot);
   await rm(join(checkpointsDir(root), `${checkpointId}.json`), { force: true });
   await garbageCollectObjects(root, await readCheckpointManifests(root));
 }
 
-export async function restoreSpaceCheckpoint(spaceRoot: string, checkpointId: string): Promise<SpaceRestoreResult> {
+async function restoreSpaceCheckpointUnlocked(spaceRoot: string, checkpointId: string): Promise<SpaceRestoreResult> {
   const root = ensureHistoryRoot(spaceRoot);
   const checkpoint = await getSpaceCheckpoint(root, checkpointId);
   if (!checkpoint) throw notFound("Restore point not found.");
@@ -243,10 +243,13 @@ export async function restoreSpaceCheckpoint(spaceRoot: string, checkpointId: st
   const staged = await stageCheckpointContent(root, checkpoint);
   try {
     await preflightRestore(root, checkpoint);
+    await assertRestoreOwnership(root, checkpoint);
 
     const safety = checkpoint.scope === "full"
       ? await createSpaceCheckpoint(root, { reason: "pre_restore", label: `Before restoring ${checkpointId}` })
       : await createTargetedRestoreSafety(root, checkpoint);
+    assertRestoreCoverage(checkpoint, safety);
+    await assertRestoreOwnership(root, checkpoint);
 
     const movedEntries: CheckpointMove[] = [];
     for (const move of checkpoint.movesOnRestore) {
@@ -282,7 +285,7 @@ export async function restoreSpaceCheckpoint(spaceRoot: string, checkpointId: st
       const bytes = await readFile(staged.pathsByHash.get(file.hashSha256)!);
       const target = canonicalPath(root, file.path, true).absolutePath;
       await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, bytes);
+      await atomicRestoreFile(root, file.path, bytes);
       restoredFiles.push(file.path);
     }
 
@@ -290,7 +293,7 @@ export async function restoreSpaceCheckpoint(spaceRoot: string, checkpointId: st
       const selectedPaths = new Set(checkpoint.files.map((file) => file.path));
       const selectedSkipped = new Set(checkpoint.skippedFiles.map((file) => file.path));
       for (const file of safety.files) {
-        if (selectedPaths.has(file.path) || selectedSkipped.has(file.path)) continue;
+        if (selectedPaths.has(file.path) || [...selectedSkipped].some((path) => file.path === path || file.path.startsWith(`${path}/`))) continue;
         const target = canonicalPath(root, file.path, false).absolutePath;
         await rm(target, { force: true });
         deletedFiles.push(file.path);
@@ -340,7 +343,7 @@ export async function listFileVersions(
   return versions;
 }
 
-export async function restoreFileVersion(
+async function restoreFileVersionUnlocked(
   spaceRoot: string,
   relativePath: string,
   hashSha256: string,
@@ -359,8 +362,9 @@ export async function restoreFileVersion(
     reason: "pre_file_restore",
     label: `Before restoring ${path}`,
   });
-  await mkdir(dirname(absolutePath), { recursive: true });
-  await writeFile(absolutePath, bytes);
+  assertRestoreCoverage({ ...safety, files: [{ path, hashSha256: normalizedHash, sizeBytes: bytes.length, modifiedAt: new Date().toISOString() }], deleteOnRestore: [] }, safety);
+  await assertRestoreOwnership(root, safety);
+  await atomicRestoreFile(root, path, bytes);
   return {
     restored: true,
     path,
@@ -370,7 +374,7 @@ export async function restoreFileVersion(
   };
 }
 
-async function capturePaths(root: string, requestedPaths: string[], policy: HistoryCapturePolicy): Promise<{
+async function capturePaths(root: string, requestedPaths: string[], policy: HistoryCapturePolicy, persistBlobs = true): Promise<{
   directories: string[];
   files: CheckpointFileEntry[];
   skippedFiles: CheckpointSkippedFile[];
@@ -378,24 +382,35 @@ async function capturePaths(root: string, requestedPaths: string[], policy: Hist
   const directories = new Set<string>();
   const files = new Map<string, CheckpointFileEntry>();
   const skipped = new Map<string, CheckpointSkippedFile>();
+  const nestedPaths = await nestedRegisteredSpacePaths(root);
   const pendingFiles: Array<{ path: string; absolutePath: string; sizeBytes: number; modifiedAt: string }> = [];
 
   const visit = async (absolutePath: string): Promise<void> => {
-    const info = await lstat(absolutePath).catch(() => null);
-    if (!info) return;
     const path = toPosix(relative(root, absolutePath));
+    if (path && nestedPaths.some((nested) => path === nested || path.startsWith(`${nested}/`))) {
+      skipped.set(path, { path, sizeBytes: 0, reason: "excluded" });
+      return;
+    }
+    const info = await lstat(absolutePath).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") skipped.set(path, { path, sizeBytes: 0, reason: "unreadable" });
+      return null;
+    });
+    if (!info) return;
     if (info.isSymbolicLink()) {
       if (path) skipped.set(path, { path, sizeBytes: 0, reason: "symbolic_link" });
       return;
     }
     if (info.isDirectory()) {
-      if (path && await policy.excludeDirectory(path, absolutePath)) {
+      if (path && (nestedPaths.some((nested) => path === nested || path.startsWith(`${nested}/`)) || await policy.excludeDirectory(path, absolutePath))) {
         skipped.set(path, { path, sizeBytes: 0, reason: "excluded" });
         return;
       }
       if (path) directories.add(path);
       await policy.enterDirectory(path, absolutePath);
-      const entries = await readdir(absolutePath, { withFileTypes: true }).catch(() => []);
+      const entries = await readdir(absolutePath, { withFileTypes: true }).catch(() => {
+        skipped.set(path, { path, sizeBytes: 0, reason: "unreadable" });
+        return [];
+      });
       for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
         if (isOfficeLockFileName(entry.name)) continue;
         await visit(join(absolutePath, entry.name));
@@ -427,7 +442,8 @@ async function capturePaths(root: string, requestedPaths: string[], policy: Hist
       const file = pendingFiles[next]!;
       next += 1;
       try {
-        const blob = await storeSpaceBlobFromFile(root, file.absolutePath, file.sizeBytes);
+        const blob = persistBlobs ? await storeSpaceBlobFromFile(root, file.absolutePath, file.sizeBytes)
+          : { hashSha256: await sha256File(file.absolutePath), sizeBytes: file.sizeBytes };
         files.set(file.path, { path: file.path, hashSha256: blob.hashSha256, sizeBytes: blob.sizeBytes, modifiedAt: file.modifiedAt });
       } catch {
         skipped.set(file.path, { path: file.path, sizeBytes: file.sizeBytes, reason: "unreadable" });
@@ -490,6 +506,40 @@ async function persistCheckpoint(root: string, input: {
   await ensureHistoryMeta(root);
   await pruneHistory(root);
   return checkpoint;
+}
+
+function assertRestoreCoverage(checkpoint: SpaceCheckpoint, safety: SpaceCheckpoint): void {
+  const writes = checkpoint.files.map((file) => file.path);
+  const uncovered = safety.skippedFiles.filter((skip) =>
+    writes.some((path) => path === skip.path || path.startsWith(`${skip.path}/`))
+    || checkpoint.deleteOnRestore.some((path) => skip.path === path || skip.path.startsWith(`${path}/`) || path.startsWith(`${skip.path}/`)));
+  if (uncovered.length) {
+    throw new Error(`Restore refused: current content cannot be recovered: ${uncovered.slice(0, 5).map((file) => `${file.path} (${file.reason})`).join(", ")}. No files were changed.`);
+  }
+}
+
+async function assertRestoreOwnership(root: string, checkpoint: SpaceCheckpoint): Promise<void> {
+  const nested = await nestedRegisteredSpacePaths(root);
+  const paths = [...checkpoint.files.map((file) => file.path), ...checkpoint.directories,
+    ...checkpoint.deleteOnRestore, ...checkpoint.movesOnRestore.flatMap((move) => [move.fromPath, move.toPath])];
+  for (const path of paths) {
+    if (nested.some((child) => path === child || path.startsWith(`${child}/`)
+      || checkpoint.deleteOnRestore.includes(path) && child.startsWith(`${path}/`)
+      || checkpoint.movesOnRestore.some((move) => move.fromPath === path || move.toPath === path) && child.startsWith(`${path}/`))) {
+      throw new Error(`Restore refused: ${path} belongs to or contains another registered Space. No files were changed.`);
+    }
+  }
+}
+
+async function atomicRestoreFile(root: string, path: string, bytes: Buffer): Promise<void> {
+  const target = canonicalPath(root, path, true).absolutePath;
+  await mkdir(dirname(target), { recursive: true });
+  const temporary = `${target}.work-fold-restore-${randomUUID()}`;
+  try {
+    await writeFile(temporary, bytes, { flag: "wx" });
+    canonicalPath(root, path, true);
+    await rename(temporary, target);
+  } finally { await rm(temporary, { force: true }); }
 }
 
 async function createTargetedRestoreSafety(root: string, checkpoint: SpaceCheckpoint): Promise<SpaceCheckpoint> {
@@ -690,4 +740,65 @@ function toPosix(path: string): string {
 
 function notFound(message: string): Error {
   return Object.assign(new Error(message), { statusCode: 404 });
+}
+
+export async function createSpaceCheckpoint(...args: Parameters<typeof createSpaceCheckpointUnlocked>): Promise<Awaited<ReturnType<typeof createSpaceCheckpointUnlocked>>> {
+  return withSpaceHistoryOperation(args[0], () => createSpaceCheckpointUnlocked(...args));
+}
+
+export async function createSpaceMutationCheckpoint(...args: Parameters<typeof createSpaceMutationCheckpointUnlocked>): Promise<Awaited<ReturnType<typeof createSpaceMutationCheckpointUnlocked>>> {
+  return withSpaceHistoryOperation(args[0], () => createSpaceMutationCheckpointUnlocked(...args));
+}
+
+export async function discardSpaceCheckpoint(...args: Parameters<typeof discardSpaceCheckpointUnlocked>): Promise<Awaited<ReturnType<typeof discardSpaceCheckpointUnlocked>>> {
+  return withSpaceHistoryOperation(args[0], () => discardSpaceCheckpointUnlocked(...args));
+}
+
+export async function restoreSpaceCheckpoint(...args: Parameters<typeof restoreSpaceCheckpointUnlocked>): Promise<Awaited<ReturnType<typeof restoreSpaceCheckpointUnlocked>>> {
+  return withSpaceHistoryOperation(args[0], () => restoreSpaceCheckpointUnlocked(...args));
+}
+
+export async function restoreFileVersion(...args: Parameters<typeof restoreFileVersionUnlocked>): Promise<Awaited<ReturnType<typeof restoreFileVersionUnlocked>>> {
+  return withSpaceHistoryOperation(args[0], () => restoreFileVersionUnlocked(...args));
+}
+
+export interface SpaceRestorePreview {
+  checkpointId: string;
+  scope: "full" | "targeted";
+  restoreFiles: string[];
+  removePaths: string[];
+  moves: CheckpointMove[];
+  excludedPaths: string[];
+  uncoveredPaths: string[];
+  conflicts: string[];
+}
+
+export async function previewSpaceCheckpointRestore(spaceRoot: string, checkpointId: string): Promise<SpaceRestorePreview> {
+  return withSpaceHistoryOperation(spaceRoot, async () => {
+    const root = ensureHistoryRoot(spaceRoot);
+    const checkpoint = await getSpaceCheckpoint(root, checkpointId);
+    if (!checkpoint) throw notFound("Restore point not found.");
+    validateCheckpointPaths(root, checkpoint);
+    const conflicts: string[] = [];
+    try { await preflightRestore(root, checkpoint); await assertRestoreOwnership(root, checkpoint); }
+    catch (error) { conflicts.push(error instanceof Error ? error.message : "Restore is unavailable."); }
+    if (conflicts.length) return { checkpointId, scope: checkpoint.scope, restoreFiles: [], removePaths: [], moves: [], excludedPaths: [], uncoveredPaths: [], conflicts };
+    const current = await capturePaths(root, checkpoint.scope === "full" ? [""] : collapsePaths([...checkpoint.captureRoots, ...checkpoint.deleteOnRestore]),
+      checkpoint.scope === "full" ? await createFullHistoryCapturePolicy(root) : createTargetedHistoryCapturePolicy(), false);
+    try { assertRestoreCoverage(checkpoint, { ...checkpoint, ...current }); }
+    catch (error) { conflicts.push(error instanceof Error ? error.message : "Current files cannot be recovered."); }
+    const selected = new Set(checkpoint.files.map((file) => file.path));
+    const excluded = checkpoint.skippedFiles.map((file) => file.path);
+    const currentHashes = new Map(current.files.map((file) => [file.path, file.hashSha256]));
+    return {
+      checkpointId, scope: checkpoint.scope,
+      restoreFiles: checkpoint.files.filter((file) => currentHashes.get(file.path) !== file.hashSha256).map((file) => file.path),
+      removePaths: [...new Set([...checkpoint.deleteOnRestore.filter((path) => existsSync(resolveSpacePath(root, path))),
+        ...(checkpoint.scope === "full" ? current.files.filter((file) => !selected.has(file.path) && !excluded.some((path) => file.path === path || file.path.startsWith(`${path}/`))).map((file) => file.path) : [])])],
+      moves: checkpoint.movesOnRestore,
+      excludedPaths: excluded,
+      uncoveredPaths: current.skippedFiles.map((file) => file.path),
+      conflicts,
+    };
+  });
 }

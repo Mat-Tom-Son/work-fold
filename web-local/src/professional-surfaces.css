@@ -5290,3 +5290,27 @@
     justify-self: start;
   }
 }
+
+.checks-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 720px;
+  padding: 24px 0;
+  border-block: 1px solid var(--ui-border);
+}
+.checks-setup label { display: flex; flex-direction: column; gap: 7px; font-size: 13px; font-weight: 600; }
+.checks-setup input, .checks-setup select, .checks-setup textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--ui-border);
+  border-radius: 7px;
+  color: inherit;
+  background: var(--ui-surface);
+  font: inherit;
+  font-weight: 400;
+}
+.checks-setup textarea { resize: vertical; line-height: 1.5; }
+.checks-setup p { margin: 0; font-size: 12px; line-height: 1.6; color: var(--ui-text-muted); }
+.checks-finding blockquote { margin: 10px 0; padding-left: 12px; border-left: 2px solid currentColor; }

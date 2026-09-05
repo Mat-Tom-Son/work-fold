@@ -1,3 +1,4 @@
+import { loadCheckTextSnapshots } from "./check-text.js";
 import { randomUUID } from "node:crypto";
 
 import type { WorkFoldCheckDeclaration } from "../../shared/checks.js";
@@ -32,7 +33,7 @@ export async function admitWorkFoldCheckCandidate(input: {
   } catch {
     return null;
   }
-  if (!declarationContainsPath(input.declaration, targetPath)) return null;
+  if (!declarationContainsPath(input.declaration, targetPath) || !input.declaration.targets.some((target) => target.role === "primary" && (target.path === targetPath || target.kind === "tree" && targetPath.startsWith(`${target.path}/`)))) return null;
   if (!Array.isArray(input.candidate.evidence) || input.candidate.evidence.length < 1 || input.candidate.evidence.length > 16) return null;
   for (const evidence of input.candidate.evidence) {
     if (input.signal?.aborted) throw new Error(String(input.signal.reason || "Check admission was aborted."));
@@ -94,6 +95,24 @@ export async function verifyWorkFoldCheckEvidence(
   evidence: WorkFoldCheckEvidence,
   declaration: WorkFoldCheckDeclaration,
 ): Promise<boolean> {
+  if (evidence.kind === "text-span") {
+    if (declaration.sensor.id !== "work-fold.text-review" || evidence.identity.checkId !== declaration.id
+      || evidence.identity.path !== evidence.path || !Number.isSafeInteger(evidence.start) || evidence.start < 0
+      || !Number.isSafeInteger(evidence.end) || typeof evidence.quote !== "string" || !evidence.quote.trim()
+      || evidence.quote.length > 2000 || evidence.end - evidence.start !== evidence.quote.length
+      || !Array.isArray(evidence.context)) return false;
+    try {
+      const resolution = await resolveWorkFoldCheckTargets(root, declaration.targets);
+      const snapshots = await loadCheckTextSnapshots(root, resolution);
+      if (snapshots.length !== evidence.context.length || new Set(evidence.context.map((input) => input.path)).size !== snapshots.length) return false;
+      for (const snapshot of snapshots) {
+        const identity = evidence.context.find((item) => item.path === snapshot.path);
+        if (!identity || identity.checkId !== declaration.id || identity.state !== "file" || identity.sha256 !== snapshot.sha256) return false;
+      }
+      const target = snapshots.find((file) => file.path === evidence.path && file.roles.includes("primary"));
+      return !!target && target.sha256 === evidence.identity.sha256 && target.text.slice(evidence.start, evidence.end) === evidence.quote;
+    } catch { return false; }
+  }
   if (evidence.kind !== "path-state") return false;
   let path: string;
   try {
@@ -109,6 +128,7 @@ export async function verifyWorkFoldCheckEvidence(
 }
 
 function semanticEvidenceIdentity(evidence: WorkFoldCheckEvidence): unknown {
+  if (evidence.kind === "text-span") return { kind: evidence.kind, path: evidence.path, start: evidence.start, end: evidence.end, quote: evidence.quote, sha256: evidence.identity.sha256, context: evidence.context.map(({ path, sha256 }) => ({ path, sha256 })).sort((a, b) => a.path.localeCompare(b.path)) };
   return {
     kind: evidence.kind,
     path: evidence.path,

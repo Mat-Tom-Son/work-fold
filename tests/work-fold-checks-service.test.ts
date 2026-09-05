@@ -47,7 +47,7 @@ test("optional Checks complete proposal, grant, task, evidence, decision, stale,
 
   assert.deepEqual(await service.status(space), {
     kind: "work-fold.checks.experimental",
-    version: 0,
+    version: 1,
     spaceId: space.id,
     state: "not-configured",
     configured: 0,
@@ -99,7 +99,7 @@ test("optional Checks complete proposal, grant, task, evidence, decision, stale,
   assert.equal(problems.findings.length, 1);
   assert.deepEqual(await service.decorations(space), {
     kind: "work-fold.checks.decorations",
-    version: 0,
+    version: 1,
     spaceId: space.id,
     items: [{ path: "Delivery/signed.pdf", count: 1 }],
   });

@@ -4,7 +4,7 @@ Checks let a person teach work-fold a small, durable expectation about files
 they deliberately designate. work-fold may then verify that expectation on
 request and explain current, evidence-backed problems. Checks are optional
 Space behavior, not a new container, ambient scanner, generic agent loop, or
-permanent navigation destination.
+primary navigation destination.
 
 This document records the decisions that implementation and product surfaces
 must preserve. The initial contracts are experimental until real dogfooding
@@ -26,18 +26,15 @@ justifies promotion into the stable kernel and installed-CLI snapshots.
   cannot be targets.
 - Checks run only when a person or authenticated agent action requests a run.
   Opening the Checks work tab refreshes recorded status and re-verifies saved
-  evidence, but does not run a sensor. Continuous watching and schedules are
-  not part of the first releases; future schedules use the existing
-  named-automation model.
+  evidence, but does not run a sensor. Automatic runs require a separately enabled routing (schedule, folder-change, or settled-event trigger). Opening a tab never enables one.
 - Checks do not occupy the primary rail or the Add menu. The management
   conversation and installed CLI remain agent-facing surfaces. In the desktop,
   a conditional summary at the Files edge opens one reusable Space-owned Checks
-  work tab. An unconfigured Space adds no control, badge, marker, or empty
-  destination.
+  work tab. The command palette also opens Checks before configuration, and New Check offers a reviewed setup form. Unconfigured Spaces have no Files badge or marker.
 
 ## Expectations and authority
 
-- Conversation is the primary authoring experience. When a person expresses a
+- Conversation and the desktop New Check form are authoring experiences. When a person expresses a
   durable expectation, an agent may create an inert typed proposal. It may not
   enable the Check itself unless the person explicitly requested the
   authenticated enable action.
@@ -50,10 +47,7 @@ justifies promotion into the stable kernel and installed-CLI snapshots.
 - Portable declarations live below `.work-fold/checks/`. They are code-free
   data and may contain only a sensor id and revision, typed parameters, bounded
   target selectors, presentation metadata, and gate policy.
-- Declarations may never embed prompts, instructions, source code, shell
-  commands, model names, provider credentials, connection data, or arbitrary
-  executable expressions. Prompt-bearing or executable sensors are trusted
-  Assistant capabilities distributed through the existing Pi lane.
+- Declarations cannot embed executable code, shell commands, model names, provider credentials, connection data, or arbitrary expressions. The built-in text-review sensor admits one explicit review rubric as its bounded `criteria` parameter. This is a reviewed content criterion, not authority to run instructions or widen targets. The host owns the system prompt, submission schema, and transport. Other executable capabilities remain Pi-owned.
 - Registration discovers portable declarations but never enables them. The
   machine-local authorization store enables the exact digest of one declaration
   against the exact installed sensor revision and implementation/source digest.
@@ -78,7 +72,7 @@ justifies promotion into the stable kernel and installed-CLI snapshots.
 | Exact-digest enablement | work-fold application state | Authority is local to the machine and installed sensor revision |
 | Run records and admitted findings | work-fold application state | May contain paths, excerpts, and other private derived content |
 | Decisions and invalidation history | work-fold application state | Avoids silently exporting personal triage; portability is a later explicit decision |
-| Raw model requests/responses and cost detail | work-fold application state | Never portable Space content |
+| Model token/cost detail and selected model id | work-fold application state | Recorded when returned by the provider; raw requests and responses are not persisted by the Check runner |
 
 The proposal kind is `work-fold.check-proposal`, the declaration kind is
 `work-fold.check`, the initial built-in sensor is `work-fold.file-presence`,
@@ -107,9 +101,7 @@ versions and damaged state fail closed.
 - A sensor returns candidate findings through one validated shape. Native,
   packaged, model-backed, and external-agent providers all enter through the
   same admission path.
-- Deterministic built-in sensors ship first. A later model sensor is one
-  bounded model task with no general tools and one schema-validated terminating
-  submission operation. It is not a persistent Chat turn.
+- Built-ins include deterministic file presence and bounded text review. Text review has no general tools and one schema-validated terminating submission operation; it is not a persistent Chat turn.
 - The declaration determines the sensor and targets. A sensor may not use a
   model, connection, network destination, or executable capability that was
   absent from the exact revision the person enabled.
@@ -121,10 +113,7 @@ active finding**.
 
 - Sensors propose; the runner admits. Before persistence, the runner
   independently verifies the evidence against current files.
-- Experimental contract 0 admits only typed file/path-state evidence. Exact
-  text spans, structured values, comparisons, and deterministic receipts are
-  candidate shapes for later protocol revisions; they are not advertised or
-  silently accepted by the current runner.
+- Experimental snapshot version 1 admits path-state evidence and text spans with exact unique quotations, offsets, primary-file digest, and all designated input digests. Machine state version 2 reads version 1 records and preserves valid grants; future versions fail closed. Quotations are mechanically verified; model assessments remain suggestions for the person to judge.
 - Evidence records the relevant input identity: canonical Space-relative path,
   content digest or missing-file state, sensor revision, and typed locator.
 - A finding is re-verified before it appears in `problems`. Failed
@@ -279,3 +268,12 @@ active finding**.
   cache replay, hosted execution, and a Manuscript Lab migration are later
   layers. They must reuse this authority and admission model rather than widen
   it.
+
+
+## Bounded text review (September 2026)
+
+`work-fold.text-review` revision 1 accepts exactly `{"criteria":"..."}` (1–4096 characters). It reviews 1–16 explicitly designated UTF-8 files, at most 128 KiB each and 256 KiB total, with primary and optional reference roles. Binary files, missing designated files, unsafe paths, nested registered Spaces, and partial reads fail closed; no implicit PDF or Word extraction occurs. The fold's selected model and native provider transport are used, without the fold transcript, personal instructions in the prompt, general tools, or a tool-execution loop. This does transmit designated text to that configured provider and may incur charges. Runs serialize their model requests machine-wide, have a 120-second total budget (including queue time), at most 6,144 output tokens, no automatic provider retries, and at most 32 findings.
+
+The model submits an exact unique quote for each primary-file finding; the host derives offsets and hashes itself. Every primary and reference input is hashed again after review, including an empty findings result. Changed files, invalid quotes, malformed or truncated submissions, timeouts, and provider failures are Check errors, never a clean result. Freshness and decision admission recheck all input digests without contacting a model. Opening or refreshing Checks performs only local re-verification. Model findings are visibly labeled suggestions: quote verification does not prove factual accuracy. Checks never edit files automatically.
+
+The setup form displays the selected files, rubric, model use, and limits before Enable; enablement alone does not run the model. Existing declarations can be disabled or reviewed and re-enabled against their current digest. A routing can run an enabled Check after a folder changes; its folder trigger is a separate standing grant. A successful Check run may contain findings and is not an automatic publication gate.

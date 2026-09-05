@@ -115,7 +115,7 @@ export type WorkFoldCliCheckAggregateState =
 /** Experimental, aggregate-only Check status. It never carries content. */
 export interface WorkFoldCliCheckStatusSummary {
   kind: "work-fold.checks.experimental";
-  version: 0;
+  version: 1;
   available: boolean;
   spaceId: string;
   state: WorkFoldCliCheckAggregateState;

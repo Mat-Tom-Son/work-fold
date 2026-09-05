@@ -1,3 +1,4 @@
+import { withSpaceHistoryOperation } from "../../src/local/space.js";
 import { randomUUID } from "node:crypto";
 import { extname, posix } from "node:path";
 import {
@@ -945,6 +946,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       if (envelope.operation === "list") result = await this.#files.list(context, envelope.request);
       else if (envelope.operation === "read") result = await this.#files.read(context, envelope.request);
       else if (envelope.operation === "write") {
+        result = await withSpaceHistoryOperation(spaceRoot, async () => {
         const target = fileCheckpointTarget(instance.app.fileGrants, envelope.request);
         const checkpoint = await createSpaceMutationCheckpoint(spaceRoot, {
           ...(target.mode === "replace" ? { paths: [target.path] } : { deleteOnRestore: [target.path] }),
@@ -952,11 +954,13 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
           label: `${instance.app.manifest.title} changed ${target.path}`,
         });
         try {
-          result = await this.#files.write(context, envelope.request);
+          if (checkpoint.skippedFiles.length) throw new RestrictedAppFileError("FILE_CONFLICT", "The current file cannot be preserved in History; replacement was refused.");
+          return await this.#files.write(context, envelope.request);
         } catch (error) {
           await discardSpaceCheckpoint(spaceRoot, checkpoint.checkpointId).catch(() => undefined);
           throw error;
         }
+        });
       } else throw new RestrictedAppFileError("FILE_DENIED", "Restricted app file operation is unsupported.");
       this.#assertEffectLease(lease);
       return { ok: true, value: result };

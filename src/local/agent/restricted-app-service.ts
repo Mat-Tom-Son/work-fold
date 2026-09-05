@@ -538,6 +538,7 @@ export class RestrictedAppService {
   readonly #automations: WorkFoldAutomationService;
   readonly #acceptedAutomations = new Map<string, AcceptedAutomationContext>();
   readonly #spaceRuntimeExclusions = new Set<string>();
+  readonly #historyRestoreReservations = new Set<string>();
   #registry: RestrictedAppRegistryFile;
   #queue: Promise<void> = Promise.resolve();
   #releaseReconciliationPending = false;
@@ -2155,6 +2156,18 @@ export class RestrictedAppService {
     this.#syncAllAutomations();
   }
 
+  /** Inverse of the active-automation restore check. Set before draining the
+   * launch queue, so a job cannot pass validation during a History restore. */
+  async withHistoryRestoreReservation<T>(spaceId: string, operation: () => Promise<T>): Promise<T> {
+    this.#assertOpen();
+    if (this.#historyRestoreReservations.has(spaceId)) throw new RestrictedAppError("APP_UNAVAILABLE", "History is already restoring this Space.");
+    this.#historyRestoreReservations.add(spaceId);
+    try {
+      await this.#mutate(async () => undefined);
+      return await operation();
+    } finally { this.#historyRestoreReservations.delete(spaceId); }
+  }
+
   /** Fences every runtime effect and scheduled launch after a durable Space-removal intent. */
   fenceSpaceRemoval(spaceId: string): void {
     this.#assertOpen();
@@ -2406,8 +2419,8 @@ export class RestrictedAppService {
       if (!entry || entry.digest !== digest) {
         throw new RestrictedAppError("REVISION_CHANGED", "The automation Feature revision changed before it could start.");
       }
-      if (this.#spaceRuntimeExclusions.has(entry.spaceId)) {
-        throw new RestrictedAppError("APP_UNAVAILABLE", "Automations are not active for this Space.");
+      if (this.#spaceRuntimeExclusions.has(entry.spaceId) || this.#historyRestoreReservations.has(entry.spaceId)) {
+        throw new RestrictedAppError("APP_UNAVAILABLE", "Automations cannot start while this Space is unavailable or History is restoring it.");
       }
       const current = this.#copyInstalled(entry);
       const declaration = automationDeclaration(current.manifest, automationId);
@@ -2472,8 +2485,8 @@ export class RestrictedAppService {
         "\0".repeat(workFoldAutomationMaxErrorLength),
       ).registry);
       await this.#writeRegistry(next);
-      if (this.#spaceRuntimeExclusions.has(current.spaceId)) {
-        throw new RestrictedAppError("APP_UNAVAILABLE", "Automations are not active for this Space.");
+      if (this.#spaceRuntimeExclusions.has(current.spaceId) || this.#historyRestoreReservations.has(current.spaceId)) {
+        throw new RestrictedAppError("APP_UNAVAILABLE", "Automations cannot start while this Space is unavailable or History is restoring it.");
       }
       this.#acceptedAutomations.set(context.runId, accepted);
       execution = this.#runtimeHost!.runAutomation!(scoped, {

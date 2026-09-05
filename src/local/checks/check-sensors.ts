@@ -1,3 +1,6 @@
+import type { WorkFoldCheckTextSnapshot } from "./check-text.js";
+import type { WorkFoldCheckRunRecord } from "./check-types.js";
+import { createModelReviewSensor } from "./model-review-sensor.js";
 import type { WorkFoldCheckDeclaration } from "../../shared/checks.js";
 import type {
   WorkFoldCheckCandidateFinding,
@@ -5,6 +8,7 @@ import type {
 } from "./check-types.js";
 
 export interface WorkFoldCheckSensorInputSet {
+  snapshots?: WorkFoldCheckTextSnapshot[];
   files: Array<{ path: string; sizeBytes: number }>;
   missingExactTargets: Array<{ path: string }>;
 }
@@ -19,6 +23,7 @@ export interface WorkFoldCheckSensorContext {
 export interface WorkFoldCheckSensorResult {
   candidates: WorkFoldCheckCandidateFinding[];
   skippedCount: number;
+  cost?: WorkFoldCheckRunRecord["cost"];
 }
 
 export interface WorkFoldCheckSensor {
@@ -26,7 +31,7 @@ export interface WorkFoldCheckSensor {
   revision: number;
   /** Digest of the exact trusted implementation behind this revision. */
   implementationDigest: string;
-  execution: "deterministic";
+  execution: "deterministic" | "model";
   validate(declaration: WorkFoldCheckDeclaration): void;
   run(context: WorkFoldCheckSensorContext): Promise<WorkFoldCheckSensorResult>;
 }
@@ -87,6 +92,7 @@ async function runWorkFoldFilePresence({ declaration, inputs: closedInputs, sign
 
 const builtinSensors = new Map<string, WorkFoldCheckSensor>([
   [filePresenceSensor.id, filePresenceSensor],
+  ["work-fold.text-review", createModelReviewSensor()],
 ]);
 
 export function resolveWorkFoldCheckSensor(id: string, revision: number): WorkFoldCheckSensor | null {
