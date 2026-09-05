@@ -61,7 +61,10 @@ artifacts, or metadata.
 ## Release procedure
 
 1. Sync `main`, complete the version bump/release notes, and finish the
-   source-repository work for that version.
+   source-repository work for that version. Check both local tags and remote
+   tags before selecting a version: a checkout can retain frozen legacy tags
+   absent from the active remote. Never push an existing tag merely because
+   tag creation failed; choose a higher version unused locally and remotely.
 2. Run the normal gates with Node 24:
 
    ```bash
@@ -78,8 +81,8 @@ artifacts, or metadata.
    the tag-triggered CI run to finish successfully:
 
    ```bash
-   git tag -a v<version> -m "work-fold <version>"
-   git push origin v<version>
+   git tag -a v<version> -m "work-fold <version>" &&
+     git push origin refs/tags/v<version>:refs/tags/v<version>
    ```
 
    Confirm both CI runs name the same SHA as local `HEAD` and the tag. If either
