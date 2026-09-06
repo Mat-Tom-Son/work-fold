@@ -182,17 +182,21 @@ async function runSmoke() {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
     assert.equal(hits, 0, "the restricted renderer must not reach the loopback listener directly");
 
+    await mark("notification-start");
     assert.deepEqual(await host.invoke(descriptor, "notification", {}), {
       workerTopLevelNotificationDenied: true,
       actionNotificationDenied: true,
     });
 
+    await mark("frame-denial-start");
     await assert.rejects(host.invoke(descriptor, "frame", {}), (error) => error?.code === "APP_CRASHED");
+    await mark("frame-recovery-start");
     const afterFrame = await host.invoke(descriptor, "probe", { text: "Frame recovery", escapeUrl });
     assert.equal(afterFrame.echoed, "Frame recovery");
     await assert.rejects(host.invoke(descriptor, "huge", {}), (error) => error?.code === "OUTPUT_INVALID");
     await assert.rejects(host.invoke(descriptor, "cyclic", {}), (error) => error?.code === "OUTPUT_INVALID");
     await assert.rejects(host.invoke(descriptor, "intrinsics", {}), (error) => error?.code === "OUTPUT_INVALID");
+    await mark("timeout-start");
     await assert.rejects(host.invoke(descriptor, "hang", {}), (error) => error?.code === "APP_TIMEOUT");
     await mark("timeout-complete");
 
@@ -201,6 +205,7 @@ async function runSmoke() {
     assert.equal(hits, 0);
     await mark("recovery-complete");
 
+    await mark("automation-start");
     await host.runAutomation(descriptor, automationEvent("2026-07-13T00:00:00.000Z", "manual", {
       principalId: descriptor.principalId,
       kind: "human",
@@ -495,6 +500,7 @@ async function runSmoke() {
 }
 
 async function mark(message) {
+  console.log(`[restricted-app smoke] ${message}`);
   const path = process.env.WORKFOLD_RESTRICTED_SMOKE_LOG;
   if (path) await appendFile(path, `${new Date().toISOString()} ${message}\n`, "utf8");
 }
