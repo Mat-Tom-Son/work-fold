@@ -30,12 +30,11 @@ The normal generated-app path begins in a Space Chat: the Assistant writes the
 completed Space-relative package, proposes it through work-fold's host-owned
 tool, and the person reviews and installs the exact digest in that Chat. For
 this checked-in developer sample, register the repository as a Space or copy
-this directory into one, then use **Capabilities → Installed → Apps in this
-Space → Advanced local install**.
+this directory into one, then use **Add → Apps → Advanced local install**.
 
 The mail endpoint is intentionally non-functional and declares API-key or
 bearer authentication. It would need both a destination grant and a host-owned
-connection configured in Capabilities; the example contains no real
+connection configured in the Apps tab; the example contains no real
 credential. The local `project-service` destination is anonymous and expects a
 service on `127.0.0.1:4317`, but still requires its own destination grant.
 Together they demonstrate that installing an app grants nothing. work-fold
@@ -52,7 +51,7 @@ node examples/services/restricted-app-demo-service.mjs
 ```
 
 It binds only `127.0.0.1:4317` and implements `GET /health` plus
-`POST /jobs/refresh`. Allow **project-service** for this app in Capabilities,
+`POST /jobs/refresh`. Allow **project-service** for this app in the Apps tab,
 open **Project service**, then use **Check health** or **Run refresh job**.
 
 This helper is an ordinary developer process outside the restricted app
@@ -71,16 +70,14 @@ automation is disabled has no notification authority.
 
 1. Open this app and choose **View all** so its Inbox work tab remains selected
    on the right.
-2. Open **Capabilities** on the left, expand this app, enable **Refresh inbox**,
+2. Open **Add → Apps**, expand this app, enable **Refresh inbox**,
    and choose **Allow notifications** for **Inbox refresh finished**. The
    `mail-api` network grant may remain off.
-3. Choose **Run now**. The selected Inbox tab updates its automation-status card
-   from a live `storage.onChanged` hint, including the storage revision and the
-   honest network outcome. A granted notification is also requested even when
-   the fake endpoint is denied or unavailable.
-4. If the app view was inactive during the run, return to it to see the same
-   durable result loaded from app storage. Invalidation hints are intentionally
-   not queued or replayed for inactive views.
+3. Choose **Run now** and inspect its receipt. A granted notification is also
+   requested even when the fake endpoint is denied or unavailable.
+4. Return to the Inbox tab to see the durable result loaded from app storage.
+   For a scheduled run while Inbox is active, its status card updates through
+   a live `storage.onChanged` hint. Hints are not queued for inactive views.
 
 Windows can suppress a requested notification through Focus Assist or system
 notification settings. The status card distinguishes a host-accepted request

@@ -15,9 +15,10 @@ contract, and the non-goals. The promotion record is
 The glance is a small digest a person reads in a few seconds: what is
 running right now, what is waiting on them, what changed since they last
 looked, and where Checks stand. It is composed by app code from state the
-product already records — and by nothing else. No model call composes it,
-no file is opened to build it, and nothing watches in the background to
-feed it. The glance is a projection, not a store: every item points back at
+product already records. No model call composes it and it adds no watcher.
+Its Check-status reader may re-read and hash explicitly designated text to
+verify freshness; it does not scan unconfigured Spaces or include that text
+in the digest. The glance is a projection, not a store: every item points back at
 a durable or task-scoped record that exists for its own reasons, the digest
 can always be recomputed, and it is never itself the authority for
 anything. The only state this design added is the per-surface last-seen
@@ -37,7 +38,7 @@ product keeps for its own sake. The glance never causes a record to exist.
 | Management requests | `ManagementRequestRegistry` in `src/local/management-requests.ts` | In-memory, bounded to 100 records | Requests in `working`/`handed_off` (running), `needs_you` (waiting on the person), and settled phases |
 | Chat lifecycle and titles | `src/local/agent/chat-store.ts` | Durable — append-only portable transcripts with a rebuildable machine-local summary index | `conversation_lifecycle` events, title changes, `snoozedUntil` due times, and the newest assistant `landing.followUpPrompt` |
 | History checkpoints | `listSpaceCheckpoints` in `src/local/history.ts` | Durable machine-local app state | `checkpointId`, `createdAt`, `label`, `reason`, `scope` |
-| Check status | `WorkFoldCheckService.status()` in `src/local/checks/check-service.ts` | Durable machine-local Check state | Per-Space aggregate state and counts; status computation never executes a sensor and never reads file content |
+| Check status | `WorkFoldCheckService.status()` in `src/local/checks/check-service.ts` | Durable machine-local Check state, locally re-verified designated inputs | Per-Space aggregate state and counts; text freshness reads/hashes designated files locally without executing a sensor or calling a model |
 | Act receipts | `WorkFoldCliActReceipts` journal (`src/local/cli/act-receipts.ts`) | Durable, rotation-bounded | Terminal `ok`/`error` records: command name, Space id, outcome, checkpoint id, parent task id |
 | Automation run receipts | `RestrictedAppAutomationRunReceipt` in `src/local/agent/restricted-app-service.ts` | Durable registry state | Named job, App Instance, outcome, timestamps |
 | Automation scheduler state | `WorkFoldAutomationService` | In-memory, app run | Active and pending named jobs, feeding "Running now" |
@@ -100,7 +101,8 @@ from the same aggregate snapshot as `checks status`: state, counts,
 [Checks register](checks.md) apply unchanged: unconfigured means unknown,
 `neverRun` and `stale` stay distinct, a blocked or erroring Check is
 health, never a content claim, and composing this section never runs a
-sensor or reads file content. Aggregate rows only — finding titles, paths,
+sensor or calls a model. Designated text may be read and hashed locally
+for freshness. Aggregate rows only — finding titles, paths,
 and evidence stay in the Space's Checks work tab.
 
 ## Last-seen markers

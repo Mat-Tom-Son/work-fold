@@ -1,6 +1,6 @@
 # Fold integration — promotion record
 
-**Status: promotion applied (working tree, 2026-08-11).** The fold shipped as
+**Status: historical promotion record (2026-08-11).** The fold shipped as
 one complete build (verb ledger, consecrations, standing policies, routings,
 glance, publishing ladder through rung 3, and the naming sweep), and this
 document's amendment blocks were applied to the canonical registers. The
@@ -41,7 +41,7 @@ claimed by the canonical documents.
 | Held item | Gate |
 |---|---|
 | V-2 — the visual-design bullet admitting a menu-bar/tray attention dot while decisions pend | The visual-acceptance pass must accept the dot; it is not implemented and no acceptance is recorded. Until then the dot exists only as the pass-gated possibility U-3 names. |
-| README walkthrough screenshots | Discharged 2026-08-23 and refreshed 2026-09-01: the tracked `docs/images/work-fold-*.png` captures show the current main window, menu-bar popover, and web client without personal data. |
+| README walkthrough screenshots | Discharged 2026-08-23 and refreshed 2026-09-01. Current tracked walkthrough assets live under `services/bridge/public/screens/`; README names the exact files and the documentation contract test verifies them. |
 
 Two originally held items were discharged at ship time with the 0.3.0
 release commit: the fold's release notes landed as

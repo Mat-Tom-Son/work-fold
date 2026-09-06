@@ -61,6 +61,7 @@ An approved browser can open saved fold Chats, browse filtered Space files, uplo
 | Ordinary files | Provider credentials |
 | `.work-fold/space.json` identity | Model choices and Space instructions |
 | Append-only `.work-fold/conversations/` logs | Trust settings, sessions, and preferences |
+| Inert `.work-fold/checks/` declarations and reviewed criteria | Check enablement, findings, decisions, and corrections |
 | Project-owned `.pi/` configuration, when present | History restore points and machine app data |
 
 Library materials, outside files, capabilities, connections, and browser access move only through explicit actions.
@@ -118,13 +119,16 @@ See [the management layer](docs/management-layer.md) for commands, protocol guar
 
 ## Documentation
 
+Start with the [documentation map](docs/README.md) for current contracts,
+accepted future direction, and historical evidence.
+
 - [Product model](docs/product-model.md) — durable nouns, context rules, product rails, and roadmap.
 - [Architecture](docs/architecture.md) and [management layer](docs/management-layer.md) — runtime boundaries, kernel, CLI, and agent-facing adapters.
 - [The fold](docs/fold.md), [Checks](docs/checks.md), and [publishing](docs/fold-publishing.md) — authority, decisions, Routings, evidence, and sharing.
 - [Assistant capabilities](docs/assistant-capabilities.md) and [Pi compatibility](docs/pi-resources.md) — models, Skills, Extensions, packages, scopes, and trust.
 - [App platform foundation](docs/app-platform-foundation.md), [restricted app authoring](docs/restricted-app-authoring.md), and [restricted app runtime](docs/restricted-app-runtime.md) — Assistant-built apps and their lifecycle.
 - [Desktop parity](docs/ui-parity.md) and [visual system](docs/visual-design.md) — interaction and design contracts.
-- [Current release notes](docs/releases/0.3.17.md) — the shipped work-fold 0.3.17 verification record.
+- [Release notes and candidate history](docs/releases/README.md) — published versions and unpublished test candidates.
 - [macOS builds](docs/macos-build.md) and [release runbook](docs/macos-release.md) — active packaging, signing, notarization, and publication.
 
 work-fold uses a clean product profile and never imports, migrates, rewrites, or deletes legacy Workspace state or `.workspace/` content. The old Workspace repositories are frozen and never receive work-fold releases.

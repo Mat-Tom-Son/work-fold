@@ -189,7 +189,7 @@ Feature creates a new id; an old installation identity is never revived.
   meaningful combined risk.
 - **Lifecycle:** update preserves the installation incarnation; disable, remove,
   reinstall, data retention/adoption, export, and purge are distinct operations.
-- **Visibility:** internal. Assistant tools and update review may expose its state
+- **Visibility:** internal. The Apps tab and update review may expose its state
   without teaching “Feature Installation” as a top-level product noun.
 
 ### Runtime Instance
@@ -361,7 +361,7 @@ one. Preserved legacy bytes carry no work-fold identity or authority.
   schedules, quotas, and receipts. It does not own App Project source or
   publication authority.
 - Its protection is limited to the current OS-user and trusted work-fold host
-  boundary; it does not make the current read-only management protocol an
+  boundary; it does not make read-only management protocol v1 an
   authenticated API.
 - It is not stored in a Space as proof of ownership and does not travel when a
   folder is copied.
@@ -462,7 +462,7 @@ The product should expose an exact noun only where it improves a decision.
 | App Project | Contextual builder noun | Build, collaboration, review, publish, fork |
 | Feature | Meaningful name first; generic noun optional | Builder structure, permissions, update composition |
 | Feature Revision | Internal with digest/version evidence | Review, update, provenance, diagnostics, incident response |
-| Feature Installation | Internal state | Assistant tools, grants, connections, jobs, data lifecycle |
+| Feature Installation | Internal state | Apps, grants, connections, jobs, data lifecycle |
 | Runtime Instance | Internal union only | Typed host contracts, authority, storage, receipts |
 | Development Instance | **Local preview** or **Run locally** first | Source grants, review, receipts, diagnostics |
 | App Release | Progressive disclosure | Publish, install, update, rollback, provenance |

@@ -2,7 +2,7 @@
 
 work-fold can render a controlled application surface contributed by a normal, full-trust Pi Extension. A surface can add one destination below the stable primary rail, a navigator in the left pane, and one or more Space-bound tabs in the work area.
 
-This is a declarative UI contract, not renderer code injection. work-fold parses and bounds the manifest, renders its text and data through host-owned React components, and rejects unsupported block types. The Extension remains an ordinary executable Pi capability with its normal Personal or This Space scope and trust implications.
+This is a declarative UI contract, not renderer code injection. work-fold parses and bounds the manifest, renders its text and data through host-owned React components, and rejects unsupported block types. The Extension remains an ordinary executable Pi capability with its normal Everywhere or This Space only scope and trust implications.
 
 Do not choose between `surface.json` and a restricted Space app based only on visual complexity:
 

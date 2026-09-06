@@ -5,7 +5,7 @@ smaller than a CSS theme engine: people and agents may choose bounded identity v
 continues to own navigation, permission UI, native chrome, hit targets, accessibility, and layout
 integrity.
 
-Read [the role inventory](customization-role-inventory.md) for the audited CSS consumers and
+Read [the historical role inventory](customization-role-inventory.md) for the original CSS audit and
 [the visual system](visual-design.md) for the invariant shell rules.
 
 ## Person-facing experience
@@ -41,8 +41,8 @@ surface and the final composited soft fill. The resolver never accepts CSS or Ja
 
 The first release migrates the highest-obligation reading text, user-message solid/on-solid pairs,
 active markers, and the Customize Space surface. Transitional v1 aliases deliberately retain their
-old rendering values for still-unported consumers; the exhaustive inventory is the source of truth
-for finishing that mechanical role assignment without pretending the alias census is already zero.
+old rendering values for still-unported consumers. The historical inventory guides the remaining
+role assignment, but its consumer counts and source locations must be re-audited before changes.
 
 Banner gradients and user images remain advisory visual cases because their contrast depends on
 position or arbitrary pixels. The UI labels that limitation instead of claiming they are certified.

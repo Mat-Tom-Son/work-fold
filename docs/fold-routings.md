@@ -13,9 +13,10 @@ declaration and step contracts, the executor's failure semantics, the
 lifecycle and five-questions record, and the bounds. The promotion record is
 [Fold integration](fold-integration.md).
 
-The first expansion shipped on 2026-09-01: the declaration contract now
-accepts versions 1, 2, and 3. Version 2 adds a bounded one-time `at` trigger,
-and Settings → The fold → Routings is the desktop management surface. The
+The declaration contract accepts versions 1, 2, and 3. Version 2 added a
+bounded one-time `at` trigger on 2026-09-01; version 3 adds explicit folder
+observation, shipped in September 2026.
+Settings → The fold → Routings is the desktop management surface. The
 store schema is version 2; version-1 records load and are rewritten as
 version 2 on the next mutation, while newer schemas still fail closed.
 
@@ -26,9 +27,10 @@ point, run a Check. It is executed by app code on the shared scheduler
 discipline, never by an open-ended Assistant conversation, and it is the
 only thing above Spaces that runs unattended. A routing is not a workflow
 language: no conditions, no branching, no retries, no loops, no expression
-templating, and no model call anywhere in the executor. Agentic work happens
-only inside a Space Chat step, run by that Space's own Assistant with that
-Space's own authority.
+templating, and no model deciding which step runs next. Agentic work happens
+inside a Space Chat step, run by that Space's own Assistant with that Space's
+own authority. A Check step may separately use the bounded text reviewer
+through the Check service; the executor itself remains deterministic.
 
 ## The rule this design enforces
 

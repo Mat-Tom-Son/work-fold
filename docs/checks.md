@@ -235,8 +235,8 @@ active finding**.
   names, trailing-dot/space aliases, metadata, and Pi configuration.
 - The runner owns input identities and passes sensors a closed projection with
   Space-relative paths and bounded metadata—not reopenable absolute paths.
-  Future content sensors must receive immutable runner-opened snapshots or
-  opaque handles with no-follow identity checks before they can ship.
+  Text review receives immutable runner-opened snapshots with no-follow
+  identity checks; additional content sensors must preserve that boundary.
 - Status compares runner-owned current identities with the recorded run. It
   never invokes a sensor, provider, model, connection, or network adapter.
 - Target isolation is re-applied when old findings are surfaced. If a folder
@@ -253,10 +253,11 @@ active finding**.
 
 ## Shipped proof and deferred work
 
-- The first vertical slice covers proposal, explicit enablement, one
-  deterministic sensor, bounded target resolution, evidence admission, run
-  task/receipt, finding display, a fingerprint-scoped decision, management
-  conversation guidance, and the quiet desktop read model above.
+- The shipped path covers file-presence and model-backed text review,
+  fold-led proposals, isolated trials, explicit enablement, bounded target
+  resolution, evidence admission, task/receipts, fingerprint-scoped decisions,
+  and reviewed corrections with History and rechecks. The quiet desktop read
+  model is shared with the CLI and Routing service.
 - Manuscript and travel fixtures prove that the protocol is domain-neutral;
   repeated decisions in real Spaces prove that the product is useful.
 - A conditional Files-toolbar summary, exact file decorations, and the

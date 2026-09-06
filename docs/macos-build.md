@@ -52,6 +52,15 @@ packaged assets, and leaves the full updater/distribution proof to the slower
 distribution lane. Electron Builder's unpacked `--dir` output has no updater
 metadata, so it cannot prove update discovery or installation.
 
+The signed candidate uses the normal work-fold name, bundle identity, and
+application-data profile even outside `/Applications`. It looks like the
+installed app and shares its single-instance lock. Quit it before opening the
+Applications copy for updater testing. Only the ad hoc Local Smoke lane has
+an isolated identity by default; a signed candidate needs an explicit
+`WORKFOLD_DESKTOP_STATE_DIR` override for separate app data, which still does
+not isolate Keychain. Check the running executable path, installed bundle
+version, and published feed version independently when reporting release state.
+
 `desktop:make:mac` is the unsigned/ad hoc structural smoke lane. It performs desktop preparation, Pi and restricted-app smoke checks, Electron Builder DMG/ZIP assembly, packaged-asset and fuse verification, updater-manifest verification, mounted-DMG inspection, checksum generation, and release-manifest generation. Installer-only DMG artwork is generated under ignored `out/generated-assets` so image encoders cannot rewrite tracked source bytes or make the guarded publisher reject its own build. The smoke build is not distributable and must not be renamed or installed over the production app.
 
 Expected Apple silicon outputs:

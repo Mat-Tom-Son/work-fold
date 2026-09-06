@@ -141,8 +141,9 @@ The complete definitions and journey tests live in
     adapters, not the product contract.
 14. **Management remains a separate authenticated plane.** Feature runtime code
     cannot publish, install, approve bytes, grant a power, save a connection,
-    enable a job, assign a role, migrate data, or deploy an instance. The current
-    same-user CLI protocol remains read-only. Optional remote management is a
+    enable a job, assign a role, migrate data, or deploy an instance. Same-user
+    CLI protocol v1 remains read-only; the separately authenticated act lane
+    owns receipted management operations. Optional remote management is a
     surface over the existing management conversation through its own closed
     semantic adapter; it is not a hosted App runtime, generic local-API tunnel,
     publication path, or grant-management plane.
@@ -276,7 +277,7 @@ jobs.
 
 ### Implemented local product boundary
 
-The local milestone above is exposed through Assistant tools and the Space-bound
+The local milestone above is exposed through the Space-owned Apps tab and the Space-bound
 App Studio tab. It includes language-neutral declaration and artifact vectors
 checked by two code-independent executables, strict opaque identities and
 seven-domain authority, an explicit registry of

@@ -22,7 +22,7 @@ work-fold is for general computer work. Coding is one valid use, not the organiz
 | **History** | Checkpoints and recoverable changes associated with a Space. | It should remain distinct from chat history. |
 | **Checks** | Optional, manual expectations over exact files or bounded file sets a person deliberately designates. | They are not ambient scanning, a permanent rail destination, or proof that an unconfigured Space is healthy. |
 | **Assistant** | The Pi-powered helper. | Provider connections are configured in Settings and stay machine-local; model choices are saved separately for each Space and for the fold, independently from Space content. |
-| **Assistant tools** | One on-demand work tab to discover and manage what the Assistant can do. | It groups Skills, Extensions, and Space-app management without making executable tools look like passive Library materials. |
+| **Assistant tools** | One on-demand work tab to discover and manage what the Assistant can do. | It groups Skills and Extensions; restricted Space apps have a separate Apps tab. |
 | **Skill** | A reusable way of working that helps the Assistant approach a task. | A Skill may contain executable scripts and is not merely a document. |
 | **Extension** | An executable capability or connection available to the Assistant. | It has a stronger trust implication than a Library item. |
 | **App Project** | An optional build-and-publication identity declared for one Space. | Its presentation and identity are machine-local application state, not another portable file or cloud ownership record. |
@@ -131,14 +131,14 @@ work-fold hosts Pi instead of recreating an agent framework. Pi owns model/provi
 
 There are two capability scopes:
 
-- **Personal:** available across Spaces from the user's Pi agent directory.
-- **This Space:** portable configuration stored under the Space's `.pi/` directory and authorized while the folder is registered as a Space.
+- **Everywhere** (personal scope): available to the fold and every Space from the user's Pi agent directory.
+- **This Space only** (project scope): portable configuration stored under the Space's `.pi/` directory and authorized while the folder is registered as a Space.
 
-The **Assistant tools** work tab unifies discovery and management without erasing the distinctions that matter. It identifies whether an item is a Skill or Extension, Personal or This Space, active or merely available, direct-imported or package-provided, and healthy or diagnostic-failing. Installed items can be searched, filtered by type and scope, and sorted by name, type, scope, or source. Discover results can be searched, filtered, and sorted by first-party/reference status, downloads, recency, or name.
+The **Assistant tools** work tab unifies discovery and management without erasing the distinctions that matter. It identifies whether an item is a Skill or Extension, Everywhere or This Space only, active or merely available, direct-imported or package-provided, and healthy or diagnostic-failing. Installed items can be searched, filtered by type and scope, and sorted by name, type, scope, or source. Discover results can be searched, filtered, and sorted by first-party/reference status, downloads, recency, or name.
 
 Packages can distribute Skills, Extensions, prompts, themes, and related Pi resources. They remain installation and lifecycle plumbing; the primary UI should describe the capability a person is gaining, show inspected resource types and lifecycle scripts when registry metadata is available, and label unavailable details as unknown rather than absent. A package that includes Extensions or install scripts is a code-execution decision and must not be presented as a harmless Skill-only import. See [Assistant capabilities](assistant-capabilities.md) for the complete compatibility and safety model.
 
-work-fold has two deliberately different executable lanes inside the broader Extension product concept:
+work-fold has two deliberately different executable lanes:
 
 | Lane | Trust and distribution | UI and authority |
 |---|---|---|
@@ -183,7 +183,7 @@ is explicitly a **Local preview** in the source Space's Development Instance.
 App Studio separately declares Project presentation, prepares, publishes, and
 deletes unused Releases, installs one into a chosen registered Space, and
 manages update, rollback, uninstall, retained data, and purge. App Studio is a Space-bound work
-tab reached from Assistant tools, not a fifth top-level rail destination.
+tab reached from Apps, not a fifth top-level rail destination.
 
 ## Management layer
 
@@ -249,7 +249,7 @@ When a design is ambiguous, prefer the option that best preserves these properti
 - Drive one real Pi turn through the local API with the harness-neutral `work-fold:drive` test driver.
 - Render validated declarative `surface.json` contributions from loaded Pi Extensions as a contributed rail destination, left-pane navigator, and Space-bound view tabs without injecting Extension code into the renderer.
 - Let the Assistant submit a completed, Space-relative restricted-app package through a host-owned proposal tool. work-fold persists a Space-and-Chat-bound, digest-pinned review without evaluating JavaScript; only a later human approval installs it, with network, Space-file, and notification access off, no saved connection, and every automation disabled.
-- Give each installed Space app arbitrary reviewed web UI in a sandboxed rail navigator and host-derived persistent Space-owned right tabs, plus optional bounded Assistant actions and named automations in a separate worker sandbox. A machine-wide scheduler shared across Spaces provides two execution slots, FIFO admission, same-job non-overlap, durable cadence, bounded catch-up, and run receipts. Assistant tools manages each job independently alongside exact network/file/notification grants, host-owned encrypted connections, local data, reviewed updates, removal, and the secondary advanced local-package path.
+- Give each installed Space app arbitrary reviewed web UI in a sandboxed rail navigator and host-derived persistent Space-owned right tabs, plus optional bounded Assistant actions and named automations in a separate worker sandbox. A machine-wide scheduler shared across Spaces provides two execution slots, FIFO admission, same-job non-overlap, durable cadence, bounded catch-up, and run receipts. The Apps tab manages each job independently alongside exact network/file/notification grants, host-owned encrypted connections, local data, reviewed updates, removal, and the secondary advanced local-package path.
 - Provide bounded host-owned JSON storage with active-visible-view invalidation hints, History-covered Space-file grants, exact public-HTTPS or numeric-loopback requests, API-key/bearer/basic/OAuth PKCE connection adapters, and static reviewed system notifications from enabled automation runs.
 - Carry host-owned local App Project, Development Instance, Feature Installation,
   Data Namespace, canonical Feature Revision, and seven-domain authority identity
@@ -286,7 +286,7 @@ When a design is ambiguous, prefer the option that best preserves these properti
 - Meet the whole product through **the fold** — the one door above all Spaces: the management conversation, its menu-bar/tray popover, and "Your fold on the web" — with capture in and publishing out. See [the fold](fold.md).
 - Perform every product verb through the fold's receipted act lane at human parity: chat lifecycle and compaction, History restore with automation-aware fencing, file operations, content search, Library, Space rename/unregister and appearance, capability removal, and App Studio's authority-neutral lifecycle — each act journaled before it runs, receipted after, with typed undo references.
 - Route runnable-code, standing-power, and irreversible-destruction acts through the identity-pinned decision path; let Reviewed mode use host-composed cards and standing policies, and let Unrestricted mode execute every newly admitted act with explicit receipts. Approved browsers inherit the host mode; only local Settings changes it.
-- Declare deterministic cross-Space routings — a schedule or a settled Check or automation run driving fixed Chat, files, and Check steps on the shared two-slot scheduler with per-hop receipts; enablement is a consecration, and nothing above Spaces runs an unattended conversation.
+- Declare deterministic cross-Space routings — a schedule, explicitly designated folder change, or settled Check or automation run driving fixed Chat, files, and Check steps on a separate two-slot routing scheduler with per-hop receipts; enablement is a consecration, and nothing above Spaces runs an unattended conversation.
 - Read the glance — the app-composed digest of running work, needs-you decisions, and changes since each surface last looked — on the main window and remote client, with narration on demand that never advances seen markers. The compact popover stays focused on the live conversation, pending decisions, and capture.
 - Share "pages your fold serves": one designated file or one reviewed hosted App Instance served live from the desktop at the person's `<name>.work-fold.com` address to link-scoped, read-only viewers — end-to-end encrypted with URL-fragment keys, rate- and byte-budgeted, snapshot caching an explicit labeled opt-in, and revocable desktop-first.
 
@@ -307,7 +307,7 @@ When a design is ambiguous, prefer the option that best preserves these properti
 - Add named-pack selection for Anthropic marketplace bundles instead of importing every discovered Skill in an archive.
 - Extend the Chat's current attachment, command, Skill, model, and context visibility into a complete “what this Chat can see and use” inspector.
 - Extend the shipped personal act lane with Chat-scoped grants, confirmation and revocation ceremonies, and headless execution, if the surface ever outgrows the per-launch single-user token.
-- Add event subscriptions and a scoped cross-Space Assistant that can manage the product only through those authorized contracts.
+- Extend the shipped fold and bounded Routing triggers only through deliberate contracts for any new event source, handoff condition, or recovery behavior. Cross-Space coordination stays in the fold; Space Chats remain local to their own work.
 - Add restricted-app remote subscriptions and arbitrary push adapters, finer web-runtime resource controls, and a verified Space-service registry backed by a trusted launcher, per-instance challenge, and process-generation lifecycle. Raw numeric loopback grants remain useful for development but do not prove which process owns a port.
 - Strengthen onboarding, deepen accessibility coverage beyond the shipped keyboard reach, renderer interaction tests, recovery, export, and diagnostics.
 

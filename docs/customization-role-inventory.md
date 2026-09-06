@@ -1,12 +1,17 @@
 # Space identity role inventory
 
-This document is the implementation contract for replacing the two raw hex values in
+This document preserves the pre-implementation audit for replacing the two raw hex values in
 `web-local/src/lib/workspace-identity.ts` with a resolved, per-mode semantic palette. It maps every
 live consumer of the Space identity variables to a bounded role taxonomy so the resolver can be built
 without repeating the audit.
 
-Status: audit complete, no runtime code changed. Read [visual design](visual-design.md) for the rules
-this must not break and [product model](product-model.md) for the storage rails it must respect.
+**Status: historical audit, partially implemented.** The semantic resolver and
+Customize Space shipped; [Space customization](space-customization.md) is the
+current contract. The paths, line numbers, counts, and legacy `workspace-*`
+names below describe the audited revision, not today's source. Re-audit live
+consumers before continuing the remaining role migration. Read
+[visual design](visual-design.md) and [product model](product-model.md) for the
+current visual and storage rails.
 
 ## Scope and method
 

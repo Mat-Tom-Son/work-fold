@@ -22,7 +22,8 @@ that proves the requested behavior.
    secret.
 5. Treat public publication, tag creation, installation over `/Applications`,
    and deletion of a failed GitHub draft as separate external actions requiring
-   explicit user authorization.
+   explicit user authorization. Existing authorization in the conversation
+   counts; do not ask again for an action the user already authorized.
 6. Before public publication, verify that GitHub CI succeeded for the exact
    release SHA on pushed `main` and succeeded again for the matching pushed
    source tag. If either run fails, stop. Never move, reuse, or delete the
@@ -45,6 +46,22 @@ that proves the requested behavior.
   publication prerequisite.
 
 Do not use a signed or packaged lane to check ordinary UI copy or styling.
+
+## Keep candidate, installed, and published versions distinct
+
+A production-signed macOS candidate has the normal work-fold name, identity,
+and application-data profile even when launched from `out/mac-rc`. It is not
+the isolated Local Smoke app. An explicit `WORKFOLD_DESKTOP_STATE_DIR` selects
+separate app data but does not isolate Keychain.
+
+Before updater testing or reporting a version, inspect the running executable
+path, the bundle version in `/Applications/work-fold.app`, and the public feed
+separately. Quit the candidate before opening the installed copy; their shared
+single-instance identity can otherwise keep the candidate running. Removing a
+temporary candidate means removing its bundle, not the shared application data.
+An app-only candidate has no distribution updater metadata. Publication alone
+does not prove installation; if the person wants to press the update button,
+verify the offered version and leave installation and relaunch unclaimed.
 
 ## Resume interrupted work
 

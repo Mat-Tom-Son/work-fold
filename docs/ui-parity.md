@@ -91,7 +91,7 @@ A corrective port is ready for release only when all of the following are true:
 5. Type checks, tests, renderer build, desktop compile/preflight, the real-Electron restricted-app probe, and a packaged smoke build pass on the supported Node runtime.
 6. The app contains no user-facing Kai, Kymanox, Kits, Sources, SharePoint, Microsoft-login, or legacy Workspace copy except in historical documentation.
 7. The packaged CLI resolves context, lists Spaces/tasks/capabilities, coexists with the GUI, and cleans its request/response handoff.
-8. No public release is published until the product review is accepted and the release commit is green on main CI.
+8. No public release is published until the product review is accepted and the exact release commit is green on both main and matching source-tag CI.
 9. The checked-in restricted Connected inbox example has been exercised in a disposable Space for default-off grants and schedules, rail and persistent-tab ownership, storage invalidation/reload, explicit named automation runs and receipts, static notification routing, revocation, suspend/resume, and teardown.
 10. An installed-updater smoke preserves version-2 restricted-app reviewed digests, grants, encrypted connection status, automation settings and receipts, local storage, and Space-owned surfaces across the version change.
 

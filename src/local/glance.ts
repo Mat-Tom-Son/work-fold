@@ -15,8 +15,9 @@ import { workFoldStateRoot } from "./state-paths.js";
  * product already records. It is a projection, not a store — every item points
  * back at a record that exists for its own reasons, the digest can always be
  * recomputed, and it is never the authority for anything. No model composes
- * it, no file is opened to build it, and nothing watches in the background to
- * feed it.
+ * it and no watcher exists just to feed it. Source readers may re-verify
+ * explicitly designated Check inputs locally; the digest contains only their
+ * aggregate status, never those file bytes.
  *
  * The source inventory is closed: one typed reader per row of the inventory
  * table in docs/fold-glance.md. An absent reader renders its kinds as absent,

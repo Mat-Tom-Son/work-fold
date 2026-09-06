@@ -1,5 +1,9 @@
 # T3 Code reference audit
 
+**Status: historical reference audit (July 2026).** Names, paths, gaps, and
+recommendations below describe that snapshot. Use [the product model](product-model.md)
+and [desktop parity](ui-parity.md) for current behavior and requirements.
+
 This audit records ideas worth adapting from [pingdotgg/t3code](https://github.com/pingdotgg/t3code) without turning Workspace into a coding-only shell or replacing its native Pi runtime.
 
 ## Reference snapshot

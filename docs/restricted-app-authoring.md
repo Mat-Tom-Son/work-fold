@@ -60,7 +60,7 @@ Use **Open App Studio** when the reviewed preview is ready to install as an App:
    with the same id, and only one instance of this Project can be attached to
    that Space.
 5. Configure the Installed Release's destinations, file roots, notifications,
-   connections, and named automations in Assistant tools. None transfer from the
+   connections, and named automations in the Apps tab. None transfer from the
    preview and all begin off.
 
 The v2 Release is a closed local artifact: it contains the prebuilt package
@@ -512,7 +512,7 @@ work-fold is running. One scheduler is shared across all Spaces and apps, with
 a two-run global limit, FIFO admission, same-job non-overlap, and at most one
 staggered latest catch-up when requested. **Run now** is a one-off execution:
 it works while the schedule is disabled and does not move the recurring
-cadence. Every attempt receives a durable receipt visible in Assistant tools.
+cadence. Every attempt receives a durable receipt visible in the Apps tab.
 
 At launch, the worker sees only current app grants also named by that
 automation's `permissions` subset. `notifications.show({ permissionId })`
@@ -533,9 +533,9 @@ accepts. It never contains a credential:
 | Kind | Manifest shape | Host behavior |
 |---|---|---|
 | None | `{ "kind": "none" }` | No connection is stored. It must be the destination's only auth declaration and is the only kind allowed for numeric loopback. |
-| API key | `{ "kind": "api-key", "header": "x-api-key" }` | Assistant tools collects the value and the broker injects it through the reviewed non-sensitive header name. |
-| Bearer | `{ "kind": "bearer" }` | Assistant tools stores the token and the broker writes `Authorization: Bearer …`. |
-| Basic | `{ "kind": "basic" }` | Assistant tools stores username/password and the broker creates the Basic authorization header. |
+| API key | `{ "kind": "api-key", "header": "x-api-key" }` | The Apps tab collects the value and the broker injects it through the reviewed non-sensitive header name. |
+| Bearer | `{ "kind": "bearer" }` | The Apps tab stores the token and the broker writes `Authorization: Bearer …`. |
+| Basic | `{ "kind": "basic" }` | The Apps tab stores username/password and the broker creates the Basic authorization header. |
 | OAuth PKCE | `{ "kind": "oauth2-pkce", "issuer": "https://identity.example.com", "clientId": "public-native-client", "scopes": ["records.read"] }` | work-fold performs public-issuer discovery, S256, system-browser authorization, one-shot loopback callback, encrypted storage, and refresh. |
 
 A public destination may accept multiple credential kinds, but `none` cannot
@@ -543,7 +543,7 @@ be combined with another kind. OAuth requires a client id registered with a
 public HTTPS issuer that supports public clients without a client secret, plus
 scopes that exclude `openid`. work-fold cannot verify who owns that client
 registration. Client secrets and device-code flow are rejected. Connections are configured per
-exact Feature revision and reviewed destination in Assistant tools. The host also
+exact Feature revision and reviewed destination in the Apps tab. The host also
 binds each secret to its Tenant, Runtime Instance, Feature Installation,
 declaration digest, target identity, and current Runtime Instance owner. The
 portable contract reserves Principal-owned connection consent and job delegation
@@ -694,8 +694,8 @@ asking for secrets inside the app:
 try {
   await bridge.request({ destinationId: "records-api", method: "GET", path: "/v1/records" });
 } catch (error) {
-  if (error?.code === "NETWORK_DENIED") showStatus("Allow this destination in Assistant tools.");
-  else if (error?.code === "AUTH_REQUIRED") showStatus("Connect this destination in Assistant tools.");
+  if (error?.code === "NETWORK_DENIED") showStatus("Allow this destination in the Apps tab.");
+  else if (error?.code === "AUTH_REQUIRED") showStatus("Connect this destination in the Apps tab.");
   else showStatus(error?.message || "The connection is unavailable.");
 }
 ```
@@ -732,7 +732,7 @@ The Connected inbox package includes a project-service panel. To test it:
    node examples/services/restricted-app-demo-service.mjs
    ```
 
-4. In Assistant tools, allow the app's **project-service** destination.
+4. In the Apps tab, allow the app's **project-service** destination.
 5. Open the app's **Project service** tab and use **Check health** or **Run
    refresh job**.
 

@@ -58,7 +58,10 @@ npm run work-fold:drive -- --space-root /path/to/space --prompt "Summarize this 
 npm run work-fold:drive -- --space-root /path/to/space --prompt "..." --json --agent-dir /tmp/isolated-pi
 ```
 
-Use the installed CLI for read-only management snapshots and `work-fold:drive` for an end-to-end Pi turn. See [work-fold management layer](docs/management-layer.md) for their different boundaries.
+Use the installed CLI for content-free read snapshots and authenticated,
+receipted actions against the running app. Use `work-fold:drive` for an
+end-to-end Pi turn against the development host. See [work-fold management
+layer](docs/management-layer.md) for their different boundaries.
 
 ## Verify a change
 
@@ -82,7 +85,15 @@ fake timer that was armed after the first advance.
 
 For restricted-app manifest, bridge, broker, sandbox, storage, file, notification, connection, or lifecycle changes, run the focused tests and `npm run desktop:restricted-app:smoke`. That command exercises the real Electron visible and worker sandboxes; browser fixtures or Node-only tests do not prove the security boundary. `desktop:prepare`, the package lanes, and the release lane include this probe.
 
-On macOS, use Node 24 and `npm run desktop:make:mac` for the non-interactive `work-fold Local Smoke` app/DMG/ZIP structural candidate. Do not rename or install that ad hoc app over production. Developer ID, notarized, interactive candidates use `npm run desktop:make:mac:release`; see [macOS build and release lane](docs/macos-build.md). Never publish ad hoc artifacts as releases.
+On macOS, use Node 24 and `npm run desktop:make:mac` for the non-interactive
+`work-fold Local Smoke` app/DMG/ZIP structural candidate. Do not rename or
+install that ad hoc app over production. Use `npm run desktop:rc:mac` for an
+app-only, Developer ID-signed and notarized interactive candidate, and
+`npm run desktop:make:mac:release` when complete distribution artifacts are
+needed. The signed candidate uses normal work-fold data by default, even
+outside Applications; it is not an isolated Local Smoke build. See
+[macOS build and release lane](docs/macos-build.md). Never publish ad hoc
+artifacts as releases.
 
 Add or update tests for behavior changes. Update README and focused docs when a change affects shipped behavior, terminology, privacy, security, trust, build commands, or the roadmap.
 

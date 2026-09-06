@@ -61,8 +61,8 @@ Scope boundaries that are decisions, not gaps:
 - There are exactly two act tiers plus a setup-only boundary. A general "co-sign
   everything big" middle tier was considered and rejected; blast radius is
   expressed by category membership, not by a sliding scale.
-- A desktop human using the existing ceremonies — the Assistant tools
-  review, grant, connection, and automation controls, or the
+- A desktop human using the existing ceremonies — the Skills & Extensions review or the Apps tab
+  grant, connection, and automation controls, or the
   managed-deletion warning — is already the click. Those ceremonies are not
   rerouted through staged acts and deliberately gain no act-journal
   receipts in Reviewed mode: they keep their existing durable domain records, and the fold's
@@ -140,7 +140,7 @@ one is a deliberate contract change reviewed against the setup-only boundary.
 | `app.review.approve` | Make runnable | One pending restricted-app review, initial or update | Proposal id and review digest | The digest-checked install path desktop approval uses; a changed source is `invalidated` |
 | `capability.package.install`, `capability.package.update` | Make runnable | One Pi package or Extension at Personal or This Space scope | Package id, exact version, registry source, scope, and the inspected resource summary the card shows | The existing capability mutation path, under capability-mutation locks |
 | `capability.skills.import` | Make runnable | One executable skill bundle import | Bundle source, content digest, enumerated skill names | The existing import path (`src/local/agent/skill-import.ts`) |
-| `app.grant.network`, `app.grant.files`, `app.grant.notifications` | Widen a power | One exact reviewed declaration for one installed app | App Instance id, declaration identity, installed release digest | The same grant path Assistant tools uses |
+| `app.grant.network`, `app.grant.files`, `app.grant.notifications` | Widen a power | One exact reviewed declaration for one installed app | App Instance id, declaration identity, installed release digest | The same grant path the Apps tab uses |
 | `app.connection.save` | Widen a power | The connection's shape only — never a secret | Instance, declaration, target, adapter kind | Approval opens the host connection flow scoped to the pinned declaration |
 | `app.automation.enable` | Widen a power | One reviewed named job | Instance, job name, reviewed digest, schedule summary | The existing enablement path inside the machine-wide scheduler bounds |
 | `routing.enable` | Widen a power | One declared routing | Routing id and declaration digest | The enablement grant defined in [Routings](fold-routings.md) |

@@ -222,7 +222,7 @@ results terminate the worker. The worker is optional so a UI-only app does not
 need executable worker code.
 
 Automations are first-class host jobs, not one app-wide background switch.
-Every declared job starts disabled and is enabled separately in Assistant tools.
+Every declared job starts disabled and is enabled separately in the Apps tab.
 The worker exports `handleAutomation(event)` and dispatches using the reviewed
 `automationId` and `handler`. Intervals are whole minutes from 15 through
 1,440. `catchUp: "latest"` permits at most one deterministically staggered run
@@ -309,7 +309,7 @@ or occluded views, minimized windows,
 or a view owned by another Space. Apps re-read storage after a hint; event data
 is not a second state channel.
 
-A file declaration grants nothing by itself. In Assistant tools, the person maps
+A file declaration grants nothing by itself. In the Apps tab, the person maps
 it to a relative file or folder inside that app's Space. The sandbox sends only
 the grant id and a grant-relative path; the host derives Runtime Instance,
 Feature Installation, exact revision, current authority, and the selected root.
