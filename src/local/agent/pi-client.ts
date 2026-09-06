@@ -1,5 +1,4 @@
-import { Type } from "@earendil-works/pi-ai/compat";
-import { modelReviewSystemPrompt, type WorkFoldModelCheckRequest, type WorkFoldModelCheckResponse } from "../checks/model-review-sensor.js";
+import { modelReviewSubmissionSchema, modelReviewSystemPrompt, type WorkFoldModelCheckRequest, type WorkFoldModelCheckResponse } from "../checks/model-review-sensor.js";
 import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
@@ -408,12 +407,12 @@ export class PiConversationClient extends EventEmitter {
     const stream = await session.agent.streamFn(model, {
       systemPrompt: modelReviewSystemPrompt,
       messages: [{ role: "user", content: payload, timestamp: Date.now() }],
-      tools: [{ name: "submit_review", description: "Submit the completed review once. Quotes must exactly and uniquely match primary text.", parameters: Type.Object({
-        findings: Type.Array(Type.Object({ path: Type.String(), quote: Type.String({ minLength: 1, maxLength: 2000 }), title: Type.String({ maxLength: 300 }), detail: Type.String({ maxLength: 2000 }), remediation: Type.Optional(Type.String({ maxLength: 2000 })) }, { additionalProperties: false }), { maxItems: 32 }),
-      }, { additionalProperties: false }) }],
+      tools: [{ name: "submit_review", description: "Submit the completed review once. Quotes must exactly and uniquely match primary text.", parameters: modelReviewSubmissionSchema }],
     }, { maxTokens: Math.min(model.maxTokens > 0 ? model.maxTokens : 6144, 6144), maxRetries: 0, timeoutMs: 120_000, signal: input.signal, ...(reviewReasoning ? { reasoning: reviewReasoning } : {}) });
     const result = await stream.result();
-    if (result.stopReason === "error" || result.stopReason === "aborted" || result.stopReason === "length") throw new Error("The model review did not complete. Check the fold's provider connection or narrow the selected files, then run again.");
+    if (result.stopReason === "length") throw new Error("The model review exceeded its output limit. Narrow the Check criteria or selected files, then run again. No findings were admitted.");
+    if (result.stopReason === "aborted") throw new Error("The model review was interrupted. No findings were admitted.");
+    if (result.stopReason === "error") throw new Error("The model review did not complete. Check the fold's provider connection or narrow the selected files, then run again.");
     const calls = result.content.filter((part) => part.type === "toolCall");
     if (calls.length !== 1 || calls[0]?.name !== "submit_review") throw new Error("The model did not return the required complete review submission. No findings were admitted.");
     return { submission: calls[0].arguments, cost: { model: `${model.provider}/${model.id}`, inputTokens: result.usage.input, outputTokens: result.usage.output, amountUsd: result.usage.cost.total } };

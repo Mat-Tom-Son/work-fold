@@ -276,6 +276,16 @@ active finding**.
 
 The model submits an exact unique quote for each primary-file finding; the host derives offsets and hashes itself. Every primary and reference input is hashed again after review, including an empty findings result. Changed files, invalid quotes, malformed or truncated submissions, timeouts, and provider failures are Check errors, never a clean result. Freshness and decision admission recheck all input digests without contacting a model. Opening or refreshing Checks performs only local re-verification. Model findings are visibly labeled suggestions: quote verification does not prove factual accuracy. Checks never edit files automatically.
 
+The submission schema names every required field and describes the optional
+plain-text suggestion. Missing suggestions must be omitted, never encoded as
+null or structured edits. Invalid finding diagnostics identify the entry number,
+the host-defined field, and the violated type or text bound; they never echo
+returned text or unknown field names. A malformed entry rejects the entire
+review, including otherwise valid entries. Output-limit and interruption errors
+are distinguished from provider failures. No automatic retry, coercion, partial
+admission, or raw-response logging is added. Changes to this prompt, schema, or
+validation change the sensor digest and require explicit re-enablement.
+
 Proposal review displays selected files and rubric before Try it or Turn on; enablement alone does not run the model. Existing declarations can be disabled or reviewed and re-enabled against their current digest. A routing can run an enabled Check after a folder changes; its folder trigger is a separate standing grant. A successful Check run may contain findings and is not an automatic publication gate.
 
 ## Fold-led setup and reviewed corrections

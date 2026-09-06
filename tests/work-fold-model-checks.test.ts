@@ -78,6 +78,36 @@ for (const [label, submission] of [
   assert.equal((await f.service.status(f.space)).state, "check-error");
 });
 
+for (const [label, invalid, diagnostic] of [
+  ["null remediation", { ...finding, remediation: null }, /remediation must be text; received null/],
+  ["array remediation", { ...finding, remediation: ["PRIVATE MODEL TEXT"] }, /remediation must be text; received array/],
+  ["object detail", { ...finding, detail: { message: "PRIVATE MODEL TEXT" } }, /detail must be text; received object/],
+  ["missing path", { quote: finding.quote, title: finding.title, detail: finding.detail }, /path is missing/],
+  ["extra field", { ...finding, "PRIVATE MODEL TEXT": "PRIVATE MODEL TEXT" }, /unexpected field/],
+  ["blank title", { ...finding, title: "   " }, /title is empty/],
+  ["overlong title", { ...finding, title: "X".repeat(301) }, /title exceeds 300/],
+  ["multiline detail", { ...finding, detail: "PRIVATE MODEL TEXT\nAnother paragraph" }, /detail must be one plain-text paragraph/],
+  ["non-object", "PRIVATE MODEL TEXT", /expected an object/],
+] as const) test(`model Check explains ${label} without exposing model content or admitting partial findings`, async (t) => {
+  const f = await fixture(t, async () => ({ submission: { findings: [finding, invalid] } }));
+  const result = await f.run();
+  assert.equal(result.state, "failed");
+  assert.deepEqual(result.findings, []);
+  assert.match(result.error!, /invalid finding \(2:/);
+  assert.match(result.error!, diagnostic);
+  assert.ok(!result.error!.includes("PRIVATE MODEL TEXT"));
+  assert.equal((await f.service.status(f.space)).state, "check-error");
+});
+
+test("model Check accepts an omitted suggestion without fabricating remediation", async (t) => {
+  const { remediation: _, ...withoutSuggestion } = finding;
+  const f = await fixture(t, async () => ({ submission: { findings: [withoutSuggestion] } }));
+  const result = await f.run();
+  assert.equal(result.state, "succeeded", result.error);
+  assert.equal(result.findings.length, 1);
+  assert.equal(Object.hasOwn(result.findings[0]!, "remediation"), false);
+});
+
 test("model Check rejects ambiguous quotes and files changed during an otherwise clear review", async (t) => {
   const f = await fixture(t, async () => ({ submission: { findings: [finding] } }));
   await writeFile(join(f.root, "draft.md"), "Always guaranteed. Always guaranteed.");
@@ -132,6 +162,25 @@ test("native model review transports only selected text and a submission tool, w
   assert.equal(options.maxRetries, 0);
   assert.equal(options.maxTokens, 6144);
   assert.equal("reasoning" in options, false);
+});
+
+for (const [stopReason, diagnostic] of [
+  ["length", /exceeded its output limit/],
+  ["aborted", /was interrupted/],
+  ["error", /provider connection/],
+] as const) test(`native model review rejects ${stopReason} even with a plausible submission`, async () => {
+  const { PiConversationClient } = await import("../src/local/agent/pi-client.js");
+  const session = {
+    model: { provider: "test", id: "fold-model", maxTokens: 8192, contextWindow: 128000 },
+    getAvailableThinkingLevels: () => ["off"],
+    agent: { streamFn: async () => ({ result: async () => ({ stopReason, errorMessage: "PRIVATE PROVIDER DIAGNOSTICS", content: [{ type: "toolCall", name: "submit_review", arguments: { findings: [] } }] }) }) },
+  };
+  await assert.rejects(PiConversationClient.prototype.reviewCheck.call({ ensureSession: async () => session } as never,
+    { criteria: "Review", files: [], signal: new AbortController().signal }), (error: Error) => {
+    assert.match(error.message, diagnostic);
+    assert.ok(!error.message.includes("PRIVATE PROVIDER DIAGNOSTICS"));
+    return true;
+  });
 });
 
 test("text-review enablement digest pins its implementation, snapshot reader, admission, and native request", async () => {
