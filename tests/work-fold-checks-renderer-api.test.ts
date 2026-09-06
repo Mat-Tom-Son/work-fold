@@ -228,7 +228,7 @@ test("fold proposals, trials, explicit help and reviewed correction share the li
     assert.equal(liveStatus.state, "succeeded", liveStatus.error ?? "live run failed");
     const finding = (await service.problems(space)).findings[0]!;
     const { draft } = await request<{ draft: string }>(api.origin, `/api/spaces/${space.id}/checks/findings/${finding.id}/help`, { method: "POST", body: { fingerprint: finding.fingerprint } });
-    assert.match(draft, /checks propose-fix/); assert.ok(draft.includes(space.id)); assert.equal(calls, 2, "opening a help draft starts no model");
+    assert.match(draft, /correction for review in Checks/); assert.ok(draft.includes(finding.id)); assert.equal(calls, 2, "opening a help draft starts no model");
     const path = join(sandbox, "fix.json");
     await writeFile(path, JSON.stringify({ kind: "work-fold.check-correction", version: 1, findingId: finding.id, fingerprint: finding.fingerprint, path: finding.targetPath, beforeHash: finding.evidence[0]!.identity.sha256, replacement: "Usually supported.\n" }));
     const { correction } = await api.actFacade.checksProposeFix({ space: space.id, proposalPath: path, cwd: sandbox });

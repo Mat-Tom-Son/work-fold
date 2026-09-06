@@ -40,7 +40,7 @@ test("the popover keeps the conversation and composer visible without idle chrom
   assert.match(popover, /document\.addEventListener\("visibilitychange", focusComposerFirst\)/);
 });
 
-test("pending decisions remain the popover's only disclosure", async () => {
+test("pending decisions retain their compact disclosure beside passive Checks", async () => {
   const popover = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
   assert.match(popover, /useState\(false\)/);
   assert.match(popover, /if \(decisionCount > 0 && previous === 0\) setDecisionsOpen\(true\);/);

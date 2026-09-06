@@ -94,10 +94,7 @@ export function ChecksPane({
     else setLoading(true);
     const operation = (async () => {
       try {
-        const response = await api<{ overview: ChecksOverview }>(
-          `/api/spaces/${encodeURIComponent(spaceId)}/checks/overview`,
-          { method: "POST", body: {} },
-        );
+        const response = await readCheckOverview(spaceId, () => request === requestRef.current);
         if (request !== requestRef.current) return;
         setOverview(response.overview);
         setOverviewUnavailable(false);
@@ -207,8 +204,8 @@ export function ChecksPane({
 
   async function askFold(check?: ChecksOverview["checks"][number]) {
     const draft = check
-      ? `Help me change the Check ${JSON.stringify(check.title)} (${check.id}) in Space ${spaceId}. Review its current declaration and ask what I want changed. Prepare an inert proposal for review; keep the current Check unchanged until I approve its replacement.`
-      : `Help me set up a durable Check in Space ${JSON.stringify(space.name)} (${spaceId}). Ask what I want checked and which files and references to use. Prepare an inert proposal with checks propose for me to try before turning it on. Default to manual runs and showing findings in the fold. Review any automatic routing separately.`;
+      ? `Help me change ${JSON.stringify(check.title)} in Space ${JSON.stringify(space.name)} (${spaceId}). Keep the current Check unchanged while we review a new proposal. Check reference: ${check.id}.`
+      : `Help me set up a Check in Space ${JSON.stringify(space.name)} (${spaceId}).`;
     try {
       if (!window.workFoldDesktop?.agent?.openFoldDraft) throw new Error("Open the fold in the desktop app and ask it to set up a Check for this Space.");
       await window.workFoldDesktop.agent.openFoldDraft(draft);
@@ -268,6 +265,8 @@ export function ChecksPane({
 
   async function runChecks(): Promise<void> {
     if (mutationRef.current) return;
+    setTrialResult(null);
+    trialTaskRef.current = null;
     mutationRef.current = "run";
     setRunSubmitting(true);
     setError(null);
@@ -392,7 +391,7 @@ export function ChecksPane({
       {running ? <div className="checks-running" aria-live="polite"><Loader2 className="spin" size={15} /><span>Checking only the designated files…</span></div> : null}
       {overviewUnavailable
         ? <div className="checks-status-line check-error"><span aria-hidden="true" /><p>Check results are unavailable. Try refreshing.</p></div>
-        : status && !running ? <ChecksStatusLine status={status} /> : null}
+        : status && status.configured > 0 && !running ? <ChecksStatusLine status={status} /> : null}
 
       {!overviewUnavailable && overview?.corrections?.some((item) => item.state !== "dismissed") ? <section className="checks-section" aria-label="Corrections">
         <h2>Corrections</h2>
@@ -410,7 +409,7 @@ export function ChecksPane({
 
       {trialResult ? <section className="checks-section checks-trial" aria-label="Trial result">
         <h2>Trial result</h2><p>Trial · {new Date(trialResult.startedAt).toLocaleString()} · live results unchanged.</p>
-        <p>{trialResult.state === "succeeded" ? `${trialResult.admittedCount} suggestions from this trial.` : trialResult.error || "The trial did not finish."}</p>
+        <p>{trialResult.state === "succeeded" ? `${formatItemCount(trialResult.admittedCount, "finding")} in this trial.` : trialResult.error || "The trial did not finish."}</p>
         {trialResult.findings.map((finding) => <article key={finding.id}><strong>{finding.title}</strong><p>{finding.targetPath}</p>{finding.evidence.map((evidence, index) => evidence.kind === "text-span" ? <blockquote key={index}>{evidence.quote}</blockquote> : null)}<p>{finding.detail}</p></article>)}
       </section> : null}
 
@@ -563,4 +562,17 @@ function CorrectionDiff({ before, after }: { before: string; after: string }) {
   while (end < Math.min(left.length, right.length) - start && left[left.length - 1 - end] === right[right.length - 1 - end]) end++;
   const contextStart = Math.max(0, start - 3);
   return <div className="checks-correction-diff"><div><h4>Before</h4><pre>{left.slice(contextStart, left.length - Math.max(0, end - 3)).join("\n")}</pre></div><div><h4>After</h4><pre>{right.slice(contextStart, right.length - Math.max(0, end - 3)).join("\n")}</pre></div></div>;
+}
+
+/** Files status and this work tab may refresh on the same focus event. Retry
+ * only their brief read reservation conflict; never retry a Check or mutation. */
+async function readCheckOverview(spaceId: string, current: () => boolean): Promise<{ overview: ChecksOverview }> {
+  for (let attempt = 0; ; attempt++) {
+    if (!current()) throw new Error("Check refresh superseded.");
+    try { return await api<{ overview: ChecksOverview }>(`/api/spaces/${encodeURIComponent(spaceId)}/checks/overview`, { method: "POST", body: {} }); }
+    catch (caught) {
+      if (!(caught instanceof ApiError) || caught.status !== 409 || attempt >= 3) throw caught;
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 80 * (2 ** attempt)));
+    }
+  }
 }

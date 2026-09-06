@@ -486,3 +486,20 @@ test("Try it displays its completed result without enabling the proposal", async
   await dom.waitFor(() => requested.filter((url) => url.endsWith("/overview")).length >= 2);
   await dom.settle();
 });
+
+test("overlapping Files and Checks refreshes retry read conflicts without starting work", async (t) => {
+  const dom = await createDomHarness(); t.after(() => dom.cleanup());
+  const originalFetch = globalThis.fetch; t.after(() => { globalThis.fetch = originalFetch; });
+  const requested: string[] = [];
+  globalThis.fetch = async (input) => {
+    requested.push(String(input));
+    return new Response(JSON.stringify(requested.length < 3 ? { error: "Wait for the current Check operation." } : { overview }), {
+      status: requested.length < 3 ? 409 : 200, headers: { "content-type": "application/json" },
+    });
+  };
+  const { ChecksPane } = await import("../web-local/src/components/panes/ChecksPane.js");
+  await dom.render(createElement(ChecksPane, { space: { id: overview.spaceId, name: "Review", spaceRoot: "/tmp/review" } as SpaceSummary, active: true, onOpenFile: () => {}, onChecksChanged: () => {} }));
+  await dom.waitFor(() => (dom.container.textContent ?? "").includes("No current findings"));
+  assert.equal(requested.length, 3); assert.ok(requested.every((url) => url.endsWith("/overview")));
+  assert.equal(dom.container.querySelector('[role="alert"]'), null);
+});
