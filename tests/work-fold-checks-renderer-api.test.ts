@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { startLocalApi } from "../src/local/server.js";
+import { startLocalApi, type LocalApiHandle } from "../src/local/server.js";
+import { createDesktopCheckService } from "../desktop/src/desktop-checks.js";
+import { PiConversationClient } from "../src/local/agent/pi-client.js";
+import { WorkFoldSettleSignal } from "../src/local/routings/settle-signal.js";
+import type { WorkFoldModelCheckRequest } from "../src/local/checks/model-review-sensor.js";
 import { WorkFoldCheckService, type WorkFoldCheckTaskStatus } from "../src/local/checks/check-service.js";
 import type {
   WorkFoldCheckRendererDecorations,
@@ -204,15 +208,21 @@ test("desktop text Check setup is inert, re-enable pins review, and provider rem
   } finally { release(); await api.close(); await rm(sandbox, { recursive: true, force: true }); }
 });
 
-test("fold proposals, trials, explicit help and reviewed correction share the live API domain", async () => {
+test("desktop-injected Checks reach the fold model through trial, live review and correction recheck", async (t) => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-check-workflow-api-"));
   const kernel = new WorkFoldKernel();
   let calls = 0;
-  const service = new WorkFoldCheckService({ kernel, reviewModel: async (input) => {
+  t.mock.method(PiConversationClient.prototype, "reviewCheck", async (input: WorkFoldModelCheckRequest) => {
     calls++;
+    assert.equal(input.criteria, "Avoid unqualified promises.");
+    assert.equal(input.files.length, 1);
+    assert.equal(input.files[0]!.path, "draft.md");
     return { submission: { findings: input.files[0]!.text.includes("Always") ? [{ path: "draft.md", quote: "Always guaranteed.", title: "Unqualified promise", detail: "Qualify the claim." }] : [] } };
-  } });
-  const api = await startLocalApi({ port: 0, stateBase: join(sandbox, "state"), spaceBase: join(sandbox, "content"), loadEnv: false, kernel, checkService: service });
+  });
+  const settleSignal = new WorkFoldSettleSignal();
+  let api!: LocalApiHandle;
+  const service = createDesktopCheckService({ kernel, settleSignal, getLocalApi: async () => api });
+  api = await startLocalApi({ port: 0, stateBase: join(sandbox, "state"), spaceBase: join(sandbox, "content"), loadEnv: false, kernel, checkService: service, settleSignal });
   try {
     const { space } = await request<{ space: { id: string; spaceRoot: string } }>(api.origin, "/api/spaces", { method: "POST", body: { name: "Check workflow" } }, 201);
     await writeFile(join(space.spaceRoot, "draft.md"), "Always guaranteed.\n");

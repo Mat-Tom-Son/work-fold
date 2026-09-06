@@ -511,6 +511,8 @@ export interface LocalApiHandle {
   origin: string;
   port: number;
   kernel: WorkFoldKernel;
+  /** In-process bounded model transport for the desktop's shared Check service. */
+  reviewCheck: import("./checks/model-review-sensor.js").WorkFoldModelCheckReviewer;
   /** In-process authority for CLI act-lane commands; see cli/act-facade.ts. */
   actFacade: WorkFoldActFacade;
   /** Narrow Internet-facing semantic adapter. It never exposes the local HTTP session. */
@@ -780,19 +782,19 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   const kernel = options.kernel ?? new WorkFoldKernel({ runtimeProvider });
   const settleSignal = options.settleSignal ?? new WorkFoldSettleSignal();
   let modelReviewQueue = Promise.resolve();
-  const checks = options.checkService ?? new WorkFoldCheckService({ kernel, settleSignal,
-    reviewModel: async (request) => {
-      const previous = modelReviewQueue;
-      let release!: () => void;
-      modelReviewQueue = new Promise<void>((resolve) => { release = resolve; });
-      try {
-        await previous;
-        request.signal.throwIfAborted();
-        const client = await getClient(state, workFoldManagementScopeId, workFoldManagementRoot(), "check-review");
-        return await client.reviewCheck(request);
-      } finally { release(); }
-    },
-  });
+  const reviewCheck: LocalApiHandle["reviewCheck"] = async (request) => {
+    const previous = modelReviewQueue;
+    let release!: () => void;
+    modelReviewQueue = new Promise<void>((resolve) => { release = resolve; });
+    try {
+      await previous;
+      request.signal.throwIfAborted();
+      if (!state.acceptingTurns) throw new Error("The Check runtime is closing.");
+      const client = await getClient(state, workFoldManagementScopeId, workFoldManagementRoot(), "check-review");
+      return await client.reviewCheck(request);
+    } finally { release(); }
+  };
+  const checks = options.checkService ?? new WorkFoldCheckService({ kernel, settleSignal, reviewModel: reviewCheck });
   // The fold's one ledger: the same act-receipts journal the desktop CLI host
   // appends. Both instances write the identical state-root path, so decisions
   // and publications land in the journal the act lane already audits.
@@ -999,6 +1001,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     origin: `http://${host}:${address.port}`,
     port: address.port,
     kernel,
+    reviewCheck,
     actFacade: createWorkFoldActFacade(state),
     remoteFacade: createWorkFoldRemoteFacade(state),
     resolveManagementLineageParent: (taskId) => state.managementRequests.isActive(taskId) ? { taskId } : null,

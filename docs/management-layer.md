@@ -32,6 +32,11 @@ flowchart LR
 
 Domain services still own writes. The kernel does not bypass folder grants, registered-Space authorization, capability-mutation locks, History behavior, or any other mutation policy.
 
+The desktop's early-created Check service shares the interactive API's bounded,
+serialized fold-model reviewer through an in-process callback. This transport
+is resolved only for an authorized Check run; it adds no read-protocol, HTTP,
+act-lane, or remote verb.
+
 The dotted restricted-app edge is a boundary, not a data flow into the kernel. Space apps have their own reviewed package, grant, encrypted connection, storage, named-automation, notification, and sandbox-host state. Protocol v1 and `work-fold.capabilities` intentionally do not list or mutate that state. The machine-wide automation scheduler is an in-process execution coordinator for that domain, not a management-protocol mutation surface. Future app inventory belongs in a deliberately versioned kernel snapshot only after its content and authorization contract are designed.
 
 ## Kernel contract

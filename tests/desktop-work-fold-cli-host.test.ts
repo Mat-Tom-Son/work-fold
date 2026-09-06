@@ -246,7 +246,7 @@ test("desktop main wires one settle seam, one receipts ledger, and routing sleep
   assert.match(hostBody, /const settleSignal = new WorkFoldSettleSignal\(\);/);
   const restrictedCreate = hostBody.slice(hostBody.indexOf("RestrictedAppService.create({"), hostBody.indexOf("})", hostBody.indexOf("RestrictedAppService.create({")));
   assert.match(restrictedCreate, /settleSignal,/, "the restricted-app service publishes into the shared signal");
-  assert.match(hostBody, /new WorkFoldCheckService\(\{ kernel, settleSignal \}\)/, "the Check service publishes into the shared signal");
+  assert.match(hostBody, /createDesktopCheckService\(\{ kernel, settleSignal, getLocalApi: ensureInteractiveLocalApi \}\)/, "the shared Check service uses the fold model transport and settle signal");
   assert.match(hostBody, /settleSignal \};\s*$/m);
 
   const apiStart = main.indexOf("function ensureInteractiveLocalApi");

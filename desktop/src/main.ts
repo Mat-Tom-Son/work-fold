@@ -48,6 +48,7 @@ import { containsReservedSpacePathSegment } from "../../src/local/space-path-pol
 import { WorkFoldCliKernelAdapter } from "../../src/local/work-fold-cli-adapter.js";
 import { WorkFoldKernel } from "../../src/local/work-fold-kernel.js";
 import { WorkFoldCheckService } from "../../src/local/checks/check-service.js";
+import { createDesktopCheckService } from "./desktop-checks.js";
 import { WorkFoldSettleSignal } from "../../src/local/routings/settle-signal.js";
 import { RestrictedAppService } from "../../src/local/agent/restricted-app-service.js";
 import { FileRestrictedAppStorage } from "../../src/local/agent/restricted-app-storage.js";
@@ -489,7 +490,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       const spaceTrustAuthority = new RegisteredSpaceTrustAuthority((await listSpaces()).map((space) => space.spaceRoot));
       const runtimeProvider = new RegisteredSpaceRuntimeProvider(runtime, spaceTrustAuthority);
       const kernel = new WorkFoldKernel({ runtimeProvider });
-      const checks = new WorkFoldCheckService({ kernel, settleSignal });
+      const checks = createDesktopCheckService({ kernel, settleSignal, getLocalApi: ensureInteractiveLocalApi });
       const cli = new WorkFoldDesktopCliHost({
       stateRoot: userData,
       kernel: new WorkFoldCliKernelAdapter(kernel, {

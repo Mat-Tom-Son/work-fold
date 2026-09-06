@@ -334,3 +334,12 @@ correction records, and continues to fail closed on future versions. At most 24
 pending corrections and 32 total correction records are retained; pending
 reviews are never evicted to retain terminal history. The experimental
 content-free status contract remains version 1.
+
+The desktop creates its shared Check service before the interactive API starts.
+`createDesktopCheckService` supplies a lazy in-process callback to that API's
+serialized fold-model reviewer. The renderer, CLI, and Routings use the same
+service and transport. Status reads do not start the API or a model, and the
+callback is not exposed as an HTTP or remote command. Integration coverage
+uses this actual desktop composition for trials, live runs, and correction
+rechecks; injecting a synthetic reviewer into the service alone is insufficient
+to prove packaged desktop wiring.
