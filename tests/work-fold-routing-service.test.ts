@@ -476,68 +476,70 @@ test("a one-time routing runs once, durably completes before hop 1, and run-now 
 
 test("a one-time slot due during run-now waits and executes after the manual copy", async (t) => {
   for (const ifMissed of ["run", "skip"] as const) {
-    const harness = await createHarness(t);
-    const release = deferred();
-    harness.ports.chatImpl = async (_step, context) => {
-      if (context.lineage.cause.kind === "run-now") await release.promise;
-      return harness.ports.defaultChat(_step, context);
-    };
-    const routingId = `routing-at-manual-overlap-${ifMissed}`;
-    await harness.enable(declarationInput(routingId, {
-      version: 2,
-      trigger: { kind: "at", at: "2026-07-14T12:01:00.000Z", ifMissed },
-    }));
+    await t.test(ifMissed, { timeout: 10_000 }, async (caseContext) => {
+      const harness = await createHarness(caseContext);
+      const release = deferred();
+      const started = deferred();
+      caseContext.after(() => release.resolve());
+      let firstHop = true;
+      harness.ports.chatImpl = async (_step, context) => {
+        if (firstHop) {
+          firstHop = false;
+          started.resolve();
+          await release.promise;
+        }
+        return harness.ports.defaultChat(_step, context);
+      };
+      const routingId = `routing-at-manual-overlap-${ifMissed}`;
+      await harness.enable(declarationInput(routingId, {
+        version: 2,
+        trigger: { kind: "at", at: "2026-07-14T12:01:00.000Z", ifMissed },
+      }));
 
-    const manual = harness.service.runNow(routingId, { requestId: `manual-${ifMissed}` });
-    await waitForCondition(
-      () => harness.ports.calls.filter((call) => call.routingId === routingId).length === 1,
-      "the manual copy to start",
-    );
-    harness.clock.advance(minute);
-    await waitForCondition(
-      () => {
-        // The scheduler and this test both use the fake clock. If an async
-        // continuation arms a zero-delay timer after the first advance, real
-        // wall time cannot fire it; keep driving the owned clock while the
-        // admission settles instead of depending on event-loop ordering.
-        harness.clock.advance(0);
-        return harness.service.listAutomationResults(routingId).some((result) => (
-          result.reason === "scheduled" && result.notLaunchedReason === "overlap"
-        ));
-      },
-      "the scheduled admission to reach the in-memory non-overlap fence",
-    );
-    const overlap = harness.service.listAutomationResults(routingId).find((result) => (
-      result.reason === "scheduled" && result.notLaunchedReason === "overlap"
-    ));
-    assert.equal(overlap?.outcome, "skipped", "the due slot reaches the per-routing non-overlap fence");
-    assert.equal((await harness.store.get(routingId))?.health, "enabled");
-    assert.equal((await harness.store.get(routingId))?.atOccurrence, undefined);
+      const manual = harness.service.runNow(routingId, { requestId: `manual-${ifMissed}` });
+      await started.promise;
+      const before = await harness.service.getRouting(routingId);
+      assert.equal(before?.nextScheduledAt, "2026-07-14T12:01:00.000Z");
+      assert.equal(before?.activeRunId, "run-1", "the manual copy owns the non-overlap fence before the due timer fires");
+      harness.clock.advance(minute);
+      // Owned-clock callbacks and the scheduler's in-memory admission are
+      // synchronous. Assert that boundary directly; wall-clock polling cannot
+      // advance a fake timer and obscures the state that actually failed.
+      const overlap = harness.service.listAutomationResults(routingId).find((result) => (
+        result.reason === "scheduled" && result.notLaunchedReason === "overlap"
+      ));
+      assert.equal(overlap?.outcome, "skipped", `the due slot reaches the per-routing non-overlap fence: ${JSON.stringify(harness.service.listAutomationResults(routingId))}`);
+      assert.equal((await harness.store.get(routingId))?.health, "enabled");
+      assert.equal((await harness.store.get(routingId))?.atOccurrence, undefined);
 
-    release.resolve();
-    await manual;
-    await waitForCondition(
-      async () => {
-        // Manual completion arms the preserved one-time catch-up after its
-        // async result observer settles. Pump the fake clock until that exact
-        // timer fires, regardless of microtask ordering on the host runner.
-        harness.clock.advance(0);
-        return (await harness.store.get(routingId))?.atOccurrence?.finishedAt !== undefined;
-      },
-      "the preserved one-time slot to finish after the manual copy",
-    );
-    assert.equal((await harness.store.get(routingId))?.health, "completed");
-    assert.equal(
-      harness.ports.calls.filter((call) => call.routingId === routingId).length,
-      2,
-      "the manual copy and the exact scheduled slot each run once",
-    );
-    assert.ok((await harness.journal()).some((line) => (
-      line.routingId === routingId
-      && line.scope === "run"
-      && line.outcome === "skipped"
-      && line.cause?.kind === "scheduled"
-    )), "the overlap is durably receipted before the preserved slot finishes");
+      release.resolve();
+      assert.equal((await manual).outcome, "success", "the held manual hop must actually succeed");
+      await waitForCondition(
+        async () => {
+          // Manual completion arms the preserved one-time catch-up after its
+          // async result observer settles. Pump the fake clock until that exact
+          // timer fires, regardless of microtask ordering on the host runner.
+          harness.clock.advance(0);
+          return (await harness.store.get(routingId))?.atOccurrence?.finishedAt !== undefined;
+        },
+        "the preserved one-time slot to finish after the manual copy",
+      );
+      assert.equal((await harness.store.get(routingId))?.health, "completed");
+      const completedRuns = harness.service.listAutomationResults(routingId).filter((result) => result.notLaunchedReason !== "overlap");
+      assert.equal(completedRuns.length, 2);
+      assert.ok(completedRuns.every((result) => result.outcome === "success"), "both the manual copy and preserved scheduled run succeed");
+      assert.equal(
+        harness.ports.calls.filter((call) => call.routingId === routingId).length,
+        2,
+        "the manual copy and the exact scheduled slot each run once",
+      );
+      assert.ok((await harness.journal()).some((line) => (
+        line.routingId === routingId
+        && line.scope === "run"
+        && line.outcome === "skipped"
+        && line.cause?.kind === "scheduled"
+      )), "the overlap is durably receipted before the preserved slot finishes");
+    });
   }
 });
 

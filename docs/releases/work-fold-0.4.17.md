@@ -1,4 +1,4 @@
-# work-fold 0.4.16
+# work-fold 0.4.17
 
 September 5, 2026
 
@@ -48,12 +48,17 @@ and a two-minute timeout. Normal provider charges apply.
 
 ## Verification and compatibility
 
-Node 24 clean installation, both TypeScript checks, 1,067 passing desktop tests
+Node 24 clean installation, both TypeScript checks, 1,069 passing desktop tests
 (one Windows-only skip), all 48 bridge tests, and the dependency audit passed.
 Desktop preparation passed the production build, Electron preload and
 restricted-app sandbox probes, and preflight. An isolated interactive journey
 created a Check, received an exact-quote finding from a real configured model,
 previewed and applied a restore, and invalidated the now-stale finding.
+
+The one-time Routing overlap regression now holds its synthetic Chat explicitly
+and requires both the manual and preserved scheduled runs to succeed. This fixes
+a fixture that could throw on a nonexistent lineage field and pass or fail based
+on receipt timing.
 
 The dependency audit includes patched fast-uri and xmldom build dependencies.
 Coverage includes protected recovery, moved and nested Spaces, concurrent work,
