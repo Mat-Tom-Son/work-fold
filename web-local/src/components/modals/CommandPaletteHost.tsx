@@ -172,7 +172,7 @@ function CommandPaletteHost({
   );
 }
 
-function commandPaletteResultGroups(commands: CommandPaletteCommand[], query: string): CommandPaletteResultGroup[] {
+export function commandPaletteResultGroups(commands: CommandPaletteCommand[], query: string): CommandPaletteResultGroup[] {
   const normalizedQuery = normalizeSearchQuery(query);
   const results = commands.map((command, order) => {
     if (normalizedQuery.length < (command.minQueryLength ?? 0)) return null;

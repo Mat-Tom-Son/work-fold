@@ -38,20 +38,8 @@ import { isAlwaysHiddenSpaceEntry, isSpaceIgnored, readSpaceIgnoreState } from "
 import { containsReservedSpacePathSegment } from "./space-path-policy.js";
 import { productIdentity } from "../shared/product-identity.js";
 
-export interface SpaceLocation {
-  kind: "local";
-  storage: "managed" | "linked";
-  providerHint?: "google-drive";
-}
-
-export interface SpaceSummary {
-  id: string;
-  name: string;
-  spaceRoot: string;
-  location: SpaceLocation;
-  createdAt: string;
-  updatedAt: string;
-}
+import type { SpaceLocation, SpaceSummary } from "../shared/space-summary.js";
+export type { SpaceLocation, SpaceSummary } from "../shared/space-summary.js";
 
 export interface TreeEntry {
   name: string;

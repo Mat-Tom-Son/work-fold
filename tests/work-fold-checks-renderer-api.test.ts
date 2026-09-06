@@ -239,6 +239,9 @@ test("desktop-injected Checks reach the fold model through trial, live review an
     const finding = (await service.problems(space)).findings[0]!;
     const { draft } = await request<{ draft: string }>(api.origin, `/api/spaces/${space.id}/checks/findings/${finding.id}/help`, { method: "POST", body: { fingerprint: finding.fingerprint } });
     assert.match(draft, /correction for review in Checks/); assert.ok(draft.includes(finding.id)); assert.equal(calls, 2, "opening a help draft starts no model");
+    assert.ok(draft.includes("work-fold help checks"));
+    assert.ok(draft.includes(`checks problems --space ${space.id} --json`));
+    assert.ok(draft.includes(`checks propose-fix --space ${space.id}`));
     const path = join(sandbox, "fix.json");
     await writeFile(path, JSON.stringify({ kind: "work-fold.check-correction", version: 1, findingId: finding.id, fingerprint: finding.fingerprint, path: finding.targetPath, beforeHash: finding.evidence[0]!.identity.sha256, replacement: "Usually supported.\n" }));
     const { correction } = await api.actFacade.checksProposeFix({ space: space.id, proposalPath: path, cwd: sandbox });

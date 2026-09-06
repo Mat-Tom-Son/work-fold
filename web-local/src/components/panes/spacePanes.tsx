@@ -986,7 +986,7 @@ function formatCatalogDate(value: string) {
 }
 function libraryDestinationLabel(space: SpaceSummary, spaces: SpaceSummary[]) {
   const duplicateName = spaces.some((item) => item.id !== space.id && item.name.localeCompare(space.name, undefined, { sensitivity: "base" }) === 0);
-  return duplicateName ? `${space.name} — ${space.rootPath}` : space.name;
+  return duplicateName ? `${space.name} — ${space.spaceRoot}` : space.name;
 }
 function formatDate(value: string) { return new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); }
 function findTreeEntry(entries: TreeEntry[], path: string): TreeEntry | null { for (const entry of entries) { if (entry.path === path) return entry; const child = entry.children ? findTreeEntry(entry.children, path) : null; if (child) return child; } return null; }

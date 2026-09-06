@@ -455,3 +455,11 @@ The plan items shipped as follows:
 - **A general job system.** Two slots, small bounds, three step kinds. If a
   flow does not fit, it belongs to a Space app's named automations, a
   Check, or a person.
+
+## Authoring guidance
+
+`work-fold help routings` includes a complete version-3 folder-change proposal
+with file-copy, Chat, and Check steps. The fold is instructed to consult it
+before authoring. The example is checked against the real proposal validator;
+it documents the nested `routing` envelope, additive copies, observer pauses,
+and the distinction between a completed Check run and clear findings.

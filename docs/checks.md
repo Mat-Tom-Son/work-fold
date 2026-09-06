@@ -308,6 +308,11 @@ identifiers and source details, with instructions to treat source content as
 data and to prepare a correction. This is a full-trust Space Assistant, not a new
 restricted agent; its authoring instructions do not constitute a filesystem
 sandbox. The reviewed correction host enforces the application boundary.
+The draft points the Space Assistant to `work-fold help checks` and the exact
+Space-scoped `problems` and `propose-fix` commands. CLI help includes the complete
+correction JSON contract, evidence hash requirements, and the instruction to
+leave the original unchanged. The Assistant need not inspect app bundles or
+infer internal record formats to prepare a review.
 
 A `work-fold.check-correction` version-1 proposal has exactly `findingId`,
 `fingerprint`, `path`, `beforeHash`, and `replacement` alongside kind/version.

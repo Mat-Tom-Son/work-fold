@@ -343,3 +343,8 @@ Desktop and CLI History restores reserve affected Space work through completion 
 ## Fold-led Checks
 
 Checks authoring uses the fold, with an unsent draft from the Space-owned Checks tab. `checks propose` and `checks propose-fix` are authenticated, receipted, explicitly Space-scoped inert proposal operations; neither enables a Check nor edits a target. Trials and human-reviewed corrections use the same Check service and reservations. The fold displays a passive aggregate Checks disclosure linking to the owning Space. Findings prepare unsent help drafts in fresh Space Chats; no model turn starts merely because a finding appears. See [Checks](checks.md) for the exact review, History, freshness, and trial-isolation contract.
+
+Check help drafts name their Space-scoped CLI operations. `help checks` documents
+the full correction JSON, and `help routings` provides a validated complete
+folder-change proposal. These are authoring aids; they add no authority or
+new protocol fields and keep implementation details out of the Checks panel.

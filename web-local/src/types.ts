@@ -21,20 +21,8 @@ export interface AppTypographyPreference {
   textSize: AppTextSize;
 }
 
-export interface SpaceLocation {
-  kind: "local";
-  storage: "managed" | "linked";
-  providerHint?: "google-drive";
-}
-
-export interface SpaceSummary {
-  id: string;
-  name: string;
-  rootPath: string;
-  location: SpaceLocation;
-  createdAt: string;
-  updatedAt: string;
-}
+import type { SpaceLocation, SpaceSummary } from "../../src/shared/space-summary";
+export type { SpaceLocation, SpaceSummary } from "../../src/shared/space-summary";
 
 export interface SpaceCustomization {
   schema?: 1 | 2;

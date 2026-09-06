@@ -1202,7 +1202,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const finding = overview.findings.find((item) => item.id === checksHelpMatch[2] && item.fingerprint === body.fingerprint);
     if (!finding) throw new WorkFoldCheckOperationConflictError("This finding changed or is no longer current. Refresh Checks before asking for help.");
     const nextStep = finding.evidence.some((item) => item.kind === "text-span")
-      ? "Prepare a correction for review in Checks; leave the original unchanged."
+      ? `Prepare a correction for review in Checks; leave the original unchanged. Read \`work-fold help checks\` for the correction format, then use \`work-fold checks problems --space ${space.id} --json\` and \`work-fold checks propose-fix --space ${space.id} --proposal <absolute-json-path> --json\`.`
       : "Explain what is needed and propose a next step. We can rerun the Check afterward.";
     const draft = `Help me review ${JSON.stringify(finding.title)} in ${JSON.stringify(finding.targetPath)}. ${nextStep}\n\nFinding reference: ${finding.id}\nFingerprint: ${finding.fingerprint}\n\n${finding.detail ?? ""}`;
     sendJson(res, { draft });

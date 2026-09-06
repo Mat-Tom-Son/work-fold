@@ -15,8 +15,8 @@ export interface SpaceUiFixture {
 export function buildSpaceFixture(): SpaceUiFixture {
   const now = "2026-07-10T18:30:00.000Z";
   const snoozedUntil = new Date(Date.now() + 22 * 60 * 60 * 1_000).toISOString();
-  const home: SpaceSummary = { id: "fixture-home", name: "Home projects", rootPath: "C:\\Users\\you\\Documents\\Home projects", location: { kind: "local", storage: "linked" }, createdAt: now, updatedAt: now };
-  const trip: SpaceSummary = { id: "fixture-trip", name: "Japan trip", rootPath: "G:\\My Drive\\Japan trip", location: { kind: "local", storage: "linked", providerHint: "google-drive" }, createdAt: now, updatedAt: now };
+  const home: SpaceSummary = { id: "fixture-home", name: "Home projects", spaceRoot: "C:\\Users\\you\\Documents\\Home projects", location: { kind: "local", storage: "linked" }, createdAt: now, updatedAt: now };
+  const trip: SpaceSummary = { id: "fixture-trip", name: "Japan trip", spaceRoot: "G:\\My Drive\\Japan trip", location: { kind: "local", storage: "linked", providerHint: "google-drive" }, createdAt: now, updatedAt: now };
   return {
     spaces: [home, trip], activeSpaceId: home.id,
     customizations: {

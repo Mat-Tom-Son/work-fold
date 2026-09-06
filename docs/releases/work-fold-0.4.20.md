@@ -15,3 +15,7 @@ proposal, trial, live finding, correction review, apply, and recheck workflow.
 This corrective release retains the fold-led workflow and compact Checks UI
 from 0.4.19. Check declarations and enablement digests remain compatible. No
 bridge deployment is required.
+
+This candidate was tested locally and its exact main/tag CI passed, but it was
+not published. Live QA also identified missing authoring guidance; 0.4.21
+includes this fix and that guidance. The 0.4.20 source tag remains unchanged.

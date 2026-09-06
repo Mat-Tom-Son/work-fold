@@ -325,7 +325,7 @@ function fallbackSpaceSummary(id: string, name: string): SpaceSummary {
   return {
     id,
     name,
-    rootPath: "",
+    spaceRoot: "",
     location: { kind: "local", storage: "linked" },
     createdAt: "",
     updatedAt: "",

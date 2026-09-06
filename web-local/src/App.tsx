@@ -172,7 +172,7 @@ export function App() {
   useEffect(() => {
     if (fixtureRequested) return;
     void window.workFoldDesktop?.space.setActiveSpace?.(activeSpace?.id ?? null).catch((caught) => setError(errorText(caught)));
-  }, [activeSpace?.id, activeSpace?.name, activeSpace?.rootPath]);
+  }, [activeSpace?.id, activeSpace?.name, activeSpace?.spaceRoot]);
   useEffect(() => {
     const desktopSpace = window.workFoldDesktop?.space;
     if (!desktopSpace?.onOpenSpace || !boot) return;
@@ -968,7 +968,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     if (fixture) { showToast({ text: "Version history is disabled in the preview", tone: "info" }); return; }
     setVersionHistory({ space: targetSpace, path, name: path.split("/").pop() ?? path });
   }
-  async function copyPath(path: string) { const full = spaceEntryNativePath(space.rootPath, path); await navigator.clipboard.writeText(full); showToast({ text: "Path copied", tone: "success" }); }
+  async function copyPath(path: string) { const full = spaceEntryNativePath(space.spaceRoot, path); await navigator.clipboard.writeText(full); showToast({ text: "Path copied", tone: "success" }); }
 
   function updateDropTarget(event: React.DragEvent<HTMLElement>, target: string) { event.preventDefault(); if (hasNativeFiles(event) || hasSpacePathDrag(event)) { event.dataTransfer.dropEffect = hasNativeFiles(event) ? "copy" : "move"; tree.setDropTargetFolderPath(target); } }
   function clearDropTarget(event?: React.DragEvent<HTMLElement>) { if (event && event.currentTarget.contains(event.relatedTarget as Node | null)) return; tree.setDropTargetFolderPath(null); }
@@ -1140,7 +1140,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     { id: "action:discover-assistant-tools", groupId: "actions" as const, groupLabel: "Actions", label: "Discover Skills & Extensions", keywords: ["capabilities", "discover", "install", "tools", "browse"], run: () => tabs.openAssistantToolsSurfaceTab(space, "discover") },
     ...surfaces.map((surface) => ({ id: `app:${surface.key}`, groupId: "go-to" as const, groupLabel: "Go to", label: surface.title, detail: surface.scope === "project" ? "Pi Extension · This Space" : "Pi Extension · Everywhere", run: () => selectRailMode(`app:${surface.key}`) })),
     ...restrictedApps.map((app) => ({ id: `restricted-app:${app.manifest.id}`, groupId: "go-to" as const, groupLabel: "Go to", label: app.manifest.title, detail: "App · This Space", run: () => selectRailMode(restrictedAppRailMode(space.id, app.manifest.id)) })),
-    ...spaces.map((item) => ({ id: `space:${item.id}`, groupId: "switch-space" as const, groupLabel: "Switch Space", label: item.name, detail: spaceHeaderSourceBadgeLabel(item), matchTargets: [item.rootPath], run: () => onSwitchSpace(item) })),
+    ...spaces.map((item) => ({ id: `space:${item.id}`, groupId: "switch-space" as const, groupLabel: "Switch Space", label: item.name, detail: spaceHeaderSourceBadgeLabel(item), matchTargets: [item.name, item.spaceRoot], run: () => onSwitchSpace(item) })),
     ...Object.entries(conversationGroups).flatMap(([spaceId, conversations]) => conversations.map((conversation) => {
       const lifecycle = conversationLifecycleView(conversation);
       return {

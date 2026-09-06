@@ -28,7 +28,7 @@ const {
 interface SpaceSummary {
   id: string;
   name: string;
-  rootPath: string;
+  spaceRoot: string;
   location: { kind: "local"; storage: "managed" | "linked" };
   createdAt: string;
   updatedAt: string;
@@ -98,7 +98,7 @@ interface SurfaceTabsExports {
 const space: SpaceSummary = {
   id: "space-1",
   name: "First Space",
-  rootPath: "C:/Spaces/First",
+  spaceRoot: "C:/Spaces/First",
   location: { kind: "local", storage: "linked" },
   createdAt: "2026-07-08T00:00:00.000Z",
   updatedAt: "2026-07-08T00:00:00.000Z",
@@ -108,7 +108,7 @@ const otherSpace: SpaceSummary = {
   ...space,
   id: "space-2",
   name: "Other Space",
-  rootPath: "C:/Spaces/Other",
+  spaceRoot: "C:/Spaces/Other",
 };
 
 test("file tabs upsert as one retargeting tab per Space", () => {
@@ -387,7 +387,7 @@ test("switching Spaces activates the recent tab, then draft, then creates a draf
     space: otherSpace,
   }), { tabId: "chat:space-2:new" });
 
-  const thirdSpace = { ...space, id: "space-3", name: "Third Space", rootPath: "C:/Spaces/Third" };
+  const thirdSpace = { ...space, id: "space-3", name: "Third Space", spaceRoot: "C:/Spaces/Third" };
   assert.deepEqual(surfaceTabActivationForSpace({
     activeTabId: "chat:space-1:new",
     recentTabIdsBySpace: new Map(),

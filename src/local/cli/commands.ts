@@ -167,6 +167,15 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
       "contentful result uses the authenticated act lane and an explicit Space.",
       "Nothing watches a Space or enables a portable declaration automatically.",
       "",
+      "To prepare a correction, read checks problems for the current finding and",
+      "its evidence. Save this JSON in a temporary file and pass it to propose-fix:",
+      '{"kind":"work-fold.check-correction","version":1,"findingId":"<finding id>","fingerprint":"<finding fingerprint>","path":"<primary file>","beforeHash":"<evidence SHA-256>","replacement":"<complete corrected UTF-8 text>"}',
+      "The beforeHash must match the primary file's current evidence and bytes.",
+      "One correction covers one existing primary file, at most 128 KiB.",
+      "Leave the original unchanged. Submission creates a pending review; the",
+      "person applies it in Checks, with History preservation and a fresh recheck.",
+      "Do not write Check findings or correction records directly into .work-fold.",
+      "",
     ].join("\n");
   }
   if (normalizedTopic === "chat" || normalizedTopic?.startsWith("chat ")) {
@@ -408,6 +417,27 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
       "directly. receipts lists per-run receipts. Needs the work-fold app",
       "running.",
       "",
+      "Folder-change proposal example (replace sample Space/Check ids, paths,",
+      "message, and timestamp with the reviewed values):",
+      JSON.stringify({
+        kind: "work-fold.routing-proposal", version: 3, name: "Approved brief handoff",
+        createdBy: "assistant", createdAt: "2026-01-01T00:00:00.000Z",
+        routing: {
+          title: "Approved brief handoff",
+          trigger: { kind: "files-changed", space: "space-0000000000000001", watch: { kind: "tree", path: "Approved", recursive: false, extensions: [".md"] }, debounceSeconds: 5, cooldownMinutes: 1 },
+          steps: [
+            { id: "copy", kind: "files", fromSpace: "space-0000000000000001", from: { kind: "paths", paths: ["Approved/brief.md"] }, toSpace: "space-0000000000000002", to: "Incoming" },
+            { id: "adopt", kind: "chat", space: "space-0000000000000002", message: "Adopt the newest Incoming/brief*.md copy into reference/brief.md. Preserve the draft and other files." },
+            { id: "review", kind: "check", space: "space-0000000000000002", check: "check-example1" },
+          ],
+        },
+      }),
+      "Keep title, trigger, and steps inside routing. Copies are additive and",
+      "collision-renamed; a Check step completing does not mean its findings are clear.",
+      "Observers establish a baseline on enable/restart/wake and pause during",
+      "Routing runs. They do not replay edits from that pause or while quit/asleep.",
+      "Debounce: 2–120 seconds. Cooldown: 1–1440 minutes. At most eight steps.",
+      "",
     ].join("\n");
   }
   if (normalizedTopic === "pages" || normalizedTopic?.startsWith("pages ")) {
@@ -476,7 +506,7 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
     "  chats list          List a Space's Chats",
     "  manage send|status|result|wait|stop|abort|list|glance",
     "                      Talk to the management conversation above all Spaces",
-    "  checks propose|enable|disable|run|task|result|wait|abort|problems|decide",
+    "  checks propose|propose-fix|enable|disable|run|task|result|wait|abort|problems|decide",
     "                      Operate optional, explicitly scoped Space Checks",
     "  history list|save|restore|versions|restore-file",
     "                      Save and restore Space History",

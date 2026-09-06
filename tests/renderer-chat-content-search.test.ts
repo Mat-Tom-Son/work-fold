@@ -9,7 +9,7 @@ const spaces: SpaceSummary[] = [
   {
     id: "space-1",
     name: "Planning",
-    rootPath: "/planning",
+    spaceRoot: "/planning",
     location: { kind: "local", storage: "linked" },
     createdAt: "2026-07-01T00:00:00.000Z",
     updatedAt: "2026-07-01T00:00:00.000Z",
@@ -17,7 +17,7 @@ const spaces: SpaceSummary[] = [
   {
     id: "space-2",
     name: "Writing",
-    rootPath: "/writing",
+    spaceRoot: "/writing",
     location: { kind: "local", storage: "linked" },
     createdAt: "2026-07-01T00:00:00.000Z",
     updatedAt: "2026-07-01T00:00:00.000Z",

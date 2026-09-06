@@ -4,8 +4,8 @@ import test from "node:test";
 import { resolveRestrictedAppOpenRequest } from "../web-local/src/lib/restricted-app-navigation.js";
 
 const spaces = [
-  { id: "ws-current", name: "Current", rootPath: "C:\\Current", location: { kind: "local" as const, storage: "linked" as const }, createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:00.000Z" },
-  { id: "ws-owner", name: "Owner", rootPath: "C:\\Owner", location: { kind: "local" as const, storage: "linked" as const }, createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:00.000Z" },
+  { id: "ws-current", name: "Current", spaceRoot: "C:\\Current", location: { kind: "local" as const, storage: "linked" as const }, createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:00.000Z" },
+  { id: "ws-owner", name: "Owner", spaceRoot: "C:\\Owner", location: { kind: "local" as const, storage: "linked" as const }, createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:00.000Z" },
 ];
 
 test("notification open requests target the exact owning Space even when another Space is active", () => {

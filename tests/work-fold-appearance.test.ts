@@ -27,7 +27,7 @@ import type { SpaceSummary } from "../web-local/src/types.js";
 const space: SpaceSummary = {
   id: "space-home",
   name: "Home projects",
-  rootPath: "C:\\Users\\you\\Documents\\Home projects",
+  spaceRoot: "C:\\Users\\you\\Documents\\Home projects",
   location: { kind: "local", storage: "linked" },
   createdAt: "2026-07-10T00:00:00.000Z",
   updatedAt: "2026-07-10T00:00:00.000Z",

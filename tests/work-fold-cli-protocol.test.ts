@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import test from "node:test";
+import { normalizeWorkFoldRoutingProposal } from "../src/local/routings/routing-declarations.js";
 
 import {
   WORKFOLD_CLI_ACT_STAGED_COMMAND_NAMES,
@@ -298,6 +299,14 @@ test("CLI human output neutralizes terminal control sequences from host metadata
     { version: "1.2.3" },
   );
   assert.doesNotMatch(failure.stderr, /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/);
+});
+
+test("Routing help's complete authoring example passes the real proposal validator", () => {
+  const example = workFoldCliHelp("work-fold", "routings").split("\n").find((line) => line.startsWith('{"kind":"work-fold.routing-proposal"'));
+  assert.ok(example);
+  const proposal = normalizeWorkFoldRoutingProposal(JSON.parse(example));
+  assert.equal(proposal.routing.trigger.kind, "files-changed");
+  assert.deepEqual(proposal.routing.steps.map((step) => step.kind), ["files", "chat", "check"]);
 });
 
 test("CLI help/version avoid kernel work and kernel failures map to stable exit codes", async () => {

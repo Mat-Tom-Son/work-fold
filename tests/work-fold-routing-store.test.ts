@@ -337,18 +337,19 @@ test("one-time enablement rechecks the 1-minute to 366-day horizon and a durable
 });
 
 test("schema 1 stores load into the version 2 writer while newer stores still fail closed", async (t) => {
-  const { sandbox, store, statePath } = await createSandbox("work-fold-routing-store-v1-upgrade-");
+  const { sandbox, store, statePath, receipts, journalPath } = await createSandbox("work-fold-routing-store-v1-upgrade-");
   t.after(() => rm(sandbox, { recursive: true, force: true }));
   await store.enable(enableInput(declarationInput("routing-v1-upgrade"), "decision-v1"));
   const legacy = JSON.parse(await readFile(statePath, "utf8")) as { schemaVersion: number };
   legacy.schemaVersion = 1;
   await writeFile(statePath, `${JSON.stringify(legacy, null, 2)}\n`, "utf8");
 
-  const upgraded = await WorkFoldRoutingStore.create({ path: statePath, now: () => fixedNow });
+  const upgraded = await WorkFoldRoutingStore.create({ path: statePath, receipts, now: () => fixedNow });
   assert.equal(upgraded.status().damaged, false);
   await upgraded.disable("routing-v1-upgrade");
   const rewritten = JSON.parse(await readFile(statePath, "utf8")) as { schemaVersion: number };
   assert.equal(rewritten.schemaVersion, 2);
+  assert.equal((await readJournal(journalPath)).at(-1)?.outcome, "disabled");
 });
 
 test("damaged or tampered state disables the store and is never overwritten", async (t) => {
