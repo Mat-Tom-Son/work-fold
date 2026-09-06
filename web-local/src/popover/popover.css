@@ -544,3 +544,6 @@ button.primary:not(:disabled):active { filter: brightness(0.92); }
 .drop-overlay svg { width: 24px; height: 24px; margin-bottom: 3px; color: var(--pop-accent); stroke-width: 1.6; }
 .drop-overlay strong { font-size: 14px; font-weight: 650; }
 .drop-overlay span { color: var(--pop-text-muted); font-size: 12px; }
+
+.check-inbox-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 8px 0; }
+.check-inbox-row p { margin: 4px 0; font-size: 12px; opacity: .7; }

@@ -56,18 +56,18 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
       }) => ipcRenderer.invoke("work-fold:space:popup-file-menu", request),
     } : {}),
     setActiveSpace: (spaceId: string | null) => ipcRenderer.invoke("work-fold:space:set-active-space", spaceId),
-    onOpenSpace: (callback: (spaceId: string) => void) => {
+    onOpenSpace: (callback: (spaceId: string, view?: "checks") => void) => {
       let disposed = false;
       const deliveredTokens = new Set<string>();
       const deliver = (value: unknown) => {
         if (disposed || !value || typeof value !== "object" || Array.isArray(value)) return;
-        const request = value as { token?: unknown; spaceId?: unknown };
+        const request = value as { token?: unknown; spaceId?: unknown; view?: unknown };
         if (typeof request.token !== "string" || !request.token || request.token.length > 128
           || typeof request.spaceId !== "string" || !request.spaceId || request.spaceId.length > 512) return;
         if (deliveredTokens.has(request.token)) return;
         deliveredTokens.add(request.token);
         if (deliveredTokens.size > 32) deliveredTokens.delete(deliveredTokens.values().next().value as string);
-        callback(request.spaceId);
+        callback(request.spaceId, request.view === "checks" ? "checks" : undefined);
         ipcRenderer.send("work-fold:space:ack-open-space", request.token);
       };
       const listener = (_event: unknown, value: unknown) => deliver(value);
@@ -85,6 +85,8 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
     },
   },
   agent: {
+    openFoldDraft: (text: string) => ipcRenderer.invoke("work-fold:agent:open-fold-draft", text),
+    openChecks: (spaceId: string) => ipcRenderer.invoke("work-fold:management:open-checks", spaceId),
     onOpenSettings: (callback: (scope?: "management") => void) => {
       const listener = (_event: unknown, scope: unknown) => callback(scope === "management" ? "management" : undefined);
       ipcRenderer.on("work-fold:agent:open-settings", listener);

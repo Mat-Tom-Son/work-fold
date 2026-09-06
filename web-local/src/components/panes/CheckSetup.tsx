@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { api, errorText } from "../../lib/api";
 
-/** The form itself is the review: its final explicit action grants only the
- * displayed text rubric and designated paths. Saving does not run a model. */
+/** Manual authoring is secondary to the fold. Saving creates an inert proposal. */
 export function CheckSetup({ spaceId, onSaved, onCancel }: { spaceId: string; onSaved: () => Promise<void>; onCancel: () => void }) {
   const [title, setTitle] = useState("");
   const [kind, setKind] = useState("text-review");
@@ -40,8 +39,8 @@ export function CheckSetup({ spaceId, onSaved, onCancel }: { spaceId: string; on
     {kind === "text-review" ? <label>Reference files · optional<textarea rows={2} value={references} onChange={(event) => setReferences(event.target.value)} placeholder="Reference/style-guide.md" /></label> : null}
     <p>Paths are relative to this Space. This Check may inspect only the listed files.</p>
     {kind === "text-review" ? <p>Each run sends these UTF-8 text files and criteria to the fold’s selected model and may incur provider charges. Up to 16 files, 128 KiB per file, 256 KiB total. It returns quoted suggestions and does not edit files. Your fold conversation is not included.</p> : null}
-    <p>Enable saves the Check without running it. Run it here, or explicitly enable a routing to run it automatically.</p>
+    <p>Save a proposal, try it, then turn it on when you are happy with it. Automatic runs require a separately enabled routing.</p>
     {error ? <p role="alert" className="settings-inline-error">{error}</p> : null}
-    <div className="checks-header-actions"><button className="professional-button professional-button-primary" disabled={busy} type="submit">{busy ? "Enabling…" : "Enable Check"}</button><button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onCancel}>Cancel</button></div>
+    <div className="checks-header-actions"><button className="professional-button professional-button-primary" disabled={busy} type="submit">{busy ? "Saving…" : "Save proposal"}</button><button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onCancel}>Cancel</button></div>
   </form>;
 }

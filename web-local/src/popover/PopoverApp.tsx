@@ -1,3 +1,4 @@
+import { CheckInbox } from "./CheckInbox";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, File, Link2, SquarePen, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -693,6 +694,8 @@ export function PopoverApp() {
           ) : null}
         </section>
       ) : null}
+
+      {!popoverFixtureRequested ? <CheckInbox /> : null}
 
       <section className="fold-section fold-section-conversation">
         <section

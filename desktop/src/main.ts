@@ -210,7 +210,7 @@ let interactiveRequested = false;
 let cliRequestGeneration = 0;
 let activeNativeSpace: { id: string; name: string; spaceRoot: string } | null = null;
 let activeNativeSpaceGeneration = 0;
-let pendingOpenSpaceRequest: { token: string; spaceId: string } | null = null;
+let pendingOpenSpaceRequest: { token: string; spaceId: string; view?: "checks" } | null = null;
 const pendingMacOpenPaths: string[] = [];
 let macOpenPathDrainPromise: Promise<void> | null = null;
 const quitCoordinator = new GracefulQuitCoordinator({
@@ -1191,6 +1191,23 @@ function registerIpc(): void {
   ipcMain.handle("work-fold:window:accent-color", (event) => {
     assertTrustedRenderer(event);
     return getSystemAccentColor();
+  });
+  ipcMain.handle("work-fold:agent:open-fold-draft", async (event, value: unknown) => {
+    assertTrustedMainRenderer(event);
+    if (typeof value !== "string" || !value.trim() || value.length > 4096) throw new Error("A bounded fold draft is required.");
+    await openManagementPopoverWithItems([{ kind: "text", value }]);
+    return true;
+  });
+  ipcMain.handle("work-fold:management:open-checks", async (event, value: unknown) => {
+    assertTrustedRenderer(event);
+    if (typeof value !== "string" || !(await listSpaces()).some((space) => space.id === value)) throw new Error("Registered Space required.");
+    const request = { token: randomUUID(), spaceId: value, view: "checks" as const };
+    pendingOpenSpaceRequest = request;
+    managementPopover?.hide();
+    await ensureMainWindow();
+    showWindow();
+    mainWindow?.webContents.send("work-fold:space:open-space", request);
+    return true;
   });
   ipcMain.on("work-fold:management:hide", (event) => {
     assertTrustedRenderer(event);

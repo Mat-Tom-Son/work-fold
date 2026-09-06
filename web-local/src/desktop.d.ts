@@ -133,10 +133,12 @@ declare global {
         previewFile: (spaceId: string, path: string) => Promise<boolean>;
         popupFileMenu?: (request: WorkFoldDesktopFileMenuRequest) => Promise<WorkFoldDesktopFileMenuCommand | null>;
         setActiveSpace: (spaceId: string | null) => Promise<void>;
-        onOpenSpace: (listener: (spaceId: string) => void) => () => void;
+        onOpenSpace: (listener: (spaceId: string, view?: "checks") => void) => () => void;
         onOpenFolder: (listener: () => void) => () => void;
       };
       agent: {
+        openFoldDraft?: (text: string) => Promise<boolean>;
+        openChecks?: (spaceId: string) => Promise<boolean>;
         onOpenSettings: (listener: (scope?: "management") => void) => () => void;
       };
       /**
@@ -158,6 +160,7 @@ declare global {
         delete: (routingId: string) => Promise<unknown>;
       };
       management?: {
+        openChecks?: (spaceId: string) => Promise<boolean>;
         getPathForFile: (file: File) => string;
         hide: () => void;
         openMainWindow: () => Promise<boolean>;

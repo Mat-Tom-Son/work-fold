@@ -45,6 +45,8 @@ export type WorkFoldCliActCommandName =
   | "manage.stop"
   | "manage.list"
   | "manage.glance"
+  | "checks.propose-fix"
+  | "checks.propose"
   | "checks.enable"
   | "checks.disable"
   | "checks.run"
@@ -698,10 +700,12 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     case "manage wait":
     case "checks wait":
       throw usageError(`${command} runs inside the work-fold shim; update the installed work-fold CLI.`);
+    case "checks propose-fix":
+    case "checks propose":
     case "checks enable":
       allowOnlyFlags("--space", "--proposal");
       return {
-        name: "checks.enable",
+        name: command === "checks propose-fix" ? "checks.propose-fix" : command === "checks propose" ? "checks.propose" : "checks.enable",
         output,
         space: requireSpace(),
         proposalPath: requireBoundedFlag("--proposal", "proposal-path", maxChecksProposalPathLength),
@@ -1687,11 +1691,15 @@ async function runActCommand(
       // the snapshot passes through the same bounding sanitizer as Check
       // output before it reaches a terminal.
       return toChecksJson(await facade.manageGlance());
+    case "checks.propose-fix":
+      return toChecksJson(await facade.checksProposeFix({ space: command.space!, proposalPath: command.proposalPath!, cwd: request.cwd }));
+    case "checks.propose":
     case "checks.enable":
       return toChecksJson(await facade.checksEnable({
         space: command.space!,
         proposalPath: command.proposalPath!,
         cwd: request.cwd,
+        ...(command.name === "checks.propose" ? { proposeOnly: true } : {}),
       }));
     case "checks.disable":
       return toChecksJson(await facade.checksDisable({
@@ -2433,6 +2441,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         return `- ${terminalText(item.title)} [${terminalText(item.id)}]${lifecycle}`;
       }).join("\n")}\n`;
     }
+    case "checks.propose":
     case "checks.enable": {
       const check = record.check as { id?: string; title?: string; trigger?: string; targets?: Array<Record<string, WorkFoldCliJson>> } | undefined;
       const targets = check?.targets ?? [];
@@ -2442,7 +2451,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
           : "";
         return `- ${terminalText(target.role)} ${terminalText(target.kind)}: ${terminalText(target.path)}${membership}`;
       });
-      return `Enabled Check ${terminalText(check?.title)} [${terminalText(check?.id)}] in ${spaceLabel}.\nTrigger: ${terminalText(check?.trigger)}\n${scope.join("\n")}\n`;
+      return `${name === "checks.propose" ? "Proposed" : "Enabled"} Check ${terminalText(check?.title)} [${terminalText(check?.id)}] in ${spaceLabel}.\nTrigger: ${terminalText(check?.trigger)}\n${scope.join("\n")}\n`;
     }
     case "checks.disable":
       return record.disabled

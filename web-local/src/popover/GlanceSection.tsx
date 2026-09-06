@@ -209,6 +209,7 @@ export function GlanceSection({ state, surface }: { state: GlanceState; surface:
               <li className="glance-item" key={row.spaceId}>
                 <strong>{row.spaceName}</strong> · {checkStateLabel(row.state)}
                 {row.needsAttention ? ` · ${row.needsAttention} need${row.needsAttention === 1 ? "s" : ""} attention` : ""}
+                {window.workFoldDesktop?.agent?.openChecks ? <button type="button" onClick={() => { void window.workFoldDesktop?.agent?.openChecks?.(row.spaceId); }}>Review</button> : null}
               </li>
             ))}
           </ul>

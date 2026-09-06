@@ -183,3 +183,7 @@ in `src/local/glance.ts` and `src/local/glance-seen-store.ts`, publications in
   taught, per [the management layer](management-layer.md) and the residual
   risks recorded in [Consecrations](fold-consecrations.md); changing that is
   a separate deliberate design.
+
+## Fold-led Checks
+
+Checks authoring uses the fold, with an unsent draft from the Space-owned Checks tab. `checks propose` and `checks propose-fix` are authenticated, receipted, explicitly Space-scoped inert proposal operations; neither enables a Check nor edits a target. Trials and human-reviewed corrections use the same Check service and reservations. The fold displays a passive aggregate Checks disclosure linking to the owning Space. Findings prepare unsent help drafts in fresh Space Chats; no model turn starts merely because a finding appears. See [Checks](checks.md) for the exact review, History, freshness, and trial-isolation contract.

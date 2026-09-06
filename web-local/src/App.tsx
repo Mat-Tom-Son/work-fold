@@ -95,7 +95,8 @@ export function App() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const keyboardShortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
   const activeChecksControlRef = useRef<SpaceChecksControl | null>(null);
-  const [desktopAction, setDesktopAction] = useState<{ id: number; command: DesktopActionCommand } | null>(null);
+  const [pendingSpaceOpen, setPendingSpaceOpen] = useState<{ id: number; spaceId: string; view?: "checks" } | null>(null);
+  const [desktopAction, setDesktopAction] = useState<{ id: number; command: DesktopActionCommand | "open-checks" } | null>(null);
   const [updateStatus, setUpdateStatus] = useState<DesktopUpdateStatus | null>(null);
   const showDesktopTitleBar = window.workFoldDesktop?.app.platform === "win32";
 
@@ -175,10 +176,17 @@ export function App() {
   useEffect(() => {
     const desktopSpace = window.workFoldDesktop?.space;
     if (!desktopSpace?.onOpenSpace || !boot) return;
-    return desktopSpace.onOpenSpace((spaceId) => {
-      if (boot.spaces.some((space) => space.id === spaceId)) setActiveSpaceId(spaceId);
+    return desktopSpace.onOpenSpace((spaceId, view) => {
+      setPendingSpaceOpen({ id: Date.now(), spaceId, view });
+      if (!boot.spaces.some((space) => space.id === spaceId)) void refreshBootstrap();
     });
-  }, [boot?.spaces]);
+  }, [boot?.spaces, refreshBootstrap]);
+  useEffect(() => {
+    if (!pendingSpaceOpen || !boot?.spaces.some((space) => space.id === pendingSpaceOpen.spaceId)) return;
+    setActiveSpaceId(pendingSpaceOpen.spaceId);
+    if (pendingSpaceOpen.view === "checks") setDesktopAction({ id: pendingSpaceOpen.id, command: "open-checks" });
+    setPendingSpaceOpen(null);
+  }, [pendingSpaceOpen, boot?.spaces]);
   useEffect(() => {
     const updates = window.workFoldDesktop?.updates;
     if (!updates) return;
@@ -284,7 +292,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   assistantConfigurationRevision: number;
   appearance?: SpaceAppearanceState;
   fixture: SpaceUiFixture | null;
-  desktopAction: { id: number; command: DesktopActionCommand } | null;
+  desktopAction: { id: number; command: DesktopActionCommand | "open-checks" } | null;
   updateStatus: DesktopUpdateStatus | null;
   themePreference: AppThemePreference;
   onThemePreferenceChange: (theme: AppThemePreference) => void;
@@ -531,7 +539,8 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   }, []);
   useEffect(() => {
     if (!desktopAction) return;
-    if (desktopAction.command === "new-chat") openChat(space, null);
+    if (desktopAction.command === "open-checks") tabs.openChecksSurfaceTab(space);
+    else if (desktopAction.command === "new-chat") openChat(space, null);
     else if (desktopAction.command === "reload-space-state") void refreshSpaceState();
     else if (desktopAction.command === "open-capabilities" || desktopAction.command === "open-skills" || desktopAction.command === "open-extensions") tabs.openAssistantToolsSurfaceTab(space, "installed");
     else if (desktopAction.command === "open-command-palette") openCommandPalette();
@@ -1299,6 +1308,10 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
                   tabs.openFileSurfaceTab(targetSpace, path);
                 }}
                 onChecksChanged={() => targetSpace.id === space.id ? checks.refresh() : undefined}
+                onAskAssistant={(text) => {
+                  const surfaceTabId = tabs.openChatSurfaceTab(targetSpace, null);
+                  setDraftRequest({ id: ++draftRequestId.current, text, spaceId: targetSpace.id, surfaceTabId });
+                }}
               />
             ) : tab.kind === "app-studio" ? (
               <AppStudioPane

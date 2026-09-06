@@ -1,3 +1,4 @@
+import { normalizeCheckCorrectionRecord, type CheckCorrectionRecord } from "./check-corrections.js";
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { copyFile, lstat, mkdir, open, opendir, rename, unlink } from "node:fs/promises";
@@ -103,6 +104,23 @@ export class WorkFoldCheckStore {
     return structuredClone(this.#state);
   }
 
+  async saveCorrection(correction: CheckCorrectionRecord): Promise<void> {
+    const normalized = normalizeCheckCorrectionRecord(correction);
+    await this.#update((state) => {
+      const records = state.corrections ?? [];
+      const existing = records.find((item) => item.id === normalized.id);
+      if (existing && existing.state !== normalized.state) {
+        const allowed = existing.state === "pending" && ["applying", "dismissed"].includes(normalized.state)
+          || existing.state === "applying" && ["applied", "failed"].includes(normalized.state);
+        if (!allowed) throw new Error("This correction already has a recorded outcome. Prepare a fresh proposal.");
+      }
+      if (!existing && records.filter((item) => item.state === "pending").length >= 24) throw new Error("Review or dismiss pending corrections before adding more.");
+      const updated = [normalized, ...records.filter((item) => item.id !== normalized.id)];
+      const pending = updated.filter((item) => item.state === "pending" || item.state === "applying");
+      state.corrections = [...pending, ...updated.filter((item) => item.state !== "pending" && item.state !== "applying").slice(0, 32 - pending.length)];
+    });
+  }
+
   async authorize(
     declaration: WorkFoldCheckDeclaration,
     declarationDigest: string,
@@ -180,11 +198,11 @@ export class WorkFoldCheckStore {
       if (!existing) throw new Error("Check run not found.");
       if (existing.taskId !== normalized.taskId) throw new Error("Check run task identity changed before completion.");
 
-      if (normalized.state === "succeeded") {
+      if (normalized.state === "succeeded" && !normalized.trial) {
         const ranCheckIds = new Set(normalized.checkIds);
         const reproduced = new Set(normalized.findings.map((finding) => finding.fingerprint));
         const supersededFingerprints = new Set<string>();
-        state.runs = state.runs.map((priorRun) => priorRun.id === normalized.id ? priorRun : {
+        state.runs = state.runs.map((priorRun) => priorRun.id === normalized.id || priorRun.trial ? priorRun : {
           ...priorRun,
           findings: priorRun.findings.map((finding) => {
             if (finding.status !== "active" || !ranCheckIds.has(finding.checkId) || reproduced.has(finding.fingerprint)) {
@@ -308,9 +326,10 @@ export class WorkFoldCheckStore {
   }
 
   async #reconcileInterruptedRuns(): Promise<void> {
-    if (!this.#state.runs.some((run) => run.state === "accepted" || run.state === "running")) return;
+    if (!this.#state.runs.some((run) => run.state === "accepted" || run.state === "running") && !this.#state.corrections?.some((item) => item.state === "applying")) return;
     const endedAt = new Date().toISOString();
     await this.#update((state) => {
+      state.corrections = state.corrections?.map((item) => item.state === "applying" ? { ...item, state: "failed", error: "work-fold stopped during correction application. Inspect the file and its History checkpoint before continuing; the correction was not retried." } : item);
       state.runs = state.runs.map((run) => run.state === "accepted" || run.state === "running"
         ? {
             ...run,
@@ -346,8 +365,9 @@ function normalizeMachineState(value: unknown): WorkFoldCheckMachineState {
   if (typeof record.version === "number" && record.version > workFoldCheckStateVersion) {
     throw Object.assign(new Error(`Check state uses unsupported version ${record.version}.`), { code: "ERR_WORK_FOLD_CHECKS_VERSION" });
   }
-  assertExactKeys(record, ["version", "revision", "authorizations", "decisions", "runs"], "Check state");
-  if (record.version !== 1 && record.version !== workFoldCheckStateVersion) throw new Error("Check state version is invalid.");
+  assertAllowedKeys(record, ["version", "revision", "authorizations", "decisions", "runs"], ["corrections"], "Check state");
+  if (record.corrections !== undefined && (!Array.isArray(record.corrections) || record.corrections.length > 32)) throw new Error("Invalid correction records.");
+  if (record.version !== 1 && record.version !== 2 && record.version !== workFoldCheckStateVersion) throw new Error("Check state version is invalid.");
   if (!Number.isSafeInteger(record.revision) || (record.revision as number) < 0) throw new Error("Check state revision is invalid.");
   const authorizations = objectRecord(record.authorizations, "Check authorizations must be an object.");
   const decisions = objectRecord(record.decisions, "Check decisions must be an object.");
@@ -368,6 +388,7 @@ function normalizeMachineState(value: unknown): WorkFoldCheckMachineState {
       return [fingerprint, decision];
     })),
     runs: record.runs.map(normalizeRun),
+    ...(Array.isArray(record.corrections) ? { corrections: record.corrections.map(normalizeCheckCorrectionRecord) } : {}),
   };
 }
 
@@ -424,7 +445,7 @@ function normalizeRun(value: unknown): WorkFoldCheckRunRecord {
   assertAllowedKeys(
     record,
     ["id", "taskId", "checkIds", "startedAt", "state", "authorities", "limits", "inputs", "findings", "admittedCount", "discardedCount", "skippedCount"],
-    ["endedAt", "error", "cost"],
+    ["endedAt", "error", "cost", "trial"],
     "Check run",
   );
   if (!Array.isArray(record.checkIds) || record.checkIds.length > maximumAuthorizationRecords) throw new Error("Check run ids are invalid.");
@@ -448,10 +469,12 @@ function normalizeRun(value: unknown): WorkFoldCheckRunRecord {
       sensorDigest: digest(authority.sensorDigest, "Sensor implementation digest"),
     };
   });
+  if (record.trial !== undefined && record.trial !== true) throw new Error("Check trial marker is invalid.");
   const normalizedLimits = normalizeRunLimits(record.limits);
   const counts = [record.admittedCount, record.discardedCount, record.skippedCount];
   if (counts.some((count) => !Number.isSafeInteger(count) || (count as number) < 0)) throw new Error("Check run counts are invalid.");
   return {
+    ...(record.trial === true ? { trial: true as const } : {}),
     id: boundedText(record.id, "Check run id", 160),
     taskId: boundedText(record.taskId, "Check task id", 160),
     checkIds: record.checkIds.map((id) => boundedText(id, "Check id", 160)),

@@ -251,3 +251,7 @@ The plan items shipped as follows:
   applies to reads as well as work.
 - **Model summarization of the digest into the digest.** Narration renders
   facts already present; it never writes back.
+
+## Checks navigation refinement
+
+The popover now has a compact passive Checks disclosure projected from the existing aggregate Check rows. It does not render the full glance or advance a seen marker. Review opens the owning Space’s existing Checks tab through the durable main-window open request. The main-window Check rows offer the same Review action. No sensor or model turn starts from either view. Trial runs are excluded from settled Check changes and live status.

@@ -78,7 +78,7 @@ test("macOS vibrancy is confined to navigation with an opaque work surface and s
 
 test("desktop Space state, Finder-open routing, and guarded Quick Look are wired in the renderer", () => {
   assert.match(app, /space\.setActiveSpace\?\.\(activeSpace\?\.id \?\? null\)/);
-  assert.match(app, /desktopSpace\.onOpenSpace\(\(spaceId\)/);
+  assert.match(app, /desktopSpace\.onOpenSpace\(\(spaceId, view\)/);
   assert.match(app, /function refreshOnReturn\(\)[\s\S]*?void refreshBootstrap\(\)/);
   assert.match(app, /window\.addEventListener\("focus", refreshOnReturn\)/);
   assert.match(app, /document\.addEventListener\("visibilitychange", refreshOnReturn\)/);

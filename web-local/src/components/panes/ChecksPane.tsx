@@ -1,3 +1,5 @@
+import type { CheckCorrectionRecord } from "../../../../src/local/checks/check-corrections";
+import type { WorkFoldCheckRunRecord } from "../../../../src/local/checks/check-types";
 import { CheckSetup } from "./CheckSetup";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Check, Clock3, FileCheck2, Loader2, RefreshCw, X } from "lucide-react";
@@ -52,12 +54,18 @@ export function ChecksPane({
   active,
   onOpenFile,
   onChecksChanged,
+  onAskAssistant,
 }: {
   space: SpaceSummary;
   active: boolean;
   onOpenFile: (path: string) => void;
   onChecksChanged: () => void | Promise<void>;
+  onAskAssistant?: (text: string) => void;
 }) {
+  const [correctionReview, setCorrectionReview] = useState<{ correction: CheckCorrectionRecord; before: string } | null>(null);
+  const [correctionBusy, setCorrectionBusy] = useState(false);
+  const [trialResult, setTrialResult] = useState<WorkFoldCheckRunRecord | null>(null);
+  const trialTaskRef = useRef<string | null>(null);
   const [configuring, setConfiguring] = useState(false);
   const [overview, setOverview] = useState<ChecksOverview | null>(null);
   const [loading, setLoading] = useState(true);
@@ -119,6 +127,9 @@ export function ChecksPane({
     requestRef.current += 1;
     overviewFlightRef.current = null;
     setOverview(null);
+    setTrialResult(null);
+    setCorrectionReview(null);
+    trialTaskRef.current = null;
     setTask(null);
     setRunSubmitting(false);
     setAbortSubmitting(false);
@@ -157,6 +168,11 @@ export function ChecksPane({
           `/api/spaces/${encodeURIComponent(spaceId)}/checks/tasks/${encodeURIComponent(task.taskId)}`,
         );
         if (cancelled) return;
+        if (!isPendingTask(response.task) && trialTaskRef.current === response.task.taskId) {
+          const result = await api<{ run: WorkFoldCheckRunRecord }>(`/api/spaces/${encodeURIComponent(spaceId)}/checks/tasks/${encodeURIComponent(response.task.taskId)}/result`);
+          if (cancelled) return;
+          setTrialResult(result.run);
+        }
         setTask(response.task);
         if (!isPendingTask(response.task)) {
           await loadOverview(true);
@@ -188,6 +204,55 @@ export function ChecksPane({
     () => new Map((overview?.checks ?? []).map((check) => [check.id, check])),
     [overview?.checks],
   );
+
+  async function askFold(check?: ChecksOverview["checks"][number]) {
+    const draft = check
+      ? `Help me change the Check ${JSON.stringify(check.title)} (${check.id}) in Space ${spaceId}. Review its current declaration and ask what I want changed. Prepare an inert proposal for review; keep the current Check unchanged until I approve its replacement.`
+      : `Help me set up a durable Check in Space ${JSON.stringify(space.name)} (${spaceId}). Ask what I want checked and which files and references to use. Prepare an inert proposal with checks propose for me to try before turning it on. Default to manual runs and showing findings in the fold. Review any automatic routing separately.`;
+    try {
+      if (!window.workFoldDesktop?.agent?.openFoldDraft) throw new Error("Open the fold in the desktop app and ask it to set up a Check for this Space.");
+      await window.workFoldDesktop.agent.openFoldDraft(draft);
+    } catch (caught) { setError(errorText(caught)); }
+  }
+
+  async function tryCheck(check: ChecksOverview["checks"][number]) {
+    if (mutationRef.current) return;
+    if (!await requestConfirm({ title: `Try ${check.title}?`, body: `Run once over the displayed files${check.execution === "model" ? " using the fold’s model. Designated text is sent to your provider and charges may apply" : ""}. This trial does not turn on the Check or replace its live results.`, confirmLabel: "Try it" })) return;
+    mutationRef.current = "run";
+    setRunSubmitting(true); setTrialResult(null); setError(null);
+    try {
+      const { task: accepted } = await api<{ task: { taskId: string; runId: string } }>(`/api/spaces/${encodeURIComponent(spaceId)}/checks/${encodeURIComponent(check.id)}/try`, { method: "POST", body: { expectedDigest: check.digest } });
+      trialTaskRef.current = accepted.taskId;
+      setTask({ ...accepted, state: "accepted", startedAt: new Date().toISOString(), endedAt: null, error: null });
+    } catch (caught) { setError(errorText(caught)); }
+    finally { mutationRef.current = null; setRunSubmitting(false); }
+  }
+
+  async function askAssistant(finding: ChecksFinding) {
+    if (!onAskAssistant || mutationRef.current) return;
+    mutationRef.current = `finding:${finding.id}`; setFindingBusy(finding.id);
+    try {
+      const { draft } = await api<{ draft: string }>(`/api/spaces/${encodeURIComponent(spaceId)}/checks/findings/${encodeURIComponent(finding.id)}/help`, { method: "POST", body: { fingerprint: finding.fingerprint } });
+      onAskAssistant(draft);
+    } catch (caught) { setError(errorText(caught)); await loadOverview(true); }
+    finally { mutationRef.current = null; setFindingBusy(null); }
+  }
+
+  async function correctionAction(id: string, action: "review" | "apply" | "dismiss") {
+    if (mutationRef.current) return;
+    mutationRef.current = "run"; setCorrectionBusy(true); setError(null);
+    try {
+      const result = await api<{ correction: CheckCorrectionRecord; before: string; task?: { taskId: string; runId: string }; rerunError?: string }>(`/api/spaces/${encodeURIComponent(spaceId)}/checks/corrections/${encodeURIComponent(id)}/${action}`, { method: "POST", body: {} });
+      if (action === "review") setCorrectionReview(result);
+      else {
+        setCorrectionReview(null);
+        if (result.task) { trialTaskRef.current = null; setTask({ ...result.task, state: "accepted", startedAt: new Date().toISOString(), endedAt: null, error: null }); }
+        await loadOverview(true);
+        if (result.rerunError) setError(`Correction applied. The Check could not restart: ${result.rerunError}`);
+      }
+    } catch (caught) { setCorrectionReview(null); await loadOverview(true); setError(errorText(caught)); }
+    finally { mutationRef.current = null; setCorrectionBusy(false); }
+  }
 
   async function toggleCheck(check: ChecksOverview["checks"][number]): Promise<void> {
     if (mutationRef.current) return;
@@ -296,12 +361,11 @@ export function ChecksPane({
     <div className="space-pane-content checks-pane professional-surface">
       <header className="checks-header">
         <div>
-          <span className="checks-eyebrow"><FileCheck2 size={14} />On demand · optional automation</span>
           <h1>Checks</h1>
-          <p>These Checks inspect only their designated files.</p>
         </div>
         <div className="checks-header-actions">
-          <button type="button" className="professional-button professional-button-secondary" disabled={running} onClick={() => setConfiguring(true)}>New Check</button>
+          <button type="button" className="professional-button professional-button-secondary" disabled={running} onClick={() => void askFold()}>Tell the fold what to check</button>
+          <button type="button" className="checks-manual-button" disabled={running} onClick={() => setConfiguring(!configuring)}>Set up manually</button>
           {status?.lastRunAt ? <span className="checks-last-run">Last run {formatTimeAgo(status.lastRunAt)}</span> : null}
           {runSubmitting ? (
             <button className="professional-button professional-button-secondary" type="button" disabled>
@@ -327,16 +391,36 @@ export function ChecksPane({
       {error ? <div className="checks-health-message error" role="alert"><AlertCircle size={15} /><span>{error}</span><button type="button" onClick={() => void loadOverview(true)}>Try again</button></div> : null}
       {running ? <div className="checks-running" aria-live="polite"><Loader2 className="spin" size={15} /><span>Checking only the designated files…</span></div> : null}
       {overviewUnavailable
-        ? <div className="checks-status-line check-error"><span aria-hidden="true" /><p>Current Check results are unavailable. work-fold is not labeling your files as clear or failed.</p></div>
+        ? <div className="checks-status-line check-error"><span aria-hidden="true" /><p>Check results are unavailable. Try refreshing.</p></div>
         : status && !running ? <ChecksStatusLine status={status} /> : null}
 
-      <section className="checks-section" aria-labelledby={`checks-findings-${spaceId}`}>
+      {!overviewUnavailable && overview?.corrections?.some((item) => item.state !== "dismissed") ? <section className="checks-section" aria-label="Corrections">
+        <h2>Corrections</h2>
+        {[...overview.corrections.filter((item) => item.state === "pending"), ...overview.corrections.filter((item) => item.state !== "pending" && item.state !== "dismissed").slice(0, 1)].map((item) => <article className="checks-definition" key={item.id}>
+          <strong>{item.proposal.path}</strong><p>{item.state === "pending" ? "Ready for review" : item.state === "applied" ? "Applied · original saved in History" : item.error || "Application not yet confirmed · check History"}</p>
+          {item.state === "pending" ? <div className="checks-header-actions"><button type="button" disabled={running || correctionBusy} onClick={() => void correctionAction(item.id, "review")}>Review correction</button><button type="button" disabled={correctionBusy} onClick={() => void correctionAction(item.id, "dismiss")}>Dismiss</button></div> : null}
+        </article>)}
+        {correctionReview ? <div className="checks-correction-review" aria-label="Review correction">
+          <h3>{correctionReview.correction.proposal.path}</h3><p>Apply saves the original in History and rechecks with the fold’s model. Provider charges may apply.</p>
+          <CorrectionDiff before={correctionReview.before} after={correctionReview.correction.proposal.replacement} />
+          <button type="button" className="professional-button professional-button-primary" disabled={correctionBusy || running} onClick={() => void correctionAction(correctionReview.correction.id, "apply")}>Apply and recheck</button>
+          <button type="button" disabled={correctionBusy} onClick={() => setCorrectionReview(null)}>Close review</button>
+        </div> : null}
+      </section> : null}
+
+      {trialResult ? <section className="checks-section checks-trial" aria-label="Trial result">
+        <h2>Trial result</h2><p>Trial · {new Date(trialResult.startedAt).toLocaleString()} · live results unchanged.</p>
+        <p>{trialResult.state === "succeeded" ? `${trialResult.admittedCount} suggestions from this trial.` : trialResult.error || "The trial did not finish."}</p>
+        {trialResult.findings.map((finding) => <article key={finding.id}><strong>{finding.title}</strong><p>{finding.targetPath}</p>{finding.evidence.map((evidence, index) => evidence.kind === "text-span" ? <blockquote key={index}>{evidence.quote}</blockquote> : null)}<p>{finding.detail}</p></article>)}
+      </section> : null}
+
+      {Boolean(overview?.findings.length || running || overviewUnavailable) ? <section className="checks-section" aria-labelledby={`checks-findings-${spaceId}`}>
         <div className="checks-section-heading">
-          <div><h2 id={`checks-findings-${spaceId}`}>Needs attention</h2><p>{overviewUnavailable ? "Unavailable until work-fold can re-verify the designated evidence." : "Current findings with evidence work-fold re-verified."}</p></div>
+          <div><h2 id={`checks-findings-${spaceId}`}>Needs attention</h2></div>
           {!overviewUnavailable && overview?.findings.length ? <span>{overview.findings.length}</span> : null}
         </div>
         {overviewUnavailable ? (
-          <div className="checks-empty-findings"><p>Current findings could not be re-verified. Try again before acting on a previous result.</p></div>
+          <div className="checks-empty-findings"><p>Refresh to review current findings.</p></div>
         ) : overview?.findings.length ? (
           <div className="checks-finding-list">
             {overview.findings.map((finding) => {
@@ -353,10 +437,11 @@ export function ChecksPane({
                       {targetExists ? <button type="button" onClick={() => onOpenFile(finding.targetPath)}>{finding.targetPath}</button> : <code>{finding.targetPath}</code>}
                       {check ? <span>{check.title}</span> : null}
                     </div>
-                    {finding.evidence.some((evidence) => evidence.kind === "text-span") ? <p><strong>Model suggestion</strong> · The quoted text is verified; the assessment is yours to judge.</p> : null}
+                    {finding.evidence.some((evidence) => evidence.kind === "text-span") ? <p><strong>Model suggestion</strong></p> : null}
                     {finding.evidence.map((evidence, index) => evidence.kind === "text-span" ? <blockquote key={index}><p>{evidence.quote}</p></blockquote> : null)}
                     {finding.detail ? <p>{finding.detail}</p> : null}
                     {finding.remediation ? <p className="checks-remediation">{finding.remediation}</p> : null}
+                    {onAskAssistant ? <button type="button" className="professional-button professional-button-secondary" disabled={findingBusy !== null || running} onClick={() => void askAssistant(finding)}>Ask Space Assistant to help</button> : null}
                     <div className="checks-finding-actions" role="group" aria-label={`Decisions for ${finding.title}`}>
                       <button type="button" aria-label={`Mark ${finding.title} resolved`} disabled={findingBusy !== null || Boolean(mutationRef.current)} onClick={() => void decide(finding, "resolve")}><Check size={13} />Mark resolved</button>
                       <button type="button" aria-label={`Defer ${finding.title} until tomorrow`} disabled={findingBusy !== null || Boolean(mutationRef.current)} onClick={() => void decide(finding, "defer")}><Clock3 size={13} />Tomorrow</button>
@@ -369,27 +454,30 @@ export function ChecksPane({
           </div>
         ) : running ? <p>Results will appear when this review finishes.</p> : <ChecksEmptyFindings overview={overview} />}
         {!overviewUnavailable && overview?.truncated ? <p className="checks-truncated">More current findings exist. Narrow the Check or review them with the management CLI.</p> : null}
-      </section>
+      </section> : null}
 
       {!overviewUnavailable && overview?.healthErrors.length ? (
         <section className="checks-section checks-health" aria-labelledby={`checks-health-${spaceId}`}>
-          <div className="checks-section-heading"><div><h2 id={`checks-health-${spaceId}`}>Check health</h2><p>These are Check problems, not problems in your files.</p></div></div>
+          <div className="checks-section-heading"><div><h2 id={`checks-health-${spaceId}`}>Check health</h2></div></div>
           <ul>{overview.healthErrors.map((message, index) => <li key={`${message}-${index}`}>{message}</li>)}</ul>
         </section>
       ) : null}
 
       <section className="checks-section" aria-labelledby={`checks-expectations-${spaceId}`}>
-        <div className="checks-section-heading"><div><h2 id={`checks-expectations-${spaceId}`}>Designated expectations</h2><p>Only these bounded targets may be inspected when you run Checks.</p></div></div>
+        <div className="checks-section-heading"><div><h2 id={`checks-expectations-${spaceId}`}>Your Checks</h2></div></div>
         {overviewUnavailable ? (
           <div className="checks-empty-config"><strong>Check configuration could not be refreshed.</strong><p>Try again to verify the currently designated targets and Check state.</p></div>
         ) : overview?.checks.length ? (
           <div className="checks-definition-list">
             {overview.checks.map((check) => (
               <div className="checks-definition" key={check.id}>
-                <div className="checks-definition-main"><strong>{check.title}</strong><span className={`checks-authority ${check.authority}`}>{authorityLabel(check.authority)}</span></div>
+                <details open={check.authority !== "enabled"}><summary className="checks-definition-main"><strong>{check.title}</strong><span className={`checks-authority ${check.authority}`}>{authorityLabel(check.authority)}</span></summary>
                 {check.criteria ? <p>{check.criteria}</p> : null}
                 {check.execution === "model" ? <p>Text review · fold model · suggestions only</p> : null}
-                <button type="button" className="professional-button professional-button-secondary" disabled={Boolean(mutationRef.current) || (check.authority !== "enabled" && !check.digest)} onClick={() => void toggleCheck(check)}>{check.authority === "enabled" ? "Disable" : "Review and enable"}</button>
+                <button type="button" className="professional-button professional-button-secondary" disabled={Boolean(mutationRef.current) || (check.authority !== "enabled" && !check.digest)} onClick={() => void toggleCheck(check)}>{check.authority === "enabled" ? "Turn off" : "Turn on"}</button>
+                <button type="button" className="professional-button professional-button-secondary" disabled={running || !check.digest} onClick={() => void tryCheck(check)}>Try it</button>
+                <button type="button" className="professional-button professional-button-secondary" disabled={running} onClick={() => void askFold(check)}>Change with fold</button>
+                <p>On request · Results in fold</p>
                 <div className="checks-target-list">
                   {check.targets.map((target, index) => (
                     <span key={`${target.role}:${target.path}:${index}`}>
@@ -398,11 +486,12 @@ export function ChecksPane({
                     </span>
                   ))}
                 </div>
+                </details>
               </div>
             ))}
           </div>
         ) : overview ? (
-          <div className="checks-empty-config"><strong>No Checks are configured.</strong><p>Nothing in this Space is being inspected. Choose New Check to define a review rubric or required files, then enable it explicitly.</p></div>
+          <div className="checks-empty-config"><strong>No Checks are configured.</strong><p>Tell the fold what you want checked to get started.</p></div>
         ) : null}
       </section>
     </div>
@@ -422,11 +511,11 @@ function ChecksStatusLine({ status }: { status: ChecksOverview["status"] }) {
       ? "1 Check needs review before running."
       : `${formatItemCount(status.blocked, "Check")} need review before running.`;
   } else if (status.state === "check-error") {
-    copy = "The latest Check work did not complete. Your files are not being labeled as failed.";
+    copy = "A Check could not finish.";
   } else if (status.proposed > 0 && status.enabled === 0) {
     copy = status.proposed === 1
-      ? "1 proposed Check is not enabled. There is no result yet."
-      : `${formatItemCount(status.proposed, "proposed Check")} are not enabled. There is no result yet.`;
+      ? "1 proposal ready for review."
+      : `${formatItemCount(status.proposed, "proposal")} ready for review.`;
   } else if (status.neverRun) {
     const neverRun = status.neverRun === 1
       ? "1 Check has not run yet."
@@ -435,7 +524,7 @@ function ChecksStatusLine({ status }: { status: ChecksOverview["status"] }) {
       ? `${neverRun} ${formatItemCount(status.stale, "other result")} changed after its last run.`
       : neverRun;
   } else if (status.stale) {
-    copy = "Designated files changed after the last run. Run Checks when you want a current result.";
+    copy = "Files changed · run Checks to refresh.";
   } else {
     copy = status.configured
       ? "Checks are configured and run only when requested."
@@ -446,11 +535,11 @@ function ChecksStatusLine({ status }: { status: ChecksOverview["status"] }) {
 
 function ChecksEmptyFindings({ overview }: { overview: ChecksOverview | null }) {
   if (!overview) return null;
-  if (!overview.checks.length) return <div className="checks-empty-findings"><p>No configured Checks means no result—not a clean bill of health.</p></div>;
-  if (overview.status.state === "blocked" || overview.status.state === "check-error") return <div className="checks-empty-findings"><p>No file finding is shown because the Check itself needs attention.</p></div>;
-  if (overview.status.proposed > 0 && overview.status.enabled === 0) return <div className="checks-empty-findings"><p>No Check has been enabled or run. Review the proposed expectations below.</p></div>;
-  if (overview.status.state === "stale") return <div className="checks-empty-findings"><p>Run Checks to get a current result for the designated files.</p></div>;
-  return <div className="checks-empty-findings"><Check size={15} /><p>Nothing currently needs attention from the latest requested run.</p></div>;
+  if (!overview.checks.length) return <div className="checks-empty-findings"><p>No results yet.</p></div>;
+  if (overview.status.state === "blocked" || overview.status.state === "check-error") return <div className="checks-empty-findings"><p>The Check needs attention.</p></div>;
+  if (overview.status.proposed > 0 && overview.status.enabled === 0) return <div className="checks-empty-findings"><p>Review a proposal below to get started.</p></div>;
+  if (overview.status.state === "stale") return <div className="checks-empty-findings"><p>Run Checks to refresh results.</p></div>;
+  return <div className="checks-empty-findings"><Check size={15} /><p>No findings in the latest run.</p></div>;
 }
 
 function isPendingTask(task: ChecksTaskStatus): boolean {
@@ -462,5 +551,16 @@ function severityLabel(severity: ChecksFinding["severity"]): string {
 }
 
 function authorityLabel(authority: ChecksOverview["checks"][number]["authority"]): string {
-  return authority === "enabled" ? "Enabled" : authority === "blocked" ? "Needs review" : "Not enabled";
+  return authority === "enabled" ? "On" : authority === "blocked" ? "Needs review" : "Off · review";
+}
+
+/** A single contiguous diff preserves every changed line, with surrounding
+ * context. Long unchanged prefixes/suffixes stay out of the review. */
+function CorrectionDiff({ before, after }: { before: string; after: string }) {
+  const left = before.split("\n"), right = after.split("\n");
+  let start = 0, end = 0;
+  while (start < Math.min(left.length, right.length) && left[start] === right[start]) start++;
+  while (end < Math.min(left.length, right.length) - start && left[left.length - 1 - end] === right[right.length - 1 - end]) end++;
+  const contextStart = Math.max(0, start - 3);
+  return <div className="checks-correction-diff"><div><h4>Before</h4><pre>{left.slice(contextStart, left.length - Math.max(0, end - 3)).join("\n")}</pre></div><div><h4>After</h4><pre>{right.slice(contextStart, right.length - Math.max(0, end - 3)).join("\n")}</pre></div></div>;
 }

@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
     iconUrl: internalProtocol ? `${internalProtocol}://app/_desktop-assets/icon-32.png` : "",
   },
   management: {
+    openChecks: (spaceId: string) => ipcRenderer.invoke("work-fold:management:open-checks", spaceId),
     getPathForFile: (file: File): string => {
       try {
         return webUtils.getPathForFile(file) ?? "";

@@ -2077,3 +2077,13 @@ test("the ledger families ride the unchanged act protocol v2 envelope", () => {
     /unsupported field: decisionId/,
   );
 });
+
+test("Check and correction proposals use explicit inert act verbs", () => {
+  for (const verb of ["propose", "propose-fix"]) {
+    assert.deepEqual(parseWorkFoldCliActArgv(["checks", verb, "--space", "space-1", "--proposal", "review.json", "--json"]), {
+      name: `checks.${verb}`, space: "space-1", proposalPath: "review.json", output: "json",
+    });
+    assert.throws(() => parseWorkFoldCliActArgv(["checks", verb, "--proposal", "review.json"]), /space/i);
+    assert.throws(() => parseWorkFoldCliActArgv(["checks", verb, "--space", "space-1", "--proposal", "review.json", "--enable"]), /flag|option/i);
+  }
+});

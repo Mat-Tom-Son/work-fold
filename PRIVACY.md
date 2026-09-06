@@ -155,3 +155,7 @@ Material privacy behavior changes should update this file in the same release. G
 
 
 An explicitly enabled folder-change routing scans metadata only for its named folder and file types. It does not read file contents or attach files to Chat. Observer baselines are in memory; run receipts retain the source Space, snapshot digest, and change count. It pauses while routing work runs and restarts from a fresh baseline after work, wake, or launch, without replaying missed edits. Each Chat step still sends only its reviewed literal message; a separate files step is the explicit cross-Space transfer.
+
+### Check proposal and correction review
+
+Fold-led setup stages an unsent draft and materializes inert Check proposals. One-time trials use exact reviewed declarations, can transmit designated text to the configured model provider, and never grant standing authority or replace live findings. Passive fold attention starts no agent turn. Corrections retain bounded proposed replacement text in machine-local Check state. Applying is a separate human action that re-verifies primary/reference evidence, preserves exact original bytes in History, journals before writing, and refuses stale or repeated application. An interrupted correction is recorded as failed and never replayed automatically. Space removal purges the same primary/backup Check state, including corrections. See [Checks](docs/checks.md).

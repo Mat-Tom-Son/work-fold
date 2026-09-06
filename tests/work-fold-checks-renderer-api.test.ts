@@ -203,3 +203,42 @@ test("desktop text Check setup is inert, re-enable pins review, and provider rem
     assert.equal(requests, 1);
   } finally { release(); await api.close(); await rm(sandbox, { recursive: true, force: true }); }
 });
+
+test("fold proposals, trials, explicit help and reviewed correction share the live API domain", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-check-workflow-api-"));
+  const kernel = new WorkFoldKernel();
+  let calls = 0;
+  const service = new WorkFoldCheckService({ kernel, reviewModel: async (input) => {
+    calls++;
+    return { submission: { findings: input.files[0]!.text.includes("Always") ? [{ path: "draft.md", quote: "Always guaranteed.", title: "Unqualified promise", detail: "Qualify the claim." }] : [] } };
+  } });
+  const api = await startLocalApi({ port: 0, stateBase: join(sandbox, "state"), spaceBase: join(sandbox, "content"), loadEnv: false, kernel, checkService: service });
+  try {
+    const { space } = await request<{ space: { id: string; spaceRoot: string } }>(api.origin, "/api/spaces", { method: "POST", body: { name: "Check workflow" } }, 201);
+    await writeFile(join(space.spaceRoot, "draft.md"), "Always guaranteed.\n");
+    const proposed = await request<{ declaration: { id: string }; digest: string }>(api.origin, `/api/spaces/${space.id}/checks/configure`, { method: "POST", body: { proposal: { ...proposal, check: { ...proposal.check, sensor: { id: "work-fold.text-review", revision: 1, parameters: { criteria: "Avoid unqualified promises." } }, targets: [{ kind: "file", role: "primary", path: "draft.md" }] } } } });
+    assert.equal((await service.status(space)).enabled, 0);
+    const trial = await request<{ task: { taskId: string } }>(api.origin, `/api/spaces/${space.id}/checks/${proposed.declaration.id}/try`, { method: "POST", body: { expectedDigest: proposed.digest } }, 202);
+    const trialStatus = await waitForTerminal(api.origin, space.id, trial.task.taskId);
+    assert.equal(trialStatus.state, "succeeded", trialStatus.error ?? "trial failed");
+    assert.equal((await service.problems(space)).findings.length, 0);
+    await request(api.origin, `/api/spaces/${space.id}/checks/${proposed.declaration.id}/enable`, { method: "POST", body: { expectedDigest: proposed.digest } });
+    const run = await request<{ task: { taskId: string } }>(api.origin, `/api/spaces/${space.id}/checks/run`, { method: "POST", body: {} }, 202);
+    const liveStatus = await waitForTerminal(api.origin, space.id, run.task.taskId);
+    assert.equal(liveStatus.state, "succeeded", liveStatus.error ?? "live run failed");
+    const finding = (await service.problems(space)).findings[0]!;
+    const { draft } = await request<{ draft: string }>(api.origin, `/api/spaces/${space.id}/checks/findings/${finding.id}/help`, { method: "POST", body: { fingerprint: finding.fingerprint } });
+    assert.match(draft, /checks propose-fix/); assert.ok(draft.includes(space.id)); assert.equal(calls, 2, "opening a help draft starts no model");
+    const path = join(sandbox, "fix.json");
+    await writeFile(path, JSON.stringify({ kind: "work-fold.check-correction", version: 1, findingId: finding.id, fingerprint: finding.fingerprint, path: finding.targetPath, beforeHash: finding.evidence[0]!.identity.sha256, replacement: "Usually supported.\n" }));
+    const { correction } = await api.actFacade.checksProposeFix({ space: space.id, proposalPath: path, cwd: sandbox });
+    const review = await request<{ before: string }>(api.origin, `/api/spaces/${space.id}/checks/corrections/${correction.id}/review`, { method: "POST", body: {} });
+    assert.equal(review.before, "Always guaranteed.\n"); assert.equal(calls, 2);
+    const applied = await request<{ task: { taskId: string }; correction: { state: string } }>(api.origin, `/api/spaces/${space.id}/checks/corrections/${correction.id}/apply`, { method: "POST", body: {} });
+    assert.equal(applied.correction.state, "applied");
+    assert.equal((await waitForTerminal(api.origin, space.id, applied.task.taskId)).state, "succeeded");
+    assert.equal((await service.status(space)).state, "current-clear");
+    const repeat = await fetch(`${api.origin}/api/spaces/${space.id}/checks/corrections/${correction.id}/apply`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    assert.equal(repeat.status, 409);
+  } finally { await api.close(); await rm(sandbox, { recursive: true, force: true }); }
+});

@@ -1,3 +1,7 @@
+import { correctionId, normalizeCheckCorrection, readCheckCorrectionProposal, writeCheckCorrection, type CheckCorrectionProposal, type CheckCorrectionRecord } from "./check-corrections.js";
+import { readCheckTextSnapshot } from "./check-text.js";
+import { createSpaceMutationCheckpoint } from "../history.js";
+import { withSpaceHistoryOperation } from "../space.js";
 import { normalizeWorkFoldCheckProposal } from "../../shared/checks.js";
 import { createModelReviewSensor, type WorkFoldModelCheckReviewer } from "./model-review-sensor.js";
 import { loadCheckTextSnapshots, modelCheckLimits, type WorkFoldCheckTextSnapshot } from "./check-text.js";
@@ -148,6 +152,8 @@ export class WorkFoldCheckService {
     checkId?: string;
     expectedDigest?: string;
     actor: WorkFoldCheckAuthorization["enabledBy"];
+    /** Materialize an inert proposal without granting run authority. */
+    proposeOnly?: boolean;
   }): Promise<{ declaration: WorkFoldCheckDeclaration; digest: string }> {
     return this.#withOperationReservation(input.space.id, async () => {
       const space = await this.#registeredSpace(input.space);
@@ -184,6 +190,7 @@ export class WorkFoldCheckService {
       const written = discovery.declarations.find((record) => declarationIdentity(record.declaration) === identity)
         ?? await writeWorkFoldCheckDeclaration(space.spaceRoot, proposal);
       sensor.validate(written.declaration);
+      if (input.proposeOnly) return { declaration: written.declaration, digest: written.digest };
       const store = await this.#store(space.id);
       const existingAuthorization = exactAuthorization(store.snapshot().authorizations[written.declaration.id], written);
       if (existingAuthorization
@@ -202,6 +209,78 @@ export class WorkFoldCheckService {
       );
       return { declaration: written.declaration, digest: written.digest };
     });
+  }
+
+  proposeCorrection(input: { space: WorkFoldCheckSpaceRef; proposal?: unknown; proposalPath?: string }): Promise<CheckCorrectionRecord> {
+    return this.#withOperationReservation(input.space.id, async () => {
+      const space = await this.#registeredSpace(input.space);
+      const proposal = input.proposalPath !== undefined ? await readCheckCorrectionProposal(input.proposalPath) : normalizeCheckCorrection(input.proposal);
+      await this.#reviewCorrection(space, proposal);
+      const store = await this.#store(space.id);
+      const id = correctionId(proposal);
+      const existing = store.snapshot().corrections?.find((item) => item.id === id);
+      if (existing) return existing;
+      const correction: CheckCorrectionRecord = { id, proposal, createdAt: this.#now().toISOString(), state: "pending" };
+      await store.saveCorrection(correction);
+      return correction;
+    });
+  }
+
+  reviewCorrection(space: WorkFoldCheckSpaceRef, id: string): Promise<{ correction: CheckCorrectionRecord; before: string }> {
+    return this.#withOperationReservation(space.id, async () => {
+      const registered = await this.#registeredSpace(space);
+      const correction = (await this.#store(space.id)).snapshot().corrections?.find((item) => item.id === id);
+      if (!correction || correction.state !== "pending") throw new WorkFoldCheckOperationConflictError("This correction is no longer pending.");
+      const { before } = await this.#reviewCorrection(registered, correction.proposal);
+      return { correction, before };
+    });
+  }
+
+  dismissCorrection(space: WorkFoldCheckSpaceRef, id: string): Promise<void> {
+    return this.#withOperationReservation(space.id, async () => {
+      await this.#registeredSpace(space);
+      const store = await this.#store(space.id);
+      const correction = store.snapshot().corrections?.find((item) => item.id === id);
+      if (!correction || correction.state !== "pending") throw new WorkFoldCheckOperationConflictError("This correction is no longer pending.");
+      await store.saveCorrection({ ...correction, state: "dismissed" });
+    });
+  }
+
+  /** Caller also reserves app/Assistant mutation authority. All content writes
+   * retain their History checkpoint even after partial failure. No retry occurs. */
+  applyCorrection(space: WorkFoldCheckSpaceRef, id: string): Promise<{ correction: CheckCorrectionRecord; checkId: string }> {
+    return this.#withOperationReservation(space.id, () => withSpaceHistoryOperation(space.spaceRoot, async () => {
+      const registered = await this.#registeredSpace(space);
+      if (this.#runReservations.has(space.id) || [...this.#active.values()].some((run) => run.spaceId === space.id)) throw new WorkFoldCheckOperationConflictError("Wait for the Check run to finish before applying a correction.");
+      const store = await this.#store(space.id);
+      const correction = store.snapshot().corrections?.find((item) => item.id === id);
+      if (!correction || correction.state !== "pending") throw new WorkFoldCheckOperationConflictError("This correction is no longer pending. It was not applied again.");
+      const reviewed = await this.#reviewCorrection(registered, correction.proposal);
+      const safety = await createSpaceMutationCheckpoint(space.spaceRoot, { paths: [correction.proposal.path], reason: "check_correction", label: `Before Check correction: ${correction.proposal.path}` });
+      if (!safety.files.some((file) => file.path === correction.proposal.path && file.hashSha256 === correction.proposal.beforeHash)) throw new Error("History could not preserve the exact file being corrected. Nothing was changed.");
+      const applying = { ...correction, state: "applying" as const, checkpointId: safety.checkpointId };
+      await store.saveCorrection(applying);
+      try {
+        await this.#reviewCorrection(registered, correction.proposal);
+        await writeCheckCorrection(space.spaceRoot, correction.proposal);
+        const applied = { ...applying, state: "applied" as const };
+        await store.saveCorrection(applied);
+        return { correction: applied, checkId: reviewed.finding.checkId };
+      } catch (error) {
+        await store.saveCorrection({ ...applying, state: "failed", error: errorMessage(error).slice(0, 2000) });
+        throw new Error(`Correction did not finish. Inspect the file and History checkpoint ${safety.checkpointId}. ${errorMessage(error)}`);
+      }
+    }));
+  }
+
+  async #reviewCorrection(space: WorkFoldCheckSpaceRef, proposal: CheckCorrectionProposal): Promise<{ finding: WorkFoldCheckFinding; before: string }> {
+    const problems = await this.#problems(space, false);
+    const finding = problems.findings.find((item) => item.id === proposal.findingId && item.fingerprint === proposal.fingerprint && item.targetPath === proposal.path);
+    if (!finding || !finding.evidence.some((evidence) => evidence.kind === "text-span" && evidence.identity.sha256 === proposal.beforeHash)) throw new WorkFoldCheckOperationConflictError("The finding or its inputs changed. Run the Check and prepare a fresh correction.");
+    const snapshot = await readCheckTextSnapshot(space.spaceRoot, proposal.path, ["primary"]);
+    if (snapshot.sha256 !== proposal.beforeHash) throw new WorkFoldCheckOperationConflictError("The file changed since the correction was prepared.");
+    if (snapshot.text === proposal.replacement) throw new Error("The proposed correction does not change the file.");
+    return { finding, before: snapshot.text };
   }
 
   disable(space: WorkFoldCheckSpaceRef, checkId: string): Promise<boolean> {
@@ -285,7 +364,7 @@ export class WorkFoldCheckService {
     const registered = await this.#registeredSpace(space);
     const runs = (await this.#store(registered.id)).snapshot().runs;
     return runs
-      .filter((run) => run.state !== "accepted" && run.state !== "running")
+      .filter((run) => !run.trial && run.state !== "accepted" && run.state !== "running")
       .map((run) => ({
         runId: run.id,
         taskId: run.taskId,
@@ -346,6 +425,7 @@ export class WorkFoldCheckService {
         spaceId: registered.id,
         status,
         checks,
+        corrections: state.corrections ?? [],
         ...problems,
       };
     });
@@ -449,6 +529,8 @@ export class WorkFoldCheckService {
   async run(input: {
     space: WorkFoldCheckSpaceRef;
     checkId?: string;
+    /** One explicitly reviewed run; never a standing grant or a live result. */
+    trialDigest?: string;
     actor: WorkFoldActor;
     /** Stamped on the settle record so routing-caused runs never fire triggers. */
     lineage?: WorkFoldSettleLineage;
@@ -459,22 +541,37 @@ export class WorkFoldCheckService {
     this.#runReservations.add(input.space.id);
     try {
     const space = await this.#registeredSpace(input.space);
-    const records = await this.#enabledRecords(space, input.checkId);
+    const trial = input.trialDigest !== undefined;
+    const records = trial
+      ? (await discoverWorkFoldCheckDeclarations(space.spaceRoot)).declarations.filter((record) => record.declaration.id === input.checkId && record.digest === input.trialDigest)
+      : await this.#enabledRecords(space, input.checkId);
+    if (trial && records.length !== 1) throw new WorkFoldCheckOperationConflictError("This proposal changed. Refresh and review it before trying it.");
     if (!records.length) throw new Error(input.checkId ? "Enabled Check not found." : "This Space has no enabled Checks.");
     const checkIds = records.map((record) => record.declaration.id).sort();
     const state = (await this.#store(space.id)).snapshot();
-    const authorities = records.map((record) => state.authorizations[record.declaration.id]!).map((authorization) => ({
+    const runGrants = records.map((record): WorkFoldCheckAuthorization => {
+      if (!trial) return state.authorizations[record.declaration.id]!;
+      const sensor = this.#resolveSensor(record.declaration.sensor.id, record.declaration.sensor.revision);
+      if (!sensor) throw new Error("The proposed Check sensor is unavailable.");
+      sensor.validate(record.declaration);
+      return { checkId: record.declaration.id, declarationDigest: record.digest, sensorId: sensor.id,
+        sensorRevision: sensor.revision, sensorDigest: sensor.implementationDigest, execution: sensor.execution,
+        limits: sensor.execution === "model" ? modelCheckLimits : defaultRunLimits,
+        enabledAt: this.#now().toISOString(), enabledBy: "human" };
+    });
+    const authorities = runGrants.map((authorization) => ({
       checkId: authorization.checkId,
       declarationDigest: authorization.declarationDigest,
       sensorId: authorization.sensorId,
       sensorRevision: authorization.sensorRevision,
       sensorDigest: authorization.sensorDigest,
     }));
-    const limits = intersectLimits(records.map((record) => state.authorizations[record.declaration.id]!.limits));
+    const limits = intersectLimits(runGrants.map((grant) => grant.limits));
     const taskId = this.#createTaskId();
     const runId = this.#createRunId();
     const accepted: WorkFoldCheckRunRecord = {
       id: runId,
+      ...(trial ? { trial: true as const } : {}),
       taskId,
       checkIds,
       authorities,
@@ -579,7 +676,7 @@ export class WorkFoldCheckService {
     return this.#withOperationReservation(input.spaceId, async () => {
       const space = await this.#registeredSpaceById(input.spaceId);
       const store = await this.#store(input.spaceId);
-      const finding = store.snapshot().runs.flatMap((run) => run.findings).find((item) => item.id === input.findingId);
+      const finding = store.snapshot().runs.filter((run) => !run.trial).flatMap((run) => run.findings).find((item) => item.id === input.findingId);
       if (!finding) throw new Error("Finding not found.");
       if (finding.status !== "active") {
         throw new WorkFoldCheckOperationConflictError("This finding is no longer active. Refresh Checks and try again.");
@@ -679,10 +776,12 @@ export class WorkFoldCheckService {
         const current = currentRecords.get(record.declaration.id);
         if (!current || current.digest !== record.digest) throw new Error("Check authority changed before the run started.");
         const state = store.snapshot();
-        const authorization = exactAuthorization(state.authorizations[record.declaration.id], record);
+        const authorization = accepted.trial
+          ? accepted.authorities.find((authority) => authority.checkId === record.declaration.id && authority.declarationDigest === record.digest)
+          : exactAuthorization(state.authorizations[record.declaration.id], record);
         if (!authorization) throw new Error("Check authority changed before the run started.");
         const sensor = this.#resolveSensor(record.declaration.sensor.id, record.declaration.sensor.revision);
-        if (!sensor || sensor.execution !== authorization.execution || sensor.implementationDigest !== authorization.sensorDigest) {
+        if (!sensor || ("execution" in authorization && sensor.execution !== authorization.execution) || sensor.implementationDigest !== authorization.sensorDigest) {
           throw new Error("The exact enabled sensor implementation is unavailable.");
         }
         sensor.validate(record.declaration);
@@ -713,7 +812,7 @@ export class WorkFoldCheckService {
           signal,
         }), signal);
         if (result.cost) cost = { model: result.cost.model, inputTokens: (cost?.inputTokens ?? 0) + (result.cost.inputTokens ?? 0), outputTokens: (cost?.outputTokens ?? 0) + (result.cost.outputTokens ?? 0), amountUsd: (cost?.amountUsd ?? 0) + (result.cost.amountUsd ?? 0) };
-        if (snapshots && !sameSemanticInputs(runnerInputs, await resolveCurrentInputs(record, authorization, space.spaceRoot))) throw new Error("Review inputs changed during the model request. Run the Check again.");
+        if (snapshots && !sameSemanticInputs(runnerInputs, await resolveCurrentInputs(record, { ...authorization, execution: sensor.execution, limits: accepted.limits }, space.spaceRoot))) throw new Error("Review inputs changed during the model request. Run the Check again.");
         skippedCount += result.skippedCount;
         if (skippedCount > 0) throw new Error("Check sensor skipped designated input; the run is incomplete.");
         const remainingFindings = accepted.limits.maximumFindings - findings.length;
@@ -827,7 +926,7 @@ export class WorkFoldCheckService {
     }
     let invalidated = 0;
     let truncated = false;
-    for (const finding of state.runs.flatMap((run) => run.findings)) {
+    for (const finding of state.runs.filter((run) => !run.trial).flatMap((run) => run.findings)) {
       if (checkId && finding.checkId !== checkId) continue;
       if (finding.status !== "active" || seen.has(finding.fingerprint)) continue;
       seen.add(finding.fingerprint);
@@ -971,6 +1070,7 @@ export class WorkFoldCheckService {
    * published.
    */
   #publishRunSettle(spaceId: string, run: WorkFoldCheckRunRecord, lineage?: WorkFoldSettleLineage): void {
+    if (run.trial) return;
     if (!this.#settleSignal) return;
     if (run.state === "accepted" || run.state === "running" || !run.endedAt) return;
     this.#settleSignal.publish({
@@ -1036,7 +1136,7 @@ function declarationIdentity(declaration: WorkFoldCheckDeclaration): string {
 
 async function resolveCurrentInputs(
   record: WorkFoldCheckDeclarationRecord,
-  authorization: WorkFoldCheckAuthorization,
+  authorization: Pick<WorkFoldCheckAuthorization, "limits" | "execution">,
   root: string,
 ): Promise<WorkFoldCheckRunRecord["inputs"]> {
   const resolution = await resolveWorkFoldCheckTargets(root, record.declaration.targets, {
@@ -1075,7 +1175,7 @@ function sameSemanticInputs(
 }
 
 function latestRunForCheck(runs: WorkFoldCheckRunRecord[], checkId: string): WorkFoldCheckRunRecord | null {
-  return runs.find((run) => run.checkIds.includes(checkId)) ?? null;
+  return runs.find((run) => !run.trial && run.checkIds.includes(checkId)) ?? null;
 }
 
 function intersectLimits(values: WorkFoldCheckRunLimits[]): WorkFoldCheckRunLimits {

@@ -1,6 +1,7 @@
+import type { CheckCorrectionRecord } from "./check-corrections.js";
 import type { WorkFoldCheckSeverity, WorkFoldCheckTarget } from "../../shared/checks.js";
 
-export const workFoldCheckStateVersion = 2 as const;
+export const workFoldCheckStateVersion = 3 as const;
 export const workFoldCheckExperimentalSnapshotVersion = 1 as const;
 
 export type WorkFoldCheckAggregateState =
@@ -97,6 +98,8 @@ export interface WorkFoldCheckAuthorization {
 }
 
 export interface WorkFoldCheckRunRecord {
+  /** One-time review, excluded from live findings, freshness, and routing triggers. */
+  trial?: true;
   id: string;
   taskId: string;
   checkIds: string[];
@@ -131,6 +134,7 @@ export interface WorkFoldCheckMachineState {
   authorizations: Record<string, WorkFoldCheckAuthorization>;
   decisions: Record<string, WorkFoldCheckDecision>;
   runs: WorkFoldCheckRunRecord[];
+  corrections?: CheckCorrectionRecord[];
 }
 
 /** Experimental, content-free summary. Titles, paths, evidence, and decisions are excluded. */
@@ -177,6 +181,7 @@ export interface WorkFoldCheckRendererOverview {
     authority: WorkFoldCheckRendererAuthorityState;
   }>;
   findings: WorkFoldCheckFinding[];
+  corrections?: CheckCorrectionRecord[];
   invalidated: number;
   healthErrors: string[];
   truncated: boolean;

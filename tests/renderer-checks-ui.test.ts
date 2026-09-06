@@ -68,7 +68,7 @@ test("opening the Checks tab re-verifies status once and never starts a run", as
 
   assert.equal(calls.filter((call) => call.url.endsWith("/checks/overview")).length, 1);
   assert.equal(calls.some((call) => call.url.endsWith("/checks/run")), false);
-  assert.match(dom.container.textContent ?? "", /Only these bounded targets may be inspected when you run Checks/);
+  assert.match(dom.container.textContent ?? "", /Your Checks/);
 });
 
 test("proposals-only Checks stay unknown instead of rendering a clear result", async (t) => {
@@ -102,9 +102,9 @@ test("proposals-only Checks stay unknown instead of rendering a clear result", a
     onOpenFile: () => undefined,
     onChecksChanged: () => undefined,
   }));
-  await dom.waitFor(() => (dom.container.textContent ?? "").includes("No Check has been enabled or run"));
+  await dom.waitFor(() => (dom.container.textContent ?? "").includes("1 proposal ready for review"));
 
-  assert.match(dom.container.textContent ?? "", /1 proposed Check is not enabled\. There is no result yet\./);
+  assert.match(dom.container.textContent ?? "", /1 proposal ready for review\./);
   assert.doesNotMatch(dom.container.textContent ?? "", /Nothing currently needs attention from the latest requested run/);
 
   responseOverview = {
@@ -126,7 +126,7 @@ test("proposals-only Checks stay unknown instead of rendering a clear result", a
     onChecksChanged: () => undefined,
   }));
   await dom.waitFor(() => (dom.container.textContent ?? "").includes("1 Check needs review before running"));
-  assert.match(dom.container.textContent ?? "", /No file finding is shown because the Check itself needs attention/);
+  assert.match(dom.container.textContent ?? "", /1 Check needs review before running/);
   assert.doesNotMatch(dom.container.textContent ?? "", /proposed Check is not enabled/);
 });
 
@@ -307,13 +307,13 @@ test("a failed overview suppresses cached health claims and decisions", async (t
   await dom.waitFor(() => (dom.container.textContent ?? "").includes("Cached delivery is missing"));
   await dom.render(renderPane(false));
   await dom.render(renderPane(true));
-  await dom.waitFor(() => (dom.container.textContent ?? "").includes("Current Check results are unavailable"));
+  await dom.waitFor(() => (dom.container.textContent ?? "").includes("Check results are unavailable"));
 
   const text = dom.container.textContent ?? "";
   assert.doesNotMatch(text, /No current findings/);
   assert.doesNotMatch(text, /Nothing currently needs attention/);
   assert.doesNotMatch(text, /More current findings exist/);
-  assert.match(text, /Current findings could not be re-verified/);
+  assert.match(text, /Refresh to review current findings/);
   assert.equal(dom.container.querySelector(".checks-section-heading > span"), null);
   assert.equal(dom.container.querySelector<HTMLButtonElement>("button.professional-button-primary")?.disabled, true);
 });
@@ -456,4 +456,33 @@ test("returning to the app refreshes agent-made Check status changes", async (t)
   status = { ...status, state: "needs-attention", current: 0, needsAttention: 1 };
   await dom.act(() => window.dispatchEvent(new window.Event("focus")));
   await dom.waitFor(() => dom.container.querySelector("span")?.getAttribute("data-attention") === "1");
+});
+
+test("Try it displays its completed result without enabling the proposal", async (t) => {
+  const dom = await createDomHarness(); t.after(() => dom.cleanup());
+  const originalFetch = globalThis.fetch; t.after(() => { globalThis.fetch = originalFetch; });
+  const requested: string[] = [];
+  const proposed = { ...overview, status: { ...overview.status, enabled: 0, proposed: 1, state: "not-configured", lastRunAt: null }, checks: overview.checks.map((check) => ({ ...check, digest: "a".repeat(64), authority: "proposed" })) };
+  globalThis.fetch = async (input) => {
+    const url = String(input); requested.push(url);
+    const body = url.endsWith("/overview") ? { overview: proposed }
+      : url.endsWith("/try") ? { task: { taskId: "trial-one", runId: "run-one" } }
+      : url.endsWith("/result") ? { run: { trial: true, state: "succeeded", startedAt: new Date().toISOString(), admittedCount: 0, findings: [] } }
+      : { task: { taskId: "trial-one", runId: "run-one", state: "succeeded", startedAt: new Date().toISOString(), endedAt: new Date().toISOString(), error: null } };
+    return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const { ChecksPane } = await import("../web-local/src/components/panes/ChecksPane.js");
+  const { ConfirmDialogHost } = await import("../web-local/src/ui/feedback.js");
+  const space = { id: "space-checks-ui", name: "Review", spaceRoot: "/tmp/review" } as SpaceSummary;
+  await dom.render(createElement("div", null, createElement(ChecksPane, { space, active: true, onOpenFile: () => {}, onChecksChanged: () => {} }), createElement(ConfirmDialogHost)));
+  await dom.waitFor(() => Boolean([...dom.container.querySelectorAll("button")].find((item) => item.textContent === "Try it")));
+  await dom.act(() => { [...dom.container.querySelectorAll("button")].find((item) => item.textContent === "Try it")!.click(); });
+  await dom.waitFor(() => Boolean(dom.container.querySelector('[role="dialog"]')));
+  await dom.act(() => { [...dom.container.querySelectorAll('[role="dialog"] button')].find((item) => item.textContent === "Try it")!.dispatchEvent(new window.MouseEvent("click", { bubbles: true })); });
+  await dom.waitFor(() => (dom.container.textContent ?? "").includes("Trial result"));
+  assert.equal(requested.filter((url) => url.endsWith("/try")).length, 1);
+  assert.equal(requested.some((url) => url.endsWith("/enable") || url.endsWith("/run")), false);
+  assert.match(dom.container.textContent ?? "", /live results unchanged/);
+  await dom.waitFor(() => requested.filter((url) => url.endsWith("/overview")).length >= 2);
+  await dom.settle();
 });

@@ -1,3 +1,4 @@
+import type { CheckCorrectionRecord } from "../checks/check-corrections.js";
 /**
  * In-process authority the act-lane executor calls to apply commands. The
  * interactive local API implements this interface inside `startLocalApi`
@@ -1321,7 +1322,7 @@ export interface WorkFoldActFacade {
    * runs remain task-scoped so polling and abort never depend on ambient UI
    * state.
    */
-  checksEnable(input: { space: string; proposalPath: string; cwd: string }): Promise<{
+  checksEnable(input: { space: string; proposalPath: string; cwd: string; proposeOnly?: boolean }): Promise<{
     space: WorkFoldActSpaceRef;
     check: {
       id: string;
@@ -1341,6 +1342,7 @@ export interface WorkFoldActFacade {
     };
     declarationDigest: string;
   }>;
+  checksProposeFix(input: { space: string; proposalPath: string; cwd: string }): Promise<{ space: WorkFoldActSpaceRef; correction: CheckCorrectionRecord }>;
   checksDisable(input: { space: string; checkId: string }): Promise<{
     space: WorkFoldActSpaceRef;
     checkId: string;

@@ -30,7 +30,7 @@ justifies promotion into the stable kernel and installed-CLI snapshots.
 - Checks do not occupy the primary rail or the Add menu. The management
   conversation and installed CLI remain agent-facing surfaces. In the desktop,
   a conditional summary at the Files edge opens one reusable Space-owned Checks
-  work tab. The command palette also opens Checks before configuration, and New Check offers a reviewed setup form. Unconfigured Spaces have no Files badge or marker.
+  work tab. The command palette also opens Checks before configuration, and Tell the fold what to check starts authoring; a manual proposal form is secondary. Unconfigured Spaces have no Files badge or marker.
 
 ## Expectations and authority
 
@@ -113,7 +113,7 @@ active finding**.
 
 - Sensors propose; the runner admits. Before persistence, the runner
   independently verifies the evidence against current files.
-- Experimental snapshot version 1 admits path-state evidence and text spans with exact unique quotations, offsets, primary-file digest, and all designated input digests. Machine state version 2 reads version 1 records and preserves valid grants; future versions fail closed. Quotations are mechanically verified; model assessments remain suggestions for the person to judge.
+- Experimental snapshot version 1 admits path-state evidence and text spans with exact unique quotations, offsets, primary-file digest, and all designated input digests. Machine state version 3 reads version 1 and 2 records and preserves valid grants; future versions fail closed. Quotations are mechanically verified; model assessments remain suggestions for the person to judge.
 - Evidence records the relevant input identity: canonical Space-relative path,
   content digest or missing-file state, sensor revision, and typed locator.
 - A finding is re-verified before it appears in `problems`. Failed
@@ -264,7 +264,7 @@ active finding**.
   permanent header badge, primary navigation item, background watcher, or
   proactive notification would require new precision evidence and an explicit
   product decision.
-- Model-backed sensors, domain packs, schedules, gates that block other work,
+- Domain packs, gates that block other work,
   cache replay, hosted execution, and a Manuscript Lab migration are later
   layers. They must reuse this authority and admission model rather than widen
   it.
@@ -276,4 +276,61 @@ active finding**.
 
 The model submits an exact unique quote for each primary-file finding; the host derives offsets and hashes itself. Every primary and reference input is hashed again after review, including an empty findings result. Changed files, invalid quotes, malformed or truncated submissions, timeouts, and provider failures are Check errors, never a clean result. Freshness and decision admission recheck all input digests without contacting a model. Opening or refreshing Checks performs only local re-verification. Model findings are visibly labeled suggestions: quote verification does not prove factual accuracy. Checks never edit files automatically.
 
-The setup form displays the selected files, rubric, model use, and limits before Enable; enablement alone does not run the model. Existing declarations can be disabled or reviewed and re-enabled against their current digest. A routing can run an enabled Check after a folder changes; its folder trigger is a separate standing grant. A successful Check run may contain findings and is not an automatic publication gate.
+Proposal review displays selected files and rubric before Try it or Turn on; enablement alone does not run the model. Existing declarations can be disabled or reviewed and re-enabled against their current digest. A routing can run an enabled Check after a folder changes; its folder trigger is a separate standing grant. A successful Check run may contain findings and is not an automatic publication gate.
+
+## Fold-led setup and reviewed corrections
+
+The main Checks page stays compact: names, state, findings, and actions. **Tell
+the fold what to check** stages an unsent authoring draft; it never starts a
+turn by itself. Manual setup is secondary. Enabled Check details are collapsed;
+proposals show their rubric, exact primary/reference files, model use, and manual
+cadence when reviewed. **Change with fold** prepares a separate proposal while
+preserving the current declaration; turning off the old Check is explicit.
+
+`checks propose --space <id> --proposal <path>` materializes the same inert
+portable declaration without granting authority. **Try it** grants one bounded
+run against the exact reviewed declaration digest. It reviews all listed targets
+and references. Trial records are explicitly marked and excluded from live
+findings, decisions, current/clear status, supersession, and routing settle
+signals. They never create or replace an enablement grant. **Turn on** grants
+manual run authority; it does not run the Check. Model trials disclose provider
+use and possible charges at the action boundary.
+
+The fold's compact Checks disclosure is a passive aggregate view with **Review**
+links to the owning Space's existing Checks tab. It does not start an agent,
+notify another agent, or acknowledge the glance cursor. The main-window glance
+uses the same navigation. Details and evidence remain in the Space work tab.
+Automatic runs still require a separately enabled Routing.
+
+**Ask Space Assistant to help** re-verifies the selected finding and prepares an
+unsent draft in a fresh Chat in that exact Space. It includes explicit finding
+identifiers and source details, with instructions to treat source content as
+data and to prepare a correction. This is a full-trust Space Assistant, not a new
+restricted agent; its authoring instructions do not constitute a filesystem
+sandbox. The reviewed correction host enforces the application boundary.
+
+A `work-fold.check-correction` version-1 proposal has exactly `findingId`,
+`fingerprint`, `path`, `beforeHash`, and `replacement` alongside kind/version.
+It covers one existing primary UTF-8 text file, at most 128 KiB, with a current
+text-span finding. `checks propose-fix --space <id> --proposal <path>` validates
+and stores it inertly. Reference-only edits, stale evidence, extra fields,
+metadata targets, and unbounded content are rejected. Pending corrections live
+in machine-local Check state and disappear with its Space-removal purge.
+
+The person reviews Before/After and clicks **Apply and recheck**. The host holds
+Check, capability, restricted-app, and History/ownership reservations, saves an
+exact-byte History checkpoint, journals application before writing, re-verifies
+all finding inputs, and writes only through a no-follow handle whose exact bytes
+match `beforeHash`. Hard-linked files are refused. The checkpoint remains after
+any failure. Repeated application is refused; interrupted application becomes a
+failed record with its checkpoint reference and is never automatically retried.
+External writers can still mutate ordinary files outside app reservations, as
+with History generally. The relevant Check starts as a separate task after the
+applied outcome is durable. Failure to launch or complete that run does not undo
+the correction or imply a clear result.
+
+Machine state version 3 accepts versions 1 and 2, adds trial markers and bounded
+correction records, and continues to fail closed on future versions. At most 24
+pending corrections and 32 total correction records are retained; pending
+reviews are never evicted to retain terminal history. The experimental
+content-free status contract remains version 1.
