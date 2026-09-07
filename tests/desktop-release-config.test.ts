@@ -108,6 +108,34 @@ test("Mac-only CI and publication keep credentials out of the application", () =
   assert.doesNotMatch(macPublisher, /allow-dirty|allowDirty/);
 });
 
+test("CI preserves independent main/tag release evidence and all verification lanes", () => {
+  const require = createRequire(import.meta.url);
+  const workflow = require("js-yaml").load(read(".github/workflows/ci.yml"));
+  assert.ok(workflow.on.push.branches.includes("main"));
+  assert.ok(workflow.on.push.tags.includes("v*"));
+  assert.ok(Object.hasOwn(workflow.on, "pull_request"));
+  assert.ok(Object.hasOwn(workflow.on, "workflow_dispatch"));
+  assert.equal(workflow.on.push.paths, undefined, "release commits cannot skip verification by path");
+  assert.equal(workflow.on.push["paths-ignore"], undefined);
+  assert.equal(workflow.concurrency["cancel-in-progress"], "${{ github.event_name == 'pull_request' }}");
+  assert.equal(workflow.concurrency.group, "ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "non-PR runs have unique groups so queued release evidence cannot be replaced");
+  const jobs = Object.values(workflow.jobs) as Array<{ name: string; "runs-on": string; "continue-on-error"?: boolean; if?: string; steps: Array<{ run?: string; if?: string; "continue-on-error"?: boolean; uses?: string }> }>;
+  const commands = jobs.flatMap((job) => {
+    assert.equal(job["runs-on"], "macos-latest");
+    assert.equal(job["continue-on-error"], undefined);
+    assert.equal(job.if, undefined, "every required job runs on main and tags");
+    return job.steps.filter((step) => step.run).map((step) => {
+      assert.equal(step["continue-on-error"], undefined);
+      assert.equal(step.if, undefined);
+      return step.run;
+    });
+  });
+  for (const gate of ["npm run check", "npm test", "npm test --prefix services/bridge", "npm run desktop:prepare"]) {
+    assert.ok(commands.includes(gate), `${gate} remains a required gate`);
+  }
+  assert.ok(jobs.some((job) => job.steps.some((step) => step.uses?.startsWith("actions/upload-artifact@") && step.if === "failure()")));
+});
+
 test("the macOS Safe Storage reset can target only the work-fold identity", () => {
   const reset = read("scripts/reset-mac-safe-storage.mjs");
 

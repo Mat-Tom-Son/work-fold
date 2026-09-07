@@ -1,3 +1,4 @@
+import { scheduleBrowserRefresh, deferAfterRateLimit, canResume, canRecover, pollDelay } from "./refresh.js";
 import { shouldSubmitComposerKey } from "./composer.js";
 import { browserApiPath } from "./api-path.js";
 import { buildFixture, createFixtureAppActions, fixtureAppEntry } from "./fixtures.js";
@@ -2270,25 +2271,14 @@ function renderDesktopPresence() {
 
 function scheduleRefresh() {
   if (fixtureName) return;
-  if (state.refreshTimer) clearTimeout(state.refreshTimer);
-  const phase = state.summary?.latestRequest?.phase;
-  const active = state.summary?.state === "running" || phase === "working" || phase === "handed_off";
-  state.refreshTimer = setTimeout(() => {
-    // Honor the relay's cooldown: keep the timer chain alive but send nothing
-    // until the window passes.
-    if (Date.now() < state.rateLimitedUntil || !state.session?.desktopOnline) return scheduleRefresh();
-    state.refreshTick += 1;
-    // The chat lane refreshes every tick; the fold-home digest (two relay
-    // operations) rides a slower multiple of it, keeping an active turn's
-    // total operation rate at a fraction of the per-session budget.
-    if (state.refreshTick % (active ? 3 : 2) === 0) void refreshFoldHome();
-    void loadConversations({ refreshTranscript: true })
-      .catch((error) => {
-        state.banner = errorText(error);
-        renderBanner();
-      })
-      .finally(scheduleRefresh);
-  }, active ? 5_000 : 10_000);
+  scheduleBrowserRefresh(state, {
+    refreshHome: refreshFoldHome,
+    refreshChats: () => loadConversations({ refreshTranscript: true }),
+    onError: (error) => {
+      state.banner = errorText(error);
+      renderBanner();
+    },
+  });
 }
 
 function openEvents() {
@@ -2402,7 +2392,7 @@ async function pollOperationFallback(operationId, fallbackIntervalMs) {
   const deadline = Date.now() + 120_000;
   for (let attempt = 0; Date.now() < deadline && state.pendingOperations.has(operationId); attempt += 1) {
     const streamHealthy = state.eventSource?.readyState === EventSource.OPEN;
-    await delay(fallbackIntervalMs ?? (attempt < 5 ? 1_000 : streamHealthy ? 3_000 : 2_000));
+    await delay(fallbackIntervalMs ?? pollDelay(attempt, streamHealthy));
     if (!state.pendingOperations.has(operationId)) return;
     let status;
     try { status = await api(`/api/operations/${encodeURIComponent(operationId)}`); } catch { continue; }
@@ -2419,7 +2409,7 @@ async function pollOperationFallback(operationId, fallbackIntervalMs) {
       if (!pending) return;
       // Recovery re-POSTs count against the operation budget; wait out a
       // cooldown rather than converting throttling into failed recoveries.
-      if (!state.session?.desktopOnline || Date.now() < pending.nextRecoveryAt || Date.now() < state.rateLimitedUntil) continue;
+      if (!canRecover(state, pending)) continue;
       if (pending.recoveryAttempts >= 5) {
         state.pendingOperations.delete(operationId);
         pending.reject(new Error("work-fold could not reconcile this request after the connection changed. Check the running log before sending anything again."));
@@ -2550,7 +2540,7 @@ async function api(path, { method = "GET", body, csrf = false } = {}) {
     if (response.status === 401 && state.session && path !== "/api/auth/login") scheduleSessionReboot();
     // The relay said slow down: background refresh and recovery hold off for
     // a cooldown instead of hammering through the limit at full cadence.
-    if (response.status === 429) state.rateLimitedUntil = Date.now() + 15_000;
+    if (response.status === 429) deferAfterRateLimit(state);
     throw Object.assign(new Error(result.error || `Request failed (${response.status}).`), { status: response.status, code: result.code });
   }
   return result;
@@ -2579,7 +2569,7 @@ function resumeLiveConnection() {
   if (!state.eventSource || state.eventSource.readyState === EventSource.CLOSED) openEvents();
   // Visibility and connectivity can flap (screen lock, app switching, weak
   // signal); one burst per ten seconds is plenty, and none during a cooldown.
-  if (Date.now() - state.lastResumeAt < 10_000 || Date.now() < state.rateLimitedUntil) return;
+  if (!canResume(state)) return;
   state.lastResumeAt = Date.now();
   void refreshFoldHome();
   void loadConversations().catch((error) => {

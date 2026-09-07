@@ -2,25 +2,13 @@
 
 Thanks for helping make folder-based computer work more understandable and more capable.
 
-## Start with the product model
+work-fold is an independent project, and help building and maintaining it is
+welcome. A focused bug fix, a clearer interaction, a useful test, or a better
+explanation is a good first contribution.
 
-Before changing navigation, terminology, storage, trust, or Assistant behavior, read:
-
-- [Product model and roadmap](docs/product-model.md)
-- [App platform foundation](docs/app-platform-foundation.md)
-- [Assistant capabilities](docs/assistant-capabilities.md)
-- [Checks](docs/checks.md)
-- [The fold](docs/fold.md)
-- [Restricted app runtime](docs/restricted-app-runtime.md)
-- [Restricted app authoring](docs/restricted-app-authoring.md)
-- [Architecture](docs/architecture.md)
-- [work-fold management layer](docs/management-layer.md)
-- [macOS build and release lane](docs/macos-build.md)
-- [macOS release runbook](docs/macos-release.md)
-- [work-fold contributor guide](AGENTS.md) — the canonical policy for Codex and every contributor.
-- [Claude Code entrypoint](CLAUDE.md) — imports `AGENTS.md` rather than duplicating it.
-
-The central constraint is that a Space remains an ordinary folder. work-fold may register and present that folder, but should not silently move, convert, decorate, upload, or place all of its contents into Assistant context.
+Start with something you noticed while using the app. Describe the problem in
+an issue or draft pull request so we can discuss the approach as you work.
+The [docs map](docs/README.md) will help you find the part of the project you need.
 
 ## Report an issue
 
@@ -40,6 +28,26 @@ npm run local:dev
 ```
 
 Keep changes focused and avoid committing generated `dist/`, `out/`, user-data, credential, or signing files.
+
+## Start with the product model
+
+Before changing navigation, terminology, storage, trust, or Assistant behavior, read:
+
+- [Product model and roadmap](docs/product-model.md)
+- [App platform foundation](docs/app-platform-foundation.md)
+- [Assistant capabilities](docs/assistant-capabilities.md)
+- [Checks](docs/checks.md)
+- [The fold](docs/fold.md)
+- [Restricted app runtime](docs/restricted-app-runtime.md)
+- [Restricted app authoring](docs/restricted-app-authoring.md)
+- [Architecture](docs/architecture.md)
+- [work-fold management layer](docs/management-layer.md)
+- [macOS build and release lane](docs/macos-build.md)
+- [macOS release runbook](docs/macos-release.md)
+- [work-fold contributor guide](AGENTS.md) — the canonical policy for Codex and every contributor.
+- [Claude Code entrypoint](CLAUDE.md) — imports `AGENTS.md` rather than duplicating it.
+
+The central constraint is that a Space remains an ordinary folder. work-fold may register and present that folder, but should not silently move, convert, decorate, upload, or place all of its contents into Assistant context.
 
 ## Codex and Claude Code parity
 
@@ -67,13 +75,23 @@ layer](docs/management-layer.md) for their different boundaries.
 
 Use the smallest relevant lane while working, then promote the change before handoff:
 
-```powershell
+```sh
 npm run check
 npm test
 npm run desktop:prepare
 ```
 
-GitHub CI runs these gates on macOS. Windows package and installer commands are dormant manual diagnostics; they are not CI or release gates and should not be run as routine handoff evidence.
+GitHub CI runs these gates as separately named macOS jobs, alongside the web
+bridge tests (`npm ci --prefix services/bridge && npm test --prefix services/bridge`).
+Open a draft pull request for development CI, or run CI manually from Actions.
+Branch pushes do not also run duplicate checks; new PR commits cancel obsolete
+PR runs. Pushes to `main` and `v*` source tags always run independently and are
+never canceled by a newer PR. Both exact-commit runs remain required for release.
+Electron failures upload lifecycle state and available synthetic screenshots
+under the run's **electron-diagnostics** artifact; inspect those before rerunning.
+No application data or provider credentials are collected by that probe.
+
+Windows package and installer commands are dormant manual diagnostics; they are not CI or release gates and should not be run as routine handoff evidence.
 
 Tests that observe asynchronous work should wait on the owned in-memory or
 domain completion signal, then verify durable persistence separately. Do not

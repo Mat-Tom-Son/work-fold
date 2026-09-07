@@ -2,12 +2,25 @@ name: CI
 
 on:
   push:
+    branches: [main]
+    tags: ["v*"]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# PR updates supersede old development runs. Main and immutable release tags
+# retain independent groups: even a queued run must not be replaced by a push.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  verify:
+  types:
+    name: TypeScript
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -16,7 +29,53 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+
+  tests:
+    name: Application tests
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
       - run: npm test
+
+  bridge:
+    name: Web bridge tests
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: services/bridge/package-lock.json
       - run: npm ci --prefix services/bridge
       - run: npm test --prefix services/bridge
+
+  desktop:
+    name: Electron integration
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
       - run: npm run desktop:prepare
+        env:
+          WORKFOLD_RESTRICTED_SMOKE_LOG: out/ci/restricted-app-smoke.log
+      - name: Save Electron failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-diagnostics-${{ github.run_attempt }}
+          path: out/ci/
+          if-no-files-found: ignore
+          retention-days: 14

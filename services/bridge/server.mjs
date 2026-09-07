@@ -1741,6 +1741,7 @@ function contentType(path) {
   if (path.endsWith(".js")) return "text/javascript; charset=utf-8";
   if (path.endsWith(".svg")) return "image/svg+xml; charset=utf-8";
   if (path.endsWith(".png")) return "image/png";
+  if (/\.jpe?g$/.test(path)) return "image/jpeg";
   if (path.endsWith(".webmanifest")) return "application/manifest+json; charset=utf-8";
   if (path.endsWith(".woff2")) return "font/woff2";
   if (path.endsWith(".ico")) return "image/vnd.microsoft.icon";
