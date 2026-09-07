@@ -5,6 +5,8 @@ node_modules/
 .railway/
 .tools/railway/
 .codex/
+.agent/
+AGENTS.override.md
 .playwright-cli/
 CLAUDE.local.md
 

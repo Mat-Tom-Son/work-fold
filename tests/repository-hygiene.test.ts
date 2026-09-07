@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import test, { type TestContext } from "node:test";
 
 const { inspectRepository } = await import(new URL("../scripts/check-repository.mjs", import.meta.url).href);
-const ignoreRules = `.env\n.env.*\n!.env.example\nnode_modules/\nout/\noutput/\n.codex/\nCLAUDE.local.md\n/.claude/*\n!/.claude/skills/\n/.claude/skills/*\n!/.claude/skills/alpha\n!/.claude/skills/beta\n`;
+const ignoreRules = `.env\n.env.*\n!.env.example\nnode_modules/\nout/\noutput/\n.codex/\n.agent/\nAGENTS.override.md\nCLAUDE.local.md\n/.claude/*\n!/.claude/skills/\n/.claude/skills/*\n!/.claude/skills/alpha\n!/.claude/skills/beta\n`;
 
 async function fixture(t: TestContext) {
   const root = await mkdtemp(join(tmpdir(), "work-fold-repo-check-"));
@@ -35,6 +35,7 @@ test("a fresh repository passes without dependencies, network, or private harnes
   const f = await fixture(t);
   await f.write(".claude/settings.local.json", "this deliberately is not JSON");
   await f.write(".codex/config.toml", "not parsed by the repository check");
+  await f.write("AGENTS.override.md", "Personal overrides stay out of repository checks");
   const result = await f.check();
   assert.deepEqual(result.problems, []);
   assert.equal(result.skills, 1);

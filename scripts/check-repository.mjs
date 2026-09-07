@@ -77,7 +77,7 @@ export async function inspectRepository(root) {
   for (const file of git(["ls-files", "-ci", "--exclude-standard", "-z"]).split("\0").filter(Boolean)) {
     fail(file, "tracked despite ignore rules; remove local/generated state from the index, not from your disk");
   }
-  const probes = [".env", ".env.railway.local", ".env.macos.local", ".codex/config.toml", ".claude/settings.local.json", ".claude/launch.json", "CLAUDE.local.md", "node_modules/repo-probe", "out/repo-probe", "output/repo-probe"];
+  const probes = [".env", ".env.railway.local", ".env.macos.local", ".codex/config.toml", ".agent/local.md", "AGENTS.override.md", ".claude/settings.local.json", ".claude/launch.json", "CLAUDE.local.md", "node_modules/repo-probe", "out/repo-probe", "output/repo-probe"];
   const ignored = new Set(git(["check-ignore", "--no-index", "-z", "--stdin"], `${probes.join("\0")}\0`).split("\0"));
   for (const probe of probes) if (!ignored.has(probe)) fail(".gitignore", `must exclude ${probe}`);
 
