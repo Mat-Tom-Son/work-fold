@@ -352,7 +352,7 @@ export interface RestrictedAppServiceOptions {
 }
 
 interface RestrictedAppRegistryFile {
-  schemaVersion: 5;
+  schemaVersion: 6;
   localIdentity: {
     tenantId: TenantId;
     principalId: PrincipalId;
@@ -1090,6 +1090,7 @@ export class RestrictedAppService {
       }
       const conflict = envelope.manifest.features.find((feature) => this.#registry.installations.some((item) => (
         item.spaceId === targetSpaceId && item.manifest.id === feature.featureId
+        && !(item.runtimeInstanceKind === "development" && item.projectId === release.projectId)
       )));
       if (conflict) {
         throw new RestrictedAppError(
@@ -1160,6 +1161,7 @@ export class RestrictedAppService {
       const packages = await this.#stageLocalReleasePackages(envelope);
       const conflict = packages.find(({ receipt }) => this.#registry.installations.some((item) => (
         item.spaceId === operation.targetSpaceId && item.manifest.id === receipt.manifest.id
+        && !(item.runtimeInstanceKind === "development" && item.projectId === operation.projectId)
       )));
       if (conflict) throw new RestrictedAppError("REVISION_CHANGED", `The target Space now contains the ${conflict.receipt.manifest.id} Feature.`);
       if (this.#registry.runtimeInstances.some((item) => item.runtimeInstanceId === operation.runtimeInstanceId)) {
@@ -1274,6 +1276,7 @@ export class RestrictedAppService {
       const conflict = targetEnvelope.manifest.features.find((feature) => this.#registry.installations.some((item) => (
         item.spaceId === runtime.spaceId
         && item.runtimeInstanceId !== runtime.runtimeInstanceId
+        && !(item.runtimeInstanceKind === "development" && item.projectId === runtime.projectId)
         && item.manifest.id === feature.featureId
       )));
       if (conflict) {
@@ -1380,6 +1383,7 @@ export class RestrictedAppService {
       const conflict = packages.find(({ feature }) => this.#registry.installations.some((item) => (
         item.spaceId === runtime.spaceId
         && item.runtimeInstanceId !== runtime.runtimeInstanceId
+        && !(item.runtimeInstanceKind === "development" && item.projectId === runtime.projectId)
         && item.manifest.id === feature.featureId
       )));
       if (conflict) {
@@ -1666,10 +1670,8 @@ export class RestrictedAppService {
     return this.#mutate(async () => {
       await assertRestrictedAppStagingRoot(this.#stagingPath);
       const app = this.#installed(spaceId, appId, expectedDigest, featureInstallationId);
-      const source = this.#registry.installations.find((item) => item.spaceId === app.sourceSpaceId && item.manifest.id === app.manifest.id);
-      if (source?.runtimeInstanceKind === "app") {
-        throw new RestrictedAppError("INPUT_INVALID", "This App is installed in its own source Space. Its Local preview needs a separate placement before it can be changed.");
-      }
+      const source = this.#registry.installations.find((item) => item.spaceId === app.sourceSpaceId && item.manifest.id === app.manifest.id
+        && item.runtimeInstanceKind === "development");
       if (source && source.digest !== app.digest) {
         throw new RestrictedAppError("REVISION_CHANGED", "The source Space already has a different Local preview. Review that work in App Studio before starting from this installed revision.");
       }
@@ -1693,16 +1695,18 @@ export class RestrictedAppService {
       const sourceRoot = await restrictedSourceRoot(input.spaceRoot, input.sourcePath);
       const inspection = await inspectRestrictedAppPackage(sourceRoot);
       if (inspection.digest !== expectedDigest) throw new RestrictedAppError("REVISION_CHANGED", "The package changed after review. Review the new revision before installing it.");
-      const existing = this.#registry.installations.find((item) => item.spaceId === input.spaceId && item.manifest.id === inspection.manifest.id);
+      const existing = this.#registry.installations.find((item) => item.spaceId === input.spaceId && item.manifest.id === inspection.manifest.id
+        && item.runtimeInstanceKind === "development");
+      const sourceProject = this.#registry.projects.find((item) => item.spaceId === input.spaceId);
+      const foreign = this.#registry.installations.some((item) => item.spaceId === input.spaceId
+        && item.manifest.id === inspection.manifest.id && item.projectId !== sourceProject?.projectId);
+      if (foreign) throw new RestrictedAppError("INPUT_INVALID", "A different App Project already owns this Feature in the Space.");
       if (input.expectedPreviewBase !== undefined) {
         const base = input.expectedPreviewBase;
         if (base === null ? Boolean(existing) : !existing
           || existing.featureInstallationId !== base.featureInstallationId || existing.digest !== base.digest) {
           throw new RestrictedAppError("REVISION_CHANGED", "The Local preview changed since this edit began. Start Change this app again to keep the newer work.");
         }
-      }
-      if (existing?.runtimeInstanceKind === "app") {
-        throw new RestrictedAppError("INPUT_INVALID", "An installed Release already contributes this Feature in the Space. Choose another Space or uninstall it first.");
       }
       if (existing?.digest === inspection.digest) {
         try {
@@ -1789,7 +1793,7 @@ export class RestrictedAppService {
         installedAt: existing?.installedAt ?? timestamp,
         updatedAt: timestamp,
       };
-      const next = this.#registry.installations.filter((item) => !(item.spaceId === input.spaceId && item.manifest.id === entry.manifest.id));
+      const next = this.#registry.installations.filter((item) => item !== existing);
       next.push(entry);
       const pendingCleanups = existing
         ? [...this.#registry.pendingCleanups, pendingCleanupForEntry(existing, this.#registry.localIdentity, false, timestamp)]
@@ -2885,7 +2889,7 @@ export class RestrictedAppService {
     if (!projected || typeof projected !== "object" || Array.isArray(projected)) {
       throw new Error("Restricted app registry projection must be an object.");
     }
-    const validated = registryFileV5(projected as Record<string, unknown>);
+    const validated = registryFileV6(projected as Record<string, unknown>);
     const source = serializeRegistryFile(validated);
     const handle = await open(temporary, "wx", 0o600);
     try {
@@ -3041,8 +3045,15 @@ async function readRegistry(
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Restricted app registry must be an object.");
   const record = value as Record<string, unknown>;
-  if (record.schemaVersion === 5) return { registry: registryFileV5(record), needsWrite: false };
-  throw new RestrictedAppRegistryVersionUnsupportedError(record.schemaVersion, 5);
+  if (record.schemaVersion === 6) return { registry: registryFileV6(record), needsWrite: false };
+  if (record.schemaVersion === 5) {
+    const registry = registryFileV6({ ...record, schemaVersion: 6 });
+    // Only the current work-fold v5 profile upgrades. Older Workspace formats
+    // stay unsupported; v5 must satisfy its original placement constraint.
+    assertUnique(registry.installations.map((item) => `${item.spaceId}:${item.manifest.id}`), "Restricted app v5 registry contains duplicate Space Feature ids.");
+    return { registry, needsWrite: true };
+  }
+  throw new RestrictedAppRegistryVersionUnsupportedError(record.schemaVersion, 6);
 }
 
 async function syncRestrictedAppDirectory(path: string): Promise<void> {
@@ -3090,7 +3101,7 @@ async function recoverRestrictedAppRegistryTemps(rootPath: string): Promise<void
 
 function freshRegistry(): RestrictedAppRegistryFile {
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     localIdentity: {
       tenantId: createTenantId(),
       principalId: createPrincipalId(),
@@ -3187,12 +3198,12 @@ function serializeRegistryFile(registry: RestrictedAppRegistryFile): string {
   return source;
 }
 
-function registryFileV5(record: Record<string, unknown>): RestrictedAppRegistryFile {
+function registryFileV6(record: Record<string, unknown>): RestrictedAppRegistryFile {
   exactObjectKeys(record, [
     "schemaVersion", "localIdentity", "projects", "runtimeInstances", "installations", "pendingCleanups",
     "releases", "operations", "retainedData", "adminReceipts", "acceptedAutomationRuns", "historicalAutomationRuns",
   ], "Restricted app registry");
-  if (record.schemaVersion !== 5) throw new Error("Restricted app registry schema version must be 5.");
+  if (record.schemaVersion !== 6) throw new Error("Restricted app registry schema version must be 6.");
   const local = objectValue(record.localIdentity, "Restricted app local identity");
   exactObjectKeys(local, ["tenantId", "principalId", "servicePrincipalId", "principalGeneration"], "Restricted app local identity");
   const localIdentity = {
@@ -3237,7 +3248,18 @@ function registryFileV5(record: Record<string, unknown>): RestrictedAppRegistryF
     "Local App registry contains duplicate Project App Instances in one Space.",
   );
   assertUnique(runtimeInstances.map((item) => item.runtimeInstanceId), "Restricted app registry contains duplicate Runtime Instance ids.");
-  assertUnique(installations.map((item) => `${item.spaceId}:${item.manifest.id}`), "Restricted app registry contains duplicate Space Feature ids.");
+  assertUnique(installations.map((item) => `${item.runtimeInstanceId}:${item.manifest.id}`), "Restricted app registry contains duplicate Runtime Instance Feature ids.");
+  const placements = new Map<string, RestrictedAppRegistryEntry[]>();
+  for (const entry of installations) {
+    const key = `${entry.spaceId}:${entry.manifest.id}`;
+    const peers = placements.get(key) ?? [];
+    peers.push(entry);
+    placements.set(key, peers);
+    if (peers.length > 1 && (peers.length !== 2 || peers[0]!.projectId !== entry.projectId
+      || peers[0]!.runtimeInstanceKind === entry.runtimeInstanceKind)) {
+      throw new Error("Restricted app registry contains conflicting Space Feature placements.");
+    }
+  }
   assertUnique(installations.map((item) => item.featureInstallationId), "Restricted app registry contains duplicate Feature Installation ids.");
   assertUnique(installations.map((item) => item.dataNamespaceId), "Restricted app registry contains duplicate data namespace ids.");
   assertUnique(releases.map((item) => item.releaseDigest), "Local App registry contains duplicate Release digests.");
@@ -3367,7 +3389,7 @@ function registryFileV5(record: Record<string, unknown>): RestrictedAppRegistryF
     }
   }
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     localIdentity,
     projects,
     runtimeInstances,

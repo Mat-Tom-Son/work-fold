@@ -227,6 +227,10 @@ only sanctioned overlap between editable project source and runtime state.
 - **Visibility:** builder-facing. The UI may say **Local preview** or **Run
   locally**, while technical review and diagnostics name the Development
   Instance precisely.
+- **Placement:** the source Space may also contain an installed App Instance
+  from the same Project. Its released Features and their Local previews retain
+  separate installation, data, authority, job and tab identities. The rail marks
+  the preview where needed; publication and reviewed activation remain separate.
 
 ### App Release
 

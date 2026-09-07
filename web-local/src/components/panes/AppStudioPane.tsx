@@ -114,10 +114,6 @@ export function AppStudioPane({
       .sort((left, right) => right.preparedAt.localeCompare(left.preparedAt)),
     [studio?.releases],
   );
-  const previewFeatureIds = useMemo(
-    () => new Set((studio?.previews ?? []).map((preview) => preview.manifest.id)),
-    [studio?.previews],
-  );
   const selectedInstance = useMemo(
     () => studio?.instances.find((instance) => instance.spaceId === targetSpaceId) ?? null,
     [studio?.instances, targetSpaceId],
@@ -626,8 +622,6 @@ export function AppStudioPane({
                   ) : null}
                   <p>{!hasInstallTarget
                     ? "Add or register a Space to install this App."
-                    : targetSpaceId === space.id && Boolean(studio?.previews.length)
-                      ? "This is the source Space. Remove any conflicting local preview before installing a Release here."
                     : selectedInstance
                       ? `${selectedInstance.presentation.title} ${selectedInstance.displayVersion} is active in ${targetName}.`
                       : `No installed App Instance in ${targetName}. A new install starts with fresh data and all powers off.`}</p>
@@ -639,9 +633,6 @@ export function AppStudioPane({
                       const rollback = selectedInstance ? releaseIsOlder(release, releasesByDigest.get(selectedInstance.releaseDigest)) : false;
                       const pending = studio.operations.find((operation) => operation.targetSpaceId === targetSpaceId && operation.releaseDigest === release.releaseDigest);
                       const blockedByOtherPending = pending ? null : pendingForTarget;
-                      const sourcePreviewCollision = !selectedInstance
-                        && targetSpaceId === space.id
-                        && release.featureIds.some((featureId) => previewFeatureIds.has(featureId));
                       const deletionBlocker = releaseDeletionBlocker(studio, release);
                       return (
                         <article
@@ -667,9 +658,9 @@ export function AppStudioPane({
                                   Open review
                                 </button>
                               ) : (
-                                <button className="professional-button professional-button-secondary" type="button" disabled={Boolean(busyKey) || !hasInstallTarget || sourcePreviewCollision} onClick={() => void prepareActivation(release)}>
+                                <button className="professional-button professional-button-secondary" type="button" disabled={Boolean(busyKey) || !hasInstallTarget} onClick={() => void prepareActivation(release)}>
                                   {busyKey === `operation:prepare:${release.releaseDigest}` ? <ArrowSync16Regular className="spin" /> : null}
-                                  {sourcePreviewCollision ? "Remove conflicting preview" : selectedInstance ? `Review ${rollback ? "rollback" : "update"}` : "Review install"}
+                                  {selectedInstance ? `Review ${rollback ? "rollback" : "update"}` : "Review install"}
                                 </button>
                               )
                             ) : null}

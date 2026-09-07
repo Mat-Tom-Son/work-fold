@@ -205,7 +205,7 @@ export function RestrictedAppsSection({
       {presentation === "section" ? <details className="restricted-app-advanced"><summary>Advanced local preview</summary><p>Review a restricted app package folder that already exists in this Space.</p><button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={() => setSourceOpen(true)}>Add local preview…</button></details> : null}
 
       {sourceOpen ? <RestrictedAppSourceDialog sourcePath={sourcePath} busy={busy} onSourcePathChange={setSourcePath} onSubmit={inspect} onClose={() => { if (!busy) setSourceOpen(false); }} /> : null}
-      {review ? <RestrictedAppReviewDialog review={review.value} sourcePath={review.sourcePath} updating={apps.some((app) => app.manifest.id === review.value.manifest.id)} busy={busy} onInstall={() => void install()} onClose={() => { if (!busy) setReview(null); }} /> : null}
+      {review ? <RestrictedAppReviewDialog review={review.value} sourcePath={review.sourcePath} updating={apps.some((app) => app.runtimeInstanceKind === "development" && app.manifest.id === review.value.manifest.id)} busy={busy} onInstall={() => void install()} onClose={() => { if (!busy) setReview(null); }} /> : null}
       {selectedApp ? <RestrictedAppDetailsDialog app={selectedApp} busy={busy} fixtureMode={fixtureMode} onAppChanged={onUpsertApp} onRemove={() => void remove(selectedApp)} onOpenBuildChat={onOpenBuildChat} onOpenAppStudio={(runtimeInstanceId) => { setSelectedInstallationId(null); onOpenAppStudio(selectedApp.sourceSpaceId, runtimeInstanceId); }} onError={onError} onClose={() => { if (!busy) setSelectedInstallationId(null); }} /> : null}
     </section>
   );

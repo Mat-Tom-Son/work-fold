@@ -5885,7 +5885,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const app = await requireInstalledApp(space, input.app);
       // The card states the byte count being destroyed; without an observable
       // count the act refuses instead of staging a blind destruction.
-      const usage = await runActOperation(() => state.restrictedApps.storageUsage(space.id, app.manifest.id, app.digest));
+      const usage = await runActOperation(() => state.restrictedApps.storageUsage(space.id, app.manifest.id, app.digest, app.featureInstallationId));
       const staged = await stageConsecration({
         kind: "app.storage.clear",
         parameters: { spaceId: space.id, appInstanceId: app.featureInstallationId },
@@ -9585,7 +9585,7 @@ function createAppStorageClearDecisionAdapter(state: LocalApiState): FoldStagedA
       return { issue: "The app's Data Namespace no longer matches the staged storage identity." };
     }
     try {
-      const usage = await state.restrictedApps.storageUsage(spaceId, app.manifest.id, app.digest);
+      const usage = await state.restrictedApps.storageUsage(spaceId, app.manifest.id, app.digest, app.featureInstallationId);
       if (usage.usageBytes !== act.pins.observedBytes) {
         return { issue: `The app's live storage changed after staging (${String(act.pins.observedBytes)} → ${usage.usageBytes} bytes).` };
       }
@@ -9610,6 +9610,7 @@ function createAppStorageClearDecisionAdapter(state: LocalApiState): FoldStagedA
         resolved.app.spaceId,
         resolved.app.manifest.id,
         resolved.app.digest,
+        resolved.app.featureInstallationId,
       );
       return { detail: `Cleared ${resolved.observedBytes} bytes of live storage; ${cleared.usageBytes} bytes remain.` };
     },

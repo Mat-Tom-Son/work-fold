@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { resolveRestrictedAppOpenRequest } from "../web-local/src/lib/restricted-app-navigation.js";
+import { resolveRestrictedAppOpenRequest, restrictedAppRailLabel } from "../web-local/src/lib/restricted-app-navigation.js";
 
 const spaces = [
   { id: "ws-current", name: "Current", spaceRoot: "C:\\Current", location: { kind: "local" as const, storage: "linked" as const }, createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:00.000Z" },
@@ -37,4 +37,12 @@ test("notification navigation distinguishes same-revision installations and refu
   const sibling = resolveRestrictedAppOpenRequest({ ...request, featureInstallationId: "feature-installation_sibling" }, spaces);
   assert.notEqual(original?.mode, sibling?.mode);
   assert.equal(resolveRestrictedAppOpenRequest({ ...request, featureInstallationId: "" }, spaces), null);
+});
+
+test("only a co-located preview needs a rail label qualifier", () => {
+  const preview = { manifest: { id: "quotes", title: "Quotes" }, runtimeInstanceKind: "development", featureInstallationId: "feature-installation_preview" } as any;
+  const release = { ...preview, runtimeInstanceKind: "app", featureInstallationId: "feature-installation_release" };
+  assert.equal(restrictedAppRailLabel(preview, [preview]), "Quotes");
+  assert.equal(restrictedAppRailLabel(preview, [preview, release]), "Quotes · Preview");
+  assert.equal(restrictedAppRailLabel(release, [preview, release]), "Quotes");
 });

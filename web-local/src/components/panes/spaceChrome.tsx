@@ -1,4 +1,4 @@
-import { restrictedAppRailMode } from "../../lib/restricted-app-navigation";
+import { restrictedAppRailMode, restrictedAppRailLabel } from "../../lib/restricted-app-navigation";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import {
   ArrowDownload20Regular,
@@ -168,6 +168,7 @@ function SpaceModeRail({
         })}
         {apps.map((app) => {
           const mode = restrictedAppRailMode(space.id, app.manifest.id, app.featureInstallationId);
+          const label = restrictedAppRailLabel(app, apps);
           const AppIcon = activeMode === mode ? Apps24Filled : Apps24Regular;
           const contributedIcon = app.manifest.ui.icon ? spaceIconOptionFor(app.manifest.ui.icon) : null;
           return (
@@ -176,16 +177,16 @@ function SpaceModeRail({
               type="button"
               key={app.featureInstallationId}
               onClick={() => onModeChange(mode)}
-              aria-label={app.manifest.title}
+              aria-label={label}
               aria-current={activeMode === mode ? "page" : undefined}
-              data-rail-tooltip={`${app.manifest.title} · App · This Space`}
+              data-rail-tooltip={`${label} · App · This Space`}
             >
               <span className="space-rail-icon" aria-hidden="true">
                 {contributedIcon
                   ? <SpaceIconGlyph icon={contributedIcon.Icon} size={24} filled={activeMode === mode} className="fluent-rail-icon" />
                   : <AppIcon className="fluent-rail-icon" />}
               </span>
-              <span className="space-rail-label">{app.manifest.title}</span>
+              <span className="space-rail-label">{label}</span>
             </button>
           );
         })}

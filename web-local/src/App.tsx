@@ -51,7 +51,7 @@ import { canOpenDirectly, hasNativeFiles, hasSpacePathDrag, nativeOpenLabel } fr
 import { formatItemCount } from "./lib/format";
 import { readStoredJsonValue, readStoredValue, writeStoredJsonValue, writeStoredValue } from "./lib/storage";
 import { isMacOS, typographyFontForPlatform, spaceEntryNativePath } from "./lib/platform";
-import { resolveRestrictedAppOpenRequest, restrictedAppRailMode } from "./lib/restricted-app-navigation";
+import { resolveRestrictedAppOpenRequest, restrictedAppRailMode, restrictedAppRailLabel } from "./lib/restricted-app-navigation";
 import { getLocalAppStudio, getLocalAppSpaceRemovalImpact, prepareRestrictedAppChange } from "./lib/restricted-apps";
 import { collectLoadedFileEntries, findTreeEntry, isInsideFolder, moveTreeEntry, removeTreeEntries } from "./lib/tree";
 import { normalizeSpaceCustomizations } from "./lib/space-customization";
@@ -1163,7 +1163,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     ...([{ id: "go:checks", groupId: "go-to" as const, groupLabel: "Go to", label: "Checks", detail: checks.status?.needsAttention ? `${checks.status.needsAttention} need attention` : "Designated file expectations", defaultVisible: true, run: () => tabs.openChecksSurfaceTab(space) }]),
     { id: "action:discover-assistant-tools", groupId: "actions" as const, groupLabel: "Actions", label: "Discover Skills & Extensions", keywords: ["capabilities", "discover", "install", "tools", "browse"], run: () => tabs.openAssistantToolsSurfaceTab(space, "discover") },
     ...surfaces.map((surface) => ({ id: `app:${surface.key}`, groupId: "go-to" as const, groupLabel: "Go to", label: surface.title, detail: surface.scope === "project" ? "Pi Extension · This Space" : "Pi Extension · Everywhere", run: () => selectRailMode(`app:${surface.key}`) })),
-    ...restrictedApps.map((app) => ({ id: `restricted-app:${app.featureInstallationId}`, groupId: "go-to" as const, groupLabel: "Go to", label: app.manifest.title, detail: "App · This Space", run: () => selectRailMode(restrictedAppRailMode(space.id, app.manifest.id, app.featureInstallationId)) })),
+    ...restrictedApps.map((app) => ({ id: `restricted-app:${app.featureInstallationId}`, groupId: "go-to" as const, groupLabel: "Go to", label: restrictedAppRailLabel(app, restrictedApps), detail: "App · This Space", run: () => selectRailMode(restrictedAppRailMode(space.id, app.manifest.id, app.featureInstallationId)) })),
     ...spaces.map((item) => ({ id: `space:${item.id}`, groupId: "switch-space" as const, groupLabel: "Switch Space", label: item.name, detail: spaceHeaderSourceBadgeLabel(item), matchTargets: [item.name, item.spaceRoot], run: () => onSwitchSpace(item) })),
     ...Object.entries(conversationGroups).flatMap(([spaceId, conversations]) => conversations.map((conversation) => {
       const lifecycle = conversationLifecycleView(conversation);

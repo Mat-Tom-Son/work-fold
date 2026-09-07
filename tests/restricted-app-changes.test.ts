@@ -6,7 +6,8 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { RoutedRestrictedAppProposalHost } from "../src/local/agent/restricted-app-proposals.js";
-import { RestrictedAppService } from "../src/local/agent/restricted-app-service.js";
+import { RestrictedAppService, type RestrictedAppInstalled } from "../src/local/agent/restricted-app-service.js";
+import { FileRestrictedAppStorage } from "../src/local/agent/restricted-app-storage.js";
 import { materializeRestrictedAppWorkingCopy } from "../src/local/agent/restricted-app-working-copy.js";
 import { appChangeDraft } from "../web-local/src/lib/chat-context-request.js";
 import { prepareRestrictedAppChange } from "../web-local/src/lib/restricted-apps.js";
@@ -20,14 +21,15 @@ async function fixture() {
   await writeFile(join(packageRoot, "package.json"), JSON.stringify({ name: "change-demo", version: "1.0.0", type: "module", agentApp: "agent-app.json" }));
   await writeFile(join(packageRoot, "agent-app.json"), JSON.stringify({ version: 2, id: "change-demo", title: "Change demo", runtime: { kind: "sandboxed-web", entry: "index.html" }, ui: { icon: "mail" }, tools: [], automations: [], permissions: { network: [] } }));
   await writeFile(join(packageRoot, "index.html"), "<!doctype html><p>Reviewed original</p>");
-  const service = await RestrictedAppService.create({ rootPath: join(root, "state", "apps") });
+  const storage = new FileRestrictedAppStorage(join(root, "state", "data"));
+  const service = await RestrictedAppService.create({ rootPath: join(root, "state", "apps"), storage });
   const registryPath = join(root, "state", "proposals.json");
   const host = await RoutedRestrictedAppProposalHost.create({ service, registryPath });
   const scope = { spaceId: "source", spaceRoot, conversationId: "builder-chat", sourcePath };
   const proposal = (await host.propose(scope)).proposal!;
   const app = (await host.install(proposal.id))!;
   const input = { id: randomUUID(), spaceId: scope.spaceId, appId: app.manifest.id, expectedDigest: app.digest };
-  return { root, spaceRoot, packageRoot, registryPath, service, host, scope, app, input,
+  return { root, spaceRoot, packageRoot, registryPath, service, storage, host, scope, app, input,
     close: async () => { await service.close(); await rm(root, { recursive: true, force: true }); } };
 }
 
@@ -187,4 +189,79 @@ test("the desktop button's API helper sends one structured, authenticated change
     assert.deepEqual(await prepareRestrictedAppChange(f.app, f.input.id), response);
     assert.equal(fetch.mock.callCount(), 1);
   } finally { await f.close(); }
+});
+
+test("a source-Space release can be changed, previewed and updated without sharing preview data or authority", async () => {
+  const f = await fixture();
+  let reopened: RestrictedAppService | undefined;
+  const owner = (app: RestrictedAppInstalled) => ({ ownerClass: "instance" as const, tenantId: app.tenantId,
+    runtimeInstanceId: app.runtimeInstanceId, featureInstallationId: app.featureInstallationId, dataNamespaceId: app.dataNamespaceId });
+  const publish = async (version: string) => {
+    const release = await f.service.prepareLocalAppRelease({ spaceId: f.scope.spaceId, displayVersion: version });
+    await f.service.publishLocalAppRelease({ spaceId: f.scope.spaceId, releaseDigest: release.releaseDigest });
+    return release;
+  };
+  try {
+    const firstRelease = await publish("1.0.0");
+    const plan = await f.service.prepareLocalAppInstall({ sourceSpaceId: f.scope.spaceId, targetSpaceId: f.scope.spaceId, releaseDigest: firstRelease.releaseDigest });
+    const installed = await f.service.activateLocalAppInstall(plan.operationId);
+    const live = installed.apps[0]!;
+    assert.notEqual(live.featureInstallationId, f.app.featureInstallationId);
+    assert.notEqual(live.dataNamespaceId, f.app.dataNamespaceId);
+    await f.storage.set(owner(f.app), "quote", "preview data");
+    await f.storage.set(owner(live), "quote", "release data");
+    await assert.rejects(f.service.storageUsage(live.spaceId, live.manifest.id, live.digest), /exact app installation/);
+    const input = { ...f.input, id: randomUUID(), featureInstallationId: live.featureInstallationId };
+    const change = await f.host.prepareChange(input, (receipt, files) => materializeRestrictedAppWorkingCopy(f.spaceRoot, receipt, files, async () => {}));
+    assert.deepEqual(change.previewBase, { featureInstallationId: f.app.featureInstallationId, digest: f.app.digest });
+    assert.equal(change.targetRuntimeInstanceId, live.runtimeInstanceId);
+    await writeFile(join(f.spaceRoot, change.sourcePath, "index.html"), "<!doctype html><p>Changed preview</p>");
+    const proposed = (await f.host.propose({ ...f.scope, sourcePath: change.sourcePath })).proposal!;
+    const preview = (await f.host.install(proposed.id))!;
+    assert.equal(preview.featureInstallationId, f.app.featureInstallationId);
+    assert.notEqual(preview.digest, live.digest);
+    assert.equal((await f.service.runtimeDescriptor(live.spaceId, live.manifest.id, live.digest, live.featureInstallationId)).digest, live.digest);
+    assert.equal(await f.storage.get(owner(preview), "quote"), "preview data");
+    assert.equal(await f.storage.get(owner(live), "quote"), "release data");
+    assert.equal((await f.host.buildContext(preview.spaceId, preview.manifest.id, preview.digest, preview.featureInstallationId)).updateTargetRuntimeInstanceId, live.runtimeInstanceId);
+    const secondRelease = await publish("1.1.0");
+    const update = await f.service.prepareLocalAppUpdate({ sourceSpaceId: f.scope.spaceId, runtimeInstanceId: live.runtimeInstanceId, releaseDigest: secondRelease.releaseDigest });
+    const updated = await f.service.activateLocalAppUpdate(update.operationId);
+    assert.equal(updated.apps[0]!.featureInstallationId, live.featureInstallationId);
+    assert.equal(updated.apps[0]!.digest, preview.digest);
+    assert.equal(await f.storage.get(owner(updated.apps[0]!), "quote"), "release data");
+    assert.equal(await f.storage.get(owner(preview), "quote"), "preview data");
+    assert.equal((await f.service.localAppStudio(f.scope.spaceId)).previews.length, 1);
+    await f.service.close();
+    reopened = await RestrictedAppService.create({ rootPath: join(f.root, "state", "apps"), storage: f.storage });
+    assert.equal((await reopened.list(f.scope.spaceId)).length, 2, "coexistence survives registry reload");
+    await assert.rejects(reopened.remove({ spaceId: preview.spaceId, appId: preview.manifest.id, expectedDigest: preview.digest }), /exact app installation/);
+    await reopened.remove({ spaceId: preview.spaceId, appId: preview.manifest.id, expectedDigest: preview.digest, featureInstallationId: preview.featureInstallationId });
+    assert.deepEqual((await reopened.list(f.scope.spaceId)).map((app) => app.featureInstallationId), [live.featureInstallationId]);
+    assert.equal(await f.storage.get(owner(live), "quote"), "release data");
+    const changes = await RoutedRestrictedAppProposalHost.create({ service: reopened, registryPath: f.registryPath });
+    const newCopy = await changes.prepareChange({ ...input, id: randomUUID(), expectedDigest: preview.digest },
+      (receipt, files) => materializeRestrictedAppWorkingCopy(f.spaceRoot, receipt, files, async () => {}));
+    assert.equal(newCopy.previewBase, null, "an installed release does not count as an existing preview");
+    const restoredProposal = (await changes.propose({ ...f.scope, sourcePath: newCopy.sourcePath })).proposal!;
+    const restoredPreview = (await changes.install(restoredProposal.id))!;
+    assert.notEqual(restoredPreview.featureInstallationId, preview.featureInstallationId);
+    assert.equal(await f.storage.get(owner(restoredPreview), "quote"), undefined, "a fresh preview cannot inherit release or removed-preview data");
+    assert.equal((await reopened.list(f.scope.spaceId)).length, 2);
+  } finally { await reopened?.close(); await f.close(); }
+});
+
+test("the current work-fold v5 registry upgrades atomically without changing installation or data identity", async () => {
+  const f = await fixture();
+  let reopened: RestrictedAppService | undefined;
+  const path = join(f.root, "state", "apps", "registry.json");
+  try {
+    await f.service.close();
+    const before = JSON.parse(await readFile(path, "utf8"));
+    assert.equal(before.schemaVersion, 6);
+    await writeFile(path, JSON.stringify({ ...before, schemaVersion: 5 }));
+    reopened = await RestrictedAppService.create({ rootPath: join(f.root, "state", "apps"), storage: f.storage });
+    assert.deepEqual(JSON.parse(await readFile(path, "utf8")), before);
+    assert.equal((await reopened.list(f.scope.spaceId))[0]!.featureInstallationId, f.app.featureInstallationId);
+  } finally { await reopened?.close(); await f.close(); }
 });

@@ -184,6 +184,10 @@ The desktop implements the first complete local Project-to-Instance journey:
    and stages the exact published closure before one registry commit makes the
    new App Instance live in the chosen registered Space. Every external power
    starts off and no Development grant, connection, job, or data transfers.
+   The target may be the source Space: one installed App may coexist with that
+   same Project's Development preview, with separate installation/data identities
+   and exact management selectors. Another Project cannot contribute the same
+   Feature id there. Reviewing a preview does not update the installed Release.
 6. Update and rollback target another published Release from the same Project.
    The deterministic plan is persisted and recomputed before activation. Exact
    unchanged Feature content may retain eligible grants, instance-owned

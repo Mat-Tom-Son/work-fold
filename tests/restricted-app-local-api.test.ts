@@ -441,6 +441,24 @@ test("restricted app API keeps review, install, grants, connections, invocation,
     assert.equal(currentUsage.usage.usageBytes, 0);
     const malformed = await fetch(`${api.origin}${itemUrl}/storage`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...current, featureInstallationId: null }) });
     assert.equal(malformed.status, 400, "a malformed pin must not fall back to name-only selection");
+
+    const release = await service.prepareLocalAppRelease({ spaceId: space.id, displayVersion: "coexist-1" });
+    await service.publishLocalAppRelease({ spaceId: space.id, releaseDigest: release.releaseDigest });
+    const install = await service.prepareLocalAppInstall({ sourceSpaceId: space.id, targetSpaceId: space.id, releaseDigest: release.releaseDigest });
+    const released = (await service.activateLocalAppInstall(install.operationId)).apps[0]!;
+    const dataOwner = (app: RestrictedAppInstalled) => ({ ownerClass: "instance" as const, tenantId: app.tenantId,
+      runtimeInstanceId: app.runtimeInstanceId, featureInstallationId: app.featureInstallationId, dataNamespaceId: app.dataNamespaceId });
+    await storage.set(dataOwner(reinstalled.app), "preview", "keep this");
+    await storage.set(dataOwner(released), "release", "clear this");
+    await assert.rejects(api.actFacade.appsStorageClear({ space: space.id, app: "mail-app" }), /More than one installation/);
+    const stagedClear = await api.actFacade.appsStorageClear({ space: space.id, app: released.featureInstallationId });
+    const decision = await api.foldDecisions.decide(stagedClear.staged.decisionId, { decision: "approved", surface: "main-window" });
+    assert.equal(decision.act.execution?.outcome, "executed");
+    assert.equal((await storage.usage(dataOwner(released))).keyCount, 0);
+    assert.equal(await storage.get(dataOwner(reinstalled.app), "preview"), "keep this", "a decided clear affects only its pinned sibling");
+    const previewGrant = await request<{ app: RestrictedAppInstalled }>(api.origin, `${itemUrl}/permissions/network/mail-api`, { method: "DELETE", body: current });
+    assert.deepEqual(previewGrant.app.networkGrants, []);
+    assert.equal(previewGrant.app.featureInstallationId, reinstalled.app.featureInstallationId);
   } finally {
     await api.close();
     await rm(sandbox, { recursive: true, force: true });

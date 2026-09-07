@@ -317,7 +317,7 @@ test("RestrictedAppService rejects an old branded registry without importing or 
       RestrictedAppService.create({ rootPath }),
       (error) => error instanceof RestrictedAppRegistryVersionUnsupportedError
         && error.actualVersion === 2
-        && error.supportedVersion === 5,
+        && error.supportedVersion === 6,
     );
     assert.equal(await readFile(registryPath, "utf8"), oldRegistry);
   } finally {
@@ -1545,7 +1545,7 @@ test("RestrictedAppService identifies a registry written by a newer work-fold wi
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-restricted-service-newer-registry-"));
   const rootPath = join(sandbox, "restricted-apps");
   const registryPath = join(rootPath, "registry.json");
-  const newerRegistry = `${JSON.stringify({ schemaVersion: 6, futureState: true }, null, 2)}\n`;
+  const newerRegistry = `${JSON.stringify({ schemaVersion: 7, futureState: true }, null, 2)}\n`;
   try {
     await mkdir(rootPath, { recursive: true });
     await writeFile(registryPath, newerRegistry, "utf8");
@@ -1553,8 +1553,8 @@ test("RestrictedAppService identifies a registry written by a newer work-fold wi
       RestrictedAppService.create({ rootPath }),
       (error) => {
         assert.ok(error instanceof RestrictedAppRegistryVersionUnsupportedError);
-        assert.equal(error.actualVersion, 6);
-        assert.equal(error.supportedVersion, 5);
+        assert.equal(error.actualVersion, 7);
+        assert.equal(error.supportedVersion, 6);
         return true;
       },
     );

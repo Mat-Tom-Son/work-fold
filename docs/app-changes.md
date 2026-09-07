@@ -66,7 +66,10 @@ rechecks Project and installation identities and drops stale target links after
 uninstall. Opening App Studio never prepares, publishes, or activates a Release;
 subsequent manual target choices remain intact during refreshes.
 
-A Release installed in its own source Space still needs a separate preview
-placement: the current one-Feature-
-per-Space rule refuses this case before copying rather than replacing its live
-App Instance. These remain tracked work in [Apps and the fold](apps-fold-workflows.md).
+A Release can also be installed in its own source Space alongside that Project's
+Local preview. **Change this app** still pins the installed Feature and the
+separate preview predecessor. Reviewing the changed preview preserves the
+installed Release until its App Studio update is approved. The two installations
+keep separate data, grants, connections, jobs and tabs; the rail adds **Preview**
+only where needed to distinguish them. Removing a preview leaves the installed
+Release running, and a new preview starts with fresh data and authority.

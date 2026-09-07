@@ -408,11 +408,20 @@ the local release-backed lane. The shipped lifecycle is:
    safe object pruning, and interrupted pruning is retried.
 
 The current local host admits at most one App Instance for a `(projectId,
-target Space)` pair and rejects installation when any preview or App in the
-target already owns one of the Release's Feature ids. It also rejects Release
+target Space)` pair. In the Project's source Space, its Development preview may
+coexist with its installed Release. These are distinct Runtime Instances,
+Feature Installations and Data Namespaces. A different Project's preview or
+App cannot claim the same Feature id in that Space. The host also rejects Release
 Features with a data schema or migrations; migration execution and retained-data
 adoption are future management operations. Install and update preparations
 survive restart until activated or cancelled.
+
+The local registry uses schema version 6 for this placement rule. A valid
+work-fold version-5 registry is validated against its original uniqueness rule
+and atomically rewritten without changing identities, grants or data. Older
+Workspace formats and unknown future versions remain unsupported and are never
+rewritten. Older work-fold builds refuse version 6 instead of interpreting
+co-located installations using their old name-only rule.
 
 The canonical Release store has a four-GiB aggregate byte quota in addition to
 per-envelope and object-count bounds. A new put measures owned regular-file

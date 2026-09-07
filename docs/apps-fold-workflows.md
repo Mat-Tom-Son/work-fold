@@ -11,7 +11,7 @@ management surface.
 
 ## Work slices
 
-- [ ] Change this app: start from exact installed bytes, retain source/build
+- [x] Change this app: start from exact installed bytes, retain source/build
   provenance, prepare a Chat draft, preview a proposed revision, and use the
   existing reviewed update path. A target Instance must not leak its data or
   Chat into the source Space.
@@ -234,3 +234,30 @@ verify identity propagation. Logs: `/tmp/workfold-app-management-identity-check.
 The source-Space placement rules still need changing and integrated coexistence
 tests before the first checklist item can close. The broader context, delegation,
 fold/web, integration and release work remains active.
+
+## Progress: source-Space preview and release coexistence
+
+A Project’s Development preview and installed Release can now share its source
+Space. Registry v6 preserves their separate Feature Installation identities,
+data and authority; current work-fold v5 upgrades through the canonical writer,
+while older unsupported formats stay untouched. A different Project cannot
+reuse the same Feature id in that Space. Only a collocated preview receives the
+short “Preview” rail suffix. Staged data clearing now carries the exact pin too.
+
+Verification: `npm run check`, `npm test` (1,117 passed; one Windows-only skip),
+and `npm run desktop:prepare` pass. Tests cover same-Space install, guarded change,
+preview update, reviewed release update, restart, separate data, exact removal,
+recreation, v5 upgrade and ambiguous CLI data-clearing refusal. Logs:
+`/tmp/workfold-app-coexist-check.log`, `/tmp/workfold-app-coexist-tests.log`, and
+`/tmp/workfold-app-coexist-desktop.log`.
+
+Live QA installed the existing synthetic Release beside its preview in App
+Recovery QA using App Studio. The preview retained its North quote; the Release
+started empty. Change this app on that Release created an exact working copy
+and unsent draft. A harness edit and CLI proposal, approved in Needs you, updated
+only the preview to 1.0.4. Preparing/publishing the local fixture Release and
+reviewing/activating its update changed the installed source-Space app while
+preserving separate data. The second Space kept its original 1.0.3 app and empty
+data. The walkthrough caught an obsolete remove-preview instruction, which was
+removed. The isolated app is quit. This completes the Change this app slice;
+real Assistant execution and the remaining full-goal work are still pending.

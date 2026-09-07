@@ -679,7 +679,7 @@ test("Restricted app registry rejects v3 without importing or rewriting it", asy
       RestrictedAppService.create({ rootPath }),
       (error) => error instanceof RestrictedAppRegistryVersionUnsupportedError
         && error.actualVersion === 3
-        && error.supportedVersion === 5,
+        && error.supportedVersion === 6,
     );
     assert.equal(await readFile(registryPath, "utf8"), oldRegistry);
   } finally {
