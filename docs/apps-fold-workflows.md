@@ -149,3 +149,24 @@ clearly labeled synthetic message completed the navigation fixture. No actual
 Assistant turn ran in this test. The QA app is quit and production state remains
 untouched. Source-Space preview placement and the broader acceptance journey
 remain open.
+
+## Progress: native installation isolation
+
+The native host now keys worker reuse, pending launches, authority generations,
+storage hints and notification ownership by exact Feature Installation. The
+service scopes stop operations to that installation. Removing and re-adding
+authority fences pending launches, and duplicate installation identities fail
+before replacing the authority table. Aggregate notification volume remains
+bounded across installations of the same app.
+
+Verification: `npm run check`, `npm test` (1,110 passed; one Windows-only skip),
+and `npm run desktop:prepare` pass. The real Electron probe runs two installations
+with identical Space, manifest and digest: separate worker tokens and data,
+independent stop/revocation, pending-launch invalidation and no sibling storage
+hints. Notification tests check separate category handles and exact click
+ownership. Logs: `/tmp/workfold-app-instance-check.log`,
+`/tmp/workfold-app-instance-tests.log`, and
+`/tmp/workfold-app-instance-desktop.log`.
+
+This is runtime groundwork. Source-Space preview/release coexistence remains
+disabled until renderer and management selectors carry the same exact identity.

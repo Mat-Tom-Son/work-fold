@@ -33,6 +33,25 @@ class Sink {
 const digestOne = "1".repeat(64);
 const digestTwo = "2".repeat(64);
 
+test("notification handles and click targets distinguish installations with the same Space, app, and revision", () => {
+  const sink = new Sink();
+  const broker = new RestrictedAppNotificationBroker({ sink });
+  const opened: unknown[] = [];
+  const source = context({ featureInstallationId: "feature-source" });
+  const release = context({ featureInstallationId: "feature-release" });
+  try {
+    assert.equal(broker.show(source, { permissionId: "new-mail" }, (request) => opened.push(request)).status, "shown");
+    assert.equal(broker.show(release, { permissionId: "new-mail" }, (request) => opened.push(request)).status, "shown");
+    assert.equal(sink.shown[0]!.handle.closed, false, "a sibling category must not replace the source notification");
+    broker.closeApp(source, digestOne);
+    assert.equal(sink.shown[0]!.handle.closed, true);
+    assert.equal(sink.shown[1]!.handle.closed, false);
+    sink.shown[1]!.callbacks.onClick();
+    assert.deepEqual(opened, [{ spaceId: release.spaceId, appId: release.appId, digest: digestOne,
+      featureInstallationId: "feature-release", permissionId: "new-mail" }]);
+  } finally { broker.dispose(); }
+});
+
 function context(overrides: Record<string, unknown> = {}) {
   return {
     spaceId: "ws-1111111111111111",

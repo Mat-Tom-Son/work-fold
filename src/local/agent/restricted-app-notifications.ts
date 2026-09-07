@@ -10,6 +10,7 @@ export const restrictedAppNotificationLimits = {
 export interface RestrictedAppNotificationOwner {
   spaceId: string;
   appId: string;
+  featureInstallationId?: string;
   digest: string;
 }
 
@@ -103,8 +104,9 @@ export class RestrictedAppNotificationBroker {
     const now = this.#now();
     this.#prune(now);
     const appKey = ownerKey(context);
-    const categoryKey = `${appKey}:${declaration.id}`;
-    const invocationKey = `${appKey}:${context.invocationId}`;
+    const installationKey = JSON.stringify([appKey, context.featureInstallationId ?? null]);
+    const categoryKey = `${installationKey}:${declaration.id}`;
+    const invocationKey = `${installationKey}:${context.invocationId}`;
     const invocation = this.#invocations.get(invocationKey) ?? { count: 0, usedAt: now };
     const hourly = this.#hourly.get(appKey) ?? [];
     const lastCategory = this.#categoryLastShown.get(categoryKey);
@@ -159,9 +161,10 @@ export class RestrictedAppNotificationBroker {
     return { status: "shown" };
   }
 
-  closeApp(owner: Pick<RestrictedAppNotificationOwner, "spaceId" | "appId">, digest?: string): void {
+  closeApp(owner: Pick<RestrictedAppNotificationOwner, "spaceId" | "appId" | "featureInstallationId">, digest?: string): void {
     for (const item of [...this.#outstanding.values()]) {
       if (item.owner.spaceId !== owner.spaceId || item.owner.appId !== owner.appId || (digest && item.owner.digest !== digest)) continue;
+      if (owner.featureInstallationId && item.owner.featureInstallationId !== owner.featureInstallationId) continue;
       this.#closeOutstanding(item);
     }
     const now = this.#now();
@@ -238,13 +241,15 @@ function notificationRequest(value: unknown): { permissionId: string } {
 
 function validateContext(context: RestrictedAppNotificationContext): void {
   if (!context || typeof context !== "object" || !context.spaceId || !context.appId || !/^[0-9a-f]{64}$/.test(context.digest)
+    || (context.featureInstallationId !== undefined && (typeof context.featureInstallationId !== "string" || !context.featureInstallationId.trim()))
     || !context.appTitle || !context.invocationId || !Array.isArray(context.declarations) || !Array.isArray(context.grants)) {
     throw new RestrictedAppNotificationError("NOTIFICATION_DENIED", "Notification host authority is invalid.");
   }
 }
 
 function ownerValue(context: RestrictedAppNotificationContext): RestrictedAppNotificationOwner {
-  return { spaceId: context.spaceId, appId: context.appId, digest: context.digest };
+  return { spaceId: context.spaceId, appId: context.appId, digest: context.digest,
+    ...(context.featureInstallationId ? { featureInstallationId: context.featureInstallationId } : {}) };
 }
 
 function ownerKey(owner: RestrictedAppNotificationOwner): string {

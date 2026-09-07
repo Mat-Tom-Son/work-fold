@@ -444,7 +444,11 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
         mainWindow.webContents.send("work-fold:restricted-app-view:state", state);
       },
       onNotificationOpen: (request) => {
-        void restrictedApps.runtimeDescriptor(request.spaceId, request.appId, request.digest).then((current) => {
+        const resolveOwner = request.featureInstallationId
+          ? restrictedApps.findByFeatureInstallation(request.spaceId, request.featureInstallationId)
+          : restrictedApps.runtimeDescriptor(request.spaceId, request.appId, request.digest);
+        void resolveOwner.then((current) => {
+          if (!current || current.manifest.id !== request.appId || current.digest !== request.digest) return;
           const enabledForNotification = current.automations.some((state) => state.enabled
             && current.manifest.automations.some((automation) => automation.id === state.id
               && automation.permissions.notifications.includes(request.permissionId)));

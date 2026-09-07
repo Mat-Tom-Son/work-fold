@@ -182,6 +182,37 @@ async function runSmoke() {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
     assert.equal(hits, 0, "the restricted renderer must not reach the loopback listener directly");
 
+    const peer = { ...descriptor, runtimeInstanceId: createRuntimeInstanceId(), featureInstallationId: createFeatureInstallationId(),
+      dataNamespaceId: createDataNamespaceId(), authority: createAuthorityStamp(), networkGrants: [], fileGrants: [], notificationGrants: [], automations: [] };
+    const authorityOf = (item) => ({ spaceId: item.spaceId, appId: item.manifest.id, digest: item.digest,
+      runtimeInstanceId: item.runtimeInstanceId, featureInstallationId: item.featureInstallationId, authority: item.authority });
+    const peerOwner = { ...storageOwner, runtimeInstanceId: peer.runtimeInstanceId, featureInstallationId: peer.featureInstallationId, dataNamespaceId: peer.dataNamespaceId };
+    await storage.set(storageOwner, "instance-value", "source");
+    await storage.set(peerOwner, "instance-value", "release");
+    host.syncAuthority([authorityOf(descriptor), authorityOf(peer)]);
+    assert.throws(() => host.syncAuthority([authorityOf(descriptor), { ...authorityOf(peer), featureInstallationId: descriptor.featureInstallationId, appId: "different-name" }]), /duplicate Feature Installation identity/);
+    const sourceIdentity = await host.invoke(descriptor, "instance", {});
+    const peerIdentity = await host.invoke(peer, "instance", {});
+    assert.equal(sourceIdentity.value, "source");
+    assert.equal(peerIdentity.value, "release");
+    assert.notEqual(sourceIdentity.token, peerIdentity.token);
+    assert.deepEqual(await host.invoke(descriptor, "instance", {}), sourceIdentity, "a sibling must not replace the original worker");
+    host.syncAuthority([authorityOf(descriptor)]);
+    await assert.rejects(host.invoke(peer, "instance", {}), (error) => error?.code === "AUTHORITY_STALE");
+    assert.deepEqual(await host.invoke(descriptor, "instance", {}), sourceIdentity, "revoking a sibling must not invalidate the original worker");
+    host.syncAuthority([authorityOf(descriptor), authorityOf(peer)]);
+    const peerAfterRevocation = await host.invoke(peer, "instance", {});
+    await host.stop(descriptor.spaceId, descriptor.manifest.id, descriptor.digest, descriptor.featureInstallationId);
+    assert.deepEqual(await host.invoke(peer, "instance", {}), peerAfterRevocation, "an exact installation stop leaves its sibling running");
+    await host.stop(peer.spaceId, peer.manifest.id, peer.digest, peer.featureInstallationId);
+    const pendingPeer = host.invoke(peer, "instance", {});
+    const pendingRejection = assert.rejects(pendingPeer, (error) => error?.code === "APP_UNAVAILABLE");
+    host.syncAuthority([authorityOf(descriptor)]);
+    host.syncAuthority([authorityOf(descriptor), authorityOf(peer)]);
+    await pendingRejection;
+    host.syncAuthority([authorityOf(descriptor)]);
+    await mark("installation-isolation-complete");
+
     await mark("notification-start");
     assert.deepEqual(await host.invoke(descriptor, "notification", {}), {
       workerTopLevelNotificationDenied: true,
@@ -229,6 +260,7 @@ async function runSmoke() {
     assert.deepEqual(shownNotifications.map((item) => item.notification), [{
       spaceId: descriptor.spaceId,
       appId: descriptor.manifest.id,
+      featureInstallationId: descriptor.featureInstallationId,
       digest: descriptor.digest,
       permissionId: "automation-update",
       title: "work-fold · Restricted Electron smoke — Automation update",
@@ -348,6 +380,12 @@ async function runSmoke() {
     })}`, 15_000);
     assert.equal(await storage.get(storageOwner, "active-storage-event"), true, "automation storage changes reach the active owning UI");
     assert.equal(await storage.get(storageOwner, "reset-storage-event"), true, "more than 128 changed keys produce a bounded reset hint");
+    host.syncAuthority([authorityOf(descriptor), authorityOf(peer)]);
+    await host.invoke(peer, "signal", {});
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
+    assert.deepEqual(await storage.get(peerOwner, "automation"), { peerSignal: true });
+    assert.equal(await storage.get(storageOwner, "automation-storage-event-count"), 1, "a sibling's data change cannot reach the original view");
+    host.syncAuthority([authorityOf(descriptor)]);
     assert.equal(await storage.get(storageOwner, "automation-storage-event-count"), 1, "one automation mutation emits once");
     host.layoutUi(parent.webContents.id, {
       mountId,
@@ -574,9 +612,12 @@ let workerTopLevelNotificationDenied = false;
 try { await globalThis.workFoldRestrictedApp.notifications.show({ permissionId: "automation-update" }); }
 catch { workerTopLevelNotificationDenied = true; }
 let workerStorageEvents = 0;
+const workerInstanceToken = crypto.randomUUID();
 globalThis.workFoldRestrictedApp.storage.onChanged(() => { workerStorageEvents += 1; });
 
 export async function handleAction(action, input) {
+  if (action === "instance") return { token: workerInstanceToken, value: await globalThis.workFoldRestrictedApp.storage.get("instance-value") };
+  if (action === "signal") { await globalThis.workFoldRestrictedApp.storage.set("automation", { peerSignal: true }); return true; }
   if (action === "notification") {
     let actionNotificationDenied = false;
     try { await globalThis.workFoldRestrictedApp.notifications.show({ permissionId: "automation-update" }); }
@@ -669,6 +710,15 @@ function smokeManifest(loopbackPort) {
     runtime: { kind: "sandboxed-web", entry: "index.html", worker: "worker.js" },
     ui: { icon: "apps", cornerRadius: 24 },
     tools: [
+      {
+        name: "signal", description: "Write one installation-owned test value.", action: "signal",
+        inputSchema: { type: "object", properties: {}, additionalProperties: false }, resultSchema: { type: "boolean" },
+      },
+      {
+        name: "instance", description: "Read this installation's private test value.", action: "instance",
+        inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        resultSchema: { type: "object", properties: { token: { type: "string", maxLength: 100 }, value: { type: "string", maxLength: 100 } }, required: ["token", "value"], additionalProperties: false },
+      },
       {
         name: "probe",
         description: "Probe the Chromium sandbox boundary.",

@@ -221,6 +221,13 @@ bounded; timeouts, crashes, cyclic values, intrinsic tampering, and oversized
 results terminate the worker. The worker is optional so a UI-only app does not
 need executable worker code.
 
+Worker reuse, pending launches, stop generations, and authority lookup are
+scoped to the exact Feature Installation as well as Space, app, and revision.
+Revoking one installation cannot stop or lend authority to another installation
+of the same bytes. Removing and re-adding authority also invalidates launches
+that have not created a worker yet. Duplicate Feature Installation identities
+in an authority snapshot are rejected before replacing the current snapshot.
+
 Automations are first-class host jobs, not one app-wide background switch.
 Every declared job starts disabled and is enabled separately in the Apps tab.
 The worker exports `handleAutomation(event)` and dispatches using the reviewed
@@ -250,7 +257,10 @@ history is keyed by Space and app so renderer restarts, permission churn, and
 digest updates cannot reset the anti-spam budget. Clicking revalidates the
 current digest, declaration, grant, and automation authority before opening
 the exact owning Space and app. Suspend, disable, update, removal, and shutdown
-close outstanding notifications.
+close outstanding notifications. Notification handles and click targets retain
+the exact Feature Installation; category replacement and scoped cleanup cannot
+close another installation's notification. The aggregate hourly app budget
+continues to span installations.
 
 The real-Electron preparation probe covers both hosts: missing Node globals,
 rejected Node imports, direct loopback HTTP/WebSocket denial, WebRTC and popup
@@ -306,7 +316,7 @@ hints. The host coalesces keys, caps the list (falling back to `reset: true`),
 and emits at most ten times per second. Hints are briefly coalesced in memory,
 never durably queued or replayed, and are never delivered to workers, inactive
 or occluded views, minimized windows,
-or a view owned by another Space. Apps re-read storage after a hint; event data
+or a view owned by another Feature Installation, even in the same Space. Apps re-read storage after a hint; event data
 is not a second state channel.
 
 A file declaration grants nothing by itself. In the Apps tab, the person maps

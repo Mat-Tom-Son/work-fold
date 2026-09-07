@@ -149,6 +149,7 @@ interface RestrictedAppEffectLease {
 }
 
 interface RestrictedAppLaunch {
+  featureInstallationId: string;
   spaceId: string;
   appId: string;
   digest: string;
@@ -251,23 +252,28 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
 
   syncAuthority(authorities: readonly RestrictedAppRuntimeAuthority[]): void {
     const next = new Map<string, RestrictedAppRuntimeAuthority>();
+    const installationIds = new Set<string>();
     for (const authority of authorities) {
-      const key = appScopeKey(authority.spaceId, authority.appId);
+      const key = appScopeKey(authority.spaceId, authority.appId, authority.featureInstallationId);
       if (next.has(key)) throw new Error("Restricted app authority contains a duplicate runtime scope.");
+      if (installationIds.has(authority.featureInstallationId)) throw new Error("Restricted app authority contains a duplicate Feature Installation identity.");
+      installationIds.add(authority.featureInstallationId);
       next.set(key, structuredClone(authority));
+    }
+    // Fence pending launches too: a removed/re-added authority must not revive
+    // a launch that had not created its worker or view yet.
+    for (const [key, previous] of this.#authorities) {
+      const current = next.get(key);
+      if (!current || current.digest !== previous.digest || current.runtimeInstanceId !== previous.runtimeInstanceId
+        || !authorityStampsEqual(current.authority, previous.authority)) {
+        this.#advanceGeneration(previous.spaceId, previous.appId, previous.featureInstallationId);
+        this.#clearPendingStorageEvent(key);
+        this.#storageLastEmittedAt.delete(key);
+        this.#notifications.closeApp(previous, previous.digest);
+      }
     }
     this.#authorities.clear();
     for (const [key, authority] of next) this.#authorities.set(key, authority);
-    const invalidatedScopes = new Map<string, { spaceId: string; appId: string }>();
-    for (const instance of [...this.#instances.values(), ...this.#uiInstances.values()]) {
-      if (!this.#persistentAuthorityMatches(instance.app)) {
-        invalidatedScopes.set(appScopeKey(instance.app.spaceId, instance.app.manifest.id), {
-          spaceId: instance.app.spaceId,
-          appId: instance.app.manifest.id,
-        });
-      }
-    }
-    for (const scope of invalidatedScopes.values()) this.#advanceGeneration(scope.spaceId, scope.appId);
     for (const instance of [...this.#instances.values()]) {
       if (!this.#persistentAuthorityMatches(instance.app)) void this.#destroy(instance);
     }
@@ -287,7 +293,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     } catch (error) {
       throw new RestrictedAppError("INPUT_INVALID", errorMessage(error));
     }
-    const generation = this.#generation(app.spaceId, app.manifest.id);
+    const generation = this.#generation(app.spaceId, app.manifest.id, app.featureInstallationId);
     const instance = await this.#instance(app, generation);
     try {
       this.#assertLaunchCurrent(app, generation);
@@ -349,7 +355,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     const effectivePrincipal = automationEffectivePrincipal(event.effectivePrincipal, event.reason, app.principalId);
     const { effectivePrincipal: _hostPrincipal, ...rendererEvent } = event;
     assertBoundedJson(rendererEvent, "Restricted app automation event", maxInvocationBytes);
-    const generation = this.#generation(app.spaceId, app.manifest.id);
+    const generation = this.#generation(app.spaceId, app.manifest.id, app.featureInstallationId);
     const instance = await this.#instance(app, generation);
     if (signal?.aborted) {
       await this.#destroy(instance);
@@ -395,7 +401,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
   ): Promise<{ mounted: true; digest: string }> {
     this.#assertOpen();
     const request = parseUiMountRequest(value);
-    const generation = this.#generation(app.spaceId, app.manifest.id);
+    const generation = this.#generation(app.spaceId, app.manifest.id, app.featureInstallationId);
     const key = uiMountKey(owner.id, request.mountId);
     const current = this.#uiInstances.get(key);
     if (current) {
@@ -513,7 +519,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       this.#emitUiState(instance, "ready");
       return { mounted: true, digest: app.digest };
     } catch (error) {
-      const invalidated = this.#closed || this.#generation(app.spaceId, app.manifest.id) !== generation;
+      const invalidated = this.#closed || this.#generation(app.spaceId, app.manifest.id, app.featureInstallationId) !== generation;
       await this.#destroyUi(instance, invalidated ? "stopped" : "crashed", invalidated ? undefined : safeRendererError(error));
       if (error instanceof RestrictedAppError) throw error;
       throw new RestrictedAppError("APP_ERROR", `Restricted app UI could not start: ${safeRendererError(error)}`);
@@ -539,25 +545,39 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       .map((instance) => this.#destroyUi(instance, "stopped")));
   }
 
-  async stop(spaceId: string, appId: string, digest?: string): Promise<void> {
-    this.#advanceGeneration(spaceId, appId);
-    this.#notifications.closeApp({ spaceId, appId }, digest);
-    this.#clearPendingStorageEvent(spaceId, appId);
-    this.#storageLastEmittedAt.delete(storageEventKey(spaceId, appId));
+  async stop(spaceId: string, appId: string, digest?: string, featureInstallationId?: string): Promise<void> {
+    const matches = (item: { spaceId: string; appId: string; digest: string; featureInstallationId: string }) =>
+      item.spaceId === spaceId && item.appId === appId && (!digest || item.digest === digest)
+      && (!featureInstallationId || item.featureInstallationId === featureInstallationId);
+    const scopes = new Map<string, { spaceId: string; appId: string; featureInstallationId: string }>();
+    const capture = (item: { spaceId: string; appId: string; digest: string; featureInstallationId: string }) => {
+      if (matches(item)) scopes.set(appScopeKey(item.spaceId, item.appId, item.featureInstallationId), item);
+    };
+    for (const authority of this.#authorities.values()) capture(authority);
+    for (const launch of this.#launches.values()) capture(launch);
+    for (const instance of [...this.#instances.values(), ...this.#uiInstances.values()]) {
+      capture({ ...instance.app, appId: instance.app.manifest.id });
+    }
+    for (const [key, scope] of scopes) {
+      this.#advanceGeneration(scope.spaceId, scope.appId, scope.featureInstallationId);
+      this.#clearPendingStorageEvent(key);
+      this.#storageLastEmittedAt.delete(key);
+    }
+    this.#notifications.closeApp({ spaceId, appId, ...(featureInstallationId ? { featureInstallationId } : {}) }, digest);
     const workerDisposals: Promise<void>[] = [];
     for (const instance of [...this.#instances.values()]) {
-      if (instance.app.spaceId !== spaceId || instance.app.manifest.id !== appId || (digest && instance.app.digest !== digest)) continue;
+      if (!matches({ ...instance.app, appId: instance.app.manifest.id })) continue;
       workerDisposals.push(this.#destroy(instance));
     }
     const uiDisposals: Promise<void>[] = [];
     for (const instance of [...this.#uiInstances.values()]) {
-      if (instance.app.spaceId !== spaceId || instance.app.manifest.id !== appId || (digest && instance.app.digest !== digest)) continue;
+      if (!matches({ ...instance.app, appId: instance.app.manifest.id })) continue;
       uiDisposals.push(this.#destroyUi(instance, "stopped"));
     }
-    this.#clearPendingStorageEvent(spaceId, appId);
+    for (const key of scopes.keys()) this.#clearPendingStorageEvent(key);
     await Promise.all([...workerDisposals, ...uiDisposals]);
     const launching = [...this.#launches.values()]
-      .filter((item) => item.spaceId === spaceId && item.appId === appId)
+      .filter(matches)
       .map((item) => item.promise);
     await Promise.allSettled(launching);
   }
@@ -583,15 +603,15 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     this.#pendingStorageEvents.clear();
     this.#storageLastEmittedAt.clear();
     this.#notifications.dispose();
-    for (const instance of this.#instances.values()) this.#advanceGeneration(instance.app.spaceId, instance.app.manifest.id);
+    for (const instance of this.#instances.values()) this.#advanceGeneration(instance.app.spaceId, instance.app.manifest.id, instance.app.featureInstallationId);
     await Promise.allSettled([...this.#launches.values()].map((item) => item.promise));
     await Promise.allSettled([...this.#instances.values()].map((instance) => this.#destroy(instance)));
     await Promise.allSettled([...this.#uiInstances.values()].map((instance) => this.#destroyUi(instance, "stopped")));
   }
 
   async #instance(app: RestrictedAppRuntimeDescriptor, expectedGeneration: number): Promise<RestrictedAppInstance> {
-    const key = instanceKey(app.spaceId, app.manifest.id, app.digest);
-    const scopeKey = appScopeKey(app.spaceId, app.manifest.id);
+    const key = instanceKey(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId);
+    const scopeKey = appScopeKey(app.spaceId, app.manifest.id, app.featureInstallationId);
     const existing = this.#instances.get(key);
     if (existing && !existing.crashed && !existing.window.isDestroyed() && !existing.window.webContents.isDestroyed()) {
       this.#assertLaunchCurrent(app, expectedGeneration);
@@ -605,17 +625,17 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
         this.#assertLaunchCurrent(app, expectedGeneration);
         return await launching.promise;
       }
-      this.#advanceGeneration(app.spaceId, app.manifest.id);
+      this.#advanceGeneration(app.spaceId, app.manifest.id, app.featureInstallationId);
       await launching.promise.catch(() => undefined);
     }
     for (const instance of [...this.#instances.values()]) {
-      if (instance.app.spaceId === app.spaceId && instance.app.manifest.id === app.manifest.id) await this.#destroy(instance);
+      if (instance.app.featureInstallationId === app.featureInstallationId) await this.#destroy(instance);
     }
     this.#assertLaunchCurrent(app, expectedGeneration);
     const promise = this.#launch(app, key, expectedGeneration).finally(() => {
       if (this.#launches.get(scopeKey)?.promise === promise) this.#launches.delete(scopeKey);
     });
-    this.#launches.set(scopeKey, { spaceId: app.spaceId, appId: app.manifest.id, digest: app.digest, promise });
+    this.#launches.set(scopeKey, { spaceId: app.spaceId, appId: app.manifest.id, digest: app.digest, featureInstallationId: app.featureInstallationId, promise });
     return await promise;
   }
 
@@ -983,6 +1003,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       const result = this.#notifications.show({
         spaceId: instance.app.spaceId,
         appId: instance.app.manifest.id,
+        featureInstallationId: instance.app.featureInstallationId,
         digest: instance.app.digest,
         appTitle: instance.app.manifest.title,
         declarations: instance.app.manifest.permissions.notifications,
@@ -1006,10 +1027,11 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       "view" in instance
       && instance.app.spaceId === source.app.spaceId
       && instance.app.manifest.id === source.app.manifest.id
+      && instance.app.featureInstallationId === source.app.featureInstallationId
       && this.#uiIsActive(instance)
     ));
     if (!hasActiveOwnerView) return;
-    const key = storageEventKey(source.app.spaceId, source.app.manifest.id);
+    const key = appScopeKey(source.app.spaceId, source.app.manifest.id, source.app.featureInstallationId);
     const pending = this.#pendingStorageEvents.get(key);
     const now = Date.now();
     if (pending) {
@@ -1028,13 +1050,13 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     if (reset) keys.clear();
     const lastEmittedAt = this.#storageLastEmittedAt.get(key) ?? 0;
     const delay = Math.max(100, lastEmittedAt + 100 - now);
-    const timer = setTimeout(() => this.#flushStorageChanged(source.app.spaceId, source.app.manifest.id), delay);
+    const timer = setTimeout(() => this.#flushStorageChanged(source.app.spaceId, source.app.manifest.id, source.app.featureInstallationId), delay);
     timer.unref?.();
     this.#pendingStorageEvents.set(key, { revision: mutation.revision, keys, reset, timer });
   }
 
-  #flushStorageChanged(spaceId: string, appId: string): void {
-    const key = storageEventKey(spaceId, appId);
+  #flushStorageChanged(spaceId: string, appId: string, featureInstallationId: string): void {
+    const key = appScopeKey(spaceId, appId, featureInstallationId);
     const pending = this.#pendingStorageEvents.get(key);
     if (!pending) return;
     this.#pendingStorageEvents.delete(key);
@@ -1045,7 +1067,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       reset: pending.reset,
     };
     for (const instance of this.#instancesByWebContents.values()) {
-      if (!("view" in instance) || instance.app.spaceId !== spaceId || instance.app.manifest.id !== appId
+      if (!("view" in instance) || instance.app.spaceId !== spaceId || instance.app.manifest.id !== appId || instance.app.featureInstallationId !== featureInstallationId
         || !this.#uiIsActive(instance)) continue;
       const bounds = instance.view.getBounds();
       if (bounds.width <= 0 || bounds.height <= 0 || instance.view.webContents.isDestroyed()) continue;
@@ -1053,8 +1075,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     }
   }
 
-  #clearPendingStorageEvent(spaceId: string, appId: string): void {
-    const key = storageEventKey(spaceId, appId);
+  #clearPendingStorageEvent(key: string): void {
     const pending = this.#pendingStorageEvents.get(key);
     if (!pending) return;
     clearTimeout(pending.timer);
@@ -1245,24 +1266,24 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     if (this.#closed) throw new RestrictedAppError("APP_UNAVAILABLE", "The restricted app host is closed.");
   }
 
-  #generation(spaceId: string, appId: string): number {
-    return this.#generations.get(appScopeKey(spaceId, appId)) ?? 0;
+  #generation(spaceId: string, appId: string, featureInstallationId: string): number {
+    return this.#generations.get(appScopeKey(spaceId, appId, featureInstallationId)) ?? 0;
   }
 
-  #advanceGeneration(spaceId: string, appId: string): void {
-    const key = appScopeKey(spaceId, appId);
+  #advanceGeneration(spaceId: string, appId: string, featureInstallationId: string): void {
+    const key = appScopeKey(spaceId, appId, featureInstallationId);
     this.#generations.set(key, (this.#generations.get(key) ?? 0) + 1);
   }
 
   #assertLaunchCurrent(app: RestrictedAppRuntimeDescriptor, generation: number): void {
-    if (this.#closed || this.#generation(app.spaceId, app.manifest.id) !== generation) {
+    if (this.#closed || this.#generation(app.spaceId, app.manifest.id, app.featureInstallationId) !== generation) {
       throw new RestrictedAppError("APP_UNAVAILABLE", "The restricted app was stopped before startup completed.");
     }
     this.#assertPersistentAuthority(app);
   }
 
   #persistentAuthorityMatches(app: RestrictedAppRuntimeDescriptor): boolean {
-    const current = this.#authorities.get(appScopeKey(app.spaceId, app.manifest.id));
+    const current = this.#authorities.get(appScopeKey(app.spaceId, app.manifest.id, app.featureInstallationId));
     return Boolean(current
       && current.digest === app.digest
       && current.runtimeInstanceId === app.runtimeInstanceId
@@ -1275,7 +1296,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     assertRestrictedAppEffectAuthority({
       hostOpen: !this.#closed,
       launchGeneration: instance.generation,
-      currentGeneration: this.#generation(app.spaceId, app.manifest.id),
+      currentGeneration: this.#generation(app.spaceId, app.manifest.id, app.featureInstallationId),
       live: !instance.crashed
         && !instance.abortController.signal.aborted
         && this.#instancesByWebContents.get(instance.webContentsId) === instance,
@@ -1656,17 +1677,14 @@ function automationEffectivePrincipal(
   return Object.freeze({ principalId, kind: expectedKind, realm: "local" });
 }
 
-function instanceKey(spaceId: string, appId: string, digest: string): string {
-  return JSON.stringify([spaceId, appId, digest]);
+function instanceKey(spaceId: string, appId: string, digest: string, featureInstallationId: string): string {
+  return JSON.stringify([spaceId, appId, digest, featureInstallationId]);
 }
 
-function appScopeKey(spaceId: string, appId: string): string {
-  return JSON.stringify([spaceId, appId]);
+function appScopeKey(spaceId: string, appId: string, featureInstallationId: string): string {
+  return JSON.stringify([spaceId, appId, featureInstallationId]);
 }
 
-function storageEventKey(spaceId: string, appId: string): string {
-  return JSON.stringify([spaceId, appId]);
-}
 
 function safeRendererError(error: unknown): string {
   const message = errorMessage(error).replace(/(?:[A-Za-z]:)?[\\/][^\s:]+/g, "app code");

@@ -330,7 +330,7 @@ export interface RestrictedAppRuntimeHost {
   }, signal?: AbortSignal): Promise<void>;
   suspend?(): void;
   resume?(): void;
-  stop(spaceId: string, appId: string, digest?: string): Promise<void>;
+  stop(spaceId: string, appId: string, digest?: string, featureInstallationId?: string): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -1390,7 +1390,7 @@ export class RestrictedAppService {
       }
       const packagesByFeature = new Map(packages.map((item) => [item.feature.featureId, item]));
       const current = this.#registry.installations.filter((item) => item.runtimeInstanceId === runtime.runtimeInstanceId);
-      await Promise.all(current.map((app) => this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest)));
+      await Promise.all(current.map((app) => this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId)));
       // Connection reset is a revocation boundary, so remove the predecessor
       // credentials before committing the successor authority. Deferring this
       // cleanup is unsafe for exact-revision resets because the old and new
@@ -1556,7 +1556,7 @@ export class RestrictedAppService {
           "retained-data record",
         );
       }
-      await Promise.all(apps.map((app) => this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest)));
+      await Promise.all(apps.map((app) => this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId)));
       await Promise.all(apps.map((app) => this.#invalidateOAuthApp(app)));
       const timestamp = this.#now().toISOString();
       const previouslyRetained = this.#registry.retainedData.filter((item) => item.runtimeInstanceId === runtimeInstanceId);
@@ -1740,7 +1740,7 @@ export class RestrictedAppService {
       }
       if (staged.digest !== expectedDigest) throw new RestrictedAppError("REVISION_CHANGED", "The package changed while it was being staged.");
       if (existing) {
-        await this.#runtimeHost?.stop(input.spaceId, existing.manifest.id, existing.digest);
+        await this.#runtimeHost?.stop(input.spaceId, existing.manifest.id, existing.digest, existing.featureInstallationId);
         await this.#invalidateOAuthApp(existing);
       }
       const timestamp = this.#now().toISOString();
@@ -1821,7 +1821,7 @@ export class RestrictedAppService {
       if (input.expectedDigest !== undefined && digestValue(input.expectedDigest) !== existing.digest) {
         throw new RestrictedAppError("REVISION_CHANGED", "The installed app revision changed. Refresh before removing it.");
       }
-      await this.#runtimeHost?.stop(input.spaceId, appId, existing.digest);
+      await this.#runtimeHost?.stop(input.spaceId, appId, existing.digest, existing.featureInstallationId);
       await this.#invalidateOAuthApp(existing);
       const timestamp = this.#now().toISOString();
       await this.#writeRegistry({
@@ -1859,7 +1859,7 @@ export class RestrictedAppService {
         || this.#registry.runtimeInstances.some((item) => item.kind === "development" && item.spaceId === spaceId)
         || this.#registry.operations.some((item) => item.targetSpaceId === spaceId);
       if (!removed.length && !hasContext) return;
-      await Promise.all(removed.map((app) => this.#runtimeHost?.stop(spaceId, app.manifest.id, app.digest)));
+      await Promise.all(removed.map((app) => this.#runtimeHost?.stop(spaceId, app.manifest.id, app.digest, app.featureInstallationId)));
       await Promise.all(removed.map((app) => this.#invalidateOAuthApp(app)));
       const timestamp = this.#now().toISOString();
       const project = sourceProject;
@@ -1933,7 +1933,7 @@ export class RestrictedAppService {
       }
       if (credential.kind === "oauth2-pkce") throw new RestrictedAppError("INPUT_INVALID", "OAuth tokens can be created only by work-fold's browser sign-in flow.");
       if (!destination.auth.some((item) => item.kind === credential.kind)) throw new RestrictedAppError("AUTH_REQUIRED", "This connection type is not accepted by the app revision.");
-      await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest);
+      await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId);
       const authorized = await this.#advanceInstalledAuthority(app, ["connectionGeneration"]);
       const authorizeEffect = () => this.#assertInstalledAuthority(authorized);
       await this.#invalidateOAuthDestination(authorized, destination, authorizeEffect);
@@ -1952,7 +1952,7 @@ export class RestrictedAppService {
       const app = this.#installed(input.spaceId, input.appId, input.expectedDigest);
       const destination = app.manifest.permissions.network.find((item) => item.id === input.destinationId);
       if (!destination) return false;
-      await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest);
+      await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId);
       const authorized = await this.#advanceInstalledAuthority(app, ["connectionGeneration"]);
       const authorizeEffect = () => this.#assertInstalledAuthority(authorized);
       const oauthRemoved = await this.#invalidateOAuthDestination(authorized, destination, authorizeEffect);
@@ -1977,7 +1977,7 @@ export class RestrictedAppService {
       throw new RestrictedAppError("AUTH_REQUIRED", "This app destination does not declare OAuth browser sign-in.");
     }
     try {
-      await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest);
+      await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId);
       const authorized = await this.#mutate(async () => {
         const current = this.#installed(input.spaceId, input.appId, input.expectedDigest);
         return await this.#advanceInstalledAuthority(current, ["connectionGeneration"]);
@@ -2057,7 +2057,7 @@ export class RestrictedAppService {
       };
       if (!input.enabled) this.#syncAutomation(next, declaration);
       try {
-        if (!input.enabled) await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest);
+        if (!input.enabled) await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId);
         await this.#writeRegistry({
           ...this.#registry,
           installations: this.#registry.installations.map((item) => item === existing ? next : item),
@@ -2264,7 +2264,7 @@ export class RestrictedAppService {
     return await this.#mutate(async () => {
       const app = this.#installed(spaceId, appId, expectedDigest);
       if (!this.#storage) throw new RestrictedAppError("APP_UNAVAILABLE", "Restricted app storage requires the work-fold desktop host.");
-      await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest);
+      await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId);
       await this.#advanceInstalledAuthority(app, ["dataGeneration"]);
       const owner = storageOwnerFromEntry(app, this.#registry.localIdentity);
       const usage = await this.#storage.usage(owner);
@@ -2313,7 +2313,7 @@ export class RestrictedAppService {
       }
       const usage = await this.#storage.usage(owner);
       if (usage.revision !== input.expectedRevision) throw new RestrictedAppError("REVISION_CHANGED", "App data changed. Review it again before restoring.");
-      await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest);
+      await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId);
       await this.#advanceInstalledAuthority(app, ["dataGeneration"]);
       return await this.#storage.replaceData(owner, {
         appDigest: app.digest, expectedRevision: input.expectedRevision,
@@ -2386,7 +2386,7 @@ export class RestrictedAppService {
       const currentlyGranted = app.networkGrants.includes(destination.id);
       if (currentlyGranted === granted) return app;
       const existing = this.#registry.installations.find((item) => item.spaceId === app.spaceId && item.manifest.id === app.manifest.id)!;
-      await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest);
+      await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId);
       const next: RestrictedAppRegistryEntry = {
         ...existing,
         authority: advanceAuthorityStamp(existing.authority, ["grantGeneration"]),
@@ -2431,7 +2431,7 @@ export class RestrictedAppService {
           throw new RestrictedAppError("FILE_DENIED", errorMessage(error));
         }
       }
-      await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest);
+      await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId);
       const next: RestrictedAppRegistryEntry = {
         ...existing,
         authority: advanceAuthorityStamp(existing.authority, ["grantGeneration"]),
@@ -2458,7 +2458,7 @@ export class RestrictedAppService {
       const currentlyGranted = app.notificationGrants.includes(permission.id);
       if (currentlyGranted === granted) return app;
       const existing = this.#registry.installations.find((item) => item.spaceId === app.spaceId && item.manifest.id === app.manifest.id)!;
-      await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest);
+      await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId);
       const next: RestrictedAppRegistryEntry = {
         ...existing,
         authority: advanceAuthorityStamp(existing.authority, ["grantGeneration"]),
