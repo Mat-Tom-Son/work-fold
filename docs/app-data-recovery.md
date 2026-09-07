@@ -1,6 +1,6 @@
 # App data export and recovery
 
-Implemented and verified in the 0.4.23 source candidate.
+Implemented and verified in work-fold 0.4.23.
 
 In **Add → Apps**, open the app's details. **Export data** downloads its complete
 instance-owned JSON data. **Restore…** accepts a backup of the same installation

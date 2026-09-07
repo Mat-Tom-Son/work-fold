@@ -1,9 +1,9 @@
 # Apps and the fold: implementation plan
 
-Status: implementation and live integration verified for the 0.4.23 source
-candidate, merged onto main; publication follows the Mac release gates. Historical
-progress entries below preserve what was pending at each stage. The final
-acceptance record supersedes those earlier pending-test statements.
+Status: complete and published in 0.4.23, with the production bridge deployed.
+The repository is consolidated onto main. Historical progress entries preserve
+what was pending at each stage; the final acceptance and publication records
+supersede those earlier pending statements.
 
 The intended journey is a Space app that helps with real work, can ask its
 Space Assistant to do a bounded task, shows the resulting files and Checks,
@@ -687,3 +687,24 @@ complete. The existing Applications bundle is unchanged. Both candidate runs
 were quit; normal-profile Purchasing QA and Delivery QA remain as synthetic
 examples. The Check is clear, no routing/schedule or real order was created,
 and existing non-QA Spaces and root authority were preserved.
+
+
+## Publication and handoff
+
+Release `v0.4.23` published September 7 at 08:28 UTC from
+`da0bb6cd5b3eceeb6957f75cdd46b2c7103b73f8`, after exact main/tag CI, Developer ID
+signing, hardened-runtime verification, app and DMG notarization/stapling,
+Gatekeeper acceptance, strict artifact verification and eight matching remote
+asset digests. Distribution timings: preparation 29 seconds, app packaging and
+notarization 4m 11s, DMG finalization 2m 11s, strict verification 5 seconds.
+The saved release status was compatible with no remaining stages before the
+post-publication documentation commit. Logs: `/tmp/workfold-0423-distribution.log`,
+`/tmp/workfold-0423-publication.log`, `/tmp/workfold-0423-release-status.json`.
+
+Railway deployment `73e8aa12-5467-404e-ad8c-6170a2323a85` is successful; public
+health and exact browser-source bytes were verified. The local paired browser
+and loopback bridge were closed. All feature branches were verified merged and
+removed, leaving main locally and on the active source remote. The installed
+`/Applications/work-fold.app` remains 0.4.22 and its protected newer-data startup
+flow visibly offers 0.4.23 with **Download and Install**. That final installation
+click belongs to the user. See [the release record](releases/README.md).

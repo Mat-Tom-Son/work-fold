@@ -1,6 +1,6 @@
 # App-requested Assistant work
 
-Implemented and verified in the 0.4.23 source candidate. Automated Pi tool-loop,
+Implemented and verified in work-fold 0.4.23. Automated Pi tool-loop,
 native review/restart, and an actual configured-model comparison task passed.
 See [integration evidence](apps-fold-workflows.md).
 

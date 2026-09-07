@@ -4,11 +4,23 @@ The [public Mac feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/rele
 is the authority for the newest available desktop update. A source tag or
 release-note file alone does not mean a version was published.
 
-## September 7, 2026 release candidate
+## September 7, 2026 release record
 
-[0.4.23](work-fold-0.4.23.md) completes the Space-app and web-fold integration
-work. Its source candidate is ready for exact-main/tag CI and signed publication;
-the public feed above remains authoritative for release availability.
+[0.4.23](work-fold-0.4.23.md) is [published](https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/tag/v0.4.23).
+Release source: `da0bb6cd5b3eceeb6957f75cdd46b2c7103b73f8`.
+[Main CI](https://github.com/Mat-Tom-Son/work-fold/actions/runs/34099439746)
+and [tag CI](https://github.com/Mat-Tom-Son/work-fold/actions/runs/34099870878)
+passed for that exact SHA. The signed/notarized arm64 distribution passed strict
+verification and all eight GitHub asset digests matched before publication.
+The updater ZIP SHA-256 is
+`874d138953cbaac94a1a52602147555fd1fd8c142a5d83d4c0d0652b94ca7bbd`.
+
+The production Railway bridge deployment
+`73e8aa12-5467-404e-ad8c-6170a2323a85` succeeded. Its health endpoint reported ready,
+and the deployed browser entrypoint, app view, API-path helper and file preview
+matched committed bytes. The installed Applications copy remains 0.4.22;
+its newer-data recovery screen successfully offered 0.4.23 with **Download and
+Install**. The user reserved that click: replacement and relaunch are not claimed.
 
 ## September 6, 2026 release record
 
