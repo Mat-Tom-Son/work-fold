@@ -1,3 +1,4 @@
+import { RestrictedAppCheckAccess } from "./RestrictedAppCheckAccess";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   Add16Regular,
@@ -214,10 +215,12 @@ export function RestrictedAppsSection({
 function restrictedAppAccessState(app: RestrictedAppInstalled): { enabled: boolean; label: string; total: number } {
   const total = app.manifest.permissions.network.length
     + app.manifest.permissions.files.length
+    + (app.manifest.permissions.checks?.length ?? 0)
     + app.manifest.permissions.notifications.length
     + app.manifest.automations.length;
   const enabled = app.networkGrants.length
     + app.fileGrants.length
+    + (app.checkGrants?.length ?? 0)
     + app.notificationGrants.length
     + app.automations.filter((automation) => automation.enabled).length;
   if (!total) return { enabled: false, label: "No access requested", total };
@@ -263,6 +266,7 @@ export function RestrictedAppReviewDialog({ review, sourcePath, updating, busy, 
   const dialogRef = useModalDialog({ onClose, blocked: busy, initialFocusRef: cancelRef });
   const requestedAuthorityCount = review.manifest.permissions.network.length
     + review.manifest.permissions.files.length
+    + (review.manifest.permissions.checks?.length ?? 0)
     + review.manifest.permissions.notifications.length
     + review.manifest.automations.length;
   return <div className="modal-backdrop capability-dialog-backdrop" role="presentation" onMouseDown={onClose}>
@@ -311,6 +315,9 @@ function ReviewDeclarations({ review }: { review: RestrictedAppReview }) {
     <ReviewAuthorityGroup icon={<ShieldCheckmark20Regular />} title="Space files" summary={review.manifest.permissions.files.length ? `${review.manifest.permissions.files.length} ${review.manifest.permissions.files.length === 1 ? "file choice" : "file choices"} declared` : "None requested"} startsOff={Boolean(review.manifest.permissions.files.length)}>
       {review.manifest.permissions.files.length ? <div className="restricted-app-authority-items">{review.manifest.permissions.files.map((permission) => <article key={permission.id}><strong>{permission.access === "read-write" ? "Read and write" : "Read"} a {permission.target} you choose</strong><span>work-fold blocks every path until you choose one.</span></article>)}</div> : null}
     </ReviewAuthorityGroup>
+    {review.manifest.permissions.checks?.length ? <ReviewAuthorityGroup icon={<ShieldCheckmark20Regular />} title="Check results" summary={`${review.manifest.permissions.checks.length} choices requested`} startsOff>
+      <div className="restricted-app-authority-items">{review.manifest.permissions.checks.map((permission) => <article key={permission.id}><strong>{permission.title}</strong><span>Read status and findings from a Check you choose.</span></article>)}</div>
+    </ReviewAuthorityGroup> : null}
     <ReviewAuthorityGroup icon={<Alert20Regular />} title="Notifications" summary={review.manifest.permissions.notifications.length ? `${review.manifest.permissions.notifications.length} fixed ${review.manifest.permissions.notifications.length === 1 ? "notification" : "notifications"} declared` : "None requested"} startsOff={Boolean(review.manifest.permissions.notifications.length)}>
       {review.manifest.permissions.notifications.length ? <div className="restricted-app-authority-items">{review.manifest.permissions.notifications.map((permission) => <article key={permission.id}><strong>work-fold · {review.manifest.title} — {permission.title}</strong><span>{permission.description}</span></article>)}</div> : null}
     </ReviewAuthorityGroup>
@@ -613,6 +620,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
   const accessSummary = [
     { label: "Network", enabled: app.networkGrants.length, total: app.manifest.permissions.network.length },
     { label: "Space files", enabled: app.fileGrants.length, total: app.manifest.permissions.files.length },
+    ...(app.manifest.permissions.checks?.length ? [{ label: "Check results", enabled: app.checkGrants?.length ?? 0, total: app.manifest.permissions.checks.length }] : []),
     { label: "Notifications", enabled: app.notificationGrants.length, total: app.manifest.permissions.notifications.length },
     { label: "Automations", enabled: app.automations.filter((automation) => automation.enabled).length, total: app.manifest.automations.length },
   ];
@@ -625,7 +633,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
         <section className="restricted-app-access-overview" aria-label="App access overview">
           <div className="restricted-app-access-overview-heading">
             <ShieldCheckmark20Regular aria-hidden="true" />
-            <div><strong>{access.enabled ? access.label : "Access is off"}</strong><p>Each destination, file choice, notification, and automation is controlled separately.</p></div>
+            <div><strong>{access.enabled ? access.label : "Access is off"}</strong><p>Each permission and automation is controlled separately.</p></div>
           </div>
           <div className="restricted-app-access-overview-counts">
             {accessSummary.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.enabled}/{item.total}</strong></div>)}
@@ -662,6 +670,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
             onChange={(root, granted) => void changeFileGrant(permission, root, granted)}
           />)}
         </section>
+        {app.manifest.permissions.checks?.length ? <RestrictedAppCheckAccess key={`${app.featureInstallationId}:${app.digest}`} app={app} busy={Boolean(actionBusy) || busy || fixtureMode} onAppChanged={onAppChanged} onError={onError} /> : null}
         <section className="restricted-app-connections" aria-labelledby="restricted-app-notifications-title">
           <div className="restricted-app-connections-heading"><div><Alert20Regular aria-hidden="true" /><h3 id="restricted-app-notifications-title">Notifications</h3></div></div>
           {!app.manifest.permissions.notifications.length ? <p>This app declares no notifications.</p> : app.manifest.permissions.notifications.map((permission) => {

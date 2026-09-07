@@ -117,6 +117,12 @@ async function runSmoke() {
       },
     });
     host = new RestrictedAppHost({
+      readCheckResult: async (spaceId, checkId, declarationDigest) => {
+        assert.equal(spaceId, "ws-electron-smoke");
+        assert.equal(checkId, "smoke-check");
+        assert.equal(declarationDigest, "c".repeat(64));
+        return { checkId, declarationDigest, title: "Smoke Check", state: "never-run", lastRunAt: null, findings: [], truncated: false };
+      },
       connections,
       networkBroker,
       storage,
@@ -141,6 +147,7 @@ async function runSmoke() {
       artifactDigest: receipt.artifactDigest,
       manifest: receipt.manifest,
       networkGrants: ["escape", "principal-probe", "late-effect"],
+      checkGrants: [{ permissionId: "review", checkId: "smoke-check", declarationDigest: "c".repeat(64) }],
       fileGrants: [{ id: "exports", declarationId: "exports", root: "exports", access: "read-write" }],
       notificationGrants: ["automation-update", "post-return", "suspend-probe"],
       automations: [{ id: "smoke-automation", enabled: true }],
@@ -363,6 +370,8 @@ async function runSmoke() {
     assert.match(parent.contentView.children[0]?.webContents.getURL() ?? "", /^agent-app:/);
     const originalContents = parent.contentView.children[0].webContents;
     assert.equal(await storage.get(storageOwner, "ui-notification-denied"), true);
+    assert.deepEqual(await storage.get(storageOwner, "check-read"), { checkId: "smoke-check", declarationDigest: "c".repeat(64), title: "Smoke Check", state: "never-run", lastRunAt: null, findings: [], truncated: false });
+    assert.equal(await storage.get(storageOwner, "check-undeclared-denied"), true);
     await storage.transaction(storageOwner, {
       set: Array.from({ length: 128 }, (_, index) => ({ key: "seed-" + String(index).padStart(3, "0"), value: index })),
     });
@@ -407,6 +416,7 @@ async function runSmoke() {
     assert.deepEqual(await storage.get(storageOwner, "inactive-powers"), {
       fileDenied: true,
       networkDenied: true,
+      checkDenied: true,
     });
     assert.equal(hits, 0, "an inactive app view must not retain file or network powers");
     await host.runAutomation(descriptor, automationEvent("2026-07-13T00:02:00.000Z", "resume", {
@@ -605,10 +615,16 @@ bridge.context.onChanged(async (next) => {
   if (next.active) return;
   let fileDenied = false;
   let networkDenied = false;
+  let checkDenied = false;
   try { await bridge.files.read({ grantId: "exports", path: "smoke.txt", encoding: "utf8" }); } catch { fileDenied = true; }
   try { await bridge.request({ destinationId: "escape", method: "GET", path: "/escape" }); } catch { networkDenied = true; }
-  await bridge.storage.set("inactive-powers", { fileDenied, networkDenied });
+  try { await bridge.checks.read({ permissionId: "review" }); } catch { checkDenied = true; }
+  await bridge.storage.set("inactive-powers", { fileDenied, networkDenied, checkDenied });
 });
+await bridge.storage.set("check-read", await bridge.checks.read({ permissionId: "review" }));
+let undeclaredCheckDenied = false;
+try { await bridge.checks.read({ permissionId: "other" }); } catch (error) { undeclaredCheckDenied = error.code === "CHECK_DENIED"; }
+await bridge.storage.set("check-undeclared-denied", undeclaredCheckDenied);
 let uiNotificationDenied = false;
 try { await bridge.notifications.show({ permissionId: "automation-update" }); } catch { uiNotificationDenied = true; }
 await bridge.storage.set("ui-notification-denied", uiNotificationDenied);
@@ -636,6 +652,10 @@ export async function handleAction(action, input) {
   if (action === "instance") return { token: workerInstanceToken, value: await globalThis.workFoldRestrictedApp.storage.get("instance-value") };
   if (action === "signal") { await globalThis.workFoldRestrictedApp.storage.set("automation", { peerSignal: true }); return true; }
   if (action === "notification") {
+    let checkDenied = false;
+    try { await globalThis.workFoldRestrictedApp.checks.read({ permissionId: "review" }); }
+    catch (error) { checkDenied = error instanceof Error && error.code === "CHECK_DENIED"; }
+    if (!checkDenied) throw new Error("A worker must not read Check results.");
     let actionNotificationDenied = false;
     try { await globalThis.workFoldRestrictedApp.notifications.show({ permissionId: "automation-update" }); }
     catch { actionNotificationDenied = true; }
@@ -671,7 +691,7 @@ export async function handleAction(action, input) {
   let brokerDenied = false;
   try {
     await globalThis.workFoldRestrictedApp.request({ destinationId: "mail-api", method: "GET", path: "/messages" });
-  } catch { brokerDenied = true; }
+  } catch (error) { brokerDenied = error instanceof Error && error.code === "NETWORK_DENIED"; }
   return {
     echoed: input.text,
     nodeGlobalsAbsent: typeof process === "undefined" && typeof require === "undefined" && typeof Buffer === "undefined",
@@ -801,6 +821,7 @@ function smokeManifest(loopbackPort) {
       overlap: "skip",
     }],
     permissions: {
+      checks: [{ id: "review", title: "Smoke Check" }],
       files: [{ id: "exports", target: "directory", access: "read-write" }],
       notifications: [
         { id: "automation-update", title: "Automation update", description: "New sandboxed app data is ready." },

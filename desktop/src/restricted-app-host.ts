@@ -1,3 +1,4 @@
+import { readRestrictedAppCheck, RestrictedAppCheckError, type RestrictedAppCheckReader } from "../../src/local/agent/restricted-app-checks.js";
 import { withSpaceHistoryOperation } from "../../src/local/space.js";
 import { randomUUID } from "node:crypto";
 import { extname, posix } from "node:path";
@@ -63,6 +64,7 @@ const tabCommandChannel = "work-fold:restricted-app:tabs";
 const contextChannel = "work-fold:restricted-app:context";
 const storageChannel = "work-fold:restricted-app:storage";
 const storageChangedChannel = "work-fold:restricted-app:storage-changed";
+const checksChannel = "work-fold:restricted-app:checks";
 const filesChannel = "work-fold:restricted-app:files";
 const notificationsChannel = "work-fold:restricted-app:notifications";
 const indexPath = "/__work-fold/index.html";
@@ -74,6 +76,7 @@ const defaultInvocationTimeoutMs = 5_000;
 const workerIdleTimeoutMs = 30_000;
 
 export interface RestrictedAppHostOptions {
+  readCheckResult?: RestrictedAppCheckReader;
   connections: RestrictedAppConnectionStore;
   preloadPath: string;
   invocationTimeoutMs?: number;
@@ -217,7 +220,10 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
   #notificationsSuspended = false;
   #closed = false;
 
+  readonly #readCheckResult?: RestrictedAppCheckReader;
+
   constructor(options: RestrictedAppHostOptions) {
+    this.#readCheckResult = options.readCheckResult;
     this.#connections = options.connections;
     this.#preloadPath = options.preloadPath;
     this.#invocationTimeoutMs = options.invocationTimeoutMs ?? defaultInvocationTimeoutMs;
@@ -246,6 +252,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     this.#maxNetworkEnvelopeBytes = restrictedAppNetworkEnvelopeBytes(this.#network.limits.maxRequestBytes);
     ipcMain.handle(networkChannel, (event, value) => this.#handleNetwork(event, value));
     ipcMain.handle(storageChannel, (event, value) => this.#handleStorage(event, value));
+    ipcMain.handle(checksChannel, (event, value) => this.#handleChecks(event, value));
     ipcMain.handle(filesChannel, (event, value) => this.#handleFiles(event, value));
     ipcMain.handle(notificationsChannel, (event, value) => this.#handleNotification(event, value));
     ipcMain.handle(tabCommandChannel, (event, value) => this.#handleTabCommand(event, value));
@@ -600,6 +607,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     ipcMain.removeHandler(networkChannel);
     ipcMain.removeHandler(storageChannel);
     ipcMain.removeHandler(filesChannel);
+    ipcMain.removeHandler(checksChannel);
     ipcMain.removeHandler(notificationsChannel);
     ipcMain.removeHandler(tabCommandChannel);
     for (const event of this.#pendingStorageEvents.values()) clearTimeout(event.timer);
@@ -947,6 +955,24 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
         ? error.code
         : "STORAGE_FAILED";
       return hostError(code, errorMessage(error));
+    }
+  }
+
+  async #handleChecks(event: IpcMainInvokeEvent, value: unknown): Promise<unknown> {
+    const instance = this.#ownedPowerInstance(event.sender, ipcFromMainFrame(event));
+    if (!instance || "window" in instance || !this.#readCheckResult) return hostError("CHECK_DENIED", "Check results require an active app view.");
+    try {
+      const lease = this.#captureEffectLease(instance);
+      const result = await readRestrictedAppCheck({
+        spaceId: instance.app.spaceId,
+        declarations: instance.app.manifest.permissions.checks ?? [],
+        grants: instance.app.checkGrants ?? [],
+        read: this.#readCheckResult,
+        assertCurrent: () => this.#assertEffectLease(lease),
+      }, jsonEnvelope(value, 1024, "Check"));
+      return { ok: true, value: result };
+    } catch (error) {
+      return hostError(error instanceof RestrictedAppCheckError || error instanceof RestrictedAppError ? error.code : "CHECK_UNAVAILABLE", errorMessage(error));
     }
   }
 

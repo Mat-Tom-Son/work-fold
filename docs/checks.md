@@ -359,3 +359,17 @@ callback is not exposed as an HTTP or remote command. Integration coverage
 uses this actual desktop composition for trials, live runs, and correction
 rechecks; injecting a synthetic reviewer into the service alone is insufficient
 to prove packaged desktop wiring.
+
+## Selected results in Space apps
+
+Restricted apps may declare named Check-result choices. A person maps each
+choice to one exact declaration id/digest from that installation's Space in the
+Apps access controls. The runtime read projection uses the same Check service,
+operation reservation, registration/target checks, freshness and evidence
+admission as desktop Checks. It re-verifies only the selected Check's targets,
+never calls a sensor, and returns no other Check's findings, run records,
+provider details, transcript, corrections, or general file authority. Changed
+or unavailable declarations refuse; disabled/sensor-blocked Checks are blocked.
+Stale, running and error outcomes carry no findings. Results include explicit
+truncation with at most 64 findings and 256 KiB. Granting result access does not
+enable or run a Check. See [app authoring](restricted-app-authoring.md#selected-check-results).

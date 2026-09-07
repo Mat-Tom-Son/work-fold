@@ -1,3 +1,5 @@
+import type { RestrictedAppCheckGrant } from "../../shared/restricted-app-checks.js";
+import type { RestrictedAppCheckReader } from "./restricted-app-checks.js";
 import { randomUUID } from "node:crypto";
 import { Buffer } from "node:buffer";
 import { existsSync } from "node:fs";
@@ -127,6 +129,7 @@ export interface RestrictedAppInstalled extends RestrictedAppReview {
   authority: Readonly<AuthorityStamp>;
   networkGrants: string[];
   fileGrants: RestrictedAppFileGrant[];
+  checkGrants?: RestrictedAppCheckGrant[];
   notificationGrants: string[];
   automations: RestrictedAppAutomationState[];
   installedAt: string;
@@ -336,6 +339,7 @@ export interface RestrictedAppRuntimeHost {
 
 export interface RestrictedAppServiceOptions {
   rootPath: string;
+  readCheckResult?: RestrictedAppCheckReader;
   runtimeHost?: RestrictedAppRuntimeHost;
   connections?: RestrictedAppConnectionStore;
   storage?: FileRestrictedAppStorage;
@@ -521,6 +525,7 @@ interface RestrictedAppRegistryEntry {
   manifest: RestrictedAppManifest;
   networkGrants: string[];
   fileGrants: RestrictedAppFileGrant[];
+  checkGrants?: RestrictedAppCheckGrant[];
   notificationGrants: string[];
   automations: RestrictedAppAutomationRegistryState[];
   automationRuns: RestrictedAppAutomationRegistryReceipt[];
@@ -531,6 +536,7 @@ interface RestrictedAppRegistryEntry {
 }
 
 export class RestrictedAppService {
+  readonly #readCheckResult?: RestrictedAppCheckReader;
   readonly #rootPath: string;
   readonly #catalogListeners = new Set<() => void>();
   readonly #registryPath: string;
@@ -553,6 +559,7 @@ export class RestrictedAppService {
   #closed = false;
 
   private constructor(options: RestrictedAppServiceOptions, registry: RestrictedAppRegistryFile) {
+    this.#readCheckResult = options.readCheckResult;
     this.#rootPath = resolve(options.rootPath);
     this.#registryPath = join(this.#rootPath, "registry.json");
     this.#stagingPath = join(this.#rootPath, "staged");
@@ -1488,6 +1495,7 @@ export class RestrictedAppService {
           manifest: structuredClone(target.receipt.manifest),
           networkGrants: exactContinuity ? existing.networkGrants : [],
           fileGrants: exactContinuity ? existing.fileGrants : [],
+          checkGrants: exactContinuity ? existing.checkGrants : undefined,
           notificationGrants: exactContinuity ? existing.notificationGrants : [],
           automations: exactContinuity
             ? existing.automations
@@ -2017,6 +2025,31 @@ export class RestrictedAppService {
 
   async revokeNetwork(input: { spaceId: string; appId: string; featureInstallationId?: string; expectedDigest: string; destinationId: string }): Promise<RestrictedAppInstalled> {
     return await this.#setNetworkGrant(input, false);
+  }
+
+  async setCheckGrant(input: { spaceId: string; appId: string; featureInstallationId: string; expectedDigest: string; permissionId: string; selection: { checkId: string; declarationDigest: string } | null }): Promise<RestrictedAppInstalled> {
+    return this.#mutate(async () => {
+      parseFeatureInstallationId(input.featureInstallationId);
+      const app = this.#installed(input.spaceId, input.appId, input.expectedDigest, input.featureInstallationId);
+      if (!app.manifest.permissions.checks?.some((permission) => permission.id === input.permissionId)) throw new RestrictedAppError("INPUT_INVALID", "The app did not declare this Check permission.");
+      const currentGrant = app.checkGrants?.find((grant) => grant.permissionId === input.permissionId);
+      if (!input.selection && !currentGrant) return app;
+      const remaining = (app.checkGrants ?? []).filter((grant) => grant.permissionId !== input.permissionId);
+      if (input.selection) {
+        const checkId = nonempty(input.selection.checkId, "Check id", 200);
+        const declarationDigest = digestValue(input.selection.declarationDigest);
+        if (!this.#readCheckResult) throw new RestrictedAppError("APP_UNAVAILABLE", "Check results are unavailable.");
+        const result = await this.#readCheckResult(app.spaceId, checkId, declarationDigest);
+        if (result.checkId !== checkId || result.declarationDigest !== declarationDigest) throw new RestrictedAppError("INPUT_INVALID", "The selected Check changed.");
+        if (currentGrant?.checkId === checkId && currentGrant.declarationDigest === declarationDigest) return app;
+        remaining.push({ permissionId: input.permissionId, title: result.title, checkId, declarationDigest });
+      }
+      const existing = this.#registry.installations.find((item) => item.featureInstallationId === app.featureInstallationId)!;
+      await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId);
+      const next = { ...existing, checkGrants: remaining, authority: advanceAuthorityStamp(existing.authority, ["grantGeneration"]) };
+      await this.#writeRegistry({ ...this.#registry, installations: this.#registry.installations.map((item) => item === existing ? next : item) });
+      return this.#copyInstalled(next);
+    });
   }
 
   async grantFiles(input: { spaceId: string; spaceRoot: string; appId: string; featureInstallationId?: string; expectedDigest: string; permissionId: string; root: string }): Promise<RestrictedAppInstalled> {
@@ -2791,6 +2824,7 @@ export class RestrictedAppService {
         grants: [
           ...entry.networkGrants.map((id) => `network:${id}`),
           ...entry.fileGrants.map((grant) => `file:${grant.declarationId}`),
+          ...(entry.checkGrants ?? []).map((grant) => `check:${grant.permissionId}:${grant.checkId}:${grant.declarationDigest}`),
           ...entry.notificationGrants.map((id) => `notification:${id}`),
         ].sort(),
         connections: connections.sort(),
@@ -3475,7 +3509,7 @@ function registryEntry(value: unknown, index: number): RestrictedAppRegistryEntr
   exactObjectKeys(item, [
     "spaceId", "projectId", "runtimeInstanceId", "runtimeInstanceKind", "releaseDigest",
     "featureInstallationId", "dataNamespaceId", "authority",
-    "packageName", "version", "digest", "artifactDigest", "manifest", "networkGrants", "fileGrants",
+    "packageName", "version", "digest", "artifactDigest", "manifest", "networkGrants", "fileGrants", ...(Object.hasOwn(item, "checkGrants") ? ["checkGrants"] : []),
     "notificationGrants", "automations", "automationRuns", "fileCount", "totalBytes", "installedAt", "updatedAt",
   ], "Restricted app registry entry");
   const common = commonRegistryEntry(value, index);
@@ -3513,6 +3547,16 @@ function commonRegistryEntry(value: unknown, index: number): CommonRegistryEntry
   if (new Set(fileGrants.map((grant) => grant.id)).size !== fileGrants.length) {
     throw new Error("Restricted app registry has invalid file grants.");
   }
+  const checkGrants = item.checkGrants === undefined ? [] : item.checkGrants;
+  if (!Array.isArray(checkGrants) || checkGrants.length > 8) throw new Error("Restricted app Check grants are invalid.");
+  const parsedCheckGrants = checkGrants.map((value) => {
+    const grant = objectValue(value, "Restricted app Check grant");
+    exactObjectKeys(grant, ["permissionId", ...(Object.hasOwn(grant, "title") ? ["title"] : []), "checkId", "declarationDigest"], "Restricted app Check grant");
+    const permissionId = nonempty(grant.permissionId, "Check permission id", 64);
+    if (!manifest.permissions.checks?.some((permission) => permission.id === permissionId)) throw new Error("Restricted app Check grant is undeclared.");
+    return { permissionId, ...(grant.title === undefined ? {} : { title: nonempty(grant.title, "Check title", 160) }), checkId: nonempty(grant.checkId, "Check id", 200), declarationDigest: digestValue(grant.declarationDigest) };
+  });
+  if (new Set(parsedCheckGrants.map((grant) => grant.permissionId)).size !== parsedCheckGrants.length) throw new Error("Restricted app Check grants are duplicated.");
   if (!Array.isArray(item.notificationGrants)) throw new Error("Restricted app registry notification grants are missing.");
   const notificationGrants = item.notificationGrants
     .map((grant) => nonempty(grant, "Restricted app notification grant", 64));
@@ -3547,6 +3591,7 @@ function commonRegistryEntry(value: unknown, index: number): CommonRegistryEntry
     manifest,
     networkGrants,
     fileGrants,
+    ...(parsedCheckGrants.length ? { checkGrants: parsedCheckGrants } : {}),
     notificationGrants,
     automations,
     automationRuns,
@@ -3983,6 +4028,7 @@ function copyInstalled(
     manifest: item.manifest,
     networkGrants: item.networkGrants,
     fileGrants: item.fileGrants,
+    ...(item.checkGrants?.length ? { checkGrants: item.checkGrants } : {}),
     notificationGrants: item.notificationGrants,
     automations: item.automations.map(({ lastScheduledAt: _lastScheduledAt, ...automation }) => automation),
     fileCount: item.fileCount,

@@ -1,4 +1,5 @@
 import { correctionId, normalizeCheckCorrection, readCheckCorrectionProposal, writeCheckCorrection, type CheckCorrectionProposal, type CheckCorrectionRecord } from "./check-corrections.js";
+import { restrictedAppCheckLimits, type RestrictedAppCheckResult } from "../../shared/restricted-app-checks.js";
 import { readCheckTextSnapshot } from "./check-text.js";
 import { createSpaceMutationCheckpoint } from "../history.js";
 import { withSpaceHistoryOperation } from "../space.js";
@@ -428,6 +429,50 @@ export class WorkFoldCheckService {
         corrections: state.corrections ?? [],
         ...problems,
       };
+    });
+  }
+
+  /** Re-verifies only the selected Check's targets. Never runs a sensor. */
+  selectedResult(space: WorkFoldCheckSpaceRef, checkId: string, declarationDigest: string): Promise<RestrictedAppCheckResult> {
+    return this.#withOperationReservation(space.id, async () => {
+      const registered = await this.#registeredSpace(space);
+      const discovered = await discoverWorkFoldCheckDeclarations(registered.spaceRoot);
+      const record = discovered.declarations.find((item) => item.declaration.id === checkId && item.digest === declarationDigest);
+      if (!record) throw new WorkFoldCheckOperationConflictError("The selected Check changed or is unavailable. Choose it again in Apps.");
+      const discovery = { declarations: [record], errors: [] };
+      const state = (await this.#store(registered.id)).snapshot();
+      const problems = await this.#problems(registered, true, checkId, discovery);
+      const status = await this.#status(registered, problems, { discovery, state });
+      const running = [...this.#active.values()].some((run) => run.spaceId === registered.id && run.checkIds.includes(checkId));
+      const result: RestrictedAppCheckResult = {
+        checkId, declarationDigest, title: record.declaration.title,
+        state: !status.enabled || status.blocked ? "blocked"
+          : running ? "running"
+          : status.errors || problems.healthErrors.length ? "check-error"
+          : status.neverRun ? "never-run"
+          : status.stale || !status.current ? "stale"
+          : status.needsAttention ? "needs-attention" : "current-clear",
+        lastRunAt: status.lastRunAt,
+        findings: [],
+        truncated: problems.truncated,
+      };
+      // Health failures cannot leave apparently current cached evidence visible.
+      if (result.state === "current-clear" || result.state === "needs-attention") {
+        for (const finding of problems.findings) {
+          if (result.findings.length >= restrictedAppCheckLimits.findings) { result.truncated = true; break; }
+          result.findings.push({
+            id: finding.id, fingerprint: finding.fingerprint, title: finding.title,
+            ...(finding.detail ? { detail: finding.detail } : {}),
+            ...(finding.remediation ? { suggestion: finding.remediation } : {}),
+            path: finding.targetPath, severity: finding.severity, observedAt: finding.observedAt,
+            quotes: finding.evidence.flatMap((evidence) => evidence.kind === "text-span" ? [evidence.quote] : []),
+          });
+          if (Buffer.byteLength(JSON.stringify(result), "utf8") > restrictedAppCheckLimits.resultBytes - 32) {
+            result.findings.pop(); result.truncated = true; break;
+          }
+        }
+      }
+      return result;
     });
   }
 

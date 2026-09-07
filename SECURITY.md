@@ -205,3 +205,9 @@ Retained-data export checks the owning source Project; adoption remains absent.
 The local authenticated control-event stream carries only invalidation kinds,
 with bounded connections and no event replay or new remote authority. See
 [App data recovery](docs/app-data-recovery.md).
+
+Restricted app Check-result access is separately selected per exact installation
+and Check revision. It shares only that Check's status, bounded finding details,
+relative paths and quoted evidence. It never runs a sensor or contacts a model,
+and grants no general file access. Changed declarations refuse; changed app
+revisions reset selections. Workers and shared viewers cannot read Check results.

@@ -902,3 +902,37 @@ function key(binding: RestrictedAppConnectionBinding): string {
     binding.owner.kind === "instance" ? binding.owner.runtimeInstanceId : binding.owner.principalId,
   ]);
 }
+
+test("desktop Check selection composes the canonical Check service with exact app controls", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-app-selected-check-api-"));
+  const api = await startLocalApi({ port: 0, stateBase: join(sandbox, "state"), spaceBase: join(sandbox, "spaces"), loadEnv: false });
+  try {
+    const { space } = await request<{ space: { id: string; spaceRoot: string } }>(api.origin, "/api/spaces", { method: "POST", body: { name: "Check access" } });
+    const base = `/api/spaces/${space.id}`;
+    await writePackage(join(space.spaceRoot, "app"));
+    const manifestPath = join(space.spaceRoot, "app", "agent-app.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.permissions.checks = [{ id: "review", title: "Handoff review" }];
+    await writeFile(manifestPath, JSON.stringify(manifest));
+    const { review } = await request<{ review: { digest: string } }>(api.origin, `${base}/restricted-apps/inspect`, { method: "POST", body: { sourcePath: "app" } });
+    const { app } = await request<{ app: RestrictedAppInstalled }>(api.origin, `${base}/restricted-apps`, { method: "POST", body: { sourcePath: "app", expectedDigest: review.digest } });
+    const check = await request<{ declaration: { id: string }; digest: string }>(api.origin, `${base}/checks/configure`, { method: "POST", body: { proposal: {
+      kind: "work-fold.check-proposal", version: 1, name: "Handoff", createdBy: "human", createdAt: "2026-09-06T00:00:00.000Z",
+      check: { title: "Handoff exists", severity: "error", trigger: "manual", sensor: { id: "work-fold.file-presence", revision: 1, parameters: { expect: "present" } }, targets: [{ kind: "file", role: "primary", path: "handoff.txt" }] },
+    } } });
+    const path = `${base}/restricted-apps/mail-app/permissions/checks/review`;
+    const body = { featureInstallationId: app.featureInstallationId, expectedDigest: app.digest, checkId: check.declaration.id, declarationDigest: check.digest };
+    const allowed = await request<{ app: RestrictedAppInstalled }>(api.origin, path, { method: "PUT", body });
+    assert.equal(allowed.app.checkGrants?.[0]?.checkId, check.declaration.id);
+    const { overview } = await request<{ overview: { status: { enabled: number; running: number }; findings: unknown[] } }>(api.origin, `${base}/checks/overview`, { method: "POST", body: {} });
+    assert.equal(overview.status.enabled, 0, "selecting results does not enable the Check");
+    assert.equal(overview.status.running, 0);
+    assert.deepEqual(overview.findings, []);
+    for (const invalid of [{ ...body, featureInstallationId: undefined }, { ...body, declarationDigest: "0".repeat(64) }, { ...body, checkId: "foreign" }]) {
+      const response = await fetch(`${api.origin}${path}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(invalid) });
+      assert.equal(response.ok, false);
+    }
+    const revoked = await request<{ app: RestrictedAppInstalled }>(api.origin, path, { method: "DELETE", body });
+    assert.deepEqual(revoked.app.checkGrants ?? [], []);
+  } finally { await api.close(); await rm(sandbox, { recursive: true, force: true }); }
+});

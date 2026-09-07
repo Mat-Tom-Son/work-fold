@@ -212,11 +212,12 @@ verified installed bytes become a new ordinary source-Space working copy with
 History, machine-local provenance, and a draft Chat. Preview proposals carry an
 exact predecessor guard. Release installation/update remains the existing
 separately reviewed lifecycle. Build-Chat and exact installed-target navigation
-are available in app details; source-Space preview-placement work remains open.
+are available in app details; a source-Space preview and installed Release remain independent.
 
 The first placement rule is intentionally small: at most one local App Instance
-exists for a `(projectId, target Space)` pair, and no target Space may already
-contain a Development preview or installed Feature with the same `featureId`.
+exists for a `(projectId, target Space)` pair. Its same-Project Development
+preview may coexist there; a different Project cannot contribute the same
+`featureId` in that Space.
 The App Instance is attached to the target Space for navigation and file-grant
 eligibility, while its Release bytes, mutable data, grants, connections,
 schedules, operation journals, and receipts stay in work-fold application data.

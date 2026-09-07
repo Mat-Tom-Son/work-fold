@@ -151,3 +151,8 @@ Open **Checks** from Files or the command palette, then **Tell the fold what to 
 Ask the fold to prepare a routing for a folder you name. A reviewed folder-change trigger combines stable edits with debounce and cooldown; its steps can wait for a Chat in one Space, copy that turn's outputs, then start a Chat or Check in another. Inspect and manage it in **Settings → The fold → Routings**. The awake desktop observes only the selected folder/types. Observation pauses during routing work and starts from a fresh baseline after work, sleep, or restart; edits during those pauses do not queue another run. See [Routings](docs/fold-routings.md) and [Checks](docs/checks.md).
 
 History now previews the files a restore will write/remove and refuses changes that its safety checkpoint cannot recover. Nested registered Spaces and excluded descendants are protected; relinking a moved folder on this computer preserves its History. History remains bounded local recovery, not a substitute for an independent backup.
+
+On the development branch, Space apps can declare Check-result choices. Select
+one in the app's access controls to share its current status and verified
+findings; this does not enable or run the Check. See [selected Check
+results](docs/restricted-app-authoring.md#selected-check-results).

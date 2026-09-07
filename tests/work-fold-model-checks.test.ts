@@ -58,7 +58,16 @@ test("model Check snapshots explicit text, admits exact quotes, records cost and
   assert.equal(result.cost?.model, "test/model");
   assert.equal((await f.service.overview(f.space)).checks[0]?.execution, "model");
   assert.equal((await f.service.status(f.space)).state, "needs-attention");
+  const selectedCheck = (await f.service.overview(f.space)).checks[0]!;
+  const selectedRead = () => f.service.selectedResult(f.space, selectedCheck.id, selectedCheck.digest!);
+  const selected = await selectedRead();
+  assert.equal(selected.state, "needs-attention");
+  assert.deepEqual(selected.findings[0]?.quotes, ["Always guaranteed."]);
+  assert.equal("cost" in selected, false);
+  assert.equal("context" in selected.findings[0]!, false);
   await writeFile(join(f.root, "reference.md"), "Totally supported.\n");
+  assert.equal((await selectedRead()).state, "stale");
+  assert.deepEqual((await selectedRead()).findings, []);
   assert.equal((await f.service.status(f.space)).state, "stale");
   assert.equal((await f.service.problems(f.space)).findings.length, 0);
   assert.equal(calls, 1);

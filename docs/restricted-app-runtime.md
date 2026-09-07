@@ -186,7 +186,9 @@ The `work-fold.restricted-app-bridge` preload exposes only the frozen
 - `request(...)` sends a declared request through the network broker;
 - `storage` provides Tenant-and-Data-Namespace-owned JSON data and active-UI
   invalidation hints;
-- `files` lists, reads, or writes only through current reviewed grants; and
+- `files` lists, reads, or writes only through current reviewed grants;
+- `checks.read` returns locally re-verified results from one explicitly selected
+  Check revision in the owning Space, only in an active visible desktop view; and
 - `notifications.show({ permissionId })` selects reviewed static copy, only
   during an enabled automation invocation whose permission subset includes a
   separately granted category; and
@@ -514,3 +516,21 @@ operations, separate from the restricted runtime bridge.
 
 
 History restore holds an inverse automation-launch reservation as well as checking existing active jobs. A queued automation rechecks that reservation after its durable acceptance and before host invocation. Restricted-app file writes hold the shared History ownership reservation through safety capture and atomic commit; a replacement whose prior content could not be captured is refused. These are conflict controls, not new grants or schema fields.
+
+## Selected Check authority
+
+Optional reviewed Check-result slots map to machine-local exact Check id/digest
+selections on a Feature Installation. Their changes advance grant authority and
+stop stale views; the broker rechecks the native sender and its current effect
+lease after re-verification. A runtime request contains only a permission id.
+Workers and shared viewers have no Check-result lane. Installation starts with
+no selections; changed revisions reset them and exact unchanged release updates
+may retain them through the visible continuity plan. The existing Check service
+owns the bounded projection and never runs a sensor while reading. See
+[the authoring contract](restricted-app-authoring.md#selected-check-results).
+
+The native bridge transfers asynchronous outcomes as plain data and constructs
+public Errors in the app's JavaScript world. This preserves `error.code`, which
+Electron drops from Error objects copied across isolated contexts. The transport
+is captured through the context bridge and never installed as a raw window API;
+all sender, size, schema and effect checks remain in the authoritative host.

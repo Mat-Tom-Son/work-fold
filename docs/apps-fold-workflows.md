@@ -261,3 +261,56 @@ preserving separate data. The second Space kept its original 1.0.3 app and empty
 data. The walkthrough caught an obsolete remove-preview instruction, which was
 removed. The isolated app is quit. This completes the Change this app slice;
 real Assistant execution and the remaining full-goal work are still pending.
+
+## Progress: selected Check results and native errors
+
+Apps can declare up to eight named Check-result choices. The Apps access dialog
+maps each to one exact Check id/digest from the owning Space, with a short
+confirmation describing the content shared. Default-off grants are installation
+bound, advance grant authority, reset with changed app bytes, and participate
+in reviewed exact-revision Release continuity. The runtime broker accepts only
+a permission id from an active visible app view, derives identity from its
+sender, and fences the response after awaited re-verification. Workers,
+automations and shared viewers cannot read this surface.
+
+The existing Check service now provides a selected projection that re-verifies
+only that Check’s targets. It distinguishes blocked, never-run, running, stale,
+error, clear and attention, with no findings in stale/unhealthy states. It never
+runs a sensor, enables the Check or sends content to a model. Results exclude
+other Checks, transcripts, raw run/provider records and correction authority.
+They are bounded to 64 findings and 256 KiB with explicit truncation.
+
+Native testing found that Electron stripped custom `Error.code` values across
+the context bridge. The preload now transfers plain outcomes through captured
+functions and reconstructs Errors in the app world, without installing a raw
+transport API. Real Electron coverage verifies stable Check and network denial
+codes, active UI reads, undeclared-slot refusal, inactive-view and worker denial.
+
+Verification: `npm run check`, `npm test` (1,123 passed; one Windows-only skip)
+and `npm run desktop:prepare` pass. Focused tests cover exact selections,
+cross-Space/mismatched identity refusal, no model-on-read, changed reference
+invalidations, update/reset/restart/revoke, API composition and authenticated
+renderer pins. Logs: `/tmp/workfold-app-check-access-final-check.log`,
+`/tmp/workfold-app-check-access-tests.log`,
+`/tmp/workfold-app-check-access-final-desktop.log`.
+
+Live QA installed the synthetic Check Results QA app in the existing isolated
+profile. A desktop-selected file-presence Check showed denied access first,
+blocked before enablement, never-run after explicit CLI enablement, attention
+after a missing-file run, stale with findings removed after a harness file edit,
+and clear only after an explicit rerun. Desktop revocation destroyed the old
+view and later reads returned CHECK_DENIED. The picker named the chosen Check;
+the walkthrough also prompted adding Check results to the compact access counts.
+The test app is quit. No real model turn occurred in this deterministic fixture.
+The context checklist remains open for app-owned task progress; bounded Assistant
+delegation, fold/browser results, approved web actions, full integration and
+release remain pending.
+
+Final Check-access retest: restart preserved revocation and the live app returned
+CHECK_DENIED. The access summary now includes Check results (0/1 in that test).
+Same-selection grant retries revalidate the Check and preserve authority without
+restarting the view; focused service/API tests pass. Final logs:
+`/tmp/workfold-app-check-access-final-tests.log` (1,123 passed, one skip),
+`/tmp/workfold-app-check-idempotence.log` (seven passed),
+`/tmp/workfold-app-check-access-complete-check.log`, and
+`/tmp/workfold-app-check-access-complete-desktop.log`.

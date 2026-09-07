@@ -1,3 +1,4 @@
+import type { RestrictedAppCheckGrant, RestrictedAppCheckPermission } from "../../src/shared/restricted-app-checks";
 import type { AccentIdentity, SpaceAppearanceState } from "../../src/shared/space-appearance";
 import type {
   WorkFoldCheckDecisionKind,
@@ -534,6 +535,7 @@ export interface RestrictedAppManifest {
   permissions: {
     network: RestrictedAppNetworkDestination[];
     files: RestrictedAppFilePermission[];
+    checks?: RestrictedAppCheckPermission[];
     notifications: RestrictedAppNotificationPermission[];
   };
   viewer?: RestrictedAppViewerDeclaration;
@@ -563,6 +565,7 @@ export interface RestrictedAppInstalled extends RestrictedAppReview {
   authority: AppPlatformAuthorityStamp;
   networkGrants: string[];
   fileGrants: RestrictedAppFileGrant[];
+  checkGrants?: RestrictedAppCheckGrant[];
   notificationGrants: string[];
   automations: RestrictedAppAutomationState[];
   installedAt: string;

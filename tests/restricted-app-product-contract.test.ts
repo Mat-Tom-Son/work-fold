@@ -75,7 +75,7 @@ test("Assistant tools owns access, connection, and lifecycle management without 
   assert.match(apps, /Automations/);
   assert.match(apps, /Local app data/);
   assert.match(apps, /App access overview/);
-  assert.match(apps, /Each destination, file choice, notification, and automation is controlled separately/);
+  assert.match(apps, /Each permission and automation is controlled separately/);
   assert.match(apps, /<h3 id="restricted-app-notifications-title">Notifications<\/h3>/);
   assert.doesNotMatch(apps, /Windows notifications|Windows notification settings/);
   assert.match(apps, /work-fold · \{app\.manifest\.title\} — \{permission\.title\}/);

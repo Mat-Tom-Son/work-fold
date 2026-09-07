@@ -181,3 +181,9 @@ An explicitly enabled folder-change routing scans metadata only for its named fo
 ### Check proposal and correction review
 
 Fold-led setup stages an unsent draft and materializes inert Check proposals. One-time trials use exact reviewed declarations, can transmit designated text to the configured model provider, and never grant standing authority or replace live findings. Passive fold attention starts no agent turn. Corrections retain bounded proposed replacement text in machine-local Check state. Applying is a separate human action that re-verifies primary/reference evidence, preserves exact original bytes in History, journals before writing, and refuses stale or repeated application. An interrupted correction is recorded as failed and never replayed automatically. Space removal purges the same primary/backup Check state, including corrections. See [Checks](docs/checks.md).
+
+Restricted app Check-result access is separately selected per exact installation
+and Check revision. It shares only that Check's status, bounded finding details,
+relative paths and quoted evidence. It never runs a sensor or contacts a model,
+and grants no general file access. Changed declarations refuse; changed app
+revisions reset selections. Workers and shared viewers cannot read Check results.

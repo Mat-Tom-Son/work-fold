@@ -429,7 +429,14 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
     // API's routing executor subscribes to the same instance.
     const settleSignal = new WorkFoldSettleSignal();
     let restrictedApps!: RestrictedAppService;
+    let checks!: WorkFoldCheckService;
+    const readCheckResult = async (spaceId: string, checkId: string, declarationDigest: string) => {
+      const space = (await listSpaces()).find((item) => item.id === spaceId);
+      if (!space || !checks) throw new Error("The Check's Space is unavailable.");
+      return checks.selectedResult(space, checkId, declarationDigest);
+    };
     const restrictedRuntime = new RestrictedAppHost({
+      readCheckResult,
       connections: restrictedConnections,
       oauth: restrictedOAuth,
       storage: restrictedStorage,
@@ -463,6 +470,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
     try {
       restrictedApps = await RestrictedAppService.create({
         rootPath: restrictedAppRoot(),
+        readCheckResult,
         runtimeHost: restrictedRuntime,
         connections: restrictedConnections,
         oauth: restrictedOAuth,
@@ -494,7 +502,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       const spaceTrustAuthority = new RegisteredSpaceTrustAuthority((await listSpaces()).map((space) => space.spaceRoot));
       const runtimeProvider = new RegisteredSpaceRuntimeProvider(runtime, spaceTrustAuthority);
       const kernel = new WorkFoldKernel({ runtimeProvider });
-      const checks = createDesktopCheckService({ kernel, settleSignal, getLocalApi: ensureInteractiveLocalApi });
+      checks = createDesktopCheckService({ kernel, settleSignal, getLocalApi: ensureInteractiveLocalApi });
       const cli = new WorkFoldDesktopCliHost({
       stateRoot: userData,
       kernel: new WorkFoldCliKernelAdapter(kernel, {

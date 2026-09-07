@@ -741,6 +741,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   };
   const restrictedApps = options.restrictedAppService ?? await RestrictedAppService.create({
     rootPath: restrictedAppRoot(),
+    readCheckResult: async (spaceId, checkId, digest) => checks.selectedResult(await getSpace(spaceId), checkId, digest),
     deferAutomationStart: true,
   });
   if (options.restrictedAppService?.automationsStarted) {
@@ -1659,6 +1660,20 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
           permissionId: restrictedFileGrantMatch[3],
           featureInstallationId: body.featureInstallationId, expectedDigest: body.expectedDigest!,
         }));
+    sendJson(res, { app });
+    return;
+  }
+
+  const restrictedCheckGrantMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/restricted-apps\/([^/]+)\/permissions\/checks\/([^/]+)$/);
+  if (restrictedCheckGrantMatch && (method === "PUT" || method === "DELETE")) {
+    const space = await getSpace(restrictedCheckGrantMatch[1]);
+    const body = await readJsonBody<{ featureInstallationId?: string; expectedDigest?: string; checkId?: string; declarationDigest?: string }>(state, req);
+    if (typeof body.featureInstallationId !== "string" || typeof body.expectedDigest !== "string") throw badRequest("An exact app installation and revision are required.");
+    if (method === "PUT" && (typeof body.checkId !== "string" || typeof body.declarationDigest !== "string")) throw badRequest("Choose an exact Check revision.");
+    const app = await runRestrictedAppMutation(state, space.id, () => state.restrictedApps.setCheckGrant({
+      spaceId: space.id, appId: restrictedCheckGrantMatch[2], featureInstallationId: body.featureInstallationId!, expectedDigest: body.expectedDigest!,
+      permissionId: restrictedCheckGrantMatch[3], selection: method === "PUT" ? { checkId: body.checkId!, declarationDigest: body.declarationDigest! } : null,
+    }));
     sendJson(res, { app });
     return;
   }

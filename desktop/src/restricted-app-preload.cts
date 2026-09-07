@@ -5,6 +5,7 @@ const tabCommandChannel = "work-fold:restricted-app:tabs";
 const contextChannel = "work-fold:restricted-app:context";
 const storageChannel = "work-fold:restricted-app:storage";
 const storageChangedChannel = "work-fold:restricted-app:storage-changed";
+const checksChannel = "work-fold:restricted-app:checks";
 const filesChannel = "work-fold:restricted-app:files";
 const notificationsChannel = "work-fold:restricted-app:notifications";
 const maximumFileEnvelopeBytes = 800 * 1024;
@@ -144,7 +145,7 @@ ipcRenderer.on(storageChangedChannel, (_event, value: unknown) => {
   }
 });
 
-contextBridge.exposeInMainWorld("workFoldRestrictedApp", Object.freeze({
+const appBridge = Object.freeze({
   request: networkRequest,
   network: Object.freeze({ request: networkRequest }),
   storage: Object.freeze({
@@ -160,6 +161,9 @@ contextBridge.exposeInMainWorld("workFoldRestrictedApp", Object.freeze({
       storageListeners.add(listener);
       return () => storageListeners.delete(listener);
     },
+  }),
+  checks: Object.freeze({
+    read: (request: { permissionId: string }) => invokeHost(checksChannel, request, 1024, "CHECK_UNAVAILABLE"),
   }),
   files: Object.freeze({
     list: (request: unknown) => fileRequest("list", request),
@@ -184,7 +188,48 @@ contextBridge.exposeInMainWorld("workFoldRestrictedApp", Object.freeze({
     update: (tab: { title: string; route: string; state?: unknown }) => ipcRenderer.invoke(tabCommandChannel, { type: "update", ...tab }),
     close: () => ipcRenderer.invoke(tabCommandChannel, { type: "close" }),
   }),
-}));
+});
+
+// Error custom properties do not survive Electron's context bridge. Carry a
+// plain outcome across it, then construct the public Error in the app world.
+// No raw IPC function or transport object is installed on window.
+const synchronousBridgePaths = ["context.get", "context.onChanged", "limits.get", "storage.onChanged"];
+function bridgeTransport(value: unknown, path = ""): unknown {
+  if (typeof value === "function") {
+    if (synchronousBridgePaths.includes(path)) return value;
+    return async (...args: unknown[]) => {
+      try { return { ok: true, value: await value(...args) }; }
+      catch (caught) {
+        const error = caught as { code?: unknown; message?: unknown } | null;
+        return { ok: false, error: { code: typeof error?.code === "string" ? error.code : "APP_ERROR", message: typeof error?.message === "string" ? error.message : "App request failed." } };
+      }
+    };
+  }
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, bridgeTransport(item, path ? `${path}.${key}` : key)]));
+}
+contextBridge.executeInMainWorld({
+  args: [bridgeTransport(appBridge), synchronousBridgePaths],
+  func: (transport: Record<string, unknown>, synchronous: string[]) => {
+    const ErrorConstructor = Error;
+    const defineProperty = Object.defineProperty;
+    const freeze = Object.freeze;
+    const sync = new Set(synchronous);
+    const rebuild = (value: unknown, path = ""): unknown => {
+      if (typeof value === "function") {
+        if (sync.has(path)) return value;
+        return async (...args: unknown[]) => {
+          const outcome = await value(...args);
+          if (outcome.ok) return outcome.value;
+          const error = new ErrorConstructor(outcome.error.message);
+          defineProperty(error, "code", { value: outcome.error.code, enumerable: true });
+          throw error;
+        };
+      }
+      return freeze(Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, rebuild(item, path ? `${path}.${key}` : key)])));
+    };
+    defineProperty(globalThis, "workFoldRestrictedApp", { value: rebuild(transport), writable: false, configurable: false });
+  },
+});
 
 if (argumentValue("mode") === "ui") {
   const blockFileAccess = (event: Event) => {

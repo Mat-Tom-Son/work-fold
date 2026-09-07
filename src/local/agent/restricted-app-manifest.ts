@@ -1,3 +1,4 @@
+import { restrictedAppCheckLimits, type RestrictedAppCheckPermission } from "../../shared/restricted-app-checks.js";
 import { isIP } from "node:net";
 import { extname, posix } from "node:path";
 
@@ -201,6 +202,7 @@ export interface RestrictedAppManifest {
   permissions: {
     network: RestrictedAppNetworkDeclaration[];
     files: RestrictedAppFileDeclaration[];
+    checks?: RestrictedAppCheckPermission[];
     notifications: RestrictedAppNotificationDeclaration[];
   };
   automations: RestrictedAppAutomationDeclaration[];
@@ -287,7 +289,7 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
   assertUnique(tools.map((tool) => tool.name), "Restricted app tool name");
   assertUnique(tools.map((tool) => tool.action), "Restricted app tool action");
 
-  const permissions = objectValue(manifest.permissions, "Restricted app permissions", ["network", "files", "notifications"]);
+  const permissions = objectValue(manifest.permissions, "Restricted app permissions", ["network", "files", "notifications", "checks"]);
   const network = arrayValue(permissions.network, "Restricted app network permissions", 0, 16)
     .map((destination, index) => parseNetworkDestination(destination, index));
   assertUnique(network.map((destination) => destination.id), "Restricted app network permission id");
@@ -301,6 +303,12 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
     : arrayValue(permissions.notifications, "Restricted app notification permissions", 0, 8)
       .map((declaration, index) => parseNotificationDeclaration(declaration, index));
   assertUnique(notifications.map((declaration) => declaration.id), "Restricted app notification permission id");
+
+  const checks = permissions.checks === undefined ? [] : arrayValue(permissions.checks, "Restricted app Check permissions", 0, restrictedAppCheckLimits.permissions).map((value) => {
+    const item = objectValue(value, "Restricted app Check permission", ["id", "title"]);
+    return { id: idValue(item.id, "Restricted app Check permission id"), title: notificationTextValue(item.title, "Restricted app Check permission title", 80) };
+  });
+  assertUnique(checks.map((item) => item.id), "Restricted app Check permission id");
 
   const description = optionalStringValue(manifest.description, "Restricted app description", 280);
   const automations = arrayValue(manifest.automations, "Restricted app automations", 0, 16)
@@ -331,7 +339,7 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
       ...(cornerRadius !== undefined ? { cornerRadius } : {}),
     },
     tools,
-    permissions: { network, files, notifications },
+    permissions: { network, files, notifications, ...(checks.length ? { checks } : {}) },
     automations,
     ...(viewer ? { viewer } : {}),
   };

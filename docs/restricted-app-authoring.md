@@ -63,9 +63,9 @@ Use **Open App Studio** when the reviewed preview is ready to install as an App:
    preview changed since preparation, publishing fails and a new Release must be
    prepared.
 4. Choose a registered target Space, prepare the install, then activate it. The
-   target cannot already contain a Development preview or installed App Feature
-   with the same id, and only one instance of this Project can be attached to
-   that Space.
+   target may contain the same Project’s Development preview, with separate
+   data and controls. A different Project cannot contribute the same Feature id,
+   and only one installed instance of this Project can be attached to that Space.
 5. Configure the Installed Release's destinations, file roots, notifications,
    connections, and named automations in the Apps tab. None transfer from the
    preview and all begin off.
@@ -384,7 +384,8 @@ code never sets or reads an authorization secret.
 
 ### App storage and invalidation hints
 
-Storage is machine-local and keyed by Space and app id:
+Storage is machine-local and keyed by the host-owned Tenant and Data Namespace.
+A preview and installed Release have separate storage, even in the same Space:
 
 ```js
 const usage = await bridge.storage.usage();
@@ -455,6 +456,43 @@ selected Space target.
 For a declaration whose target is one exact `file`, use `path: "."` to read or
 replace that selected file. Exact-file grants cannot list children or create a
 different filename; `mode: "replace"` is the only permitted write mode.
+
+### Selected Check results
+
+An optional `permissions.checks` array declares up to eight named choices:
+
+```json
+"checks": [{ "id": "quote-review", "title": "Quote review" }]
+```
+
+The person selects an exact Check revision in **Apps → Review access → Check
+results**. This is a separate grant; declaring a slot grants no access. A
+selection includes status, finding details, Space-relative paths and quoted
+evidence from that Check. It grants no run, decision, correction, or general
+file authority, and does not enable or run the Check.
+
+```js
+try {
+  const result = await bridge.checks.read({ permissionId: "quote-review" });
+  renderCheck(result);
+} catch (error) {
+  showStatus(error.code === "CHECK_DENIED" ? "Choose a Check in Apps." : "Check unavailable. Review its selection in Apps.");
+}
+```
+
+Only an active visible desktop app view can read results. Workers, automations
+and shared viewers cannot. The app cannot supply a Space or Check id. The host
+re-verifies the selected Check's evidence locally, without a model request.
+States distinguish `never-run`, `running`, `stale`, `blocked`, `check-error`,
+`current-clear` and `needs-attention`; stale or unhealthy results carry no
+findings. Results include `checkId`, `declarationDigest`, `title`, `lastRunAt`,
+`findings` and `truncated`. Each finding has identity/fingerprint, title, optional
+detail/suggestion, path, severity, observation time and exact quotations.
+Results are bounded to 64 findings and 256 KiB; `truncated` must remain visible.
+Treat model findings as suggestions. A changed Check requires selecting it again.
+Changed app bytes reset these grants; an exact unchanged Release update can
+retain them through its reviewed continuity plan. Revocation fences in-flight
+reads before results reach the app.
 
 ## Worker tools and automations
 
@@ -719,6 +757,7 @@ Common codes are:
   `FILE_FAILED`;
 - storage: `STORAGE_INVALID`, `STORAGE_QUOTA`, `STORAGE_CONFLICT`,
   `STORAGE_CORRUPT`, `STORAGE_UNSAFE`, `STORAGE_FAILED`;
+- selected Checks: `CHECK_DENIED`, `CHECK_UNAVAILABLE`;
 - notifications: `NOTIFICATION_DENIED`, `NOTIFICATION_FAILED`; and
 - worker/tool lifecycle: `ACTION_UNKNOWN`, `INPUT_INVALID`, `OUTPUT_INVALID`,
   `APP_TIMEOUT`, `APP_CRASHED`, `APP_ERROR`, `APP_UNAVAILABLE`, and

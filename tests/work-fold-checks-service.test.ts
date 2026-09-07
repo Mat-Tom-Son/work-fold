@@ -573,3 +573,52 @@ async function waitForCondition(predicate: () => boolean): Promise<void> {
   }
   throw new Error("Timed out waiting for condition.");
 }
+
+test("selected Check results reverify one pinned declaration without running sensors or disclosing sibling Checks", async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-selected-check-"));
+  const root = join(sandbox, "Space");
+  await mkdir(root);
+  const space = { id: "space-selected", spaceRoot: root };
+  const service = new WorkFoldCheckService({
+    kernel: new WorkFoldKernel(),
+    storeFactory: (spaceId) => WorkFoldCheckStore.create(spaceId, { path: join(sandbox, `${spaceId}.json`) }),
+    listSpaces: async () => [spaceSummary(space.id, root)],
+  });
+  t.after(() => service.close());
+  const path = join(sandbox, "proposal.json");
+  await writeFile(path, JSON.stringify(proposal));
+  const selected = await service.enable({ space, proposalPath: path, actor: "human" });
+  await writeFile(path, JSON.stringify({ ...proposal, name: "Private unrelated", check: { ...proposal.check, title: "Secret unrelated title", targets: [{ kind: "file", role: "primary", path: "secret.txt" }] } }));
+  const sibling = await service.enable({ space, proposalPath: path, actor: "human" });
+  const read = () => service.selectedResult(space, selected.declaration.id, selected.digest);
+  assert.equal((await read()).state, "never-run");
+  assert.equal((await service.settledRuns(space)).length, 0);
+  const run = await service.run({ space, actor: { kind: "cli", spaceId: space.id } });
+  await waitForTerminal(service, space.id, run.taskId);
+  const result = await read();
+  assert.equal(result.state, "needs-attention");
+  assert.equal(result.findings.length, 1);
+  assert.equal(result.findings[0]?.path, "Delivery/signed.pdf");
+  assert.equal(JSON.stringify(result).includes("secret"), false);
+  assert.equal(JSON.stringify(result).includes(sibling.declaration.id), false);
+  assert.equal("spaceRoot" in result, false);
+  assert.equal("inputs" in result, false);
+  await mkdir(join(root, "Delivery"));
+  await writeFile(join(root, "Delivery", "signed.pdf"), "signed");
+  const stale = await read();
+  assert.equal(stale.state, "stale");
+  assert.deepEqual(stale.findings, []);
+  const rerun = await service.run({ space, checkId: selected.declaration.id, actor: { kind: "cli", spaceId: space.id } });
+  await waitForTerminal(service, space.id, rerun.taskId);
+  assert.equal((await read()).state, "current-clear");
+  await service.disable(space, selected.declaration.id);
+  assert.equal((await read()).state, "blocked");
+  await assert.rejects(service.selectedResult({ ...space, spaceRoot: sandbox }, selected.declaration.id, selected.digest));
+  await assert.rejects(service.selectedResult(space, selected.declaration.id, "0".repeat(64)), /changed or is unavailable/);
+  const declarationPath = join(root, ".work-fold", "checks", `${selected.declaration.id}.json`);
+  const declaration = JSON.parse(await readFile(declarationPath, "utf8"));
+  declaration.title = "Changed rubric identity";
+  await writeFile(declarationPath, JSON.stringify(declaration));
+  await assert.rejects(read(), /changed or is unavailable/);
+  assert.equal((await service.settledRuns(space)).length, 2, "reads never launch runs");
+});

@@ -29,6 +29,8 @@ test("every desktop app management helper retains its exact installation and rev
   await apps.setRestrictedAppNetworkGrant(app, "api", false);
   await apps.setRestrictedAppFileGrant(app, "quotes", true, "quotes");
   await apps.setRestrictedAppFileGrant(app, "quotes", false);
+  await apps.setRestrictedAppCheckGrant(app, "review", { checkId: "selected", declarationDigest: "b".repeat(64) });
+  await apps.setRestrictedAppCheckGrant(app, "review", null);
   await apps.setRestrictedAppNotificationGrant(app, "ready", true);
   await apps.setRestrictedAppNotificationGrant(app, "ready", false);
   await apps.setRestrictedAppAutomationEnabled(app, "refresh", true);
@@ -45,5 +47,5 @@ test("every desktop app management helper retains its exact installation and rev
   await apps.connectRestrictedAppOAuth(app, "api");
   await apps.deleteRestrictedAppConnection(app, "api");
   await apps.removeRestrictedApp(app);
-  assert.equal(requests.length, 22);
+  assert.equal(requests.length, 24);
 });

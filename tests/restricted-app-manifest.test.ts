@@ -516,3 +516,13 @@ test("viewer declarations are optional, closed, canonical, and pinned determinis
     "the viewer surface is read-only by construction; no writable spelling exists",
   );
 });
+
+test("Check result slots are bounded reviewed choices, never Check ids or run authority", () => {
+  const base = manifest();
+  const withChecks = (checks: unknown) => ({ ...base, permissions: { ...base.permissions, checks } });
+  assert.deepEqual(parseRestrictedAppManifest(withChecks([{ id: "quotes", title: "Quote review" }])).permissions.checks, [{ id: "quotes", title: "Quote review" }]);
+  assert.equal("checks" in parseRestrictedAppManifest(base).permissions, false, "old normalized manifests retain their bytes");
+  for (const checks of [null, [{ id: "quotes", title: "Quote review", checkId: "private" }], [{ id: "quotes", title: "Quote review", run: true }], [{ id: "quotes", title: "x" }, { id: "quotes", title: "y" }], Array.from({ length: 9 }, (_, i) => ({ id: `slot-${i}`, title: "Check" }))]) {
+    assert.throws(() => parseRestrictedAppManifest(withChecks(checks)));
+  }
+});
