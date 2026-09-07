@@ -577,3 +577,32 @@ passed, one Windows-only skip), bridge tests (48 passed), and
 `/tmp/workfold-paired-recovery-desktop.log`. `npm audit --audit-level=high`
 reported zero vulnerabilities. Shared harness parity remains intact: root
 CLAUDE.md imports AGENTS.md and its release Skill is the tracked symlink.
+
+## Progress: live model result and Space-menu refresh
+
+The normal-profile fold created Purchasing QA (`space-b8ef1281f2cf23f2`) and
+Delivery QA (`space-62c210407b6b3754`) using ordinary CLI operations. Its existing
+Unrestricted setting executed the exact test-app installation immediately;
+the setting was preserved, and the isolated profile separately proved Reviewed
+installation. The app-requested comparison still required its explicit native
+Review/Run action. Open Chat dismissed the details dialog correctly. The real
+Space model wrote only `comparison.md`, selected North at $420/four days, and
+returned its successful reply through the app bridge. Retrying returned the
+same task. Durable evidence contains one accepted turn
+`turn-dadbbf58-c0a1-4ae0-bdd5-8f34b7a8ccf3` and checkpoints
+`cp-20260907074830-764fd162` / `cp-20260907074839-3e22d1ea`; the file digest is
+`b9528c39671eb8b24f787adcddd8ca9bf15557e6a004624e9364bb81889993c9`.
+
+The walkthrough also caught a stale desktop Space menu after fold-created
+Spaces. The canonical create/register/rename/removal paths now emit the
+existing content-free control stream's `spaces` hint. The shell refreshes
+bootstrap on that hint and reconnect reset, preserving an existing selection.
+Tests cover act creation, rename, registration, removal with original folder
+bytes preserved, and the shared visible-window subscriber. `npm run check`,
+`npm test` (1,172 passed, one Windows-only skip), and `npm run desktop:prepare`
+with both Electron probes passed. Logs: `/tmp/workfold-space-refresh-check.log`,
+`/tmp/workfold-space-refresh-tests.log`, and
+`/tmp/workfold-space-refresh-desktop.log`. The updated candidate still needs
+live menu verification; the existing signed candidate predates this fix.
+The real fold is now exercising a model Check failure/repair and a bounded
+Delivery QA handoff in task `turn-3f2b8e48-e3cf-417c-9941-2879393e0cbd`.

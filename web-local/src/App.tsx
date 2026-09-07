@@ -23,6 +23,7 @@ import { FileVersionHistoryModal } from "./components/modals/FileVersionHistoryM
 import { KeyboardShortcutsModal } from "./components/modals/KeyboardShortcutsModal";
 import { TextInputModal } from "./components/modals/TextInputModal";
 import { NeedsYouRailControl, useNeedsYouDecisions } from "./components/NeedsYouDecisions";
+import { subscribeControlEvents } from "./lib/control-events";
 import { OnboardingFlow } from "./components/onboarding/OnboardingFlow";
 import { FileDetailsPane } from "./components/panes/FileDetailsPane";
 import { ChecksPane, ChecksToolbarButton } from "./components/panes/ChecksPane";
@@ -142,6 +143,13 @@ export function App() {
       setActiveSpaceId((current) => result.spaces.some((item) => item.id === current) ? current : result.spaces[0]?.id ?? "");
     } catch (caught) { setError(errorText(caught)); }
   }, []);
+
+  useEffect(() => {
+    if (fixtureRequested) return;
+    return subscribeControlEvents((hint) => {
+      if (hint === "spaces" || hint === "reset") void refreshBootstrap();
+    });
+  }, [refreshBootstrap]);
 
   useEffect(() => {
     if (fixtureRequested) {

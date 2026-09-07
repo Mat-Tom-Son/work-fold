@@ -1325,6 +1325,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const body = await readJsonBody<{ name?: string }>(state, req);
     if (!body.name?.trim()) throw badRequest("A Space name is required.");
     sendJson(res, { space: await renameSpace(spaceMatch[1], body.name) });
+    publishControlHint(state, "spaces");
     return;
   }
   if (spaceMatch && method === "DELETE") {
@@ -3389,6 +3390,7 @@ function conversationIdentity(value: unknown): string {
 async function createSpaceInternal(state: LocalApiState, name: string): Promise<SpaceSummary> {
   const space = await createManagedSpace(name, state.spaceBase);
   state.spaceTrustAuthority.grant(space.spaceRoot);
+  publishControlHint(state, "spaces");
   return space;
 }
 
@@ -3399,6 +3401,7 @@ async function registerSpaceInternal(state: LocalApiState, rootPath: string, pro
   // portable identity; the routing stays suspended — registration never
   // silently re-arms standing behavior — so a failure to note it is tolerable.
   await state.routings.handleSpaceReRegistered(space.id).catch(() => undefined);
+  publishControlHint(state, "spaces");
   return space;
 }
 
@@ -3494,6 +3497,7 @@ async function removeSpaceRegistrationInternal(
       return result;
     } finally {
       releaseCheckRemoval();
+      publishControlHint(state, "spaces");
     }
   }, { requiredSpaceIds: [space.id] });
 }
@@ -5153,6 +5157,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         );
       }
       const renamed = await runActOperation(() => renameSpace(space.id, name));
+      publishControlHint(state, "spaces");
       recordFacadeAction(state, input.parentTaskId, { command: "spaces.rename", space: renamed });
       return { space: toActSpaceRef(renamed), priorName: space.name };
     },
@@ -11285,7 +11290,7 @@ function sendJson(res: ServerResponse, payload: unknown, status = 200): void {
 }
 
 /** Content-free hints only. Reconnect always sends reset; no events are replayed. */
-function publishControlHint(state: LocalApiState, type: "apps" | "decisions"): void {
+function publishControlHint(state: LocalApiState, type: "apps" | "decisions" | "spaces"): void {
   for (const response of state.controlStreams) {
     if (response.destroyed || response.writableEnded) continue;
     // A slow renderer must reconnect and requery instead of accumulating a queue.

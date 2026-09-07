@@ -27,9 +27,9 @@ test("control hints share one visible connection and requery after hiding/reopen
   try {
     await settle();
     assert.equal(connections.length, 1);
-    connections[0]!.controller.enqueue(new TextEncoder().encode('data: {"type":"reset"}\n\ndata: {"type":"apps"}\n\ndata: {"type":"unknown"}\n\n'));
+    connections[0]!.controller.enqueue(new TextEncoder().encode('data: {"type":"reset"}\n\ndata: {"type":"apps"}\n\ndata: {"type":"spaces"}\n\ndata: {"type":"unknown"}\n\n'));
     await settle();
-    assert.deepEqual(first, ["reset", "apps"]);
+    assert.deepEqual(first, ["reset", "apps", "spaces"]);
     assert.deepEqual(second, first);
     document.visibilityState = "hidden";
     document.dispatchEvent(new Event("visibilitychange"));
@@ -41,8 +41,8 @@ test("control hints share one visible connection and requery after hiding/reopen
     unsubscribeFirst();
     connections[1]!.controller.enqueue(new TextEncoder().encode('data: {"type":"decisions"}\n\n'));
     await settle();
-    assert.deepEqual(first, ["reset", "apps"]);
-    assert.deepEqual(second, ["reset", "apps", "decisions"]);
+    assert.deepEqual(first, ["reset", "apps", "spaces"]);
+    assert.deepEqual(second, ["reset", "apps", "spaces", "decisions"]);
     unsubscribeSecond();
     assert.equal(connections[1]!.signal.aborted, true);
   } finally {

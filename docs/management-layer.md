@@ -2,11 +2,11 @@
 
 The development desktop also exposes the authenticated renderer-only
 `GET /api/management/control-events` SSE endpoint. Its closed `reset`, `apps`,
-and `decisions` hints contain no content or authority and are not remote act
+`spaces`, and `decisions` hints contain no content or authority and are not remote act
 verbs. Visible renderers share one connection and re-read the relevant service
 after a hint; reconnect sends reset without replay. The host caps connections,
 sends heartbeats, and disconnects backpressured clients instead of queuing
-unbounded updates. This keeps CLI-created decisions and installed-app catalogs
+unbounded updates. This keeps CLI-created Spaces, decisions and installed-app catalogs
 current in the existing UI; it is not a file watcher or workflow event bus.
 
 App act commands accepting `--app` resolve a unique manifest id or an exact
