@@ -1,7 +1,9 @@
 # Apps and the fold: implementation plan
 
-Status: in progress; this document tracks the agreed implementation goal. It
-does not claim that pending capabilities are available in a released build.
+Status: implementation and live integration verified for the 0.4.23 source
+candidate; final merge and publication follow the Mac release gates. Historical
+progress entries below preserve what was pending at each stage. The final
+acceptance record supersedes those earlier pending-test statements.
 
 The intended journey is a Space app that helps with real work, can ask its
 Space Assistant to do a bounded task, shows the resulting files and Checks,
@@ -645,3 +647,43 @@ Type checks and the complete suite passed after the guidance change (1,173
 passed, one Windows-only skip): `/tmp/workfold-review-precision-check.log` and
 `/tmp/workfold-review-precision-tests.log`. Updated signed-candidate menu and
 model checks are the remaining live verification before release preparation.
+
+
+## Final integration acceptance
+
+The updated signed/notarized candidate passed a live external rename while the
+Space menu remained open, and immediately displayed the restored name too.
+Type checks, clean npm installation, 1,173 passing tests (one Windows-only skip),
+and all 48 bridge tests passed. The final bridge rerun caught and corrected an
+old source assertion that omitted the intentional offline refresh guard. Logs:
+`/tmp/workfold-release-final-check.log`, `/tmp/workfold-release-final-tests.log`,
+`/tmp/workfold-release-final-bridge-tests.log`, and
+`/tmp/workfold-final-integration-rc.log`. Audit reported zero vulnerabilities.
+
+The final real-model request `turn-96c75e32-d958-4167-8a55-75366893403d`
+verified old sensor authority was blocked, explicitly re-enabled the named QA
+Check, and obtained baseline clear. Its two defect-review attempts failed on
+missing model titles (`check-run-ccb95201-0167-4b57-8d33-b882cfed664e` and
+`check-run-b8c1c330-3b0e-4f33-b282-9bde4e89c998`). No findings were admitted;
+the app displayed Check error. The host schema and native provider adapter
+retain the required title field. These are observed provider-format failures,
+not proof of improved detection precision. The document was restored to its
+exact initial digest `37bef76fd9e490581797e589b728154f5c4cb685aea733cbf254277cc841cde2`,
+and final run `check-run-8e762016-6713-4e90-912e-fbf58cb5717f` was current-clear,
+also verified from the app's selected-Check bridge. No automatic retry or model
+setting change was introduced. Model findings and availability remain fallible.
+
+The actual Delivery QA comparison and plan were then explicitly copied into the
+isolated paired profile through `files add`, with a restore point. The approved
+390×844 browser opened the real comparison, showing its full table and selected
+North recommendation. Screenshot `output/playwright/paired-real-comparison-phone.png`
+was visually inspected. This proves actual encrypted desktop file preview;
+request-to-file link behavior is separately covered by the native request's
+observed-file records and the inert browser link probe. We did not pair the
+normal profile or copy its credentials into the test profile.
+
+All implementation slices and their automated/native/browser acceptance are
+complete. The existing Applications bundle is unchanged. Both candidate runs
+were quit; normal-profile Purchasing QA and Delivery QA remain as synthetic
+examples. The Check is clear, no routing/schedule or real order was created,
+and existing non-QA Spaces and root authority were preserved.

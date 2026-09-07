@@ -1,6 +1,6 @@
 # Space apps in approved browsers
 
-The app supports private app views to the fold's Spaces
+The fold supports private app views in its Spaces
 screen. Apps appear above the selected Space's files. Opening one shows its
 reviewed web view, the Space and version, Close and Refresh. Apps without a
 reviewed web view say **Desktop only** and explain that limitation when opened.
@@ -128,7 +128,7 @@ stops the app's own request. A timeout says the status is uncertain and asks the
 app to check existing requests before starting another. None of these helpers
 approve work or widen a permission. Shared viewers never install this SDK.
 
-## Remaining implementation
+## Verification
 
 The repeatable isolation probe is
 [`scripts/probes/browser-app.probe.js`](../scripts/probes/browser-app.probe.js).
@@ -146,7 +146,10 @@ review, one outcome on repeated submission, recovered receipts, a 320×568
 layout, and focus restoration. This is an inert browser UI fixture; the service,
 encrypted transport and real Electron worker are tested separately.
 
-Paired desktop/browser acceptance and the real-model
-multi-Space journey remain part of [the active goal](apps-fold-workflows.md).
-The development implementation does not claim a deployed bridge or released
-desktop build.
+Paired desktop/browser acceptance verified an actual worker write, exact
+review, same-request retry, native data parity, restart recovery and offline
+containment. The real-model multi-Space journey independently verified native
+Assistant requests, Check failure/repair, and attributed file handoff. See the
+[integration evidence](apps-fold-workflows.md) for exact records and the
+[Mac feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/latest)
+for publication status.

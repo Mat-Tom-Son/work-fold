@@ -279,8 +279,8 @@ The model submits an exact unique quote for each primary-file finding; the host 
 
 The review prompt judges the stated criteria by meaning, rejects invented stricter
 requirements and wording preferences, and asks the model to check each claim
-against its own quotation. This reduces avoidable complaints but does not make
-model judgment deterministic or guarantee correctness.
+against its own quotation. This guidance aims to avoid unnecessary complaints;
+it does not make model judgment deterministic or guarantee correctness.
 
 The submission schema names every required field and describes the optional
 plain-text suggestion. Missing suggestions must be omitted, never encoded as
