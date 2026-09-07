@@ -157,5 +157,6 @@
   .landing-hero h1 { font-size: 58px; }
   .landing-promise { font-size: 21px; margin-top: 12px !important; }
   .landing-intro { display: none; }
+  .landing-hero-shot { padding-block: 14px 10px; }
   .landing-hero-shot img { width: auto; max-height: calc(100svh - 355px); }
 }
