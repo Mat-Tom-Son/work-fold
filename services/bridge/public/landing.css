@@ -92,7 +92,7 @@
 .landing-colophon a { display: inline-block; padding-block: 8px; text-decoration: none; }
 .landing-colophon a:hover { text-decoration: underline; }
 @media (prefers-color-scheme: dark) {
-  .landing-shell { --landing-paper: #17211c; --landing-ink: #f2f3eb; --landing-muted: #b3c0b7; --landing-line: #3b4b40; --landing-blue: #2478d0; }
+  .landing-shell { --landing-paper: #17211c; --landing-ink: #f2f3eb; --landing-muted: #b3c0b7; --landing-line: #3b4b40; --landing-blue: #1b6dc2; }
   .landing-hero-shot, .landing-web-band { background: #233c3b; }
   .landing-hero-shot figcaption { color: #b3c0b7; }
   .landing-example, .landing-fold-band { background: #25322a; }
