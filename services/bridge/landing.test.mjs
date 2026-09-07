@@ -1,103 +1,123 @@
 import assert from "node:assert/strict";
-import { access, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { JSDOM } from "jsdom";
+import { renderLanding } from "./public/landing.js";
 
-// Static pins over the shipped landing page (public/landing.js). The bridge
-// deploys separately from the desktop, so nothing else keeps this page's
-// structure, its download and source links, or its screenshot paths honest.
-
-async function clientSource(file) {
-  return await readFile(new URL(`./public/${file}`, import.meta.url), "utf8");
+function render(t, { reducedMotion = true, observer } = {}) {
+  const dom = new JSDOM('<div id="app"></div>', { url: "https://www.work-fold.com" });
+  const saved = Object.getOwnPropertyDescriptors(globalThis);
+  globalThis.window = dom.window;
+  globalThis.matchMedia = () => ({ matches: reducedMotion });
+  if (observer) {
+    dom.window.IntersectionObserver = observer;
+    globalThis.IntersectionObserver = observer;
+  }
+  t.after(() => {
+    dom.window.close();
+    for (const key of ["window", "matchMedia", "IntersectionObserver"]) {
+      if (saved[key]) Object.defineProperty(globalThis, key, saved[key]);
+      else delete globalThis[key];
+    }
+  });
+  const app = dom.window.document.querySelector("#app");
+  renderLanding(app);
+  return { app, document: dom.window.document, window: dom.window };
 }
 
-const screenshots = [
-  "/screens/desktop-space.png",
-  "/screens/fold-popover.png",
-  "/screens/web-chat.png",
-  "/screens/web-phone.png",
-];
-
-test("the landing page keeps its product story in order", async () => {
-  const landing = await clientSource("landing.js");
-
-  const titles = [...landing.matchAll(/<h2>([^<]*)<\/h2>/g)].map(([, title]) => title.trim());
-  assert.deepEqual(titles, [
-    "The work stays where it belongs.",
-    "One Assistant above every Space.",
-    "Do it now. Pick it up later.",
-    "Your fold, wherever you are.",
-    "The folder is the handoff.",
-    "Put an Assistant where the work lives.",
-  ]);
-
-  assert.match(landing, /<h1>Every folder,<br \/>its own Assistant\.<\/h1>/);
-  assert.ok(landing.includes("Your files stay files."));
-
-  assert.ok(landing.includes('<p class="section-kicker">Private alpha</p>'));
-  assert.ok(landing.includes("Continue the same management conversation from a browser while your Mac is online."));
-
-  for (const term of ["Checks", "Routings", "Apps", "Pages"]) {
-    assert.ok(landing.includes(`<dt>${term}</dt>`));
+test("landing landmarks, local anchors and product/source links work without pinning copy", (t) => {
+  const { document } = render(t);
+  assert.equal(document.querySelectorAll("main").length, 1);
+  assert.equal(document.querySelectorAll("h1").length, 1);
+  const ids = [...document.querySelectorAll("[id]")].map((node) => node.id);
+  assert.equal(new Set(ids).size, ids.length);
+  for (const link of document.querySelectorAll('a[href^="#"]')) assert.ok(document.querySelector(link.getAttribute("href")));
+  assert.ok(document.querySelector('a[href="/download/macos"]'));
+  assert.ok(document.querySelector('a[href="https://github.com/Mat-Tom-Son/work-fold"]'));
+  assert.ok(document.querySelector('a[href$="/CONTRIBUTING.md"]'));
+  for (const link of document.querySelectorAll("a")) {
+    assert.ok(link.textContent.trim() || link.getAttribute("aria-label"), "links have accessible names");
+    if (link.target === "_blank") assert.ok(link.rel.includes("noreferrer") || link.rel.includes("noopener"));
+    assert.ok(["https:", "http:"].includes(new URL(link.href).protocol));
   }
-
-  assert.ok(landing.includes("<dt>Travels with the Space</dt>"));
-  assert.ok(landing.includes("<dt>Stays on each computer</dt>"));
-  assert.ok(landing.includes("Credentials, model choices, Space instructions, trust settings, History restore points, sessions, and app preferences."));
 });
 
-test("the landing page keeps one download verb and an unlabeled source link", async () => {
-  const landing = await clientSource("landing.js");
-
-  // Hero and footer: the same literal action, twice, and nothing else.
-  const downloads = landing.match(/<a class="primary-download" href="\/download\/macos">Download for macOS<\/a>/g);
-  assert.equal(downloads?.length, 2);
-  assert.match(landing, /href="https:\/\/github\.com\/Mat-Tom-Son\/work-fold"/);
-
-  // The host belongs in the tooltip, never in the page text.
-  assert.match(landing, /aria-label="View work-fold on GitHub" title="View work-fold on GitHub"/);
-  assert.doesNotMatch(landing, />[^<]*\bGitHub\b[^<]*</);
+test("every rendered screenshot exists, has a description, and declares dimensions and the correct format", async (t) => {
+  const { document } = render(t);
+  const screenshots = [...document.querySelectorAll('img[src^="/screens/"]')];
+  assert.ok(screenshots.length > 0);
+  for (const img of screenshots) {
+    assert.ok(img.alt.trim());
+    const bytes = await readFile(new URL(`./public${img.getAttribute("src")}`, import.meta.url));
+    assert.ok(img.width > 0 && img.height > 0);
+    if (img.src.endsWith(".png")) {
+      assert.equal(bytes.toString("hex", 0, 8), "89504e470d0a1a0a");
+      assert.equal(img.width, bytes.readUInt32BE(16));
+      assert.equal(img.height, bytes.readUInt32BE(20));
+    } else {
+      assert.ok(img.src.endsWith(".jpg"));
+      assert.equal(bytes.toString("hex", 0, 3), "ffd8ff");
+    }
+  }
 });
 
-test("the landing page shows the four app screenshots at a fixed aspect ratio", async () => {
-  const landing = await clientSource("landing.js");
-  const styles = await clientSource("landing.css");
-
-  for (const path of screenshots) {
-    assert.ok(landing.includes(`src="${path}"`), `${path} is referenced`);
-    await access(new URL(`./public${path}`, import.meta.url));
-  }
-
-  // Intrinsic sizes plus a CSS aspect-ratio keep the layout stable while the
-  // images load, and keep them from being stretched.
-  assert.ok(landing.includes('width="1440" height="900"'));
-  assert.ok(landing.includes('width="400" height="560"'));
-  assert.ok(landing.includes('width="1280" height="720"'));
-  assert.ok(landing.includes('width="375" height="812"'));
-  for (const rule of ["aspect-ratio: 16 / 10", "aspect-ratio: 5 / 7", "aspect-ratio: 16 / 9", "aspect-ratio: 375 / 812"]) {
-    assert.ok(styles.includes(rule), `${rule} is declared`);
-  }
-
-  // Everything under the first screenshot loads lazily, and every screenshot
-  // says what it shows.
-  assert.equal(landing.match(/loading="lazy"/g)?.length, 3);
-  assert.equal(landing.match(/<img src="\/screens\/[^"]+\.png"[^>]*alt="[^"]{40,}"/g)?.length, 4);
-  assert.doesNotMatch(landing, /<img[^>]*src="\/screens\/[^"]*"[^>]*alt=""/);
+test("example tabs support clicks, arrow wraparound, Home/End and matching panels", (t) => {
+  const { document, window } = render(t);
+  const tabs = [...document.querySelectorAll('[role="tab"]')];
+  const assertSelected = (index) => {
+    tabs.forEach((tab, i) => {
+      assert.equal(tab.getAttribute("aria-selected"), String(i === index));
+      assert.equal(tab.tabIndex, i === index ? 0 : -1);
+      const panel = document.getElementById(tab.getAttribute("aria-controls"));
+      assert.equal(panel.hidden, i !== index);
+      assert.equal(panel.getAttribute("aria-labelledby"), tab.id);
+      assert.ok(panel.textContent.trim());
+    });
+  };
+  const key = (index, name) => tabs[index].dispatchEvent(new window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
+  assertSelected(0);
+  tabs[1].click(); assertSelected(1);
+  key(1, "End"); assertSelected(tabs.length - 1);
+  key(tabs.length - 1, "ArrowRight"); assertSelected(0);
+  assert.equal(document.activeElement, tabs[0]);
+  key(0, "ArrowLeft"); assertSelected(tabs.length - 1);
+  key(tabs.length - 1, "Home"); assertSelected(0);
 });
 
-test("the landing page never brings back the retired marketing copy", async () => {
-  const landing = await clientSource("landing.js");
-  const page = await clientSource("index.html");
-
-  for (const retired of [
-    "Folders first",
-    "Work with your desktop folders.",
-    "without turning your files into a proprietary workspace",
-    "a running history, and simple Spaces",
-    "work-fold is a Mac app that gives an ordinary folder an Assistant.",
-  ]) {
-    assert.equal(landing.includes(retired), false, `${retired} stays retired`);
-    assert.equal(page.includes(retired), false, `${retired} stays retired in the page metadata`);
+test("optional capability details can be opened and closed", (t) => {
+  const { document } = render(t);
+  for (const details of document.querySelectorAll("details")) {
+    const before = details.open;
+    details.querySelector("summary").click();
+    assert.equal(details.open, !before);
+    details.querySelector("summary").click();
+    assert.equal(details.open, before);
   }
+});
 
-  assert.doesNotMatch(landing, /restricted app/i);
+test("reduced motion and missing observer keep content visible without a reveal dependency", (t) => {
+  const { app } = render(t, { reducedMotion: false });
+  assert.equal(app.querySelector(".landing-shell").classList.contains("motion-ready"), false);
+});
+
+test("scroll reveals unobserve visible sections and reduced motion bypasses observation", (t) => {
+  const observed = [], removed = [];
+  let deliver;
+  class Observer {
+    constructor(callback) { deliver = callback; }
+    observe(element) { observed.push(element); }
+    unobserve(element) { removed.push(element); }
+  }
+  const { app } = render(t, { reducedMotion: false, observer: Observer });
+  assert.ok(observed.length);
+  deliver([{ target: observed[0], isIntersecting: false }]);
+  assert.equal(removed.length, 0);
+  deliver([{ target: observed[0], isIntersecting: true }]);
+  assert.ok(observed[0].classList.contains("is-visible"));
+  assert.deepEqual(removed, [observed[0]]);
+  globalThis.matchMedia = () => ({ matches: true });
+  observed.length = 0;
+  renderLanding(app);
+  assert.equal(observed.length, 0);
+  assert.equal(app.querySelector(".landing-shell").classList.contains("motion-ready"), false);
 });

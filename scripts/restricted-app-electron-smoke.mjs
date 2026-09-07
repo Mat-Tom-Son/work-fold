@@ -3,9 +3,9 @@ import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, protocol } from "electron";
+import { app, BrowserWindow, protocol, webContents } from "electron";
 
 import {
   RestrictedAppHost,
@@ -39,15 +39,30 @@ protocol.registerSchemesAsPrivileged([{
 }]);
 app.on("window-all-closed", () => {});
 
+// Keep only lifecycle metadata for this synthetic sandbox. Capture it before
+// cleanup destroys the evidence; never collect a normal work-fold profile.
+const lifecycle = [];
+app.on("web-contents-created", (_event, contents) => {
+  const record = (event, detail = {}) => {
+    lifecycle.push({ at: new Date().toISOString(), id: contents.id, event, ...detail });
+    if (lifecycle.length > 200) lifecycle.shift();
+  };
+  for (const event of ["did-start-loading", "dom-ready", "did-finish-load", "did-stop-loading", "destroyed"]) {
+    contents.on(event, () => record(event));
+  }
+  contents.on("did-fail-load", (_event, code, description, _url, mainFrame) => record("did-fail-load", { code, description, mainFrame }));
+  contents.on("render-process-gone", (_event, details) => record("render-process-gone", details));
+});
+
 let failed = false;
 void mark("loaded")
   .then(() => app.whenReady())
   .then(() => mark("ready"))
   .then(runSmoke)
   .then(() => console.log("Restricted app Electron sandbox smoke passed."))
-  .catch((error) => {
+  .catch(async (error) => {
     failed = true;
-    void mark(`error ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+    await mark(`error ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
     console.error(error);
   })
   .finally(() => app.exit(failed ? 1 : 0));
@@ -383,6 +398,7 @@ async function runSmoke() {
         state: { directFetchBlocked: true, stored: "visible-ui", file: "host-brokered" },
       },
     }]);
+    await mark("tooltip-mount-start");
     const tooltipOverlay = new RailTooltipOverlay(parent);
     tooltipOverlay.show({
       text: "Restricted Electron smoke",
@@ -392,7 +408,9 @@ async function runSmoke() {
     await waitFor(
       () => parent.contentView.children.length === 2,
       "the native rail tooltip did not mount above the restricted app view",
+      15_000, // Native document readiness on shared runners; still assert actual mount/order.
     );
+    await mark("tooltip-mounted");
     assert.match(parent.contentView.children[0]?.webContents.getURL() ?? "", /^agent-app:/);
     assert.match(parent.contentView.children.at(-1)?.webContents.getURL() ?? "", /^data:text\/html/);
     host.layoutUi(parent.webContents.id, {
@@ -597,6 +615,9 @@ async function runSmoke() {
     assert.match(widened.reason, /viewer surface changed/);
     viewerState.widenSurface = false;
     await mark("viewer-scope-complete");
+  } catch (error) {
+    await captureFailure(error).catch((captureError) => console.error("Smoke diagnostics failed:", captureError));
+    throw error;
   } finally {
     await mark("cleanup-start");
     try {
@@ -614,7 +635,40 @@ async function runSmoke() {
 async function mark(message) {
   console.log(`[restricted-app smoke] ${message}`);
   const path = process.env.WORKFOLD_RESTRICTED_SMOKE_LOG;
-  if (path) await appendFile(path, `${new Date().toISOString()} ${message}\n`, "utf8");
+  if (path) {
+    await mkdir(dirname(path), { recursive: true });
+    await appendFile(path, `${new Date().toISOString()} ${message}\n`, "utf8");
+  }
+}
+
+async function captureFailure(error) {
+  const directory = join(rootDir, "out", "ci", "restricted-app-smoke");
+  await mkdir(directory, { recursive: true });
+  const windows = BrowserWindow.getAllWindows().map((window) => ({
+    id: window.id, bounds: window.getBounds(), visible: window.isVisible(),
+    children: window.contentView.children.map((view) => view.webContents?.id ?? null),
+  }));
+  const contents = webContents.getAllWebContents().filter((item) => !item.isDestroyed());
+  const snapshot = contents.map((item) => ({
+    id: item.id, type: item.getType(), loading: item.isLoading(),
+    // A data URL can contain an entire document; only its scheme is useful.
+    scheme: item.getURL().split(":", 1)[0], crashed: item.isCrashed(),
+  }));
+  await writeFile(join(directory, "state.json"), JSON.stringify({
+    error: error instanceof Error ? error.stack : String(error), lifecycle, windows, contents: snapshot,
+  }, null, 2));
+  for (const item of contents) {
+    let timer;
+    try {
+      const screenshot = await Promise.race([
+        item.capturePage(),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Capture timed out")), 2_000); }),
+      ]);
+      if (!screenshot.isEmpty()) await writeFile(join(directory, `contents-${item.id}.png`), screenshot.toPNG());
+    } catch { /* A failed renderer may be unable to paint; state.json remains. */ }
+    finally { clearTimeout(timer); }
+  }
+  console.error(`Electron failure evidence: ${directory}`);
 }
 
 async function waitFor(predicate, message, timeoutMs = 5_000) {

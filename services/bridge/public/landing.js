@@ -1,137 +1,106 @@
-// The unauthenticated landing page at https://www.work-fold.com. Rendered
-// by app.js when the request carries no personal address.
-//
-// It explains the shipped product with real screenshots. Every claim here
-// must stay aligned with README.md and docs/product-model.md.
-
-const githubMark = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .8a11.4 11.4 0 0 0-3.6 22.2c.6.1.8-.2.8-.6v-2.2c-3.3.7-4-1.4-4-1.4-.5-1.4-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.6-.3-5.4-1.3-5.4-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.7 5.4-5.4 5.7.4.4.8 1.1.8 2.2v3.3c0 .4.2.7.8.6A11.4 11.4 0 0 0 12 .8Z" /></svg>`;
-
-const githubLink = `<a class="github-link" href="https://github.com/Mat-Tom-Son/work-fold" target="_blank" rel="noreferrer" aria-label="View work-fold on GitHub" title="View work-fold on GitHub">${githubMark}</a>`;
+// Public product introduction. Keep capabilities aligned with the product model;
+// the examples are suggestions, not live agent runs or customer testimonials.
+const source = "https://github.com/Mat-Tom-Son/work-fold";
+const examples = [
+  { name: "Home projects", folder: "Kitchen refresh", request: "Compare these two estimates. What should I clarify before choosing?", result: "A decision brief beside your quotes, with the differences and open questions." },
+  { name: "Writing", folder: "Field notes", request: "Turn these notes into a first draft. Keep my voice and flag anything that needs a source.", result: "A draft you can edit in your usual tools, with the conversation ready for the next revision." },
+  { name: "Research", folder: "Supplier research", request: "Read these reports and make a comparison. Show me where each claim comes from.", result: "A comparison saved with your source material, ready for you to review." },
+];
 
 export function renderLanding(app) {
-  app.innerHTML = `<main class="landing-shell">
-    <header class="auth-top landing-top">
-      <span class="brand" role="img" aria-label="work-fold"><img class="brand-lockup brand-lockup-black" src="/brand-lockup-black.png" alt="" /><img class="brand-lockup brand-lockup-white" src="/brand-lockup-white.png" alt="" /></span>
-      <nav class="landing-actions" aria-label="Source">
-        ${githubLink}
-      </nav>
+  app.innerHTML = `<div class="landing-shell">
+    <a class="landing-skip" href="#landing-main">Skip to content</a>
+    <header class="landing-top">
+      <a class="landing-brand" href="/" aria-label="work-fold home"><img src="/brand-mark.png" width="32" height="32" alt="" /><span>Made for your Mac.</span></a>
+      <nav aria-label="Main navigation"><a href="#how-it-works">How it works</a><a href="${source}">GitHub <span aria-hidden="true">↗</span></a></nav>
     </header>
-
-    <section class="landing-hero">
-      <div class="hero-copy" data-reveal>
-        <h1>Every folder,<br />its own Assistant.</h1>
-        <p>work-fold gives an ordinary folder a focused Assistant, its own context, and a durable record of the work. Your files stay files.</p>
-        <div class="hero-actions">
-          <a class="primary-download" href="/download/macos">Download for macOS</a>
-          <span>Apple silicon</span>
+    <main id="landing-main" tabindex="-1">
+      <section class="landing-hero" aria-labelledby="landing-title">
+        <div class="landing-hero-copy">
+          <h1 id="landing-title">work-fold</h1>
+          <p class="landing-promise">An AI Assistant for the folders you work in.</p>
+          <p class="landing-intro">Bring your files, conversations, and project tools together.<br class="landing-wide-break" /> An open-source Mac app for getting real work done.</p>
+          <div class="landing-download-row"><a class="landing-download" href="/download/macos">Download for Mac <span aria-hidden="true">↓</span></a><span>Apple silicon · Bring your model provider</span></div>
         </div>
-      </div>
-      <figure class="shot hero-shot">
-        <img src="/screens/desktop-space.png" width="1440" height="900" decoding="async" alt="A work-fold Space with ordinary project files on the left and its Assistant comparing two estimates in a Chat on the right." />
-      </figure>
-    </section>
-
-    <section class="landing-section space-section">
-      <div class="section-heading" data-reveal>
-        <p class="section-kicker">Spaces</p>
-        <h2>The work stays where it belongs.</h2>
-      </div>
-      <dl class="plain-lines" data-reveal>
-        <div><dt>Ordinary files</dt><dd>Open the same folder in Finder, Git, backup, or sync tools. No proprietary container.</dd></div>
-        <div><dt>Focused context</dt><dd>Each Space has its own Assistant, model, instructions, Chats, Skills, Extensions, and apps.</dd></div>
-        <div><dt>A durable record</dt><dd>The Space identity and append-only Chat logs travel beside the work when the folder moves.</dd></div>
-      </dl>
-    </section>
-
-    <section class="landing-section fold-section">
-      <figure class="shot fold-shot" data-reveal>
-        <img src="/screens/fold-popover.png" width="400" height="560" loading="lazy" decoding="async" alt="The populated work-fold menu-bar window summarizing progress across two Spaces, with model and reasoning controls in the composer." />
-      </figure>
-      <div class="section-copy" data-reveal>
-        <p class="section-kicker">The fold</p>
-        <h2>One Assistant above every Space.</h2>
-        <p>Ask what changed, find what needs attention, or hand the next step to the right Space. The fold keeps the overview without blending every conversation together.</p>
-        <p>It is always close: in the app, from the Mac menu bar, and on your private web address.</p>
-      </div>
-    </section>
-
-    <section class="landing-section movement-section">
-      <div class="section-heading" data-reveal>
-        <p class="section-kicker">Work that keeps moving</p>
-        <h2>Do it now. Pick it up later.</h2>
-        <p>Agents can build, verify, publish, and return to work on a schedule. The important actions remain visible and receipted.</p>
-      </div>
-      <dl class="system-lines" data-reveal>
-        <div><dt>Checks</dt><dd>Verify the exact files you choose.</dd></div>
-        <div><dt>Routings</dt><dd>Start timed or event-driven work across Spaces.</dd></div>
-        <div><dt>Apps</dt><dd>Build useful interfaces inside a Space with narrow grants.</dd></div>
-        <div><dt>Pages</dt><dd>Share one designated file from your desktop, then revoke it at once.</dd></div>
-      </dl>
-      <p class="authority-note" data-reveal><strong>You set the authority.</strong> Review consequential actions one at a time, or let newly admitted work run immediately. Approved browsers inherit the same choice.</p>
-    </section>
-
-    <section class="landing-section web-section">
-      <div class="section-heading" data-reveal>
-        <p class="section-kicker">Private alpha</p>
-        <h2>Your fold, wherever you are.</h2>
-        <p>Continue the same management conversation from a browser while your Mac is online. Approve each browser once on the desktop.</p>
-      </div>
-      <div class="web-stage" data-reveal>
-        <figure class="shot web-desktop-shot">
-          <img src="/screens/web-chat.png" width="1280" height="720" loading="lazy" decoding="async" alt="The work-fold web client showing the fold conversation and saved Chats in a desktop browser." />
+        <figure class="landing-hero-shot">
+          <a href="/screens/desktop-space.jpg" target="_blank" rel="noreferrer" aria-label="Open the full-size Space screenshot (new tab)"><img src="/screens/desktop-space.jpg" width="1440" height="900" fetchpriority="high" decoding="async" alt="Project files on the left; an Assistant comparing contractor estimates on the right." /></a>
+          <figcaption>Your files. Your conversation. One place to work.</figcaption>
         </figure>
-        <figure class="shot web-phone-shot">
-          <img src="/screens/web-phone.png" width="375" height="812" loading="lazy" decoding="async" alt="The same fold conversation and composer in a phone browser." />
-        </figure>
-      </div>
-      <p class="web-note" data-reveal>Your Mac remains the execution endpoint. Messages and attachments cross the relay inside signed encrypted envelopes.</p>
-    </section>
+      </section>
 
-    <section class="landing-section boundary-section">
-      <div class="section-heading" data-reveal>
-        <p class="section-kicker">Local first</p>
-        <h2>The folder is the handoff.</h2>
-      </div>
-      <dl class="boundary-lines" data-reveal>
-        <div>
-          <dt>Travels with the Space</dt>
-          <dd>Files, stable identity, Chat logs, and project-owned Pi configuration when the folder has it.</dd>
+      <section id="how-it-works" class="landing-section landing-workflow" aria-labelledby="workflow-title">
+        <div class="landing-section-head" data-reveal><p class="landing-kicker">Start with what you have</p><h2 id="workflow-title">A folder. A conversation.<br />Something done.</h2></div>
+        <ol class="landing-steps" data-reveal>
+          <li><span>01</span><h3>Open a folder</h3><p>That’s a Space. Use an existing project or start fresh. Nothing gets moved or converted.</p></li>
+          <li><span>02</span><h3>Ask for what you need</h3><p>The Space’s Assistant can read, write, and work with files using the tools you give it.</p></li>
+          <li><span>03</span><h3>Keep going</h3><p>Your files stay in the folder. Your conversations stay with the project. Pick up where you left off.</p></li>
+        </ol>
+        <div class="landing-example" data-reveal>
+          <div class="landing-example-top"><p class="landing-kicker">A few ways to start</p><div class="landing-example-tabs" role="tablist" aria-label="Example projects">${examples.map((example, index) => `<button type="button" role="tab" id="example-tab-${index}" aria-controls="example-panel-${index}" aria-selected="${index === 0}" tabindex="${index === 0 ? 0 : -1}">${example.name}</button>`).join("")}</div></div>
+          ${examples.map((example, index) => `<div class="landing-example-panel" role="tabpanel" id="example-panel-${index}" aria-labelledby="example-tab-${index}" tabindex="0" ${index ? "hidden" : ""}><p class="landing-folder">${example.folder} <span>/</span></p><blockquote>“${example.request}”</blockquote><p class="landing-example-result">${example.result}</p></div>`).join("")}
         </div>
-        <div>
-          <dt>Stays on each computer</dt>
-          <dd>Credentials, model choices, Space instructions, trust settings, History restore points, sessions, and app preferences.</dd>
-        </div>
-      </dl>
-    </section>
+      </section>
 
-    <footer class="landing-foot">
-      <div class="foot-copy">
-        <h2>Put an Assistant where the work lives.</h2>
-        <p>Open source. Available now for Apple silicon Macs.</p>
-      </div>
-      <div class="landing-actions">
-        <a class="primary-download" href="/download/macos">Download for macOS</a>
-        ${githubLink}
-      </div>
-      <img class="foot-mark" src="/brand-mark.png" alt="" />
+      <section class="landing-fold-band" aria-labelledby="fold-title">
+        <div class="landing-section landing-fold">
+          <div data-reveal><p class="landing-kicker">Meet the fold</p><h2 id="fold-title">Many Spaces.<br />One place to ask.</h2><p class="landing-body">Each Space has its own Assistant. The fold is the Assistant that helps you manage all of them.</p><p class="landing-body">Ask what needs attention, send work to the right Space, or coordinate the next step between projects. Open it in the app or from your Mac’s menu bar.</p><p class="landing-prompt">“What’s ready, what’s waiting, and what should we do next?”</p></div>
+          <figure class="landing-fold-shot" data-reveal><img src="/screens/fold-popover.jpg" width="400" height="560" loading="lazy" decoding="async" alt="The fold in the Mac menu bar, reporting progress across two Spaces." /></figure>
+        </div>
+      </section>
+
+      <section class="landing-section landing-grow" aria-labelledby="grow-title">
+        <div data-reveal><p class="landing-kicker">Go further when you need to</p><h2 id="grow-title">Make the Space<br />fit the work.</h2><p class="landing-body">Start with Chat. Ask the Assistant to help set up the rest.</p></div>
+        <div class="landing-capabilities" data-reveal>
+          <details open><summary>Build a tool for your project <span>Apps</span></summary><p>Ask for a quote tracker, a review queue, or a small dashboard. Review the app and its access, then use it from your Space’s sidebar.</p></details>
+          <details><summary>Give your work another look <span>Checks</span></summary><p>Choose files and explain what to check. Review quoted findings, then ask the Space Assistant to help with a correction. Model reviews can miss things; you make the call.</p></details>
+          <details><summary>Connect the next steps <span>Routings</span></summary><p>Set up steps across Spaces, on a schedule or when selected files change. Review and enable the plan; your awake Mac runs it.</p></details>
+        </div>
+      </section>
+
+      <section class="landing-web-band" aria-labelledby="web-title"><div class="landing-section landing-web">
+        <figure class="landing-phone-shot" data-reveal><img src="/screens/web-phone.png" width="375" height="812" loading="lazy" decoding="async" alt="The fold conversation in a phone browser, with its message composer." /></figure>
+        <div data-reveal><p class="landing-kicker">Optional web access · Private alpha</p><h2 id="web-title">Step away.<br />Stay in the conversation.</h2><p class="landing-body">Continue talking to the fold from an approved browser while your Mac is online. The work still happens on your computer.</p><p class="landing-body">Browser access is optional. You don’t need a work-fold account to use the desktop app.</p></div>
+      </div></section>
+
+      <section class="landing-section landing-start" aria-labelledby="start-title">
+        <div data-reveal><p class="landing-kicker">A few things to know</p><h2 id="start-title">Your files stay yours.</h2></div>
+        <dl class="landing-facts" data-reveal>
+          <div><dt>Ordinary folders</dt><dd>Keep using Finder, your editor, backup, and sync tools. You can still use your files without work-fold.</dd></div>
+          <div><dt>Your model provider</dt><dd>Connect a provider in Settings → Assistant. Content used by the Assistant goes to that provider, and usage may cost money.</dd></div>
+          <div><dt>Open source, still growing</dt><dd>Available for Apple silicon Macs. The project is actively evolving; feedback and contributions help shape what comes next.</dd></div>
+        </dl>
+      </section>
+    </main>
+
+    <footer class="landing-footer">
+      <div class="landing-footer-inner"><div><p class="landing-kicker">Make yourself at home</p><h2>Bring a folder.<br />See what you can do.</h2><a class="landing-download" href="/download/macos">Download for Mac <span aria-hidden="true">↓</span></a></div><div class="landing-contribute"><h3>Help build work-fold.</h3><p>An independent project looking for people to build and maintain it together. Small, thoughtful contributions are welcome.</p><a href="${source}/blob/main/CONTRIBUTING.md">Start contributing <span aria-hidden="true">↗</span></a></div></div>
+      <div class="landing-colophon"><span>work-fold / Open source. Local first.</span><nav aria-label="Project links"><a href="${source}">GitHub</a><a href="${source}/tree/main/docs">Docs</a><a href="${source}/blob/main/PRIVACY.md">Privacy</a><a href="${source}/blob/main/LICENSE">MIT License</a></nav></div>
     </footer>
-  </main>`;
+  </div>`;
+
+  const tabs = [...app.querySelectorAll('[role="tab"]')];
+  const panels = [...app.querySelectorAll('[role="tabpanel"]')];
+  function selectExample(index) {
+    tabs.forEach((tab, i) => { tab.setAttribute("aria-selected", String(i === index)); tab.tabIndex = i === index ? 0 : -1; panels[i].hidden = i !== index; });
+  }
+  tabs.forEach((tab, index) => {
+    tab.addEventListener("click", () => selectExample(index));
+    tab.addEventListener("keydown", (event) => {
+      const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : null;
+      if (next === null) return;
+      event.preventDefault(); selectExample(next); tabs[next].focus();
+    });
+  });
 
   const shell = app.querySelector(".landing-shell");
+  if (!shell || matchMedia("(prefers-reduced-motion: reduce)").matches || !("IntersectionObserver" in window)) return;
   const reveals = [...app.querySelectorAll("[data-reveal]")];
-  if (!shell || matchMedia("(prefers-reduced-motion: reduce)").matches || !("IntersectionObserver" in window)) {
-    for (const element of reveals) element.classList.add("is-visible");
-    return;
-  }
-
   shell.classList.add("motion-ready");
   const observer = new IntersectionObserver((entries) => {
     for (const entry of entries) {
       if (!entry.isIntersecting) continue;
-      entry.target.classList.add("is-visible");
-      observer.unobserve(entry.target);
+      entry.target.classList.add("is-visible"); observer.unobserve(entry.target);
     }
-  }, { rootMargin: "0px 0px -8%", threshold: 0.08 });
-
+  }, { rootMargin: "0px 0px -24px", threshold: 0.05 });
   for (const element of reveals) observer.observe(element);
 }

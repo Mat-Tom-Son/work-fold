@@ -28,23 +28,20 @@ test("Claude Code imports the canonical Codex contributor contract", async () =>
   assert.doesNotMatch(claude, /npm run desktop:make/);
 });
 
-test("README walkthrough uses stable tracked screenshots", async () => {
+test("README local links and screenshots resolve without duplicating the docs", async () => {
   const readme = await readFile(join(root, "README.md"), "utf8");
-  const screenshots = [
-    "services/bridge/public/screens/desktop-space.png",
-    "services/bridge/public/screens/fold-popover.png",
-    "services/bridge/public/screens/web-chat.png",
-  ];
-  for (const screenshot of screenshots) {
-    assert.ok(readme.includes(screenshot));
-    await access(join(root, screenshot));
-  }
+  const destinations = [
+    ...[...readme.matchAll(/\]\(([^)]+)\)/g)].map((match) => match[1]),
+    ...[...readme.matchAll(/(?:href|src|srcset)="([^"]+)"/g)].map((match) => match[1]),
+  ].filter((path) => !/^(?:https?:|#)/.test(path));
+  assert.ok(destinations.includes("CONTRIBUTING.md"));
+  assert.ok(destinations.includes("docs/README.md"));
+  for (const destination of destinations) await access(join(root, destination.split("#")[0]!));
   assert.doesNotMatch(readme, /output\/playwright\/work-fold-/);
 });
 
 test("canonical product docs keep Library and Assistant tools in Space-owned tabs", async () => {
   const files = [
-    "README.md",
     "AGENTS.md",
     "docs/product-model.md",
     "docs/architecture.md",
@@ -63,7 +60,7 @@ test("canonical product docs keep Library and Assistant tools in Space-owned tab
 });
 
 test("public and contributor docs route management behavior to one guide", async () => {
-  const files = ["README.md", "AGENTS.md", "CONTRIBUTING.md", "docs/product-model.md", "docs/architecture.md"];
+  const files = ["docs/README.md", "AGENTS.md", "CONTRIBUTING.md", "docs/product-model.md", "docs/architecture.md"];
   const contents = await Promise.all(files.map((file) => readFile(join(root, file), "utf8")));
   for (const content of contents) {
     assert.match(content, /management-layer\.md/, "Each canonical doc must link the management guide.");
