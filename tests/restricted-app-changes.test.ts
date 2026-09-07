@@ -96,6 +96,38 @@ test("two edits cannot overwrite each other's newer preview, including across pr
   } finally { await f.close(); }
 });
 
+test("build context keeps the source Chat and exact update target through subsequent working copies", async () => {
+  const f = await fixture();
+  try {
+    const initial = await f.host.buildContext(f.scope.spaceId, f.app.manifest.id, f.app.digest);
+    assert.deepEqual(initial, { sourceSpaceId: f.scope.spaceId, sourcePath: f.scope.sourcePath,
+      buildConversationId: f.scope.conversationId, updateTargetRuntimeInstanceId: null });
+    const release = await f.service.prepareLocalAppRelease({ spaceId: f.scope.spaceId, displayVersion: "1.0.0" });
+    await f.service.publishLocalAppRelease({ spaceId: f.scope.spaceId, releaseDigest: release.releaseDigest });
+    const plan = await f.service.prepareLocalAppInstall({ sourceSpaceId: f.scope.spaceId, targetSpaceId: "target", releaseDigest: release.releaseDigest });
+    const { instance, apps } = await f.service.activateLocalAppInstall(plan.operationId);
+    const copy = (change: any, files: ReadonlyMap<string, Uint8Array>) => materializeRestrictedAppWorkingCopy(f.spaceRoot, change, files, async () => {});
+    const change = await f.host.prepareChange({ ...f.input, spaceId: "target", expectedDigest: apps[0]!.digest }, copy);
+    await writeFile(join(f.spaceRoot, change.sourcePath, "index.html"), "<p>Updated for the target</p>");
+    const proposal = (await f.host.propose({ ...f.scope, conversationId: "work-fold.act.install-preview", sourcePath: change.sourcePath })).proposal!;
+    const preview = (await f.host.install(proposal.id))!;
+    const build = await f.host.buildContext(preview.spaceId, preview.manifest.id, preview.digest);
+    assert.deepEqual(build, { sourceSpaceId: f.scope.spaceId, sourcePath: change.sourcePath,
+      buildConversationId: "builder-chat", updateTargetRuntimeInstanceId: instance.runtimeInstanceId });
+    const next = await f.host.prepareChange({ ...f.input, id: randomUUID(), expectedDigest: preview.digest }, copy);
+    assert.equal(next.buildConversationId, "builder-chat");
+    await writeFile(join(f.spaceRoot, next.sourcePath, "index.html"), "<p>Second edit for the same target</p>");
+    const nextProposal = (await f.host.propose({ ...f.scope, conversationId: "work-fold.act.install-preview", sourcePath: next.sourcePath })).proposal!;
+    const nextPreview = (await f.host.install(nextProposal.id))!;
+    const reopened = await RoutedRestrictedAppProposalHost.create({ service: f.service, registryPath: f.registryPath });
+    assert.equal((await reopened.buildContext(nextPreview.spaceId, nextPreview.manifest.id, nextPreview.digest)).updateTargetRuntimeInstanceId, instance.runtimeInstanceId);
+    await f.service.uninstallLocalApp({ runtimeInstanceId: instance.runtimeInstanceId, dataDisposition: "purge" });
+    const removed = await reopened.buildContext(nextPreview.spaceId, nextPreview.manifest.id, nextPreview.digest);
+    assert.equal(removed.updateTargetRuntimeInstanceId, null, "a stale origin must not point at another installation");
+    assert.equal(removed.buildConversationId, "builder-chat");
+  } finally { await f.close(); }
+});
+
 test("interrupted copies resume from exact bytes, preserve later edits, and fail closed on corrupt provenance", async () => {
   const f = await fixture();
   try {

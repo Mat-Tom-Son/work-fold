@@ -17,7 +17,9 @@ target Space files, and conversations are not copied.
 The machine-local proposal registry retains a change receipt with the exact
 base revision, original installation/runtime/release identity, source working
 path, source preview predecessor, and original building Chat id when a retained
-installed proposal provides one. Provenance is not stored in `.work-fold/` or
+installed proposal provides one. Subsequent working copies also retain the
+intended Release-backed update target without replacing their own exact base
+identity. Provenance is not stored in `.work-fold/` or
 included in a portable Chat. The draft receives only the app name, version,
 and source working path. Missing original Chat history does not prevent
 reconstruction from the verified installed package; source toolchains not present
@@ -54,8 +56,17 @@ App Studio. The target's identity is retained only in machine-local provenance;
 the source Assistant never receives the target's private context or cross-Space
 control merely because the person started an edit there.
 
-The complete journey still needs direct navigation to the original building
-Chat and the relevant Release/update review. A Release installed in its own
-source Space also needs a separate preview placement: the current one-Feature-
+App details offers **Open build Chat** when retained provenance identifies one;
+opening it verifies that the Chat still exists in the source Space and sends
+nothing. The source folder is supporting detail under **Package & runtime**.
+**Review updates** opens the source Project's App Studio with the exact live
+installation selected. This link follows the intended target through subsequent
+working copies, even if a CLI proposal supplied the later review. The host
+rechecks Project and installation identities and drops stale target links after
+uninstall. Opening App Studio never prepares, publishes, or activates a Release;
+subsequent manual target choices remain intact during refreshes.
+
+A Release installed in its own source Space still needs a separate preview
+placement: the current one-Feature-
 per-Space rule refuses this case before copying rather than replacing its live
 App Instance. These remain tracked work in [Apps and the fold](apps-fold-workflows.md).

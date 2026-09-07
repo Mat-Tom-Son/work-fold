@@ -48,7 +48,15 @@ export interface RestrictedAppChangeReceipt {
   baseReleaseDigest: string | null;
   previewBase: RestrictedAppPreviewBase;
   buildConversationId: string | null;
+  updateTarget?: { spaceId: string; runtimeInstanceId: string } | null;
   createdAt: string;
+}
+
+export interface RestrictedAppBuildContext {
+  sourceSpaceId: string;
+  sourcePath: string | null;
+  buildConversationId: string | null;
+  updateTargetRuntimeInstanceId: string | null;
 }
 
 export interface RestrictedAppProposalResult {
@@ -148,6 +156,40 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
     return proposal ? copyReceipt(proposal) : undefined;
   }
 
+  async buildContext(spaceId: string, appId: string, expectedDigest: string): Promise<RestrictedAppBuildContext> {
+    const app = await this.#service.runtimeDescriptor(spaceId, appId, expectedDigest);
+    await this.#queue.catch(() => undefined);
+    const context = this.#sourceContext(app);
+    const origin = context.updateTarget;
+    const target = app.runtimeInstanceKind === "app" ? app : origin
+      ? (await this.#service.list(origin.spaceId)).find((item) => item.runtimeInstanceKind === "app"
+        && item.runtimeInstanceId === origin.runtimeInstanceId && item.projectId === app.projectId && item.manifest.id === appId)
+      : undefined;
+    return { sourceSpaceId: app.sourceSpaceId, sourcePath: context.sourcePath,
+      buildConversationId: context.buildConversationId, updateTargetRuntimeInstanceId: target?.runtimeInstanceId ?? null };
+  }
+
+  #sourceContext(app: RestrictedAppInstalled) {
+    const proposal = this.#registry.proposals.filter((item) => item.status === "installed"
+      && item.spaceId === app.sourceSpaceId && item.review.digest === app.digest)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+    const changes = this.#registry.changes.filter((item) => item.sourceSpaceId === app.sourceSpaceId
+      && item.appId === app.manifest.id && item.packageName === app.packageName && item.status === "ready"
+      && (item.baseDigest === app.digest || item.previewBase?.digest === app.digest))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    const linked = this.#registry.changes.find((item) => item.id === proposal?.changeId);
+    const origin = linked ?? changes[0];
+    const releaseOrigin = linked?.baseReleaseDigest ? linked : changes.find((item) => item.baseReleaseDigest !== null
+      && item.previewBase?.digest === app.digest);
+    return {
+      sourcePath: proposal?.sourcePath ?? origin?.sourcePath ?? null,
+      buildConversationId: proposal && !proposal.conversationId.startsWith("work-fold.act.")
+        ? proposal.conversationId : origin?.buildConversationId ?? null,
+      updateTarget: origin?.updateTarget ?? (releaseOrigin
+        ? { spaceId: releaseOrigin.targetSpaceId, runtimeInstanceId: releaseOrigin.targetRuntimeInstanceId } : null),
+    };
+  }
+
   async prepareChange(input: { id: string; spaceId: string; appId: string; expectedDigest: string },
     materialize: (change: RestrictedAppChangeReceipt, files: ReadonlyMap<string, Uint8Array>) => Promise<void>,
   ): Promise<RestrictedAppChangeReceipt> {
@@ -169,9 +211,7 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
         throw new RestrictedAppError("REVISION_CHANGED", "The app was reinstalled while its working copy was being prepared.");
       }
       if (!change) {
-        const build = [...this.#registry.proposals].reverse().find((item) => item.status === "installed"
-          && item.spaceId === app.sourceSpaceId && item.review.digest === app.digest
-          && !item.conversationId.startsWith("work-fold.act."));
+        const build = this.#sourceContext(app);
         change = {
           id: input.id, status: "preparing", sourceSpaceId: app.sourceSpaceId,
           sourcePath: `${app.manifest.id}-change-${input.id}`,
@@ -180,7 +220,9 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
           baseFeatureInstallationId: app.featureInstallationId,
           targetSpaceId: app.spaceId, targetRuntimeInstanceId: app.runtimeInstanceId,
           baseReleaseDigest: app.releaseDigest, previewBase: snapshot.previewBase,
-          buildConversationId: build?.conversationId ?? null, createdAt: new Date().toISOString(),
+          buildConversationId: build.buildConversationId, createdAt: new Date().toISOString(),
+          updateTarget: app.runtimeInstanceKind === "app"
+            ? { spaceId: app.spaceId, runtimeInstanceId: app.runtimeInstanceId } : build.updateTarget,
         };
         await this.#writeRegistry({ ...this.#registry, changes: [...this.#registry.changes, change] });
       }
@@ -316,6 +358,8 @@ function validChange(value: unknown): value is RestrictedAppChangeReceipt {
     && /^[a-f0-9]{64}$/.test(item.baseDigest)
     && (item.baseReleaseDigest === null || typeof item.baseReleaseDigest === "string")
     && (item.buildConversationId === null || typeof item.buildConversationId === "string")
+    && (item.updateTarget === undefined || item.updateTarget === null || typeof item.updateTarget === "object"
+      && typeof item.updateTarget.spaceId === "string" && typeof item.updateTarget.runtimeInstanceId === "string")
     && validPreviewBase(item.previewBase);
 }
 

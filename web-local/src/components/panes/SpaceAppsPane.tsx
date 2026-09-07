@@ -15,6 +15,7 @@ export function SpaceAppsPane({
   fixtureMode = false,
   onBuildApp,
   onChangeApp,
+  onOpenBuildChat,
   onOpenAppStudio,
   onUpsertApp,
   onRemoveApp,
@@ -26,7 +27,8 @@ export function SpaceAppsPane({
   fixtureMode?: boolean;
   onBuildApp: () => void;
   onChangeApp: (app: RestrictedAppInstalled) => Promise<void>;
-  onOpenAppStudio: (spaceId?: string) => void;
+  onOpenBuildChat: (spaceId: string, conversationId: string) => Promise<void>;
+  onOpenAppStudio: (spaceId?: string, runtimeInstanceId?: string) => void;
   onUpsertApp: (app: RestrictedAppInstalled) => void;
   onRemoveApp: (appId: string) => void;
   onError: (message: string | null) => void;
@@ -57,6 +59,7 @@ export function SpaceAppsPane({
           presentation="page"
           onBuildApp={onBuildApp}
           onChangeApp={onChangeApp}
+          onOpenBuildChat={onOpenBuildChat}
           onOpenAppStudio={onOpenAppStudio}
           onUpsertApp={onUpsertApp}
           onRemoveApp={onRemoveApp}

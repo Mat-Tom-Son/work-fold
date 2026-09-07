@@ -207,8 +207,8 @@ The same development branch begins the [Change this app](app-changes.md) journey
 verified installed bytes become a new ordinary source-Space working copy with
 History, machine-local provenance, and a draft Chat. Preview proposals carry an
 exact predecessor guard. Release installation/update remains the existing
-separately reviewed lifecycle, and source-Space preview-placement and direct
-update-navigation work remain open.
+separately reviewed lifecycle. Build-Chat and exact installed-target navigation
+are available in app details; source-Space preview-placement work remains open.
 
 The first placement rule is intentionally small: at most one local App Instance
 exists for a `(projectId, target Space)` pair, and no target Space may already

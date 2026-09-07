@@ -112,6 +112,10 @@ test("restricted app API keeps review, install, grants, connections, invocation,
     const changed = await request<{ change: RestrictedAppChangeDraft }>(api.origin, changeUrl, { method: "POST", body: changeInput });
     assert.equal(changed.change.sourceSpaceId, space.id);
     assert.equal(changed.change.baseDigest, installed.app.digest);
+    const buildContext = await request<{ context: { sourceSpaceId: string; sourcePath: string; buildConversationId: string | null; updateTargetRuntimeInstanceId: string | null } }>(api.origin,
+      `/api/spaces/${space.id}/restricted-apps/mail-app/build-context?expectedDigest=${installed.app.digest}`);
+    assert.deepEqual(buildContext.context, { sourceSpaceId: space.id, sourcePath: changed.change.sourcePath,
+      buildConversationId: null, updateTargetRuntimeInstanceId: null });
     assert.equal(await readFile(join(space.spaceRoot, changed.change.sourcePath, "index.html"), "utf8"), await readFile(join(space.spaceRoot, sourcePath, "index.html"), "utf8"));
     const checkpoints = await listSpaceCheckpoints(space.spaceRoot);
     assert.equal(checkpoints.filter((item) => item.reason === "app-change").length, 1);

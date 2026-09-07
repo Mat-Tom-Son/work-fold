@@ -25,6 +25,8 @@ import {
   getRestrictedAppStorageUsage,
   exportRestrictedAppData,
   getRestrictedAppDataRecovery,
+  getRestrictedAppBuildContext,
+  type RestrictedAppBuildContext,
   restoreRestrictedAppData,
   inspectRestrictedApp,
   installRestrictedApp,
@@ -64,6 +66,7 @@ export function RestrictedAppsSection({
   fixtureMode = false,
   onBuildApp,
   onChangeApp,
+  onOpenBuildChat,
   onOpenAppStudio,
   onUpsertApp,
   onRemoveApp,
@@ -80,7 +83,8 @@ export function RestrictedAppsSection({
   presentation?: "section" | "page";
   onBuildApp: () => void;
   onChangeApp?: (app: RestrictedAppInstalled) => Promise<void>;
-  onOpenAppStudio: (spaceId?: string) => void;
+  onOpenBuildChat?: (spaceId: string, conversationId: string) => Promise<void>;
+  onOpenAppStudio: (spaceId?: string, runtimeInstanceId?: string) => void;
   onUpsertApp: (app: RestrictedAppInstalled) => void;
   onRemoveApp: (appId: string) => void;
   onError: (message: string | null) => void;
@@ -202,7 +206,7 @@ export function RestrictedAppsSection({
 
       {sourceOpen ? <RestrictedAppSourceDialog sourcePath={sourcePath} busy={busy} onSourcePathChange={setSourcePath} onSubmit={inspect} onClose={() => { if (!busy) setSourceOpen(false); }} /> : null}
       {review ? <RestrictedAppReviewDialog review={review.value} sourcePath={review.sourcePath} updating={apps.some((app) => app.manifest.id === review.value.manifest.id)} busy={busy} onInstall={() => void install()} onClose={() => { if (!busy) setReview(null); }} /> : null}
-      {selectedApp ? <RestrictedAppDetailsDialog app={selectedApp} busy={busy} fixtureMode={fixtureMode} onAppChanged={onUpsertApp} onRemove={() => void remove(selectedApp)} onOpenAppStudio={() => { setSelectedAppId(null); onOpenAppStudio(selectedApp.sourceSpaceId); }} onError={onError} onClose={() => { if (!busy) setSelectedAppId(null); }} /> : null}
+      {selectedApp ? <RestrictedAppDetailsDialog app={selectedApp} busy={busy} fixtureMode={fixtureMode} onAppChanged={onUpsertApp} onRemove={() => void remove(selectedApp)} onOpenBuildChat={onOpenBuildChat} onOpenAppStudio={(runtimeInstanceId) => { setSelectedAppId(null); onOpenAppStudio(selectedApp.sourceSpaceId, runtimeInstanceId); }} onError={onError} onClose={() => { if (!busy) setSelectedAppId(null); }} /> : null}
     </section>
   );
 }
@@ -334,19 +338,21 @@ function ReviewAuthorityGroup({ icon, title, summary, startsOff, children }: { i
   </section>;
 }
 
-function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRemove, onOpenAppStudio, onError, onClose }: {
+function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRemove, onOpenBuildChat, onOpenAppStudio, onError, onClose }: {
   app: RestrictedAppInstalled;
   busy: boolean;
   fixtureMode: boolean;
   onAppChanged: (app: RestrictedAppInstalled) => void;
   onRemove: () => void;
-  onOpenAppStudio: () => void;
+  onOpenBuildChat?: (spaceId: string, conversationId: string) => Promise<void>;
+  onOpenAppStudio: (runtimeInstanceId?: string) => void;
   onError: (message: string | null) => void;
   onClose: () => void;
 }) {
   const [connections, setConnections] = useState<RestrictedAppConnectionStatus[]>([]);
   const [storageUsage, setStorageUsage] = useState<RestrictedAppStorageUsage | null>(null);
   const [dataRecovery, setDataRecovery] = useState<RestrictedAppDataRecovery | null>(null);
+  const [buildContext, setBuildContext] = useState<RestrictedAppBuildContext | null>(null);
   const restoreInputRef = useRef<HTMLInputElement>(null);
   const [automationRuns, setAutomationRuns] = useState<Record<string, RestrictedAppAutomationRunReceipt[]>>({});
   const [automationRunLoading, setAutomationRunLoading] = useState<Record<string, boolean>>({});
@@ -369,9 +375,21 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
       : getRestrictedAppStorageUsage(app.spaceId, app.manifest.id, app.digest);
     void storage.then((value) => { if (!cancelled) setStorageUsage(value); }).catch((caught) => { if (!cancelled) onError(errorText(caught)); });
     setDataRecovery(null);
+    setBuildContext(null);
+    if (!fixtureMode) void getRestrictedAppBuildContext(app).then((value) => { if (!cancelled) setBuildContext(value); }).catch((caught) => { if (!cancelled) onError(errorText(caught)); });
     if (!fixtureMode) void getRestrictedAppDataRecovery(app).then((value) => { if (!cancelled) setDataRecovery(value); }).catch((caught) => { if (!cancelled) onError(errorText(caught)); });
     return () => { cancelled = true; };
   }, [app.digest, app.manifest.id, app.spaceId, fixtureMode, onError]);
+
+  async function openBuildChat() {
+    if (!buildContext?.buildConversationId || !onOpenBuildChat) return;
+    setActionBusy("build-chat");
+    try {
+      await onOpenBuildChat(buildContext.sourceSpaceId, buildContext.buildConversationId);
+      onClose();
+    } catch (caught) { onError(errorText(caught)); }
+    finally { setActionBusy(null); }
+  }
 
   useEffect(() => {
     automationRunRequests.current.clear();
@@ -681,8 +699,8 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
           {dataRecovery?.available ? <button className="professional-button professional-button-quiet" type="button" disabled={Boolean(actionBusy)} onClick={() => void restoreData()}>Undo data change</button> : null}
           <button className="professional-button professional-button-quiet" type="button" disabled={Boolean(actionBusy) || !storageUsage?.keyCount} onClick={() => void clearStorage()}>{actionBusy === "storage" ? <ArrowSync16Regular className="spin" /> : null}Clear data</button>
         </div></section>
-        <details className="restricted-app-package-details"><summary>Package & runtime</summary><dl className="capability-review-facts"><div><dt>Package</dt><dd>{app.packageName} {app.version}</dd></div><div><dt>Installed revision</dt><dd><code>{shortDigest(app.digest)}</code></dd></div><div><dt>Runtime</dt><dd>Protected local web app</dd></div><div><dt>UI entry</dt><dd>{app.manifest.runtime.entry}</dd></div><div><dt>Worker</dt><dd>{app.manifest.runtime.worker ?? "None"}</dd></div></dl></details>
-        <section className="restricted-app-lifecycle"><div><h3>Lifecycle</h3><p>{app.runtimeInstanceKind === "development" ? "Preview" : "App Feature"} added {formatTimestamp(app.installedAt)} · Updated {formatTimestamp(app.updatedAt)}</p></div><div className="restricted-app-lifecycle-actions"><button className="professional-button professional-button-secondary" type="button" disabled={busy || Boolean(actionBusy)} onClick={onOpenAppStudio}>Open App Studio</button>{app.runtimeInstanceKind === "development" ? <button className="professional-button professional-button-danger" type="button" disabled={busy || Boolean(actionBusy)} onClick={onRemove}><Delete16Regular />Remove preview</button> : null}</div></section>
+        <details className="restricted-app-package-details"><summary>Package & runtime</summary><dl className="capability-review-facts"><div><dt>Package</dt><dd>{app.packageName} {app.version}</dd></div><div><dt>Installed revision</dt><dd><code>{shortDigest(app.digest)}</code></dd></div>{buildContext?.sourcePath ? <div><dt>Source folder</dt><dd><code>{buildContext.sourcePath}</code></dd></div> : null}<div><dt>Runtime</dt><dd>Protected local web app</dd></div><div><dt>UI entry</dt><dd>{app.manifest.runtime.entry}</dd></div><div><dt>Worker</dt><dd>{app.manifest.runtime.worker ?? "None"}</dd></div></dl></details>
+        <section className="restricted-app-lifecycle"><div><h3>Lifecycle</h3><p>{app.runtimeInstanceKind === "development" ? "Preview" : "App Feature"} added {formatTimestamp(app.installedAt)} · Updated {formatTimestamp(app.updatedAt)}</p></div><div className="restricted-app-lifecycle-actions"><button className="professional-button professional-button-secondary" type="button" disabled={busy || Boolean(actionBusy)} onClick={() => onOpenAppStudio(buildContext?.updateTargetRuntimeInstanceId ?? (app.runtimeInstanceKind === "app" ? app.runtimeInstanceId : undefined))}>{buildContext?.updateTargetRuntimeInstanceId || app.runtimeInstanceKind === "app" ? "Review updates" : "Open App Studio"}</button>{buildContext?.buildConversationId && onOpenBuildChat ? <button className="professional-button professional-button-quiet" type="button" disabled={busy || Boolean(actionBusy)} onClick={() => void openBuildChat()}>Open build Chat</button> : null}{app.runtimeInstanceKind === "development" ? <button className="professional-button professional-button-danger" type="button" disabled={busy || Boolean(actionBusy)} onClick={onRemove}><Delete16Regular />Remove preview</button> : null}</div></section>
       </div>
       <div className="capability-dialog-footer restricted-app-details-footer"><button className="professional-button professional-button-primary" type="button" disabled={busy || Boolean(actionBusy)} onClick={onClose}>Done</button></div>
     </section>

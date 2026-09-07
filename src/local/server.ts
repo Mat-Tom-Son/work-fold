@@ -1557,6 +1557,15 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
 
+  const restrictedBuildContextMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/restricted-apps\/([^/]+)\/build-context$/);
+  if (restrictedBuildContextMatch && method === "GET") {
+    const space = await getSpace(restrictedBuildContextMatch[1]);
+    const expectedDigest = url.searchParams.get("expectedDigest");
+    if (!expectedDigest) throw badRequest("An exact app revision is required.");
+    sendJson(res, { context: await state.restrictedAppProposals.buildContext(space.id, restrictedBuildContextMatch[2], expectedDigest) });
+    return;
+  }
+
   const restrictedChangeMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/restricted-apps\/([^/]+)\/change$/);
   if (restrictedChangeMatch && method === "POST") {
     const space = await getSpace(restrictedChangeMatch[1]);

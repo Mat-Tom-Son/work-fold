@@ -19,6 +19,7 @@ import {
 } from "@fluentui/react-icons";
 
 import { errorText } from "../../lib/api";
+import { useAppStudioNavigation } from "../../hooks/useAppStudioNavigation";
 import { downloadAppData } from "../../lib/app-data-download";
 import { releaseDeletionResultToast, retainedDataPurgeResultToast, uninstallResultToast } from "../../lib/app-studio-copy";
 import {
@@ -57,6 +58,7 @@ export function AppStudioPane({
   spaces,
   active,
   previewRevision,
+  navigation = null,
   fixtureMode = false,
   onAppsChanged,
   onError,
@@ -65,6 +67,7 @@ export function AppStudioPane({
   spaces: SpaceSummary[];
   active: boolean;
   previewRevision: string;
+  navigation?: { id: string; runtimeInstanceId: string } | null;
   fixtureMode?: boolean;
   onAppsChanged?: (spaceId: string, runtimeInstanceId: string, apps: RestrictedAppInstalled[]) => void;
   onError: (message: string) => void;
@@ -158,9 +161,13 @@ export function AppStudioPane({
 
   useEffect(() => {
     if (targetSpaceId && installTargetIds.has(targetSpaceId)) return;
+    if (navigation) return;
     const installedTarget = studio?.instances.find((instance) => installTargetIds.has(instance.spaceId))?.spaceId;
     setTargetSpaceId(installedTarget ?? installTargets[0]?.id ?? "");
-  }, [installTargetIds, installTargets, studio?.instances, targetSpaceId]);
+  }, [installTargetIds, installTargets, studio?.instances, targetSpaceId, navigation]);
+
+  useAppStudioNavigation({ active, loading, instances: studio?.instances, navigation, registeredSpaceIds: installTargetIds,
+    selectId: `${ids}-target-space`, onSelect: setTargetSpaceId, onError });
 
   useEffect(() => {
     if (!recentlyPublished) return;
@@ -602,6 +609,7 @@ export function AppStudioPane({
                   <label htmlFor={`${ids}-target-space`}>
                     <span>Install in Space</span>
                     <select id={`${ids}-target-space`} value={targetSpaceId} onChange={(event) => setTargetSpaceId(event.target.value)} disabled={Boolean(busyKey) || !installTargets.length}>
+                      {installTargets.length ? <option value="" disabled>Choose a Space</option> : null}
                       {installTargets.length
                         ? installTargets.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)
                         : <option value="">No Spaces registered</option>}

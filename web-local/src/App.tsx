@@ -365,6 +365,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   const [draftRequest, setDraftRequest] = useState<ChatDraftRequest | null>(null);
   const draftRequestId = useRef(0);
   const appChangeRequests = useRef(new Map<string, string>());
+  const [appStudioNavigation, setAppStudioNavigation] = useState<{ id: string; sourceSpaceId: string; runtimeInstanceId: string } | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const commandPaletteReturnFocusRef = useRef<HTMLElement | null>(null);
   const [historyRefreshRequest, setHistoryRefreshRequest] = useState(0);
@@ -799,6 +800,16 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     const surfaceTabId = tabs.openChatSurfaceTab(source, null);
     setDraftRequest({ id: ++draftRequestId.current, text: appChangeDraft(change), spaceId: source.id, surfaceTabId });
     appChangeRequests.current.delete(key);
+  }
+
+  async function openAppBuildChat(sourceSpaceId: string, conversationId: string) {
+    const source = spaces.find((item) => item.id === sourceSpaceId);
+    if (!source) throw new Error("The app's source Space is unavailable.");
+    const { conversations } = await api<{ conversations: ConversationSummary[] }>(`/api/spaces/${encodeURIComponent(source.id)}/conversations`);
+    const conversation = conversations.find((item) => item.id === conversationId);
+    if (!conversation) throw new Error("That build Chat is no longer available.");
+    setConversationGroups((current) => ({ ...current, [source.id]: conversations }));
+    openChat(source, conversation);
   }
 
   function openChatActions(
@@ -1305,7 +1316,13 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
                 fixtureMode={Boolean(fixture)}
                 onBuildApp={() => startAppBuildChat(targetSpace)}
                 onChangeApp={startAppChangeChat}
-                onOpenAppStudio={(sourceSpaceId) => tabs.openAppStudioSurfaceTab(spaces.find((item) => item.id === sourceSpaceId) ?? targetSpace)}
+                onOpenBuildChat={openAppBuildChat}
+                onOpenAppStudio={(sourceSpaceId, runtimeInstanceId) => {
+                  const source = sourceSpaceId ? spaces.find((item) => item.id === sourceSpaceId) : targetSpace;
+                  if (!source) { onError("The app's source Space is unavailable."); return; }
+                  setAppStudioNavigation(runtimeInstanceId ? { id: crypto.randomUUID(), sourceSpaceId: source.id, runtimeInstanceId } : null);
+                  tabs.openAppStudioSurfaceTab(source);
+                }}
                 onUpsertApp={restrictedAppsState.upsertApp}
                 onRemoveApp={(appId) => restrictedAppsState.removeApp(targetSpace.id, appId)}
                 onError={onError}
@@ -1330,6 +1347,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
             ) : tab.kind === "app-studio" ? (
               <AppStudioPane
                 space={targetSpace}
+                navigation={appStudioNavigation?.sourceSpaceId === targetSpace.id ? appStudioNavigation : null}
                 spaces={spaces}
                 active={active}
                 previewRevision={(restrictedAppsState.appsBySpace[targetSpace.id] ?? [])

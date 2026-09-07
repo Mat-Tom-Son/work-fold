@@ -36,6 +36,17 @@ export interface RestrictedAppChangeDraft {
   buildConversationId: string | null;
 }
 
+export interface RestrictedAppBuildContext {
+  sourceSpaceId: string;
+  sourcePath: string | null;
+  buildConversationId: string | null;
+  updateTargetRuntimeInstanceId: string | null;
+}
+
+export async function getRestrictedAppBuildContext(app: RestrictedAppInstalled): Promise<RestrictedAppBuildContext> {
+  return (await api<{ context: RestrictedAppBuildContext }>(`${collectionPath(app.spaceId)}/${encodeURIComponent(app.manifest.id)}/build-context?expectedDigest=${encodeURIComponent(app.digest)}`)).context;
+}
+
 export async function prepareRestrictedAppChange(app: RestrictedAppInstalled, requestId: string): Promise<RestrictedAppChangeDraft> {
   return (await api<{ change: RestrictedAppChangeDraft }>(`${collectionPath(app.spaceId)}/${encodeURIComponent(app.manifest.id)}/change`, {
     method: "POST", body: { requestId, expectedDigest: app.digest }, idempotent: true,

@@ -97,9 +97,9 @@ interruption, changed copies, corrupt receipts, symlinks, History failure,
 release-backed source/target separation, API reservations, and competing edits.
 See [Changing an installed app](app-changes.md) for the implemented contract.
 
-The first checklist item remains open: original-Chat navigation, direct target
-update review, and preview placement for a Release installed in its own source
-Space still need completion. The remaining context, Assistant, fold result, and
+The first checklist item remains open: preview placement for a Release
+installed in its own source Space still needs completion. Original-Chat and
+exact-target update navigation are now implemented as described below. The remaining context, Assistant, fold result, and
 approved-browser work retains its full scope above.
 
 Verification for this slice: `npm run check`, `npm test` (1,107 passed, one
@@ -120,3 +120,32 @@ shorter draft and the typing position visible. The test app is quit; production
 application data and the Applications installation were not changed. A real
 Assistant turn and the combined multi-Space/browser acceptance journey remain
 for the later integrated slices.
+
+## Progress: build and update navigation
+
+App details now shows **Open build Chat** when the source Chat is still
+identifiable, with its source path under Package & runtime. **Review updates**
+opens App Studio on the exact installed target, including when reached from a
+changed source preview. Provenance carries that target through subsequent
+working copies and CLI reviews; a removed installation cannot redirect the
+link to another one. Both controls navigate only. App Studio preserves later
+manual target selections when its data refreshes.
+
+Verification: `npm run check`, `npm test` (1,109 passed; one Windows-only skip),
+and `npm run desktop:prepare` pass. Added tests exercise retained Chat/target
+context across multiple edits and restart, stale target removal, the local API,
+and real DOM navigation with two potential installations. Logs:
+`/tmp/workfold-app-navigation-check.log`,
+`/tmp/workfold-app-navigation-tests.log`, and
+`/tmp/workfold-app-navigation-desktop.log`.
+
+Live desktop QA used the existing isolated source Space and a second synthetic
+App Updates QA Space with its own installed Release. Open build Chat reached
+the source fixture Chat with an empty composer. Review updates switched to the
+source App Studio and selected App Updates QA, with no pending activation review
+created. The first empty fixture Chat was correctly unavailable because the
+normal Chat listing removes transcripts containing only a title; adding a
+clearly labeled synthetic message completed the navigation fixture. No actual
+Assistant turn ran in this test. The QA app is quit and production state remains
+untouched. Source-Space preview placement and the broader acceptance journey
+remain open.
