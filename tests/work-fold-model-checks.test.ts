@@ -91,6 +91,7 @@ for (const [label, invalid, diagnostic] of [
   ["null remediation", { ...finding, remediation: null }, /remediation must be text; received null/],
   ["array remediation", { ...finding, remediation: ["PRIVATE MODEL TEXT"] }, /remediation must be text; received array/],
   ["object detail", { ...finding, detail: { message: "PRIVATE MODEL TEXT" } }, /detail must be text; received object/],
+  ["missing title", { path: finding.path, quote: finding.quote, detail: finding.detail }, /title is missing/],
   ["missing path", { quote: finding.quote, title: finding.title, detail: finding.detail }, /path is missing/],
   ["extra field", { ...finding, "PRIVATE MODEL TEXT": "PRIVATE MODEL TEXT" }, /unexpected field/],
   ["blank title", { ...finding, title: "   " }, /title is empty/],

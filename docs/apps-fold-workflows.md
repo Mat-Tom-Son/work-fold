@@ -606,3 +606,42 @@ with both Electron probes passed. Logs: `/tmp/workfold-space-refresh-check.log`,
 live menu verification; the existing signed candidate predates this fix.
 The real fold is now exercising a model Check failure/repair and a bounded
 Delivery QA handoff in task `turn-3f2b8e48-e3cf-417c-9941-2879393e0cbd`.
+
+
+## Progress: real-model Check and cross-Space handoff
+
+The actual fold request `turn-3f2b8e48-e3cf-417c-9941-2879393e0cbd`
+completed with three attributed Space child tasks. Purchasing QA deliberately
+changed North's table entry to nine days, then repaired it through its own
+Assistant. Check `check-d142c216-1739-4753-a0df-d0d838558cc0`, declaration
+digest `8a77fd8ce8944eb49533d63c7dd0877852c4fc726c24a94332fd929f9c9dfb94`,
+recorded baseline clear, a malformed-provider failure, detected discrepancies,
+and repaired current-clear. The stored records were independently inspected:
+`check-run-35725a8c-9502-4f72-a866-951adf22708c` failed on a missing title;
+`check-run-d6bd1857-d1c6-4536-889b-1ea5578149e8` admitted three quotations;
+`check-run-b04efd35-719b-4a01-8c71-ff84237196cc` succeeded with no findings.
+The quote reference retained the same digest throughout. No automatic provider
+retry occurred; the fold explicitly requested the retry.
+
+The model also made an unnecessary synthetic-label complaint despite quoting
+an already synthetic heading. This is evidence of fallible model judgment,
+not three independently correct findings. The review guidance now checks
+semantic satisfaction, rejects invented stricter wording requirements, and
+asks the model to cross-check its claim against its own quote. The changed
+sensor digest requires explicit re-enablement; no existing authority is silently
+carried forward. Missing-title coverage verifies failure without partial admission.
+
+The fold copied the repaired `comparison.md` through `files add` into Delivery
+QA, then its Assistant wrote `delivery-plan.md`: North, ten units, $420, four
+days within the five-day deadline, explicitly synthetic with no order placed.
+The management request's child-file links name both actual History-observed
+outputs. Native UI separately selected only `quotes.md` and Delivery readiness
+for the app. The app read the exact 321-byte file and returned current-clear,
+no findings, through its Check bridge. Grant changes intentionally replace app
+authority; old task receipts remain in ordinary Chat/history and do not become
+readable through the new app authority.
+
+Type checks and the complete suite passed after the guidance change (1,173
+passed, one Windows-only skip): `/tmp/workfold-review-precision-check.log` and
+`/tmp/workfold-review-precision-tests.log`. Updated signed-candidate menu and
+model checks are the remaining live verification before release preparation.

@@ -277,6 +277,11 @@ active finding**.
 
 The model submits an exact unique quote for each primary-file finding; the host derives offsets and hashes itself. Every primary and reference input is hashed again after review, including an empty findings result. Changed files, invalid quotes, malformed or truncated submissions, timeouts, and provider failures are Check errors, never a clean result. Freshness and decision admission recheck all input digests without contacting a model. Opening or refreshing Checks performs only local re-verification. Model findings are visibly labeled suggestions: quote verification does not prove factual accuracy. Checks never edit files automatically.
 
+The review prompt judges the stated criteria by meaning, rejects invented stricter
+requirements and wording preferences, and asks the model to check each claim
+against its own quotation. This reduces avoidable complaints but does not make
+model judgment deterministic or guarantee correctness.
+
 The submission schema names every required field and describes the optional
 plain-text suggestion. Missing suggestions must be omitted, never encoded as
 null or structured edits. Invalid finding diagnostics identify the entry number,
