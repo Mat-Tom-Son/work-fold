@@ -1,7 +1,7 @@
 # Apps and the fold: implementation plan
 
 Status: implementation and live integration verified for the 0.4.23 source
-candidate; final merge and publication follow the Mac release gates. Historical
+candidate, merged onto main; publication follows the Mac release gates. Historical
 progress entries below preserve what was pending at each stage. The final
 acceptance record supersedes those earlier pending-test statements.
 
@@ -29,7 +29,7 @@ management surface.
 - [x] Web apps: responsive desktop-served views, clear offline/revoked states,
   and separately authorized bounded actions in approved browsers. Shared viewer
   links remain read-only, with no management or runtime-action authority.
-- [ ] Integration: concise UI, canonical docs and harness parity, automated
+- [x] Integration: concise UI, canonical docs and harness parity, automated
   adversarial coverage, real desktop/browser journey, clean commits and merge.
 
 ## Acceptance journey

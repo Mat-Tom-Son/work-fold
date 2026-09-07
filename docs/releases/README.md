@@ -4,6 +4,12 @@ The [public Mac feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/rele
 is the authority for the newest available desktop update. A source tag or
 release-note file alone does not mean a version was published.
 
+## September 7, 2026 release candidate
+
+[0.4.23](work-fold-0.4.23.md) completes the Space-app and web-fold integration
+work. Its source candidate is ready for exact-main/tag CI and signed publication;
+the public feed above remains authoritative for release availability.
+
 ## September 6, 2026 release record
 
 | Version | State | Notes |
