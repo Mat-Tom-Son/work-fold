@@ -1,9 +1,20 @@
 # File previews in the fold browser
 
-An approved browser can open a file from a Space's Files tree or a copied-file
-receipt in a fold request. The dialog shows the Space and relative path, with
+An approved browser can open a file from a Space's Files tree, a copied-file
+receipt, or a completed child task in the current fold request. The dialog shows the Space and relative path, with
 Close and Refresh. Review links open the exact staged decision in Needs you.
 Links come from host receipts, not inferred filenames in Assistant prose.
+
+Child-task links come from differences between the turn's full pre/post History
+checkpoints. The bounded machine-local turn journal retains checkpoint ids and
+up to 64 changed/new relative paths with hashes and sizes. Missing or partial
+checkpoints produce no links. These are observed changes during the turn;
+concurrent edits may be included and are not attributed to the model. Deleted,
+skipped and reserved files are excluded. Request projection checks at most 64
+candidates against current visibility and exposes at most 12 paths. Opening
+reads the current file, not the historical snapshot. These links follow the
+existing bounded, in-memory request trail; this does not add a persistent
+request archive. Another browser's aggregate task summary receives no paths.
 
 `spaces.list` advertises `capabilities.filePreview`; only a desktop with that
 capability receives `spaces.filePreview` with explicit `spaceId` and `path`.

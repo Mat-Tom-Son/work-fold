@@ -1,7 +1,8 @@
 import { RestrictedAppTaskService, RestrictedAppTaskError, restrictedAppTaskAuthorityDigest, restrictedAppTaskPrompt, restrictedAppTaskTurnRequestId } from "./agent/restricted-app-tasks.js";
 import { BrowserAppActionService } from "./agent/restricted-app-browser-actions.js";
 import { observeWorkFoldRoutingFiles } from "./routings/routing-file-observer.js";
-import { readRemoteFilePreview } from "./remote-file-preview.js";
+import { isRemoteFileVisible, readRemoteFilePreview } from "./remote-file-preview.js";
+import { turnFileChanges } from "./agent/turn-file-changes.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -4077,6 +4078,7 @@ function remoteManagementRequest(
       conversationId: action.conversationId,
       taskId: action.taskId,
       decisionId: action.decisionId,
+      apps: action.apps,
     })),
   };
 }
@@ -5517,7 +5519,8 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         const result = await runRestrictedAppMutations(state, [space.id, target.id], () => operation.kind === "install"
           ? state.restrictedApps.activateLocalAppInstall(operation.operationId)
           : state.restrictedApps.activateLocalAppUpdate(operation.operationId));
-        recordFacadeAction(state, input.parentTaskId, { command: "apps.operation.activate", space });
+        recordFacadeAction(state, input.parentTaskId, { command: "apps.operation.activate", space,
+          apps: result.apps.map(managementAppResultRef) });
         return {
           space: toActSpaceRef(space),
           operationId: operation.operationId,
@@ -5909,6 +5912,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         parentTaskId: input.parentTaskId,
         requestId: input.requestId,
       });
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.install-preview", space, decisionId: staged.decisionId });
       return {
         space: toActSpaceRef(space),
         staged,
@@ -6660,8 +6664,29 @@ async function managementRequestView(
       conversationId: child.conversationId,
       state: status.state,
       error: status.error,
+      files: [] as string[],
     };
   });
+  // At most 64 metadata checks and 12 file links for an entire request. No
+  // prose parsing or folder scan; every candidate comes from the child's journal.
+  const candidates = children.flatMap((child) => {
+    const durable = state.turnStore.get(child.taskId);
+    if (child.state === "running" || !durable || durable.spaceId !== child.spaceId || durable.conversationId !== child.conversationId) return [];
+    return (durable.fileChanges?.files ?? []).map((file) => ({ child, path: file.path }));
+  }).slice(0, 64);
+  const visible = await Promise.all(candidates.map(async (item) => await isRemoteFileVisible(item.child.spaceId, item.path) ? item : null));
+  for (const item of visible.filter((item) => item !== null).slice(0, 12)) item.child.files.push(item.path);
+  const actions = await Promise.all(record.actions.map(async (action) => {
+    if (!action.decisionId || !["apps.install-preview", "apps.install-proposal"].includes(action.command)) return action;
+    try {
+      const act = await state.stagedActs.get(action.decisionId);
+      if (act?.kind !== "app.review.approve" || act.execution?.outcome !== "executed" || typeof act.parameters.proposalId !== "string") return action;
+      const proposal = await state.restrictedAppProposals.get(act.parameters.proposalId);
+      if (proposal?.status !== "installed" || !proposal.installedApp || proposal.spaceId !== action.spaceId
+        || proposal.review.digest !== act.pins.reviewDigest || proposal.installedApp.digest !== proposal.review.digest) return action;
+      return { ...action, apps: [managementAppResultRef(proposal.installedApp)] };
+    } catch { return action; }
+  }));
   let reply: { messageId: string; content: string } | null = null;
   const replyMessageId = turn.state === "succeeded" || turn.state === "failed" ? turn.messageId : null;
   if (replyMessageId) {
@@ -6693,8 +6718,8 @@ async function managementRequestView(
     content: record.content,
     attachments: record.attachments,
     dispositions: withLibraryDispositions(record),
-    actions: record.actions,
-    children,
+    actions,
+    children: children.map(({ files, ...child }) => files.length ? { ...child, files } : child),
     reply,
     source: record.source,
     remotePrincipalId: record.remotePrincipalId,
@@ -6791,6 +6816,7 @@ function recordFacadeAction(
     copied?: string[];
     /** Staged-act id for staging verbs and `staged cancel`, so the request trail points at the card. */
     decisionId?: string;
+    apps?: ManagementRequestAction["apps"];
   },
 ): void {
   if (!parentTaskId) return;
@@ -6803,7 +6829,12 @@ function recordFacadeAction(
     ...(input.taskId ? { taskId: input.taskId } : {}),
     ...(input.copied ? { copied: input.copied } : {}),
     ...(input.decisionId ? { decisionId: input.decisionId } : {}),
+    ...(input.apps ? { apps: input.apps.slice(0, 64) } : {}),
   });
+}
+
+function managementAppResultRef(app: import("./agent/restricted-app-service.js").RestrictedAppInstalled): NonNullable<ManagementRequestAction["apps"]>[number] {
+  return { spaceId: app.spaceId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, digest: app.digest, title: app.manifest.title, version: app.version };
 }
 
 async function cancelAcceptedTurn(
@@ -8054,6 +8085,8 @@ async function runAgentTurn(
   let settledMessageId: string | undefined;
   let settledError: string | undefined;
   let capturedWorkTrail: ReturnType<PiConversationClient["getTurnWorkTrail"]> = [];
+  let beforeCheckpoint: import("./history.js").SpaceCheckpoint | null = null;
+  let afterCheckpoint: import("./history.js").SpaceCheckpoint | null = null;
   changeTurnCount(state, 1);
   try {
     client = await getClient(state, spaceId, spaceRoot, conversationId);
@@ -8068,7 +8101,7 @@ async function runAgentTurn(
           spaceRoot: space.spaceRoot,
         }))
       : undefined;
-    await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "pre_turn");
+    beforeCheckpoint = await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "pre_turn");
     await state.beforeAgentPrompt?.({ spaceId, conversationId, taskId });
     throwIfTurnCancelled(state, taskId);
     promptStarted = true;
@@ -8083,7 +8116,7 @@ async function runAgentTurn(
     // client while the server awaits checkpoint persistence below.
     capturedWorkTrail = client.getTurnWorkTrail();
     promptStarted = false;
-    await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "post_turn");
+    afterCheckpoint = await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "post_turn");
     await flushTurnCheckpoint(state, key, taskId);
     const durable = state.turnStore.get(taskId);
     const workTrail = capturedWorkTrail;
@@ -8125,7 +8158,7 @@ async function runAgentTurn(
     const cancelled = isPiTurnCancelledError(error);
     if (promptStarted) {
       promptStarted = false;
-      await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "post_turn");
+      afterCheckpoint = await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "post_turn");
     }
     await flushTurnCheckpoint(state, key, taskId);
     const durable = state.turnStore.get(taskId);
@@ -8173,7 +8206,7 @@ async function runAgentTurn(
       state.clients.delete(key);
     }
   } finally {
-    if (promptStarted) await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "post_turn");
+    if (promptStarted) afterCheckpoint = await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "post_turn");
     await flushTurnCheckpoint(state, key, taskId);
     const durableText = state.turnStore.get(taskId)?.assistantText ?? "";
     await state.turnStore.settle(taskId, {
@@ -8181,6 +8214,7 @@ async function runAgentTurn(
       ...(settledMessageId ? { messageId: settledMessageId } : {}),
       ...(settledError ? { error: settledError } : {}),
       assistantText: durableText,
+      fileChanges: turnFileChanges(beforeCheckpoint, afterCheckpoint),
     }).catch((error) => {
       console.error(`Could not persist Assistant turn settlement: ${errorMessage(error)}`);
       return null;
@@ -10938,10 +10972,10 @@ async function captureTurnCheckpointSafe(
   spaceRoot: string,
   conversationId: string,
   reason: "pre_turn" | "post_turn",
-): Promise<void> {
+): Promise<import("./history.js").SpaceCheckpoint | null> {
   // History is a Space concept. The management scope's root holds only
   // conversation records in app state, so turn checkpoints do not apply.
-  if (spaceId === workFoldManagementScopeId) return;
+  if (spaceId === workFoldManagementScopeId) return null;
   try {
     const checkpoint = await createSpaceCheckpoint(spaceRoot, {
       reason,
@@ -10968,12 +11002,14 @@ async function captureTurnCheckpointSafe(
         message: `History skipped ${checkpoint.skippedLargeFiles.length} oversized file${checkpoint.skippedLargeFiles.length === 1 ? "" : "s"}.`,
       });
     }
+    return checkpoint;
   } catch (error) {
     broadcast(state, streamKey(spaceId, conversationId), {
       type: "status",
       conversationId,
       message: `History checkpoint warning: ${errorMessage(error)}`,
     });
+    return null;
   }
 }
 

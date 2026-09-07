@@ -13,6 +13,7 @@ import { createWorkFoldCliActRequest } from "../src/local/cli/act-protocol.js";
 import type { WorkFoldActFacade } from "../src/local/cli/act-facade.js";
 import { WorkFoldCliActReceipts, type WorkFoldCliActReceiptV1 } from "../src/local/cli/act-receipts.js";
 import { startLocalApi } from "../src/local/server.js";
+import { setSpaceIgnoreState } from "../src/local/space-ignore.js";
 
 test("act argv parsing carries manage send attachments and the manage stop command", () => {
   const send = parseWorkFoldCliActArgv([
@@ -124,6 +125,8 @@ test("the act executor forwards attachments to the facade and stamps lineage on 
 test("management requests carry attachments, record lineage, and expose honest phases over the local API", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-management-api-test-"));
   let heldConversationId: string | null = null;
+  let changedConversationId: string | null = null;
+  let changedSpaceRoot = "";
   let releaseHeldPrompt!: () => void;
   let reportHeldPrompt!: () => void;
   const heldPromptGate = new Promise<void>((resolve) => { releaseHeldPrompt = resolve; });
@@ -151,6 +154,10 @@ test("management requests carry attachments, record lineage, and expose honest p
       },
     },
     async beforeAgentPrompt(event) {
+      if (event.conversationId === changedConversationId) {
+        await writeFile(join(changedSpaceRoot, "comparison.md"), "North: $42\n");
+        await writeFile(join(changedSpaceRoot, "private.md"), "Hidden result\n");
+      }
       if (event.conversationId !== heldConversationId) return;
       reportHeldPrompt();
       await heldPromptGate;
@@ -201,6 +208,10 @@ test("management requests carry attachments, record lineage, and expose honest p
     });
     assert.equal(libraryAdded.added.length, 1);
     const childConversation = await facade.createConversation({ space: target.space.id });
+    changedConversationId = childConversation.conversation.id;
+    changedSpaceRoot = target.space.spaceRoot;
+    await writeFile(join(changedSpaceRoot, "private.md"), "Previous hidden content\n");
+    await setSpaceIgnoreState(changedSpaceRoot, ["private.md"], true);
     const childSend = await facade.sendMessage({
       space: target.space.id,
       conversationId: childConversation.conversation.id,
@@ -244,6 +255,13 @@ test("management requests carry attachments, record lineage, and expose honest p
     const settledView = (await facade.manageTurnStatus({ taskId: send.taskId })).request!;
     assert.equal(settledView.phase, "done");
     assert.equal(settledView.reply?.content, "Command completed.");
+    assert.deepEqual(settledView.children[0]!.files, ["comparison.md"], "History-derived child results exclude currently ignored files");
+    await setSpaceIgnoreState(changedSpaceRoot, ["comparison.md"], true);
+    assert.equal((await facade.manageTurnStatus({ taskId: send.taskId })).request!.children[0]!.files, undefined, "result projection rechecks current visibility");
+    await setSpaceIgnoreState(changedSpaceRoot, ["comparison.md"], false);
+    const remoteView = await api.remoteFacade.execute("management.summary", { conversationId: send.conversationId },
+      { browserId: "different-browser", grantId: "different-grant", requestId: "read-summary" }) as { latestRequest: { children: Array<{ files?: string[] }> } };
+    assert.equal(remoteView.latestRequest.children[0]!.files, undefined, "another browser's summary cannot acquire task result references");
 
     // The same truth over HTTP for the popover.
     const summary = await getJson(api.origin, "/api/management/summary");

@@ -142,6 +142,8 @@ export interface WorkFoldActManagementChildStatus {
   conversationId: string;
   state: WorkFoldActTurnState;
   error: string | null;
+  /** Visible files observed changing between this turn's History captures. */
+  files?: string[];
 }
 
 /**

@@ -241,3 +241,15 @@ and Check revision. It shares only that Check's status, bounded finding details,
 relative paths and quoted evidence. It never runs a sensor or contacts a model,
 and grants no general file access. Changed declarations refuse; changed app
 revisions reset selections. Workers and shared viewers cannot read Check results.
+
+### Fold result navigation
+
+Child-file links derive from full History differences recorded in terminal turn
+metadata, never filenames inferred from model prose. Projection rechecks current
+Space registration, path visibility, reserved metadata, symlinks and nested
+Space boundaries; opening performs the complete bounded file-read checks again.
+App result links bind executed installation evidence to an exact Space/app/
+Feature Installation. Current revisions are resolved explicitly and disclosed;
+removed/reinstalled apps cannot inherit old links. Browser ownership filtering
+excludes file and app references from another browser's aggregate request view.
+These links grant no app powers and do not widen the content-free CLI read lane.

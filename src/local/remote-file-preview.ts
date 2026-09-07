@@ -25,18 +25,8 @@ const imageTypes: Record<string, string> = {
 
 /** Explicit approved-browser read. This is not a publication or an app file grant. */
 export async function readRemoteFilePreview(spaceId: string, relativePath: string): Promise<RemoteFilePreview> {
-  if (typeof relativePath !== "string" || !relativePath || relativePath.length > 2048
-    || relativePath.includes("\\") || /[\u0000-\u001f\u007f]/u.test(relativePath)
-    || relativePath.split("/").some((part) => !part || part === "." || part === "..")) throw unavailable();
   const space = await getSpace(spaceId);
-  async function currentPath(): Promise<string> {
-    const current = await getSpace(spaceId);
-    if (current.spaceRoot !== space.spaceRoot) throw unavailable();
-    const path = resolveSpacePath(space.spaceRoot, relativePath);
-    const [ignore, nested] = await Promise.all([readSpaceIgnoreState(space.spaceRoot), nestedRegisteredSpacePaths(space.spaceRoot)]);
-    if (isSpaceIgnored(relativePath, ignore.patterns) || nested.some((root) => relativePath === root || relativePath.startsWith(`${root}/`))) throw unavailable();
-    return path;
-  }
+  const currentPath = () => remoteVisiblePath(spaceId, relativePath, space.spaceRoot);
   let handle;
   try {
     const path = await currentPath();
@@ -78,6 +68,28 @@ export async function readRemoteFilePreview(spaceId: string, relativePath: strin
     return result;
   } catch { throw unavailable(); }
   finally { await handle?.close(); }
+}
+
+/** Metadata-only admission for task result links. Opening the link performs a fresh bounded read. */
+export async function isRemoteFileVisible(spaceId: string, relativePath: string): Promise<boolean> {
+  try {
+    const space = await getSpace(spaceId);
+    const path = await remoteVisiblePath(spaceId, relativePath, space.spaceRoot);
+    const file = await lstat(path);
+    return file.isFile() && !file.isSymbolicLink() && await remoteVisiblePath(spaceId, relativePath, space.spaceRoot) === path;
+  } catch { return false; }
+}
+
+async function remoteVisiblePath(spaceId: string, relativePath: string, expectedRoot: string): Promise<string> {
+  if (typeof relativePath !== "string" || !relativePath || relativePath.length > 2048
+    || relativePath.includes("\\") || /[\u0000-\u001f\u007f]/u.test(relativePath)
+    || relativePath.split("/").some((part) => !part || part === "." || part === "..")) throw unavailable();
+  const current = await getSpace(spaceId);
+  if (current.spaceRoot !== expectedRoot) throw unavailable();
+  const path = resolveSpacePath(expectedRoot, relativePath);
+  const [ignore, nested] = await Promise.all([readSpaceIgnoreState(expectedRoot), nestedRegisteredSpacePaths(expectedRoot)]);
+  if (isSpaceIgnored(relativePath, ignore.patterns) || nested.some((root) => relativePath === root || relativePath.startsWith(`${root}/`))) throw unavailable();
+  return path;
 }
 
 function sameFile(a: Stats, b: Stats): boolean {

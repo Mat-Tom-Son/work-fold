@@ -12,6 +12,14 @@ can be opened without first publishing a Release.
 
 ## Reviewed content and exact identity
 
+An approved installation in the current fold request also provides an app
+result link. The host derives it from the executed decision and installed
+proposal, or the completed Release activation. It pins the Space, app and
+Feature Installation instead of looking up a title. Opening resolves that same
+installation's current reviewed revision; a changed digest shows **Updated
+since this task**. Removal/reinstallation makes the old link unavailable.
+The completed app link replaces its obsolete Review decision button.
+
 The existing `viewer` declaration identifies the packaged entry and readable
 instance-owned data prefixes. It remains a maximum content declaration, not
 permission to publish. Both private app views and shared viewers use the same
@@ -138,7 +146,7 @@ review, one outcome on repeated submission, recovered receipts, a 320×568
 layout, and focus restoration. This is an inert browser UI fixture; the service,
 encrypted transport and real Electron worker are tested separately.
 
-Paired desktop/browser acceptance, richer result navigation and the real-model
+Paired desktop/browser acceptance and the real-model
 multi-Space journey remain part of [the active goal](apps-fold-workflows.md).
 The development implementation does not claim a deployed bridge or released
 desktop build.

@@ -22,7 +22,7 @@ management surface.
 - [x] Assistant actions: reviewed bounded intents, person-authorized dispatch
   into the owning Space, deduplicated acceptance, visible progress/results,
   cancellation and generation checks. No generic fold or shell bridge.
-- [ ] Fold results: bounded file/app previews and direct deliverable/review
+- [x] Fold results: bounded file/app previews and direct deliverable/review
   navigation from completed requests.
 - [x] Web apps: responsive desktop-served views, clear offline/revoked states,
   and separately authorized bounded actions in approved browsers. Shared viewer
@@ -32,11 +32,12 @@ management surface.
 
 ## Acceptance journey
 
-The fold-results slice now includes approved-browser file previews and direct
-copied-file/review receipt links, plus private reviewed app views. App-result
-links and links for Assistant-created deliverables beyond recorded file-copy
-actions remain open; this does not close the fold-results checklist item.
-The implemented web-app slice still needs the combined paired acceptance below.
+The fold-results slice now includes bounded file previews, copied-file and
+History-observed child-file links, exact installed-app links, and pending review
+navigation. App links disclose a newer revision of the same installation and
+refuse removed/reinstalled substitutes. These links follow the current bounded
+request trail, not a new persistent request archive. The completed feature
+slices still need the combined paired acceptance below.
 
 Assistant request implementation now uses the ordinary Space Chat path with
 exact review pins, task progress, cancellation and restart reconciliation.
@@ -493,3 +494,30 @@ revision's pending-request budget; grant revocation updates pending receipts
 together and settles matching active work. The temporary browser and QA bridge
 are closed. Deliverable/app links, paired live acceptance, final integration and
 the authorized merge/release remain open.
+
+## Progress: observed deliverables and installed-app results
+
+Terminal Space turns now retain bounded metadata for changes between their
+full pre/post History checkpoints. The current fold request rechecks file
+visibility before presenting links; another browser's aggregate summary has
+no paths or app references. App installation links derive from executed review
+evidence or completed activation and keep the exact installation identity.
+Testing found and repaired missing preview-install lineage in the request trail.
+
+Verification passed: `npm run check`, `npm test` (1,169 passed, one Windows-only
+skip), the bridge suite (48 passed), and `npm run desktop:prepare` with both
+Electron probes. Logs: `/tmp/workfold-result-links-final-check.log`,
+`/tmp/workfold-result-links-complete-tests.log`,
+`/tmp/workfold-result-links-bridge-tests.log`, and
+`/tmp/workfold-result-links-desktop.log`. The full run also exposed a flaky
+palette assertion: a random temporary folder could legitimately fuzzy-match
+Checks. The assertion now verifies the intended first result.
+
+The actual Chromium fixture probe `scripts/probes/fold-result-links.probe.js`
+passed cross-Space deliverable navigation, exact app-result opening, disclosure
+of its updated revision, nested-frame quote reads, consumed-review removal,
+390×844 containment and focus restoration. Both screenshots were visually
+inspected: `output/playwright/fold-deliverable-link-phone.png` and
+`output/playwright/fold-app-result-link-phone.png`. This is inert fixture UI
+acceptance; paired desktop execution and a successful real-model journey remain
+required. No release, production profile, installation or deployment changed.

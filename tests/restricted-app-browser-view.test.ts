@@ -162,3 +162,32 @@ test("approved-browser actions use the installed worker service, live grant auth
     assert.throws(() => calls[0]!.execution.assertCurrent(), /authority|installed|changed/i);
   } finally { await api.close(); await rm(root, { recursive: true, force: true }); }
 });
+
+test("a fold app-install result follows the executed review's exact installation and stays private to its browser", async () => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-app-result-"));
+  const agentDir = join(root, "agent"); await mkdir(join(agentDir, "extensions"), { recursive: true });
+  await writeFile(join(agentDir, "extensions", "done.ts"), 'export default function(pi) { pi.registerCommand("done", { description: "Finish a test", handler: async () => {} }); }');
+  let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve; });
+  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), spaceBase: join(root, "spaces"), loadEnv: false,
+    piRuntimeProvider: { async resolveRuntime() { return { agentDir }; } }, beforeAgentPrompt: async () => gate });
+  const principal = { browserId: "browser-one", grantId: "grant-one", requestId: "request-install" };
+  try {
+    const { space } = await api.actFacade.createSpace({ name: "App result" });
+    const source = join(space.spaceRoot, "app"); await mkdir(source);
+    await writeFile(join(source, "package.json"), JSON.stringify({ name: "app-result-qa", version: "1.0.0", type: "module", agentApp: "agent-app.json" }));
+    await writeFile(join(source, "agent-app.json"), JSON.stringify({ version: 2, id: "app-result-qa", title: "Quote board", runtime: { kind: "sandboxed-web", entry: "index.html" },
+      ui: {}, tools: [], permissions: { network: [], files: [], notifications: [] }, automations: [], viewer: { entry: "index.html", readable: ["quotes/"] } }));
+    await writeFile(join(source, "index.html"), "<!doctype html><h1>Quote board</h1>");
+    const parent = await api.remoteFacade.execute("management.send", { content: "/done", newConversation: true }, principal) as { taskId: string; conversationId: string };
+    const proposal = await api.actFacade.appsInstallPreview({ space: space.id, packagePath: "app", parentTaskId: parent.taskId });
+    const view = async (who = principal) => await api.remoteFacade.execute("management.summary", { conversationId: parent.conversationId }, who) as { latestRequest: { actions?: Array<{ apps?: unknown[] }> } };
+    assert.equal((await view()).latestRequest.actions![0]!.apps, undefined, "a pending review is not an installed app result");
+    await api.foldDecisions.decide(proposal.staged.decisionId, { decision: "approved", surface: "main-window" });
+    const apps = (await api.remoteFacade.execute("apps.list", { spaceId: space.id }, principal) as { apps: Array<Record<string, any>> }).apps;
+    const result = (await view()).latestRequest.actions![0]!.apps;
+    assert.deepEqual(result, [{ spaceId: space.id, appId: apps[0]!.appId, featureInstallationId: apps[0]!.featureInstallationId,
+      digest: apps[0]!.digest, title: "Quote board", version: "1.0.0" }]);
+    assert.equal((await view({ ...principal, grantId: "another-grant" })).latestRequest.actions, undefined);
+    assert.equal(JSON.stringify(result).includes(root), false);
+  } finally { release(); await api.close(); await rm(root, { recursive: true, force: true }); }
+});

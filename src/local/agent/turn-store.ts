@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { open } from "node:fs/promises";
 import { appendFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { parseTurnFileChanges, type WorkFoldTurnFileChanges } from "./turn-file-changes.js";
 
 export const workFoldTurnRecordSchema = "work-fold.turn.v1" as const;
 export const maxDurableTurnRecords = 1_000;
@@ -33,6 +34,7 @@ export interface WorkFoldDurableTurnRecord {
   assistantText: string;
   messageId?: string;
   error?: string;
+  fileChanges?: WorkFoldTurnFileChanges;
 }
 
 export interface WorkFoldTurnStoreOptions {
@@ -144,7 +146,7 @@ export class WorkFoldTurnStore {
   }
 
   markRunning(turnId: string): Promise<WorkFoldDurableTurnRecord | null> {
-    return this.#update(turnId, (record) => ({ ...record, status: "running", userMessagePersisted: true }));
+    return this.#update(turnId, (record) => ({ ...record, status: "running", userMessagePersisted: true }), { activeOnly: true });
   }
 
   /**
@@ -155,7 +157,7 @@ export class WorkFoldTurnStore {
   resumeUnpersisted(turnId: string): Promise<WorkFoldDurableTurnRecord | null> {
     return this.#update(turnId, (record) => {
       if (record.userMessagePersisted) return record;
-      const { error: _error, messageId: _messageId, ...rest } = record;
+      const { error: _error, messageId: _messageId, fileChanges: _fileChanges, ...rest } = record;
       return { ...rest, status: "accepted" };
     }, { unpersistedOnly: true });
   }
@@ -169,7 +171,7 @@ export class WorkFoldTurnStore {
 
   settle(
     turnId: string,
-    input: { status: Exclude<WorkFoldDurableTurnStatus, "accepted" | "running">; messageId?: string; error?: string; assistantText?: string },
+    input: { status: Exclude<WorkFoldDurableTurnStatus, "accepted" | "running">; messageId?: string; error?: string; assistantText?: string; fileChanges?: WorkFoldTurnFileChanges },
   ): Promise<WorkFoldDurableTurnRecord | null> {
     return this.#update(turnId, (record) => ({
       ...record,
@@ -178,6 +180,7 @@ export class WorkFoldTurnStore {
       assistantText: (input.assistantText ?? record.assistantText).slice(0, maxDurableTurnTextChars),
       ...(input.messageId ? { messageId: input.messageId } : {}),
       ...(input.error ? { error: input.error.slice(0, 2_048) } : {}),
+      ...(input.fileChanges ? { fileChanges: parseTurnFileChanges(input.fileChanges) } : {}),
     }));
   }
 
@@ -304,6 +307,10 @@ function parseRecord(value: unknown): WorkFoldDurableTurnRecord {
   if (typeof record.userMessageCreatedAt !== "string" || !Number.isFinite(Date.parse(record.userMessageCreatedAt))) throw new Error("Turn message time is invalid.");
   if (record.actorKind !== "assistant" && record.actorKind !== "cli" && record.actorKind !== "renderer" && record.actorKind !== "system") throw new Error("Turn actor is invalid.");
   if (!isStatus(record.status)) throw new Error("Turn status is invalid.");
+  if (record.fileChanges !== undefined) {
+    if (record.status === "accepted" || record.status === "running") throw new Error("An active turn cannot claim completed file changes.");
+    record.fileChanges = parseTurnFileChanges(record.fileChanges);
+  }
   if (typeof record.userMessagePersisted !== "boolean") throw new Error("Turn persistence state is invalid.");
   if (typeof record.acceptedAt !== "string" || !Number.isFinite(Date.parse(record.acceptedAt))) throw new Error("Turn acceptance time is invalid.");
   if (typeof record.updatedAt !== "string" || !Number.isFinite(Date.parse(record.updatedAt))) throw new Error("Turn update time is invalid.");
@@ -328,5 +335,5 @@ function requestKey(spaceId: string, conversationId: string, requestId: string):
 }
 
 function copyRecord(record: WorkFoldDurableTurnRecord): WorkFoldDurableTurnRecord {
-  return { ...record };
+  return { ...record, ...(record.fileChanges ? { fileChanges: structuredClone(record.fileChanges) } : {}) };
 }

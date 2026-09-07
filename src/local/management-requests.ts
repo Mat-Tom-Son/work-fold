@@ -56,6 +56,7 @@ export type ManagementRequestActionCommand =
   | "tools.remove"
   | "apps.proposals.dismiss"
   | "apps.install-proposal"
+  | "apps.install-preview"
   | "apps.remove"
   | "apps.grant"
   | "apps.revoke"
@@ -104,6 +105,8 @@ export interface ManagementRequestAction {
    * share one identity, so the request's action trail can point at the card.
    */
   decisionId?: string;
+  /** Exact installation produced by a completed app operation. Never resolved by display name. */
+  apps?: Array<{ spaceId: string; appId: string; featureInstallationId: string; digest: string; title: string; version: string }>;
 }
 
 export interface ManagementChildTaskRef {
@@ -175,7 +178,7 @@ export class ManagementRequestRegistry {
       outcome: null,
       stopRequestedAt: null,
       continuedFromTaskId: previous?.taskId ?? null,
-      actions: previous ? previous.actions.map((action) => ({ ...action })) : [],
+      actions: previous ? structuredClone(previous.actions) : [],
       childTasks: previous ? previous.childTasks.map((child) => ({ ...child })) : [],
       source: input.source ?? "local",
       remotePrincipalId: input.remotePrincipalId ?? null,
@@ -210,7 +213,7 @@ export class ManagementRequestRegistry {
     if (!parentTaskId) return null;
     const record = this.#records.get(parentTaskId);
     if (!record || record.actions.length >= maxManagementRequestActions) return null;
-    record.actions.push(action);
+    record.actions.push(structuredClone(action));
     if (action.command === "chat.send" && action.taskId && action.conversationId
       && action.spaceId !== undefined && action.spaceName !== undefined) {
       record.childTasks.push({
@@ -247,7 +250,7 @@ export class ManagementRequestRegistry {
     return [...this.#records.values()].map((record) => ({
       ...record,
       attachments: [...record.attachments],
-      actions: record.actions.map((action) => ({ ...action })),
+      actions: structuredClone(record.actions),
       childTasks: record.childTasks.map((child) => ({ ...child })),
     }));
   }

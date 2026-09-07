@@ -10,9 +10,24 @@ export function requestResultLinks(request) {
         add(`file:${item.spaceId}:${path}`, { kind: "file", spaceId: item.spaceId, path, label: path.split("/").at(-1), spaceName: item.spaceName || "Space" });
       }
     }
-    if (typeof item?.decisionId === "string" && /^[a-zA-Z0-9._:-]{1,160}$/.test(item.decisionId)) {
+    let hasAppResult = false;
+    for (const app of (Array.isArray(item?.apps) ? item.apps : []).slice(0, 64)) {
+      if (!app || ![app.spaceId, app.appId, app.featureInstallationId].every((value) => typeof value === "string" && /^[a-zA-Z0-9._:-]{1,160}$/.test(value))
+        || typeof app.digest !== "string" || !/^[a-f0-9]{64}$/.test(app.digest)
+        || typeof app.title !== "string" || !app.title.length || app.title.length > 120
+        || typeof app.version !== "string" || !app.version.length || app.version.length > 160) continue;
+      hasAppResult = true;
+      add(`app:${app.spaceId}:${app.featureInstallationId}`, { kind: "app", spaceId: app.spaceId, appId: app.appId,
+        featureInstallationId: app.featureInstallationId, digest: app.digest, version: app.version, label: app.title });
+    }
+    if (!hasAppResult && typeof item?.decisionId === "string" && /^[a-zA-Z0-9._:-]{1,160}$/.test(item.decisionId)) {
       add(`decision:${item.decisionId}`, { kind: "decision", id: item.decisionId, label: "Review decision" });
     }
+  }
+  for (const child of (Array.isArray(request.children) ? request.children : []).slice(0, 200)) {
+    if (typeof child?.spaceId !== "string" || !["succeeded", "failed", "aborted"].includes(child.state) || !Array.isArray(child.files)) continue;
+    for (const path of child.files.slice(0, 12)) if (safePath(path)) add(`file:${child.spaceId}:${path}`,
+      { kind: "file", spaceId: child.spaceId, path, label: path.split("/").at(-1), spaceName: child.spaceName || "Space" });
   }
   return [...links.values()];
 }

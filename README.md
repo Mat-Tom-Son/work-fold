@@ -50,7 +50,7 @@ Reviewed mode holds consequential actions for a person or matching standing poli
 
 ### The web bridge keeps the desktop in charge
 
-An approved browser can open saved fold Chats, browse filtered Space files, preview bounded text and images, open an app's reviewed web view, upload bounded attachments, and continue the management conversation. Copied-file and review receipts open their exact targets. Payloads cross the hosted relay in signed encrypted envelopes; the Mac remains the execution endpoint. See [file previews](docs/fold-file-previews.md) and [app views](docs/fold-browser-apps.md) for supported content and limits.
+An approved browser can open saved fold Chats, browse filtered Space files, preview bounded text and images, open an app's reviewed web view, upload bounded attachments, and continue the management conversation. The current request links to copied files, files observed changing during child tasks, installed apps and pending reviews. Payloads cross the hosted relay in signed encrypted envelopes; the Mac remains the execution endpoint. See [file previews](docs/fold-file-previews.md) and [app views](docs/fold-browser-apps.md) for supported content and limits.
 
 On the development branch, apps can also request declared worker actions from
 an approved browser. The fold shows exact inputs for review outside the app

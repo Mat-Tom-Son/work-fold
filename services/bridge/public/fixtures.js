@@ -121,12 +121,14 @@ export function buildFixture(name) {
       startedAt: minutes(2),
       children: [
         { spaceName: "Launch plan", state: "running" },
-        { spaceName: "Field notes", state: "succeeded" },
+        { spaceId: "space-2", spaceName: "Field notes", state: "succeeded", files: ["delivery-plan.md"] },
       ],
       dispositions: [{ attachment: { name: "q3-numbers.csv" }, status: "library" }],
       actions: [
         { command: "files.add", spaceId: "space-1", spaceName: "Launch plan", copied: ["reports/q3-summary.md"] },
         { command: "apps.grant", decisionId: "card-1" },
+        { command: "apps.install-preview", decisionId: "completed-app-review", apps: [{ spaceId: "space-1", appId: "quote-board", featureInstallationId: "fixture-quote-board",
+          digest: "b".repeat(64), title: "Quote board", version: "0.9.0" }] },
       ],
     },
   };
@@ -141,7 +143,7 @@ export function buildFixture(name) {
         { id: "space-2", name: "Field notes" },
       ],
       explorerSpaceId: "space-1",
-      spaceApps: new Map([["space-1", [{ spaceId: "space-1", appId: "quote-board", featureInstallationId: "fixture-quote-board", digest: "fixture", authorityDigest: "fixture", title: "Quote board", version: "1.0.0", preview: false, webView: true, actions: true }]]]),
+      spaceApps: new Map([["space-1", [{ spaceId: "space-1", appId: "quote-board", featureInstallationId: "fixture-quote-board", digest: "a".repeat(64), authorityDigest: "fixture", title: "Quote board", version: "1.0.0", preview: false, webView: true, actions: true }]]]),
       trees: new Map([
         ["space-1:", [
           { kind: "folder", name: "reports", path: "reports" },

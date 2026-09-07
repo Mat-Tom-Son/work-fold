@@ -381,3 +381,16 @@ Check help drafts name their Space-scoped CLI operations. `help checks` document
 the full correction JSON, and `help routings` provides a validated complete
 folder-change proposal. These are authoring aids; they add no authority or
 new protocol fields and keep implementation details out of the Checks panel.
+
+## Observed turn files and app result links
+
+The additive optional `fileChanges` field in `work-fold.turn.v1` records full
+pre/post History checkpoint ids and at most 64 changed/new file paths, hashes
+and sizes. It contains no file bytes and is admitted only on terminal turns;
+old records remain readable. Current management requests project at most 12
+currently visible child-file paths and exact installed app references. Browser
+ownership filtering removes both from another browser's aggregate summary.
+No content-free read-lane contract changes. The request trail retains its
+existing bounded in-memory lifetime; turn metadata alone does not reconstruct
+an old management request. See [file previews](fold-file-previews.md) and
+[browser apps](fold-browser-apps.md) for current-file and installation semantics.

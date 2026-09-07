@@ -124,6 +124,7 @@ function openFilePreview(spaceId, path) {
     fetchPreview: async (selectedSpaceId, selectedPath) => {
       if (fixtureName) {
         const text = selectedPath.endsWith(".csv") ? "item,next_step\nTwo invoices,Match purchase orders\nTravel,Reconcile category labels"
+          : selectedPath === "delivery-plan.md" ? "# Delivery plan\n\nDelivery target: five days."
           : selectedPath === "notes.md" ? `# Field notes\n\n${"Keep the original quote and delivery estimate together so the next review has the same evidence.\n\n".repeat(60)}`
             : "# Quarterly summary\n\nRevenue is up **12%**.\n\n| Item | Next step |\n|---|---|\n| Two invoices | Match purchase orders |\n| Travel | Reconcile category labels |";
         return { spaceId: selectedSpaceId, path: selectedPath, kind: "text", format: selectedPath.endsWith(".md") ? "markdown" : "text", text, truncated: false };
@@ -141,6 +142,13 @@ const fixtureAppActions = createFixtureAppActions();
 function openBrowserApp(spaceId, installationId) {
   const selected = (state.spaceApps.get(spaceId) ?? []).find((app) => app.featureInstallationId === installationId);
   if (!selected) return;
+  void browserAppController().open({ ...selected, spaceName: state.spaces.find((space) => space.id === spaceId)?.name ?? "Space" });
+}
+function openBrowserAppResult(reference) {
+  void browserAppController().open({ ...reference, title: reference.label, webView: true, sourceDigest: reference.digest,
+    spaceName: state.spaces.find((space) => space.id === reference.spaceId)?.name ?? "Space" });
+}
+function browserAppController() {
   browserApp ??= createBrowserAppView({
     actions: async (app, operation, input) => {
       if (fixtureName) return fixtureAppActions(app, operation, input);
@@ -149,7 +157,7 @@ function openBrowserApp(spaceId, installationId) {
     },
     online: () => Boolean(state.session?.desktopOnline),
     resolve: async (app) => {
-      if (fixtureName) return app;
+      if (fixtureName) return (state.spaceApps.get(app.spaceId) ?? []).find((item) => item.featureInstallationId === app.featureInstallationId);
       const result = await remote("apps.list", { spaceId: app.spaceId });
       return (result.apps ?? []).find((item) => item.featureInstallationId === app.featureInstallationId);
     },
@@ -165,7 +173,7 @@ function openBrowserApp(spaceId, installationId) {
       return remote("apps.read", { spaceId, appId, featureInstallationId, digest, authorityDigest, call });
     },
   });
-  void browserApp.open({ ...selected, spaceName: state.spaces.find((space) => space.id === spaceId)?.name ?? "Space" });
+  return browserApp;
 }
 
 void boot();
@@ -996,6 +1004,11 @@ function renderMessages() {
     ${working && !workEvents.some((event) => event.state === "running") ? `<div class="working-row"><span class="spinner"></span><span>${escapeHtml(state.liveActivity || "Working")}</span></div>` : ""}
   `);
   if (workChanged) {
+    const resultLinks = requestResultLinks(request);
+    for (const button of workStatus.querySelectorAll("[data-result-app]")) button.addEventListener("click", () => {
+      const reference = resultLinks.find((item) => item.kind === "app" && item.featureInstallationId === button.dataset.resultApp && item.spaceId === button.dataset.spaceId);
+      if (reference) openBrowserAppResult(reference);
+    });
     for (const button of workStatus.querySelectorAll("[data-result-file]")) button.addEventListener("click", () => openFilePreview(button.dataset.spaceId, button.dataset.resultFile));
     for (const button of workStatus.querySelectorAll("[data-result-decision]")) button.addEventListener("click", async () => {
       showContext("needs", { moveFocus: true });
@@ -1116,6 +1129,7 @@ function requestEvents(request) {
   const results = requestResultLinks(request);
   if (results.length) events.push({ state: "result", html: `<span class="request-result-links">${results.map((result) => result.kind === "file"
     ? `<button type="button" class="quiet" data-space-id="${escapeAttribute(result.spaceId)}" data-result-file="${escapeAttribute(result.path)}" title="${escapeAttribute(result.spaceName)} · ${escapeAttribute(result.path)}">${escapeHtml(result.label)}</button>`
+    : result.kind === "app" ? `<button type="button" class="quiet" data-space-id="${escapeAttribute(result.spaceId)}" data-result-app="${escapeAttribute(result.featureInstallationId)}">${escapeHtml(result.label)}</button>`
     : `<button type="button" class="quiet" data-result-decision="${escapeAttribute(result.id)}">${escapeHtml(result.label)}</button>`).join("")}</span>` });
   return events;
 }

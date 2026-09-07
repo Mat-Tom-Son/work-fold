@@ -26,7 +26,7 @@ export function createBrowserAppView({ read, online, resolve = async (app) => ap
   const clear = () => { clearTimeout(loadTimer); clearInterval(healthTimer); actionPanel.reset(); generation++; frame = null; entry = null; content.replaceChildren(); inFlight = 0; checking = false; };
   const unavailable = (message) => { clear(); content.textContent = message; refresh.disabled = !online(); };
   const close = () => { clear(); selected = null; if (dialog.open) dialog.close(); if (opener?.isConnected) opener.focus({ preventScroll: true }); };
-  function label() { dialog.querySelector("h2").textContent = selected.title; dialog.querySelector("header p").textContent = `${selected.spaceName} · ${selected.version}${selected.preview ? " · Preview" : ""}`; }
+  function label() { dialog.querySelector("h2").textContent = selected.title; dialog.querySelector("header p").textContent = `${selected.spaceName} · ${selected.version}${selected.preview ? " · Preview" : ""}${selected.sourceDigest && selected.sourceDigest !== selected.digest ? " · Updated since this task" : ""}`; }
   async function call(value, expectedGeneration) {
     let result;
     try { result = await read(selected, value); }

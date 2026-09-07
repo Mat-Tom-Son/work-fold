@@ -214,3 +214,14 @@ and Check revision. It shares only that Check's status, bounded finding details,
 relative paths and quoted evidence. It never runs a sensor or contacts a model,
 and grants no general file access. Changed declarations refuse; changed app
 revisions reset selections. Workers and shared viewers cannot read Check results.
+
+### Fold task result links
+
+Recent machine-local turn records may retain up to 64 changed/new relative file
+paths, hashes and sizes with pre/post History checkpoint ids. This is metadata
+about observed changes during a turn, not additional file content or a model
+request. The current fold request exposes at most 12 currently visible paths
+to its owning approved browser; app result links contain installation identity,
+title, version and digest. Other browsers' aggregate request summaries exclude
+these references. Opening a file reads its current bounded contents through
+the encrypted preview lane. See [file previews](docs/fold-file-previews.md).

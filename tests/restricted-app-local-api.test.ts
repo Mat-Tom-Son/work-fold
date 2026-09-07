@@ -979,6 +979,9 @@ test("app requests use reviewed native Pi turns, History, exact task cancellatio
     assert.equal(done.id, pending.id);
     assert.match(done.result!.text, /Saved comparison.md/);
     assert.equal(await readFile(join(space.spaceRoot, "comparison.md"), "utf8"), "# Comparison\nNorth: $42\n");
+    const journal = (await readFile(join(sandbox, "state", "turns", "turns.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    const completedTurn = journal.filter((record) => record.conversationId === `chat-app-${pending.id}` && record.status === "succeeded").at(-1);
+    assert.deepEqual(completedTurn.fileChanges.files.map((file: { path: string }) => file.path), ["comparison.md"], "the actual Pi write has durable History-derived navigation evidence");
     assert.ok(bodies.some((body) => body.includes("App task: Compare quotes")), "ordinary Pi sees the reviewed request");
     assert.ok((await listSpaceCheckpoints(space.spaceRoot)).length > 0, "the ordinary turn captures History");
     assert.equal((await request<{ tasks: RestrictedAppAssistantTask[] }>(api.origin, `${taskBase}?${query}`)).tasks[0]!.result, undefined, "list replies remain compact");

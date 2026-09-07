@@ -22,7 +22,8 @@ test("command palette searches real API Space summaries by name and folder witho
       { id: `space:${space.id}`, groupId: "switch-space", groupLabel: "Switch Space", label: space.name, matchTargets: [space.name, space.spaceRoot], run() {} },
     ];
     const ids = (query: string) => commandPaletteResultGroups(commands, query).flatMap((group) => group.results.map((result) => result.command.id));
-    assert.deepEqual(ids("Checks"), ["go:checks"]);
+    // The random temporary path may also be a legitimate fuzzy match.
+    assert.equal(ids("Checks")[0], "go:checks");
     assert.deepEqual(ids("Editorial"), [`space:${space.id}`]);
     assert.deepEqual(ids(join(sandbox, "content")), [`space:${space.id}`]);
   } finally { await api.close(); await rm(sandbox, { recursive: true, force: true }); }

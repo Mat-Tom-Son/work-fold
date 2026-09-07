@@ -70,7 +70,8 @@ test("offline and updated app views require an explicit fresh open and preserve 
   const seen: any[] = [];
   const controller = createBrowserAppView({ online: () => connected, resolve: async () => current, read: async (scope: any) => { seen.push(scope); return entry; } });
   try {
-    await controller.open(app);
+    await controller.open({ ...app, sourceDigest: app.digest });
+    assert.doesNotMatch(document.querySelector("header p")!.textContent!, /Updated since this task/);
     connected = false; controller.connectionChanged(false);
     assert.equal(document.querySelectorAll("iframe").length, 0);
     assert.match(document.body.textContent!, /Desktop offline/);
@@ -81,6 +82,7 @@ test("offline and updated app views require an explicit fresh open and preserve 
     await flush();
     assert.equal(seen.at(-1).digest, "revision-two");
     assert.match(document.querySelector("header p")!.textContent!, /2.0.0/);
+    assert.match(document.querySelector("header p")!.textContent!, /Updated since this task/);
     current = { ...current, authorityDigest: "revoked-authority" };
     healthChecks.at(-1)!();
     await flush();
