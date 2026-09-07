@@ -63,13 +63,14 @@ capability/settings endpoint.
 
 ## Local development
 
-Node 22.19.0 or newer and PostgreSQL are required.
+Use Node 24 (matching the root `.nvmrc`) and a local PostgreSQL database.
+Run these commands from the repository root:
 
 ```bash
-npm install
+npm ci --prefix services/bridge
 DATABASE_URL=postgresql://localhost/work_fold_bridge \
 WORKFOLD_ALLOW_PUBLIC_ENROLLMENT=1 \
-npm start
+npm start --prefix services/bridge
 ```
 
 For a local desktop build, set `WORKFOLD_REMOTE_BRIDGE_URL` to the local bridge
@@ -116,7 +117,7 @@ establish normal single-replica headroom.
 Deploy this directory with:
 
 ```bash
-npm run railway -- up services/bridge --path-as-root --service bridge
+npm --prefix . run railway -- up services/bridge --path-as-root --service bridge
 ```
 
 Roll out the bridge and hosted browser client before distributing a desktop

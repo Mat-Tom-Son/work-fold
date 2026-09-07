@@ -1,147 +1,105 @@
 # Contributing to work-fold
 
-Thanks for helping make folder-based computer work more understandable and more capable.
-
 work-fold is an independent project, and help building and maintaining it is
 welcome. A focused bug fix, a clearer interaction, a useful test, or a better
 explanation is a good first contribution.
 
-Start with something you noticed while using the app. Describe the problem in
-an issue or draft pull request so we can discuss the approach as you work.
-The [docs map](docs/README.md) will help you find the part of the project you need.
+Start with something you noticed while using the app. Describe it in an
+[issue](https://github.com/Mat-Tom-Son/work-fold/issues) or draft pull request
+so we can discuss the approach as you work.
 
-## Report an issue
+## First run
 
-Use [GitHub Issues](https://github.com/Mat-Tom-Son/work-fold/issues) for reproducible bugs and focused feature proposals. Include the work-fold version, operating system and version, what you expected, what happened, and the smallest safe reproduction you can provide.
+Use **Node 24** and Git. The root `.nvmrc` records the recommended Node major;
+run `nvm use` if you use nvm. The package's minimum remains Node 22.19.0.
 
-Do not put API keys, tokens, private file contents, personal paths, or security vulnerabilities in a public issue. Follow [the security policy](SECURITY.md) for vulnerabilities.
-
-## Develop locally
-
-work-fold requires Node 22.19.0 or newer.
-
-```bash
+```sh
 git clone https://github.com/Mat-Tom-Son/work-fold.git
 cd work-fold
 npm ci
+npm run repo:check
 npm run local:dev
 ```
 
-Keep changes focused and avoid committing generated `dist/`, `out/`, user-data, credential, or signing files.
+Open **http://localhost:5173** for the browser development UI. The local API
+runs on port 4327. This is a live development host, so use test folders.
+Connect a model in **Settings → Assistant** when you want to try a real turn;
+installing dependencies and running the automated checks need no provider key.
 
-## Start with the product model
+For the native app, run `npm run desktop:smoke` instead. See
+[Development](docs/development.md) for the source map, separate development
+state, isolated test profiles, bridge setup, and focused test commands.
 
-Before changing navigation, terminology, storage, trust, or Assistant behavior, read:
+## Bring your coding agent
 
-- [Product model and roadmap](docs/product-model.md)
-- [App platform foundation](docs/app-platform-foundation.md)
-- [Assistant capabilities](docs/assistant-capabilities.md)
-- [Checks](docs/checks.md)
-- [The fold](docs/fold.md)
-- [Restricted app runtime](docs/restricted-app-runtime.md)
-- [Restricted app authoring](docs/restricted-app-authoring.md)
-- [Architecture](docs/architecture.md)
-- [work-fold management layer](docs/management-layer.md)
-- [macOS build and release lane](docs/macos-build.md)
-- [macOS release runbook](docs/macos-release.md)
-- [work-fold contributor guide](AGENTS.md) — the canonical policy for Codex and every contributor.
-- [Claude Code entrypoint](CLAUDE.md) — imports `AGENTS.md` rather than duplicating it.
+Open the repository root in your agent and give it a concrete task.
+[AGENTS.md](AGENTS.md) is the canonical contributor contract. Codex reads it
+directly; [CLAUDE.md](CLAUDE.md) imports it for Claude Code. Other agents can
+read `AGENTS.md` explicitly. A useful first prompt is:
 
-The central constraint is that a Space remains an ordinary folder. work-fold may register and present that folder, but should not silently move, convert, decorate, upload, or place all of its contents into Assistant context.
+> Read AGENTS.md and CONTRIBUTING.md. Run npm run repo:check, find the code and
+> owning docs for this task, then implement and verify: [describe the change].
 
-## Codex and Claude Code parity
+Shared Skills live in `.agents/skills/`. Claude sees those same files through
+tracked `.claude/skills/` symlinks. See [agent setup and Skill maintenance](docs/development.md#agent-setup-and-shared-skills)
+for discovery checks and adding a Skill. Personal harness settings stay local.
 
-Codex reads the root `AGENTS.md` directly. Claude Code reads the tracked root `CLAUDE.md`, which imports `AGENTS.md` with `@AGENTS.md`. Update shared rules only in `AGENTS.md`; do not create a parallel harness-specific build, test, release, terminology, architecture, Skill, Extension, or tool contract. Both harnesses work against the same Pi-owned capability catalog and the same product documentation.
+## Find the right part of the project
 
-Shared project Skills have one source in `.agents/skills/`. Codex discovers that
-tree directly. Tracked symlinks under `.claude/skills/` expose the same Skills to
-Claude Code without duplicating their contents. Everything else under `.claude/`
-and `.codex/` is ignored machine-local launch, permission, session, or worktree
-state. A fresh clone therefore gives both harnesses the same rules and workflows.
+Start with [the product model](docs/product-model.md) and the relevant row in
+the [docs map](docs/README.md). Read only the additional contracts relevant to
+your change; `AGENTS.md` identifies the required ones.
 
-Both harnesses can inspect an installed app through `work-fold ... --json`. To drive one real Assistant turn through the development local API and native Pi runtime:
+| Working on | Start here |
+|---|---|
+| Files, Chats, navigation, or UI | `web-local/src/`, [Desktop interaction](docs/ui-parity.md) |
+| Filesystem, Assistant, or domain services | `src/local/`, [Architecture](docs/architecture.md) |
+| The fold, CLI, or shared task state | [Kernel](src/local/work-fold-kernel.ts), [CLI](src/local/cli/), [Management layer](docs/management-layer.md) |
+| Checks or cross-Space work | [Checks](docs/checks.md), [Routings](docs/fold-routings.md) |
+| Assistant-built Space apps | [App foundation](docs/app-platform-foundation.md), [Authoring](docs/restricted-app-authoring.md), [Runtime](docs/restricted-app-runtime.md) |
+| Native desktop behavior | `desktop/src/`, [macOS builds](docs/macos-build.md) |
+| Landing page or web client | `services/bridge/public/`, [Bridge guide](services/bridge/README.md) |
 
-```bash
-npm run work-fold:drive -- --space-root /path/to/space --prompt "Summarize this Space"
-npm run work-fold:drive -- --space-root /path/to/space --prompt "..." --json --agent-dir /tmp/isolated-pi
-```
+## Verify and submit
 
-Use the installed CLI for content-free read snapshots and authenticated,
-receipted actions against the running app. Use `work-fold:drive` for an
-end-to-end Pi turn against the development host. See [work-fold management
-layer](docs/management-layer.md) for their different boundaries.
-
-## Verify a change
-
-Use the smallest relevant lane while working, then promote the change before handoff:
+Use focused tests while working, then run the shared gates:
 
 ```sh
 npm run check
 npm test
-npm run desktop:prepare
 ```
 
-GitHub CI runs these gates as separately named macOS jobs, alongside the web
-bridge tests (`npm ci --prefix services/bridge && npm test --prefix services/bridge`).
-Open a draft pull request for development CI, or run CI manually from Actions.
-Branch pushes do not also run duplicate checks; new PR commits cancel obsolete
-PR runs. Pushes to `main` and `v*` source tags always run independently and are
-never canceled by a newer PR. Both exact-commit runs remain required for release.
-Electron failures upload lifecycle state and available synthetic screenshots
-under the run's **electron-diagnostics** artifact; inspect those before rerunning.
-No application data or provider credentials are collected by that probe.
+`check` includes the fast, offline `repo:check`: shared Skill parity, local-state
+ignore rules, repository links, and current documented npm commands. It checks
+files and paths, not exact marketing wording. Historical release commands stay
+historical.
 
-Windows package and installer commands are dormant manual diagnostics; they are not CI or release gates and should not be run as routine handoff evidence.
+For bridge changes, also run `npm ci --prefix services/bridge` and
+`npm test --prefix services/bridge`. For Electron, packaging, or runtime-resource
+changes, run `npm run desktop:prepare`; that includes real Electron sandbox
+probes. See [verification lanes](docs/development.md#verification) for details.
 
-Tests that observe asynchronous work should wait on the owned in-memory or
-domain completion signal, then verify durable persistence separately. Do not
-make correctness depend on a journal file becoming visible within one event-loop
-turn or on an arbitrary sleep; those checks are fast locally and unreliable on
-shared CI runners. When a test installs a fake clock, keep advancing that clock
-while asynchronous continuations settle; waiting in real time cannot fire a
-fake timer that was armed after the first advance.
+Open a **draft pull request** for development CI, or run CI manually from
+Actions. PR updates cancel obsolete PR runs. Main and version tags run
+independently, including queued runs. Electron failures save synthetic
+lifecycle state and available screenshots in the run's diagnostics artifact.
+Inspect the failing step and evidence before rerunning.
 
-For restricted-app manifest, bridge, broker, sandbox, storage, file, notification, connection, or lifecycle changes, run the focused tests and `npm run desktop:restricted-app:smoke`. That command exercises the real Electron visible and worker sandboxes; browser fixtures or Node-only tests do not prove the security boundary. `desktop:prepare`, the package lanes, and the release lane include this probe.
+Describe the problem, resulting behavior, and validation in your PR. Update
+the owning docs when behavior changes. Keep changes focused; preserve unrelated
+work and keep credentials, local settings, and generated output out of commits.
+[AGENTS.md](AGENTS.md) defines the shared product, authority, and compatibility
+rules for every contributor and harness.
 
-On macOS, use Node 24 and `npm run desktop:make:mac` for the non-interactive
-`work-fold Local Smoke` app/DMG/ZIP structural candidate. Do not rename or
-install that ad hoc app over production. Use `npm run desktop:rc:mac` for an
-app-only, Developer ID-signed and notarized interactive candidate, and
-`npm run desktop:make:mac:release` when complete distribution artifacts are
-needed. The signed candidate uses normal work-fold data by default, even
-outside Applications; it is not an isolated Local Smoke build. See
-[macOS build and release lane](docs/macos-build.md). Never publish ad hoc
-artifacts as releases.
+Mac publication is a maintainer operation with separate authorization and exact
+main/tag CI requirements. Use the [release runbook](docs/macos-release.md).
+Windows packaging remains inactive and does not gate Mac work.
 
-Add or update tests for behavior changes. Update README and focused docs when a change affects shipped behavior, terminology, privacy, security, trust, build commands, or the roadmap.
+## Bugs, security, and license
 
-work-fold is a clean break from the legacy Workspace product. Do not add code or documentation that imports, migrates, rewrites, wipes, or deletes the old application profile or `.workspace/` metadata. Preserved legacy data stays inert and hidden; new portable records use `.work-fold/`.
+For a bug, include the app version, OS, expected behavior, actual behavior, and
+a small reproduction with non-private files. Use the
+[security policy](SECURITY.md) for vulnerabilities; keep keys, tokens, personal
+paths, and private content out of public reports.
 
-For kernel or CLI changes, update the snapshot/protocol version deliberately and exercise the kernel, adapter, protocol, broker, desktop-host, and installer-packaging tests through `npm test`. Keep the README, management guide, Security, and Privacy output descriptions in sync. Protocol v1 must remain read-only.
-
-For restricted-app changes, update the product model, authoring guide, runtime contract, Security, Privacy, example package, and release QA guidance together whenever their behavior changes. Distinguish the normal owning-Chat proposal/review path from the advanced local-package install path, and never describe a proposal or install as granting access.
-
-## Pull requests
-
-A useful pull request:
-
-- Explains the user outcome and the problem it solves.
-- Keeps internal compatibility names separate from user-facing Space and Library language.
-- Identifies data, scope, context, and trust changes explicitly.
-- Preserves Pi's native resource behavior instead of adding a parallel format.
-- Includes relevant test and verification results.
-- Calls out remaining risk or follow-up work without presenting roadmap items as shipped.
-
-Maintainers publish releases from clean version tags. Contributors should not rewrite a released tag or replace artifacts beneath an existing version.
-
-The full active maintainer sequence—local gates, green CI for the exact pushed
-`main` commit, a matching annotated source tag, green CI for that tag, guarded
-publication, public asset verification, and installed updater smoke—is
-documented in the [macOS release runbook](docs/macos-release.md). A failed
-pushed candidate tag remains immutable source evidence; the correction uses a
-higher version and a new tag rather than moving or reusing the failed one.
-The Windows references are dormant notes for a future deliberate reactivation.
-
-## License
-
-By contributing, you agree that your contribution may be distributed under the repository's [MIT License](LICENSE).
+Contributions are distributed under the [MIT License](LICENSE).
