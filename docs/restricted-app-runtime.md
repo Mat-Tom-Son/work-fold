@@ -263,8 +263,8 @@ signal and live authority callback to this same worker path. The callback is
 rechecked at launch, every broker effect boundary and result delivery. An abort
 owns only its exact pending operation and releases its listener at settlement;
 it cannot kill a later action or a sibling installation. Ordinary native actions
-keep their existing dispatch path. The separate intent/review journal and its
-remaining browser UI integration are described in [browser app views](fold-browser-apps.md).
+keep their existing dispatch path. The separate intent/review journal and
+trusted browser controls are described in [browser app views](fold-browser-apps.md).
 
 Automations are first-class host jobs, not one app-wide background switch.
 Every declared job starts disabled and is enabled separately in the Apps tab.

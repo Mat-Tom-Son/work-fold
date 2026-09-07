@@ -141,7 +141,7 @@ export function buildFixture(name) {
         { id: "space-2", name: "Field notes" },
       ],
       explorerSpaceId: "space-1",
-      spaceApps: new Map([["space-1", [{ spaceId: "space-1", appId: "quote-board", featureInstallationId: "fixture-quote-board", digest: "fixture", authorityDigest: "fixture", title: "Quote board", version: "1.0.0", preview: false, webView: true }]]]),
+      spaceApps: new Map([["space-1", [{ spaceId: "space-1", appId: "quote-board", featureInstallationId: "fixture-quote-board", digest: "fixture", authorityDigest: "fixture", title: "Quote board", version: "1.0.0", preview: false, webView: true, actions: true }]]]),
       trees: new Map([
         ["space-1:", [
           { kind: "folder", name: "reports", path: "reports" },
@@ -172,3 +172,37 @@ export function buildFixture(name) {
     },
   };
 }
+
+/** Inert UI-only action fixture. No desktop request or worker is involved. */
+export function createFixtureAppActions() {
+  const records = new Map(); let runs = 0;
+  return async (app, operation, input) => {
+    if (app.featureInstallationId !== "fixture-quote-board") throw new Error("Unknown fixture app.");
+    if (operation === "list") return { actions: [...records.values()].map(({ reviewDigest, inputJson, result, ...record }) => record) };
+    const requestId = operation === "request" ? input.request.requestId : input.requestId;
+    let record = records.get(requestId);
+    if (operation === "request" && !record) {
+      record = { id: crypto.randomUUID(), requestId, title: "Save quote", action: "save-quote", status: "pending",
+        inputJson: JSON.stringify(input.request.input), reviewDigest: `fixture-review:${requestId}` };
+      records.set(requestId, record);
+    }
+    if (!record) throw new Error("Unknown fixture request.");
+    if (operation === "review") return { review: structuredClone(record) };
+    if (operation === "approve") {
+      if (input.reviewDigest !== record.reviewDigest) throw new Error("Review changed.");
+      if (record.status === "pending") { record.status = "succeeded"; record.result = { saved: true, supplier: "North", runs: ++runs }; }
+    } else if (operation === "cancel" && record.status === "pending") record.status = "cancelled";
+    const { inputJson, reviewDigest, ...action } = record;
+    return { action: structuredClone(action) };
+  };
+}
+
+export const fixtureAppEntry = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{font:16px system-ui;padding:20px;color:#20304a;background:#fff}button{font:inherit;padding:8px 14px;margin:0 6px 6px 0}p{line-height:1.5}</style></head>
+<body><h1>Quote board</h1><p>Compare the saved purchasing quote.</p><button id="read">Read quote</button><button id="save">Save quote</button><button id="status">Check request</button><p id="result" role="status"></p>
+<script>
+let request;
+document.getElementById("read").onclick=async()=>{const quote=await workFoldViewerApp.data.get("quotes:north");document.getElementById("result").textContent=quote.supplier+": $"+quote.unitPrice+" per unit, "+quote.days+" days"};
+document.getElementById("save").onclick=async()=>{request??=workFoldBrowserApp.actions.createRequest("save-quote",{supplier:"North",unitPrice:42,quantity:10});const action=await workFoldBrowserApp.actions.request(request);document.getElementById("result").textContent=action.status==="pending"?"Waiting for your review":action.status};
+document.getElementById("status").onclick=async()=>{const action=request?await workFoldBrowserApp.actions.get(request.requestId):(await workFoldBrowserApp.actions.list())[0];document.getElementById("result").textContent=action?JSON.stringify(action):"No request yet"};
+</script></body></html>`;

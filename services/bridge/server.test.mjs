@@ -1301,7 +1301,7 @@ test("a reserved pages-* host serves viewer routes or nothing, never the managem
 
   const previewModule = await fetch(`${baseUrl}/file-preview.js`, { headers: viewerHost });
   assert.equal(previewModule.status, 404, "approved-browser previews are not served to shared viewers");
-  for (const path of ["browser-app.js", "browser-app-frame.js", "browser-app-frame.html"]) {
+  for (const path of ["browser-app.js", "browser-app-actions.js", "browser-app-frame.js", "browser-app-frame.html"]) {
     assert.equal((await fetch(`${baseUrl}/${path}`, { headers: viewerHost })).status, 404);
   }
   const appFrame = await fetch(`${baseUrl}/browser-app-frame.html`);

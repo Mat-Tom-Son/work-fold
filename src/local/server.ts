@@ -3949,6 +3949,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
             digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority),
             title: app.manifest.title, version: app.version, preview: app.runtimeInstanceKind === "development",
             webView: Boolean(app.manifest.viewer),
+            actions: Boolean(app.manifest.viewer && app.manifest.runtime.worker && app.manifest.tools.length),
           })), truncated: apps.length > 64 };
         }
         case "apps.read": {

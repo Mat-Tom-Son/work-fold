@@ -24,7 +24,7 @@ management surface.
   cancellation and generation checks. No generic fold or shell bridge.
 - [ ] Fold results: bounded file/app previews and direct deliverable/review
   navigation from completed requests.
-- [ ] Web apps: responsive desktop-served views, clear offline/revoked states,
+- [x] Web apps: responsive desktop-served views, clear offline/revoked states,
   and separately authorized bounded actions in approved browsers. Shared viewer
   links remain read-only, with no management or runtime-action authority.
 - [ ] Integration: concise UI, canonical docs and harness parity, automated
@@ -35,8 +35,8 @@ management surface.
 The fold-results slice now includes approved-browser file previews and direct
 copied-file/review receipt links, plus private reviewed app views. App-result
 links and links for Assistant-created deliverables beyond recorded file-copy
-actions remain open; this does not close
-the fold-results or web-app checklist items.
+actions remain open; this does not close the fold-results checklist item.
+The implemented web-app slice still needs the combined paired acceptance below.
 
 Assistant request implementation now uses the ordinary Space Chat path with
 exact review pins, task progress, cancellation and restart reconciliation.
@@ -459,3 +459,37 @@ The real Electron probe verifies revocation during a delayed network effect,
 explicit abort, no subsequent storage write, sibling-installation isolation,
 completed-action listener cleanup and ordinary worker recovery. No production
 profile, publication, release version or deployment changed.
+
+### Browser review controls and private action SDK
+
+The browser-action UI is now connected. An app with declared worker actions
+gets a separate frozen request/status/cancel SDK. Review and Run remain in the
+trusted parent outside the frame; forged approval messages are rejected.
+Compact controls show exact inputs, running/stopped/failed outcomes and bounded
+results. Reopening recovers receipts, and an uncertain response never triggers
+automatic replay. The app title, Space and version remain visible above the
+view, with only a short review reminder below it.
+
+Live Chromium testing caught an opaque-context incompatibility: the child can
+lack `crypto.randomUUID`. The SDK now supplies `createRequest` using
+`getRandomValues`, preserving a stable UUID and input copy for retry. The
+reusable `scripts/probes/browser-app-actions.probe.js` passed exact review,
+forged-approval denial, one outcome on repeated submission, recovered receipts,
+320×568 layout containment and focus restoration. The read-isolation probe
+still passed all parent/storage/network/navigation denials. The phone screenshot
+is `output/playwright/browser-app-actions-phone.png`. This is a real browser
+running inert fixture actions, not paired desktop execution or a live model.
+
+Final checks passed: `npm run check`, `npm test` (1,164 passed, one Windows-only
+skip), the bridge suite (48 passed), and `npm run desktop:prepare` with both
+Electron probes. Logs are `/tmp/workfold-browser-actions-ui-final-check.log`,
+`/tmp/workfold-browser-actions-ui-final-tests.log`,
+`/tmp/workfold-browser-actions-ui-bridge-tests.log`,
+`/tmp/workfold-browser-actions-ui-final-desktop.log`,
+`/tmp/workfold-browser-actions-live.log` and
+`/tmp/workfold-browser-actions-read-isolation.log`.
+Domain coverage also verifies that obsolete app authority cannot hold the new
+revision's pending-request budget; grant revocation updates pending receipts
+together and settles matching active work. The temporary browser and QA bridge
+are closed. Deliverable/app links, paired live acceptance, final integration and
+the authorized merge/release remain open.

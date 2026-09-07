@@ -195,7 +195,8 @@ tree projection, explicit file previews, and exact-installation read-only
 `apps.actions.request|get|list|review|approve|cancel` over declared installed
 worker actions; it requires a live host-only grant fence and journals exact
 review/acceptance before dispatch. App frames do not receive review or approval.
-The browser UI integration is still in progress. The adapter strips absolute roots and attachment target paths, applies
+The trusted parent owns Review, Run, Cancel and Stop; app code receives only
+request/status/cancel. The adapter strips absolute roots and attachment target paths, applies
 the ordinary ignore policy to tree views, rejects traversal and unknown fields,
 and rechecks the locally encrypted grant immediately before execution.
 Dispatch and desktop-local authority mutations share one serialization fence;

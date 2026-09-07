@@ -29,10 +29,11 @@ async function fixture(t: test.TestContext) {
   const path = join(root, "actions.json");
   let now = new Date("2026-09-07T12:00:00.000Z");
   let appScope = structuredClone(scope);
+  let appProvenance = structuredClone(provenance);
   let heldAdmission: ReturnType<typeof deferred<void>> | undefined;
   const calls: Array<{ execution: RestrictedAppActionExecution; input: unknown; outcome: ReturnType<typeof deferred<unknown>> }> = [];
   const ports: BrowserAppActionPorts = {
-    async withApp(value, operation) { assert.deepEqual(value, appScope); await heldAdmission?.promise; return operation({ actions: [action], provenance }); },
+    async withApp(value, operation) { assert.deepEqual(value, appScope); await heldAdmission?.promise; return operation({ actions: [action], provenance: appProvenance }); },
     async invoke(value, name, input, execution) {
       assert.deepEqual(value, scope); assert.equal(name, "save");
       const data = JSON.parse(await readFile(path, "utf8"));
@@ -52,6 +53,7 @@ async function fixture(t: test.TestContext) {
     request: (extra: Record<string, unknown> = {}) => ({ requestId: randomUUID(), requestedAt: now.toISOString(), action: "save", input: { quote: "North: $42", count: 10 }, ...extra }),
     advance: (ms: number) => { now = new Date(now.getTime() + ms); },
     changeScope: () => { appScope = { ...scope, authorityDigest: "d".repeat(64) }; },
+    renewAuthority: () => { appProvenance = { ...appProvenance, authority: createAuthorityStamp() }; appScope = { ...scope, authorityDigest: restrictedAppTaskAuthorityDigest(appProvenance.authority) }; return appScope; },
     hold: () => { heldAdmission = deferred<void>(); return () => { heldAdmission!.resolve(); heldAdmission = undefined; }; },
     restart: async () => { await service.close(); service = await BrowserAppActionService.create(options); },
     async accept() { const request = this.request(); await service.request(scope, owner, request, current);
@@ -145,9 +147,12 @@ test("browser revocation stops only that grant and a live authority callback fen
   const f = await fixture(t);
   const request = await f.accept(); await until(() => f.calls.length === 1);
   const sibling = { browserId: "browser-two", grantId: "grant-two" };
+  const sameGrantPending = [f.request(), f.request()];
+  for (const request of sameGrantPending) await f.service.request(scope, owner, request, current);
   const pending = f.request(); await f.service.request(scope, sibling, pending, current);
   await f.service.revoke(owner.grantId);
   assert.equal((await f.service.get(scope, owner, request.requestId, current)).status, "cancelled");
+  for (const request of sameGrantPending) assert.equal((await f.service.get(scope, owner, request.requestId, current)).status, "cancelled");
   assert.equal((await f.service.get(scope, sibling, pending.requestId, current)).status, "pending");
   let allowed = true;
   const assertCurrent = () => { if (!allowed) throw new Error("Revoked grant, private diagnostic"); };
@@ -252,4 +257,17 @@ test("the machine-wide browser action limit spans installations and leaves exces
     }
   }
   assert.equal(invoked, limits.running);
+});
+
+test("a new app authority does not inherit old reviews or their pending-request budget", async (t) => {
+  const f = await fixture(t);
+  for (let index = 0; index < limits.pendingPerInstallation; index++) await f.service.request(scope, owner, f.request(), current);
+  const renewed = f.renewAuthority();
+  const request = f.request();
+  assert.equal((await f.service.request(renewed, owner, request, current)).status, "pending");
+  assert.equal((await f.service.list(renewed, owner, current)).length, 1);
+  const journal = JSON.parse(await readFile(f.path, "utf8"));
+  assert.equal(journal.records.filter((record: any) => record.receipt.status === "cancelled").length, limits.pendingPerInstallation);
+  await f.restart();
+  assert.equal((await f.service.get(renewed, owner, request.requestId, current)).status, "pending");
 });

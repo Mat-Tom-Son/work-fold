@@ -110,6 +110,11 @@ export class BrowserAppActionService {
       const inputJson = boundedJson(value.input, limits.inputBytes);
       validateInput(declaration, inputJson);
       await this.#expire();
+      // A current installation's new authority cannot inherit old intents or
+      // have its request budget held by approvals that can no longer run.
+      const fenced = this.#records.map((record) => record.scope.featureInstallationId === scope.featureInstallationId && !same(record.scope, scope)
+        ? this.#cancelledRecord(record) : record);
+      if (fenced.some((record, index) => record !== this.#records[index])) await this.#save(fenced);
       const requestDigest = hash({ requestedAt, action: declaration.action, input: JSON.parse(inputJson) });
       const prior = this.#records.find((record) => record.scope.featureInstallationId === scope.featureInstallationId
         && same(record.owner, owner) && record.receipt.requestId === value.requestId);
@@ -208,9 +213,11 @@ export class BrowserAppActionService {
     const affected = [...this.#active.values()].filter((run) => grantId === undefined || run.owner.grantId === grantId);
     for (const run of affected) run.controller.abort();
     await this.#serialize(async () => {
-      for (const record of this.#records) if (grantId === undefined || record.owner.grantId === grantId) await this.#cancelRecord(record);
+      const records = this.#records.map((record) => grantId === undefined || record.owner.grantId === grantId ? this.#cancelledRecord(record) : record);
+      if (records.some((record, index) => record !== this.#records[index])) await this.#save(records);
     });
-    await Promise.all(affected.map((run) => run.settled));
+    const admittedWhileWaiting = [...this.#active.values()].filter((run) => grantId === undefined || run.owner.grantId === grantId);
+    await Promise.all([...affected, ...admittedWhileWaiting].map((run) => run.settled));
   }
 
   async close(): Promise<void> {
@@ -251,11 +258,16 @@ export class BrowserAppActionService {
   }
 
   async #cancelRecord(record: ActionRecord): Promise<void> {
-    if (!live(record.receipt.status)) return;
+    const next = this.#cancelledRecord(record);
+    if (next !== record) await this.#replace(next);
+  }
+
+  #cancelledRecord(record: ActionRecord): ActionRecord {
+    if (!live(record.receipt.status)) return record;
     this.#cancelled.add(record.receipt.id);
     this.#active.get(record.receipt.id)?.controller.abort();
-    await this.#replace({ ...record, receipt: { ...record.receipt, updatedAt: this.#now().toISOString(),
-      ...(record.receipt.status === "pending" ? { status: "cancelled" as const } : { cancellationRequested: true as const }) } });
+    return { ...record, receipt: { ...record.receipt, updatedAt: this.#now().toISOString(),
+      ...(record.receipt.status === "pending" ? { status: "cancelled" as const } : { cancellationRequested: true as const }) } };
   }
 
   #owned(scope: RestrictedAppTaskScope, owner: BrowserAppActionOwner, requestId: string): ActionRecord {

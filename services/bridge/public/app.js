@@ -1,5 +1,5 @@
 import { shouldSubmitComposerKey } from "./composer.js";
-import { buildFixture } from "./fixtures.js";
+import { buildFixture, createFixtureAppActions, fixtureAppEntry } from "./fixtures.js";
 import { renderLanding } from "./landing.js";
 import { renderMarkdown } from "./markdown.js";
 import { createFilePreview } from "./file-preview.js";
@@ -137,10 +137,16 @@ function openFilePreview(spaceId, path) {
 function closeFilePreview() { filePreview?.destroy(); filePreview = null; }
 
 let browserApp = null;
+const fixtureAppActions = createFixtureAppActions();
 function openBrowserApp(spaceId, installationId) {
   const selected = (state.spaceApps.get(spaceId) ?? []).find((app) => app.featureInstallationId === installationId);
   if (!selected) return;
   browserApp ??= createBrowserAppView({
+    actions: async (app, operation, input) => {
+      if (fixtureName) return fixtureAppActions(app, operation, input);
+      const { spaceId, appId, featureInstallationId, digest, authorityDigest } = app;
+      return remote(`apps.actions.${operation}`, { spaceId, appId, featureInstallationId, digest, authorityDigest, ...input });
+    },
     online: () => Boolean(state.session?.desktopOnline),
     resolve: async (app) => {
       if (fixtureName) return app;
@@ -149,7 +155,7 @@ function openBrowserApp(spaceId, installationId) {
     },
     read: async (app, call) => {
       if (fixtureName) {
-        const html = '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:16px system-ui;padding:20px;color:#20304a;background:#fff}button{font:inherit;padding:8px 14px}p{line-height:1.5}</style></head><body><h1>Quote board</h1><p>Compare the saved purchasing quote.</p><button id="read">Read quote</button><p id="result" role="status"></p><script>document.getElementById("read").onclick=async()=>{const quote=await workFoldViewerApp.data.get("quotes:north");document.getElementById("result").textContent=quote.supplier+": $"+quote.unitPrice+" per unit, "+quote.days+" days"}</script></body></html>';
+        const html = fixtureAppEntry;
         const result = call.kind === "entry" ? { kind: "entry", mediaType: "text/html", bytes: btoa(html) }
           : call.kind === "data.get" ? { kind: "data.get", key: call.key, present: true, value: { supplier: "North", unitPrice: 42, days: 4 } }
             : { kind: "data.keys", keys: ["quotes:north"] };

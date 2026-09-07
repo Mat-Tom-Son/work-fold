@@ -307,8 +307,36 @@ declaration in the manifest template above and use `workFoldViewerApp` in that e
 browsers can open it from Spaces without publishing a share link; source-Space
 previews are supported too. Keep the web entry responsive and self-contained,
 and obtain packaged assets through `asset()`/`assetUrl()` instead of relative
-URLs in the blob document. Browser actions remain pending. See
+URLs in the blob document. Declared worker actions can use the separate private
+request API below; shared viewers remain read-only. See
 [the browser view contract](fold-browser-apps.md).
+
+When a private approved browser opens a web view with declared worker tools,
+it also receives `workFoldBrowserApp.actions`. Feature-detect it because shared
+viewers and older hosts do not install this API:
+
+```js
+const actions = globalThis.workFoldBrowserApp?.actions;
+if (actions) {
+  // Keep this exact request for an uncertain retry; do not create another id.
+  const request = actions.createRequest("save-quote", { supplier: "North", quantity: 10 });
+  const receipt = await actions.request(request);
+  // Pending means the person must use Review → Run outside the app frame.
+  const current = await actions.get(receipt.requestId);
+  if (current.status === "succeeded") showResult(current.result);
+}
+```
+
+`actions.list()` returns this app/browser's receipt summaries and recovers
+request ids after reopening; use `get(requestId)` for a result and
+`cancel(requestId)` to stop a request. Poll conservatively while visible.
+`createRequest` works in opaque frames where `crypto.randomUUID` may be absent.
+Inputs are schema-checked and limited to 16 KiB, results to 128 KiB. The normal
+worker executes with existing installed grants, not browser-chosen owners or
+new permissions. There is no app-facing review, approve, shell or grant API.
+If a request times out, check its status or list existing requests before
+creating another. Stopped, failed or interrupted work may have completed
+earlier effects; do not describe these outcomes as rollback.
 
 The HTML entry runs with Node disabled and direct networking, navigation,
 popups, downloads, dialogs, permissions, workers, frames, service workers, and

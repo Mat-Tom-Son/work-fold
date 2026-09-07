@@ -108,8 +108,8 @@ Requests are limited to 16 KiB and results to 128 KiB; the journal has record
 and byte limits and prunes terminal records older than a day on new admission.
 Only the requesting approved browser and exact app authority can retrieve a
 result. Approval runs the installed worker with its existing grants; it does
-not publish data or start a model. The trusted browser review UI is still being
-integrated, and shared viewers remain read-only.
+not publish data or start a model. Approval belongs in the trusted browser UI
+outside the app frame, and shared viewers remain read-only.
 Selecting a Space changes only the displayed file tree; it does not select a
 different Assistant or transcript.
 Removing Remote access deletes its server-side account records; browser

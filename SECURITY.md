@@ -130,7 +130,8 @@ Native broker effects recheck that fence even after dispatch. Idempotent retry
 returns the original receipt; uncertain accepted work becomes Interrupted at
 startup without replay. Revocation cancels matching pending requests and fences
 accepted runs. Neither the read bridge nor shared viewers expose approval; the
-private trusted review UI remains under integration.
+private trusted parent alone exposes Review and Run. Forged frame approval
+messages are denied before entering the encrypted adapter.
 Direct task-scoped request status and stop calls through the remote semantic
 adapter are bound to the browser identity and exact grant that accepted the
 request. Summary projections omit task ids and action details for other grants.

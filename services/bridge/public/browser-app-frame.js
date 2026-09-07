@@ -9,7 +9,7 @@
     if (event.source === parent && data?.type === "work-fold.browser-app.init" && !frame) {
       if (typeof data.channel !== "string" || typeof data.html !== "string" || data.html.length > 1024 * 1024) return;
       channel = data.channel;
-      const script = `<script>(${bootstrap.toString()})()</script>`;
+      const script = `<script>(${bootstrap.toString()})(${data.actions === true})</script>`;
       const doctype = data.html.match(/^\s*<!doctype[^>]*>/i)?.[0] ?? "";
       const source = `${doctype}${script}${data.html.slice(doctype.length)}`;
       frame = document.createElement("iframe");
@@ -36,7 +36,7 @@
   });
   parent.postMessage({ type: "work-fold.browser-app.ready" }, "*");
 
-  function bootstrap() {
+  function bootstrap(actionsAvailable) {
     const pending = new Map();
     let nextId = 0;
     addEventListener("message", (event) => {
@@ -49,9 +49,11 @@
       else waiting.reject(Object.assign(new Error(data.message || "This app call is unavailable."), { code: data.code || "APP_UNAVAILABLE" }));
     });
     const call = (value) => new Promise((resolve, reject) => {
-      if (pending.size >= 16) return reject(new Error("Too many app reads. Try again."));
+      if (pending.size >= 16) return reject(new Error("Too many app requests. Try again."));
       const callId = ++nextId;
-      const timer = setTimeout(() => { pending.delete(callId); reject(new Error("The desktop did not respond. Refresh the app to try again.")); }, 30_000);
+      const timer = setTimeout(() => { pending.delete(callId); reject(new Error(value.kind?.startsWith("actions.")
+        ? "Request status is uncertain. Check existing requests before starting another."
+        : "The desktop did not respond. Refresh the app to try again.")); }, 30_000);
       pending.set(callId, { resolve, reject, timer });
       parent.postMessage({ type: "work-fold.browser-app.call", callId, call: value }, "*");
     });
@@ -68,6 +70,19 @@
       }),
     };
     Object.defineProperty(globalThis, "workFoldViewerApp", { value: Object.freeze(api), writable: false, configurable: false });
+    if (actionsAvailable) Object.defineProperty(globalThis, "workFoldBrowserApp", { value: Object.freeze({ actions: Object.freeze({
+      createRequest: (action, input) => {
+        // Opaque sandbox documents may lack randomUUID even under a secure parent.
+        const bytes = crypto.getRandomValues(new Uint8Array(16)); bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
+        const hex = [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
+        return { requestId: `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`,
+          requestedAt: new Date().toISOString(), action, input: JSON.parse(JSON.stringify(input)) };
+      },
+      request: (request) => call({ kind: "actions.request", request }),
+      get: (requestId) => call({ kind: "actions.get", requestId }),
+      list: () => call({ kind: "actions.list" }),
+      cancel: (requestId) => call({ kind: "actions.cancel", requestId }),
+    }) }), writable: false, configurable: false });
     addEventListener("DOMContentLoaded", () => parent.postMessage({ type: "work-fold.browser-app.loaded" }, "*"), { once: true });
   }
 })();

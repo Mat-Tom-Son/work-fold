@@ -1,10 +1,13 @@
 # Space apps in approved browsers
 
-The development branch adds private, read-only app views to the fold's Spaces
+The development branch adds private app views to the fold's Spaces
 screen. Apps appear above the selected Space's files. Opening one shows its
 reviewed web view, the Space and version, Close and Refresh. Apps without a
 reviewed web view say **Desktop only** and explain that limitation when opened.
-No share link or public exposure is created, and a local Development preview
+Apps with declared worker tools can also request an action. **Review** opens
+its exact inputs outside the app frame; **Run**, **Cancel** and **Stop** are
+trusted fold controls. Compact receipts show progress and results, and reopening
+the app recovers them without replay. No share link or public exposure is created, and a local Development preview
 can be opened without first publishing a Release.
 
 ## Reviewed content and exact identity
@@ -45,9 +48,12 @@ The intermediary's response policy permits only blob child navigation, denies
 network connections and forms, and limits images/media/fonts to blob or data
 URLs. This policy also constrains the app. App code cannot read either parent
 document, cookies, local storage or the management browser's identity keys.
-It receives the frozen `workFoldViewerApp` read API; no mutation or management
-API is installed. The host admits at most four concurrent reads, the SDK caps
-pending reads at sixteen and times them out after thirty seconds, and the relay's
+It receives the frozen `workFoldViewerApp` read API. When the catalog advertises
+declared worker actions, the separate private `workFoldBrowserApp.actions` SDK
+can create, submit, list, read or cancel an app request. It cannot review or
+approve one, including through forged raw frame messages. The host admits at
+most four concurrent app calls, the SDK caps pending calls at sixteen and times
+them out after thirty seconds, and the relay's
 existing per-session operation budget still applies.
 
 Controls become visible after document readiness. A browser that cannot load
@@ -60,14 +66,16 @@ While visible, a non-overlapping fifteen-second catalog check closes a view
 whose revision or authority changed; every read also rechecks immediately.
 Already displayed information cannot be recalled from someone who copied it.
 
-## Action service under integration
+## Reviewed actions
 
 The action foundation now adds the separate closed operations
 `apps.actions.request|get|list|review|approve|cancel`. They require a host-only
 live browser-authority callback in addition to the authenticated Principal.
-They are not part of `apps.read` or the shared-viewer vocabulary. The trusted
-browser review UI and private action SDK are still being connected; the current
-web view continues to expose only its read SDK.
+They are not part of `apps.read` or the shared-viewer vocabulary. The catalog's
+`actions` flag is true only for a reviewed web view with a worker and declared
+tools. Older hosts and apps without that capability keep the read-only view.
+The trusted parent lists requests, shows exact input for review, and polls
+status while visible. It never derives an approval from an app message.
 
 Requests select a declared worker action and at most 16 KiB of schema-checked
 JSON. The host pins the Space, installation, revision, authority, browser and
@@ -89,6 +97,10 @@ The lane admits four live requests per installation and sixteen per browser,
 runs at most two actions globally and one per installation, and expires pending
 reviews after fifteen minutes. It retains at most 1,000 records in a 64-MiB
 journal and prunes terminal records older than a day when admitting new work.
+An updated revision or changed permission selection cancels obsolete intents
+when the current app submits a request, so old reviews cannot consume its
+request budget. Browser revocation terminalizes matching pending requests in
+one journal update and settles matching active runs.
 Admission reserves room for bounded terminal results. Damaged journals or
 uncertain persistence disable this lane without preventing app startup.
 
@@ -98,6 +110,15 @@ broker effect boundary and result delivery. Revocation aborts matching runs
 and cancels that grant's pending requests; another browser's requests retain
 their own authority. Closing a view does not cancel an accepted run. Stop or a
 failed result does not claim to reverse effects that already completed.
+
+App authors use `actions.createRequest(action, input)` once, retain that request
+for uncertain retries, and pass it to `actions.request(request)`. The helper
+uses `getRandomValues` to create a UUID because opaque sandbox documents may
+lack `crypto.randomUUID`. `actions.list()` recovers request ids after reopening;
+`actions.get(requestId)` reads a bounded result, and `actions.cancel(requestId)`
+stops the app's own request. A timeout says the status is uncertain and asks the
+app to check existing requests before starting another. None of these helpers
+approve work or widen a permission. Shared viewers never install this SDK.
 
 ## Remaining implementation
 
@@ -111,11 +132,13 @@ actual quote read, opaque parent/cookie/storage boundaries, frozen read API,
 network denial and blocked navigation. These browser checks complement the
 domain, transport and DOM tests; they do not replace paired live acceptance.
 
-Completing the browser action UI and richer result navigation remain part of
-[the active goal](apps-fold-workflows.md). They must use a separate, bounded
-intent/review/receipt path with exact app and browser provenance, deduplicated
-acceptance, visible outcomes and revocation. App code cannot invoke that path
-directly as if it were a read. Any confirmation belongs in the fold's trusted
-UI outside the app frame. Shared viewers must retain their existing closed
-read-only vocabulary. The foundation alone does not claim the complete action
-experience ships.
+The companion `scripts/probes/browser-app-actions.probe.js` uses the same local
+fixture. It verifies opaque-context request ids, denied forged approval, exact
+review, one outcome on repeated submission, recovered receipts, a 320×568
+layout, and focus restoration. This is an inert browser UI fixture; the service,
+encrypted transport and real Electron worker are tested separately.
+
+Paired desktop/browser acceptance, richer result navigation and the real-model
+multi-Space journey remain part of [the active goal](apps-fold-workflows.md).
+The development implementation does not claim a deployed bridge or released
+desktop build.
