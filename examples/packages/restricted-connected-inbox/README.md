@@ -30,7 +30,9 @@ The normal generated-app path begins in a Space Chat: the Assistant writes the
 completed Space-relative package, proposes it through work-fold's host-owned
 tool, and the person reviews and installs the exact digest in that Chat. For
 this checked-in developer sample, register the repository as a Space or copy
-this directory into one, then use **Add → Apps → Advanced local install**.
+this directory into one, then run
+`work-fold apps install-preview --space <id-or-name> --package examples/packages/restricted-connected-inbox`
+(adjust the Space-relative path if copied) and review the pending decision.
 
 The mail endpoint is intentionally non-functional and declares API-key or
 bearer authentication. It would need both a destination grant and a host-owned

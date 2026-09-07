@@ -181,6 +181,15 @@ Fold-led setup stages an unsent draft and materializes inert Check proposals. On
 
 ### App data recovery and control invalidation (development)
 
+The development **Change this app** path verifies installed package bytes before
+copying them into a fresh source-Space folder with History. It neither executes
+package code nor copies runtime data/authority. Machine-local change receipts
+pin source preview predecessors; review rejects competing revisions and new
+installation incarnations. The renderer endpoint shares affected-Space mutation
+reservations and is not a restricted-app or shared-viewer capability. A prepared
+Chat draft grants no model execution. See [app changes](docs/app-changes.md) for
+interruption behavior and incomplete workflow edges.
+
 The Apps management surface can export complete instance-owned JSON and restore
 only the same installation and exact app revision. Restore validates the
 integrity envelope and current storage revision, fences the prior runtime's

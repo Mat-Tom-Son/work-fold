@@ -63,6 +63,7 @@ export function RestrictedAppsSection({
   loading,
   fixtureMode = false,
   onBuildApp,
+  onChangeApp,
   onOpenAppStudio,
   onUpsertApp,
   onRemoveApp,
@@ -78,6 +79,7 @@ export function RestrictedAppsSection({
   /** "page" omits the section's own heading and actions; the hosting page provides them. */
   presentation?: "section" | "page";
   onBuildApp: () => void;
+  onChangeApp?: (app: RestrictedAppInstalled) => Promise<void>;
   onOpenAppStudio: (spaceId?: string) => void;
   onUpsertApp: (app: RestrictedAppInstalled) => void;
   onRemoveApp: (appId: string) => void;
@@ -116,6 +118,15 @@ export function RestrictedAppsSection({
     } finally {
       if (spaceIdRef.current === spaceId) setBusy(false);
     }
+  }
+
+  async function changeApp(app: RestrictedAppInstalled) {
+    if (!onChangeApp || busy) return;
+    setBusy(true);
+    const spaceId = space.id;
+    try { await onChangeApp(app); }
+    catch (caught) { if (spaceIdRef.current === spaceId) onError(errorText(caught)); }
+    finally { if (spaceIdRef.current === spaceId) setBusy(false); }
   }
 
   async function install() {
@@ -182,7 +193,7 @@ export function RestrictedAppsSection({
                 <div className="restricted-app-card-meta"><span>{app.runtimeInstanceKind === "development" ? "Previewing in this Space" : "Installed in this Space · Data on this device"}</span><span>{app.packageName} {app.version}</span><span>App screen</span></div>
                 <small>{app.manifest.tools.length} {app.manifest.tools.length === 1 ? "action" : "actions"} · {app.networkGrants.length}/{app.manifest.permissions.network.length} network · {app.fileGrants.length}/{app.manifest.permissions.files.length} files · {app.notificationGrants.length}/{app.manifest.permissions.notifications.length} notifications{app.manifest.automations.length ? ` · ${app.automations.filter((automation) => automation.enabled).length}/${app.manifest.automations.length} automations on` : ""}</small>
               </div>
-              <div className="restricted-app-card-actions"><span className={access.enabled ? "professional-status-badge enabled" : "professional-status-badge"}>{access.label}</span><button className="professional-button professional-button-secondary" type="button" onClick={() => setSelectedAppId(app.manifest.id)}>{access.total ? "Review access" : "Details"}</button></div>
+              <div className="restricted-app-card-actions"><span className={access.enabled ? "professional-status-badge enabled" : "professional-status-badge"}>{access.label}</span>{onChangeApp ? <button className="professional-button professional-button-quiet" type="button" disabled={busy || fixtureMode} onClick={() => void changeApp(app)}>Change this app</button> : null}<button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={() => setSelectedAppId(app.manifest.id)}>{access.total ? "Review access" : "Details"}</button></div>
             </article>;
           })}
         </div>

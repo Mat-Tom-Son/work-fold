@@ -42,6 +42,14 @@ that snapshot; uninstall with purge removes it with the namespace. Retained
 data can be exported from its source Project without reactivating the app.
 See [App data recovery](docs/app-data-recovery.md) for exact limits and retention.
 
+The development branch's **Change this app** copies only the verified installed
+package into its source Space, where ordinary folder backup/synchronization rules
+apply. Its machine-local provenance records the source working path, exact app
+revision and installation identities, and a building Chat id when available.
+Runtime data, credentials, grants, target files, and Chat content are excluded.
+The initial draft is unsent; model use begins only when the person sends it.
+See [Changing an installed app](docs/app-changes.md).
+
 ### Optional Remote access bridge
 
 When Remote access is enabled, the desktop maintains an authenticated WebSocket

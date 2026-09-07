@@ -1,4 +1,5 @@
 import type { ChatContextPathRequest, ChatDraftRequest } from "../types";
+import type { RestrictedAppChangeDraft } from "./restricted-apps";
 
 export function chatContextRequestForTab(
   request: ChatContextPathRequest | null,
@@ -28,4 +29,8 @@ export function chatDraftRequestForTab(
  */
 export function appBuildDraft(spaceName: string): string {
   return `Build a new app for this Space (${spaceName}). When it's ready, submit it for review.\n\nWhat it should do: `;
+}
+
+export function appChangeDraft(change: RestrictedAppChangeDraft): string {
+  return `Change ${change.title} (${change.version}) using the prepared copy in ${JSON.stringify(change.sourcePath)}. Keep its app and package identity, and submit the changed package for review.\n\nWhat I'd like to change: `;
 }

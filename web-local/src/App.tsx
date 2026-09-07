@@ -45,14 +45,14 @@ import { useSpaceTree } from "./hooks/useSpaceTree";
 import { useSpaceChecks } from "./hooks/useSpaceChecks";
 import { api, apiForm, apiUrl, errorText } from "./lib/api";
 import { chatActivityKey, conversationLifecycleView } from "./lib/chat-lifecycle";
-import { appBuildDraft, chatContextRequestForTab, chatDraftRequestForTab } from "./lib/chat-context-request";
+import { appBuildDraft, appChangeDraft, chatContextRequestForTab, chatDraftRequestForTab } from "./lib/chat-context-request";
 import { contributedSurfaces, resolveSurfaceForKey, surfaceMatchesTab } from "./lib/capability-surfaces";
 import { canOpenDirectly, hasNativeFiles, hasSpacePathDrag, nativeOpenLabel } from "./lib/file-actions";
 import { formatItemCount } from "./lib/format";
 import { readStoredJsonValue, readStoredValue, writeStoredJsonValue, writeStoredValue } from "./lib/storage";
 import { isMacOS, typographyFontForPlatform, spaceEntryNativePath } from "./lib/platform";
 import { resolveRestrictedAppOpenRequest, restrictedAppRailMode } from "./lib/restricted-app-navigation";
-import { getLocalAppStudio, getLocalAppSpaceRemovalImpact } from "./lib/restricted-apps";
+import { getLocalAppStudio, getLocalAppSpaceRemovalImpact, prepareRestrictedAppChange } from "./lib/restricted-apps";
 import { collectLoadedFileEntries, findTreeEntry, isInsideFolder, moveTreeEntry, removeTreeEntries } from "./lib/tree";
 import { normalizeSpaceCustomizations } from "./lib/space-customization";
 import { spaceIdentityFor, spaceIdentityStyle } from "./lib/space-identity";
@@ -364,6 +364,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   const [contextRequest, setContextRequest] = useState<ChatContextPathRequest | null>(null);
   const [draftRequest, setDraftRequest] = useState<ChatDraftRequest | null>(null);
   const draftRequestId = useRef(0);
+  const appChangeRequests = useRef(new Map<string, string>());
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const commandPaletteReturnFocusRef = useRef<HTMLElement | null>(null);
   const [historyRefreshRequest, setHistoryRefreshRequest] = useState(0);
@@ -786,6 +787,18 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   function startAppBuildChat(targetSpace: SpaceSummary) {
     const surfaceTabId = tabs.openChatSurfaceTab(targetSpace, null);
     setDraftRequest({ id: ++draftRequestId.current, text: appBuildDraft(targetSpace.name), spaceId: targetSpace.id, surfaceTabId });
+  }
+
+  async function startAppChangeChat(app: RestrictedAppInstalled) {
+    const source = spaces.find((item) => item.id === app.sourceSpaceId);
+    if (!source) throw new Error("The app's source Space is unavailable. Refresh Spaces before changing it.");
+    const key = `${app.featureInstallationId}:${app.digest}`;
+    const requestId = appChangeRequests.current.get(key) ?? crypto.randomUUID();
+    appChangeRequests.current.set(key, requestId);
+    const change = await prepareRestrictedAppChange(app, requestId);
+    const surfaceTabId = tabs.openChatSurfaceTab(source, null);
+    setDraftRequest({ id: ++draftRequestId.current, text: appChangeDraft(change), spaceId: source.id, surfaceTabId });
+    appChangeRequests.current.delete(key);
   }
 
   function openChatActions(
@@ -1291,6 +1304,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
                 loading={restrictedAppsState.loadingSpaceIds.has(targetSpace.id)}
                 fixtureMode={Boolean(fixture)}
                 onBuildApp={() => startAppBuildChat(targetSpace)}
+                onChangeApp={startAppChangeChat}
                 onOpenAppStudio={(sourceSpaceId) => tabs.openAppStudioSurfaceTab(spaces.find((item) => item.id === sourceSpaceId) ?? targetSpace)}
                 onUpsertApp={restrictedAppsState.upsertApp}
                 onRemoveApp={(appId) => restrictedAppsState.removeApp(targetSpace.id, appId)}

@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import { RestrictedAppError } from "./restricted-app-connections.js";
 import {
   type RestrictedAppInstalled,
   type RestrictedAppReview,
+  type RestrictedAppPreviewBase,
   RestrictedAppService,
 } from "./restricted-app-service.js";
 
@@ -26,6 +27,28 @@ export interface RestrictedAppProposalReceipt extends RestrictedAppProposalScope
   createdAt: string;
   updatedAt: string;
   installedApp?: RestrictedAppInstalled;
+  changeId?: string;
+  expectedPreviewBase?: RestrictedAppPreviewBase;
+}
+
+/** Machine-local provenance. This record is never copied into a portable Chat. */
+export interface RestrictedAppChangeReceipt {
+  id: string;
+  status: "preparing" | "ready";
+  sourceSpaceId: string;
+  sourcePath: string;
+  appId: string;
+  packageName: string;
+  title: string;
+  version: string;
+  baseDigest: string;
+  baseFeatureInstallationId: string;
+  targetSpaceId: string;
+  targetRuntimeInstanceId: string;
+  baseReleaseDigest: string | null;
+  previewBase: RestrictedAppPreviewBase;
+  buildConversationId: string | null;
+  createdAt: string;
 }
 
 export interface RestrictedAppProposalResult {
@@ -47,6 +70,7 @@ export interface RestrictedAppProposalHost {
 interface ProposalRegistryFile {
   schemaVersion: 2;
   proposals: RestrictedAppProposalReceipt[];
+  changes: RestrictedAppChangeReceipt[];
 }
 
 /**
@@ -86,6 +110,11 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
     });
     if (signal?.aborted) return { status: "cancelled" };
     const proposal = await this.#mutate(async () => {
+      const change = this.#registry.changes.find((item) => item.sourceSpaceId === input.spaceId
+        && resolve(input.spaceRoot, item.sourcePath) === resolve(input.spaceRoot, sourcePath));
+      if (change && (change.status !== "ready" || change.appId !== review.manifest.id || change.packageName !== review.packageName)) {
+        throw new RestrictedAppError("INPUT_INVALID", "Keep the app and package identity of this working copy before submitting it for review.");
+      }
       const existing = this.#registry.proposals.find((item) => item.status === "pending"
         && item.spaceId === input.spaceId
         && item.conversationId === input.conversationId
@@ -101,11 +130,12 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
         status: "pending",
         createdAt: timestamp,
         updatedAt: timestamp,
+        ...(change ? { changeId: change.id, expectedPreviewBase: change.previewBase } : {}),
       };
       const proposals = [...this.#registry.proposals, receipt]
         .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt))
         .slice(-100);
-      await this.#writeRegistry({ schemaVersion: 2, proposals });
+      await this.#writeRegistry({ ...this.#registry, proposals });
       return copyReceipt(receipt);
     });
     this.emit("request", proposal);
@@ -116,6 +146,49 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
     await this.#queue.catch(() => undefined);
     const proposal = this.#registry.proposals.find((item) => item.id === id);
     return proposal ? copyReceipt(proposal) : undefined;
+  }
+
+  async prepareChange(input: { id: string; spaceId: string; appId: string; expectedDigest: string },
+    materialize: (change: RestrictedAppChangeReceipt, files: ReadonlyMap<string, Uint8Array>) => Promise<void>,
+  ): Promise<RestrictedAppChangeReceipt> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(input.id)) {
+      throw new RestrictedAppError("INPUT_INVALID", "A unique app-change request is required.");
+    }
+    return this.#mutate(async () => {
+      let change = this.#registry.changes.find((item) => item.id === input.id);
+      if (change && (change.targetSpaceId !== input.spaceId || change.appId !== input.appId || change.baseDigest !== input.expectedDigest)) {
+        throw new RestrictedAppError("INPUT_INVALID", "This app-change request already belongs to a different revision.");
+      }
+      if (change?.status === "ready") return structuredClone(change);
+      if (!change && this.#registry.changes.length >= 1_000) {
+        throw new RestrictedAppError("INPUT_INVALID", "This computer has reached its saved app-change limit.");
+      }
+      const snapshot = await this.#service.snapshotForChange(input.spaceId, input.appId, input.expectedDigest);
+      const app = snapshot.app;
+      if (change && (change.baseFeatureInstallationId !== app.featureInstallationId || change.targetRuntimeInstanceId !== app.runtimeInstanceId)) {
+        throw new RestrictedAppError("REVISION_CHANGED", "The app was reinstalled while its working copy was being prepared.");
+      }
+      if (!change) {
+        const build = [...this.#registry.proposals].reverse().find((item) => item.status === "installed"
+          && item.spaceId === app.sourceSpaceId && item.review.digest === app.digest
+          && !item.conversationId.startsWith("work-fold.act."));
+        change = {
+          id: input.id, status: "preparing", sourceSpaceId: app.sourceSpaceId,
+          sourcePath: `${app.manifest.id}-change-${input.id}`,
+          appId: app.manifest.id, packageName: app.packageName, title: app.manifest.title,
+          version: app.version, baseDigest: app.digest,
+          baseFeatureInstallationId: app.featureInstallationId,
+          targetSpaceId: app.spaceId, targetRuntimeInstanceId: app.runtimeInstanceId,
+          baseReleaseDigest: app.releaseDigest, previewBase: snapshot.previewBase,
+          buildConversationId: build?.conversationId ?? null, createdAt: new Date().toISOString(),
+        };
+        await this.#writeRegistry({ ...this.#registry, changes: [...this.#registry.changes, change] });
+      }
+      await materialize(structuredClone(change), snapshot.files);
+      const ready = { ...change, status: "ready" as const };
+      await this.#writeRegistry({ ...this.#registry, changes: this.#registry.changes.map((item) => item.id === ready.id ? ready : item) });
+      return structuredClone(ready);
+    });
   }
 
   async list(scope?: Partial<Pick<RestrictedAppProposalScope, "spaceId" | "conversationId">>): Promise<RestrictedAppProposalReceipt[]> {
@@ -140,6 +213,7 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
           spaceRoot: proposal.spaceRoot,
           sourcePath: proposal.sourcePath,
           expectedDigest: proposal.review.digest,
+          ...(proposal.expectedPreviewBase !== undefined ? { expectedPreviewBase: proposal.expectedPreviewBase } : {}),
         });
       } catch (caught) {
         if (caught instanceof RestrictedAppError && caught.code === "REVISION_CHANGED") {
@@ -153,7 +227,8 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
       proposal.status = "installed";
       proposal.updatedAt = new Date().toISOString();
       proposal.installedApp = structuredClone(app);
-      await this.#writeRegistry(this.#registry);
+      await this.#writeRegistry({ ...this.#registry, changes: this.#registry.changes.map((item) => item.id === proposal.changeId
+        ? { ...item, previewBase: { featureInstallationId: app.featureInstallationId, digest: app.digest } } : item) });
       this.emit("settled", { proposal: copyReceipt(proposal) } satisfies RestrictedAppProposalSettled);
       return app;
     });
@@ -174,8 +249,10 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
   async removeSpace(spaceId: string): Promise<void> {
     await this.#mutate(async () => {
       const proposals = this.#registry.proposals.filter((item) => item.spaceId !== spaceId);
-      if (proposals.length === this.#registry.proposals.length) return;
-      await this.#writeRegistry({ schemaVersion: 2, proposals });
+      // A removed target does not erase guards on working copies still in their source Space.
+      const changes = this.#registry.changes.filter((item) => item.sourceSpaceId !== spaceId);
+      if (proposals.length === this.#registry.proposals.length && changes.length === this.#registry.changes.length) return;
+      await this.#writeRegistry({ ...this.#registry, proposals, changes });
     });
   }
 
@@ -188,8 +265,18 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
   async #writeRegistry(registry: ProposalRegistryFile): Promise<void> {
     const next = normalizeRegistry(registry);
     const temporaryPath = `${this.#registryPath}.${randomUUID()}.tmp`;
-    await writeFile(temporaryPath, `${JSON.stringify(next, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    const handle = await open(temporaryPath, "wx", 0o600);
+    try { await handle.writeFile(`${JSON.stringify(next, null, 2)}\n`, "utf8"); await handle.sync(); } finally { await handle.close(); }
     await rename(temporaryPath, this.#registryPath);
+    let directory;
+    try {
+      directory = await open(dirname(this.#registryPath), "r");
+      await directory.sync();
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? "";
+      if (!["EINVAL", "ENOTSUP", "EBADF"].includes(code)
+        && !(process.platform === "win32" && ["EISDIR", "EPERM"].includes(code))) throw error;
+    } finally { await directory?.close(); }
     this.#registry = next;
   }
 }
@@ -199,18 +286,44 @@ async function readRegistry(path: string): Promise<ProposalRegistryFile> {
     return normalizeRegistry(JSON.parse(await readFile(path, "utf8")));
   } catch (caught) {
     const code = (caught as NodeJS.ErrnoException)?.code;
-    if (code === "ENOENT" || caught instanceof SyntaxError) return { schemaVersion: 2, proposals: [] };
+    if (code === "ENOENT") return { schemaVersion: 2, proposals: [], changes: [] };
     throw caught;
   }
 }
 
 function normalizeRegistry(value: unknown): ProposalRegistryFile {
-  const proposals = value && typeof value === "object"
-    && (value as Partial<ProposalRegistryFile>).schemaVersion === 2
-    && Array.isArray((value as ProposalRegistryFile).proposals)
-    ? (value as ProposalRegistryFile).proposals.filter(validReceipt).map(copyReceipt).slice(-100)
-    : [];
-  return { schemaVersion: 2, proposals };
+  if (!value || typeof value !== "object" || (value as Partial<ProposalRegistryFile>).schemaVersion !== 2
+    || !Array.isArray((value as ProposalRegistryFile).proposals)) {
+    throw new Error("The app proposal registry is invalid or uses an unsupported version.");
+  }
+  const proposals = (value as ProposalRegistryFile).proposals.filter(validReceipt).map(copyReceipt).slice(-100);
+  const rawChanges = (value as Partial<ProposalRegistryFile>).changes;
+  if (rawChanges !== undefined && (!Array.isArray(rawChanges) || rawChanges.length > 1_000 || !rawChanges.every(validChange)
+    || new Set(rawChanges.map((item) => item.id)).size !== rawChanges.length)) {
+    throw new Error("App-change provenance is invalid. Restore the machine-local proposal registry before continuing.");
+  }
+  return { schemaVersion: 2, proposals, changes: structuredClone(rawChanges ?? []) };
+}
+
+function validChange(value: unknown): value is RestrictedAppChangeReceipt {
+  if (!value || typeof value !== "object") return false;
+  const item = value as RestrictedAppChangeReceipt;
+  return typeof item.id === "string" && /^[0-9a-f-]{36}$/.test(item.id)
+    && ["preparing", "ready"].includes(item.status)
+    && [item.sourceSpaceId, item.appId, item.packageName, item.title, item.version, item.baseFeatureInstallationId,
+      item.targetSpaceId, item.targetRuntimeInstanceId, item.createdAt].every((field) => typeof field === "string" && field.length > 0)
+    && item.sourcePath === `${item.appId}-change-${item.id}` && /^[a-z0-9][a-z0-9._-]*$/.test(item.appId)
+    && /^[a-f0-9]{64}$/.test(item.baseDigest)
+    && (item.baseReleaseDigest === null || typeof item.baseReleaseDigest === "string")
+    && (item.buildConversationId === null || typeof item.buildConversationId === "string")
+    && validPreviewBase(item.previewBase);
+}
+
+function validPreviewBase(value: unknown): boolean {
+  if (value === null) return true;
+  if (!value || typeof value !== "object") return false;
+  const item = value as Exclude<RestrictedAppPreviewBase, null>;
+  return typeof item.featureInstallationId === "string" && typeof item.digest === "string" && /^[a-f0-9]{64}$/.test(item.digest);
 }
 
 function validReceipt(value: unknown): value is RestrictedAppProposalReceipt {
@@ -223,6 +336,8 @@ function validReceipt(value: unknown): value is RestrictedAppProposalReceipt {
     && typeof receipt.sourcePath === "string"
     && typeof receipt.createdAt === "string"
     && typeof receipt.updatedAt === "string"
+    && (receipt.changeId === undefined || typeof receipt.changeId === "string" && receipt.expectedPreviewBase !== undefined)
+    && (receipt.expectedPreviewBase === undefined || validPreviewBase(receipt.expectedPreviewBase))
     && ["pending", "installed", "dismissed", "revision-changed"].includes(String(receipt.status))
     && Boolean(receipt.review && typeof receipt.review.digest === "string");
 }

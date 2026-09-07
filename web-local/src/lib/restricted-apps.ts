@@ -25,6 +25,23 @@ function collectionPath(spaceId: string): string {
   return `/api/spaces/${encodeURIComponent(spaceId)}/restricted-apps`;
 }
 
+export interface RestrictedAppChangeDraft {
+  id: string;
+  sourceSpaceId: string;
+  sourcePath: string;
+  appId: string;
+  title: string;
+  version: string;
+  baseDigest: string;
+  buildConversationId: string | null;
+}
+
+export async function prepareRestrictedAppChange(app: RestrictedAppInstalled, requestId: string): Promise<RestrictedAppChangeDraft> {
+  return (await api<{ change: RestrictedAppChangeDraft }>(`${collectionPath(app.spaceId)}/${encodeURIComponent(app.manifest.id)}/change`, {
+    method: "POST", body: { requestId, expectedDigest: app.digest }, idempotent: true,
+  })).change;
+}
+
 function proposalPath(spaceId: string, conversationId: string, proposalId?: string): string {
   const collection = `/api/spaces/${encodeURIComponent(spaceId)}/conversations/${encodeURIComponent(conversationId)}/restricted-app-proposals`;
   return proposalId ? `${collection}/${encodeURIComponent(proposalId)}` : collection;

@@ -151,6 +151,21 @@ test("Local App Studio separates Project declaration, immutable Release review, 
     await storage.set(storageOwner(installed), "shared-key", "installed-value");
     assert.equal(await storage.get(storageOwner(development), "shared-key"), "development-value");
     assert.equal(await storage.get(storageOwner(installed), "shared-key"), "installed-value");
+    const editable = await service.snapshotForChange(targetSpace, featureId, installed.digest);
+    assert.equal(editable.app.sourceSpaceId, sourceSpace);
+    assert.equal(editable.app.spaceId, targetSpace);
+    assert.equal(editable.previewBase?.featureInstallationId, development.featureInstallationId);
+    assert.match(Buffer.from(editable.files.get("worker.js")!).toString(), /release-one-reviewed-bytes/);
+    assert.ok([...editable.files.keys()].every((path) => !/storage|conversations|shared-key/.test(path)));
+    const laterReview = await service.inspect({ spaceId: sourceSpace, spaceRoot: sourceRoot, sourcePath: "apps/connected-inbox" });
+    await service.install({ spaceId: sourceSpace, spaceRoot: sourceRoot, sourcePath: "apps/connected-inbox", expectedDigest: laterReview.digest });
+    await assert.rejects(service.snapshotForChange(targetSpace, featureId, installed.digest), /different Local preview/);
+    await service.remove({ spaceId: sourceSpace, appId: featureId, expectedDigest: laterReview.digest });
+    const absentPreview = await service.snapshotForChange(targetSpace, featureId, installed.digest);
+    assert.equal(absentPreview.previewBase, null);
+    const replaceAbsent = { spaceId: sourceSpace, spaceRoot: sourceRoot, sourcePath: "apps/connected-inbox", expectedDigest: laterReview.digest, expectedPreviewBase: absentPreview.previewBase };
+    await service.install(replaceAbsent);
+    await assert.rejects(service.install(replaceAbsent), /Local preview changed/, "an absent predecessor must not silently replace a later install, even with identical bytes");
   } finally {
     await service?.close().catch(() => undefined);
     await rm(sandbox, { recursive: true, force: true });

@@ -1,0 +1,158 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+
+import { RoutedRestrictedAppProposalHost } from "../src/local/agent/restricted-app-proposals.js";
+import { RestrictedAppService } from "../src/local/agent/restricted-app-service.js";
+import { materializeRestrictedAppWorkingCopy } from "../src/local/agent/restricted-app-working-copy.js";
+import { appChangeDraft } from "../web-local/src/lib/chat-context-request.js";
+import { prepareRestrictedAppChange } from "../web-local/src/lib/restricted-apps.js";
+
+async function fixture() {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-app-change-"));
+  const spaceRoot = join(root, "source");
+  const sourcePath = "original";
+  const packageRoot = join(spaceRoot, sourcePath);
+  await mkdir(packageRoot, { recursive: true });
+  await writeFile(join(packageRoot, "package.json"), JSON.stringify({ name: "change-demo", version: "1.0.0", type: "module", agentApp: "agent-app.json" }));
+  await writeFile(join(packageRoot, "agent-app.json"), JSON.stringify({ version: 2, id: "change-demo", title: "Change demo", runtime: { kind: "sandboxed-web", entry: "index.html" }, ui: { icon: "mail" }, tools: [], automations: [], permissions: { network: [] } }));
+  await writeFile(join(packageRoot, "index.html"), "<!doctype html><p>Reviewed original</p>");
+  const service = await RestrictedAppService.create({ rootPath: join(root, "state", "apps") });
+  const registryPath = join(root, "state", "proposals.json");
+  const host = await RoutedRestrictedAppProposalHost.create({ service, registryPath });
+  const scope = { spaceId: "source", spaceRoot, conversationId: "builder-chat", sourcePath };
+  const proposal = (await host.propose(scope)).proposal!;
+  const app = (await host.install(proposal.id))!;
+  const input = { id: randomUUID(), spaceId: scope.spaceId, appId: app.manifest.id, expectedDigest: app.digest };
+  return { root, spaceRoot, packageRoot, registryPath, service, host, scope, app, input,
+    close: async () => { await service.close(); await rm(root, { recursive: true, force: true }); } };
+}
+
+test("Change this app copies exact installed bytes, saves provenance, and retries without another copy or History entry", async () => {
+  const f = await fixture();
+  try {
+    await writeFile(join(f.packageRoot, "index.html"), "Unreviewed later source");
+    await mkdir(join(f.spaceRoot, ".work-fold", "conversations"), { recursive: true });
+    await writeFile(join(f.spaceRoot, ".work-fold", "conversations", "secret.json"), "private transcript");
+    let checkpoints = 0;
+    const copy = (change: any, files: ReadonlyMap<string, Uint8Array>) => materializeRestrictedAppWorkingCopy(f.spaceRoot, change, files, async (paths) => {
+      checkpoints++;
+      assert.equal(paths.length, 3);
+      assert.ok(paths.every((path) => path.startsWith(`${change.sourcePath}/`)));
+    });
+    const [first, retry] = await Promise.all([f.host.prepareChange(f.input, copy), f.host.prepareChange(f.input, copy)]);
+    assert.deepEqual(retry, first);
+    assert.equal(checkpoints, 1);
+    assert.equal(first.status, "ready");
+    assert.equal(first.buildConversationId, "builder-chat");
+    assert.equal(first.baseFeatureInstallationId, f.app.featureInstallationId);
+    assert.deepEqual(first.previewBase, { featureInstallationId: f.app.featureInstallationId, digest: f.app.digest });
+    assert.match(await readFile(join(f.spaceRoot, first.sourcePath, "index.html"), "utf8"), /Reviewed original/);
+    assert.deepEqual((await readdir(join(f.spaceRoot, first.sourcePath))).sort(), ["agent-app.json", "index.html", "package.json"]);
+    assert.equal(await readFile(join(f.packageRoot, "index.html"), "utf8"), "Unreviewed later source");
+    const reopened = await RoutedRestrictedAppProposalHost.create({ service: f.service, registryPath: f.registryPath });
+    assert.deepEqual(await reopened.prepareChange(f.input, async () => { assert.fail("replay must not overwrite editable files"); }), first);
+    await assert.rejects(reopened.prepareChange({ ...f.input, appId: "other" }, copy), /different revision/);
+    await assert.rejects(reopened.prepareChange({ ...f.input, id: "../../bad" }, copy), /unique app-change request/);
+    const draft = appChangeDraft({ ...first, targetSpaceId: "private-target", targetRuntimeInstanceId: "secret-runtime" } as any);
+    assert.match(draft, /submit the changed package for review/);
+    assert.doesNotMatch(draft, /private-target|secret-runtime|builder-chat/);
+  } finally { await f.close(); }
+});
+
+test("two edits cannot overwrite each other's newer preview, including across proposal-host restart", async () => {
+  const f = await fixture();
+  try {
+    const copy = (change: any, files: ReadonlyMap<string, Uint8Array>) => materializeRestrictedAppWorkingCopy(f.spaceRoot, change, files, async () => {});
+    const first = await f.host.prepareChange(f.input, copy);
+    const second = await f.host.prepareChange({ ...f.input, id: randomUUID() }, copy);
+    await writeFile(join(f.spaceRoot, first.sourcePath, "index.html"), "<p>First edit</p>");
+    await writeFile(join(f.spaceRoot, second.sourcePath, "index.html"), "<p>Second edit</p>");
+    const one = (await f.host.propose({ ...f.scope, sourcePath: first.sourcePath })).proposal!;
+    const two = (await f.host.propose({ ...f.scope, sourcePath: second.sourcePath })).proposal!;
+    assert.equal(one.changeId, first.id);
+    const installed = (await f.host.install(one.id))!;
+    assert.equal(installed.featureInstallationId, f.app.featureInstallationId);
+    assert.equal(installed.dataNamespaceId, f.app.dataNamespaceId);
+    const reopened = await RoutedRestrictedAppProposalHost.create({ service: f.service, registryPath: f.registryPath });
+    await assert.rejects(reopened.install(two.id), /Local preview changed/);
+    assert.equal((await reopened.get(two.id))?.status, "revision-changed");
+    assert.equal((await f.service.list(f.scope.spaceId))[0]!.digest, installed.digest);
+    // A follow-up edit in the same working copy advances from its own successfully reviewed preview.
+    await writeFile(join(f.spaceRoot, first.sourcePath, "index.html"), "<p>First edit continued</p>");
+    const followup = (await reopened.propose({ ...f.scope, sourcePath: first.sourcePath })).proposal!;
+    assert.equal(followup.expectedPreviewBase?.digest, installed.digest);
+    const continued = (await reopened.install(followup.id))!;
+    const beforeReinstall = await reopened.prepareChange({ ...f.input, id: randomUUID(), expectedDigest: continued.digest }, copy);
+    await f.service.remove({ spaceId: f.scope.spaceId, appId: f.app.manifest.id, expectedDigest: continued.digest });
+    const reinstalled = await f.service.install({ ...f.scope, sourcePath: first.sourcePath, expectedDigest: continued.digest });
+    assert.notEqual(reinstalled.featureInstallationId, continued.featureInstallationId);
+    await writeFile(join(f.spaceRoot, beforeReinstall.sourcePath, "index.html"), "<p>Stale incarnation</p>");
+    const stale = (await reopened.propose({ ...f.scope, sourcePath: beforeReinstall.sourcePath })).proposal!;
+    await assert.rejects(reopened.install(stale.id), /Local preview changed/);
+  } finally { await f.close(); }
+});
+
+test("interrupted copies resume from exact bytes, preserve later edits, and fail closed on corrupt provenance", async () => {
+  const f = await fixture();
+  try {
+    let path = "";
+    await assert.rejects(f.host.prepareChange(f.input, async (change, files) => {
+      path = change.sourcePath;
+      await materializeRestrictedAppWorkingCopy(f.spaceRoot, change, files, async () => {});
+      throw new Error("interrupted before ready receipt");
+    }), /interrupted/);
+    let reopened = await RoutedRestrictedAppProposalHost.create({ service: f.service, registryPath: f.registryPath });
+    await writeFile(join(f.spaceRoot, path, "index.html"), "Preserve my edit");
+    await assert.rejects(reopened.prepareChange(f.input, (change, files) => materializeRestrictedAppWorkingCopy(f.spaceRoot, change, files, async () => {})), /interrupted working copy has been edited/);
+    assert.equal(await readFile(join(f.spaceRoot, path, "index.html"), "utf8"), "Preserve my edit");
+    // With original bytes restored by the person, the same receipt can complete without a second folder.
+    await writeFile(join(f.spaceRoot, path, "index.html"), "<!doctype html><p>Reviewed original</p>");
+    const resumed = await reopened.prepareChange(f.input, (change, files) => materializeRestrictedAppWorkingCopy(f.spaceRoot, change, files, async () => {}));
+    assert.equal(resumed.sourcePath, path);
+    await writeFile(f.registryPath, "{invalid");
+    await assert.rejects(RoutedRestrictedAppProposalHost.create({ service: f.service, registryPath: f.registryPath }), SyntaxError);
+    await writeFile(f.registryPath, JSON.stringify({ schemaVersion: 3, proposals: [], changes: [resumed] }));
+    await assert.rejects(RoutedRestrictedAppProposalHost.create({ service: f.service, registryPath: f.registryPath }), /unsupported version/);
+  } finally { await f.close(); }
+});
+
+test("History failure removes only the new working copy; linked destinations are rejected", async () => {
+  const f = await fixture();
+  try {
+    let path = "";
+    await assert.rejects(f.host.prepareChange(f.input, (change, files) => {
+      path = change.sourcePath;
+      return materializeRestrictedAppWorkingCopy(f.spaceRoot, change, files, async () => { throw new Error("History unavailable"); });
+    }), /History unavailable/);
+    await assert.rejects(access(join(f.spaceRoot, path)));
+    assert.match(await readFile(join(f.packageRoot, "index.html"), "utf8"), /Reviewed original/);
+    await symlink(f.packageRoot, join(f.spaceRoot, path), "dir");
+    await assert.rejects(f.host.prepareChange(f.input, (change, files) => materializeRestrictedAppWorkingCopy(f.spaceRoot, change, files, async () => {})), /link|symbolic/i);
+  } finally { await f.close(); }
+});
+
+test("the desktop button's API helper sends one structured, authenticated change request", async (context) => {
+  const f = await fixture();
+  const priorWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", { configurable: true, value: {
+    workFoldDesktop: { api: { baseUrl: "http://localhost:9999", getSessionHeaders: async () => ({ "x-work-fold-session": "test-session" }) } },
+  } });
+  context.after(() => { if (priorWindow) Object.defineProperty(globalThis, "window", priorWindow); else Reflect.deleteProperty(globalThis, "window"); });
+  const response = { id: f.input.id, sourceSpaceId: f.scope.spaceId, sourcePath: "working", appId: f.app.manifest.id,
+    title: f.app.manifest.title, version: f.app.version, baseDigest: f.app.digest, buildConversationId: null };
+  const fetch = context.mock.method(globalThis, "fetch", async (url, options) => {
+    assert.equal(url, "http://localhost:9999/api/spaces/source/restricted-apps/change-demo/change");
+    assert.equal(options?.method, "POST");
+    assert.equal((options?.headers as Record<string, string>)["x-work-fold-session"], "test-session");
+    assert.deepEqual(JSON.parse(options?.body as string), { requestId: f.input.id, expectedDigest: f.app.digest });
+    return new Response(JSON.stringify({ change: response }), { status: 201 });
+  });
+  try {
+    assert.deepEqual(await prepareRestrictedAppChange(f.app, f.input.id), response);
+    assert.equal(fetch.mock.callCount(), 1);
+  } finally { await f.close(); }
+});

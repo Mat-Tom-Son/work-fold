@@ -60,6 +60,7 @@ import {
 } from "./agent/registered-space-runtime.js";
 import { RestrictedAppError } from "./agent/restricted-app-connections.js";
 import { RestrictedAppStorageError } from "./agent/restricted-app-storage.js";
+import { materializeRestrictedAppWorkingCopy } from "./agent/restricted-app-working-copy.js";
 import {
   RoutedRestrictedAppProposalHost,
   type RestrictedAppProposalReceipt,
@@ -1553,6 +1554,31 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       ...(body.expectedDigest ? { expectedDigest: body.expectedDigest } : {}),
     }));
     sendJson(res, { removed });
+    return;
+  }
+
+  const restrictedChangeMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/restricted-apps\/([^/]+)\/change$/);
+  if (restrictedChangeMatch && method === "POST") {
+    const space = await getSpace(restrictedChangeMatch[1]);
+    const body = await readJsonBody<{ requestId?: string; expectedDigest?: string }>(state, req);
+    if (typeof body.requestId !== "string" || typeof body.expectedDigest !== "string") throw badRequest("An exact app revision and change request are required.");
+    const app = (await state.restrictedApps.list(space.id)).find((item) => item.manifest.id === restrictedChangeMatch[2]);
+    if (!app || app.digest !== body.expectedDigest) throw httpError(409, "The app changed. Refresh before starting an edit.");
+    const source = await getSpace(app.sourceSpaceId);
+    const change = await runRestrictedAppMutations(state, [space.id, source.id], () => state.restrictedAppProposals.prepareChange({
+      id: body.requestId!, spaceId: space.id, appId: app.manifest.id, expectedDigest: body.expectedDigest!,
+    }, async (receipt, files) => {
+      if (receipt.sourceSpaceId !== source.id) throw httpError(409, "The app source changed. Refresh before starting an edit.");
+      await materializeRestrictedAppWorkingCopy(source.spaceRoot, receipt, files, (paths) => createSpaceMutationCheckpoint(source.spaceRoot, {
+        deleteOnRestore: paths, reason: "app-change", label: `Change ${app.manifest.title}`,
+      }));
+    }));
+    // The Chat draft receives source/build context only, never target Instance data or authority.
+    sendJson(res, { change: {
+      id: change.id, sourceSpaceId: change.sourceSpaceId, sourcePath: change.sourcePath,
+      appId: change.appId, title: change.title, version: change.version, baseDigest: change.baseDigest,
+      buildConversationId: change.buildConversationId,
+    } }, 201);
     return;
   }
 

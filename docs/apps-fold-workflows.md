@@ -85,3 +85,38 @@ and `npm run desktop:prepare` including both real Electron probes passed.
 Logs: `/tmp/workfold-apps-check.log`, `/tmp/workfold-apps-tests.log`,
 `/tmp/workfold-apps-desktop.log`. The other work slices remain pending; no release
 is published.
+
+## Progress: exact app working copies
+
+The development branch now connects **Change this app** on the Apps card to an
+exact installed-package copy, History, durable machine-local provenance, and an
+unsent source-Space Chat draft. Proposals from that copy pin their source preview
+predecessor, including an absent preview, so competing edits cannot silently
+replace each other's reviewed work. Focused tests cover retries/restart,
+interruption, changed copies, corrupt receipts, symlinks, History failure,
+release-backed source/target separation, API reservations, and competing edits.
+See [Changing an installed app](app-changes.md) for the implemented contract.
+
+The first checklist item remains open: original-Chat navigation, direct target
+update review, and preview placement for a Release installed in its own source
+Space still need completion. The remaining context, Assistant, fold result, and
+approved-browser work retains its full scope above.
+
+Verification for this slice: `npm run check`, `npm test` (1,107 passed, one
+Windows-only skip), and `npm run desktop:prepare`, including both real Electron
+probes, pass. Logs: `/tmp/workfold-app-change-check.log`,
+`/tmp/workfold-app-change-tests-final.log`, and
+`/tmp/workfold-app-change-desktop.log`.
+
+Live testing in the isolated `/tmp/workfold-apps-goal-qa` desktop profile found
+and fixed a double-encoded renderer request; the actual renderer helper now has
+request-shape/session-header coverage. Clicking Change this app then created an
+exact version-1.0.2 copy and an unsent Chat draft; History displayed its restore
+point. Editing that synthetic copy and submitting it through the canonical CLI
+proposal lane produced a needs-you review. Desktop approval installed version
+1.0.3, refreshed the visible app, and preserved its saved quote. Restart retained
+the edited app and quote. A final button test created a copy of 1.0.3, with a
+shorter draft and the typing position visible. The test app is quit; production
+application data and the Applications installation were not changed. A real
+Assistant turn and the combined multi-Space/browser acceptance journey remain
+for the later integrated slices.

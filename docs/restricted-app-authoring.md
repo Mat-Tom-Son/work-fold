@@ -42,6 +42,13 @@ already inside the Space and was not proposed from a Chat is added with
 (a recovery and developer lane in the CLI's act family); it does not replace
 the Chat-bound proposal and review flow for agent-created apps.
 
+On the development branch, **Change this app** creates an exact installed-byte
+working copy and an unsent source-Space Chat draft. Edit that copy without changing
+its app/package identity and propose it normally. The host rejects an update if
+another edit changed the source preview in the meantime. See
+[Changing an installed app](app-changes.md) for provenance, recovery, and remaining
+workflow limits.
+
 ## From preview to an installed App
 
 Use **Open App Studio** when the reviewed preview is ready to install as an App:
@@ -76,8 +83,8 @@ changed Feature keeps its installation and data namespace but resets grants,
 connections, and jobs. The current local runtime rejects data schemas and
 migrations, so this package format must continue to rely on backward-compatible
 JSON storage until reviewed migration execution is implemented. Uninstall
-requires retaining or purging App data; retained namespaces are inactive and
-can only be purged later in the current local product.
+requires retaining or purging App data; retained namespaces are inactive. The
+development branch also supports export; see [App data recovery](app-data-recovery.md).
 
 ## Package layout
 
@@ -728,8 +735,9 @@ The Connected inbox package includes a project-service panel. To test it:
 1. Register this repository as a Space, or copy
    `examples/packages/restricted-connected-inbox` into an ordinary folder in a
    registered Space.
-2. Add that Space-relative package as a Local preview through **Advanced
-   local preview**.
+2. Add that Space-relative package as a Local preview with
+   `work-fold apps install-preview --space <id-or-name> --package examples/packages/restricted-connected-inbox`
+   (adjust the path if copied), then review the pending decision.
 3. From the repository root, start the companion process:
 
    ```powershell

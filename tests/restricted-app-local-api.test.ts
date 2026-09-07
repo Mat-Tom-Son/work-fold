@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -22,6 +23,8 @@ import type { EffectivePrincipal } from "../src/local/agent/app-platform-contrac
 import type { RestrictedAppOAuthPkceClient } from "../src/local/agent/restricted-app-oauth.js";
 import { FileRestrictedAppStorage, type RestrictedAppDataBackup, type RestrictedAppDataRecovery } from "../src/local/agent/restricted-app-storage.js";
 import { startLocalApi } from "../src/local/server.js";
+import { listSpaceCheckpoints } from "../src/local/history.js";
+import type { RestrictedAppChangeDraft } from "../web-local/src/lib/restricted-apps.js";
 
 test("restricted app API keeps review, install, grants, connections, invocation, and removal separate", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-restricted-api-"));
@@ -103,6 +106,19 @@ test("restricted app API keeps review, install, grants, connections, invocation,
     assert.deepEqual(installed.app.fileGrants, []);
     assert.deepEqual(installed.app.notificationGrants, []);
     assert.deepEqual(installed.app.automations, [{ id: "refresh-mail", enabled: false }]);
+
+    const changeInput = { requestId: randomUUID(), expectedDigest: installed.app.digest };
+    const changeUrl = `/api/spaces/${space.id}/restricted-apps/mail-app/change`;
+    const changed = await request<{ change: RestrictedAppChangeDraft }>(api.origin, changeUrl, { method: "POST", body: changeInput });
+    assert.equal(changed.change.sourceSpaceId, space.id);
+    assert.equal(changed.change.baseDigest, installed.app.digest);
+    assert.equal(await readFile(join(space.spaceRoot, changed.change.sourcePath, "index.html"), "utf8"), await readFile(join(space.spaceRoot, sourcePath, "index.html"), "utf8"));
+    const checkpoints = await listSpaceCheckpoints(space.spaceRoot);
+    assert.equal(checkpoints.filter((item) => item.reason === "app-change").length, 1);
+    assert.deepEqual(await request(api.origin, changeUrl, { method: "POST", body: changeInput }), changed);
+    assert.equal((await listSpaceCheckpoints(space.spaceRoot)).length, checkpoints.length);
+    const wrongRevision = await fetch(`${api.origin}${changeUrl}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...changeInput, expectedDigest: "a".repeat(64) }) });
+    assert.equal(wrongRevision.status, 409);
 
     await storage.set({
       ownerClass: "instance",
@@ -266,6 +282,8 @@ test("restricted app API keeps review, install, grants, connections, invocation,
         body: JSON.stringify({ expectedDigest: inspected.review.digest, expectedRevision: 1, backup: exported.backup }),
       });
       assert.equal(blockedRestore.status, 409, "restore shares the capability-mutation reservation");
+      const blockedChange = await fetch(`${api.origin}${changeUrl}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...changeInput, requestId: randomUUID() }) });
+      assert.equal(blockedChange.status, 409, "app source preparation reserves the owning Space against Assistant work");
       assert.equal((await request<{ usage: { keyCount: number } }>(
         api.origin,
         `/api/spaces/${space.id}/restricted-apps/mail-app/storage?expectedDigest=${inspected.review.digest}`,

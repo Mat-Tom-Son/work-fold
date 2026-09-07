@@ -658,6 +658,7 @@ export function ChatPanel({
       const end = textarea.value.length;
       textarea.setSelectionRange(end, end);
       resizeComposerTextarea();
+      textarea.scrollTop = textarea.scrollHeight;
     });
   }, [draftRequest?.id]);
 

@@ -203,6 +203,13 @@ same-installation, exact-revision recovery through the host's Apps management
 surface. It retains one bounded undo snapshot and advances data authority without
 restoring any other authority. See [App data recovery](app-data-recovery.md).
 
+The same development branch begins the [Change this app](app-changes.md) journey:
+verified installed bytes become a new ordinary source-Space working copy with
+History, machine-local provenance, and a draft Chat. Preview proposals carry an
+exact predecessor guard. Release installation/update remains the existing
+separately reviewed lifecycle, and source-Space preview-placement and direct
+update-navigation work remain open.
+
 The first placement rule is intentionally small: at most one local App Instance
 exists for a `(projectId, target Space)` pair, and no target Space may already
 contain a Development preview or installed Feature with the same `featureId`.

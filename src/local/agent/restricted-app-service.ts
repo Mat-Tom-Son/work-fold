@@ -110,6 +110,9 @@ export interface RestrictedAppReview {
   totalBytes: number;
 }
 
+/** An absent preview is also a pinned predecessor, never permission to replace a later install. */
+export type RestrictedAppPreviewBase = { featureInstallationId: FeatureInstallationId; digest: string } | null;
+
 export interface RestrictedAppInstalled extends RestrictedAppReview {
   spaceId: string;
   sourceSpaceId: string;
@@ -1659,11 +1662,31 @@ export class RestrictedAppService {
     return { ...app, stagedRoot: this.#digestRoot(app.digest) };
   }
 
+  async snapshotForChange(spaceId: string, appId: string, expectedDigest: string) {
+    return this.#mutate(async () => {
+      await assertRestrictedAppStagingRoot(this.#stagingPath);
+      const app = this.#installed(spaceId, appId, expectedDigest);
+      const source = this.#registry.installations.find((item) => item.spaceId === app.sourceSpaceId && item.manifest.id === app.manifest.id);
+      if (source?.runtimeInstanceKind === "app") {
+        throw new RestrictedAppError("INPUT_INVALID", "This App is installed in its own source Space. Its Local preview needs a separate placement before it can be changed.");
+      }
+      if (source && source.digest !== app.digest) {
+        throw new RestrictedAppError("REVISION_CHANGED", "The source Space already has a different Local preview. Review that work in App Studio before starting from this installed revision.");
+      }
+      const previewBase: RestrictedAppPreviewBase = source
+        ? { featureInstallationId: source.featureInstallationId, digest: source.digest }
+        : null;
+      const snapshot = await snapshotRestrictedAppPackage(stageReceiptFromEntry(app, this.#digestRoot(app.digest)));
+      return { app, previewBase, files: snapshot.files };
+    });
+  }
+
   async install(input: {
     spaceId: string;
     spaceRoot: string;
     sourcePath: string;
     expectedDigest: string;
+    expectedPreviewBase?: RestrictedAppPreviewBase;
   }): Promise<RestrictedAppInstalled> {
     return await this.#mutate(async () => {
       const expectedDigest = digestValue(input.expectedDigest);
@@ -1671,6 +1694,13 @@ export class RestrictedAppService {
       const inspection = await inspectRestrictedAppPackage(sourceRoot);
       if (inspection.digest !== expectedDigest) throw new RestrictedAppError("REVISION_CHANGED", "The package changed after review. Review the new revision before installing it.");
       const existing = this.#registry.installations.find((item) => item.spaceId === input.spaceId && item.manifest.id === inspection.manifest.id);
+      if (input.expectedPreviewBase !== undefined) {
+        const base = input.expectedPreviewBase;
+        if (base === null ? Boolean(existing) : !existing
+          || existing.featureInstallationId !== base.featureInstallationId || existing.digest !== base.digest) {
+          throw new RestrictedAppError("REVISION_CHANGED", "The Local preview changed since this edit began. Start Change this app again to keep the newer work.");
+        }
+      }
       if (existing?.runtimeInstanceKind === "app") {
         throw new RestrictedAppError("INPUT_INVALID", "An installed Release already contributes this Feature in the Space. Choose another Space or uninstall it first.");
       }
@@ -3950,7 +3980,7 @@ function localAppInstanceFrom(
   });
 }
 
-function stageReceiptFromEntry(item: RestrictedAppRegistryEntry, stagedRoot: string) {
+function stageReceiptFromEntry(item: RestrictedAppReview, stagedRoot: string) {
   return {
     id: item.manifest.id,
     packageName: item.packageName,
