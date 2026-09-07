@@ -41,7 +41,7 @@ kind of approved browser but a different species:
 | | Approved browser | Viewer |
 |---|---|---|
 | Identity | Non-exportable P-256 keys, desktop-signed grant | None — possession of one link |
-| Scope | The whole management conversation, Space trees and explicit bounded file previews | Exactly one published item |
+| Scope | The whole management conversation, Space trees, explicit bounded file previews and private reviewed app views | Exactly one published item |
 | Direction | Can prompt a full-trust Assistant | Read-only, always |
 | Pairing | Password + matched six-digit code + desktop click | None |
 | Management lane | Yes — `management.*`, `spaces.*` operations | Never — a disjoint operation set on a disjoint origin |

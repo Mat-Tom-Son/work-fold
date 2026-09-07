@@ -97,6 +97,11 @@ Space-relative path without invoking a model or publishing the file. They use
 the same encrypted lane, remain in browser memory and clear on close, sign-out
 or detected disconnection; reconnect requires Refresh. See
 [file preview limits](docs/fold-file-previews.md).
+Private app views likewise use signed encrypted reads of exact reviewed assets
+and declared instance-owned data prefixes. They do not create a public link,
+copy a Space to the bridge or send content to a model. Their sandboxed frame is
+destroyed on close, sign-out or detected disconnection; see
+[browser app views](docs/fold-browser-apps.md).
 Selecting a Space changes only the displayed file tree; it does not select a
 different Assistant or transcript.
 Removing Remote access deletes its server-side account records; browser

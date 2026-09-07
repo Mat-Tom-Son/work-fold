@@ -190,7 +190,8 @@ The desktop does not expose its renderer token or tunnel arbitrary local HTTP.
 `WorkFoldRemoteFacade` is a closed semantic adapter with bounded saved-Chat
 listing, summary/transcript/rename/send/stop/watch operations for the management conversation,
 management request projection, Space-name listing, and bounded Space-relative
-tree projection. It strips absolute roots and attachment target paths, applies
+tree projection, explicit file previews, and exact-installation read-only
+[app views](fold-browser-apps.md). It strips absolute roots and attachment target paths, applies
 the ordinary ignore policy to tree views, rejects traversal and unknown fields,
 and rechecks the locally encrypted grant immediately before execution.
 Dispatch and desktop-local authority mutations share one serialization fence;

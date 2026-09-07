@@ -31,7 +31,7 @@ const maximumProtocolErrorFramesPerConnection = 1;
 const operationSet = new Set<WorkFoldRemoteOperation>([
   "management.summary", "management.chats", "management.transcript", "management.rename", "management.send", "management.request",
   "management.stop", "management.watch", "management.glance", "management.glanceSeen", "decisions.list", "decisions.decide",
-  "spaces.list", "spaces.tree", "spaces.filePreview",
+  "spaces.list", "spaces.tree", "spaces.filePreview", "apps.list", "apps.read",
 ]);
 /**
  * The serialized glance digest is bounded to 64 KB (docs/fold-glance.md) so it

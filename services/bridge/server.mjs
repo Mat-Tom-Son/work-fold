@@ -91,6 +91,8 @@ const allowedOperations = new Set([
   "spaces.list",
   "spaces.tree",
   "spaces.filePreview",
+  "apps.list",
+  "apps.read",
 ]);
 
 export async function startBridgeServer({
@@ -1689,6 +1691,10 @@ async function servePublicFile(state, request, pathname, response, method) {
       // bridge rollout cannot leave an approved browser on stale client code.
       "cache-control": candidate.endsWith("index.html") ? "no-store" : "no-cache",
       ...securityHeaders(state, request),
+      ...(requested === "browser-app-frame.html" ? {
+        "content-security-policy": "default-src 'none'; script-src 'self' 'unsafe-inline' blob:; style-src 'unsafe-inline' blob:; img-src blob: data:; media-src blob: data:; font-src blob: data:; connect-src 'none'; frame-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts",
+        "x-frame-options": "SAMEORIGIN",
+      } : {}),
     });
     response.end(method === "HEAD" ? undefined : body);
   } catch (error) {

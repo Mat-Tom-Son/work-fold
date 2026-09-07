@@ -33,8 +33,9 @@ management surface.
 ## Acceptance journey
 
 The fold-results slice now includes approved-browser file previews and direct
-copied-file/review receipt links. App previews and links for Assistant-created
-deliverables beyond recorded file-copy actions remain open; this does not close
+copied-file/review receipt links, plus private reviewed app views. App-result
+links and links for Assistant-created deliverables beyond recorded file-copy
+actions remain open; this does not close
 the fold-results or web-app checklist items.
 
 Assistant request implementation now uses the ordinary Space Chat path with
@@ -383,3 +384,49 @@ receipt opened the named preview and Review decision focused the exact card.
 The browser reported no console warnings/errors. This verifies the actual UI,
 not a paired real-desktop or real-model journey; those remain required. No
 production application, provider state, bridge deployment or release changed.
+
+## Progress: private reviewed app views
+
+The browser's Spaces screen now lists installed apps and opens their reviewed
+web entry privately, without creating a share link or requiring a Development
+preview to publish a Release. The app receives only packaged-asset and selected
+instance-data reads. Exact installation/revision/authority pins are rechecked
+after queued mutations; browser revocation fences late transport completion.
+Shared viewers keep their separate publication adapter and read-only vocabulary.
+See [browser app views](fold-browser-apps.md) for the implementation contract.
+
+The management page embeds a static intermediary and a separate app child,
+both with opaque origins. The intermediary denies direct network traffic and
+non-blob child navigation; the management page keeps its existing strict script
+policy. The host waits for document readiness before revealing app controls,
+clears frames on close/disconnection, refuses late results, checks current
+authority while visible and requires Refresh after changes. Unsupported frame
+loading produces a bounded failure state. Testing also fixed the Files tree's
+inline depth style, which the management CSP correctly refused; it now uses a
+host-applied CSS property after rendering.
+
+Verification: `npm run check`, `npm test` (1,148 passed, one Windows-only skip),
+the bridge suite (48 passed), and `npm run desktop:prepare` with both Electron
+probes passed. Additional final tests cover queued data-authority changes and
+the visible view's health refresh (four focused tests passed). Logs:
+`/tmp/workfold-browser-app-complete-check.log`,
+`/tmp/workfold-browser-app-complete-tests.log`,
+`/tmp/workfold-browser-app-bridge-tests.log`,
+`/tmp/workfold-browser-app-desktop.log` and
+`/tmp/workfold-browser-app-final-focus.log`.
+
+The live Chromium fixture read a quote through the actual frame broker, denied
+parent/management DOM, cookie and browser-storage access, denied direct fetch,
+and blocked an attempt to navigate out of the app. The reusable Playwright CLI
+probe is `scripts/probes/browser-app.probe.js`; its successful output is in
+`/tmp/workfold-browser-app-live-isolation.log`. A 320×568 walkthrough kept the
+app inside a 304×552 dialog with no horizontal overflow and restored focus on
+Escape; screenshot: `output/playwright/browser-app-phone.png`. The Codex in-app
+browser could not load the nested blob document; computer use verified the
+new honest fallback there, while the standalone Chromium journey passed.
+
+This is live UI verification with inert fixture data, plus local-service and
+encrypted-transport tests. A paired real desktop/browser session and the real
+model multi-Space journey remain required. Browser actions, app result links
+and broader Assistant deliverable navigation remain open. Nothing has been
+deployed or publicly released, and the production app/profile is unchanged.

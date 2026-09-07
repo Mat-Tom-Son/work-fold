@@ -151,7 +151,9 @@ The complete definitions and journey tests live in
     owns receipted management operations. Optional remote management is a
     surface over the existing management conversation through its own closed
     semantic adapter; it is not a hosted App runtime, generic local-API tunnel,
-    publication path, or grant-management plane.
+    publication path, or grant-management plane. Its closed `apps.list` and
+    `apps.read` adapter can open a reviewed read-only web view privately under
+    exact installation and authority pins; see [browser app views](fold-browser-apps.md).
 15. **Legacy product state is outside the platform.** work-fold does not import,
     migrate, parse, mutate, or delete the legacy Workspace profile, portable
     metadata, registries, app storage, connections, receipts, or artifacts.

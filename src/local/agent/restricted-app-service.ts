@@ -8,6 +8,7 @@ import { existsSync } from "node:fs";
 import { lstat, mkdir, open, readFile, readdir, realpath, rename, rm, unlink } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
+import { readRestrictedAppWebView } from "./restricted-app-viewer.js";
 import {
   normalizeRestrictedAppCredential,
   RestrictedAppError,
@@ -1686,6 +1687,27 @@ export class RestrictedAppService {
       }
       return operation(structuredClone(app.manifest.assistantActions ?? []));
     });
+  }
+
+  /** Approved-browser reads pin the exact installation and authority across the read. */
+  async readBrowserView(scope: RestrictedAppTaskScope, call: unknown) {
+    const result = await this.#mutate(async () => {
+      const app = this.#installed(scope.spaceId, scope.appId, scope.digest, scope.featureInstallationId);
+      if (restrictedAppTaskAuthorityDigest(app.authority) !== scope.authorityDigest) {
+        throw new RestrictedAppError("REVISION_CHANGED", "This app changed. Open it again.");
+      }
+      await assertRestrictedAppStagingRoot(this.#stagingPath);
+      const missingStorage = async (): Promise<never> => { throw new Error("App data requires the desktop storage host."); };
+      const result = await readRestrictedAppWebView({ ...app, stagedRoot: this.#digestRoot(app.digest) }, call, this.#storage ?? { get: missingStorage, keys: missingStorage }, 1024 * 1024);
+      this.#assertInstalledAuthority(app);
+      return result;
+    });
+    await this.#queue.catch(() => undefined);
+    const current = this.#installed(scope.spaceId, scope.appId, scope.digest, scope.featureInstallationId);
+    if (restrictedAppTaskAuthorityDigest(current.authority) !== scope.authorityDigest) {
+      throw new RestrictedAppError("REVISION_CHANGED", "This app changed. Open it again.");
+    }
+    return result;
   }
 
   async snapshotForChange(spaceId: string, appId: string, expectedDigest: string, featureInstallationId?: string) {

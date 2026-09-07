@@ -1301,6 +1301,20 @@ test("a reserved pages-* host serves viewer routes or nothing, never the managem
 
   const previewModule = await fetch(`${baseUrl}/file-preview.js`, { headers: viewerHost });
   assert.equal(previewModule.status, 404, "approved-browser previews are not served to shared viewers");
+  for (const path of ["browser-app.js", "browser-app-frame.js", "browser-app-frame.html"]) {
+    assert.equal((await fetch(`${baseUrl}/${path}`, { headers: viewerHost })).status, 404);
+  }
+  const appFrame = await fetch(`${baseUrl}/browser-app-frame.html`);
+  assert.equal(appFrame.status, 200);
+  const framePolicy = appFrame.headers.get("content-security-policy");
+  assert.match(framePolicy, /sandbox allow-scripts$/);
+  assert.match(framePolicy, /connect-src 'none'/);
+  assert.match(framePolicy, /frame-src blob:/);
+  assert.ok(!framePolicy.includes("allow-same-origin"));
+  assert.equal(appFrame.headers.get("x-frame-options"), "SAMEORIGIN");
+  const managementPolicy = spaFallback.headers.get("content-security-policy");
+  assert.match(managementPolicy, /script-src 'self';/);
+  assert.ok(!managementPolicy.includes("unsafe-inline"), "the management document does not inherit app script permissions");
   const previewOperation = await fetch(`${baseUrl}/api/operations`, {
     method: "POST",
     headers: { ...viewerHost, "content-type": "application/json" },
@@ -1478,7 +1492,7 @@ test("the fold's decision and glance operations pass the management allowlist co
   // reconciliation 7): the bridge accepts the operation names and relays the
   // signed ciphertext untouched. Cards and digests stay end-to-end encrypted
   // between the desktop and the approved browser; staged acts never live here.
-  for (const operation of ["decisions.list", "decisions.decide", "management.glance", "management.glanceSeen", "spaces.filePreview"]) {
+  for (const operation of ["decisions.list", "decisions.decide", "management.glance", "management.glanceSeen", "spaces.filePreview", "apps.list", "apps.read"]) {
     const envelope = signedEnvelope({
       type: "work-fold.remote-request.v1",
       accountId: fixture.account.id,

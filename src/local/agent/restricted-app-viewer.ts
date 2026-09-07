@@ -276,9 +276,6 @@ export function createRestrictedAppViewerAdapter(options: RestrictedAppViewerAda
       return { state: "served", result: { ok: false, ...parsed.denial } };
     }
     const call = parsed.call;
-    const refused = (code: RestrictedAppViewerDenialCode, message: string): RestrictedAppViewerServeOutcome => (
-      { state: "served", result: { ok: false, code, message } }
-    );
 
     const instance = await options.resolveInstance(pins.appInstanceId);
     if (!instance) return { state: "not-available", reason: "its App Instance is no longer installed on this machine" };
@@ -300,83 +297,105 @@ export function createRestrictedAppViewerAdapter(options: RestrictedAppViewerAda
       };
     }
 
-    if (call.kind === "entry" || call.kind === "asset") {
-      // Exact staged bytes of the installed Release revision: the snapshot
-      // re-reads and re-hashes every staged byte against the install receipt,
-      // so a tampered staging area refuses instead of serving.
-      let files: ReadonlyMap<string, Uint8Array>;
-      try {
-        const snapshot = await snapshotRestrictedAppPackage({
-          id: instance.manifest.id,
-          packageName: instance.packageName,
-          version: instance.version,
-          digest: instance.digest,
-          artifactDigest: parseAppPlatformArtifactDigest(instance.artifactDigest),
-          stagedRoot: instance.stagedRoot,
-          fileCount: instance.fileCount,
-          totalBytes: instance.totalBytes,
-          manifest: structuredClone(instance.manifest),
-        });
-        files = snapshot.files;
-      } catch {
-        return { state: "not-available", reason: "the installed app's staged bytes no longer match its install receipt" };
-      }
-      const path = call.kind === "entry" ? viewer.entry : normalizeViewerAssetPath(call.path);
-      if (path === null) return refused("not-found", "No packaged file has this path.");
-      const bytes = files.get(path);
-      if (!bytes) return refused("not-found", "No packaged file has this path.");
-      if (bytes.byteLength > maximumAssetBytes) {
-        return refused("too-large", "This packaged file is larger than the viewer serving bound.");
-      }
-      const mediaType = viewerAssetMediaTypes[posix.extname(path).toLowerCase()] ?? "application/octet-stream";
-      const encoded = Buffer.from(bytes).toString("base64url");
-      return {
-        state: "served",
-        result: call.kind === "entry"
-          ? { ok: true, result: { kind: "entry", mediaType: "text/html", bytes: encoded } }
-          : { ok: true, result: { kind: "asset", path, mediaType, bytes: encoded } },
-      };
-    }
-
-    // Instance-owned data only, and only under reviewed viewer-readable
-    // prefixes. The owner is derived from the live install record; no call
-    // field can name another owner class, tenant, or namespace.
-    const owner: RestrictedAppStorageOwner = {
-      ownerClass: "instance",
-      tenantId: instance.tenantId as RestrictedAppStorageOwner["tenantId"],
-      runtimeInstanceId: instance.runtimeInstanceId as RestrictedAppStorageOwner["runtimeInstanceId"],
-      featureInstallationId: instance.featureInstallationId as RestrictedAppStorageOwner["featureInstallationId"],
-      dataNamespaceId: instance.dataNamespaceId as RestrictedAppStorageOwner["dataNamespaceId"],
-    };
-    const readable = viewer.readable;
-    if (call.kind === "data.get") {
-      if (!readable.some((prefix) => call.key.startsWith(prefix))) {
-        return refused("viewer-scope", "This key is outside the app's viewer-readable collections.");
-      }
-      try {
-        const value = await options.storage.get(owner, call.key);
-        return {
-          state: "served",
-          result: {
-            ok: true,
-            result: { kind: "data.get", key: call.key, present: value !== undefined, ...(value !== undefined ? { value } : {}) },
-          },
-        };
-      } catch {
-        return { state: "not-available", reason: "the app's viewer-readable data could not be read" };
-      }
-    }
-    const prefix = call.prefix ?? "";
-    try {
-      const keys = (await options.storage.keys(owner, prefix))
-        .filter((key) => readable.some((candidate) => key.startsWith(candidate)));
-      return { state: "served", result: { ok: true, result: { kind: "data.keys", prefix, keys } } };
-    } catch {
-      return { state: "not-available", reason: "the app's viewer-readable data could not be read" };
-    }
+    return readRestrictedAppWebView(instance, call, options.storage, maximumAssetBytes);
   };
 
   return { resolveExposure, serve };
+}
+
+/**
+ * Read the reviewed web-view surface under authority established by the caller.
+ * Publication adapters authorize the link; approved-browser adapters pin the
+ * exact installation and current authority. This helper grants neither.
+ */
+export async function readRestrictedAppWebView(
+  instance: RestrictedAppViewerInstanceProjection,
+  value: unknown,
+  storage: RestrictedAppViewerStorageReads,
+  maximumAssetBytes = RESTRICTED_APP_VIEWER_MAX_ASSET_BYTES,
+): Promise<RestrictedAppViewerServeOutcome> {
+  const parsed = parseRestrictedAppViewerCall(value);
+  if ("denial" in parsed) return { state: "served", result: { ok: false, ...parsed.denial } };
+  const call = parsed.call;
+  const viewer = instance.manifest.viewer;
+  if (!viewer) return { state: "not-available", reason: "This app does not have a reviewed web view." };
+  const refused = (code: RestrictedAppViewerDenialCode, message: string): RestrictedAppViewerServeOutcome => (
+    { state: "served", result: { ok: false, code, message } }
+  );
+  if (call.kind === "entry" || call.kind === "asset") {
+    // Exact staged bytes of the installed Release revision: the snapshot
+    // re-reads and re-hashes every staged byte against the install receipt,
+    // so a tampered staging area refuses instead of serving.
+    let files: ReadonlyMap<string, Uint8Array>;
+    try {
+      const snapshot = await snapshotRestrictedAppPackage({
+        id: instance.manifest.id,
+        packageName: instance.packageName,
+        version: instance.version,
+        digest: instance.digest,
+        artifactDigest: parseAppPlatformArtifactDigest(instance.artifactDigest),
+        stagedRoot: instance.stagedRoot,
+        fileCount: instance.fileCount,
+        totalBytes: instance.totalBytes,
+        manifest: structuredClone(instance.manifest),
+      });
+      files = snapshot.files;
+    } catch {
+      return { state: "not-available", reason: "the installed app's staged bytes no longer match its install receipt" };
+    }
+    const path = call.kind === "entry" ? viewer.entry : normalizeViewerAssetPath(call.path);
+    if (path === null) return refused("not-found", "No packaged file has this path.");
+    const bytes = files.get(path);
+    if (!bytes) return refused("not-found", "No packaged file has this path.");
+    if (bytes.byteLength > maximumAssetBytes) {
+      return refused("too-large", "This packaged file is larger than the viewer serving bound.");
+    }
+    const mediaType = viewerAssetMediaTypes[posix.extname(path).toLowerCase()] ?? "application/octet-stream";
+    const encoded = Buffer.from(bytes).toString("base64url");
+    return {
+      state: "served",
+      result: call.kind === "entry"
+        ? { ok: true, result: { kind: "entry", mediaType: "text/html", bytes: encoded } }
+        : { ok: true, result: { kind: "asset", path, mediaType, bytes: encoded } },
+    };
+  }
+
+  // Instance-owned data only, and only under reviewed viewer-readable
+  // prefixes. The owner is derived from the live install record; no call
+  // field can name another owner class, tenant, or namespace.
+  const owner: RestrictedAppStorageOwner = {
+    ownerClass: "instance",
+    tenantId: instance.tenantId as RestrictedAppStorageOwner["tenantId"],
+    runtimeInstanceId: instance.runtimeInstanceId as RestrictedAppStorageOwner["runtimeInstanceId"],
+    featureInstallationId: instance.featureInstallationId as RestrictedAppStorageOwner["featureInstallationId"],
+    dataNamespaceId: instance.dataNamespaceId as RestrictedAppStorageOwner["dataNamespaceId"],
+  };
+  const readable = viewer.readable;
+  if (call.kind === "data.get") {
+    if (!readable.some((prefix) => call.key.startsWith(prefix))) {
+      return refused("viewer-scope", "This key is outside the app's viewer-readable collections.");
+    }
+    try {
+      const value = await storage.get(owner, call.key);
+      return {
+        state: "served",
+        result: {
+          ok: true,
+          result: { kind: "data.get", key: call.key, present: value !== undefined, ...(value !== undefined ? { value } : {}) },
+        },
+      };
+    } catch {
+      return { state: "not-available", reason: "the app's viewer-readable data could not be read" };
+    }
+  }
+  const prefix = call.prefix ?? "";
+  try {
+    const keys = (await storage.keys(owner, prefix))
+      .filter((key) => readable.some((candidate) => key.startsWith(candidate)));
+    return { state: "served", result: { ok: true, result: { kind: "data.keys", prefix, keys } } };
+  } catch {
+    return { state: "not-available", reason: "the app's viewer-readable data could not be read" };
+  }
 }
 
 /** Portable relative packaged path or null; mirrors the manifest's path rules without throwing. */

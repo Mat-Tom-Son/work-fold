@@ -152,6 +152,13 @@ service. work-fold does not launch or trust that developer process.
 
 ## Visible app host
 
+Approved browsers can separately open the reviewed `viewer` entry as a private
+read-only view, including a Development preview. The declaration alone does
+not publish anything. That browser host uses two opaque frames and the same
+selected-data read implementation behind an exact-installation adapter; it
+exposes no native runtime, write, network, file, Check or Assistant authority.
+See [Space apps in approved browsers](fold-browser-apps.md).
+
 The trusted work-fold renderer owns only a placeholder rectangle and app
 identity. Electron main verifies the installed Runtime Instance, Feature
 Installation, exact revision, and seven-domain Authority Stamp, snapshots the

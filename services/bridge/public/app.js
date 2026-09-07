@@ -3,6 +3,7 @@ import { buildFixture } from "./fixtures.js";
 import { renderLanding } from "./landing.js";
 import { renderMarkdown } from "./markdown.js";
 import { createFilePreview } from "./file-preview.js";
+import { createBrowserAppView } from "./browser-app.js";
 import { requestResultLinks } from "./request-results.js";
 import { assertPairingRelay, pairingCodeForKeys } from "./pairing-code.js";
 import { normalizeChatTitle, replaceHtmlIfChanged } from "./rendering.js";
@@ -99,6 +100,8 @@ const state = {
   conversationsLoaded: false,
   spacesLoaded: false,
   filePreviewAvailable: false,
+  appViewsAvailable: false,
+  spaceApps: new Map(),
   transcriptLoading: false,
   sessionRebooting: false,
   rateLimitedUntil: 0,
@@ -132,6 +135,32 @@ function openFilePreview(spaceId, path) {
 }
 
 function closeFilePreview() { filePreview?.destroy(); filePreview = null; }
+
+let browserApp = null;
+function openBrowserApp(spaceId, installationId) {
+  const selected = (state.spaceApps.get(spaceId) ?? []).find((app) => app.featureInstallationId === installationId);
+  if (!selected) return;
+  browserApp ??= createBrowserAppView({
+    online: () => Boolean(state.session?.desktopOnline),
+    resolve: async (app) => {
+      if (fixtureName) return app;
+      const result = await remote("apps.list", { spaceId: app.spaceId });
+      return (result.apps ?? []).find((item) => item.featureInstallationId === app.featureInstallationId);
+    },
+    read: async (app, call) => {
+      if (fixtureName) {
+        const html = '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:16px system-ui;padding:20px;color:#20304a;background:#fff}button{font:inherit;padding:8px 14px}p{line-height:1.5}</style></head><body><h1>Quote board</h1><p>Compare the saved purchasing quote.</p><button id="read">Read quote</button><p id="result" role="status"></p><script>document.getElementById("read").onclick=async()=>{const quote=await workFoldViewerApp.data.get("quotes:north");document.getElementById("result").textContent=quote.supplier+": $"+quote.unitPrice+" per unit, "+quote.days+" days"}</script></body></html>';
+        const result = call.kind === "entry" ? { kind: "entry", mediaType: "text/html", bytes: btoa(html) }
+          : call.kind === "data.get" ? { kind: "data.get", key: call.key, present: true, value: { supplier: "North", unitPrice: 42, days: 4 } }
+            : { kind: "data.keys", keys: ["quotes:north"] };
+        return { state: "served", result: { ok: true, result } };
+      }
+      const { spaceId, appId, featureInstallationId, digest, authorityDigest } = app;
+      return remote("apps.read", { spaceId, appId, featureInstallationId, digest, authorityDigest, call });
+    },
+  });
+  void browserApp.open({ ...selected, spaceName: state.spaces.find((space) => space.id === spaceId)?.name ?? "Space" });
+}
 
 void boot();
 
@@ -1417,6 +1446,7 @@ async function loadSpaces() {
     const result = await remote("spaces.list");
     state.spaces = result.spaces ?? [];
     state.filePreviewAvailable = result.capabilities?.filePreview === true;
+    state.appViewsAvailable = result.capabilities?.appViews === true;
     state.spacesLoaded = true;
     if (!state.explorerSpaceId && state.spaces.length) {
       // The Files context remembers its Space across reloads on this tab.
@@ -1541,6 +1571,7 @@ async function selectConversation(conversationId) {
 
 async function loadTree(spaceId, path) {
   if (fixtureName) return renderWorkspace();
+  if (!path && state.appViewsAvailable) void loadSpaceApps(spaceId);
   const key = `${spaceId}:${path}`;
   state.treeStatus.set(key, "loading");
   renderWorkspace();
@@ -1555,6 +1586,17 @@ async function loadTree(spaceId, path) {
     renderBanner();
   }
   renderWorkspace();
+}
+
+async function loadSpaceApps(spaceId) {
+  try {
+    const result = await remote("apps.list", { spaceId });
+    state.spaceApps.set(spaceId, result.apps ?? []);
+    renderWorkspace();
+  } catch {
+    state.spaceApps.delete(spaceId);
+    renderWorkspace();
+  }
 }
 
 function findEntry(entries, path) { return entries.find((entry) => entry.path === path) ?? null; }
@@ -1678,8 +1720,12 @@ function renderWorkspace() {
   }
   const entries = state.trees.get(`${state.explorerSpaceId}:`) ?? [];
   tree.setAttribute("aria-busy", String(state.treeStatus.get(`${state.explorerSpaceId}:`) === "loading"));
-  const changed = replaceHtmlIfChanged(tree, renderTreeRows(state.explorerSpaceId, entries, "", 0));
+  const apps = state.spaceApps.get(state.explorerSpaceId) ?? [];
+  const appsHtml = apps.length ? `<section class="space-web-apps" aria-label="Apps"><h3>Apps</h3>${apps.map((app) => `<button type="button" class="quiet" data-open-app="${escapeAttribute(app.featureInstallationId)}">${escapeHtml(app.title)}${app.preview ? " · Preview" : ""}${app.webView ? "" : " · Desktop only"}</button>`).join("")}</section>` : "";
+  const changed = replaceHtmlIfChanged(tree, appsHtml + renderTreeRows(state.explorerSpaceId, entries, "", 0));
   if (!changed) return;
+  for (const row of tree.querySelectorAll("[data-depth]")) row.style.setProperty("--depth", row.dataset.depth);
+  for (const button of tree.querySelectorAll("[data-open-app]")) button.addEventListener("click", () => openBrowserApp(state.explorerSpaceId, button.dataset.openApp));
   for (const button of tree.querySelectorAll("[data-tree-path]")) {
     button.addEventListener("click", () => void toggleTree(button.dataset.spaceId, button.dataset.treePath));
   }
@@ -1699,7 +1745,7 @@ function renderTreeRows(spaceId, entries, path, depth) {
     const expanded = entry.kind === "folder" && state.expanded.has(`${spaceId}:${entry.path}`);
     const children = expanded ? state.trees.get(`${spaceId}:${entry.path}`) ?? [] : [];
     return `<div class="file-node">
-      <div class="file-row" style="--depth:${depth}">
+      <div class="file-row" data-depth="${depth}">
         ${entry.kind === "folder" ? `<button class="file-main" type="button" data-space-id="${escapeAttribute(spaceId)}" data-tree-path="${escapeAttribute(entry.path)}" aria-expanded="${String(expanded)}">` : `<button class="file-main" type="button" data-space-id="${escapeAttribute(spaceId)}" data-file-path="${escapeAttribute(entry.path)}" aria-label="Preview ${escapeAttribute(entry.name)}">`}
           <span class="tree-caret" aria-hidden="true">${entry.kind === "folder" ? expanded ? "⌄" : "›" : ""}</span>${fileGlyph(entry.kind)}<span class="file-name">${escapeHtml(entry.name)}</span>
         </button>
@@ -2525,6 +2571,7 @@ function clearGrantFromIdentity() {
 
 function updateConnection(online = state.session?.desktopOnline) {
   if (Boolean(online) !== Boolean(state.session?.desktopOnline)) filePreview?.connectionChanged(Boolean(online));
+  if (Boolean(online) !== Boolean(state.session?.desktopOnline)) browserApp?.connectionChanged(Boolean(online));
   if (state.session) state.session.desktopOnline = Boolean(online);
   renderDesktopPresence();
   syncComposer();
@@ -2537,6 +2584,7 @@ function renderBanner() {
 
 function renderAuth({ eyebrow, headline, supporting, panel }, afterRender) {
   closeFilePreview();
+  browserApp?.destroy(); browserApp = null; state.spaceApps.clear();
   app.innerHTML = `<main class="auth-shell">
     <header class="auth-top"><span class="brand" role="img" aria-label="work-fold"><img class="brand-lockup brand-lockup-black" src="/brand-lockup-black.png" alt="" /><img class="brand-lockup brand-lockup-white" src="/brand-lockup-white.png" alt="" /></span></header>
     <section class="auth-stage"><div class="auth-copy"><p class="eyebrow">${eyebrow}</p><h1>${headline}</h1><p>${supporting}</p></div><div class="auth-panel">${panel}</div></section>

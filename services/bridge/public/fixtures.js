@@ -141,6 +141,7 @@ export function buildFixture(name) {
         { id: "space-2", name: "Field notes" },
       ],
       explorerSpaceId: "space-1",
+      spaceApps: new Map([["space-1", [{ spaceId: "space-1", appId: "quote-board", featureInstallationId: "fixture-quote-board", digest: "fixture", authorityDigest: "fixture", title: "Quote board", version: "1.0.0", preview: false, webView: true }]]]),
       trees: new Map([
         ["space-1:", [
           { kind: "folder", name: "reports", path: "reports" },

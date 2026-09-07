@@ -3915,7 +3915,34 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
         case "spaces.list": {
           assertRemoteKeys(input, []);
           const spaces = (await state.kernel.getSpaces({ kind: "renderer" })).spaces;
-          return { spaces: spaces.map((space) => ({ id: space.id, name: space.name })), capabilities: { filePreview: true } };
+          return { spaces: spaces.map((space) => ({ id: space.id, name: space.name })), capabilities: { filePreview: true, appViews: true } };
+        }
+        case "apps.list": {
+          assertRemoteKeys(input, ["spaceId"]);
+          const spaceId = remoteStableId(input.spaceId, "Space id", 512);
+          await getSpace(spaceId);
+          const apps = await state.restrictedApps.list(spaceId);
+          await getSpace(spaceId);
+          return { apps: apps.slice(0, 64).map((app) => ({
+            spaceId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId,
+            digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority),
+            title: app.manifest.title, version: app.version, preview: app.runtimeInstanceKind === "development",
+            webView: Boolean(app.manifest.viewer),
+          })), truncated: apps.length > 64 };
+        }
+        case "apps.read": {
+          assertRemoteKeys(input, ["spaceId", "appId", "featureInstallationId", "digest", "authorityDigest", "call"]);
+          const scope = {
+            spaceId: remoteStableId(input.spaceId, "Space id", 512),
+            appId: remoteStableId(input.appId, "App id", 160),
+            featureInstallationId: remoteStableId(input.featureInstallationId, "App installation", 160),
+            digest: remoteStableId(input.digest, "App revision", 64),
+            authorityDigest: remoteStableId(input.authorityDigest, "App authority", 64),
+          };
+          const space = await getSpace(scope.spaceId);
+          const result = await state.restrictedApps.readBrowserView(scope, input.call);
+          if ((await getSpace(scope.spaceId)).spaceRoot !== space.spaceRoot) throw httpError(409, "This Space changed. Open the app again.");
+          return result;
         }
         case "spaces.filePreview": {
           assertRemoteKeys(input, ["spaceId", "path"]);

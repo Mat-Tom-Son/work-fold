@@ -267,8 +267,9 @@ person's current grants. Automations require a worker. Every notification
 declaration must be referenced by at least one automation. Notification title
 and description are reviewed, bounded, plain single-line text.
 
-`viewer` is optional and exists only for apps meant to be served to link
-holders at the person's address ("an app at your address"). It is the complete
+`viewer` is optional and defines the read-only web view used privately by an
+approved browser or, after a separate exposure decision, by link holders at the
+person's address ("an app at your address"). It is the complete
 viewer-readable surface: `entry` names the packaged document the viewer plane
 serves, and `readable` names up to sixteen exact instance-owned storage key
 prefixes (lowercase letters, numbers, `._/-`, at most 64 characters each)
@@ -300,6 +301,14 @@ destination may not name the header its own `api-key` credential occupies, and
 a header reviewed for one destination grants nothing to another.
 
 ## Visible UI and content policy
+
+For a private browser view, add the reviewed `viewer.entry` and `viewer.readable`
+declaration in the manifest template above and use `workFoldViewerApp` in that entry. Approved
+browsers can open it from Spaces without publishing a share link; source-Space
+previews are supported too. Keep the web entry responsive and self-contained,
+and obtain packaged assets through `asset()`/`assetUrl()` instead of relative
+URLs in the blob document. Browser actions remain pending. See
+[the browser view contract](fold-browser-apps.md).
 
 The HTML entry runs with Node disabled and direct networking, navigation,
 popups, downloads, dialogs, permissions, workers, frames, service workers, and

@@ -744,6 +744,19 @@ body.drawer-locked { overflow: hidden; }
 .request-result-links button { overflow-wrap: anywhere; text-align: left; }
 .file-preview-dialog { box-sizing: border-box; width: min(900px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); color: var(--ink); }
 .file-preview-dialog::backdrop { background: rgb(0 0 0 / 45%); }
+.space-web-apps { padding: 0 0 16px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
+.space-web-apps h3 { font-size: 13px; color: var(--muted); }
+.space-web-apps button { display: block; text-align: left; overflow-wrap: anywhere; max-width: 100%; }
+.browser-app-dialog { box-sizing: border-box; width: min(1100px, calc(100vw - 32px)); height: min(800px, calc(100dvh - 32px)); max-width: none; max-height: none; padding: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); color: var(--ink); }
+.browser-app-dialog[open] { display: flex; flex-direction: column; }
+.browser-app-dialog::backdrop { background: rgb(0 0 0 / 45%); }
+.browser-app-dialog header, .browser-app-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; flex: 0 0 auto; }
+.browser-app-dialog header { border-bottom: 1px solid var(--line); }
+.browser-app-dialog h2 { margin: 0; font-size: 18px; overflow-wrap: anywhere; }
+.browser-app-dialog header p, .browser-app-dialog footer { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+.browser-app-content { flex: 1; min-height: 0; overflow: auto; }
+.browser-app-content > iframe { border: 0; width: 100%; height: 100%; display: block; }
+@media (max-width: 600px) { .browser-app-dialog { width: calc(100vw - 16px); height: calc(100dvh - 16px); } }
 .file-preview-dialog[open] { display: flex; flex-direction: column; }
 .file-preview-dialog header, .file-preview-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; flex: 0 0 auto; }
 .file-preview-dialog header { border-bottom: 1px solid var(--line); }

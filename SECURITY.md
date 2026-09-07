@@ -117,6 +117,13 @@ Spaces, recheck file identity and registration after reading, and travel only
 through the approved-browser encrypted operation lane. Revocation fences late
 completion and cache insertion. HTML/SVG remain escaped text; shared viewers
 have no preview operation. See [preview bounds](docs/fold-file-previews.md).
+Private app views use a separate exact-installation adapter over the reviewed
+web-entry/selected-data read surface. Both intermediary and app frames are
+opaque; the management document keeps its restrictive script policy, and
+the intermediary denies direct network access and non-blob child navigation.
+An exact-source, per-view message channel exposes only bounded reads. Public
+viewer hosts cannot load this adapter or its management operations. See
+[browser app isolation](docs/fold-browser-apps.md).
 Direct task-scoped request status and stop calls through the remote semantic
 adapter are bound to the browser identity and exact grant that accepted the
 request. Summary projections omit task ids and action details for other grants.
