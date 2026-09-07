@@ -318,11 +318,12 @@ async function runSmoke() {
       "the visible restricted app did not finish its startup bridge calls",
     );
     assert.equal(hits, 0, "the visible restricted app must not reach loopback directly");
-    assert.deepEqual(tabCommands.map((command) => ({ type: command.type, spaceId: command.spaceId, appId: command.appId, digest: command.digest, tab: command.tab })), [{
+    assert.deepEqual(tabCommands.map((command) => ({ type: command.type, spaceId: command.spaceId, appId: command.appId, digest: command.digest, featureInstallationId: command.featureInstallationId, tab: command.tab })), [{
       type: "open",
       spaceId: descriptor.spaceId,
       appId: descriptor.manifest.id,
       digest: descriptor.digest,
+      featureInstallationId: descriptor.featureInstallationId,
       tab: {
         appTabId: "smoke-tab",
         title: "Sandbox ready",
@@ -360,6 +361,7 @@ async function runSmoke() {
     tooltipOverlay.hide();
     assert.equal(parent.contentView.children.length, 1, "hiding a tooltip must leave the restricted app attached");
     assert.match(parent.contentView.children[0]?.webContents.getURL() ?? "", /^agent-app:/);
+    const originalContents = parent.contentView.children[0].webContents;
     assert.equal(await storage.get(storageOwner, "ui-notification-denied"), true);
     await storage.transaction(storageOwner, {
       set: Array.from({ length: 128 }, (_, index) => ({ key: "seed-" + String(index).padStart(3, "0"), value: index })),
@@ -416,6 +418,21 @@ async function runSmoke() {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
     assert.equal(await storage.get(storageOwner, "inactive-storage-event"), undefined, "inactive app views receive no storage event or replay");
     tooltipOverlay.close();
+    // Reusing a renderer mount id must never reuse another installation's view.
+    await mkdir(join(spaceRoot, "peer-exports"));
+    const peerUi = { ...peer, fileGrants: descriptor.fileGrants.map((grant) => ({ ...grant, root: "peer-exports" })), networkGrants: descriptor.networkGrants };
+    host.syncAuthority([authorityOf(descriptor), authorityOf(peerUi)]);
+    await host.mountUi(peerUi, parent.webContents, parent, {
+      mountId, placement: "navigator", route: "/", state: { escapeUrl }, sequence: 3,
+      bounds: { x: 0, y: 0, width: 320, height: 500 }, active: true, occluded: false, theme: "dark",
+    });
+    await waitFor(() => tabCommands.length === 2, "the sibling installation did not create its own view");
+    assert.equal(originalContents.isDestroyed(), true);
+    assert.equal(tabCommands[1].featureInstallationId, peer.featureInstallationId);
+    assert.equal(await storage.get(peerOwner, "visible"), "visible-ui");
+    const peerView = parent.contentView.children[0];
+    await host.stop(descriptor.spaceId, descriptor.manifest.id, descriptor.digest, descriptor.featureInstallationId);
+    assert.equal(peerView.webContents.isDestroyed(), false, "stopping the original must preserve its sibling view");
     await host.unmountUi(parent.webContents.id, mountId);
     parent.destroy();
     await mark("ui-complete");

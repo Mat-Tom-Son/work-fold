@@ -173,8 +173,8 @@ test("tab restore accepts only known, well-formed surface types", () => {
       { id: "broken-tools", kind: "assistant-tools", spaceId: "space-1", view: "packages", title: "Broken Tools" },
       { id: "spoofed-checks", kind: "checks", spaceId: "space-1", title: "All files are healthy" },
       { id: "extension:space-1:inbox:overview", kind: "extension", spaceId: "space-1", surfaceId: "inbox", viewId: "overview", title: "Overview", ignored: true },
-      { id: "restricted:bad", kind: "restricted-app", spaceId: "space-1", appId: "mail", digest: "bad", appTabId: "message:release", route: "/message/release", title: "Bad app tab" },
-      { id: "app-controlled-spoof", kind: "restricted-app", spaceId: "space-1", appId: "mail", digest: "a".repeat(64), appTabId: "message:release", route: "/message/release", state: { selected: true }, title: "Release checklist" },
+      { id: "restricted:bad", kind: "restricted-app", featureInstallationId: "feature-installation_original", spaceId: "space-1", appId: "mail", digest: "bad", appTabId: "message:release", route: "/message/release", title: "Bad app tab" },
+      { id: "app-controlled-spoof", kind: "restricted-app", featureInstallationId: "feature-installation_original", spaceId: "space-1", appId: "mail", digest: "a".repeat(64), appTabId: "message:release", route: "/message/release", state: { selected: true }, title: "Release checklist" },
       { id: "extension:space-1:broken", kind: "extension", spaceId: "space-1", surfaceId: "inbox", title: "Broken" },
     ],
     activeTabId: "file:space-1",
@@ -188,7 +188,7 @@ test("tab restore accepts only known, well-formed surface types", () => {
       { id: "assistant-tools:space-1", kind: "assistant-tools", spaceId: "space-1", view: "discover", title: "Skills & Extensions" },
       { id: "checks:space-1", kind: "checks", spaceId: "space-1", title: "Checks" },
       { id: "extension:space-1:inbox:overview", kind: "extension", spaceId: "space-1", surfaceId: "inbox", surfaceExecution: "full-trust-pi", viewId: "overview", title: "Overview" },
-      { id: restrictedAppSurfaceTabId("space-1", "mail", "a".repeat(64), "message:release"), kind: "restricted-app", spaceId: "space-1", appId: "mail", digest: "a".repeat(64), appTabId: "message:release", route: "/message/release", state: { selected: true }, title: "Release checklist" },
+      { id: restrictedAppSurfaceTabId("space-1", "mail", "a".repeat(64), "message:release", "feature-installation_original"), kind: "restricted-app", featureInstallationId: "feature-installation_original", spaceId: "space-1", appId: "mail", digest: "a".repeat(64), appTabId: "message:release", route: "/message/release", state: { selected: true }, title: "Release checklist" },
     ],
     activeTabId: "file:space-1",
   });
@@ -227,8 +227,8 @@ test("restricted app tabs close when their installed revision changes", () => {
   const tabs: SurfaceTab[] = [
     { id: "chat:space-1:new", kind: "chat", spaceId: "space-1", conversationId: null, title: "New chat" },
     {
-      id: restrictedAppSurfaceTabId("space-1", "trip-studio", staleDigest, "destination:lisbon"),
-      kind: "restricted-app",
+      id: restrictedAppSurfaceTabId("space-1", "trip-studio", staleDigest, "destination:lisbon", "feature-installation_original"),
+      kind: "restricted-app", featureInstallationId: "feature-installation_original",
       spaceId: "space-1",
       appId: "trip-studio",
       digest: staleDigest,
@@ -237,8 +237,8 @@ test("restricted app tabs close when their installed revision changes", () => {
       title: "Lisbon pulse",
     },
     {
-      id: restrictedAppSurfaceTabId("space-1", "trip-studio", currentDigest, "destination:copenhagen"),
-      kind: "restricted-app",
+      id: restrictedAppSurfaceTabId("space-1", "trip-studio", currentDigest, "destination:copenhagen", "feature-installation_original"),
+      kind: "restricted-app", featureInstallationId: "feature-installation_original",
       spaceId: "space-1",
       appId: "trip-studio",
       digest: currentDigest,
@@ -247,8 +247,8 @@ test("restricted app tabs close when their installed revision changes", () => {
       title: "Copenhagen pulse",
     },
     {
-      id: restrictedAppSurfaceTabId("space-2", "unknown", staleDigest, "overview"),
-      kind: "restricted-app",
+      id: restrictedAppSurfaceTabId("space-2", "unknown", staleDigest, "overview", "feature-installation_original"),
+      kind: "restricted-app", featureInstallationId: "feature-installation_original",
       spaceId: "space-2",
       appId: "unknown",
       digest: staleDigest,
@@ -259,7 +259,7 @@ test("restricted app tabs close when their installed revision changes", () => {
   ];
 
   assert.deepEqual(closeUnavailableRestrictedAppSurfaceTabs(tabs, {
-    "space-1": [{ manifest: { id: "trip-studio" }, digest: currentDigest }],
+    "space-1": [{ manifest: { id: "trip-studio" }, digest: currentDigest, featureInstallationId: "feature-installation_original" }],
   }, new Set(["space-1"])), [tabs[0], tabs[2], tabs[3]]);
   assert.equal(closeUnavailableRestrictedAppSurfaceTabs(tabs, {}, new Set()), tabs);
 });
@@ -418,3 +418,18 @@ function withStoredTabs(value: string, run: () => void): void {
     else delete (globalThis as { window?: unknown }).window;
   }
 }
+
+test("identical app revisions keep separate installation tabs and a reinstall cannot inherit an old tab", () => {
+  const digest = "a".repeat(64);
+  const original = { id: restrictedAppSurfaceTabId("space-1", "mail", digest, "inbox", "feature-installation_original"),
+    kind: "restricted-app" as const, spaceId: "space-1", appId: "mail", digest, featureInstallationId: "feature-installation_original",
+    appTabId: "inbox", route: "/", title: "Inbox" };
+  const sibling = { ...original, featureInstallationId: "feature-installation_sibling",
+    id: restrictedAppSurfaceTabId("space-1", "mail", digest, "inbox", "feature-installation_sibling") };
+  assert.notEqual(original.id, sibling.id);
+  const catalogue = (ids: string[]) => ({ "space-1": ids.map((featureInstallationId) => ({ manifest: { id: "mail" }, digest, featureInstallationId })) });
+  assert.deepEqual(closeUnavailableRestrictedAppSurfaceTabs([original, sibling], catalogue([original.featureInstallationId, sibling.featureInstallationId]), new Set(["space-1"])), [original, sibling]);
+  assert.deepEqual(closeUnavailableRestrictedAppSurfaceTabs([original, sibling], catalogue(["feature-installation_reinstalled", sibling.featureInstallationId]), new Set(["space-1"])), [sibling]);
+  const { featureInstallationId: _identity, ...unpinned } = original;
+  assert.deepEqual(normalizeStoredSurfaceTabsValue({ tabs: [unpinned], activeTabId: original.id }).tabs, [], "old unpinned tabs cannot attach to whichever installation is present");
+});

@@ -203,14 +203,20 @@ error code (`NETWORK_RESPONSE_TOO_LARGE`, `NETWORK_REQUEST_TOO_LARGE`,
 over-large read is distinguishable from a transport failure.
 
 An app supplies a local `appTabId`, title, route, and JSON state. It never
-supplies the owning Space, app id, digest, or shell tab id. work-fold derives
+supplies the owning Space, app id, Feature Installation, digest, or shell tab id. work-fold derives
 those values from the sending `WebContents` and constructs
-`restricted-app:<space>:<app>:<digest>:<appTabId>`. App tabs use the same shell
+`restricted-app:<space>:<app>:<installation>:<digest>:<appTabId>`. App tabs use the same shell
 storage, cross-Space activation, close behavior, and most-recent-tab restoration
-as built-in tabs. An updated or removed revision cannot silently take over a
-persisted old tab. Once the host has loaded the current installed-app catalog,
-it closes tabs owned by a digest that is no longer installed instead of leaving
-an unavailable or duplicate old-revision tab in the strip.
+as built-in tabs. An updated or reinstalled app cannot silently take over a
+persisted old tab, including a reinstall of identical bytes. Once the host has
+loaded the current installed-app catalog, it closes tabs whose exact installation
+and digest are no longer present. Older stored tabs lacking an installation
+identity are discarded; the app remains available from the rail.
+
+Native view requests, rail selection, app details, catalog updates and removal,
+and notification navigation retain the same installation identity. Mounting
+requires the exact current Space, app, installation and digest. A reused mount
+id never reuses a sibling installation's native view.
 
 ## Worker host
 

@@ -416,7 +416,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   const surfaces = useMemo(() => contributedSurfaces(space.id, surfaceCatalogs[space.id] ?? []), [surfaceCatalogs, space.id]);
   const activeSurfaceKey = extensionSurfaceIdForMode(activeMode);
   const activeSurface = activeSurfaceKey ? resolveSurfaceForKey(surfaces, activeSurfaceKey) : null;
-  const activeRestrictedApp = restrictedApps.find((app) => restrictedAppRailMode(space.id, app.manifest.id) === activeMode) ?? null;
+  const activeRestrictedApp = restrictedApps.find((app) => restrictedAppRailMode(space.id, app.manifest.id, app.featureInstallationId) === activeMode) ?? null;
   const previewLocalFile = useCallback((path: string) => {
     const previewFile = window.workFoldDesktop?.space.previewFile;
     if (!isMacOS() || !previewFile) return;
@@ -483,16 +483,16 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     if (!desktop) return;
     return desktop.onTabCommand((command) => {
       const installed = restrictedAppsState.appsBySpace[command.spaceId]?.find((app) => (
-        app.manifest.id === command.appId && app.digest === command.digest
+        app.manifest.id === command.appId && app.digest === command.digest && app.featureInstallationId === command.featureInstallationId
       ));
       const targetSpace = spaces.find((item) => item.id === command.spaceId);
       if (!installed || !targetSpace) return;
       if (command.type === "open" && command.tab) {
-        tabs.openRestrictedAppSurfaceTab(targetSpace, { appId: command.appId, digest: command.digest }, command.tab);
+        tabs.openRestrictedAppSurfaceTab(targetSpace, { appId: command.appId, digest: command.digest, featureInstallationId: command.featureInstallationId }, command.tab);
       } else if (command.type === "update" && command.tab) {
-        tabs.updateRestrictedAppSurfaceTab(command.spaceId, { appId: command.appId, digest: command.digest }, command.tab);
+        tabs.updateRestrictedAppSurfaceTab(command.spaceId, { appId: command.appId, digest: command.digest, featureInstallationId: command.featureInstallationId }, command.tab);
       } else if (command.type === "close" && command.sourceAppTabId) {
-        tabs.closeRestrictedAppSurfaceTab(command.spaceId, command.appId, command.digest, command.sourceAppTabId);
+        tabs.closeRestrictedAppSurfaceTab(command.spaceId, command.appId, command.digest, command.sourceAppTabId, command.featureInstallationId);
       }
     });
   }, [restrictedAppsState.appsBySpace, tabs, spaces]);
@@ -1148,7 +1148,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   function openInstalledRestrictedApp(targetSpace: SpaceSummary, app: RestrictedAppInstalled): void {
     restrictedAppsState.upsertApp(app);
     if (targetSpace.id !== space.id) onSwitchSpace(targetSpace);
-    setActiveMode(restrictedAppRailMode(targetSpace.id, app.manifest.id));
+    setActiveMode(restrictedAppRailMode(targetSpace.id, app.manifest.id, app.featureInstallationId));
   }
 
   function updateSurfaceCatalog(targetSpaceId: string, catalog: AgentCatalog): void {
@@ -1163,7 +1163,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     ...([{ id: "go:checks", groupId: "go-to" as const, groupLabel: "Go to", label: "Checks", detail: checks.status?.needsAttention ? `${checks.status.needsAttention} need attention` : "Designated file expectations", defaultVisible: true, run: () => tabs.openChecksSurfaceTab(space) }]),
     { id: "action:discover-assistant-tools", groupId: "actions" as const, groupLabel: "Actions", label: "Discover Skills & Extensions", keywords: ["capabilities", "discover", "install", "tools", "browse"], run: () => tabs.openAssistantToolsSurfaceTab(space, "discover") },
     ...surfaces.map((surface) => ({ id: `app:${surface.key}`, groupId: "go-to" as const, groupLabel: "Go to", label: surface.title, detail: surface.scope === "project" ? "Pi Extension · This Space" : "Pi Extension · Everywhere", run: () => selectRailMode(`app:${surface.key}`) })),
-    ...restrictedApps.map((app) => ({ id: `restricted-app:${app.manifest.id}`, groupId: "go-to" as const, groupLabel: "Go to", label: app.manifest.title, detail: "App · This Space", run: () => selectRailMode(restrictedAppRailMode(space.id, app.manifest.id)) })),
+    ...restrictedApps.map((app) => ({ id: `restricted-app:${app.featureInstallationId}`, groupId: "go-to" as const, groupLabel: "Go to", label: app.manifest.title, detail: "App · This Space", run: () => selectRailMode(restrictedAppRailMode(space.id, app.manifest.id, app.featureInstallationId)) })),
     ...spaces.map((item) => ({ id: `space:${item.id}`, groupId: "switch-space" as const, groupLabel: "Switch Space", label: item.name, detail: spaceHeaderSourceBadgeLabel(item), matchTargets: [item.name, item.spaceRoot], run: () => onSwitchSpace(item) })),
     ...Object.entries(conversationGroups).flatMap(([spaceId, conversations]) => conversations.map((conversation) => {
       const lifecycle = conversationLifecycleView(conversation);
@@ -1269,7 +1269,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
       {activeMode === "chats" ? <ChatsPane space={space} spaces={spaces} conversations={conversationGroups} customizations={customizations} activityStatuses={chatActivity.statuses} activeConversationId={activeTab?.kind === "chat" ? activeTab.conversationId ?? undefined : undefined} onOpen={(target, conversation) => openChat(target, conversation)} onNew={(target) => openChat(target, null)} onActions={openChatActions} /> : null}
       {activeMode === "history" ? <HistoryPane onRestored={async () => { setHistoryRefreshRequest((value) => value + 1); await tree.refresh(false); await checks.refresh(); }} space={space} fixtureItems={fixture?.checkpoints[space.id]} refreshRequest={historyRefreshRequest} onOpen={(item) => tabs.openHistorySurfaceTab(space, item.checkpointId, item.label || "Restore point")} onError={onError} /> : null}
       {activeSurface ? <ExtensionSurfacePane surface={activeSurface} activeViewId={activeTab?.kind === "extension" && surfaceMatchesTab(activeSurface, activeTab) ? activeTab.viewId : null} onOpenView={(view) => tabs.openExtensionSurfaceTab(space, activeSurface, view)} /> : null}
-      {activeRestrictedApp ? <RestrictedAppViewport app={activeRestrictedApp} placement="navigator" route="/" active /> : null}
+      {activeRestrictedApp ? <RestrictedAppViewport key={`${activeRestrictedApp.featureInstallationId}:${activeRestrictedApp.digest}`} app={activeRestrictedApp} placement="navigator" route="/" active /> : null}
     </section>
     <button className="space-resizer" type="button" role="separator" aria-label="Resize the navigation pane and work area" aria-controls="space-file-panel space-chat-panel" aria-orientation="vertical" aria-valuemin={Math.round(paneResize.sidebarResizeBounds.min)} aria-valuemax={Math.round(paneResize.sidebarResizeBounds.max)} aria-valuenow={paneResize.sidebarResizeValue} title="Resize panes" onPointerDown={paneResize.startSidebarResize} onDoubleClick={paneResize.resetSpaceSidebarWidth} onKeyDown={paneResize.handleSidebarResizeKeyDown}><span className="sr-only">Resize panes</span></button>
     <aside className="right-rail" id="space-chat-panel">
@@ -1324,7 +1324,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
                   tabs.openAppStudioSurfaceTab(source);
                 }}
                 onUpsertApp={restrictedAppsState.upsertApp}
-                onRemoveApp={(appId) => restrictedAppsState.removeApp(targetSpace.id, appId)}
+                onRemoveApp={(featureInstallationId) => restrictedAppsState.removeApp(targetSpace.id, featureInstallationId)}
                 onError={onError}
               />
             ) : tab.kind === "checks" ? (
@@ -1389,7 +1389,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
               return surface && view ? <ExtensionSurfaceView surface={surface} view={view} /> : <ExtensionSurfaceUnavailable surfaceId={tab.surfaceId} viewId={tab.viewId} execution={tab.surfaceExecution} />;
             })() : tab.kind === "restricted-app" ? (() => {
               if (!restrictedAppsState.knownSpaceIds.has(targetSpace.id)) return <CenteredState icon={<Loader2 className="spin" size={24} />} title="Loading app" text="Checking the apps installed for this Space." />;
-              const app = restrictedAppsState.appsBySpace[targetSpace.id]?.find((item) => item.manifest.id === tab.appId && item.digest === tab.digest);
+              const app = restrictedAppsState.appsBySpace[targetSpace.id]?.find((item) => item.manifest.id === tab.appId && item.digest === tab.digest && item.featureInstallationId === tab.featureInstallationId);
               return app
                 ? <RestrictedAppViewport app={app} placement="tab" appTabId={tab.appTabId} route={tab.route} state={tab.state} active={active} />
                 : <CenteredState icon={<AlertTriangle size={24} />} title="App unavailable" text="This tab belongs to an app revision that is no longer installed in this Space." />;

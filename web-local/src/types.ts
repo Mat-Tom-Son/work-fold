@@ -217,6 +217,7 @@ export type SpaceSurfaceTab =
   | (SpaceSurfaceTabBase & {
     kind: "restricted-app";
     appId: string;
+    featureInstallationId: string;
     digest: string;
     appTabId: string;
     route: string;
@@ -729,6 +730,7 @@ export interface AppPlatformAuthorityStamp {
 export interface RestrictedAppViewRequest {
   spaceId: string;
   appId: string;
+  featureInstallationId: string;
   digest: string;
   mountId: string;
   placement: "navigator" | "tab";

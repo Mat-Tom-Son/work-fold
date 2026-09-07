@@ -1,3 +1,4 @@
+import { restrictedAppRailMode } from "../../lib/restricted-app-navigation";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import {
   ArrowDownload20Regular,
@@ -166,14 +167,14 @@ function SpaceModeRail({
           );
         })}
         {apps.map((app) => {
-          const mode = `app:restricted:${space.id}:${app.manifest.id}` as const;
+          const mode = restrictedAppRailMode(space.id, app.manifest.id, app.featureInstallationId);
           const AppIcon = activeMode === mode ? Apps24Filled : Apps24Regular;
           const contributedIcon = app.manifest.ui.icon ? spaceIconOptionFor(app.manifest.ui.icon) : null;
           return (
             <button
               className={["space-rail-button", "space-rail-app", activeMode === mode ? "active" : ""].filter(Boolean).join(" ")}
               type="button"
-              key={`${app.manifest.id}:${app.digest}`}
+              key={app.featureInstallationId}
               onClick={() => onModeChange(mode)}
               aria-label={app.manifest.title}
               aria-current={activeMode === mode ? "page" : undefined}

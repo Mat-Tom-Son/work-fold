@@ -1654,11 +1654,11 @@ export class RestrictedAppService {
     });
   }
 
-  async runtimeDescriptor(spaceId: string, appId: string, expectedDigest: string): Promise<RestrictedAppRuntimeDescriptor> {
+  async runtimeDescriptor(spaceId: string, appId: string, expectedDigest: string, featureInstallationId?: string): Promise<RestrictedAppRuntimeDescriptor> {
     this.#assertOpen();
     await this.#queue.catch(() => undefined);
     await assertRestrictedAppStagingRoot(this.#stagingPath);
-    const app = this.#installed(spaceId, appId, expectedDigest);
+    const app = this.#installed(spaceId, appId, expectedDigest, featureInstallationId);
     return { ...app, stagedRoot: this.#digestRoot(app.digest) };
   }
 
@@ -2330,10 +2330,13 @@ export class RestrictedAppService {
     await this.#runtimeHost?.close();
   }
 
-  #installed(spaceId: string, appId: string, expectedDigest: string): RestrictedAppInstalled {
+  #installed(spaceId: string, appId: string, expectedDigest: string, featureInstallationId?: string): RestrictedAppInstalled {
     const id = appIdValue(appId);
     const digest = digestValue(expectedDigest);
-    const entry = this.#registry.installations.find((item) => item.spaceId === spaceId && item.manifest.id === id);
+    const matches = this.#registry.installations.filter((item) => item.spaceId === spaceId && item.manifest.id === id
+      && (featureInstallationId === undefined || item.featureInstallationId === featureInstallationId));
+    if (matches.length > 1) throw new RestrictedAppError("INPUT_INVALID", "Choose an exact app installation.");
+    const entry = matches[0];
     if (!entry) throw new RestrictedAppError("APP_UNAVAILABLE", "The restricted app is not installed in this Space.");
     if (entry.digest !== digest) throw new RestrictedAppError("REVISION_CHANGED", "The restricted app revision changed. Refresh before using it.");
     return this.#copyInstalled(entry);

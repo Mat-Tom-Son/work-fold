@@ -100,7 +100,7 @@ export function RestrictedAppViewport({
       document.removeEventListener("visibilitychange", schedule);
       void desktop.unmountView(mountId).catch(() => undefined);
     };
-  }, [desktop, generation, app.spaceId, app.manifest.id, app.digest]);
+  }, [desktop, generation, app.spaceId, app.manifest.id, app.digest, app.featureInstallationId]);
 
   useLayoutEffect(() => {
     const element = hostRef.current;
@@ -146,6 +146,7 @@ function viewRequest(
   return {
     spaceId: latest.app.spaceId,
     appId: latest.app.manifest.id,
+    featureInstallationId: latest.app.featureInstallationId,
     digest: latest.app.digest,
     mountId,
     placement: latest.placement,

@@ -67,6 +67,7 @@ interface WorkFoldDesktopFileMenuRequest {
 interface WorkFoldRestrictedAppViewRequest {
   spaceId: string;
   appId: string;
+  featureInstallationId: string;
   digest: string;
   mountId: string;
   placement: "navigator" | "tab";
@@ -84,6 +85,7 @@ interface WorkFoldRestrictedAppTabCommand {
   type: "open" | "update" | "close";
   spaceId: string;
   appId: string;
+  featureInstallationId: string;
   digest: string;
   sourceMountId: string;
   sourcePlacement: "navigator" | "tab";
@@ -100,6 +102,7 @@ interface WorkFoldRestrictedAppViewState {
 interface WorkFoldRestrictedAppOwner {
   spaceId: string;
   appId: string;
+  featureInstallationId: string;
   digest: string;
   permissionId: string;
 }

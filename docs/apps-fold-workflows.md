@@ -170,3 +170,39 @@ ownership. Logs: `/tmp/workfold-app-instance-check.log`,
 
 This is runtime groundwork. Source-Space preview/release coexistence remains
 disabled until renderer and management selectors carry the same exact identity.
+
+## Progress: installation-bound navigation
+
+Renderer catalogs, app details, rail selection, native mounts, notification
+navigation and contributed tabs now retain the exact Feature Installation.
+An update/removal in the catalog preserves sibling installations. Reinstalling
+identical bytes cannot inherit an old app tab; old stored tabs without an
+installation identity are discarded. A native mount resolves its exact current
+Space, app, installation and digest before loading. Reusing a mount id for a
+different installation destroys the predecessor view instead of reusing it.
+
+Automated verification includes same-revision sibling tabs, remove/reinstall,
+cross-Space descriptor refusal, DOM catalog updates/removal, and exact
+notification targets. The real Electron probe replaces a view using the same
+mount id, verifies the sibling's data and tab command, then stops the original
+installation and confirms that the sibling view survives. The full suite passes
+(1,113 passed; one Windows-only skip), as does `npm run check`. Logs:
+`/tmp/workfold-app-navigation-identity-check.log`,
+`/tmp/workfold-app-navigation-identity-tests.log`, and
+`/tmp/workfold-app-navigation-identity-smoke.log`.
+
+Management mutation selectors and the source-Space placement rule are still
+pending. Coexistence remains disabled until those controls use exact identities.
+
+`npm run desktop:prepare` also passes in full; its log is
+`/tmp/workfold-app-navigation-identity-desktop.log`. The initial added native-view
+assertion needed to retain the WebContents reference before Electron destroyed
+the view; the corrected probe and complete preparation both pass.
+
+Live QA in the isolated desktop profile opened the source preview from the
+rail with the saved North quote visible and 43 B in Details. Switching to the
+App Updates QA Apps tab switched Spaces; its installed Release opened from its
+own rail with no saved quote and 0 B in Details. The preview had Remove preview
+and Open App Studio; the installed Feature had Review updates. The QA app is
+quit, with no production profile changes. This verifies the current cross-Space
+journey; same-Space coexistence still awaits the mutation/placement work above.

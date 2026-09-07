@@ -139,8 +139,8 @@ test("owning Chat renders digest review, defers install while running, and opens
   assert.match(chat, /closeLabel="Decline"/);
   assert.match(chat, /installRestrictedAppProposal\(space\.id, proposal\.conversationId, proposal\.id\)/);
   assert.match(spaceApp, /restrictedAppsState\.upsertApp\(app\)/);
-  assert.match(spaceApp, /setActiveMode\(restrictedAppRailMode\(targetSpace\.id, app\.manifest\.id\)\)/);
-  assert.match(spaceApp, /<RestrictedAppViewport app=\{activeRestrictedApp\} placement="navigator"/);
+  assert.match(spaceApp, /setActiveMode\(restrictedAppRailMode\(targetSpace\.id, app\.manifest\.id, app\.featureInstallationId\)\)/);
+  assert.match(spaceApp, /<RestrictedAppViewport[^>]+app=\{activeRestrictedApp\} placement="navigator"/);
   assert.match(spaceApp, /tabs\.openRestrictedAppSurfaceTab/);
   assert.doesNotMatch(spaceApp, /surface\.execution === "restricted-app"/);
 });

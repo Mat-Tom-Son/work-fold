@@ -36,7 +36,7 @@ The current desktop runtime already establishes useful constraints:
 
 - reviewed feature bytes are content-addressed and digest-pinned before execution;
 - visible UI and hidden action/automation workers run in separate sandboxed Chromium hosts;
-- main binds each sender to its Space, app id, digest, lifecycle, placement, and current grants;
+- main binds each sender to its Space, app id, exact Feature Installation, digest, lifecycle, placement, and current grants;
 - network, storage, Space files, tabs, and notifications are host brokers rather than ambient browser powers;
 - storage uses revisions and bounded atomic transactions;
 - file writes are grant-relative, atomic, and History-covered;

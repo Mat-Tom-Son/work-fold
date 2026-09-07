@@ -76,18 +76,18 @@ export function useRestrictedApps({
   const upsertApp = useCallback((app: RestrictedAppInstalled) => {
     setAppsBySpace((current) => {
       const existing = current[app.spaceId] ?? [];
-      const next = existing.some((item) => item.manifest.id === app.manifest.id)
-        ? existing.map((item) => item.manifest.id === app.manifest.id ? app : item)
+      const next = existing.some((item) => item.featureInstallationId === app.featureInstallationId)
+        ? existing.map((item) => item.featureInstallationId === app.featureInstallationId ? app : item)
         : [...existing, app];
       return { ...current, [app.spaceId]: next };
     });
     setKnownSpaceIds((current) => new Set(current).add(app.spaceId));
   }, []);
 
-  const removeApp = useCallback((spaceId: string, appId: string) => {
+  const removeApp = useCallback((spaceId: string, featureInstallationId: string) => {
     setAppsBySpace((current) => ({
       ...current,
-      [spaceId]: (current[spaceId] ?? []).filter((item) => item.manifest.id !== appId),
+      [spaceId]: (current[spaceId] ?? []).filter((item) => item.featureInstallationId !== featureInstallationId),
     }));
     setKnownSpaceIds((current) => new Set(current).add(spaceId));
   }, []);

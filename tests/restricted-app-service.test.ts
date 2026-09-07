@@ -402,6 +402,9 @@ test("RestrictedAppService advances only the durable authority domains affected 
     assert.equal(reinstalled.runtimeInstanceId, installed.runtimeInstanceId, "Feature uninstall does not replace the Development Instance");
     assert.notEqual(reinstalled.featureInstallationId, installed.featureInstallationId, "reinstall creates a new incarnation");
     assert.notEqual(reinstalled.dataNamespaceId, installed.dataNamespaceId, "reinstall cannot revive removed data implicitly");
+    await assert.rejects(service.runtimeDescriptor(spaceOne, "connected-inbox", secondReview.digest, installed.featureInstallationId), { code: "APP_UNAVAILABLE" });
+    await assert.rejects(service.runtimeDescriptor(spaceTwo, "connected-inbox", secondReview.digest, reinstalled.featureInstallationId), { code: "APP_UNAVAILABLE" });
+    assert.equal((await service.runtimeDescriptor(spaceOne, "connected-inbox", secondReview.digest, reinstalled.featureInstallationId)).featureInstallationId, reinstalled.featureInstallationId);
     await service.close();
   } finally {
     await rm(sandbox, { recursive: true, force: true });

@@ -30,7 +30,7 @@ export function SpaceAppsPane({
   onOpenBuildChat: (spaceId: string, conversationId: string) => Promise<void>;
   onOpenAppStudio: (spaceId?: string, runtimeInstanceId?: string) => void;
   onUpsertApp: (app: RestrictedAppInstalled) => void;
-  onRemoveApp: (appId: string) => void;
+  onRemoveApp: (featureInstallationId: string) => void;
   onError: (message: string | null) => void;
 }) {
   return (

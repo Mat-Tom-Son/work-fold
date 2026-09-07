@@ -206,7 +206,7 @@ export function useSurfaceTabs({
 
   function openRestrictedAppSurfaceTab(
     targetSpace: SpaceSummary,
-    app: { appId: string; digest: string },
+    app: { appId: string; digest: string; featureInstallationId: string },
     target: { appTabId: string; title: string; route: string; state?: unknown },
   ): void {
     const tab = restrictedAppSurfaceTab(targetSpace.id, app, target);
@@ -216,17 +216,17 @@ export function useSurfaceTabs({
 
   function updateRestrictedAppSurfaceTab(
     spaceId: string,
-    app: { appId: string; digest: string },
+    app: { appId: string; digest: string; featureInstallationId: string },
     target: { appTabId: string; title: string; route: string; state?: unknown },
   ): void {
-    const id = restrictedAppSurfaceTabId(spaceId, app.appId, app.digest, target.appTabId);
+    const id = restrictedAppSurfaceTabId(spaceId, app.appId, app.digest, target.appTabId, app.featureInstallationId);
     setSurfaceTabs((current) => current.map((tab) => tab.id === id && tab.kind === "restricted-app"
       ? restrictedAppSurfaceTab(spaceId, app, target)
       : tab));
   }
 
-  function closeRestrictedAppSurfaceTab(spaceId: string, appId: string, digest: string, appTabId: string): void {
-    closeSurfaceTab(restrictedAppSurfaceTabId(spaceId, appId, digest, appTabId));
+  function closeRestrictedAppSurfaceTab(spaceId: string, appId: string, digest: string, appTabId: string, featureInstallationId: string): void {
+    closeSurfaceTab(restrictedAppSurfaceTabId(spaceId, appId, digest, appTabId, featureInstallationId));
   }
 
   const reconcileRestrictedAppSurfaceTabs = useCallback((
@@ -489,12 +489,14 @@ function normalizeStoredSurfaceTab(value: unknown): SpaceSurfaceTab | null {
     if (typeof record.digest !== "string" || !/^[a-f0-9]{64}$/.test(record.digest)) return null;
     if (typeof record.appTabId !== "string" || !/^[a-z0-9][a-z0-9._:-]{0,127}$/.test(record.appTabId)) return null;
     if (typeof record.route !== "string" || !validRestrictedAppRoute(record.route)) return null;
-    const id = restrictedAppSurfaceTabId(record.spaceId, record.appId, record.digest, record.appTabId);
+    if (typeof record.featureInstallationId !== "string" || !/^feature-installation_[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?$/.test(record.featureInstallationId)) return null;
+    const id = restrictedAppSurfaceTabId(record.spaceId, record.appId, record.digest, record.appTabId, record.featureInstallationId);
     return {
       id,
       kind: "restricted-app",
       spaceId: record.spaceId,
       appId: record.appId,
+      featureInstallationId: record.featureInstallationId,
       digest: record.digest,
       appTabId: record.appTabId,
       route: record.route,
@@ -714,14 +716,15 @@ function extensionSurfaceTab(
 
 function restrictedAppSurfaceTab(
   spaceId: string,
-  app: { appId: string; digest: string },
+  app: { appId: string; digest: string; featureInstallationId: string },
   target: { appTabId: string; title: string; route: string; state?: unknown },
 ): SpaceSurfaceTab {
   return {
-    id: restrictedAppSurfaceTabId(spaceId, app.appId, app.digest, target.appTabId),
+    id: restrictedAppSurfaceTabId(spaceId, app.appId, app.digest, target.appTabId, app.featureInstallationId),
     kind: "restricted-app",
     spaceId,
     appId: app.appId,
+    featureInstallationId: app.featureInstallationId,
     digest: app.digest,
     appTabId: target.appTabId,
     route: target.route,
@@ -730,18 +733,18 @@ function restrictedAppSurfaceTab(
   };
 }
 
-function restrictedAppSurfaceTabId(spaceId: string, appId: string, digest: string, appTabId: string): string {
-  return `restricted-app:${spaceId}:${appId}:${digest}:${appTabId}`;
+function restrictedAppSurfaceTabId(spaceId: string, appId: string, digest: string, appTabId: string, featureInstallationId: string): string {
+  return `restricted-app:${spaceId}:${appId}:${featureInstallationId}:${digest}:${appTabId}`;
 }
 
 function closeUnavailableRestrictedAppSurfaceTabs(
   tabs: SpaceSurfaceTab[],
-  appsBySpace: Record<string, Array<{ manifest: { id: string }; digest: string }>>,
+  appsBySpace: Record<string, Array<{ manifest: { id: string }; digest: string; featureInstallationId: string }>>,
   knownSpaceIds: ReadonlySet<string>,
 ): SpaceSurfaceTab[] {
   const next = tabs.filter((tab) => {
     if (tab.kind !== "restricted-app" || !knownSpaceIds.has(tab.spaceId)) return true;
-    return (appsBySpace[tab.spaceId] ?? []).some((app) => app.manifest.id === tab.appId && app.digest === tab.digest);
+    return (appsBySpace[tab.spaceId] ?? []).some((app) => app.manifest.id === tab.appId && app.digest === tab.digest && app.featureInstallationId === tab.featureInstallationId);
   });
   return next.length === tabs.length ? tabs : next;
 }

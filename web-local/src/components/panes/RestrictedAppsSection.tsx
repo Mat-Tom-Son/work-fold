@@ -86,23 +86,23 @@ export function RestrictedAppsSection({
   onOpenBuildChat?: (spaceId: string, conversationId: string) => Promise<void>;
   onOpenAppStudio: (spaceId?: string, runtimeInstanceId?: string) => void;
   onUpsertApp: (app: RestrictedAppInstalled) => void;
-  onRemoveApp: (appId: string) => void;
+  onRemoveApp: (featureInstallationId: string) => void;
   onError: (message: string | null) => void;
 }) {
   const [sourceOpen, setSourceOpen] = useState(false);
   const [sourcePath, setSourcePath] = useState("");
   const [review, setReview] = useState<{ sourcePath: string; value: RestrictedAppReview } | null>(null);
-  const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
+  const [selectedInstallationId, setSelectedInstallationId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const spaceIdRef = useRef(space.id);
   spaceIdRef.current = space.id;
-  const selectedApp = selectedAppId ? apps.find((app) => app.manifest.id === selectedAppId) ?? null : null;
+  const selectedApp = selectedInstallationId ? apps.find((app) => app.featureInstallationId === selectedInstallationId) ?? null : null;
 
   useEffect(() => {
     setSourceOpen(false);
     setSourcePath("");
     setReview(null);
-    setSelectedAppId(null);
+    setSelectedInstallationId(null);
     setBusy(false);
   }, [space.id]);
 
@@ -145,7 +145,7 @@ export function RestrictedAppsSection({
       onUpsertApp(app);
       setReview(null);
       setSourcePath("");
-      setSelectedAppId(app.manifest.id);
+      setSelectedInstallationId(app.featureInstallationId);
       showToast({ text: `${app.manifest.title} preview added with network, file, notification, and scheduled execution off.`, tone: "success" });
     } catch (caught) {
       if (spaceIdRef.current === spaceId) onError(errorText(caught));
@@ -166,8 +166,8 @@ export function RestrictedAppsSection({
     try {
       if (!fixtureMode) await removeRestrictedApp(app.spaceId, app.manifest.id, app.digest);
       if (spaceIdRef.current !== app.spaceId) return;
-      onRemoveApp(app.manifest.id);
-      setSelectedAppId(null);
+      onRemoveApp(app.featureInstallationId);
+      setSelectedInstallationId(null);
       showToast({ text: `${app.manifest.title} preview removed.`, tone: "success" });
     } catch (caught) {
       if (spaceIdRef.current === app.spaceId) onError(errorText(caught));
@@ -197,7 +197,7 @@ export function RestrictedAppsSection({
                 <div className="restricted-app-card-meta"><span>{app.runtimeInstanceKind === "development" ? "Previewing in this Space" : "Installed in this Space · Data on this device"}</span><span>{app.packageName} {app.version}</span><span>App screen</span></div>
                 <small>{app.manifest.tools.length} {app.manifest.tools.length === 1 ? "action" : "actions"} · {app.networkGrants.length}/{app.manifest.permissions.network.length} network · {app.fileGrants.length}/{app.manifest.permissions.files.length} files · {app.notificationGrants.length}/{app.manifest.permissions.notifications.length} notifications{app.manifest.automations.length ? ` · ${app.automations.filter((automation) => automation.enabled).length}/${app.manifest.automations.length} automations on` : ""}</small>
               </div>
-              <div className="restricted-app-card-actions"><span className={access.enabled ? "professional-status-badge enabled" : "professional-status-badge"}>{access.label}</span>{onChangeApp ? <button className="professional-button professional-button-quiet" type="button" disabled={busy || fixtureMode} onClick={() => void changeApp(app)}>Change this app</button> : null}<button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={() => setSelectedAppId(app.manifest.id)}>{access.total ? "Review access" : "Details"}</button></div>
+              <div className="restricted-app-card-actions"><span className={access.enabled ? "professional-status-badge enabled" : "professional-status-badge"}>{access.label}</span>{onChangeApp ? <button className="professional-button professional-button-quiet" type="button" disabled={busy || fixtureMode} onClick={() => void changeApp(app)}>Change this app</button> : null}<button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={() => setSelectedInstallationId(app.featureInstallationId)}>{access.total ? "Review access" : "Details"}</button></div>
             </article>;
           })}
         </div>
@@ -206,7 +206,7 @@ export function RestrictedAppsSection({
 
       {sourceOpen ? <RestrictedAppSourceDialog sourcePath={sourcePath} busy={busy} onSourcePathChange={setSourcePath} onSubmit={inspect} onClose={() => { if (!busy) setSourceOpen(false); }} /> : null}
       {review ? <RestrictedAppReviewDialog review={review.value} sourcePath={review.sourcePath} updating={apps.some((app) => app.manifest.id === review.value.manifest.id)} busy={busy} onInstall={() => void install()} onClose={() => { if (!busy) setReview(null); }} /> : null}
-      {selectedApp ? <RestrictedAppDetailsDialog app={selectedApp} busy={busy} fixtureMode={fixtureMode} onAppChanged={onUpsertApp} onRemove={() => void remove(selectedApp)} onOpenBuildChat={onOpenBuildChat} onOpenAppStudio={(runtimeInstanceId) => { setSelectedAppId(null); onOpenAppStudio(selectedApp.sourceSpaceId, runtimeInstanceId); }} onError={onError} onClose={() => { if (!busy) setSelectedAppId(null); }} /> : null}
+      {selectedApp ? <RestrictedAppDetailsDialog app={selectedApp} busy={busy} fixtureMode={fixtureMode} onAppChanged={onUpsertApp} onRemove={() => void remove(selectedApp)} onOpenBuildChat={onOpenBuildChat} onOpenAppStudio={(runtimeInstanceId) => { setSelectedInstallationId(null); onOpenAppStudio(selectedApp.sourceSpaceId, runtimeInstanceId); }} onError={onError} onClose={() => { if (!busy) setSelectedInstallationId(null); }} /> : null}
     </section>
   );
 }

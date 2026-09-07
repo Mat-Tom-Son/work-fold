@@ -28,6 +28,7 @@ import {
   type Rectangle,
 } from "electron";
 
+import { parseFeatureInstallationId } from "../../src/local/agent/app-platform-contract.js";
 import { RoutedPiExtensionUiBridge, type PiExtensionUiEvent } from "../../src/local/agent/extension-ui.js";
 import { defaultAgentSdkDir } from "../../src/local/agent/agent-data-dir.js";
 import {
@@ -444,9 +445,8 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
         mainWindow.webContents.send("work-fold:restricted-app-view:state", state);
       },
       onNotificationOpen: (request) => {
-        const resolveOwner = request.featureInstallationId
-          ? restrictedApps.findByFeatureInstallation(request.spaceId, request.featureInstallationId)
-          : restrictedApps.runtimeDescriptor(request.spaceId, request.appId, request.digest);
+        if (!request.featureInstallationId) return;
+        const resolveOwner = restrictedApps.findByFeatureInstallation(request.spaceId, request.featureInstallationId);
         void resolveOwner.then((current) => {
           if (!current || current.manifest.id !== request.appId || current.digest !== request.digest) return;
           const enabledForNotification = current.automations.some((state) => state.enabled
@@ -1316,7 +1316,7 @@ function registerIpc(): void {
     if (!window || window.isDestroyed()) throw new Error("The work-fold window is not available.");
     const identity = restrictedAppViewIdentity(value);
     const host = await ensureDesktopHost();
-    const descriptor = await host.restrictedApps.runtimeDescriptor(identity.spaceId, identity.appId, identity.digest);
+    const descriptor = await host.restrictedApps.runtimeDescriptor(identity.spaceId, identity.appId, identity.digest, identity.featureInstallationId);
     const mounted = await host.restrictedAppHost.mountUi(descriptor, event.sender, window, restrictedAppViewPayload(value));
     railTooltipOverlay?.raise();
     return mounted;
@@ -2347,21 +2347,22 @@ function routingSettingsId(value: unknown): string {
   return routingId;
 }
 
-function restrictedAppViewIdentity(value: unknown): { spaceId: string; appId: string; digest: string } {
+function restrictedAppViewIdentity(value: unknown): { spaceId: string; appId: string; digest: string; featureInstallationId: string } {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Restricted app view identity is invalid.");
   const record = value as Record<string, unknown>;
   const spaceId = typeof record.spaceId === "string" ? record.spaceId : "";
   const appId = typeof record.appId === "string" ? record.appId : "";
   const digest = typeof record.digest === "string" ? record.digest.toLowerCase() : "";
+  const featureInstallationId = parseFeatureInstallationId(record.featureInstallationId);
   if (!spaceId || spaceId.length > 256 || !/^[a-z0-9][a-z0-9._-]{0,127}$/.test(appId) || !/^[a-f0-9]{64}$/.test(digest)) {
     throw new Error("Restricted app view identity is invalid.");
   }
-  return { spaceId, appId, digest };
+  return { spaceId, appId, digest, featureInstallationId };
 }
 
 function restrictedAppViewPayload(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Restricted app view request is invalid.");
-  const { spaceId: _spaceId, appId: _appId, digest: _digest, ...payload } = value as Record<string, unknown>;
+  const { spaceId: _spaceId, appId: _appId, digest: _digest, featureInstallationId: _featureInstallationId, ...payload } = value as Record<string, unknown>;
   return payload;
 }
 

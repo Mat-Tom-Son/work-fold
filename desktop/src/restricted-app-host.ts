@@ -93,6 +93,7 @@ export interface RestrictedAppTabCommand {
   spaceId: string;
   appId: string;
   digest: string;
+  featureInstallationId: string;
   sourceMountId: string;
   sourcePlacement: "navigator" | "tab";
   sourceAppTabId?: string;
@@ -402,10 +403,12 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     this.#assertOpen();
     const request = parseUiMountRequest(value);
     const generation = this.#generation(app.spaceId, app.manifest.id, app.featureInstallationId);
+    this.#assertLaunchCurrent(app, generation);
     const key = uiMountKey(owner.id, request.mountId);
     const current = this.#uiInstances.get(key);
     if (current) {
-      if (current.app.spaceId !== app.spaceId || current.app.manifest.id !== app.manifest.id || current.app.digest !== app.digest) {
+      if (current.app.spaceId !== app.spaceId || current.app.manifest.id !== app.manifest.id || current.app.digest !== app.digest
+        || current.app.featureInstallationId !== app.featureInstallationId || current.generation !== generation) {
         await this.#destroyUi(current, "stopped");
       } else {
         this.#applyUiRequest(current, request);
@@ -1378,6 +1381,7 @@ function parseTabCommand(value: unknown, instance: RestrictedAppUiInstance): Res
     spaceId: instance.app.spaceId,
     appId: instance.app.manifest.id,
     digest: instance.app.digest,
+    featureInstallationId: instance.app.featureInstallationId,
     sourceMountId: instance.mountId,
     sourcePlacement: instance.placement,
     ...(instance.appTabId ? { sourceAppTabId: instance.appTabId } : {}),
