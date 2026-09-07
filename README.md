@@ -122,6 +122,10 @@ See [the management layer](docs/management-layer.md) for commands, protocol guar
 
 ## Documentation
 
+The development branch adds [app-requested Assistant tasks](docs/app-assistant-tasks.md):
+review a named request in Apps, run it in that Space, and return its bounded
+reply to the app. Full live acceptance remains part of the ongoing app work.
+
 Start with the [documentation map](docs/README.md) for current contracts,
 accepted future direction, and historical evidence.
 

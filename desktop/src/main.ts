@@ -436,6 +436,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       return checks.selectedResult(space, checkId, declarationDigest);
     };
     const restrictedRuntime = new RestrictedAppHost({
+      assistantTasks: async () => (await ensureInteractiveLocalApi()).appAssistantTasks,
       readCheckResult,
       connections: restrictedConnections,
       oauth: restrictedOAuth,

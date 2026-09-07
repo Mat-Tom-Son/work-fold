@@ -1,4 +1,5 @@
 import { RestrictedAppCheckAccess } from "./RestrictedAppCheckAccess";
+import { RestrictedAppAssistantTasks } from "./RestrictedAppAssistantTasks";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   Add16Regular,
@@ -301,6 +302,10 @@ export function RestrictedAppReviewDialog({ review, sourcePath, updating, busy, 
 
 function ReviewDeclarations({ review }: { review: RestrictedAppReview }) {
   return <div className="restricted-app-authority-list">
+    {review.manifest.assistantActions?.length ? <section className="restricted-app-authority-group">
+      <h4>Assistant requests</h4><p>Each request needs your review before it runs.</p>
+      <div className="restricted-app-authority-items">{review.manifest.assistantActions.map((action) => <details key={action.id}><summary>{action.title}</summary><pre className="restricted-app-task-declaration">{action.instructions}</pre></details>)}</div>
+    </section> : null}
     <ReviewAuthorityGroup icon={<PlugConnected20Regular />} title="Network & connections" summary={review.manifest.permissions.network.length ? `${review.manifest.permissions.network.length} ${review.manifest.permissions.network.length === 1 ? "destination" : "destinations"} declared` : "None requested"} startsOff={Boolean(review.manifest.permissions.network.length)}>
       {review.manifest.permissions.network.length
         ? <div className="restricted-app-authority-items">{review.manifest.permissions.network.map((destination) => <article key={destination.id}>
@@ -630,6 +635,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
       <div className="modal-title"><div><h2 id="restricted-app-details-title">{app.manifest.title}</h2><p>{app.runtimeInstanceKind === "development" ? "Local preview" : "Feature in installed App"} · This Space · Restricted runtime</p></div><button className="minimal-icon-button" type="button" disabled={busy || Boolean(actionBusy)} onClick={onClose} aria-label="Close app details"><Dismiss20Regular /></button></div>
       <div className="capability-dialog-body">
         <p className="capability-details-summary">{app.manifest.description}</p>
+        {app.manifest.assistantActions?.length ? <RestrictedAppAssistantTasks key={`${app.featureInstallationId}:${app.digest}`} app={app} disabled={busy || Boolean(actionBusy) || fixtureMode} onOpenChat={onOpenBuildChat ? async (spaceId, conversationId) => { await onOpenBuildChat(spaceId, conversationId); onClose(); } : undefined} /> : null}
         <section className="restricted-app-access-overview" aria-label="App access overview">
           <div className="restricted-app-access-overview-heading">
             <ShieldCheckmark20Regular aria-hidden="true" />

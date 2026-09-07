@@ -1,4 +1,5 @@
 import { readRestrictedAppCheck, RestrictedAppCheckError, type RestrictedAppCheckReader } from "../../src/local/agent/restricted-app-checks.js";
+import { RestrictedAppTaskError, restrictedAppTaskAuthorityDigest, type RestrictedAppTaskService } from "../../src/local/agent/restricted-app-tasks.js";
 import { withSpaceHistoryOperation } from "../../src/local/space.js";
 import { randomUUID } from "node:crypto";
 import { extname, posix } from "node:path";
@@ -65,6 +66,7 @@ const contextChannel = "work-fold:restricted-app:context";
 const storageChannel = "work-fold:restricted-app:storage";
 const storageChangedChannel = "work-fold:restricted-app:storage-changed";
 const checksChannel = "work-fold:restricted-app:checks";
+const assistantTasksChannel = "work-fold:restricted-app:assistant-tasks";
 const filesChannel = "work-fold:restricted-app:files";
 const notificationsChannel = "work-fold:restricted-app:notifications";
 const indexPath = "/__work-fold/index.html";
@@ -76,6 +78,7 @@ const defaultInvocationTimeoutMs = 5_000;
 const workerIdleTimeoutMs = 30_000;
 
 export interface RestrictedAppHostOptions {
+  assistantTasks?: () => Promise<Pick<RestrictedAppTaskService, "request" | "get" | "list" | "cancel">>;
   readCheckResult?: RestrictedAppCheckReader;
   connections: RestrictedAppConnectionStore;
   preloadPath: string;
@@ -221,9 +224,11 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
   #closed = false;
 
   readonly #readCheckResult?: RestrictedAppCheckReader;
+  readonly #assistantTasks?: RestrictedAppHostOptions["assistantTasks"];
 
   constructor(options: RestrictedAppHostOptions) {
     this.#readCheckResult = options.readCheckResult;
+    this.#assistantTasks = options.assistantTasks;
     this.#connections = options.connections;
     this.#preloadPath = options.preloadPath;
     this.#invocationTimeoutMs = options.invocationTimeoutMs ?? defaultInvocationTimeoutMs;
@@ -253,6 +258,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     ipcMain.handle(networkChannel, (event, value) => this.#handleNetwork(event, value));
     ipcMain.handle(storageChannel, (event, value) => this.#handleStorage(event, value));
     ipcMain.handle(checksChannel, (event, value) => this.#handleChecks(event, value));
+    ipcMain.handle(assistantTasksChannel, (event, value) => this.#handleAssistantTasks(event, value));
     ipcMain.handle(filesChannel, (event, value) => this.#handleFiles(event, value));
     ipcMain.handle(notificationsChannel, (event, value) => this.#handleNotification(event, value));
     ipcMain.handle(tabCommandChannel, (event, value) => this.#handleTabCommand(event, value));
@@ -608,6 +614,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     ipcMain.removeHandler(storageChannel);
     ipcMain.removeHandler(filesChannel);
     ipcMain.removeHandler(checksChannel);
+    ipcMain.removeHandler(assistantTasksChannel);
     ipcMain.removeHandler(notificationsChannel);
     ipcMain.removeHandler(tabCommandChannel);
     for (const event of this.#pendingStorageEvents.values()) clearTimeout(event.timer);
@@ -955,6 +962,35 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
         ? error.code
         : "STORAGE_FAILED";
       return hostError(code, errorMessage(error));
+    }
+  }
+
+  async #handleAssistantTasks(event: IpcMainInvokeEvent, value: unknown): Promise<unknown> {
+    const instance = this.#ownedPowerInstance(event.sender, ipcFromMainFrame(event));
+    if (!instance || "window" in instance || !this.#assistantTasks) return hostError("TASK_DENIED", "Assistant requests require an active app view.");
+    try {
+      const lease = this.#captureEffectLease(instance);
+      const assertCurrent = () => this.#assertEffectLease(lease);
+      const request = jsonEnvelope(value, 12 * 1024, "Assistant request") as Record<string, unknown>;
+      if (!request || typeof request !== "object" || Array.isArray(request)) throw new RestrictedAppTaskError("TASK_INVALID", "Choose an Assistant request operation.");
+      const allowed = request.operation === "request" ? ["operation", "request"] : request.operation === "list" ? ["operation"] : ["operation", "requestId"];
+      if (Object.keys(request).some((key) => !allowed.includes(key)) || allowed.some((key) => !Object.hasOwn(request, key))) throw new RestrictedAppTaskError("TASK_INVALID", "Assistant request fields are invalid.");
+      const service = await this.#assistantTasks();
+      assertCurrent();
+      const app = instance.app;
+      const scope = { spaceId: app.spaceId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId,
+        digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority) };
+      let result: unknown;
+      if (request.operation === "request") result = await service.request(scope, request.request, assertCurrent);
+      else if (request.operation === "list") result = await service.list(scope);
+      else if (request.operation === "get" && typeof request.requestId === "string") result = await service.get(scope, request.requestId);
+      else if (request.operation === "cancel" && typeof request.requestId === "string") result = await service.cancel(scope, request.requestId, assertCurrent);
+      else throw new RestrictedAppTaskError("TASK_INVALID", "Choose an Assistant request operation.");
+      assertCurrent();
+      return { ok: true, value: result };
+    } catch (error) {
+      return hostError(error instanceof RestrictedAppTaskError || error instanceof RestrictedAppError ? error.code : "TASK_UNAVAILABLE",
+        error instanceof RestrictedAppTaskError ? error.message : "The Assistant request is unavailable. Reopen the app and try again.");
     }
   }
 

@@ -32,6 +32,10 @@ cannot confer identity or authority in work-fold.
 
 ## Package contract
 
+Apps may also declare [named Assistant requests](app-assistant-tasks.md).
+Each request waits for a person in Apps before an ordinary Space Chat starts;
+the active native view can read only its own request's state and bounded reply.
+
 `agent-app.json` is strict and versioned. It declares:
 
 - a required `sandboxed-web` HTML entry;

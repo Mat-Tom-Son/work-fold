@@ -1,5 +1,7 @@
 import type { RestrictedAppCheckGrant } from "../../shared/restricted-app-checks.js";
 import type { RestrictedAppCheckReader } from "./restricted-app-checks.js";
+import { restrictedAppTaskAuthorityDigest, RestrictedAppTaskError, type RestrictedAppTaskScope } from "./restricted-app-tasks.js";
+import type { RestrictedAppAssistantAction } from "./restricted-app-manifest.js";
 import { randomUUID } from "node:crypto";
 import { Buffer } from "node:buffer";
 import { existsSync } from "node:fs";
@@ -1672,6 +1674,18 @@ export class RestrictedAppService {
     await assertRestrictedAppStagingRoot(this.#stagingPath);
     const app = this.#installed(spaceId, appId, expectedDigest, featureInstallationId);
     return { ...app, stagedRoot: this.#digestRoot(app.digest) };
+  }
+
+  /** Hold exact app authority through bounded request admission, never through a whole Pi turn. */
+  async withAssistantTaskApp<T>(scope: RestrictedAppTaskScope, operation: (actions: readonly RestrictedAppAssistantAction[]) => Promise<T>): Promise<T> {
+    return this.#mutate(async () => {
+      parseFeatureInstallationId(scope.featureInstallationId);
+      const app = this.#installed(scope.spaceId, scope.appId, scope.digest, scope.featureInstallationId);
+      if (restrictedAppTaskAuthorityDigest(app.authority) !== scope.authorityDigest) {
+        throw new RestrictedAppTaskError("TASK_DENIED", "This app's permissions changed. Open the app again.");
+      }
+      return operation(structuredClone(app.manifest.assistantActions ?? []));
+    });
   }
 
   async snapshotForChange(spaceId: string, appId: string, expectedDigest: string, featureInstallationId?: string) {

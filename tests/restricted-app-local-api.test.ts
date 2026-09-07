@@ -4,6 +4,11 @@ import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { SettingsManager } from "@earendil-works/pi-coding-agent";
+import { restrictedAppTaskAuthorityDigest } from "../src/local/agent/restricted-app-tasks.js";
+import type { RestrictedAppAssistantTask, RestrictedAppTaskReview } from "../src/shared/restricted-app-tasks.js";
 
 import type {
   RestrictedAppConnectionBinding,
@@ -902,6 +907,103 @@ function key(binding: RestrictedAppConnectionBinding): string {
     binding.owner.kind === "instance" ? binding.owner.runtimeInstanceId : binding.owner.principalId,
   ]);
 }
+
+test("app requests use reviewed native Pi turns, History, exact task cancellation and durable response replay", { timeout: 45_000 }, async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-app-assistant-api-"));
+  const agentDir = join(sandbox, "agent");
+  await mkdir(join(agentDir, "extensions"), { recursive: true });
+  const bodies: string[] = [];
+  let hold = false;
+  let entered!: () => void;
+  const providerEntered = new Promise<void>((resolve) => { entered = resolve; });
+  const provider = createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      bodies.push(body);
+      res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "close" });
+      if (hold) { res.write(": waiting\n\n"); entered(); return; }
+      const chunk = (delta: unknown, finish_reason: string | null = null) => res.write(`data: ${JSON.stringify({ id: `completion-${bodies.length}`, object: "chat.completion.chunk", created: 1, model: "app-model", choices: [{ index: 0, delta, finish_reason }] })}\n\n`);
+      if (!/"role":"tool"/.test(body)) {
+        chunk({ role: "assistant", tool_calls: [{ index: 0, id: "write_1", type: "function", function: { name: "write", arguments: JSON.stringify({ path: "comparison.md", content: "# Comparison\nNorth: $42\n" }) } }] });
+        chunk({}, "tool_calls");
+      } else { chunk({ role: "assistant", content: "Saved comparison.md. North costs $42." }); chunk({}, "stop"); }
+      res.end("data: [DONE]\n\n");
+    });
+  });
+  await new Promise<void>((resolve) => provider.listen(0, "127.0.0.1", resolve));
+  const providerPort = (provider.address() as AddressInfo).port;
+  await writeFile(join(agentDir, "extensions", "app-provider.ts"), `export default function(pi) { pi.registerProvider("app-provider", { api: "openai-completions", baseUrl: "http://127.0.0.1:${providerPort}/v1", apiKey: "synthetic", models: [{ id: "app-model", name: "App Model", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32768, maxTokens: 1024 }] }); }`);
+  const settingsManager = SettingsManager.inMemory({ defaultProvider: "app-provider", defaultModel: "app-model", defaultThinkingLevel: "off" });
+  const options = { port: 0, stateBase: join(sandbox, "state"), spaceBase: join(sandbox, "spaces"), loadEnv: false,
+    piRuntimeProvider: { async resolveRuntime() { return { agentDir, settingsManager }; } } };
+  let api = await startLocalApi(options);
+  try {
+    const { space } = await request<{ space: { id: string; spaceRoot: string } }>(api.origin, "/api/spaces", { method: "POST", body: { name: "Quotes" } });
+    await writePackage(join(space.spaceRoot, "app"));
+    const manifestPath = join(space.spaceRoot, "app", "agent-app.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.assistantActions = [{ id: "compare", title: "Compare quotes", instructions: "Compare the quote and write comparison.md.", inputSchema: {
+      type: "object", properties: { quote: { type: "string", maxLength: 1_000 } }, required: ["quote"], additionalProperties: false } }];
+    await writeFile(manifestPath, JSON.stringify(manifest));
+    const base = `/api/spaces/${space.id}/restricted-apps`;
+    const { review: packageReview } = await request<{ review: { digest: string } }>(api.origin, `${base}/inspect`, { method: "POST", body: { sourcePath: "app" } });
+    const { app } = await request<{ app: RestrictedAppInstalled }>(api.origin, base, { method: "POST", body: { sourcePath: "app", expectedDigest: packageReview.digest } });
+    const pin = { featureInstallationId: app.featureInstallationId, expectedDigest: app.digest };
+    const scope = { spaceId: app.spaceId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority) };
+    const taskBase = `${base}/mail-app/assistant-tasks`;
+    const query = new URLSearchParams(pin);
+    const input = { actionId: "compare", input: { quote: "North $42" }, requestId: randomUUID(), requestedAt: new Date().toISOString() };
+    const pending = await api.appAssistantTasks.request(scope, input);
+    assert.equal(bodies.length, 0, "proposal must not contact a provider");
+    const { review } = await request<{ review: RestrictedAppTaskReview }>(api.origin, `${taskBase}/${input.requestId}?${query}`);
+    assert.equal(review.task.status, "pending");
+    for (const body of [{ ...pin, featureInstallationId: undefined, reviewDigest: review.reviewDigest }, { ...pin, reviewDigest: "wrong" }, { ...pin, reviewDigest: review.reviewDigest, content: "hidden" }]) {
+      const denied = await fetch(`${api.origin}${taskBase}/${input.requestId}/approve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      assert.ok(!denied.ok);
+    }
+    const approve = () => request<{ task: RestrictedAppAssistantTask }>(api.origin, `${taskBase}/${input.requestId}/approve`, { method: "POST", body: { ...pin, reviewDigest: review.reviewDigest } });
+    assert.equal((await approve()).task.status, "running");
+    await approve();
+    async function waitForTask(requestId: string, status: string) {
+      const deadline = Date.now() + 20_000;
+      while (Date.now() < deadline) {
+        const task = await api.appAssistantTasks.get(scope, requestId);
+        if (task.status === status) return task;
+        if (["failed", "interrupted"].includes(task.status)) assert.fail(`Unexpected task state: ${task.status}`);
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      assert.fail(`Task did not become ${status}`);
+    }
+    const done = await waitForTask(input.requestId, "succeeded");
+    assert.equal(done.id, pending.id);
+    assert.match(done.result!.text, /Saved comparison.md/);
+    assert.equal(await readFile(join(space.spaceRoot, "comparison.md"), "utf8"), "# Comparison\nNorth: $42\n");
+    assert.ok(bodies.some((body) => body.includes("App task: Compare quotes")), "ordinary Pi sees the reviewed request");
+    assert.ok((await listSpaceCheckpoints(space.spaceRoot)).length > 0, "the ordinary turn captures History");
+    assert.equal((await request<{ tasks: RestrictedAppAssistantTask[] }>(api.origin, `${taskBase}?${query}`)).tasks[0]!.result, undefined, "list replies remain compact");
+    const calls = bodies.length;
+    await api.close();
+    api = await startLocalApi(options);
+    assert.equal((await approve()).task.status, "succeeded");
+    assert.equal(bodies.length, calls, "restart/retry does not make another provider request");
+    hold = true;
+    const next = await api.appAssistantTasks.request(scope, { ...input, requestId: randomUUID(), requestedAt: new Date().toISOString() });
+    const { review: nextReview } = await request<{ review: RestrictedAppTaskReview }>(api.origin, `${taskBase}/${next.requestId}?${query}`);
+    await request(api.origin, `${taskBase}/${next.requestId}/approve`, { method: "POST", body: { ...pin, reviewDigest: nextReview.reviewDigest } });
+    await providerEntered;
+    const removal = await fetch(`${api.origin}${base}/mail-app`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify(pin) });
+    assert.equal(removal.status, 409, "capability mutation cannot overtake an accepted Space turn");
+    await request(api.origin, `${taskBase}/${next.requestId}/cancel`, { method: "POST", body: pin });
+    assert.equal((await waitForTask(next.requestId, "cancelled")).result, undefined);
+    assert.equal((await api.appAssistantTasks.get(scope, input.requestId)).status, "succeeded");
+  } finally {
+    await api.close();
+    provider.closeAllConnections();
+    await new Promise<void>((resolve) => provider.close(() => resolve()));
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
 
 test("desktop Check selection composes the canonical Check service with exact app controls", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-app-selected-check-api-"));

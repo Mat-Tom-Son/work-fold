@@ -322,6 +322,12 @@ Restricted apps already have an explicit package, permission, lifecycle, sandbox
 
 ## Implementation and verification map
 
+App-requested Assistant tasks use the same `acceptConversationTurn`, kernel
+task, History, cancellation and durable turn journal as a normal Space Chat.
+The native bridge cannot approve its own request or read arbitrary Chats.
+The trusted Apps review is a one-off human send, with exact installation,
+authority and input pins. See [App-requested Assistant work](app-assistant-tasks.md).
+
 | Area | Source | Primary tests |
 |---|---|---|
 | Versioned snapshots and context resolution | `src/local/work-fold-kernel.ts` | `tests/work-fold-kernel.test.ts` |

@@ -1,4 +1,5 @@
 import { restrictedAppCheckLimits, type RestrictedAppCheckPermission } from "../../shared/restricted-app-checks.js";
+import { restrictedAppAssistantLimits } from "../../shared/restricted-app-tasks.js";
 import { isIP } from "node:net";
 import { extname, posix } from "node:path";
 
@@ -199,6 +200,7 @@ export interface RestrictedAppManifest {
     cornerRadius?: number;
   };
   tools: RestrictedAppToolDeclaration[];
+  assistantActions?: RestrictedAppAssistantAction[];
   permissions: {
     network: RestrictedAppNetworkDeclaration[];
     files: RestrictedAppFileDeclaration[];
@@ -207,6 +209,13 @@ export interface RestrictedAppManifest {
   };
   automations: RestrictedAppAutomationDeclaration[];
   viewer?: RestrictedAppViewerDeclaration;
+}
+
+export interface RestrictedAppAssistantAction {
+  id: string;
+  title: string;
+  instructions: string;
+  inputSchema: RestrictedAppJsonSchema;
 }
 
 export function validateRestrictedAppValue(
@@ -263,7 +272,7 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
     throw new Error(`Restricted app manifest version must be ${restrictedAppManifestVersion}.`);
   }
   const manifest = objectValue(value, "Restricted app manifest", [
-    "version", "id", "title", "description", "runtime", "ui", "tools", "automations", "permissions", "viewer",
+    "version", "id", "title", "description", "runtime", "ui", "tools", "assistantActions", "automations", "permissions", "viewer",
   ]);
   const runtime = objectValue(manifest.runtime, "Restricted app runtime", ["kind", "entry", "worker"]);
   if (runtime.kind !== restrictedAppRuntimeKind) {
@@ -310,6 +319,16 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
   });
   assertUnique(checks.map((item) => item.id), "Restricted app Check permission id");
 
+  const assistantActions = manifest.assistantActions === undefined ? []
+    : arrayValue(manifest.assistantActions, "Restricted app Assistant actions", 0, restrictedAppAssistantLimits.actions).map((value) => {
+      const label = "Restricted app Assistant action";
+      const action = objectValue(value, label, ["id", "title", "instructions", "inputSchema"]);
+      return { id: idValue(action.id, `${label} id`), title: notificationTextValue(action.title, `${label} title`, 80),
+        instructions: stringValue(action.instructions, `${label} instructions`, restrictedAppAssistantLimits.instructions),
+        inputSchema: parseJsonSchema(action.inputSchema, `${label} input schema`, 0) };
+    });
+  assertUnique(assistantActions.map((item) => item.id), "Restricted app Assistant action id");
+
   const description = optionalStringValue(manifest.description, "Restricted app description", 280);
   const automations = arrayValue(manifest.automations, "Restricted app automations", 0, 16)
     .map((automation, index) => parseAutomationDeclaration(automation, index, { network, files, notifications }));
@@ -339,6 +358,7 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
       ...(cornerRadius !== undefined ? { cornerRadius } : {}),
     },
     tools,
+    ...(assistantActions.length ? { assistantActions } : {}),
     permissions: { network, files, notifications, ...(checks.length ? { checks } : {}) },
     automations,
     ...(viewer ? { viewer } : {}),

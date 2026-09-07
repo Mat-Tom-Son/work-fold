@@ -531,6 +531,7 @@ export interface RestrictedAppManifest {
   runtime: { kind: "sandboxed-web"; entry: string; worker?: string };
   ui: { icon?: string; cornerRadius?: number };
   tools: RestrictedAppTool[];
+  assistantActions?: { id: string; title: string; instructions: string; inputSchema: RestrictedAppJsonSchema }[];
   automations: RestrictedAppAutomation[];
   permissions: {
     network: RestrictedAppNetworkDestination[];

@@ -32,6 +32,11 @@ keeping the useful distinction:
 
 ## Canonical object model
 
+An installed Feature may submit a [named Assistant request](app-assistant-tasks.md)
+bound to its exact incarnation and authority. A person approves the individual
+task in Apps before it enters the owning Space's normal full-trust Chat runtime.
+Neither the declaration nor a request confers standing Assistant authority.
+
 ```mermaid
 flowchart TB
     Space["Space (ordinary folder context)"]

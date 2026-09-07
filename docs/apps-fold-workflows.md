@@ -17,9 +17,9 @@ management surface.
   Chat into the source Space.
 - [x] App data: complete versioned export and explicit recovery, with integrity,
   namespace/revision checks, durable recovery evidence, and no authority restore.
-- [ ] Space context: retain explicit file grants; add selected Check results
+- [x] Space context: retain explicit file grants; add selected Check results
   and app-owned task progress through narrow, declared host capabilities.
-- [ ] Assistant actions: reviewed bounded intents, person-authorized dispatch
+- [x] Assistant actions: reviewed bounded intents, person-authorized dispatch
   into the owning Space, deduplicated acceptance, visible progress/results,
   cancellation and generation checks. No generic fold or shell bridge.
 - [ ] Fold results: bounded file/app previews and direct deliverable/review
@@ -31,6 +31,37 @@ management surface.
   adversarial coverage, real desktop/browser journey, clean commits and merge.
 
 ## Acceptance journey
+
+Assistant request implementation now uses the ordinary Space Chat path with
+exact review pins, task progress, cancellation and restart reconciliation.
+The native bridge and compact Apps review are implemented; live acceptance is
+still pending. Automated coverage includes a real Pi tool loop against a
+simulated provider that writes a deliverable, captures History, returns a
+bounded result, deduplicates an approval after restart and stops a second task.
+This simulated provider is not the required live model acceptance journey.
+
+Live desktop QA has since verified inert submission, the exact review and Run
+surface, honest setup failure, Open Chat, same-request retry and restart using
+the `Assistant Requests QA` fixture in the existing isolated profile. No live
+provider call succeeded: that profile has no provider connection (Settings →
+Assistant showed OpenRouter disconnected). A successful real-model task and the
+combined Purchasing/Delivery/web journey remain required before release.
+
+The walkthrough found and fixed a retained-dialog navigation lock: opening an
+Assistant task Chat hid its Apps tab without dismissing its modal. The callback
+now closes the details dialog; a real DOM regression test keeps the inactive
+Apps tab mounted and verifies that shell navigation regains focus and loses
+background isolation. Live retesting confirmed the fix. The production app and
+its provider settings were untouched.
+
+Verification for this slice: `npm run check`, `npm test` (1,136 passed; one
+Windows-only skip), and `npm run desktop:prepare` including both real Electron
+probes passed. Logs: `/tmp/workfold-app-assistant-complete-check.log`,
+`/tmp/workfold-app-assistant-complete-tests.log`, and
+`/tmp/workfold-app-assistant-complete-desktop.log`. The separate live logs are
+`/tmp/workfold-app-assistant-live.log` and
+`/tmp/workfold-app-assistant-live-reopen.log`. The checked implementation slices
+do not close the remaining full integration and release acceptance below.
 
 Use synthetic quote files in a Purchasing Space and a separate Delivery Space.
 Build a comparison app with deliberately limited file and Check access. Ask its

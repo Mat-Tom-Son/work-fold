@@ -124,6 +124,11 @@ app manifest, and 24 directory levels. `package.json` is limited to 64 KiB.
 
 ## Complete manifest template
 
+For optional named, person-reviewed Assistant work, see
+[App-requested Assistant work](app-assistant-tasks.md). Its `assistantActions`
+declarations are separate from `tools`: tools let the Assistant call an app;
+requests let the app propose a task for its Space's Assistant.
+
 `agent-app.json` is closed and versioned; unknown fields fail review. This
 template exercises every current section:
 

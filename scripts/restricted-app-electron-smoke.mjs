@@ -14,6 +14,7 @@ import { RailTooltipOverlay } from "../dist/desktop/desktop/src/rail-tooltip-ove
 import { stageRestrictedAppPackage } from "../dist/desktop/src/local/agent/restricted-app-package.js";
 import { FileRestrictedAppStorage } from "../dist/desktop/src/local/agent/restricted-app-storage.js";
 import { RestrictedAppNotificationBroker } from "../dist/desktop/src/local/agent/restricted-app-notifications.js";
+import { RestrictedAppTaskError } from "../dist/desktop/src/local/agent/restricted-app-tasks.js";
 import {
   RestrictedAppError,
   RestrictedAppNetworkBroker,
@@ -123,6 +124,20 @@ async function runSmoke() {
         assert.equal(declarationDigest, "c".repeat(64));
         return { checkId, declarationDigest, title: "Smoke Check", state: "never-run", lastRunAt: null, findings: [], truncated: false };
       },
+      assistantTasks: async () => ({
+        async request(scope, request, assertCurrent) {
+          assertCurrent();
+          assert.equal(scope.spaceId, "ws-electron-smoke");
+          assert.equal(scope.appId, "restricted-electron-smoke");
+          assert.equal(typeof scope.featureInstallationId, "string");
+          assert.match(scope.authorityDigest, /^[a-f0-9]{64}$/);
+          if (request.actionId !== "compare") throw new RestrictedAppTaskError("TASK_DENIED", "Choose a declared action.");
+          return { requestId: request.requestId, status: "pending" };
+        },
+        async list() { return []; },
+        async get(_scope, requestId) { return { requestId, status: "pending" }; },
+        async cancel(_scope, requestId, assertCurrent) { assertCurrent(); return { requestId, status: "cancelled" }; },
+      }),
       connections,
       networkBroker,
       storage,
@@ -372,6 +387,7 @@ async function runSmoke() {
     assert.equal(await storage.get(storageOwner, "ui-notification-denied"), true);
     assert.deepEqual(await storage.get(storageOwner, "check-read"), { checkId: "smoke-check", declarationDigest: "c".repeat(64), title: "Smoke Check", state: "never-run", lastRunAt: null, findings: [], truncated: false });
     assert.equal(await storage.get(storageOwner, "check-undeclared-denied"), true);
+    assert.deepEqual(await storage.get(storageOwner, "assistant-bridge"), { requested: "pending", read: "pending", cancelled: "cancelled", undeclaredDenied: true, approvalAbsent: true });
     await storage.transaction(storageOwner, {
       set: Array.from({ length: 128 }, (_, index) => ({ key: "seed-" + String(index).padStart(3, "0"), value: index })),
     });
@@ -417,6 +433,7 @@ async function runSmoke() {
       fileDenied: true,
       networkDenied: true,
       checkDenied: true,
+      assistantDenied: true,
     });
     assert.equal(hits, 0, "an inactive app view must not retain file or network powers");
     await host.runAutomation(descriptor, automationEvent("2026-07-13T00:02:00.000Z", "resume", {
@@ -616,15 +633,24 @@ bridge.context.onChanged(async (next) => {
   let fileDenied = false;
   let networkDenied = false;
   let checkDenied = false;
+  let assistantDenied = false;
   try { await bridge.files.read({ grantId: "exports", path: "smoke.txt", encoding: "utf8" }); } catch { fileDenied = true; }
   try { await bridge.request({ destinationId: "escape", method: "GET", path: "/escape" }); } catch { networkDenied = true; }
   try { await bridge.checks.read({ permissionId: "review" }); } catch { checkDenied = true; }
-  await bridge.storage.set("inactive-powers", { fileDenied, networkDenied, checkDenied });
+  try { await bridge.assistant.list(); } catch (error) { assistantDenied = error instanceof Error && error.code === "TASK_DENIED"; }
+  await bridge.storage.set("inactive-powers", { fileDenied, networkDenied, checkDenied, assistantDenied });
 });
 await bridge.storage.set("check-read", await bridge.checks.read({ permissionId: "review" }));
 let undeclaredCheckDenied = false;
 try { await bridge.checks.read({ permissionId: "other" }); } catch (error) { undeclaredCheckDenied = error.code === "CHECK_DENIED"; }
 await bridge.storage.set("check-undeclared-denied", undeclaredCheckDenied);
+const assistantRequest = { requestId: "request-one", actionId: "compare", input: {}, requestedAt: new Date().toISOString() };
+const requestedTask = await bridge.assistant.request(assistantRequest);
+const readTask = await bridge.assistant.get(assistantRequest.requestId);
+const cancelledTask = await bridge.assistant.cancel(assistantRequest.requestId);
+let assistantUndeclaredDenied = false;
+try { await bridge.assistant.request({ ...assistantRequest, actionId: "other" }); } catch (error) { assistantUndeclaredDenied = error instanceof Error && error.code === "TASK_DENIED"; }
+await bridge.storage.set("assistant-bridge", { requested: requestedTask.status, read: readTask.status, cancelled: cancelledTask.status, undeclaredDenied: assistantUndeclaredDenied, approvalAbsent: bridge.assistant.approve === undefined });
 let uiNotificationDenied = false;
 try { await bridge.notifications.show({ permissionId: "automation-update" }); } catch { uiNotificationDenied = true; }
 await bridge.storage.set("ui-notification-denied", uiNotificationDenied);
@@ -656,6 +682,10 @@ export async function handleAction(action, input) {
     try { await globalThis.workFoldRestrictedApp.checks.read({ permissionId: "review" }); }
     catch (error) { checkDenied = error instanceof Error && error.code === "CHECK_DENIED"; }
     if (!checkDenied) throw new Error("A worker must not read Check results.");
+    let assistantDenied = false;
+    try { await globalThis.workFoldRestrictedApp.assistant.list(); }
+    catch (error) { assistantDenied = error instanceof Error && error.code === "TASK_DENIED"; }
+    if (!assistantDenied) throw new Error("A worker must not request Assistant work.");
     let actionNotificationDenied = false;
     try { await globalThis.workFoldRestrictedApp.notifications.show({ permissionId: "automation-update" }); }
     catch { actionNotificationDenied = true; }

@@ -5335,3 +5335,8 @@
 .checks-definition details > button { margin: 4px 8px 8px 0; }
 .checks-manual-button { border: 0; padding: 6px 0; background: none; color: var(--ui-text-muted); font-size: 12px; cursor: pointer; }
 .checks-manual-button:hover { color: var(--ui-text); text-decoration: underline; }
+
+.restricted-app-task-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.restricted-app-task-review { min-width: 0; margin-top: 12px; }
+.restricted-app-task-review pre, .restricted-app-task-declaration { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 12px 0; padding: 12px; background: var(--ui-surface-subtle); font: inherit; }
+.restricted-app-task-review > button { margin: 4px 8px 4px 0; }

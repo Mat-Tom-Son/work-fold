@@ -55,6 +55,15 @@ A GUI launch (Dock, Finder, Spotlight, `open`) resolves the current user's login
 
 ## Local management surfaces
 
+On the development branch, restricted apps can submit inert, named
+[Assistant requests](docs/app-assistant-tasks.md). Only the trusted Apps UI
+approves an exact request. It starts an ordinary full-trust Space Chat, not a
+tool-restricted subagent. The app gets only its own task state and successful
+bounded reply. Admission pins the installation, revision and authority; updates
+and grant changes cannot overtake an active Space turn. Workers and shared
+viewers cannot request, approve or read these tasks. Restart never auto-replays
+an uncertain acceptance.
+
 The packaged main renderer and management popover talk to a loopback-only local API with a per-launch desktop session token and an app-specific allowed origin. That boundary is for trusted packaged renderers; it is not a network API intended for other local applications. The sandboxed popover uses a dedicated narrow preload exposing only that API session, dropped-file path resolution, hide/show-main actions, and window material; it does not inherit the main renderer's folder, restricted-app, update, settings, or shell bridges. Development mode has different local-origin assumptions and must not be exposed beyond the loopback interface.
 
 Optional Remote access does not expose that loopback API. The public bridge

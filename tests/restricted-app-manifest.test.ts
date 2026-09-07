@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+test("named Assistant requests have reviewed static instructions and bounded typed input without changing old manifests", () => {
+  const action = { id: "compare", title: "Compare quotes", instructions: "Write a comparison in this Space.", inputSchema: {
+    type: "object", properties: { quote: { type: "string", maxLength: 1_000 } }, required: ["quote"], additionalProperties: false } };
+  const base = manifest();
+  assert.deepEqual(parseRestrictedAppManifest({ ...base, assistantActions: [] }), parseRestrictedAppManifest(base));
+  assert.equal(parseRestrictedAppManifest({ ...base, assistantActions: [action] }).assistantActions?.[0]?.instructions, action.instructions);
+  for (const actions of [[{ ...action, instructions: "x".repeat(4_097) }], [{ ...action, title: "Hidden\nreview" }],
+    [{ ...action, spaceId: "foreign" }], [{ ...action, standing: true }], [action, action],
+    Array.from({ length: 9 }, (_, index) => ({ ...action, id: `task-${index}` })), [{ ...action, inputSchema: { type: "object", additionalProperties: true } }]]) {
+    assert.throws(() => parseRestrictedAppManifest({ ...base, assistantActions: actions }));
+  }
+});
+
 import {
   parseRestrictedAppManifest,
   restrictedAppManifestVersion,

@@ -1,3 +1,4 @@
+import { RestrictedAppTaskService, RestrictedAppTaskError, restrictedAppTaskAuthorityDigest, restrictedAppTaskPrompt, restrictedAppTaskTurnRequestId } from "./agent/restricted-app-tasks.js";
 import { observeWorkFoldRoutingFiles } from "./routings/routing-file-observer.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -510,6 +511,8 @@ export interface WorkFoldRoutingSettingsFacade {
 }
 
 export interface LocalApiHandle {
+  /** Native app bridge calls only request/list/get/cancel; approval stays in trusted Apps UI. */
+  appAssistantTasks: RestrictedAppTaskService;
   origin: string;
   port: number;
   kernel: WorkFoldKernel;
@@ -547,6 +550,7 @@ export interface LocalApiHandle {
 }
 
 interface LocalApiState {
+  appAssistantTasks: RestrictedAppTaskService;
   appMode: "dev" | "desktop";
   spaceBase?: string;
   allowedOrigins: string[];
@@ -840,6 +844,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   });
   const glanceSeen = new WorkFoldGlanceSeenStore();
   const state: LocalApiState = {
+    appAssistantTasks: undefined as unknown as RestrictedAppTaskService,
     appMode,
     spaceBase: options.spaceBase ? resolve(options.spaceBase) : undefined,
     allowedOrigins: options.allowedOrigins ?? ["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -917,6 +922,28 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     fence: createFoldDecisionFence(state),
     adapters: createFoldDecisionAdapters(state),
   });
+  state.appAssistantTasks = await RestrictedAppTaskService.create({
+    path: join(workFoldStateRoot(), "restricted-apps", "assistant-tasks.json"),
+    ports: {
+      withApp: (scope, operation) => restrictedApps.withAssistantTaskApp(scope, async (actions) => {
+        await getSpace(scope.spaceId);
+        if (!state.acceptingTurns) throw new RestrictedAppTaskError("TASK_UNAVAILABLE", "work-fold is closing.");
+        return operation(actions);
+      }),
+      dispatch: async (receipt) => {
+        const space = await getSpace(receipt.scope.spaceId);
+        await createConversation(space.spaceRoot, receipt.title, receipt.conversationId);
+        await acceptConversationTurn(state, space, receipt.conversationId, {
+          content: restrictedAppTaskPrompt(receipt), contextPaths: [], selectedPath: null, actorKind: "system",
+          requestId: restrictedAppTaskTurnRequestId(receipt), userMessageId: `message-app-${receipt.id}`,
+        });
+      },
+      findTurn: (receipt) => turnStore.findRequest(receipt.scope.spaceId, receipt.conversationId, restrictedAppTaskTurnRequestId(receipt)),
+      cancelTurn: async (receipt, turnId) => { await cancelAcceptedTurn(state, receipt.scope.spaceId, receipt.conversationId, turnId); },
+    },
+  });
+  const appTasksChanged = () => publishControlHint(state, "apps");
+  state.appAssistantTasks.on("changed", appTasksChanged);
   const decisionsChanged = () => publishControlHint(state, "decisions");
   stagedActs.on("staged", decisionsChanged);
   stagedActs.on("settled", decisionsChanged);
@@ -1012,6 +1039,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     port: address.port,
     kernel,
     reviewCheck,
+    appAssistantTasks: state.appAssistantTasks,
     actFacade: createWorkFoldActFacade(state),
     remoteFacade: createWorkFoldRemoteFacade(state),
     resolveManagementLineageParent: (taskId) => state.managementRequests.isActive(taskId) ? { taskId } : null,
@@ -1027,6 +1055,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       stagedActs.off("settled", decisionsChanged);
       stagedActs.off("execution", decisionsChanged);
       unsubscribeAppCatalog();
+      state.appAssistantTasks.off("changed", appTasksChanged);
       for (const response of state.controlStreams) response.end();
       clearInterval(remoteUploadPruneTimer);
       extensionUi.off("request", requestListener);
@@ -1048,6 +1077,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       await state.turnStore.flush();
       await state.checks.close();
       await state.appearance.flush();
+      await state.appAssistantTasks.flush();
       await state.restrictedApps.close();
       await closeServer(server);
     },
@@ -1661,6 +1691,28 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
           featureInstallationId: body.featureInstallationId, expectedDigest: body.expectedDigest!,
         }));
     sendJson(res, { app });
+    return;
+  }
+
+  const appTaskMatch = /^\/api\/spaces\/([^/]+)\/restricted-apps\/([^/]+)\/assistant-tasks(?:\/([^/]+))?(?:\/(approve|cancel))?$/.exec(url.pathname)
+    ?.map((value) => value === undefined ? "" : decodeURIComponent(value));
+  if (appTaskMatch && (method === "GET" || method === "POST")) {
+    const space = await getSpace(appTaskMatch[1]);
+    const body = method === "POST" ? await readJsonBody<Record<string, unknown>>(state, req) : Object.fromEntries(url.searchParams);
+    if (typeof body.featureInstallationId !== "string" || typeof body.expectedDigest !== "string") throw badRequest("An exact app installation and revision are required.");
+    const allowed = ["featureInstallationId", "expectedDigest", ...(appTaskMatch[4] === "approve" ? ["reviewDigest"] : [])];
+    if (Object.keys(body).some((key) => !allowed.includes(key))) throw badRequest("Assistant request fields are invalid.");
+    const app = await state.restrictedApps.runtimeDescriptor(space.id, appTaskMatch[2], body.expectedDigest, body.featureInstallationId);
+    const scope = { spaceId: space.id, appId: app.manifest.id, featureInstallationId: app.featureInstallationId,
+      digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority) };
+    if (method === "GET" && !appTaskMatch[4]) {
+      sendJson(res, appTaskMatch[3] ? { review: await state.appAssistantTasks.review(scope, appTaskMatch[3]) }
+        : { tasks: await state.appAssistantTasks.list(scope) });
+    } else if (method === "POST" && appTaskMatch[3] && appTaskMatch[4] === "approve" && typeof body.reviewDigest === "string") {
+      sendJson(res, { task: await state.appAssistantTasks.approve(scope, appTaskMatch[3], body.reviewDigest) });
+    } else if (method === "POST" && appTaskMatch[3] && appTaskMatch[4] === "cancel") {
+      sendJson(res, { task: await state.appAssistantTasks.cancel(scope, appTaskMatch[3]) });
+    } else throw badRequest("Choose an Assistant request and action.");
     return;
   }
 
@@ -11125,13 +11177,14 @@ function sendError(res: ServerResponse, error: unknown): void {
   const status = explicit
     ?? workFoldCliErrorStatus(error)
     ?? (error instanceof WorkFoldCheckOperationConflictError ? 409 : null)
+    ?? (error instanceof RestrictedAppTaskError ? ({ TASK_DENIED: 403, TASK_INVALID: 400, TASK_CONFLICT: 409, TASK_UNAVAILABLE: 503 }[error.code]) : null)
     ?? routingErrorStatus(error)
     ?? restrictedAppErrorStatus(error)
     ?? 500;
   sendJson(res, {
     error: errorMessage(error),
     ...((error instanceof WorkFoldRoutingServiceError || error instanceof WorkFoldRoutingStoreError) ? { code: error.code } : {}),
-    ...(error instanceof RestrictedAppError || error instanceof RestrictedAppStorageError ? { code: error.code } : {}),
+    ...(error instanceof RestrictedAppError || error instanceof RestrictedAppStorageError || error instanceof RestrictedAppTaskError ? { code: error.code } : {}),
   }, status);
 }
 

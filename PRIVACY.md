@@ -1,6 +1,6 @@
 # Privacy
 
-Last updated: September 6, 2026
+Last updated: September 7, 2026
 
 work-fold is a local-first desktop application. Core Space use does not require a work-fold account; a person may optionally create a private work-fold Remote access address. The current application does not include first-party analytics, advertising, or usage telemetry.
 
@@ -31,6 +31,15 @@ deleting the ordinary folder; work-fold never uses managed deletion to erase
 legacy product data.
 
 ## When data leaves this computer
+
+The development branch supports named [app-requested Assistant tasks](docs/app-assistant-tasks.md).
+Creating a request does not contact a provider. Clicking **Run in this Space**
+sends the displayed instructions and app input through the Space's usual model
+and tools. The successful reply is shared with the requesting app, which may
+use its separately granted capabilities. Request and result receipts are kept
+in machine-local app data; the approved prompt and normal reply also belong to
+that Space's portable Chat. No other Chat or fold transcript is shared with the
+app. Failed and interrupted tasks expose no partial reply or provider error.
 
 The development version adds **Export data**, **Restore…**, and recoverable
 **Clear data** to app details. Exports contain the app's complete JSON data and

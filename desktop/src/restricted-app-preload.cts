@@ -6,6 +6,7 @@ const contextChannel = "work-fold:restricted-app:context";
 const storageChannel = "work-fold:restricted-app:storage";
 const storageChangedChannel = "work-fold:restricted-app:storage-changed";
 const checksChannel = "work-fold:restricted-app:checks";
+const assistantTasksChannel = "work-fold:restricted-app:assistant-tasks";
 const filesChannel = "work-fold:restricted-app:files";
 const notificationsChannel = "work-fold:restricted-app:notifications";
 const maximumFileEnvelopeBytes = 800 * 1024;
@@ -164,6 +165,12 @@ const appBridge = Object.freeze({
   }),
   checks: Object.freeze({
     read: (request: { permissionId: string }) => invokeHost(checksChannel, request, 1024, "CHECK_UNAVAILABLE"),
+  }),
+  assistant: Object.freeze({
+    request: (request: unknown) => invokeHost(assistantTasksChannel, { operation: "request", request }, 12 * 1024, "TASK_UNAVAILABLE"),
+    list: () => invokeHost(assistantTasksChannel, { operation: "list" }, 1024, "TASK_UNAVAILABLE"),
+    get: (requestId: string) => invokeHost(assistantTasksChannel, { operation: "get", requestId }, 1024, "TASK_UNAVAILABLE"),
+    cancel: (requestId: string) => invokeHost(assistantTasksChannel, { operation: "cancel", requestId }, 1024, "TASK_UNAVAILABLE"),
   }),
   files: Object.freeze({
     list: (request: unknown) => fileRequest("list", request),
