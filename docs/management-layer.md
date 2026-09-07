@@ -9,6 +9,13 @@ sends heartbeats, and disconnects backpressured clients instead of queuing
 unbounded updates. This keeps CLI-created decisions and installed-app catalogs
 current in the existing UI; it is not a file watcher or workflow event bus.
 
+App act commands accepting `--app` resolve a unique manifest id or an exact
+`featureInstallationId`. Ambiguous names refuse and list exact choices. The
+resolved installation and digest travel through the existing domain controls,
+including staged grant and automation execution; remove/reinstall cannot redirect
+an admitted operation to identical replacement bytes. This is an act-lane
+selector extension, not a protocol-v1 inventory or authority change.
+
 work-fold now has a small management layer over its existing product model. It gives the renderer, command line, test harnesses, and future Assistant-facing adapters one semantic view of Spaces, running work, and Pi capabilities without creating another data store or agent framework.
 
 This is infrastructure, not another navigation item. **work-fold**, **Space**, **Files**, **Chats**, **Library**, **History**, and **Assistant tools** remain the user-facing nouns. The management layer makes their underlying state inspectable in a consistent, versioned form.

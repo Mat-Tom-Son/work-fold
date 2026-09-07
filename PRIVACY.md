@@ -42,6 +42,10 @@ that snapshot; uninstall with purge removes it with the namespace. Retained
 data can be exported from its source Project without reactivating the app.
 See [App data recovery](docs/app-data-recovery.md) for exact limits and retention.
 
+App data and management controls carry the non-secret installation identity
+as well as the reviewed revision. Removing and reinstalling the same code does
+not let an old control read or modify the new installation's data.
+
 The development branch's **Change this app** copies only the verified installed
 package into its source Space, where ordinary folder backup/synchronization rules
 apply. Its machine-local provenance records the source working path, exact app

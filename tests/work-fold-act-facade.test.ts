@@ -1084,9 +1084,10 @@ test("the act facade drives Space rename, appearance, tools, and App Studio fami
     });
     assert.equal(dismissedAgain.dismissed, false, "a settled proposal reports no second dismissal");
 
+    const authorityInstallation = (await restrictedApps.list(studio.id)).find((app) => app.manifest.id === "authority-demo")!;
     const revoked = await facade.appsRevoke({
       space: studio.id,
-      app: "authority-demo",
+      app: authorityInstallation.featureInstallationId,
       digest: authorityReview.digest,
       kind: "files",
       declaration: "exports",
@@ -1125,7 +1126,7 @@ test("the act facade drives Space rename, appearance, tools, and App Studio fami
       () => facade.appsRemove({ space: studio.id, app: "ghost-app" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
-    const removedApp = await facade.appsRemove({ space: studio.id, app: "authority-demo" });
+    const removedApp = await facade.appsRemove({ space: studio.id, app: authorityInstallation.featureInstallationId });
     assert.equal(removedApp.removed, true);
     assert.equal(removedApp.digest, authorityReview.digest);
     assert.equal(

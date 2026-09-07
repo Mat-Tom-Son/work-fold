@@ -757,6 +757,7 @@ test("grant adapter: resolves the App Instance, re-verifies digest and declarati
     assert.deepEqual(calls.network, [{
       spaceId: "space-alpha",
       appId: "app-mail",
+      featureInstallationId: "fi-1",
       expectedDigest: "d".repeat(64),
       destinationId: "net-api.example.com",
     }], "the grant addresses the resolved app id and installed digest, exactly one declaration");
@@ -793,6 +794,7 @@ test("grant adapter: resolves the App Instance, re-verifies digest and declarati
     assert.deepEqual(calls.files, [{
       spaceId: "space-alpha",
       appId: "app-mail",
+      featureInstallationId: "fi-1",
       expectedDigest: "d".repeat(64),
       spaceRoot: "/space/alpha",
       permissionId: "files-notes",
@@ -849,6 +851,7 @@ test("automation adapter: the reviewed digest and host-composed schedule summary
     assert.deepEqual(enabled, [{
       spaceId: "space-alpha",
       appId: "app-mail",
+      featureInstallationId: "fi-1",
       expectedDigest: "d".repeat(64),
       automationId: "auto-sync",
       enabled: true,

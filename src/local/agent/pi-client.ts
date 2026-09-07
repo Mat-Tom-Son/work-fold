@@ -1100,12 +1100,12 @@ export function createRestrictedAppTools(input: {
   service: Pick<RestrictedAppService, "invoke">;
 }): ToolDefinition<any>[] {
   return input.apps.flatMap((app) => app.manifest.tools.map((tool): ToolDefinition<any> => ({
-    name: restrictedAppToolName(app.manifest.id, tool.name),
-    label: `${app.manifest.title}: ${tool.name}`,
-    description: `${tool.description} This action belongs to the installed sandboxed Space app “${app.manifest.title}”.`,
+    name: restrictedAppToolName(app.featureInstallationId, tool.name),
+    label: `${app.manifest.title}${app.runtimeInstanceKind === "development" ? " (preview)" : ""}: ${tool.name}`,
+    description: `${tool.description} This action belongs to ${app.runtimeInstanceKind === "development" ? "the local preview of" : "the installed"} sandboxed Space app “${app.manifest.title}”.`,
     promptSnippet: `${app.manifest.title}: ${tool.description}`,
     promptGuidelines: [
-      `Use ${restrictedAppToolName(app.manifest.id, tool.name)} only when the user wants ${app.manifest.title} to ${tool.description.charAt(0).toLowerCase()}${tool.description.slice(1)}`,
+      `Use ${restrictedAppToolName(app.featureInstallationId, tool.name)} only when the user wants ${app.manifest.title} to ${tool.description.charAt(0).toLowerCase()}${tool.description.slice(1)}`,
       "The app can contact only destinations the user separately allowed in Capabilities; report connection or permission errors without asking for secret values in Chat.",
     ],
     parameters: structuredClone(tool.inputSchema) as any,
@@ -1115,6 +1115,7 @@ export function createRestrictedAppTools(input: {
       const result = await input.service.invoke({
         spaceId: input.spaceId,
         appId: app.manifest.id,
+        featureInstallationId: app.featureInstallationId,
         expectedDigest: app.digest,
         action: tool.action,
         input: params,
@@ -1134,8 +1135,8 @@ export function createRestrictedAppTools(input: {
   })));
 }
 
-function restrictedAppToolName(appId: string, toolName: string): string {
-  const prefix = `app_${createHash("sha256").update(appId).digest("hex").slice(0, 8)}_`;
+function restrictedAppToolName(featureInstallationId: string, toolName: string): string {
+  const prefix = `app_${createHash("sha256").update(JSON.stringify([featureInstallationId, toolName])).digest("hex").slice(0, 16)}_`;
   return `${prefix}${toolName}`.slice(0, 64);
 }
 

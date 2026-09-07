@@ -1662,10 +1662,10 @@ export class RestrictedAppService {
     return { ...app, stagedRoot: this.#digestRoot(app.digest) };
   }
 
-  async snapshotForChange(spaceId: string, appId: string, expectedDigest: string) {
+  async snapshotForChange(spaceId: string, appId: string, expectedDigest: string, featureInstallationId?: string) {
     return this.#mutate(async () => {
       await assertRestrictedAppStagingRoot(this.#stagingPath);
-      const app = this.#installed(spaceId, appId, expectedDigest);
+      const app = this.#installed(spaceId, appId, expectedDigest, featureInstallationId);
       const source = this.#registry.installations.find((item) => item.spaceId === app.sourceSpaceId && item.manifest.id === app.manifest.id);
       if (source?.runtimeInstanceKind === "app") {
         throw new RestrictedAppError("INPUT_INVALID", "This App is installed in its own source Space. Its Local preview needs a separate placement before it can be changed.");
@@ -1810,10 +1810,10 @@ export class RestrictedAppService {
     });
   }
 
-  async remove(input: { spaceId: string; appId: string; expectedDigest?: string }): Promise<boolean> {
+  async remove(input: { spaceId: string; appId: string; featureInstallationId?: string; expectedDigest?: string }): Promise<boolean> {
     return await this.#mutate(async () => {
       const appId = appIdValue(input.appId);
-      const existing = this.#registry.installations.find((item) => item.spaceId === input.spaceId && item.manifest.id === appId);
+      const existing = this.#findInstallation(input.spaceId, appId, input.featureInstallationId);
       if (!existing) return false;
       if (existing.runtimeInstanceKind === "app") {
         throw new RestrictedAppError("INPUT_INVALID", "Installed Releases must be uninstalled from App Studio with an explicit data choice.");
@@ -1889,19 +1889,19 @@ export class RestrictedAppService {
     });
   }
 
-  async invoke(input: { spaceId: string; appId: string; expectedDigest: string; action: string; input: unknown }): Promise<unknown> {
+  async invoke(input: { spaceId: string; appId: string; featureInstallationId?: string; expectedDigest: string; action: string; input: unknown }): Promise<unknown> {
     this.#assertOpen();
     await this.#queue.catch(() => undefined);
     if (!this.#runtimeHost) throw new RestrictedAppError("APP_UNAVAILABLE", "Restricted apps can run only in the work-fold desktop host.");
-    const app = this.#installed(input.spaceId, input.appId, input.expectedDigest);
+    const app = this.#installed(input.spaceId, input.appId, input.expectedDigest, input.featureInstallationId);
     const action = app.manifest.tools.find((tool) => tool.action === input.action)?.action;
     if (!action) throw new RestrictedAppError("ACTION_UNKNOWN", "The restricted app action is not declared.");
     return await this.#runtimeHost.invoke({ ...app, stagedRoot: this.#digestRoot(app.digest) }, action, input.input);
   }
 
-  async connectionStatus(spaceId: string, appId: string, expectedDigest: string): Promise<RestrictedAppConnectionStatus[]> {
+  async connectionStatus(spaceId: string, appId: string, expectedDigest: string, featureInstallationId?: string): Promise<RestrictedAppConnectionStatus[]> {
     this.#assertOpen();
-    const app = this.#installed(spaceId, appId, expectedDigest);
+    const app = this.#installed(spaceId, appId, expectedDigest, featureInstallationId);
     return await Promise.all(app.manifest.permissions.network.map(async (destination) => {
       const none = destination.auth.some((item) => item.kind === "none");
       if (none) return { destinationId: destination.id, owner: "instance" as const, kind: "none" as const, configured: true };
@@ -1919,10 +1919,10 @@ export class RestrictedAppService {
     }));
   }
 
-  async setConnection(input: { spaceId: string; appId: string; expectedDigest: string; destinationId: string; credential: unknown }): Promise<RestrictedAppConnectionStatus> {
+  async setConnection(input: { spaceId: string; appId: string; featureInstallationId?: string; expectedDigest: string; destinationId: string; credential: unknown }): Promise<RestrictedAppConnectionStatus> {
     return await this.#mutate(async () => {
       if (!this.#connections) throw new RestrictedAppError("APP_UNAVAILABLE", "Encrypted app connections require the work-fold desktop host.");
-      const app = this.#installed(input.spaceId, input.appId, input.expectedDigest);
+      const app = this.#installed(input.spaceId, input.appId, input.expectedDigest, input.featureInstallationId);
       const destination = app.manifest.permissions.network.find((item) => item.id === input.destinationId);
       if (!destination) throw new RestrictedAppError("NETWORK_DENIED", "The app did not declare this connection destination.");
       let credential: RestrictedAppCredential;
@@ -1946,10 +1946,10 @@ export class RestrictedAppService {
     });
   }
 
-  async deleteConnection(input: { spaceId: string; appId: string; expectedDigest: string; destinationId: string }): Promise<boolean> {
+  async deleteConnection(input: { spaceId: string; appId: string; featureInstallationId?: string; expectedDigest: string; destinationId: string }): Promise<boolean> {
     return await this.#mutate(async () => {
       if (!this.#connections) return false;
-      const app = this.#installed(input.spaceId, input.appId, input.expectedDigest);
+      const app = this.#installed(input.spaceId, input.appId, input.expectedDigest, input.featureInstallationId);
       const destination = app.manifest.permissions.network.find((item) => item.id === input.destinationId);
       if (!destination) return false;
       await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId);
@@ -1966,11 +1966,11 @@ export class RestrictedAppService {
     });
   }
 
-  async connectOAuth(input: { spaceId: string; appId: string; expectedDigest: string; destinationId: string }): Promise<RestrictedAppConnectionStatus> {
+  async connectOAuth(input: { spaceId: string; appId: string; featureInstallationId?: string; expectedDigest: string; destinationId: string }): Promise<RestrictedAppConnectionStatus> {
     this.#assertOpen();
     if (!this.#oauth) throw new RestrictedAppError("APP_UNAVAILABLE", "OAuth browser sign-in requires the work-fold desktop host.");
     await this.#queue.catch(() => undefined);
-    const app = this.#installed(input.spaceId, input.appId, input.expectedDigest);
+    const app = this.#installed(input.spaceId, input.appId, input.expectedDigest, input.featureInstallationId);
     const destination = app.manifest.permissions.network.find((item) => item.id === input.destinationId);
     const declaration = destination?.auth.find((item) => item.kind === "oauth2-pkce");
     if (!destination || destination.target.kind !== "public-https" || !declaration) {
@@ -1979,7 +1979,7 @@ export class RestrictedAppService {
     try {
       await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId);
       const authorized = await this.#mutate(async () => {
-        const current = this.#installed(input.spaceId, input.appId, input.expectedDigest);
+        const current = this.#installed(input.spaceId, input.appId, input.expectedDigest, app.featureInstallationId);
         return await this.#advanceInstalledAuthority(current, ["connectionGeneration"]);
       });
       const status = await this.#oauth.connect(
@@ -2007,42 +2007,43 @@ export class RestrictedAppService {
     }
   }
 
-  async grantNetwork(input: { spaceId: string; appId: string; expectedDigest: string; destinationId: string }): Promise<RestrictedAppInstalled> {
+  async grantNetwork(input: { spaceId: string; appId: string; featureInstallationId?: string; expectedDigest: string; destinationId: string }): Promise<RestrictedAppInstalled> {
     return await this.#setNetworkGrant(input, true);
   }
 
-  async revokeNetwork(input: { spaceId: string; appId: string; expectedDigest: string; destinationId: string }): Promise<RestrictedAppInstalled> {
+  async revokeNetwork(input: { spaceId: string; appId: string; featureInstallationId?: string; expectedDigest: string; destinationId: string }): Promise<RestrictedAppInstalled> {
     return await this.#setNetworkGrant(input, false);
   }
 
-  async grantFiles(input: { spaceId: string; spaceRoot: string; appId: string; expectedDigest: string; permissionId: string; root: string }): Promise<RestrictedAppInstalled> {
+  async grantFiles(input: { spaceId: string; spaceRoot: string; appId: string; featureInstallationId?: string; expectedDigest: string; permissionId: string; root: string }): Promise<RestrictedAppInstalled> {
     return await this.#setFileGrant(input, true);
   }
 
-  async revokeFiles(input: { spaceId: string; appId: string; expectedDigest: string; permissionId: string }): Promise<RestrictedAppInstalled> {
+  async revokeFiles(input: { spaceId: string; appId: string; featureInstallationId?: string; expectedDigest: string; permissionId: string }): Promise<RestrictedAppInstalled> {
     return await this.#setFileGrant(input, false);
   }
 
-  async grantNotifications(input: { spaceId: string; appId: string; expectedDigest: string; permissionId: string }): Promise<RestrictedAppInstalled> {
+  async grantNotifications(input: { spaceId: string; appId: string; featureInstallationId?: string; expectedDigest: string; permissionId: string }): Promise<RestrictedAppInstalled> {
     return await this.#setNotificationGrant(input, true);
   }
 
-  async revokeNotifications(input: { spaceId: string; appId: string; expectedDigest: string; permissionId: string }): Promise<RestrictedAppInstalled> {
+  async revokeNotifications(input: { spaceId: string; appId: string; featureInstallationId?: string; expectedDigest: string; permissionId: string }): Promise<RestrictedAppInstalled> {
     return await this.#setNotificationGrant(input, false);
   }
 
   async setAutomationEnabled(input: {
     spaceId: string;
     appId: string;
+    featureInstallationId?: string;
     expectedDigest: string;
     automationId: string;
     enabled: boolean;
   }): Promise<RestrictedAppInstalled> {
     return await this.#mutate(async () => {
-      const app = this.#installed(input.spaceId, input.appId, input.expectedDigest);
+      const app = this.#installed(input.spaceId, input.appId, input.expectedDigest, input.featureInstallationId);
       const declaration = automationDeclaration(app.manifest, input.automationId);
       if (input.enabled) this.#assertAutomationRuntime();
-      const existing = this.#registry.installations.find((item) => item.spaceId === app.spaceId && item.manifest.id === app.manifest.id)!;
+      const existing = this.#registry.installations.find((item) => item.featureInstallationId === app.featureInstallationId)!;
       const state = existing.automations.find((item) => item.id === declaration.id)!;
       if (state.enabled === input.enabled) return this.#copyInstalled(existing);
       const nextState: RestrictedAppAutomationRegistryState = {
@@ -2074,10 +2075,11 @@ export class RestrictedAppService {
   async runAutomationNow(input: {
     spaceId: string;
     appId: string;
+    featureInstallationId?: string;
     expectedDigest: string;
     automationId: string;
   }): Promise<{ app: RestrictedAppInstalled; run: RestrictedAppAutomationRunReceipt }> {
-    const app = this.#installed(input.spaceId, input.appId, input.expectedDigest);
+    const app = this.#installed(input.spaceId, input.appId, input.expectedDigest, input.featureInstallationId);
     const declaration = automationDeclaration(app.manifest, input.automationId);
     this.#assertAutomationRuntime();
     if (!this.#automationsStarted || this.#spaceRuntimeExclusions.has(app.spaceId)) {
@@ -2093,7 +2095,7 @@ export class RestrictedAppService {
     const recorded = await this.#recordAutomationResult(result);
     if (!recorded) throw new RestrictedAppError("APP_UNAVAILABLE", "The automation receipt could not be persisted.");
     return {
-      app: this.#installed(input.spaceId, input.appId, input.expectedDigest),
+      app: this.#installed(input.spaceId, input.appId, input.expectedDigest, app.featureInstallationId),
       run: recorded,
     };
   }
@@ -2103,10 +2105,11 @@ export class RestrictedAppService {
     appId: string,
     expectedDigest: string,
     automationId: string,
+    featureInstallationId?: string,
   ): Promise<RestrictedAppAutomationRunReceipt[]> {
-    const app = this.#installed(spaceId, appId, expectedDigest);
+    const app = this.#installed(spaceId, appId, expectedDigest, featureInstallationId);
     const declaration = automationDeclaration(app.manifest, automationId);
-    const entry = this.#registry.installations.find((item) => item.spaceId === app.spaceId && item.manifest.id === app.manifest.id)!;
+    const entry = this.#registry.installations.find((item) => item.featureInstallationId === app.featureInstallationId)!;
     return entry.automationRuns
       .filter((run) => run.automationId === declaration.id && run.packageDigest === app.digest)
       .slice(-50)
@@ -2249,8 +2252,8 @@ export class RestrictedAppService {
     this.#automations.resume();
   }
 
-  async storageUsage(spaceId: string, appId: string, expectedDigest: string): Promise<RestrictedAppStorageUsage> {
-    const app = this.#installed(spaceId, appId, expectedDigest);
+  async storageUsage(spaceId: string, appId: string, expectedDigest: string, featureInstallationId?: string): Promise<RestrictedAppStorageUsage> {
+    const app = this.#installed(spaceId, appId, expectedDigest, featureInstallationId);
     if (!this.#storage) throw new RestrictedAppError("APP_UNAVAILABLE", "Restricted app storage requires the work-fold desktop host.");
     return await this.#storage.usage(storageOwnerFromEntry(app, this.#registry.localIdentity));
   }
@@ -2260,9 +2263,9 @@ export class RestrictedAppService {
     return () => { this.#catalogListeners.delete(listener); };
   }
 
-  async clearStorage(spaceId: string, appId: string, expectedDigest: string): Promise<RestrictedAppStorageUsage> {
+  async clearStorage(spaceId: string, appId: string, expectedDigest: string, featureInstallationId?: string): Promise<RestrictedAppStorageUsage> {
     return await this.#mutate(async () => {
-      const app = this.#installed(spaceId, appId, expectedDigest);
+      const app = this.#installed(spaceId, appId, expectedDigest, featureInstallationId);
       if (!this.#storage) throw new RestrictedAppError("APP_UNAVAILABLE", "Restricted app storage requires the work-fold desktop host.");
       await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId);
       await this.#advanceInstalledAuthority(app, ["dataGeneration"]);
@@ -2272,9 +2275,9 @@ export class RestrictedAppService {
     });
   }
 
-  async exportStorage(spaceId: string, appId: string, expectedDigest: string): Promise<RestrictedAppDataBackup> {
+  async exportStorage(spaceId: string, appId: string, expectedDigest: string, featureInstallationId?: string): Promise<RestrictedAppDataBackup> {
     return await this.#mutate(async () => {
-      const app = this.#installed(spaceId, appId, expectedDigest);
+      const app = this.#installed(spaceId, appId, expectedDigest, featureInstallationId);
       if (!this.#storage) throw new RestrictedAppError("APP_UNAVAILABLE", "App data requires the desktop host.");
       const backup = await this.#storage.exportData(storageOwnerFromEntry(app, this.#registry.localIdentity), app.manifest.id, app.digest);
       await this.#recordDataExport(app);
@@ -2289,18 +2292,18 @@ export class RestrictedAppService {
     }) });
   }
 
-  async storageRecovery(spaceId: string, appId: string, expectedDigest: string): Promise<RestrictedAppDataRecovery | null> {
-    const app = this.#installed(spaceId, appId, expectedDigest);
+  async storageRecovery(spaceId: string, appId: string, expectedDigest: string, featureInstallationId?: string): Promise<RestrictedAppDataRecovery | null> {
+    const app = this.#installed(spaceId, appId, expectedDigest, featureInstallationId);
     if (!this.#storage) throw new RestrictedAppError("APP_UNAVAILABLE", "App data requires the desktop host.");
     return await this.#storage.recovery(storageOwnerFromEntry(app, this.#registry.localIdentity), app.digest);
   }
 
   async restoreStorage(input: {
-    spaceId: string; appId: string; expectedDigest: string; expectedRevision: number;
+    spaceId: string; appId: string; featureInstallationId?: string; expectedDigest: string; expectedRevision: number;
     backup?: unknown; recoveryId?: string;
   }): Promise<RestrictedAppStorageUsage> {
     return await this.#mutate(async () => {
-      const app = this.#installed(input.spaceId, input.appId, input.expectedDigest);
+      const app = this.#installed(input.spaceId, input.appId, input.expectedDigest, input.featureInstallationId);
       if (!this.#storage) throw new RestrictedAppError("APP_UNAVAILABLE", "App data requires the desktop host.");
       if ((input.backup === undefined) === (input.recoveryId === undefined)) {
         throw new RestrictedAppError("INPUT_INVALID", "Choose one backup or recovery point.");
@@ -2333,13 +2336,20 @@ export class RestrictedAppService {
   #installed(spaceId: string, appId: string, expectedDigest: string, featureInstallationId?: string): RestrictedAppInstalled {
     const id = appIdValue(appId);
     const digest = digestValue(expectedDigest);
-    const matches = this.#registry.installations.filter((item) => item.spaceId === spaceId && item.manifest.id === id
-      && (featureInstallationId === undefined || item.featureInstallationId === featureInstallationId));
-    if (matches.length > 1) throw new RestrictedAppError("INPUT_INVALID", "Choose an exact app installation.");
-    const entry = matches[0];
+    const entry = this.#findInstallation(spaceId, id, featureInstallationId);
     if (!entry) throw new RestrictedAppError("APP_UNAVAILABLE", "The restricted app is not installed in this Space.");
     if (entry.digest !== digest) throw new RestrictedAppError("REVISION_CHANGED", "The restricted app revision changed. Refresh before using it.");
     return this.#copyInstalled(entry);
+  }
+
+  #findInstallation(spaceId: string, appId: string, featureInstallationId?: string): RestrictedAppRegistryEntry | undefined {
+    let installationId: FeatureInstallationId | undefined;
+    try { installationId = featureInstallationId === undefined ? undefined : parseFeatureInstallationId(featureInstallationId); }
+    catch { throw new RestrictedAppError("INPUT_INVALID", "The app installation identity is invalid."); }
+    const matches = this.#registry.installations.filter((item) => item.spaceId === spaceId && item.manifest.id === appId
+      && (installationId === undefined || item.featureInstallationId === installationId));
+    if (matches.length > 1) throw new RestrictedAppError("INPUT_INVALID", "Choose an exact app installation.");
+    return matches[0];
   }
 
   #copyInstalled(entry: RestrictedAppRegistryEntry): RestrictedAppInstalled {
@@ -2354,11 +2364,11 @@ export class RestrictedAppService {
   }
 
   async #advanceInstalledAuthority(
-    app: Pick<RestrictedAppInstalled, "spaceId" | "digest" | "manifest">,
+    app: Pick<RestrictedAppInstalled, "spaceId" | "digest" | "manifest" | "featureInstallationId">,
     fields: readonly Parameters<typeof advanceAuthorityStamp>[1][number][],
   ): Promise<RestrictedAppInstalled> {
     const existing = this.#registry.installations.find((item) => item.spaceId === app.spaceId
-      && item.manifest.id === app.manifest.id && item.digest === app.digest);
+      && item.manifest.id === app.manifest.id && item.digest === app.digest && item.featureInstallationId === app.featureInstallationId);
     if (!existing) throw new RestrictedAppError("REVISION_CHANGED", "The restricted app authority changed before the operation completed.");
     const next = { ...existing, authority: advanceAuthorityStamp(existing.authority, fields) };
     await this.#writeRegistry({
@@ -2379,16 +2389,16 @@ export class RestrictedAppService {
   }
 
   async #setNetworkGrant(
-    input: { spaceId: string; appId: string; expectedDigest: string; destinationId: string },
+    input: { spaceId: string; appId: string; featureInstallationId?: string; expectedDigest: string; destinationId: string },
     granted: boolean,
   ): Promise<RestrictedAppInstalled> {
     return await this.#mutate(async () => {
-      const app = this.#installed(input.spaceId, input.appId, input.expectedDigest);
+      const app = this.#installed(input.spaceId, input.appId, input.expectedDigest, input.featureInstallationId);
       const destination = app.manifest.permissions.network.find((item) => item.id === input.destinationId);
       if (!destination) throw new RestrictedAppError("NETWORK_DENIED", "The app did not declare this network destination.");
       const currentlyGranted = app.networkGrants.includes(destination.id);
       if (currentlyGranted === granted) return app;
-      const existing = this.#registry.installations.find((item) => item.spaceId === app.spaceId && item.manifest.id === app.manifest.id)!;
+      const existing = this.#registry.installations.find((item) => item.featureInstallationId === app.featureInstallationId)!;
       await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId);
       const next: RestrictedAppRegistryEntry = {
         ...existing,
@@ -2406,16 +2416,16 @@ export class RestrictedAppService {
   }
 
   async #setFileGrant(
-    input: { spaceId: string; spaceRoot?: string; appId: string; expectedDigest: string; permissionId: string; root?: string },
+    input: { spaceId: string; spaceRoot?: string; appId: string; featureInstallationId?: string; expectedDigest: string; permissionId: string; root?: string },
     granted: boolean,
   ): Promise<RestrictedAppInstalled> {
     return await this.#mutate(async () => {
-      const app = this.#installed(input.spaceId, input.appId, input.expectedDigest);
+      const app = this.#installed(input.spaceId, input.appId, input.expectedDigest, input.featureInstallationId);
       const permission = app.manifest.permissions.files.find((item) => item.id === input.permissionId);
       if (!permission) throw new RestrictedAppError("FILE_DENIED", "The app did not declare this Space file permission.");
       const currentlyGranted = app.fileGrants.some((item) => item.declarationId === permission.id);
       if (currentlyGranted === granted) return app;
-      const existing = this.#registry.installations.find((item) => item.spaceId === app.spaceId && item.manifest.id === app.manifest.id)!;
+      const existing = this.#registry.installations.find((item) => item.featureInstallationId === app.featureInstallationId)!;
       const nextGrant = granted ? {
         id: permission.id,
         declarationId: permission.id,
@@ -2451,16 +2461,16 @@ export class RestrictedAppService {
   }
 
   async #setNotificationGrant(
-    input: { spaceId: string; appId: string; expectedDigest: string; permissionId: string },
+    input: { spaceId: string; appId: string; featureInstallationId?: string; expectedDigest: string; permissionId: string },
     granted: boolean,
   ): Promise<RestrictedAppInstalled> {
     return await this.#mutate(async () => {
-      const app = this.#installed(input.spaceId, input.appId, input.expectedDigest);
+      const app = this.#installed(input.spaceId, input.appId, input.expectedDigest, input.featureInstallationId);
       const permission = app.manifest.permissions.notifications.find((item) => item.id === input.permissionId);
       if (!permission) throw new RestrictedAppError("INPUT_INVALID", "The app did not declare this notification category.");
       const currentlyGranted = app.notificationGrants.includes(permission.id);
       if (currentlyGranted === granted) return app;
-      const existing = this.#registry.installations.find((item) => item.spaceId === app.spaceId && item.manifest.id === app.manifest.id)!;
+      const existing = this.#registry.installations.find((item) => item.featureInstallationId === app.featureInstallationId)!;
       await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId);
       const next: RestrictedAppRegistryEntry = {
         ...existing,

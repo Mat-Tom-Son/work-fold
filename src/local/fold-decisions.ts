@@ -606,6 +606,7 @@ export function createRestrictedAppGrantAdapter(
       const base = {
         spaceId: app.spaceId,
         appId: app.manifest.id,
+        featureInstallationId: app.featureInstallationId,
         expectedDigest: app.digest,
       };
       if (kind === "app.grant.network") {
@@ -679,6 +680,7 @@ export function createRestrictedAppAutomationEnableAdapter(
       await options.service.setAutomationEnabled({
         spaceId: app.spaceId,
         appId: app.manifest.id,
+        featureInstallationId: app.featureInstallationId,
         expectedDigest: app.digest,
         automationId,
         enabled: true,

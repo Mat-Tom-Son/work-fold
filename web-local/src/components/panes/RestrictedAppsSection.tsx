@@ -164,7 +164,7 @@ export function RestrictedAppsSection({
     if (!confirmed || spaceIdRef.current !== app.spaceId) return;
     setBusy(true);
     try {
-      if (!fixtureMode) await removeRestrictedApp(app.spaceId, app.manifest.id, app.digest);
+      if (!fixtureMode) await removeRestrictedApp(app);
       if (spaceIdRef.current !== app.spaceId) return;
       onRemoveApp(app.featureInstallationId);
       setSelectedInstallationId(null);
@@ -368,11 +368,11 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
     setConnectionLoading(true);
     const load = fixtureMode
       ? Promise.resolve(app.manifest.permissions.network.map((destination) => ({ destinationId: destination.id, owner: "instance" as const, kind: destination.auth.some((auth) => auth.kind === "none") ? "none" as const : null, configured: destination.auth.some((auth) => auth.kind === "none") })))
-      : listRestrictedAppConnections(app.spaceId, app.manifest.id, app.digest);
+      : listRestrictedAppConnections(app);
     void load.then((value) => { if (!cancelled) setConnections(value); }).catch((caught) => { if (!cancelled) onError(errorText(caught)); }).finally(() => { if (!cancelled) setConnectionLoading(false); });
     const storage = fixtureMode
       ? Promise.resolve({ revision: 0, usageBytes: 0, quotaBytes: 5 * 1024 * 1024, keyCount: 0, keyLimit: 512 })
-      : getRestrictedAppStorageUsage(app.spaceId, app.manifest.id, app.digest);
+      : getRestrictedAppStorageUsage(app);
     void storage.then((value) => { if (!cancelled) setStorageUsage(value); }).catch((caught) => { if (!cancelled) onError(errorText(caught)); });
     setDataRecovery(null);
     setBuildContext(null);
@@ -412,7 +412,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
     const key = `grant:${destination.id}`;
     setActionBusy(key);
     try {
-      const updated = fixtureMode ? { ...app, networkGrants: granted ? [...new Set([...app.networkGrants, destination.id])] : app.networkGrants.filter((id) => id !== destination.id) } : await setRestrictedAppNetworkGrant(app.spaceId, app.manifest.id, destination.id, app.digest, granted);
+      const updated = fixtureMode ? { ...app, networkGrants: granted ? [...new Set([...app.networkGrants, destination.id])] : app.networkGrants.filter((id) => id !== destination.id) } : await setRestrictedAppNetworkGrant(app, destination.id, granted);
       onAppChanged(updated);
       showToast({ text: granted ? `Network access allowed for ${destinationLabel(destination)}.` : `Network access revoked for ${destinationLabel(destination)}; any saved credential remains.`, tone: "success" });
     } catch (caught) { onError(errorText(caught)); }
@@ -423,7 +423,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
     const key = `credential:${destination.id}`;
     setActionBusy(key);
     try {
-      const status = fixtureMode ? { destinationId: destination.id, owner: "instance", kind: credential.kind, configured: true } as RestrictedAppConnectionStatus : await setRestrictedAppConnection(app.spaceId, app.manifest.id, destination.id, app.digest, credential);
+      const status = fixtureMode ? { destinationId: destination.id, owner: "instance", kind: credential.kind, configured: true } as RestrictedAppConnectionStatus : await setRestrictedAppConnection(app, destination.id, credential);
       setConnections((current) => upsertConnectionStatus(current, status));
       showToast({ text: `Connection saved for ${destinationLabel(destination)}. Access is ${app.networkGrants.includes(destination.id) ? "allowed" : "still off"}.`, tone: "success" });
     } catch (caught) { onError(errorText(caught)); throw caught; }
@@ -436,7 +436,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
     const key = `credential:${destination.id}`;
     setActionBusy(key);
     try {
-      if (!fixtureMode) await deleteRestrictedAppConnection(app.spaceId, app.manifest.id, destination.id, app.digest);
+      if (!fixtureMode) await deleteRestrictedAppConnection(app, destination.id);
       const anonymous = destination.auth.some((auth) => auth.kind === "none");
       setConnections((current) => upsertConnectionStatus(current, { destinationId: destination.id, owner: "instance", kind: anonymous ? "none" : null, configured: anonymous }));
       showToast({ text: `Disconnected ${destinationLabel(destination)}. Access is ${app.networkGrants.includes(destination.id) ? "still allowed" : "off"}.`, tone: "success" });
@@ -459,7 +459,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
               message: "The provider metadata did not advertise PKCE; work-fold still enforced S256 for this connection.",
             }],
           }
-        : await connectRestrictedAppOAuth(app.spaceId, app.manifest.id, destination.id, app.digest);
+        : await connectRestrictedAppOAuth(app, destination.id);
       setConnections((current) => upsertConnectionStatus(current, status));
       showToast({
         text: status.diagnostics?.length
@@ -484,7 +484,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
     try {
       const updated = fixtureMode
         ? { ...app, fileGrants: granted ? [{ id: permission.id, declarationId: permission.id, root, access: permission.access }] : app.fileGrants.filter((grant) => grant.declarationId !== permission.id) }
-        : await setRestrictedAppFileGrant(app.spaceId, app.manifest.id, permission.id, app.digest, granted, root);
+        : await setRestrictedAppFileGrant(app, permission.id, granted, root);
       onAppChanged(updated);
       showToast({ text: granted ? `File access allowed for ${root}.` : `File access revoked for ${permission.id}.`, tone: "success" });
     } catch (caught) { onError(errorText(caught)); }
@@ -504,7 +504,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
     try {
       const updated = fixtureMode
         ? { ...app, notificationGrants: granted ? [...new Set([...app.notificationGrants, permission.id])] : app.notificationGrants.filter((id) => id !== permission.id) }
-        : await setRestrictedAppNotificationGrant(app.spaceId, app.manifest.id, permission.id, app.digest, granted);
+        : await setRestrictedAppNotificationGrant(app, permission.id, granted);
       onAppChanged(updated);
       showToast({ text: granted ? `Notifications allowed for ${permission.title}.` : `Notifications revoked for ${permission.title}.`, tone: "success" });
     } catch (caught) { onError(errorText(caught)); }
@@ -525,7 +525,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
     try {
       const updated = fixtureMode
         ? { ...app, automations: app.automations.map((state) => state.id === automation.id ? { ...state, enabled, nextRunAt: enabled ? nextAutomationRunAt(automation) : undefined } : state) }
-        : await setRestrictedAppAutomationEnabled(app.spaceId, app.manifest.id, automation.id, app.digest, enabled);
+        : await setRestrictedAppAutomationEnabled(app, automation.id, enabled);
       onAppChanged(updated);
       showToast({ text: `${automation.title} ${enabled ? "enabled" : "disabled"}.`, tone: "success" });
     } catch (caught) { onError(errorText(caught)); }
@@ -538,7 +538,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
     try {
       const result = fixtureMode
         ? fixtureAutomationRun(app, automation)
-        : await runRestrictedAppAutomationNow(app.spaceId, app.manifest.id, automation.id, app.digest);
+        : await runRestrictedAppAutomationNow(app, automation.id);
       onAppChanged(result.app);
       setAutomationRuns((current) => ({ ...current, [automation.id]: [result.run, ...(current[automation.id] ?? []).filter((run) => run.runId !== result.run.runId)].slice(0, 20) }));
       setAutomationRunErrors((current) => ({ ...current, [automation.id]: "" }));
@@ -555,7 +555,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
     try {
       const runs = fixtureMode
         ? fixtureAutomationRuns(automation)
-        : await listRestrictedAppAutomationRuns(app.spaceId, app.manifest.id, automation.id, app.digest);
+        : await listRestrictedAppAutomationRuns(app, automation.id);
       setAutomationRuns((current) => ({ ...current, [automation.id]: runs }));
     } catch (caught) {
       setAutomationRunErrors((current) => ({ ...current, [automation.id]: errorText(caught) }));
@@ -570,7 +570,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
     if (!confirmed) return;
     setActionBusy("storage");
     try {
-      const usage = fixtureMode ? { revision: (storageUsage?.revision ?? 0) + 1, usageBytes: 0, quotaBytes: 5 * 1024 * 1024, keyCount: 0, keyLimit: 512 } : await clearRestrictedAppStorage(app.spaceId, app.manifest.id, app.digest);
+      const usage = fixtureMode ? { revision: (storageUsage?.revision ?? 0) + 1, usageBytes: 0, quotaBytes: 5 * 1024 * 1024, keyCount: 0, keyLimit: 512 } : await clearRestrictedAppStorage(app);
       setStorageUsage(usage);
       if (!fixtureMode) setDataRecovery(await getRestrictedAppDataRecovery(app));
       showToast({ text: "Local app data cleared.", tone: "success" });

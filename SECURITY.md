@@ -181,6 +181,12 @@ Fold-led setup stages an unsent draft and materializes inert Check proposals. On
 
 ### App data recovery and control invalidation (development)
 
+Native views, Assistant tools and desktop app management controls retain exact
+Feature Installation identity. CLI and staged actions propagate the resolved
+identity into the same domain services. Ambiguous name-only selectors refuse;
+stale pins never fall back to a same-byte reinstall. See the
+[runtime contract](docs/restricted-app-runtime.md) for selector behavior.
+
 The development **Change this app** path verifies installed package bytes before
 copying them into a fresh source-Space folder with History. It neither executes
 package code nor copies runtime data/authority. Machine-local change receipts

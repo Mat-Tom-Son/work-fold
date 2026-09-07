@@ -76,6 +76,7 @@ Library materials, outside files, capabilities, connections, and browser access 
 - Restricted Space apps with reviewed releases, installation, connections, storage, file grants, notifications, automations, updates, rollback, and removal.
 - The development branch adds [app data export and recovery](docs/app-data-recovery.md), with data-only backups, current-revision restore, and Undo for clear/restore.
 - The development branch also adds [Change this app](docs/app-changes.md): an exact installed-byte working copy, History, and a Chat draft, with predecessor checks on reviewed preview updates. App details links to the build Chat and exact update target; source-Space preview placement remains in progress.
+- App views, tools and management controls retain exact installation identity, including across a same-code reinstall. CLI `--app` also accepts that exact identity when needed.
 - The fold, Needs-you decisions, standing policies, the deterministic glance, Routings, Checks, published pages, and the authenticated management CLI.
 - Private-alpha web access with desktop browser approval and live response streaming.
 - Signed, notarized Apple silicon releases with automatic updates from the separate public Mac feed.

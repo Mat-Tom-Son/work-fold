@@ -180,7 +180,7 @@ test("the desktop button's API helper sends one structured, authenticated change
     assert.equal(url, "http://localhost:9999/api/spaces/source/restricted-apps/change-demo/change");
     assert.equal(options?.method, "POST");
     assert.equal((options?.headers as Record<string, string>)["x-work-fold-session"], "test-session");
-    assert.deepEqual(JSON.parse(options?.body as string), { requestId: f.input.id, expectedDigest: f.app.digest });
+    assert.deepEqual(JSON.parse(options?.body as string), { requestId: f.input.id, expectedDigest: f.app.digest, featureInstallationId: f.app.featureInstallationId });
     return new Response(JSON.stringify({ change: response }), { status: 201 });
   });
   try {

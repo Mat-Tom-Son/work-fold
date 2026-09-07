@@ -44,12 +44,12 @@ export interface RestrictedAppBuildContext {
 }
 
 export async function getRestrictedAppBuildContext(app: RestrictedAppInstalled): Promise<RestrictedAppBuildContext> {
-  return (await api<{ context: RestrictedAppBuildContext }>(`${collectionPath(app.spaceId)}/${encodeURIComponent(app.manifest.id)}/build-context?expectedDigest=${encodeURIComponent(app.digest)}`)).context;
+  return (await api<{ context: RestrictedAppBuildContext }>(`${collectionPath(app.spaceId)}/${encodeURIComponent(app.manifest.id)}/build-context?expectedDigest=${encodeURIComponent(app.digest)}&featureInstallationId=${encodeURIComponent(app.featureInstallationId)}`)).context;
 }
 
 export async function prepareRestrictedAppChange(app: RestrictedAppInstalled, requestId: string): Promise<RestrictedAppChangeDraft> {
   return (await api<{ change: RestrictedAppChangeDraft }>(`${collectionPath(app.spaceId)}/${encodeURIComponent(app.manifest.id)}/change`, {
-    method: "POST", body: { requestId, expectedDigest: app.digest }, idempotent: true,
+    method: "POST", body: { requestId, expectedDigest: app.digest, featureInstallationId: app.featureInstallationId }, idempotent: true,
   })).change;
 }
 
@@ -188,107 +188,95 @@ export async function installRestrictedApp(spaceId: string, sourcePath: string, 
   })).app;
 }
 
-export async function removeRestrictedApp(spaceId: string, appId: string, expectedDigest: string): Promise<boolean> {
-  return (await api<{ removed: boolean }>(appPath(spaceId, appId), {
+export async function removeRestrictedApp(app: RestrictedAppInstalled): Promise<boolean> {
+  return (await api<{ removed: boolean }>(appPath(app.spaceId, app.manifest.id), {
     method: "DELETE",
-    body: { expectedDigest },
+    body: { featureInstallationId: app.featureInstallationId, expectedDigest: app.digest },
   })).removed;
 }
 
-export async function listRestrictedAppConnections(spaceId: string, appId: string, expectedDigest: string): Promise<RestrictedAppConnectionStatus[]> {
-  const query = new URLSearchParams({ expectedDigest });
-  return (await api<{ connections: RestrictedAppConnectionStatus[] }>(`${appPath(spaceId, appId)}/connections?${query}`)).connections;
+export async function listRestrictedAppConnections(app: RestrictedAppInstalled): Promise<RestrictedAppConnectionStatus[]> {
+  const query = new URLSearchParams({ expectedDigest: app.digest, featureInstallationId: app.featureInstallationId });
+  return (await api<{ connections: RestrictedAppConnectionStatus[] }>(`${appPath(app.spaceId, app.manifest.id)}/connections?${query}`)).connections;
 }
 
 export async function setRestrictedAppNetworkGrant(
-  spaceId: string,
-  appId: string,
+  app: RestrictedAppInstalled,
   destinationId: string,
-  expectedDigest: string,
   granted: boolean,
 ): Promise<RestrictedAppInstalled> {
-  return (await api<{ app: RestrictedAppInstalled }>(`${appPath(spaceId, appId)}/permissions/network/${encodeURIComponent(destinationId)}`, {
+  return (await api<{ app: RestrictedAppInstalled }>(`${appPath(app.spaceId, app.manifest.id)}/permissions/network/${encodeURIComponent(destinationId)}`, {
     method: granted ? "PUT" : "DELETE",
-    body: { expectedDigest },
+    body: { featureInstallationId: app.featureInstallationId, expectedDigest: app.digest },
   })).app;
 }
 
 export async function setRestrictedAppFileGrant(
-  spaceId: string,
-  appId: string,
+  app: RestrictedAppInstalled,
   permissionId: string,
-  expectedDigest: string,
   granted: boolean,
   root?: string,
 ): Promise<RestrictedAppInstalled> {
-  return (await api<{ app: RestrictedAppInstalled }>(`${appPath(spaceId, appId)}/permissions/files/${encodeURIComponent(permissionId)}`, {
+  return (await api<{ app: RestrictedAppInstalled }>(`${appPath(app.spaceId, app.manifest.id)}/permissions/files/${encodeURIComponent(permissionId)}`, {
     method: granted ? "PUT" : "DELETE",
-    body: { expectedDigest, ...(granted ? { root } : {}) },
+    body: { featureInstallationId: app.featureInstallationId, expectedDigest: app.digest, ...(granted ? { root } : {}) },
   })).app;
 }
 
 export async function setRestrictedAppNotificationGrant(
-  spaceId: string,
-  appId: string,
+  app: RestrictedAppInstalled,
   permissionId: string,
-  expectedDigest: string,
   granted: boolean,
 ): Promise<RestrictedAppInstalled> {
-  return (await api<{ app: RestrictedAppInstalled }>(`${appPath(spaceId, appId)}/permissions/notifications/${encodeURIComponent(permissionId)}`, {
+  return (await api<{ app: RestrictedAppInstalled }>(`${appPath(app.spaceId, app.manifest.id)}/permissions/notifications/${encodeURIComponent(permissionId)}`, {
     method: granted ? "PUT" : "DELETE",
-    body: { expectedDigest },
+    body: { featureInstallationId: app.featureInstallationId, expectedDigest: app.digest },
   })).app;
 }
 
 export async function setRestrictedAppAutomationEnabled(
-  spaceId: string,
-  appId: string,
+  app: RestrictedAppInstalled,
   automationId: string,
-  expectedDigest: string,
   enabled: boolean,
 ): Promise<RestrictedAppInstalled> {
-  return (await api<{ app: RestrictedAppInstalled }>(`${appPath(spaceId, appId)}/automations/${encodeURIComponent(automationId)}`, {
+  return (await api<{ app: RestrictedAppInstalled }>(`${appPath(app.spaceId, app.manifest.id)}/automations/${encodeURIComponent(automationId)}`, {
     method: enabled ? "PUT" : "DELETE",
-    body: { expectedDigest },
+    body: { featureInstallationId: app.featureInstallationId, expectedDigest: app.digest },
   })).app;
 }
 
 export async function runRestrictedAppAutomationNow(
-  spaceId: string,
-  appId: string,
+  app: RestrictedAppInstalled,
   automationId: string,
-  expectedDigest: string,
 ): Promise<{ app: RestrictedAppInstalled; run: RestrictedAppAutomationRunReceipt }> {
-  return api<{ app: RestrictedAppInstalled; run: RestrictedAppAutomationRunReceipt }>(`${appPath(spaceId, appId)}/automations/${encodeURIComponent(automationId)}/run`, {
+  return api<{ app: RestrictedAppInstalled; run: RestrictedAppAutomationRunReceipt }>(`${appPath(app.spaceId, app.manifest.id)}/automations/${encodeURIComponent(automationId)}/run`, {
     method: "POST",
-    body: { expectedDigest },
+    body: { featureInstallationId: app.featureInstallationId, expectedDigest: app.digest },
   });
 }
 
 export async function listRestrictedAppAutomationRuns(
-  spaceId: string,
-  appId: string,
+  app: RestrictedAppInstalled,
   automationId: string,
-  expectedDigest: string,
 ): Promise<RestrictedAppAutomationRunReceipt[]> {
-  const query = new URLSearchParams({ expectedDigest });
-  return (await api<{ runs: RestrictedAppAutomationRunReceipt[] }>(`${appPath(spaceId, appId)}/automations/${encodeURIComponent(automationId)}/runs?${query}`)).runs;
+  const query = new URLSearchParams({ expectedDigest: app.digest, featureInstallationId: app.featureInstallationId });
+  return (await api<{ runs: RestrictedAppAutomationRunReceipt[] }>(`${appPath(app.spaceId, app.manifest.id)}/automations/${encodeURIComponent(automationId)}/runs?${query}`)).runs;
 }
 
-export async function getRestrictedAppStorageUsage(spaceId: string, appId: string, expectedDigest: string): Promise<RestrictedAppStorageUsage> {
-  const query = new URLSearchParams({ expectedDigest });
-  return (await api<{ usage: RestrictedAppStorageUsage }>(`${appPath(spaceId, appId)}/storage?${query}`)).usage;
+export async function getRestrictedAppStorageUsage(app: RestrictedAppInstalled): Promise<RestrictedAppStorageUsage> {
+  const query = new URLSearchParams({ expectedDigest: app.digest, featureInstallationId: app.featureInstallationId });
+  return (await api<{ usage: RestrictedAppStorageUsage }>(`${appPath(app.spaceId, app.manifest.id)}/storage?${query}`)).usage;
 }
 
-export async function clearRestrictedAppStorage(spaceId: string, appId: string, expectedDigest: string): Promise<RestrictedAppStorageUsage> {
-  return (await api<{ usage: RestrictedAppStorageUsage }>(`${appPath(spaceId, appId)}/storage`, {
+export async function clearRestrictedAppStorage(app: RestrictedAppInstalled): Promise<RestrictedAppStorageUsage> {
+  return (await api<{ usage: RestrictedAppStorageUsage }>(`${appPath(app.spaceId, app.manifest.id)}/storage`, {
     method: "DELETE",
-    body: { expectedDigest },
+    body: { featureInstallationId: app.featureInstallationId, expectedDigest: app.digest },
   })).usage;
 }
 
 export async function exportRestrictedAppData(app: RestrictedAppInstalled): Promise<unknown> {
-  const query = new URLSearchParams({ expectedDigest: app.digest });
+  const query = new URLSearchParams({ expectedDigest: app.digest, featureInstallationId: app.featureInstallationId });
   return (await api<{ backup: unknown }>(`${appPath(app.spaceId, app.manifest.id)}/storage/export?${query}`)).backup;
 }
 
@@ -297,44 +285,40 @@ export async function exportRetainedAppData(sourceSpaceId: string, retainedDataI
 }
 
 export async function getRestrictedAppDataRecovery(app: RestrictedAppInstalled): Promise<RestrictedAppDataRecovery | null> {
-  const query = new URLSearchParams({ expectedDigest: app.digest });
+  const query = new URLSearchParams({ expectedDigest: app.digest, featureInstallationId: app.featureInstallationId });
   return (await api<{ recovery: RestrictedAppDataRecovery | null }>(`${appPath(app.spaceId, app.manifest.id)}/storage/recovery?${query}`)).recovery;
 }
 
 export async function restoreRestrictedAppData(app: RestrictedAppInstalled, expectedRevision: number, source: { backup: unknown } | { recoveryId: string }): Promise<RestrictedAppStorageUsage> {
   return (await api<{ usage: RestrictedAppStorageUsage }>(`${appPath(app.spaceId, app.manifest.id)}/storage/restore`, {
-    method: "POST", body: { expectedDigest: app.digest, expectedRevision, ...source },
+    method: "POST", body: { featureInstallationId: app.featureInstallationId, expectedDigest: app.digest, expectedRevision, ...source },
   })).usage;
 }
 
 export async function setRestrictedAppConnection(
-  spaceId: string,
-  appId: string,
+  app: RestrictedAppInstalled,
   destinationId: string,
-  expectedDigest: string,
   credential: RestrictedAppCredential,
 ): Promise<RestrictedAppConnectionStatus> {
-  return (await api<{ connection: RestrictedAppConnectionStatus }>(`${appPath(spaceId, appId)}/connections/${encodeURIComponent(destinationId)}`, {
+  return (await api<{ connection: RestrictedAppConnectionStatus }>(`${appPath(app.spaceId, app.manifest.id)}/connections/${encodeURIComponent(destinationId)}`, {
     method: "PUT",
-    body: { expectedDigest, credential },
+    body: { featureInstallationId: app.featureInstallationId, expectedDigest: app.digest, credential },
   })).connection;
 }
 
 export async function connectRestrictedAppOAuth(
-  spaceId: string,
-  appId: string,
+  app: RestrictedAppInstalled,
   destinationId: string,
-  expectedDigest: string,
 ): Promise<RestrictedAppConnectionStatus> {
-  return (await api<{ connection: RestrictedAppConnectionStatus }>(`${appPath(spaceId, appId)}/connections/${encodeURIComponent(destinationId)}/oauth`, {
+  return (await api<{ connection: RestrictedAppConnectionStatus }>(`${appPath(app.spaceId, app.manifest.id)}/connections/${encodeURIComponent(destinationId)}/oauth`, {
     method: "POST",
-    body: { expectedDigest },
+    body: { featureInstallationId: app.featureInstallationId, expectedDigest: app.digest },
   })).connection;
 }
 
-export async function deleteRestrictedAppConnection(spaceId: string, appId: string, destinationId: string, expectedDigest: string): Promise<boolean> {
-  return (await api<{ removed: boolean }>(`${appPath(spaceId, appId)}/connections/${encodeURIComponent(destinationId)}`, {
+export async function deleteRestrictedAppConnection(app: RestrictedAppInstalled, destinationId: string): Promise<boolean> {
+  return (await api<{ removed: boolean }>(`${appPath(app.spaceId, app.manifest.id)}/connections/${encodeURIComponent(destinationId)}`, {
     method: "DELETE",
-    body: { expectedDigest },
+    body: { featureInstallationId: app.featureInstallationId, expectedDigest: app.digest },
   })).removed;
 }

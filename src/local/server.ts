@@ -1547,10 +1547,11 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   const restrictedItemMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/restricted-apps\/([^/]+)$/);
   if (restrictedItemMatch && method === "DELETE") {
     const space = await getSpace(restrictedItemMatch[1]);
-    const body = await readJsonBody<{ expectedDigest?: string }>(state, req);
+    const body = await readJsonBody<{ featureInstallationId?: string; expectedDigest?: string }>(state, req);
     const removed = await runRestrictedAppMutation(state, space.id, () => state.restrictedApps.remove({
       spaceId: space.id,
       appId: restrictedItemMatch[2],
+      featureInstallationId: body.featureInstallationId,
       ...(body.expectedDigest ? { expectedDigest: body.expectedDigest } : {}),
     }));
     sendJson(res, { removed });
@@ -1562,20 +1563,19 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const space = await getSpace(restrictedBuildContextMatch[1]);
     const expectedDigest = url.searchParams.get("expectedDigest");
     if (!expectedDigest) throw badRequest("An exact app revision is required.");
-    sendJson(res, { context: await state.restrictedAppProposals.buildContext(space.id, restrictedBuildContextMatch[2], expectedDigest) });
+    sendJson(res, { context: await state.restrictedAppProposals.buildContext(space.id, restrictedBuildContextMatch[2], expectedDigest, url.searchParams.get("featureInstallationId") ?? undefined) });
     return;
   }
 
   const restrictedChangeMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/restricted-apps\/([^/]+)\/change$/);
   if (restrictedChangeMatch && method === "POST") {
     const space = await getSpace(restrictedChangeMatch[1]);
-    const body = await readJsonBody<{ requestId?: string; expectedDigest?: string }>(state, req);
+    const body = await readJsonBody<{ requestId?: string; featureInstallationId?: string; expectedDigest?: string }>(state, req);
     if (typeof body.requestId !== "string" || typeof body.expectedDigest !== "string") throw badRequest("An exact app revision and change request are required.");
-    const app = (await state.restrictedApps.list(space.id)).find((item) => item.manifest.id === restrictedChangeMatch[2]);
-    if (!app || app.digest !== body.expectedDigest) throw httpError(409, "The app changed. Refresh before starting an edit.");
+    const app = await state.restrictedApps.runtimeDescriptor(space.id, restrictedChangeMatch[2], body.expectedDigest, body.featureInstallationId);
     const source = await getSpace(app.sourceSpaceId);
     const change = await runRestrictedAppMutations(state, [space.id, source.id], () => state.restrictedAppProposals.prepareChange({
-      id: body.requestId!, spaceId: space.id, appId: app.manifest.id, expectedDigest: body.expectedDigest!,
+      id: body.requestId!, spaceId: space.id, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, expectedDigest: body.expectedDigest!,
     }, async (receipt, files) => {
       if (receipt.sourceSpaceId !== source.id) throw httpError(409, "The app source changed. Refresh before starting an edit.");
       await materializeRestrictedAppWorkingCopy(source.spaceRoot, receipt, files, (paths) => createSpaceMutationCheckpoint(source.spaceRoot, {
@@ -1595,13 +1595,13 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   if (restrictedInvokeMatch && method === "POST") {
     const space = await getSpace(restrictedInvokeMatch[1]);
     assertNoCapabilityMutationForTurn(state, space.id);
-    const body = await readJsonBody<{ expectedDigest?: string; action?: string; input?: unknown }>(state, req);
+    const body = await readJsonBody<{ featureInstallationId?: string; expectedDigest?: string; action?: string; input?: unknown }>(state, req);
     if (!body.expectedDigest?.trim() || !body.action?.trim()) throw badRequest("An installed revision and action are required.");
     assertNoCapabilityMutationForTurn(state, space.id);
     const result = await state.restrictedApps.invoke({
       spaceId: space.id,
       appId: restrictedInvokeMatch[2],
-      expectedDigest: body.expectedDigest,
+      featureInstallationId: body.featureInstallationId, expectedDigest: body.expectedDigest,
       action: body.action,
       input: body.input,
     });
@@ -1618,6 +1618,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       space.id,
       restrictedConnectionsMatch[2],
       expectedDigest,
+      url.searchParams.get("featureInstallationId") ?? undefined,
     ) });
     return;
   }
@@ -1625,14 +1626,14 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   const restrictedNetworkGrantMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/restricted-apps\/([^/]+)\/permissions\/network\/([^/]+)$/);
   if (restrictedNetworkGrantMatch && (method === "PUT" || method === "DELETE")) {
     const space = await getSpace(restrictedNetworkGrantMatch[1]);
-    const body = await readJsonBody<{ expectedDigest?: string }>(state, req);
+    const body = await readJsonBody<{ featureInstallationId?: string; expectedDigest?: string }>(state, req);
     if (!body.expectedDigest?.trim()) throw badRequest("An installed revision is required.");
     const operation = method === "PUT" ? state.restrictedApps.grantNetwork.bind(state.restrictedApps) : state.restrictedApps.revokeNetwork.bind(state.restrictedApps);
     const app = await runRestrictedAppMutation(state, space.id, () => operation({
       spaceId: space.id,
       appId: restrictedNetworkGrantMatch[2],
       destinationId: restrictedNetworkGrantMatch[3],
-      expectedDigest: body.expectedDigest!,
+      featureInstallationId: body.featureInstallationId, expectedDigest: body.expectedDigest!,
     }));
     sendJson(res, { app });
     return;
@@ -1641,7 +1642,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   const restrictedFileGrantMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/restricted-apps\/([^/]+)\/permissions\/files\/([^/]+)$/);
   if (restrictedFileGrantMatch && (method === "PUT" || method === "DELETE")) {
     const space = await getSpace(restrictedFileGrantMatch[1]);
-    const body = await readJsonBody<{ expectedDigest?: string; root?: string }>(state, req);
+    const body = await readJsonBody<{ featureInstallationId?: string; expectedDigest?: string; root?: string }>(state, req);
     if (!body.expectedDigest?.trim()) throw badRequest("An installed revision is required.");
     const app = await runRestrictedAppMutation(state, space.id, () => method === "PUT"
       ? state.restrictedApps.grantFiles({
@@ -1649,14 +1650,14 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
           spaceRoot: space.spaceRoot,
           appId: restrictedFileGrantMatch[2],
           permissionId: restrictedFileGrantMatch[3],
-          expectedDigest: body.expectedDigest!,
+          featureInstallationId: body.featureInstallationId, expectedDigest: body.expectedDigest!,
           root: body.root ?? "",
         })
       : state.restrictedApps.revokeFiles({
           spaceId: space.id,
           appId: restrictedFileGrantMatch[2],
           permissionId: restrictedFileGrantMatch[3],
-          expectedDigest: body.expectedDigest!,
+          featureInstallationId: body.featureInstallationId, expectedDigest: body.expectedDigest!,
         }));
     sendJson(res, { app });
     return;
@@ -1665,7 +1666,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   const restrictedNotificationGrantMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/restricted-apps\/([^/]+)\/permissions\/notifications\/([^/]+)$/);
   if (restrictedNotificationGrantMatch && (method === "PUT" || method === "DELETE")) {
     const space = await getSpace(restrictedNotificationGrantMatch[1]);
-    const body = await readJsonBody<{ expectedDigest?: string }>(state, req);
+    const body = await readJsonBody<{ featureInstallationId?: string; expectedDigest?: string }>(state, req);
     if (!body.expectedDigest?.trim()) throw badRequest("An installed revision is required.");
     const operation = method === "PUT"
       ? state.restrictedApps.grantNotifications.bind(state.restrictedApps)
@@ -1674,7 +1675,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       spaceId: space.id,
       appId: restrictedNotificationGrantMatch[2],
       permissionId: restrictedNotificationGrantMatch[3],
-      expectedDigest: body.expectedDigest!,
+      featureInstallationId: body.featureInstallationId, expectedDigest: body.expectedDigest!,
     }));
     sendJson(res, { app });
     return;
@@ -1683,13 +1684,13 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   const restrictedAutomationRunMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/restricted-apps\/([^/]+)\/automations\/([^/]+)\/run$/);
   if (restrictedAutomationRunMatch && method === "POST") {
     const space = await getSpace(restrictedAutomationRunMatch[1]);
-    const body = await readJsonBody<{ expectedDigest?: string }>(state, req);
+    const body = await readJsonBody<{ featureInstallationId?: string; expectedDigest?: string }>(state, req);
     if (!body.expectedDigest?.trim()) throw badRequest("An installed revision is required.");
     const result = await runRestrictedAppMutation(state, space.id, () => state.restrictedApps.runAutomationNow({
       spaceId: space.id,
       appId: restrictedAutomationRunMatch[2],
       automationId: restrictedAutomationRunMatch[3],
-      expectedDigest: body.expectedDigest!,
+      featureInstallationId: body.featureInstallationId, expectedDigest: body.expectedDigest!,
     }));
     sendJson(res, result);
     return;
@@ -1705,6 +1706,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       restrictedAutomationRunsMatch[2],
       expectedDigest,
       restrictedAutomationRunsMatch[3],
+      url.searchParams.get("featureInstallationId") ?? undefined,
     );
     sendJson(res, { runs });
     return;
@@ -1713,13 +1715,13 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   const restrictedAutomationMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/restricted-apps\/([^/]+)\/automations\/([^/]+)$/);
   if (restrictedAutomationMatch && (method === "PUT" || method === "DELETE")) {
     const space = await getSpace(restrictedAutomationMatch[1]);
-    const body = await readJsonBody<{ expectedDigest?: string }>(state, req);
+    const body = await readJsonBody<{ featureInstallationId?: string; expectedDigest?: string }>(state, req);
     if (!body.expectedDigest?.trim()) throw badRequest("An installed revision is required.");
     const app = await runRestrictedAppMutation(state, space.id, () => state.restrictedApps.setAutomationEnabled({
       spaceId: space.id,
       appId: restrictedAutomationMatch[2],
       automationId: restrictedAutomationMatch[3],
-      expectedDigest: body.expectedDigest!,
+      featureInstallationId: body.featureInstallationId, expectedDigest: body.expectedDigest!,
       enabled: method === "PUT",
     }));
     sendJson(res, { app });
@@ -1729,16 +1731,18 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   const restrictedStorageMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/restricted-apps\/([^/]+)\/storage$/);
   if (restrictedStorageMatch && (method === "GET" || method === "DELETE")) {
     const space = await getSpace(restrictedStorageMatch[1]);
-    const body = method === "DELETE" ? await readJsonBody<{ expectedDigest?: string }>(state, req) : null;
+    const body = method === "DELETE" ? await readJsonBody<{ featureInstallationId?: string; expectedDigest?: string }>(state, req) : null;
     const expectedDigest = body?.expectedDigest ?? url.searchParams.get("expectedDigest")?.trim();
     if (!expectedDigest) throw badRequest("An installed revision is required.");
+    const featureInstallationId = method === "DELETE" ? body!.featureInstallationId : url.searchParams.get("featureInstallationId") ?? undefined;
     const usage = method === "DELETE"
       ? await runRestrictedAppMutation(state, space.id, () => state.restrictedApps.clearStorage(
           space.id,
           restrictedStorageMatch[2],
           expectedDigest,
+          featureInstallationId,
         ))
-      : await state.restrictedApps.storageUsage(space.id, restrictedStorageMatch[2], expectedDigest);
+      : await state.restrictedApps.storageUsage(space.id, restrictedStorageMatch[2], expectedDigest, featureInstallationId);
     sendJson(res, { usage });
     return;
   }
@@ -1748,18 +1752,18 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const space = await getSpace(restrictedDataMatch[1]);
     const appId = restrictedDataMatch[2];
     if (method === "POST") {
-      const body = await readJsonBody<{ expectedDigest: string; expectedRevision: number; backup?: unknown; recoveryId?: string }>(state, req, 6 * 1024 * 1024);
+      const body = await readJsonBody<{ featureInstallationId?: string; expectedDigest: string; expectedRevision: number; backup?: unknown; recoveryId?: string }>(state, req, 6 * 1024 * 1024);
       if (!body || typeof body !== "object" || Array.isArray(body)) throw badRequest("A backup or recovery point is required.");
       const usage = await runRestrictedAppMutation(state, space.id, () => state.restrictedApps.restoreStorage({
-        spaceId: space.id, appId, expectedDigest: body.expectedDigest, expectedRevision: body.expectedRevision,
+        spaceId: space.id, appId, featureInstallationId: body.featureInstallationId, expectedDigest: body.expectedDigest, expectedRevision: body.expectedRevision,
         backup: body.backup, recoveryId: body.recoveryId,
       }));
       sendJson(res, { usage });
     } else {
       const digest = url.searchParams.get("expectedDigest") ?? "";
       sendJson(res, restrictedDataMatch[3] === "export"
-        ? { backup: await state.restrictedApps.exportStorage(space.id, appId, digest) }
-        : { recovery: await state.restrictedApps.storageRecovery(space.id, appId, digest) });
+        ? { backup: await state.restrictedApps.exportStorage(space.id, appId, digest, url.searchParams.get("featureInstallationId") ?? undefined) }
+        : { recovery: await state.restrictedApps.storageRecovery(space.id, appId, digest, url.searchParams.get("featureInstallationId") ?? undefined) });
     }
     return;
   }
@@ -1767,13 +1771,13 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   const restrictedOAuthMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/restricted-apps\/([^/]+)\/connections\/([^/]+)\/oauth$/);
   if (restrictedOAuthMatch && method === "POST") {
     const space = await getSpace(restrictedOAuthMatch[1]);
-    const body = await readJsonBody<{ expectedDigest?: string }>(state, req);
+    const body = await readJsonBody<{ featureInstallationId?: string; expectedDigest?: string }>(state, req);
     if (!body.expectedDigest?.trim()) throw badRequest("An installed revision is required.");
     const connection = await runRestrictedAppMutation(state, space.id, () => state.restrictedApps.connectOAuth({
       spaceId: space.id,
       appId: restrictedOAuthMatch[2],
       destinationId: restrictedOAuthMatch[3],
-      expectedDigest: body.expectedDigest!,
+      featureInstallationId: body.featureInstallationId, expectedDigest: body.expectedDigest!,
     }));
     sendJson(res, { connection });
     return;
@@ -1782,7 +1786,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   const restrictedConnectionMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/restricted-apps\/([^/]+)\/connections\/([^/]+)$/);
   if (restrictedConnectionMatch && (method === "PUT" || method === "DELETE")) {
     const space = await getSpace(restrictedConnectionMatch[1]);
-    const body = await readJsonBody<{ expectedDigest?: string; credential?: unknown }>(state, req);
+    const body = await readJsonBody<{ featureInstallationId?: string; expectedDigest?: string; credential?: unknown }>(state, req);
     if (!body.expectedDigest?.trim()) throw badRequest("An installed revision is required.");
     const result = await runRestrictedAppMutation(state, space.id, async () => {
       if (method === "DELETE") {
@@ -1790,14 +1794,14 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
           spaceId: space.id,
           appId: restrictedConnectionMatch[2],
           destinationId: restrictedConnectionMatch[3],
-          expectedDigest: body.expectedDigest!,
+          featureInstallationId: body.featureInstallationId, expectedDigest: body.expectedDigest!,
         }) };
       }
       return { connection: await state.restrictedApps.setConnection({
         spaceId: space.id,
         appId: restrictedConnectionMatch[2],
         destinationId: restrictedConnectionMatch[3],
-        expectedDigest: body.expectedDigest!,
+        featureInstallationId: body.featureInstallationId, expectedDigest: body.expectedDigest!,
         credential: body.credential,
       }) };
     });
@@ -4338,8 +4342,10 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
   const requireInstalledApp = async (space: SpaceSummary, appId: string): Promise<RestrictedAppInstalled> => {
     const id = appId.trim();
     if (!id) throw new WorkFoldCliError("usage", "Provide --app <id>.");
-    const app = (await runActOperation(() => state.restrictedApps.list(space.id)))
-      .find((item) => item.manifest.id === id);
+    const matches = (await runActOperation(() => state.restrictedApps.list(space.id)))
+      .filter((item) => item.manifest.id === id || item.featureInstallationId === id);
+    if (matches.length > 1) throw new WorkFoldCliError("usage", `More than one installation matches. Use --app with an exact installation: ${matches.map((app) => `${app.runtimeInstanceKind === "development" ? "preview" : "installed App"} ${app.featureInstallationId}`).join(", ")}.`);
+    const app = matches[0];
     if (!app) throw new WorkFoldCliError("notFound", "No app with this id is installed in this Space.");
     return app;
   };
@@ -5166,7 +5172,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       // service refuses release-backed Instances toward `apps uninstall` and
       // stops the running app host before the registration goes.
       const removed = await runActOperation(() => runRestrictedAppMutation(state, space.id, () =>
-        state.restrictedApps.remove({ spaceId: space.id, appId: app.manifest.id, expectedDigest: app.digest })));
+        state.restrictedApps.remove({ spaceId: space.id, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, expectedDigest: app.digest })));
       recordFacadeAction(state, input.parentTaskId, { command: "apps.remove", space });
       return { space: toActSpaceRef(space), appId: app.manifest.id, digest: app.digest, removed };
     },
@@ -5185,10 +5191,10 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           ? app.fileGrants.some((grant) => grant.declarationId === declaration)
           : app.notificationGrants.includes(declaration);
       await runActOperation(() => runRestrictedAppMutation(state, space.id, () => input.kind === "network"
-        ? state.restrictedApps.revokeNetwork({ spaceId: space.id, appId: app.manifest.id, destinationId: declaration, expectedDigest: digest })
+        ? state.restrictedApps.revokeNetwork({ spaceId: space.id, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, destinationId: declaration, expectedDigest: digest })
         : input.kind === "files"
-          ? state.restrictedApps.revokeFiles({ spaceId: space.id, appId: app.manifest.id, permissionId: declaration, expectedDigest: digest })
-          : state.restrictedApps.revokeNotifications({ spaceId: space.id, appId: app.manifest.id, permissionId: declaration, expectedDigest: digest })));
+          ? state.restrictedApps.revokeFiles({ spaceId: space.id, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, permissionId: declaration, expectedDigest: digest })
+          : state.restrictedApps.revokeNotifications({ spaceId: space.id, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, permissionId: declaration, expectedDigest: digest })));
       recordFacadeAction(state, input.parentTaskId, { command: "apps.revoke", space });
       return {
         space: toActSpaceRef(space),
@@ -5209,6 +5215,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           spaceId: space.id,
           appId: app.manifest.id,
           destinationId: destination,
+          featureInstallationId: app.featureInstallationId,
           expectedDigest: app.digest,
         })));
       recordFacadeAction(state, input.parentTaskId, { command: "apps.disconnect", space });
@@ -5226,6 +5233,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           spaceId: space.id,
           appId: app.manifest.id,
           automationId,
+          featureInstallationId: app.featureInstallationId,
           expectedDigest: app.digest,
           enabled: false,
         })));
@@ -5249,6 +5257,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           spaceId: space.id,
           appId: app.manifest.id,
           automationId,
+          featureInstallationId: app.featureInstallationId,
           expectedDigest: app.digest,
         })));
       recordFacadeAction(state, input.parentTaskId, { command: "apps.automation.run", space });

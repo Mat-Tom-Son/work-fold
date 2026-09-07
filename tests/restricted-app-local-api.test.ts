@@ -397,6 +397,50 @@ test("restricted app API keeps review, install, grants, connections, invocation,
     );
     assert.equal(removed.removed, true);
     assert.deepEqual((await request<{ apps: unknown[] }>(api.origin, `/api/spaces/${space.id}/restricted-apps`)).apps, []);
+
+    // Identical code is not the same installation. Exercise each management
+    // route with the old card's identity after remove/reinstall.
+    const reinstalled = await request<{ app: RestrictedAppInstalled }>(api.origin, `/api/spaces/${space.id}/restricted-apps`, {
+      method: "POST", body: { sourcePath, expectedDigest: inspected.review.digest },
+    });
+    assert.notEqual(reinstalled.app.featureInstallationId, installed.app.featureInstallationId);
+    const itemUrl = `/api/spaces/${space.id}/restricted-apps/mail-app`;
+    const stale = { expectedDigest: inspected.review.digest, featureInstallationId: installed.app.featureInstallationId };
+    const oldQuery = new URLSearchParams(stale);
+    const staleReads = ["build-context", "connections", "automations/refresh-mail/runs", "storage", "storage/export", "storage/recovery"];
+    for (const route of staleReads) {
+      const response = await fetch(`${api.origin}${itemUrl}/${route}?${oldQuery}`);
+      assert.equal(response.status, 503, `stale ${route} must not read the replacement`);
+    }
+    const staleWrites: Array<[string, string, object]> = [
+      ["change", "POST", { requestId: randomUUID() }],
+      ["invoke", "POST", { action: "search", input: { query: "invoice" } }],
+      ["permissions/network/mail-api", "PUT", {}], ["permissions/network/mail-api", "DELETE", {}],
+      ["permissions/files/exports", "PUT", { root: "reports" }], ["permissions/files/exports", "DELETE", {}],
+      ["permissions/notifications/new-mail", "PUT", {}], ["permissions/notifications/new-mail", "DELETE", {}],
+      ["automations/refresh-mail", "PUT", {}], ["automations/refresh-mail", "DELETE", {}],
+      ["automations/refresh-mail/run", "POST", {}], ["storage", "DELETE", {}],
+      ["storage/restore", "POST", { expectedRevision: 0, backup: exported.backup }],
+      ["connections/mail-api", "PUT", { credential: { kind: "api-key", value: "synthetic" } }],
+      ["connections/mail-api", "DELETE", {}], ["connections/mail-api/oauth", "POST", {}],
+    ];
+    const callsBeforeStaleRequests = runtime.invocations.length;
+    for (const [route, method, extra] of staleWrites) {
+      const response = await fetch(`${api.origin}${itemUrl}/${route}`, {
+        method, headers: { "content-type": "application/json" }, body: JSON.stringify({ ...stale, ...extra }),
+      });
+      assert.equal(response.status, 503, `stale ${method} ${route} must not affect the replacement`);
+    }
+    assert.deepEqual(await request(api.origin, itemUrl, { method: "DELETE", body: stale }), { removed: false });
+    assert.deepEqual(await service.list(space.id), [reinstalled.app]);
+    assert.equal(runtime.invocations.length, callsBeforeStaleRequests);
+    const current = { ...stale, featureInstallationId: reinstalled.app.featureInstallationId };
+    const currentGrant = await request<{ app: RestrictedAppInstalled }>(api.origin, `${itemUrl}/permissions/network/mail-api`, { method: "PUT", body: current });
+    assert.deepEqual(currentGrant.app.networkGrants, ["mail-api"]);
+    const currentUsage = await request<{ usage: { usageBytes: number } }>(api.origin, `${itemUrl}/storage?${new URLSearchParams(current)}`);
+    assert.equal(currentUsage.usage.usageBytes, 0);
+    const malformed = await fetch(`${api.origin}${itemUrl}/storage`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...current, featureInstallationId: null }) });
+    assert.equal(malformed.status, 400, "a malformed pin must not fall back to name-only selection");
   } finally {
     await api.close();
     await rm(sandbox, { recursive: true, force: true });

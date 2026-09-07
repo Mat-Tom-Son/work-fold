@@ -44,9 +44,12 @@ Change the app while preserving its data, review the update, and confirm changed
 permissions reset. Disconnect/reconnect the desktop without inventing a success
 or replaying a write.
 
-Publication of a new desktop build and deployment of the Railway bridge remain
-outside this implementation goal. Record exact verification and remaining work
-here as each slice lands.
+The user has now authorized merging the completed work onto `main`, syncing
+GitHub, and publishing a new desktop release after verification. Follow the
+shared signed/notarized Mac lane, including successful CI on the exact main
+commit and source tag. Verify the offered update and leave installation to the
+user's update button. Railway deployment remains separate. Record exact
+verification and remaining work here as each slice lands.
 
 ## Progress: app data and live controls
 
@@ -206,3 +209,28 @@ own rail with no saved quote and 0 B in Details. The preview had Remove preview
 and Open App Studio; the installed Feature had Review updates. The QA app is
 quit, with no production profile changes. This verifies the current cross-Space
 journey; same-Space coexistence still awaits the mutation/placement work above.
+
+## Progress: exact management targets
+
+Desktop app controls now pass their exact installation through the renderer API
+into grants, connections, automation controls, data reads/recovery, build context,
+working-copy creation and removal. CLI `--app` accepts a unique manifest id or
+exact Feature Installation id, and CLI/staged adapters preserve the resolved pin
+through domain execution. Name-only ambiguity refuses with exact choices. OAuth
+and manual automation rechecks retain the original resolved incarnation through
+awaited work. Assistant tools use installation-specific names, with preview
+labels, and complete-name hashing avoids collisions when long names truncate.
+
+Verification: `npm run check`, `npm test` (1,114 passed; one Windows-only skip),
+and `npm run desktop:prepare` pass. API tests remove/reinstall identical code and
+exercise stale build/data/connection reads, grants/revocations, OAuth, invocation,
+automation enable/disable/run, restore/clear and removal; replacement state stays
+unchanged. A current pin still grants and reads successfully. Renderer tests
+exercise all 22 management helper requests, and CLI/staged and Pi-tool tests
+verify identity propagation. Logs: `/tmp/workfold-app-management-identity-check.log`,
+`/tmp/workfold-app-management-identity-tests.log`, and
+`/tmp/workfold-app-management-identity-desktop.log`.
+
+The source-Space placement rules still need changing and integrated coexistence
+tests before the first checklist item can close. The broader context, delegation,
+fold/web, integration and release work remains active.

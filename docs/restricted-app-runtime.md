@@ -218,6 +218,17 @@ and notification navigation retain the same installation identity. Mounting
 requires the exact current Space, app, installation and digest. A reused mount
 id never reuses a sibling installation's native view.
 
+Desktop management requests carry `featureInstallationId` alongside the exact
+digest for grants, connections, automations, data operations, build provenance
+and changes. Domain controls also accept older unpinned callers only when the
+Space/app selector resolves uniquely; an ambiguous selector never chooses the
+first record. CLI `--app` accepts either a unique manifest id or an exact
+Feature Installation id, and resolved CLI/staged actions retain that pin through
+execution. A stale removal reports nothing removed; other stale controls refuse
+to operate on a same-byte reinstall. Assistant tool names include a hash of the
+installation and complete tool name, keeping sibling actions distinct even when
+long displayed name suffixes are truncated.
+
 ## Worker host
 
 Apps that expose Assistant tools or automations declare a separate worker

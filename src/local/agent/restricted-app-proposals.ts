@@ -156,8 +156,8 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
     return proposal ? copyReceipt(proposal) : undefined;
   }
 
-  async buildContext(spaceId: string, appId: string, expectedDigest: string): Promise<RestrictedAppBuildContext> {
-    const app = await this.#service.runtimeDescriptor(spaceId, appId, expectedDigest);
+  async buildContext(spaceId: string, appId: string, expectedDigest: string, featureInstallationId?: string): Promise<RestrictedAppBuildContext> {
+    const app = await this.#service.runtimeDescriptor(spaceId, appId, expectedDigest, featureInstallationId);
     await this.#queue.catch(() => undefined);
     const context = this.#sourceContext(app);
     const origin = context.updateTarget;
@@ -190,7 +190,7 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
     };
   }
 
-  async prepareChange(input: { id: string; spaceId: string; appId: string; expectedDigest: string },
+  async prepareChange(input: { id: string; spaceId: string; appId: string; expectedDigest: string; featureInstallationId?: string },
     materialize: (change: RestrictedAppChangeReceipt, files: ReadonlyMap<string, Uint8Array>) => Promise<void>,
   ): Promise<RestrictedAppChangeReceipt> {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(input.id)) {
@@ -198,14 +198,15 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
     }
     return this.#mutate(async () => {
       let change = this.#registry.changes.find((item) => item.id === input.id);
-      if (change && (change.targetSpaceId !== input.spaceId || change.appId !== input.appId || change.baseDigest !== input.expectedDigest)) {
+      if (change && (change.targetSpaceId !== input.spaceId || change.appId !== input.appId || change.baseDigest !== input.expectedDigest
+        || (input.featureInstallationId !== undefined && change.baseFeatureInstallationId !== input.featureInstallationId))) {
         throw new RestrictedAppError("INPUT_INVALID", "This app-change request already belongs to a different revision.");
       }
       if (change?.status === "ready") return structuredClone(change);
       if (!change && this.#registry.changes.length >= 1_000) {
         throw new RestrictedAppError("INPUT_INVALID", "This computer has reached its saved app-change limit.");
       }
-      const snapshot = await this.#service.snapshotForChange(input.spaceId, input.appId, input.expectedDigest);
+      const snapshot = await this.#service.snapshotForChange(input.spaceId, input.appId, input.expectedDigest, input.featureInstallationId);
       const app = snapshot.app;
       if (change && (change.baseFeatureInstallationId !== app.featureInstallationId || change.targetRuntimeInstanceId !== app.runtimeInstanceId)) {
         throw new RestrictedAppError("REVISION_CHANGED", "The app was reinstalled while its working copy was being prepared.");

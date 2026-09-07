@@ -78,17 +78,26 @@ test("installed app actions become namespaced Pi tools bound to Space, app, dige
     },
   });
   assert.equal(tools.length, 1);
-  assert.match(tools[0]!.name, /^app_[a-f0-9]{8}_inbox_search$/);
+  assert.match(tools[0]!.name, /^app_[a-f0-9]{16}_inbox_search$/);
   assert.match(tools[0]!.description, /Connected inbox/);
   const result = await tools[0]!.execute("call-1", { query: "release" }, undefined, undefined, {} as never);
-  assert.deepEqual(calls, [{ spaceId: "space-one", appId: "connected-inbox", expectedDigest: digest, action: "search", input: { query: "release" } }]);
+  assert.deepEqual(calls, [{ spaceId: "space-one", appId: "connected-inbox", featureInstallationId: installed.featureInstallationId, expectedDigest: digest, action: "search", input: { query: "release" } }]);
   assert.deepEqual(result.content, [{ type: "text", text: '{"count":3}' }]);
 });
 
-test("app tool names remain deterministic and distinct when packages reuse a declared tool name", () => {
+test("app tools distinguish sibling installations of identical bytes and remain deterministic", async () => {
   const other = structuredClone(installed);
-  other.manifest.id = "project-mail";
+  other.featureInstallationId = parseFeatureInstallationId("feature-installation_other");
+  other.runtimeInstanceId = parseRuntimeInstanceId("runtime-instance_other");
+  other.runtimeInstanceKind = "app";
   const tools = createRestrictedAppTools({ spaceId: "space-one", apps: [installed, other], service: { invoke: async () => ({ count: 0 }) } });
   assert.equal(new Set(tools.map((tool) => tool.name)).size, 2);
   assert.ok(tools.every((tool) => tool.name.length <= 64));
+  assert.match(tools[0]!.label, /preview/);
+  assert.doesNotMatch(tools[1]!.label, /preview/);
+  assert.deepEqual(createRestrictedAppTools({ spaceId: "space-one", apps: [installed, other], service: { invoke: async () => ({ count: 0 }) } }).map((tool) => tool.name), tools.map((tool) => tool.name));
+  const longNames = structuredClone(installed);
+  longNames.manifest.tools = ["a", "b"].map((suffix) => ({ ...installed.manifest.tools[0]!, name: "x".repeat(60) + suffix }));
+  const longTools = createRestrictedAppTools({ spaceId: "space-one", apps: [longNames], service: { invoke: async () => ({ count: 0 }) } });
+  assert.notEqual(longTools[0]!.name, longTools[1]!.name, "truncated display suffixes must not collide");
 });
