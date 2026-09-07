@@ -415,6 +415,10 @@ coalesced, are not state themselves, and are never queued or replayed for an
 inactive, occluded, minimized, or worker view. Always re-read storage. Also
 read required state during startup because the view may have missed a hint.
 
+People can export and restore app-owned data from the Apps details surface;
+see [App data recovery](app-data-recovery.md). This management operation adds no
+runtime bridge power and never restores connections or grants.
+
 ### Granted Space files
 
 A manifest file declaration is only a maximum request. The person maps it to

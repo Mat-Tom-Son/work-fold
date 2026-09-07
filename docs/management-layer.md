@@ -1,5 +1,14 @@
 # work-fold management layer
 
+The development desktop also exposes the authenticated renderer-only
+`GET /api/management/control-events` SSE endpoint. Its closed `reset`, `apps`,
+and `decisions` hints contain no content or authority and are not remote act
+verbs. Visible renderers share one connection and re-read the relevant service
+after a hint; reconnect sends reset without replay. The host caps connections,
+sends heartbeats, and disconnects backpressured clients instead of queuing
+unbounded updates. This keeps CLI-created decisions and installed-app catalogs
+current in the existing UI; it is not a file watcher or workflow event bus.
+
 work-fold now has a small management layer over its existing product model. It gives the renderer, command line, test harnesses, and future Assistant-facing adapters one semantic view of Spaces, running work, and Pi capabilities without creating another data store or agent framework.
 
 This is infrastructure, not another navigation item. **work-fold**, **Space**, **Files**, **Chats**, **Library**, **History**, and **Assistant tools** remain the user-facing nouns. The management layer makes their underlying state inspectable in a consistent, versioned form.

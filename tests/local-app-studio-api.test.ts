@@ -417,6 +417,12 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
     );
 
     const retainedDataId = uninstalled.retainedData[0]!.retainedDataId;
+    const retainedExport = await request<{ backup: { appId: string; complete: boolean; data: { entries: unknown[] } } }>(api.origin, `${studioPath}/retained-data/${retainedDataId}`);
+    assert.equal(retainedExport.backup.appId, installed.manifest.id);
+    assert.equal(retainedExport.backup.complete, true);
+    assert.deepEqual(retainedExport.backup.data.entries, [{ key: "view-state", value: { selectedFolder: "inbox" } }]);
+    const foreignExport = await fetch(`${api.origin}/api/spaces/${target.id}/app-studio/retained-data/${retainedDataId}`);
+    assert.equal(foreignExport.status, 503, "a foreign Space cannot export retained Project data");
     await expectFailure(
       api.origin,
       `/api/spaces/${target.id}/app-studio/retained-data/${retainedDataId}`,

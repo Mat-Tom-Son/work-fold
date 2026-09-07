@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
+import { useModalDialog } from "../hooks/useModalDialog";
 
 export type ConfirmTone = "default" | "danger";
 
@@ -67,8 +68,6 @@ export function showToast(options: ToastOptions): void {
 export function ConfirmDialogHost() {
   const [queue, setQueue] = useState<ConfirmDialogRequest[]>([]);
   const activeRequest = queue[0] ?? null;
-  const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
-  const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     confirmDialogDispatch = (request) => setQueue((current) => [...current, request]);
@@ -76,37 +75,6 @@ export function ConfirmDialogHost() {
       confirmDialogDispatch = null;
     };
   }, []);
-
-  useEffect(() => {
-    if (!activeRequest) return;
-    window.requestAnimationFrame(() => {
-      const target = activeRequest.tone === "danger" ? cancelButtonRef.current : confirmButtonRef.current;
-      target?.focus();
-    });
-  }, [activeRequest]);
-
-  useEffect(() => {
-    if (!activeRequest) return;
-    function handleKeyDown(event: KeyboardEvent): void {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        settleConfirmRequest(activeRequest, false);
-        return;
-      }
-      if (event.key === "Enter") {
-        event.preventDefault();
-        settleConfirmRequest(activeRequest, document.activeElement !== cancelButtonRef.current);
-        return;
-      }
-      if (event.key === "Tab") {
-        event.preventDefault();
-        const target = document.activeElement === confirmButtonRef.current ? cancelButtonRef.current : confirmButtonRef.current;
-        target?.focus();
-      }
-    }
-    document.addEventListener("keydown", handleKeyDown, true);
-    return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [activeRequest, queue.length]);
 
   function settleConfirmRequest(request: ConfirmDialogRequest, confirmed: boolean): void {
     const returnFocus = queue.length <= 1 ? request.returnFocusTo : null;
@@ -119,14 +87,22 @@ export function ConfirmDialogHost() {
     }
   }
 
-  if (!activeRequest) return null;
+  return activeRequest ? <ConfirmationDialog key={activeRequest.id} request={activeRequest} onSettle={(confirmed) => settleConfirmRequest(activeRequest, confirmed)} /> : null;
+}
+
+function ConfirmationDialog({ request: activeRequest, onSettle }: { request: ConfirmDialogRequest; onSettle: (confirmed: boolean) => void }) {
+  const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
+  const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
+  const danger = activeRequest.tone === "danger";
+  const dialogRef = useModalDialog({ onClose: () => onSettle(false), initialFocusRef: danger ? cancelButtonRef : confirmButtonRef, restoreFocus: false });
 
   const titleId = `confirm-dialog-title-${activeRequest.id}`;
-  const danger = activeRequest.tone === "danger";
 
   return (
-    <div className="modal-backdrop confirm-dialog-backdrop" role="presentation" onMouseDown={() => settleConfirmRequest(activeRequest, false)}>
+    <div className="modal-backdrop confirm-dialog-backdrop" role="presentation" onMouseDown={() => onSettle(false)}>
       <section
+        ref={dialogRef}
+        tabIndex={-1}
         className={danger ? "confirm-dialog confirm-dialog-danger" : "confirm-dialog"}
         role="dialog"
         aria-modal="true"
@@ -140,14 +116,14 @@ export function ConfirmDialogHost() {
           </div>
         </div>
         <div className="confirm-dialog-footer">
-          <button ref={cancelButtonRef} className="secondary-button" type="button" onClick={() => settleConfirmRequest(activeRequest, false)}>
+          <button ref={cancelButtonRef} className="secondary-button" type="button" onClick={() => onSettle(false)}>
             Cancel
           </button>
           <button
             ref={confirmButtonRef}
             className={danger ? "secondary-button danger" : "primary-button"}
             type="button"
-            onClick={() => settleConfirmRequest(activeRequest, true)}
+            onClick={() => onSettle(true)}
           >
             {activeRequest.confirmLabel}
           </button>

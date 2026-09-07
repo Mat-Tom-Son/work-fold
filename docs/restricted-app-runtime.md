@@ -458,7 +458,7 @@ The main gaps are:
   automation notifications are available);
 - a Space-service registry that can verify process ownership and lifecycle,
   replacing raw loopback-port grants for managed project services;
-- reviewed schema/migration execution, retained-data reuse and export, and a
+- reviewed schema/migration execution, retained-data reuse, and a
   portable Project import/collision model; and
 - finer resource controls for long-running or memory-heavy web apps.
 
@@ -471,6 +471,10 @@ the existing raw-loopback limitation.
 Chromium still carries browser-engine exploit and denial-of-service risk.
 Electron updates, sender validation, package review, and the real-runtime probe
 remain release requirements.
+
+The development branch adds [app data export and recovery](app-data-recovery.md)
+to Apps and retained-data export to App Studio. These are host management
+operations, separate from the restricted runtime bridge.
 
 
 History restore holds an inverse automation-launch reservation as well as checking existing active jobs. A queued automation rechecks that reservation after its durable acceptance and before host invocation. Restricted-app file writes hold the shared History ownership reservation through safety capture and atomic commit; a replacement whose prior content could not be captured is refused. These are conflict controls, not new grants or schema fields.

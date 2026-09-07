@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert24Regular } from "@fluentui/react-icons";
 
 import { api, errorText } from "../lib/api";
+import { subscribeControlEvents } from "../lib/control-events";
 import { needsYouSurface } from "../ui-contract";
 
 /**
@@ -93,12 +94,14 @@ export function useNeedsYouDecisions(options: {
   const [cards, setCards] = useState<DecisionCardView[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
+  const refreshVersion = useRef(0);
 
   const refresh = useCallback(async () => {
     if (!enabled) return;
+    const version = ++refreshVersion.current;
     try {
       const result = await api<{ decisions: DecisionCardView[] }>("/api/management/decisions");
-      setCards(result.decisions);
+      if (version === refreshVersion.current) setCards(result.decisions);
     } catch {
       // The stack renders recorded state only. A failed refresh keeps the
       // last known cards instead of inventing an empty, clear-looking state.
@@ -108,6 +111,11 @@ export function useNeedsYouDecisions(options: {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    return subscribeControlEvents((hint) => { if (hint !== "apps") void refresh(); });
+  }, [enabled, refresh]);
 
   useEffect(() => {
     if (!enabled || !listenForReturn) return;

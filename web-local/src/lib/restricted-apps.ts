@@ -7,6 +7,7 @@ import type {
   RestrictedAppProposal,
   RestrictedAppReview,
   RestrictedAppStorageUsage,
+  RestrictedAppDataRecovery,
   LocalAppInstallOperation,
   LocalAppInstance,
   LocalAppOperation,
@@ -255,6 +256,26 @@ export async function clearRestrictedAppStorage(spaceId: string, appId: string, 
   return (await api<{ usage: RestrictedAppStorageUsage }>(`${appPath(spaceId, appId)}/storage`, {
     method: "DELETE",
     body: { expectedDigest },
+  })).usage;
+}
+
+export async function exportRestrictedAppData(app: RestrictedAppInstalled): Promise<unknown> {
+  const query = new URLSearchParams({ expectedDigest: app.digest });
+  return (await api<{ backup: unknown }>(`${appPath(app.spaceId, app.manifest.id)}/storage/export?${query}`)).backup;
+}
+
+export async function exportRetainedAppData(sourceSpaceId: string, retainedDataId: string): Promise<unknown> {
+  return (await api<{ backup: unknown }>(`${studioPath(sourceSpaceId)}/retained-data/${encodeURIComponent(retainedDataId)}`)).backup;
+}
+
+export async function getRestrictedAppDataRecovery(app: RestrictedAppInstalled): Promise<RestrictedAppDataRecovery | null> {
+  const query = new URLSearchParams({ expectedDigest: app.digest });
+  return (await api<{ recovery: RestrictedAppDataRecovery | null }>(`${appPath(app.spaceId, app.manifest.id)}/storage/recovery?${query}`)).recovery;
+}
+
+export async function restoreRestrictedAppData(app: RestrictedAppInstalled, expectedRevision: number, source: { backup: unknown } | { recoveryId: string }): Promise<RestrictedAppStorageUsage> {
+  return (await api<{ usage: RestrictedAppStorageUsage }>(`${appPath(app.spaceId, app.manifest.id)}/storage/restore`, {
+    method: "POST", body: { expectedDigest: app.digest, expectedRevision, ...source },
   })).usage;
 }
 

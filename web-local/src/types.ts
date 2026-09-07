@@ -774,6 +774,12 @@ export interface RestrictedAppStorageUsage {
   keyLimit: number;
 }
 
+export interface RestrictedAppDataRecovery {
+  id: string;
+  createdAt: string;
+  available: boolean;
+}
+
 export type RestrictedAppCredential =
   | { kind: "api-key"; value: string }
   | { kind: "bearer"; token: string }

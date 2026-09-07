@@ -74,6 +74,7 @@ Library materials, outside files, capabilities, connections, and browser access 
 - Background Chat continuity, generated titles after the first successful turn, streaming Thinking and tool activity, and active/snoozed/archived Chat views.
 - Space appearance customization and declarative Extension surfaces.
 - Restricted Space apps with reviewed releases, installation, connections, storage, file grants, notifications, automations, updates, rollback, and removal.
+- The development branch adds [app data export and recovery](docs/app-data-recovery.md), with data-only backups, current-revision restore, and Undo for clear/restore.
 - The fold, Needs-you decisions, standing policies, the deterministic glance, Routings, Checks, published pages, and the authenticated management CLI.
 - Private-alpha web access with desktop browser approval and live response streaming.
 - Signed, notarized Apple silicon releases with automatic updates from the separate public Mac feed.

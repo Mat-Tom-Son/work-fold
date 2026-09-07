@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { listRestrictedApps } from "../lib/restricted-apps";
+import { subscribeControlEvents } from "../lib/control-events";
 import type { RestrictedAppInstalled } from "../types";
 
 const emptyRestrictedAppFixtures: Record<string, RestrictedAppInstalled[]> = {};
@@ -57,6 +58,15 @@ export function useRestrictedApps({
     }
     void refresh(activeSpaceId);
   }, [activeSpaceId, fixtureApps, fixtureMode, refresh]);
+
+  useEffect(() => {
+    if (fixtureMode) return;
+    return subscribeControlEvents((hint) => {
+      if (hint === "decisions") return;
+      const ids = new Set([...requestVersionsRef.current.keys(), activeSpaceId]);
+      for (const id of ids) void refresh(id);
+    });
+  }, [activeSpaceId, fixtureMode, refresh]);
 
   const replaceApps = useCallback((spaceId: string, apps: RestrictedAppInstalled[]) => {
     setAppsBySpace((current) => ({ ...current, [spaceId]: apps }));

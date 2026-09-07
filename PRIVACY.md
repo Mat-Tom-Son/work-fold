@@ -32,6 +32,16 @@ legacy product data.
 
 ## When data leaves this computer
 
+The development version adds **Export data**, **Restore…**, and recoverable
+**Clear data** to app details. Exports contain the app's complete JSON data and
+its non-secret installation identity, saved to the location chosen in the
+download dialog; work-fold does not upload them. Host-held connections, grants,
+Chats and ordinary Space files are excluded. Clear and restore retain one
+previous data snapshot on this computer for Undo. A later clear/restore replaces
+that snapshot; uninstall with purge removes it with the namespace. Retained
+data can be exported from its source Project without reactivating the app.
+See [App data recovery](docs/app-data-recovery.md) for exact limits and retention.
+
 ### Optional Remote access bridge
 
 When Remote access is enabled, the desktop maintains an authenticated WebSocket

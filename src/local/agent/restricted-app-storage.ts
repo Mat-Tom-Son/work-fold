@@ -84,7 +84,7 @@ export class RestrictedAppStorageError extends Error {
   }
 }
 
-interface RestrictedAppStorageFile {
+export interface RestrictedAppStorageFile {
   schemaVersion: 3;
   ownerClass: "instance";
   tenantId: TenantId;
@@ -96,7 +96,7 @@ interface RestrictedAppStorageFile {
   entries: RestrictedAppStorageEntry[];
 }
 
-interface RestrictedAppStorageEntry {
+export interface RestrictedAppStorageEntry {
   key: string;
   value: RestrictedAppStorageJsonValue;
 }
@@ -106,6 +106,53 @@ interface NormalizedTransaction {
   clear: boolean;
   set: RestrictedAppStorageSetOperation[];
   delete: string[];
+}
+
+export interface RestrictedAppDataBackup {
+  format: "work-fold.app-data";
+  formatVersion: 1;
+  appId: string;
+  appDigest: string;
+  exportedAt: string;
+  complete: true;
+  data: RestrictedAppStorageFile;
+  sha256: string;
+}
+
+export interface RestrictedAppDataRecovery {
+  id: string;
+  createdAt: string;
+  available: boolean;
+}
+
+interface RecoveryFile {
+  format: "work-fold.app-data-recovery";
+  formatVersion: 1;
+  id: string;
+  createdAt: string;
+  appDigest: string;
+  previous: RestrictedAppStorageFile;
+  resultSha256: string;
+}
+
+/** Complete data-only backup. The caller supplies host-resolved identity. */
+export function validateRestrictedAppDataBackup(value: unknown, owner: RestrictedAppStorageOwner, appId: string, appDigest: string): RestrictedAppDataBackup {
+  const backup = value as RestrictedAppDataBackup;
+  if (!backup || typeof backup !== "object" || Array.isArray(backup)
+    || Object.keys(backup).some((key) => !["format", "formatVersion", "appId", "appDigest", "exportedAt", "complete", "data", "sha256"].includes(key))
+    || backup.format !== "work-fold.app-data" || backup.formatVersion !== 1 || backup.complete !== true
+    || backup.appId !== appId || backup.appDigest !== appDigest
+    || typeof backup.exportedAt !== "string" || !Number.isFinite(Date.parse(backup.exportedAt))) {
+    throw new RestrictedAppStorageError("STORAGE_INVALID", "Choose a complete backup of this app revision and installation.");
+  }
+  const data = normalizeFile(backup.data, normalizeOwner(owner));
+  const payload = { format: backup.format, formatVersion: backup.formatVersion, appId, appDigest, exportedAt: backup.exportedAt, complete: true as const, data };
+  if (backup.sha256 !== dataHash(payload)) throw new RestrictedAppStorageError("STORAGE_CORRUPT", "The app backup failed its integrity check.");
+  return { ...payload, sha256: backup.sha256 };
+}
+
+function dataHash(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
 /**
@@ -126,6 +173,65 @@ export class FileRestrictedAppStorage {
   async usage(owner: RestrictedAppStorageOwner): Promise<RestrictedAppStorageUsage> {
     const normalized = normalizeOwner(owner);
     return await this.#enqueue(normalized, async () => usageFromFile(await this.#read(normalized)));
+  }
+
+  async exportData(owner: RestrictedAppStorageOwner, appId: string, appDigest: string): Promise<RestrictedAppDataBackup> {
+    const normalized = normalizeOwner(owner);
+    return await this.#enqueue(normalized, async () => {
+      const payload = { format: "work-fold.app-data" as const, formatVersion: 1 as const, appId, appDigest,
+        exportedAt: new Date().toISOString(), complete: true as const, data: await this.#read(normalized) };
+      return { ...payload, sha256: dataHash(payload) };
+    });
+  }
+
+  async recovery(owner: RestrictedAppStorageOwner, appDigest: string): Promise<RestrictedAppDataRecovery | null> {
+    const normalized = normalizeOwner(owner);
+    return await this.#enqueue(normalized, async () => {
+      const current = await this.#read(normalized);
+      const record = await this.#readRecovery(normalized);
+      return record ? { id: record.id, createdAt: record.createdAt,
+        available: record.appDigest === appDigest && record.resultSha256 === dataHash(current) } : null;
+    });
+  }
+
+  /** Management only. Runtime transactions retain their smaller operation budget. */
+  async replaceData(owner: RestrictedAppStorageOwner, input: {
+    appDigest: string;
+    expectedRevision: number;
+    entries?: RestrictedAppStorageEntry[];
+    recoveryId?: string;
+  }, authorizeCommit?: RestrictedAppStorageCommitAuthorizer): Promise<RestrictedAppStorageUsage> {
+    const normalized = normalizeOwner(owner);
+    if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) {
+      throw new RestrictedAppStorageError("STORAGE_INVALID", "An exact app data revision is required.");
+    }
+    return await this.#enqueue(normalized, async () => {
+      const current = await this.#read(normalized);
+      if (current.revision !== input.expectedRevision) throw new RestrictedAppStorageError("STORAGE_CONFLICT", "App data changed. Review it again before restoring.");
+      let entries = input.entries;
+      if (input.recoveryId !== undefined) {
+        const record = await this.#readRecovery(normalized);
+        if (!record || record.id !== input.recoveryId || record.appDigest !== input.appDigest || record.resultSha256 !== dataHash(current)) {
+          throw new RestrictedAppStorageError("STORAGE_CONFLICT", "This recovery point is no longer current.");
+        }
+        entries = record.previous.entries;
+      }
+      if (!entries) throw new RestrictedAppStorageError("STORAGE_INVALID", "App data is required.");
+      const next = normalizeFile({ ...current, revision: current.revision + 1, entries, usageBytes: storageUsage(entries) }, normalized);
+      // The recovery receipt is durable before the atomic data replacement. A
+      // crash before commit leaves it unavailable; no success is inferred.
+      const recovery: RecoveryFile = { format: "work-fold.app-data-recovery", formatVersion: 1,
+        id: randomUUID(), createdAt: new Date().toISOString(), appDigest: input.appDigest,
+        previous: current, resultSha256: dataHash(next) };
+      await this.#write(normalized, recovery, authorizeCommit, "recovery.json");
+      const paths = this.#paths(normalized);
+      await syncStorageDirectory(paths.directory);
+      await syncStorageDirectory(paths.shard);
+      await syncStorageDirectory(this.#rootPath);
+      await this.#write(normalized, next, authorizeCommit);
+      await syncStorageDirectory(paths.directory);
+      return usageFromFile(next);
+    });
   }
 
   async keys(owner: RestrictedAppStorageOwner, prefix = ""): Promise<string[]> {
@@ -265,14 +371,16 @@ export class FileRestrictedAppStorage {
 
   async #write(
     owner: RestrictedAppStorageOwner,
-    data: RestrictedAppStorageFile,
+    data: RestrictedAppStorageFile | RecoveryFile,
     authorizeCommit?: RestrictedAppStorageCommitAuthorizer,
+    filename: "storage.json" | "recovery.json" = "storage.json",
   ): Promise<void> {
     const paths = this.#paths(owner);
+    const target = join(paths.directory, filename);
     await ensureSafeRoot(this.#rootPath);
     await ensureSafeChildDirectory(this.#rootPath, paths.shard, "Restricted app storage shard");
     await ensureSafeChildDirectory(paths.shard, paths.directory, "Restricted app storage owner directory");
-    const existing = await safeInfo(paths.file);
+    const existing = await safeInfo(target);
     if (existing && (existing.isSymbolicLink() || !existing.isFile())) {
       throw new RestrictedAppStorageError("STORAGE_UNSAFE", "Restricted app storage is not a regular file.");
     }
@@ -280,7 +388,7 @@ export class FileRestrictedAppStorage {
     if (Buffer.byteLength(source, "utf8") > restrictedAppStorageLimits.fileBytes) {
       throw new RestrictedAppStorageError("STORAGE_QUOTA", "Restricted app storage file exceeds its safety limit.");
     }
-    const temporary = join(paths.directory, `storage.json.${randomUUID()}.tmp`);
+    const temporary = join(paths.directory, `${filename}.${randomUUID()}.tmp`);
     const handle = await open(temporary, "wx", 0o600);
     try {
       await handle.writeFile(source, "utf8");
@@ -290,11 +398,35 @@ export class FileRestrictedAppStorage {
     }
     try {
       await authorizeCommit?.();
-      await rename(temporary, paths.file);
+      await rename(temporary, target);
     } catch (error) {
       await rm(temporary, { force: true });
       throw error;
     }
+  }
+
+  async #readRecovery(owner: RestrictedAppStorageOwner): Promise<RecoveryFile | null> {
+    // #read has already checked every parent before this method is called.
+    const path = join(this.#paths(owner).directory, "recovery.json");
+    const info = await safeInfo(path);
+    if (!info) return null;
+    if (info.isSymbolicLink() || !info.isFile() || info.size > restrictedAppStorageLimits.fileBytes) {
+      throw new RestrictedAppStorageError("STORAGE_UNSAFE", "App recovery is not a bounded regular file.");
+    }
+    const bytes = await readFile(path);
+    if (bytes.byteLength > restrictedAppStorageLimits.fileBytes) throw new RestrictedAppStorageError("STORAGE_CORRUPT", "App recovery exceeds its size limit.");
+    let record: RecoveryFile;
+    try { record = JSON.parse(bytes.toString("utf8")) as RecoveryFile; }
+    catch { throw new RestrictedAppStorageError("STORAGE_CORRUPT", "App recovery is unreadable."); }
+    if (!record || record.format !== "work-fold.app-data-recovery" || record.formatVersion !== 1
+      || Object.keys(record).some((key) => !["format", "formatVersion", "id", "createdAt", "appDigest", "previous", "resultSha256"].includes(key))
+      || typeof record.id !== "string" || !/^[a-f0-9-]{36}$/.test(record.id)
+      || typeof record.createdAt !== "string" || !Number.isFinite(Date.parse(record.createdAt))
+      || typeof record.appDigest !== "string" || !/^[a-f0-9]{64}$/.test(record.appDigest)
+      || typeof record.resultSha256 !== "string" || !/^[a-f0-9]{64}$/.test(record.resultSha256)) {
+      throw new RestrictedAppStorageError("STORAGE_CORRUPT", "App recovery metadata is invalid.");
+    }
+    return { ...record, previous: normalizeFile(record.previous, owner) };
   }
 
   #paths(owner: RestrictedAppStorageOwner): { shard: string; directory: string; file: string } {
@@ -577,6 +709,19 @@ async function safeInfo(path: string): Promise<Awaited<ReturnType<typeof lstat>>
   } catch (error) {
     if (isNodeError(error, "ENOENT")) return null;
     throw error;
+  }
+}
+
+async function syncStorageDirectory(path: string): Promise<void> {
+  let handle;
+  try {
+    handle = await open(path, "r");
+    await handle.sync();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "EINVAL" && code !== "EISDIR" && code !== "EPERM" && code !== "ENOTSUP") throw error;
+  } finally {
+    await handle?.close();
   }
 }
 

@@ -3,6 +3,7 @@ import test from "node:test";
 import { createElement, StrictMode, useRef, type ReactElement } from "react";
 
 import { useModalDialog } from "../web-local/src/hooks/useModalDialog.js";
+import { ConfirmDialogHost, requestConfirm } from "../web-local/src/ui/feedback.js";
 import { createDomHarness } from "./support/dom.js";
 
 /**
@@ -118,4 +119,33 @@ test("focus restoration survives React Strict Mode effect replay", async (t) => 
   await dom.settle();
 
   assert.equal(document.activeElement?.id, "opener");
+});
+
+test("a confirmation above an app details dialog owns focus and restores the parent on cancel", async (t) => {
+  const dom = await createDomHarness();
+  t.after(() => dom.cleanup());
+  let parentCloses = 0;
+  let result: boolean | undefined;
+  function Parent() {
+    const ref = useModalDialog({ onClose: () => { parentCloses += 1; } });
+    return createElement("section", { ref, role: "dialog", tabIndex: -1, id: "parent" },
+      createElement("button", { id: "confirm-opener", onClick: () => {
+        void requestConfirm({ title: "Clear app data?", confirmLabel: "Clear data", tone: "danger" }).then((value) => { result = value; });
+      } }, "Clear"));
+  }
+  await dom.render(createElement("div", null, createElement(Parent), createElement(ConfirmDialogHost)));
+  await dom.act(() => { document.getElementById("confirm-opener")!.click(); });
+  await dom.settle();
+  assert.equal(document.activeElement?.textContent, "Cancel", "danger confirmations default to Cancel");
+  assert.equal(document.activeElement?.closest('[aria-hidden="true"]'), null, "the active confirmation remains accessible");
+  assert.equal(document.getElementById("parent")?.inert, true);
+  await dom.press("Tab", { shiftKey: true });
+  assert.equal(document.activeElement?.textContent, "Clear data", "focus wraps within the confirmation");
+  await dom.press("Escape");
+  await dom.settle();
+  assert.equal(result, false);
+  assert.equal(parentCloses, 0, "Escape must not close both dialogs");
+  assert.equal(document.getElementById("parent")?.getAttribute("aria-hidden"), null);
+  assert.notEqual(document.getElementById("parent")?.inert, true);
+  assert.equal(document.activeElement?.id, "confirm-opener");
 });

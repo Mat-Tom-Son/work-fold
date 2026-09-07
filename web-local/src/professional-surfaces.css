@@ -3928,6 +3928,7 @@
 
 .restricted-app-lifecycle {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -5149,6 +5150,12 @@
   min-width: 0;
   display: grid;
   gap: 3px;
+}
+
+.app-studio-retained-row > .app-studio-retained-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .app-studio-retained-row strong {

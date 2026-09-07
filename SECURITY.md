@@ -178,3 +178,15 @@ Routing v3 folder triggers observe a reviewed, bounded metadata tree; links, res
 ### Check proposal and correction review
 
 Fold-led setup stages an unsent draft and materializes inert Check proposals. One-time trials use exact reviewed declarations, can transmit designated text to the configured model provider, and never grant standing authority or replace live findings. Passive fold attention starts no agent turn. Corrections retain bounded proposed replacement text in machine-local Check state. Applying is a separate human action that re-verifies primary/reference evidence, preserves exact original bytes in History, journals before writing, and refuses stale or repeated application. An interrupted correction is recorded as failed and never replayed automatically. Space removal purges the same primary/backup Check state, including corrections. See [Checks](docs/checks.md).
+
+### App data recovery and control invalidation (development)
+
+The Apps management surface can export complete instance-owned JSON and restore
+only the same installation and exact app revision. Restore validates the
+integrity envelope and current storage revision, fences the prior runtime's
+data authority, and journals a bounded previous snapshot before replacement.
+It never imports grants, credentials, jobs or another namespace's authority.
+Retained-data export checks the owning source Project; adoption remains absent.
+The local authenticated control-event stream carries only invalidation kinds,
+with bounded connections and no event replay or new remote authority. See
+[App data recovery](docs/app-data-recovery.md).

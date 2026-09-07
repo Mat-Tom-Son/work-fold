@@ -21,11 +21,14 @@ import {
   type RestrictedAppManifest,
 } from "./restricted-app-manifest.js";
 import { RestrictedAppFileBroker, type RestrictedAppFileGrant } from "./restricted-app-files.js";
-import type {
-  FileRestrictedAppStorage,
-  RestrictedAppStorageJsonValue,
-  RestrictedAppStorageOwner,
-  RestrictedAppStorageUsage,
+import {
+  validateRestrictedAppDataBackup,
+  type FileRestrictedAppStorage,
+  type RestrictedAppDataBackup,
+  type RestrictedAppDataRecovery,
+  type RestrictedAppStorageJsonValue,
+  type RestrictedAppStorageOwner,
+  type RestrictedAppStorageUsage,
 } from "./restricted-app-storage.js";
 import { RestrictedAppOAuthError, type RestrictedAppOAuthPkceClient } from "./restricted-app-oauth.js";
 import {
@@ -439,7 +442,7 @@ interface LocalAppVerifiedReleaseProjection {
 interface LocalAppAdminReceipt {
   receiptId: string;
   action: "release-prepared" | "release-published" | "release-deleted" | "install-prepared" | "installed"
-    | "update-prepared" | "updated" | "uninstalled" | "retained-data-purged";
+    | "update-prepared" | "updated" | "uninstalled" | "retained-data-purged" | "data-exported";
   projectId: ProjectId;
   runtimeInstanceId: RuntimeInstanceId | null;
   releaseDigest: Sha256Digest | null;
@@ -526,6 +529,7 @@ interface RestrictedAppRegistryEntry {
 
 export class RestrictedAppService {
   readonly #rootPath: string;
+  readonly #catalogListeners = new Set<() => void>();
   readonly #registryPath: string;
   readonly #stagingPath: string;
   readonly #runtimeHost?: RestrictedAppRuntimeHost;
@@ -1632,6 +1636,21 @@ export class RestrictedAppService {
     });
   }
 
+  async exportRetainedStorage(sourceSpaceId: string, retainedDataId: string): Promise<RestrictedAppDataBackup> {
+    return await this.#mutate(async () => {
+      const project = this.#registry.projects.find((item) => item.spaceId === sourceSpaceId);
+      const retained = this.#registry.retainedData.find((item) => item.retainedDataId === retainedDataId && item.projectId === project?.projectId);
+      if (!retained) throw new RestrictedAppError("APP_UNAVAILABLE", "Retained app data not found in this Project.");
+      if (!this.#storage) throw new RestrictedAppError("APP_UNAVAILABLE", "App data requires the desktop host.");
+      const release = this.#registry.releases.find((item) => item.releaseDigest === retained.releaseDigest);
+      const feature = release?.sourceFeatures.find((item) => item.featureId === retained.featureId);
+      if (!feature) throw new RestrictedAppError("APP_UNAVAILABLE", "The retained app revision is unavailable.");
+      const backup = await this.#storage.exportData(storageOwnerFromEntry(retained, this.#registry.localIdentity), retained.featureId, feature.packageDigest);
+      await this.#recordDataExport(retained);
+      return backup;
+    });
+  }
+
   async runtimeDescriptor(spaceId: string, appId: string, expectedDigest: string): Promise<RestrictedAppRuntimeDescriptor> {
     this.#assertOpen();
     await this.#queue.catch(() => undefined);
@@ -2206,13 +2225,70 @@ export class RestrictedAppService {
     return await this.#storage.usage(storageOwnerFromEntry(app, this.#registry.localIdentity));
   }
 
+  subscribeCatalog(listener: () => void): () => void {
+    this.#catalogListeners.add(listener);
+    return () => { this.#catalogListeners.delete(listener); };
+  }
+
   async clearStorage(spaceId: string, appId: string, expectedDigest: string): Promise<RestrictedAppStorageUsage> {
     return await this.#mutate(async () => {
       const app = this.#installed(spaceId, appId, expectedDigest);
       if (!this.#storage) throw new RestrictedAppError("APP_UNAVAILABLE", "Restricted app storage requires the work-fold desktop host.");
       await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest);
       await this.#advanceInstalledAuthority(app, ["dataGeneration"]);
-      return await this.#storage.clear(storageOwnerFromEntry(app, this.#registry.localIdentity));
+      const owner = storageOwnerFromEntry(app, this.#registry.localIdentity);
+      const usage = await this.#storage.usage(owner);
+      return await this.#storage.replaceData(owner, { appDigest: app.digest, expectedRevision: usage.revision, entries: [] });
+    });
+  }
+
+  async exportStorage(spaceId: string, appId: string, expectedDigest: string): Promise<RestrictedAppDataBackup> {
+    return await this.#mutate(async () => {
+      const app = this.#installed(spaceId, appId, expectedDigest);
+      if (!this.#storage) throw new RestrictedAppError("APP_UNAVAILABLE", "App data requires the desktop host.");
+      const backup = await this.#storage.exportData(storageOwnerFromEntry(app, this.#registry.localIdentity), app.manifest.id, app.digest);
+      await this.#recordDataExport(app);
+      return backup;
+    });
+  }
+
+  async #recordDataExport(app: { projectId: ProjectId; runtimeInstanceId: RuntimeInstanceId; releaseDigest: Sha256Digest | null }): Promise<void> {
+    await this.#writeRegistry({ ...this.#registry, adminReceipts: appendAdminReceipt(this.#registry.adminReceipts, {
+      action: "data-exported", projectId: app.projectId, runtimeInstanceId: app.runtimeInstanceId,
+      releaseDigest: app.releaseDigest, createdAt: this.#now().toISOString(),
+    }) });
+  }
+
+  async storageRecovery(spaceId: string, appId: string, expectedDigest: string): Promise<RestrictedAppDataRecovery | null> {
+    const app = this.#installed(spaceId, appId, expectedDigest);
+    if (!this.#storage) throw new RestrictedAppError("APP_UNAVAILABLE", "App data requires the desktop host.");
+    return await this.#storage.recovery(storageOwnerFromEntry(app, this.#registry.localIdentity), app.digest);
+  }
+
+  async restoreStorage(input: {
+    spaceId: string; appId: string; expectedDigest: string; expectedRevision: number;
+    backup?: unknown; recoveryId?: string;
+  }): Promise<RestrictedAppStorageUsage> {
+    return await this.#mutate(async () => {
+      const app = this.#installed(input.spaceId, input.appId, input.expectedDigest);
+      if (!this.#storage) throw new RestrictedAppError("APP_UNAVAILABLE", "App data requires the desktop host.");
+      if ((input.backup === undefined) === (input.recoveryId === undefined)) {
+        throw new RestrictedAppError("INPUT_INVALID", "Choose one backup or recovery point.");
+      }
+      const owner = storageOwnerFromEntry(app, this.#registry.localIdentity);
+      const backup = input.backup === undefined ? undefined : validateRestrictedAppDataBackup(input.backup, owner, app.manifest.id, app.digest);
+      if (input.recoveryId !== undefined) {
+        const recovery = await this.#storage.recovery(owner, app.digest);
+        if (!recovery?.available || recovery.id !== input.recoveryId) throw new RestrictedAppError("REVISION_CHANGED", "This recovery point is no longer current.");
+      }
+      const usage = await this.#storage.usage(owner);
+      if (usage.revision !== input.expectedRevision) throw new RestrictedAppError("REVISION_CHANGED", "App data changed. Review it again before restoring.");
+      await this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest);
+      await this.#advanceInstalledAuthority(app, ["dataGeneration"]);
+      return await this.#storage.replaceData(owner, {
+        appDigest: app.digest, expectedRevision: input.expectedRevision,
+        ...(backup ? { entries: backup.data.entries } : { recoveryId: input.recoveryId }),
+      });
     });
   }
 
@@ -2784,6 +2860,9 @@ export class RestrictedAppService {
     // filesystem cannot confirm the parent-directory flush.
     this.#registry = validated;
     this.#syncRuntimeAuthorities();
+    for (const listener of this.#catalogListeners) {
+      try { listener(); } catch { /* Invalidation hints cannot fail a committed mutation. */ }
+    }
     try {
       await syncRestrictedAppDirectory(this.#rootPath);
     } catch {
@@ -3578,7 +3657,7 @@ function localAppAdminReceiptValue(value: unknown, index: number): LocalAppAdmin
   const receiptId = nonempty(item.receiptId, "Local App admin receipt id", 64);
   if (!/^admin_[0-9a-f-]{36}$/i.test(receiptId)) throw new Error("Local App admin receipt id is invalid.");
   const actions = new Set<LocalAppAdminReceipt["action"]>([
-    "release-prepared", "release-published", "release-deleted", "install-prepared", "installed", "update-prepared", "updated", "uninstalled", "retained-data-purged",
+    "release-prepared", "release-published", "release-deleted", "install-prepared", "installed", "update-prepared", "updated", "uninstalled", "retained-data-purged", "data-exported",
   ]);
   if (!actions.has(item.action as LocalAppAdminReceipt["action"])) throw new Error("Local App admin receipt action is invalid.");
   const action = item.action as LocalAppAdminReceipt["action"];

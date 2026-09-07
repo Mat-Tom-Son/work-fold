@@ -198,6 +198,11 @@ The desktop implements the first complete local Project-to-Instance journey:
    can be purged later. Source files and separately granted ordinary Space files
    are never removed.
 
+The development branch adds complete active/retained namespace export and
+same-installation, exact-revision recovery through the host's Apps management
+surface. It retains one bounded undo snapshot and advances data authority without
+restoring any other authority. See [App data recovery](app-data-recovery.md).
+
 The first placement rule is intentionally small: at most one local App Instance
 exists for a `(projectId, target Space)` pair, and no target Space may already
 contain a Development preview or installed Feature with the same `featureId`.

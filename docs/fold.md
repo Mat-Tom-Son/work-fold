@@ -1,5 +1,10 @@
 # The fold decision register
 
+In the development desktop, pending decisions and installed-app catalogs also
+receive content-free host invalidation while visible. A staged CLI act appears
+without restarting, and approval refreshes the owning app catalog. Reconnecting
+re-reads current records; these hints carry no grant and replay no action.
+
 **The fold** is the one user-facing name for work-fold's one management
 surface in three coats: the **management conversation** above all Spaces, its
 **menu-bar/tray popover** ("Your fold"), and the **Remote access web client**

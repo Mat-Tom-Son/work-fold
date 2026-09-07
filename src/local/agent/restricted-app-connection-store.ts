@@ -112,9 +112,14 @@ export class EncryptedRestrictedAppConnectionStore implements RestrictedAppConne
     const operation = this.#queue.catch(() => undefined).then(async () => {
       try {
         const current = await this.#read();
+        const before = JSON.stringify(current);
         const data: ConnectionFile = current;
         mutator(data);
         data.records.sort((left, right) => bindingKey(left).localeCompare(bindingKey(right)));
+        if (JSON.stringify(data) === before) {
+          await authorizeCommit?.();
+          return;
+        }
         await this.#write(data, authorizeCommit);
       } catch (error) {
         operationError = error;

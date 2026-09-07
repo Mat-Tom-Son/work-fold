@@ -926,7 +926,8 @@ it always removes host-owned runtime authority and local connection records and
 then applies the confirmed retain-or-purge choice to each local Data Namespace;
 it never deletes separately selected ordinary resource targets. Retained local
 namespaces are inactive and visible to the source Project for a later explicit
-purge; adoption and export are not implemented. Only a Development Instance is
+purge. The development branch also implements [data export](app-data-recovery.md)
+and same-installation recovery; retained-data adoption is not implemented. Only a Development Instance is
 source-bound to an App Project and source Space, while a local App Instance is
 attached to its chosen target Space. work-fold blocks removing either
 registration while that release-backed Instance remains active and directs the

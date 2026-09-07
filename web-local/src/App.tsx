@@ -126,7 +126,7 @@ export function App() {
 
   // Pending fold decisions (docs/fold-consecrations.md): durable records above
   // all Spaces, refreshed on the same focus/visibility discipline as the
-  // bootstrap — no background watcher. Deciding here records surface
+  // bootstrap, plus content-free host invalidation while visible. Deciding here records surface
   // "main-window" on the receipts.
   const needsYouDecisions = useNeedsYouDecisions({
     surface: "main-window",

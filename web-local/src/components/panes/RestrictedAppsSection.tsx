@@ -14,6 +14,7 @@ import {
 
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { errorText } from "../../lib/api";
+import { downloadAppData } from "../../lib/app-data-download";
 import {
   restrictedAppAutomationOutcomeLabel,
 } from "../../lib/restricted-app-automation";
@@ -22,6 +23,9 @@ import {
   clearRestrictedAppStorage,
   connectRestrictedAppOAuth,
   getRestrictedAppStorageUsage,
+  exportRestrictedAppData,
+  getRestrictedAppDataRecovery,
+  restoreRestrictedAppData,
   inspectRestrictedApp,
   installRestrictedApp,
   listRestrictedAppAutomationRuns,
@@ -46,6 +50,7 @@ import type {
   RestrictedAppNotificationPermission,
   RestrictedAppReview,
   RestrictedAppStorageUsage,
+  RestrictedAppDataRecovery,
   SpaceSummary,
 } from "../../types";
 import { requestConfirm, showToast } from "../../ui/feedback";
@@ -330,6 +335,8 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
 }) {
   const [connections, setConnections] = useState<RestrictedAppConnectionStatus[]>([]);
   const [storageUsage, setStorageUsage] = useState<RestrictedAppStorageUsage | null>(null);
+  const [dataRecovery, setDataRecovery] = useState<RestrictedAppDataRecovery | null>(null);
+  const restoreInputRef = useRef<HTMLInputElement>(null);
   const [automationRuns, setAutomationRuns] = useState<Record<string, RestrictedAppAutomationRunReceipt[]>>({});
   const [automationRunLoading, setAutomationRunLoading] = useState<Record<string, boolean>>({});
   const [automationRunErrors, setAutomationRunErrors] = useState<Record<string, string>>({});
@@ -350,6 +357,8 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
       ? Promise.resolve({ revision: 0, usageBytes: 0, quotaBytes: 5 * 1024 * 1024, keyCount: 0, keyLimit: 512 })
       : getRestrictedAppStorageUsage(app.spaceId, app.manifest.id, app.digest);
     void storage.then((value) => { if (!cancelled) setStorageUsage(value); }).catch((caught) => { if (!cancelled) onError(errorText(caught)); });
+    setDataRecovery(null);
+    if (!fixtureMode) void getRestrictedAppDataRecovery(app).then((value) => { if (!cancelled) setDataRecovery(value); }).catch((caught) => { if (!cancelled) onError(errorText(caught)); });
     return () => { cancelled = true; };
   }, [app.digest, app.manifest.id, app.spaceId, fixtureMode, onError]);
 
@@ -528,13 +537,45 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
   }
 
   async function clearStorage() {
-    const confirmed = await requestConfirm({ title: `Clear ${app.manifest.title} app data?`, body: "This removes its machine-local settings and cached state. Connections and Space files are not changed.", confirmLabel: "Clear app data", tone: "danger" });
+    const confirmed = await requestConfirm({ title: `Clear ${app.manifest.title} app data?`, body: "Clears app data. You can undo this until the app changes it again.", confirmLabel: "Clear app data", tone: "danger" });
     if (!confirmed) return;
     setActionBusy("storage");
     try {
       const usage = fixtureMode ? { revision: (storageUsage?.revision ?? 0) + 1, usageBytes: 0, quotaBytes: 5 * 1024 * 1024, keyCount: 0, keyLimit: 512 } : await clearRestrictedAppStorage(app.spaceId, app.manifest.id, app.digest);
       setStorageUsage(usage);
+      if (!fixtureMode) setDataRecovery(await getRestrictedAppDataRecovery(app));
       showToast({ text: "Local app data cleared.", tone: "success" });
+    } catch (caught) { onError(errorText(caught)); }
+    finally { setActionBusy(null); }
+  }
+
+  async function exportData() {
+    setActionBusy("export-data");
+    try {
+      const backup = await exportRestrictedAppData(app);
+      downloadAppData(app.manifest.id, backup);
+    } catch (caught) { onError(errorText(caught)); }
+    finally { setActionBusy(null); }
+  }
+
+  async function restoreData(file?: File) {
+    if (!storageUsage || (!file && !dataRecovery?.available)) return;
+    const expectedRevision = storageUsage.revision;
+    const recoveryId = dataRecovery?.id;
+    setActionBusy("restore-data");
+    try {
+      if (file && file.size > 6 * 1024 * 1024) throw new Error("Choose an app backup smaller than 6 MiB.");
+      const backup: unknown = file ? JSON.parse(await file.text()) : undefined;
+      const confirmed = await requestConfirm({
+        title: file ? `Restore ${app.manifest.title} data?` : "Undo the last data change?",
+        body: file ? "Replaces current app data. You can undo this until the app changes it again." : "Restores the data from before the last clear or restore.",
+        confirmLabel: file ? "Restore data" : "Undo change",
+      });
+      if (!confirmed) return;
+      const usage = await restoreRestrictedAppData(app, expectedRevision, file ? { backup } : { recoveryId: recoveryId! });
+      setStorageUsage(usage);
+      setDataRecovery(await getRestrictedAppDataRecovery(app));
+      showToast({ text: "App data restored.", tone: "success" });
     } catch (caught) { onError(errorText(caught)); }
     finally { setActionBusy(null); }
   }
@@ -622,7 +663,13 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
             onLoadRuns={() => void loadAutomationRuns(automation)}
           />)}</> : <p>This app declares no scheduled automations.</p>}
         </section>
-        <section className="restricted-app-lifecycle"><div><h3>Local app data</h3><p>{storageUsage ? `${formatBytes(storageUsage.usageBytes)} of ${formatBytes(storageUsage.quotaBytes)} · ${storageUsage.keyCount} of ${storageUsage.keyLimit} keys` : "Checking usage…"} · Machine-local and preserved across app updates</p></div><button className="professional-button professional-button-secondary" type="button" disabled={Boolean(actionBusy) || !storageUsage?.keyCount} onClick={() => void clearStorage()}>{actionBusy === "storage" ? <ArrowSync16Regular className="spin" /> : null}Clear data</button></section>
+        <section className="restricted-app-lifecycle"><div><h3>App data</h3><p>{storageUsage ? `${formatBytes(storageUsage.usageBytes)} · Saved on this computer` : "Checking usage…"}</p></div><div className="restricted-app-lifecycle-actions">
+          <input ref={restoreInputRef} type="file" accept=".json,application/json" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void restoreData(file); }} />
+          <button className="professional-button professional-button-secondary" type="button" disabled={fixtureMode || Boolean(actionBusy) || !storageUsage} onClick={() => void exportData()}>Export data</button>
+          <button className="professional-button professional-button-secondary" type="button" disabled={fixtureMode || Boolean(actionBusy) || !storageUsage} onClick={() => restoreInputRef.current?.click()}>Restore…</button>
+          {dataRecovery?.available ? <button className="professional-button professional-button-quiet" type="button" disabled={Boolean(actionBusy)} onClick={() => void restoreData()}>Undo data change</button> : null}
+          <button className="professional-button professional-button-quiet" type="button" disabled={Boolean(actionBusy) || !storageUsage?.keyCount} onClick={() => void clearStorage()}>{actionBusy === "storage" ? <ArrowSync16Regular className="spin" /> : null}Clear data</button>
+        </div></section>
         <details className="restricted-app-package-details"><summary>Package & runtime</summary><dl className="capability-review-facts"><div><dt>Package</dt><dd>{app.packageName} {app.version}</dd></div><div><dt>Installed revision</dt><dd><code>{shortDigest(app.digest)}</code></dd></div><div><dt>Runtime</dt><dd>Protected local web app</dd></div><div><dt>UI entry</dt><dd>{app.manifest.runtime.entry}</dd></div><div><dt>Worker</dt><dd>{app.manifest.runtime.worker ?? "None"}</dd></div></dl></details>
         <section className="restricted-app-lifecycle"><div><h3>Lifecycle</h3><p>{app.runtimeInstanceKind === "development" ? "Preview" : "App Feature"} added {formatTimestamp(app.installedAt)} · Updated {formatTimestamp(app.updatedAt)}</p></div><div className="restricted-app-lifecycle-actions"><button className="professional-button professional-button-secondary" type="button" disabled={busy || Boolean(actionBusy)} onClick={onOpenAppStudio}>Open App Studio</button>{app.runtimeInstanceKind === "development" ? <button className="professional-button professional-button-danger" type="button" disabled={busy || Boolean(actionBusy)} onClick={onRemove}><Delete16Regular />Remove preview</button> : null}</div></section>
       </div>

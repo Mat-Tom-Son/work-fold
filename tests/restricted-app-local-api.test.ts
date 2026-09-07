@@ -20,7 +20,7 @@ import {
 import { RoutedRestrictedAppProposalHost } from "../src/local/agent/restricted-app-proposals.js";
 import type { EffectivePrincipal } from "../src/local/agent/app-platform-contract.js";
 import type { RestrictedAppOAuthPkceClient } from "../src/local/agent/restricted-app-oauth.js";
-import { FileRestrictedAppStorage } from "../src/local/agent/restricted-app-storage.js";
+import { FileRestrictedAppStorage, type RestrictedAppDataBackup, type RestrictedAppDataRecovery } from "../src/local/agent/restricted-app-storage.js";
 import { startLocalApi } from "../src/local/server.js";
 
 test("restricted app API keeps review, install, grants, connections, invocation, and removal separate", async () => {
@@ -225,6 +225,15 @@ test("restricted app API keeps review, install, grants, connections, invocation,
       `/api/spaces/${space.id}/restricted-apps/mail-app/storage?expectedDigest=${inspected.review.digest}`,
     );
     assert.equal(usage.usage.keyCount, 1);
+    const dataUrl = `/api/spaces/${space.id}/restricted-apps/mail-app/storage`;
+    const exported = await request<{ backup: RestrictedAppDataBackup }>(api.origin, `${dataUrl}/export?expectedDigest=${inspected.review.digest}`);
+    assert.equal(exported.backup.data.entries[0]?.key, "view");
+    assert.equal("connections" in exported.backup, false);
+    const controlAbort = new AbortController();
+    const controlResponse = await fetch(`${api.origin}/api/management/control-events`, { signal: controlAbort.signal });
+    assert.equal(controlResponse.status, 200);
+    const controlReader = controlResponse.body!.getReader();
+    assert.equal(new TextDecoder().decode((await controlReader.read()).value), 'data: {"type":"reset"}\n\n');
 
     const conversation = await request<{ conversation: { id: string } }>(
       api.origin,
@@ -252,6 +261,11 @@ test("restricted app API keeps review, install, grants, connections, invocation,
         },
       );
       assert.equal(blockedClear.status, 409, "active Assistant work must prevent storage authority changes");
+      const blockedRestore = await fetch(`${api.origin}${dataUrl}/restore`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ expectedDigest: inspected.review.digest, expectedRevision: 1, backup: exported.backup }),
+      });
+      assert.equal(blockedRestore.status, 409, "restore shares the capability-mutation reservation");
       assert.equal((await request<{ usage: { keyCount: number } }>(
         api.origin,
         `/api/spaces/${space.id}/restricted-apps/mail-app/storage?expectedDigest=${inspected.review.digest}`,
@@ -267,6 +281,34 @@ test("restricted app API keeps review, install, grants, connections, invocation,
       { method: "DELETE", body: { expectedDigest: inspected.review.digest } },
     );
     assert.equal(cleared.usage.keyCount, 0);
+    const controlUpdate = new TextDecoder().decode((await controlReader.read()).value);
+    assert.match(controlUpdate, /data: \{"type":"apps"\}/);
+    assert.equal(controlUpdate.includes("inbox"), false, "control hints never contain app data");
+    controlAbort.abort();
+    const recovery = await request<{ recovery: RestrictedAppDataRecovery }>(api.origin, `${dataUrl}/recovery?expectedDigest=${inspected.review.digest}`);
+    assert.equal(recovery.recovery.available, true);
+    const beforeRestore = (await service.list(space.id))[0]!;
+    const restored = await request<{ usage: { revision: number; keyCount: number } }>(api.origin, `${dataUrl}/restore`, {
+      method: "POST", body: { expectedDigest: inspected.review.digest, expectedRevision: 2, backup: exported.backup },
+    });
+    assert.equal(restored.usage.keyCount, 1);
+    assert.equal(restored.usage.revision, 3, "restore advances the current revision instead of replaying the backup revision");
+    const afterRestore = (await service.list(space.id))[0]!;
+    assert.deepEqual(afterRestore.networkGrants, beforeRestore.networkGrants);
+    assert.deepEqual(afterRestore.fileGrants, beforeRestore.fileGrants);
+    assert.deepEqual(afterRestore.automations, beforeRestore.automations);
+    assert.notEqual(afterRestore.authority.dataGeneration, beforeRestore.authority.dataGeneration);
+    const staleRestore = await fetch(`${api.origin}${dataUrl}/restore`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ expectedDigest: inspected.review.digest, expectedRevision: 2, backup: exported.backup }),
+    });
+    assert.equal(staleRestore.status, 409);
+    const corruptRestore = await fetch(`${api.origin}${dataUrl}/restore`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ expectedDigest: inspected.review.digest, expectedRevision: 3, backup: { ...exported.backup, sha256: "0".repeat(64) } }),
+    });
+    assert.equal(corruptRestore.status, 422);
+    assert.deepEqual((await service.list(space.id))[0]!.authority, afterRestore.authority, "invalid or stale restores do not change authority");
 
     const oauthStatus = await request<{ connection: { destinationId: string; owner: string; kind: string; configured: boolean; diagnostics: Array<{ code: string; issuer: string; message: string }> } }>(
       api.origin,

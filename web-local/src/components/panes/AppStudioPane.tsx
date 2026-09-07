@@ -19,6 +19,7 @@ import {
 } from "@fluentui/react-icons";
 
 import { errorText } from "../../lib/api";
+import { downloadAppData } from "../../lib/app-data-download";
 import { releaseDeletionResultToast, retainedDataPurgeResultToast, uninstallResultToast } from "../../lib/app-studio-copy";
 import {
   activateLocalAppOperation,
@@ -31,6 +32,7 @@ import {
   prepareLocalAppUpdate,
   publishLocalAppRelease,
   purgeLocalAppRetainedData,
+  exportRetainedAppData,
   uninstallLocalApp,
 } from "../../lib/restricted-apps";
 import type {
@@ -463,6 +465,12 @@ export function AppStudioPane({
     });
   }
 
+  async function exportRetainedData(item: LocalAppRetainedData): Promise<void> {
+    await runMutation(`export:${item.retainedDataId}`, async () => {
+      downloadAppData(item.featureId, await exportRetainedAppData(space.id, item.retainedDataId));
+    });
+  }
+
   function focusOperation(operationId: string): void {
     const element = document.getElementById(`${ids}-app-studio-operation-${operationId}`);
     const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -785,9 +793,10 @@ export function AppStudioPane({
                           <p>No active Feature authority · Data on this device</p>
                           <small>Retained {formatTimestamp(item.removedAt)} · Release {shortDigest(item.releaseDigest)}</small>
                         </div>
+                        <div className="app-studio-retained-actions"><button className="professional-button professional-button-secondary" type="button" disabled={fixtureMode || Boolean(busyKey)} onClick={() => void exportRetainedData(item)}>Export data</button>
                         <button className="professional-button professional-button-danger" type="button" disabled={Boolean(busyKey)} onClick={() => void purgeRetainedData(item)}>
                           {busyKey === `retained:${item.retainedDataId}` ? <ArrowSync16Regular className="spin" /> : <Delete16Regular />}Purge data
-                        </button>
+                        </button></div>
                       </article>
                     ))}
                   </div>

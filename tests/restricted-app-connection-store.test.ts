@@ -93,6 +93,21 @@ test("encrypted connection store persists without exposing plaintext credentials
   assert.deepEqual(await reopened.get(binding()), { kind: "bearer", token: "durable-secret-token" });
 });
 
+test("removing absent connections never creates an encrypted file or opens the keychain", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-empty-connections-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const store = new EncryptedRestrictedAppConnectionStore(join(root, "connections.bin"), {
+    isAvailable() { throw new Error("Unexpected keychain access"); },
+    encrypt() { throw new Error("Unexpected encryption"); },
+    decrypt() { throw new Error("Unexpected decryption"); },
+  });
+  assert.equal(await store.delete(binding()), false);
+  await store.deleteFeature({ tenantId, runtimeInstanceId, featureId: "mail-app", featureInstallationId, featureRevisionDigest });
+  await store.deleteRuntimeInstance({ tenantId, runtimeInstanceId });
+  assert.deepEqual(await readdir(root), []);
+  await assert.rejects(store.delete(binding(), () => { throw new Error("Revoked"); }), /Revoked/);
+});
+
 test("encrypted connection store binds secrets to Tenant, Runtime Instance, Feature Installation, revision, declaration, target, and owner", async (t) => {
   const { store } = await temporaryStore(t);
   await store.set(binding(), { kind: "api-key", value: "bound-secret" });

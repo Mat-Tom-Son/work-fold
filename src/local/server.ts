@@ -59,6 +59,7 @@ import {
   RegisteredSpaceTrustAuthority,
 } from "./agent/registered-space-runtime.js";
 import { RestrictedAppError } from "./agent/restricted-app-connections.js";
+import { RestrictedAppStorageError } from "./agent/restricted-app-storage.js";
 import {
   RoutedRestrictedAppProposalHost,
   type RestrictedAppProposalReceipt,
@@ -622,6 +623,7 @@ interface LocalApiState {
   beforeRestrictedAppSpaceRevalidation?: (spaceId: string) => Promise<void>;
   managementRequests: ManagementRequestRegistry;
   chatStreams: Map<string, Set<ServerResponse>>;
+  controlStreams: Set<ServerResponse>;
   /** In-process subscribers riding the same publish point as the SSE streams (remote watch). */
   chatEventListeners: Map<string, Set<(event: unknown) => void>>;
   chatEventLogs: Map<string, ChatEventLog>;
@@ -875,6 +877,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     beforeRestrictedAppSpaceRevalidation: options.beforeRestrictedAppSpaceRevalidation,
     managementRequests: new ManagementRequestRegistry(),
     chatStreams: new Map(),
+    controlStreams: new Set(),
     chatEventListeners: new Map(),
     chatEventLogs: new Map(),
     activeTurnIdsByKey: new Map(),
@@ -912,6 +915,11 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     fence: createFoldDecisionFence(state),
     adapters: createFoldDecisionAdapters(state),
   });
+  const decisionsChanged = () => publishControlHint(state, "decisions");
+  stagedActs.on("staged", decisionsChanged);
+  stagedActs.on("settled", decisionsChanged);
+  stagedActs.on("execution", decisionsChanged);
+  const unsubscribeAppCatalog = restrictedApps.subscribeCatalog(() => publishControlHint(state, "apps"));
   state.routings = await WorkFoldRoutingService.create({
     store: routingStore,
     ports: createRoutingHopPorts(state),
@@ -1013,6 +1021,11 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     publications,
     close: async () => {
       state.acceptingTurns = false;
+      stagedActs.off("staged", decisionsChanged);
+      stagedActs.off("settled", decisionsChanged);
+      stagedActs.off("execution", decisionsChanged);
+      unsubscribeAppCatalog();
+      for (const response of state.controlStreams) response.end();
       clearInterval(remoteUploadPruneTimer);
       extensionUi.off("request", requestListener);
       extensionUi.off("event", eventListener);
@@ -1478,6 +1491,11 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   }
 
   const localAppRetainedDataMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/app-studio\/retained-data\/([^/]+)$/);
+  if (localAppRetainedDataMatch && method === "GET") {
+    const source = await getSpace(localAppRetainedDataMatch[1]);
+    sendJson(res, { backup: await state.restrictedApps.exportRetainedStorage(source.id, localAppRetainedDataMatch[2]) });
+    return;
+  }
   if (localAppRetainedDataMatch && method === "DELETE") {
     const source = await getSpace(localAppRetainedDataMatch[1]);
     const retainedDataId = localAppRetainedDataMatch[2];
@@ -1687,6 +1705,27 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
         ))
       : await state.restrictedApps.storageUsage(space.id, restrictedStorageMatch[2], expectedDigest);
     sendJson(res, { usage });
+    return;
+  }
+
+  const restrictedDataMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/restricted-apps\/([^/]+)\/storage\/(export|recovery|restore)$/);
+  if (restrictedDataMatch && ((method === "GET" && restrictedDataMatch[3] !== "restore") || (method === "POST" && restrictedDataMatch[3] === "restore"))) {
+    const space = await getSpace(restrictedDataMatch[1]);
+    const appId = restrictedDataMatch[2];
+    if (method === "POST") {
+      const body = await readJsonBody<{ expectedDigest: string; expectedRevision: number; backup?: unknown; recoveryId?: string }>(state, req, 6 * 1024 * 1024);
+      if (!body || typeof body !== "object" || Array.isArray(body)) throw badRequest("A backup or recovery point is required.");
+      const usage = await runRestrictedAppMutation(state, space.id, () => state.restrictedApps.restoreStorage({
+        spaceId: space.id, appId, expectedDigest: body.expectedDigest, expectedRevision: body.expectedRevision,
+        backup: body.backup, recoveryId: body.recoveryId,
+      }));
+      sendJson(res, { usage });
+    } else {
+      const digest = url.searchParams.get("expectedDigest") ?? "";
+      sendJson(res, restrictedDataMatch[3] === "export"
+        ? { backup: await state.restrictedApps.exportStorage(space.id, appId, digest) }
+        : { recovery: await state.restrictedApps.storageRecovery(space.id, appId, digest) });
+    }
     return;
   }
 
@@ -2624,6 +2663,16 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   // while the management conversation is not (a pending card outlives any
   // conversation state), and the glance's needs-you items reference the same
   // pending records by the same ids.
+  if (url.pathname === "/api/management/control-events" && method === "GET") {
+    if (state.controlStreams.size >= 64) throw httpError(429, "Too many control event connections.");
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
+    state.controlStreams.add(res);
+    res.write('data: {"type":"reset"}\n\n');
+    const heartbeat = setInterval(() => { if (!res.destroyed) res.write(": heartbeat\n\n"); }, 15_000);
+    heartbeat.unref();
+    res.on("close", () => { clearInterval(heartbeat); state.controlStreams.delete(res); });
+    return;
+  }
   if (url.pathname === "/api/management/decisions" && method === "GET") {
     try {
       const acts = await state.stagedActs.list({ state: "staged" });
@@ -10913,8 +10962,8 @@ function broadcast(state: LocalApiState, key: string, event: unknown): void {
   if (!streams.size) state.chatStreams.delete(key);
 }
 
-async function readJsonBody<T>(state: LocalApiState, req: IncomingMessage): Promise<T> {
-  const bytes = await readBody(state, req);
+async function readJsonBody<T>(state: LocalApiState, req: IncomingMessage, maximumBytes?: number): Promise<T> {
+  const bytes = await readBody(state, req, maximumBytes);
   if (!bytes.length) return {} as T;
   try { return JSON.parse(bytes.toString("utf8")) as T; } catch { throw badRequest("Request body must be valid JSON."); }
 }
@@ -10952,15 +11001,16 @@ async function readMultipartBody(state: LocalApiState, req: IncomingMessage): Pr
   return { fields, files };
 }
 
-async function readBody(state: LocalApiState, req: IncomingMessage): Promise<Buffer> {
+async function readBody(state: LocalApiState, req: IncomingMessage, maximumBytes = state.maxBodyBytes): Promise<Buffer> {
+  const limit = Math.min(maximumBytes, state.maxBodyBytes);
   const declared = Number(req.headers["content-length"] ?? 0);
-  if (Number.isFinite(declared) && declared > state.maxBodyBytes) throw tooLarge("Request body is too large.");
+  if (Number.isFinite(declared) && declared > limit) throw tooLarge("Request body is too large.");
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += bytes.length;
-    if (size > state.maxBodyBytes) throw tooLarge("Request body is too large.");
+    if (size > limit) throw tooLarge("Request body is too large.");
     chunks.push(bytes);
   }
   return Buffer.concat(chunks);
@@ -10999,6 +11049,16 @@ function sendJson(res: ServerResponse, payload: unknown, status = 200): void {
   res.end(body);
 }
 
+/** Content-free hints only. Reconnect always sends reset; no events are replayed. */
+function publishControlHint(state: LocalApiState, type: "apps" | "decisions"): void {
+  for (const response of state.controlStreams) {
+    if (response.destroyed || response.writableEnded) continue;
+    // A slow renderer must reconnect and requery instead of accumulating a queue.
+    try { if (!response.write(`data: ${JSON.stringify({ type })}\n\n`)) response.destroy(); }
+    catch { response.destroy(); }
+  }
+}
+
 function sendError(res: ServerResponse, error: unknown): void {
   if (res.headersSent) { res.end(); return; }
   const explicit = typeof (error as { statusCode?: unknown })?.statusCode === "number" ? (error as { statusCode: number }).statusCode : null;
@@ -11011,7 +11071,7 @@ function sendError(res: ServerResponse, error: unknown): void {
   sendJson(res, {
     error: errorMessage(error),
     ...((error instanceof WorkFoldRoutingServiceError || error instanceof WorkFoldRoutingStoreError) ? { code: error.code } : {}),
-    ...(error instanceof RestrictedAppError ? { code: error.code } : {}),
+    ...(error instanceof RestrictedAppError || error instanceof RestrictedAppStorageError ? { code: error.code } : {}),
   }, status);
 }
 
@@ -11054,6 +11114,15 @@ function routingErrorStatus(error: unknown): number | null {
 }
 
 function restrictedAppErrorStatus(error: unknown): number | null {
+  if (error instanceof RestrictedAppStorageError) {
+    switch (error.code) {
+      case "STORAGE_INVALID": return 400;
+      case "STORAGE_CONFLICT": return 409;
+      case "STORAGE_QUOTA": return 413;
+      case "STORAGE_CORRUPT": return 422;
+      case "STORAGE_UNSAFE": return 503;
+    }
+  }
   if (!(error instanceof RestrictedAppError)) return null;
   switch (error.code) {
     case "INPUT_INVALID": return 400;
