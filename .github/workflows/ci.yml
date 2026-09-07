@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   types:
-    name: TypeScript
+    name: Repository & TypeScript
     runs-on: macos-latest
     timeout-minutes: 15
     steps:

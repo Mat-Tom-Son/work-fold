@@ -22,7 +22,8 @@
   "scripts": {
     "postinstall": "node scripts/normalize-pi-dependencies.mjs",
     "build": "npm run desktop:prepare",
-    "check": "npm run local:check && npm run desktop:check",
+    "check": "npm run repo:check && npm run local:check && npm run desktop:check",
+    "repo:check": "node scripts/check-repository.mjs",
     "test": "node scripts/run-tests.mjs",
     "local:api": "tsx src/local/server-dev.ts",
     "work-fold:drive": "tsx scripts/work-fold-drive.ts",

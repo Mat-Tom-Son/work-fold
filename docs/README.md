@@ -1,6 +1,7 @@
 # Documentation map
 
-Start with [the product model](product-model.md) for product scope and
+For a first checkout, start with [Contributing](../CONTRIBUTING.md) and
+[Development](development.md). Read [the product model](product-model.md) for product scope and
 [AGENTS.md](../AGENTS.md) for contributor rules. This map separates current
 contracts from design rationale and unshipped ideas; a proposal is not an
 instruction to implement its contents.
@@ -9,7 +10,7 @@ instruction to implement its contents.
 
 | Area | Read |
 |---|---|
-| Product and contributor workflow | [Product model](product-model.md), [Contributing](../CONTRIBUTING.md), [Architecture](architecture.md) |
+| Product and contributor workflow | [Product model](product-model.md), [Contributing](../CONTRIBUTING.md), [Development](development.md), [Architecture](architecture.md) |
 | The fold and authority | [Decision register](fold.md), [Management and CLI](management-layer.md), [Act ledger](fold-act-ledger.md), [Staged decisions and policies](fold-consecrations.md) |
 | Checks and automation | [Checks](checks.md), [Routings](fold-routings.md), [The glance](fold-glance.md) |
 | Native Assistant capabilities | [Skills, Extensions, packages, and scopes](assistant-capabilities.md), [Pi resources](pi-resources.md), [Declarative Extension surfaces](extension-surfaces.md) |
@@ -66,7 +67,6 @@ viewer pages and app views are a separate shipped capability.
 
 Update the owning contract when behavior changes, and reconcile proposals that
 would otherwise contradict it. Preserve dated release and exploration records
-as history rather than globally replacing old names or version numbers. Check
-relative links, referenced npm scripts, shared Skill symlinks, and
-`tests/documentation-contract.test.ts` after documentation maintenance. Use the
+as history rather than globally replacing old names or version numbers. Run `npm run repo:check` after documentation maintenance to check relative
+links, current npm commands, ignore rules, and all shared Skill symlinks. Use the
 usual behavior and release gates only when those surfaces actually change.

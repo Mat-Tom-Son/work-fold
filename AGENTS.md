@@ -2,6 +2,13 @@
 
 work-fold is a local-first Electron shell around ordinary folders and the native Pi agent runtime. Read [the product model](docs/product-model.md) before changing navigation, terminology, storage, trust, or Assistant behavior, read [the App platform foundation](docs/app-platform-foundation.md) before changing App Project, release, instance, Feature, publication, hosted-runtime, data, connection, automation, or broker semantics, read [the management layer](docs/management-layer.md) before changing the kernel, CLI, task registry, or an agent-facing adapter, read [Checks](docs/checks.md) before changing Check declarations, sensors, targets, evidence admission, decisions, or run authority, and read [the fold](docs/fold.md) before changing the fold's verb ledger, staged decisions, standing policies, routings, the glance, or published viewer pages. These documents record the shared product and control-plane direction; update them when those decisions change.
 
+## First visit
+
+- Start with [Contributing](CONTRIBUTING.md) and the [development guide](docs/development.md) for setup, a source map, development profiles, and the right verification lane.
+- Use Node 24 for the contributor/CI lane (`.nvmrc`). Run `npm ci`, then `npm run repo:check`; the latter also works before installation and never needs credentials or a network connection.
+- `npm run local:dev` starts the browser UI and local API; `npm run desktop:smoke` starts unpackaged Electron after preparation. Use disposable folders for live work. The development app profile is separate, but Pi resources and Keychain require their own consideration; follow the development guide for explicit isolation.
+- `npm run check` includes repository hygiene and TypeScript checks. Keep new shared Skills, Claude symlinks, links, and documented npm commands valid; do not copy shared policy into a harness-specific file.
+
 ## Harness parity
 
 - This `AGENTS.md` is the one canonical contributor contract. Codex reads it directly; Claude Code reads the root `CLAUDE.md`, which imports this file with `@AGENTS.md`.
