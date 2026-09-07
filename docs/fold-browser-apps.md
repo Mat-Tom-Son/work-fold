@@ -1,6 +1,6 @@
 # Space apps in approved browsers
 
-The development branch adds private app views to the fold's Spaces
+The app supports private app views to the fold's Spaces
 screen. Apps appear above the selected Space's files. Opening one shows its
 reviewed web view, the Space and version, Close and Refresh. Apps without a
 reviewed web view say **Desktop only** and explain that limitation when opened.

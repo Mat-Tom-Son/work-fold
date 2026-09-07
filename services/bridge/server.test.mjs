@@ -225,7 +225,7 @@ test("the client stays inside the relay's operation budget and backs off on 429"
   // multiple of the chat lane's tick.
   assert.match(serverSource, /enforceRateLimit\(state\.rateLimits, `operation:\$\{session\.id\}`, 60, 60_000\);/);
   assert.match(applicationSource, /if \(response\.status === 429\) state\.rateLimitedUntil = Date\.now\(\) \+ 15_000;/);
-  assert.match(applicationSource, /if \(Date\.now\(\) < state\.rateLimitedUntil\) return scheduleRefresh\(\);/);
+  assert.match(applicationSource, /if \(Date\.now\(\) < state\.rateLimitedUntil \|\| !state\.session\?\.desktopOnline\) return scheduleRefresh\(\);/);
   assert.match(applicationSource, /state\.refreshTick % \(active \? 3 : 2\) === 0/);
   assert.match(applicationSource, /Date\.now\(\) < pending\.nextRecoveryAt \|\| Date\.now\(\) < state\.rateLimitedUntil/);
   assert.match(applicationSource, /Date\.now\(\) - state\.lastResumeAt < 10_000/);

@@ -1,6 +1,6 @@
 # Changing an installed app
 
-Status: development branch, not a public-release claim. The Apps tab now has
+Implemented in the 0.4.23 source candidate. The Apps tab has
 **Change this app**, which creates a working copy and opens an unsent Chat draft
 in the App Project's source Space. The person adds the requested change and sends
 it. This does not invoke a model, install code, or grant authority by itself.

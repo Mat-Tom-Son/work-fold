@@ -1,9 +1,8 @@
 # App-requested Assistant work
 
-Status: implemented on the development branch. Automated Pi tool-loop and native
-Electron tests pass; live review, failure, navigation and restart checks pass.
-Successful live-model acceptance is pending a provider connection in the
-isolated test profile and remains required before release.
+Implemented and verified in the 0.4.23 source candidate. Automated Pi tool-loop,
+native review/restart, and an actual configured-model comparison task passed.
+See [integration evidence](apps-fold-workflows.md).
 
 A Space app can ask for one of its reviewed, named Assistant tasks. The request
 starts inert. In **Apps → the app → Assistant requests**, the person opens

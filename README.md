@@ -52,7 +52,7 @@ Reviewed mode holds consequential actions for a person or matching standing poli
 
 An approved browser can open saved fold Chats, browse filtered Space files, preview bounded text and images, open an app's reviewed web view, upload bounded attachments, and continue the management conversation. The current request links to copied files, files observed changing during child tasks, installed apps and pending reviews. Payloads cross the hosted relay in signed encrypted envelopes; the Mac remains the execution endpoint. See [file previews](docs/fold-file-previews.md) and [app views](docs/fold-browser-apps.md) for supported content and limits.
 
-On the development branch, apps can also request declared worker actions from
+Apps can also request declared worker actions from
 an approved browser. The fold shows exact inputs for review outside the app
 frame and records the result; reconnecting never replays accepted work. Shared
 viewers remain read-only.
@@ -79,8 +79,8 @@ Library materials, outside files, capabilities, connections, and browser access 
 - Background Chat continuity, generated titles after the first successful turn, streaming Thinking and tool activity, and active/snoozed/archived Chat views.
 - Space appearance customization and declarative Extension surfaces.
 - Restricted Space apps with reviewed releases, installation, connections, storage, file grants, notifications, automations, updates, rollback, and removal.
-- The development branch adds [app data export and recovery](docs/app-data-recovery.md), with data-only backups, current-revision restore, and Undo for clear/restore.
-- The development branch also adds [Change this app](docs/app-changes.md): an exact installed-byte working copy, History, and a Chat draft, with predecessor checks on reviewed preview updates. App details links to the build Chat and exact update target. A Project's preview and installed Release can coexist in its source Space with separate data and authority.
+- The app supports [app data export and recovery](docs/app-data-recovery.md), with data-only backups, current-revision restore, and Undo for clear/restore.
+- The app also supports [Change this app](docs/app-changes.md): an exact installed-byte working copy, History, and a Chat draft, with predecessor checks on reviewed preview updates. App details links to the build Chat and exact update target. A Project's preview and installed Release can coexist in its source Space with separate data and authority.
 - App views, tools and management controls retain exact installation identity, including across a same-code reinstall. CLI `--app` also accepts that exact identity when needed.
 - The fold, Needs-you decisions, standing policies, the deterministic glance, Routings, Checks, published pages, and the authenticated management CLI.
 - Private-alpha web access with desktop browser approval and live response streaming.
@@ -127,9 +127,10 @@ See [the management layer](docs/management-layer.md) for commands, protocol guar
 
 ## Documentation
 
-The development branch adds [app-requested Assistant tasks](docs/app-assistant-tasks.md):
+The app supports [app-requested Assistant tasks](docs/app-assistant-tasks.md):
 review a named request in Apps, run it in that Space, and return its bounded
-reply to the app. Full live acceptance remains part of the ongoing app work.
+reply to the app. The [integration record](docs/apps-fold-workflows.md) distinguishes
+automated, real-model, native desktop and paired-browser evidence.
 
 Start with the [documentation map](docs/README.md) for current contracts,
 accepted future direction, and historical evidence.
@@ -161,7 +162,7 @@ Ask the fold to prepare a routing for a folder you name. A reviewed folder-chang
 
 History now previews the files a restore will write/remove and refuses changes that its safety checkpoint cannot recover. Nested registered Spaces and excluded descendants are protected; relinking a moved folder on this computer preserves its History. History remains bounded local recovery, not a substitute for an independent backup.
 
-On the development branch, Space apps can declare Check-result choices. Select
+Space apps can declare Check-result choices. Select
 one in the app's access controls to share its current status and verified
 findings; this does not enable or run the Check. See [selected Check
 results](docs/restricted-app-authoring.md#selected-check-results).
