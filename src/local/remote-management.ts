@@ -17,7 +17,13 @@ export type WorkFoldRemoteOperation =
   | "spaces.tree"
   | "spaces.filePreview"
   | "apps.list"
-  | "apps.read";
+  | "apps.read"
+  | "apps.actions.request"
+  | "apps.actions.get"
+  | "apps.actions.list"
+  | "apps.actions.review"
+  | "apps.actions.approve"
+  | "apps.actions.cancel";
 
 /**
  * One bounded live-progress tick from a `management.watch` operation. Activity
@@ -40,7 +46,10 @@ export interface WorkFoldRemotePrincipal {
 }
 
 export interface WorkFoldRemoteFacade {
-  execute(operation: WorkFoldRemoteOperation, input: unknown, principal: WorkFoldRemotePrincipal): Promise<unknown>;
+  execute(operation: WorkFoldRemoteOperation, input: unknown, principal: WorkFoldRemotePrincipal, authority?: {
+    /** Host-only, live revocation fence. Required for app actions; never serialized. */
+    assertCurrent(): void;
+  }): Promise<unknown>;
   /**
    * Bounded live watch over one management conversation's running turn:
    * emits throttled progress ticks through `emit` and resolves when the turn

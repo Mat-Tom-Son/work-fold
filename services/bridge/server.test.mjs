@@ -1492,7 +1492,8 @@ test("the fold's decision and glance operations pass the management allowlist co
   // reconciliation 7): the bridge accepts the operation names and relays the
   // signed ciphertext untouched. Cards and digests stay end-to-end encrypted
   // between the desktop and the approved browser; staged acts never live here.
-  for (const operation of ["decisions.list", "decisions.decide", "management.glance", "management.glanceSeen", "spaces.filePreview", "apps.list", "apps.read"]) {
+  for (const operation of ["decisions.list", "decisions.decide", "management.glance", "management.glanceSeen", "spaces.filePreview", "apps.list", "apps.read",
+    "apps.actions.request", "apps.actions.get", "apps.actions.list", "apps.actions.review", "apps.actions.approve", "apps.actions.cancel"]) {
     const envelope = signedEnvelope({
       type: "work-fold.remote-request.v1",
       accountId: fixture.account.id,

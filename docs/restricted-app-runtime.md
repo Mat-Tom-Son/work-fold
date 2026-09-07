@@ -258,6 +258,14 @@ of the same bytes. Removing and re-adding authority also invalidates launches
 that have not created a worker yet. Duplicate Feature Installation identities
 in an authority snapshot are rejected before replacing the current snapshot.
 
+The browser-action foundation can supply a host-only invocation id, cancellation
+signal and live authority callback to this same worker path. The callback is
+rechecked at launch, every broker effect boundary and result delivery. An abort
+owns only its exact pending operation and releases its listener at settlement;
+it cannot kill a later action or a sibling installation. Ordinary native actions
+keep their existing dispatch path. The separate intent/review journal and its
+remaining browser UI integration are described in [browser app views](fold-browser-apps.md).
+
 Automations are first-class host jobs, not one app-wide background switch.
 Every declared job starts disabled and is enabled separately in the Apps tab.
 The worker exports `handleAutomation(event)` and dispatches using the reviewed

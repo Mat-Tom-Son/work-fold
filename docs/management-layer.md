@@ -191,7 +191,11 @@ The desktop does not expose its renderer token or tunnel arbitrary local HTTP.
 listing, summary/transcript/rename/send/stop/watch operations for the management conversation,
 management request projection, Space-name listing, and bounded Space-relative
 tree projection, explicit file previews, and exact-installation read-only
-[app views](fold-browser-apps.md). It strips absolute roots and attachment target paths, applies
+[app views](fold-browser-apps.md). The browser-action foundation separately adds
+`apps.actions.request|get|list|review|approve|cancel` over declared installed
+worker actions; it requires a live host-only grant fence and journals exact
+review/acceptance before dispatch. App frames do not receive review or approval.
+The browser UI integration is still in progress. The adapter strips absolute roots and attachment target paths, applies
 the ordinary ignore policy to tree views, rejects traversal and unknown fields,
 and rechecks the locally encrypted grant immediately before execution.
 Dispatch and desktop-local authority mutations share one serialization fence;

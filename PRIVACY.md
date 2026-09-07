@@ -102,6 +102,14 @@ and declared instance-owned data prefixes. They do not create a public link,
 copy a Space to the bridge or send content to a model. Their sandboxed frame is
 destroyed on close, sign-out or detected disconnection; see
 [browser app views](docs/fold-browser-apps.md).
+The browser-action foundation keeps exact requests and bounded results in a
+private machine-local journal, separate from content-free receipt summaries.
+Requests are limited to 16 KiB and results to 128 KiB; the journal has record
+and byte limits and prunes terminal records older than a day on new admission.
+Only the requesting approved browser and exact app authority can retrieve a
+result. Approval runs the installed worker with its existing grants; it does
+not publish data or start a model. The trusted browser review UI is still being
+integrated, and shared viewers remain read-only.
 Selecting a Space changes only the displayed file tree; it does not select a
 different Assistant or transcript.
 Removing Remote access deletes its server-side account records; browser

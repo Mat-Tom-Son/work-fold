@@ -60,6 +60,45 @@ While visible, a non-overlapping fifteen-second catalog check closes a view
 whose revision or authority changed; every read also rechecks immediately.
 Already displayed information cannot be recalled from someone who copied it.
 
+## Action service under integration
+
+The action foundation now adds the separate closed operations
+`apps.actions.request|get|list|review|approve|cancel`. They require a host-only
+live browser-authority callback in addition to the authenticated Principal.
+They are not part of `apps.read` or the shared-viewer vocabulary. The trusted
+browser review UI and private action SDK are still being connected; the current
+web view continues to expose only its read SDK.
+
+Requests select a declared worker action and at most 16 KiB of schema-checked
+JSON. The host pins the Space, installation, revision, authority, browser and
+grant, and records the accepting Tenant, Runtime Instance, Data Namespace,
+canonical artifact and human Principal. App code cannot choose those owners.
+The machine-local `restricted-apps/browser-actions.json` journal separates
+bounded intent/result content from metadata-only receipt projections. Results
+are schema-checked and at most 128 KiB; lists contain summaries without results.
+Record contents are never sent through a shared viewer.
+
+A request UUID and timestamp identify a retry. Identical retries return the
+same record; changed input is refused. A trusted approval must match the exact
+review digest. Acceptance is written and synced before worker dispatch, and
+the durable receipt id becomes the native invocation id. Reconnecting or
+repeating approval cannot dispatch an accepted request again. Startup marks
+uncertain accepted work Interrupted, without replay or a guessed outcome.
+
+The lane admits four live requests per installation and sixteen per browser,
+runs at most two actions globally and one per installation, and expires pending
+reviews after fifteen minutes. It retains at most 1,000 records in a 64-MiB
+journal and prunes terminal records older than a day when admitting new work.
+Admission reserves room for bounded terminal results. Damaged journals or
+uncertain persistence disable this lane without preventing app startup.
+
+Stop fences dispatch immediately, including approval races. Native workers
+recheck both installed authority and the browser's live fence at launch, every
+broker effect boundary and result delivery. Revocation aborts matching runs
+and cancels that grant's pending requests; another browser's requests retain
+their own authority. Closing a view does not cancel an accepted run. Stop or a
+failed result does not claim to reverse effects that already completed.
+
 ## Remaining implementation
 
 The repeatable isolation probe is
@@ -72,10 +111,11 @@ actual quote read, opaque parent/cookie/storage boundaries, frozen read API,
 network denial and blocked navigation. These browser checks complement the
 domain, transport and DOM tests; they do not replace paired live acceptance.
 
-Named browser actions and richer result navigation remain part of
+Completing the browser action UI and richer result navigation remain part of
 [the active goal](apps-fold-workflows.md). They must use a separate, bounded
 intent/review/receipt path with exact app and browser provenance, deduplicated
 acceptance, visible outcomes and revocation. App code cannot invoke that path
 directly as if it were a read. Any confirmation belongs in the fold's trusted
 UI outside the app frame. Shared viewers must retain their existing closed
-read-only vocabulary. This read-view slice does not claim those actions ship.
+read-only vocabulary. The foundation alone does not claim the complete action
+experience ships.

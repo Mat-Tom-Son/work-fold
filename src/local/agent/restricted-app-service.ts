@@ -323,9 +323,17 @@ export interface RestrictedAppRuntimeAuthority {
   authority: Readonly<AuthorityStamp>;
 }
 
+/** Host-only authority for one durably accepted action; never supplied by app code. */
+export interface RestrictedAppActionExecution {
+  invocationId: string;
+  signal: AbortSignal;
+  /** Rechecked at launch, every broker effect boundary, and result delivery. */
+  assertCurrent(): void;
+}
+
 export interface RestrictedAppRuntimeHost {
   syncAuthority?(authorities: readonly RestrictedAppRuntimeAuthority[]): void;
-  invoke(app: RestrictedAppRuntimeDescriptor, action: string, input: unknown): Promise<unknown>;
+  invoke(app: RestrictedAppRuntimeDescriptor, action: string, input: unknown, execution?: RestrictedAppActionExecution): Promise<unknown>;
   runAutomation?(app: RestrictedAppRuntimeDescriptor, event: {
     runId: string;
     automationId: string;
@@ -1708,6 +1716,36 @@ export class RestrictedAppService {
       throw new RestrictedAppError("REVISION_CHANGED", "This app changed. Open it again.");
     }
     return result;
+  }
+
+  /** Browser action review uses only named worker tools from the exact installed web app. */
+  async withBrowserActionApp<T>(scope: RestrictedAppTaskScope, operation: (app: import("./restricted-app-browser-actions.js").BrowserAppActionApp) => Promise<T>): Promise<T> {
+    const result = await this.#mutate(async () => {
+      const app = this.#browserActionApp(scope);
+      const { tenantId, runtimeInstanceId, runtimeInstanceKind, dataNamespaceId, principalId, authority, artifactDigest } = app;
+      return operation(structuredClone({ actions: app.manifest.tools,
+        provenance: { tenantId, runtimeInstanceId, runtimeInstanceKind, dataNamespaceId, principalId, authority, artifactDigest } }));
+    });
+    await this.#queue.catch(() => undefined);
+    this.#browserActionApp(scope);
+    return result;
+  }
+
+  async invokeBrowserAction(scope: RestrictedAppTaskScope, action: string, input: unknown, execution: RestrictedAppActionExecution): Promise<unknown> {
+    this.#assertOpen();
+    await this.#queue.catch(() => undefined);
+    if (!this.#runtimeHost) throw new RestrictedAppError("APP_UNAVAILABLE", "App actions require the desktop host.");
+    const app = this.#browserActionApp(scope);
+    const assertCurrent = () => { execution.assertCurrent(); this.#assertInstalledAuthority(app); };
+    assertCurrent();
+    return this.#runtimeHost.invoke({ ...app, stagedRoot: this.#digestRoot(app.digest) }, action, input, { ...execution, assertCurrent });
+  }
+
+  #browserActionApp(scope: RestrictedAppTaskScope): RestrictedAppInstalled {
+    const app = this.#installed(scope.spaceId, scope.appId, scope.digest, scope.featureInstallationId);
+    if (restrictedAppTaskAuthorityDigest(app.authority) !== scope.authorityDigest) throw new RestrictedAppError("REVISION_CHANGED", "This app changed. Open it again.");
+    if (!app.manifest.viewer || !app.manifest.runtime.worker) throw new RestrictedAppError("APP_UNAVAILABLE", "This app does not expose browser actions.");
+    return app;
   }
 
   async snapshotForChange(spaceId: string, appId: string, expectedDigest: string, featureInstallationId?: string) {

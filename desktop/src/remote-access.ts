@@ -32,6 +32,7 @@ const operationSet = new Set<WorkFoldRemoteOperation>([
   "management.summary", "management.chats", "management.transcript", "management.rename", "management.send", "management.request",
   "management.stop", "management.watch", "management.glance", "management.glanceSeen", "decisions.list", "decisions.decide",
   "spaces.list", "spaces.tree", "spaces.filePreview", "apps.list", "apps.read",
+  "apps.actions.request", "apps.actions.get", "apps.actions.list", "apps.actions.review", "apps.actions.approve", "apps.actions.cancel",
 ]);
 /**
  * The serialized glance digest is bounded to 64 KB (docs/fold-glance.md) so it
@@ -641,6 +642,12 @@ export class RemoteAccessClient {
     const input = parseRequestPayload(payload);
     const remoteOperation = operationName(envelope.header.operation);
     const principal: WorkFoldRemotePrincipal = { browserId: grant.browserId, grantId: grant.id, requestId: operation.requestId };
+    const lifecycleGeneration = this.#lifecycleGeneration;
+    const actionAuthority = { assertCurrent: () => {
+      if (!this.#isCurrentGeneration(lifecycleGeneration) || !this.#operationFenceIsCurrent(grant.id, operationFence)) {
+        throw new Error("This browser's app action authority ended.");
+      }
+    } };
     this.sendEncrypted(settings, grant, operation, 1, true, { status: "running" }, "operation.event");
     await this.#withAuthority(async () => {
       // Re-read immediately before execution so disabling or revoking cannot
@@ -664,7 +671,7 @@ export class RemoteAccessClient {
       try {
         const value = remoteOperation === "management.watch" && this.#facade.watch
           ? await this.#facade.watch(input, principal, emitProgress)
-          : await this.#facade.execute(remoteOperation, input, principal);
+          : await this.#facade.execute(remoteOperation, input, principal, actionAuthority);
         if (remoteOperation === "management.glance"
           && Buffer.byteLength(JSON.stringify(value ?? null), "utf8") > maximumRemoteGlanceProjectionBytes) {
           throw new Error("The glance digest exceeded its 64 KB remote bound. Open work-fold on the desktop to see it.");

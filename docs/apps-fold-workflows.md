@@ -430,3 +430,32 @@ encrypted-transport tests. A paired real desktop/browser session and the real
 model multi-Space journey remain required. Browser actions, app result links
 and broader Assistant deliverable navigation remain open. Nothing has been
 deployed or publicly released, and the production app/profile is unchanged.
+
+### Browser action foundation
+
+The separate private browser-action service now stages declared worker inputs,
+pins browser/grant and complete installed execution provenance, requires exact
+review, journals acceptance before dispatch and returns the same receipt on
+retry. It reconciles uncertain accepted work to Interrupted without replay.
+Inputs/results, pending requests, active workers and journal capacity are
+bounded. The closed encrypted adapter exposes request/get/list/review/approve/
+cancel; it requires a live host-only grant fence. Native workers recheck that
+fence at every broker effect boundary. Stop also fences approval races, and
+revocation cancels only matching browser requests. Shared viewers remain
+unchanged. The trusted browser review controls and private SDK are the next
+integration step; this is not the completed browser-action feature.
+
+Verification: `npm run check`, `npm test` (1,160 passed, one Windows-only skip),
+the bridge suite (48 passed), and final `npm run desktop:prepare` passed. The
+focused domain/API/transport run passed 52 tests; eleven final domain tests
+also cover the machine-wide active-action limit. Logs:
+`/tmp/workfold-browser-actions-check.log`,
+`/tmp/workfold-browser-actions-full-tests.log`,
+`/tmp/workfold-browser-actions-bridge-tests.log`,
+`/tmp/workfold-browser-actions-desktop-final.log`,
+`/tmp/workfold-browser-actions-focused.log` and
+`/tmp/workfold-browser-actions-final-focus.log`.
+The real Electron probe verifies revocation during a delayed network effect,
+explicit abort, no subsequent storage write, sibling-installation isolation,
+completed-action listener cleanup and ordinary worker recovery. No production
+profile, publication, release version or deployment changed.

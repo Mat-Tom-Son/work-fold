@@ -1,4 +1,5 @@
 import { RestrictedAppTaskService, RestrictedAppTaskError, restrictedAppTaskAuthorityDigest, restrictedAppTaskPrompt, restrictedAppTaskTurnRequestId } from "./agent/restricted-app-tasks.js";
+import { BrowserAppActionService } from "./agent/restricted-app-browser-actions.js";
 import { observeWorkFoldRoutingFiles } from "./routings/routing-file-observer.js";
 import { readRemoteFilePreview } from "./remote-file-preview.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -551,6 +552,7 @@ export interface LocalApiHandle {
 }
 
 interface LocalApiState {
+  browserAppActions: BrowserAppActionService;
   appAssistantTasks: RestrictedAppTaskService;
   appMode: "dev" | "desktop";
   spaceBase?: string;
@@ -845,6 +847,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   });
   const glanceSeen = new WorkFoldGlanceSeenStore();
   const state: LocalApiState = {
+    browserAppActions: undefined as unknown as BrowserAppActionService,
     appAssistantTasks: undefined as unknown as RestrictedAppTaskService,
     appMode,
     spaceBase: options.spaceBase ? resolve(options.spaceBase) : undefined,
@@ -922,6 +925,20 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     kernel,
     fence: createFoldDecisionFence(state),
     adapters: createFoldDecisionAdapters(state),
+  });
+  state.browserAppActions = await BrowserAppActionService.create({
+    path: join(workFoldStateRoot(), "restricted-apps", "browser-actions.json"),
+    ports: {
+      withApp: (scope, operation) => restrictedApps.withBrowserActionApp(scope, async (app) => {
+        await getSpace(scope.spaceId);
+        if (!state.acceptingTurns) throw new Error("work-fold is closing.");
+        return operation(app);
+      }),
+      invoke: async (scope, action, input, execution) => {
+        await getSpace(scope.spaceId);
+        return restrictedApps.invokeBrowserAction(scope, action, input, execution);
+      },
+    },
   });
   state.appAssistantTasks = await RestrictedAppTaskService.create({
     path: join(workFoldStateRoot(), "restricted-apps", "assistant-tasks.json"),
@@ -1052,6 +1069,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     publications,
     close: async () => {
       state.acceptingTurns = false;
+      const browserActionsClosed = state.browserAppActions.close();
       stagedActs.off("staged", decisionsChanged);
       stagedActs.off("settled", decisionsChanged);
       stagedActs.off("execution", decisionsChanged);
@@ -1079,6 +1097,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       await state.checks.close();
       await state.appearance.flush();
       await state.appAssistantTasks.flush();
+      await browserActionsClosed;
       await state.restrictedApps.close();
       await closeServer(server);
     },
@@ -3634,6 +3653,8 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
       // the browser that made them. Every lane is attempted so one failure
       // cannot silently skip the rest.
       const failures: string[] = [];
+      try { await state.browserAppActions.revoke(grantId); }
+      catch { failures.push("Could not settle the browser's app actions."); }
       try {
         if (grantId !== undefined) {
           await state.stagedActs.cancelForBrowserGrant({ grantId });
@@ -3665,7 +3686,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
       if (failures.length) throw new Error(failures.join(" "));
     },
     watch: watchManagementTurn,
-    async execute(operation, rawInput, principal) {
+    async execute(operation, rawInput, principal, authority) {
       assertRemotePrincipal(principal);
       const input = remoteInput(rawInput);
       switch (operation) {
@@ -3941,6 +3962,37 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
           };
           const space = await getSpace(scope.spaceId);
           const result = await state.restrictedApps.readBrowserView(scope, input.call);
+          if ((await getSpace(scope.spaceId)).spaceRoot !== space.spaceRoot) throw httpError(409, "This Space changed. Open the app again.");
+          return result;
+        }
+        case "apps.actions.request":
+        case "apps.actions.get":
+        case "apps.actions.list":
+        case "apps.actions.review":
+        case "apps.actions.approve":
+        case "apps.actions.cancel": {
+          if (!authority) throw httpError(403, "App actions require a live approved browser.");
+          const extra = operation === "apps.actions.request" ? ["request"] : operation === "apps.actions.list" ? []
+            : operation === "apps.actions.approve" ? ["requestId", "reviewDigest"] : ["requestId"];
+          assertRemoteKeys(input, ["spaceId", "appId", "featureInstallationId", "digest", "authorityDigest", ...extra]);
+          const scope = {
+            spaceId: remoteStableId(input.spaceId, "Space id", 200), appId: remoteStableId(input.appId, "App id", 160),
+            featureInstallationId: remoteStableId(input.featureInstallationId, "App installation", 160),
+            digest: remoteStableId(input.digest, "App revision", 64), authorityDigest: remoteStableId(input.authorityDigest, "App authority", 64),
+          };
+          const owner = { browserId: principal.browserId, grantId: principal.grantId };
+          const assertCurrent = () => { if (!state.acceptingTurns) throw new Error("work-fold is closing."); authority.assertCurrent(); };
+          assertCurrent();
+          const space = await getSpace(scope.spaceId);
+          const service = state.browserAppActions;
+          const requestId = extra.includes("requestId") ? remoteStableId(input.requestId, "App request id", 36) : "";
+          const result = operation === "apps.actions.request" ? { action: await service.request(scope, owner, input.request, assertCurrent) }
+            : operation === "apps.actions.get" ? { action: await service.get(scope, owner, requestId, assertCurrent) }
+            : operation === "apps.actions.list" ? { actions: await service.list(scope, owner, assertCurrent) }
+            : operation === "apps.actions.review" ? { review: await service.review(scope, owner, requestId, assertCurrent) }
+            : operation === "apps.actions.approve" ? { action: await service.approve(scope, owner, requestId, remoteStableId(input.reviewDigest, "App review", 64), assertCurrent) }
+            : { action: await service.cancel(scope, owner, requestId, assertCurrent) };
+          assertCurrent();
           if ((await getSpace(scope.spaceId)).spaceRoot !== space.spaceRoot) throw httpError(409, "This Space changed. Open the app again.");
           return result;
         }

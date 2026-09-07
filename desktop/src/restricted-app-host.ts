@@ -48,6 +48,7 @@ import {
   type RestrictedAppStageReceipt,
 } from "../../src/local/agent/restricted-app-package.js";
 import type {
+  RestrictedAppActionExecution,
   RestrictedAppRuntimeAuthority,
   RestrictedAppRuntimeDescriptor,
   RestrictedAppRuntimeHost,
@@ -147,6 +148,7 @@ interface RestrictedAppPendingOperation {
   kind: "action" | "automation";
   id: string;
   effectivePrincipal: EffectivePrincipal;
+  assertCurrent?: () => void;
 }
 
 interface RestrictedAppEffectLease {
@@ -296,8 +298,16 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     }
   }
 
-  async invoke(app: RestrictedAppRuntimeDescriptor, action: string, input: unknown): Promise<unknown> {
+  async invoke(app: RestrictedAppRuntimeDescriptor, action: string, input: unknown, execution?: RestrictedAppActionExecution): Promise<unknown> {
     this.#assertOpen();
+    const assertCurrent = () => {
+      if (execution?.signal.aborted) throw new RestrictedAppError("AUTHORITY_STALE", "The app action was stopped.");
+      execution?.assertCurrent();
+    };
+    if (execution && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(execution.invocationId)) {
+      throw new RestrictedAppError("INPUT_INVALID", "The app action needs a valid host invocation id.");
+    }
+    assertCurrent();
     if (!app.manifest.runtime.worker) throw new RestrictedAppError("APP_UNAVAILABLE", "This app does not expose a worker.");
     const tool = app.manifest.tools.find((item) => item.action === action);
     if (!tool) throw new RestrictedAppError("ACTION_UNKNOWN", "The restricted app action is not declared.");
@@ -316,20 +326,31 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       throw error;
     }
     if (instance.pendingOperation) throw new RestrictedAppError("APP_UNAVAILABLE", "This restricted app is already handling an action.");
-    instance.pendingOperation = {
+    // A cancelled caller does not own the shared worker until it claims an operation.
+    try { assertCurrent(); }
+    catch (error) { this.#scheduleWorkerIdle(instance); throw error; }
+    const operation: RestrictedAppPendingOperation = {
       kind: "action",
-      id: randomUUID(),
+      id: execution?.invocationId ?? randomUUID(),
       effectivePrincipal: { principalId: app.principalId, kind: "human", realm: "local" },
+      assertCurrent,
     };
+    instance.pendingOperation = operation;
+    const abort = () => {
+      if (instance.pendingOperation === operation) void this.#destroy(instance);
+    };
+    execution?.signal.addEventListener("abort", abort, { once: true });
     const serializedInput = JSON.stringify(input);
     const expression = `globalThis.__workFoldInvoke(${JSON.stringify(action)},JSON.parse(${JSON.stringify(serializedInput)}))`;
     try {
+      assertCurrent();
       const envelope = await withDeadline(
         instance.window.webContents.executeJavaScript(expression, false),
         this.#invocationTimeoutMs,
         () => this.#crash(instance, "Restricted app action timed out."),
       );
       const result = parseInvocationEnvelope(envelope);
+      this.#assertEffectLease({ instance, operation, requireActiveUi: false });
       try {
         validateRestrictedAppValue(tool.resultSchema, result, "Restricted app output");
       } catch (error) {
@@ -343,7 +364,8 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       }
       throw new RestrictedAppError("APP_ERROR", safeRendererError(error));
     } finally {
-      instance.pendingOperation = null;
+      execution?.signal.removeEventListener("abort", abort);
+      if (instance.pendingOperation === operation) instance.pendingOperation = null;
       this.#scheduleWorkerIdle(instance);
     }
   }
@@ -1188,6 +1210,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       if (!lease.operation || lease.instance.pendingOperation !== lease.operation) {
         throw new RestrictedAppError("AUTHORITY_STALE", "The restricted app operation ended before the effect could commit.");
       }
+      lease.operation.assertCurrent?.();
     } else if (lease.requireActiveUi && !this.#uiIsActive(lease.instance)) {
       throw new RestrictedAppError("AUTHORITY_STALE", "The restricted app view became inactive before the effect could commit.");
     }

@@ -477,7 +477,7 @@ test("an unrelated grant revocation cannot suppress a queued operation completio
   fixture.client.stop();
 });
 
-for (const operation of ["spaces.list", "spaces.filePreview", "apps.read"]) test(`${operation}: same-grant revocation suppresses a late completion and response-cache insertion`, async () => {
+for (const operation of ["spaces.list", "spaces.filePreview", "apps.read", "apps.actions.approve"]) test(`${operation}: same-grant revocation suppresses a late completion and response-cache insertion`, async () => {
   const browser = remoteTestBrowser("grant-revoked");
   const settings = remoteTestSettings([browser]);
   let releaseFirst!: () => void;
@@ -485,10 +485,13 @@ for (const operation of ["spaces.list", "spaces.filePreview", "apps.read"]) test
   let markFirstStarted!: () => void;
   const firstStarted = new Promise<void>((resolve) => { markFirstStarted = resolve; });
   let calls = 0;
+  let liveAuthority: { assertCurrent(): void } | undefined;
   const fixture = remoteOperationClient(settings, {
-    async execute() {
+    async execute(_operation, _input, _principal, authority) {
       calls += 1;
       if (calls === 1) {
+        liveAuthority = authority;
+        liveAuthority?.assertCurrent();
         markFirstStarted();
         await firstGate;
       }
@@ -503,6 +506,8 @@ for (const operation of ["spaces.list", "spaces.filePreview", "apps.read"]) test
   fixture.socket.receive(JSON.stringify(frame));
   await firstStarted;
   const revoke = fixture.client.revokeLocalGrant(browser.grant.id);
+  assert.ok(liveAuthority);
+  assert.throws(() => liveAuthority!.assertCurrent(), /authority ended/, "revocation fences accepted effects before asynchronous cleanup finishes");
   releaseFirst();
   await revoke;
   await flushAsyncHandlers();

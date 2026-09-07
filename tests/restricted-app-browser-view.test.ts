@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +8,7 @@ import { RestrictedAppService, type RestrictedAppInstalled } from "../src/local/
 import { FileRestrictedAppStorage, type RestrictedAppStorageOwner } from "../src/local/agent/restricted-app-storage.js";
 import { restrictedAppTaskAuthorityDigest } from "../src/local/agent/restricted-app-tasks.js";
 import { startLocalApi } from "../src/local/server.js";
+import type { RestrictedAppActionExecution } from "../src/local/agent/restricted-app-service.js";
 
 const scopeFor = (app: RestrictedAppInstalled) => ({ spaceId: app.spaceId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority) });
 const ownerFor = (app: RestrictedAppInstalled): RestrictedAppStorageOwner => ({ ownerClass: "instance", tenantId: app.tenantId, runtimeInstanceId: app.runtimeInstanceId, featureInstallationId: app.featureInstallationId, dataNamespaceId: app.dataNamespaceId });
@@ -106,5 +108,57 @@ test("approved-browser app operations project exact identities and refuse foreig
     await assert.rejects(api.remoteFacade.execute("apps.list", { spaceId: space.id, includeCredentials: true }, principal));
     const denied = await api.remoteFacade.execute("apps.read", { ...scope, call: { kind: "actions.invoke", action: "anything" } }, principal) as { result: { ok: boolean } };
     assert.equal(denied.result.ok, false);
+  } finally { await api.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("approved-browser actions use the installed worker service, live grant authority and durable deduplication", async () => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-browser-action-api-"));
+  const calls: Array<{ action: string; input: unknown; execution: RestrictedAppActionExecution }> = [];
+  const service = await RestrictedAppService.create({ rootPath: join(root, "apps"), runtimeHost: {
+    async invoke(_app, action, input, execution) { assert.ok(execution); execution.assertCurrent(); calls.push({ action, input, execution }); return { saved: true }; },
+    async stop() {}, async close() {},
+  } });
+  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), spaceBase: join(root, "spaces"), loadEnv: false, restrictedAppService: service });
+  const principal = { browserId: "browser-one", grantId: "grant-one", requestId: "transport-request" };
+  let allowed = true;
+  const authority = { assertCurrent() { if (!allowed) throw new Error("Revoked"); } };
+  try {
+    const { space } = await api.actFacade.createSpace({ name: "Action QA" });
+    const source = join(space.spaceRoot, "app"); await mkdir(source);
+    await writeFile(join(source, "package.json"), JSON.stringify({ name: "browser-action-qa", version: "1.0.0", type: "module", agentApp: "agent-app.json" }));
+    await writeFile(join(source, "agent-app.json"), JSON.stringify({ version: 2, id: "browser-action-qa", title: "Action QA", runtime: { kind: "sandboxed-web", entry: "index.html", worker: "worker.js" }, ui: {},
+      tools: [{ name: "save", description: "Save a quote", action: "save", inputSchema: { type: "object", properties: { quote: { type: "string" } }, required: ["quote"], additionalProperties: false },
+        resultSchema: { type: "object", properties: { saved: { type: "boolean" } }, required: ["saved"], additionalProperties: false } }],
+      permissions: { network: [], files: [], notifications: [] }, automations: [], viewer: { entry: "index.html", readable: ["public/"] } }));
+    await writeFile(join(source, "index.html"), "<!doctype html><h1>Installed app</h1>");
+    await writeFile(join(source, "worker.js"), "export async function handleAction() { return { saved: true }; }");
+    const proposal = await api.actFacade.appsInstallPreview({ space: space.id, packagePath: "app" });
+    await api.foldDecisions.decide(proposal.staged.decisionId, { decision: "approved", surface: "main-window" });
+    const app = (await service.list(space.id))[0]!; const scope = scopeFor(app);
+    const request = { requestId: randomUUID(), requestedAt: new Date().toISOString(), action: "save", input: { quote: "North: $42" } };
+    await assert.rejects(api.remoteFacade.execute("apps.actions.request", { ...scope, request }, principal), /live approved browser/);
+    await assert.rejects(api.remoteFacade.execute("apps.actions.request", { ...scope, request, browserId: "other" }, principal, authority));
+    const first = await api.remoteFacade.execute("apps.actions.request", { ...scope, request }, principal, authority) as { action: { id: string; status: string } };
+    assert.equal(first.action.status, "pending"); assert.equal(calls.length, 0);
+    const { review } = await api.remoteFacade.execute("apps.actions.review", { ...scope, requestId: request.requestId }, principal, authority) as { review: { reviewDigest: string } };
+    await assert.rejects(api.remoteFacade.execute("apps.actions.approve", { ...scope, requestId: request.requestId, reviewDigest: review.reviewDigest }, { ...principal, grantId: "other" }, authority));
+    const approval = { ...scope, requestId: request.requestId, reviewDigest: review.reviewDigest };
+    await api.remoteFacade.execute("apps.actions.approve", approval, principal, authority);
+    for (let index = 0; index < 100 && calls.length === 0; index++) await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(calls.length, 1); assert.equal(calls[0]!.execution.invocationId, first.action.id);
+    await api.remoteFacade.execute("apps.actions.approve", approval, { ...principal, requestId: "reconnected-transport" }, authority);
+    assert.equal(calls.length, 1);
+    allowed = false;
+    assert.throws(() => calls[0]!.execution.assertCurrent(), /Revoked/);
+    await assert.rejects(api.remoteFacade.execute("apps.actions.get", { ...scope, requestId: request.requestId }, principal, authority), /Revoked/);
+    allowed = true;
+    const pending = { ...request, requestId: randomUUID() };
+    await api.remoteFacade.execute("apps.actions.request", { ...scope, request: pending }, principal, authority);
+    await api.remoteFacade.revokeGrantAuthority!(principal.grantId);
+    const cancelled = await api.remoteFacade.execute("apps.actions.get", { ...scope, requestId: pending.requestId }, principal, authority) as { action: { status: string } };
+    assert.equal(cancelled.action.status, "cancelled");
+    await service.remove({ spaceId: app.spaceId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, expectedDigest: app.digest });
+    await assert.rejects(api.remoteFacade.execute("apps.actions.get", { ...scope, requestId: request.requestId }, principal, authority));
+    assert.throws(() => calls[0]!.execution.assertCurrent(), /authority|installed|changed/i);
   } finally { await api.close(); await rm(root, { recursive: true, force: true }); }
 });

@@ -93,6 +93,12 @@ const allowedOperations = new Set([
   "spaces.filePreview",
   "apps.list",
   "apps.read",
+  "apps.actions.request",
+  "apps.actions.get",
+  "apps.actions.list",
+  "apps.actions.review",
+  "apps.actions.approve",
+  "apps.actions.cancel",
 ]);
 
 export async function startBridgeServer({

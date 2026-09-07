@@ -52,6 +52,10 @@ Reviewed mode holds consequential actions for a person or matching standing poli
 
 An approved browser can open saved fold Chats, browse filtered Space files, preview bounded text and images, open an app's reviewed read-only web view, upload bounded attachments, and continue the management conversation. Copied-file and review receipts open their exact targets. Payloads cross the hosted relay in signed encrypted envelopes; the Mac remains the execution endpoint. See [file previews](docs/fold-file-previews.md) and [app views](docs/fold-browser-apps.md) for supported content and limits.
 
+The development branch also has the durable browser-action service and encrypted
+adapter; its trusted review UI is still being connected. Shared viewers remain
+read-only.
+
 ![The fold continuing in a desktop browser](services/bridge/public/screens/web-chat.png)
 
 ## What travels

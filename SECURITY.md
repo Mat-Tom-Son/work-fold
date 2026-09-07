@@ -124,6 +124,13 @@ the intermediary denies direct network access and non-blob child navigation.
 An exact-source, per-view message channel exposes only bounded reads. Public
 viewer hosts cannot load this adapter or its management operations. See
 [browser app isolation](docs/fold-browser-apps.md).
+The separate browser-action foundation requires exact installation and browser
+provenance, an exact review digest, durable acceptance and a live grant fence.
+Native broker effects recheck that fence even after dispatch. Idempotent retry
+returns the original receipt; uncertain accepted work becomes Interrupted at
+startup without replay. Revocation cancels matching pending requests and fences
+accepted runs. Neither the read bridge nor shared viewers expose approval; the
+private trusted review UI remains under integration.
 Direct task-scoped request status and stop calls through the remote semantic
 adapter are bound to the browser identity and exact grant that accepted the
 request. Summary projections omit task ids and action details for other grants.

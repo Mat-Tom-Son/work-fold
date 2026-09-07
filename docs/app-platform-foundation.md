@@ -154,6 +154,10 @@ The complete definitions and journey tests live in
     publication path, or grant-management plane. Its closed `apps.list` and
     `apps.read` adapter can open a reviewed read-only web view privately under
     exact installation and authority pins; see [browser app views](fold-browser-apps.md).
+    Its separate browser-action foundation journals declared worker intents,
+    exact review and acceptance under a live browser fence. That lane cannot
+    author grants or invoke arbitrary code; the trusted review UI is still
+    being integrated, and shared viewers remain read-only.
 15. **Legacy product state is outside the platform.** work-fold does not import,
     migrate, parse, mutate, or delete the legacy Workspace profile, portable
     metadata, registries, app storage, connections, receipts, or artifacts.
