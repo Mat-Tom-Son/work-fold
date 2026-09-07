@@ -170,7 +170,8 @@ test("remote glance renders the digest sections with quiet-not-hidden seen items
 
   // Desktop offline means no digest: the client refreshes only while online
   // and keeps its honest offline state otherwise.
-  assert.match(app, /if \(state\.foldHomeRefreshing \|\| !state\.session\?\.desktopOnline\) return;/);
+  assert.match(app, /if \(!state\.session\?\.desktopOnline\) return Promise\.resolve\(false\);/);
+  assert.match(app, /if \(foldHomeRefresh\) return foldHomeRefresh;/);
 });
 
 test("remote client navigation is one sidebar over four screens", async () => {

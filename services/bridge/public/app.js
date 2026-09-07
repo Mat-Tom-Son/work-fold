@@ -2,6 +2,8 @@ import { shouldSubmitComposerKey } from "./composer.js";
 import { buildFixture } from "./fixtures.js";
 import { renderLanding } from "./landing.js";
 import { renderMarkdown } from "./markdown.js";
+import { createFilePreview } from "./file-preview.js";
+import { requestResultLinks } from "./request-results.js";
 import { assertPairingRelay, pairingCodeForKeys } from "./pairing-code.js";
 import { normalizeChatTitle, replaceHtmlIfChanged } from "./rendering.js";
 
@@ -96,6 +98,7 @@ const state = {
   renameSaving: false,
   conversationsLoaded: false,
   spacesLoaded: false,
+  filePreviewAvailable: false,
   transcriptLoading: false,
   sessionRebooting: false,
   rateLimitedUntil: 0,
@@ -108,6 +111,27 @@ const state = {
   liveAssistantText: "",
   liveAssistantTextTruncated: false,
 };
+
+let filePreview = null;
+function openFilePreview(spaceId, path) {
+  const space = state.spaces.find((item) => item.id === spaceId);
+  filePreview ??= createFilePreview({
+    available: () => Boolean(fixtureName || state.filePreviewAvailable),
+    online: () => Boolean(state.session?.desktopOnline),
+    fetchPreview: async (selectedSpaceId, selectedPath) => {
+      if (fixtureName) {
+        const text = selectedPath.endsWith(".csv") ? "item,next_step\nTwo invoices,Match purchase orders\nTravel,Reconcile category labels"
+          : selectedPath === "notes.md" ? `# Field notes\n\n${"Keep the original quote and delivery estimate together so the next review has the same evidence.\n\n".repeat(60)}`
+            : "# Quarterly summary\n\nRevenue is up **12%**.\n\n| Item | Next step |\n|---|---|\n| Two invoices | Match purchase orders |\n| Travel | Reconcile category labels |";
+        return { spaceId: selectedSpaceId, path: selectedPath, kind: "text", format: selectedPath.endsWith(".md") ? "markdown" : "text", text, truncated: false };
+      }
+      return (await remote("spaces.filePreview", { spaceId: selectedSpaceId, path: selectedPath })).preview;
+    },
+  });
+  void filePreview.open({ spaceId, path, spaceName: space?.name ?? "Space" });
+}
+
+function closeFilePreview() { filePreview?.destroy(); filePreview = null; }
 
 void boot();
 
@@ -936,6 +960,16 @@ function renderMessages() {
     ${workEvents.map((event) => `<div class="work-event ${event.state}"${event.title ? ` title="${escapeAttribute(event.title)}"` : ""}><span class="work-event-mark" aria-hidden="true"></span><span>${event.html}</span></div>`).join("")}
     ${working && !workEvents.some((event) => event.state === "running") ? `<div class="working-row"><span class="spinner"></span><span>${escapeHtml(state.liveActivity || "Working")}</span></div>` : ""}
   `);
+  if (workChanged) {
+    for (const button of workStatus.querySelectorAll("[data-result-file]")) button.addEventListener("click", () => openFilePreview(button.dataset.spaceId, button.dataset.resultFile));
+    for (const button of workStatus.querySelectorAll("[data-result-decision]")) button.addEventListener("click", async () => {
+      showContext("needs", { moveFocus: true });
+      const refreshed = await refreshFoldHome();
+      const card = document.querySelector(`[data-decision-card="${CSS.escape(button.dataset.resultDecision)}"]`);
+      if (card) { card.scrollIntoView({ block: "center", behavior: "smooth" }); card.focus({ preventScroll: true }); }
+      else if (!state.foldHomeNotice) { state.foldHomeNotice = refreshed ? "This decision is no longer waiting for review." : "Could not refresh this decision. Try again when your desktop is connected."; renderFoldHome(); }
+    });
+  }
   if (container.dataset.rendered !== "true") container.dataset.rendered = "true";
   if (wasNearBottom && (noticeChanged || messagesChanged || workChanged || !sameConversation)) {
     // Instant, not smooth: an animated pin momentarily reads as "not at the
@@ -1044,6 +1078,10 @@ function requestEvents(request) {
   } else if (request.phase === "stopped" && !events.some((event) => event.state === "stopped")) {
     events.push({ state: "stopped", html: "Stopped" });
   }
+  const results = requestResultLinks(request);
+  if (results.length) events.push({ state: "result", html: `<span class="request-result-links">${results.map((result) => result.kind === "file"
+    ? `<button type="button" class="quiet" data-space-id="${escapeAttribute(result.spaceId)}" data-result-file="${escapeAttribute(result.path)}" title="${escapeAttribute(result.spaceName)} · ${escapeAttribute(result.path)}">${escapeHtml(result.label)}</button>`
+    : `<button type="button" class="quiet" data-result-decision="${escapeAttribute(result.id)}">${escapeHtml(result.label)}</button>`).join("")}</span>` });
   return events;
 }
 
@@ -1378,6 +1416,7 @@ async function loadSpaces() {
   try {
     const result = await remote("spaces.list");
     state.spaces = result.spaces ?? [];
+    state.filePreviewAvailable = result.capabilities?.filePreview === true;
     state.spacesLoaded = true;
     if (!state.explorerSpaceId && state.spaces.length) {
       // The Files context remembers its Space across reloads on this tab.
@@ -1644,6 +1683,9 @@ function renderWorkspace() {
   for (const button of tree.querySelectorAll("[data-tree-path]")) {
     button.addEventListener("click", () => void toggleTree(button.dataset.spaceId, button.dataset.treePath));
   }
+  for (const button of tree.querySelectorAll("[data-file-path]")) {
+    button.addEventListener("click", () => openFilePreview(button.dataset.spaceId, button.dataset.filePath));
+  }
 }
 
 function renderTreeRows(spaceId, entries, path, depth) {
@@ -1658,9 +1700,9 @@ function renderTreeRows(spaceId, entries, path, depth) {
     const children = expanded ? state.trees.get(`${spaceId}:${entry.path}`) ?? [] : [];
     return `<div class="file-node">
       <div class="file-row" style="--depth:${depth}">
-        ${entry.kind === "folder" ? `<button class="file-main" type="button" data-space-id="${escapeAttribute(spaceId)}" data-tree-path="${escapeAttribute(entry.path)}" aria-expanded="${String(expanded)}">` : `<div class="file-main">`}
+        ${entry.kind === "folder" ? `<button class="file-main" type="button" data-space-id="${escapeAttribute(spaceId)}" data-tree-path="${escapeAttribute(entry.path)}" aria-expanded="${String(expanded)}">` : `<button class="file-main" type="button" data-space-id="${escapeAttribute(spaceId)}" data-file-path="${escapeAttribute(entry.path)}" aria-label="Preview ${escapeAttribute(entry.name)}">`}
           <span class="tree-caret" aria-hidden="true">${entry.kind === "folder" ? expanded ? "⌄" : "›" : ""}</span>${fileGlyph(entry.kind)}<span class="file-name">${escapeHtml(entry.name)}</span>
-        ${entry.kind === "folder" ? `</button>` : `</div>`}
+        </button>
         ${entry.kind === "file" ? `<span class="file-size">${formatBytes(entry.sizeBytes)}</span>` : ""}
       </div>
       ${expanded ? `<div>${renderTreeRows(spaceId, children, entry.path, depth + 1)}</div>` : ""}
@@ -1728,9 +1770,16 @@ async function stopCurrentTask() {
 // no cards and no digest — recorded state, never a stale one presented as
 // current.
 
-async function refreshFoldHome() {
-  if (state.foldHomeRefreshing || !state.session?.desktopOnline) return;
-  state.foldHomeRefreshing = true;
+let foldHomeRefresh = null;
+function refreshFoldHome() {
+  if (fixtureName) return Promise.resolve(true);
+  if (foldHomeRefresh) return foldHomeRefresh;
+  if (!state.session?.desktopOnline) return Promise.resolve(false);
+  foldHomeRefresh = readFoldHome().finally(() => { foldHomeRefresh = null; });
+  return foldHomeRefresh;
+}
+
+async function readFoldHome() {
   try {
     const [decisions, glance] = await Promise.all([
       remote("decisions.list"),
@@ -1740,12 +1789,12 @@ async function refreshFoldHome() {
     state.glance = glance.glance ?? null;
     renderFoldHome();
     acknowledgeGlance();
+    return true;
   } catch {
     // The home section renders recorded state only. A failed refresh keeps
     // the last rendered projection instead of inventing an empty, clear one;
     // the conversation lane already surfaces connection problems.
-  } finally {
-    state.foldHomeRefreshing = false;
+    return false;
   }
 }
 
@@ -1879,7 +1928,7 @@ function renderDecisionCard(card) {
         <button type="button" class="needs-you-approve" data-decide-card="${escapeAttribute(card.id)}" data-decision="approved"${busy || needsChosenFolder ? " disabled" : ""}>Approve</button>
         <button type="button" class="needs-you-deny" data-decide-card="${escapeAttribute(card.id)}" data-decision="denied"${busy ? " disabled" : ""}>Deny</button>
       </div>`;
-  return `<article class="needs-you-card${busy ? " busy" : ""}" data-category="${escapeAttribute(card.category ?? "")}"${busy ? ` aria-busy="true"` : ""}>
+  return `<article class="needs-you-card${busy ? " busy" : ""}" data-decision-card="${escapeAttribute(card.id)}" tabindex="-1" data-category="${escapeAttribute(card.category ?? "")}"${busy ? ` aria-busy="true"` : ""}>
     <p class="needs-you-category">${escapeHtml(card.categoryLine ?? "")}</p>
     <h3 class="needs-you-title">${escapeHtml(card.title ?? "")}</h3>
     ${facts}
@@ -2475,6 +2524,7 @@ function clearGrantFromIdentity() {
 }
 
 function updateConnection(online = state.session?.desktopOnline) {
+  if (Boolean(online) !== Boolean(state.session?.desktopOnline)) filePreview?.connectionChanged(Boolean(online));
   if (state.session) state.session.desktopOnline = Boolean(online);
   renderDesktopPresence();
   syncComposer();
@@ -2486,6 +2536,7 @@ function renderBanner() {
 }
 
 function renderAuth({ eyebrow, headline, supporting, panel }, afterRender) {
+  closeFilePreview();
   app.innerHTML = `<main class="auth-shell">
     <header class="auth-top"><span class="brand" role="img" aria-label="work-fold"><img class="brand-lockup brand-lockup-black" src="/brand-lockup-black.png" alt="" /><img class="brand-lockup brand-lockup-white" src="/brand-lockup-white.png" alt="" /></span></header>
     <section class="auth-stage"><div class="auth-copy"><p class="eyebrow">${eyebrow}</p><h1>${headline}</h1><p>${supporting}</p></div><div class="auth-panel">${panel}</div></section>

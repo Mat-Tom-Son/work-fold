@@ -106,11 +106,17 @@ weaken the independently authenticated device tokens for existing addresses.
 
 An approved remote browser is nevertheless a powerful authority. It can send
 prompts to the full-trust management Assistant, read bounded saved management
-transcripts, inspect bounded Space-relative file-tree metadata, and upload
+transcripts, inspect bounded Space-relative file-tree metadata and explicit
+text/image previews, and upload
 bounded files while the desktop is online. Selecting a Files tree never selects
 another Assistant. The management Assistant may delegate through the attributed
 act path; those child turns reuse the canonical registered-Space runtime, native
 Pi resources and tools, conflict rules, and History path.
+File previews exclude ignored and reserved paths, links and nested registered
+Spaces, recheck file identity and registration after reading, and travel only
+through the approved-browser encrypted operation lane. Revocation fences late
+completion and cache insertion. HTML/SVG remain escaped text; shared viewers
+have no preview operation. See [preview bounds](docs/fold-file-previews.md).
 Direct task-scoped request status and stop calls through the remote semantic
 adapter are bound to the browser identity and exact grant that accepted the
 request. Summary projections omit task ids and action details for other grants.

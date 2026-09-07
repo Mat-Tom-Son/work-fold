@@ -477,7 +477,7 @@ test("an unrelated grant revocation cannot suppress a queued operation completio
   fixture.client.stop();
 });
 
-test("same-grant revocation suppresses a late completion and response-cache insertion", async () => {
+for (const operation of ["spaces.list", "spaces.filePreview"]) test(`${operation}: same-grant revocation suppresses a late completion and response-cache insertion`, async () => {
   const browser = remoteTestBrowser("grant-revoked");
   const settings = remoteTestSettings([browser]);
   let releaseFirst!: () => void;
@@ -492,13 +492,13 @@ test("same-grant revocation suppresses a late completion and response-cache inse
         markFirstStarted();
         await firstGate;
       }
-      return { spaces: [] };
+      return operation === "spaces.filePreview" ? { preview: { kind: "text", text: "private file content" } } : { spaces: [] };
     },
     async purgeUploads() {},
   });
   await fixture.client.start();
   fixture.socket.open();
-  const frame = remoteOperationFrame(settings, browser, "request-revoked");
+  const frame = remoteOperationFrame(settings, browser, "request-revoked", operation, operation === "spaces.filePreview" ? { spaceId: "space-preview", path: "result.md" } : {});
 
   fixture.socket.receive(JSON.stringify(frame));
   await firstStarted;
@@ -643,6 +643,30 @@ function decryptTestResponse(
   decipher.setAuthTag(encrypted.subarray(-16));
   return JSON.parse(Buffer.concat([decipher.update(encrypted.subarray(0, -16)), decipher.final()]).toString("utf8")) as Record<string, unknown>;
 }
+
+test("a maximum-size file preview crosses the approved browser encrypted transport", async () => {
+  const browser = remoteTestBrowser("grant-preview");
+  const settings = remoteTestSettings([browser]);
+  const preview = { spaceId: "space-preview", path: "result.png", kind: "image", mediaType: "image/png", base64: Buffer.alloc(1024 * 1024, 7).toString("base64") };
+  const fixture = remoteOperationClient(settings, {
+    async execute(operation, input) {
+      assert.equal(operation, "spaces.filePreview");
+      assert.deepEqual(input, { spaceId: preview.spaceId, path: preview.path });
+      return { preview };
+    },
+    async purgeUploads() {},
+  });
+  await fixture.client.start();
+  fixture.socket.open();
+  try {
+    fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, browser, "request-preview", "spaces.filePreview", { spaceId: preview.spaceId, path: preview.path })));
+    const completion = () => fixture.socket.sent.map((value) => JSON.parse(value)).find((message) => message.type === "operation.complete");
+    await waitForRemoteTest(() => Boolean(completion()), "the image preview never completed");
+    assert.equal(completion().envelope.header.ok, true);
+    assert.deepEqual(decryptTestResponse(browser, settings, completion().envelope), { result: { preview } });
+    assert.equal(fixture.socket.sent.some((value) => value.includes(preview.path)), false, "file names travel only inside ciphertext");
+  } finally { fixture.client.stop(); }
+});
 
 test("the glance projection crosses within its 64 KB bound and an oversized digest is an honest refusal", async () => {
   const browser = remoteTestBrowser("grant-glance");

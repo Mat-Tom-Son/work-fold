@@ -124,6 +124,10 @@ export function buildFixture(name) {
         { spaceName: "Field notes", state: "succeeded" },
       ],
       dispositions: [{ attachment: { name: "q3-numbers.csv" }, status: "library" }],
+      actions: [
+        { command: "files.add", spaceId: "space-1", spaceName: "Launch plan", copied: ["reports/q3-summary.md"] },
+        { command: "apps.grant", decisionId: "card-1" },
+      ],
     },
   };
   return {

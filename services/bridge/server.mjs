@@ -90,6 +90,7 @@ const allowedOperations = new Set([
   "decisions.decide",
   "spaces.list",
   "spaces.tree",
+  "spaces.filePreview",
 ]);
 
 export async function startBridgeServer({

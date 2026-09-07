@@ -219,7 +219,12 @@ Space work is initiated only when that
 Assistant uses the attributed act path; delegated children then use the target
 Space's registered runtime authorization, native Pi project resources and tools,
 and pre/post-turn History path. The Files selector is observational and never
-changes the conversation target. The
+changes the conversation target. Approved browsers can explicitly read bounded
+text/image previews through capability-advertised `spaces.filePreview`, with
+an exact Space id and relative path. Copied-file receipts and staged decision
+ids provide direct navigation; previewing neither invokes a model nor publishes
+content. See [file previews](fold-file-previews.md) for filtering, identity
+rechecks, rendering, byte limits and revocation. The
 stable kernel continues to classify it as a renderer surface; the durable
 message/request provenance distinguishes remote acceptance without changing
 the version-1 actor vocabulary. Current replay records require the exact

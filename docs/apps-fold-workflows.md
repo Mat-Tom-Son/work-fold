@@ -32,6 +32,11 @@ management surface.
 
 ## Acceptance journey
 
+The fold-results slice now includes approved-browser file previews and direct
+copied-file/review receipt links. App previews and links for Assistant-created
+deliverables beyond recorded file-copy actions remain open; this does not close
+the fold-results or web-app checklist items.
+
 Assistant request implementation now uses the ordinary Space Chat path with
 exact review pins, task progress, cancellation and restart reconciliation.
 The native bridge and compact Apps review are implemented; live acceptance is
@@ -345,3 +350,36 @@ restarting the view; focused service/API tests pass. Final logs:
 `/tmp/workfold-app-check-idempotence.log` (seven passed),
 `/tmp/workfold-app-check-access-complete-check.log`, and
 `/tmp/workfold-app-check-access-complete-desktop.log`.
+
+## Progress: browser file previews and receipt links
+
+Files now open a compact text/image dialog in approved browsers. Reads use an
+explicit Space id and visible relative path, bounded bytes, no-follow identity
+checks and post-read registration/visibility checks. Markdown remains inert;
+HTML/SVG remain escaped text. Browser revocation fences late responses and their
+replay-cache insertion. Shared viewers cannot reach the operation or preview
+module. Disconnect clears the displayed bytes; reconnect requires Refresh.
+See [file previews](fold-file-previews.md) for the complete read contract.
+
+Copied-file receipts open their exact Space/path and staged decision receipts
+open and focus the corresponding Needs you card. Concurrent decision refreshes
+share their completion, so navigation cannot mistake an unfinished refresh for
+a removed decision. Missing decisions and failed refreshes have distinct states.
+
+Verification: `npm run check`, `npm test` (1,142 passed, one Windows-only skip),
+the bridge's separate suite (48 passed), and `npm run desktop:prepare` including
+both Electron probes passed. A final focused run passed 38 tests after adding
+unsupported-desktop, wrong-file and failed-read UI cases and navigation fixtures.
+Logs: `/tmp/workfold-file-previews-check.log`,
+`/tmp/workfold-file-previews-tests.log`,
+`/tmp/workfold-file-previews-bridge-tests.log`,
+`/tmp/workfold-file-previews-desktop.log` and
+`/tmp/workfold-file-previews-final-focus.log`.
+
+Live browser QA used the real local bridge with inert fixture data. At 320×568,
+long content scrolled inside a 304×552 dialog while Close and Refresh stayed
+visible; Escape returned focus to the file button. At desktop width, the file
+receipt opened the named preview and Review decision focused the exact card.
+The browser reported no console warnings/errors. This verifies the actual UI,
+not a paired real-desktop or real-model journey; those remain required. No
+production application, provider state, bridge deployment or release changed.

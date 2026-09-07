@@ -14,7 +14,8 @@ export type WorkFoldRemoteOperation =
   | "decisions.list"
   | "decisions.decide"
   | "spaces.list"
-  | "spaces.tree";
+  | "spaces.tree"
+  | "spaces.filePreview";
 
 /**
  * One bounded live-progress tick from a `management.watch` operation. Activity

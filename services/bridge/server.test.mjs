@@ -1299,6 +1299,15 @@ test("a reserved pages-* host serves viewer routes or nothing, never the managem
   assert.equal(clientBundle.status, 404);
   assert.equal(await clientBundle.text(), "Nothing is published here.\n", "the management client bundle is never served on a viewer host");
 
+  const previewModule = await fetch(`${baseUrl}/file-preview.js`, { headers: viewerHost });
+  assert.equal(previewModule.status, 404, "approved-browser previews are not served to shared viewers");
+  const previewOperation = await fetch(`${baseUrl}/api/operations`, {
+    method: "POST",
+    headers: { ...viewerHost, "content-type": "application/json" },
+    body: JSON.stringify({ operation: "spaces.filePreview", input: { spaceId: "private", path: "result.md" } }),
+  });
+  assert.equal(previewOperation.status, 405, "viewers cannot reach the management preview operation");
+
   const managementApi = await fetch(`${baseUrl}/api/public/context`, { headers: viewerHost });
   assert.equal(managementApi.status, 404);
   assert.equal(await managementApi.text(), "Nothing is published here.\n", "management API surfaces do not exist on a viewer host");
@@ -1469,7 +1478,7 @@ test("the fold's decision and glance operations pass the management allowlist co
   // reconciliation 7): the bridge accepts the operation names and relays the
   // signed ciphertext untouched. Cards and digests stay end-to-end encrypted
   // between the desktop and the approved browser; staged acts never live here.
-  for (const operation of ["decisions.list", "decisions.decide", "management.glance", "management.glanceSeen"]) {
+  for (const operation of ["decisions.list", "decisions.decide", "management.glance", "management.glanceSeen", "spaces.filePreview"]) {
     const envelope = signedEnvelope({
       type: "work-fold.remote-request.v1",
       accountId: fixture.account.id,

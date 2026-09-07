@@ -92,6 +92,11 @@ The envelope design protects passive relay handling and persisted state; it is
 not a guarantee against a malicious hosted origin. The browser renders bounded
 saved management transcripts and filtered, bounded Space-relative file-tree
 projections in memory and starts fresh by fetching them again after sign-in.
+Explicit file previews read bounded text or images from a selected visible
+Space-relative path without invoking a model or publishing the file. They use
+the same encrypted lane, remain in browser memory and clear on close, sign-out
+or detected disconnection; reconnect requires Refresh. See
+[file preview limits](docs/fold-file-previews.md).
 Selecting a Space changes only the displayed file tree; it does not select a
 different Assistant or transcript.
 Removing Remote access deletes its server-side account records; browser

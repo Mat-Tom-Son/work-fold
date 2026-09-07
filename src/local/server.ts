@@ -1,5 +1,6 @@
 import { RestrictedAppTaskService, RestrictedAppTaskError, restrictedAppTaskAuthorityDigest, restrictedAppTaskPrompt, restrictedAppTaskTurnRequestId } from "./agent/restricted-app-tasks.js";
 import { observeWorkFoldRoutingFiles } from "./routings/routing-file-observer.js";
+import { readRemoteFilePreview } from "./remote-file-preview.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -3914,7 +3915,12 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
         case "spaces.list": {
           assertRemoteKeys(input, []);
           const spaces = (await state.kernel.getSpaces({ kind: "renderer" })).spaces;
-          return { spaces: spaces.map((space) => ({ id: space.id, name: space.name })) };
+          return { spaces: spaces.map((space) => ({ id: space.id, name: space.name })), capabilities: { filePreview: true } };
+        }
+        case "spaces.filePreview": {
+          assertRemoteKeys(input, ["spaceId", "path"]);
+          const spaceId = remoteStableId(input.spaceId, "Space id", 512);
+          return { preview: await readRemoteFilePreview(spaceId, remoteRelativePath(input.path)) };
         }
         case "spaces.tree": {
           assertRemoteKeys(input, ["spaceId", "path"]);
@@ -3990,6 +3996,7 @@ function remoteManagementRequest(
       checkpointId: action.checkpointId,
       conversationId: action.conversationId,
       taskId: action.taskId,
+      decisionId: action.decisionId,
     })),
   };
 }
