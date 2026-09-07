@@ -75,7 +75,7 @@ layer](docs/management-layer.md) for their different boundaries.
 
 Use the smallest relevant lane while working, then promote the change before handoff:
 
-```powershell
+```sh
 npm run check
 npm test
 npm run desktop:prepare
@@ -91,7 +91,7 @@ Electron failures upload lifecycle state and available synthetic screenshots
 under the run's **electron-diagnostics** artifact; inspect those before rerunning.
 No application data or provider credentials are collected by that probe.
 
- Windows package and installer commands are dormant manual diagnostics; they are not CI or release gates and should not be run as routine handoff evidence.
+Windows package and installer commands are dormant manual diagnostics; they are not CI or release gates and should not be run as routine handoff evidence.
 
 Tests that observe asynchronous work should wait on the owned in-memory or
 domain completion signal, then verify durable persistence separately. Do not

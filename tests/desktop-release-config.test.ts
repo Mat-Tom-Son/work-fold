@@ -118,7 +118,7 @@ test("CI preserves independent main/tag release evidence and all verification la
   assert.equal(workflow.on.push.paths, undefined, "release commits cannot skip verification by path");
   assert.equal(workflow.on.push["paths-ignore"], undefined);
   assert.equal(workflow.concurrency["cancel-in-progress"], "${{ github.event_name == 'pull_request' }}");
-  assert.ok(workflow.concurrency.group.includes("github.ref"), "main and tags never share a concurrency group");
+  assert.equal(workflow.concurrency.group, "ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}", "non-PR runs have unique groups so queued release evidence cannot be replaced");
   const jobs = Object.values(workflow.jobs) as Array<{ name: string; "runs-on": string; "continue-on-error"?: boolean; if?: string; steps: Array<{ run?: string; if?: string; "continue-on-error"?: boolean; uses?: string }> }>;
   const commands = jobs.flatMap((job) => {
     assert.equal(job["runs-on"], "macos-latest");
