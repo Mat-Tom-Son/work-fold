@@ -1,4 +1,5 @@
 import { shouldSubmitComposerKey } from "./composer.js";
+import { browserApiPath } from "./api-path.js";
 import { buildFixture, createFixtureAppActions, fixtureAppEntry } from "./fixtures.js";
 import { renderLanding } from "./landing.js";
 import { renderMarkdown } from "./markdown.js";
@@ -211,6 +212,7 @@ async function boot() {
   await Promise.resolve();
   if (fixtureName) return bootFixture(fixtureName);
   state.sessionRebooting = false;
+  state.session = null;
   try {
     state.identity = await loadIdentity();
     state.context = await api(`/api/public/context${localSlug ? `?slug=${encodeURIComponent(localSlug)}` : ""}`);
@@ -219,6 +221,7 @@ async function boot() {
     state.session = await api("/api/auth/session");
     await continueAuthenticated();
   } catch (error) {
+    if (error?.status === 401 && state.context?.addressAvailable) return renderLogin();
     renderFatal(errorText(error));
   }
 }
@@ -2273,7 +2276,7 @@ function scheduleRefresh() {
   state.refreshTimer = setTimeout(() => {
     // Honor the relay's cooldown: keep the timer chain alive but send nothing
     // until the window passes.
-    if (Date.now() < state.rateLimitedUntil) return scheduleRefresh();
+    if (Date.now() < state.rateLimitedUntil || !state.session?.desktopOnline) return scheduleRefresh();
     state.refreshTick += 1;
     // The chat lane refreshes every tick; the fold-home digest (two relay
     // operations) rides a slower multiple of it, keeping an active turn's
@@ -2291,7 +2294,7 @@ function scheduleRefresh() {
 function openEvents() {
   if (fixtureName) return;
   state.eventSource?.close();
-  state.eventSource = new EventSource("/api/events");
+  state.eventSource = new EventSource(browserApiPath("/api/events", location.href));
   state.eventSource.addEventListener("ready", (raw) => {
     const payload = JSON.parse(raw.data);
     updateConnection(payload.desktopOnline === true);
@@ -2355,6 +2358,7 @@ async function receiveRemoteEvent(event) {
 async function remote(operation, input = {}, options = {}) {
   if (fixtureName) throw new Error("Fixture preview is inert; nothing is sent.");
   if (!state.session?.paired || !state.identity?.grantId) throw new Error("This browser is not approved.");
+  if (!state.session.desktopOnline) throw new Error("Your work-fold desktop is offline.");
   const requestId = crypto.randomUUID();
   const header = {
     type: "work-fold.remote-request.v1",
@@ -2399,6 +2403,7 @@ async function pollOperationFallback(operationId, fallbackIntervalMs) {
   for (let attempt = 0; Date.now() < deadline && state.pendingOperations.has(operationId); attempt += 1) {
     const streamHealthy = state.eventSource?.readyState === EventSource.OPEN;
     await delay(fallbackIntervalMs ?? (attempt < 5 ? 1_000 : streamHealthy ? 3_000 : 2_000));
+    if (!state.pendingOperations.has(operationId)) return;
     let status;
     try { status = await api(`/api/operations/${encodeURIComponent(operationId)}`); } catch { continue; }
     updateConnection(status.desktopOnline);
@@ -2414,7 +2419,7 @@ async function pollOperationFallback(operationId, fallbackIntervalMs) {
       if (!pending) return;
       // Recovery re-POSTs count against the operation budget; wait out a
       // cooldown rather than converting throttling into failed recoveries.
-      if (Date.now() < pending.nextRecoveryAt || Date.now() < state.rateLimitedUntil) continue;
+      if (!state.session?.desktopOnline || Date.now() < pending.nextRecoveryAt || Date.now() < state.rateLimitedUntil) continue;
       if (pending.recoveryAttempts >= 5) {
         state.pendingOperations.delete(operationId);
         pending.reject(new Error("work-fold could not reconcile this request after the connection changed. Check the running log before sending anything again."));
@@ -2529,7 +2534,7 @@ function canonicalize(value) {
 
 async function api(path, { method = "GET", body, csrf = false } = {}) {
   if (fixtureName) throw new Error("Fixture preview is inert; nothing is sent.");
-  const response = await fetch(path, {
+  const response = await fetch(browserApiPath(path, location.href), {
     method,
     credentials: "same-origin",
     headers: {
@@ -2555,6 +2560,9 @@ function scheduleSessionReboot() {
   if (state.sessionRebooting) return;
   state.sessionRebooting = true;
   saveComposerDraft();
+  state.session = null;
+  filePreview?.connectionChanged(false);
+  browserApp?.connectionChanged(false);
   if (state.refreshTimer) clearTimeout(state.refreshTimer);
   state.refreshTimer = null;
   state.eventSource?.close();
@@ -2593,6 +2601,10 @@ function updateConnection(online = state.session?.desktopOnline) {
   if (Boolean(online) !== Boolean(state.session?.desktopOnline)) filePreview?.connectionChanged(Boolean(online));
   if (Boolean(online) !== Boolean(state.session?.desktopOnline)) browserApp?.connectionChanged(Boolean(online));
   if (state.session) state.session.desktopOnline = Boolean(online);
+  if (online && state.banner === "Your work-fold desktop is offline.") {
+    state.banner = "";
+    renderBanner();
+  }
   renderDesktopPresence();
   syncComposer();
 }

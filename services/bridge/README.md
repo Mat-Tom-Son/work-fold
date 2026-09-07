@@ -73,7 +73,10 @@ npm start
 ```
 
 For a local desktop build, set `WORKFOLD_REMOTE_BRIDGE_URL` to the local bridge
-origin. The production bridge uses `WORKFOLD_BRIDGE_DOMAIN=work-fold.com`.
+origin. Loopback browser URLs use `http://127.0.0.1:<port>/?slug=<address>`
+(or `localhost`); the browser retains that account query on API and event
+requests. Production resolves the account from its subdomain and uses
+`WORKFOLD_BRIDGE_DOMAIN=work-fold.com`.
 
 Configuration:
 

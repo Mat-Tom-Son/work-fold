@@ -151,6 +151,19 @@ function remoteTestSettings(browsers: RemoteTestBrowser[]): RemoteAccessSettings
   };
 }
 
+test("desktop web-address links use the loopback account query and production subdomain", async () => {
+  const settings = remoteTestSettings([]);
+  const client = new RemoteAccessClient({
+    settingsStore: { async getRemoteAccess() { return settings; } } as never,
+    facade: {} as never, promptPairing: async () => false,
+  });
+  assert.equal((await client.status()).url, "https://operation-tests.bridge.example");
+  for (const host of ["localhost", "127.0.0.1"]) {
+    settings.bridgeUrl = `http://${host}:4319/`;
+    assert.equal((await client.status()).url, `http://${host}:4319/?slug=operation-tests`);
+  }
+});
+
 function remoteOperationFrame(
   settings: RemoteAccessSettings,
   browser: RemoteTestBrowser,

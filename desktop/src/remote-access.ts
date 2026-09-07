@@ -1244,7 +1244,9 @@ function statusView(settings: RemoteAccessSettings | null, connection: RemoteAcc
     enabled: settings?.enabled ?? false,
     connection: settings?.enabled ? connection : "stopped",
     slug: settings?.slug ?? null,
-    url: settings ? `${bridge!.protocol}//${settings.slug}.${baseHost}${port}` : null,
+    url: settings ? (["localhost", "127.0.0.1"].includes(baseHost)
+      ? `${bridge!.origin}/?slug=${encodeURIComponent(settings.slug)}`
+      : `${bridge!.protocol}//${settings.slug}.${baseHost}${port}`) : null,
     viewerOrigin: settings ? `${bridge!.protocol}//pages-${settings.slug}.${baseHost}${port}` : null,
     lastError,
     approvedBrowsers: settings?.grants.map((grant) => ({ id: grant.id, browserId: grant.browserId, label: grant.label, approvedAt: grant.approvedAt })) ?? [],

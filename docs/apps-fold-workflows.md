@@ -521,3 +521,59 @@ inspected: `output/playwright/fold-deliverable-link-phone.png` and
 `output/playwright/fold-app-result-link-phone.png`. This is inert fixture UI
 acceptance; paired desktop execution and a successful real-model journey remain
 required. No release, production profile, installation or deployment changed.
+
+## Progress: paired desktop/browser acceptance and recovery
+
+A Developer ID-signed, notarized and Gatekeeper-verified app-only candidate from
+`c1270c2` (still package version 0.4.22, not a new publication) now exists at
+`out/mac-rc/mac-arm64/work-fold.app`. Signing evidence is in
+`/tmp/workfold-apps-integration-rc.log`. The Applications installation is unchanged.
+The candidate briefly opened the normal profile during computer-use selection;
+the paired walkthrough then used the explicit `/tmp/workfold-apps-goal-qa`
+profile and a loopback pg-mem bridge with synthetic data only.
+
+The actual browser and desktop matched their pairing code. Browser Needs you
+approved the synthetic Quote board QA preview through the encrypted lane.
+A browser request remained pending until trusted Review/Run, then the native
+worker stored exactly one ten-unit, $420 order. Retrying the same request
+returned the same succeeded receipt and left sequence 1 unchanged. The native
+rail app read that same value. Normal desktop quit cleared the browser frame;
+restart required Refresh and recovered both the completed receipt and sequence
+1 without replay. The 390×844 screenshot
+`output/playwright/paired-native-order-phone.png` was visually inspected.
+
+This walkthrough found and repaired missing loopback account selection on API
+and event requests, an invalid desktop loopback Open address URL, and a 401
+session-reboot loop. The client now clears the expired session before recovery
+and returns to sign-in when the session probe is unauthorized. Background
+refresh and dispatch recovery pause while the desktop is known offline;
+already-accepted receipt reads remain available through the relay's bounded
+cache. Reconnection removes the specific stale offline banner.
+
+Live probes: `/tmp/workfold-paired-session-recovery.log` shows one pairing
+failure, one session probe and a return to sign-in; and
+`/tmp/workfold-paired-offline-final.log` shows no new or recovered dispatches
+in a twelve-second offline window, with no remaining app frame. The fixture
+is `/tmp/workfold-integrated-quote-board`, digest
+`be12776463493a907febd3034b6613965e1adaa704b4c8892fe309fbdc8fcfb3`.
+The paired action receipt is `f499efa0-0a32-4681-bab7-6f3b6f8115a9` and its
+request is `61ad052c-fe80-44f6-b135-15b6bbce0b82`. The counter is app-owned data,
+not a real order. Reusable probes live under `scripts/probes/paired-*` and
+`scripts/probes/browser-session-recovery.probe.js`.
+
+The isolated profile's connected-model list is empty. Successful real-model
+acceptance is now using the signed candidate's normal profile and existing
+OpenRouter connection, through native product APIs; no credentials were copied
+or extracted. A fresh fold request is setting up Purchasing QA and Delivery QA
+for the remaining app-requested comparison, Check and cross-Space handoff.
+No public build, updater installation or Railway deployment has occurred.
+
+Verification for the recovery changes: `npm run check`, `npm test` (1,171
+passed, one Windows-only skip), bridge tests (48 passed), and
+`npm run desktop:prepare` with both Electron probes passed. Logs:
+`/tmp/workfold-paired-recovery-check.log`,
+`/tmp/workfold-paired-recovery-complete-tests.log`,
+`/tmp/workfold-paired-recovery-bridge-tests.log`, and
+`/tmp/workfold-paired-recovery-desktop.log`. `npm audit --audit-level=high`
+reported zero vulnerabilities. Shared harness parity remains intact: root
+CLAUDE.md imports AGENTS.md and its release Skill is the tracked symlink.

@@ -66,7 +66,8 @@ The request envelope has exactly those four fields. JSON input is at most
 the same record; changing their input conflicts. The app cannot call review or
 approval, choose another Space, or read arbitrary task/Chat ids. Workers,
 automations, shared viewers and remote app views have no delegation bridge in
-this slice. Approved-browser support is a separate remaining goal slice.
+this slice. Private browser worker actions use their separate reviewed action lane; they
+do not expose this native Assistant-delegation bridge.
 
 Task states are `pending`, `dispatching`, `running`, `succeeded`, `failed`,
 `cancelled`, `interrupted` and `expired`. A requested stop leaves a running task
