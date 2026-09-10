@@ -19,9 +19,8 @@ test("the persistent menu-bar popover reconciles replies whenever it becomes vis
 
 test("the popover keeps the conversation and composer visible without idle chrome", async () => {
   const popover = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
-  // Pending decisions remain conditional, but the transcript is an ordinary
-  // always-visible chat surface instead of a Conversation disclosure.
-  assert.match(popover, /\{decisionCount > 0 \|\| decisionNotice \? \(/);
+  // The transcript is an ordinary always-visible chat surface instead of a
+  // Conversation disclosure.
   assert.match(popover, /<section className="fold-section fold-section-conversation">\s*<section\s*className="popover-transcript"/);
   assert.doesNotMatch(popover, />Conversation<\/span>/);
   assert.doesNotMatch(popover, /conversationExists|aria-controls="popover-conversation"/);
@@ -32,7 +31,6 @@ test("the popover keeps the conversation and composer visible without idle chrom
   // (pinned exactly in work-fold-brand.test.ts), and takes focus first in the
   // quiet state without stealing it from anything the person focused.
   assert.match(popover, /const focusComposerFirst = \(\) => \{/);
-  assert.match(popover, /if \(decisionCount > 0\) return;/);
   assert.match(popover, /if \(current && activePhases\.has\(current\.phase\)\) return;/);
   assert.match(popover, /if \(active && active !== document\.body && active !== document\.documentElement\) return;/);
   assert.match(popover, /composerRef\.current\?\.focus\(\);/);
@@ -40,95 +38,19 @@ test("the popover keeps the conversation and composer visible without idle chrom
   assert.match(popover, /document\.addEventListener\("visibilitychange", focusComposerFirst\)/);
 });
 
-test("pending decisions retain their compact disclosure beside passive Checks", async () => {
+test("the popover has no decision surface", async () => {
+  // Needs you means questions (docs/receipts-not-gates.md, F24): the popover
+  // renders the conversation and the composer, never a decision card, and the
+  // preloads expose no decision helpers.
   const popover = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
-  assert.match(popover, /useState\(false\)/);
-  assert.match(popover, /if \(decisionCount > 0 && previous === 0\) setDecisionsOpen\(true\);/);
-  assert.match(popover, /else if \(decisionCount === 0 && !decisionNotice\) setDecisionsOpen\(false\);/);
-  assert.match(popover, /prevDecisionCountRef/);
-  assert.doesNotMatch(popover, /FoldSection|openSection|prevPhaseRef/);
-});
-
-test("the popover surfaces pending decisions one card at a time behind the warning strip", async () => {
-  const popover = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
-  const component = await readFile(resolve(rootDir, "web-local/src/components/NeedsYouDecisions.tsx"), "utf8");
-  // Durable pending decisions are their own region, distinct from the
-  // conversational needs_you phase, rendered from the shared card component
-  // the main-window flyout also mounts (one card contract). The popover asks
-  // for the single-card presentation; the flyout keeps the full stack.
-  assert.match(popover, /useNeedsYouDecisions\(\{ surface: "popover", enabled: !popoverFixtureRequested \}\)/);
-  const stackIndex = popover.indexOf('<NeedsYouStack state={needsYou} presentation="single" />');
-  assert.ok(stackIndex >= 0, "the popover mounts the shared needs-you machinery in its single-card presentation");
-  assert.ok(stackIndex > popover.indexOf('<header className="popover-header">'), "the decisions section sits below the header");
-  assert.ok(stackIndex < popover.indexOf('className="popover-transcript"'), "the decisions section sits above the conversation");
-  // The strip is a warning-tinted disclosure button naming the count.
-  assert.match(popover, /className="fold-strip fold-strip-decisions"/);
-  assert.match(popover, /aria-controls="popover-decisions"/);
-  assert.match(popover, /"1 decision needs you" : `\$\{decisionCount\} decisions need you`/);
-  // Refresh rides the popover's existing reconcile discipline; no second watcher.
-  assert.match(popover, /void refreshNeedsYou\(\);/);
-  // Single-card presentation: one current card plus an "N more" advance
-  // affordance that cycles; the cursor clamps when deciding shrinks the list.
-  assert.match(component, /presentation = "stack"/);
-  assert.match(component, /state\.cards\.slice\(index, index \+ 1\)/);
-  assert.match(component, /Math\.min\(cardCursor, state\.cards\.length - 1\)/);
-  assert.match(component, /\(index \+ 1\) % state\.cards\.length/);
-  assert.match(component, /className="needs-you-advance"/);
-  assert.match(component, /\{moreCount\} more/);
-  // The card body is host-composed by the decision routes: the component
-  // renders typed fields, decides over the same routes with its surface
-  // recorded, and offers no approve-all anywhere.
-  assert.match(component, /api<\{ decisions: DecisionCardView\[\] \}>\("\/api\/management\/decisions"\)/);
-  assert.match(component, /decisions\/\$\{encodeURIComponent\(card\.id\)\}\/decide/);
-  assert.match(component, /surface,/);
-  assert.match(component, /\{card\.categoryLine\}/);
-  assert.match(component, /\{card\.title\}/);
-  assert.match(component, /\{fact\.label\}/);
-  assert.doesNotMatch(component, /approve all/i);
-  // "Consecration" is a contract term for code comments only; the rendered
-  // component text never says it.
-  const withoutComments = component.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-  assert.doesNotMatch(withoutComments, /consecration/i, "person-facing copy never says consecration");
-  // Destroy cards demand a second explicit confirmation inside the card, and
-  // a denial takes one click with the note offered, never required.
-  assert.match(component, /card\.secondConfirmation && !confirmingDestroy/);
-  assert.match(component, /onDecide\("denied", \{ note \}\)/);
-});
-
-test("an app.grant.files card binds to a person-chosen folder through the main window's picker only", async () => {
-  const component = await readFile(resolve(rootDir, "web-local/src/components/NeedsYouDecisions.tsx"), "utf8");
   const mainPreload = await readFile(resolve(rootDir, "desktop/src/preload.cts"), "utf8");
   const popoverPreload = await readFile(resolve(rootDir, "desktop/src/management-popover-preload.cts"), "utf8");
   const main = await readFile(resolve(rootDir, "desktop/src/main.ts"), "utf8");
-
-  // The card refuses to approve without a chosen root, sends the root only
-  // with an approval, and feature-detects the picker instead of assuming it.
-  // The grant-root need is the host-computed `needsDesktopChosenFolder` flag
-  // from the card projection, never re-inferred from the card's kind — the
-  // projection alone knows when the staging contract carries a root.
-  assert.match(component, /card\.needsDesktopChosenFolder && card\.state === "staged"/);
-  assert.match(component, /needsDesktopChosenFolder: boolean;/);
-  assert.doesNotMatch(component, /card\.kind === "app\.grant\.files"/);
-  assert.match(component, /window\.workFoldDesktop\?\.decisions\?\.chooseFileGrantRoot/);
-  assert.match(component, /if \(needsGrantRoot && grantRoot === null\) return;/);
-  assert.match(component, /disabled=\{busy \|\| !grantRootReady\}/);
-  assert.match(component, /decision === "approved" && options\?\.fileGrantRoot \? \{ fileGrantRoot: options\.fileGrantRoot \}/);
-  assert.match(component, /grantRootMainWindowOnly/);
-
-  // The picker is a main-window capability by construction: the main preload
-  // exposes it, the popover's narrow preload must never grow it.
-  assert.match(mainPreload, /chooseFileGrantRoot: \(spaceId: string\) => ipcRenderer\.invoke\("work-fold:decisions:choose-file-grant-root", spaceId\)/);
-  assert.doesNotMatch(popoverPreload, /choose-file-grant-root|chooseFileGrantRoot/);
-
-  // The desktop handler validates the pick against the Space's folder and
-  // refuses work-fold metadata; the renderer never does path math on
-  // absolute paths.
-  const handlerStart = main.indexOf('ipcMain.handle("work-fold:decisions:choose-file-grant-root"');
-  assert.ok(handlerStart >= 0, "main registers the grant-root picker handler");
-  const handler = main.slice(handlerStart, main.indexOf("ipcMain.handle", handlerStart + 1));
-  assert.match(handler, /relative\(space\.spaceRoot, resolve\(chosen\)\)/);
-  assert.match(handler, /Choose a folder inside this Space's folder\./);
-  assert.match(handler, /containsReservedSpacePathSegment/);
+  assert.doesNotMatch(popover, /NeedsYou|useNeedsYouDecisions|decisionCount|decisionsOpen|fold-strip-decisions|popover-decisions|\/api\/management\/decisions/);
+  assert.doesNotMatch(mainPreload, /decisions|choose-file-grant-root|chooseFileGrantRoot/);
+  assert.doesNotMatch(popoverPreload, /decisions|choose-file-grant-root|chooseFileGrantRoot/);
+  assert.doesNotMatch(main, /work-fold:decisions:|choose-file-grant-root/);
+  assert.match(mainPreload, /enable: \(routingId: string\) => ipcRenderer\.invoke\("work-fold:routings:enable", routingId\)/);
 });
 
 test("the popover accounts for every attachment outcome, including the Space-free Library placement", async () => {
@@ -193,16 +115,9 @@ test("the compact popover leaves the glance to the main window and approved web 
   assert.doesNotMatch(popover, /\/api\/management\/glance/);
 });
 
-test("the decision disclosure is accessible and Escape still hides the popover", async () => {
+test("Escape still hides the popover and the fold region stays live", async () => {
   const popover = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
-  assert.match(popover, /aria-expanded=\{decisionsOpen\}/);
-  assert.match(popover, /aria-controls="popover-decisions"/);
   assert.match(popover, /aria-label="Your fold" aria-live="polite"/);
-  // Expanding moves focus to the first actionable element in the decision
-  // card, falling back to the drawer region itself.
-  assert.match(popover, /const toggleDecisions = useCallback\(\(\) => \{/);
-  assert.match(popover, /drawer\.querySelector<HTMLElement>\("button, \[href\], input, textarea, select, summary"\)/);
-  assert.match(popover, /\(target \?\? drawer\)\.focus\(\);/);
   assert.match(popover, /if \(event\.key === "Escape"\) \{\s*bridge\?\.management\?\.hide\(\);/);
 });
 

@@ -93,12 +93,6 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
       return () => ipcRenderer.removeListener("work-fold:agent:open-settings", listener);
     },
   },
-  // Needs-you decision helpers for the main window only. The popover's
-  // narrow preload deliberately omits this namespace, which is what keeps the
-  // file-grant folder picker a desktop main-window act.
-  decisions: {
-    chooseFileGrantRoot: (spaceId: string) => ipcRenderer.invoke("work-fold:decisions:choose-file-grant-root", spaceId),
-  },
   // Main-window-only Routing management. The popover preload deliberately
   // omits this namespace; the matching main-process handlers also validate
   // the exact main renderer before reaching the in-process Settings facade.
@@ -106,7 +100,7 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
     list: () => ipcRenderer.invoke("work-fold:routings:list"),
     show: (routingId: string) => ipcRenderer.invoke("work-fold:routings:show", routingId),
     history: (routingId: string) => ipcRenderer.invoke("work-fold:routings:history", routingId),
-    stageEnable: (routingId: string) => ipcRenderer.invoke("work-fold:routings:stage-enable", routingId),
+    enable: (routingId: string) => ipcRenderer.invoke("work-fold:routings:enable", routingId),
     run: (routingId: string) => ipcRenderer.invoke("work-fold:routings:run", routingId),
     stop: (routingId: string) => ipcRenderer.invoke("work-fold:routings:stop", routingId),
     disable: (routingId: string) => ipcRenderer.invoke("work-fold:routings:disable", routingId),

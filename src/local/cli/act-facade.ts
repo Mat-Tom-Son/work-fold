@@ -14,15 +14,7 @@ import type {
   WorkFoldCheckFinding,
   WorkFoldCheckRunRecord,
 } from "../checks/check-types.js";
-import type {
-  FoldDecisionSurface,
-  FoldStagedActCategory,
-  FoldStagedActExecutionOutcome,
-  FoldStagedActFields,
-  FoldStagedActKind,
-  FoldStagedActStagedVia,
-  FoldStagedActState,
-} from "../fold-staged-acts.js";
+import type { WorkFoldCliActLegacySurface, WorkFoldCliActSurface } from "./act-receipts.js";
 import type { WorkFoldGlanceSnapshot } from "../glance.js";
 import type { ManagementAttachmentRef } from "../management-attachments.js";
 import type {
@@ -286,12 +278,16 @@ export interface WorkFoldActRoutingTriggerRef {
   };
 }
 
-/** One enablement consecration in a routing's grant history. */
+/**
+ * One enablement grant in a routing's grant history; `decisionId` holds the
+ * enabling act's request id. A legacy surface appears only on grants an
+ * older build recorded.
+ */
 export interface WorkFoldActRoutingGrantRef {
   digest: string;
   decisionId: string;
   approvedAt: string;
-  surface: FoldDecisionSurface;
+  surface: WorkFoldCliActSurface | WorkFoldCliActLegacySurface;
   browserId?: string;
 }
 
@@ -400,7 +396,7 @@ export interface WorkFoldActPublicationRef {
   spaceName?: string;
   /** Page slots only: the one designated Space-relative file. */
   relativePath?: string;
-  /** Hosted-app slots only (docs/fold-publishing.md, rung 3): the consecrated exposure pins. */
+  /** Hosted-app slots only (docs/fold-publishing.md, rung 3): the exposure's pinned identities. */
   appInstanceId?: string;
   releaseDigest?: string;
   viewerEntry?: string;
@@ -420,98 +416,14 @@ export interface WorkFoldActPublicationRef {
   viewerPath: string;
 }
 
-/**
- * The ledger's staged result shape (docs/fold-act-ledger.md,
- * docs/fold-consecrations.md): a consecrated verb always stages a fully
- * prepared, pinned act and returns the decision's identity. The
- * `decisionId` is the staged-act id; the staged act and its decision share one
- * identity by construction, and the staging receipt stamps the same id.
- *
- * `state` is `"staged"` except when an enabled standing policy matches or
- * the machine is in Unrestricted mode. Host-side evaluation then
- * short-circuits into the same decision path, no card appears, and the result
- * reports the basis in `autoApproval` with `state: "approved"`. The act lane
- * still never selects authority; local Settings owns both mechanisms.
- */
-export interface WorkFoldActStagedDecision {
-  decisionId: string;
-  kind: FoldStagedActKind;
-  category: FoldStagedActCategory;
-  state: "staged" | "approved";
-  createdAt: string;
-  expiresAt: string;
-  /** True when an identical pending act (same kind, same pins) already existed. */
-  deduplicated: boolean;
-  /** Denial memory: quiet nagging is visible for what it is. */
-  priorDenialAt?: string;
-  /** Present exactly when a standing policy satisfied the consecration at staging. */
-  autoApproval?: WorkFoldActStagedAutoApproval;
-}
-
-/**
- * The after-the-fact visibility an exercised standing policy gets
- * (docs/fold-consecrations.md): no card appeared, so the staging verb's
- * response says the act was auto-approved and by which policy, and the
- * decision receipts carry `surface: "policy"`, the policy id, and the label
- * snapshot at exercise time.
- */
-export interface WorkFoldActStagedAutoApproval {
-  basis: "policy" | "unrestricted";
-  policyId?: string;
-  /** The policy's person-authored label at exercise time, as on the receipt. */
-  policyLabel?: string;
-  executionOutcome: FoldStagedActExecutionOutcome;
-  /** Host-observed error text when the approved execution failed. */
-  detail?: string;
-  /** False when the terminal decision receipt could not be appended. */
-  receipted: boolean;
-}
-
-/** Bounded one-line projection of a staged act for `staged list`. */
-export interface WorkFoldActStagedActSummary {
-  id: string;
-  kind: FoldStagedActKind;
-  category: FoldStagedActCategory;
-  state: FoldStagedActState;
-  createdAt: string;
-  expiresAt: string;
-  spaceId?: string;
-  decidedAt?: string;
-  decisionSurface?: FoldDecisionSurface;
-  executionOutcome?: FoldStagedActExecutionOutcome;
-  priorDenialAt?: string;
-}
-
-/**
- * The complete host-composed card facts for `staged show`: exactly the typed
- * record the decision surfaces render — parameters, pins, provenance, the two
- * surface rules, and any settled decision or execution outcome. Model prose
- * never appears here; every line is composed from typed fields.
- */
-export interface WorkFoldActStagedActDetail extends WorkFoldActStagedActSummary {
-  parameters: FoldStagedActFields;
-  pins: FoldStagedActFields;
-  provenance: {
-    stagedVia: FoldStagedActStagedVia;
-    conversationId?: string;
-    parentTaskId?: string;
-    requestId: string;
-    browserId?: string;
-    grantId?: string;
-  };
-  /** The surface rules, stated on the card instead of discovered at refusal time. */
-  restrictions: { desktopOnly: boolean; stagedByGrantId?: string };
-  decision?: {
-    decision: "approved" | "denied";
-    surface: FoldDecisionSurface;
-    browserId?: string;
-    grantId?: string;
-    policyId?: string;
-    note?: string;
-  };
-  execution?: { outcome: FoldStagedActExecutionOutcome; at: string; errorDetail?: string };
-  invalidationReason?: string;
-  cancellationReason?: string;
+/** The exact installation an install verb produced. Never resolved by display name. */
+export interface WorkFoldActInstalledAppRef {
+  spaceId: string;
+  appId: string;
+  featureInstallationId: string;
+  digest: string;
+  title: string;
+  version: string;
 }
 
 export interface WorkFoldActFacade {
@@ -664,8 +576,9 @@ export interface WorkFoldActFacade {
    * points — plus one deliberate strengthening: `filesDelete` refuses
    * whenever its safety restore point skipped a matched file (oversized,
    * unreadable, a symbolic link, or History-excluded), because a delete the
-   * restore point cannot cover is a destroy and only the staged
-   * `files destroy` consecration may perform it. Creation verbs record the
+   * restore point cannot cover would make the Undo promise false; the trash
+   * lane (docs/receipts-not-gates.md, F20) is where such paths go once it
+   * lands. Creation verbs record the
    * same pre-create restore point as the desktop routes, but their receipts
    * carry the created path as the undo reference — the canonical inverse of
    * creating is `files delete`, and creation destroys nothing.
@@ -775,9 +688,9 @@ export interface WorkFoldActFacade {
    * portable `.work-fold/` identity remain — for both storage kinds: a
    * managed Space's registration removal records a preserve-disposition
    * intent that provably holds no deletion authority. It runs the same App
-   * Studio impact checks, publication blocks, and routing/staged-act
-   * revocation cascades as the desktop removal path. Deleting a managed
-   * folder is consecration 3 (`spaces delete`) and never reaches this facade.
+   * Studio impact checks, publication blocks, and routing revocation
+   * cascades as the desktop removal path. Deleting a managed folder is
+   * `spacesDelete`, a direct receipted verb on the prepared-act path.
    */
   spacesRename(input: { space: string; name: string; parentTaskId?: string }): Promise<{
     space: WorkFoldActSpaceRef;
@@ -822,9 +735,9 @@ export interface WorkFoldActFacade {
   }>;
 
   /**
-   * Assistant-tools removal — the ledger's one direct tools verb; installs,
-   * updates, and skill imports make bytes runnable and stage upstream as
-   * consecration 1. Personal scope mutates the same personal Pi settings
+   * Assistant-tools removal. Installs, updates, and skill imports make bytes
+   * runnable and run through the prepared-act path (`toolsInstall`,
+   * `toolsUpdate`, `toolsImportSkill`). Personal scope mutates the same personal Pi settings
    * every Space runtime loads (resolved through the app-owned management
    * root, exactly like the management conversation's own runtime) and is
    * fenced against all running work; Space scope requires the explicit Space
@@ -843,8 +756,8 @@ export interface WorkFoldActFacade {
    * Space-app authority direct verbs (docs/fold-act-ledger.md): the
    * narrowing and neutral side of restricted-app authority, reusing the
    * exact desktop route internals with their capability fencing. Widening —
-   * installs, grants, connections, automation enablement — stages upstream
-   * as consecrations and never reaches these methods. Verbs that name an app
+   * installs, grants, connections, automation enablement — runs through the
+   * prepared-act methods below. Verbs that name an app
    * without a digest resolve the installed revision host-side and pin it for
    * the mutation, so a revision change between lookup and act fails instead
    * of acting on different bytes.
@@ -860,7 +773,7 @@ export interface WorkFoldActFacade {
     proposalId: string;
     dismissed: boolean;
   }>;
-  /** Removes a reviewed development app; release-backed Instances take `appsUninstall`. Reinstalling is a fresh consecration. */
+  /** Removes a reviewed development app; release-backed Instances take `appsUninstall`. Reinstalling is a fresh receipted act. */
   appsRemove(input: { space: string; app: string; parentTaskId?: string }): Promise<{
     space: WorkFoldActSpaceRef;
     appId: string;
@@ -871,7 +784,7 @@ export interface WorkFoldActFacade {
    * Revokes one granted declaration on the exact reviewed digest. Revocation
    * stops stale launches before the authority change reads as complete
    * (service-side), and `revoked: false` honestly reports a declaration that
-   * was not granted. Re-granting is a fresh consecration.
+   * was not granted. Re-granting is a fresh receipted act.
    */
   appsRevoke(input: {
     space: string;
@@ -920,7 +833,7 @@ export interface WorkFoldActFacade {
   /**
    * App Studio's authority-neutral spine (docs/fold-act-ledger.md): these
    * verbs change which local records exist, never what may run with which
-   * powers — powers arrive only through staged consecrations. Every method
+   * powers — powers arrive through the receipted grant verbs. Every method
    * reuses the exact desktop route internals, including the App Studio
    * guards: referenced Releases cannot be deleted, prepared operations
    * recheck at activation, digest identity beats display versions, and
@@ -968,10 +881,10 @@ export interface WorkFoldActFacade {
     cancelled: boolean;
   }>;
   /**
-   * Uninstall with the retain-data disposition only. Purging is destroying
-   * irreversibly (consecration 3), so the executor stages `--purge-data`
-   * upstream and it never reaches this method. Retained namespaces do not
-   * remain runnable, and reinstalling creates a new Instance.
+   * Uninstall with the retain-data disposition only; `--purge-data` is
+   * `appsUninstallPurge`, which runs through the prepared-act path. Retained
+   * namespaces do not remain runnable, and reinstalling creates a new
+   * Instance.
    */
   appsUninstall(input: { space: string; instance: string; parentTaskId?: string }): Promise<{
     space: WorkFoldActSpaceRef;
@@ -982,28 +895,23 @@ export interface WorkFoldActFacade {
   }>;
 
   /**
-   * The consecrated ledger rows (docs/fold-act-ledger.md; machinery in
-   * docs/fold-consecrations.md). Each method composes the act's typed
-   * parameters and pins from live state — never from model prose — stages a
-   * fully prepared, inert act through the staged-act store, and returns the
-   * pending decision's identity. Nothing executes here: the person decides on
-   * a needs-you card, and deciding has no facade shape anywhere, permanently.
-   * `requestId` is the staging act's journal id, recorded as provenance so
-   * the card, the receipt, and the ledger name one request.
+   * The verbs that install code, widen a power, or destroy data
+   * (docs/fold-act-ledger.md; docs/receipts-not-gates.md, F19). Each method
+   * composes the act's typed parameters and pins from live state — never
+   * from model prose — and runs it at once through the prepared-act path:
+   * pin recheck inside the capability fence, one internal kernel task, the
+   * same domain internals the desktop uses. The result is the effect the
+   * verb produced; the receipt is in the act journal under `requestId`, the
+   * act request's journal id. Nothing waits on a person.
    */
-  /** Consecration 3: stages managed deletion of one Space's folder, after the same impact checks as unregister. */
+  /** Deletes a managed Space's folder and unregisters it, after the same impact checks as unregister. */
   spacesDelete(input: { space: string; parentTaskId?: string; requestId?: string }): Promise<{
     space: WorkFoldActSpaceRef;
-    staged: WorkFoldActStagedDecision;
+    storage: "managed";
+    removed: true;
+    cleanupPending: boolean;
   }>;
-  /** Consecration 3: stages a deletion the restore-point machinery cannot cover, pinning observed content identities. */
-  filesDestroy(input: { space: string; paths: string[]; parentTaskId?: string; requestId?: string }): Promise<{
-    space: WorkFoldActSpaceRef;
-    staged: WorkFoldActStagedDecision;
-    paths: string[];
-    contentIdentities: string[];
-  }>;
-  /** Consecration 1: stages one executable skill-bundle import, pinning the exact reviewed bytes. */
+  /** Imports one skill bundle, pinning the exact inspected bytes. */
   toolsImportSkill(input: {
     scope: "personal" | "space";
     space?: string;
@@ -1014,17 +922,16 @@ export interface WorkFoldActFacade {
   }): Promise<{
     scope: "personal" | "space";
     space?: WorkFoldActSpaceRef;
-    staged: WorkFoldActStagedDecision;
     source: string;
     contentDigest: string;
     skillNames: string[];
+    bundlePath: string;
   }>;
   /**
-   * Consecration 1: stages one Pi package or Extension install (or an
-   * official catalog skill bundle, which stages as a skills import). Pins the
-   * package id, the exact inspected version, and the inspected resource
-   * summary the needs-you card shows; a source whose exact version cannot be
-   * pinned is refused honestly rather than staged vaguely.
+   * Installs one Pi package or Extension (or an official catalog skill
+   * bundle, which runs as a skills import). Pins the package id, the exact
+   * inspected version, and the inspected resource summary; a source whose
+   * exact version cannot be pinned is refused honestly.
    */
   toolsInstall(input: {
     scope: "personal" | "space";
@@ -1036,15 +943,16 @@ export interface WorkFoldActFacade {
   }): Promise<{
     scope: "personal" | "space";
     space?: WorkFoldActSpaceRef;
-    staged: WorkFoldActStagedDecision;
     source: string;
     packageId?: string;
     version?: string;
     resourceSummary?: string;
+    installed?: true;
     contentDigest?: string;
     skillNames?: string[];
+    bundlePath?: string;
   }>;
-  /** Consecration 1: stages a Pi package update to the exact inspected next version. */
+  /** Updates a Pi package to the exact inspected next version. */
   toolsUpdate(input: {
     scope: "personal" | "space";
     space?: string;
@@ -1054,13 +962,13 @@ export interface WorkFoldActFacade {
   }): Promise<{
     scope: "personal" | "space";
     space?: WorkFoldActSpaceRef;
-    staged: WorkFoldActStagedDecision;
     source: string;
     packageId: string;
     version: string;
     resourceSummary: string;
+    updated: true;
   }>;
-  /** Consecration 1: stages approval of one pending Chat app review, pinned to its reviewed digest. */
+  /** Installs one pending Chat app review at its reviewed digest. */
   appsInstallProposal(input: {
     space: string;
     conversationId: string;
@@ -1069,18 +977,15 @@ export interface WorkFoldActFacade {
     requestId?: string;
   }): Promise<{
     space: WorkFoldActSpaceRef;
-    staged: WorkFoldActStagedDecision;
     proposalId: string;
     digest: string;
+    app: WorkFoldActInstalledAppRef;
   }>;
   /**
-   * Consecration 1 (the ledger's "Add / update local preview" row): the host
-   * inspects the named Space-relative package folder and records a pending
-   * review record — the same host-owned review the Chat proposal path
-   * produces, with work-fold owning every review field and the digest — then
-   * stages the existing `app.review.approve` kind pinned to that review. The
-   * closed staged-act vocabulary gains nothing; approval rides the same
-   * digest-checked install path as an approved Chat proposal.
+   * The ledger's "Add / update local preview" row: the host inspects the
+   * named Space-relative package folder, records the same host-owned review
+   * the Chat proposal path produces — work-fold owning every review field
+   * and the digest — and installs it through the same digest-checked path.
    */
   appsInstallPreview(input: {
     space: string;
@@ -1089,16 +994,16 @@ export interface WorkFoldActFacade {
     requestId?: string;
   }): Promise<{
     space: WorkFoldActSpaceRef;
-    staged: WorkFoldActStagedDecision;
     proposalId: string;
     digest: string;
     title: string;
     packageName: string;
     version: string;
-    /** True when an app with the same manifest id is already installed: approval replaces it and resets every grant, connection, and automation. */
+    /** True when an app with the same manifest id was already installed: the install replaced it and reset every grant, connection, and automation. */
     replacesInstalled: boolean;
+    app: WorkFoldActInstalledAppRef;
   }>;
-  /** Consecration 2: stages one grant of one exact reviewed declaration on the exact installed digest. */
+  /** Grants one exact reviewed declaration on the exact installed digest; a files grant covers the whole Space. */
   appsGrant(input: {
     space: string;
     app: string;
@@ -1109,69 +1014,70 @@ export interface WorkFoldActFacade {
     requestId?: string;
   }): Promise<{
     space: WorkFoldActSpaceRef;
-    staged: WorkFoldActStagedDecision;
     appId: string;
     grantKind: "network" | "files" | "notifications";
     declaration: string;
+    granted: true;
+    root?: string;
   }>;
-  /** Consecration 2: stages the connection's shape only — never a secret; the credential is entered in the trusted surface. */
+  /** Connects through the browser sign-in flow; a destination that takes a typed secret is refused and connected from the Apps tab. */
   appsConnect(input: { space: string; app: string; destination: string; parentTaskId?: string; requestId?: string }): Promise<{
     space: WorkFoldActSpaceRef;
-    staged: WorkFoldActStagedDecision;
     appId: string;
     destination: string;
     target: string;
     adapterKind: string;
+    connection: { destinationId: string; kind: string | null; configured: boolean };
   }>;
-  /** Consecration 2: stages enabling one reviewed named job, pinning its digest and schedule summary. */
+  /** Enables one reviewed named job, pinning its digest and schedule summary. */
   appsAutomationEnable(input: { space: string; app: string; automation: string; parentTaskId?: string; requestId?: string }): Promise<{
     space: WorkFoldActSpaceRef;
-    staged: WorkFoldActStagedDecision;
     appId: string;
     automationId: string;
     scheduleSummary: string;
+    enabled: true;
   }>;
-  /** Consecration 3: stages clearing one installed app's live storage, stating the byte count being destroyed. */
+  /** Clears one installed app's live storage; the observed byte count is pinned and a change before the effect is a conflict. */
   appsStorageClear(input: { space: string; app: string; parentTaskId?: string; requestId?: string }): Promise<{
     space: WorkFoldActSpaceRef;
-    staged: WorkFoldActStagedDecision;
     appId: string;
-    observedBytes: number;
+    clearedBytes: number;
+    remainingBytes: number;
   }>;
-  /** Consecration 3: stages purging one retained App data record. */
+  /** Purges one retained App data record. */
   appsRetainedPurge(input: { space: string; retained: string; parentTaskId?: string; requestId?: string }): Promise<{
     space: WorkFoldActSpaceRef;
-    staged: WorkFoldActStagedDecision;
     retainedDataId: string;
     dataNamespaceIds: string[];
+    purged: true;
+    cleanupPending: boolean;
   }>;
-  /** Consecration 3: stages the purge disposition of `apps uninstall --purge-data`. */
+  /** The purge disposition of `apps uninstall --purge-data`. */
   appsUninstallPurge(input: { space: string; instance: string; parentTaskId?: string; requestId?: string }): Promise<{
     space: WorkFoldActSpaceRef;
-    staged: WorkFoldActStagedDecision;
     runtimeInstanceId: string;
-    dataNamespaceIds: string[];
+    purgedNamespaceIds: string[];
+    removed: true;
+    cleanupPending: boolean;
   }>;
   /**
-   * Consecration 2 (docs/fold-routings.md): stages enablement of one declared
-   * routing from its inert typed proposal file. The declaration is normalized
-   * and digest-pinned at staging; approval executes the routing service's
-   * enablement with `decisionId` equal to the staged-act id, so the grant, the
-   * receipts, and the card all name one identity. Routings are above Spaces:
-   * no `--space` exists on this verb.
+   * Enables one declared routing from its inert typed proposal file
+   * (docs/fold-routings.md). The declaration is normalized and digest-pinned,
+   * and the routing service's enablement records the grant with the act's
+   * request id as its identity. Routings are above Spaces: no `--space`
+   * exists on this verb.
    */
-  routingsStage(input: { proposalPath: string; cwd: string; parentTaskId?: string; requestId?: string }): Promise<{
-    staged: WorkFoldActStagedDecision;
+  routingsEnable(input: { proposalPath: string; cwd: string; parentTaskId?: string; requestId?: string }): Promise<{
     routingId: string;
     declarationDigest: string;
     title: string;
     referencedSpaceIds: string[];
+    health: "enabled";
   }>;
   /**
-   * Consecration 2 (docs/fold-publishing.md): stages one outward page
-   * exposure, pinning the Space id, exact relative path, title, budgets, and
-   * snapshot flag per the publishing mutation ledger. Approval activates the
-   * publication; nothing is exposed while the card pends.
+   * Shares one Space file as a page (docs/fold-publishing.md), pinning the
+   * Space id, exact relative path, title, budgets, and snapshot flag per the
+   * publishing mutation ledger, and activating the publication at once.
    */
   pagesStage(input: {
     space: string;
@@ -1182,21 +1088,14 @@ export interface WorkFoldActFacade {
     requestId?: string;
   }): Promise<{
     space: WorkFoldActSpaceRef;
-    staged: WorkFoldActStagedDecision;
-    relativePath: string;
-    title: string;
-    snapshotEnabled: boolean;
-    serveRatePerMinute: number;
-    byteBudgetPerDay: number;
+    publication: WorkFoldActPublicationRef;
   }>;
   /**
-   * Consecration 2, hosted-app shape (docs/fold-publishing.md, rung 3):
-   * stages putting one installed App Instance at the person's address,
-   * pinning the App Instance id, exact Release digest, viewer entry, and the
-   * complete viewer-readable surface. Eligibility requires an installed
-   * Release-backed Instance whose reviewed manifest declares a viewer
-   * surface; approval activates the hosted exposure with kind `app`.
-   * Nothing is exposed while the card pends.
+   * Hosted-app shape (docs/fold-publishing.md, rung 3): puts one installed
+   * App Instance at the person's address, pinning the App Instance id, exact
+   * Release digest, viewer entry, and the complete viewer-readable surface.
+   * Eligibility requires an installed Release-backed Instance whose reviewed
+   * manifest declares a viewer surface.
    */
   pagesStageApp(input: {
     space: string;
@@ -1205,15 +1104,7 @@ export interface WorkFoldActFacade {
     requestId?: string;
   }): Promise<{
     space: WorkFoldActSpaceRef;
-    staged: WorkFoldActStagedDecision;
-    appId: string;
-    title: string;
-    appInstanceId: string;
-    releaseDigest: string;
-    viewerEntry: string;
-    viewerSurface: string[];
-    serveRatePerMinute: number;
-    byteBudgetPerDay: number;
+    publication: WorkFoldActPublicationRef;
   }>;
 
   /**
@@ -1224,8 +1115,7 @@ export interface WorkFoldActFacade {
    * enabled routing only; stop and disable are narrowing and never need a
    * click; delete removes a disabled, suspended, or completed declaration while the
    * receipts journal is retained — audit records survive the object.
-   * Enabling has no method here: it is consecration 2, staged by
-   * `routingsStage` and decided on a needs-you card.
+   * Enabling is `routingsEnable`, a direct receipted verb.
    */
   routingsList(): Promise<{ routings: WorkFoldActRoutingSummary[] }>;
   routingsShow(input: { routing: string }): Promise<{ routing: WorkFoldActRoutingDetail }>;
@@ -1250,7 +1140,7 @@ export interface WorkFoldActFacade {
    * Disable narrows standing behavior on the layered-authority order: the
    * disabled intent persists first, pending admissions are cancelled, and the
    * active run (if any) is stopped — the result names what it stopped.
-   * Re-enabling is a fresh consecration.
+   * Re-enabling is a fresh receipted act.
    */
   routingsDisable(input: { routing: string; parentTaskId?: string }): Promise<{
     routingId: string;
@@ -1278,7 +1168,7 @@ export interface WorkFoldActFacade {
    * grant records; revoke, budget narrowing, and snapshot-off are direct
    * verbs — narrowing never needs a click, and raising a budget or turning
    * snapshot caching on is refused here because widening is a fresh
-   * consecration. Revocation is desktop-first: the grant dies before bridge
+   * `pagesStage`. Revocation is desktop-first: the grant dies before bridge
    * cleanup is attempted, and unconfirmed cleanup is reported honestly.
    */
   pagesList(): Promise<{ publications: WorkFoldActPublicationRef[] }>;
@@ -1303,19 +1193,6 @@ export interface WorkFoldActFacade {
     publication: WorkFoldActPublicationRef;
     /** False when snapshot caching was already off; the narrowing is still receipted. */
     wasEnabled: boolean;
-  }>;
-
-  /**
-   * Staged-act inspection and cancellation (docs/fold-consecrations.md).
-   * Listing and showing are content-bearing act reads over the machine-local
-   * store; cancel is the stager withdrawing a pending card — a terminal
-   * transition, refused with the settled state when the act is not pending.
-   * Deciding a staged act deliberately has no facade shape, permanently.
-   */
-  stagedList(): Promise<{ acts: WorkFoldActStagedActSummary[] }>;
-  stagedShow(input: { id: string }): Promise<{ act: WorkFoldActStagedActDetail }>;
-  stagedCancel(input: { id: string; parentTaskId?: string; requestId?: string }): Promise<{
-    act: WorkFoldActStagedActSummary;
   }>;
 
   /**

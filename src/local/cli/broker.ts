@@ -29,7 +29,7 @@ import {
   isWorkFoldCliActRequest,
   parseWorkFoldCliActRequest,
   parseWorkFoldCliRequestEnvelope,
-  type WorkFoldCliActRequestV2,
+  type WorkFoldCliActRequest,
   type WorkFoldCliBrokeredRequest,
 } from "./act-protocol.js";
 
@@ -137,7 +137,7 @@ export class WorkFoldCliFileBroker {
     return paths.request;
   }
 
-  async writeActRequest(request: WorkFoldCliActRequestV2): Promise<string> {
+  async writeActRequest(request: WorkFoldCliActRequest): Promise<string> {
     await this.initialize();
     const validated = parseWorkFoldCliActRequest(request);
     this.assertFresh(validated);

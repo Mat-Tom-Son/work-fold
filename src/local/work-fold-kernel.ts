@@ -101,27 +101,31 @@ export interface WorkFoldExperimentalCheckRunTask {
 }
 
 /**
- * Experimental internal task shape for a consecrated execution: the mutation
- * that runs after a person (or an exercised standing policy) approves a staged
- * act (docs/fold-consecrations.md). Following the `check_run` precedent it is
+ * Experimental internal task shape for one prepared-act execution: the
+ * mutation a receipted verb that installs code, widens a power, or destroys
+ * data performs through the prepared-act path (src/local/fold-prepared-acts.ts,
+ * docs/receipts-not-gates.md). Following the `check_run` precedent it is
  * deliberately separate from WorkFoldTaskKind and must not enter the stable
  * space.tasks v1 projection. A Space id is present only when the execution
  * mutates one Space; Personal-scope and machine-scope executions carry none.
  */
-export interface WorkFoldExperimentalFoldDecisionTaskInput {
+export interface WorkFoldExperimentalFoldActTaskInput {
   id?: string;
   spaceId?: string;
-  /** The staged act whose approved execution this task tracks. */
-  stagedActId: string;
+  /** The journaled act request whose execution this task tracks. */
+  requestId: string;
+  /** The prepared-act kind being performed. */
+  kind: string;
   actor: WorkFoldActor;
 }
 
-export interface WorkFoldExperimentalFoldDecisionTask {
+export interface WorkFoldExperimentalFoldActTask {
   id: string;
-  kind: "fold_decision";
+  kind: "fold_act";
   status: "running";
   spaceId: string | null;
-  stagedActId: string;
+  requestId: string;
+  actKind: string;
   actor: WorkFoldActor;
   startedAt: string;
 }
@@ -389,7 +393,7 @@ export class WorkFoldKernel {
     string,
     | WorkFoldTaskSnapshot
     | WorkFoldExperimentalCheckRunTask
-    | WorkFoldExperimentalFoldDecisionTask
+    | WorkFoldExperimentalFoldActTask
     | WorkFoldExperimentalRoutingRunTask
   >();
 
@@ -460,7 +464,7 @@ export class WorkFoldKernel {
     const spaceId = context?.space?.id ?? null;
     const tasks = [...this.#tasks.values()]
       // Only the stable kinds enter the space.tasks v1 projection; the
-      // experimental check_run and fold_decision lifecycles stay internal.
+      // experimental check_run and fold_act lifecycles stay internal.
       .filter((task): task is WorkFoldTaskSnapshot => task.kind === "assistant_turn" || task.kind === "compaction")
       .filter((task) => !scoped || task.spaceId === spaceId)
       .sort((left, right) => left.startedAt.localeCompare(right.startedAt) || left.id.localeCompare(right.id))
@@ -617,10 +621,10 @@ export class WorkFoldKernel {
 
   #glanceTaskRecords(): WorkFoldGlanceTaskRecord[] {
     // The glance's running-task vocabulary is closed (assistant_turn,
-    // compaction, check_run). A running fold_decision execution is deliberately
-    // not projected: pending cards and settled decisions already reach the
-    // glance through its own staged-act readers, and the execution itself is a
-    // short internal step between them. A routing_run task is likewise
+    // compaction, check_run). A running fold_act execution is deliberately
+    // not projected: the act's receipt reaches the glance through the
+    // act-receipts source, and the execution itself is a short internal step
+    // between the accepted and terminal lines. A routing_run task is likewise
     // excluded: routing runs reach the glance through their own receipts
     // source, and this internal task carries no Space id to render.
     return [...this.#tasks.values()]
@@ -677,31 +681,34 @@ export class WorkFoldKernel {
   }
 
   /**
-   * Starts a consecrated execution in the shared internal lifecycle without
-   * promoting the experimental kind into the stable space.tasks v1 projection.
-   * The decision path (src/local/fold-decisions.ts) starts one task per
-   * approved execution and finishes it on every outcome — success, failure,
-   * and abort cleanup — so a capability mutation can be fenced against it and
-   * no ghost task survives the execution.
+   * Starts one prepared-act execution in the shared internal lifecycle
+   * without promoting the experimental kind into the stable space.tasks v1
+   * projection. The prepared-act executor (src/local/fold-prepared-acts.ts)
+   * starts one task per execution and finishes it on every outcome —
+   * success, failure, and abort cleanup — so a capability mutation can be
+   * fenced against it and no ghost task survives the execution.
    */
-  startExperimentalFoldDecisionTask(input: WorkFoldExperimentalFoldDecisionTaskInput): WorkFoldExperimentalFoldDecisionTask {
+  startExperimentalFoldActTask(input: WorkFoldExperimentalFoldActTaskInput): WorkFoldExperimentalFoldActTask {
     const id = input.id?.trim() || this.#createTaskId();
     if (this.#tasks.has(id)) throw new Error(`Space task is already running: ${id}`);
-    const stagedActId = input.stagedActId.trim();
-    if (!stagedActId) throw new Error("Fold decision task staged-act id is required.");
+    const requestId = input.requestId.trim();
+    if (!requestId) throw new Error("Fold act task request id is required.");
+    const actKind = input.kind.trim();
+    if (!actKind) throw new Error("Fold act task kind is required.");
     const spaceId = input.spaceId?.trim() || null;
     if (input.spaceId !== undefined && !spaceId) throw new Error("Space task Space id is required.");
-    const task: WorkFoldExperimentalFoldDecisionTask = {
+    const task: WorkFoldExperimentalFoldActTask = {
       id,
-      kind: "fold_decision",
+      kind: "fold_act",
       status: "running",
       spaceId,
-      stagedActId,
+      requestId,
+      actKind,
       actor: normalizeActor(input.actor),
       startedAt: this.#now().toISOString(),
     };
     this.#tasks.set(task.id, task);
-    return copyExperimentalFoldDecisionTask(task);
+    return copyExperimentalFoldActTask(task);
   }
 
   /**
@@ -936,7 +943,7 @@ function copyExperimentalCheckRunTask(task: WorkFoldExperimentalCheckRunTask): W
   return { ...task, actor: { ...task.actor } };
 }
 
-function copyExperimentalFoldDecisionTask(task: WorkFoldExperimentalFoldDecisionTask): WorkFoldExperimentalFoldDecisionTask {
+function copyExperimentalFoldActTask(task: WorkFoldExperimentalFoldActTask): WorkFoldExperimentalFoldActTask {
   return { ...task, actor: { ...task.actor } };
 }
 

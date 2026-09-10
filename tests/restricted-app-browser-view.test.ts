@@ -91,8 +91,7 @@ test("approved-browser app operations project exact identities and refuse foreig
     await writeFile(join(source, "package.json"), JSON.stringify({ name: "browser-api-qa", version: "1.0.0", type: "module", agentApp: "agent-app.json" }));
     await writeFile(join(source, "agent-app.json"), JSON.stringify({ version: 2, id: "browser-api-qa", title: "Browser API QA", runtime: { kind: "sandboxed-web", entry: "index.html" }, ui: {}, tools: [], permissions: { network: [], files: [], notifications: [] }, automations: [], viewer: { entry: "index.html", readable: ["public/"] } }));
     await writeFile(join(source, "index.html"), "<!doctype html><h1>Installed app</h1>");
-    const proposal = await api.actFacade.appsInstallPreview({ space: space.id, packagePath: "app" });
-    await api.foldDecisions.decide(proposal.staged.decisionId, { decision: "approved", surface: "main-window" });
+    const installedPreview = await api.actFacade.appsInstallPreview({ space: space.id, packagePath: "app" });
     const catalog = await api.remoteFacade.execute("apps.list", { spaceId: space.id }, principal) as { apps: Array<Record<string, any>> };
     assert.equal(catalog.apps.length, 1);
     assert.ok(!JSON.stringify(catalog).includes(root));
@@ -132,8 +131,7 @@ test("approved-browser actions use the installed worker service, live grant auth
       permissions: { network: [], files: [], notifications: [] }, automations: [], viewer: { entry: "index.html", readable: ["public/"] } }));
     await writeFile(join(source, "index.html"), "<!doctype html><h1>Installed app</h1>");
     await writeFile(join(source, "worker.js"), "export async function handleAction() { return { saved: true }; }");
-    const proposal = await api.actFacade.appsInstallPreview({ space: space.id, packagePath: "app" });
-    await api.foldDecisions.decide(proposal.staged.decisionId, { decision: "approved", surface: "main-window" });
+    const installedPreview = await api.actFacade.appsInstallPreview({ space: space.id, packagePath: "app" });
     const app = (await service.list(space.id))[0]!; const scope = scopeFor(app);
     const request = { requestId: randomUUID(), requestedAt: new Date().toISOString(), action: "save", input: { quote: "North: $42" } };
     await assert.rejects(api.remoteFacade.execute("apps.actions.request", { ...scope, request }, principal), /live approved browser/);
@@ -179,11 +177,10 @@ test("a fold app-install result follows the executed review's exact installation
       ui: {}, tools: [], permissions: { network: [], files: [], notifications: [] }, automations: [], viewer: { entry: "index.html", readable: ["quotes/"] } }));
     await writeFile(join(source, "index.html"), "<!doctype html><h1>Quote board</h1>");
     const parent = await api.remoteFacade.execute("management.send", { content: "/done", newConversation: true }, principal) as { taskId: string; conversationId: string };
-    const proposal = await api.actFacade.appsInstallPreview({ space: space.id, packagePath: "app", parentTaskId: parent.taskId });
+    const installedPreview = await api.actFacade.appsInstallPreview({ space: space.id, packagePath: "app", parentTaskId: parent.taskId });
     const view = async (who = principal) => await api.remoteFacade.execute("management.summary", { conversationId: parent.conversationId }, who) as { latestRequest: { actions?: Array<{ apps?: unknown[] }> } };
-    assert.equal((await view()).latestRequest.actions![0]!.apps, undefined, "a pending review is not an installed app result");
-    await api.foldDecisions.decide(proposal.staged.decisionId, { decision: "approved", surface: "main-window" });
     const apps = (await api.remoteFacade.execute("apps.list", { spaceId: space.id }, principal) as { apps: Array<Record<string, any>> }).apps;
+    assert.equal(installedPreview.app.featureInstallationId, apps[0]!.featureInstallationId, "the install result names the exact installation");
     const result = (await view()).latestRequest.actions![0]!.apps;
     assert.deepEqual(result, [{ spaceId: space.id, appId: apps[0]!.appId, featureInstallationId: apps[0]!.featureInstallationId,
       digest: apps[0]!.digest, title: "Quote board", version: "1.0.0" }]);

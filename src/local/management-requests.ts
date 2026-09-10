@@ -36,7 +36,6 @@ export type ManagementRequestActionCommand =
   | "files.move"
   | "files.rename"
   | "files.delete"
-  | "files.destroy"
   | "files.mkdir"
   | "files.create"
   | "library.add"
@@ -76,7 +75,7 @@ export type ManagementRequestActionCommand =
   | "apps.operation.activate"
   | "apps.operation.cancel"
   | "apps.uninstall"
-  | "routings.stage"
+  | "routings.enable"
   | "pages.stage"
   | "pages.stage-app"
   | "staged.cancel";
@@ -99,12 +98,6 @@ export interface ManagementRequestAction {
   spaceRoot?: string;
   conversationId?: string;
   taskId?: string;
-  /**
-   * Staged-act id for consecration staging verbs and `staged cancel`
-   * (docs/fold-consecrations.md): the staged act and its pending decision
-   * share one identity, so the request's action trail can point at the card.
-   */
-  decisionId?: string;
   /** Exact installation produced by a completed app operation. Never resolved by display name. */
   apps?: Array<{ spaceId: string; appId: string; featureInstallationId: string; digest: string; title: string; version: string }>;
 }

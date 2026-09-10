@@ -2,8 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { appendFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
-import { WORKFOLD_CLI_ACT_SURFACES, type WorkFoldCliActSurface } from "../cli/act-receipts.js";
-import { FOLD_DECISION_SURFACES, type FoldDecisionSurface } from "../fold-staged-acts.js";
+import {
+  WORKFOLD_CLI_ACT_LEGACY_SURFACES,
+  WORKFOLD_CLI_ACT_SURFACES,
+  type WorkFoldCliActLegacySurface,
+  type WorkFoldCliActSurface,
+} from "../cli/act-receipts.js";
 import { workFoldStateRoot } from "../state-paths.js";
 import {
   assertWorkFoldRoutingAtAdmissionHorizon,
@@ -342,9 +346,11 @@ export class WorkFoldRoutingReceipts {
  */
 export interface WorkFoldRoutingGrant {
   digest: string;
+  /** The enabling act's request id. */
   decisionId: string;
   approvedAt: string;
-  surface: FoldDecisionSurface;
+  /** Current surfaces on write; a legacy surface an older build recorded still loads. */
+  surface: WorkFoldCliActSurface | WorkFoldCliActLegacySurface;
   browserId?: string;
   browserGrantId?: string;
 }
@@ -394,7 +400,7 @@ export interface WorkFoldRoutingEnableInput {
   expectedDigest: string;
   decision: {
     decisionId: string;
-    surface: FoldDecisionSurface;
+    surface: WorkFoldCliActSurface;
     browserId?: string;
     browserGrantId?: string;
   };
@@ -428,8 +434,8 @@ interface RoutingStoreFileShape {
 }
 
 /**
- * The machine-local routing store. It follows the staged-act store's
- * disciplines (src/local/fold-staged-acts.ts): schema-versioned, normalized
+ * The machine-local routing store. It follows the prepared-act disciplines
+ * (src/local/fold-prepared-acts.ts): schema-versioned, normalized
  * fail-closed on read, atomic temp-file-and-rename writes with 0600 modes,
  * serialized mutations, and a damaged file that disables the store rather
  * than being guessed at or overwritten.
@@ -865,17 +871,11 @@ function normalizeDeclarationInput(value: unknown): WorkFoldRoutingDeclaration {
 
 function normalizeDecision(value: WorkFoldRoutingEnableInput["decision"]): WorkFoldRoutingEnableInput["decision"] {
   if (!value || typeof value !== "object") {
-    throw new WorkFoldRoutingStoreError("INPUT_INVALID", "An enablement requires its consecration decision record.");
+    throw new WorkFoldRoutingStoreError("INPUT_INVALID", "An enablement requires its enabling act record.");
   }
   requireReference(value.decisionId, "Decision id");
-  if (!FOLD_DECISION_SURFACES.includes(value.surface)) {
-    throw new WorkFoldRoutingStoreError("INPUT_INVALID", "The approving surface must be a decision surface.");
-  }
-  if (value.surface === "policy") {
-    throw new WorkFoldRoutingStoreError(
-      "INPUT_INVALID",
-      "routing.enable is not policy-eligible: standing cross-Space behavior always takes the unforgeable human click.",
-    );
+  if (!WORKFOLD_CLI_ACT_SURFACES.includes(value.surface)) {
+    throw new WorkFoldRoutingStoreError("INPUT_INVALID", "The enabling surface must be an act surface.");
   }
   if (value.surface === "remote_web") {
     requireReference(value.browserId, "Approving browser id");
@@ -1088,7 +1088,8 @@ function grantIssue(value: unknown): string | null {
   if (typeof grant.digest !== "string" || !/^[a-f0-9]{64}$/.test(grant.digest)) return "a grant digest is invalid";
   if (typeof grant.decisionId !== "string" || !grant.decisionId.trim()) return "a grant decision id is invalid";
   if (!isTimestamp(grant.approvedAt)) return "a grant approvedAt is invalid";
-  if (!FOLD_DECISION_SURFACES.includes(grant.surface as FoldDecisionSurface) || grant.surface === "policy") {
+  if (!(WORKFOLD_CLI_ACT_SURFACES as readonly string[]).includes(String(grant.surface))
+    && !(WORKFOLD_CLI_ACT_LEGACY_SURFACES as readonly string[]).includes(String(grant.surface))) {
     return "a grant surface is invalid";
   }
   if ((grant.surface === "remote_web") !== (typeof grant.browserId === "string" && typeof grant.browserGrantId === "string")) {

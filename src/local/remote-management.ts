@@ -11,8 +11,6 @@ export type WorkFoldRemoteOperation =
   | "management.watch"
   | "management.glance"
   | "management.glanceSeen"
-  | "decisions.list"
-  | "decisions.decide"
   | "spaces.list"
   | "spaces.tree"
   | "spaces.filePreview"
@@ -62,12 +60,11 @@ export interface WorkFoldRemoteFacade {
   purgeUploads(grantId?: string): Promise<void>;
   /**
    * Desktop-local revocation cascade for one grant (or every grant when
-   * omitted): cancels pending staged acts whose staging provenance traces to
-   * the revoked browser and deletes its `remote:<grantId>` glance marker
-   * (docs/fold-consecrations.md, docs/fold-glance.md). The remote client runs
-   * it inside its revocation cleanup, before any bridge mutation. Optional so
-   * narrow facades — and older hosts — keep working; decided acts stand
-   * either way, named by their receipts.
+   * omitted): settles the browser's app actions and deletes its
+   * `remote:<grantId>` glance marker (docs/fold-glance.md). The remote client
+   * runs it inside its revocation cleanup, before any bridge mutation.
+   * Optional so narrow facades — and older hosts — keep working; acts the
+   * browser already performed stand either way, named by their receipts.
    */
   revokeGrantAuthority?(grantId?: string): Promise<void>;
 }

@@ -38,10 +38,8 @@ export const WORKFOLD_GLANCE_SOURCES = [
   "act-receipts",
   "automation-receipts",
   "automation-schedule",
-  "staged-acts",
   "routing-runs",
   "viewer-grants",
-  "policy-changes",
 ] as const;
 
 export type WorkFoldGlanceSource = (typeof WORKFOLD_GLANCE_SOURCES)[number];
@@ -54,8 +52,8 @@ export type WorkFoldGlanceItemKind =
   | "check-run"
   | "automation-run"
   | "routing-run"
-  // Needs you
-  | "pending-decision"
+  // Needs you: questions and due snoozes only (docs/receipts-not-gates.md,
+  // F24). Nothing here is an approval.
   | "request-question"
   | "chat-question"
   | "due-snooze"
@@ -67,22 +65,18 @@ export type WorkFoldGlanceItemKind =
   | "chat-renamed"
   | "check-run-settled"
   | "act-performed"
-  | "decision-recorded"
   | "automation-run-settled"
   | "routing-run-settled"
   | "viewer-grant-changed"
-  | "publication-state"
-  | "policy-changed";
+  | "publication-state";
 
 export interface WorkFoldGlanceItemRef {
   taskId?: string;
   conversationId?: string;
   checkpointId?: string;
   requestId?: string;
-  decisionId?: string;
   routingId?: string;
   runId?: string;
-  policyId?: string;
   publicationId?: string;
 }
 
@@ -253,34 +247,6 @@ export interface WorkFoldGlanceAutomationReceiptRecord {
   finishedAt: string;
 }
 
-export type WorkFoldGlanceStagedActCategory = "make-runnable" | "widen-power" | "destroy";
-
-export type WorkFoldGlanceStagedActState =
-  | "staged"
-  | "approved"
-  | "denied"
-  | "expired"
-  | "canceled"
-  | "invalidated";
-
-export type WorkFoldGlanceDecisionSurface = "popover" | "main-window" | "remote_web" | "policy" | "unrestricted";
-
-export interface WorkFoldGlanceStagedActRecord {
-  id: string;
-  category: WorkFoldGlanceStagedActCategory;
-  kind: string;
-  state: WorkFoldGlanceStagedActState;
-  createdAt: string;
-  expiresAt: string;
-  decidedAt?: string;
-  /**
-   * The surface that decided the act, when it was decided. Policy-approved
-   * acts produced no card, so "what changed" lists them distinctly
-   * (docs/fold-consecrations.md §Standing policies).
-   */
-  decisionSurface?: WorkFoldGlanceDecisionSurface;
-}
-
 export type WorkFoldGlanceRoutingRunState =
   | "running"
   | "succeeded"
@@ -317,32 +283,6 @@ export interface WorkFoldGlanceViewerGrantEventRecord {
 }
 
 /**
- * One journaled standing-policy store change (`fold/policy-changes.jsonl`,
- * docs/fold-consecrations.md §Standing policies). Authoring events carry the
- * policy's identity and label; `attestation-mismatch` reports the out-of-band
- * edit that disabled every policy until a person re-saves them in Settings,
- * and `reattested` reports that re-save.
- */
-export const WORKFOLD_GLANCE_POLICY_CHANGE_EVENTS = [
-  "created",
-  "updated",
-  "enabled",
-  "disabled",
-  "deleted",
-  "attestation-mismatch",
-  "reattested",
-] as const;
-
-export type WorkFoldGlancePolicyChangeEvent = (typeof WORKFOLD_GLANCE_POLICY_CHANGE_EVENTS)[number];
-
-export interface WorkFoldGlancePolicyChangeRecord {
-  at: string;
-  event: WorkFoldGlancePolicyChangeEvent;
-  policyId?: string;
-  label?: string;
-}
-
-/**
  * The closed source-reader interface. Every method is optional: an absent
  * reader renders its item kinds as absent. A reader that throws marks its
  * source unavailable for this composition; its kinds are omitted and the
@@ -359,10 +299,8 @@ export interface WorkFoldGlanceSourceReaders {
   actReceipts?(): Promise<WorkFoldCliActReceipt[]>;
   automationRunReceipts?(): Promise<WorkFoldGlanceAutomationReceiptRecord[]>;
   automationRuns?(): Promise<WorkFoldGlanceAutomationRunRecord[]>;
-  stagedActs?(): Promise<WorkFoldGlanceStagedActRecord[]>;
   routingRuns?(): Promise<WorkFoldGlanceRoutingRunRecord[]>;
   viewerGrants?(): Promise<WorkFoldGlanceViewerGrantEventRecord[]>;
-  policyChanges?(): Promise<WorkFoldGlancePolicyChangeRecord[]>;
 }
 
 export interface WorkFoldGlanceComposeInput {
@@ -414,10 +352,8 @@ export async function composeWorkFoldGlance(input: WorkFoldGlanceComposeInput): 
   const actReceipts = await readSource("act-receipts", sources.actReceipts, unavailable);
   const automationReceipts = await readSource("automation-receipts", sources.automationRunReceipts, unavailable);
   const automationRuns = await readSource("automation-schedule", sources.automationRuns, unavailable);
-  const stagedActs = await readSource("staged-acts", sources.stagedActs, unavailable);
   const routingRuns = await readSource("routing-runs", sources.routingRuns, unavailable);
   const viewerGrants = await readSource("viewer-grants", sources.viewerGrants, unavailable);
-  const policyChanges = await readSource("policy-changes", sources.policyChanges, unavailable);
 
   const runningRequests = (requests ?? []).filter(
     (request) => request.phase === "working" || request.phase === "handed_off",
@@ -446,7 +382,6 @@ export async function composeWorkFoldGlance(input: WorkFoldGlanceComposeInput): 
   const needsYou = composeNeedsYou({
     composedAtMs,
     requests: requests ?? [],
-    stagedActs: stagedActs ?? [],
     chats,
     runningConversationIds,
     spaceNames,
@@ -459,11 +394,9 @@ export async function composeWorkFoldGlance(input: WorkFoldGlanceComposeInput): 
     checkpoints,
     checks,
     actReceipts: actReceipts ?? [],
-    stagedActs: stagedActs ?? [],
     automationReceipts: automationReceipts ?? [],
     routingRuns: routingRuns ?? [],
     viewerGrants: viewerGrants ?? [],
-    policyChanges: policyChanges ?? [],
     spaceNames,
   });
   const checkRows = composeCheckRows(checks);
@@ -573,33 +506,19 @@ function composeRunning(input: {
   };
 }
 
+/**
+ * Needs you means questions (docs/receipts-not-gates.md, F24): a management
+ * request waiting on the person's answer, a Space Chat whose newest message
+ * is an Assistant question, and a due snooze. Newest first; overflow keeps
+ * the newest and states truncation. Nothing here is an approval.
+ */
 function composeNeedsYou(input: {
   composedAtMs: number;
   requests: WorkFoldGlanceManagementRequestRecord[];
-  stagedActs: WorkFoldGlanceStagedActRecord[];
   chats: Array<{ space: WorkFoldGlanceSpaceRef; records: WorkFoldGlanceChatRecord[] }>;
   runningConversationIds: Set<string>;
   spaceNames: Map<string, string>;
 }): { items: WorkFoldGlanceItem[]; truncated: boolean } {
-  const decisions: Array<{ sortAt: string; item: WorkFoldGlanceItem }> = [];
-  for (const act of input.stagedActs.slice(0, maxSourceRecords)) {
-    // Expiry is lazy and read against the one clock: an expired staging is no
-    // longer waiting on the person — it appears as a recorded expiry instead.
-    if (act.state !== "staged" || isAtOrBefore(act.expiresAt, input.composedAtMs)) continue;
-    decisions.push({
-      sortAt: act.expiresAt,
-      item: glanceItem({
-        id: `staged-acts:${act.id}`,
-        at: act.createdAt,
-        kind: "pending-decision",
-        headline: `Needs your decision: ${clampText(act.kind, maxTitleInHeadline)} — ${stagedActCategoryLabel(act.category)}`,
-        ref: { decisionId: act.id },
-      }),
-    });
-  }
-  decisions.sort((left, right) =>
-    compareTimestamps(left.sortAt, right.sortAt) || compareStrings(left.item.id, right.item.id));
-
   const others: WorkFoldGlanceItem[] = [];
   for (const request of input.requests.slice(0, maxSourceRecords)) {
     if (request.phase !== "needs_you") continue;
@@ -643,13 +562,9 @@ function composeNeedsYou(input: {
     }
   }
   others.sort(newestFirst);
-
-  // An authority decision outranks a conversational question: overflow keeps
-  // pending decisions over everything else.
-  const items = [...decisions.map((entry) => entry.item), ...others];
   return {
-    items: items.slice(0, workFoldGlanceNeedsYouCap),
-    truncated: items.length > workFoldGlanceNeedsYouCap,
+    items: others.slice(0, workFoldGlanceNeedsYouCap),
+    truncated: others.length > workFoldGlanceNeedsYouCap,
   };
 }
 
@@ -661,11 +576,9 @@ function composeChanges(input: {
   checkpoints: Array<{ space: WorkFoldGlanceSpaceRef; records: WorkFoldGlanceCheckpointRecord[] }>;
   checks: Array<{ space: WorkFoldGlanceSpaceRef; records: WorkFoldGlanceCheckSource | null }>;
   actReceipts: WorkFoldCliActReceipt[];
-  stagedActs: WorkFoldGlanceStagedActRecord[];
   automationReceipts: WorkFoldGlanceAutomationReceiptRecord[];
   routingRuns: WorkFoldGlanceRoutingRunRecord[];
   viewerGrants: WorkFoldGlanceViewerGrantEventRecord[];
-  policyChanges: WorkFoldGlancePolicyChangeRecord[];
   spaceNames: Map<string, string>;
 }): { items: WorkFoldGlanceItem[]; truncated: boolean } {
   const byKind = new Map<WorkFoldGlanceItemKind, WorkFoldGlanceItem[]>();
@@ -770,17 +683,6 @@ function composeChanges(input: {
       },
     }));
   }
-  for (const act of input.stagedActs.slice(0, maxSourceRecords)) {
-    const recorded = recordedDecision(act, input.composedAtMs);
-    if (!recorded) continue;
-    add(glanceItem({
-      id: `staged-acts:${act.id}`,
-      at: recorded.at,
-      kind: "decision-recorded",
-      headline: `${recorded.label}: ${clampText(act.kind, maxTitleInHeadline)}`,
-      ref: { decisionId: act.id },
-    }));
-  }
   for (const receipt of input.automationReceipts.slice(0, maxSourceRecords)) {
     add(glanceItem({
       id: `automation-receipts:${receipt.receiptId}`,
@@ -825,15 +727,6 @@ function composeChanges(input: {
       kind: "viewer-grant-changed",
       ...(event.spaceId ? { spaceId: event.spaceId, spaceNames: input.spaceNames } : {}),
       headline: event.event === "created" ? "Started sharing a page" : "Stopped sharing a page",
-    }));
-  }
-  for (const change of input.policyChanges.slice(0, maxSourceRecords)) {
-    add(glanceItem({
-      id: `policy-changes:${change.at}:${change.event}:${change.policyId ?? "store"}`,
-      at: change.at,
-      kind: "policy-changed",
-      headline: policyChangeHeadline(change),
-      ...(change.policyId ? { ref: { policyId: change.policyId } } : {}),
     }));
   }
 
@@ -950,22 +843,16 @@ export function workFoldGlanceChatRecordFromMessages(
   };
 }
 
-// --- Tolerant readers for stores that land in parallel ---
+// --- Tolerant readers over recorded stores ---
 //
-// The staged-act, routing, and publication stores are designed in the sibling
-// fold documents and land in parallel with this module. These readers read the
-// documented record shapes from the documented machine-local locations and
-// tolerate a missing file, a damaged file, or an unknown version by omission,
-// never by error: while a store does not exist yet, its kinds are simply
-// absent from the digest. Once the owning service ships, the local-API wiring
-// may replace these file readers with service-backed ones.
+// The routing receipts journal and the publication store are read from their
+// documented machine-local locations. These readers tolerate a missing file, a
+// damaged file, or an unknown version by omission, never by error: while a
+// store does not exist, its kinds are simply absent from the digest. The
+// local-API wiring may replace a file reader with a service-backed one.
 
 export interface WorkFoldGlanceStoreReaderOptions {
   stateRoot?: string;
-}
-
-export function workFoldGlanceStagedActsFile(stateRoot = workFoldStateRoot()): string {
-  return join(stateRoot, "fold", "staged-acts.json");
 }
 
 export function workFoldGlanceRoutingReceiptsFile(stateRoot = workFoldStateRoot()): string {
@@ -978,34 +865,6 @@ export function workFoldGlanceRoutingReceiptsRotatedFile(stateRoot = workFoldSta
 
 export function workFoldGlancePublicationsFile(stateRoot = workFoldStateRoot()): string {
   return join(stateRoot, "fold", "publications.json");
-}
-
-export function workFoldGlancePolicyChangesFile(stateRoot = workFoldStateRoot()): string {
-  return join(stateRoot, "fold", "policy-changes.jsonl");
-}
-
-export function workFoldGlancePolicyChangesRotatedFile(stateRoot = workFoldStateRoot()): string {
-  return join(stateRoot, "fold", "policy-changes.1.jsonl");
-}
-
-export function createWorkFoldGlanceStagedActReader(
-  options: WorkFoldGlanceStoreReaderOptions = {},
-): () => Promise<WorkFoldGlanceStagedActRecord[]> {
-  const path = workFoldGlanceStagedActsFile(options.stateRoot);
-  return async () => {
-    const parsed = await readJsonStore(path);
-    if (parsed === null) return [];
-    const entries = Array.isArray(parsed)
-      ? parsed
-      : storeRecordArray(parsed, "acts");
-    if (!entries) return [];
-    const records: WorkFoldGlanceStagedActRecord[] = [];
-    for (const entry of entries.slice(0, maxStoreRecords)) {
-      const record = parseStagedActRecord(entry);
-      if (record) records.push(record);
-    }
-    return records;
-  };
 }
 
 export function createWorkFoldGlanceRoutingRunReader(
@@ -1030,55 +889,6 @@ export function createWorkFoldGlanceRoutingRunReader(
       }
     }
     return [...runs.values()];
-  };
-}
-
-/**
- * Tolerant reader over the standing-policy store's append-only change journal
- * (`fold/policy-changes.jsonl` plus its rotated sibling, the record shape the
- * policies module documents). Damaged lines, unknown versions, and unknown
- * events are omitted, never fatal — the journal is the record; this is a
- * projection of it.
- */
-export function createWorkFoldGlancePolicyChangeReader(
-  options: WorkFoldGlanceStoreReaderOptions = {},
-): () => Promise<WorkFoldGlancePolicyChangeRecord[]> {
-  const rotatedPath = workFoldGlancePolicyChangesRotatedFile(options.stateRoot);
-  const livePath = workFoldGlancePolicyChangesFile(options.stateRoot);
-  return async () => {
-    const records: WorkFoldGlancePolicyChangeRecord[] = [];
-    for (const path of [rotatedPath, livePath]) {
-      const text = await readStoreText(path);
-      if (text === null) continue;
-      for (const line of text.split("\n")) {
-        if (!line.trim()) continue;
-        const record = parsePolicyChangeLine(line);
-        if (record) records.push(record);
-        if (records.length >= maxStoreRecords) return records;
-      }
-    }
-    return records;
-  };
-}
-
-function parsePolicyChangeLine(line: string): WorkFoldGlancePolicyChangeRecord | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(line);
-  } catch {
-    return null;
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-  const record = parsed as { v?: unknown; at?: unknown; event?: unknown; policyId?: unknown; label?: unknown };
-  if (record.v !== 1 || !isIsoTimestamp(record.at)) return null;
-  if (!(WORKFOLD_GLANCE_POLICY_CHANGE_EVENTS as readonly unknown[]).includes(record.event)) return null;
-  return {
-    at: record.at,
-    event: record.event as WorkFoldGlancePolicyChangeEvent,
-    ...(isRecordId(record.policyId) ? { policyId: record.policyId } : {}),
-    ...(typeof record.label === "string" && record.label.length > 0 && record.label.length <= 512
-      ? { label: record.label }
-      : {}),
   };
 }
 
@@ -1203,10 +1013,8 @@ function pruneRef(ref: WorkFoldGlanceItemRef): WorkFoldGlanceItemRef | undefined
     ...(ref.conversationId ? { conversationId: ref.conversationId } : {}),
     ...(ref.checkpointId ? { checkpointId: ref.checkpointId } : {}),
     ...(ref.requestId ? { requestId: ref.requestId } : {}),
-    ...(ref.decisionId ? { decisionId: ref.decisionId } : {}),
     ...(ref.routingId ? { routingId: ref.routingId } : {}),
     ...(ref.runId ? { runId: ref.runId } : {}),
-    ...(ref.policyId ? { policyId: ref.policyId } : {}),
     ...(ref.publicationId ? { publicationId: ref.publicationId } : {}),
   };
   return Object.keys(pruned).length ? pruned : undefined;
@@ -1214,12 +1022,6 @@ function pruneRef(ref: WorkFoldGlanceItemRef): WorkFoldGlanceItemRef | undefined
 
 function newestFirst(left: WorkFoldGlanceItem, right: WorkFoldGlanceItem): number {
   return compareTimestamps(right.at, left.at) || compareStrings(left.id, right.id);
-}
-
-function stagedActCategoryLabel(category: WorkFoldGlanceStagedActCategory): string {
-  if (category === "make-runnable") return "make bytes runnable";
-  if (category === "widen-power") return "widen a power";
-  return "destroy irreversibly";
 }
 
 function publicationStateHeadline(event: WorkFoldGlanceViewerGrantEventRecord): string {
@@ -1230,41 +1032,6 @@ function publicationStateHeadline(event: WorkFoldGlanceViewerGrantEventRecord): 
     return `${subject} is resting${event.reason ? ` — ${event.reason}` : " — its viewer budget is used up"}`;
   }
   return `${subject} isn't reaching viewers${event.reason ? ` — ${event.reason}` : ""}`;
-}
-
-function policyChangeHeadline(change: WorkFoldGlancePolicyChangeRecord): string {
-  if (change.event === "attestation-mismatch") {
-    return "Standing policies changed outside Settings — all disabled until re-saved";
-  }
-  if (change.event === "reattested") return "Standing policies reviewed and re-saved in Settings";
-  return change.label !== undefined
-    ? `Standing policy "${clampText(change.label, maxTitleInHeadline)}" ${change.event}`
-    : `A standing policy was ${change.event}`;
-}
-
-function recordedDecision(
-  act: WorkFoldGlanceStagedActRecord,
-  composedAtMs: number,
-): { at: string; label: string } | null {
-  if (act.state === "approved") {
-    // Policy-approved acts produced no needs-you card, so their one
-    // visibility is here and on the receipt — listed distinctly, never
-    // blended into clicked approvals.
-    const label = act.decisionSurface === "policy"
-      ? "Auto-approved by standing policy"
-      : act.decisionSurface === "unrestricted"
-        ? "Executed under Unrestricted authority"
-        : "Approved";
-    return { at: act.decidedAt ?? act.createdAt, label };
-  }
-  if (act.state === "denied") return { at: act.decidedAt ?? act.createdAt, label: "Denied" };
-  if (act.state === "expired") return { at: act.expiresAt, label: "Expired undecided" };
-  // Expiry is lazy: a still-`staged` record past its TTL is a recorded expiry,
-  // not a pending decision. Expiry is not approval and not denial.
-  if (act.state === "staged" && isAtOrBefore(act.expiresAt, composedAtMs)) {
-    return { at: act.expiresAt, label: "Expired undecided" };
-  }
-  return null;
 }
 
 function chatLifecycleHeadline(title: string, event: WorkFoldGlanceChatLifecycleEvent): string {
@@ -1337,48 +1104,6 @@ function storeRecordArray(parsed: unknown, key: string): unknown[] | null {
   if (record.version !== undefined && record.version !== 1) return null;
   const entries = record[key];
   return Array.isArray(entries) ? entries : null;
-}
-
-function parseStagedActRecord(entry: unknown): WorkFoldGlanceStagedActRecord | null {
-  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
-  const record = entry as {
-    schemaVersion?: unknown;
-    id?: unknown;
-    category?: unknown;
-    kind?: unknown;
-    state?: unknown;
-    createdAt?: unknown;
-    expiresAt?: unknown;
-    decidedAt?: unknown;
-    decision?: unknown;
-  };
-  if (record.schemaVersion !== 1) return null;
-  if (!isRecordId(record.id) || !isRecordId(record.kind)) return null;
-  if (record.category !== "make-runnable" && record.category !== "widen-power" && record.category !== "destroy") return null;
-  if (
-    record.state !== "staged" && record.state !== "approved" && record.state !== "denied"
-    && record.state !== "expired" && record.state !== "canceled" && record.state !== "invalidated"
-  ) return null;
-  if (!isIsoTimestamp(record.createdAt) || !isIsoTimestamp(record.expiresAt)) return null;
-  const decisionSurface = decisionSurfaceOf(record.decision);
-  return {
-    id: record.id,
-    category: record.category,
-    kind: record.kind,
-    state: record.state,
-    createdAt: record.createdAt,
-    expiresAt: record.expiresAt,
-    ...(isIsoTimestamp(record.decidedAt) ? { decidedAt: record.decidedAt } : {}),
-    ...(decisionSurface ? { decisionSurface } : {}),
-  };
-}
-
-function decisionSurfaceOf(decision: unknown): WorkFoldGlanceDecisionSurface | null {
-  if (!decision || typeof decision !== "object" || Array.isArray(decision)) return null;
-  const surface = (decision as { surface?: unknown }).surface;
-  return surface === "popover" || surface === "main-window" || surface === "remote_web" || surface === "policy" || surface === "unrestricted"
-    ? surface
-    : null;
 }
 
 const routingRunTerminalOutcomes = new Map<string, WorkFoldGlanceRoutingRunState>([

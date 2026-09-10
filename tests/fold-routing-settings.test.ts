@@ -13,7 +13,7 @@ import {
 import type { WorkFoldRoutingReceiptV1 } from "../src/local/routings/routing-store.js";
 import { startLocalApi } from "../src/local/server.js";
 
-test("trusted Settings manages routings through staged authority with bounded run history and global receipts", async (t) => {
+test("trusted Settings manages routings with receipted enablement, bounded run history, and global receipts", async (t) => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-routing-settings-"));
   const stateRoot = join(sandbox, "state");
   const api = await startLocalApi({
@@ -98,26 +98,16 @@ test("trusted Settings manages routings through staged authority with bounded ru
 
   const disabled = await api.routingSettings.disable(declaration.id);
   assert.equal(disabled.disabled, true);
-  const staged = await api.routingSettings.stageEnable(declaration.id);
-  assert.equal(staged.state, "staged", "Reviewed mode keeps routing enablement waiting for a person");
-  const stagedAct = await api.stagedActs.get(staged.decisionId);
-  assert.equal(stagedAct?.provenance.stagedVia, "desktop-settings");
-  assert.match(stagedAct?.provenance.requestId ?? "", /^settings:/);
-  const cardsResponse = await fetch(`${api.origin}/api/management/decisions`);
-  assert.equal(cardsResponse.status, 200);
-  const cards = (await cardsResponse.json()) as {
-    decisions: Array<{ id: string; facts: Array<{ label: string; value: string }> }>;
-  };
-  const routingCard = cards.decisions.find((decision) => decision.id === staged.decisionId);
-  assert.ok(routingCard);
-  const routingFacts = new Map(routingCard.facts.map((fact) => [fact.label, fact.value]));
-  assert.equal(routingFacts.get("Title"), "Settings handoff");
-  assert.equal(routingFacts.get("Trigger"), "Manual only");
-  assert.match(routingFacts.get("Step 1 · Files · handoff") ?? "", /Routing source/);
-  assert.match(routingFacts.get("Step 1 · Files · handoff") ?? "", /notes\.txt/);
-  assert.match(routingFacts.get("Step 1 · Files · handoff") ?? "", /Routing destination/);
-  await api.foldDecisions.decide(staged.decisionId, { decision: "approved", surface: "main-window" });
-  assert.equal((await api.routings.getRouting(declaration.id))?.health, "enabled");
+  // Enabling from Settings runs at once through the prepared-act path
+  // (docs/receipts-not-gates.md, F19/F23) under a Settings-minted request id.
+  const enabled = await api.routingSettings.enable(declaration.id);
+  assert.deepEqual(enabled, { routingId: declaration.id, requestId: enabled.requestId, enabled: true });
+  assert.match(enabled.requestId, /^settings:/);
+  const reEnabled = await api.routings.getRouting(declaration.id);
+  assert.equal(reEnabled?.health, "enabled");
+  assert.equal(reEnabled?.grants.at(-1)?.decisionId, enabled.requestId, "the grant carries the enabling act's request id");
+  assert.equal(reEnabled?.grants.at(-1)?.surface, "main-window");
+  await assert.rejects(() => api.routingSettings.enable(declaration.id), /already on/);
   await api.routingSettings.disable(declaration.id);
   assert.equal((await api.routingSettings.delete(declaration.id)).deleted, true);
 
@@ -131,7 +121,7 @@ test("trusted Settings manages routings through staged authority with bounded ru
   assert.ok(settingsActs.length >= 10);
   assert.ok(settingsActs.every((entry) => entry.surface === "main-window"));
   assert.ok(settingsActs.every((entry) => entry.requestId.startsWith("settings:")));
-  for (const command of ["routings.run", "routings.disable", "routings.stage", "routings.delete"]) {
+  for (const command of ["routings.run", "routings.disable", "routings.enable", "routings.delete"]) {
     const entries = settingsActs.filter((entry) => entry.command === command);
     assert.ok(entries.some((entry) => entry.outcome === "accepted"), `${command} records acceptance first`);
     assert.ok(entries.some((entry) => entry.outcome === "ok"), `${command} records a terminal outcome`);

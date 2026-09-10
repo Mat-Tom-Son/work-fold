@@ -81,14 +81,8 @@ const state = {
   summary: null,
   activeTasks: new Map(),
   banner: "",
-  decisions: [],
   glance: null,
-  foldHomeNotice: "",
   foldHomeRefreshing: false,
-  decisionBusyId: null,
-  confirmingDestroy: new Set(),
-  openNotes: new Set(),
-  decisionNotes: new Map(),
   glanceAcknowledged: "",
   showEarlierChanges: false,
   stoppingTask: false,
@@ -541,7 +535,7 @@ function onPopState() {
 
 // --- The shell: one sidebar, four screens ---------------------------------
 // New chat is the door; Chat is one transcript; Needs you carries the fold's
-// decisions and its digest; Files is the read-only tree. The sidebar exists
+// questions and its digest; Files is the read-only tree. The sidebar exists
 // once in the DOM: from 860px up it is the left column (expanded or collapsed
 // to an icon rail), and below that the same markup is the drawer behind ☰.
 
@@ -757,16 +751,6 @@ function renderApplication() {
   const foldHome = document.querySelector("#fold-home");
   // Delegated listeners survive the section's innerHTML refreshes.
   foldHome?.addEventListener("click", onFoldHomeClick);
-  foldHome?.addEventListener("input", (event) => {
-    const input = event.target.closest?.("[data-decision-note]");
-    if (input) state.decisionNotes.set(input.dataset.decisionNote, input.value);
-  });
-  foldHome?.addEventListener("toggle", (event) => {
-    const cardId = event.target.closest?.("[data-note-card]")?.dataset.noteCard;
-    if (!cardId) return;
-    if (event.target.open) state.openNotes.add(cardId);
-    else state.openNotes.delete(cardId);
-  }, true);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {
       // A backgrounded phone tab may never come back: park the draft.
@@ -1014,13 +998,6 @@ function renderMessages() {
       if (reference) openBrowserAppResult(reference);
     });
     for (const button of workStatus.querySelectorAll("[data-result-file]")) button.addEventListener("click", () => openFilePreview(button.dataset.spaceId, button.dataset.resultFile));
-    for (const button of workStatus.querySelectorAll("[data-result-decision]")) button.addEventListener("click", async () => {
-      showContext("needs", { moveFocus: true });
-      const refreshed = await refreshFoldHome();
-      const card = document.querySelector(`[data-decision-card="${CSS.escape(button.dataset.resultDecision)}"]`);
-      if (card) { card.scrollIntoView({ block: "center", behavior: "smooth" }); card.focus({ preventScroll: true }); }
-      else if (!state.foldHomeNotice) { state.foldHomeNotice = refreshed ? "This decision is no longer waiting for review." : "Could not refresh this decision. Try again when your desktop is connected."; renderFoldHome(); }
-    });
   }
   if (container.dataset.rendered !== "true") container.dataset.rendered = "true";
   if (wasNearBottom && (noticeChanged || messagesChanged || workChanged || !sameConversation)) {
@@ -1133,8 +1110,7 @@ function requestEvents(request) {
   const results = requestResultLinks(request);
   if (results.length) events.push({ state: "result", html: `<span class="request-result-links">${results.map((result) => result.kind === "file"
     ? `<button type="button" class="quiet" data-space-id="${escapeAttribute(result.spaceId)}" data-result-file="${escapeAttribute(result.path)}" title="${escapeAttribute(result.spaceName)} · ${escapeAttribute(result.path)}">${escapeHtml(result.label)}</button>`
-    : result.kind === "app" ? `<button type="button" class="quiet" data-space-id="${escapeAttribute(result.spaceId)}" data-result-app="${escapeAttribute(result.featureInstallationId)}">${escapeHtml(result.label)}</button>`
-    : `<button type="button" class="quiet" data-result-decision="${escapeAttribute(result.id)}">${escapeHtml(result.label)}</button>`).join("")}</span>` });
+    : `<button type="button" class="quiet" data-space-id="${escapeAttribute(result.spaceId)}" data-result-app="${escapeAttribute(result.featureInstallationId)}">${escapeHtml(result.label)}</button>`).join("")}</span>` });
   return events;
 }
 
@@ -1458,7 +1434,7 @@ function syncComposer() {
   input.setAttribute("aria-busy", String(state.sending));
   for (const newChatButton of document.querySelectorAll("#new-chat, #top-new-chat")) {
     // New chat stays reachable from every other screen while a new chat is
-    // staged; only the screen it leads to disables it.
+    // being started; only the screen it leads to disables it.
     newChatButton.disabled = state.sending || state.renameSaving || state.contextName === "new";
   }
   renderComposerContext();
@@ -1831,14 +1807,12 @@ async function stopCurrentTask() {
   }
 }
 
-// --- The fold's Home: needs-you decision cards, the request tail, and the
-// glance as the page body ---------------------------------------------------
-// Every line of a card is host-composed on the desktop from the staged act's
-// typed pins (one card contract across the popover, the main window, and this
-// client); the digest is app-composed from recorded state. This client renders
-// those projections and never composes copy of its own. Desktop offline means
-// no cards and no digest — recorded state, never a stale one presented as
-// current.
+// --- The fold's Home: the questions waiting on the person and the glance as
+// the page body -------------------------------------------------------------
+// The digest is app-composed on the desktop from recorded state
+// (docs/fold-glance.md); this client renders that projection and never
+// composes copy of its own. Desktop offline means no digest — recorded state,
+// never a stale one presented as current.
 
 let foldHomeRefresh = null;
 function refreshFoldHome() {
@@ -1851,11 +1825,7 @@ function refreshFoldHome() {
 
 async function readFoldHome() {
   try {
-    const [decisions, glance] = await Promise.all([
-      remote("decisions.list"),
-      remote("management.glance"),
-    ]);
-    state.decisions = decisions.decisions ?? [];
+    const glance = await remote("management.glance");
     state.glance = glance.glance ?? null;
     renderFoldHome();
     acknowledgeGlance();
@@ -1889,11 +1859,11 @@ function acknowledgeGlance() {
   });
 }
 
-// Pending decisions surface on the Needs you destination from every screen,
-// not only for someone who happens to be looking at it: the sidebar count, the
-// screen title, and the ☰ dot all read the same list.
+// Questions waiting on the person surface on the Needs you destination from
+// every screen, not only for someone who happens to be looking at it: the
+// sidebar count, the screen title, and the ☰ dot all read the same digest.
 function updateNavBadges() {
-  const count = state.decisions.length;
+  const count = (state.glance?.needsYou ?? []).length;
   const label = count > 9 ? "9+" : String(count);
   for (const badge of document.querySelectorAll("[data-nav-badge]")) {
     badge.hidden = !count;
@@ -1916,36 +1886,23 @@ function renderFoldHome() {
   const container = document.querySelector("#fold-home");
   if (!container) return;
   updateNavBadges();
-  // Decisions come first, then the questions asked inside chats, then the
-  // glance — the needs-you stack is never below the digest.
-  const body = `${renderNeedsYou()}${renderFromChats()}${renderGlance()}`;
+  // The questions waiting on the person come first, then the glance.
+  const body = `${renderFromChats()}${renderGlance()}`;
   const markup = body || `<p class="glance-empty">Nothing needs you right now.</p>`;
-  if (!replaceHtmlIfChanged(container, markup)) return;
-  // Attribute values are render-time snapshots; live values survive refreshes.
-  for (const input of container.querySelectorAll("[data-decision-note]")) {
-    const noted = state.decisionNotes.get(input.dataset.decisionNote);
-    if (noted !== undefined && input.value !== noted) input.value = noted;
-  }
+  replaceHtmlIfChanged(container, markup);
 }
 
-function renderNeedsYou() {
-  if (!state.decisions.length && !state.foldHomeNotice) return "";
-  const notice = state.foldHomeNotice
-    ? `<p class="needs-you-notice" role="status"><span>${escapeHtml(state.foldHomeNotice)}</span><button type="button" data-dismiss-fold-notice="true" aria-label="Dismiss">✕</button></p>`
-    : "";
-  return `<section class="needs-you-stack">
-    ${notice}
-    ${state.decisions.map((card) => renderDecisionCard(card)).join("")}
-  </section>`;
-}
-
-// Questions the fold raised inside a chat. They are answered in that chat, so
-// the row offers a way in whenever the chat is one this browser can open.
+// Needs you means questions (docs/receipts-not-gates.md, F24): every item the
+// glance lists under needs-you renders as an inert row — an Assistant question
+// or a due snooze, answered in its own chat, so the row offers a way in
+// whenever the chat is one this browser can open. No kind is filtered out and
+// no kind gets a control, so an older desktop that still emits other kinds
+// renders text here, never a button.
 function renderFromChats() {
-  const questions = (state.glance?.needsYou ?? []).filter((item) => item.kind !== "pending-decision");
+  const questions = state.glance?.needsYou ?? [];
   if (!questions.length) return "";
   return `<section class="glance">
-    <h3 class="glance-heading">From chats</h3>
+    <h3 class="glance-heading">Needs you</h3>
     <ul class="glance-list">${questions.map((item) => {
       const conversationId = typeof item.ref?.conversationId === "string" ? item.ref.conversationId : "";
       const known = conversationId && state.conversations.some((conversation) => conversation.id === conversationId);
@@ -1953,61 +1910,6 @@ function renderFromChats() {
       return `<li class="glance-item from-chat"><span>${space}${escapeHtml(item.headline ?? "")}</span>${known ? `<button type="button" class="text-button" data-open-chat="${escapeAttribute(conversationId)}">Open chat</button>` : ""}</li>`;
     }).join("")}</ul>
   </section>`;
-}
-
-function renderDecisionCard(card) {
-  const busy = state.decisionBusyId === card.id;
-  const facts = card.facts?.length
-    ? `<dl class="needs-you-facts">${card.facts.map((fact) =>
-      `<div class="needs-you-fact"><dt>${escapeHtml(fact.label)}</dt><dd>${escapeHtml(fact.value)}</dd></div>`).join("")}</dl>`
-    : "";
-  const askedBy = card.provenance?.stagedVia === "management-conversation"
-    ? "Asked in a chat"
-    : "Asked from the command line";
-  // The surface rules are stated on the card up front, never discovered at
-  // refusal time: Personal-scope make-runnable acts are decided on the
-  // desktop, the browser whose request staged a card never decides it, and a
-  // rootless file grant approves only where the folder picker lives.
-  const rule = card.desktopOnly
-    ? `<p class="needs-you-rule">Decide this on your desktop.</p>`
-    : card.stagedByGrantId && card.stagedByGrantId === state.identity?.grantId
-      ? `<p class="needs-you-rule">This browser asked for this. Decide it on your desktop, or in another approved browser.</p>`
-      : "";
-  // Approval binds an app.grant.files card to a person-chosen folder, and the
-  // folder picker exists only in the main work-fold window — so Approve is
-  // disabled here up front, the way desktop-only cards are, while denial
-  // stays available from this browser.
-  const needsChosenFolder = !rule && Boolean(card.needsDesktopChosenFolder);
-  const chosenFolderRule = needsChosenFolder
-    ? `<p class="needs-you-rule">Approving picks a folder in the work-fold app, so approve it there. You can still deny it from here.</p>`
-    : "";
-  const confirming = state.confirmingDestroy.has(card.id);
-  const actions = rule ? "" : confirming
-    ? `<div class="needs-you-confirm" role="alert">
-        <p>This deletes something for good. There is no undo.</p>
-        <div class="needs-you-actions">
-          <button type="button" class="needs-you-approve needs-you-destroy" data-decide-card="${escapeAttribute(card.id)}" data-decision="approved"${busy ? " disabled" : ""}>Yes, delete for good</button>
-          <button type="button" class="needs-you-keep" data-decide-card="${escapeAttribute(card.id)}" data-keep="true"${busy ? " disabled" : ""}>Keep it</button>
-        </div>
-      </div>`
-    : `<details class="needs-you-note" data-note-card="${escapeAttribute(card.id)}"${state.openNotes.has(card.id) ? " open" : ""}>
-        <summary>Add a note</summary>
-        <input type="text" maxlength="512" placeholder="Optional note, kept with a denial" aria-label="Optional note, kept with a denial" data-decision-note="${escapeAttribute(card.id)}" value="${escapeAttribute(state.decisionNotes.get(card.id) ?? "")}" />
-      </details>
-      <div class="needs-you-actions">
-        <button type="button" class="needs-you-approve" data-decide-card="${escapeAttribute(card.id)}" data-decision="approved"${busy || needsChosenFolder ? " disabled" : ""}>Approve</button>
-        <button type="button" class="needs-you-deny" data-decide-card="${escapeAttribute(card.id)}" data-decision="denied"${busy ? " disabled" : ""}>Deny</button>
-      </div>`;
-  return `<article class="needs-you-card${busy ? " busy" : ""}" data-decision-card="${escapeAttribute(card.id)}" tabindex="-1" data-category="${escapeAttribute(card.category ?? "")}"${busy ? ` aria-busy="true"` : ""}>
-    <p class="needs-you-category">${escapeHtml(card.categoryLine ?? "")}</p>
-    <h3 class="needs-you-title">${escapeHtml(card.title ?? "")}</h3>
-    ${facts}
-    <p class="needs-you-provenance">${escapeHtml(askedBy)} · ${escapeHtml(relativeTime(card.provenance?.stagedAt))} · ${escapeHtml(expiryPhrase(card.expiresAt))}</p>
-    ${card.priorDenialAt ? `<p class="needs-you-prior-denial">You denied this on ${escapeHtml(calendarDay(card.priorDenialAt))}. It has been asked again.</p>` : ""}
-    ${rule}
-    ${chosenFolderRule}
-    ${actions}
-  </article>`;
 }
 
 function renderGlance() {
@@ -2098,16 +2000,6 @@ function relativeTime(value) {
   return calendarDay(value);
 }
 
-/** A staged act's remaining life; expiry is not approval, so it says so. */
-function expiryPhrase(value) {
-  const date = new Date(value ?? "");
-  if (!Number.isFinite(date.getTime())) return "";
-  const minutesLeft = Math.round((date.getTime() - Date.now()) / 60_000);
-  if (minutesLeft <= 0) return "expired";
-  if (minutesLeft < 60) return `expires in ${minutesLeft} min`;
-  return `expires in ${Math.round(minutesLeft / 60)} h`;
-}
-
 function calendarDay(value) {
   const date = new Date(value ?? "");
   if (!Number.isFinite(date.getTime())) return String(value ?? "");
@@ -2121,76 +2013,10 @@ function onFoldHomeClick(event) {
     void selectConversation(button.dataset.openChat);
     return;
   }
-  if (button.dataset.dismissFoldNotice) {
-    state.foldHomeNotice = "";
-    renderFoldHome();
-    return;
-  }
   if (button.dataset.showEarlier) {
     state.showEarlierChanges = true;
     renderFoldHome();
-    return;
   }
-  const cardId = button.dataset.decideCard;
-  if (!cardId) return;
-  const card = state.decisions.find((item) => item.id === cardId);
-  if (!card || state.decisionBusyId) return;
-  if (button.dataset.keep === "true") {
-    state.confirmingDestroy.delete(cardId);
-    renderFoldHome();
-    return;
-  }
-  const decision = button.dataset.decision;
-  if (decision !== "approved" && decision !== "denied") return;
-  // Destroy-category cards demand a second explicit confirmation inside the
-  // card — the same ceremony as every other surface. There is no approve-all.
-  if (decision === "approved" && card.secondConfirmation && !state.confirmingDestroy.has(cardId)) {
-    state.confirmingDestroy.add(cardId);
-    renderFoldHome();
-    return;
-  }
-  void decideRemoteCard(card, decision);
-}
-
-async function decideRemoteCard(card, decision) {
-  state.decisionBusyId = card.id;
-  renderFoldHome();
-  try {
-    const note = (state.decisionNotes.get(card.id) ?? "").trim();
-    const result = await remote("decisions.decide", {
-      id: card.id,
-      decision,
-      ...(decision === "denied" && note ? { note } : {}),
-    });
-    state.foldHomeNotice = remoteDecisionNotice(result.decision ?? {}, result.receipted === true);
-    state.confirmingDestroy.delete(card.id);
-    state.openNotes.delete(card.id);
-    state.decisionNotes.delete(card.id);
-  } catch (error) {
-    // Refusals arrive typed from the desktop (settled elsewhere, expired,
-    // invalidated, surface rules); the host's sentence is the honest story.
-    state.foldHomeNotice = errorText(error);
-  } finally {
-    state.decisionBusyId = null;
-  }
-  await refreshFoldHome();
-  renderFoldHome();
-}
-
-/** The same outcome sentences the desktop surfaces show; nothing new is composed here. */
-function remoteDecisionNotice(card, receipted) {
-  const receiptWarning = receipted ? "" : " The receipt could not be written; the outcome above still stands.";
-  if (card.decision?.decision === "denied") {
-    return `Denied: ${card.title}. work-fold never retries a denied act.${receiptWarning}`;
-  }
-  if (card.execution?.outcome === "executed") return `Done: ${card.title}.${receiptWarning}`;
-  if (card.execution?.outcome === "failed") {
-    return `Approved, but it failed: ${card.execution.errorDetail ?? "the execution reported an error."} It will not be retried.${receiptWarning}`;
-  }
-  if (card.execution?.outcome === "interrupted") {
-    return `Approved, but interrupted before it finished. It was not replayed.${receiptWarning}`;
-  }
-  return `Recorded: ${card.title}.${receiptWarning}`;
 }
 
 function addUploads(files) {

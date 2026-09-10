@@ -7,12 +7,10 @@ import test from "node:test";
 import {
   WORKFOLD_CLI_ACT_MAX_PAYLOAD_BYTES,
   WORKFOLD_CLI_ACT_PROTOCOL_VERSION,
-  WORKFOLD_CLI_ACT_STAGED_COMMAND_NAMES,
   WorkFoldCliError,
   createWorkFoldCliActRequest,
   executeWorkFoldCliActRequest,
   isWorkFoldCliActRequest,
-  isWorkFoldCliActStagedCommand,
   parseWorkFoldCliActArgv,
   parseWorkFoldCliActRequest,
   parseWorkFoldCliRequestEnvelope,
@@ -26,7 +24,7 @@ const createdAt = new Date().toISOString();
 test("act request parsing enforces exact keys, token shape, and payload bounds", () => {
   const id = randomUUID();
   const parsed = parseWorkFoldCliActRequest({
-    protocolVersion: 2,
+    protocolVersion: 3,
     lane: "act",
     id,
     argv: ["chat", "status", "--space", "space-1"],
@@ -39,7 +37,7 @@ test("act request parsing enforces exact keys, token shape, and payload bounds",
   assert.equal(parsed.id, id);
   assert.equal(parsed.payload?.messageFile, "hello");
 
-  const base = { protocolVersion: 2, lane: "act", id: randomUUID(), argv: [], cwd, createdAt, actToken: token };
+  const base = { protocolVersion: 3, lane: "act", id: randomUUID(), argv: [], cwd, createdAt, actToken: token };
   assert.throws(() => parseWorkFoldCliActRequest({ ...base, extra: true }), /unsupported field: extra/);
   assert.throws(() => parseWorkFoldCliActRequest({ ...base, lane: "read" }), /lane/);
   assert.throws(() => parseWorkFoldCliActRequest({ ...base, actToken: "short" }), /token is malformed/);
@@ -75,7 +73,7 @@ test("the request envelope dispatches versions to their lanes", () => {
   assert.equal(isWorkFoldCliActRequest(v1), false);
 
   const act = parseWorkFoldCliRequestEnvelope({
-    protocolVersion: 2,
+    protocolVersion: 3,
     lane: "act",
     id: randomUUID(),
     argv: ["chat", "create", "--space", "space-1"],
@@ -86,7 +84,7 @@ test("the request envelope dispatches versions to their lanes", () => {
   assert.equal(isWorkFoldCliActRequest(act), true);
 
   assert.throws(
-    () => parseWorkFoldCliRequestEnvelope({ protocolVersion: 3, id: randomUUID(), argv: [], cwd, createdAt }),
+    () => parseWorkFoldCliRequestEnvelope({ protocolVersion: 4, id: randomUUID(), argv: [], cwd, createdAt }),
     /Unsupported CLI protocol version/,
   );
 });
@@ -393,10 +391,6 @@ test("ledger Chat, History, file, search, Library, and Space commands parse with
     { name: "files.delete", output: "human", space: "space-1", path: "docs/old.md" },
   );
   assert.deepEqual(
-    parseWorkFoldCliActArgv(["files", "destroy", "--space", "space-1", "--path", "big.iso", "--path", "cache.bin"]),
-    { name: "files.destroy", output: "human", space: "space-1", paths: ["big.iso", "cache.bin"] },
-  );
-  assert.deepEqual(
     parseWorkFoldCliActArgv(["files", "mkdir", "--space", "space-1", "--path", "notes"]),
     { name: "files.mkdir", output: "human", space: "space-1", path: "notes" },
   );
@@ -623,20 +617,6 @@ test("ledger command flag validation refuses malformed and misplaced shapes", ()
     /Provide --to <space-folder>/,
   );
   assert.throws(
-    () => parseWorkFoldCliActArgv(["files", "destroy", "--space", "s"]),
-    /at least one --path/,
-  );
-  assert.throws(
-    () => parseWorkFoldCliActArgv([
-      "files",
-      "destroy",
-      "--space",
-      "s",
-      ...Array.from({ length: 26 }, (_, index) => ["--path", `file-${index}`]).flat(),
-    ]),
-    /At most 25 --path targets/,
-  );
-  assert.throws(
     () => parseWorkFoldCliActArgv(["files", "delete", "--space", "s", "--path", "a", "--path", "b"]),
     /--path may be provided only once/,
   );
@@ -718,7 +698,6 @@ test("ledger command flag validation refuses malformed and misplaced shapes", ()
   // Space-scoped writes still require explicit selection.
   for (const argv of [
     ["spaces", "delete"],
-    ["files", "destroy", "--path", "a"],
     ["history", "restore", "--checkpoint", "chk-1"],
     ["chat", "rename", "--conversation", "c", "--title", "t"],
   ]) {
@@ -738,9 +717,6 @@ test("setup-only authority families are refused at parse time", () => {
     [["providers", "remove"], /Provider credentials/],
     [["credentials", "remove"], /Provider credentials/],
     [["settings", "assistant"], /Settings administration/],
-    [["policy", "create"], /Standing-policy authoring/],
-    [["policies", "edit"], /Standing-policy authoring/],
-    [["policy"], /Standing-policy authoring/],
     [["--json", "remote", "disable"], /Remote access administration/],
   ];
   for (const [argv, category] of refusals) {
@@ -751,7 +727,7 @@ test("setup-only authority families are refused at parse time", () => {
         && error.code === "permissionDenied"
         && category.test(error.message)
         && /local setup only/.test(error.message)
-        && /neither perform nor stage/.test(error.message),
+        && /cannot perform it/.test(error.message),
       `expected setup-only refusal for '${argv.join(" ")}'`,
     );
   }
@@ -763,19 +739,19 @@ test("setup-only authority families are refused at parse time", () => {
   );
 });
 
-test("consecration staging and staged-act commands parse with strict shapes", () => {
+test("direct verbs parse with strict shapes", () => {
   assert.deepEqual(
-    parseWorkFoldCliActArgv(["routings", "stage", "--proposal", "fold/weekly.work-fold-routing.json"]),
-    { name: "routings.stage", output: "human", proposalPath: "fold/weekly.work-fold-routing.json" },
+    parseWorkFoldCliActArgv(["routings", "enable", "--proposal", "fold/weekly.work-fold-routing.json"]),
+    { name: "routings.enable", output: "human", proposalPath: "fold/weekly.work-fold-routing.json" },
   );
   assert.deepEqual(
-    parseWorkFoldCliActArgv(["routings", "stage", "--proposal", "weekly.json", "--parent-task", "task-1"]),
-    { name: "routings.stage", output: "human", proposalPath: "weekly.json", parentTaskId: "task-1" },
+    parseWorkFoldCliActArgv(["routings", "enable", "--proposal", "weekly.json", "--parent-task", "task-1"]),
+    { name: "routings.enable", output: "human", proposalPath: "weekly.json", parentTaskId: "task-1" },
   );
   // Routings are above Spaces, like the manage group.
   assert.throws(
-    () => parseWorkFoldCliActArgv(["routings", "stage", "--proposal", "weekly.json", "--space", "space-1"]),
-    /--space cannot be used with 'routings stage'/,
+    () => parseWorkFoldCliActArgv(["routings", "enable", "--proposal", "weekly.json", "--space", "space-1"]),
+    /--space cannot be used with 'routings enable'/,
   );
 
   assert.deepEqual(
@@ -792,8 +768,8 @@ test("consecration staging and staged-act commands parse with strict shapes", ()
     /--message cannot be used with 'pages stage'/,
   );
 
-  // Rung 3: hosted-app exposure staging. The pins come from the installed
-  // Instance's reviewed manifest host-side; argv names only the identity.
+  // Rung 3: hosted-app exposure. The pins come from the installed Instance's
+  // reviewed manifest host-side; argv names only the identity.
   assert.deepEqual(
     parseWorkFoldCliActArgv(["pages", "stage-app", "--space", "space-1", "--instance", "feature-installation-1"]),
     { name: "pages.stage-app", output: "human", space: "space-1", instance: "feature-installation-1" },
@@ -813,116 +789,83 @@ test("consecration staging and staged-act commands parse with strict shapes", ()
     "apps have no snapshot lane; asleep is the only offline state",
   );
 
-  assert.deepEqual(parseWorkFoldCliActArgv(["staged", "list"]), { name: "staged.list", output: "human" });
-  assert.deepEqual(
-    parseWorkFoldCliActArgv(["staged", "show", "--id", "act-1", "--json"]),
-    { name: "staged.show", output: "json", stagedActId: "act-1" },
-  );
-  assert.deepEqual(
-    parseWorkFoldCliActArgv(["staged", "cancel", "--id", "act-1", "--parent-task", "task-1"]),
-    { name: "staged.cancel", output: "human", stagedActId: "act-1", parentTaskId: "task-1" },
-  );
-  // Inspection reads carry no lineage; deciding has no argv shape at all.
+  // The pending-decision family and permanent deletion are gone from the
+  // vocabulary (docs/receipts-not-gates.md, F19/F20): unknown commands, not
+  // refusals with a story.
+  for (const argv of [["staged", "list"], ["staged", "show"], ["staged", "cancel"], ["routings", "stage"]]) {
+    assert.throws(() => parseWorkFoldCliActArgv(argv), /Unknown command/, `expected an unknown command for '${argv.join(" ")}'`);
+  }
   assert.throws(
-    () => parseWorkFoldCliActArgv(["staged", "list", "--parent-task", "task-1"]),
-    /--parent-task cannot be used with 'staged list'/,
+    () => parseWorkFoldCliActArgv(["files", "destroy"]),
+    /Unknown command: files destroy/,
   );
-  assert.throws(
-    () => parseWorkFoldCliActArgv(["staged", "show", "--id", "act-1", "--parent-task", "task-1"]),
-    /--parent-task cannot be used with 'staged show'/,
-  );
-  assert.throws(() => parseWorkFoldCliActArgv(["staged", "approve", "--id", "act-1"]), /Unknown command: staged approve/);
-  assert.throws(() => parseWorkFoldCliActArgv(["staged", "decide", "--id", "act-1"]), /Unknown command: staged decide/);
 });
 
-test("consecrated verbs stage through the facade, stamp decisionId on receipts, and render the pending decision", async () => {
+test("formerly gated verbs execute through the facade and receipt without a decision id", async () => {
   const spaceRef = { id: "space-1", name: "Fold Space", spaceRoot: "/tmp/fold" };
-  const expiresAt = "2026-08-12T10:00:00.000Z";
-  const stagedShape = (kind: string, category: string, extra: Record<string, unknown> = {}) => ({
-    decisionId: "act-11111111",
-    kind,
-    category,
-    state: "staged" as const,
-    createdAt,
-    expiresAt,
-    deduplicated: false,
-    ...extra,
-  });
+  const appRef = { spaceId: "space-1", appId: "quote-board", featureInstallationId: "feature-installation-1", digest: "f".repeat(64), title: "Quote board", version: "0.9.0" };
+  const publication = {
+    publicationId: "pub-1", kind: "page", spaceId: "space-1", spaceName: "Fold Space", relativePath: "reports/weekly.md", title: "Weekly report",
+    state: "active", live: true, serveRatePerMinute: 60, byteBudgetPerDay: 268435456, snapshotEnabled: false,
+    createdAt, updatedAt: createdAt, bridgeSlot: "pending", viewerPath: "/p/pub-1",
+  };
   const calls: Array<{ method: string; input?: unknown }> = [];
   const facade = {
     spacesDelete: async (input: unknown) => {
       calls.push({ method: "spacesDelete", input });
-      return { space: spaceRef, staged: stagedShape("space.delete-folder", "destroy") };
+      return { space: spaceRef, storage: "managed", removed: true, cleanupPending: true };
     },
     toolsInstall: async (input: unknown) => {
       calls.push({ method: "toolsInstall", input });
       return {
         scope: "personal",
-        staged: stagedShape("capability.package.install", "make-runnable", { deduplicated: true, priorDenialAt: createdAt }),
         source: "npm:@demo/toolkit@1.2.3",
         packageId: "npm:@demo/toolkit",
         version: "1.2.3",
         resourceSummary: "1 skill(s), 1 extension(s) — executable Pi capability",
+        installed: true,
       };
+    },
+    toolsImportSkill: async (input: unknown) => {
+      calls.push({ method: "toolsImportSkill", input });
+      return { scope: "space", space: spaceRef, source: "/tmp/notes.skill", contentDigest: "c".repeat(64), skillNames: ["notes", "todo"], bundlePath: "/tmp/fold/.pi/skills/notes.skill" };
     },
     appsUninstallPurge: async (input: unknown) => {
       calls.push({ method: "appsUninstallPurge", input });
-      return {
-        space: spaceRef,
-        staged: stagedShape("app.data.purge", "destroy"),
-        runtimeInstanceId: "runtime-instance_1",
-        dataNamespaceIds: ["data-namespace_1"],
-      };
+      return { space: spaceRef, runtimeInstanceId: "runtime-instance_1", purgedNamespaceIds: ["data-namespace_1"], removed: true, cleanupPending: false };
     },
-    routingsStage: async (input: unknown) => {
-      calls.push({ method: "routingsStage", input });
-      return {
-        staged: stagedShape("routing.enable", "widen-power"),
-        routingId: "routing-weekly",
-        declarationDigest: "e".repeat(64),
-        title: "Weekly glue",
-        referencedSpaceIds: ["space-1"],
-      };
+    appsGrant: async (input: unknown) => {
+      calls.push({ method: "appsGrant", input });
+      return { space: spaceRef, appId: "quote-board", grantKind: "files", declaration: "exports", granted: true, root: "." };
+    },
+    appsStorageClear: async (input: unknown) => {
+      calls.push({ method: "appsStorageClear", input });
+      return { space: spaceRef, appId: "quote-board", clearedBytes: 2048, remainingBytes: 0 };
+    },
+    routingsEnable: async (input: unknown) => {
+      calls.push({ method: "routingsEnable", input });
+      return { routingId: "routing-weekly", declarationDigest: "e".repeat(64), title: "Weekly glue", referencedSpaceIds: ["space-1"], health: "enabled" };
     },
     pagesStage: async (input: unknown) => {
       calls.push({ method: "pagesStage", input });
-      return {
-        space: spaceRef,
-        staged: stagedShape("publish.viewer.expose", "widen-power"),
-        relativePath: "reports/weekly.md",
-        title: "Weekly report",
-        snapshotEnabled: false,
-        serveRatePerMinute: 60,
-        byteBudgetPerDay: 268435456,
-      };
+      return { space: spaceRef, publication };
     },
     pagesStageApp: async (input: unknown) => {
       calls.push({ method: "pagesStageApp", input });
       return {
         space: spaceRef,
-        staged: stagedShape("publish.viewer.expose", "widen-power"),
-        appId: "fixture-app",
-        title: "Fixture app",
-        appInstanceId: "feature-installation-1",
-        releaseDigest: `sha256:${"a".repeat(64)}`,
-        viewerEntry: "viewer.html",
-        viewerSurface: ["entry:viewer.html", "data:public/"],
-        serveRatePerMinute: 60,
-        byteBudgetPerDay: 268435456,
+        publication: {
+          ...publication, publicationId: "pub-app", kind: "app", relativePath: undefined, title: "Fixture app", viewerPath: "/a/pub-app",
+          appInstanceId: "feature-installation-1", releaseDigest: `sha256:${"a".repeat(64)}`, viewerEntry: "viewer.html", viewerSurface: ["entry:viewer.html", "data:public/"],
+        },
       };
     },
     appsInstallPreview: async (input: unknown) => {
       calls.push({ method: "appsInstallPreview", input });
-      return {
-        space: spaceRef,
-        staged: stagedShape("app.review.approve", "make-runnable"),
-        proposalId: "proposal-1",
-        digest: "f".repeat(64),
-        replacesInstalled: false,
-      };
+      return { space: spaceRef, proposalId: "proposal-1", digest: "f".repeat(64), title: "Quote board", packageName: "quote-board", version: "0.9.0", replacesInstalled: true, app: appRef };
     },
   } as unknown as WorkFoldActFacade;
-  const records: Array<{ outcome: string; command: string; errorCode?: string; decisionId?: string; detail?: string }> = [];
+  const records: Array<Record<string, unknown>> = [];
   const execute = (argv: string[]) => executeWorkFoldCliActRequest(
     createWorkFoldCliActRequest({ id: randomUUID(), argv, cwd, actToken: token }),
     {
@@ -931,13 +874,7 @@ test("consecrated verbs stage through the facade, stamp decisionId on receipts, 
       receipts: {
         hasAccepted: async () => false,
         append: async (record) => {
-          records.push({
-            outcome: record.outcome,
-            command: record.command,
-            ...(record.errorCode ? { errorCode: record.errorCode } : {}),
-            ...(record.decisionId ? { decisionId: record.decisionId } : {}),
-            ...(record.detail ? { detail: record.detail } : {}),
-          });
+          records.push({ ...record });
           return true;
         },
       },
@@ -945,82 +882,87 @@ test("consecrated verbs stage through the facade, stamp decisionId on receipts, 
   );
   const lastOk = () => records.filter((record) => record.outcome === "ok").at(-1)!;
 
-  const staged = await execute(["spaces", "delete", "--space", "space-1", "--json"]);
-  assert.equal(staged.exitCode, 0);
-  const stagedJson = JSON.parse(staged.stdout) as { ok: boolean; data: { staged: { decisionId: string; state: string } } };
-  assert.equal(stagedJson.ok, true);
-  assert.equal(stagedJson.data.staged.decisionId, "act-11111111");
-  assert.equal(stagedJson.data.staged.state, "staged");
-  const spacesDeleteCall = calls.at(-1)!;
-  assert.equal(spacesDeleteCall.method, "spacesDelete");
-  const spacesDeleteInput = spacesDeleteCall.input as { space: string; requestId?: string };
+  // Every verb executes on the first call and returns its effect: no pending
+  // decision, no decision id anywhere in the result or the receipts.
+  const deleted = await execute(["spaces", "delete", "--space", "space-1", "--json"]);
+  assert.equal(deleted.exitCode, 0);
+  const deletedJson = JSON.parse(deleted.stdout) as { ok: boolean; data: Record<string, unknown> };
+  assert.equal(deletedJson.ok, true);
+  assert.equal(deletedJson.data.removed, true);
+  assert.equal("staged" in deletedJson.data, false);
+  assert.equal("decisionId" in deletedJson.data, false);
+  const spacesDeleteInput = calls.at(-1)!.input as { space: string; requestId?: string };
   assert.equal(spacesDeleteInput.space, "space-1");
-  assert.ok(spacesDeleteInput.requestId, "the staging act's journal id rides into provenance");
+  assert.ok(spacesDeleteInput.requestId, "the act request's journal id rides into the facade");
   assert.deepEqual(records.map((record) => record.outcome), ["accepted", "ok"]);
-  assert.equal(lastOk().decisionId, "act-11111111", "the staging receipt stamps the pending decision id");
-  assert.equal(lastOk().detail, "staged space.delete-folder");
+  assert.equal(lastOk().decisionId, undefined, "receipts carry no decision id");
+  assert.equal(lastOk().detail, "space.delete-folder");
+  const deletedHuman = await execute(["spaces", "delete", "--space", "space-1"]);
+  assert.match(deletedHuman.stdout, /^Deleted the managed folder of Fold Space \[space-1\]\. Final cleanup completes at the next start\.\n$/);
 
   const install = await execute(["tools", "install", "--source", "npm:@demo/toolkit", "--scope", "personal"]);
   assert.equal(install.exitCode, 0);
-  assert.match(install.stdout, /Staged installing npm:@demo\/toolkit 1\.2\.3 \(personal scope\)\./);
-  assert.match(install.stdout, /installs code that can run as you/);
-  assert.match(install.stdout, /Decision act-11111111 expires 2026-08-12T10:00:00\.000Z; nothing runs until it is approved\./);
-  assert.match(install.stdout, /An identical act was already pending; this is the existing card, not a second one\./);
-  assert.match(install.stdout, /An identical act was denied at .*; the card states that\./);
-  assert.equal(lastOk().decisionId, "act-11111111");
-  assert.match(lastOk().detail ?? "", /^staged capability\.package\.install \(already pending\); scope personal; source npm:@demo\/toolkit@1\.2\.3; version 1\.2\.3$/);
+  assert.match(install.stdout, /^Installed npm:@demo\/toolkit 1\.2\.3 \(personal scope\)\.\n$/);
+  assert.doesNotMatch(install.stdout, /staged|approv|decision/i);
+  assert.equal(lastOk().detail, "capability.package.install; scope personal; source npm:@demo/toolkit@1.2.3; version 1.2.3");
+  assert.deepEqual(lastOk().undoRef, { kind: "package-source", value: "npm:@demo/toolkit@1.2.3" });
+
+  const imported = await execute(["tools", "import-skill", "--scope", "space", "--space", "space-1", "--from", "notes.skill"]);
+  assert.equal(imported.exitCode, 0);
+  assert.match(imported.stdout, /^Imported notes, todo \(space scope\)\.\n$/);
+  assert.equal(lastOk().detail, `capability.skills.import; scope space; source /tmp/notes.skill; digest ${"c".repeat(64)}`);
+  assert.deepEqual(lastOk().undoRef, { kind: "skill-bundle-path", value: "/tmp/fold/.pi/skills/notes.skill" });
 
   const purge = await execute(["apps", "uninstall", "--space", "space-1", "--instance", "runtime-instance_1", "--purge-data"]);
   assert.equal(purge.exitCode, 0);
-  assert.match(purge.stdout, /Staged uninstalling instance runtime-instance_1 from Fold Space \[space-1\] with its data purged\./);
-  assert.match(purge.stdout, /deletes something for good/);
+  assert.match(purge.stdout, /^Uninstalled instance runtime-instance_1 from Fold Space \[space-1\] and purged its data\.\n$/);
   assert.equal(calls.at(-1)?.method, "appsUninstallPurge");
-  assert.equal(lastOk().detail, "staged app.data.purge; instance runtime-instance_1");
+  assert.equal(lastOk().detail, "app.data.purge; instance runtime-instance_1");
 
-  const routing = await execute(["routings", "stage", "--proposal", "fold/weekly.json"]);
+  const grant = await execute(["apps", "grant", "--space", "space-1", "--app", "quote-board", "--digest", "f".repeat(64), "--kind", "files", "--declaration", "exports"]);
+  assert.equal(grant.exitCode, 0);
+  assert.match(grant.stdout, /^Granted files exports to quote-board in Fold Space \[space-1\]\. It covers the whole Space folder\.\n$/);
+  assert.equal(lastOk().detail, "app.grant.files; app quote-board; declaration exports; root .");
+  assert.deepEqual(lastOk().undoRef, { kind: "declaration", value: "exports" });
+
+  const cleared = await execute(["apps", "storage", "clear", "--space", "space-1", "--app", "quote-board"]);
+  assert.match(cleared.stdout, /^Cleared 2048 bytes of live storage of quote-board in Fold Space \[space-1\]; 0 bytes remain\.\n$/);
+  assert.equal(lastOk().detail, "app.storage.clear; app quote-board; bytes 2048");
+
+  const routing = await execute(["routings", "enable", "--proposal", "fold/weekly.json"]);
   assert.equal(routing.exitCode, 0);
-  assert.match(routing.stdout, /Staged enabling routing "Weekly glue" \[routing-weekly\] at digest e+\./);
-  assert.match(routing.stdout, /grants a standing power/);
-  assert.deepEqual(calls.at(-1)?.method, "routingsStage");
+  assert.match(routing.stdout, /^Enabled routing "Weekly glue" \[routing-weekly\]\.\n$/);
+  assert.equal(calls.at(-1)?.method, "routingsEnable");
   assert.equal((calls.at(-1)?.input as { proposalPath: string }).proposalPath, "fold/weekly.json");
   assert.equal((calls.at(-1)?.input as { cwd: string }).cwd, cwd);
-  assert.equal(lastOk().detail, `staged routing.enable; routing routing-weekly; digest ${"e".repeat(64)}`);
+  assert.equal(lastOk().detail, `routing.enable; routing routing-weekly; digest ${"e".repeat(64)}`);
+  assert.deepEqual(lastOk().undoRef, { kind: "routing-id", value: "routing-weekly" });
 
   const page = await execute(["pages", "stage", "--space", "space-1", "--path", "reports/weekly.md", "--title", "Weekly report"]);
   assert.equal(page.exitCode, 0);
-  assert.match(page.stdout, /Staged sharing "Weekly report" \(reports\/weekly\.md\) from Fold Space \[space-1\] as a page — snapshot off\./);
-  assert.equal(lastOk().detail, "staged publish.viewer.expose; source reports/weekly.md; serveRatePerMinute=60 byteBudgetPerDay=268435456 snapshot=off");
+  assert.match(page.stdout, /^Sharing "Weekly report" \(reports\/weekly\.md\) from Fold Space \[space-1\] at \/p\/pub-1\. Reveal the link in Settings → The fold\.\n$/);
+  assert.equal(lastOk().detail, "publish.viewer.expose; source reports/weekly.md; publication pub-1");
+  assert.deepEqual(lastOk().undoRef, { kind: "publicationId", value: "pub-1" });
 
   const hostedApp = await execute(["pages", "stage-app", "--space", "space-1", "--instance", "feature-installation-1"]);
   assert.equal(hostedApp.exitCode, 0);
-  assert.match(
-    hostedApp.stdout,
-    /Staged putting "Fixture app" \(App Instance feature-installation-1, Release sha256:a+\) from Fold Space \[space-1\] at your address/,
-  );
-  assert.match(hostedApp.stdout, /viewer-readable surface: entry:viewer\.html, data:public\//);
+  assert.match(hostedApp.stdout, /^Sharing "Fixture app" \(App Instance feature-installation-1\) from Fold Space \[space-1\] at \/a\/pub-app\.\n$/);
   assert.equal(calls.at(-1)?.method, "pagesStageApp");
   assert.equal((calls.at(-1)?.input as { instance: string }).instance, "feature-installation-1");
-  assert.equal(
-    lastOk().detail,
-    `staged publish.viewer.expose; appInstanceId feature-installation-1; releaseDigest sha256:${"a".repeat(64)}; `
-      + "viewerEntry viewer.html; viewerSurface entry:viewer.html,data:public/; serveRatePerMinute=60 byteBudgetPerDay=268435456",
-  );
+  assert.equal(lastOk().detail, `publish.viewer.expose; appInstanceId feature-installation-1; releaseDigest sha256:${"a".repeat(64)}; publication pub-app`);
 
-  // The host creates the pending review itself, so `apps install-preview`
-  // stages the same app.review.approve decision the Chat proposal path uses.
+  // The host creates the review itself and installs it at once through the
+  // same digest-checked path a Chat proposal uses.
   records.length = 0;
   const preview = await execute(["apps", "install-preview", "--space", "space-1", "--package", "apps/preview"]);
   assert.equal(preview.exitCode, 0);
-  assert.match(preview.stdout, /Staged/);
-  assert.match(preview.stdout, /Decision act-11111111 expires 2026-08-12T10:00:00\.000Z/);
-  assert.equal(calls.at(-1)?.method, "appsInstallPreview");
+  assert.match(preview.stdout, /^Installed Quote board 0\.9\.0 in Fold Space \[space-1\]\. It replaced the previous installation\.\n$/);
   const previewInput = calls.at(-1)?.input as { space: string; packagePath: string; requestId?: string };
   assert.equal(previewInput.space, "space-1");
   assert.equal(previewInput.packagePath, "apps/preview");
-  assert.ok(previewInput.requestId, "the staging act's journal id rides into provenance");
+  assert.ok(previewInput.requestId, "the act request's journal id rides into the facade");
   assert.deepEqual(records.map((record) => record.outcome), ["accepted", "ok"]);
-  assert.equal(lastOk().decisionId, "act-11111111");
-  assert.match(lastOk().detail ?? "", /^staged app\.review\.approve/);
+  assert.equal(lastOk().detail, `app.review.install; proposal proposal-1; digest ${"f".repeat(64)}; replaced installed preview`);
 
   // A setup-only refusal happens at parse time: no journal entry at all.
   records.length = 0;
@@ -1028,6 +970,33 @@ test("consecrated verbs stage through the facade, stamp decisionId on receipts, 
   assert.equal(neverList.exitCode, 4);
   assert.match(neverList.stderr, /Provider credentials is local setup only/);
   assert.deepEqual(records, []);
+});
+
+test("remote lineage on a management parent stamps the browser identity on act receipts", async () => {
+  const facade = {
+    pagesRevoke: async () => ({
+      publication: { publicationId: "pub-1", kind: "page", spaceId: "space-1", title: "Weekly", state: "revoked", live: false, serveRatePerMinute: 60, byteBudgetPerDay: 1, snapshotEnabled: false, createdAt, updatedAt: createdAt, bridgeSlot: "pending", viewerPath: "/p/pub-1" },
+      alreadyRevoked: false,
+    }),
+  } as unknown as WorkFoldActFacade;
+  const records: Array<Record<string, unknown>> = [];
+  const response = await executeWorkFoldCliActRequest(
+    createWorkFoldCliActRequest({ id: randomUUID(), argv: ["pages", "revoke", "--publication", "pub-1", "--parent-task", "task-remote"], cwd, actToken: token }),
+    {
+      version: "test",
+      getActFacade: () => ({ facade, token }),
+      resolveLineageParent: (taskId) => (taskId === "task-remote" ? { taskId, browserId: "browser-9", grantId: "grant-9" } : null),
+      receipts: {
+        hasAccepted: async () => false,
+        append: async (record) => { records.push({ ...record }); return true; },
+      },
+    },
+  );
+  assert.equal(response.exitCode, 0);
+  assert.deepEqual(records.map((record) => [record.outcome, record.parentTaskId, record.browserId, record.grantId]), [
+    ["accepted", "task-remote", "browser-9", "grant-9"],
+    ["ok", "task-remote", "browser-9", "grant-9"],
+  ]);
 });
 
 test("manage glance parses strictly, dispatches to the facade, journals, and renders the digest", async () => {
@@ -1044,7 +1013,7 @@ test("manage glance parses strictly, dispatches to the facade, journals, and ren
     composedAt: "2026-08-10T12:00:00.000Z",
     cursor: "2026-08-10T11:00:00.000Z/settled-turns:task-1",
     running: [{ id: "kernel-tasks:task-2", at: createdAt, kind: "assistant-turn", spaceName: "Fold Space", headline: "Assistant turn running" }],
-    needsYou: [{ id: "staged-acts:act-1", at: createdAt, kind: "pending-decision", headline: "Needs your decision: routing.enable — widen a power" }],
+    needsYou: [{ id: "chats:chat-3:question", at: createdAt, kind: "chat-question", spaceName: "Fold Space", headline: "\"Quarterly plan\" is waiting on your reply" }],
     changes: [{ id: "settled-turns:task-1", at: createdAt, kind: "turn-settled", spaceName: "Fold Space", headline: "Assistant turn succeeded" }],
     checks: [{ spaceId: "space-1", spaceName: "Fold Space", state: "needs-attention", needsAttention: 2, neverRun: 0, stale: 0, blocked: 0, errors: 0, lastRunAt: createdAt }],
     seen: {},
@@ -1079,11 +1048,11 @@ test("manage glance parses strictly, dispatches to the facade, journals, and ren
   const parsed = JSON.parse(json.stdout) as { ok: boolean; command: string; data: typeof snapshot };
   assert.equal(parsed.command, "manage.glance");
   assert.equal(parsed.data.kind, "work-fold.glance.experimental");
-  assert.equal(parsed.data.needsYou[0]?.kind, "pending-decision");
+  assert.equal(parsed.data.needsYou[0]?.kind, "chat-question");
 
   const human = await execute(["manage", "glance"]);
   assert.match(human.stdout, /Running:\n- Assistant turn running \(Fold Space\)/);
-  assert.match(human.stdout, /Needs you:\n- Needs your decision: routing\.enable/);
+  assert.match(human.stdout, /Needs you:\n- .*"Quarterly plan" is waiting on your reply/);
   assert.match(human.stdout, /Since you last looked \(more omitted\):/);
   assert.match(human.stdout, /- Fold Space: needs-attention — 2 findings need attention/);
   assert.match(human.stdout, /Unavailable sources this composition: routing-runs\./);
@@ -1381,23 +1350,6 @@ test("file, search, and Library acts dispatch to the facade, stamp receipts, and
         safetyCheckpointId: "cp-20260810130200-cccccccc",
       };
     },
-    filesDestroy: async (input: unknown) => {
-      calls.push({ method: "filesDestroy", input });
-      return {
-        space: spaceRef,
-        staged: {
-          decisionId: "act-destroy-1",
-          kind: "files.destroy",
-          category: "destroy" as const,
-          state: "staged" as const,
-          createdAt,
-          expiresAt: "2026-08-12T10:00:00.000Z",
-          deduplicated: false,
-        },
-        paths: ["big.iso"],
-        contentIdentities: [`file:sha256:${"f".repeat(64)}:9000000000`],
-      };
-    },
     filesMkdir: async (input: unknown) => {
       calls.push({ method: "filesMkdir", input });
       return {
@@ -1571,17 +1523,11 @@ test("file, search, and Library acts dispatch to the facade, stamp receipts, and
   assert.equal(lastOk().detail, "Library folder Contracts");
   assert.equal(lastOk().undoRef, undefined, "no in-product Library removal verb exists, so there is no undo reference");
 
-  // The staged sibling now stages for real: a delete History cannot cover
-  // refuses into `files destroy`, which composes observed identities and
-  // returns the pending decision instead of executing anything.
-  const destroy = await execute(["files", "destroy", "--space", "space-1", "--path", "big.iso"]);
-  assert.equal(destroy.exitCode, 0);
-  assert.match(destroy.stdout, /Staged destroying 1 path in Fold Space \[space-1\] that no restore point can cover\./);
-  assert.match(destroy.stdout, /deletes something for good/);
-  assert.deepEqual(calls.at(-1)?.method, "filesDestroy");
-  assert.deepEqual((calls.at(-1)?.input as { paths: string[] }).paths, ["big.iso"]);
-  assert.equal(lastOk().decisionId, "act-destroy-1", "the staging receipt stamps the decision id");
-  assert.match(lastOk().detail ?? "", /^staged files\.destroy; 1 path\(s\): big\.iso$/);
+  // Permanent deletion left the vocabulary (docs/receipts-not-gates.md, F20).
+  assert.throws(
+    () => parseWorkFoldCliActArgv(["files", "destroy"]),
+    /Unknown command: files destroy/,
+  );
 });
 
 test("Space, appearance, tools, and App Studio acts dispatch to the facade, stamp receipts, and render bespoke output", async () => {
@@ -1758,20 +1704,7 @@ test("Space, appearance, tools, and App Studio acts dispatch to the facade, stam
     },
     appsUninstallPurge: async (input: unknown) => {
       calls.push({ method: "appsUninstallPurge", input });
-      return {
-        space: spaceRef,
-        staged: {
-          decisionId: "act-purge-1",
-          kind: "app.data.purge",
-          category: "destroy" as const,
-          state: "staged" as const,
-          createdAt,
-          expiresAt: "2026-08-12T10:00:00.000Z",
-          deduplicated: false,
-        },
-        runtimeInstanceId: "runtime-instance_1",
-        dataNamespaceIds: ["data-namespace_1"],
-      };
+      return { space: spaceRef, runtimeInstanceId: "runtime-instance_1", purgedNamespaceIds: ["data-namespace_1"], removed: true, cleanupPending: true };
     },
     appsProposalsList: async (input: unknown) => {
       calls.push({ method: "appsProposalsList", input });
@@ -1899,7 +1832,7 @@ test("Space, appearance, tools, and App Studio acts dispatch to the facade, stam
   assert.deepEqual(lastOk().undoRef, { kind: "appearance-ref", value: "none" });
 
   const removedPersonal = await execute(["tools", "remove", "--scope", "personal", "--source", "@example/pkg"]);
-  assert.match(removedPersonal.stdout, /Removed package @example\/pkg \(personal scope\)\. Reinstalling it is a fresh decision/);
+  assert.match(removedPersonal.stdout, /Removed package @example\/pkg \(personal scope\)\. Reinstalling it is a fresh receipted act/);
   assert.deepEqual(calls.at(-1)?.input, { scope: "personal", source: "@example/pkg" });
   assert.equal(lastOk().detail, "scope personal; source @example/pkg");
   assert.equal(lastOk().spaceId, undefined);
@@ -1974,12 +1907,12 @@ test("Space, appearance, tools, and App Studio acts dispatch to the facade, stam
   assert.equal(lastOk().detail, "proposal proposal-1");
 
   const removedApp = await execute(["apps", "remove", "--space", "space-1", "--app", "connected-inbox"]);
-  assert.match(removedApp.stdout, /Removed app connected-inbox \[digest d+\] from Fold Space \[space-1\]\. Reinstalling it is a fresh decision/);
+  assert.match(removedApp.stdout, /Removed app connected-inbox \[digest d+\] from Fold Space \[space-1\]\. Reinstalling it is a fresh receipted act/);
   assert.deepEqual(calls.at(-1)?.input, { space: "space-1", app: "connected-inbox" });
   assert.equal(lastOk().detail, `app connected-inbox; digest ${"d".repeat(64)}`);
 
   const revoked = await execute(["apps", "revoke", "--space", "space-1", "--app", "connected-inbox", "--digest", "d".repeat(64), "--kind", "files", "--declaration", "space-notes"]);
-  assert.match(revoked.stdout, /Revoked the files grant space-notes from connected-inbox in Fold Space \[space-1\]\. Re-granting it is a fresh decision/);
+  assert.match(revoked.stdout, /Revoked the files grant space-notes from connected-inbox in Fold Space \[space-1\]\. Re-granting it is a fresh receipted act/);
   assert.deepEqual(calls.at(-1)?.input, {
     space: "space-1",
     app: "connected-inbox",
@@ -1999,7 +1932,7 @@ test("Space, appearance, tools, and App Studio acts dispatch to the facade, stam
   assert.equal(lastOk().detail, "app connected-inbox; destination crm; local record only — provider credential not revoked");
 
   const disabledAutomation = await execute(["apps", "automation", "disable", "--space", "space-1", "--app", "connected-inbox", "--automation", "daily-sync"]);
-  assert.match(disabledAutomation.stdout, /Disabled automation daily-sync of connected-inbox in Fold Space \[space-1\]\. Re-enabling it is a fresh decision/);
+  assert.match(disabledAutomation.stdout, /Disabled automation daily-sync of connected-inbox in Fold Space \[space-1\]\. Re-enabling it is a fresh receipted act/);
   assert.equal(lastOk().detail, "app connected-inbox; automation daily-sync");
 
   const ranAutomation = await execute(["apps", "automation", "run", "--space", "space-1", "--app", "connected-inbox", "--automation", "daily-sync"]);
@@ -2007,65 +1940,34 @@ test("Space, appearance, tools, and App Studio acts dispatch to the facade, stam
   assert.equal(lastOk().detail, "app connected-inbox; automation daily-sync; run run-77; outcome success");
 
   // The consecrated uninstall disposition stages: the executor routes
-  // `--purge-data` to the staging method, never to the retain-only uninstall.
+  // `--purge-data` to the purge method, never to the retain-only uninstall.
   records.length = 0;
   const purge = await execute(["apps", "uninstall", "--space", "space-1", "--instance", "runtime-instance_1", "--purge-data"]);
   assert.equal(purge.exitCode, 0);
-  assert.match(purge.stdout, /Staged uninstalling instance runtime-instance_1 from Fold Space \[space-1\] with its data purged\./);
+  assert.match(purge.stdout, /^Uninstalled instance runtime-instance_1 from Fold Space \[space-1\] and purged its data\.\nSome app cleanup is still pending; work-fold finishes it on the next start\.\n$/);
   assert.equal(calls.at(-1)?.method, "appsUninstallPurge");
   assert.deepEqual(records.map((record) => record.outcome), ["accepted", "ok"]);
-  assert.equal(lastOk().decisionId, "act-purge-1");
-  assert.equal(lastOk().detail, "staged app.data.purge; instance runtime-instance_1");
+  assert.equal(lastOk().decisionId, undefined);
+  assert.equal(lastOk().detail, "app.data.purge; instance runtime-instance_1");
 });
 
-test("staged-verb classification matches the ledger's consecration rows", () => {
-  assert.deepEqual([...WORKFOLD_CLI_ACT_STAGED_COMMAND_NAMES], [
-    "spaces.delete",
-    "files.destroy",
-    "tools.import-skill",
-    "tools.install",
-    "tools.update",
-    "apps.install-proposal",
-    "apps.install-preview",
-    "apps.grant",
-    "apps.connect",
-    "apps.automation.enable",
-    "apps.storage.clear",
-    "apps.retained.purge",
-    "routings.stage",
-    "pages.stage",
-    "pages.stage-app",
-  ]);
-  assert.equal(isWorkFoldCliActStagedCommand({ name: "spaces.delete" }), true);
-  assert.equal(isWorkFoldCliActStagedCommand({ name: "spaces.unregister" }), false);
-  assert.equal(isWorkFoldCliActStagedCommand({ name: "apps.uninstall", disposition: "purge-data" }), true);
-  assert.equal(isWorkFoldCliActStagedCommand({ name: "apps.uninstall", disposition: "retain-data" }), false);
-  assert.equal(isWorkFoldCliActStagedCommand({ name: "apps.revoke" }), false);
-  assert.equal(isWorkFoldCliActStagedCommand({ name: "routings.stage" }), true);
-  assert.equal(isWorkFoldCliActStagedCommand({ name: "pages.stage" }), true);
-  assert.equal(isWorkFoldCliActStagedCommand({ name: "pages.stage-app" }), true);
-  // Inspection and cancellation over the store are not consecrations.
-  assert.equal(isWorkFoldCliActStagedCommand({ name: "staged.list" }), false);
-  assert.equal(isWorkFoldCliActStagedCommand({ name: "staged.cancel" }), false);
-});
-
-test("the ledger families ride the unchanged act protocol v2 envelope", () => {
-  assert.equal(WORKFOLD_CLI_ACT_PROTOCOL_VERSION, 2);
+test("the ledger families ride the act protocol v3 envelope", () => {
+  assert.equal(WORKFOLD_CLI_ACT_PROTOCOL_VERSION, 3);
   const id = randomUUID();
-  const argv = ["files", "destroy", "--space", "space-1", "--path", "big.iso", "--path", "cache.bin"];
+  const argv = ["spaces", "delete", "--space", "space-1"];
   const request = createWorkFoldCliActRequest({ id, argv, cwd, actToken: token });
   assert.deepEqual(
     Object.keys(request).sort(),
     ["actToken", "argv", "createdAt", "cwd", "id", "lane", "protocolVersion"],
   );
-  assert.equal(request.protocolVersion, 2);
+  assert.equal(request.protocolVersion, 3);
   assert.equal(request.lane, "act");
   assert.deepEqual(request.argv, argv);
 
-  // The envelope gains no staging or decision fields; unknown keys still fail closed.
+  // The envelope gains no decision fields; unknown keys still fail closed.
   assert.throws(
     () => parseWorkFoldCliActRequest({
-      protocolVersion: 2,
+      protocolVersion: 3,
       lane: "act",
       id: randomUUID(),
       argv: ["spaces", "delete", "--space", "space-1"],

@@ -357,9 +357,9 @@ test("remote revocation cascades desktop-local grant authority before uploads ar
   });
 
   await client.revokeLocalGrant("grant-1");
-  // Ordered desktop-local-first: tracked work stops, then the staged-act and
-  // glance-marker cascade runs, then uploads purge — all before the caller's
-  // bridge mutation (docs/fold-consecrations.md, browser revocation).
+  // Ordered desktop-local-first: tracked work stops, then the glance-marker
+  // cascade runs, then uploads purge — all before the caller's bridge
+  // mutation (docs/fold-glance.md, browser revocation).
   assert.deepEqual(events, ["remove:grant-1", "management.stop", "revoke-authority:grant-1", "purge:grant-1"]);
 
   events.length = 0;
@@ -372,11 +372,11 @@ test("a cascade failure never skips the upload purge and still surfaces the erro
   const facade: WorkFoldRemoteFacade = {
     async execute() { throw new Error("Unexpected remote operation."); },
     async purgeUploads(grantId) { events.push(`purge:${grantId ?? "all"}`); },
-    async revokeGrantAuthority() { throw new Error("staged-act store unavailable"); },
+    async revokeGrantAuthority() { throw new Error("glance marker store unavailable"); },
   };
   const client = clientFor(facade, events);
 
-  await assert.rejects(() => client.revokeLocalGrant("grant-1"), /staged-act store unavailable/);
+  await assert.rejects(() => client.revokeLocalGrant("grant-1"), /glance marker store unavailable/);
   assert.deepEqual(events, ["remove:grant-1", "purge:grant-1"]);
 });
 
@@ -583,9 +583,9 @@ test("the all-grants disable fence suppresses an in-flight completion", async ()
   fixture.client.stop();
 });
 
-test("revocation refuses a queued decisions.decide before the desktop consumes it", async () => {
+test("revocation refuses a queued management.send before the desktop consumes it", async () => {
   const holdingBrowser = remoteTestBrowser("grant-holding");
-  const revokedBrowser = remoteTestBrowser("grant-revoked-decide");
+  const revokedBrowser = remoteTestBrowser("grant-revoked-send");
   const settings = remoteTestSettings([holdingBrowser, revokedBrowser]);
   let releaseHold!: () => void;
   const holdGate = new Promise<void>((resolve) => { releaseHold = resolve; });
@@ -601,7 +601,7 @@ test("revocation refuses a queued decisions.decide before the desktop consumes i
         return { spaces: [] };
       }
       if (operation === "management.stop") return { stopped: { managementAborted: true, children: [] } };
-      return { decision: { id: "staged-1" }, receipted: true };
+      return { taskId: "task-1", conversationId: "chat-1" };
     },
     async purgeUploads() {},
     async revokeGrantAuthority() {},
@@ -610,25 +610,25 @@ test("revocation refuses a queued decisions.decide before the desktop consumes i
   fixture.socket.open();
 
   // Hold the serialized authority queue with another grant's operation, queue
-  // the decide behind it, then revoke the deciding grant. The fence raised at
-  // the revocation call must refuse the decide before the facade — and so
-  // before the decision path — ever runs: an in-flight decision from a
-  // revoked browser is refused before consumption.
+  // the send behind it, then revoke the sending grant. The fence raised at
+  // the revocation call must refuse the send before the facade ever runs: an
+  // in-flight act from a revoked browser is refused before anything is
+  // consumed.
   fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, holdingBrowser, "request-hold", "spaces.list")));
   await holdStarted;
   fixture.socket.receive(JSON.stringify(remoteOperationFrame(
     settings,
     revokedBrowser,
-    "request-decide",
-    "decisions.decide",
-    { id: "staged-1", decision: "approved" },
+    "request-send",
+    "management.send",
+    { content: "Delete the old scans folder.", newConversation: true },
   )));
   await waitForRemoteTest(
     () => fixture.socket.sent.some((value) => {
       const message = JSON.parse(value) as { type?: string; envelope?: { header?: { requestId?: string } } };
-      return message.type === "operation.event" && message.envelope?.header?.requestId === "request-decide";
+      return message.type === "operation.event" && message.envelope?.header?.requestId === "request-send";
     }),
-    "the decide operation never queued behind the held authority block",
+    "the send operation never queued behind the held authority block",
   );
   const revoke = fixture.client.revokeLocalGrant(revokedBrowser.grant.id);
   releaseHold();
@@ -636,12 +636,12 @@ test("revocation refuses a queued decisions.decide before the desktop consumes i
   await flushAsyncHandlers();
   await flushAsyncHandlers();
 
-  assert.deepEqual(executed.filter((operation) => operation === "decisions.decide"), [],
-    "a revoked grant's queued decide must never reach the decision path");
+  assert.deepEqual(executed.filter((operation) => operation === "management.send"), [],
+    "a revoked grant's queued send must never reach the facade");
   assert.equal(
     fixture.socket.sent.some((value) => {
       const message = JSON.parse(value) as { type?: string; envelope?: { header?: { requestId?: string } } };
-      return message.type === "operation.complete" && message.envelope?.header?.requestId === "request-decide";
+      return message.type === "operation.complete" && message.envelope?.header?.requestId === "request-send";
     }),
     false,
     "no completion may be disclosed to the revoked grant",
@@ -697,7 +697,6 @@ test("the glance projection crosses within its 64 KB bound and an oversized dige
   const fixture = remoteOperationClient(settings, {
     async execute(operation) {
       if (operation === "management.glance") return glances.get(nextGlance);
-      if (operation === "decisions.list") return { decisions: [] };
       throw new Error(`unexpected operation ${operation}`);
     },
     async purgeUploads() {},
@@ -723,11 +722,6 @@ test("the glance projection crosses within its 64 KB bound and an oversized dige
   assert.equal(oversized.header.ok, false, "an oversized digest is refused, never silently trimmed");
   const oversizedPayload = decryptTestResponse(browser, settings, oversized);
   assert.match(String(oversizedPayload.error), /64 KB/);
-
-  // The decision vocabulary dispatches through the same allowlist.
-  fixture.socket.receive(JSON.stringify(remoteOperationFrame(settings, browser, "request-decisions", "decisions.list")));
-  await waitForRemoteTest(() => completions().length === 3, "decisions.list never completed");
-  assert.equal((completions()[2]!.envelope as { header: Record<string, unknown> }).header.ok, true);
   fixture.client.stop();
 });
 

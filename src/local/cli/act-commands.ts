@@ -14,7 +14,7 @@ import type {
   WorkFoldCheckEvidence,
   WorkFoldCheckFinding,
 } from "../checks/check-types.js";
-import type { WorkFoldCliActRequestV2 } from "./act-protocol.js";
+import type { WorkFoldCliActRequest } from "./act-protocol.js";
 import type { WorkFoldCliActReceipts, WorkFoldCliActUndoRef } from "./act-receipts.js";
 import { maximumAssistantInstructionsLength } from "../agent/model-preferences.js";
 import {
@@ -80,7 +80,6 @@ export type WorkFoldCliActCommandName =
   | "files.move"
   | "files.rename"
   | "files.delete"
-  | "files.destroy"
   | "files.mkdir"
   | "files.create"
   | "tools.import-skill"
@@ -110,7 +109,7 @@ export type WorkFoldCliActCommandName =
   | "apps.operation.activate"
   | "apps.operation.cancel"
   | "apps.uninstall"
-  | "routings.stage"
+  | "routings.enable"
   | "routings.list"
   | "routings.show"
   | "routings.run"
@@ -124,10 +123,7 @@ export type WorkFoldCliActCommandName =
   | "pages.status"
   | "pages.revoke"
   | "pages.narrow"
-  | "pages.snapshot-off"
-  | "staged.list"
-  | "staged.show"
-  | "staged.cancel";
+  | "pages.snapshot-off";
 
 export interface WorkFoldCliActParsedCommand {
   name: WorkFoldCliActCommandName;
@@ -163,8 +159,6 @@ export interface WorkFoldCliActParsedCommand {
   checkpoint?: string;
   /** Single Space-relative entry path for file and History verbs. */
   path?: string;
-  /** Staged files.destroy targets: one or more bounded --path values. */
-  paths?: string[];
   /** File-version hash for history.restore-file; display version for apps.release.prepare. */
   version?: string;
   query?: string;
@@ -199,8 +193,6 @@ export interface WorkFoldCliActParsedCommand {
   disposition?: "retain-data" | "purge-data";
   /** Snapshot-caching opt-in for pages.stage; an explicitly labeled choice, never defaulted on. */
   snapshot?: boolean;
-  /** Staged-act id for staged.show and staged.cancel. */
-  stagedActId?: string;
   /** Routing id for the routings management verbs; routings take no --space. */
   routing?: string;
   /** Publication id for the pages management verbs. */
@@ -209,39 +201,6 @@ export interface WorkFoldCliActParsedCommand {
   serveRatePerMinute?: number;
   /** Narrowed daily byte budget for pages.narrow. */
   byteBudgetPerDay?: number;
-}
-
-/**
- * Consecrated ledger rows (docs/fold-act-ledger.md): invoking one stages a
- * pending decision instead of executing, once the decision machinery exists.
- * `apps.uninstall` is consecrated only with `--purge-data`, so classification
- * reads the parsed command, never the command name alone.
- */
-export const WORKFOLD_CLI_ACT_STAGED_COMMAND_NAMES = [
-  "spaces.delete",
-  "files.destroy",
-  "tools.import-skill",
-  "tools.install",
-  "tools.update",
-  "apps.install-proposal",
-  "apps.install-preview",
-  "apps.grant",
-  "apps.connect",
-  "apps.automation.enable",
-  "apps.storage.clear",
-  "apps.retained.purge",
-  "routings.stage",
-  "pages.stage",
-  "pages.stage-app",
-] as const;
-
-export type WorkFoldCliActStagedCommandName = (typeof WORKFOLD_CLI_ACT_STAGED_COMMAND_NAMES)[number];
-
-export function isWorkFoldCliActStagedCommand(
-  command: Pick<WorkFoldCliActParsedCommand, "name" | "disposition">,
-): boolean {
-  if ((WORKFOLD_CLI_ACT_STAGED_COMMAND_NAMES as readonly string[]).includes(command.name)) return true;
-  return command.name === "apps.uninstall" && command.disposition === "purge-data";
 }
 
 /** The running interactive app's act authority: the facade plus this run's token. */
@@ -257,7 +216,13 @@ export interface WorkFoldCliActExecutorOptions {
   getActFacade: () => WorkFoldCliActAuthority | null;
   receipts: Pick<WorkFoldCliActReceipts, "append" | "hasAccepted">;
   /** Resolves an explicitly named management parent only while it is active. */
-  resolveLineageParent?: (taskId: string) => { taskId: string } | null;
+  /**
+   * Validates an explicitly named management parent while its turn is active.
+   * When that request arrived through Remote access, the approved browser
+   * identity rides along and is stamped on the accepted and terminal receipts
+   * (docs/receipts-not-gates.md, D12).
+   */
+  resolveLineageParent?: (taskId: string) => { taskId: string; browserId?: string; grantId?: string } | null;
 }
 
 export const workFoldCliActUnavailableMessage =
@@ -292,8 +257,6 @@ const workFoldCliActSetupOnlyFamilies = new Map<string, string>([
   ["providers", "Provider credentials"],
   ["credentials", "Provider credentials"],
   ["settings", "Settings administration"],
-  ["policy", "Standing-policy authoring"],
-  ["policies", "Standing-policy authoring"],
 ]);
 
 /**
@@ -400,13 +363,12 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     if (token.startsWith("-")) throw usageError(`Unknown option: ${token}`);
     if (!positional.length) {
       // Setup-only refusal happens here, at parse time: these families must
-      // not even reach an unknown-command error,
-      // let alone a journal entry or a staged act.
+      // not even reach an unknown-command error, let alone a journal entry.
       const setupOnlyCategory = workFoldCliActSetupOnlyFamilies.get(token);
       if (setupOnlyCategory !== undefined) {
         throw new WorkFoldCliError(
           "permissionDenied",
-          `${setupOnlyCategory} is local setup only. The act lane can neither perform nor stage it.`,
+          `${setupOnlyCategory} is local setup only. The act lane cannot perform it.`,
         );
       }
     }
@@ -425,7 +387,6 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "spaces register",
     "files rename",
     "files delete",
-    "files destroy",
     "files mkdir",
     "files create",
     "history versions",
@@ -485,11 +446,6 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     if (!pathValues.length) throw usageError(`Provide --path <${label}>.`);
     return boundedActPath("--path", pathValues[0] ?? "", label);
   };
-  const requireDestroyPaths = (label: string): string[] => {
-    if (!pathValues.length) throw usageError(`Provide at least one --path <${label}>.`);
-    if (pathValues.length > maxActFromPaths) throw usageError(`At most ${maxActFromPaths} --path targets are allowed.`);
-    return pathValues.map((value) => boundedActPath("--path", value, label));
-  };
   const requireSingleFrom = (label: string): string => {
     if (fromPaths.length !== 1) throw usageError(`Provide exactly one --from <${label}>.`);
     return boundedActPath("--from", fromPaths[0] ?? "", label);
@@ -528,7 +484,6 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "files move",
     "files rename",
     "files delete",
-    "files destroy",
     "files mkdir",
     "files create",
     "library add",
@@ -570,7 +525,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "apps operation activate",
     "apps operation cancel",
     "apps uninstall",
-    "routings stage",
+    "routings enable",
     "routings run",
     "routings stop",
     "routings disable",
@@ -580,7 +535,6 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "pages revoke",
     "pages narrow",
     "pages snapshot-off",
-    "staged cancel",
   ]);
   if (rawParentTaskId !== undefined && !lineageCommands.has(command)) {
     throw usageError(`--parent-task cannot be used with '${command || "(none)"}'.`);
@@ -1106,15 +1060,6 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         path: requireSinglePath("space-path"),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
-    case "files destroy":
-      allowOnlyFlags("--space", "--parent-task");
-      return {
-        name: "files.destroy",
-        output,
-        space: requireSpace(),
-        paths: requireDestroyPaths("space-path"),
-        ...(parentTaskId ? { parentTaskId } : {}),
-      };
     case "files mkdir":
       allowOnlyFlags("--space", "--parent-task");
       return {
@@ -1242,8 +1187,8 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     }
     case "apps connect":
     case "apps disconnect":
-      // The staged act names app, destination, and adapter only; credentials
-      // never ride argv, payloads, or the journal.
+      // The act names app, destination, and adapter only; credentials never
+      // ride argv, payloads, or the journal.
       allowOnlyFlags("--space", "--app", "--destination", "--parent-task");
       return {
         name: command === "apps connect" ? "apps.connect" : "apps.disconnect",
@@ -1363,13 +1308,13 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         ...(parentTaskId ? { parentTaskId } : {}),
       };
     }
-    case "routings stage":
+    case "routings enable":
       // Routings are above Spaces (docs/fold-routings.md): no --space, like
       // the manage group. The inert typed proposal passes as a path resolved
       // host-side, the same pattern as `checks enable --proposal`.
       allowOnlyFlags("--proposal", "--parent-task");
       return {
-        name: "routings.stage",
+        name: "routings.enable",
         output,
         proposalPath: requireBoundedFlag("--proposal", "proposal-path", maxActPathLength),
         ...(parentTaskId ? { parentTaskId } : {}),
@@ -1440,7 +1385,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     case "pages snapshot-off":
       // Narrowing verbs (docs/fold-publishing.md): revoking and turning
       // snapshot caching off never need a click; widening back is a fresh
-      // consecration staged through `pages stage`.
+      // `pages stage`.
       allowOnlyFlags("--publication", "--parent-task");
       return {
         name: command === "pages revoke" ? "pages.revoke" : "pages.snapshot-off",
@@ -1471,37 +1416,20 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         ...(parentTaskId ? { parentTaskId } : {}),
       };
     }
-    case "staged list":
-      allowOnlyFlags();
-      return { name: "staged.list", output };
-    case "staged show":
-      allowOnlyFlags("--id");
-      return {
-        name: "staged.show",
-        output,
-        stagedActId: requireBoundedFlag("--id", "staged-act-id"),
-      };
-    case "staged cancel":
-      allowOnlyFlags("--id", "--parent-task");
-      return {
-        name: "staged.cancel",
-        output,
-        stagedActId: requireBoundedFlag("--id", "staged-act-id"),
-        ...(parentTaskId ? { parentTaskId } : {}),
-      };
     default:
       throw usageError(`Unknown command: ${command || "(none)"}`);
   }
 }
 
 export async function executeWorkFoldCliActRequest(
-  request: WorkFoldCliActRequestV2,
+  request: WorkFoldCliActRequest,
   options: WorkFoldCliActExecutorOptions,
 ): Promise<WorkFoldCliResponseV1> {
   const completedAt = () => (options.now?.() ?? new Date()).toISOString();
   let command: WorkFoldCliActParsedCommand | undefined;
   let accepted = false;
   let receiptParentTaskId: string | undefined;
+  let receiptLineage: { parentTaskId?: string; browserId?: string; grantId?: string } = {};
   try {
     command = parseWorkFoldCliActArgv(request.argv);
     const authority = options.getActFacade();
@@ -1547,7 +1475,14 @@ export async function executeWorkFoldCliActRequest(
       throw new WorkFoldCliError("conflict", "The management request named by --parent-task is no longer active.");
     }
     receiptParentTaskId = lineageParent?.taskId;
-    const lineage = receiptParentTaskId ? { parentTaskId: receiptParentTaskId } : {};
+    // Lineage on receipts: the management parent, and when that request came
+    // through Remote access, the approved browser identity behind it.
+    const lineage = {
+      ...(receiptParentTaskId ? { parentTaskId: receiptParentTaskId } : {}),
+      ...(lineageParent?.browserId ? { browserId: lineageParent.browserId } : {}),
+      ...(lineageParent?.grantId ? { grantId: lineageParent.grantId } : {}),
+    };
+    receiptLineage = lineage;
     const acceptedRecorded = await options.receipts.append({
       requestId: request.id,
       command: command.name,
@@ -1588,7 +1523,7 @@ export async function executeWorkFoldCliActRequest(
         outcome: "error",
         errorCode: normalized.code,
         surface: "cli",
-        ...(receiptParentTaskId ? { parentTaskId: receiptParentTaskId } : {}),
+        ...receiptLineage,
       });
     }
     const json = command?.output === "json" || request.argv.includes("--json");
@@ -1607,7 +1542,7 @@ export async function executeWorkFoldCliActRequest(
 
 async function runActCommand(
   command: WorkFoldCliActParsedCommand,
-  request: WorkFoldCliActRequestV2,
+  request: WorkFoldCliActRequest,
   facade: WorkFoldActFacade,
 ): Promise<WorkFoldCliJson> {
   switch (command.name) {
@@ -2004,9 +1939,9 @@ async function runActCommand(
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));
     case "apps.uninstall":
-      // The retain disposition is the direct verb; purging retained data is
-      // destroying irreversibly, so `--purge-data` stages consecration 3 and
-      // never reaches the retain-only uninstall method.
+      // The retain disposition is the plain uninstall; `--purge-data` runs the
+      // purge through the prepared-act path and never reaches the
+      // retain-only uninstall method.
       if (command.disposition === "purge-data") {
         return toChecksJson(await facade.appsUninstallPurge({
           space: command.space!,
@@ -2020,22 +1955,15 @@ async function runActCommand(
         instance: command.instance!,
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));
-    // The consecrated ledger rows (docs/fold-act-ledger.md; machinery in
-    // docs/fold-consecrations.md): invoking one stages a fully prepared,
-    // inert act and returns the pending decision's identity — it never
-    // executes. Staged results pass the bounding sanitizer because pins carry
-    // person content (paths, titles, names). `request.id` rides along as the
-    // staged act's journal-id provenance.
+    // The verbs that install code, widen a power, or destroy data
+    // (docs/fold-act-ledger.md; docs/receipts-not-gates.md): each runs at
+    // once through the prepared-act path and returns its effect. Results
+    // pass the bounding sanitizer because they carry person content (paths,
+    // titles, names). `request.id` is the journaled identity the act runs
+    // under.
     case "spaces.delete":
       return toChecksJson(await facade.spacesDelete({
         space: command.space!,
-        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
-        requestId: request.id,
-      }));
-    case "files.destroy":
-      return toChecksJson(await facade.filesDestroy({
-        space: command.space!,
-        paths: command.paths ?? [],
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
         requestId: request.id,
       }));
@@ -2113,8 +2041,8 @@ async function runActCommand(
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
         requestId: request.id,
       }));
-    case "routings.stage":
-      return toChecksJson(await facade.routingsStage({
+    case "routings.enable":
+      return toChecksJson(await facade.routingsEnable({
         proposalPath: command.proposalPath!,
         cwd: request.cwd,
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
@@ -2137,9 +2065,9 @@ async function runActCommand(
         requestId: request.id,
       }));
     case "apps.install-preview":
-      // The host creates the pending review record over the named package and
-      // stages the same `app.review.approve` kind an approved Chat proposal
-      // uses — the closed staged-act vocabulary gains nothing.
+      // The host creates the review record over the named package and installs
+      // it through the same `app.review.install` kind a Chat proposal uses —
+      // the closed act vocabulary gains nothing.
       return toChecksJson(await facade.appsInstallPreview({
         space: command.space!,
         packagePath: command.packagePath!,
@@ -2202,16 +2130,6 @@ async function runActCommand(
     case "pages.snapshot-off":
       return toChecksJson(await facade.pagesSnapshotOff({
         publication: command.publication!,
-        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
-        requestId: request.id,
-      }));
-    case "staged.list":
-      return toChecksJson(await facade.stagedList());
-    case "staged.show":
-      return toChecksJson(await facade.stagedShow({ id: command.stagedActId! }));
-    case "staged.cancel":
-      return toChecksJson(await facade.stagedCancel({
-        id: command.stagedActId!,
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
         requestId: request.id,
       }));
@@ -2685,11 +2603,11 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         : `App proposal ${terminalText(record.proposalId)} was no longer pending in ${spaceLabel}; nothing was dismissed.\n`;
     case "apps.remove":
       return record.removed === true
-        ? `Removed app ${terminalText(record.appId)} [digest ${terminalText(record.digest)}] from ${spaceLabel}. Reinstalling it is a fresh decision for a person to approve.\n`
+        ? `Removed app ${terminalText(record.appId)} [digest ${terminalText(record.digest)}] from ${spaceLabel}. Reinstalling it is a fresh receipted act.\n`
         : `App ${terminalText(record.appId)} was not installed in ${spaceLabel}; nothing was removed.\n`;
     case "apps.revoke":
       return record.revoked === true
-        ? `Revoked the ${terminalText(record.grantKind)} grant ${terminalText(record.declaration)} from ${terminalText(record.appId)} in ${spaceLabel}. Re-granting it is a fresh decision for a person to approve.\n`
+        ? `Revoked the ${terminalText(record.grantKind)} grant ${terminalText(record.declaration)} from ${terminalText(record.appId)} in ${spaceLabel}. Re-granting it is a fresh receipted act.\n`
         : `The ${terminalText(record.grantKind)} declaration ${terminalText(record.declaration)} of ${terminalText(record.appId)} was not granted in ${spaceLabel}; authority is unchanged.\n`;
     case "apps.disconnect":
       return (record.disconnected === true
@@ -2698,7 +2616,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         + " Deleting the local record does not revoke the credential at its provider.\n";
     case "apps.automation.disable":
       return record.wasEnabled === true
-        ? `Disabled automation ${terminalText(record.automationId)} of ${terminalText(record.appId)} in ${spaceLabel}. Re-enabling it is a fresh decision for a person to approve.\n`
+        ? `Disabled automation ${terminalText(record.automationId)} of ${terminalText(record.appId)} in ${spaceLabel}. Re-enabling it is a fresh receipted act.\n`
         : `Automation ${terminalText(record.automationId)} of ${terminalText(record.appId)} was already disabled in ${spaceLabel}.\n`;
     case "apps.automation.run": {
       const run = record.run as { runId?: unknown; outcome?: unknown; error?: unknown } | undefined;
@@ -2736,7 +2654,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
     case "tools.remove": {
       const where = record.scope === "space" ? `Space scope in ${spaceLabel}` : "personal scope";
       return record.removed === true
-        ? `Removed package ${terminalText(record.source)} (${where}). Reinstalling it is a fresh decision for a person to approve.\n`
+        ? `Removed package ${terminalText(record.source)} (${where}). Reinstalling it is a fresh receipted act.\n`
         : `Package ${terminalText(record.source)} is not installed (${where}); nothing was removed.\n`;
     }
     case "apps.project.declare": {
@@ -2785,7 +2703,12 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         ? `Cancelled prepared operation ${terminalText(record.operationId)}. Prepare it again when needed.\n`
         : `Operation ${terminalText(record.operationId)} was no longer pending; nothing was cancelled.\n`;
     case "apps.uninstall": {
-      if (isStagedResult(record)) return stagedHumanOutput(name, record, spaceLabel);
+      if (Array.isArray(record.purgedNamespaceIds)) {
+        const cleanup = record.cleanupPending === true
+          ? "\nSome app cleanup is still pending; work-fold finishes it on the next start."
+          : "";
+        return `Uninstalled instance ${terminalText(record.runtimeInstanceId)} from ${spaceLabel} and purged its data.${cleanup}\n`;
+      }
       const retained = (Array.isArray(record.retainedNamespaceIds) ? record.retainedNamespaceIds : []) as unknown[];
       const cleanup = record.cleanupPending === true
         ? "\nSome app cleanup is still pending; work-fold finishes it on the next start."
@@ -2797,22 +2720,47 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         + `${retained.length} data namespace${retained.length === 1 ? "" : "s"}. Retained data does not remain runnable, `
         + `and reinstalling creates a new instance.${cleanup}\n`;
     }
-    case "spaces.delete":
-    case "files.destroy":
+    case "spaces.delete": {
+      const cleanup = record.cleanupPending === true ? " Final cleanup completes at the next start." : "";
+      return `Deleted the managed folder of ${spaceLabel}.${cleanup}\n`;
+    }
     case "tools.import-skill":
+      return `Imported ${skillNameList(record.skillNames)} (${terminalText(record.scope)} scope).\n`;
     case "tools.install":
+      return Array.isArray(record.skillNames)
+        ? `Imported ${skillNameList(record.skillNames)} (${terminalText(record.scope)} scope).\n`
+        : `Installed ${terminalText(record.packageId)} ${terminalText(record.version)} (${terminalText(record.scope)} scope).\n`;
     case "tools.update":
+      return `Updated ${terminalText(record.packageId)} to ${terminalText(record.version)} (${terminalText(record.scope)} scope).\n`;
     case "apps.install-proposal":
-    case "apps.install-preview":
-    case "apps.grant":
+    case "apps.install-preview": {
+      const app = (record.app ?? {}) as { title?: unknown; version?: unknown };
+      const replaced = record.replacesInstalled === true ? " It replaced the previous installation." : "";
+      return `Installed ${terminalText(app.title)} ${terminalText(app.version)} in ${spaceLabel}.${replaced}\n`;
+    }
+    case "apps.grant": {
+      const whole = record.grantKind === "files" ? " It covers the whole Space folder." : "";
+      return `Granted ${terminalText(record.grantKind)} ${terminalText(record.declaration)} to ${terminalText(record.appId)} in ${spaceLabel}.${whole}\n`;
+    }
     case "apps.connect":
+      return `Connected ${terminalText(record.appId)} to ${terminalText(record.destination)} (${terminalText(record.target)}) through the browser sign-in flow.\n`;
     case "apps.automation.enable":
+      return `Enabled automation ${terminalText(record.automationId)} (${terminalText(record.scheduleSummary)}) of ${terminalText(record.appId)} in ${spaceLabel}.\n`;
     case "apps.storage.clear":
+      return `Cleared ${terminalText(record.clearedBytes)} bytes of live storage of ${terminalText(record.appId)} in ${spaceLabel}; ${terminalText(record.remainingBytes)} bytes remain.\n`;
     case "apps.retained.purge":
-    case "routings.stage":
-    case "pages.stage":
-    case "pages.stage-app":
-      return stagedHumanOutput(name, record, spaceLabel);
+      return `Purged retained App data ${terminalText(record.retainedDataId)} in ${spaceLabel}.\n`;
+    case "routings.enable":
+      return `Enabled routing "${terminalText(record.title)}" [${terminalText(record.routingId)}].\n`;
+    case "pages.stage": {
+      const publication = (record.publication ?? {}) as Record<string, unknown>;
+      return `Sharing "${terminalText(publication.title)}" (${terminalText(publication.relativePath)}) from ${spaceLabel} at ${terminalText(publication.viewerPath)}. `
+        + "Reveal the link in Settings → The fold.\n";
+    }
+    case "pages.stage-app": {
+      const publication = (record.publication ?? {}) as Record<string, unknown>;
+      return `Sharing "${terminalText(publication.title)}" (App Instance ${terminalText(publication.appInstanceId)}) from ${spaceLabel} at ${terminalText(publication.viewerPath)}.\n`;
+    }
     case "routings.list": {
       const routings = (Array.isArray(record.routings) ? record.routings : []) as Array<{
         routingId?: unknown;
@@ -2882,9 +2830,9 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
           : "manual (run-now only)";
       const grants = (Array.isArray(routing.grants) ? routing.grants : []) as Array<Record<string, unknown>>;
       const grantLines = grants.map((grant) =>
-        `- ${terminalText(grant.approvedAt)} on ${terminalText(grant.surface)} — decision ${terminalText(grant.decisionId)} — digest ${terminalText(grant.digest)}`);
+        `- ${terminalText(grant.approvedAt)} on ${terminalText(grant.surface)} — request ${terminalText(grant.decisionId)} — digest ${terminalText(grant.digest)}`);
       const health = routing.health === "suspended" && routing.suspension
-        ? `suspended since ${terminalText(routing.suspension.at)} (missing Space ${(Array.isArray(routing.suspension.missingSpaceIds) ? routing.suspension.missingSpaceIds : []).map(terminalText).join(", ")}${Array.isArray(routing.suspension.reRegisteredSpaceIds) && routing.suspension.reRegisteredSpaceIds.length ? "; re-registered with preserved identity — re-enablement is still a fresh consecration" : ""})`
+        ? `suspended since ${terminalText(routing.suspension.at)} (missing Space ${(Array.isArray(routing.suspension.missingSpaceIds) ? routing.suspension.missingSpaceIds : []).map(terminalText).join(", ")}${Array.isArray(routing.suspension.reRegisteredSpaceIds) && routing.suspension.reRegisteredSpaceIds.length ? "; re-registered with preserved identity — re-enabling is a fresh receipted act" : ""})`
         : routing.health === "disabled"
           ? `disabled${typeof routing.disabledAt === "string" ? ` since ${terminalText(routing.disabledAt)}` : ""}`
           : routing.health === "completed"
@@ -2915,7 +2863,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         ? ` Its active run ${terminalText(record.stoppedRunId)} was stopped first — revocation stops stale work.`
         : "";
       return `Disabled routing [${terminalText(record.routingId)}].${stopped} `
-        + `The declaration, grant history, and receipts are kept; re-enabling is a fresh decision for a person to approve.\n`;
+        + `The declaration, grant history, and receipts are kept; re-enabling is a fresh receipted act.\n`;
     }
     case "routings.delete":
       return `Deleted routing [${terminalText(record.routingId)}] (was ${terminalText(record.finalHealth)}). `
@@ -3006,201 +2954,21 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       return `Narrowed budgets of "${terminalText(publication.title)}" [${terminalText(publication.publicationId)}]: `
         + `serve rate ${terminalText(record.priorServeRatePerMinute)} -> ${terminalText(publication.serveRatePerMinute)}/min, `
         + `byte budget ${terminalText(record.priorByteBudgetPerDay)} -> ${terminalText(publication.byteBudgetPerDay)}/day. `
-        + `Raising a budget again is a fresh decision for a person to approve.\n`;
+        + `Raising a budget again is a fresh 'pages stage'.\n`;
     }
     case "pages.snapshot-off": {
       const publication = (record.publication ?? {}) as Record<string, unknown>;
       const already = record.wasEnabled === false ? " Snapshot caching was already off." : "";
       return `Turned snapshot caching off for "${terminalText(publication.title)}" [${terminalText(publication.publicationId)}].${already} `
-        + `The stored relay copy is deleted${publication.bridgeSlot === "confirmed" ? "" : " once the bridge sync completes"}; turning it back on is a fresh decision for a person to approve.\n`;
-    }
-    case "staged.list": {
-      const acts = (Array.isArray(record.acts) ? record.acts : []) as Array<{
-        id?: unknown;
-        kind?: unknown;
-        category?: unknown;
-        state?: unknown;
-        expiresAt?: unknown;
-        decidedAt?: unknown;
-        executionOutcome?: unknown;
-      }>;
-      if (!acts.length) return "No staged acts. Nothing is waiting on a decision.\n";
-      const lines = acts.slice(0, 50).map((act) => {
-        const settled = act.state === "staged"
-          ? `expires ${terminalText(act.expiresAt)}`
-          : `${terminalText(act.state)}${act.executionOutcome ? `, execution ${terminalText(act.executionOutcome)}` : ""}${act.decidedAt ? ` at ${terminalText(act.decidedAt)}` : ""}`;
-        return `- ${terminalText(act.id)} — ${terminalText(act.kind)} (${terminalText(act.category)}) — ${settled}`;
-      });
-      const pending = acts.filter((act) => act.state === "staged").length;
-      const omitted = acts.length > 50 ? `\n${acts.length - 50} more staged act(s) in the --json result.` : "";
-      return `${acts.length} staged act${acts.length === 1 ? "" : "s"} (${pending} pending a decision):\n${lines.join("\n")}${omitted}\n`;
-    }
-    case "staged.show": {
-      const act = (record.act ?? {}) as Record<string, unknown> & {
-        provenance?: Record<string, unknown>;
-        restrictions?: { desktopOnly?: unknown; stagedByGrantId?: unknown };
-        decision?: Record<string, unknown>;
-        execution?: Record<string, unknown>;
-        parameters?: Record<string, unknown>;
-        pins?: Record<string, unknown>;
-      };
-      const facts = (section: Record<string, unknown> | undefined): string[] =>
-        Object.entries(section ?? {}).map(([key, value]) =>
-          `  ${terminalText(key)}: ${terminalText(Array.isArray(value) ? value.join(", ") : value)}`);
-      const lines = [
-        `Staged act ${terminalText(act.id)} — ${terminalText(act.kind)} (${categoryLine(act.category)})`,
-        `State: ${terminalText(act.state)}${act.state === "staged" ? `, expires ${terminalText(act.expiresAt)}` : ""}`,
-        ...(typeof act.priorDenialAt === "string" ? [`An identical act was denied at ${terminalText(act.priorDenialAt)}.`] : []),
-        "Exact facts:",
-        ...facts(act.pins),
-        `Staged via ${terminalText(act.provenance?.stagedVia)} at ${terminalText(act.createdAt)}${act.provenance?.conversationId ? ` from conversation ${terminalText(act.provenance.conversationId)}` : ""}.`,
-        ...(act.restrictions?.desktopOnly === true
-          ? ["This act loads code into the fold's own runtime (Personal scope); its decision belongs to a desktop surface."]
-          : []),
-        ...(typeof act.restrictions?.stagedByGrantId === "string"
-          ? ["Staged at a remote browser's request; that browser cannot decide it."]
-          : []),
-        ...(act.decision
-          ? [`Decision: ${terminalText(act.decision.decision)} on ${terminalText(act.decision.surface)}${act.decision.policyId ? ` (policy ${terminalText(act.decision.policyId)})` : ""}.`]
-          : []),
-        ...(act.execution
-          ? [`Execution: ${terminalText(act.execution.outcome)}${act.execution.errorDetail ? ` — ${terminalText(act.execution.errorDetail)}` : ""}`]
-          : []),
-        ...(typeof act.invalidationReason === "string" ? [`Invalidated: ${terminalText(act.invalidationReason)}`] : []),
-        ...(typeof act.cancellationReason === "string" ? [`Canceled: ${terminalText(act.cancellationReason)}`] : []),
-        "Deciding happens on a work-fold decision surface; the act lane can only cancel.",
-      ];
-      return `${lines.join("\n")}\n`;
-    }
-    case "staged.cancel": {
-      const act = (record.act ?? {}) as { id?: unknown; kind?: unknown };
-      return `Canceled staged act ${terminalText(act.id)} (${terminalText(act.kind)}). Nothing was decided or executed; restaging issues a fresh card.\n`;
+        + `The stored relay copy is deleted${publication.bridgeSlot === "confirmed" ? "" : " once the bridge sync completes"}; turning it back on is a fresh 'pages stage'.\n`;
     }
     default:
       return `${terminalText(name)} completed.\n`;
   }
 }
 
-/** Working card copy for the consecration categories (docs/fold-consecrations.md). */
-function categoryLine(category: unknown): string {
-  switch (category) {
-    case "make-runnable":
-      return "installs code that can run as you";
-    case "widen-power":
-      return "grants a standing power";
-    case "destroy":
-      return "deletes something for good";
-    default:
-      return terminalText(category);
-  }
-}
-
-function isStagedResult(record: Record<string, unknown>): boolean {
-  const staged = record.staged;
-  return typeof staged === "object" && staged !== null && typeof (staged as { decisionId?: unknown }).decisionId === "string";
-}
-
-/**
- * One human shape for every staging verb: the family's lead line, the
- * category in plain words, the pending decision's identity and expiry, and
- * the honest "nothing ran" close. Dedupe and denial memory are stated, never
- * hidden. When a standing policy the person authored in Settings satisfied
- * the consecration at admission, no card appeared — the close reports the
- * auto-approval, the exercised policy, and the execution outcome instead
- * (docs/fold-consecrations.md §Standing policies).
- */
-function stagedHumanOutput(
-  name: WorkFoldCliActCommandName,
-  record: Record<string, WorkFoldCliJson>,
-  spaceLabel: string,
-): string {
-  const staged = (record.staged ?? {}) as {
-    decisionId?: unknown;
-    category?: unknown;
-    expiresAt?: unknown;
-    deduplicated?: unknown;
-    priorDenialAt?: unknown;
-    autoApproval?: {
-      basis?: unknown;
-      policyId?: unknown;
-      policyLabel?: unknown;
-      executionOutcome?: unknown;
-      detail?: unknown;
-      receipted?: unknown;
-    };
-  };
-  const lead = ((): string => {
-    switch (name) {
-      case "spaces.delete":
-        return `Staged deleting the managed folder of ${spaceLabel} for good.`;
-      case "files.destroy": {
-        const paths = (Array.isArray(record.paths) ? record.paths : []) as unknown[];
-        return `Staged destroying ${paths.length} path${paths.length === 1 ? "" : "s"} in ${spaceLabel} that no restore point can cover.`;
-      }
-      case "tools.import-skill":
-        return `Staged importing the skill bundle ${terminalText(record.source)} (${terminalText(record.scope)} scope).`;
-      case "tools.install":
-        return `Staged installing ${terminalText(record.packageId ?? record.source)}${record.version ? ` ${terminalText(record.version)}` : ""} (${terminalText(record.scope)} scope).`;
-      case "tools.update":
-        return `Staged updating ${terminalText(record.packageId)} to ${terminalText(record.version)} (${terminalText(record.scope)} scope).`;
-      case "apps.install-proposal":
-        return `Staged approving app review ${terminalText(record.proposalId)} [digest ${terminalText(record.digest)}] in ${spaceLabel}.`;
-      case "apps.install-preview": {
-        const replaces = record.replacesInstalled === true
-          ? " Approval replaces the installed preview and resets every grant, connection, and automation — the card says so."
-          : "";
-        return `Staged installing local app preview "${terminalText(record.title)}" ${terminalText(record.version)} `
-          + `[review ${terminalText(record.proposalId)}, digest ${terminalText(record.digest)}] in ${spaceLabel}.${replaces}`;
-      }
-      case "apps.grant":
-        return `Staged granting the ${terminalText(record.grantKind)} declaration ${terminalText(record.declaration)} to ${terminalText(record.appId)} in ${spaceLabel}.`;
-      case "apps.connect":
-        return `Staged connecting ${terminalText(record.appId)} to ${terminalText(record.destination)} (${terminalText(record.target)}). The staged act names the connection's shape only; any secret is entered on the trusted surface at decision time.`;
-      case "apps.automation.enable":
-        return `Staged enabling automation ${terminalText(record.automationId)} (${terminalText(record.scheduleSummary)}) of ${terminalText(record.appId)} in ${spaceLabel}.`;
-      case "apps.storage.clear":
-        return `Staged clearing ${terminalText(record.observedBytes)} bytes of live storage of ${terminalText(record.appId)} in ${spaceLabel}.`;
-      case "apps.retained.purge":
-        return `Staged purging retained App data ${terminalText(record.retainedDataId)} in ${spaceLabel}.`;
-      case "apps.uninstall":
-        return `Staged uninstalling instance ${terminalText(record.runtimeInstanceId)} from ${spaceLabel} with its data purged.`;
-      case "routings.stage":
-        return `Staged enabling routing "${terminalText(record.title)}" [${terminalText(record.routingId)}] at digest ${terminalText(record.declarationDigest)}.`;
-      case "pages.stage":
-        return `Staged sharing "${terminalText(record.title)}" (${terminalText(record.relativePath)}) from ${spaceLabel} as a page — snapshot ${record.snapshotEnabled === true ? "on" : "off"}.`;
-      case "pages.stage-app":
-        return `Staged putting "${terminalText(record.title)}" (App Instance ${terminalText(record.appInstanceId)}, Release ${terminalText(record.releaseDigest)}) from ${spaceLabel} at your address — `
-          + `viewer entry ${terminalText(record.viewerEntry)}; viewer-readable surface: ${Array.isArray(record.viewerSurface) ? record.viewerSurface.map(terminalText).join(", ") : "(none)"}.`;
-      default:
-        return "Staged.";
-    }
-  })();
-  const dedupe = staged.deduplicated === true
-    ? "\nAn identical act was already pending; this is the existing card, not a second one."
-    : "";
-  const denial = typeof staged.priorDenialAt === "string"
-    ? `\nAn identical act was denied at ${terminalText(staged.priorDenialAt)}; the card states that.`
-    : "";
-  const auto = staged.autoApproval;
-  if (auto && typeof auto === "object") {
-    const outcome = auto.executionOutcome === "executed"
-      ? "It executed."
-      : auto.executionOutcome === "failed"
-        ? `Its execution failed${typeof auto.detail === "string" ? `: ${terminalText(auto.detail)}` : "."} work-fold never retries a failed consecrated act; staging it again issues a fresh card.`
-        : "Its execution outcome could not be recorded; the receipts journal is the record.";
-    const unreceipted = auto.receipted === false
-      ? " Warning: the decision receipt could not be fully written."
-      : "";
-    if (auto.basis === "unrestricted") {
-      return `${lead}\nThis ${categoryLine(staged.category)}. Unrestricted authority admitted it, so no needs-you card appeared. ${outcome}`
-        + `\nDecision ${terminalText(staged.decisionId)} is receipted with surface "unrestricted".${unreceipted}${denial}\n`;
-    }
-    return `${lead}\nThis ${categoryLine(staged.category)}. Your standing policy "${terminalText(auto.policyLabel)}" `
-      + `[${terminalText(auto.policyId)}] pre-approved it, so no needs-you card appeared. ${outcome}`
-      + `\nDecision ${terminalText(staged.decisionId)} is receipted with surface "policy" and the policy id.${unreceipted}${denial}\n`;
-  }
-  return `${lead}\nThis ${categoryLine(staged.category)}, so a person decides it on a needs-you card. `
-    + `Decision ${terminalText(staged.decisionId)} expires ${terminalText(staged.expiresAt)}; nothing runs until it is approved.${dedupe}${denial}\n`;
+function skillNameList(names: unknown): string {
+  return Array.isArray(names) ? names.map((name) => terminalText(name)).join(", ") : terminalText(names);
 }
 
 function humanCheckEvidence(value: WorkFoldCliJson): string {
@@ -3232,7 +3000,6 @@ function receiptDetails(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
   conversationId?: string;
   checkpointId?: string;
   taskId?: string;
-  decisionId?: string;
   undoRef?: WorkFoldCliActUndoRef;
   detail?: string;
 } {
@@ -3250,17 +3017,7 @@ function receiptDetails(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
     scope?: unknown;
     path?: unknown;
     copied?: unknown;
-    staged?: { decisionId?: unknown; kind?: unknown; category?: unknown; deduplicated?: unknown };
-    act?: { id?: unknown; kind?: unknown; state?: unknown };
   };
-  // Staging receipts stamp the pending decision's identity (receipts v2,
-  // docs/fold-act-ledger.md "receipt adds"): the staged act and its decision
-  // share one id, and `staged cancel` names the card it settled.
-  const decisionId = typeof record.staged?.decisionId === "string"
-    ? record.staged.decisionId
-    : name === "staged.cancel" && typeof record.act?.id === "string"
-      ? record.act.id
-      : undefined;
   const spaceId = typeof record.space?.id === "string" ? record.space.id : undefined;
   const conversationId = typeof record.conversationId === "string"
     ? record.conversationId
@@ -3290,7 +3047,6 @@ function receiptDetails(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         : typeof record.run?.taskId === "string"
           ? { taskId: record.run.taskId }
           : {}),
-    ...(decisionId ? { decisionId } : {}),
     ...(undoRef ? { undoRef } : {}),
     ...(detail ? { detail } : {}),
   };
@@ -3337,9 +3093,9 @@ function actReceiptDetail(
     dismissed?: unknown;
     revoked?: unknown;
     run?: { runId?: unknown; outcome?: unknown };
-    staged?: { kind?: unknown; category?: unknown; deduplicated?: unknown };
-    paths?: unknown;
-    observedBytes?: unknown;
+    clearedBytes?: unknown;
+    root?: unknown;
+    purgedNamespaceIds?: unknown;
     retainedDataId?: unknown;
     routingId?: unknown;
     declarationDigest?: unknown;
@@ -3356,6 +3112,9 @@ function actReceiptDetail(
     replacesInstalled?: unknown;
     publication?: {
       publicationId?: unknown;
+      relativePath?: unknown;
+      appInstanceId?: unknown;
+      releaseDigest?: unknown;
       serveRatePerMinute?: unknown;
       byteBudgetPerDay?: unknown;
       bridgeCleanup?: unknown;
@@ -3372,66 +3131,50 @@ function actReceiptDetail(
     scheduleSummary?: unknown;
     model?: { provider?: unknown; id?: unknown } | null;
     instructions?: unknown;
-    act?: { id?: unknown; kind?: unknown; state?: unknown };
   },
 ): string | undefined {
-  // Consecration staging rows share one detail spine — the staged kind and
-  // category plus the dedupe marker — with the family's exact identifiers
-  // appended per the ledger's "receipt adds" column. Identifiers and digests
-  // only; receipts never grow titles, messages, or file contents.
-  if (record.staged && typeof record.staged.kind === "string") {
-    const spine = `staged ${record.staged.kind}${record.staged.deduplicated === true ? " (already pending)" : ""}`;
-    switch (name) {
-      case "spaces.delete":
-        return spine;
-      case "files.destroy": {
-        const paths = Array.isArray(record.paths) ? record.paths.filter((item): item is string => typeof item === "string") : [];
-        const named = paths.slice(0, 5).map((path) => boundedReceiptText(path)).join(",");
-        const more = paths.length > 5 ? ` and ${paths.length - 5} more` : "";
-        return `${spine}; ${paths.length} path(s)${named ? `: ${named}${more}` : ""}`;
-      }
-      case "tools.import-skill":
-      case "tools.install":
-      case "tools.update": {
-        const scope = typeof record.scope === "string" ? `; scope ${record.scope}` : "";
-        const source = typeof record.source === "string" ? `; source ${boundedReceiptText(record.source)}` : "";
-        const version = typeof record.version === "string" ? `; version ${record.version}` : "";
-        return `${spine}${scope}${source}${version}`;
-      }
-      case "apps.install-proposal":
-        return `${spine}; proposal ${String(record.proposalId)}; digest ${String(record.digest)}`;
-      case "apps.install-preview":
-        return `${spine}; proposal ${String(record.proposalId)}; digest ${String(record.digest)}`
-          + `${record.replacesInstalled === true ? "; replaces installed preview" : ""}`;
-      case "apps.grant":
-        return `${spine}; app ${String(record.appId)}; kind ${String(record.grantKind)}; declaration ${String(record.declaration)}`;
-      case "apps.connect":
-        return `${spine}; app ${String(record.appId)}; destination ${String(record.destination)}; adapter ${String(record.adapterKind)}`;
-      case "apps.automation.enable":
-        return `${spine}; app ${String(record.appId)}; automation ${String(record.automationId)}`;
-      case "apps.storage.clear":
-        return `${spine}; app ${String(record.appId)}; observed ${String(record.observedBytes)} bytes`;
-      case "apps.retained.purge":
-        return `${spine}; retained ${String(record.retainedDataId)}`;
-      case "apps.uninstall":
-        return `${spine}; instance ${String(record.runtimeInstanceId)}`;
-      case "routings.stage":
-        return `${spine}; routing ${String(record.routingId)}; digest ${String(record.declarationDigest)}`;
-      case "pages.stage":
-        return `${spine}; source ${boundedReceiptText(String(record.relativePath))}; `
-          + `serveRatePerMinute=${String(record.serveRatePerMinute)} byteBudgetPerDay=${String(record.byteBudgetPerDay)} `
-          + `snapshot=${record.snapshotEnabled === true ? "on" : "off"}`;
-      case "pages.stage-app":
-        return `${spine}; appInstanceId ${String(record.appInstanceId)}; releaseDigest ${String(record.releaseDigest)}; `
-          + `viewerEntry ${boundedReceiptText(String(record.viewerEntry))}; `
-          + `viewerSurface ${boundedReceiptText(Array.isArray(record.viewerSurface) ? record.viewerSurface.map(String).join(",") : "")}; `
-          + `serveRatePerMinute=${String(record.serveRatePerMinute)} byteBudgetPerDay=${String(record.byteBudgetPerDay)}`;
-      default:
-        return spine;
-    }
-  }
-  if (name === "staged.cancel" && record.act) {
-    return `canceled staged ${String(record.act.kind)}; state ${String(record.act.state)}`;
+  // The verbs that install code, widen a power, or destroy data share one
+  // detail spine — the prepared-act kind — with the family's exact
+  // identifiers appended per the ledger's "receipt adds" column. Identifiers
+  // and digests only; receipts never grow titles, messages, or file contents.
+  switch (name) {
+    case "spaces.delete":
+      return "space.delete-folder";
+    case "tools.import-skill":
+      return `capability.skills.import; scope ${String(record.scope)}; source ${boundedReceiptText(String(record.source))}; digest ${String(record.contentDigest)}`;
+    case "tools.install":
+      return typeof record.contentDigest === "string"
+        ? `capability.skills.import; scope ${String(record.scope)}; source ${boundedReceiptText(String(record.source))}; digest ${record.contentDigest}`
+        : `capability.package.install; scope ${String(record.scope)}; source ${boundedReceiptText(String(record.source))}; version ${String(record.version)}`;
+    case "tools.update":
+      return `capability.package.update; scope ${String(record.scope)}; source ${boundedReceiptText(String(record.source))}; version ${String(record.version)}`;
+    case "apps.install-proposal":
+    case "apps.install-preview":
+      return `app.review.install; proposal ${String(record.proposalId)}; digest ${String(record.digest)}`
+        + `${record.replacesInstalled === true ? "; replaced installed preview" : ""}`;
+    case "apps.grant":
+      return `app.grant.${String(record.grantKind)}; app ${String(record.appId)}; declaration ${String(record.declaration)}`
+        + `${typeof record.root === "string" ? `; root ${boundedReceiptText(record.root)}` : ""}`;
+    case "apps.connect":
+      return `app.connection.save; app ${String(record.appId)}; destination ${String(record.destination)}`;
+    case "apps.automation.enable":
+      return `app.automation.enable; app ${String(record.appId)}; automation ${String(record.automationId)}`;
+    case "apps.storage.clear":
+      return `app.storage.clear; app ${String(record.appId)}; bytes ${String(record.clearedBytes)}`;
+    case "apps.retained.purge":
+      return `app.data.purge; retained ${String(record.retainedDataId)}`;
+    case "apps.uninstall":
+      if (Array.isArray(record.purgedNamespaceIds)) return `app.data.purge; instance ${String(record.runtimeInstanceId)}`;
+      break;
+    case "routings.enable":
+      return `routing.enable; routing ${String(record.routingId)}; digest ${String(record.declarationDigest)}`;
+    case "pages.stage":
+      return `publish.viewer.expose; source ${boundedReceiptText(String(record.publication?.relativePath))}; publication ${String(record.publication?.publicationId)}`;
+    case "pages.stage-app":
+      return `publish.viewer.expose; appInstanceId ${String(record.publication?.appInstanceId)}; `
+        + `releaseDigest ${String(record.publication?.releaseDigest)}; publication ${String(record.publication?.publicationId)}`;
+    default:
+      break;
   }
   switch (name) {
     case "spaces.assistant.model":
@@ -3603,6 +3346,14 @@ function actUndoRef(
     priorPresentationRef?: unknown;
     release?: { releaseDigest?: unknown };
     operation?: { operationId?: unknown };
+    publication?: { publicationId?: unknown };
+    routingId?: unknown;
+    declaration?: unknown;
+    destination?: unknown;
+    automationId?: unknown;
+    source?: unknown;
+    bundlePath?: unknown;
+    contentDigest?: unknown;
   };
   switch (name) {
     case "chat.rename":
@@ -3671,6 +3422,33 @@ function actUndoRef(
       return typeof record.operation?.operationId === "string"
         ? { kind: "operation-id", value: record.operation.operationId }
         : undefined;
+    // The formerly gated verbs (docs/receipts-not-gates.md, F19): each undo
+    // reference names the identifier its narrowing inverse takes —
+    // `pages revoke`, `routings disable`, `apps revoke|disconnect`,
+    // `apps automation disable`, `tools remove`.
+    case "pages.stage":
+    case "pages.stage-app":
+      return typeof record.publication?.publicationId === "string"
+        ? { kind: "publicationId", value: record.publication.publicationId }
+        : undefined;
+    case "routings.enable":
+      return typeof record.routingId === "string" ? { kind: "routing-id", value: record.routingId } : undefined;
+    case "apps.grant":
+      return typeof record.declaration === "string" ? { kind: "declaration", value: record.declaration } : undefined;
+    case "apps.connect":
+      return typeof record.destination === "string" ? { kind: "declaration", value: record.destination } : undefined;
+    case "apps.automation.enable":
+      return typeof record.automationId === "string" ? { kind: "automation", value: record.automationId } : undefined;
+    case "tools.install":
+    case "tools.update":
+      // A catalog skill bundle installs as a skills import; its inverse is
+      // removing the bundle path, not a package source.
+      if (typeof record.contentDigest === "string" && typeof record.bundlePath === "string") {
+        return { kind: "skill-bundle-path", value: record.bundlePath };
+      }
+      return typeof record.source === "string" ? { kind: "package-source", value: record.source } : undefined;
+    case "tools.import-skill":
+      return typeof record.bundlePath === "string" ? { kind: "skill-bundle-path", value: record.bundlePath } : undefined;
     default:
       return undefined;
   }

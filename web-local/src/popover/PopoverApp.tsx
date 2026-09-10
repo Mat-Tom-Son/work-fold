@@ -6,7 +6,6 @@ import remarkGfm from "remark-gfm";
 
 import { ApiError, api, createEventSource, errorText } from "../lib/api";
 import { WorkFoldLockup } from "../components/brand/WorkFoldBrand";
-import { NeedsYouStack, useNeedsYouDecisions } from "../components/NeedsYouDecisions";
 import type { AssistantComposerState, ConversationRuntime } from "../types";
 
 /** Mirrors the server's WorkFoldActManagementRequest projection. */
@@ -131,7 +130,6 @@ export function PopoverApp() {
   const [managementComposer, setManagementComposer] = useState<AssistantComposerState | null>(popoverFixtureRequested ? popoverFixtureComposer : null);
   const [conversationRuntime, setConversationRuntime] = useState<ConversationRuntime | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const [decisionsOpen, setDecisionsOpen] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const transcriptRef = useRef<HTMLElement | null>(null);
   const transcriptPinnedRef = useRef(true);
@@ -146,11 +144,6 @@ export function PopoverApp() {
   } | null>(null);
   const startingNewChatRef = useRef(false);
   requestRef.current = request;
-  // Durable pending decisions are their own object, distinct from the
-  // conversational needs_you phase; deciding here records surface "popover".
-  const needsYou = useNeedsYouDecisions({ surface: "popover", enabled: !popoverFixtureRequested });
-  const refreshNeedsYou = needsYou.refresh;
-
   const refreshManagementComposer = useCallback(async () => {
     if (popoverFixtureRequested) return;
     try {
@@ -201,7 +194,6 @@ export function PopoverApp() {
 
   const refreshConversation = useCallback(async () => {
     if (popoverFixtureRequested) return;
-    void refreshNeedsYou();
     try {
       const summary = await api<ManagementSummary>("/api/management/summary");
       setAvailable(summary.available);
@@ -238,7 +230,7 @@ export function PopoverApp() {
       setUnavailableReason(message);
       setBanner(message);
     }
-  }, [refreshNeedsYou, replaceStreamingAssistant]);
+  }, [replaceStreamingAssistant]);
 
   useEffect(() => {
     void refreshConversation();
@@ -331,19 +323,6 @@ export function PopoverApp() {
     };
   }, [refreshConversation, refreshManagementComposer]);
 
-  // Pending decisions stay a compact disclosure above the always-visible
-  // conversation. A newly pending decision opens once, and the disclosure
-  // folds back when nothing remains.
-  const decisionCount = needsYou.cards.length;
-  const decisionNotice = needsYou.notice;
-  const prevDecisionCountRef = useRef(0);
-  useEffect(() => {
-    const previous = prevDecisionCountRef.current;
-    prevDecisionCountRef.current = decisionCount;
-    if (decisionCount > 0 && previous === 0) setDecisionsOpen(true);
-    else if (decisionCount === 0 && !decisionNotice) setDecisionsOpen(false);
-  }, [decisionCount, decisionNotice]);
-
   useEffect(() => {
     transcriptPinnedRef.current = true;
   }, [conversationId]);
@@ -362,15 +341,14 @@ export function PopoverApp() {
   }, [messages, phase, streamingAssistant, activity, conversationId]);
 
   // The door comes first: whenever the shown popover has nothing that outranks
-  // it — no pending decision, no running work hiding the composer — and focus
-  // has not landed anywhere yet, the composer takes it.
+  // it — no running work hiding the composer — and focus has not landed
+  // anywhere yet, the composer takes it.
   useEffect(() => {
     if (available !== true) return;
     // `phase` is a dependency so the composer regains focus the moment a
     // settled request brings it back, not only on the next window focus.
     const focusComposerFirst = () => {
       if (document.visibilityState === "hidden") return;
-      if (decisionCount > 0) return;
       const current = requestRef.current;
       if (current && activePhases.has(current.phase)) return;
       const active = document.activeElement;
@@ -384,12 +362,12 @@ export function PopoverApp() {
       window.removeEventListener("focus", focusComposerFirst);
       document.removeEventListener("visibilitychange", focusComposerFirst);
     };
-  }, [available, decisionCount, phase]);
+  }, [available, phase]);
 
   // Hiding the popover releases focus parked on a button or strip: Chromium
   // keeps DOM focus across hide/show, and a stale button would otherwise
   // swallow both the reopen keystrokes and the composer's first-focus claim.
-  // Text entry (composer, a decision note) keeps its focus across reopens.
+  // Text entry (the composer) keeps its focus across reopens.
   useEffect(() => {
     const releaseStaleFocus = () => {
       if (document.visibilityState !== "hidden") return;
@@ -401,20 +379,6 @@ export function PopoverApp() {
     document.addEventListener("visibilitychange", releaseStaleFocus);
     return () => document.removeEventListener("visibilitychange", releaseStaleFocus);
   }, []);
-
-  // The only disclosure left is the exceptional decision stack. Expanding it
-  // moves focus into the card; the ordinary conversation never folds away.
-  const toggleDecisions = useCallback(() => {
-    const next = !decisionsOpen;
-    setDecisionsOpen(next);
-    if (!next) return;
-    window.requestAnimationFrame(() => {
-      const drawer = document.getElementById("popover-decisions");
-      if (!drawer) return;
-      const target = drawer.querySelector<HTMLElement>("button, [href], input, textarea, select, summary");
-      (target ?? drawer).focus();
-    });
-  }, [decisionsOpen]);
 
   const send = useCallback(async () => {
     const content = text.trim();
@@ -671,28 +635,6 @@ export function PopoverApp() {
           <span className="banner-text">{banner}</span>
           <button className="banner-dismiss" type="button" aria-label="Dismiss" onClick={() => setBanner("")}><X aria-hidden="true" /></button>
         </div>
-      ) : null}
-
-      {decisionCount > 0 || decisionNotice ? (
-        <section className="fold-section fold-section-decisions">
-          {decisionCount > 0 ? (
-            <button
-              type="button"
-              className="fold-strip fold-strip-decisions"
-              aria-expanded={decisionsOpen}
-              aria-controls="popover-decisions"
-              onClick={toggleDecisions}
-            >
-              <span>{decisionCount === 1 ? "1 decision needs you" : `${decisionCount} decisions need you`}</span>
-              <ChevronRight className="fold-strip-chevron" aria-hidden="true" />
-            </button>
-          ) : null}
-          {decisionsOpen ? (
-            <div id="popover-decisions" className="fold-drawer" tabIndex={-1}>
-              <NeedsYouStack state={needsYou} presentation="single" />
-            </div>
-          ) : null}
-        </section>
       ) : null}
 
       {!popoverFixtureRequested ? <CheckInbox /> : null}

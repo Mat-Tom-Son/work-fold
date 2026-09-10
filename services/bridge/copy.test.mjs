@@ -71,61 +71,28 @@ test("remote client keeps the load-bearing copy exact", async () => {
   assert.ok(page.includes("<title>work-fold</title>"));
 });
 
-test("remote needs-you cards keep the decision vocabulary and state the surface rules up front", async () => {
+test("the remote Needs you screen renders questions only", async () => {
   const app = await clientSource("app.js");
 
-  // The one card contract's vocabulary (web-local/src/ui-contract.ts):
-  // heading, verbs, note copy, and the destroy second confirmation, exact.
-  assert.ok(app.includes(">Approve</button>"));
-  assert.ok(app.includes(">Deny</button>"));
-  assert.ok(app.includes("<summary>Add a note</summary>"));
-  assert.ok(app.includes('placeholder="Optional note, kept with a denial"'));
-  assert.ok(app.includes("This deletes something for good. There is no undo."));
-  assert.ok(app.includes(">Yes, delete for good</button>"));
-  assert.ok(app.includes(">Keep it</button>"));
-  // The screen title stays plain; the count lives on the navigation badge.
-  assert.equal(app.includes("`Needs you (${state.decisions.length})`"), false);
-
-  // Provenance reads as a person would say it: who asked, how long ago, and
-  // how long the staged act still stands. Expiry is not approval.
-  assert.ok(app.includes('"Asked in a chat"'));
-  assert.ok(app.includes('"Asked from the command line"'));
-  assert.match(app, /relativeTime\(card\.provenance\?\.stagedAt\)/);
-  assert.match(app, /expiryPhrase\(card\.expiresAt\)/);
-  for (const phrase of ['"just now"', "${minutesAgo} min ago", "${hoursAgo} h ago", '"expired"', "expires in ${minutesLeft} min"]) {
-    assert.ok(app.includes(phrase), `missing relative-time phrase: ${phrase}`);
-  }
-
-  // The surface rules are stated on the card, not discovered at refusal
-  // time (docs/fold-consecrations.md): desktop-only Personal-scope
-  // make-runnable, and no self-approval by the staging grant.
-  assert.ok(app.includes("Decide this on your desktop."));
-  assert.ok(app.includes("This browser asked for this. Decide it on your desktop, or in another approved browser."));
-  assert.match(app, /card\.stagedByGrantId === state\.identity\?\.grantId/);
-  assert.match(app, /card\.secondConfirmation && !state\.confirmingDestroy\.has\(cardId\)/);
-  assert.doesNotMatch(app, /approve all/i);
-
-  // A rootless file grant approves only where the folder picker lives: the
-  // typed card flag disables Approve up front, states the rule, and keeps
-  // denial available from this browser.
-  assert.ok(app.includes("Approving picks a folder in the work-fold app, so approve it there. You can still deny it from here."));
-  assert.match(app, /const needsChosenFolder = !rule && Boolean\(card\.needsDesktopChosenFolder\)/);
-  assert.match(app, /data-decision="approved"\$\{busy \|\| needsChosenFolder \? " disabled" : ""\}>Approve<\/button>/);
-
-  // Denial memory and outcome sentences match the desktop surfaces.
-  assert.ok(app.includes("You denied this on ${escapeHtml(calendarDay(card.priorDenialAt))}. It has been asked again."));
-  assert.ok(app.includes("work-fold never retries a denied act."));
-  assert.ok(app.includes("Approved, but interrupted before it finished. It was not replayed."));
-
-  // The reworded lines replaced their predecessors instead of joining them.
+  // Needs you means questions (docs/receipts-not-gates.md, F24): no decision
+  // cards, no approve/deny controls, and no decision operations anywhere in
+  // the client — an older desktop that still emits other needs-you kinds gets
+  // an inert row, never a control.
   for (const retired of [
-    "Staged by your fold",
-    "Staged from the command lane",
-    "now staged again.",
-    "Loads into the fold's own runtime",
-    "Staged at this browser's request",
-    "needs-you flyout",
-  ]) assert.equal(app.includes(retired), false, `retired card copy still present: ${retired}`);
+    ">Approve</button>",
+    ">Deny</button>",
+    "decisions.list",
+    "decisions.decide",
+    "needs-you-card",
+    "expiryPhrase",
+    "Review decision",
+    "Add a note",
+    "pending-decision",
+  ]) assert.equal(app.includes(retired), false, `retired decision copy still present: ${retired}`);
+  assert.ok(app.includes("Nothing needs you right now."));
+  assert.ok(app.includes("${renderFromChats()}${renderGlance()}"));
+  assert.match(app, /const questions = state\.glance\?\.needsYou \?\? \[\]/);
+  assert.match(app, /const count = \(state\.glance\?\.needsYou \?\? \[\]\)\.length/);
 
   // Person-facing copy never says "consecration" — that is a contract term.
   const withoutComments = app.replace(/^\s*\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
@@ -139,7 +106,7 @@ test("remote glance renders the digest sections with quiet-not-hidden seen items
   assert.ok(app.includes(">Running now</h3>"));
   assert.ok(app.includes(">Since you last looked</h3>"));
   assert.ok(app.includes(">Checks</h3>"));
-  assert.ok(app.includes(">From chats</h3>"));
+  assert.ok(app.includes(">Needs you</h3>"));
 
   // Marking seen advances only this grant's own marker, only after the digest
   // rendered on the visible surface that shows it; fetching never advances it.
@@ -214,7 +181,7 @@ test("remote client navigation is one sidebar over four screens", async () => {
   // The CSS tooltip is the only tooltip: no native title doubles it up.
   assert.equal(app.includes('title="Settings"'), false);
 
-  // The phone's top bar: ☰ with the pending-decision dot, and a drawer that
+  // The phone's top bar: ☰ with the needs-you dot, and a drawer that
   // is a real dialog — focus trapped, Escape closing, body scroll locked.
   assert.match(app, /id="menu-button"[\s\S]*?aria-label="Menu"[\s\S]*?aria-controls="drawer"[\s\S]*?aria-expanded="false"/);
   assert.match(app, /class="menu-dot" data-nav-dot hidden/);
@@ -230,9 +197,8 @@ test("remote client navigation is one sidebar over four screens", async () => {
   assert.match(app, /if \(sentFromNewChat\) showContext\("chat"\)/);
   assert.match(app, /state\.sending \? "Sending message" : unavailable \? "Desktop offline" : "Send message"/);
 
-  // Needs you renders decisions first, then the questions from chats, then
-  // the digest — the needs-you stack is never below the glance.
-  assert.ok(app.includes("${renderNeedsYou()}${renderFromChats()}${renderGlance()}"));
+  // Needs you renders the questions first, then the digest.
+  assert.ok(app.includes("${renderFromChats()}${renderGlance()}"));
   assert.ok(app.includes("Nothing needs you right now."));
 
   // Presence is a sidebar-footer line, honest in both directions.

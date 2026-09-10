@@ -127,22 +127,20 @@ export function glanceSpaceCount(snapshot: GlanceSnapshotView | null): number {
 }
 
 /**
- * True when the digest has nothing to render. Pending decisions are excluded
- * because they belong to the needs-you card surface; an empty digest means
- * nothing is recorded, never "all clear".
+ * True when the digest has nothing to render. An empty digest means nothing
+ * is recorded, never "all clear".
  */
 export function glanceIsEmpty(snapshot: GlanceSnapshotView): boolean {
-  const questions = snapshot.needsYou.filter((item) => item.kind !== "pending-decision");
-  return !questions.length && !snapshot.running.length && !snapshot.changes.length
+  return !snapshot.needsYou.length && !snapshot.running.length && !snapshot.changes.length
     && !snapshot.checks.length && !snapshot.unavailable.length;
 }
 
 /**
- * The digest's sections in the recorded order — Needs you (the glance's
- * conversational items; pending decisions render as their own interactive
- * card stack beside this section), Running now, a compact Since you last
- * looked, then the Checks rows. Bounds are disclosure: every truncation flag
- * and unavailable source is said out loud instead of rendered as quiet.
+ * The digest's sections in the recorded order — Needs you (Assistant
+ * questions and due snoozes; nothing here is an approval), Running now, a
+ * compact Since you last looked, then the Checks rows. Bounds are
+ * disclosure: every truncation flag and unavailable source is said out loud
+ * instead of rendered as quiet.
  */
 export function GlanceSection({ state, surface }: { state: GlanceState; surface: GlanceSurface }) {
   const [showEarlier, setShowEarlier] = useState(false);
@@ -155,9 +153,7 @@ export function GlanceSection({ state, surface }: { state: GlanceState; surface:
   if (!snapshot) return null;
   if (openedSeenRef.current === null) openedSeenRef.current = snapshot.seen[surface] ?? "";
   const seenThrough = openedSeenRef.current;
-  // Pending decisions are the card stack's job (one card contract, decided
-  // there); the glance section renders the digest's other needs-you kinds.
-  const questions = snapshot.needsYou.filter((item) => item.kind !== "pending-decision");
+  const questions = snapshot.needsYou;
   const isNew = (item: GlanceItemView) => glanceCursorIsNewer(`${item.at}/${item.id}`, seenThrough);
   const fresh = snapshot.changes.filter(isNew);
   const shownChanges = showEarlier ? snapshot.changes : fresh;

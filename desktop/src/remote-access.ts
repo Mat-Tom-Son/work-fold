@@ -30,7 +30,7 @@ const maximumRemoteRequestCiphertextCharacters = Math.floor(12 * 1024 * 1024 * 1
 const maximumProtocolErrorFramesPerConnection = 1;
 const operationSet = new Set<WorkFoldRemoteOperation>([
   "management.summary", "management.chats", "management.transcript", "management.rename", "management.send", "management.request",
-  "management.stop", "management.watch", "management.glance", "management.glanceSeen", "decisions.list", "decisions.decide",
+  "management.stop", "management.watch", "management.glance", "management.glanceSeen",
   "spaces.list", "spaces.tree", "spaces.filePreview", "apps.list", "apps.read",
   "apps.actions.request", "apps.actions.get", "apps.actions.list", "apps.actions.review", "apps.actions.approve", "apps.actions.cancel",
 ]);
@@ -886,9 +886,9 @@ export class RemoteAccessClient {
     // (the callers order it that way), and every lane is attempted so one
     // failure cannot silently skip the rest. The operation fences raised at
     // the revocation call already refuse in-flight operations from the
-    // revoked grant — including a `decisions.decide` that has not reached the
-    // serialized authority queue — before anything is consumed; a decision
-    // that already executed stands, named by its receipt.
+    // revoked grant — including any operation that has not reached the
+    // serialized queue — before anything is consumed; an act that already
+    // executed stands, named by its receipt.
     const failures: string[] = [];
     try { await this.#stopTrackedTasks(grantId); }
     catch (error) { failures.push(errorMessage(error)); }

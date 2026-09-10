@@ -56,7 +56,13 @@ import {
   type CapabilitySort,
   type CapabilityType,
 } from "./agent/capability-registry.js";
-import { importPiSkillBundle, piSkillBundleContentDigest, removePiSkill } from "./agent/skill-import.js";
+import {
+  importPiSkillBundle,
+  importPiSkillBundleVerified,
+  piSkillBundleContentDigest,
+  removePiSkill,
+  type PiSkillBundleImportResult,
+} from "./agent/skill-import.js";
 import { normalizeAssistantInstructions } from "./agent/model-preferences.js";
 import {
   RegisteredSpaceRuntimeProvider,
@@ -80,6 +86,7 @@ import {
   type RestrictedAppInstalled,
 } from "./agent/restricted-app-service.js";
 import type { RestrictedAppNetworkDeclaration } from "./agent/restricted-app-manifest.js";
+import type { RestrictedAppConnectionStatus } from "./agent/restricted-app-connections.js";
 import {
   getPiComposerState,
   getPiAssistantInstructions,
@@ -159,61 +166,18 @@ import type { WorkFoldCheckDecisionKind } from "./checks/check-types.js";
 import { purgeWorkFoldCheckState } from "./checks/check-store.js";
 import { resolveWorkFoldCheckTargets } from "./checks/target-resolver.js";
 import {
-  FoldDecisionError,
-  FoldDecisionService,
-  createManagedSpaceDeletionAdapter,
-  createRestrictedAppAutomationEnableAdapter,
-  createRestrictedAppGrantAdapter,
-  createRestrictedAppReviewApproveAdapter,
-  createSkillImportAdapter,
-  foldDecisionRequestId,
-  foldDecisionSurfaceRestrictions,
-  type FoldDecisionAdapters,
-  type FoldDecisionFenceScope,
-  type FoldDecisionMutationFence,
-  type FoldDecisionReceiptsWriter,
-  type FoldStagedActKindAdapter,
-} from "./fold-decisions.js";
+  FoldPreparedActError,
+  FoldPreparedActExecutor,
+  prepareFoldAct,
+  type FoldActFence,
+  type FoldPreparedAct,
+  type FoldPreparedActAdapter,
+  type FoldPreparedActAdapters,
+  type FoldPreparedActFields,
+  type FoldPreparedActKind,
+} from "./fold-prepared-acts.js";
+import { removeRetiredFoldGateState } from "./fold-retired-state.js";
 import {
-  foldDecisionCard,
-  type FoldDecisionCard,
-  type FoldDecisionCardFact,
-} from "./fold-decision-cards.js";
-import {
-  FoldAuthorityError,
-  FoldAuthorityStore,
-  mintFoldAuthoritySettingsWriter,
-  type FoldAuthorityMode,
-  type FoldAuthoritySettingsWriter,
-} from "./fold-authority.js";
-import {
-  FOLD_POLICY_CAP,
-  FOLD_POLICY_ELIGIBLE_KINDS,
-  FOLD_POLICY_FIRST_PARTY_REGISTRIES,
-  FOLD_POLICY_LABEL_MAX_CHARS,
-  FOLD_POLICY_MATCHER_DESCRIPTORS,
-  FoldPolicyError,
-  FoldStandingPolicyStore,
-  mintFoldPolicySettingsWriter,
-  type FoldPolicyCategory,
-  type FoldPolicyEligibleKind,
-  type FoldPolicyEvaluation,
-  type FoldPolicyMatch,
-  type FoldPolicySettingsWriter,
-} from "./fold-policies.js";
-import {
-  FoldStagedActError,
-  FoldStagedActStore,
-  foldStagedActCategory,
-  type FoldStagedAct,
-  type FoldStagedActAdmission,
-  type FoldStagedActFields,
-  type FoldStagedActKind,
-  type FoldStagedActProvenance,
-  type FoldStagedActStagedVia,
-} from "./fold-staged-acts.js";
-import {
-  createWorkFoldGlancePolicyChangeReader,
   createWorkFoldGlanceRoutingRunReader,
   parseWorkFoldGlanceCursor,
   workFoldGlanceChatRecordFromMessages,
@@ -223,7 +187,6 @@ import {
   type WorkFoldGlanceManagementRequestRecord,
   type WorkFoldGlanceSettledTurnRecord,
   type WorkFoldGlanceSourceReaders,
-  type WorkFoldGlanceStagedActRecord,
   type WorkFoldGlanceViewerGrantEventRecord,
 } from "./glance.js";
 import { WorkFoldGlanceSeenStore, workFoldGlanceRemoteSurfaceId } from "./glance-seen-store.js";
@@ -285,6 +248,7 @@ import {
   WORKFOLD_CLI_ACT_SURFACES,
   WorkFoldCliActReceipts,
   type WorkFoldCliActReceipt,
+  type WorkFoldCliActSurface,
 } from "./cli/act-receipts.js";
 import { WorkFoldCliError } from "./cli/protocol.js";
 import type {
@@ -312,10 +276,6 @@ import type {
   WorkFoldActRoutingSummary,
   WorkFoldActRoutingTriggerRef,
   WorkFoldActSpaceRef,
-  WorkFoldActStagedActDetail,
-  WorkFoldActStagedActSummary,
-  WorkFoldActStagedAutoApproval,
-  WorkFoldActStagedDecision,
   WorkFoldActTurnStatus,
 } from "./cli/act-facade.js";
 import { resolveWorkFoldCliSpaceSelector } from "./work-fold-cli-adapter.js";
@@ -340,6 +300,7 @@ import {
   getSpaceFilePreview,
   listSpaces,
   listPendingSpaceRemovals,
+  managedSpaceDeletionPinIssue,
   markSpaceRemovalAppStateRemoved,
   moveSpaceEntry,
   readSpaceTextFile,
@@ -401,12 +362,6 @@ export interface LocalApiOptions {
   actReceipts?: WorkFoldCliActReceipts;
   /** Test seam for the machine-local durable Assistant-turn journal. */
   turnStore?: WorkFoldTurnStore;
-  /** Test seam for the staged-act store; defaults to the state-root store. */
-  foldStagedActStore?: FoldStagedActStore;
-  /** Test seam for the standing-policy store; defaults to the state-root store. */
-  foldPolicyStore?: FoldStandingPolicyStore;
-  /** Test seam for the machine-local Reviewed/Unrestricted authority store. */
-  foldAuthorityStore?: FoldAuthorityStore;
   /**
    * Publication page keys. The desktop passes the operating-system-encrypted
    * secure-settings store (`desktop/src/settings.ts`); without one, keys live
@@ -506,7 +461,7 @@ export interface WorkFoldRoutingSettingsFacade {
     };
   }>;
   history(routingId: string): Promise<{ runs: WorkFoldRoutingSettingsRunView[]; truncated: boolean; damagedLineCount: number }>;
-  stageEnable(routingId: string): Promise<{ routingId: string; decisionId: string; state: "staged" | "executed" }>;
+  enable(routingId: string): Promise<{ routingId: string; requestId: string; enabled: true }>;
   run(routingId: string): Promise<{ routingId: string; requestId: string; runId: string; accepted: true }>;
   stop(routingId: string): Promise<{ routingId: string; requestId: string; runId: string; stopped: true }>;
   disable(routingId: string): Promise<{ routingId: string; requestId: string; disabled: true; stoppedRunId: string | null }>;
@@ -525,24 +480,12 @@ export interface LocalApiHandle {
   actFacade: WorkFoldActFacade;
   /** Narrow Internet-facing semantic adapter. It never exposes the local HTTP session. */
   remoteFacade: WorkFoldRemoteFacade;
-  /** Validates an explicitly named management parent while its turn is active. */
-  resolveManagementLineageParent: (taskId: string) => { taskId: string } | null;
-  /** Staged consecrations awaiting a person's decision (docs/fold-consecrations.md). */
-  stagedActs: FoldStagedActStore;
   /**
-   * The person-authored standing policies (docs/fold-consecrations.md
-   * §Standing policies). Reading and citing is open; every mutation demands
-   * the Settings writer, which is minted once inside the API and handed only
-   * to the renderer-session Settings routes — never to this handle, the act
-   * facade, or the remote facade.
+   * Validates an explicitly named management parent while its turn is active
+   * and, when that request arrived through Remote access, the approved
+   * browser identity the act receipts stamp (docs/receipts-not-gates.md).
    */
-  foldPolicies: FoldStandingPolicyStore;
-  /**
-   * The consecration decision path, for the desktop renderer/popover session
-   * routes and the approved remote browser's signed envelope. Deliberately
-   * not an act-lane verb; the act facade never reaches it.
-   */
-  foldDecisions: FoldDecisionService;
+  resolveManagementLineageParent: (taskId: string) => { taskId: string; browserId?: string; grantId?: string } | null;
   /** The routing executor (docs/fold-routings.md), for the desktop surfaces and lifecycle wiring. */
   routings: WorkFoldRoutingService;
   /** Main-window Settings capability; never exposed on the local HTTP or remote facades. */
@@ -572,43 +515,13 @@ interface LocalApiState {
   settleSignal: WorkFoldSettleSignal;
   actReceipts: WorkFoldCliActReceipts;
   turnStore: WorkFoldTurnStore;
-  stagedActs: FoldStagedActStore;
-  /**
-   * Exactly one standing-policy store and exactly one minted Settings writer
-   * per API. The writer exists so policy authoring is structurally a
-   * desktop-Settings setup act: only the renderer-session
-   * Settings routes pass it to the store, the act facade and remote facade
-   * have no policy mutation surface at all, and the fold can cite policies
-   * through reads that need no writer.
-   */
-  foldPolicies: FoldStandingPolicyStore;
-  foldPolicyWriter: FoldPolicySettingsWriter;
-  /** Root authority selected only by the local Settings surface. */
-  foldAuthority: FoldAuthorityStore;
-  foldAuthorityWriter: FoldAuthoritySettingsWriter;
-  /**
-   * Label snapshots for in-flight policy exercises, keyed by staged-act id:
-   * registered immediately before the host-side decision runs so the decision
-   * receipts can carry the exercised policy's label exactly as it read at
-   * exercise time, and removed when the exercise settles.
-   */
-  policyLabelSnapshots: Map<string, string>;
   publications: WorkFoldPublicationService;
   /**
-   * The rung-3 viewer adapter: exposure resolution for staging and decision
-   * recheck, and the viewer-safe serve path the publication service drives.
+   * The rung-3 viewer adapter: exposure resolution for the exposure verbs'
+   * effect-time recheck, and the viewer-safe serve path the publication
+   * service drives.
    */
   restrictedAppViewer: RestrictedAppViewerAdapter;
-  /**
-   * Person-chosen Space-relative roots for pending `app.grant.files`
-   * decisions, keyed by staged-act id: registered by the renderer decide
-   * route immediately before the host-side decision runs and removed when it
-   * settles. The staged card pins the reviewed declaration only; the root is
-   * the decision-time supplement the desktop folder picker supplies
-   * (docs/fold-consecrations.md), so the grant adapter's resolver reads it
-   * here and an approval that carries none stays honestly ineligible.
-   */
-  fileGrantRootChoices: Map<string, string>;
   /**
    * The same key store the publication service encrypts with, held so the
    * renderer-session Settings routes can compose a share link on demand
@@ -620,10 +533,10 @@ interface LocalApiState {
   glanceSeen: WorkFoldGlanceSeenStore;
   /**
    * Constructed in a second phase after the state object exists, because the
-   * decision fence, adapters, and routing hop ports close over this state.
-   * Both are assigned before the server accepts a request.
+   * prepared-act fence, adapters, and routing hop ports close over this
+   * state. Both are assigned before the server accepts a request.
    */
-  foldDecisions: FoldDecisionService;
+  preparedActs: FoldPreparedActExecutor;
   routings: WorkFoldRoutingService;
   spaceTrustAuthority: RegisteredSpaceTrustAuthority;
   managementInstructionsError: string | null;
@@ -808,13 +721,14 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   };
   const checks = options.checkService ?? new WorkFoldCheckService({ kernel, settleSignal, reviewModel: reviewCheck });
   // The fold's one ledger: the same act-receipts journal the desktop CLI host
-  // appends. Both instances write the identical state-root path, so decisions
-  // and publications land in the journal the act lane already audits.
+  // appends. Both instances write the identical state-root path, so prepared
+  // acts and publications land in the journal the act lane already audits.
   const actReceipts = options.actReceipts ?? new WorkFoldCliActReceipts({ stateRoot: workFoldStateRoot() });
   const turnStore = options.turnStore ?? await WorkFoldTurnStore.create({ stateRoot: workFoldStateRoot() });
-  const stagedActs = options.foldStagedActStore ?? await FoldStagedActStore.create();
-  const foldPolicies = options.foldPolicyStore ?? await FoldStandingPolicyStore.create();
-  const foldAuthority = options.foldAuthorityStore ?? await FoldAuthorityStore.create();
+  // Gate state an older build left behind is removed unread before any
+  // facade exists: a pending record there is an intent nobody confirmed
+  // (docs/receipts-not-gates.md, F19).
+  await removeRetiredFoldGateState();
   const routingStore = await WorkFoldRoutingStore.create();
   const publicationKeys = options.publicationKeys ?? createEphemeralPublicationKeyStore();
   // The rung-3 viewer adapter (docs/fold-publishing.md): the viewer-safe
@@ -867,20 +781,13 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     settleSignal,
     actReceipts,
     turnStore,
-    stagedActs,
-    foldPolicies,
-    foldPolicyWriter: mintFoldPolicySettingsWriter(),
-    foldAuthority,
-    foldAuthorityWriter: mintFoldAuthoritySettingsWriter(),
-    policyLabelSnapshots: new Map(),
     publications,
     restrictedAppViewer,
-    fileGrantRootChoices: new Map(),
     publicationKeys,
     glanceSeen,
     // Assigned in the second construction phase below, before the server
     // listens; their fences and hop ports close over this state object.
-    foldDecisions: undefined as unknown as FoldDecisionService,
+    preparedActs: undefined as unknown as FoldPreparedActExecutor,
     routings: undefined as unknown as WorkFoldRoutingService,
     spaceTrustAuthority,
     managementInstructionsError,
@@ -916,16 +823,14 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     onHistoryCheckpoint: options.onHistoryCheckpoint,
   };
 
-  // Second construction phase: the decision path and the routing executor
-  // close over the shared state (capability-mutation fences, live route
-  // internals), so they are built once it exists and before the server
-  // listens.
-  state.foldDecisions = new FoldDecisionService({
-    store: stagedActs,
-    receipts: createPolicyLabelAwareDecisionReceipts(state),
+  // Second construction phase: the prepared-act executor and the routing
+  // executor close over the shared state (capability-mutation fences, live
+  // route internals), so they are built once it exists and before the
+  // server listens.
+  state.preparedActs = new FoldPreparedActExecutor({
+    adapters: createFoldActAdapters(state),
+    fence: createFoldActFence(state),
     kernel,
-    fence: createFoldDecisionFence(state),
-    adapters: createFoldDecisionAdapters(state),
   });
   state.browserAppActions = await BrowserAppActionService.create({
     path: join(workFoldStateRoot(), "restricted-apps", "browser-actions.json"),
@@ -963,10 +868,6 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   });
   const appTasksChanged = () => publishControlHint(state, "apps");
   state.appAssistantTasks.on("changed", appTasksChanged);
-  const decisionsChanged = () => publishControlHint(state, "decisions");
-  stagedActs.on("staged", decisionsChanged);
-  stagedActs.on("settled", decisionsChanged);
-  stagedActs.on("execution", decisionsChanged);
   const unsubscribeAppCatalog = restrictedApps.subscribeCatalog(() => publishControlHint(state, "apps"));
   state.routings = await WorkFoldRoutingService.create({
     store: routingStore,
@@ -983,11 +884,9 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   });
   // Space removals that finalized (or remain pending) while the app was not
   // running still revoke standing authority: suspend routings referencing the
-  // removed Spaces and cancel their pending staged cards, best-effort — both
-  // stores already fail closed on damage.
+  // removed Spaces, best-effort — the store already fails closed on damage.
   for (const spaceId of new Set([...recoveredRemovals.spaceIds, ...pendingSpaceIds])) {
     await state.routings.handleSpaceRemoved(spaceId).catch(() => undefined);
-    await stagedActs.cancelForSpace(spaceId).catch(() => undefined);
   }
   // Complete interrupted publication work (key mints, bridge slot syncs);
   // with no bridge configured everything stays honestly pending.
@@ -1061,19 +960,13 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     appAssistantTasks: state.appAssistantTasks,
     actFacade: createWorkFoldActFacade(state),
     remoteFacade: createWorkFoldRemoteFacade(state),
-    resolveManagementLineageParent: (taskId) => state.managementRequests.isActive(taskId) ? { taskId } : null,
-    stagedActs,
-    foldPolicies,
-    foldDecisions: state.foldDecisions,
+    resolveManagementLineageParent: (taskId) => resolveManagementLineageParent(state, taskId),
     routings: state.routings,
     routingSettings: createWorkFoldRoutingSettingsFacade(state),
     publications,
     close: async () => {
       state.acceptingTurns = false;
       const browserActionsClosed = state.browserAppActions.close();
-      stagedActs.off("staged", decisionsChanged);
-      stagedActs.off("settled", decisionsChanged);
-      stagedActs.off("execution", decisionsChanged);
       unsubscribeAppCatalog();
       state.appAssistantTasks.off("changed", appTasksChanged);
       for (const response of state.controlStreams) response.end();
@@ -2782,15 +2675,8 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
 
-  // Needs-you decision surface (docs/fold-consecrations.md): renderer/popover
-  // session routes over the same host-composed card contract every surface
-  // renders (fold integration reconciliation 6). Deciding is deliberately NOT
-  // an act-lane verb: these routes exist only on the renderer session — the
-  // act facade and the act CLI never reach them — and the only decision
-  // surfaces they accept are the two desktop ones. The routes stay available
-  // while the management conversation is not (a pending card outlives any
-  // conversation state), and the glance's needs-you items reference the same
-  // pending records by the same ids.
+  // Content-free control hints for the renderer: which registry changed, so
+  // the surfaces requery instead of accumulating an event queue.
   if (url.pathname === "/api/management/control-events" && method === "GET") {
     if (state.controlStreams.size >= 64) throw httpError(429, "Too many control event connections.");
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
@@ -2801,79 +2687,6 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     res.on("close", () => { clearInterval(heartbeat); state.controlStreams.delete(res); });
     return;
   }
-  if (url.pathname === "/api/management/decisions" && method === "GET") {
-    try {
-      const acts = await state.stagedActs.list({ state: "staged" });
-      const cards = await composeDecisionCards(acts);
-      // Soonest expiry first, matching the glance's needs-you ordering.
-      cards.sort((left, right) =>
-        compareIsoStrings(left.expiresAt, right.expiresAt) || compareIsoStrings(left.id, right.id));
-      sendJson(res, { decisions: cards });
-    } catch (error) {
-      sendFoldDecisionError(res, error);
-    }
-    return;
-  }
-  const decisionDecideMatch = match(url.pathname, /^\/api\/management\/decisions\/([^/]+)\/decide$/);
-  if (decisionDecideMatch && method === "POST") {
-    const body = await readJsonBody<{ decision?: unknown; surface?: unknown; note?: unknown; fileGrantRoot?: unknown }>(state, req);
-    if (body.decision !== "approved" && body.decision !== "denied") {
-      throw badRequest("The decision must be approved or denied.");
-    }
-    // Surface attribution is the compensating control on decision receipts:
-    // this renderer lane records exactly which desktop surface clicked.
-    // `remote_web` arrives only through the approved browser's signed
-    // envelope, and `policy` only from host-side evaluation — neither is
-    // acceptable from a renderer request.
-    if (body.surface !== "popover" && body.surface !== "main-window") {
-      throw badRequest("The decision surface must be popover or main-window.");
-    }
-    if (body.note !== undefined && typeof body.note !== "string") {
-      throw badRequest("A denial note must be a string.");
-    }
-    if (body.note !== undefined && body.decision !== "denied") {
-      throw badRequest("A note is offered only with a denial.");
-    }
-    // The app.grant.files decision-time supplement: the person-chosen
-    // Space-relative root from the desktop folder picker
-    // (docs/fold-consecrations.md). Renderer-session approvals only — the
-    // remote decide operation carries no root, so remote approvals of file
-    // grants stay honestly ineligible rather than granting a root no card
-    // ever showed.
-    if (body.fileGrantRoot !== undefined && body.decision !== "approved") {
-      throw badRequest("A chosen folder accompanies only an approval.");
-    }
-    const fileGrantRoot = body.fileGrantRoot !== undefined ? decisionFileGrantRoot(body.fileGrantRoot) : undefined;
-    if (fileGrantRoot !== undefined) state.fileGrantRootChoices.set(decisionDecideMatch[1], fileGrantRoot);
-    try {
-      const result = await state.foldDecisions.decide(decisionDecideMatch[1], {
-        decision: body.decision,
-        surface: body.surface,
-        ...(body.note !== undefined && body.note.trim() ? { note: body.note } : {}),
-      });
-      sendJson(res, {
-        decision: (await composeDecisionCards([result.act]))[0],
-        receipted: result.receipted,
-      });
-    } catch (error) {
-      sendFoldDecisionError(res, error);
-    } finally {
-      if (fileGrantRoot !== undefined) state.fileGrantRootChoices.delete(decisionDecideMatch[1]);
-    }
-    return;
-  }
-  const decisionCancelMatch = match(url.pathname, /^\/api\/management\/decisions\/([^/]+)\/cancel$/);
-  if (decisionCancelMatch && method === "POST") {
-    await readJsonBody<Record<string, never>>(state, req);
-    try {
-      const act = await state.stagedActs.cancel(decisionCancelMatch[1]);
-      sendJson(res, { decision: (await composeDecisionCards([act]))[0] });
-    } catch (error) {
-      sendFoldDecisionError(res, error);
-    }
-    return;
-  }
-
   // The glance (docs/fold-glance.md): the app-composed digest for the popover
   // and the main window, on the renderer session. Deliberately no
   // management-readiness gate — the digest reads recorded state, not the
@@ -2902,134 +2715,14 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
 
-  // Root authority is a machine-local desktop-Settings choice. Approved
-  // browsers inherit it because all staged execution still happens here on
-  // the desktop; neither the act facade nor the remote operation vocabulary
-  // has a route that can change it.
-  if (url.pathname === "/api/settings/fold-authority" && method === "GET") {
-    try {
-      sendJson(res, { status: await state.foldAuthority.status() });
-    } catch (error) {
-      sendFoldAuthorityError(res, error);
-    }
-    return;
-  }
-  if (url.pathname === "/api/settings/fold-authority" && method === "PUT") {
-    const body = await readJsonBody<{ mode?: unknown }>(state, req);
-    try {
-      if (Object.keys(body).some((key) => key !== "mode")) {
-        throw new FoldAuthorityError("INPUT_INVALID", "The authority update accepts only mode.");
-      }
-      const status = await state.foldAuthority.setMode(
-        state.foldAuthorityWriter,
-        body.mode as FoldAuthorityMode,
-      );
-      sendJson(res, { status });
-    } catch (error) {
-      sendFoldAuthorityError(res, error);
-    }
-    return;
-  }
-
-  // Standing policies (docs/fold-consecrations.md §Standing policies):
-  // authoring is a desktop-human act in Settings → The fold, so these routes
-  // exist only on the renderer session and hold the one minted Settings
-  // writer. Refusal elsewhere is by construction, not by filter: the act
-  // facade has no policy methods, the act CLI has no policy verbs, and the
-  // remote operation vocabulary has no policy operation — standing-policy
-  // authoring is a setup-only authority boundary, and the fold may cite policies (reads,
-  // exercised receipts) but never write them.
-  if (url.pathname === "/api/settings/fold-policies" && method === "GET") {
-    try {
-      let policies: Awaited<ReturnType<FoldStandingPolicyStore["list"]>> = [];
-      try {
-        policies = await state.foldPolicies.list();
-      } catch (error) {
-        // A damaged store still renders in Settings: status says why every
-        // policy is disabled, and recovery happens outside the product.
-        if (!(error instanceof FoldPolicyError && error.code === "STORE_DAMAGED")) throw error;
-      }
-      sendJson(res, {
-        policies,
-        status: state.foldPolicies.status(),
-        contract: foldPolicySettingsContract(),
-      });
-    } catch (error) {
-      sendFoldPolicyError(res, error);
-    }
-    return;
-  }
-  if (url.pathname === "/api/settings/fold-policies" && method === "POST") {
-    const body = await readJsonBody<{ label?: unknown; kind?: unknown; match?: unknown; enabled?: unknown }>(state, req);
-    try {
-      const policy = await state.foldPolicies.createPolicy(state.foldPolicyWriter, {
-        label: String(body.label ?? ""),
-        kind: body.kind as FoldPolicyEligibleKind,
-        match: foldPolicyMatchInput(body.match),
-        ...(body.enabled !== undefined ? { enabled: body.enabled as boolean } : {}),
-      });
-      sendJson(res, { policy, status: state.foldPolicies.status() }, 201);
-    } catch (error) {
-      sendFoldPolicyError(res, error);
-    }
-    return;
-  }
-  if (url.pathname === "/api/settings/fold-policies/reattest" && method === "POST") {
-    await readJsonBody<Record<string, never>>(state, req);
-    try {
-      sendJson(res, { status: await state.foldPolicies.reattest(state.foldPolicyWriter) });
-    } catch (error) {
-      sendFoldPolicyError(res, error);
-    }
-    return;
-  }
-  const policyEnableMatch = match(url.pathname, /^\/api\/settings\/fold-policies\/([^/]+)\/(enable|disable)$/);
-  if (policyEnableMatch && method === "POST") {
-    await readJsonBody<Record<string, never>>(state, req);
-    try {
-      const policy = await state.foldPolicies.setPolicyEnabled(
-        state.foldPolicyWriter,
-        policyEnableMatch[1],
-        policyEnableMatch[2] === "enable",
-      );
-      sendJson(res, { policy, status: state.foldPolicies.status() });
-    } catch (error) {
-      sendFoldPolicyError(res, error);
-    }
-    return;
-  }
-  const policyMatch = match(url.pathname, /^\/api\/settings\/fold-policies\/([^/]+)$/);
-  if (policyMatch && method === "PATCH") {
-    const body = await readJsonBody<{ label?: unknown; match?: unknown }>(state, req);
-    try {
-      const policy = await state.foldPolicies.updatePolicy(state.foldPolicyWriter, policyMatch[1], {
-        ...(body.label !== undefined ? { label: String(body.label) } : {}),
-        ...(body.match !== undefined ? { match: foldPolicyMatchInput(body.match) } : {}),
-      });
-      sendJson(res, { policy, status: state.foldPolicies.status() });
-    } catch (error) {
-      sendFoldPolicyError(res, error);
-    }
-    return;
-  }
-  if (policyMatch && method === "DELETE") {
-    try {
-      const policy = await state.foldPolicies.removePolicy(state.foldPolicyWriter, policyMatch[1]);
-      sendJson(res, { policy, status: state.foldPolicies.status() });
-    } catch (error) {
-      sendFoldPolicyError(res, error);
-    }
-    return;
-  }
-
   // Pages your fold serves (docs/fold-publishing.md, plan item 5): the
   // desktop Settings surface over the publication authority. Reads list the
   // grant records with their budgets, tallies, and health notes; the
   // narrowing verbs — revoke, cut budgets, snapshot off — are direct
   // receipted acts minted with a per-request id and the main-window surface.
-  // Widening has no route here: a new slot, raised budgets, or snapshot-on
-  // is a fresh consecration staged through the fold and decided on a
-  // needs-you card. The reveal route composes the share link's secret
+  // Widening has no route here: a new page or a wider budget is a fresh
+  // `pages stage` through the fold, receipted like every act. The reveal
+  // route composes the share link's secret
   // fragment on demand from the key store and returns it transiently — it is
   // never listed, journaled, or logged.
   if (url.pathname === "/api/settings/publications" && method === "GET") {
@@ -3406,8 +3099,9 @@ async function registerSpaceInternal(state: LocalApiState, rootPath: string, pro
 }
 
 /**
- * The one Space-removal path, shared by the desktop DELETE route, the staged
- * `space.delete-folder` decision, and the act facade's `spaces unregister`:
+ * The one Space-removal path, shared by the desktop DELETE route, the
+ * `space.delete-folder` prepared act behind `spaces delete`, and the act
+ * facade's `spaces unregister`:
  * App Studio impact checks, the durable removal intent, runtime-authorization
  * revocation, per-service app-state cleanup with the crash-safe pending
  * result, and finalization. A linked registration removal always leaves the
@@ -3469,17 +3163,14 @@ async function removeSpaceRegistrationInternal(
         return spaceRemovalPendingResult(intent);
       }
       // The same revocation moment as Check authority: enabled routings
-      // referencing this Space suspend (their active runs stop), and pending
-      // staged cards pinned to it are canceled. Suspension failing leaves the
-      // durable intent pending — startup retries the cascade; the staged-act
-      // cascade is best-effort because a damaged store already fails staging
-      // and deciding closed.
+      // referencing this Space suspend (their active runs stop). Suspension
+      // failing leaves the durable intent pending — startup retries the
+      // cascade.
       try {
         await state.routings.handleSpaceRemoved(space.id);
       } catch {
         return spaceRemovalPendingResult(intent);
       }
-      await state.stagedActs.cancelForSpace(space.id).catch(() => undefined);
       try {
         await state.restrictedApps.removeSpace(space.id);
         await state.restrictedAppProposals.removeSpace(space.id);
@@ -3650,32 +3341,14 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
       await rm(join(root, safeRemoteUploadSegment(grantId)), { recursive: true, force: true });
     },
     async revokeGrantAuthority(grantId) {
-      // Browser revocation's desktop-local cascade (docs/fold-consecrations.md):
-      // pending staged acts whose staging provenance traces to the revoked
-      // grant are canceled — a compromised browser cannot leave a card behind
-      // as a time bomb — and the grant's `remote:<grantId>` glance marker goes
-      // with the rest of its state. Decided acts stand; their receipts name
-      // the browser that made them. Every lane is attempted so one failure
-      // cannot silently skip the rest.
+      // Browser revocation's desktop-local cascade: the browser's app actions
+      // settle, and the grant's `remote:<grantId>` glance marker goes with the
+      // rest of its state (docs/fold-glance.md). Acts the browser already
+      // performed stand; their receipts name the browser that made them.
+      // Every lane is attempted so one failure cannot silently skip the rest.
       const failures: string[] = [];
       try { await state.browserAppActions.revoke(grantId); }
       catch { failures.push("Could not settle the browser's app actions."); }
-      try {
-        if (grantId !== undefined) {
-          await state.stagedActs.cancelForBrowserGrant({ grantId });
-        } else {
-          const remoteGrantIds = new Set(
-            (await state.stagedActs.list({ state: "staged" }))
-              .map((act) => act.provenance.grantId)
-              .filter((value): value is string => typeof value === "string"),
-          );
-          for (const staleGrantId of remoteGrantIds) {
-            await state.stagedActs.cancelForBrowserGrant({ grantId: staleGrantId });
-          }
-        }
-      } catch (error) {
-        failures.push(`Could not cancel the browser's pending staged acts: ${errorMessage(error)}`);
-      }
       try {
         if (grantId !== undefined) {
           await state.glanceSeen.removeSurface(workFoldGlanceRemoteSurfaceId(grantId));
@@ -3866,52 +3539,6 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
           assertRemoteManagementRequestOwner(state, taskId, principal);
           return { stopped: await stopManagementRequest(state, taskId) };
         }
-        case "decisions.list": {
-          // The same host-composed card projection every desktop surface
-          // renders (docs/fold-consecrations.md): every approved browser sees
-          // the same pending cards, soonest expiry first. Cards carry
-          // `desktopOnly` and `stagedByGrantId`, so the client states the two
-          // surface rules up front instead of discovering refusals. No
-          // management-readiness gate: a pending card outlives any
-          // conversation state.
-          assertRemoteKeys(input, []);
-          const acts = await state.stagedActs.list({ state: "staged" });
-          const cards = await composeDecisionCards(acts);
-          cards.sort((left, right) =>
-            compareIsoStrings(left.expiresAt, right.expiresAt) || compareIsoStrings(left.id, right.id));
-          return { decisions: cards };
-        }
-        case "decisions.decide": {
-          assertRemoteKeys(input, ["id", "decision", "note"]);
-          const id = remoteStableId(input.id, "decision id", 160);
-          if (input.decision !== "approved" && input.decision !== "denied") {
-            throw badRequest("The decision must be approved or denied.");
-          }
-          if (input.note !== undefined && typeof input.note !== "string") {
-            throw badRequest("A denial note must be a string.");
-          }
-          if (input.note !== undefined && input.decision !== "denied") {
-            throw badRequest("A note is offered only with a denial.");
-          }
-          // Surface attribution comes from the transport, never the payload:
-          // the desktop dispatch re-verified this grant against Remote access
-          // settings immediately before execution, and that recheck's
-          // browserId/grantId land on the decision receipt — the compensating
-          // control the remote-clicks decision recorded. Eligibility, pin
-          // recheck, journal-first consumption, and execution all run
-          // desktop-side in the shared decision path.
-          const result = await state.foldDecisions.decide(id, {
-            decision: input.decision,
-            surface: "remote_web",
-            browserId: principal.browserId,
-            grantId: principal.grantId,
-            ...(typeof input.note === "string" && input.note.trim() ? { note: input.note } : {}),
-          });
-          return {
-            decision: (await composeDecisionCards([result.act]))[0],
-            receipted: result.receipted,
-          };
-        }
         case "management.glance": {
           // App-composed digest over recorded state (docs/fold-glance.md).
           // Cross-grant hygiene: the projection carries only the requesting
@@ -4081,7 +3708,6 @@ function remoteManagementRequest(
       checkpointId: action.checkpointId,
       conversationId: action.conversationId,
       taskId: action.taskId,
-      decisionId: action.decisionId,
       apps: action.apps,
     })),
   };
@@ -4510,27 +4136,35 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
     return app;
   };
   /**
-   * The one staging door for every consecrated verb: typed parameters and
-   * pins composed by the calling method from live state, provenance from the
-   * validated management lineage, admission through the staged-act store's
-   * serialized path, and the ledger's staged result shape back. Callers never
-   * supply a decision; the host may consume a fresh admission under the
-   * machine's Settings-owned authority.
-   *
-   * Local Settings may authorize one of two host-side short circuits after a
-   * fresh admission: Unrestricted mode admits every kind first; otherwise an
-   * enabled standing policy may match its narrow typed fields. Both use the
-   * same decision path as a click and leave decision receipts. A deduplicated
-   * admission returns the existing pending card unevaluated: authority changes
-   * apply to future requests and never silently consume an older backlog.
+   * The one door for every verb that installs code, widens a power, or
+   * destroys data (docs/receipts-not-gates.md, F19): typed parameters and
+   * pins composed by the calling method from live state, then the prepared-
+   * act path — pin recheck inside the capability fence, one internal kernel
+   * task, the same domain internals the desktop uses — run at once under the
+   * act request's journaled id. The act executor wrote the accepted receipt
+   * before this method was reached and writes the terminal line after;
+   * nothing here waits on a person. Returns the request id the act ran under.
    */
-  const stageConsecration = (input: {
-    kind: FoldStagedActKind;
-    parameters: FoldStagedActFields;
-    pins: FoldStagedActFields;
-    parentTaskId?: string;
+  const runPreparedAct = async (input: {
+    kind: FoldPreparedActKind;
+    parameters: FoldPreparedActFields;
+    pins: FoldPreparedActFields;
     requestId?: string;
-  }): Promise<WorkFoldActStagedDecision> => stageFoldConsecration(state, input);
+    context?: unknown;
+  }): Promise<string> => {
+    const requestId = input.requestId?.trim() || randomUUID();
+    await runActOperation(() => runPreparedActOperation(async () => {
+      const act = prepareFoldAct({ kind: input.kind, parameters: input.parameters, pins: input.pins });
+      await state.preparedActs.run({ act, requestId, context: input.context });
+    }));
+    return requestId;
+  };
+  /** Space-scoped capability changes require the Space's project trust, exactly as the desktop routes do. */
+  const assertSpaceCapabilityTrust = async (space: SpaceSummary): Promise<void> => {
+    if (!await isPiProjectMutationTrusted(space.spaceRoot, state.runtimeProvider)) {
+      throw new WorkFoldCliError("permissionDenied", "Trust this Space before changing Space-scoped capabilities.");
+    }
+  };
   /**
    * Whole-Space restore replaces the working set running work may be reading,
    * so the act lane refuses concurrency the desktop still leaves to a confirm
@@ -5166,13 +4800,12 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const space = await resolveSpace(input.space);
       const storage = space.location.storage;
       // Both storage kinds run the same removal orchestration — App Studio
-      // impact checks, publication blocks, routing suspension, staged-act
-      // cancellation, durable intent, app-state cleanup. A managed Space
-      // records a preserve-disposition intent that provably holds no
-      // deletion authority, so the folder and its portable `.work-fold/`
-      // identity remain exactly as they do for a linked registration;
-      // deleting the managed folder stays the staged `spaces delete`
-      // consecration.
+      // impact checks, publication blocks, routing suspension, durable
+      // intent, app-state cleanup. A managed Space records a
+      // preserve-disposition intent that provably holds no deletion
+      // authority, so the folder and its portable `.work-fold/` identity
+      // remain exactly as they do for a linked registration; deleting the
+      // managed folder is `spaces delete`, a receipted act of its own.
       const removal = await runActOperation(() =>
         removeSpaceRegistrationInternal(state, space, { managedFolderDisposition: "preserve" }));
       appearanceUndoSlots.delete(space.id);
@@ -5558,8 +5191,8 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         const result = await runRestrictedAppMutations(state, [installed.sourceSpaceId, space.id], () =>
           state.restrictedApps.uninstallLocalApp({
             runtimeInstanceId: input.instance,
-            // The purge disposition is consecration 3 and stages upstream;
-            // this facade method is deliberately retain-only.
+            // The purge disposition is `appsUninstallPurge` on the prepared-act
+            // path; this facade method is deliberately retain-only.
             dataDisposition: "retain",
           }), { requiredSpaceIds: [space.id] });
         recordFacadeAction(state, input.parentTaskId, { command: "apps.uninstall", space });
@@ -5582,14 +5215,14 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         );
       }
       // The same read-only impact checks the removal orchestration runs
-      // (docs/fold-act-ledger.md, conflict rule 4): staging refuses what the
+      // (docs/fold-act-ledger.md, conflict rule 4): the verb refuses what the
       // desktop removal would refuse, including the live-publication block.
       const impact = await runActOperation(() => state.restrictedApps.spaceRemovalImpact(space.id));
       if (impact.activeSourceInstanceCount > 0 || impact.activeTargetInstanceCount > 0) {
-        throw new WorkFoldCliError("conflict", "Uninstall release-backed Apps from this Space before staging its deletion.");
+        throw new WorkFoldCliError("conflict", "Uninstall release-backed Apps from this Space before deleting it.");
       }
       if (impact.retainedDataCount > 0) {
-        throw new WorkFoldCliError("conflict", "Purge this App Project's retained local data in App Studio before staging its source Space's deletion.");
+        throw new WorkFoldCliError("conflict", "Purge this App Project's retained local data in App Studio before deleting its source Space.");
       }
       let livePublications;
       try {
@@ -5603,51 +5236,24 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         throw new WorkFoldCliError(
           "conflict",
           `Stop sharing ${livePublications.length === 1 ? "the page" : `${livePublications.length} pages`} `
-            + `served from this Space before staging its deletion: ${named}${more}.`,
+            + `served from this Space before deleting it: ${named}${more}.`,
         );
       }
-      const staged = await stageConsecration({
+      const context: FoldActOutcome<SpaceRemovalResult> = {};
+      await runPreparedAct({
         kind: "space.delete-folder",
         parameters: { spaceId: space.id },
         pins: { spaceId: space.id, spaceRoot: space.spaceRoot },
-        parentTaskId: input.parentTaskId,
         requestId: input.requestId,
+        context,
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "spaces.delete", space, decisionId: staged.decisionId });
-      return { space: toActSpaceRef(space), staged };
-    },
-    async filesDestroy(input) {
-      assertManagementParentAccepting(state, input.parentTaskId);
-      const space = await resolveSpace(input.space);
-      if (!input.paths.length) throw new WorkFoldCliError("usage", "Provide at least one --path <space-path>.");
-      const paths: string[] = [];
-      const contentIdentities: string[] = [];
-      for (const raw of input.paths) {
-        let absolute: string;
-        try {
-          absolute = resolveSpacePath(space.spaceRoot, raw);
-        } catch (error) {
-          throw new WorkFoldCliError("usage", errorMessage(error), { cause: error });
-        }
-        const normalized = relative(space.spaceRoot, absolute).split(sep).join("/");
-        if (!normalized) throw new WorkFoldCliError("usage", "The Space root itself cannot be staged for destruction.");
-        try {
-          contentIdentities.push(await observedDestroyIdentity(absolute));
-        } catch (error) {
-          if (error instanceof WorkFoldCliError) throw error;
-          throw new WorkFoldCliError("notFound", `Not found in this Space: ${normalized}.`, { cause: error });
-        }
-        paths.push(normalized);
-      }
-      const staged = await stageConsecration({
-        kind: "files.destroy",
-        parameters: { spaceId: space.id, paths },
-        pins: { spaceId: space.id, paths, contentIdentities },
-        parentTaskId: input.parentTaskId,
-        requestId: input.requestId,
-      });
-      recordFacadeAction(state, input.parentTaskId, { command: "files.destroy", space, decisionId: staged.decisionId });
-      return { space: toActSpaceRef(space), staged, paths, contentIdentities };
+      recordFacadeAction(state, input.parentTaskId, { command: "spaces.delete", space });
+      return {
+        space: toActSpaceRef(space),
+        storage: "managed" as const,
+        removed: true as const,
+        cleanupPending: context.outcome?.cleanupPending ?? false,
+      };
     },
     async toolsImportSkill(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
@@ -5663,81 +5269,60 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const bytes = await readFile(source);
       const contentDigest = piSkillBundleContentDigest(bytes);
       const skillNames = await enumerateSkillBundleNames(basename(source), bytes);
-      const scopedSpace: FoldStagedActFields = space ? { spaceId: space.id } : {};
-      const staged = await stageConsecration({
+      if (space) await assertSpaceCapabilityTrust(space);
+      const scopedSpace: FoldPreparedActFields = space ? { spaceId: space.id } : {};
+      const context: FoldActOutcome<PiSkillBundleImportResult> = {};
+      await runPreparedAct({
         kind: "capability.skills.import",
         parameters: { source, scope: input.scope, ...scopedSpace },
         pins: { source, contentDigest, skillNames },
-        parentTaskId: input.parentTaskId,
         requestId: input.requestId,
+        context,
       });
-      recordFacadeAction(state, input.parentTaskId, {
-        command: "tools.import-skill",
-        ...(space ? { space } : {}),
-        decisionId: staged.decisionId,
-      });
+      recordFacadeAction(state, input.parentTaskId, { command: "tools.import-skill", ...(space ? { space } : {}) });
       return {
         scope: input.scope,
         ...(space ? { space: toActSpaceRef(space) } : {}),
-        staged,
         source,
         contentDigest,
         skillNames,
+        bundlePath: context.outcome?.bundlePath ?? "",
       };
     },
     async toolsInstall(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
       const space = input.scope === "space" ? await resolveSpace(input.space ?? "") : undefined;
-      const scopedSpace: FoldStagedActFields = space ? { spaceId: space.id } : {};
-      const record = (staged: WorkFoldActStagedDecision): void =>
-        recordFacadeAction(state, input.parentTaskId, {
-          command: "tools.install",
-          ...(space ? { space } : {}),
-          decisionId: staged.decisionId,
+      if (space) await assertSpaceCapabilityTrust(space);
+      const scopedSpace: FoldPreparedActFields = space ? { spaceId: space.id } : {};
+      const record = (): void =>
+        recordFacadeAction(state, input.parentTaskId, { command: "tools.install", ...(space ? { space } : {}) });
+      const installBundle = async (source: string, contentDigest: string, skillNames: string[]) => {
+        const context: FoldActOutcome<PiSkillBundleImportResult> = {};
+        await runPreparedAct({
+          kind: "capability.skills.import",
+          parameters: { source, scope: input.scope, ...scopedSpace },
+          pins: { source, contentDigest, skillNames },
+          requestId: input.requestId,
+          context,
         });
-      if (input.catalogId !== undefined) {
-        // Remote inspection is read-only and can take seconds; it completes
-        // before anything is staged, exactly as the desktop review does.
-        const details = await runActOperation(() => state.capabilityRegistry.details(input.catalogId!));
-        if (details.sourceKind === "reference") {
-          throw new WorkFoldCliError("usage", "This capability is a reference and cannot be installed directly.");
-        }
-        if (details.sourceKind === "bundle") {
-          // An official catalog skill bundle makes bytes runnable as a skill
-          // import: the exact built bytes are digest-pinned, and approval
-          // rebuilds and re-verifies them.
-          const bundle = await runActOperation(() => state.capabilityRegistry.buildOfficialSkillBundle(input.catalogId!));
-          const contentDigest = piSkillBundleContentDigest(bundle.bytes);
-          const skillNames = details.skills?.length
-            ? [...details.skills].sort()
-            : await enumerateSkillBundleNames(bundle.fileName, bundle.bytes);
-          const staged = await stageConsecration({
-            kind: "capability.skills.import",
-            parameters: { source: input.catalogId, scope: input.scope, ...scopedSpace },
-            pins: { source: input.catalogId, contentDigest, skillNames },
-            parentTaskId: input.parentTaskId,
-            requestId: input.requestId,
-          });
-          record(staged);
-          return {
-            scope: input.scope,
-            ...(space ? { space: toActSpaceRef(space) } : {}),
-            staged,
-            source: input.catalogId,
-            contentDigest,
-            skillNames,
-          };
-        }
-        if (!details.installSource || !details.version) {
-          throw new WorkFoldCliError(
-            "unavailable",
-            "work-fold cannot pin an exact version for this package source yet, so it cannot stage this install. Install it from Assistant tools on the desktop.",
-          );
-        }
-        const resourceSummary = capabilityResourceSummary(details);
-        const staged = await stageConsecration({
+        record();
+        return {
+          scope: input.scope,
+          ...(space ? { space: toActSpaceRef(space) } : {}),
+          source,
+          contentDigest,
+          skillNames,
+          bundlePath: context.outcome?.bundlePath ?? "",
+        };
+      };
+      const installPackage = async (
+        parameters: FoldPreparedActFields,
+        details: { id: string; version: string; installSource: string },
+        resourceSummary: string,
+      ) => {
+        await runPreparedAct({
           kind: "capability.package.install",
-          parameters: { catalogId: input.catalogId, scope: input.scope, ...scopedSpace },
+          parameters,
           pins: {
             packageId: details.id,
             version: details.version,
@@ -5745,25 +5330,54 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
             scope: input.scope,
             resourceSummary,
           },
-          parentTaskId: input.parentTaskId,
           requestId: input.requestId,
         });
-        record(staged);
+        record();
         return {
           scope: input.scope,
           ...(space ? { space: toActSpaceRef(space) } : {}),
-          staged,
           source: details.installSource,
           packageId: details.id,
           version: details.version,
           resourceSummary,
+          installed: true as const,
         };
+      };
+      if (input.catalogId !== undefined) {
+        // Remote inspection is read-only and can take seconds; it completes
+        // before anything is pinned, exactly as the desktop review does.
+        const details = await runActOperation(() => state.capabilityRegistry.details(input.catalogId!));
+        if (details.sourceKind === "reference") {
+          throw new WorkFoldCliError("usage", "This capability is a reference and cannot be installed directly.");
+        }
+        if (details.sourceKind === "bundle") {
+          // An official catalog skill bundle makes bytes runnable as a skill
+          // import: the exact built bytes are digest-pinned, and execution
+          // rebuilds and re-verifies them.
+          const bundle = await runActOperation(() => state.capabilityRegistry.buildOfficialSkillBundle(input.catalogId!));
+          const contentDigest = piSkillBundleContentDigest(bundle.bytes);
+          const skillNames = details.skills?.length
+            ? [...details.skills].sort()
+            : await enumerateSkillBundleNames(bundle.fileName, bundle.bytes);
+          return installBundle(input.catalogId, contentDigest, skillNames);
+        }
+        if (!details.installSource || !details.version) {
+          throw new WorkFoldCliError(
+            "unavailable",
+            "work-fold cannot pin an exact version for this package source yet, so it cannot install it from here. Install it from Assistant tools on the desktop.",
+          );
+        }
+        return installPackage(
+          { catalogId: input.catalogId, scope: input.scope, ...scopedSpace },
+          { id: details.id, version: details.version, installSource: details.installSource },
+          capabilityResourceSummary(details),
+        );
       }
       const identity = npmSourceIdentity(input.source ?? "");
       if (!identity) {
         throw new WorkFoldCliError(
           "unavailable",
-          "work-fold can pin an exact version only for npm package sources yet, so it cannot stage this install. Install it from Assistant tools on the desktop.",
+          "work-fold can pin an exact version only for npm package sources yet, so it cannot install this source from here. Install it from Assistant tools on the desktop.",
         );
       }
       const details = await runActOperation(() => state.capabilityRegistry.details(`npm:${identity.packageName}`));
@@ -5773,34 +5387,15 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       if (identity.pinnedVersion !== undefined && identity.pinnedVersion !== details.version) {
         throw new WorkFoldCliError(
           "conflict",
-          `work-fold inspects the latest published version (${details.version}) and can stage only that exact version; `
-            + `the source pins ${identity.pinnedVersion}. Stage without a version pin, or use the inspected version.`,
+          `work-fold inspects the latest published version (${details.version}) and installs only that exact version; `
+            + `the source pins ${identity.pinnedVersion}. Install without a version pin, or use the inspected version.`,
         );
       }
-      const resourceSummary = capabilityResourceSummary(details);
-      const staged = await stageConsecration({
-        kind: "capability.package.install",
-        parameters: { source: details.installSource, scope: input.scope, ...scopedSpace },
-        pins: {
-          packageId: details.id,
-          version: details.version,
-          source: details.installSource,
-          scope: input.scope,
-          resourceSummary,
-        },
-        parentTaskId: input.parentTaskId,
-        requestId: input.requestId,
-      });
-      record(staged);
-      return {
-        scope: input.scope,
-        ...(space ? { space: toActSpaceRef(space) } : {}),
-        staged,
-        source: details.installSource,
-        packageId: details.id,
-        version: details.version,
-        resourceSummary,
-      };
+      return installPackage(
+        { source: details.installSource, scope: input.scope, ...scopedSpace },
+        { id: details.id, version: details.version, installSource: details.installSource },
+        capabilityResourceSummary(details),
+      );
     },
     async toolsUpdate(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
@@ -5810,12 +5405,11 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       if (!identity) {
         throw new WorkFoldCliError(
           "unavailable",
-          "work-fold can pin an exact version only for npm package sources yet, so it cannot stage this update. Update it from Assistant tools on the desktop.",
+          "work-fold can pin an exact version only for npm package sources yet, so it cannot update this source from here. Update it from Assistant tools on the desktop.",
         );
       }
-      // Mirror the update path's configured-scope requirement at staging so
-      // the refusal is honest and early; the capability fence is not needed
-      // for this read.
+      // Mirror the update path's configured-scope requirement early so the
+      // refusal is honest; the capability fence is not needed for this read.
       const root = space ? space.spaceRoot : workFoldManagementRoot();
       const piScope = space ? "project" : "user";
       const configured = (await runActOperation(() => listPiPackages(root, state.runtimeProvider)))
@@ -5823,13 +5417,14 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       if (!configured) {
         throw new WorkFoldCliError("notFound", `Package is not configured in the requested scope: ${source}`);
       }
+      if (space) await assertSpaceCapabilityTrust(space);
       const details = await runActOperation(() => state.capabilityRegistry.details(`npm:${identity.packageName}`));
       if (!details.version) {
         throw new WorkFoldCliError("unavailable", "npm did not report an exact version for this package.");
       }
       const resourceSummary = capabilityResourceSummary(details);
-      const scopedSpace: FoldStagedActFields = space ? { spaceId: space.id } : {};
-      const staged = await stageConsecration({
+      const scopedSpace: FoldPreparedActFields = space ? { spaceId: space.id } : {};
+      await runPreparedAct({
         kind: "capability.package.update",
         parameters: { source, scope: input.scope, ...scopedSpace },
         pins: {
@@ -5839,22 +5434,17 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           scope: input.scope,
           resourceSummary,
         },
-        parentTaskId: input.parentTaskId,
         requestId: input.requestId,
       });
-      recordFacadeAction(state, input.parentTaskId, {
-        command: "tools.update",
-        ...(space ? { space } : {}),
-        decisionId: staged.decisionId,
-      });
+      recordFacadeAction(state, input.parentTaskId, { command: "tools.update", ...(space ? { space } : {}) });
       return {
         scope: input.scope,
         ...(space ? { space: toActSpaceRef(space) } : {}),
-        staged,
         source,
         packageId: details.id,
         version: details.version,
         resourceSummary,
+        updated: true as const,
       };
     },
     async appsInstallProposal(input) {
@@ -5868,19 +5458,22 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         throw new WorkFoldCliError(
           "conflict",
           proposal.status === "revision-changed"
-            ? "The package changed after review; review the new revision before staging its install."
-            : `This app review is ${proposal.status}; only a pending review can be staged.`,
+            ? "The package changed after review; review the new revision before installing it."
+            : `This app review is ${proposal.status}; only a pending review can be installed.`,
         );
       }
-      const staged = await stageConsecration({
-        kind: "app.review.approve",
+      const context: FoldActOutcome<RestrictedAppInstalled> = {};
+      await runPreparedAct({
+        kind: "app.review.install",
         parameters: { spaceId: space.id, proposalId: proposal.id },
         pins: { proposalId: proposal.id, reviewDigest: proposal.review.digest },
-        parentTaskId: input.parentTaskId,
         requestId: input.requestId,
+        context,
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.install-proposal", space, decisionId: staged.decisionId });
-      return { space: toActSpaceRef(space), staged, proposalId: proposal.id, digest: proposal.review.digest };
+      if (!context.outcome) throw new WorkFoldCliError("failure", "The app review did not report an installed app.");
+      const app = managementAppResultRef(context.outcome);
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.install-proposal", space, apps: [app] });
+      return { space: toActSpaceRef(space), proposalId: proposal.id, digest: proposal.review.digest, app };
     },
     async appsInstallPreview(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
@@ -5889,9 +5482,8 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       if (!packagePath) throw new WorkFoldCliError("usage", "Provide --package <space-path>.");
       // The host inspects the package and owns every review field and the
       // digest — the same review record the Chat proposal path creates, under
-      // an act-lane marker instead of a conversation. A repeated stage of the
-      // same unchanged package converges on the same pending review, so the
-      // staged act dedupes onto one card and denial memory holds.
+      // an act-lane marker instead of a conversation — and installs it at
+      // once through the same digest-checked path as a Chat proposal.
       const proposal = await runActOperation(async () => {
         const result = await state.restrictedAppProposals.propose({
           spaceId: space.id,
@@ -5906,27 +5498,26 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       });
       const replacesInstalled = (await runActOperation(() => state.restrictedApps.list(space.id)))
         .some((app) => app.manifest.id === proposal.review.manifest.id);
-      // The same staged kind and pins as an approved Chat proposal
-      // (docs/fold-consecrations.md keeps the vocabulary closed): approval
-      // rides the digest-checked install path, and a package edited after
-      // review surfaces as the existing REVISION_CHANGED refusal.
-      const staged = await stageConsecration({
-        kind: "app.review.approve",
+      const context: FoldActOutcome<RestrictedAppInstalled> = {};
+      await runPreparedAct({
+        kind: "app.review.install",
         parameters: { spaceId: space.id, proposalId: proposal.id },
         pins: { proposalId: proposal.id, reviewDigest: proposal.review.digest },
-        parentTaskId: input.parentTaskId,
         requestId: input.requestId,
+        context,
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.install-preview", space, decisionId: staged.decisionId });
+      if (!context.outcome) throw new WorkFoldCliError("failure", "The package review did not report an installed app.");
+      const app = managementAppResultRef(context.outcome);
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.install-preview", space, apps: [app] });
       return {
         space: toActSpaceRef(space),
-        staged,
         proposalId: proposal.id,
         digest: proposal.review.digest,
         title: proposal.review.manifest.title,
         packageName: proposal.review.packageName,
         version: proposal.review.version,
         replacesInstalled,
+        app,
       };
     },
     async appsGrant(input) {
@@ -5936,7 +5527,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       if (input.digest.trim() !== app.digest) {
         throw new WorkFoldCliError(
           "conflict",
-          "Grants bind to the exact reviewed digest, and the installed app's digest is different. Read the current revision's review before staging.",
+          "Grants bind to the exact reviewed digest, and the installed app's digest is different. Read the current revision's review first.",
         );
       }
       const declaration = input.declaration.trim();
@@ -5951,7 +5542,9 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         : input.kind === "files"
           ? "app.grant.files" as const
           : "app.grant.notifications" as const;
-      const staged = await stageConsecration({
+      // A directory permission binds to the whole Space (docs/receipts-not-gates.md, F21).
+      const root = input.kind === "files" ? "." : undefined;
+      await runPreparedAct({
         kind,
         parameters: { spaceId: space.id, appInstanceId: app.featureInstallationId, declarationId: declaration },
         pins: {
@@ -5959,16 +5552,17 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           declarationId: declaration,
           releaseDigest: app.releaseDigest ?? app.digest,
         },
-        parentTaskId: input.parentTaskId,
         requestId: input.requestId,
+        ...(root !== undefined ? { context: { root } } : {}),
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.grant", space, decisionId: staged.decisionId });
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.grant", space });
       return {
         space: toActSpaceRef(space),
-        staged,
         appId: app.manifest.id,
         grantKind: input.kind,
         declaration,
+        granted: true as const,
+        ...(root !== undefined ? { root } : {}),
       };
     },
     async appsConnect(input) {
@@ -5980,15 +5574,21 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const target = destination.target.kind === "public-https"
         ? String(destination.target.origin)
         : `http://${String(destination.target.host)}:${String(destination.target.port)}`;
-      // The staged act names the connection's shape only — app, destination,
-      // target, adapter — never a secret. The browser sign-in adapter is
-      // preferred because it is the one flow approval can open without a
-      // person typing a credential.
+      // The act names the connection's shape only — app, destination, target,
+      // adapter — never a secret. Only the browser sign-in flow can run
+      // without a person typing a credential.
       const adapterKind = destination.auth.some((item) => item.kind === "oauth2-pkce")
         ? "oauth2-pkce"
         : destination.auth[0]?.kind;
       if (!adapterKind) throw new WorkFoldCliError("conflict", "This destination declares no credential adapter to connect with.");
-      const staged = await stageConsecration({
+      if (adapterKind !== "oauth2-pkce") {
+        throw new WorkFoldCliError(
+          "permissionDenied",
+          "This destination takes a secret typed on the desktop. Connect it from the app's Apps tab.",
+        );
+      }
+      const context: FoldActOutcome<RestrictedAppConnectionStatus> = {};
+      await runPreparedAct({
         kind: "app.connection.save",
         parameters: { spaceId: space.id, appInstanceId: app.featureInstallationId, destinationId: destination.id },
         pins: {
@@ -5997,17 +5597,22 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           target,
           adapterKind,
         },
-        parentTaskId: input.parentTaskId,
         requestId: input.requestId,
+        context,
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.connect", space, decisionId: staged.decisionId });
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.connect", space });
+      const connection = context.outcome;
       return {
         space: toActSpaceRef(space),
-        staged,
         appId: app.manifest.id,
         destination: destination.id,
         target,
         adapterKind,
+        connection: {
+          destinationId: connection?.destinationId ?? destination.id,
+          kind: connection?.kind ?? adapterKind,
+          configured: connection?.configured ?? true,
+        },
       };
     },
     async appsAutomationEnable(input) {
@@ -6018,10 +5623,10 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const declaration = app.manifest.automations.find((item) => item.id === automationId);
       if (!declaration) throw new WorkFoldCliError("notFound", "The app does not declare this automation.");
       if (app.automations.some((automation) => automation.id === automationId && automation.enabled)) {
-        throw new WorkFoldCliError("conflict", "This automation is already enabled; there is nothing to stage.");
+        throw new WorkFoldCliError("conflict", "This automation is already enabled.");
       }
       const scheduleSummary = restrictedAppAutomationScheduleSummary(declaration);
-      const staged = await stageConsecration({
+      await runPreparedAct({
         kind: "app.automation.enable",
         parameters: { spaceId: space.id, appInstanceId: app.featureInstallationId, automationId },
         pins: {
@@ -6030,26 +5635,27 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           reviewedDigest: app.digest,
           scheduleSummary,
         },
-        parentTaskId: input.parentTaskId,
         requestId: input.requestId,
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.automation.enable", space, decisionId: staged.decisionId });
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.automation.enable", space });
       return {
         space: toActSpaceRef(space),
-        staged,
         appId: app.manifest.id,
         automationId,
         scheduleSummary,
+        enabled: true as const,
       };
     },
     async appsStorageClear(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
       const space = await resolveSpace(input.space);
       const app = await requireInstalledApp(space, input.app);
-      // The card states the byte count being destroyed; without an observable
-      // count the act refuses instead of staging a blind destruction.
+      // The receipt states the byte count being cleared; without an
+      // observable count the act refuses instead of clearing blind, and a
+      // count that changes before the effect is a conflict.
       const usage = await runActOperation(() => state.restrictedApps.storageUsage(space.id, app.manifest.id, app.digest, app.featureInstallationId));
-      const staged = await stageConsecration({
+      const context: FoldActOutcome<{ remainingBytes: number }> = {};
+      await runPreparedAct({
         kind: "app.storage.clear",
         parameters: { spaceId: space.id, appInstanceId: app.featureInstallationId },
         pins: {
@@ -6057,11 +5663,16 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           dataNamespaceIds: [app.dataNamespaceId],
           observedBytes: usage.usageBytes,
         },
-        parentTaskId: input.parentTaskId,
         requestId: input.requestId,
+        context,
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.storage.clear", space, decisionId: staged.decisionId });
-      return { space: toActSpaceRef(space), staged, appId: app.manifest.id, observedBytes: usage.usageBytes };
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.storage.clear", space });
+      return {
+        space: toActSpaceRef(space),
+        appId: app.manifest.id,
+        clearedBytes: usage.usageBytes,
+        remainingBytes: context.outcome?.remainingBytes ?? 0,
+      };
     },
     async appsRetainedPurge(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
@@ -6069,7 +5680,8 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const studio = await runActOperation(() => state.restrictedApps.localAppStudio(space.id));
       const retained = studio.retainedData.find((item) => item.retainedDataId === input.retained.trim());
       if (!retained) throw new WorkFoldCliError("notFound", "Retained App data record not found in this Space's App Studio.");
-      const staged = await stageConsecration({
+      const context: FoldActOutcome<{ cleanupPending: boolean }> = {};
+      await runPreparedAct({
         kind: "app.data.purge",
         parameters: { spaceId: space.id, appInstanceId: retained.featureInstallationId, purgeTarget: "retained" },
         pins: {
@@ -6078,15 +5690,16 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           retainedDataId: retained.retainedDataId,
           sourceSpaceId: space.id,
         },
-        parentTaskId: input.parentTaskId,
         requestId: input.requestId,
+        context,
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.retained.purge", space, decisionId: staged.decisionId });
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.retained.purge", space });
       return {
         space: toActSpaceRef(space),
-        staged,
         retainedDataId: retained.retainedDataId,
         dataNamespaceIds: [retained.dataNamespaceId],
+        purged: true as const,
+        cleanupPending: context.outcome?.cleanupPending ?? false,
       };
     },
     async appsUninstallPurge(input) {
@@ -6096,7 +5709,8 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         app.runtimeInstanceKind === "app" && app.runtimeInstanceId === input.instance
       ));
       if (!installed) throw new WorkFoldCliError("notFound", "Local App Instance not found.");
-      const staged = await stageConsecration({
+      const context: FoldActOutcome<{ cleanupPending: boolean }> = {};
+      await runPreparedAct({
         kind: "app.data.purge",
         parameters: { spaceId: space.id, appInstanceId: installed.featureInstallationId, purgeTarget: "runtime-instance" },
         pins: {
@@ -6105,32 +5719,28 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           runtimeInstanceId: installed.runtimeInstanceId,
           sourceSpaceId: installed.sourceSpaceId,
         },
-        parentTaskId: input.parentTaskId,
         requestId: input.requestId,
+        context,
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.uninstall", space, decisionId: staged.decisionId });
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.uninstall", space });
       return {
         space: toActSpaceRef(space),
-        staged,
         runtimeInstanceId: installed.runtimeInstanceId,
-        dataNamespaceIds: [installed.dataNamespaceId],
+        purgedNamespaceIds: [installed.dataNamespaceId],
+        removed: true as const,
+        cleanupPending: context.outcome?.cleanupPending ?? false,
       };
     },
-    async routingsStage(input) {
+    async routingsEnable(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
       const { declaration, digest } = await readRoutingStagingFile(input.proposalPath, input.cwd);
-      const stagedRouting = await stageStoredRoutingDeclaration(state, declaration, digest, {
-        parentTaskId: input.parentTaskId,
-        requestId: input.requestId,
+      const enabled = await enableStoredRoutingDeclaration(state, declaration, digest, {
+        surface: "cli",
+        ...(input.parentTaskId !== undefined ? { parentTaskId: input.parentTaskId } : {}),
+        ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "routings.stage", decisionId: stagedRouting.staged.decisionId });
-      return {
-        staged: stagedRouting.staged,
-        routingId: stagedRouting.routingId,
-        declarationDigest: stagedRouting.declarationDigest,
-        title: stagedRouting.title,
-        referencedSpaceIds: stagedRouting.referencedSpaceIds,
-      };
+      recordFacadeAction(state, input.parentTaskId, { command: "routings.enable" });
+      return enabled;
     },
     async pagesStage(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
@@ -6144,11 +5754,22 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       }
       const status = state.publications.status();
       if (status.damaged) {
-        throw new WorkFoldCliError("failure", `work-fold cannot stage a page: ${status.damageReason ?? "the publication store is damaged."}`);
+        throw new WorkFoldCliError("failure", `work-fold cannot share a page: ${status.damageReason ?? "the publication store is damaged."}`);
       }
-      const source = await stagedPageSource(space.spaceRoot, input.path);
+      const source = await designatedPageSource(space.spaceRoot, input.path);
+      const alreadyShared = (await runActOperation(() => state.publications.activePublicationsForSpace(space.id)))
+        .some((view) => view.kind === "page" && view.relativePath === source.relativePath);
+      if (alreadyShared) {
+        throw new WorkFoldCliError("conflict", "This file is already shared as a page; stop sharing it before sharing it again.");
+      }
       const snapshotEnabled = input.snapshot === true;
-      const staged = await stageConsecration({
+      const requestId = input.requestId?.trim() || randomUUID();
+      const context: FoldViewerExposeContext = {
+        requestId,
+        ...(input.parentTaskId !== undefined ? { parentTaskId: input.parentTaskId } : {}),
+        attribution: foldActAttribution(state, "cli", input.parentTaskId),
+      };
+      await runPreparedAct({
         kind: "publish.viewer.expose",
         parameters: { exposure: "page", spaceId: space.id },
         pins: {
@@ -6160,30 +5781,23 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           byteBudget: WORKFOLD_PUBLICATION_BYTE_BUDGET_DEFAULT,
           serveBudget: WORKFOLD_PUBLICATION_SERVE_RATE_DEFAULT,
         },
-        parentTaskId: input.parentTaskId,
-        requestId: input.requestId,
+        requestId,
+        context,
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "pages.stage", space, decisionId: staged.decisionId });
-      return {
-        space: toActSpaceRef(space),
-        staged,
-        relativePath: source.relativePath,
-        title,
-        snapshotEnabled,
-        serveRatePerMinute: WORKFOLD_PUBLICATION_SERVE_RATE_DEFAULT,
-        byteBudgetPerDay: WORKFOLD_PUBLICATION_BYTE_BUDGET_DEFAULT,
-      };
+      if (!context.outcome) throw new WorkFoldCliError("failure", "The page was not activated.");
+      recordFacadeAction(state, input.parentTaskId, { command: "pages.stage", space });
+      return { space: toActSpaceRef(space), publication: toActPublicationRef(context.outcome, space.name) };
     },
     async pagesStageApp(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
       const space = await resolveSpace(input.space);
       const status = state.publications.status();
       if (status.damaged) {
-        throw new WorkFoldCliError("failure", `work-fold cannot stage an app exposure: ${status.damageReason ?? "the publication store is damaged."}`);
+        throw new WorkFoldCliError("failure", `work-fold cannot share an app: ${status.damageReason ?? "the publication store is damaged."}`);
       }
       // Exposure eligibility and pins come from the viewer adapter: an
       // installed App Instance of a prepared Release whose reviewed manifest
-      // declares a viewer surface. The decision-time recheck re-resolves the
+      // declares a viewer surface. The effect-time recheck re-resolves the
       // same identity before anything activates. `--instance` accepts the App
       // Instance id (the pin identity) or, like `apps uninstall`, the
       // Runtime Instance id of an app installed in this Space.
@@ -6201,7 +5815,13 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       if (alreadyExposed) {
         throw new WorkFoldCliError("conflict", "This App Instance is already at your address; stop sharing it before exposing it again.");
       }
-      const staged = await stageConsecration({
+      const requestId = input.requestId?.trim() || randomUUID();
+      const context: FoldViewerExposeContext = {
+        requestId,
+        ...(input.parentTaskId !== undefined ? { parentTaskId: input.parentTaskId } : {}),
+        attribution: foldActAttribution(state, "cli", input.parentTaskId),
+      };
+      await runPreparedAct({
         kind: "publish.viewer.expose",
         parameters: { exposure: "hosted-app", appInstanceId: exposure.pins.appInstanceId },
         pins: {
@@ -6211,22 +5831,12 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           viewerEntry: exposure.pins.viewerEntry,
           viewerSurface: exposure.pins.viewerSurface,
         },
-        parentTaskId: input.parentTaskId,
-        requestId: input.requestId,
+        requestId,
+        context,
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "pages.stage-app", space, decisionId: staged.decisionId });
-      return {
-        space: toActSpaceRef(space),
-        staged,
-        appId: exposure.appId,
-        title: exposure.title,
-        appInstanceId: exposure.pins.appInstanceId,
-        releaseDigest: exposure.pins.releaseDigest,
-        viewerEntry: exposure.pins.viewerEntry,
-        viewerSurface: exposure.pins.viewerSurface,
-        serveRatePerMinute: WORKFOLD_PUBLICATION_SERVE_RATE_DEFAULT,
-        byteBudgetPerDay: WORKFOLD_PUBLICATION_BYTE_BUDGET_DEFAULT,
-      };
+      if (!context.outcome) throw new WorkFoldCliError("failure", "The app was not put at your address.");
+      recordFacadeAction(state, input.parentTaskId, { command: "pages.stage-app", space });
+      return { space: toActSpaceRef(space), publication: toActPublicationRef(context.outcome, space.name) };
     },
     async routingsList() {
       const projections = await runActOperation(() => state.routings.listRoutings());
@@ -6387,21 +5997,6 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       }));
       const registered = await getSpace(view.spaceId).catch(() => null);
       return { publication: toActPublicationRef(view, registered?.name), wasEnabled: prior.snapshotEnabled };
-    },
-    async stagedList() {
-      const acts = await runStagedActStoreOperation(() => state.stagedActs.list());
-      return { acts: acts.map(toStagedActSummary) };
-    },
-    async stagedShow(input) {
-      const act = await runStagedActStoreOperation(() => state.stagedActs.get(input.id.trim()));
-      if (!act) throw new WorkFoldCliError("notFound", "No staged act has this id; approval never survives restaging.");
-      return { act: toStagedActDetail(act) };
-    },
-    async stagedCancel(input) {
-      assertManagementParentAccepting(state, input.parentTaskId);
-      const act = await runStagedActStoreOperation(() => state.stagedActs.cancel(input.id.trim()));
-      recordFacadeAction(state, input.parentTaskId, { command: "staged.cancel", decisionId: act.id });
-      return { act: toStagedActSummary(act) };
     },
     async checksEnable(input) {
       const space = await resolveSpace(input.space);
@@ -6681,17 +6276,7 @@ async function managementRequestView(
   }).slice(0, 64);
   const visible = await Promise.all(candidates.map(async (item) => await isRemoteFileVisible(item.child.spaceId, item.path) ? item : null));
   for (const item of visible.filter((item) => item !== null).slice(0, 12)) item.child.files.push(item.path);
-  const actions = await Promise.all(record.actions.map(async (action) => {
-    if (!action.decisionId || !["apps.install-preview", "apps.install-proposal"].includes(action.command)) return action;
-    try {
-      const act = await state.stagedActs.get(action.decisionId);
-      if (act?.kind !== "app.review.approve" || act.execution?.outcome !== "executed" || typeof act.parameters.proposalId !== "string") return action;
-      const proposal = await state.restrictedAppProposals.get(act.parameters.proposalId);
-      if (proposal?.status !== "installed" || !proposal.installedApp || proposal.spaceId !== action.spaceId
-        || proposal.review.digest !== act.pins.reviewDigest || proposal.installedApp.digest !== proposal.review.digest) return action;
-      return { ...action, apps: [managementAppResultRef(proposal.installedApp)] };
-    } catch { return action; }
-  }));
+  const actions = record.actions;
   let reply: { messageId: string; content: string } | null = null;
   const replyMessageId = turn.state === "succeeded" || turn.state === "failed" ? turn.messageId : null;
   if (replyMessageId) {
@@ -6819,8 +6404,6 @@ function recordFacadeAction(
     checkpointId?: string | null;
     taskId?: string;
     copied?: string[];
-    /** Staged-act id for staging verbs and `staged cancel`, so the request trail points at the card. */
-    decisionId?: string;
     apps?: ManagementRequestAction["apps"];
   },
 ): void {
@@ -6833,7 +6416,6 @@ function recordFacadeAction(
     ...(input.checkpointId !== undefined ? { checkpointId: input.checkpointId } : {}),
     ...(input.taskId ? { taskId: input.taskId } : {}),
     ...(input.copied ? { copied: input.copied } : {}),
-    ...(input.decisionId ? { decisionId: input.decisionId } : {}),
     ...(input.apps ? { apps: input.apps.slice(0, 64) } : {}),
   });
 }
@@ -7041,8 +6623,9 @@ const actDeleteSkipReasonLabels: Record<CheckpointSkippedFile["reason"], string>
 
 /**
  * Desktop and CLI share this coverage rule: an ordinary delete must be
- * recoverable. Uncovered content requires the explicitly staged files destroy
- * path, rather than making the Undo promise false.
+ * recoverable. Content the restore point cannot cover is refused here rather
+ * than making the Undo promise false; the trash lane (docs/receipts-not-gates.md,
+ * F20) is where an uncoverable path goes once it lands.
  */
 function assertDeleteRestoreCoverage(safety: SpaceCheckpoint): void {
   if (!safety.skippedFiles.length) return;
@@ -7053,9 +6636,8 @@ function assertDeleteRestoreCoverage(safety: SpaceCheckpoint): void {
   const count = safety.skippedFiles.length;
   throw new WorkFoldCliError(
     "conflict",
-    `This delete is refused because its restore point could not cover ${count} matched file${count === 1 ? "" : "s"}: `
-    + `${named.join("; ")}${more > 0 ? `; and ${more} more` : ""}. `
-    + "Deleting content History cannot restore is irreversible — 'files destroy' stages that decision for a person to approve.",
+    `work-fold could not create a restore point covering: ${named.join("; ")}${more > 0 ? `; and ${more} more` : ""} `
+    + `(${count} matched file${count === 1 ? "" : "s"}); nothing was deleted.`,
   );
 }
 
@@ -7569,7 +7151,7 @@ function createWorkFoldRoutingSettingsFacade(state: LocalApiState): WorkFoldRout
       await requireSettingsRouting(state, routingId);
       return await routingSettingsHistory(routingId);
     },
-    async stageEnable(routingId) {
+    async enable(routingId) {
       const projection = await requireSettingsRouting(state, routingId);
       if (projection.health === "enabled") {
         throw new WorkFoldCliError("conflict", "This routing is already on.");
@@ -7580,26 +7162,14 @@ function createWorkFoldRoutingSettingsFacade(state: LocalApiState): WorkFoldRout
           "This one-time routing is complete. Ask the fold to create a new routing for another occurrence.",
         );
       }
-      const result = await runDesktopSettingsAct(state, "routings.stage", async (requestId) => {
-        const staged = await stageStoredRoutingDeclaration(state, projection.declaration, projection.digest, {
+      const result = await runDesktopSettingsAct(state, "routings.enable", async (requestId) => {
+        const enabled = await enableStoredRoutingDeclaration(state, projection.declaration, projection.digest, {
           requestId,
-          stagedVia: "desktop-settings",
+          surface: "main-window",
         });
-        if (staged.staged.state === "approved" && staged.staged.autoApproval?.executionOutcome !== "executed") {
-          throw new WorkFoldCliError(
-            "failure",
-            staged.staged.autoApproval?.detail ?? "The routing was approved, but enabling it did not complete.",
-          );
-        }
         return {
-          value: {
-            routingId: staged.routingId,
-            decisionId: staged.staged.decisionId,
-            state: staged.staged.state === "approved" ? "executed" as const : "staged" as const,
-          },
-          detail: staged.staged.state === "approved"
-            ? `Enabled routing ${staged.routingId}.`
-            : `Staged routing ${staged.routingId} for review.`,
+          value: { routingId: enabled.routingId, requestId, enabled: true as const },
+          detail: `Enabled routing ${enabled.routingId}.`,
         };
       });
       return result.value;
@@ -8687,9 +8257,9 @@ function hasActiveCapabilityWorkForSpace(state: LocalApiState, spaceId: string):
 }
 
 // ---------------------------------------------------------------------------
-// Fold wiring: the consecration decision path, the routing executor's hop
-// ports, the publication key fallback, and the glance's live-registry source
-// readers. All of it is constructed by startLocalApi over the same shared
+// Fold wiring: the prepared-act fence and adapters, the routing executor's
+// hop ports, the publication key fallback, and the glance's live-registry
+// source readers. All of it is constructed by startLocalApi over the same shared
 // state (and the same fences) the HTTP routes and the act facade use.
 // ---------------------------------------------------------------------------
 
@@ -8720,124 +8290,16 @@ function capabilityGlobalMutationScope(): { id: string; spaceRoot: string } {
   return { id: workFoldManagementScopeId, spaceRoot: workFoldManagementRoot() };
 }
 
-/**
- * The consecration execution fence over the exact reservation state the
- * desktop routes use: `probe` answers, without reserving, whether the scope
- * could be reserved right now (so an ineligible click consumes nothing), and
- * `run` reserves with runRestrictedAppMutation semantics for a Space scope
- * and runCapabilityMutation's global branch for the global scope. Project
- * trust checks stay with the per-kind adapters, mirroring the routes each
- * kind reuses.
- */
 // ---------------------------------------------------------------------------
-// Consecration staging (docs/fold-consecrations.md; verb rows in
-// docs/fold-act-ledger.md). The facade composes each staged act's typed
-// parameters and pins from live state, admits it through the staged-act
-// store's journaled path, and returns the ledger's staged result shape. The
-// helpers below are the shared plumbing: error translation into the CLI's
-// typed vocabulary, provenance from the validated management lineage, the
-// bounded projections `staged list|show` render, and the digest-addressed
-// holding area a staged routing declaration waits in until its decision.
+// Prepared acts (docs/receipts-not-gates.md, F19; verb rows in
+// docs/fold-act-ledger.md). The facade composes each act's typed parameters
+// and pins from live state and runs it at once through the prepared-act
+// executor. The helpers below are the shared plumbing: error translation
+// into the CLI's typed vocabulary, attribution from the validated management
+// lineage, and the routing enablement path Settings and the act lane share.
 // ---------------------------------------------------------------------------
 
-/**
- * Cards for the needs-you surfaces, host-composed from the typed staged-act
- * records with registered Space names resolved. One card contract for every
- * surface; nothing here reads model prose.
- */
-async function composeDecisionCards(acts: FoldStagedAct[]): Promise<FoldDecisionCard[]> {
-  const spaces = await listSpaces();
-  const spacesById = new Map(spaces.map((space) => [space.id, space]));
-  const spaceNames = new Map(spaces.map((space) => [space.id, space.name]));
-  const routingFacts = new Map<string, readonly FoldDecisionCardFact[]>();
-  await Promise.all(acts.map(async (act) => {
-    if (act.kind !== "routing.enable") return;
-    const digest = typeof act.pins.declarationDigest === "string" ? act.pins.declarationDigest : "";
-    let declaration: WorkFoldRoutingDeclaration | null = null;
-    try {
-      declaration = digest ? await loadStagedRoutingDeclaration(digest) : null;
-    } catch {
-      declaration = null;
-    }
-    if (!declaration || declaration.id !== act.pins.routingId) {
-      if (act.state === "staged") {
-        routingFacts.set(act.id, [{
-          label: "Review",
-          value: "Exact declaration unavailable. Approval will be refused; restage this routing.",
-        }]);
-      }
-      return;
-    }
-    routingFacts.set(act.id, routingDecisionFacts(declaration, spacesById));
-  }));
-  return acts.map((act) => foldDecisionCard(act, { spaceNames, routingFacts }));
-}
-
-function compareIsoStrings(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
-const maxDecisionFileGrantRootLength = 512;
-
-/**
- * The person-chosen root accompanying an `app.grant.files` approval: "." for
- * the whole Space, otherwise a plain Space-relative path. Mirrors the file
- * broker's safe-relative-path rules (`src/local/agent/restricted-app-files.ts`)
- * so a root this route accepts is one the grant path will accept too — a typo
- * refuses here, before the approval is consumed, never as a failed execution.
- */
-function decisionFileGrantRoot(value: unknown): string {
-  if (typeof value !== "string") throw badRequest("The chosen folder must be a string path.");
-  const root = value.trim();
-  if (!root || root.length > maxDecisionFileGrantRootLength) {
-    throw badRequest("Choose a folder inside the Space for this grant.");
-  }
-  if (root === ".") return root;
-  if (isAbsolute(root) || root.startsWith("/") || root.includes("\\") || root.includes(":") || root.includes("\0")) {
-    throw badRequest("The chosen folder must be a Space-relative path.");
-  }
-  if (root.split("/").some((segment) => !segment || segment === "." || segment === "..")) {
-    throw badRequest("The chosen folder must be a plain Space-relative path.");
-  }
-  if (containsReservedSpacePathSegment(root)) {
-    throw badRequest("work-fold metadata folders cannot be granted to an app.");
-  }
-  return root;
-}
-
-/**
- * Decision-path refusals for the renderer decision routes, with the typed
- * code and (when the refusal settled the record) the resulting state, so the
- * surfaces can say exactly what happened instead of guessing from prose.
- */
-function sendFoldDecisionError(res: ServerResponse, error: unknown): void {
-  if (error instanceof FoldDecisionError) {
-    sendJson(res, {
-      error: error.message,
-      code: error.code,
-      ...(error.state !== undefined ? { state: error.state } : {}),
-    }, error.code === "SURFACE_FORBIDDEN" ? 403 : 409);
-    return;
-  }
-  if (error instanceof FoldStagedActError) {
-    const status = error.code === "INPUT_INVALID" || error.code === "KIND_UNKNOWN"
-      ? 400
-      : error.code === "NOT_FOUND"
-        ? 404
-        : error.code === "STORE_DAMAGED" || error.code === "JOURNAL_UNAVAILABLE"
-          ? 500
-          : 409;
-    sendJson(res, {
-      error: error.message,
-      code: error.code,
-      ...(error.state !== undefined ? { state: error.state } : {}),
-    }, status);
-    return;
-  }
-  sendError(res, error);
-}
-
-/** Standing-policy route refusals, with the store's typed code preserved. */
+/** Publication route refusals, with the store's typed code preserved. */
 function sendFoldPublicationError(res: ServerResponse, error: unknown): void {
   if (error instanceof WorkFoldPublicationError) {
     const status = error.code === "INPUT_INVALID" || error.code === "WIDEN_REFUSED" || error.code === "SOURCE_INVALID"
@@ -8855,483 +8317,91 @@ function sendFoldPublicationError(res: ServerResponse, error: unknown): void {
   sendError(res, error);
 }
 
-function sendFoldPolicyError(res: ServerResponse, error: unknown): void {
-  if (error instanceof FoldPolicyError) {
-    const status = error.code === "INPUT_INVALID" || error.code === "KIND_INELIGIBLE" || error.code === "OPEN_REGISTRY"
-      ? 400
-      : error.code === "NOT_FOUND"
-        ? 404
-        : error.code === "SETTINGS_ONLY"
-          ? 403
-          : error.code === "POLICY_CAP"
-            ? 409
-            : 500;
-    sendJson(res, { error: error.message, code: error.code }, status);
-    return;
-  }
-  sendError(res, error);
-}
-
-function sendFoldAuthorityError(res: ServerResponse, error: unknown): void {
-  if (error instanceof FoldAuthorityError) {
-    const status = error.code === "INPUT_INVALID"
-      ? 400
-      : error.code === "SETTINGS_ONLY"
-        ? 403
-        : 503;
-    sendJson(res, { error: error.message, code: error.code }, status);
-    return;
-  }
-  sendError(res, error);
-}
-
-/** Light route-shape pass; the store's matcher validation is the authority. */
-function foldPolicyMatchInput(value: unknown): FoldPolicyMatch {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    // The store refuses non-object matchers with its own precise message.
-    return value as FoldPolicyMatch;
-  }
-  const match: Record<string, string> = {};
-  for (const [name, field] of Object.entries(value as Record<string, unknown>)) {
-    if (field === undefined || field === null) continue;
-    if (typeof field === "string" && !field.trim()) continue;
-    match[name] = field as string;
-  }
-  return match;
-}
-
 /**
- * The Settings section's authoring metadata: the policy-eligible kind set and
- * the typed matcher fields each kind accepts, rendered by
- * DesktopSettingsModal so the pickers offer eligible kinds only. The field
- * structure — names, required flags, value enums — derives from the store's
- * own exported matcher vocabulary (`FOLD_POLICY_MATCHER_DESCRIPTORS`), so the
- * pickers can never drift from what the store accepts at write; this module
- * adds only person-facing presentation, keyed exhaustively over
- * {@link FoldPolicyEligibleKind} — adding an eligible kind without presenting
- * it here is a compile error — while the store's own matcher validation stays
- * the one write-time authority. Categories use the working card copy from
- * docs/fold-consecrations.md; destroy has no entry because it has no policy
- * vocabulary.
+ * Attribution the prepared-act verbs thread into routing grants and
+ * publication receipts: the initiating surface plus, when the management
+ * request behind the act arrived through Remote access, the approved browser
+ * identity (docs/receipts-not-gates.md, D12).
  */
-interface FoldPolicySettingsFieldDescriptor {
-  name: string;
-  label: string;
-  required: boolean;
-  values?: readonly string[];
-  hint?: string;
-}
-
-interface FoldPolicySettingsKindDescriptor {
-  kind: FoldPolicyEligibleKind;
-  category: FoldPolicyCategory;
-  categoryLabel: string;
-  label: string;
-  fields: FoldPolicySettingsFieldDescriptor[];
-}
-
-function foldPolicySettingsContract(): {
-  cap: number;
-  labelMaxChars: number;
-  firstPartyRegistries: readonly string[];
-  kinds: FoldPolicySettingsKindDescriptor[];
-} {
-  const fieldLabels: Record<string, string> = {
-    reviewDigest: "Reviewed content digest",
-    source: "Source",
-    packageId: "Package id",
-    version: "Exact version",
-    scope: "Scope",
-    spaceId: "Space id",
-    contentDigest: "Content digest",
-    appInstanceId: "App Instance id",
-    declarationId: "Declaration id",
-    target: "Connection target",
-    adapterKind: "Adapter kind",
-    automationId: "Automation id",
-  };
-  const packageSourceHint = "Pin a packageId, or name a first-party curated registry; open registries are refused.";
-  const presentation: Record<FoldPolicyEligibleKind, {
-    label: string;
-    fieldLabels?: Record<string, string>;
-    hints?: Record<string, string>;
-  }> = {
-    "app.review.approve": { label: "Approve an app review" },
-    "capability.package.install": {
-      label: "Install a package or Extension",
-      fieldLabels: { source: "Package source" },
-      hints: { source: packageSourceHint },
-    },
-    "capability.package.update": {
-      label: "Update a package or Extension",
-      fieldLabels: { source: "Package source" },
-      hints: { source: packageSourceHint },
-    },
-    "capability.skills.import": {
-      label: "Import a skill bundle",
-      hints: { contentDigest: "Pin a contentDigest, or name a first-party curated registry source." },
-    },
-    "app.grant.network": { label: "Grant a network destination" },
-    "app.grant.files": { label: "Grant Space file access" },
-    "app.grant.notifications": { label: "Grant a notification category" },
-    "app.connection.save": { label: "Save an app connection" },
-    "app.automation.enable": { label: "Enable a named automation" },
-  };
-  return {
-    cap: FOLD_POLICY_CAP,
-    labelMaxChars: FOLD_POLICY_LABEL_MAX_CHARS,
-    firstPartyRegistries: FOLD_POLICY_FIRST_PARTY_REGISTRIES,
-    kinds: FOLD_POLICY_ELIGIBLE_KINDS.map((kind) => {
-      const category = foldStagedActCategory(kind) as FoldPolicyCategory;
-      return {
-        kind,
-        category,
-        categoryLabel: category === "make-runnable"
-          ? "Installs code that can run as you"
-          : "Grants a standing power",
-        label: presentation[kind].label,
-        fields: Object.entries(FOLD_POLICY_MATCHER_DESCRIPTORS[kind].fields).map(([name, spec]) => {
-          const hint = presentation[kind].hints?.[name];
-          return {
-            name,
-            label: presentation[kind].fieldLabels?.[name] ?? fieldLabels[name] ?? name,
-            required: spec.required,
-            ...(spec.values !== undefined ? { values: spec.values } : {}),
-            ...(hint !== undefined ? { hint } : {}),
-          };
-        }),
-      };
-    }),
-  };
-}
-
-function mapFoldStagedActError(error: FoldStagedActError): WorkFoldCliError {
-  switch (error.code) {
-    case "INPUT_INVALID":
-    case "KIND_UNKNOWN":
-      return new WorkFoldCliError("usage", error.message, { cause: error });
-    case "NOT_FOUND":
-      return new WorkFoldCliError("notFound", error.message, { cause: error });
-    case "PENDING_CAP":
-    case "ALREADY_SETTLED":
-    case "EXPIRED":
-    case "EXECUTION_INVALID":
-      return new WorkFoldCliError("conflict", error.message, { cause: error });
-    default:
-      // STORE_DAMAGED and JOURNAL_UNAVAILABLE: honest failures, never guessed.
-      return new WorkFoldCliError("failure", error.message, { cause: error });
-  }
-}
-
-async function runStagedActStoreOperation<T>(operation: () => Promise<T>): Promise<T> {
-  try {
-    return await operation();
-  } catch (error) {
-    if (error instanceof FoldStagedActError) throw mapFoldStagedActError(error);
-    throw error;
-  }
-}
-
-/**
- * The receipts writer the decision path journals through, extending the
- * composition the policies module documents: when the decision being
- * journaled is an exercised standing policy, both the accepted and terminal
- * receipt lines carry the policy's label snapshot at exercise time in their
- * host-composed detail, beside the `surface: "policy"` and `policyId` columns
- * receipts v2 already records. Every other decision passes through unchanged.
- */
-function createPolicyLabelAwareDecisionReceipts(state: LocalApiState): FoldDecisionReceiptsWriter {
-  return {
-    async append(entry) {
-      const label = entry.policyId !== undefined && typeof entry.decisionId === "string"
-        ? state.policyLabelSnapshots.get(entry.decisionId)
-        : undefined;
-      if (entry.surface === "unrestricted") {
-        const suffix = "executed under Unrestricted authority";
-        return await state.actReceipts.append({
-          ...entry,
-          detail: entry.detail !== undefined ? `${entry.detail} — ${suffix}` : suffix,
-        });
-      }
-      if (label === undefined) return await state.actReceipts.append(entry);
-      const suffix = `auto-approved by standing policy "${label}"`;
-      return await state.actReceipts.append({
-        ...entry,
-        detail: entry.detail !== undefined ? `${entry.detail} — ${suffix}` : suffix,
-      });
-    },
-    hasAccepted: (requestId) => state.actReceipts.hasAccepted(requestId),
-  };
-}
-
-/**
- * Host-side standing-policy evaluation at staged-act admission
- * (docs/fold-consecrations.md §Standing policies): never in the model, never
- * over prose, and never for a deduplicated card. A match short-circuits into
- * the same decision path as a click — eligibility precheck, pin recheck,
- * journal-first consumption, execution, terminal receipt — so an exercised
- * policy's receipts contain everything a clicked decision's receipts contain,
- * with `surface: "policy"`, the policy id, and the label snapshot.
- *
- * Everything here fails closed to a click: a damaged or unattested policy
- * store, a non-matching act, or a decision-path refusal that consumed nothing
- * (a busy fence, an ineligible act) returns null and leaves the pending card
- * waiting for a person. Only a refusal that settled the record — a pin
- * mismatch or the interrupted-decision backstop, both practically unreachable
- * this close to admission — surfaces as a typed conflict, because reporting a
- * pending card for a settled act would be a lie.
- */
-async function exerciseStandingPolicyAtAdmission(
+function foldActAttribution(
   state: LocalApiState,
-  act: FoldStagedAct,
-): Promise<WorkFoldActStagedAutoApproval | null> {
-  let evaluation: FoldPolicyEvaluation;
-  try {
-    evaluation = await state.foldPolicies.evaluate(act);
-  } catch {
-    // Evaluation never throws by contract; an unexpected failure still means
-    // no auto-approval, which is the fail-closed direction.
-    return null;
-  }
-  if (!evaluation.matched) return null;
-  state.policyLabelSnapshots.set(act.id, evaluation.labelSnapshot);
-  try {
-    const result = await state.foldDecisions.decide(act.id, evaluation.decisionInput);
-    return {
-      basis: "policy",
-      policyId: evaluation.policy.id,
-      policyLabel: evaluation.labelSnapshot,
-      executionOutcome: result.act.execution?.outcome ?? "executed",
-      ...(result.act.execution?.errorDetail !== undefined ? { detail: result.act.execution.errorDetail } : {}),
-      receipted: result.receipted,
-    };
-  } catch (error) {
-    const current = await state.stagedActs.get(act.id).catch(() => undefined);
-    if (!current || current.state === "staged") return null;
-    if (current.state === "approved" && current.decision?.policyId !== undefined) {
-      // The decision committed but its outcome could not be reported cleanly
-      // (for example the execution-record write failed); the approval stands
-      // and the response must say so.
-      return {
-        basis: "policy",
-        policyId: current.decision.policyId,
-        policyLabel: evaluation.labelSnapshot,
-        executionOutcome: current.execution?.outcome ?? "interrupted",
-        ...(current.execution?.errorDetail !== undefined ? { detail: current.execution.errorDetail } : {}),
-        receipted: false,
-      };
-    }
-    throw new WorkFoldCliError(
-      "conflict",
-      `A standing policy matched this act, but the decision could not complete and the staged act is now ${current.state}: ${errorMessage(error)}`,
-      { cause: error },
-    );
-  } finally {
-    state.policyLabelSnapshots.delete(act.id);
-  }
-}
-
-/**
- * The host-side Unrestricted-mode inheritance point. The authority store holds
- * its serialized lane for the complete decision, so a concurrent switch back
- * to Reviewed cannot race a stale read. Remote provenance is copied into the
- * receipt to show which approved browser initiated the automatically
- * authorized act; the browser cannot select the mode or invoke this routine.
- *
- * A file grant deliberately resolves to the whole Space in Unrestricted mode.
- * That is the mode's explicit broad-authority meaning and is named in the one-
- * time Settings confirmation. Reviewed mode retains the per-decision picker.
- */
-async function exerciseUnrestrictedAuthorityAtAdmission(
-  state: LocalApiState,
-  act: FoldStagedAct,
-): Promise<WorkFoldActStagedAutoApproval | null> {
-  try {
-    const exercised = await state.foldAuthority.runIfUnrestricted(async () => {
-      if (act.kind === "app.grant.files") state.fileGrantRootChoices.set(act.id, ".");
-      try {
-        const result = await state.foldDecisions.decide(act.id, {
-          decision: "approved",
-          surface: "unrestricted",
-          ...(act.provenance.browserId && act.provenance.grantId
-            ? { browserId: act.provenance.browserId, grantId: act.provenance.grantId }
-            : {}),
-        });
-        return {
-          basis: "unrestricted" as const,
-          executionOutcome: result.act.execution?.outcome ?? "executed",
-          ...(result.act.execution?.errorDetail !== undefined ? { detail: result.act.execution.errorDetail } : {}),
-          receipted: result.receipted,
-        };
-      } finally {
-        if (act.kind === "app.grant.files") state.fileGrantRootChoices.delete(act.id);
-      }
-    });
-    return exercised.matched ? exercised.value : null;
-  } catch (error) {
-    const current = await state.stagedActs.get(act.id).catch(() => undefined);
-    if (!current || current.state === "staged") return null;
-    if (current.state === "approved" && current.decision?.surface === "unrestricted") {
-      return {
-        basis: "unrestricted",
-        executionOutcome: current.execution?.outcome ?? "interrupted",
-        ...(current.execution?.errorDetail !== undefined ? { detail: current.execution.errorDetail } : {}),
-        receipted: false,
-      };
-    }
-    throw new WorkFoldCliError(
-      "conflict",
-      `Unrestricted authority admitted this act, but execution could not complete and the staged act is now ${current.state}: ${errorMessage(error)}`,
-      { cause: error },
-    );
-  }
-}
-
-/**
- * The shared staging door for CLI/management requests and trusted desktop
- * Settings. Every caller supplies typed parameters and pins, then admission
- * alone decides whether Reviewed leaves a card waiting or Unrestricted
- * consumes the freshly admitted act. Keeping this outside the act-facade
- * closure prevents Settings from growing a second, subtly different routing
- * enablement path.
- */
-async function stageFoldConsecration(state: LocalApiState, input: {
-  kind: FoldStagedActKind;
-  parameters: FoldStagedActFields;
-  pins: FoldStagedActFields;
-  parentTaskId?: string;
-  requestId?: string;
-  stagedVia?: FoldStagedActStagedVia;
-}): Promise<WorkFoldActStagedDecision> {
-  const admission = await runStagedActStoreOperation(() => state.stagedActs.stage({
-    kind: input.kind,
-    parameters: input.parameters,
-    pins: input.pins,
-    provenance: stagingProvenance(state, input.parentTaskId, input.requestId, input.stagedVia),
-  }));
-  if (admission.deduplicated) return toStagedDecision(admission);
-  const exercised = await exerciseUnrestrictedAuthorityAtAdmission(state, admission.act)
-    ?? await exerciseStandingPolicyAtAdmission(state, admission.act);
-  if (!exercised) return toStagedDecision(admission);
-  return {
-    ...toStagedDecision(admission),
-    state: "approved",
-    autoApproval: exercised,
-  };
-}
-
-/**
- * Provenance for one staged act. `requestId` is the staging act's journal id.
- * When the act carries explicit management lineage, the staged card records
- * the management conversation that holds the fold's reasoning — and, when
- * that request arrived through Remote access, the exact browser identity, so
- * the no-self-approval rule and browser-revocation cascades bind to real
- * data.
- */
-function stagingProvenance(
-  state: LocalApiState,
-  parentTaskId: string | undefined,
-  requestId: string | undefined,
-  stagedVia?: FoldStagedActStagedVia,
-): FoldStagedActProvenance {
+  surface: WorkFoldCliActSurface,
+  parentTaskId?: string,
+): FoldActAttribution {
   const record = parentTaskId ? state.managementRequests.get(parentTaskId) : null;
   return {
-    stagedVia: record ? "management-conversation" : stagedVia ?? "act-cli",
-    requestId: requestId?.trim() || randomUUID(),
-    ...(parentTaskId ? { parentTaskId } : {}),
-    ...(record ? { conversationId: record.conversationId } : {}),
+    surface,
     ...(record?.remotePrincipalId && record.remoteGrantId
       ? { browserId: record.remotePrincipalId, grantId: record.remoteGrantId }
       : {}),
   };
 }
 
-function toStagedDecision(admission: FoldStagedActAdmission): WorkFoldActStagedDecision {
-  const { act } = admission;
+/**
+ * The act executor's lineage resolution: an explicitly named management
+ * parent is valid while its turn is active, and when that request arrived
+ * through Remote access the browser identity rides along so the accepted and
+ * terminal receipts name the browser that caused the act.
+ */
+function resolveManagementLineageParent(
+  state: LocalApiState,
+  taskId: string,
+): { taskId: string; browserId?: string; grantId?: string } | null {
+  if (!state.managementRequests.isActive(taskId)) return null;
+  const record = state.managementRequests.get(taskId);
   return {
-    decisionId: act.id,
-    kind: act.kind,
-    category: act.category,
-    state: "staged",
-    createdAt: act.createdAt,
-    expiresAt: act.expiresAt,
-    deduplicated: admission.deduplicated,
-    ...(act.priorDenialAt !== undefined ? { priorDenialAt: act.priorDenialAt } : {}),
+    taskId,
+    ...(record?.remotePrincipalId && record.remoteGrantId
+      ? { browserId: record.remotePrincipalId, grantId: record.remoteGrantId }
+      : {}),
   };
 }
 
-function stagedActSpaceIdOf(act: FoldStagedAct): string | undefined {
-  const value = act.parameters.spaceId ?? act.pins.spaceId;
-  return typeof value === "string" ? value : undefined;
+function mapFoldPreparedActError(error: FoldPreparedActError): WorkFoldCliError {
+  switch (error.code) {
+    case "KIND_UNKNOWN":
+    case "INPUT_INVALID":
+      return new WorkFoldCliError("usage", error.message, { cause: error });
+    case "PIN_MISMATCH":
+      return new WorkFoldCliError("conflict", error.message, { cause: error });
+    default:
+      return new WorkFoldCliError("unavailable", error.message, { cause: error });
+  }
 }
 
-function toStagedActSummary(act: FoldStagedAct): WorkFoldActStagedActSummary {
-  const spaceId = stagedActSpaceIdOf(act);
-  return {
-    id: act.id,
-    kind: act.kind,
-    category: act.category,
-    state: act.state,
-    createdAt: act.createdAt,
-    expiresAt: act.expiresAt,
-    ...(spaceId !== undefined ? { spaceId } : {}),
-    ...(act.decidedAt !== undefined ? { decidedAt: act.decidedAt } : {}),
-    ...(act.decision !== undefined ? { decisionSurface: act.decision.surface } : {}),
-    ...(act.execution !== undefined ? { executionOutcome: act.execution.outcome } : {}),
-    ...(act.priorDenialAt !== undefined ? { priorDenialAt: act.priorDenialAt } : {}),
-  };
-}
-
-function toStagedActDetail(act: FoldStagedAct): WorkFoldActStagedActDetail {
-  const restrictions = foldDecisionSurfaceRestrictions(act);
-  return {
-    ...toStagedActSummary(act),
-    parameters: structuredClone(act.parameters),
-    pins: structuredClone(act.pins),
-    provenance: structuredClone(act.provenance),
-    restrictions: {
-      desktopOnly: restrictions.desktopOnly,
-      ...(restrictions.stagedByGrantId !== undefined ? { stagedByGrantId: restrictions.stagedByGrantId } : {}),
-    },
-    ...(act.decision !== undefined ? { decision: structuredClone(act.decision) } : {}),
-    ...(act.execution !== undefined ? { execution: structuredClone(act.execution) } : {}),
-    ...(act.invalidationReason !== undefined ? { invalidationReason: act.invalidationReason } : {}),
-    ...(act.cancellationReason !== undefined ? { cancellationReason: act.cancellationReason } : {}),
-  };
+async function runPreparedActOperation<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof FoldPreparedActError) throw mapFoldPreparedActError(error);
+    throw error;
+  }
 }
 
 /**
- * Digest-addressed holding area for staged routing declarations: the exact
- * normalized declaration a `routings stage` reviewed, waiting inert until its
- * decision. Machine-local application state beside the staged-act store —
- * never a Space folder — and content-addressed, so the decision-time reload
- * is identity, not trust: bytes that no longer hash to the pinned digest
- * invalidate the card instead of enabling something the person never saw.
+ * The shared routing enablement door for the act lane and trusted desktop
+ * Settings (docs/fold-routings.md): normalize the declaration, check the
+ * admission horizon, verify the reviewed digest and that every referenced
+ * Space is registered, then run the `routing.enable` prepared act with the
+ * normalized declaration as execution context. Keeping this outside the
+ * act-facade closure prevents Settings from growing a second, subtly
+ * different enablement path.
  */
-function stagedRoutingDeclarationsDir(): string {
-  return join(workFoldStateRoot(), "fold", "staged-routings");
-}
-
-function stagedRoutingDeclarationFile(digest: string): string {
-  if (!/^[a-f0-9]{16,128}$/.test(digest)) throw new WorkFoldCliError("usage", "The routing declaration digest is malformed.");
-  return join(stagedRoutingDeclarationsDir(), `${digest}.json`);
-}
-
-async function stageStoredRoutingDeclaration(
+async function enableStoredRoutingDeclaration(
   state: LocalApiState,
   declaration: WorkFoldRoutingDeclaration,
   digest: string,
   context: {
+    surface: WorkFoldCliActSurface;
     parentTaskId?: string;
     requestId?: string;
-    stagedVia?: FoldStagedActStagedVia;
-  } = {},
+  },
 ): Promise<{
-  staged: WorkFoldActStagedDecision;
   routingId: string;
   declarationDigest: string;
   title: string;
   referencedSpaceIds: string[];
+  health: "enabled";
 }> {
   const normalized = normalizeWorkFoldRoutingDeclaration(declaration);
   try {
@@ -9343,7 +8413,7 @@ async function stageStoredRoutingDeclaration(
   if (actualDigest !== digest) {
     throw new WorkFoldCliError(
       "conflict",
-      "The stored Routing declaration no longer matches its reviewed digest; nothing was staged.",
+      "The stored Routing declaration no longer matches its reviewed digest; nothing was enabled.",
     );
   }
   const referencedSpaceIds = workFoldRoutingReferencedSpaceIds(normalized);
@@ -9352,137 +8422,38 @@ async function stageStoredRoutingDeclaration(
     if (!registered) {
       throw new WorkFoldCliError(
         "conflict",
-        `The Routing references a Space that is not registered on this machine (${spaceId}); the review card could not show it by name.`,
+        `The Routing references a Space that is not registered on this machine (${spaceId}).`,
       );
     }
   }
-  // Hold the exact normalized declaration before the card exists, so a
-  // pending card always has its reviewed bytes; pruning afterwards keeps
-  // only digests still pinned by pending cards.
-  await holdStagedRoutingDeclaration(normalized, digest);
-  const staged = await stageFoldConsecration(state, {
-    kind: "routing.enable",
-    parameters: { routingId: normalized.id },
-    pins: { routingId: normalized.id, declarationDigest: digest },
-    ...(context.parentTaskId !== undefined ? { parentTaskId: context.parentTaskId } : {}),
-    ...(context.requestId !== undefined ? { requestId: context.requestId } : {}),
-    ...(context.stagedVia !== undefined ? { stagedVia: context.stagedVia } : {}),
-  });
-  await pruneStagedRoutingDeclarations(state.stagedActs).catch(() => undefined);
+  const requestId = context.requestId?.trim() || randomUUID();
+  const routingContext: FoldRoutingEnableContext = {
+    declaration: normalized,
+    requestId,
+    attribution: foldActAttribution(state, context.surface, context.parentTaskId),
+  };
+  await runActOperation(() => runPreparedActOperation(async () => {
+    const act = prepareFoldAct({
+      kind: "routing.enable",
+      parameters: { routingId: normalized.id },
+      pins: { routingId: normalized.id, declarationDigest: digest },
+    });
+    await state.preparedActs.run({ act, requestId, context: routingContext });
+  }));
   return {
-    staged,
     routingId: normalized.id,
     declarationDigest: digest,
     title: normalized.title,
     referencedSpaceIds,
+    health: "enabled",
   };
-}
-
-async function holdStagedRoutingDeclaration(declaration: WorkFoldRoutingDeclaration, digest: string): Promise<void> {
-  const directory = stagedRoutingDeclarationsDir();
-  await mkdir(directory, { recursive: true, mode: 0o700 });
-  const temporaryPath = join(directory, `.${digest}.${randomUUID()}.tmp`);
-  await writeFile(temporaryPath, `${JSON.stringify(declaration, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-  await rename(temporaryPath, stagedRoutingDeclarationFile(digest));
-}
-
-/** Bounded by the pending cap: only digests a pending routing.enable act still pins are kept. */
-async function pruneStagedRoutingDeclarations(store: FoldStagedActStore): Promise<void> {
-  const pending = await store.list({ state: "staged", kind: "routing.enable" }).catch(() => [] as FoldStagedAct[]);
-  const keep = new Set(
-    pending
-      .map((act) => act.pins.declarationDigest)
-      .filter((digest): digest is string => typeof digest === "string"),
-  );
-  const directory = stagedRoutingDeclarationsDir();
-  for (const entry of await readdir(directory).catch(() => [] as string[])) {
-    if (!entry.endsWith(".json")) continue;
-    if (keep.has(entry.slice(0, -".json".length))) continue;
-    await rm(join(directory, entry), { force: true }).catch(() => undefined);
-  }
-}
-
-async function loadStagedRoutingDeclaration(digest: string): Promise<WorkFoldRoutingDeclaration | null> {
-  let text: string;
-  try {
-    text = await readFile(stagedRoutingDeclarationFile(digest), "utf8");
-  } catch {
-    return null;
-  }
-  const declaration = normalizeWorkFoldRoutingDeclaration(JSON.parse(text));
-  return workFoldRoutingDigest(declaration) === digest ? declaration : null;
-}
-
-function routingDecisionFacts(
-  declaration: WorkFoldRoutingDeclaration,
-  spacesById: ReadonlyMap<string, SpaceSummary>,
-): FoldDecisionCardFact[] {
-  const facts: FoldDecisionCardFact[] = [
-    { label: "Title", value: declaration.title },
-    { label: "Trigger", value: routingDecisionTrigger(declaration, spacesById) },
-  ];
-  for (const [index, step] of declaration.steps.entries()) {
-    const label = `Step ${index + 1} · ${step.kind === "chat" ? "Chat" : step.kind === "files" ? "Files" : "Check"} · ${step.id}`;
-    if (step.kind === "chat") {
-      facts.push({
-        label,
-        value: `${routingDecisionSpace(step.space, spacesById)}\nMessage:\n${step.message}\nUses this Space's current Assistant authority.`,
-      });
-      continue;
-    }
-    if (step.kind === "files") {
-      const source = step.from.kind === "paths"
-        ? `Paths: ${step.from.paths.join(", ")}`
-        : step.from.kind === "tree"
-          ? `Tree: ${step.from.path} · ${step.from.recursive ? "recursive" : "this folder"} · ${step.from.extensions.join(", ")}`
-          : `Files created by step ${step.from.step} · up to ${step.from.maxFiles} files / ${step.from.maxTotalBytes} bytes${
-            step.from.extensions ? ` · ${step.from.extensions.join(", ")}` : ""
-          }`;
-      const destination = spacesById.get(step.toSpace);
-      const destinationRoot = destination?.spaceRoot ?? step.toSpace;
-      facts.push({
-        label,
-        value: `From ${routingDecisionSpace(step.fromSpace, spacesById)}\n${source}\nTo ${routingDecisionSpace(step.toSpace, spacesById)}\nDestination: ${step.to === "." ? destinationRoot : join(destinationRoot, step.to)}`,
-      });
-      continue;
-    }
-    facts.push({
-      label,
-      value: `${routingDecisionSpace(step.space, spacesById)}\n${step.check ? `Check: ${step.check}` : "All enabled Checks"}`,
-    });
-  }
-  return facts;
-}
-
-function routingDecisionTrigger(
-  declaration: WorkFoldRoutingDeclaration,
-  spacesById: ReadonlyMap<string, SpaceSummary>,
-): string {
-  const trigger = declaration.trigger;
-  if (trigger.kind === "manual") return "Manual only";
-  if (trigger.kind === "interval") return `Every ${trigger.intervalMinutes} minutes`;
-  if (trigger.kind === "at") {
-    const local = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(trigger.at));
-    return `Once · ${local} local (${trigger.at}) · ${trigger.ifMissed === "run" ? "Run if missed" : "Skip if missed"}`;
-  }
-  if (trigger.kind === "files-changed") return `When ${trigger.watch.path}${trigger.watch.recursive ? " and its subfolders" : ""} changes in ${routingDecisionSpace(trigger.space, spacesById)} · ${trigger.watch.extensions.join(", ")} · wait ${trigger.debounceSeconds}s · at most once per ${trigger.cooldownMinutes} minute(s). Observation pauses during routing work and starts fresh after wake or restart; offline changes are not replayed.`;
-  const source = trigger.source;
-  if (source.kind === "check-run") {
-    return `After ${source.check ? `Check ${source.check}` : "any Check"} in ${routingDecisionSpace(source.space, spacesById)} · ${source.outcomes.join(", ")}`;
-  }
-  return `After app automation ${source.appId}/${source.automationId} in ${routingDecisionSpace(source.space, spacesById)} · ${source.outcomes.join(", ")}`;
-}
-
-function routingDecisionSpace(spaceId: string, spacesById: ReadonlyMap<string, SpaceSummary>): string {
-  const space = spacesById.get(spaceId);
-  return space ? `${space.name} — ${space.spaceRoot}` : `${spaceId} (removed)`;
 }
 
 /**
  * Reads one inert typed routing file — a proposal or a full declaration —
  * and normalizes it into the declaration enablement will verify. A proposal
- * gains a deterministic content-derived routing id, so restaging identical
- * content dedupes onto one card and denial memory holds.
+ * gains a deterministic content-derived routing id, so identical content
+ * always names one routing.
  */
 async function readRoutingStagingFile(
   proposalPath: string,
@@ -9522,10 +8493,10 @@ async function readRoutingStagingFile(
 }
 
 /**
- * Enumerates a skill bundle's SKILL.md names for the staged card without
- * installing anything, on the import path's own bounds. Digest equality
- * remains the whole identity recheck at decision time; these names are the
- * card's inspection facts, derived from the exact staged bytes.
+ * Enumerates a skill bundle's SKILL.md names for the act's result and
+ * receipt without installing anything, on the import path's own bounds.
+ * Digest equality remains the whole identity recheck at effect time; these
+ * names are derived from the exact inspected bytes.
  */
 async function enumerateSkillBundleNames(fileName: string, bytes: Uint8Array): Promise<string[]> {
   const extension = extname(fileName).toLowerCase();
@@ -9571,9 +8542,9 @@ function npmSourceIdentity(source: string): { packageName: string; pinnedVersion
 }
 
 /**
- * The inspected resource summary the needs-you card shows for a package
- * install or update. Extensions and install scripts are named for what they
- * are — a code-execution decision — exactly as the desktop review does.
+ * The inspected resource summary a package install or update pins and
+ * reports. Extensions and install scripts are named for what they are —
+ * code that runs as you — exactly as the desktop review does.
  */
 function capabilityResourceSummary(details: {
   skills?: string[];
@@ -9597,50 +8568,12 @@ function capabilityResourceSummary(details: {
 }
 
 /**
- * Observed content identity for one staged `files destroy` target, pinned so
- * the decision-time recheck can refuse changed content: a content hash where
- * readable, sizes always, bounded folder measurements for trees.
+ * Source verification for one page exposure, mirroring the publication
+ * service's own inspection: the exact normalized relative path the pins
+ * carry, an allowed media type, a regular file, and the shareable size bound.
+ * The service re-verifies for real at effect time and again at every serve.
  */
-async function observedDestroyIdentity(absolutePath: string): Promise<string> {
-  const info = await lstat(absolutePath);
-  if (info.isDirectory()) {
-    let fileCount = 0;
-    let totalBytes = 0;
-    let visited = 0;
-    const visit = async (path: string): Promise<void> => {
-      if (visited >= maxRoutingMeasureEntries) return;
-      visited += 1;
-      const entryInfo = await lstat(path).catch(() => null);
-      if (!entryInfo || entryInfo.isSymbolicLink()) return;
-      if (entryInfo.isFile()) {
-        fileCount += 1;
-        totalBytes += entryInfo.size;
-        return;
-      }
-      if (!entryInfo.isDirectory()) return;
-      for (const entry of await readdir(path).catch(() => [] as string[])) await visit(join(path, entry));
-    };
-    await visit(absolutePath);
-    return `folder:files=${fileCount}:bytes=${totalBytes}`;
-  }
-  if (!info.isFile()) throw new WorkFoldCliError("usage", "Only files and folders can be staged for destruction.");
-  try {
-    const hash = createHash("sha256");
-    for await (const chunk of createReadStream(absolutePath)) hash.update(chunk as Buffer);
-    return `file:sha256:${hash.digest("hex")}:${info.size}`;
-  } catch {
-    return `file:unreadable:${info.size}`;
-  }
-}
-
-/**
- * Staging-time source verification for one page exposure, mirroring the
- * publication service's own inspection: the exact normalized relative path
- * the pins carry, an allowed media type, a regular file, and the shareable
- * size bound. The service re-verifies for real at decision time and again at
- * every serve.
- */
-async function stagedPageSource(spaceRoot: string, relativePath: string): Promise<{ relativePath: string; byteSize: number }> {
+async function designatedPageSource(spaceRoot: string, relativePath: string): Promise<{ relativePath: string; byteSize: number }> {
   let path: string;
   try {
     path = resolveSpacePath(spaceRoot, relativePath);
@@ -9648,8 +8581,7 @@ async function stagedPageSource(spaceRoot: string, relativePath: string): Promis
     throw new WorkFoldCliError("usage", errorMessage(error), { cause: error });
   }
   // Canonical Space-relative form from the resolved path, so identical
-  // designations ("./weekly.md", "weekly.md") pin one identity and dedupe
-  // onto one card.
+  // designations ("./weekly.md", "weekly.md") pin one identity.
   const normalized = relative(resolve(spaceRoot), path).split(sep).join("/");
   if (!normalized) throw new WorkFoldCliError("usage", "A Space-relative file path is required.");
   const extension = extname(normalized).toLowerCase();
@@ -9664,11 +8596,16 @@ async function stagedPageSource(spaceRoot: string, relativePath: string): Promis
   return { relativePath: normalized, byteSize: info.size };
 }
 
-function createFoldDecisionFence(state: LocalApiState): FoldDecisionMutationFence {
+/**
+ * The prepared-act fence over the exact reservation state the desktop routes
+ * use: a Space scope reserves with runRestrictedAppMutation semantics, the
+ * global scope with runCapabilityMutation's global branch. A busy scope
+ * refuses with the routes' own conflict, which the act facade translates into
+ * the CLI's typed vocabulary. Project trust checks stay with the calling
+ * verbs and the per-kind adapters, mirroring the routes each kind reuses.
+ */
+function createFoldActFence(state: LocalApiState): FoldActFence {
   return {
-    probe(scope) {
-      return capabilityFenceBusyReason(state, scope);
-    },
     run(scope, operation) {
       return scope.scope === "space"
         ? runRestrictedAppMutation(state, scope.spaceId, operation)
@@ -9677,110 +8614,417 @@ function createFoldDecisionFence(state: LocalApiState): FoldDecisionMutationFenc
   };
 }
 
-/** Mirrors reserveCapabilityMutation's conflict checks without reserving. */
-function capabilityFenceBusyReason(state: LocalApiState, scope: FoldDecisionFenceScope): string | null {
-  if (scope.scope === "global") {
-    if (state.capabilityMutations.size > 0) return "Wait for the current capability change to finish.";
-    if (state.runningTurns.size > 0 || state.compactingConversations.size > 0
-      || state.checkRunReservations.size > 0 || state.checks.hasActiveRun()) {
-      return "Wait for affected Assistant work to finish before changing capabilities.";
-    }
-    return null;
-  }
-  if (state.capabilityMutations.has(globalCapabilityMutationKey) || state.capabilityMutations.has(scope.spaceId)) {
-    return "Wait for the current capability change to finish.";
-  }
-  if (hasActiveCapabilityWorkForSpace(state, scope.spaceId)) {
-    return "Wait for affected Assistant work to finish before changing capabilities.";
-  }
-  return null;
+/** Attribution a prepared act threads into routing grants and publication receipts. */
+interface FoldActAttribution {
+  surface: WorkFoldCliActSurface;
+  browserId?: string;
+  grantId?: string;
 }
 
 /**
- * Per-kind execution adapters for the decision path: each binds one staged-act
- * kind to the same domain internals the equivalent desktop ceremony uses.
- * Every admitted staged-act kind has an execution adapter. Destructive paths
- * re-observe their exact identities immediately before consumption; both
- * `publish.viewer.expose` shapes likewise re-verify their designated source
- * or installed Release.
+ * The execution outcome slot a calling verb reads back after a prepared act
+ * ran: the installed app, the removal result, the activated publication. It
+ * travels in the executor's `context`, never in a receipt.
  */
-function createFoldDecisionAdapters(state: LocalApiState): FoldDecisionAdapters {
-  const spaceRefById = async (spaceId: string): Promise<{ id: string; spaceRoot: string }> => {
-    const space = await getSpace(spaceId);
-    return { id: space.id, spaceRoot: space.spaceRoot };
-  };
-  const grantOptions = {
-    service: state.restrictedApps,
-    getSpace: spaceRefById,
-    // The decision-time person-chosen root the renderer decide route
-    // registered for exactly this staged act (desktop folder picker,
-    // docs/fold-consecrations.md). Absent means the app.grant.files card is
-    // honestly ineligible on this decide — including every remote decide,
-    // whose operation carries no root by design.
-    resolveFileGrantRoot: (act: FoldStagedAct) => state.fileGrantRootChoices.get(act.id) ?? null,
-  };
+interface FoldActOutcome<T> {
+  outcome?: T;
+}
+
+interface FoldRoutingEnableContext extends FoldActOutcome<WorkFoldRoutingRecord> {
+  declaration: WorkFoldRoutingDeclaration;
+  requestId: string;
+  attribution: FoldActAttribution;
+}
+
+interface FoldViewerExposeContext extends FoldActOutcome<WorkFoldPublicationView> {
+  requestId: string;
+  parentTaskId?: string;
+  attribution: FoldActAttribution;
+}
+
+/**
+ * Per-kind execution adapters for the prepared-act path: each binds one kind
+ * to the same domain internals the equivalent desktop action uses. Every
+ * admitted kind has an adapter. Each re-observes its pinned identities
+ * immediately before executing; both `publish.viewer.expose` shapes likewise
+ * re-verify their designated source or installed Release.
+ */
+function createFoldActAdapters(state: LocalApiState): FoldPreparedActAdapters {
   return {
-    "app.review.approve": createRestrictedAppReviewApproveAdapter({ proposals: state.restrictedAppProposals }),
-    "app.grant.network": createRestrictedAppGrantAdapter("app.grant.network", grantOptions),
-    "app.grant.files": createRestrictedAppGrantAdapter("app.grant.files", grantOptions),
-    "app.grant.notifications": createRestrictedAppGrantAdapter("app.grant.notifications", grantOptions),
-    "app.automation.enable": createRestrictedAppAutomationEnableAdapter({ service: state.restrictedApps }),
-    "capability.skills.import": createSkillImportAdapter({
-      loadBundle: (act) => loadStagedSkillBundle(state, act),
-      // Space scope resolves the Space's folder; Personal scope has no Space,
-      // so it names the same app-owned neutral root the act facade's
-      // Personal-scope tools verbs resolve against.
-      rootForScope: async (act) => act.parameters.scope === "space"
-        ? (await getSpace(String(act.parameters.spaceId))).spaceRoot
-        : workFoldManagementRoot(),
-      runtimeProvider: state.runtimeProvider,
-    }),
-    "routing.enable": createRoutingEnableDecisionAdapter(state),
-    "publish.viewer.expose": createViewerExposeDecisionAdapter(state),
-    "capability.package.install": createCapabilityPackageDecisionAdapter(state, "install"),
-    "capability.package.update": createCapabilityPackageDecisionAdapter(state, "update"),
-    "app.connection.save": createAppConnectionSaveDecisionAdapter(state),
-    "app.data.purge": createAppDataPurgeDecisionAdapter(state),
-    "app.storage.clear": createAppStorageClearDecisionAdapter(state),
-    "files.destroy": createFilesDestroyDecisionAdapter(),
-    "space.delete-folder": createManagedSpaceDeletionAdapter({
-      // The complete desktop removal orchestration — impact checks, Check,
-      // routing, staged-act, and app-state revocation, claim-verified managed
-      // deletion — shared with DELETE /api/spaces/:id and `spaces unregister`.
-      // It reserves its own capability fences across every affected Space, so
-      // the adapter's null fenceScope keeps the service from reserving twice.
-      executeDeletion: async (act) => {
-        const space = await getSpace(String(act.pins.spaceId ?? act.parameters.spaceId));
-        const result = await removeSpaceRegistrationInternal(state, space);
-        return {
-          detail: result.cleanupPending
-            ? `Deleted the managed Space folder ${space.spaceRoot}; final cleanup completes at the next start.`
-            : `Deleted the managed Space folder ${space.spaceRoot}.`,
-        };
-      },
-    }),
+    "app.review.install": createAppReviewInstallAdapter(state),
+    "app.grant.network": createAppGrantAdapter(state, "app.grant.network"),
+    "app.grant.files": createAppGrantAdapter(state, "app.grant.files"),
+    "app.grant.notifications": createAppGrantAdapter(state, "app.grant.notifications"),
+    "app.automation.enable": createAppAutomationEnableAdapter(state),
+    "capability.skills.import": createSkillImportAdapter(state),
+    "capability.package.install": createCapabilityPackageAdapter(state, "install"),
+    "capability.package.update": createCapabilityPackageAdapter(state, "update"),
+    "app.connection.save": createAppConnectionSaveAdapter(state),
+    "app.data.purge": createAppDataPurgeAdapter(state),
+    "app.storage.clear": createAppStorageClearAdapter(state),
+    "routing.enable": createRoutingEnableAdapter(state),
+    "publish.viewer.expose": createViewerExposeAdapter(state),
+    "space.delete-folder": createManagedSpaceDeletionAdapter(state),
   };
 }
 
-function createAppStorageClearDecisionAdapter(state: LocalApiState): FoldStagedActKindAdapter {
-  const resolve = async (act: FoldStagedAct): Promise<
+/** The prepared-act pin as bounded text, tolerating the parameter mirror. */
+function stringPinValue(act: FoldPreparedAct, name: string): string {
+  const value = act.pins[name] ?? act.parameters[name];
+  return typeof value === "string" ? value : "";
+}
+
+/**
+ * `app.review.install` — the digest-checked install path the desktop uses.
+ * The proposal host re-verifies the reviewed digest at install time, so a
+ * source changed between recheck and execution surfaces as the existing
+ * REVISION_CHANGED refusal.
+ */
+function createAppReviewInstallAdapter(
+  state: LocalApiState,
+): FoldPreparedActAdapter<FoldActOutcome<RestrictedAppInstalled> | undefined> {
+  const recheck = async (act: FoldPreparedAct): Promise<string | null> => {
+    const proposal = await state.restrictedAppProposals.get(stringPinValue(act, "proposalId"));
+    if (!proposal) return "The app review no longer exists; it was removed or superseded.";
+    if (proposal.spaceId !== act.parameters.spaceId) return "The app review belongs to a different Space.";
+    if (proposal.review.digest !== act.pins.reviewDigest) {
+      return "The reviewed package no longer matches the pinned review; the source changed after review.";
+    }
+    if (proposal.status === "revision-changed") return "The package changed after review; review the new revision before installing it.";
+    if (proposal.status === "dismissed") return "The app review was dismissed.";
+    return null;
+  };
+  return {
+    recheckPins: recheck,
+    async execute(act, context) {
+      const app = await state.restrictedAppProposals.install(stringPinValue(act, "proposalId"));
+      if (!app) throw new Error("This app review is no longer available to install.");
+      if (context) context.outcome = app;
+      return { detail: `Installed ${app.packageName}@${app.version} (digest ${app.digest}).` };
+    },
+  };
+}
+
+type FoldAppGrantKind = "app.grant.network" | "app.grant.files" | "app.grant.notifications";
+
+/**
+ * `app.grant.network|files|notifications` — the same grant path Assistant
+ * tools uses, addressed by the pinned App Instance identity and re-verified
+ * against the installed digest and the exact reviewed declaration. A file
+ * grant binds to the whole Space (docs/receipts-not-gates.md, F21).
+ */
+function createAppGrantAdapter(
+  state: LocalApiState,
+  kind: FoldAppGrantKind,
+): FoldPreparedActAdapter<{ root?: string } | undefined> {
+  const resolve = async (act: FoldPreparedAct): Promise<{ app: RestrictedAppInstalled } | { issue: string }> => {
+    const app = await state.restrictedApps.findByFeatureInstallation(String(act.parameters.spaceId), stringPinValue(act, "appInstanceId"));
+    if (!app) return { issue: "The App Instance is no longer installed in this Space." };
+    if ((app.releaseDigest ?? app.digest) !== act.pins.releaseDigest) {
+      return { issue: "The installed app no longer matches the pinned release; it changed after the request was prepared." };
+    }
+    const declarationId = stringPinValue(act, "declarationId");
+    const declared = kind === "app.grant.network"
+      ? app.manifest.permissions.network.some((item) => item.id === declarationId)
+      : kind === "app.grant.files"
+        ? app.manifest.permissions.files.some((item) => item.id === declarationId)
+        : app.manifest.permissions.notifications.some((item) => item.id === declarationId);
+    if (!declared) return { issue: "The app no longer declares this permission." };
+    return { app };
+  };
+  return {
+    async recheckPins(act) {
+      const resolved = await resolve(act);
+      return "issue" in resolved ? resolved.issue : null;
+    },
+    async execute(act, context) {
+      const resolved = await resolve(act);
+      if ("issue" in resolved) throw new Error(resolved.issue);
+      const { app } = resolved;
+      const declarationId = stringPinValue(act, "declarationId");
+      const base = {
+        spaceId: app.spaceId,
+        appId: app.manifest.id,
+        featureInstallationId: app.featureInstallationId,
+        expectedDigest: app.digest,
+      };
+      if (kind === "app.grant.network") {
+        await state.restrictedApps.grantNetwork({ ...base, destinationId: declarationId });
+        return {
+          detail: `Granted network destination "${declarationId}" to ${app.manifest.id}.`,
+          undoRef: { kind: "declaration", value: declarationId },
+        };
+      }
+      if (kind === "app.grant.notifications") {
+        await state.restrictedApps.grantNotifications({ ...base, permissionId: declarationId });
+        return {
+          detail: `Granted notification category "${declarationId}" to ${app.manifest.id}.`,
+          undoRef: { kind: "declaration", value: declarationId },
+        };
+      }
+      const root = context?.root ?? ".";
+      const space = await getSpace(app.spaceId);
+      await state.restrictedApps.grantFiles({ ...base, spaceRoot: space.spaceRoot, permissionId: declarationId, root });
+      return {
+        detail: `Granted Space file access "${declarationId}" (root "${root}") to ${app.manifest.id}.`,
+        undoRef: { kind: "declaration", value: declarationId },
+      };
+    },
+  };
+}
+
+/**
+ * `app.automation.enable` — the existing enablement path; runs stay inside
+ * the machine-wide scheduler bounds. The reviewed digest and the
+ * host-composed schedule summary are pins, so a job whose package or cadence
+ * changed since the request was prepared refuses instead of enabling
+ * something the receipt never described.
+ */
+function createAppAutomationEnableAdapter(state: LocalApiState): FoldPreparedActAdapter {
+  const resolve = async (act: FoldPreparedAct): Promise<{ app: RestrictedAppInstalled } | { issue: string }> => {
+    const app = await state.restrictedApps.findByFeatureInstallation(String(act.parameters.spaceId), stringPinValue(act, "appInstanceId"));
+    if (!app) return { issue: "The App Instance is no longer installed in this Space." };
+    // Automations bind to the package digest they were reviewed under, the
+    // same identity automation run receipts capture.
+    if (app.digest !== act.pins.reviewedDigest) {
+      return { issue: "The installed package no longer matches the digest this job was reviewed under." };
+    }
+    const automationId = stringPinValue(act, "automationId");
+    const declaration = app.manifest.automations.find((item) => item.id === automationId);
+    if (!declaration) return { issue: "The app no longer declares this automation." };
+    if (restrictedAppAutomationScheduleSummary(declaration) !== act.pins.scheduleSummary) {
+      return { issue: "The job's reviewed schedule changed after the request was prepared." };
+    }
+    return { app };
+  };
+  return {
+    async recheckPins(act) {
+      const resolved = await resolve(act);
+      return "issue" in resolved ? resolved.issue : null;
+    },
+    async execute(act) {
+      const resolved = await resolve(act);
+      if ("issue" in resolved) throw new Error(resolved.issue);
+      const { app } = resolved;
+      const automationId = stringPinValue(act, "automationId");
+      await state.restrictedApps.setAutomationEnabled({
+        spaceId: app.spaceId,
+        appId: app.manifest.id,
+        featureInstallationId: app.featureInstallationId,
+        expectedDigest: app.digest,
+        automationId,
+        enabled: true,
+      });
+      return {
+        detail: `Enabled automation "${automationId}" (${String(act.pins.scheduleSummary)}) for ${app.manifest.id}.`,
+        undoRef: { kind: "automation", value: automationId },
+      };
+    },
+  };
+}
+
+/**
+ * `capability.skills.import` — the existing import path, digest-verified: the
+ * pinned content digest names the exact inspected bytes, and the enumerated
+ * skill names are derived from those bytes, so digest equality is the whole
+ * identity recheck. Space scope resolves the Space's folder; Personal scope
+ * has no Space, so it names the same app-owned neutral root the act facade's
+ * Personal-scope tools verbs resolve against.
+ */
+function createSkillImportAdapter(
+  state: LocalApiState,
+): FoldPreparedActAdapter<FoldActOutcome<PiSkillBundleImportResult> | undefined> {
+  const loadVerified = async (act: FoldPreparedAct): Promise<
+    { bundle: { fileName: string; bytes: Uint8Array } } | { issue: string }
+  > => {
+    let bundle: { fileName: string; bytes: Uint8Array };
+    try {
+      bundle = await loadSkillBundleForAct(state, act);
+    } catch (caught) {
+      return { issue: `The skill bundle could not be re-read: ${errorMessage(caught)}` };
+    }
+    if (piSkillBundleContentDigest(bundle.bytes) !== act.pins.contentDigest) {
+      return { issue: "The skill bundle's content no longer matches the pinned digest; the source changed after it was inspected." };
+    }
+    return { bundle };
+  };
+  return {
+    async recheckPins(act) {
+      const loaded = await loadVerified(act);
+      return "issue" in loaded ? loaded.issue : null;
+    },
+    async execute(act, context) {
+      const loaded = await loadVerified(act);
+      if ("issue" in loaded) throw new Error(loaded.issue);
+      const root = act.parameters.scope === "space"
+        ? (await getSpace(String(act.parameters.spaceId))).spaceRoot
+        : workFoldManagementRoot();
+      const result = await importPiSkillBundleVerified(root, {
+        fileName: loaded.bundle.fileName,
+        bytes: loaded.bundle.bytes,
+        scope: act.parameters.scope === "space" ? "project" : "user",
+        expectedContentDigest: String(act.pins.contentDigest),
+      }, state.runtimeProvider);
+      if (context) context.outcome = result;
+      const names = result.skills.map((skill) => skill.name).join(", ");
+      return {
+        detail: `Imported ${result.skills.length === 1 ? "skill" : "skills"} ${names} at ${result.scope === "user" ? "Personal" : "This Space"} scope.`,
+        undoRef: { kind: "skill-bundle-path", value: result.bundlePath },
+      };
+    },
+  };
+}
+
+/**
+ * Re-reads the exact bundle bytes for `capability.skills.import`. Loading is
+ * identity, not trust: the adapter's content-digest recheck decides whether
+ * these are the inspected bytes. An absolute path is a file-borne bundle; any
+ * other source is an official catalog bundle id, rebuilt through the same
+ * registry path the desktop install uses and then digest-checked like every
+ * other reload.
+ */
+async function loadSkillBundleForAct(
+  state: LocalApiState,
+  act: FoldPreparedAct,
+): Promise<{ fileName: string; bytes: Uint8Array }> {
+  const source = String(act.pins.source ?? act.parameters.source ?? "").trim();
+  if (!source) throw new Error("the bundle source is missing");
+  if (!isAbsolute(source)) {
+    const bundle = await state.capabilityRegistry.buildOfficialSkillBundle(source);
+    return { fileName: bundle.fileName, bytes: bundle.bytes };
+  }
+  const info = await lstat(source);
+  if (info.isSymbolicLink() || !info.isFile()) {
+    throw new Error("the bundle source must be a regular file");
+  }
+  return { fileName: basename(source), bytes: await readFile(source) };
+}
+
+/**
+ * `capability.package.install|update` — the same capability-mutation
+ * internals as the desktop package routes, executed inside the fence's
+ * reservation (Space scope for a Space-scoped package, global for Personal
+ * scope) instead of reserving twice. Project trust is rechecked at effect
+ * time so an untrusted Space refuses instead of loading code.
+ */
+function createCapabilityPackageAdapter(
+  state: LocalApiState,
+  operation: "install" | "update",
+): FoldPreparedActAdapter {
+  const scopeOf = (act: FoldPreparedAct): "personal" | "space" =>
+    (act.pins.scope ?? act.parameters.scope) === "space" ? "space" : "personal";
+  const spaceOf = async (act: FoldPreparedAct): Promise<SpaceSummary | null> => {
+    const spaceId = act.parameters.spaceId;
+    if (typeof spaceId !== "string") return null;
+    try {
+      return await getSpace(spaceId);
+    } catch {
+      return null;
+    }
+  };
+  return {
+    async recheckPins(act) {
+      if (scopeOf(act) !== "space") return null;
+      const space = await spaceOf(act);
+      if (!space) return "The Space is no longer registered.";
+      return await isPiProjectMutationTrusted(space.spaceRoot, state.runtimeProvider)
+        ? null
+        : "Trust this Space before changing Space-scoped capabilities.";
+    },
+    async execute(act) {
+      const scope = scopeOf(act);
+      const space = scope === "space" ? await spaceOf(act) : null;
+      if (scope === "space" && !space) throw new Error("The Space is no longer registered.");
+      const root = space?.spaceRoot ?? workFoldManagementRoot();
+      const source = String(act.pins.source);
+      const piScope = scope === "space" ? "project" as const : "user" as const;
+      if (operation === "install") {
+        await installPiPackage(root, source, { scope: piScope, runtimeProvider: state.runtimeProvider });
+      } else {
+        await updatePiPackages(root, source, { scope: piScope, runtimeProvider: state.runtimeProvider });
+      }
+      return {
+        detail: `${operation === "install" ? "Installed" : "Updated"} ${String(act.pins.packageId)}@${String(act.pins.version)} `
+          + `from ${source} at ${piScope === "user" ? "Personal" : "This Space"} scope.`,
+        undoRef: { kind: "package-source", value: source },
+      };
+    },
+  };
+}
+
+/**
+ * `app.connection.save` — opens the existing host connection flow scoped to
+ * the pinned declaration. Only the browser OAuth flow can run without a
+ * person typing a secret, so form-credential shapes refuse: the secret is
+ * entered in the Apps tab, never through the fold, and the act carries only
+ * the connection's shape.
+ */
+function createAppConnectionSaveAdapter(
+  state: LocalApiState,
+): FoldPreparedActAdapter<FoldActOutcome<RestrictedAppConnectionStatus> | undefined> {
+  const targetLabel = (target: { kind: string; origin?: string; host?: string; port?: number }): string =>
+    target.kind === "public-https" ? String(target.origin) : `http://${String(target.host)}:${String(target.port)}`;
+  const resolve = async (act: FoldPreparedAct): Promise<
+    | { issue: string }
+    | { app: RestrictedAppInstalled; destination: RestrictedAppNetworkDeclaration }
+  > => {
+    const app = await state.restrictedApps.findByFeatureInstallation(String(act.parameters.spaceId), stringPinValue(act, "appInstanceId"));
+    if (!app) return { issue: "The App Instance is no longer installed in this Space." };
+    const declarationId = String(act.pins.declarationId);
+    const destination = app.manifest.permissions.network.find((item) => item.id === declarationId);
+    if (!destination) return { issue: "The app no longer declares this connection destination." };
+    if (targetLabel(destination.target) !== act.pins.target) {
+      return { issue: "The destination's reviewed target changed after the request was prepared." };
+    }
+    if (!destination.auth.some((item) => item.kind === act.pins.adapterKind)) {
+      return { issue: "The destination no longer declares the pinned credential adapter." };
+    }
+    if (act.pins.adapterKind !== "oauth2-pkce") {
+      return { issue: "This destination takes a secret typed on the desktop. Connect it from the app's Apps tab." };
+    }
+    return { app, destination };
+  };
+  return {
+    async recheckPins(act) {
+      const resolved = await resolve(act);
+      return "issue" in resolved ? resolved.issue : null;
+    },
+    async execute(act, context) {
+      const resolved = await resolve(act);
+      if ("issue" in resolved) throw new Error(resolved.issue);
+      const connection = await state.restrictedApps.connectOAuth({
+        spaceId: resolved.app.spaceId,
+        appId: resolved.app.manifest.id,
+        destinationId: resolved.destination.id,
+        expectedDigest: resolved.app.digest,
+      });
+      if (context) context.outcome = connection;
+      return {
+        detail: `Connected ${resolved.app.manifest.id} to ${String(act.pins.target)} through the browser sign-in flow.`,
+        undoRef: { kind: "declaration", value: resolved.destination.id },
+      };
+    },
+  };
+}
+
+function createAppStorageClearAdapter(
+  state: LocalApiState,
+): FoldPreparedActAdapter<FoldActOutcome<{ remainingBytes: number }> | undefined> {
+  const resolve = async (act: FoldPreparedAct): Promise<
     | { issue: string }
     | { app: RestrictedAppInstalled; observedBytes: number }
   > => {
     const spaceId = String(act.parameters.spaceId);
-    const app = await state.restrictedApps.findByFeatureInstallation(
-      spaceId,
-      String(act.pins.appInstanceId ?? act.parameters.appInstanceId),
-    );
-    if (!app) return { issue: "The pinned App Instance is no longer installed in this Space." };
+    const app = await state.restrictedApps.findByFeatureInstallation(spaceId, stringPinValue(act, "appInstanceId"));
+    if (!app) return { issue: "The App Instance is no longer installed in this Space." };
     const namespaces = act.pins.dataNamespaceIds;
     if (!Array.isArray(namespaces) || namespaces.length !== 1 || namespaces[0] !== app.dataNamespaceId) {
-      return { issue: "The app's Data Namespace no longer matches the staged storage identity." };
+      return { issue: "The app's Data Namespace no longer matches the pinned storage identity." };
     }
     try {
       const usage = await state.restrictedApps.storageUsage(spaceId, app.manifest.id, app.digest, app.featureInstallationId);
       if (usage.usageBytes !== act.pins.observedBytes) {
-        return { issue: `The app's live storage changed after staging (${String(act.pins.observedBytes)} → ${usage.usageBytes} bytes).` };
+        return { issue: `The app's live storage changed after the request was prepared (${String(act.pins.observedBytes)} → ${usage.usageBytes} bytes).` };
       }
       return { app, observedBytes: usage.usageBytes };
     } catch (error) {
@@ -9788,15 +9032,11 @@ function createAppStorageClearDecisionAdapter(state: LocalApiState): FoldStagedA
     }
   };
   return {
-    async eligibilityIssue(act) {
-      const resolved = await resolve(act);
-      return "issue" in resolved ? resolved.issue : null;
-    },
     async recheckPins(act) {
       const resolved = await resolve(act);
       return "issue" in resolved ? resolved.issue : null;
     },
-    async execute(act) {
+    async execute(act, context) {
       const resolved = await resolve(act);
       if ("issue" in resolved) throw new Error(resolved.issue);
       const cleared = await state.restrictedApps.clearStorage(
@@ -9805,17 +9045,20 @@ function createAppStorageClearDecisionAdapter(state: LocalApiState): FoldStagedA
         resolved.app.digest,
         resolved.app.featureInstallationId,
       );
+      if (context) context.outcome = { remainingBytes: cleared.usageBytes };
       return { detail: `Cleared ${resolved.observedBytes} bytes of live storage; ${cleared.usageBytes} bytes remain.` };
     },
   };
 }
 
-function createAppDataPurgeDecisionAdapter(state: LocalApiState): FoldStagedActKindAdapter {
+function createAppDataPurgeAdapter(
+  state: LocalApiState,
+): FoldPreparedActAdapter<FoldActOutcome<{ cleanupPending: boolean }> | undefined> {
   type PurgeResolution =
     | { issue: string }
     | { target: "retained"; retainedDataId: string; namespaceId: string }
     | { target: "runtime-instance"; runtimeInstanceId: string; namespaceId: string };
-  const resolve = async (act: FoldStagedAct): Promise<PurgeResolution> => {
+  const resolve = async (act: FoldPreparedAct): Promise<PurgeResolution> => {
     const target = act.parameters.purgeTarget;
     const namespaceIds = act.pins.dataNamespaceIds;
     if (!Array.isArray(namespaceIds) || namespaceIds.length !== 1) {
@@ -9827,9 +9070,9 @@ function createAppDataPurgeDecisionAdapter(state: LocalApiState): FoldStagedActK
       const retainedDataId = String(act.pins.retainedDataId ?? "");
       const studio = await state.restrictedApps.localAppStudio(sourceSpaceId).catch(() => null);
       const retained = studio?.retainedData.find((item) => item.retainedDataId === retainedDataId);
-      if (!retained) return { issue: "The pinned retained App data record no longer exists." };
+      if (!retained) return { issue: "The retained App data record no longer exists." };
       if (retained.featureInstallationId !== act.pins.appInstanceId || retained.dataNamespaceId !== namespaceId) {
-        return { issue: "The retained App data identity changed after staging." };
+        return { issue: "The retained App data identity changed after the request was prepared." };
       }
       return { target, retainedDataId, namespaceId };
     }
@@ -9839,18 +9082,16 @@ function createAppDataPurgeDecisionAdapter(state: LocalApiState): FoldStagedActK
       const installed = (await state.restrictedApps.list(spaceId)).find((app) => (
         app.runtimeInstanceKind === "app" && app.runtimeInstanceId === runtimeInstanceId
       ));
-      if (!installed) return { issue: "The pinned Local App Instance is no longer installed." };
+      if (!installed) return { issue: "The Local App Instance is no longer installed." };
       if (installed.featureInstallationId !== act.pins.appInstanceId || installed.dataNamespaceId !== namespaceId) {
-        return { issue: "The Local App Instance data identity changed after staging." };
+        return { issue: "The Local App Instance data identity changed after the request was prepared." };
       }
       if (act.pins.sourceSpaceId !== undefined && installed.sourceSpaceId !== act.pins.sourceSpaceId) {
-        return { issue: "The Local App Instance source Space changed after staging." };
+        return { issue: "The Local App Instance source Space changed after the request was prepared." };
       }
       return { target, runtimeInstanceId, namespaceId };
     }
-    return {
-      issue: "This older purge card does not identify whether it targets retained data or an installed App Instance; restage it.",
-    };
+    return { issue: "This purge does not identify whether it targets retained data or an installed App Instance." };
   };
   return {
     fenceScope: () => ({ scope: "global" }),
@@ -9858,12 +9099,13 @@ function createAppDataPurgeDecisionAdapter(state: LocalApiState): FoldStagedActK
       const resolved = await resolve(act);
       return "issue" in resolved ? resolved.issue : null;
     },
-    async execute(act) {
+    async execute(act, context) {
       const resolved = await resolve(act);
       if ("issue" in resolved) throw new Error(resolved.issue);
       if (resolved.target === "retained") {
         const result = await state.restrictedApps.purgeLocalAppRetainedData(resolved.retainedDataId);
         if (!result.purged) throw new Error("The retained App data record disappeared before execution.");
+        if (context) context.outcome = { cleanupPending: result.cleanupPending };
         return {
           detail: result.cleanupPending
             ? `Purged Data Namespace ${resolved.namespaceId}; secure cleanup is pending.`
@@ -9875,6 +9117,7 @@ function createAppDataPurgeDecisionAdapter(state: LocalApiState): FoldStagedActK
         dataDisposition: "purge",
       });
       if (!result.removed) throw new Error("The Local App Instance disappeared before execution.");
+      if (context) context.outcome = { cleanupPending: result.cleanupPending };
       return {
         detail: result.cleanupPending
           ? `Uninstalled ${resolved.runtimeInstanceId} and purged its data; secure cleanup is pending.`
@@ -9884,130 +9127,49 @@ function createAppDataPurgeDecisionAdapter(state: LocalApiState): FoldStagedActK
   };
 }
 
-function createFilesDestroyDecisionAdapter(): FoldStagedActKindAdapter {
-  const resolve = async (act: FoldStagedAct): Promise<
-    | { issue: string }
-    | { spaceRoot: string; paths: string[] }
-  > => {
-    const space = await getSpace(String(act.parameters.spaceId)).catch(() => null);
-    if (!space) return { issue: "The pinned Space is no longer registered." };
-    const paths = act.pins.paths;
-    const identities = act.pins.contentIdentities;
-    if (!Array.isArray(paths) || !Array.isArray(identities) || paths.length !== identities.length) {
-      return { issue: "The staged paths and content identities no longer form a valid deletion set." };
-    }
-    for (let index = 0; index < paths.length; index += 1) {
-      const path = paths[index]!;
-      let observed: string;
-      try {
-        observed = await observedDestroyIdentity(resolveSpacePath(space.spaceRoot, path));
-      } catch (error) {
-        return { issue: `The staged target "${path}" is no longer safely readable: ${errorMessage(error)}` };
-      }
-      if (observed !== identities[index]) {
-        return { issue: `The staged target "${path}" changed after staging.` };
-      }
-    }
-    return { spaceRoot: space.spaceRoot, paths: [...paths] };
-  };
-  return {
-    async recheckPins(act) {
-      const resolved = await resolve(act);
-      return "issue" in resolved ? resolved.issue : null;
-    },
-    async execute(act) {
-      const resolved = await resolve(act);
-      if ("issue" in resolved) throw new Error(resolved.issue);
-      // Children before parents makes overlapping selections deterministic.
-      const ordered = [...new Set(resolved.paths)].sort((left, right) => (
-        right.split("/").length - left.split("/").length || right.localeCompare(left)
-      ));
-      for (const path of ordered) await deleteSpaceEntry(resolved.spaceRoot, path);
-      return { detail: `Permanently deleted ${ordered.length} path${ordered.length === 1 ? "" : "s"}.` };
-    },
-  };
-}
-
-/**
- * Re-reads the exact staged bundle bytes for `capability.skills.import`.
- * Loading is identity, not trust: the adapter's content-digest recheck
- * decides whether these are the reviewed bytes. An absolute path is a
- * file-borne bundle; any other source is an official catalog bundle id,
- * rebuilt through the same registry path the desktop install uses and then
- * digest-checked like every other reload.
- */
-async function loadStagedSkillBundle(
-  state: LocalApiState,
-  act: FoldStagedAct,
-): Promise<{ fileName: string; bytes: Uint8Array }> {
-  const source = String(act.pins.source ?? act.parameters.source ?? "").trim();
-  if (!source) throw new Error("the staged bundle source is missing");
-  if (!isAbsolute(source)) {
-    const bundle = await state.capabilityRegistry.buildOfficialSkillBundle(source);
-    return { fileName: bundle.fileName, bytes: bundle.bytes };
-  }
-  const info = await lstat(source);
-  if (info.isSymbolicLink() || !info.isFile()) {
-    throw new Error("the staged bundle source must be a regular file");
-  }
-  return { fileName: basename(source), bytes: await readFile(source) };
-}
-
 /**
  * `routing.enable` — the enablement grant of docs/fold-routings.md. The
- * staged declaration is reloaded from the digest-addressed holding area and
- * re-verified against the pinned digest and routing id; every referenced
- * Space must still be registered. Execution commits the declaration and the
- * exact-authority grant through the routing service with `decisionId` equal
- * to the staged-act id — the staged act and its decision share one identity —
- * and the store itself re-refuses a declaration that no longer hashes to the
- * reviewed digest, so an edited routing never coasts on a stale approval.
+ * normalized declaration arrives as execution context from the calling verb,
+ * is re-verified against the pinned digest and routing id, and every
+ * referenced Space must still be registered. Execution commits the
+ * declaration and the exact-authority grant through the routing service with
+ * the act's request id as the grant identity, and the store itself
+ * re-refuses a declaration that no longer hashes to the reviewed digest.
  */
-function createRoutingEnableDecisionAdapter(state: LocalApiState): FoldStagedActKindAdapter {
-  const load = async (act: FoldStagedAct): Promise<{ declaration: WorkFoldRoutingDeclaration } | { issue: string }> => {
-    const digest = String(act.pins.declarationDigest);
-    let declaration: WorkFoldRoutingDeclaration | null;
-    try {
-      declaration = await loadStagedRoutingDeclaration(digest);
-    } catch {
-      declaration = null;
+function createRoutingEnableAdapter(state: LocalApiState): FoldPreparedActAdapter<FoldRoutingEnableContext | undefined> {
+  const verify = async (act: FoldPreparedAct, context: FoldRoutingEnableContext | undefined): Promise<string | null> => {
+    const declaration = context?.declaration;
+    if (!declaration) return "The routing declaration to enable was not supplied.";
+    if (workFoldRoutingDigest(declaration) !== act.pins.declarationDigest) {
+      return "The routing declaration no longer hashes to the reviewed digest.";
     }
-    if (!declaration) {
-      return { issue: "The staged routing declaration no longer matches the reviewed digest or is no longer held; restage it from the proposal." };
-    }
-    if (declaration.id !== act.pins.routingId) {
-      return { issue: "The staged declaration names a different routing than this card pinned." };
-    }
+    if (declaration.id !== act.pins.routingId) return "The declaration names a different routing than this act pinned.";
     for (const spaceId of workFoldRoutingReferencedSpaceIds(declaration)) {
       const registered = await getSpace(spaceId).catch(() => null);
-      if (!registered) return { issue: `The routing references a Space that is no longer registered (${spaceId}).` };
+      if (!registered) return `The routing references a Space that is no longer registered (${spaceId}).`;
     }
-    return { declaration };
+    return null;
   };
   return {
     // Enablement is a routing-store commit under its own serialization; it
     // mutates no capability state, so it reserves no capability fence.
     fenceScope: () => null,
-    async recheckPins(act) {
-      const loaded = await load(act);
-      return "issue" in loaded ? loaded.issue : null;
-    },
-    async execute(act) {
-      const loaded = await load(act);
-      if ("issue" in loaded) throw new Error(loaded.issue);
-      const decision = act.decision;
-      if (!decision || decision.decision !== "approved") throw new Error("Execution requires a consumed approval.");
+    recheckPins: verify,
+    async execute(act, context) {
+      const issue = await verify(act, context);
+      if (issue || !context) throw new Error(issue ?? "The routing declaration to enable was not supplied.");
+      const { attribution } = context;
       const record = await state.routings.enable({
-        declaration: loaded.declaration,
+        declaration: context.declaration,
         expectedDigest: String(act.pins.declarationDigest),
         decision: {
-          decisionId: act.id,
-          surface: decision.surface,
-          ...(decision.browserId !== undefined ? { browserId: decision.browserId } : {}),
-          ...(decision.grantId !== undefined ? { browserGrantId: decision.grantId } : {}),
+          decisionId: context.requestId,
+          surface: attribution.surface,
+          ...(attribution.surface === "remote_web" && attribution.browserId !== undefined ? { browserId: attribution.browserId } : {}),
+          ...(attribution.surface === "remote_web" && attribution.grantId !== undefined ? { browserGrantId: attribution.grantId } : {}),
         },
       });
-      await rm(stagedRoutingDeclarationFile(record.digest), { force: true }).catch(() => undefined);
+      context.outcome = record;
       return {
         detail: `Enabled routing "${record.declaration.title}" (${record.declaration.id}) at digest ${record.digest}.`,
         undoRef: { kind: "routing-id", value: record.declaration.id },
@@ -10018,20 +9180,20 @@ function createRoutingEnableDecisionAdapter(state: LocalApiState): FoldStagedAct
 
 /**
  * `publish.viewer.expose` — the activation paths of docs/fold-publishing.md,
- * executed with the approving surface, browser identity, and `decisionId`
- * threaded into the publication service's own journaled act context. Page
- * exposure re-verifies the designated source; hosted-app exposure (rung 3)
- * re-resolves the pinned App Instance and requires the exact pinned Release
- * digest and viewer surface — an app that updated or widened its viewer
- * surface after staging invalidates instead of exposing something the card
- * never showed.
+ * executed with the initiating surface and browser identity threaded into
+ * the publication service's own journaled act context under a derived
+ * request id (`<request>:activate`). Page exposure re-verifies the
+ * designated source; hosted-app exposure (rung 3) re-resolves the pinned App
+ * Instance and requires the exact pinned Release digest and viewer surface —
+ * an app that updated or widened its viewer surface after the request was
+ * prepared refuses instead of exposing something the receipt never named.
  */
-function createViewerExposeDecisionAdapter(state: LocalApiState): FoldStagedActKindAdapter {
-  const recheckPage = async (act: FoldStagedAct): Promise<string | null> => {
+function createViewerExposeAdapter(state: LocalApiState): FoldPreparedActAdapter<FoldViewerExposeContext | undefined> {
+  const recheckPage = async (act: FoldPreparedAct): Promise<string | null> => {
     const space = await getSpace(String(act.pins.spaceId)).catch(() => null);
-    if (!space) return "The pinned Space is no longer registered.";
+    if (!space) return "The Space is no longer registered.";
     try {
-      const source = await stagedPageSource(space.spaceRoot, String(act.pins.relativePath));
+      const source = await designatedPageSource(space.spaceRoot, String(act.pins.relativePath));
       if (source.relativePath !== act.pins.relativePath) {
         return "The designated file's normalized path no longer matches the pinned path.";
       }
@@ -10040,14 +9202,14 @@ function createViewerExposeDecisionAdapter(state: LocalApiState): FoldStagedActK
     }
     return null;
   };
-  const resolveHostedApp = async (act: FoldStagedAct): Promise<
+  const resolveHostedApp = async (act: FoldPreparedAct): Promise<
     | { exposure: Extract<Awaited<ReturnType<RestrictedAppViewerAdapter["resolveExposure"]>>, { eligible: true }> }
     | { issue: string }
   > => {
     const exposure = await state.restrictedAppViewer.resolveExposure(stringPinValue(act, "appInstanceId"));
     if (!exposure.eligible) return { issue: exposure.issue };
     if (exposure.pins.releaseDigest !== act.pins.releaseDigest) {
-      return { issue: "The installed Release digest no longer matches the pinned digest; the app updated after staging." };
+      return { issue: "The installed Release no longer matches the pinned digest; the app updated after the request was prepared." };
     }
     if (exposure.pins.viewerEntry !== act.pins.viewerEntry) {
       return { issue: "The app's viewer entry no longer matches the pinned entry." };
@@ -10067,18 +9229,18 @@ function createViewerExposeDecisionAdapter(state: LocalApiState): FoldStagedActK
       const resolved = await resolveHostedApp(act);
       return "issue" in resolved ? resolved.issue : null;
     },
-    async execute(act) {
-      const decision = act.decision;
-      if (!decision || decision.decision !== "approved") throw new Error("Execution requires a consumed approval.");
-      const context = {
-        // A distinct deterministic request id: the decision path owns
-        // `fold-decision:<id>`, and the activation journals its own
-        // accepted/terminal pair under the same single-use identity family.
-        requestId: `${foldDecisionRequestId(act.id)}:activate`,
-        surface: decision.surface,
-        decisionId: act.id,
-        ...(decision.browserId !== undefined ? { browserId: decision.browserId } : {}),
-        ...(decision.grantId !== undefined ? { grantId: decision.grantId } : {}),
+    async execute(act, context) {
+      if (!context) throw new Error("The exposure's act context was not supplied.");
+      const { attribution } = context;
+      const activation = {
+        // A distinct derived request id: the act lane owns `<request>`, and
+        // the activation journals its own accepted/terminal pair under the
+        // same single-use identity family.
+        requestId: `${context.requestId}:activate`,
+        surface: attribution.surface,
+        ...(context.parentTaskId !== undefined ? { parentTaskId: context.parentTaskId } : {}),
+        ...(attribution.browserId !== undefined ? { browserId: attribution.browserId } : {}),
+        ...(attribution.grantId !== undefined ? { grantId: attribution.grantId } : {}),
       };
       if (act.pins.exposure === "page") {
         const view = await state.publications.activate({
@@ -10088,7 +9250,8 @@ function createViewerExposeDecisionAdapter(state: LocalApiState): FoldStagedActK
           serveRatePerMinute: Number(act.pins.serveBudget),
           byteBudgetPerDay: Number(act.pins.byteBudget),
           snapshotEnabled: act.pins.snapshotEnabled === true,
-        }, context);
+        }, activation);
+        context.outcome = view;
         return {
           detail: `Shared "${view.title}" (${view.spaceId}:${view.relativePath}) as /p/${view.publicationId}; `
             + `bridgeSync=${view.bridgeSlot === "confirmed" ? "confirmed" : "pending"}.`,
@@ -10106,7 +9269,8 @@ function createViewerExposeDecisionAdapter(state: LocalApiState): FoldStagedActK
           viewerEntry: resolved.exposure.pins.viewerEntry,
           viewerSurface: resolved.exposure.pins.viewerSurface,
         },
-      }, context);
+      }, activation);
+      context.outcome = view;
       return {
         detail: `Put "${view.title}" (App Instance ${resolved.exposure.pins.appInstanceId}, `
           + `Release ${resolved.exposure.pins.releaseDigest}) at your address as /a/${view.publicationId}; `
@@ -10117,120 +9281,36 @@ function createViewerExposeDecisionAdapter(state: LocalApiState): FoldStagedActK
   };
 }
 
-/** The staged-act pin as bounded text, tolerating the parameter mirror. */
-function stringPinValue(act: FoldStagedAct, name: string): string {
-  const value = act.pins[name] ?? act.parameters[name];
-  return typeof value === "string" ? value : "";
-}
-
 /**
- * `capability.package.install|update` — the same capability-mutation
- * internals as the desktop package routes, executed inside the decision
- * fence's reservation (Space scope for a Space-scoped package, global for
- * Personal scope) instead of reserving twice. Project trust is an
- * eligibility precheck so an untrusted Space keeps the card pending rather
- * than consuming approval.
+ * `space.delete-folder` — the managed removal path. Pin recheck re-verifies
+ * the registered identity and canonical root; the `.workspace/` fail-closed
+ * rule and managed-root identity claims are re-checked by the removal
+ * machinery itself at execution. The complete desktop removal orchestration
+ * — impact checks, Check, routing, and app-state revocation, claim-verified
+ * managed deletion — is shared with DELETE /api/spaces/:id and `spaces
+ * unregister`. It reserves its own capability fences across every affected
+ * Space, so the adapter's null fenceScope keeps the executor from reserving
+ * twice.
  */
-function createCapabilityPackageDecisionAdapter(
+function createManagedSpaceDeletionAdapter(
   state: LocalApiState,
-  operation: "install" | "update",
-): FoldStagedActKindAdapter {
-  const scopeOf = (act: FoldStagedAct): "personal" | "space" =>
-    (act.pins.scope ?? act.parameters.scope) === "space" ? "space" : "personal";
-  const spaceOf = async (act: FoldStagedAct): Promise<SpaceSummary | null> => {
-    const spaceId = act.parameters.spaceId;
-    if (typeof spaceId !== "string") return null;
-    try {
-      return await getSpace(spaceId);
-    } catch {
-      return null;
-    }
-  };
+): FoldPreparedActAdapter<FoldActOutcome<SpaceRemovalResult> | undefined> {
   return {
-    async eligibilityIssue(act) {
-      if (scopeOf(act) !== "space") return null;
-      const space = await spaceOf(act);
-      if (!space) return null; // the pin recheck reports the missing Space
-      return await isPiProjectMutationTrusted(space.spaceRoot, state.runtimeProvider)
-        ? null
-        : "Trust this Space before changing Space-scoped capabilities.";
-    },
-    async recheckPins(act) {
-      if (scopeOf(act) !== "space") return null;
-      return (await spaceOf(act)) ? null : "The pinned Space is no longer registered.";
-    },
-    async execute(act) {
-      const scope = scopeOf(act);
-      const space = scope === "space" ? await spaceOf(act) : null;
-      if (scope === "space" && !space) throw new Error("The pinned Space is no longer registered.");
-      const root = space?.spaceRoot ?? workFoldManagementRoot();
-      const source = String(act.pins.source);
-      const piScope = scope === "space" ? "project" as const : "user" as const;
-      if (operation === "install") {
-        await installPiPackage(root, source, { scope: piScope, runtimeProvider: state.runtimeProvider });
-      } else {
-        await updatePiPackages(root, source, { scope: piScope, runtimeProvider: state.runtimeProvider });
-      }
-      return {
-        detail: `${operation === "install" ? "Installed" : "Updated"} ${String(act.pins.packageId)}@${String(act.pins.version)} `
-          + `from ${source} at ${piScope === "user" ? "Personal" : "This Space"} scope.`,
-        undoRef: { kind: "package-source", value: source },
-      };
-    },
-  };
-}
-
-/**
- * `app.connection.save` — approval opens the existing host connection flow
- * scoped to the pinned declaration. Only the browser OAuth flow can run
- * without a person typing a secret, so form-credential shapes stay honestly
- * ineligible: the secret is entered in Assistant tools, never through the
- * fold, and the staged act carries only the connection's shape.
- */
-function createAppConnectionSaveDecisionAdapter(state: LocalApiState): FoldStagedActKindAdapter {
-  const targetLabel = (target: { kind: string; origin?: string; host?: string; port?: number }): string =>
-    target.kind === "public-https" ? String(target.origin) : `http://${String(target.host)}:${String(target.port)}`;
-  const resolve = async (act: FoldStagedAct): Promise<
-    | { issue: string }
-    | { app: RestrictedAppInstalled; destination: RestrictedAppNetworkDeclaration }
-  > => {
-    const spaceId = String(act.parameters.spaceId);
-    const appInstanceId = String(act.pins.appInstanceId ?? act.parameters.appInstanceId);
-    const app = await state.restrictedApps.findByFeatureInstallation(spaceId, appInstanceId);
-    if (!app) return { issue: "The pinned App Instance is no longer installed in this Space." };
-    const declarationId = String(act.pins.declarationId);
-    const destination = app.manifest.permissions.network.find((item) => item.id === declarationId);
-    if (!destination) return { issue: "The app no longer declares the pinned connection destination." };
-    if (targetLabel(destination.target) !== act.pins.target) {
-      return { issue: "The destination's reviewed target changed after staging." };
-    }
-    if (!destination.auth.some((item) => item.kind === act.pins.adapterKind)) {
-      return { issue: "The destination no longer declares the pinned credential adapter." };
-    }
-    return { app, destination };
-  };
-  return {
-    eligibilityIssue(act) {
-      return act.pins.adapterKind === "oauth2-pkce"
-        ? null
-        : "This connection takes a secret typed into the host connection form; enter it in Assistant tools. Approval here can open only the browser sign-in flow.";
-    },
-    async recheckPins(act) {
-      const resolved = await resolve(act);
-      return "issue" in resolved ? resolved.issue : null;
-    },
-    async execute(act) {
-      const resolved = await resolve(act);
-      if ("issue" in resolved) throw new Error(resolved.issue);
-      await state.restrictedApps.connectOAuth({
-        spaceId: resolved.app.spaceId,
-        appId: resolved.app.manifest.id,
-        destinationId: resolved.destination.id,
-        expectedDigest: resolved.app.digest,
+    fenceScope: () => null,
+    recheckPins(act) {
+      return managedSpaceDeletionPinIssue({
+        spaceId: stringPinValue(act, "spaceId"),
+        spaceRoot: stringPinValue(act, "spaceRoot"),
       });
+    },
+    async execute(act, context) {
+      const space = await getSpace(String(act.pins.spaceId ?? act.parameters.spaceId));
+      const result = await removeSpaceRegistrationInternal(state, space);
+      if (context) context.outcome = result;
       return {
-        detail: `Connected ${resolved.app.manifest.id} to ${String(act.pins.target)} through the browser sign-in flow.`,
-        undoRef: { kind: "declaration", value: resolved.destination.id },
+        detail: result.cleanupPending
+          ? `Deleted the managed Space folder ${space.spaceRoot}; final cleanup completes at the next start.`
+          : `Deleted the managed Space folder ${space.spaceRoot}.`,
       };
     },
   };
@@ -10500,21 +9580,15 @@ const maxGlanceAutomationReceipts = 200;
  * The glance's live-registry source readers (docs/fold-glance.md): recorded
  * state only — the settled-turn records, the management-request registry, the
  * chat store and History per registered Space, the Check service's status and
- * content-free settled runs, the act-receipts ledger, the staged-act store,
- * the routing receipts journal, the publication grant records, and the
+ * content-free settled runs, the act-receipts ledger, the routing receipts
+ * journal, the publication grant records, and the
  * restricted-app registry's machine-wide automation ledgers (active accepted
  * runs and settled receipts). The kernel's own task registry supplies running
  * tasks.
  */
 function createServerGlanceSources(state: LocalApiState): WorkFoldGlanceSourceReaders {
   const routingRunReader = createWorkFoldGlanceRoutingRunReader();
-  // The policy store's own change journal, read tolerantly from the same
-  // state-root files the store appends (docs/fold-consecrations.md: the
-  // glance reports policy-store changes, including the attestation mismatch
-  // that disables every policy until a person re-saves them in Settings).
-  const policyChangeReader = createWorkFoldGlancePolicyChangeReader();
   return {
-    policyChanges: policyChangeReader,
     settledTurns: async (): Promise<WorkFoldGlanceSettledTurnRecord[]> =>
       [...state.settledTurns.values()].map((turn) => ({
         taskId: turn.taskId,
@@ -10577,17 +9651,6 @@ function createServerGlanceSources(state: LocalApiState): WorkFoldGlanceSourceRe
         outcome: receipt.outcome,
         finishedAt: receipt.finishedAt,
       })),
-    stagedActs: async (): Promise<WorkFoldGlanceStagedActRecord[]> =>
-      (await state.stagedActs.list()).map((act) => ({
-        id: act.id,
-        category: act.category,
-        kind: act.kind,
-        state: act.state,
-        createdAt: act.createdAt,
-        expiresAt: act.expiresAt,
-        ...(act.decidedAt !== undefined ? { decidedAt: act.decidedAt } : {}),
-        ...(act.decision !== undefined ? { decisionSurface: act.decision.surface } : {}),
-      })),
     routingRuns: routingRunReader,
     viewerGrants: async (): Promise<WorkFoldGlanceViewerGrantEventRecord[]> => {
       const events: WorkFoldGlanceViewerGrantEventRecord[] = [];
@@ -10647,7 +9710,9 @@ async function readActReceiptJournal(state: LocalApiState): Promise<WorkFoldCliA
     for (const line of lines.slice(-maxGlanceActReceiptLines)) {
       try {
         const record = JSON.parse(line) as Partial<WorkFoldCliActReceipt>;
-        if ((record.v !== 1 && record.v !== 2)
+        // Every journal version stays readable: older lines are history, and
+        // the current version is the one every act writes now.
+        if ((record.v !== 1 && record.v !== 2 && record.v !== 3)
           || typeof record.at !== "string"
           || typeof record.requestId !== "string"
           || typeof record.command !== "string"
@@ -11290,7 +10355,7 @@ function sendJson(res: ServerResponse, payload: unknown, status = 200): void {
 }
 
 /** Content-free hints only. Reconnect always sends reset; no events are replayed. */
-function publishControlHint(state: LocalApiState, type: "apps" | "decisions" | "spaces"): void {
+function publishControlHint(state: LocalApiState, type: "apps" | "spaces"): void {
   for (const response of state.controlStreams) {
     if (response.destroyed || response.writableEnded) continue;
     // A slow renderer must reconnect and requery instead of accumulating a queue.

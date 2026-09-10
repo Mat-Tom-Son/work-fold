@@ -20,9 +20,6 @@ export function requestResultLinks(request) {
       add(`app:${app.spaceId}:${app.featureInstallationId}`, { kind: "app", spaceId: app.spaceId, appId: app.appId,
         featureInstallationId: app.featureInstallationId, digest: app.digest, version: app.version, label: app.title });
     }
-    if (!hasAppResult && typeof item?.decisionId === "string" && /^[a-zA-Z0-9._:-]{1,160}$/.test(item.decisionId)) {
-      add(`decision:${item.decisionId}`, { kind: "decision", id: item.decisionId, label: "Review decision" });
-    }
   }
   for (const child of (Array.isArray(request.children) ? request.children : []).slice(0, 200)) {
     if (typeof child?.spaceId !== "string" || !["succeeded", "failed", "aborted"].includes(child.state) || !Array.isArray(child.files)) continue;

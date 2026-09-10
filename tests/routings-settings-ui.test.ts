@@ -21,7 +21,7 @@ const [settingsSource, paneSource, mainPreload, popoverPreload, desktopMain] = a
 ]);
 
 test("The fold Settings includes Routings without introducing a builder", () => {
-  assert.match(settingsSource, /type FoldSettingsSection = "access" \| "pages" \| "routings" \| "authority"/);
+  assert.match(settingsSource, /type FoldSettingsSection = "access" \| "pages" \| "routings";/);
   assert.match(settingsSource, /"routings",\s*"Routings"/);
   assert.match(settingsSource, /foldSection === "routings" \? <FoldRoutingsPane \/>/);
   assert.doesNotMatch(paneSource, /builder|cron|RRULE/i);
@@ -36,7 +36,7 @@ test("Routing Settings has no HTTP fallback and stays on the trusted main-window
     ["list", "list"],
     ["show", "show"],
     ["history", "history"],
-    ["stageEnable", "stage-enable"],
+    ["enable", "enable"],
     ["run", "run"],
     ["stop", "stop"],
     ["disable", "disable"],
@@ -51,10 +51,10 @@ test("Routing Settings has no HTTP fallback and stays on the trusted main-window
 
 test("Routing actions are gated by enabled, disabled, suspended, and completed health", async (t) => {
   const expectations: Array<{ health: FoldRoutingHealth; shown: string[]; hidden: string[] }> = [
-    { health: "enabled", shown: ["Run a copy now", "Turn off"], hidden: ["Ask to turn on", "Delete", "Stop"] },
-    { health: "disabled", shown: ["Ask to turn on", "Delete"], hidden: ["Run a copy now", "Turn off", "Stop"] },
-    { health: "suspended", shown: ["Ask to turn on", "Delete"], hidden: ["Run a copy now", "Turn off", "Stop"] },
-    { health: "completed", shown: ["Delete"], hidden: ["Run a copy now", "Ask to turn on", "Turn off", "Stop"] },
+    { health: "enabled", shown: ["Run a copy now", "Turn off"], hidden: ["Turn on", "Delete", "Stop"] },
+    { health: "disabled", shown: ["Turn on", "Delete"], hidden: ["Run a copy now", "Turn off", "Stop"] },
+    { health: "suspended", shown: ["Turn on", "Delete"], hidden: ["Run a copy now", "Turn off", "Stop"] },
+    { health: "completed", shown: ["Delete"], hidden: ["Run a copy now", "Turn on", "Turn off", "Stop"] },
   ];
 
   for (const expectation of expectations) {
@@ -166,7 +166,7 @@ test("damaged run history blocks widening actions but leaves narrowing actions a
   await disabledDom.render(createElement(FoldRoutingsPane));
   await disabledDom.waitFor(() => Boolean(disabledDom.container.querySelector(".fold-routing-inspector-header")));
   const disabledButtons = [...disabledDom.container.querySelectorAll<HTMLButtonElement>(".fold-routing-actions button")];
-  assert.equal(disabledButtons.find((button) => button.textContent?.trim() === "Ask to turn on")?.disabled, true);
+  assert.equal(disabledButtons.find((button) => button.textContent?.trim() === "Turn on")?.disabled, true);
   assert.equal(disabledButtons.find((button) => button.textContent?.trim() === "Delete")?.disabled, false);
   await disabledDom.cleanup();
 });
@@ -260,7 +260,7 @@ function installRoutingBridge(health: FoldRoutingHealth, running = false, journa
         list: async () => list,
         show: async () => show,
         history: async () => history(),
-        stageEnable: async () => ({ routingId: summary.routingId, decisionId: "decision-1", state: "staged" as const }),
+        enable: async () => ({ routingId: summary.routingId, requestId: "settings:request-1", enabled: true as const }),
         run: async () => {
           calls.run += 1;
           return { routingId: summary.routingId, requestId: "settings:request-1", runId: "run-1", accepted: true as const };
@@ -329,7 +329,7 @@ function installSwitchingRoutingBridge(): {
           return detail(routingId as "routing-a" | "routing-b");
         },
         history: async () => history,
-        stageEnable: async (routingId: string) => ({ routingId, decisionId: "decision-1", state: "staged" as const }),
+        enable: async (routingId: string) => ({ routingId, requestId: "settings:request-1", enabled: true as const }),
         run: async (routingId: string) => ({ routingId, requestId: "settings:request-1", runId: "run-1", accepted: true as const }),
         stop: async () => ({ stopped: true }),
         disable: async (routingId: string) => {

@@ -456,11 +456,12 @@ test("restricted app API keeps review, install, grants, connections, invocation,
     await storage.set(dataOwner(reinstalled.app), "preview", "keep this");
     await storage.set(dataOwner(released), "release", "clear this");
     await assert.rejects(api.actFacade.appsStorageClear({ space: space.id, app: "mail-app" }), /More than one installation/);
-    const stagedClear = await api.actFacade.appsStorageClear({ space: space.id, app: released.featureInstallationId });
-    const decision = await api.foldDecisions.decide(stagedClear.staged.decisionId, { decision: "approved", surface: "main-window" });
-    assert.equal(decision.act.execution?.outcome, "executed");
+    const storageCleared = await api.actFacade.appsStorageClear({ space: space.id, app: released.featureInstallationId });
+    assert.equal(storageCleared.appId, "mail-app");
+    assert.ok(storageCleared.clearedBytes > 0, "the receipt states the byte count cleared");
+    assert.equal(storageCleared.remainingBytes, 0);
     assert.equal((await storage.usage(dataOwner(released))).keyCount, 0);
-    assert.equal(await storage.get(dataOwner(reinstalled.app), "preview"), "keep this", "a decided clear affects only its pinned sibling");
+    assert.equal(await storage.get(dataOwner(reinstalled.app), "preview"), "keep this", "a clear affects only its pinned sibling");
     const previewGrant = await request<{ app: RestrictedAppInstalled }>(api.origin, `${itemUrl}/permissions/network/mail-api`, { method: "DELETE", body: current });
     assert.deepEqual(previewGrant.app.networkGrants, []);
     assert.equal(previewGrant.app.featureInstallationId, reinstalled.app.featureInstallationId);
@@ -470,7 +471,7 @@ test("restricted app API keeps review, install, grants, connections, invocation,
   }
 });
 
-test("machine-wide automation ledgers feed the glance and the restore fence, and a decided file grant binds to the person-chosen root", async () => {
+test("machine-wide automation ledgers feed the glance and the restore fence, and a files grant binds to the whole Space", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-restricted-ledgers-"));
   const runtime = new RuntimeHost();
   const service = await RestrictedAppService.create({
@@ -540,54 +541,22 @@ test("machine-wide automation ledgers feed the glance and the restore fence, and
     assert.equal((await firstRun).run.outcome, "success");
     assert.deepEqual(await service.listActiveAutomationRuns(), []);
 
-    // Phase B: the app.grant.files decision binds to the person-chosen root
-    // supplied at decide time; without one the approval refuses before
-    // anything is consumed, and a malformed root refuses at the route.
-    const staged = await api.stagedActs.stage({
-      kind: "app.grant.files",
-      parameters: { spaceId: space.id, appInstanceId: installed.app.featureInstallationId, declarationId: "exports" },
-      pins: {
-        appInstanceId: installed.app.featureInstallationId,
-        declarationId: "exports",
-        releaseDigest: installed.app.digest,
-      },
-      provenance: { stagedVia: "act-cli", requestId: "req-grant-files" },
+    // Phase B: a files grant runs at once and binds to the whole Space
+    // (docs/receipts-not-gates.md, F21); the receipt names the root.
+    const granted = await api.actFacade.appsGrant({
+      space: space.id,
+      app: installed.app.featureInstallationId,
+      digest: installed.app.digest,
+      kind: "files",
+      declaration: "exports",
     });
-    const withoutRoot = await fetch(`${api.origin}/api/management/decisions/${staged.act.id}/decide`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ decision: "approved", surface: "main-window" }),
-    });
-    assert.equal(withoutRoot.status, 409);
-    assert.equal(((await withoutRoot.json()) as { code?: string }).code, "NOT_ELIGIBLE");
-    for (const badRoot of ["../escape", ".work-fold/inner", "reports\\nested", "", "a//b"]) {
-      const refused = await fetch(`${api.origin}/api/management/decisions/${staged.act.id}/decide`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ decision: "approved", surface: "main-window", fileGrantRoot: badRoot }),
-      });
-      assert.equal(refused.status, 400, `root ${JSON.stringify(badRoot)} must be refused`);
-    }
-    const rootOnDenial = await fetch(`${api.origin}/api/management/decisions/${staged.act.id}/decide`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ decision: "denied", surface: "main-window", fileGrantRoot: "reports" }),
-    });
-    assert.equal(rootOnDenial.status, 400, "a chosen folder accompanies only an approval");
-    const approved = await fetch(`${api.origin}/api/management/decisions/${staged.act.id}/decide`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ decision: "approved", surface: "main-window", fileGrantRoot: "reports" }),
-    });
-    assert.equal(approved.status, 200, await approved.clone().text());
-    const approvedCard = (await approved.json()) as { decision: { state: string; execution?: { outcome?: string } } };
-    assert.equal(approvedCard.decision.state, "approved");
-    assert.equal(approvedCard.decision.execution?.outcome, "executed");
+    assert.equal(granted.granted, true);
+    assert.equal(granted.root, ".");
     const grantedApps = await service.list(space.id);
     assert.deepEqual(
       grantedApps[0]?.fileGrants,
-      [{ id: "exports", declarationId: "exports", root: "reports", access: "read-write" }],
-      "the decided grant carries exactly the person-chosen root",
+      [{ id: "exports", declarationId: "exports", root: ".", access: "read-write" }],
+      "the grant covers the whole Space folder",
     );
 
     // Phase C: the same run now holds the grant, so the machine-wide join

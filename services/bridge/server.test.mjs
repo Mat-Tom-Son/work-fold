@@ -129,9 +129,9 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.match(applicationStyles, /\.composer-wrap \{[^}]*calc\(12px \+ env\(safe-area-inset-bottom/);
   assert.match(applicationStyles, /\.sidebar \{[^}]*env\(safe-area-inset-bottom/);
   assert.equal(applicationStyles.includes(".tab-bar"), false);
-  // "Needs you" left this list deliberately: the fold's decision cards
-  // (docs/fold-consecrations.md, remote client) reintroduced the heading as
-  // the shared card contract's vocabulary, pinned in copy.test.mjs.
+  // "Needs you" left this list deliberately: it is the heading of the
+  // questions screen (docs/receipts-not-gates.md, F24), pinned in
+  // copy.test.mjs.
   for (const removedCopy of [
     "Management conversation",
     "Above all Spaces",
@@ -1467,7 +1467,7 @@ test("viewer operations stay outside the management allowlist and publication sl
   assert.equal(removedAgain.body.removed, false, "revocation is idempotent");
 });
 
-test("the fold's decision and glance operations pass the management allowlist content-blind", async (context) => {
+test("the fold's glance and app operations pass the management allowlist content-blind", async (context) => {
   const service = await testService(context);
   const baseUrl = `http://127.0.0.1:${service.port}`;
   const fixture = await pairedAccountFixture(context, baseUrl, {
@@ -1478,9 +1478,9 @@ test("the fold's decision and glance operations pass the management allowlist co
 
   // The remote wave lands allowlist-first (docs/fold-integration.md,
   // reconciliation 7): the bridge accepts the operation names and relays the
-  // signed ciphertext untouched. Cards and digests stay end-to-end encrypted
-  // between the desktop and the approved browser; staged acts never live here.
-  for (const operation of ["decisions.list", "decisions.decide", "management.glance", "management.glanceSeen", "spaces.filePreview", "apps.list", "apps.read",
+  // signed ciphertext untouched. Digests stay end-to-end encrypted between
+  // the desktop and the approved browser.
+  for (const operation of ["management.glance", "management.glanceSeen", "spaces.filePreview", "apps.list", "apps.read",
     "apps.actions.request", "apps.actions.get", "apps.actions.list", "apps.actions.review", "apps.actions.approve", "apps.actions.cancel"]) {
     const envelope = signedEnvelope({
       type: "work-fold.remote-request.v1",

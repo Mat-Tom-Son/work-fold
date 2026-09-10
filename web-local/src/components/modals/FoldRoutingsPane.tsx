@@ -125,10 +125,10 @@ export interface FoldRoutingHistoryResponse {
   damagedLineCount: number;
 }
 
-export interface FoldRoutingStageResponse {
+export interface FoldRoutingEnableResponse {
   routingId: string;
-  decisionId: string;
-  state: "staged" | "executed";
+  requestId: string;
+  enabled: true;
 }
 
 export interface FoldRoutingRunResponse {
@@ -506,11 +506,11 @@ function RoutingActions({ routing, pending, storeUnavailable, wideningUnavailabl
             type="button"
             disabled={wideningUnavailable || anyPending}
             onClick={() => onRun(`enable:${routing.routingId}`, async () => {
-              const result = await routingBridge().stageEnable(routing.routingId);
-              return result.state === "executed" ? "Routing turned on" : "Ready for review";
+              await routingBridge().enable(routing.routingId);
+              return "Routing turned on";
             })}
           >
-            {pending.includes(`enable:${routing.routingId}`) ? "Preparing…" : "Ask to turn on"}
+            {pending.includes(`enable:${routing.routingId}`) ? "Turning on…" : "Turn on"}
           </button>
         ) : null}
         {canDelete ? (

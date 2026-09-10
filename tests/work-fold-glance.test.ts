@@ -9,9 +9,7 @@ import type { WorkFoldCliActReceipt } from "../src/local/cli/act-receipts.js";
 import type { WorkFoldCheckStatusSnapshot } from "../src/local/checks/check-types.js";
 import {
   composeWorkFoldGlance,
-  createWorkFoldGlancePolicyChangeReader,
   createWorkFoldGlanceRoutingRunReader,
-  createWorkFoldGlanceStagedActReader,
   createWorkFoldGlanceViewerGrantReader,
   workFoldGlanceChatRecordFromMessages,
   workFoldGlanceChangesPerKindCap,
@@ -68,19 +66,18 @@ test("composeWorkFoldGlance is deterministic and orders every section", async ()
   assert.equal(first.running[3].kind, "check-run");
   assert.equal(first.running[5].headline, 'Routing "Weekly handoff" running');
 
-  // Needs you: pending decisions first by soonest expiry, then newest-first.
+  // Needs you: questions and due snoozes only, newest first. Nothing here is
+  // an approval (docs/receipts-not-gates.md, F24).
   assert.deepEqual(first.needsYou.map((item) => item.id), [
-    "staged-acts:act-2",
-    "staged-acts:act-1",
     "chats:chat-s:due-snooze:2026-08-10T11:30:00.000Z",
     "chats:chat-q:question",
     "management-requests:task-ask",
   ]);
-  assert.equal(first.needsYou[0].headline, "Needs your decision: capability.package.install — make bytes runnable");
-  assert.equal(first.needsYou[3].headline, '"Quarterly plan" is waiting on your reply');
-  assert.equal(first.needsYou[3].spaceName, "Alpha");
+  assert.deepEqual(new Set(first.needsYou.map((item) => item.kind)), new Set(["due-snooze", "chat-question", "request-question"]));
+  assert.equal(first.needsYou[1].headline, '"Quarterly plan" is waiting on your reply');
+  assert.equal(first.needsYou[1].spaceName, "Alpha");
 
-  // Since you last looked: newest first, including the lazy staged-act expiry.
+  // Since you last looked: newest first.
   assert.deepEqual(first.changes.map((item) => item.id), [
     "viewer-grants:pub-1:revoked",
     "act-receipts:req-1",
@@ -88,9 +85,7 @@ test("composeWorkFoldGlance is deterministic and orders every section", async ()
     "viewer-grants:pub-1:created",
     "act-receipts:req-2",
     "automation-receipts:ar-1",
-    "staged-acts:act-3",
     "checks:space-a:run-1",
-    "staged-acts:act-4",
     "routing-runs:rr-0",
     "management-requests:task-done",
     "settled-turns:task-old",
@@ -105,10 +100,9 @@ test("composeWorkFoldGlance is deterministic and orders every section", async ()
   assert.equal(actItem.spaceName, "space-gone (removed)", "an unregistered Space renders the id plus (removed)");
   assert.deepEqual(actItem.ref, { checkpointId: "cp-9", requestId: "req-1" });
   assert.equal(first.changes[4].headline, "chat.rename failed");
-  assert.equal(first.changes[6].headline, "Expired undecided: space.delete-folder");
-  assert.equal(first.changes[7].headline, "Check run failed — 2 findings admitted");
-  assert.equal(first.changes[9].headline, 'Routing "Weekly handoff" failed — 1/3 steps completed');
-  assert.equal(first.changes[13].headline, '"Waiting" snoozed until 2026-08-10T11:30:00.000Z');
+  assert.equal(first.changes[6].headline, "Check run failed — 2 findings admitted");
+  assert.equal(first.changes[7].headline, 'Routing "Weekly handoff" failed — 1/3 steps completed');
+  assert.equal(first.changes[11].headline, '"Waiting" snoozed until 2026-08-10T11:30:00.000Z');
 
   // Checks: one row per Space with configured Checks; unconfigured is absent.
   assert.deepEqual(first.checks, [{
@@ -148,39 +142,36 @@ test("running overflow drops the newest items and discloses truncation", async (
   );
 });
 
-test("needs-you overflow keeps pending decisions over conversational items", async () => {
-  const stagedActs = Array.from({ length: workFoldGlanceNeedsYouCap + 2 }, (_item, index) => ({
-    id: `act-${String(index).padStart(2, "0")}`,
-    category: "widen-power" as const,
-    kind: "routing.enable",
-    state: "staged" as const,
-    createdAt: "2026-08-10T09:00:00.000Z",
-    expiresAt: `2026-08-11T09:${String(index).padStart(2, "0")}:00.000Z`,
-  }));
-  const chatRecord: WorkFoldGlanceChatRecord = {
-    conversationId: "chat-q",
-    title: "Question",
+test("needs-you overflow keeps the newest questions and states truncation", async () => {
+  const chats: WorkFoldGlanceChatRecord[] = Array.from({ length: workFoldGlanceNeedsYouCap + 2 }, (_item, index) => ({
+    conversationId: `chat-${String(index).padStart(2, "0")}`,
+    title: `Question ${index}`,
     archivedAt: null,
     snoozedUntil: null,
-    newestMessage: { role: "assistant", createdAt: "2026-08-10T11:59:00.000Z", followUpPrompt: "Ready?" },
+    newestMessage: { role: "assistant", createdAt: `2026-08-10T11:${String(index).padStart(2, "0")}:00.000Z`, followUpPrompt: "Ready?" },
     lifecycleEvents: [],
     titleEvents: [],
-  };
+  }));
   const snapshot = await composeWorkFoldGlance({
     now: new Date(composedAtIso),
     spaces: [alpha],
-    sources: {
-      stagedActs: async () => stagedActs,
-      chats: async () => [chatRecord],
-    },
+    sources: { chats: async () => chats },
   });
   assert.equal(snapshot.needsYou.length, workFoldGlanceNeedsYouCap);
   assert.equal(snapshot.truncated.needsYou, true);
-  assert.ok(
-    snapshot.needsYou.every((item) => item.kind === "pending-decision"),
-    "an authority decision outranks a conversational question at the cap",
-  );
-  assert.equal(snapshot.needsYou[0].id, "staged-acts:act-00", "decisions order by soonest expiry");
+  assert.ok(snapshot.needsYou.every((item) => item.kind === "chat-question"));
+  assert.equal(snapshot.needsYou[0].id, `chats:chat-${workFoldGlanceNeedsYouCap + 1}:question`, "the newest question comes first; overflow drops the oldest");
+});
+
+test("needs-you carries questions, request questions, and due snoozes only", async () => {
+  const snapshot = await composeWorkFoldGlance({
+    now: new Date(composedAtIso),
+    spaces: [alpha],
+    sources: fullFixtureSources(),
+  });
+  const kinds = new Set(snapshot.needsYou.map((item) => item.kind));
+  assert.deepEqual(kinds, new Set(["request-question", "chat-question", "due-snooze"]));
+  assert.ok(snapshot.needsYou.every((item) => item.ref?.conversationId || item.ref?.taskId), "every needs-you item points at the conversation or request that asked");
 });
 
 test("changes are bounded per kind and in total, newest first", async () => {
@@ -425,38 +416,6 @@ test("chat records derive question, snooze, lifecycle, and rename semantics", as
   assert.deepEqual(futureSnooze.needsYou, [], "a future snooze is quiet by design");
 });
 
-test("tolerant staged-act reader omits missing, damaged, and unknown-version stores", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "workspace-glance-stores-"));
-  try {
-    const reader = createWorkFoldGlanceStagedActReader({ stateRoot: sandbox });
-    assert.deepEqual(await reader(), [], "a missing store renders absent");
-
-    const file = join(sandbox, "fold", "staged-acts.json");
-    await mkdir(join(sandbox, "fold"), { recursive: true });
-    await writeFile(file, "not json", "utf8");
-    assert.deepEqual(await reader(), [], "a damaged store is omitted, never an error");
-
-    await writeFile(file, JSON.stringify({ version: 9, acts: [stagedActFixture("act-1")] }), "utf8");
-    assert.deepEqual(await reader(), [], "an unknown store version is omitted whole");
-
-    await writeFile(file, JSON.stringify({
-      version: 1,
-      acts: [
-        stagedActFixture("act-1"),
-        { ...stagedActFixture("act-2"), schemaVersion: 2 },
-        { ...stagedActFixture(""), id: "" },
-        { ...stagedActFixture("act-3"), state: "unheard-of" },
-      ],
-    }), "utf8");
-    assert.deepEqual(await reader(), [stagedActRecord("act-1")], "unknown record versions and shapes are skipped");
-
-    await writeFile(file, JSON.stringify([stagedActFixture("act-4")]), "utf8");
-    assert.deepEqual(await reader(), [stagedActRecord("act-4")], "a bare record array is accepted");
-  } finally {
-    await rm(sandbox, { recursive: true, force: true });
-  }
-});
-
 test("tolerant routing-run reader derives runs and hop outcomes from the journal", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "workspace-glance-stores-"));
   try {
@@ -610,97 +569,6 @@ test("publication health notes render as publisher-facing change items", async (
   );
 });
 
-test("tolerant policy-change reader merges rotated and live journals and skips damaged lines", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "workspace-glance-stores-"));
-  try {
-    const reader = createWorkFoldGlancePolicyChangeReader({ stateRoot: sandbox });
-    assert.deepEqual(await reader(), [], "a missing journal renders absent");
-
-    await mkdir(join(sandbox, "fold"), { recursive: true });
-    await writeFile(join(sandbox, "fold", "policy-changes.1.jsonl"), [
-      JSON.stringify({ v: 1, at: "2026-08-10T08:00:00.000Z", event: "created", attestation: "a".repeat(64), policyId: "policy-1", label: "Marketplace skills" }),
-    ].join("\n"), "utf8");
-    await writeFile(join(sandbox, "fold", "policy-changes.jsonl"), [
-      JSON.stringify({ v: 1, at: "2026-08-10T09:00:00.000Z", event: "disabled", attestation: "b".repeat(64), policyId: "policy-1", label: "Marketplace skills" }),
-      "this line is damaged",
-      JSON.stringify({ v: 9, at: "2026-08-10T09:30:00.000Z", event: "created", attestation: "c".repeat(64) }),
-      JSON.stringify({ v: 1, at: "2026-08-10T10:00:00.000Z", event: "unheard-of", attestation: "d".repeat(64) }),
-      JSON.stringify({ v: 1, at: "2026-08-10T10:30:00.000Z", event: "attestation-mismatch", attestation: "e".repeat(64) }),
-      JSON.stringify({ v: 1, at: "2026-08-10T11:00:00.000Z", event: "reattested", attestation: "f".repeat(64) }),
-    ].join("\n"), "utf8");
-
-    assert.deepEqual(await reader(), [
-      { at: "2026-08-10T08:00:00.000Z", event: "created", policyId: "policy-1", label: "Marketplace skills" },
-      { at: "2026-08-10T09:00:00.000Z", event: "disabled", policyId: "policy-1", label: "Marketplace skills" },
-      { at: "2026-08-10T10:30:00.000Z", event: "attestation-mismatch" },
-      { at: "2026-08-10T11:00:00.000Z", event: "reattested" },
-    ], "rotated and live lines merge; damaged, unknown-version, and unknown-event lines are skipped");
-  } finally {
-    await rm(sandbox, { recursive: true, force: true });
-  }
-});
-
-test("policy changes and policy-approved decisions render distinctly in the change list", async () => {
-  const snapshot = await composeWorkFoldGlance({
-    now: new Date(composedAtIso),
-    spaces: [alpha],
-    sources: {
-      stagedActs: async () => [
-        {
-          id: "act-clicked",
-          category: "widen-power",
-          kind: "app.grant.network",
-          state: "approved",
-          createdAt: "2026-08-10T09:00:00.000Z",
-          expiresAt: "2026-08-11T09:00:00.000Z",
-          decidedAt: "2026-08-10T09:30:00.000Z",
-          decisionSurface: "popover",
-        },
-        {
-          id: "act-policy",
-          category: "make-runnable",
-          kind: "capability.skills.import",
-          state: "approved",
-          createdAt: "2026-08-10T10:00:00.000Z",
-          expiresAt: "2026-08-11T10:00:00.000Z",
-          decidedAt: "2026-08-10T10:00:01.000Z",
-          decisionSurface: "policy",
-        },
-      ],
-      policyChanges: async () => [
-        { at: "2026-08-10T08:00:00.000Z", event: "created", policyId: "policy-1", label: "Marketplace skills" },
-        { at: "2026-08-10T10:30:00.000Z", event: "attestation-mismatch" },
-      ],
-    },
-  });
-  assert.deepEqual(snapshot.unavailable, []);
-  const byId = new Map(snapshot.changes.map((item) => [item.id, item]));
-  assert.equal(
-    byId.get("staged-acts:act-policy")?.headline,
-    "Auto-approved by standing policy: capability.skills.import",
-    "an exercised policy is listed distinctly from clicked approvals",
-  );
-  assert.equal(byId.get("staged-acts:act-clicked")?.headline, "Approved: app.grant.network");
-  const createdItem = byId.get("policy-changes:2026-08-10T08:00:00.000Z:created:policy-1");
-  assert.equal(createdItem?.kind, "policy-changed");
-  assert.equal(createdItem?.headline, 'Standing policy "Marketplace skills" created');
-  assert.deepEqual(createdItem?.ref, { policyId: "policy-1" });
-  assert.equal(
-    byId.get("policy-changes:2026-08-10T10:30:00.000Z:attestation-mismatch:store")?.headline,
-    "Standing policies changed outside Settings — all disabled until re-saved",
-    "the fail-closed mismatch is reported, never quiet",
-  );
-
-  const failing = await composeWorkFoldGlance({
-    now: new Date(composedAtIso),
-    spaces: [alpha],
-    sources: {
-      policyChanges: async () => { throw new Error("journal unreadable"); },
-    },
-  });
-  assert.deepEqual(failing.unavailable, ["policy-changes"], "a failing reader is disclosed, never rendered as quiet");
-});
-
 function fullFixtureSources(): WorkFoldGlanceSourceReaders {
   return {
     runningTasks: async () => [
@@ -781,12 +649,6 @@ function fullFixtureSources(): WorkFoldGlanceSourceReaders {
     automationRunReceipts: async () => [
       { receiptId: "ar-1", runId: "auto-run-0", automationId: "collect", spaceId: "space-b", outcome: "success", finishedAt: "2026-08-10T10:10:00.000Z" },
     ],
-    stagedActs: async () => [
-      { id: "act-1", category: "widen-power", kind: "routing.enable", state: "staged", createdAt: "2026-08-10T11:00:00.000Z", expiresAt: "2026-08-11T10:00:00.000Z" },
-      { id: "act-2", category: "make-runnable", kind: "capability.package.install", state: "staged", createdAt: "2026-08-10T10:00:00.000Z", expiresAt: "2026-08-11T08:00:00.000Z" },
-      { id: "act-3", category: "destroy", kind: "space.delete-folder", state: "staged", createdAt: "2026-08-09T10:00:00.000Z", expiresAt: "2026-08-10T10:00:00.000Z" },
-      { id: "act-4", category: "widen-power", kind: "app.grant.network", state: "denied", createdAt: "2026-08-10T08:00:00.000Z", expiresAt: "2026-08-11T08:00:00.000Z", decidedAt: "2026-08-10T09:30:00.000Z" },
-    ],
     routingRuns: async () => [
       { runId: "rr-1", routingId: "routing-1", title: "Weekly handoff", state: "running", startedAt: "2026-08-10T11:25:00.000Z", hops: [] },
       {
@@ -830,27 +692,6 @@ function checkStatus(spaceId: string, state: WorkFoldCheckStatusSnapshot["state"
   };
 }
 
-function stagedActRecord(id: string): {
-  id: string;
-  category: "widen-power";
-  kind: string;
-  state: "staged";
-  createdAt: string;
-  expiresAt: string;
-} {
-  return {
-    id,
-    category: "widen-power",
-    kind: "routing.enable",
-    state: "staged",
-    createdAt: "2026-08-10T10:00:00.000Z",
-    expiresAt: "2026-08-11T10:00:00.000Z",
-  };
-}
-
-function stagedActFixture(id: string): { schemaVersion: 1 } & ReturnType<typeof stagedActRecord> {
-  return { schemaVersion: 1, ...stagedActRecord(id) };
-}
 
 test("the local API wires the glance's live-registry readers end to end", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-glance-server-"));
@@ -908,13 +749,7 @@ test("the local API wires the glance's live-registry readers end to end", async 
       return status.task.state !== "accepted" && status.task.state !== "running";
     });
 
-    // A staged card and a shared page create needs-you and grant records.
-    const staged = await api.stagedActs.stage({
-      kind: "routing.enable",
-      parameters: { routingId: "routing-glance-demo" },
-      pins: { routingId: "routing-glance-demo", declarationDigest: "e".repeat(64) },
-      provenance: { stagedVia: "act-cli", requestId: "req-glance-stage" },
-    });
+    // A shared page creates grant records.
     await writeFile(join(space.space.spaceRoot, "notes.md"), "# Notes\n", "utf8");
     const page = await api.publications.activate(
       { spaceId: space.space.id, relativePath: "notes.md", title: "Notes page" },
@@ -925,8 +760,8 @@ test("the local API wires the glance's live-registry readers end to end", async 
     assert.equal(pending.kind, "work-fold.glance.experimental");
     assert.deepEqual(pending.unavailable, [], "every wired source reads cleanly");
     assert.ok(
-      pending.needsYou.some((item) => item.kind === "pending-decision" && item.ref?.decisionId === staged.act.id),
-      "the staged-act reader feeds needs-you",
+      pending.needsYou.every((item) => item.kind === "request-question" || item.kind === "chat-question" || item.kind === "due-snooze"),
+      "needs-you carries questions and due snoozes only",
     );
     const checkRow = pending.checks.find((row) => row.spaceId === space.space.id);
     assert.equal(checkRow?.spaceName, "Glanced");
@@ -962,23 +797,13 @@ test("the local API wires the glance's live-registry readers end to end", async 
     assert.equal(problemItem!.ref?.publicationId, page.publicationId);
     assert.equal(problemItem!.spaceName, "Glanced", "the health item resolves its Space name");
 
-    // Deciding the card and revoking the page turn needs-you into records.
-    await api.foldDecisions.decide(staged.act.id, { decision: "denied", surface: "popover" });
+    // Revoking the page turns the grant into records, and the publication
+    // service's own act receipts reach the ledger reader.
     await api.publications.revoke(page.publicationId, { requestId: "req-glance-revoke" });
     const settled = await api.kernel.getGlance({ kind: "system" });
-    assert.equal(
-      settled.needsYou.some((item) => item.ref?.decisionId === staged.act.id),
-      false,
-      "a denied card leaves needs-you",
-    );
     assert.ok(
-      settled.changes.some((item) => item.kind === "decision-recorded" && item.ref?.decisionId === staged.act.id),
-      "the denial is a recorded decision",
-    );
-    assert.ok(
-      settled.changes.some((item) =>
-        item.kind === "act-performed" && item.ref?.requestId === `fold-decision:${staged.act.id}`),
-      "the act-receipts ledger reader surfaces the decision receipt",
+      settled.changes.some((item) => item.kind === "act-performed" && item.ref?.requestId === "req-glance-revoke"),
+      "the act-receipts ledger reader surfaces the revocation receipt",
     );
     assert.equal(
       settled.changes.filter((item) => item.kind === "viewer-grant-changed").length,

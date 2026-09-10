@@ -61,8 +61,7 @@ export function useRestrictedApps({
 
   useEffect(() => {
     if (fixtureMode) return;
-    return subscribeControlEvents((hint) => {
-      if (hint === "decisions") return;
+    return subscribeControlEvents(() => {
       const ids = new Set([...requestVersionsRef.current.keys(), activeSpaceId]);
       for (const id of ids) void refresh(id);
     });

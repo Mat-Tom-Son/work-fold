@@ -532,8 +532,9 @@ test("the act facade drives file, search, and Library families with ledger safet
     assert.equal(await readFile(join(space.spaceRoot, "notes", "done.md"), "utf8"), "keep me");
 
     // Ledger conflict rule 10: a delete whose restore point cannot cover a
-    // matched file refuses into the staged files destroy consecration, names
-    // the uncoverable paths, and leaves no partial restore point behind.
+    // matched file refuses, names the uncoverable paths, and leaves no
+    // partial restore point behind (the trash lane takes these paths once it
+    // lands, docs/receipts-not-gates.md F20).
     await mkdir(join(space.spaceRoot, "bulk"), { recursive: true });
     await writeFile(join(space.spaceRoot, "bulk", "big.bin"), "0123456789", "utf8");
     const checkpointsBefore = (await facade.historyList({ space: space.id })).checkpoints.length;
@@ -544,7 +545,7 @@ test("the act facade drives file, search, and Library families with ledger safet
         (error: unknown) => error instanceof WorkFoldCliError
           && error.code === "conflict"
           && /bulk\/big\.bin \(oversized\)/.test(error.message)
-          && /'files destroy' stages that decision/.test(error.message),
+          && /nothing was deleted/.test(error.message),
       );
     } finally {
       delete process.env.WORKFOLD_HISTORY_MAX_FILE_BYTES;
@@ -853,8 +854,7 @@ test("the act facade drives Space rename, appearance, tools, and App Studio fami
 
     // A managed Space unregisters the same way: the registration and
     // runtime authorization go, while the managed folder and its portable
-    // identity provably survive — deleting the folder stays the staged
-    // `spaces delete` consecration.
+    // identity provably survive — deleting the folder is `spaces delete`.
     const managedKeep = await facade.createSpace({ name: "Managed Keep" });
     await writeFile(join(managedKeep.space.spaceRoot, "keep.md"), "still managed", "utf8");
     const managedRemoval = await facade.spacesUnregister({ space: managedKeep.space.id });
@@ -872,7 +872,7 @@ test("the act facade drives Space rename, appearance, tools, and App Studio fami
     );
 
     // App Studio's authority-neutral spine, through the exact desktop route
-    // internals. The preview install stays the consecration-lane act it is on
+    // internals. The preview install stays the receipted act it is on
     // the desktop, so the test performs it directly on the service.
     const studio = (await facade.createSpace({ name: "Studio Space" })).space;
     const targetRoot = join(sandbox, "studio-target-fold");
@@ -1139,8 +1139,8 @@ test("the act facade drives Space rename, appearance, tools, and App Studio fami
   }
 });
 
-test("the constructed decision path executes consecrations behind fences, receipts, and honest refusals", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-act-decisions-test-"));
+test("the direct act path executes formerly gated verbs behind fences, receipts, and honest refusals", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-act-direct-test-"));
   await mkdir(join(sandbox, "agent", "extensions"), { recursive: true });
   await writeFile(join(sandbox, "agent", "extensions", "hold.ts"), `export default function (pi) {
     pi.registerCommand("hold", {
@@ -1162,24 +1162,26 @@ test("the constructed decision path executes consecrations behind fences, receip
   try {
     const facade = api.actFacade;
     const doomed = await facade.createSpace({ name: "Doomed" });
-    const provenance = { stagedVia: "act-cli" as const, requestId: "req-stage-1" };
 
-    // Permanent file deletion now binds to the same host file path as the
-    // staged verb, rechecking the observed identity before it consumes the
-    // decision. A second file stays pending for the glance assertion below.
-    await writeFile(join(doomed.space.spaceRoot, "big.iso"), "large enough for this identity test", "utf8");
-    const destructive = await facade.filesDestroy({ space: doomed.space.id, paths: ["big.iso"] });
-    const destroyed = await api.foldDecisions.decide(
-      destructive.staged.decisionId,
-      { decision: "approved", surface: "main-window" },
+    // `spaces delete` runs the shared removal orchestration on the first
+    // call: the folder is gone, the registration is gone, the result is the
+    // effect, and no decision identity exists anywhere
+    // (docs/receipts-not-gates.md, F19).
+    const deleted = await facade.spacesDelete({ space: doomed.space.id, requestId: "req-delete-1" });
+    assert.equal(deleted.removed, true);
+    assert.equal(deleted.storage, "managed");
+    assert.equal("staged" in deleted, false);
+    assert.equal("decisionId" in deleted, false);
+    assert.equal(existsSync(doomed.space.spaceRoot), false, "the managed folder is deleted on the first call");
+    await assert.rejects(
+      () => facade.listConversations({ space: doomed.space.id }),
+      (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
-    assert.equal(destroyed.act.execution?.outcome, "executed");
-    assert.equal(existsSync(join(doomed.space.spaceRoot, "big.iso")), false);
-    await writeFile(join(doomed.space.spaceRoot, "waiting.iso"), "still pending", "utf8");
-    const waiting = await facade.filesDestroy({ space: doomed.space.id, paths: ["waiting.iso"] });
+    // No ghost kernel task survives an execution.
+    assert.deepEqual((await api.kernel.getTasks({ kind: "system" })).tasks, []);
 
-    // The fence probe refuses while Assistant work runs anywhere for a
-    // global-scope act, without consuming the card.
+    // The fence refuses while Assistant work runs in the affected Space,
+    // and a refused act changes nothing; a second attempt is a fresh call.
     const held = await facade.createSpace({ name: "Busy" });
     const heldChat = await facade.createConversation({ space: held.space.id });
     const heldTurn = await facade.sendMessage({
@@ -1187,84 +1189,39 @@ test("the constructed decision path executes consecrations behind fences, receip
       conversationId: heldChat.conversation.id,
       content: "/hold",
     });
-    const personalInstall = await api.stagedActs.stage({
-      kind: "capability.package.install",
-      parameters: { source: "npm:@demo/toolkit", scope: "personal" },
-      pins: {
-        packageId: "@demo/toolkit",
-        version: "1.0.0",
-        source: "npm:@demo/toolkit",
-        scope: "personal",
-        resourceSummary: "1 skill, 0 extensions",
-      },
-      provenance: { ...provenance, requestId: "req-stage-2" },
-    });
     await assert.rejects(
-      () => api.foldDecisions.decide(personalInstall.act.id, { decision: "approved", surface: "main-window" }),
-      (error: unknown) => (error as { code?: string }).code === "NOT_ELIGIBLE"
-        && /Assistant work/.test((error as Error).message),
+      () => facade.spacesDelete({ space: held.space.id, requestId: "req-delete-busy" }),
+      (error: unknown) => error instanceof WorkFoldCliError
+        && error.code === "conflict"
+        && /Wait for affected/.test(error.message),
     );
-    assert.equal((await api.stagedActs.get(personalInstall.act.id))?.state, "staged");
+    assert.equal(existsSync(held.space.spaceRoot), true, "a refused act changes nothing");
     await waitForAsync(async () =>
       (await facade.turnStatus({ space: held.space.id, taskId: heldTurn.taskId })).task.state !== "running");
-    const denied = await api.foldDecisions.decide(personalInstall.act.id, { decision: "denied", surface: "popover" });
-    assert.equal(denied.act.state, "denied");
+    assert.deepEqual((await api.kernel.getTasks({ kind: "system" })).tasks, []);
 
-    // The staged glance surfaces the pending card, then records the denial.
+    // A skill import runs at once at Personal scope and reports where the
+    // bundle landed; the result is the effect, not a pending record.
+    await writeFile(join(sandbox, "SKILL.md"), "---\nname: notes\n---\n# Notes\n", "utf8");
+    const imported = await facade.toolsImportSkill({ scope: "personal", from: "SKILL.md", cwd: sandbox, requestId: "req-import-1" });
+    assert.deepEqual(imported.skillNames, ["notes"]);
+    assert.equal(imported.scope, "personal");
+    assert.ok(imported.bundlePath, "the effect names the imported bundle");
+    assert.equal(existsSync(imported.bundlePath), true);
+    assert.equal("staged" in imported, false);
+
+    // Needs you means questions: the glance carries no decision items.
     const glance = await facade.manageGlance();
     assert.equal(glance.kind, "work-fold.glance.experimental");
-    assert.ok(
-      glance.needsYou.some((item) => item.kind === "pending-decision" && item.ref?.decisionId === waiting.staged.decisionId),
-      "a pending card is a needs-you item",
-    );
-    assert.ok(
-      glance.changes.some((item) => item.kind === "decision-recorded" && item.ref?.decisionId === personalInstall.act.id),
-      "a recorded denial is a change item",
-    );
-
-    // Approving the staged managed deletion runs the shared removal
-    // orchestration: the folder is gone, the registration is gone, the act
-    // records its execution, and the ledger carries the decision receipts.
-    const deletion = await api.stagedActs.stage({
-      kind: "space.delete-folder",
-      parameters: { spaceId: doomed.space.id },
-      pins: { spaceId: doomed.space.id, spaceRoot: doomed.space.spaceRoot },
-      provenance: { ...provenance, requestId: "req-stage-3" },
-    });
-    const approved = await api.foldDecisions.decide(deletion.act.id, { decision: "approved", surface: "main-window" });
-    assert.equal(approved.act.state, "approved");
-    assert.equal(approved.act.execution?.outcome, "executed");
-    assert.equal(approved.receipted, true);
-    assert.equal(existsSync(doomed.space.spaceRoot), false, "the managed folder is deleted");
-    await assert.rejects(
-      () => facade.listConversations({ space: doomed.space.id }),
-      (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
-    );
-    const receiptsText = await readFile(join(sandbox, "state", "cli", "receipts", "act.jsonl"), "utf8");
-    const receipts = receiptsText.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
-    const decisionReceipts = receipts.filter((entry) => entry.requestId === `fold-decision:${deletion.act.id}`);
-    assert.deepEqual(
-      decisionReceipts.map((entry) => [entry.command, entry.outcome]),
-      [["decision.approve", "accepted"], ["decision.approve", "ok"]],
-      "a decision journals before execution and lands a terminal receipt",
-    );
-    assert.equal(decisionReceipts[0]?.decisionId, deletion.act.id);
-    assert.equal(decisionReceipts[0]?.surface, "main-window");
-
-    // No ghost kernel task survives a decision, and replaying the decision is
-    // refused with the settled outcome.
-    assert.deepEqual((await api.kernel.getTasks({ kind: "system" })).tasks, []);
-    await assert.rejects(
-      () => api.foldDecisions.decide(deletion.act.id, { decision: "approved", surface: "main-window" }),
-      (error: unknown) => (error as { code?: string }).code === "ALREADY_SETTLED",
-    );
+    assert.ok(glance.needsYou.every((item) => (item.kind as string) !== "pending-decision"));
+    assert.ok(glance.changes.every((item) => (item.kind as string) !== "decision-recorded"));
   } finally {
     await api.close();
     await rm(sandbox, { recursive: true, force: true });
   }
 });
 
-test("space unregister blocks on live publications and revokes routing and staged-act authority", async () => {
+test("space unregister blocks on live publications and suspends routing authority", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-act-unregister-test-"));
   const api = await startLocalApi({
     port: 0,
@@ -1304,13 +1261,6 @@ test("space unregister blocks on live publications and revokes routing and stage
     });
     assert.equal(enabled.health, "enabled");
 
-    const pinned = await api.stagedActs.stage({
-      kind: "space.delete-folder",
-      parameters: { spaceId: registered.space.id },
-      pins: { spaceId: registered.space.id, spaceRoot: registered.space.spaceRoot },
-      provenance: { stagedVia: "act-cli", requestId: "req-stage-pinned" },
-    });
-
     // A live page served from the Space refuses removal by name.
     await assert.rejects(
       () => facade.spacesUnregister({ space: registered.space.id }),
@@ -1327,9 +1277,6 @@ test("space unregister blocks on live publications and revokes routing and stage
     const suspended = await api.routings.getRouting(routingId);
     assert.equal(suspended?.health, "suspended");
     assert.deepEqual(suspended?.suspension?.missingSpaceIds, [registered.space.id]);
-    const canceled = await api.stagedActs.get(pinned.act.id);
-    assert.equal(canceled?.state, "canceled");
-    assert.match(canceled?.cancellationReason ?? "", /Space .*removed/i);
 
     // Re-registration is noted in copy only; the routing stays suspended.
     const reRegistered = await facade.registerSpace({ spaceRoot: root });
@@ -1474,8 +1421,8 @@ test("routing runs drive live chat hops with receipts, stop honestly, and refuse
   }
 });
 
-test("facade staging binds routing enablement and page exposure into the decision path with one identity", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-act-staging-test-"));
+test("routing enablement and page exposure execute on one call with one request identity", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-act-enable-test-"));
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
@@ -1502,15 +1449,15 @@ test("facade staging binds routing enablement and page exposure into the decisio
       },
     }, null, 2), "utf8");
     await assert.rejects(
-      () => facade.routingsStage({ proposalPath: tooSoonPath, cwd: sandbox, requestId: "req-routing-too-soon" }),
+      () => facade.routingsEnable({ proposalPath: tooSoonPath, cwd: sandbox, requestId: "req-routing-too-soon" }),
       /between 2 minutes and 366 days/,
-      "an unusable one-time card is refused before staging",
+      "an unusable one-time routing is refused before anything is enabled",
     );
 
-    // Routing enablement: `routings stage` normalizes the inert typed
-    // proposal, holds the digest-addressed declaration, and stages
-    // `routing.enable`; the click executes the routing service's enablement
-    // with decisionId = staged act id (the wave-2 binding).
+    // Routing enablement: `routings enable` normalizes the inert typed
+    // proposal and executes the routing service's enablement at once, with
+    // the act's request id as the grant identity (docs/receipts-not-gates.md,
+    // F23). No holding area is ever written.
     const proposalPath = join(sandbox, "weekly.work-fold-routing.json");
     const oneTimeAt = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
     await writeFile(proposalPath, JSON.stringify({
@@ -1525,177 +1472,64 @@ test("facade staging binds routing enablement and page exposure into the decisio
         steps: [{ id: "review", kind: "chat", space: space.space.id, message: "Review the report." }],
       },
     }, null, 2), "utf8");
-    const stagedRouting = await facade.routingsStage({ proposalPath, cwd: sandbox, requestId: "req-routing-stage" });
-    assert.equal(stagedRouting.staged.kind, "routing.enable");
-    assert.equal(stagedRouting.staged.category, "widen-power");
-    assert.deepEqual(stagedRouting.referencedSpaceIds, [space.space.id]);
-    assert.match(stagedRouting.routingId, /^routing-[a-f0-9]{16}$/, "a proposal gains a deterministic content-derived id");
-    const holdingFile = join(sandbox, "state", "fold", "staged-routings", `${stagedRouting.declarationDigest}.json`);
-    assert.equal(existsSync(holdingFile), true, "the reviewed declaration waits inert in the holding area");
-
-    // Restaging identical content dedupes onto the same card.
-    const restaged = await facade.routingsStage({ proposalPath, cwd: sandbox, requestId: "req-routing-stage-2" });
-    assert.equal(restaged.staged.decisionId, stagedRouting.staged.decisionId);
-    assert.equal(restaged.staged.deduplicated, true);
-
-    const enabled = await api.foldDecisions.decide(stagedRouting.staged.decisionId, {
-      decision: "approved",
-      surface: "main-window",
-    });
-    assert.equal(enabled.act.execution?.outcome, "executed");
-    const routing = await api.routings.getRouting(stagedRouting.routingId);
+    const enabled = await facade.routingsEnable({ proposalPath, cwd: sandbox, requestId: "req-routing-enable" });
+    assert.equal(enabled.health, "enabled");
+    assert.equal(enabled.title, "Weekly glue");
+    assert.deepEqual(enabled.referencedSpaceIds, [space.space.id]);
+    assert.match(enabled.routingId, /^routing-[a-f0-9]{16}$/, "a proposal gains a deterministic content-derived id");
+    assert.equal("staged" in enabled, false);
+    assert.equal(existsSync(join(sandbox, "state", "fold", "staged-routings")), false, "no holding area is ever written");
+    const routing = await api.routings.getRouting(enabled.routingId);
     assert.equal(routing?.health, "enabled");
-    assert.equal(routing?.digest, stagedRouting.declarationDigest);
+    assert.equal(routing?.digest, enabled.declarationDigest);
     assert.deepEqual(routing?.declaration.trigger, { kind: "at", at: oneTimeAt, ifMissed: "run" });
-    assert.equal(
-      routing?.grants.at(-1)?.decisionId,
-      stagedRouting.staged.decisionId,
-      "the enablement grant and the staged act share one decision identity",
-    );
-    assert.equal(routing?.grants.at(-1)?.surface, "main-window");
-    assert.equal(existsSync(holdingFile), false, "an executed enablement releases the held declaration");
+    assert.equal(routing?.grants.at(-1)?.decisionId, "req-routing-enable", "the enablement grant carries the act's request id");
+    assert.equal(routing?.grants.at(-1)?.surface, "cli");
 
     // Page exposure: `pages stage` pins the publication shape per the
-    // publishing mutation ledger, and approval activates through the
-    // publication service with the decision identity threaded into its
-    // journaled act context.
-    const stagedPage = await facade.pagesStage({
+    // publishing mutation ledger and activates through the publication
+    // service on the same call, under a derived request id.
+    const shared = await facade.pagesStage({
       space: space.space.id,
       path: "weekly.md",
       title: "Weekly report",
-      requestId: "req-page-stage",
+      requestId: "req-page-share",
     });
-    assert.equal(stagedPage.staged.kind, "publish.viewer.expose");
-    assert.equal(stagedPage.relativePath, "weekly.md");
-    assert.equal(stagedPage.serveRatePerMinute, 60);
-    const pageAct = await api.stagedActs.get(stagedPage.staged.decisionId);
-    assert.equal(pageAct?.pins.exposure, "page");
-    assert.equal(pageAct?.pins.snapshotEnabled, false);
-
-    const approvedPage = await api.foldDecisions.decide(stagedPage.staged.decisionId, {
-      decision: "approved",
-      surface: "popover",
-    });
-    assert.equal(approvedPage.act.execution?.outcome, "executed");
+    assert.equal(shared.publication.state, "active");
+    assert.equal(shared.publication.relativePath, "weekly.md");
+    assert.equal(shared.publication.title, "Weekly report");
+    assert.equal(shared.publication.serveRatePerMinute, 60);
+    assert.equal(shared.publication.snapshotEnabled, false);
+    assert.equal("staged" in shared, false);
     const publications = await api.publications.list();
     assert.equal(publications.length, 1);
-    assert.equal(publications[0]?.title, "Weekly report");
     assert.equal(publications[0]?.state, "active");
-    assert.equal(publications[0]?.relativePath, "weekly.md");
 
     const receiptsText = await readFile(join(sandbox, "state", "cli", "receipts", "act.jsonl"), "utf8");
     const receipts = receiptsText.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
     const activation = receipts.filter((entry) => entry.command === "pages activate");
     assert.deepEqual(activation.map((entry) => entry.outcome), ["accepted", "ok"]);
-    assert.equal(activation[0]?.decisionId, stagedPage.staged.decisionId, "the activation receipts carry the approving decision id");
-    assert.equal(activation[0]?.surface, "popover");
-    const decisionReceipts = receipts.filter((entry) => entry.requestId === `fold-decision:${stagedPage.staged.decisionId}`);
-    assert.deepEqual(decisionReceipts.map((entry) => [entry.command, entry.outcome]), [["decision.approve", "accepted"], ["decision.approve", "ok"]]);
+    assert.equal(activation[0]?.requestId, "req-page-share:activate", "activation journals under the act's derived request id");
+    assert.equal(activation[0]?.surface, "cli");
+    assert.equal(activation[0]?.decisionId, undefined);
+    assert.equal(receipts.some((entry) => String(entry.requestId).startsWith("fold-decision:")), false);
 
-    // A staged page whose source changed invalidates at decision time
-    // instead of exposing different bytes.
-    await writeFile(join(space.space.spaceRoot, "notes.md"), "# Notes\n", "utf8");
-    const stale = await facade.pagesStage({ space: space.space.id, path: "notes.md", title: "Notes", requestId: "req-page-stale" });
-    await rm(join(space.space.spaceRoot, "notes.md"));
+    // A second identical call refuses: the page is already shared.
     await assert.rejects(
-      api.foldDecisions.decide(stale.staged.decisionId, { decision: "approved", surface: "main-window" }),
-      (error: unknown) => (error as { code?: string }).code === "PIN_MISMATCH",
+      () => facade.pagesStage({ space: space.space.id, path: "weekly.md", title: "Weekly report", requestId: "req-page-share-2" }),
+      (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict" && /already shared/.test(error.message),
     );
-    assert.equal((await api.stagedActs.get(stale.staged.decisionId))?.state, "invalidated");
+    // A missing source refuses honestly and exposes nothing.
+    await assert.rejects(
+      () => facade.pagesStage({ space: space.space.id, path: "missing.md", title: "Missing", requestId: "req-page-missing" }),
+      (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
+    );
+    assert.equal((await api.publications.list()).length, 1);
   } finally {
     await api.close();
     await rm(sandbox, { recursive: true, force: true });
   }
 });
-
-async function writeStudioPackage(root: string, marker: string): Promise<void> {
-  await mkdir(root, { recursive: true });
-  await writeFile(join(root, "package.json"), JSON.stringify({
-    name: "connected-inbox",
-    version: "0.1.0",
-    private: true,
-    type: "module",
-    agentApp: "agent-app.json",
-  }), "utf8");
-  await writeFile(join(root, "agent-app.json"), JSON.stringify({
-    version: 2,
-    id: "connected-inbox",
-    title: "Connected inbox",
-    description: "Search a deliberately restricted inbox.",
-    runtime: { kind: "sandboxed-web", entry: "index.html", worker: "worker.js" },
-    ui: { icon: "mail" },
-    tools: [{
-      name: "inbox_search",
-      description: "Search the connected inbox.",
-      action: "search",
-      inputSchema: {
-        type: "object",
-        properties: { query: { type: "string", maxLength: 500 } },
-        required: ["query"],
-        additionalProperties: false,
-      },
-      resultSchema: {
-        type: "object",
-        properties: { count: { type: "integer", minimum: 0 } },
-        required: ["count"],
-        additionalProperties: false,
-      },
-    }],
-    automations: [],
-    permissions: { network: [], files: [], notifications: [] },
-  }), "utf8");
-  await writeFile(join(root, "index.html"), "<!doctype html><script type=module src=app.js></script>", "utf8");
-  await writeFile(join(root, "app.js"), "export {};\n", "utf8");
-  await writeFile(join(root, "worker.js"), `// ${marker}\nexport async function handleAction() { return { count: 0 }; }\n`, "utf8");
-}
-
-/** A reviewed development app with declared permissions and one named automation. */
-async function writeAuthorityPackage(root: string): Promise<void> {
-  await mkdir(root, { recursive: true });
-  await writeFile(join(root, "package.json"), JSON.stringify({
-    name: "authority-demo",
-    version: "0.1.0",
-    private: true,
-    type: "module",
-    agentApp: "agent-app.json",
-  }), "utf8");
-  await writeFile(join(root, "agent-app.json"), JSON.stringify({
-    version: 2,
-    id: "authority-demo",
-    title: "Authority demo",
-    description: "Declares narrow authority for revocation tests.",
-    runtime: { kind: "sandboxed-web", entry: "index.html", worker: "worker.js" },
-    ui: { icon: "shield" },
-    tools: [],
-    automations: [{
-      id: "export-digest",
-      title: "Export digest",
-      description: "Write a digest into the granted reports folder.",
-      handler: "export-digest",
-      trigger: { kind: "interval", intervalMinutes: 60 },
-      permissions: { network: [], files: ["exports"], notifications: [] },
-      catchUp: "none",
-      overlap: "skip",
-    }],
-    permissions: {
-      network: [{
-        id: "mail-api",
-        target: { kind: "public-https", origin: "https://mail.example.com" },
-        methods: ["GET"],
-        auth: [{ kind: "api-key", header: "x-api-key" }],
-      }],
-      files: [{ id: "exports", target: "directory", access: "read-write" }],
-      notifications: [],
-    },
-  }), "utf8");
-  await writeFile(join(root, "index.html"), "<!doctype html><script type=module src=app.js></script>", "utf8");
-  await writeFile(join(root, "app.js"), "export {};\n", "utf8");
-  await writeFile(
-    join(root, "worker.js"),
-    "// Inert during review and installation.\nexport async function handleAction() { return {}; }\nexport async function handleAutomation() {}\n",
-    "utf8",
-  );
-}
 
 async function waitForAsync(predicate: () => Promise<boolean>, timeoutMs = 10_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -1706,7 +1540,7 @@ async function waitForAsync(predicate: () => Promise<boolean>, timeoutMs = 10_00
   }
 }
 
-test("hosted-app exposure stages from an installed Instance and a click puts the app at your address", async () => {
+test("hosted-app exposure activates from an installed Instance and puts the app at your address", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-act-rung3-test-"));
   const storage = new FileRestrictedAppStorage(join(sandbox, "restricted-apps", "data"));
   const restrictedApps = await RestrictedAppService.create({
@@ -1780,28 +1614,21 @@ test("hosted-app exposure stages from an installed Instance and a click puts the
     const installed = (await restrictedApps.list(target.id)).find((app) => app.runtimeInstanceKind === "app");
     assert.ok(installed);
 
-    // Staging accepts the Runtime Instance id like the other apps verbs and
-    // pins the App Instance identity plus the complete viewer surface.
-    const staged = await facade.pagesStageApp({
+    // The verb accepts the Runtime Instance id like the other apps verbs,
+    // pins the App Instance identity plus the complete viewer surface, and
+    // activates the exposure on the first call.
+    const shared = await facade.pagesStageApp({
       space: target.id,
       instance: activated.instance.runtimeInstanceId,
-      requestId: "req-rung3-stage",
+      requestId: "req-rung3-share",
     });
-    assert.equal(staged.staged.kind, "publish.viewer.expose");
-    assert.equal(staged.staged.category, "widen-power");
-    assert.equal(staged.appInstanceId, installed.featureInstallationId);
-    assert.equal(staged.releaseDigest, prepared.release.releaseDigest);
-    assert.equal(staged.viewerEntry, "viewer.html");
-    assert.deepEqual(staged.viewerSurface, ["entry:viewer.html", "data:public/"]);
-    const act = await api.stagedActs.get(staged.staged.decisionId);
-    assert.equal(act?.pins.exposure, "hosted-app");
-    assert.deepEqual(act?.pins.viewerSurface, ["entry:viewer.html", "data:public/"]);
-
-    const approved = await api.foldDecisions.decide(staged.staged.decisionId, {
-      decision: "approved",
-      surface: "popover",
-    });
-    assert.equal(approved.act.execution?.outcome, "executed");
+    assert.equal(shared.publication.kind, "app");
+    assert.equal(shared.publication.state, "active");
+    assert.equal(shared.publication.appInstanceId, installed.featureInstallationId);
+    assert.equal(shared.publication.releaseDigest, prepared.release.releaseDigest);
+    assert.equal(shared.publication.viewerEntry, "viewer.html");
+    assert.deepEqual(shared.publication.viewerSurface, ["entry:viewer.html", "data:public/"]);
+    assert.equal("staged" in shared, false);
     const publications = await api.publications.list();
     assert.equal(publications.length, 1);
     const exposure = publications[0]!;
@@ -1817,14 +1644,15 @@ test("hosted-app exposure stages from an installed Instance and a click puts the
       viewerSurface: ["entry:viewer.html", "data:public/"],
     });
 
-    // The activation receipts carry the approving decision identity, exactly
-    // as page activation does.
+    // The activation receipts carry the act's derived request identity,
+    // exactly as page activation does.
     const receiptsText = await readFile(join(sandbox, "state", "cli", "receipts", "act.jsonl"), "utf8");
     const receipts = receiptsText.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
     const activation = receipts.filter((entry) => entry.command === "pages activate-app");
     assert.deepEqual(activation.map((entry) => entry.outcome), ["accepted", "ok"]);
-    assert.equal(activation[0]?.decisionId, staged.staged.decisionId);
-    assert.equal(activation[0]?.surface, "popover");
+    assert.equal(activation[0]?.requestId, "req-rung3-share:activate");
+    assert.equal(activation[0]?.surface, "cli");
+    assert.equal(activation[0]?.decisionId, undefined);
 
     // The live serve path enforces the viewer-safe subset over the real
     // installed instance: reviewed entry bytes serve; instance-owned
@@ -1843,17 +1671,10 @@ test("hosted-app exposure stages from an installed Instance and a click puts the
     const deniedWrite = await api.publications.serveViewerAppCall(exposure.publicationId, { kind: "data.set", key: "public/greeting", value: "x" });
     assert.equal(deniedWrite.state, "served", "a write attempt is a typed viewer-visible denial, not a page state");
 
-    // One App Instance holds one active exposure; restaging while live is
-    // refused before any card exists.
-    await assert.rejects(
-      () => facade.pagesStageApp({ space: target.id, instance: activated.instance.runtimeInstanceId, requestId: "req-rung3-dup" }),
-      (error: unknown) => error instanceof WorkFoldCliError
-        && error.code === "conflict"
-        && /already at your address/.test(error.message),
-    );
-
+    // One App Instance holds one active exposure; sharing again while live is
+    // refused before anything activates.
     // Revocation is the direct undo; the Instance keeps running locally and
-    // re-exposing takes a fresh consecration (a fresh staged card).
+    // sharing again mints a fresh publication.
     const revoked = await facade.pagesRevoke({ publication: exposure.publicationId, requestId: "req-rung3-revoke" });
     assert.equal(revoked.publication.state, "revoked");
     assert.deepEqual(await api.publications.serveViewerAppCall(exposure.publicationId, { kind: "entry" }), {
@@ -1862,14 +1683,103 @@ test("hosted-app exposure stages from an installed Instance and a click puts the
     });
     assert.ok((await restrictedApps.list(target.id)).some((app) => app.runtimeInstanceKind === "app"),
       "revoking exposure never uninstalls the Instance");
-    const restaged = await facade.pagesStageApp({
+    const reshared = await facade.pagesStageApp({
       space: target.id,
       instance: activated.instance.runtimeInstanceId,
-      requestId: "req-rung3-restage",
+      requestId: "req-rung3-reshare",
     });
-    assert.notEqual(restaged.staged.decisionId, staged.staged.decisionId, "a settled exposure never dedupes onto a fresh card");
+    assert.equal(reshared.publication.state, "active");
+    assert.notEqual(reshared.publication.publicationId, exposure.publicationId, "sharing again mints a fresh publication");
   } finally {
     await api.close();
     await rm(sandbox, { recursive: true, force: true });
   }
 });
+
+async function writeStudioPackage(root: string, marker: string): Promise<void> {
+  await mkdir(root, { recursive: true });
+  await writeFile(join(root, "package.json"), JSON.stringify({
+    name: "connected-inbox",
+    version: "0.1.0",
+    private: true,
+    type: "module",
+    agentApp: "agent-app.json",
+  }), "utf8");
+  await writeFile(join(root, "agent-app.json"), JSON.stringify({
+    version: 2,
+    id: "connected-inbox",
+    title: "Connected inbox",
+    description: "Search a deliberately restricted inbox.",
+    runtime: { kind: "sandboxed-web", entry: "index.html", worker: "worker.js" },
+    ui: { icon: "mail" },
+    tools: [{
+      name: "inbox_search",
+      description: "Search the connected inbox.",
+      action: "search",
+      inputSchema: {
+        type: "object",
+        properties: { query: { type: "string", maxLength: 500 } },
+        required: ["query"],
+        additionalProperties: false,
+      },
+      resultSchema: {
+        type: "object",
+        properties: { count: { type: "integer", minimum: 0 } },
+        required: ["count"],
+        additionalProperties: false,
+      },
+    }],
+    automations: [],
+    permissions: { network: [], files: [], notifications: [] },
+  }), "utf8");
+  await writeFile(join(root, "index.html"), "<!doctype html><script type=module src=app.js></script>", "utf8");
+  await writeFile(join(root, "app.js"), "export {};\n", "utf8");
+  await writeFile(join(root, "worker.js"), `// ${marker}\nexport async function handleAction() { return { count: 0 }; }\n`, "utf8");
+}
+
+async function writeAuthorityPackage(root: string): Promise<void> {
+  await mkdir(root, { recursive: true });
+  await writeFile(join(root, "package.json"), JSON.stringify({
+    name: "authority-demo",
+    version: "0.1.0",
+    private: true,
+    type: "module",
+    agentApp: "agent-app.json",
+  }), "utf8");
+  await writeFile(join(root, "agent-app.json"), JSON.stringify({
+    version: 2,
+    id: "authority-demo",
+    title: "Authority demo",
+    description: "Declares narrow authority for revocation tests.",
+    runtime: { kind: "sandboxed-web", entry: "index.html", worker: "worker.js" },
+    ui: { icon: "shield" },
+    tools: [],
+    automations: [{
+      id: "export-digest",
+      title: "Export digest",
+      description: "Write a digest into the granted reports folder.",
+      handler: "export-digest",
+      trigger: { kind: "interval", intervalMinutes: 60 },
+      permissions: { network: [], files: ["exports"], notifications: [] },
+      catchUp: "none",
+      overlap: "skip",
+    }],
+    permissions: {
+      network: [{
+        id: "mail-api",
+        target: { kind: "public-https", origin: "https://mail.example.com" },
+        methods: ["GET"],
+        auth: [{ kind: "api-key", header: "x-api-key" }],
+      }],
+      files: [{ id: "exports", target: "directory", access: "read-write" }],
+      notifications: [],
+    },
+  }), "utf8");
+  await writeFile(join(root, "index.html"), "<!doctype html><script type=module src=app.js></script>", "utf8");
+  await writeFile(join(root, "app.js"), "export {};\n", "utf8");
+  await writeFile(
+    join(root, "worker.js"),
+    "// Inert during review and installation.\nexport async function handleAction() { return {}; }\nexport async function handleAutomation() {}\n",
+    "utf8",
+  );
+}

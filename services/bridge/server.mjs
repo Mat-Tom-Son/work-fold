@@ -71,10 +71,8 @@ const viewerPublicDir = join(publicDir, "viewer");
 // The management operation allowlist. The publishing ladder's viewer plane is
 // deliberately absent: viewer traffic never enters /api/operations, and
 // unknown operation names — including any viewer.* spelling — stay rejected.
-// The fold's decision and glance operations ride the same signed envelopes:
-// the bridge relays ciphertext and persists no card or digest content, and
-// staged acts never leave the desktop (docs/fold-consecrations.md,
-// docs/fold-glance.md).
+// The fold's glance operations ride the same signed envelopes: the bridge
+// relays ciphertext and persists no digest content (docs/fold-glance.md).
 const allowedOperations = new Set([
   "management.summary",
   "management.chats",
@@ -86,8 +84,6 @@ const allowedOperations = new Set([
   "management.watch",
   "management.glance",
   "management.glanceSeen",
-  "decisions.list",
-  "decisions.decide",
   "spaces.list",
   "spaces.tree",
   "spaces.filePreview",

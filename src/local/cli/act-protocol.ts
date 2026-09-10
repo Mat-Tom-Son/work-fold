@@ -16,9 +16,13 @@ import {
  * interactive work-fold app is running; without that token the desktop host
  * answers "unavailable" and nothing is mutated. Responses stay on the
  * lane-neutral v1 response contract so shims and the broker keep exactly one
- * response and error path.
+ * response and error path. Version 3 advanced when the verbs that install
+ * code, widen a power, or destroy data stopped returning a pending decision
+ * and started returning their receipted result (docs/receipts-not-gates.md);
+ * an older shim is refused with the typed version error instead of receiving
+ * a silently different result.
  */
-export const WORKFOLD_CLI_ACT_PROTOCOL_VERSION = 2 as const;
+export const WORKFOLD_CLI_ACT_PROTOCOL_VERSION = 3 as const;
 
 /** Bound for `payload.messageFile` text (UTF-8 bytes), kept out of argv. */
 export const WORKFOLD_CLI_ACT_MAX_PAYLOAD_BYTES = 256 * 1024;
@@ -32,7 +36,7 @@ export interface WorkFoldCliActRequestPayload {
 }
 
 /** Stable on-disk act request contract shared by platform shims and the desktop broker. */
-export interface WorkFoldCliActRequestV2 {
+export interface WorkFoldCliActRequest {
   protocolVersion: typeof WORKFOLD_CLI_ACT_PROTOCOL_VERSION;
   lane: "act";
   id: string;
@@ -43,9 +47,9 @@ export interface WorkFoldCliActRequestV2 {
   payload?: WorkFoldCliActRequestPayload;
 }
 
-export type WorkFoldCliBrokeredRequest = WorkFoldCliRequestV1 | WorkFoldCliActRequestV2;
+export type WorkFoldCliBrokeredRequest = WorkFoldCliRequestV1 | WorkFoldCliActRequest;
 
-export function isWorkFoldCliActRequest(request: WorkFoldCliBrokeredRequest): request is WorkFoldCliActRequestV2 {
+export function isWorkFoldCliActRequest(request: WorkFoldCliBrokeredRequest): request is WorkFoldCliActRequest {
   return request.protocolVersion === WORKFOLD_CLI_ACT_PROTOCOL_VERSION;
 }
 
@@ -60,7 +64,7 @@ export function parseWorkFoldCliRequestEnvelope(value: unknown): WorkFoldCliBrok
   return parseWorkFoldCliRequest(value);
 }
 
-export function parseWorkFoldCliActRequest(value: unknown): WorkFoldCliActRequestV2 {
+export function parseWorkFoldCliActRequest(value: unknown): WorkFoldCliActRequest {
   const record = objectRecord(value, "CLI act request must be a JSON object.");
   assertKeys(record, ["protocolVersion", "lane", "id", "argv", "cwd", "createdAt", "actToken"], ["payload"], "CLI act request");
   if (record.protocolVersion !== WORKFOLD_CLI_ACT_PROTOCOL_VERSION) {
@@ -102,7 +106,7 @@ export function createWorkFoldCliActRequest(input: {
   actToken: string;
   createdAt?: string;
   payload?: WorkFoldCliActRequestPayload;
-}): WorkFoldCliActRequestV2 {
+}): WorkFoldCliActRequest {
   return parseWorkFoldCliActRequest({
     protocolVersion: WORKFOLD_CLI_ACT_PROTOCOL_VERSION,
     lane: "act",

@@ -94,8 +94,8 @@ test("deliverable and review links use bounded host receipts with exact Space id
     { spaceId: "one", spaceName: "One", copied: ["reports/brief.md", "../secret", ".pi/auth.json"] },
     { status: "library", copied: ["library-only.md"] },
   ], actions: [{ spaceId: "one", copied: ["reports/brief.md"] }, { spaceId: "two", copied: ["reports/brief.md"] }, { decisionId: "review-one" }] });
-  assert.equal(links.length, 3);
-  assert.deepEqual(links.map((item: any) => item.kind), ["file", "file", "decision"]);
+  assert.equal(links.length, 2, "a legacy decision id on an older request never renders a link");
+  assert.deepEqual(links.map((item: any) => item.kind), ["file", "file"]);
   assert.equal(links[0].spaceId, "one");
   assert.equal(links[1].spaceId, "two");
   assert.equal(requestResultLinks({ actions: Array.from({ length: 100 }, (_, index) => ({ spaceId: "one", copied: [`file-${index}.txt`] })) }).length, 12);
@@ -103,7 +103,7 @@ test("deliverable and review links use bounded host receipts with exact Space id
 
 test("task file and app links retain exact host identities and ignore active or invented targets", () => {
   const app = { spaceId: "target", appId: "quotes", featureInstallationId: "installation-one", digest: "a".repeat(64), title: "Quote board", version: "1.0.0" };
-  const links = requestResultLinks({ reply: { content: "Open imaginary.md" }, actions: [{ spaceId: "source", decisionId: "consumed-review", apps: [app, { ...app, featureInstallationId: "../bad" }, { ...app, digest: "bad" }] }],
+  const links = requestResultLinks({ reply: { content: "Open imaginary.md" }, actions: [{ spaceId: "source", apps: [app, { ...app, featureInstallationId: "../bad" }, { ...app, digest: "bad" }] }],
     children: [{ spaceId: "target", state: "succeeded", files: ["comparison.md", ".pi/auth"] }, { spaceId: "other", state: "running", files: ["unfinished.md"] }] });
   assert.deepEqual(links.map((item: any) => item.kind), ["app", "file"]);
   assert.equal(links[0].spaceId, "target", "an installation result points at its target Space, not the source operation's Space");

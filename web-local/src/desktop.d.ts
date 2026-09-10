@@ -3,7 +3,7 @@ import type {
   FoldRoutingHistoryResponse,
   FoldRoutingsResponse,
   FoldRoutingRunResponse,
-  FoldRoutingStageResponse,
+  FoldRoutingEnableResponse,
 } from "./components/modals/FoldRoutingsPane";
 
 export {};
@@ -144,19 +144,12 @@ declare global {
         openChecks?: (spaceId: string) => Promise<boolean>;
         onOpenSettings: (listener: (scope?: "management") => void) => () => void;
       };
-      /**
-       * Main-window-only needs-you helpers; absent in the popover's narrow
-       * preload, so surfaces feature-detect the file-grant folder picker.
-       */
-      decisions?: {
-        chooseFileGrantRoot: (spaceId: string) => Promise<{ root?: string; error?: string } | null>;
-      };
       /** Main-window-only routing management; absent from the popover preload. */
       routings?: {
         list: () => Promise<FoldRoutingsResponse>;
         show: (routingId: string) => Promise<FoldRoutingDetailResponse>;
         history: (routingId: string) => Promise<FoldRoutingHistoryResponse>;
-        stageEnable: (routingId: string) => Promise<FoldRoutingStageResponse>;
+        enable: (routingId: string) => Promise<FoldRoutingEnableResponse>;
         run: (routingId: string) => Promise<FoldRoutingRunResponse>;
         stop: (routingId: string) => Promise<unknown>;
         disable: (routingId: string) => Promise<unknown>;

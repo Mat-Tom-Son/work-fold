@@ -39,8 +39,8 @@ function run(rawArguments) {
 
     if (isActCommand(argumentsList)) {
       // Every act family (Chats, files, History, Library, Spaces, tools,
-      // apps, routings, pages, staged acts) rides the separately versioned
-      // act lane and requires the per-launch token the running app minted.
+      // apps, routings, pages) rides the separately versioned act lane and
+      // requires the per-launch token the running app minted.
       const actToken = readActToken(cliRoot);
       if (!actToken) {
         writeHandle($.NSFileHandle.fileHandleWithStandardError, `work-fold: ${ACT_UNAVAILABLE_MESSAGE}\n`);
@@ -72,7 +72,7 @@ function run(rawArguments) {
 function isActCommand(argumentsList) {
   const positional = argumentsList.filter((token) => token !== "--json");
   const group = positional[0] || "";
-  const actGroups = ["chat", "chats", "files", "manage", "history", "search", "library", "tools", "apps", "routings", "pages", "staged"];
+  const actGroups = ["chat", "chats", "files", "manage", "history", "search", "library", "tools", "apps", "routings", "pages"];
   if (actGroups.includes(group)) return true;
   if (group === "checks") return positional[1] !== "status";
   return group === "spaces" && positional[1] !== "list";
@@ -188,7 +188,7 @@ function performRequest(context, argv, actToken, payload) {
   try {
     const request = actToken
       ? {
-          protocolVersion: 2,
+          protocolVersion: 3,
           lane: "act",
           id: requestId,
           argv: argv,

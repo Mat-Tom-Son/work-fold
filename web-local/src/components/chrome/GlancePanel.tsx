@@ -124,9 +124,7 @@ function GlancePanelBody() {
   if (!snapshot) {
     return <p className="glance-empty">Reading what work-fold has recorded…</p>;
   }
-  // Pending decisions belong to the needs-you flyout's card stack, so they do
-  // not make this section non-empty — mirror GlanceSection's own predicate.
-  const questions = snapshot.needsYou.filter((item) => item.kind !== "pending-decision");
+  const questions = snapshot.needsYou;
   const empty = !questions.length && !snapshot.running.length && !snapshot.changes.length
     && !snapshot.checks.length && !snapshot.unavailable.length;
   if (empty) {

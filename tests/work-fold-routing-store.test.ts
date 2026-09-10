@@ -117,8 +117,8 @@ test("enable is journal-first exact-digest authority: declaration and grant comm
       decision: { decisionId: "decision-3", surface: "policy" },
     }),
     (error: unknown) => error instanceof WorkFoldRoutingStoreError && error.code === "INPUT_INVALID"
-      && /not policy-eligible/.test(error.message),
-    "routing.enable always takes the unforgeable human click",
+      && /act surface/.test(error.message),
+    "a legacy policy surface is never written again",
   );
   await assert.rejects(
     () => store.enable({

@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
-import { basename, delimiter, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
+import { basename, delimiter, isAbsolute, join, normalize, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   app,
@@ -45,7 +45,6 @@ import {
 } from "../../src/local/cli/act-token.js";
 import { configureWorkFoldStateRoot, managedSpaceRoot, workFoldManagementRoot } from "../../src/local/state-paths.js";
 import { getSpace, listSpaces } from "../../src/local/space.js";
-import { containsReservedSpacePathSegment } from "../../src/local/space-path-policy.js";
 import { WorkFoldCliKernelAdapter } from "../../src/local/work-fold-cli-adapter.js";
 import { WorkFoldKernel } from "../../src/local/work-fold-kernel.js";
 import { WorkFoldCheckService } from "../../src/local/checks/check-service.js";
@@ -661,8 +660,8 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
       checkService: host.checks,
       // The exact instance the injected Check and restricted-app services
       // publish into, so desktop settles reach routing triggers; and the CLI
-      // host's own act-receipts journal, so decisions, publications, and CLI
-      // acts share one ledger file and one at-most-once gate.
+      // host's own act-receipts journal, so Settings acts, publications, and
+      // CLI acts share one ledger file and one at-most-once gate.
       settleSignal: host.settleSignal,
       actReceipts: host.cli.receipts,
       localFolderGrantProvider: { consumeLocalFolderGrant },
@@ -1063,36 +1062,6 @@ function registerIpc(): void {
     if (result.canceled || !spaceRoot) return null;
     return { path: spaceRoot, folderGrantId: createFolderGrant(spaceRoot) };
   });
-  // The app.grant.files person-chosen root (docs/fold-consecrations.md): a
-  // staged file-grant card pins the reviewed declaration only, and approval
-  // binds it to a folder the person picks here — desktop-only by
-  // construction, because only the main renderer's preload reaches this
-  // handler. The dialog result is validated against the Space's folder and
-  // returned as the Space-relative root the grant path stores.
-  ipcMain.handle("work-fold:decisions:choose-file-grant-root", async (event, value: unknown) => {
-    assertTrustedRenderer(event);
-    if (typeof value !== "string" || !value.trim()) throw new Error("A Space id is required.");
-    const space = await getSpace(value.trim());
-    const options = {
-      title: "Choose the folder this app may access",
-      defaultPath: space.spaceRoot,
-      properties: ["openDirectory", "createDirectory"] as Array<"openDirectory" | "createDirectory">,
-    };
-    const result = mainWindow
-      ? await dialog.showOpenDialog(mainWindow, options)
-      : await dialog.showOpenDialog(options);
-    const chosen = result.filePaths[0];
-    if (result.canceled || !chosen) return null;
-    const relativePath = relative(space.spaceRoot, resolve(chosen));
-    if (relativePath !== "" && (isAbsolute(relativePath) || relativePath === ".." || relativePath.startsWith(`..${sep}`))) {
-      return { error: "Choose a folder inside this Space's folder." };
-    }
-    const root = relativePath === "" ? "." : relativePath.split(sep).join("/");
-    if (root !== "." && containsReservedSpacePathSegment(root)) {
-      return { error: "work-fold metadata folders cannot be granted to an app." };
-    }
-    return { root };
-  });
   const routingSettings = async (event: IpcMainInvokeEvent, value?: unknown) => {
     assertTrustedMainRenderer(event);
     return {
@@ -1112,9 +1081,9 @@ function registerIpc(): void {
     const { facade, routingId } = await routingSettings(event, value);
     return facade.history(routingId!);
   });
-  ipcMain.handle("work-fold:routings:stage-enable", async (event, value: unknown) => {
+  ipcMain.handle("work-fold:routings:enable", async (event, value: unknown) => {
     const { facade, routingId } = await routingSettings(event, value);
-    return facade.stageEnable(routingId!);
+    return facade.enable(routingId!);
   });
   ipcMain.handle("work-fold:routings:run", async (event, value: unknown) => {
     const { facade, routingId } = await routingSettings(event, value);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { foldPoliciesSettings, foldPublicationsSettings, needsYouSurface, primaryNavigation, welcomeActions } from "../web-local/src/ui-contract.js";
+import { foldPublicationsSettings, primaryNavigation, remoteAccessSettings, welcomeActions } from "../web-local/src/ui-contract.js";
 
 test("Space navigation separates the active Space from its surfaces", () => {
   assert.deepEqual(primaryNavigation.map(({ id, label }) => [id, label]), [
@@ -15,34 +15,11 @@ test("Space navigation separates the active Space from its surfaces", () => {
   });
 });
 
-test("the standing-policies Settings section keeps the authoring boundary in its copy", () => {
-  // Settings → The fold → Standing policies is the ONLY authoring surface
-  // (docs/fold-consecrations.md, setup-only boundary): the copy states that
-  // the fold cites policies and never writes them, and that policies apply
-  // only in Reviewed mode. The attestation-broken banner is
-  // the fail-closed recovery: review and re-save, in Settings, by a person.
-  assert.equal(foldPoliciesSettings.heading, "Standing policies");
-  assert.match(foldPoliciesSettings.intro, /cite them,\s*never write them/i);
-  assert.match(foldPoliciesSettings.intro, /decision receipt/i);
-  assert.match(foldPoliciesSettings.intro, /Reviewed mode/i);
-  assert.match(foldPoliciesSettings.attestationBroken, /changed outside Settings/i);
-  assert.match(foldPoliciesSettings.attestationBroken, /re-save/i);
-  assert.equal(foldPoliciesSettings.reattest, "Review and re-save");
-  // Label and matcher stay editable in Settings over the PATCH route; a
-  // policy's kind never changes (the store's own refusal: delete and create).
-  assert.equal(foldPoliciesSettings.edit, "Edit");
-  assert.equal(foldPoliciesSettings.editSave, "Save changes");
-  assert.equal(foldPoliciesSettings.editCancel, "Cancel");
-  const copy = JSON.stringify(foldPoliciesSettings);
-  assert.doesNotMatch(copy, /consecrat/i, "person-facing copy never says consecration, in any form");
-  assert.doesNotMatch(copy, /approve all/i, "no wording suggests batch approval");
-});
-
 test("the publications Settings section keeps the doc's copy rules and the widening boundary", () => {
   // Settings → The fold → Pages your fold serves (docs/fold-publishing.md,
   // plan item 5): narrowing only — stop sharing, tighten budgets, snapshot
-  // off. Widening is staged through the fold and clicked on a needs-you
-  // card, and the copy says so instead of offering a control.
+  // off. Widening is a fresh `pages stage` through the fold, and the copy
+  // says so instead of offering a control.
   assert.equal(foldPublicationsSettings.heading, "Pages your fold serves");
   assert.match(foldPublicationsSettings.linkMeaning, /anyone with this link can read this page while your desktop is online/i);
   assert.match(foldPublicationsSettings.linkMeaning, /forwarding it forwards the access/i);
@@ -53,8 +30,9 @@ test("the publications Settings section keeps the doc's copy rules and the widen
   assert.match(foldPublicationsSettings.snapshotLabel, /while your desktop sleeps/i);
   assert.match(foldPublicationsSettings.snapshotLabel, /cannot read it/i);
   assert.match(foldPublicationsSettings.snapshotLabel, /anyone with the link still can/i);
-  assert.match(foldPublicationsSettings.snapshotWidenHint, /fresh approval/i);
+  assert.match(foldPublicationsSettings.snapshotWidenHint, /share the page again/i);
   assert.match(foldPublicationsSettings.narrowHint, /only shrink/i);
+  assert.match(foldPublicationsSettings.empty, /Ask the fold to share a page\./);
   assert.equal(foldPublicationsSettings.stopSharing, "Stop sharing");
   assert.match(foldPublicationsSettings.stopSharingConfirm, /every copy of its link stops working/i);
   const copy = JSON.stringify(foldPublicationsSettings);
@@ -63,17 +41,12 @@ test("the publications Settings section keeps the doc's copy rules and the widen
   assert.doesNotMatch(copy, /consecrat/i, "person-facing copy never says consecration");
 });
 
-test("the needs-you surface keeps plain-words copy and single-card decisions", () => {
-  // Pending decisions never add a rail destination: primaryNavigation above
-  // stays Files/Chats/History, and the needs-you copy is the one renderer
-  // contract both the popover stack and the main-window flyout use. The card
-  // body itself is host-composed by the local API, never renderer prose.
-  assert.equal(needsYouSurface.heading, "Needs you");
-  assert.equal(needsYouSurface.approve, "Approve");
-  assert.equal(needsYouSurface.deny, "Deny");
-  assert.match(needsYouSurface.confirmDestroy, /deletes something for good/i);
-  assert.match(needsYouSurface.notePlaceholder, /Optional/);
-  const copy = JSON.stringify(needsYouSurface);
-  assert.doesNotMatch(copy, /consecration/i, "person-facing copy never says consecration");
-  assert.doesNotMatch(copy, /approve all/i, "there is no approve-all control anywhere");
+test("person-facing fold copy promises receipts and undo, never a gate", () => {
+  // docs/receipts-not-gates.md: no surface offers an authority mode, a
+  // policy, or a decision card. Pairing copy names identity, not a gate on
+  // work.
+  assert.match(remoteAccessSettings.pairedBrowserTrust, /six-digit code/);
+  assert.match(remoteAccessSettings.pairedBrowserTrust, /full trust/);
+  const copy = JSON.stringify({ foldPublicationsSettings, remoteAccessSettings });
+  assert.doesNotMatch(copy, /staged|approv|polic|Reviewed|Unrestricted|needs-you card|decision card|consecrat/i);
 });

@@ -9,7 +9,7 @@ import { nextMenuItemIndex } from "../web-local/src/lib/menu-navigation.js";
 import { createSpaceOperationGate } from "../web-local/src/lib/space-operation-gate.js";
 
 const root = process.cwd();
-const [capabilities, textInputModal, messages, tabBar, spaceChrome, indexHtml, app, needsYouDecisions, glancePanel, assistantPanes, ...desktopDialogs] = await Promise.all([
+const [capabilities, textInputModal, messages, tabBar, spaceChrome, indexHtml, app, _retiredNeedsYou, glancePanel, assistantPanes, ...desktopDialogs] = await Promise.all([
   read("web-local/src/components/panes/CapabilitiesPane.tsx"),
   read("web-local/src/components/modals/TextInputModal.tsx"),
   read("web-local/src/components/chat/messages.tsx"),
@@ -17,7 +17,7 @@ const [capabilities, textInputModal, messages, tabBar, spaceChrome, indexHtml, a
   read("web-local/src/components/panes/spaceChrome.tsx"),
   read("web-local/index.html"),
   read("web-local/src/App.tsx"),
-  read("web-local/src/components/NeedsYouDecisions.tsx"),
+  Promise.resolve(""),
   read("web-local/src/components/chrome/GlancePanel.tsx"),
   read("web-local/src/components/panes/spacePanes.tsx"),
   read("web-local/src/components/modals/DesktopSettingsModal.tsx"),
@@ -66,14 +66,18 @@ test("Settings makes saved state explicit and locks configured credentials", () 
   assert.match(settings, /!remoteSettingsChanged/);
 });
 
-test("the fold authority control is Settings-only, explicit, and inherited by approved browsers", () => {
+test("no surface offers an authority mode, a policy, or a decision card", () => {
+  // docs/receipts-not-gates.md, F19/F24: the Settings → The fold pane has no
+  // Authority selector and no Standing policies section; the main window has
+  // no needs-you rail control; the only needs-you surface is the glance's
+  // questions list.
   const settings = desktopDialogs[0] ?? "";
-  assert.match(settings, /\/api\/settings\/fold-authority/);
-  assert.match(settings, /window\.confirm\(foldAuthoritySettings\.unrestrictedConfirm\)/);
-  assert.match(settings, /body: \{ mode \}/);
-  assert.match(settings, /FoldPoliciesPane dormant=\{authority\.mode === "unrestricted"\}/);
-  assert.match(settings, /foldAuthoritySettings\.policiesPaused/);
-  assert.match(settings, /foldAuthoritySettings\.approvedBrowserInheritance/);
+  assert.doesNotMatch(settings, /fold-authority|fold-policies|FoldAuthorityPane|FoldPoliciesPane|PolicyMatcherFields|"authority"/);
+  assert.match(settings, /remoteAccessSettings\.pairedBrowserTrust/);
+  assert.doesNotMatch(app, /NeedsYouRailControl|useNeedsYouDecisions|needsYouControl|\/api\/management\/decisions/);
+  assert.match(app, /accountControl=\{<button className="space-rail-account-button"/);
+  assert.doesNotMatch(glancePanel, /pending-decision/);
+  assert.match(glancePanel, /const questions = snapshot\.needsYou;/);
 });
 
 test("the publications Settings section reveals links transiently and only narrows", () => {
@@ -94,14 +98,14 @@ test("the publications Settings section reveals links transiently and only narro
   // Narrowing inputs clamp at the current budgets — the UI cannot ask to widen.
   assert.match(settings, /max=\{publication\.serveRatePerMinute\}/);
   assert.match(settings, /max=\{Math\.round\(publication\.byteBudgetPerDay \/ \(1024 \* 1024\)\)\}/);
-  // Snapshot has an off verb only; turning it on is staged through the fold.
+  // Snapshot has an off verb only; turning it on is a fresh `pages stage`.
   assert.match(settings, /\/snapshot-off`/);
   assert.doesNotMatch(settings, /snapshot-on/);
   // The retention choice stays labeled: opted-in pages carry the explicit
   // relay-copy label, everything else the widening hint.
   assert.match(settings, /publication\.snapshotEnabled \?[\s\S]{0,200}foldPublicationsSettings\.snapshotLabel/);
   assert.match(settings, /foldPublicationsSettings\.snapshotWidenHint/);
-  // Hosted-app rows (kind "app") render the consecrated exposure binding —
+  // Hosted-app rows (kind "app") render the exposure's pinned identities —
   // App Instance id, short Release digest, viewer entry, the complete
   // viewer-readable surface — never the page-only relativePath line, and the
   // page line stays behind the kind branch so an app row can no longer
@@ -110,55 +114,6 @@ test("the publications Settings section reveals links transiently and only narro
   assert.match(settings, /App Instance \{publication\.app\.appInstanceId\} · Release <code>\{shortReleaseDigest\(publication\.app\.releaseDigest\)\}<\/code>/);
   assert.match(settings, /Viewer entry \{publication\.app\.viewerEntry\} · Viewer-readable surface: \{publication\.app\.viewerSurface\.join\(", "\)\}/);
   assert.match(settings, /: \{publication\.relativePath\} — \{stateLine\(publication\)\}<\/>\}/);
-});
-
-test("the standing-policies Settings section edits label and matcher in place, never the kind", () => {
-  // The inline editor rides the shipped PATCH route with exactly the two
-  // editable fields; a policy's kind never changes (the store refuses it with
-  // "delete and create instead"), so the editor never sends one. Both the add
-  // form and the editor render the same closed matcher vocabulary component.
-  const settings = desktopDialogs[0] ?? "";
-  assert.match(settings, /method: "PATCH",\s*body: \{ label: current\.label\.trim\(\), match \},/);
-  assert.equal((settings.match(/<PolicyMatcherFields/g) ?? []).length, 2);
-  assert.match(settings, /editing\?\.policyId === policy\.id \? foldPoliciesSettings\.editCancel : foldPoliciesSettings\.edit/);
-  assert.doesNotMatch(settings, /PATCH[\s\S]{0,200}kind:/, "the PATCH body never carries a kind");
-});
-
-test("the needs-you flyout is conditional, anchored to the bottom rail cluster, and never a rail destination", () => {
-  // Decisions belong to the fold above all Spaces: the hook lives in App, is
-  // fixture-safe, and refreshes on the same focus/visibility discipline as
-  // the bootstrap — no background watcher. Deciding here records surface
-  // "main-window"; the popover records "popover".
-  assert.match(app, /surface: "main-window",\s*listenForReturn: true,\s*enabled: !fixtureRequested,/);
-  assert.match(app, /needsYouControl=\{<NeedsYouRailControl state=\{needsYouDecisions\} \/>\}/);
-  // The indicator joins the bottom rail cluster beside Settings instead of
-  // adding a fourth primary destination (primaryNavigation stays pinned in
-  // web-ui-contract.test.ts).
-  assert.match(app, /accountControl=\{<>\{needsYouControl\}<button className="space-rail-account-button"/);
-  assert.doesNotMatch(app, /primaryItems[\s\S]{0,400}needs-you/i);
-  // Conditional presence: no pending decisions, no control — it lingers only
-  // while the open flyout still shows the final outcome notice.
-  assert.match(needsYouDecisions, /if \(count === 0 && !\(open && state\.notice\)\) return null;/);
-  // The flyout is an anchored, window-scope surface with the Add-menu close
-  // behaviors: outside pointerdown, Escape restoring focus, and blur-capture.
-  assert.match(needsYouDecisions, /className="space-rail-needs-you-anchor"/);
-  assert.match(needsYouDecisions, /aria-haspopup="dialog"/);
-  assert.match(needsYouDecisions, /id="needs-you-flyout" className="needs-you-flyout" role="dialog"/);
-  // The flyout overlaps the content area, so it carries the native-view
-  // occluder marker the header switcher and glance panel already carry —
-  // otherwise it renders under a restricted-app native viewport.
-  assert.match(needsYouDecisions, /className="needs-you-flyout" role="dialog" aria-label=\{needsYouSurface\.heading\} data-native-view-occluder="true"/);
-  assert.match(needsYouDecisions, /document\.addEventListener\("pointerdown", closeFromOutside, true\)/);
-  assert.match(needsYouDecisions, /event\.key !== "Escape"/);
-  assert.match(needsYouDecisions, /onBlurCapture=/);
-  // Decisions made elsewhere become visible on the existing return discipline.
-  assert.match(needsYouDecisions, /window\.addEventListener\("focus", refreshOnReturn\)/);
-  assert.match(needsYouDecisions, /document\.addEventListener\("visibilitychange", refreshOnReturn\)/);
-  // The flyout keeps the full stack presentation: the shared component
-  // defaults to "stack", and the popover alone opts into the single-card
-  // presentation (pinned in management-popover-refresh.test.ts).
-  assert.match(needsYouDecisions, /presentation = "stack"/);
-  assert.match(needsYouDecisions, /<NeedsYouStack state=\{state\} \/>/);
 });
 
 test("the main-window glance panel hangs off the Space-identity header, mounts only while open, and never becomes a rail destination", () => {

@@ -82,7 +82,7 @@ function Test-WorkFoldActCommand {
   $group = if ($positional.Count -gt 0) { [string]$positional[0] } else { '' }
   $actGroups = @(
     'chat', 'chats', 'files', 'manage', 'history', 'search', 'library',
-    'tools', 'apps', 'routings', 'pages', 'staged'
+    'tools', 'apps', 'routings', 'pages'
   )
   if ($actGroups -contains $group) { return $true }
   if ($group -ceq 'checks') { return $positional.Count -lt 2 -or [string]$positional[1] -cne 'status' }
@@ -128,7 +128,7 @@ function Invoke-WorkFoldRequest {
       }
     } else {
       $request = [ordered]@{
-        protocolVersion = 2
+        protocolVersion = 3
         lane = 'act'
         id = $requestId
         argv = $RequestArguments
@@ -352,8 +352,8 @@ try {
 
   if (Test-WorkFoldActCommand -CommandArguments $commandArguments) {
     # Every act family (Chats, files, History, Library, Spaces, tools, apps,
-    # routings, pages, staged acts) rides the separately versioned act lane
-    # and requires the per-launch token the running app minted.
+    # routings, pages) rides the separately versioned act lane and requires
+    # the per-launch token the running app minted.
     $actToken = Read-WorkFoldActToken -CliRoot $script:WorkFoldCliRoot
     if ([string]::IsNullOrEmpty($actToken)) {
       [Console]::Error.Write("work-fold: $($script:ActUnavailableMessage)$([Environment]::NewLine)")

@@ -3,7 +3,7 @@
 **Status: shipped contract reference.** The verb ledger shipped with the fold
 build, and its decisions were promoted on 2026-08-11 into
 [the fold](fold.md) decision register, [the management layer](management-layer.md)
-(receipts v2, the act-lane scope and staged-decisions bullets, the
+(receipts, the act-lane scope and prepared-acts bullets, the
 verification map), [the product model](product-model.md) (the act-lane
 sentence), `AGENTS.md` (the family list and the appearance bullet),
 `README.md`, `SECURITY.md`, and `PRIVACY.md`, with
@@ -12,35 +12,38 @@ appearance path. `src/local/cli/act-commands.ts`,
 `src/local/cli/act-facade.ts`, and their suites are the implementation
 authority. This document retains what canon does not carry: the per-verb
 classification tables, the consolidated conflict rules, the receipt schema
-record, and the deliberate absences. The consecration *machinery* is owned by
-[Consecrations](fold-consecrations.md); routing, glance, and publishing verbs
-by [Routings](fold-routings.md), [the glance](fold-glance.md), and
+record, and the deliberate absences. The 2026-09-10 supersession is recorded
+in [Receipts, not gates](receipts-not-gates.md);
+[Consecrations](fold-consecrations.md) is retained only for threat-model
+residuals. Routing, glance, and publishing verbs are owned by
+[Routings](fold-routings.md), [the glance](fold-glance.md), and
 [Publishing](fold-publishing.md); the promotion record by
 [Fold integration](fold-integration.md).
 
 The doctrine, in one paragraph: every product verb is a receipted act-lane
-verb **except** the three consecrations — make bytes runnable, widen a
-power, destroy irreversibly — which always stage first, and the setup-only
-boundary, which the fold may neither do nor stage. In **Reviewed**, a person
-or narrow standing policy decides a staged act. In **Unrestricted**, the
-desktop host decides every newly admitted staged act under the machine-local
-root mode. The ledger keeps typed pins, conflict checks, at-most-once
-consumption, and receipts in both modes.
+verb except the setup-only boundary, which the fold can neither do nor
+request. Verbs that make bytes runnable, widen a standing power, or delete
+are **prepared verbs**: the host prepares typed facts, pins exact
+identities, journals first, rechecks at effect time, executes at most once
+through a fenced task, never auto-retries, and returns the receipt like any
+other verb — immediately. Deletion is reversible through History or Recently
+deleted.
 
 ## Terms the ledger uses
 
 | Target | Meaning |
 |---|---|
 | **direct verb** | The fold performs it through the act lane: explicit selection, journal-first receipt, at-most-once execution, desktop conflict rules. |
-| **consecration 1 — make bytes runnable** | The fold stages a fully prepared, inert act; Reviewed waits for a person or eligible standing policy, while Unrestricted lets the host consume it. Covers restricted-app review approval, Pi package/Extension install or update, executable skill-bundle import. |
-| **consecration 2 — widen a power** | Same staging path. Covers restricted-app network/file/notification grants, saving a connection, enabling a named automation, enabling a routing, and creating outward viewer exposure ([Publishing](fold-publishing.md), consecration 2). |
-| **consecration 3 — destroy irreversibly** | Same staging path. Covers deleting a managed Space's folder, purging app data, and any deletion with no restore path. |
-| **setup-only boundary** | The fold can neither perform nor stage it: Remote access administration, act-token and pairing machinery, provider credentials, standing-policy authoring, root-authority mode selection, and anything that widens the set of principals controlling the fold. |
+| **prepared verb** | A direct verb whose execution shape is prepare → pin → journal-first → fenced execute → receipt, run on the call that asks. Covers app install/update, Pi package and skill-bundle install/update, app grants and automation enablement, routing enablement, outward viewer exposure, managed-Space deletion, app storage clear and retained-data purge. |
+| **reversible deletion** | A delete whose undo is a History restore point or a Recently-deleted entry (`trash restore`). No product verb destroys permanently; retention does. |
+| **setup-only boundary** | The fold can neither perform nor request it: Remote access administration, act-token and pairing machinery, provider credentials, and anything that widens the set of principals controlling the fold. |
 | **deliberately absent** | Not a product verb — desktop-session mechanics, machine-local UI preference, or a surface whose meaning does not survive leaving the desktop. Listed so absence is a decision, not a gap. |
 
 The tables' "Fold today" column is historical: it records what the act lane
 had before the fold shipped (`act`/`read`/`none`, audited 2026-08-10). Every
-row's target class and command shape is now shipped behavior.
+row's target class and command shape is now shipped behavior; rows marked
+`<!-- verify -->` name the record's spelling where the build has not yet
+landed the token.
 
 ## Rules every verb inherits
 
@@ -57,7 +60,7 @@ record only per-verb additions.
 2. **What the receipt contains.** Baseline: version, timestamp, request id,
    command, outcome (`accepted`/`ok`/`error`/`rejected`), error code,
    Space/conversation ids, checkpoint id, kernel task id, and management
-   `parentTaskId` lineage — plus the four receipts-v2 fields under
+   `parentTaskId` lineage — plus the fields under
    [Receipt schema](#receipt-schema). Receipts stay content-light:
    identifiers, digests, and names, never file contents, message text,
    search queries, or credentials.
@@ -66,32 +69,28 @@ record only per-verb additions.
    point every mutation already records; lifecycle and naming verbs are
    undone by the inverse verb using the prior state captured in the receipt;
    authority verbs are revoked by their narrow-direction twin (revoke,
-   disable, disconnect), which is always a direct verb; staged consecrations
-   are cancelled by denial or expiry, owned by
-   [Consecrations](fold-consecrations.md).
+   disable, disconnect, stop sharing), which is always direct; deletions are
+   undone through the restore point or `trash restore --entry <id>`.
 4. **What happens on failure mid-act.** The domain service's existing
    atomicity applies unchanged — placement and restore point succeed or fail
    together, prepared App operations recheck at activation, Space removal
    uses the durable cleanup outbox. The executor appends a terminal `error`
    receipt; a crash between `accepted` and the terminal line is itself the
-   honest signal that the outcome was interrupted. Staged consecrations are
-   inert, so a failure mid-staging arms nothing.
+   honest signal that the outcome was interrupted. A failed or interrupted
+   prepared verb is never auto-retried; another attempt is a fresh call.
 5. **How replay is prevented.** The broker's freshness window and pending
    response dedup, then the journal's `accepted` records as the durable
    at-most-once ledger: a duplicated request id is refused outright, and a
    damaged journal fails closed rather than risk re-execution. Journal
    rotation holds entries at least as long as the freshness window.
 
-Act-protocol conventions carry over unchanged: protocol version 2 envelope
-(`src/local/cli/act-protocol.ts`), per-launch act token, explicit `--space`
-on every Space-scoped write (never working-directory resolution),
-`--parent-task` lineage validated against an active management request, and
-`--json` output. Consecration verbs use the same grammar; invoking one
-**stages** it and returns a decision id. In Reviewed it remains pending
-unless a [standing policy](fold-consecrations.md) pre-approves the exact
-category. In Unrestricted the host consumes a fresh admission immediately
-and returns the automatic decision result. The model evaluates neither
-policies nor authority mode.
+Act-protocol conventions carry over unchanged: the current act-protocol
+envelope (version advanced 2026-09-10; see `src/local/cli/act-protocol.ts`
+for the number), per-launch act token, explicit `--space` on every
+Space-scoped write (never working-directory resolution), `--parent-task`
+lineage validated against an active management request, and `--json`
+output. Prepared verbs use the same grammar and return the receipt of their
+immediate execution.
 
 ## The ledger
 
@@ -107,8 +106,8 @@ rules, which mirror the desktop's.
 | Create Space | Header menu, palette, onboarding | act | direct verb | `spaces create --name <n>` | spaceId | `spaces unregister` (folder remains) | name collision rejected |
 | Register folder | Header menu, native picker | act | direct verb | `spaces register --path <abs>` | spaceId | `spaces unregister` revokes runtime authorization | already-registered path rejected |
 | Rename Space | Manage Spaces pane | none | direct verb | `spaces rename --space <id> --name <n>` | prior name | rename back (prior name in receipt) | duplicate exact name rejected as ambiguous-making |
-| Unregister Space | Manage Spaces → Remove (linked) | none | direct verb | `spaces unregister --space <id>` | storage kind | re-register the folder; `.work-fold/` identity persists | refused while a release-backed App Instance is sourced by or installed in it, or its Project owns retained data — same App Studio impact checks as the desktop; refused while live publications are backed by it, named in the refusal ([Publishing](fold-publishing.md)); on success, staged acts pinned to the Space are canceled and routings referencing it suspend with active runs stopped ([Consecrations](fold-consecrations.md), [Routings](fold-routings.md)) |
-| Delete managed Space folder | Manage Spaces → Delete (managed) | none | **consecration 3** | `spaces delete --space <id>` (stages) | decisionId | denial or expiry; after execution there is deliberately no undo | staging runs the same impact checks as unregister, including the live-publication block; execution fails closed if the claimed tree contains `.workspace/` |
+| Unregister Space | Manage Spaces → Remove (linked) | none | direct verb | `spaces unregister --space <id>` | storage kind | re-register the folder; `.work-fold/` identity persists | refused while a release-backed App Instance is sourced by or installed in it, or its Project owns retained data — same App Studio impact checks as the desktop; refused while live publications are backed by it, named in the refusal ([Publishing](fold-publishing.md)); on success, routings referencing it suspend with active runs stopped ([Routings](fold-routings.md)) |
+| Delete managed Space folder | Manage Spaces → Delete (managed) | none | **prepared verb** | `spaces delete --space <id>` | trash entry id, canonical root | `trash restore --entry <id>` re-registers the Space from Recently deleted | same impact checks as unregister, including the live-publication block; fails closed if the claimed tree contains `.workspace/` |
 | Apply appearance | Customize Space → Import proposal | none | direct verb (argued below) | `spaces appearance apply --space <id> --proposal <path>` | prior customization ref | `spaces appearance undo --space <id>` | proposal must parse as the typed `space-appearance` proposal; nothing else is accepted |
 | Reset appearance | Customize Space → Reset | none | direct verb | `spaces appearance reset --space <id>` | prior customization ref | `spaces appearance undo` | — |
 | Undo appearance | — (the desktop re-imports or resets instead) | none | direct verb | `spaces appearance undo --space <id>` | restored and displaced customization refs | apply the displaced ref again — undo is its own inverse | refused with a typed error when the receipt chain records no prior customization ref for that Space, including when the current appearance was last changed on the desktop rather than through a receipted act |
@@ -120,22 +119,22 @@ The desktop couples managed-Space removal with folder deletion in one
 confirm dialog; the ledger splits them. Unregistration is recoverable and
 authority-narrowing (a direct verb, valid for both storage kinds, per the
 contributor contract's "registration removal remains available without
-folder deletion"), while destroying the managed folder is exactly the
-irreversible act consecration 3 exists for.
+folder deletion"), while deleting the managed folder is a prepared verb that
+moves it into Recently deleted.
 
 **The appearance argument** (recorded verdict: direct verb). Appearance is
 cosmetic, machine-local, authority-free, and already has an inert typed
 proposal format; requiring a human import click through the fold would spend
-attention on the lowest-stakes mutation in the product while teaching that
-clicks are ceremony rather than authority. The honest counterargument is
-impersonation — a prompt-injected fold restyling one Space to resemble
-another — and the mitigations are structural: the verb accepts only the
-typed proposal file, the receipt captures the prior customization for
-one-act undo, the change surfaces in [the glance](fold-glance.md)'s "what
-changed" list, and appearance cannot touch the fold's own chrome, Settings,
-or any trust surface. If dogfooding shows appearance changes used to
-confuse, the escalation path is narrowing this one row to a consecration —
-not weakening the click doctrine elsewhere.
+attention on the lowest-stakes mutation in the product. The honest
+counterargument is impersonation — a prompt-injected fold restyling one
+Space to resemble another — and the mitigations are structural: the verb
+accepts only the typed proposal file, the receipt captures the prior
+customization for one-act undo, the change surfaces in
+[the glance](fold-glance.md)'s "what changed" list, and appearance cannot
+touch the fold's own chrome, Settings, or any trust surface. If dogfooding
+shows appearance changes used to confuse, the escalation path is a register
+decision about this one row — never a gate reintroduced elsewhere as a
+convenience.
 
 ### Chats
 
@@ -180,18 +179,37 @@ to honestly present.
 | Add outside material | Upload button, drag-drop, chat drop | act | direct verb | `files add --space <id> --from <p>… [--to <folder>]` | checkpointId, copied paths count | restore the checkpoint | copy and restore point succeed or fail together |
 | Move entry | Drag in tree, context menu | none | direct verb | `files move --space <id> --from <space-path> --to <space-folder>` | safety checkpointId, moved path | restore the safety checkpoint | into-own-subtree refused; `.work-fold/`, `.pi/`, `.workspace/` never valid endpoints (same path policy as the renderer) |
 | Rename entry | Context menu → Rename | none | direct verb | `files rename --space <id> --path <p> --name <n>` | safety checkpointId, prior name | restore the safety checkpoint or rename back | same path policy |
-| Delete entry | Context menu → Delete (+ Undo toast) | none | direct verb | `files delete --space <id> --path <p>` | safety checkpointId | restore the safety checkpoint — the durable form of the desktop's 6.5-second Undo toast | **refused whenever the safety checkpoint would skip any matched file** (oversized, unreadable, symlink — the checkpoint's own skip rules): a delete the restore point cannot cover is a destroy, and only the staged `files destroy` may perform it. The refusal names the uncoverable paths |
-| Destroy entry without restore coverage | Staged decision in the fold | none | **consecration 3** | `files destroy --space <id> --path <p>…` (stages) | decisionId, exact paths, observed content identities (sizes; content hashes where readable) | denial or expiry; after execution there is deliberately no undo | identities re-verified at decision time — changed content invalidates the act; same `.work-fold/`/`.pi/`/`.workspace/` path policy as delete |
+| Delete entry | Context menu → Delete (+ Undo toast) | none | direct verb | `files delete --space <id> --path <p>` | safety checkpointId; Recently-deleted entry ids for any path the checkpoint could not cover | restore the safety checkpoint, or `trash restore` for the uncoverable paths — the durable form of the desktop's Undo toast | never refuses for coverage reasons; `.work-fold/`, `.pi/`, `.workspace/` remain invalid endpoints |
 | New folder | Context menu → New folder here | none | direct verb | `files mkdir --space <id> --path <folder>` | created path — no safety checkpoint, stated deliberately: creation is additive and destroys nothing | `files delete` (an empty folder is fully checkpoint-coverable) | existing name refused; same `.work-fold/`/`.pi/`/`.workspace/` path policy |
 | New empty file | Context menu → New file here | none | direct verb | `files create --space <id> --path <p>` | created path — same no-checkpoint note as `files mkdir` | `files delete` | existing name refused; same path policy |
 | Content search | Files search field, Chats search | none | direct verb (content-bearing act read) | `search --space <id> --query <q> [--scope files\|chats\|all]` | scope only — **not** the query text | n/a | honours ignore rules, skips binary/oversized files, and reports when a bound stopped the search rather than implying completeness — same contract as `/api/spaces/:id/search` |
 
 The file verbs use the renderer's own mutation paths and add receipts.
-Desktop and CLI delete both refuse content their safety checkpoint cannot cover.
-Such content requires an explicitly staged `files destroy` decision. History
-recovery also refuses overlapping uncovered content, protects registered child
-Spaces and excluded descendants, and reserves affected work against concurrent
-launches and ownership changes.
+Desktop and CLI delete both succeed on every coverable or uncoverable path:
+what the safety checkpoint cannot capture (oversized, unreadable, symlink —
+the checkpoint's own skip rules) is moved into Recently deleted with a
+manifest. History recovery still refuses overlapping uncovered content,
+protects registered child Spaces and excluded descendants, and reserves
+affected work against concurrent launches and ownership changes.
+
+### Recently deleted
+
+The machine-local trash under the state root (`trash/`) is Space-free: each
+entry records its source Space, so the family takes no `--space`.
+<!-- verify against act-commands.ts: `trash` family tokens -->
+
+| Verb | Human surface | Fold today | Target | Command shape | Receipt adds | Undo / revocation | Conflicts |
+|---|---|---|---|---|---|---|---|
+| List Recently deleted | Settings → The fold → Recently deleted | none | direct verb (content-bearing act read) | `trash list --json` | — | n/a | entries carry source Space id, original Space-relative path or folder, kind (`file`, `folder`, `space`, `app-storage`, `app-retained`), size, deleted-at, restore-by, and the producing receipt id |
+| Restore an entry | Recently deleted → Restore; the Undo toast | none | direct verb | `trash restore --entry <id>` | restored path or Space id | delete it again | refused when the destination path is occupied (the collision is named) or the source Space is unregistered and the entry is not itself a Space |
+
+No verb empties Recently deleted. **Delete now** is a Settings-only action;
+retention (default 30 days, adjustable in Settings → The fold → Limits) is
+the only automatic purge, run on app start and daily while awake. The
+producers are `files delete` for uncoverable paths, `spaces delete`,
+`apps storage clear`, `apps retained purge`, and `apps uninstall
+--purge-data`; the last three write a recovery export into the trash before
+removing live data.
 
 ### Library
 
@@ -206,89 +224,84 @@ launches and ownership changes.
 
 Previously shipped act-lane family, unchanged by the fold:
 `checks status` (read lane), `checks enable|disable|run|task|result|abort|problems|decide`
-(act lane). Enabling a Check is a direct verb, not a consecration, because
-the shipped trigger is `manual`: enablement creates no standing or scheduled
-behavior. If Checks later gain schedules through the named-automation model,
-*that* enablement is a consecration 2 under the existing "enabling a named
-automation" rule — the classification follows the standing behavior, not the
-noun.
+(act lane). Check enablement was always direct and stays so: the shipped
+trigger is `manual`, so enablement creates no standing or scheduled
+behavior, and `checks decide` is a fingerprint-scoped finding decision, not
+an authority act.
 
 ### Assistant tools
 
 | Verb | Human surface | Fold today | Target | Command shape | Receipt adds | Undo / revocation | Conflicts |
 |---|---|---|---|---|---|---|---|
 | List capabilities | Assistant tools → Installed | read | unchanged | `capabilities list --space <id>` | — | n/a | — |
-| Import skill bundle | Add → Skill files | none | **consecration 1** | `tools import-skill --scope personal\|space [--space <id>] --from <path>` (stages) | decisionId, source path, scope | denial/expiry; after install, `tools remove` | a standing policy may pre-approve narrow categories (the canonical example: skill-only imports from a first-party curated marketplace; open-registry matchers are rejected, per [Consecrations](fold-consecrations.md)) — policy application is host-side and receipted |
-| Install catalog capability | Discover → review → install | none | **consecration 1** | `tools install --id <catalog-id> --scope … [--space <id>]` (stages) | decisionId, catalog id, scope | denial/expiry; then `tools remove` | staged act embeds the reviewed metadata the person sees on the needs-you card |
-| Install Pi package | Add → package source | none | **consecration 1** | `tools install --source <pkg> --scope … [--space <id>]` (stages) | decisionId, source, scope | denial/expiry; then `tools remove` | a package with Extensions or install scripts is a code-execution decision and the card must say so, exactly as the desktop review does |
-| Update Pi package | Installed → Update | none | **consecration 1** | `tools update --source <pkg> --scope … [--space <id>]` (stages) | decisionId | denial/expiry | updates change runnable bytes; pinned versions stay pinned |
-| Remove Pi package | Installed → Remove | none | direct verb | `tools remove --source <pkg> --scope … [--space <id>]` | source, scope | reinstall is a fresh consecration | blocked while affected work is active — the kernel's capability-mutation fencing, unchanged |
+| Import skill bundle | Add → Skill files | none | **prepared verb** | `tools import-skill --scope personal\|space [--space <id>] --from <path>` | source path, scope, content digest, enumerated skill names | `tools remove` | executable content is named in the receipt; blocked while affected work is active (capability-mutation fencing) |
+| Install catalog capability | Discover → install | none | **prepared verb** | `tools install --id <catalog-id> --scope … [--space <id>]` | catalog id, scope, content digest | `tools remove` | the receipt embeds the inspected resource summary the person would see in Skills & Extensions |
+| Install Pi package | Add → package source | none | **prepared verb** | `tools install --source <pkg> --scope … [--space <id>]` | source, scope, content digest | `tools remove` | a package with Extensions or install scripts is a code-execution act and the receipt names it, exactly as the desktop review does |
+| Update Pi package | Installed → Update | none | **prepared verb** | `tools update --source <pkg> --scope … [--space <id>]` | source, scope, prior and new content digests | reinstall the prior pinned version | updates change runnable bytes; pinned versions stay pinned |
+| Remove Pi package | Installed → Remove | none | direct verb | `tools remove --source <pkg> --scope … [--space <id>]` | source, scope | reinstall is a fresh prepared verb | blocked while affected work is active — the kernel's capability-mutation fencing, unchanged |
 
 Scope is authority: `--scope personal` makes bytes runnable inside the fold's
-own runtime, so the staged card names that scope for what it is. In Reviewed
-its decision is desktop-only — never remote — per the surface rules in
-[Consecrations](fold-consecrations.md). Unrestricted is a host decision and
-may consume it while retaining any remote staging provenance.
+own runtime on next start; the receipt names that scope for what it is.
 
 ### Space app authority
 
 Restricted Space apps keep their separate reviewed-web lane; nothing here
-touches Pi's package manager or loaded catalog.
+touches Pi's package manager or loaded catalog. Installation grants every
+declared power (F21); the grant, connection, and automation rows below are
+the person's narrowing and re-allowing controls.
 
 | Verb | Human surface | Fold today | Target | Command shape | Receipt adds | Undo / revocation | Conflicts |
 |---|---|---|---|---|---|---|---|
-| List proposals | Chat proposal card | none | direct verb (act read) | `apps proposals list --space <id> --conversation <id>` | — | n/a | — |
-| Dismiss proposal | Proposal card → dismiss | none | direct verb | `apps proposals dismiss --space <id> --conversation <id> --proposal <id>` | proposal id | the Assistant may propose again; nothing runnable existed | — |
-| Approve proposal (install preview) | Review dialog → "Add app with access off" | none | **consecration 1** | `apps install-proposal --space <id> --conversation <id> --proposal <id>` (stages) | decisionId, digest | denial/expiry; after install, `apps remove` | digest-pinned; all powers start off; desktop refuses install while an Assistant turn runs — staging inherits that check at execution time |
-| Add / update local preview | Chat proposal → review (the Apps tab has no manual add path) | none | **consecration 1** | `apps install-preview --space <id> --package <space-path>` (stages) | decisionId, digest | denial/expiry; `apps remove` | an update replaces the preview and resets every grant, connection, and automation — the card must say so |
-| Remove app | App details → Remove | none | direct verb | `apps remove --space <id> --app <id>` | app id, digest | reinstall is a fresh consecration | fenced against running automation jobs |
-| Grant network / file / notification | App details toggles | none | **consecration 2** | `apps grant --space <id> --app <id> --digest <sha> --kind network\|files\|notifications --declaration <id>` (stages) | decisionId, exact declaration | `apps revoke` (direct) | grants bind to the exact reviewed digest and single declaration; nothing is batched |
-| Revoke grant | App details toggles | none | direct verb | `apps revoke --space <id> --app <id> --digest <sha> --kind … --declaration <id>` | declaration id | re-granting is a fresh consecration | revocation stops stale launches before authority changes take effect |
-| Save connection | App details → Connect | none | **consecration 2** | `apps connect --space <id> --app <id> --destination <id>` (stages) | decisionId, destination | `apps disconnect` (direct); deleting the local record does not revoke the credential at its provider — the receipt says so | the staged act names app, destination, and adapter only; **the secret is entered at decision time in the trusted surface** — credentials never ride argv, payloads, or the journal |
-| Remove connection | App details → Disconnect | none | direct verb | `apps disconnect --space <id> --app <id> --destination <id>` | destination id | reconnecting is a fresh consecration | — |
-| Enable automation | App details → automation toggle | none | **consecration 2** | `apps automation enable --space <id> --app <id> --automation <id>` (stages) | decisionId, job id | `apps automation disable` (direct) | runs receive only the intersection of current grants and the job's reviewed permission subset |
-| Disable automation | App details toggle | none | direct verb | `apps automation disable --space <id> --app <id> --automation <id>` | job id | re-enabling is a fresh consecration | — |
+| List proposals | Chat proposal | none | direct verb (act read) | `apps proposals list --space <id> --conversation <id>` | — | n/a | — |
+| Dismiss proposal | Chat proposal → dismiss | none | direct verb | `apps proposals dismiss --space <id> --conversation <id> --proposal <id>` | proposal id | the Assistant may propose again; the preview it installed is removed with `apps remove` | — |
+| List installed apps | Apps tab | none | direct verb (content-bearing act read) | `apps list --space <id> --json` <!-- verify against act-commands.ts --> | — | n/a | returns installed apps with their tools, actions, grants, connections, and automations |
+| Install proposal as local preview | Chat proposal (installed at once when proposed; this verb re-installs the same inspected digest) | none | **prepared verb** | `apps install-proposal --space <id> --conversation <id> --proposal <id>` | digest, granted declarations, enabled automations, destinations still needing a secret | `apps remove` | digest-pinned; desktop refuses install while an Assistant turn runs; an identical digest is idempotent |
+| Add / update local preview | Chat proposal (the Apps tab has no manual add path) | none | **prepared verb** | `apps install-preview --space <id> --package <space-path>` | digest, granted declarations, enabled automations, destinations still needing a secret | `apps remove` | digest-pinned; a changed digest carries forward connections whose destination declaration is byte-identical, automation enabled states by id, and run receipts; grants follow the new declarations; an identical digest is idempotent |
+| Remove app | App details → Remove | none | direct verb | `apps remove --space <id> --app <id>` | app id, digest | reinstall is a fresh prepared verb | fenced against running automation jobs |
+| Re-allow network / file / notification | App details toggles | none | direct verb | `apps grant --space <id> --app <id> --digest <sha> --kind network\|files\|notifications --declaration <id>` | exact declaration | `apps revoke` (direct) | declared powers are on from install, so this re-allows after a revoke; grants bind to the exact digest and single declaration; nothing is batched |
+| Revoke grant | App details toggles | none | direct verb | `apps revoke --space <id> --app <id> --digest <sha> --kind … --declaration <id>` | declaration id | re-allow with `apps grant` | revocation stops stale launches before authority changes take effect |
+| Save connection | App details → Connect | none | direct verb <!-- verify: `apps connect` retained on the branch --> | `apps connect --space <id> --app <id> --destination <id>` | destination, adapter kind, `needs-secret` marker | `apps disconnect` (direct); deleting the local record does not revoke the credential at its provider — the receipt says so | the verb records the destination shape and reports that a secret is still needed; **the secret is entered by the person in the Apps tab, once per destination** — credentials never ride argv, payloads, or the journal |
+| Remove connection | App details → Disconnect | none | direct verb | `apps disconnect --space <id> --app <id> --destination <id>` | destination id | reconnect by entering the secret again in the Apps tab | — |
+| Re-enable automation | App details → automation toggle | none | direct verb | `apps automation enable --space <id> --app <id> --automation <id>` | job id | `apps automation disable` (direct) | declared automations are enabled at install, so this re-enables one after a disable; runs receive only the intersection of current grants and the job's reviewed permission subset |
+| Disable automation | App details toggle | none | direct verb | `apps automation disable --space <id> --app <id> --automation <id>` | job id | re-enable with `apps automation enable` | — |
 | Run automation now | App details → Run now | none | direct verb | `apps automation run --space <id> --app <id> --automation <id>` | run receipt id | n/a — the run already produces a durable, authority-captured receipt | scheduler admission rules apply (two slots, same-job non-overlap); a disabled job still has no notification authority |
-| Clear app storage | App details → storage | none | **consecration 3** | `apps storage clear --space <id> --app <id>` (stages) | decisionId | none after execution — app storage is not History-covered | staging states the byte count being destroyed |
+| Invoke an app tool from the fold | — (the fold's verb; a Space Assistant calls tools in its own Space) | none | direct verb | `apps invoke --space <id> --app <id> --tool <name> --input <json>` <!-- verify against act-commands.ts --> | app id, tool name, lineage | n/a — the tool's own effects follow their domain undo | schema and current-grant checks by `RestrictedAppService.invoke`; fenced like an app action |
+| Clear app storage | App details → storage | none | **prepared verb** | `apps storage clear --space <id> --app <id>` | recovery-export entry id, byte count | `trash restore --entry <id>` | the recovery export is written into Recently deleted before live data is removed |
 
 ### App Studio
 
 The authority-neutral spine of the App platform: everything below changes
 which *local records* exist, never what may run with which powers — powers
-arrive only through the consecration rows above.
+arrive with installation and are narrowed through the rows above.
 
 | Verb | Human surface | Fold today | Target | Command shape | Receipt adds | Undo / revocation | Conflicts |
 |---|---|---|---|---|---|---|---|
 | Declare / edit presentation | App Studio form | none | direct verb | `apps project declare --space <id> --presentation <json-path>` | prior presentation ref | re-declare with prior values | typed presentation file, same validation as the pane; machine-local application state, no `.work-fold/` write |
 | Prepare Release | App Studio → Prepare | none | direct verb | `apps release prepare --space <id> --version <display>` | releaseDigest | `apps release delete` while unused | snapshots current reviewed previews into one immutable content-addressed Release; later source edits cannot alter its bytes |
-| Publish Release | App Studio → Publish | none | direct verb | `apps release publish --space <id> --release <digest>` | releaseDigest | delete while unused; publication records are lifecycle state, not exposure | rechecks that reviewed previews are still exact; **local state transition only** — nothing is uploaded, hosted, listed, or granted. Outward viewer exposure of a hosted Instance is the separate `pages` consecration in [Publishing](fold-publishing.md) |
-| Delete unused Release | App Studio → Delete | none | direct verb | `apps release delete --space <id> --release <digest>` | releaseDigest | re-prepare from unchanged source; the record itself is gone | service guard refuses while any App Instance, either side of a prepared operation, or retained data references it — deletion destroys only a machine-local lifecycle record plus an unreferenced immutable object, never user content, which is why this is not consecration 3 |
+| Publish Release | App Studio → Publish | none | direct verb | `apps release publish --space <id> --release <digest>` | releaseDigest | delete while unused; publication records are lifecycle state, not exposure | rechecks that reviewed previews are still exact; **local state transition only** — nothing is uploaded, hosted, listed, or granted. Outward viewer exposure of a hosted Instance is the separate `pages` share verb in [Publishing](fold-publishing.md) |
+| Delete unused Release | App Studio → Delete | none | direct verb | `apps release delete --space <id> --release <digest>` | releaseDigest | re-prepare from unchanged source; the record itself is gone | service guard refuses while any App Instance, either side of a prepared operation, or retained data references it — deletion destroys only a machine-local lifecycle record plus an unreferenced immutable object, never user content, which is why it needs no Recently-deleted entry |
 | Prepare install | App Studio → Install | none | direct verb | `apps install prepare --space <id> --release <digest> --target-space <id>` | operationId | `apps operation cancel` | one instance per (projectId, target Space); Feature-id collisions rejected |
 | Prepare update / rollback | App Studio instance actions | none | direct verb | `apps update prepare --space <id> --instance <id> --release <digest>` | operationId, direction | `apps operation cancel`; a completed update is undone by preparing the rollback | deterministic plan recorded now, rechecked at activation |
-| Activate operation | App Studio → Activate | none | direct verb | `apps operation activate --space <id> --operation <id>` | operationId, resulting release | rollback is a new prepared operation | activation rechecks the plan, fences the old runtime, changes Release and authority atomically; all powers start off on install; only exact unchanged content keeps authority across an update |
+| Activate operation | App Studio → Activate | none | direct verb | `apps operation activate --space <id> --operation <id>` | operationId, resulting release | rollback is a new prepared operation | activation rechecks the plan, fences the old runtime, changes Release and authority atomically; declared powers are granted and declared automations enabled on install; a changed digest carries forward byte-identical connections, automation enabled states by id, and run receipts |
 | Cancel prepared operation | App Studio → Cancel | none | direct verb | `apps operation cancel --space <id> --operation <id>` | operationId | prepare again | — |
 | Uninstall with retain | Uninstall dialog → retain | none | direct verb | `apps uninstall --space <id> --instance <id> --retain-data` | instance id, retained namespace ids | reinstall creates a **new** Instance; retained namespaces do not remain runnable | fences the whole release-backed runtime; cleanup is the durable restart-retried outbox |
-| Uninstall with purge / purge retained data | Uninstall dialog → purge; retained-data list | none | **consecration 3** | `apps uninstall … --purge-data` / `apps retained purge --space <id> --retained <id>` (stages) | decisionId | none after execution | `apps uninstall` without a disposition flag is refused — the choice is never defaulted |
+| Uninstall with purge / purge retained data | Uninstall dialog → purge; retained-data list | none | **prepared verb** | `apps uninstall … --purge-data` / `apps retained purge --space <id> --retained <id>` | recovery-export entry id | `trash restore --entry <id>` | `apps uninstall` without a disposition flag is refused — the choice is never defaulted; the recovery export lands in Recently deleted before live data is removed |
 
 ### The fold itself
 
 `manage send|status|result|wait|stop|abort|list` are shipped direct verbs,
 joined by `manage glance` ([the glance](fold-glance.md)). The CLI group
 keeps the contract name `manage`; "the fold" is user-facing copy per
-[The fold](fold.md). Staged-act inspection and cancellation
-(`staged list|show|cancel`) belong to
-[Consecrations](fold-consecrations.md); **deciding** a staged act and
-selecting the root authority mode have no CLI or act-lane shape. Reviewed
-decisions come from renderer surfaces or approved-browser envelopes;
-Unrestricted decisions originate inside the desktop host after admission.
-Routing verbs are in [Routings](fold-routings.md); publication verbs in
-[Publishing](fold-publishing.md).
+[The fold](fold.md). Routing verbs are in [Routings](fold-routings.md)
+(`routings enable` is the prepared verb that pins a declaration digest);
+publication verbs in [Publishing](fold-publishing.md); Recently deleted
+above.
 
 ### Settings and fold administration — the setup-only boundary
 
-No command shapes. The fold can neither perform nor stage these; the act
-lane never grows a verb for them, and a staged act that would amount to one
-is refused at parse time, not at decision time.
+No command shapes. The fold can neither perform nor request these; the act
+lane never grows a verb for them, and a request that would amount to one is
+refused at parse time.
 
 | Verb | Human surface | Target |
 |---|---|---|
@@ -296,15 +309,11 @@ is refused at parse time, not at decision time.
 | Remove or replace stored provider credential | Settings → Assistant | **setup-only** |
 | Remote access: create/change address, password, approve or revoke a browser, revoke generations, disable, delete | Settings → The fold ("Your fold on the web") | **setup-only** (fold-authority surface) |
 | Act-token and pairing machinery: minting, scope, lifetime | none (app-owned) | **setup-only** |
-| Author, edit, or delete a standing policy | Settings → The fold | **setup-only** (the fold may cite policies, never write them) |
-| Select Reviewed or Unrestricted root authority | Settings → The fold → Authority | **setup-only** (no Assistant, CLI, act-token, or remote verb) |
+| Delete now (purge one Recently-deleted entry early) or change Limits | Settings → The fold | **desktop-only** (no act verb; nothing a task needs is behind it) |
 
-Approved remote browsers inherit the current root mode. In Reviewed they may
-*decide* eligible staged consecrations subject to the two surface rules in
-[Consecrations](fold-consecrations.md). In Unrestricted their newly admitted
-requests are consumed by the desktop host, and the receipt preserves the
-initiating browser/grant identity. They cannot touch this table or select the
-mode.
+Approved remote browsers use the same verbs and receipts as the desktop;
+each remote-originated receipt records the browser and grant. They cannot
+touch this table.
 
 ### Deliberately absent
 
@@ -322,12 +331,12 @@ Absences that are decisions, not gaps:
   Machine-local preferences with no product meaning.
 - **work-fold self-update** — check, download, install. The updater changes
   the code that enforces everything in this document; it stays a
-  desktop-human action and gains no fold verb, staged or otherwise.
+  desktop-human action and gains no fold verb.
 - **Answering extension-UI and permission prompts inside a running turn** —
   these render inside the Chat surface and can carry permission semantics;
-  the fold answering them programmatically would be a click the person did
-  not make. They surface as needs-you items in the glance and are answered
-  on a chat surface by the person.
+  the fold answering them programmatically would be an answer the person
+  did not give. They surface as needs-you questions in the glance and are
+  answered on a chat surface by the person.
 - **Composer slash commands as a fold surface** — `/compact` graduated to a
   real verb above; the rest remain conversational conveniences inside a
   turn, not product verbs.
@@ -344,14 +353,13 @@ Consolidated, so implementations and tests can point at one list:
 3. Capability mutations (`tools …`, and Check enablement's fencing) are
    blocked while affected work is active; a catalog reload can never
    silently terminate a background turn.
-4. Space unregistration and staged folder deletion run the App Studio
+4. Space unregistration and managed-folder deletion run the App Studio
    impact checks: active source/target Instances block, retained data
    blocks, and incoming prepared operations are named in the refusal. Live
    publications backed by the Space block too, and are named in the refusal
-   ([Publishing](fold-publishing.md)). A removal that proceeds cancels
-   staged acts pinned to that Space and suspends routings referencing it,
-   stopping any active run ([Consecrations](fold-consecrations.md),
-   [Routings](fold-routings.md)).
+   ([Publishing](fold-publishing.md)). A removal that proceeds suspends
+   routings referencing that Space, stopping any active run
+   ([Routings](fold-routings.md)).
 5. Managed recursive deletion fails closed when the claimed tree contains
    preserved `.workspace/` data.
 6. App Studio guards hold: referenced Releases cannot be deleted, prepared
@@ -365,34 +373,31 @@ Consolidated, so implementations and tests can point at one list:
 8. Restricted-app proposal execution inherits the desktop's
    no-active-turn install rule; automation runs obey the machine-wide
    scheduler's admission and non-overlap rules.
-9. Every staged consecration that duplicates an identical pending staging
-   is a conflict, not a second card.
-10. `files delete` refuses whenever its safety checkpoint would skip a
-    matched file (oversized, unreadable, symlink); destroying such content
-    is the staged `files destroy` consecration, never a direct verb.
+9. `files delete` never refuses for coverage reasons; paths the safety
+   checkpoint cannot cover (oversized, unreadable, symlink) move into
+   Recently deleted, and `.work-fold/`, `.pi/`, `.workspace/` stay invalid
+   endpoints.
 
 ## Receipt schema
 
-`WorkFoldCliActReceiptV1` (`src/local/cli/act-receipts.ts`) carries four
-optional receipts-v2 fields at `v: 2`; readers accept both versions:
+`WorkFoldCliActReceiptV1` (`src/local/cli/act-receipts.ts`) carries these
+optional fields beyond the baseline; readers accept every prior version:
 
-- `surface` — one value from the closed six-value vocabulary shared with
-  decision records: `cli`, `popover`, `main-window`, `remote_web`, `policy`,
-  `unrestricted`.
-  Act receipts record the authenticated surface that initiated the act
-  (`cli`, `popover`, or `remote_web`, plus browser and grant ids when
-  remote); decision receipts additionally use `main-window`, `policy`, and
-  `unrestricted`.
-  This is the compensating control for remote consecration decisions.
-- `decisionId` — links a staging receipt to its pending decision and the
-  eventual execution receipt to the click, policy, or Unrestricted host
-  decision that authorized it.
-- `policyId` — present exactly when a standing policy, not a click,
-  satisfied a consecration; policies are receipted when exercised.
+- `surface` — the authenticated surface that initiated the act, from the
+  closed vocabulary `cli`, `popover`, `main-window`, `remote_web`, plus
+  browser and grant ids when remote. This is the attribution control for
+  remote-originated acts.
 - `undoRef` — a typed reference to the prior state an undo verb needs:
   prior title or name, prior lifecycle state, prior appearance
-  customization ref, safety checkpoint id. Identifiers and digests only;
-  receipts never grow file contents, message text, queries, or secrets.
+  customization ref, safety checkpoint id, Recently-deleted entry id
+  <!-- verify: undoRef kind for trash entries -->. Identifiers and digests
+  only; receipts never grow file contents, message text, queries, or
+  secrets.
+
+The act protocol version advanced on 2026-09-10; readers accept every prior
+version, and receipts written before that date may still carry the retired
+`decisionId` and `policyId` fields and the retired `policy` and
+`unrestricted` surfaces. New receipts never do.
 
 The journal keeps its existing properties: append-only, journal-first,
 rotation that never drops an entry younger than the broker freshness
@@ -407,19 +412,19 @@ The ledger's plan items shipped as follows (suites named in
 2. Act argv and command table, with parse-time setup-only refusal — `src/local/cli/act-commands.ts`; `tests/work-fold-cli-act-protocol.test.ts`.
 3. Facade growth over the exact route internals — `src/local/cli/act-facade.ts`, `src/local/server.ts`; `tests/work-fold-act-facade.test.ts` plus the owning domain suites.
 4. History-restore fencing and `chat compact` — `src/local/work-fold-kernel.ts`; `tests/work-fold-kernel.test.ts`.
-5. Consecration-staged rows returning `staged` results — with [Consecrations](fold-consecrations.md)'s store; `tests/work-fold-cli-staged-verbs.test.ts`.
+5. Prepared verbs returning receipts — `src/local/fold-staged-acts.ts` (or its renamed successor) and the suite the verification map names <!-- verify: prepared-act module and suite names -->.
 6. Surface attribution — `src/local/management-requests.ts`; `tests/management-requests.test.ts`, `tests/work-fold-management-api.test.ts`.
 7. Desktop host and shims — `desktop/src/work-fold-cli-host.ts`, `desktop/cli/`; `tests/desktop-work-fold-cli-host.test.ts`, `tests/desktop-cli-packaging.test.ts`.
 8. Help and read-lane text — `src/local/cli/commands.ts`; `tests/work-fold-cli-protocol.test.ts`.
 9. Management-instruction teaching — `src/local/management-instructions.ts`; `tests/work-fold-management-conversation.test.ts`.
 10. Documentation promotion — recorded in [Fold integration](fold-integration.md).
+11. Receipts, not gates (2026-09-10) — reclassification of every formerly gated row to a prepared or direct verb, `files destroy` removed, the `trash` family, `apps list|invoke`, and `routings enable`; recorded in [Receipts, not gates](receipts-not-gates.md).
 
 ## Deliberately not in this design
 
-- **The decision machinery.** Staging storage, needs-you cards, expiry,
-  denial records, standing-policy evaluation, and remote-click compensating
-  controls are [Consecrations](fold-consecrations.md)'s; this ledger only
-  marks which verbs enter that machinery.
+- **Gate machinery.** No pending store, cards, expiry, denial memory,
+  standing rules, or authority mode — removed 2026-09-10 and not to be
+  reintroduced as a convenience.
 - **A headless act lane.** Every verb still requires the running
   interactive app; "Open work-fold…" with exit code 6 stays the honest
   failure.

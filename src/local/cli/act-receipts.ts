@@ -35,15 +35,24 @@ export interface WorkFoldCliActReceiptV1 {
 }
 
 /**
- * Closed surface vocabulary shared between act receipts and consecration
- * decision records. `cli`, `popover`, and `remote_web` name the authenticated
- * surface that initiated an act; `main-window`, `policy`, and `unrestricted`
- * additionally appear on decision receipts. `remote_web` matches the
+ * Closed surface vocabulary for act receipts: the authenticated surface that
+ * initiated an act — the act CLI, the menu-bar popover, the main window's
+ * Settings acts, or an approved remote browser. `remote_web` matches the
  * provenance spelling already durable in conversation logs.
  */
-export const WORKFOLD_CLI_ACT_SURFACES = ["cli", "popover", "main-window", "remote_web", "policy", "unrestricted"] as const;
+export const WORKFOLD_CLI_ACT_SURFACES = ["cli", "popover", "main-window", "remote_web"] as const;
 
 export type WorkFoldCliActSurface = (typeof WORKFOLD_CLI_ACT_SURFACES)[number];
+
+/**
+ * Surfaces older builds wrote on decision receipts (a standing policy or the
+ * Unrestricted authority mode satisfying a gated act). Nothing writes them
+ * any more; readers of durable records accept them so those lines stay
+ * readable history and still gate replays.
+ */
+export const WORKFOLD_CLI_ACT_LEGACY_SURFACES = ["policy", "unrestricted"] as const;
+
+export type WorkFoldCliActLegacySurface = (typeof WORKFOLD_CLI_ACT_LEGACY_SURFACES)[number];
 
 /**
  * Typed pointer to the prior state an undo verb needs — identifiers, digests,
@@ -55,13 +64,24 @@ export interface WorkFoldCliActUndoRef {
   value: string;
 }
 
+/**
+ * Legacy read-only shape: lines older builds wrote while gated acts carried a
+ * decision id, a policy id, and the two legacy surfaces. Still parsed, still
+ * an at-most-once ledger entry, never written.
+ */
 export interface WorkFoldCliActReceiptV2 extends Omit<WorkFoldCliActReceiptV1, "v"> {
   v: 2;
-  surface?: WorkFoldCliActSurface;
-  /** Links staging and execution receipts to the pending decision that authorized them. */
+  surface?: WorkFoldCliActSurface | WorkFoldCliActLegacySurface;
   decisionId?: string;
-  /** Present exactly when a standing policy, not a click, satisfied a consecration. */
   policyId?: string;
+  browserId?: string;
+  grantId?: string;
+  undoRef?: WorkFoldCliActUndoRef;
+}
+
+export interface WorkFoldCliActReceiptV3 extends Omit<WorkFoldCliActReceiptV1, "v"> {
+  v: 3;
+  surface?: WorkFoldCliActSurface;
   /** Approved remote browser identity, when the act arrived through remote access. */
   browserId?: string;
   grantId?: string;
@@ -69,7 +89,7 @@ export interface WorkFoldCliActReceiptV2 extends Omit<WorkFoldCliActReceiptV1, "
 }
 
 /** Journal lines are written at the current version; readers accept every version. */
-export type WorkFoldCliActReceipt = WorkFoldCliActReceiptV1 | WorkFoldCliActReceiptV2;
+export type WorkFoldCliActReceipt = WorkFoldCliActReceiptV1 | WorkFoldCliActReceiptV2 | WorkFoldCliActReceiptV3;
 
 export interface WorkFoldCliActReceiptsOptions {
   stateRoot: string;
@@ -94,11 +114,11 @@ export class WorkFoldCliActReceipts {
   }
 
   /** Serialized best-effort append; resolves false when the receipt could not be written. */
-  append(entry: Omit<WorkFoldCliActReceiptV2, "v" | "at">): Promise<boolean> {
+  append(entry: Omit<WorkFoldCliActReceiptV3, "v" | "at">): Promise<boolean> {
     const operation = this.#queue.catch(() => undefined).then(async () => {
       try {
-        const record: WorkFoldCliActReceiptV2 = {
-          v: 2,
+        const record: WorkFoldCliActReceiptV3 = {
+          v: 3,
           at: this.#now().toISOString(),
           ...entry,
           command: scrubText(entry.command),

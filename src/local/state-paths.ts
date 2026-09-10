@@ -40,6 +40,11 @@ export function restrictedAppRoot(): string {
   return join(workFoldStateRoot(), "restricted-apps");
 }
 
+/** Machine-local trash for reversible destruction (docs/receipts-not-gates.md, F20). */
+export function workFoldTrashRoot(): string {
+  return join(workFoldStateRoot(), "trash");
+}
+
 /**
  * Scope id for the management conversation that sits above all Spaces. It is
  * a distinct conversation scope, not a Space: its records describe this

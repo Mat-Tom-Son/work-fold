@@ -39,6 +39,7 @@ import {
   type PiRuntimeProvider,
   type ResolvedPiRuntime,
 } from "./pi-runtime-config.js";
+import { runBoundedInference, type BoundedInferenceOutcome, type BoundedInferenceRequest } from "./bounded-inference.js";
 import { type RestrictedAppProposalHost } from "./restricted-app-proposals.js";
 import type {
   RestrictedAppInstalled,
@@ -169,6 +170,8 @@ export class PiConversationClient extends EventEmitter {
   private activeThinkingTrailId: string | null = null;
   private thinkingTrailSequence = 0;
   private lastToolEventKey = "";
+  /** In-flight bounded app inference calls; `stop()` aborts them so a runtime rebuild interrupts them honestly. */
+  private readonly boundedCalls = new Set<AbortController>();
 
   constructor(
     private readonly conversationId: string,
@@ -395,6 +398,27 @@ export class PiConversationClient extends EventEmitter {
     return title;
   }
 
+  /**
+   * Bounded app inference on this Space's configured model: no transcript, no
+   * tools beyond the optional result submission, and no persisted messages.
+   * The session is streamed, never prompted, so it stays at zero messages and
+   * keeps resolving the Space's saved model on every rebuild.
+   */
+  async infer(request: Omit<BoundedInferenceRequest, "signal"> & { signal?: AbortSignal }): Promise<BoundedInferenceOutcome> {
+    const session = await this.ensureSession();
+    const controller = new AbortController();
+    const forward = () => controller.abort();
+    if (request.signal?.aborted) controller.abort();
+    else request.signal?.addEventListener("abort", forward, { once: true });
+    this.boundedCalls.add(controller);
+    try {
+      return await runBoundedInference(session, { ...request, signal: controller.signal });
+    } finally {
+      this.boundedCalls.delete(controller);
+      request.signal?.removeEventListener("abort", forward);
+    }
+  }
+
   /** Uses the native configured transport, but no conversation messages,
    * extensions' tools, or tool-execution loop enter the review request. */
   async reviewCheck(input: WorkFoldModelCheckRequest): Promise<WorkFoldModelCheckResponse> {
@@ -432,6 +456,8 @@ export class PiConversationClient extends EventEmitter {
   async stop(): Promise<void> {
     const preserveActiveTurnTrail = this.promptInFlight;
     this.runtimeGeneration += 1;
+    // Bounded app inference has no turn to settle; abort it so callers see an interruption, not a hang.
+    for (const call of this.boundedCalls) call.abort();
     const session = this.runtimeHost?.session;
     if (this.promptInFlight) {
       const error = new Error("Assistant turn stopped because work-fold is closing.");

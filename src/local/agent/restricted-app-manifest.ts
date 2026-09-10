@@ -365,6 +365,11 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
   };
 }
 
+/** Parses an app-supplied schema at runtime with the exact rules tool schemas follow. */
+export function parseRestrictedAppJsonSchema(value: unknown, label = "Restricted app schema"): RestrictedAppJsonSchema {
+  return parseJsonSchema(value, label, 0);
+}
+
 /**
  * The reviewed viewer surface (docs/fold-publishing.md, rung 3). The entry is
  * a packaged HTML document like the runtime entry; readable prefixes are a

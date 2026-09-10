@@ -55,6 +55,8 @@ viewer pages and app views are a separate shipped capability.
 |---|---|
 | [Checks expansion](checks-expansion.md) | Shipped decisions reconciled with remaining proposals; the Checks register wins |
 | [Next product directions](next-product-directions.md) | Proposed priorities for discussion, not accepted scope |
+| [Assistant collaboration and app AI primitives](assistant-collaboration-plan.md) | Verified 0.4.23 gap assessment and proposed task, result, question, app AI, and action contracts; not accepted scope |
+| [Receipts, not gates](receipts-not-gates.md) | Accepted 2026-09-10 direction: one authority mode, reversible destruction, apps that come up able to work; supersedes F3–F7 and F17 |
 | [App platform exploration](app-platform-exploration.md) | Completed exploration; the accepted foundation wins |
 | [Runtime spike evidence](app-platform-runtime-spike-evidence.md) | Disposable experiment evidence, not production-service proof |
 | [Fold integration](fold-integration.md) | Promotion history and explicitly held decisions |

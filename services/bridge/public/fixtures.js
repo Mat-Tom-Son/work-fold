@@ -42,47 +42,6 @@ export function buildFixture(name) {
     { id: "chat-3", title: "Grant application draft", updatedAt: daysAgo(1), state: "idle" },
     { id: "chat-4", title: "Reading list", updatedAt: daysAgo(4), state: "idle" },
   ];
-  const decisions = [
-    {
-      id: "card-1",
-      category: "widen-power",
-      categoryLine: "Grants a standing power",
-      title: "Let Clipper reach api.example.com",
-      facts: [
-        { label: "App", value: "Clipper" },
-        { label: "Destination", value: "api.example.com" },
-      ],
-      provenance: { stagedVia: "management-conversation", stagedAt: minutes(18) },
-      expiresAt: minutes(-60 * 23),
-    },
-    {
-      id: "card-2",
-      category: "destroy",
-      categoryLine: "Deletes something for good",
-      title: "Delete the folder for Old scans",
-      facts: [
-        { label: "Space", value: "Old scans" },
-        { label: "Folder", value: "~/Documents/old-scans" },
-      ],
-      provenance: { stagedVia: "act-lane", stagedAt: minutes(35) },
-      expiresAt: minutes(-60 * 22),
-      priorDenialAt: minutes(60 * 30),
-      secondConfirmation: true,
-    },
-    {
-      id: "card-3",
-      category: "make-runnable",
-      categoryLine: "Installs code that can run as you — Personal scope",
-      title: "Install summarize-notes 1.4.0",
-      facts: [
-        { label: "Package", value: "summarize-notes 1.4.0" },
-        { label: "Source", value: "registry.example.com" },
-      ],
-      provenance: { stagedVia: "management-conversation", stagedAt: minutes(9) },
-      expiresAt: minutes(-60 * 23.5),
-      desktopOnly: true,
-    },
-  ];
   const glance = {
     cursor: `${minutes(4)}/change-1`,
     seen: { [`remote:${grantId}`]: `${minutes(90)}/change-4` },
@@ -126,8 +85,8 @@ export function buildFixture(name) {
       dispositions: [{ attachment: { name: "q3-numbers.csv" }, status: "library" }],
       actions: [
         { command: "files.add", spaceId: "space-1", spaceName: "Launch plan", copied: ["reports/q3-summary.md"] },
-        { command: "apps.grant", decisionId: "card-1" },
-        { command: "apps.install-preview", decisionId: "completed-app-review", apps: [{ spaceId: "space-1", appId: "quote-board", featureInstallationId: "fixture-quote-board",
+        { command: "apps.grant", spaceId: "space-1", spaceName: "Launch plan" },
+        { command: "apps.install-preview", apps: [{ spaceId: "space-1", appId: "quote-board", featureInstallationId: "fixture-quote-board",
           digest: "b".repeat(64), title: "Quote board", version: "0.9.0" }] },
       ],
     },
@@ -169,7 +128,6 @@ export function buildFixture(name) {
       activeTasks: new Map([["chat-1", { taskId: "task-1", conversationId: "chat-1" }]]),
       liveAssistantText: "I’m reconciling the two missing purchase orders now and checking the draft’s sentence case.",
       liveAssistantTextTruncated: false,
-      decisions,
       glance,
     },
   };

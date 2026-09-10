@@ -695,31 +695,6 @@ body.drawer-locked { overflow: hidden; }
 /* --- Needs you: decision cards, the questions from chats, the glance ------ */
 
 .fold-home { display: grid; gap: 20px; margin: 0 0 22px; }
-.needs-you-stack { display: grid; gap: 14px; }
-.needs-you-notice { display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; margin: 0; padding: 9px 11px; border-radius: 10px; background: var(--paper); color: var(--ink); font-size: 13px; line-height: 1.45; }
-.needs-you-notice button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 13px; line-height: 1; padding: 4px; }
-.needs-you-card { margin: 0; padding: 13px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); font-size: 13px; }
-.needs-you-card[data-category="destroy"] { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
-.needs-you-category { margin: 0 0 4px; color: var(--muted); font-size: 12px; }
-.needs-you-title { margin: 0 0 9px; font-size: 14px; line-height: 1.4; font-weight: 650; overflow-wrap: anywhere; }
-.needs-you-facts { display: grid; gap: 3px; margin: 0 0 9px; }
-.needs-you-fact { display: flex; gap: 6px; align-items: baseline; }
-.needs-you-fact dt { flex: none; color: var(--muted); }
-.needs-you-fact dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
-.needs-you-provenance, .needs-you-prior-denial, .needs-you-rule { margin: 0 0 7px; color: var(--muted); font-size: 12px; line-height: 1.45; }
-.needs-you-prior-denial { color: var(--warning); }
-.needs-you-rule { color: var(--warning); }
-.needs-you-note { margin: 0 0 9px; font-size: 12px; color: var(--muted); }
-.needs-you-note summary { cursor: pointer; }
-.needs-you-note input { width: 100%; margin-top: 6px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 13px; }
-.needs-you-confirm { margin: 0 0 4px; padding: 10px 11px; border-radius: 9px; background: color-mix(in srgb, var(--danger) 9%, var(--surface)); }
-.needs-you-confirm p { margin: 0 0 9px; color: var(--danger); font-size: 13px; }
-.needs-you-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.needs-you-actions button { min-height: 36px; padding: 5px 14px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; font-weight: 620; cursor: pointer; }
-.needs-you-actions button:disabled { opacity: .56; cursor: default; }
-.needs-you-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.needs-you-approve { border-color: color-mix(in srgb, var(--accent) 42%, var(--line)); color: var(--accent); }
-.needs-you-approve.needs-you-destroy { border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); color: var(--danger); }
 .glance { display: grid; gap: 7px; }
 .glance-heading { margin: 24px 0 6px; color: var(--muted); font-size: 11px; font-weight: 720; letter-spacing: .09em; text-transform: uppercase; }
 .glance-heading:first-child { margin-top: 0; }
@@ -993,10 +968,7 @@ body { overscroll-behavior-y: none; }
 /* A sent-but-not-yet-recorded message renders provisionally. */
 .message.pending { opacity: 0.62; }
 
-/* A card whose decision is in flight reads as busy instead of dead. */
-.needs-you-card.busy { opacity: 0.62; }
-
-/* Pending-decision count on the Needs you destination, from every screen. */
+/* Needs-you count on the Needs you destination, from every screen. */
 .rail-item, .sidebar-item { position: relative; }
 .nav-badge {
   display: grid;
@@ -1047,7 +1019,7 @@ body { overscroll-behavior-y: none; }
 
 @media (pointer: coarse) {
   /* iOS zooms the page into any sub-16px field and the zoom sticks. */
-  .conversation-title-form input, .needs-you-note input, .space-picker { font-size: 16px; }
+  .conversation-title-form input, .space-picker { font-size: 16px; }
   /* Thumb-sized targets for the controls tapped most. */
   .attach-button, .send-button { width: 44px; height: 44px; }
   .sidebar-toggle, .rail-account .account-settings { width: 44px; height: 44px; }

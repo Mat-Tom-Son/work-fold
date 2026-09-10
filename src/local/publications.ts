@@ -3,7 +3,7 @@ import { lstat, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 import type { RestrictedAppViewerExposurePins, RestrictedAppViewerServeOutcome } from "./agent/restricted-app-viewer.js";
-import type { WorkFoldCliActReceiptV2 } from "./cli/act-receipts.js";
+import type { WorkFoldCliActReceiptV3 } from "./cli/act-receipts.js";
 import { resolveSpacePath } from "./space.js";
 import { workFoldStateRoot } from "./state-paths.js";
 
@@ -165,13 +165,12 @@ export interface WorkFoldPublicationView {
 
 /**
  * Provenance for one receipted publication act. `requestId` is the act-lane
- * replay boundary; the remaining fields ride into the receipt so a decision
- * or a remote surface stays attributable.
+ * replay boundary; the remaining fields ride into the receipt so the
+ * initiating surface and a remote browser stay attributable.
  */
 export interface WorkFoldPublicationActContext {
   requestId: string;
-  surface?: WorkFoldCliActReceiptV2["surface"];
-  decisionId?: string;
+  surface?: WorkFoldCliActReceiptV3["surface"];
   parentTaskId?: string;
   browserId?: string;
   grantId?: string;
@@ -278,7 +277,7 @@ export interface WorkFoldPublicationBridgeSync {
 }
 
 export interface WorkFoldPublicationReceiptWriter {
-  append(entry: Omit<WorkFoldCliActReceiptV2, "v" | "at">): Promise<boolean>;
+  append(entry: Omit<WorkFoldCliActReceiptV3, "v" | "at">): Promise<boolean>;
 }
 
 export type WorkFoldPublicationErrorCode =
@@ -1177,7 +1176,6 @@ export class WorkFoldPublicationService {
       command,
       ...(spaceId ? { spaceId } : {}),
       ...(context.surface !== undefined ? { surface: context.surface } : {}),
-      ...(context.decisionId !== undefined ? { decisionId: context.decisionId } : {}),
       ...(context.parentTaskId !== undefined ? { parentTaskId: context.parentTaskId } : {}),
       ...(context.browserId !== undefined ? { browserId: context.browserId } : {}),
       ...(context.grantId !== undefined ? { grantId: context.grantId } : {}),

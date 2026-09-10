@@ -5,7 +5,6 @@ import test from "node:test";
 import { normalizeWorkFoldRoutingProposal } from "../src/local/routings/routing-declarations.js";
 
 import {
-  WORKFOLD_CLI_ACT_STAGED_COMMAND_NAMES,
   WORKFOLD_CLI_PROTOCOL_VERSION,
   WorkFoldCliError,
   WorkFoldCliExitCode,
@@ -111,7 +110,7 @@ test("CLI help covers every landed act family and is honest about staging", () =
     checks: ["status", "enable", "disable", "run", "task", "result", "wait", "abort", "problems", "decide"],
     history: ["list", "save", "restore", "versions", "restore-file"],
     search: [""],
-    files: ["add", "move", "rename", "delete", "mkdir", "create", "destroy"],
+    files: ["add", "move", "rename", "delete", "mkdir", "create"],
     library: ["list", "add", "folder create", "copy"],
     spaces: [
       "list", "create", "register", "rename", "unregister", "delete",
@@ -126,9 +125,8 @@ test("CLI help covers every landed act family and is honest about staging", () =
       "release publish", "release delete", "install prepare", "update prepare",
       "operation activate", "operation cancel", "uninstall",
     ],
-    routings: ["stage", "list", "show", "run", "stop", "disable", "delete", "receipts"],
+    routings: ["enable", "list", "show", "run", "stop", "disable", "delete", "receipts"],
     pages: ["stage", "list", "status", "revoke", "narrow", "snapshot-off"],
-    staged: ["list", "show", "cancel"],
   };
   const overview = workFoldCliHelp("work-fold");
   for (const [family, verbs] of Object.entries(families)) {
@@ -140,16 +138,18 @@ test("CLI help covers every landed act family and is honest about staging", () =
       assert.ok(topic.includes(`work-fold ${spelled} `), `help ${family} must show usage for '${spelled}'`);
     }
   }
-  // Every consecrated row's family topic must say the act stages a decision
-  // instead of executing; apps.uninstall is consecrated via --purge-data.
-  for (const stagedName of WORKFOLD_CLI_ACT_STAGED_COMMAND_NAMES) {
-    const family = stagedName.split(".")[0]!;
-    assert.match(workFoldCliHelp("work-fold", family), /decision/, `help ${family} must explain staging for ${stagedName}`);
+  // Every verb runs immediately and leaves a receipt (docs/receipts-not-gates.md):
+  // no family topic promises a gate, and none of the retired vocabulary survives.
+  for (const family of Object.keys(families)) {
+    const topic = workFoldCliHelp("work-fold", family);
+    assert.doesNotMatch(topic, /[Ss]taged|pending decision|decision card|needs-you card|approv|Reviewed mode|Unrestricted|polic/, `help ${family} must not describe a gate`);
   }
+  assert.doesNotMatch(overview, /[Ss]taged|decision|approv|Reviewed|Unrestricted|polic/);
+  assert.match(workFoldCliHelp("work-fold", "tools"), /immediately with a receipt/);
   assert.match(workFoldCliHelp("work-fold", "apps"), /--purge-data/);
   // The setup-only boundary stays visible where an agent looks first.
   assert.match(overview, /local setup/);
-  assert.match(overview, /Unrestricted lets the desktop host decide/);
+  assert.match(overview, /runs immediately and leaves a receipt/);
 });
 
 test("CLI executor passes actor cwd and Space scope through the narrow kernel", async () => {
