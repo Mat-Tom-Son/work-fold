@@ -20,9 +20,10 @@ import { foldPublicationsSettings, remoteAccessSettings } from "../../ui-contrac
 import { WorkFoldLockup } from "../brand/WorkFoldBrand";
 import { AssistantSetupPane, type AssistantModelScope } from "../panes/spacePanes";
 import { FoldRoutingsPane } from "./FoldRoutingsPane";
+import { FoldRecentlyDeletedPane } from "./RecentlyDeletedPane";
 
 export type SettingsPage = "appearance" | "assistant" | "remote" | "desktop" | "about";
-type FoldSettingsSection = "access" | "pages" | "routings";
+type FoldSettingsSection = "access" | "pages" | "routings" | "deleted";
 
 export function DesktopSettingsModal({ theme, themePreference, onThemePreferenceChange, typography, onTypographyChange, space, agentStatus, fixtureMode = false, initialPage = "appearance", initialAssistantScope, focusAssistantModel = false, onAgentConfigured, onAssistantChanged, onClose, updateStatus, onUpdateAction }: {
   theme: AppTheme;
@@ -179,6 +180,9 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
                   ], [
                     "routings",
                     "Routings",
+                  ], [
+                    "deleted",
+                    "Recently deleted",
                   ]] as Array<[FoldSettingsSection, string]>).map(([id, label]) => (
                     <button className={foldSection === id ? "active" : ""} type="button" role="tab" aria-selected={foldSection === id} key={id} onClick={() => setFoldSection(id)}>{label}</button>
                   ))}
@@ -186,6 +190,7 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
                 {foldSection === "access" ? <RemoteAccessPane /> : null}
                 {foldSection === "pages" ? <FoldPublicationsPane /> : null}
                 {foldSection === "routings" ? <FoldRoutingsPane /> : null}
+                {foldSection === "deleted" ? <FoldRecentlyDeletedPane /> : null}
               </div>
             ) : null}
             {page === "desktop" ? (

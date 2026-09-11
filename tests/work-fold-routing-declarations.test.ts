@@ -6,13 +6,13 @@ import test from "node:test";
 
 import {
   assertWorkFoldRoutingAtAdmissionHorizon,
-  assertWorkFoldRoutingAtStagingHorizon,
   declarationFromWorkFoldRoutingProposal,
   normalizeWorkFoldRoutingDeclaration,
   normalizeWorkFoldRoutingProposal,
   readWorkFoldRoutingProposal,
   workFoldRoutingBounds,
   workFoldRoutingDigest,
+  workFoldRoutingMessagePlaceholders,
   workFoldRoutingProposalFileSuffix,
   workFoldRoutingReferencedSpaceIds,
 } from "../src/local/routings/routing-declarations.js";
@@ -185,15 +185,6 @@ test("version 2 admits explicit-offset one-time triggers and keeps their time-se
     normalized.routing,
     new Date("2026-08-10T18:29:00.001Z"),
   ), /between 1 minute and 366 days/);
-  assert.doesNotThrow(() => assertWorkFoldRoutingAtStagingHorizon(
-    normalized.routing,
-    new Date("2026-08-10T18:28:00.000Z"),
-  ));
-  assert.throws(() => assertWorkFoldRoutingAtStagingHorizon(
-    normalized.routing,
-    new Date("2026-08-10T18:28:00.001Z"),
-  ), /between 2 minutes and 366 days/);
-
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
     value.routing.trigger = { kind: "at", at: "2026-08-10T18:30:00Z", ifMissed: "run" };
   })), /require contract version 2/);
@@ -230,10 +221,10 @@ test("every bounds-table limit refuses at parse", () => {
       space: manuscriptSpace,
       message: "Go.",
     }));
-  })), /between 1 and 8 steps/);
+  })), /between 1 and 16 steps/);
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
     value.routing.steps = [];
-  })), /between 1 and 8 steps/);
+  })), /between 1 and 16 steps/);
   for (const intervalMinutes of [workFoldRoutingBounds.minIntervalMinutes - 1, workFoldRoutingBounds.maxIntervalMinutes + 1, 60.5]) {
     assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
       value.routing.trigger = { kind: "interval", intervalMinutes };
@@ -310,8 +301,8 @@ test("unknown kinds, versions, fields, and unpinned references fail closed", () 
     value.kind = "work-fold.check-proposal";
   })), /kind must be work-fold\.routing-proposal/);
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
-    value.version = 4;
-  })), /unsupported version 4/);
+    value.version = 5;
+  })), /unsupported version 5/);
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
     value.enabled = true;
   })), /unsupported field: enabled/);
@@ -327,6 +318,10 @@ test("unknown kinds, versions, fields, and unpinned references fail closed", () 
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
     value.routing.steps[0] = { id: "run", kind: "shell", space: manuscriptSpace, command: "rm -rf /" };
   })), /chat, files, or check/);
+  assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
+    value.version = 4;
+    value.routing.steps[0] = { id: "run", kind: "shell", space: manuscriptSpace, command: "rm -rf /" };
+  })), /chat, files, check, or fold/);
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
     value.routing.steps[1].from = { kind: "glob", pattern: "**/*.md" };
   })), /paths, tree, or step-created-files/);
@@ -346,12 +341,12 @@ test("unknown kinds, versions, fields, and unpinned references fail closed", () 
     value.routing.steps[1].from = { kind: "paths", paths: [".work-fold/space.json"] };
   })), /hidden work-fold or Pi configuration/);
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
-    value.routing.steps[0].message = "Approve the \u202etfarcria plan.";
-  })), /verbatim review/);
+    value.routing.steps[0].message = "Review the \u202etfarcria plan.";
+  })), /never allowed in a routing message/);
 
   const declaration = declarationFromWorkFoldRoutingProposal(normalizeWorkFoldRoutingProposal(proposalValue), "routing-12345678");
   assert.throws(() => normalizeWorkFoldRoutingDeclaration({ ...declaration, enabled: true }), /unsupported field: enabled/);
-  assert.throws(() => normalizeWorkFoldRoutingDeclaration({ ...declaration, version: 4 }), /unsupported version 4/);
+  assert.throws(() => normalizeWorkFoldRoutingDeclaration({ ...declaration, version: 5 }), /unsupported version 5/);
   assert.throws(() => normalizeWorkFoldRoutingDeclaration({ ...declaration, id: "check-12345678" }), /Routing id is invalid/);
 });
 
@@ -370,4 +365,105 @@ test("proposal files read bounded and refuse damage", async () => {
   const damaged = join(root, `damaged${workFoldRoutingProposalFileSuffix}`);
   await writeFile(damaged, "{not-json");
   await assert.rejects(() => readWorkFoldRoutingProposal(damaged));
+});
+
+// Version 4 (docs/receipts-not-gates.md, F23): the closed, host-filled
+// placeholder set and the `fold` step. Everything else inside `{{ }}` is a
+// declaration error, and a placeholder that could never be filled in for the
+// declared trigger is refused at parse — so it is refused when enabling,
+// rather than discovered as an empty sentence in a message already sent.
+const version4Proposal = {
+  kind: "work-fold.routing-proposal",
+  version: 4,
+  name: "Brief handoff",
+  createdBy: "assistant",
+  createdAt: "2026-08-10T17:00:00Z",
+  routing: {
+    title: "Brief handoff",
+    trigger: {
+      kind: "files-changed",
+      space: manuscriptSpace,
+      watch: { kind: "tree", path: "Ready", recursive: false, extensions: [".md"] },
+      debounceSeconds: 5,
+      cooldownMinutes: 1,
+    },
+    steps: [
+      {
+        id: "adopt",
+        kind: "chat",
+        space: publisherSpace,
+        message: "{{trigger.summary}} Adopt the newest brief.\nChanged files:\n{{ trigger.changedFiles }}",
+      },
+      { id: "report", kind: "fold", message: "Files the adopt step created:\n{{steps.adopt.createdFiles}}" },
+    ],
+  },
+};
+
+function version4(mutate: (value: any) => void): unknown {
+  const clone = structuredClone(version4Proposal) as any;
+  mutate(clone);
+  return clone;
+}
+
+test("version 4 admits the closed placeholder set and the fold step, and refuses everything else at parse", () => {
+  const normalized = normalizeWorkFoldRoutingProposal(version4Proposal);
+  assert.equal(normalized.version, 4);
+  assert.deepEqual(normalized.routing.steps[1], {
+    id: "report",
+    kind: "fold",
+    message: "Files the adopt step created:\n{{steps.adopt.createdFiles}}",
+  });
+  // Whitespace inside the braces is tolerated and the name is normalized.
+  assert.deepEqual(
+    workFoldRoutingMessagePlaceholders((normalized.routing.steps[0] as { message: string }).message).map((entry) => entry.name),
+    ["trigger.summary", "trigger.changedFiles"],
+  );
+  assert.deepEqual(
+    workFoldRoutingMessagePlaceholders((normalized.routing.steps[1] as { message: string }).message),
+    [{ name: "steps.adopt.createdFiles", step: "adopt" }],
+  );
+  // A fold step names no Space; the fold sits above them.
+  assert.deepEqual(workFoldRoutingReferencedSpaceIds(normalized.routing), [manuscriptSpace, publisherSpace].sort());
+
+  assert.throws(() => normalizeWorkFoldRoutingProposal(version4((value) => {
+    value.routing.steps[0].message = "Do the {{foo}} thing.";
+  })), /unknown placeholder \{\{foo\}\}\. The placeholders are/);
+  assert.throws(() => normalizeWorkFoldRoutingProposal(version4((value) => {
+    value.routing.steps[0].message = "{{trigger.findings}}";
+  })), /is not a Check-run trigger/);
+  assert.throws(() => normalizeWorkFoldRoutingProposal(version4((value) => {
+    value.routing.trigger = { kind: "interval", intervalMinutes: 60 };
+  })), /is not a folder-change trigger/);
+  assert.throws(() => normalizeWorkFoldRoutingProposal(version4((value) => {
+    value.routing.steps[0].message = "{{steps.report.createdFiles}}";
+  })), /"report" is not an earlier chat step/);
+  assert.throws(() => normalizeWorkFoldRoutingProposal(version4((value) => {
+    value.routing.steps[1].message = "{{steps.report.createdFiles}}";
+  })), /"report" is not an earlier chat step/);
+  assert.throws(() => normalizeWorkFoldRoutingProposal(version4((value) => {
+    value.routing.steps.splice(1, 0, { id: "verify", kind: "check", space: publisherSpace });
+    value.routing.steps[2].message = "{{steps.verify.createdFiles}}";
+  })), /"verify" is not an earlier chat step/);
+  assert.throws(() => normalizeWorkFoldRoutingProposal(version4((value) => {
+    value.version = 3;
+  })), /Fold steps require contract version 4/);
+
+  // Versions 1-3 never scan: their messages are literal text, braces included.
+  const literal = normalizeWorkFoldRoutingProposal(mutated((value) => {
+    value.routing.steps[0].message = "Say {{trigger.summary}} and {{whatever}} verbatim.";
+  })) as { routing: { steps: Array<{ message?: string }> } };
+  assert.equal(literal.routing.steps[0]!.message, "Say {{trigger.summary}} and {{whatever}} verbatim.");
+});
+
+test("a Check-run trigger admits {{trigger.findings}} and a fold-only routing names no Space", () => {
+  const foldOnly = normalizeWorkFoldRoutingProposal({
+    ...version4Proposal,
+    routing: {
+      title: "Nightly digest",
+      trigger: { kind: "on-settled", source: { kind: "check-run", space: collectorSpace, outcomes: ["failed"] } },
+      steps: [{ id: "digest", kind: "fold", message: "{{trigger.summary}}\n{{trigger.findings}}" }],
+    },
+  });
+  assert.deepEqual(workFoldRoutingReferencedSpaceIds(foldOnly.routing), [collectorSpace]);
+  assert.equal(foldOnly.routing.steps.length, 1);
 });

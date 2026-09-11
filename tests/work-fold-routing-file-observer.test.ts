@@ -6,7 +6,7 @@ import test from "node:test";
 import { configureWorkFoldStateRoot } from "../src/local/state-paths.js";
 import { registerLinkedSpace } from "../src/local/space.js";
 import { observeWorkFoldRoutingFiles, WorkFoldRoutingFileWatch } from "../src/local/routings/routing-file-observer.js";
-import type { WorkFoldRoutingFilesChangedTrigger } from "../src/local/routings/routing-declarations.js";
+import { workFoldRoutingBounds, type WorkFoldRoutingFilesChangedTrigger } from "../src/local/routings/routing-declarations.js";
 
 test("folder observation bounds file types, detects same-size edits, and refuses linked or separately owned trees", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "work-fold-observer-"));
@@ -30,18 +30,35 @@ test("folder observation bounds file types, detects same-size edits, and refuses
   await assert.rejects(observeWorkFoldRoutingFiles(trigger), /another registered Space/);
 });
 
-test("observer combines changes through cooldown and fresh baselines do not catch up", () => {
+test("observer combines changes through cooldown, reports the changed paths, and fresh baselines do not catch up", () => {
   const watch = new WorkFoldRoutingFileWatch();
   const trigger: WorkFoldRoutingFilesChangedTrigger = { kind: "files-changed", space: "space-aaaaaaaaaaaaaaaa", watch: { kind: "tree", path: "Drafts", recursive: false, extensions: [".md"] }, debounceSeconds: 2, cooldownMinutes: 1 };
   const snapshot = (n: number) => ({ digest: `${n}`, entries: { "a.md": `${n}` } });
   assert.equal(watch.observe(snapshot(1), 0, trigger), null);
   assert.equal(watch.observe(snapshot(2), 1_000, trigger), null);
-  assert.equal(watch.observe(snapshot(2), 3_000, trigger), 1);
+  // The paths feed {{trigger.changedFiles}}; the count is always the true one.
+  assert.deepEqual(watch.observe(snapshot(2), 3_000, trigger), { changedCount: 1, changedPaths: ["a.md"] });
   assert.equal(watch.observe(snapshot(3), 4_000, trigger), null);
   assert.equal(watch.observe(snapshot(3), 6_000, trigger), null);
   assert.equal(watch.observe(snapshot(4), 60_000, trigger), null);
-  assert.equal(watch.observe(snapshot(4), 63_000, trigger), 1);
+  assert.deepEqual(watch.observe(snapshot(4), 63_000, trigger), { changedCount: 1, changedPaths: ["a.md"] });
   watch.reset();
   assert.equal(watch.observe(snapshot(5), 200_000, trigger), null);
   assert.equal(watch.observe(snapshot(5), 202_000, trigger), null);
+});
+
+test("changed paths are sorted and capped, and the count stays true", () => {
+  const watch = new WorkFoldRoutingFileWatch();
+  const trigger: WorkFoldRoutingFilesChangedTrigger = { kind: "files-changed", space: "space-aaaaaaaaaaaaaaaa", watch: { kind: "tree", path: "Drafts", recursive: false, extensions: [".md"] }, debounceSeconds: 2, cooldownMinutes: 1 };
+  const many = workFoldRoutingBounds.maxChangedPathsRecorded + 1;
+  const entries = Object.fromEntries(
+    Array.from({ length: many }, (_, index) => [`note-${String(index).padStart(3, "0")}.md`, "1"]),
+  );
+  assert.equal(watch.observe({ digest: "base", entries: {} }, 0, trigger), null);
+  assert.equal(watch.observe({ digest: "changed", entries }, 1_000, trigger), null);
+  const observed = watch.observe({ digest: "changed", entries }, 4_000, trigger);
+  assert.equal(observed?.changedCount, many);
+  assert.equal(observed?.changedPaths.length, workFoldRoutingBounds.maxChangedPathsRecorded);
+  assert.deepEqual(observed?.changedPaths, [...observed!.changedPaths].sort());
+  assert.equal(observed?.changedPaths[0], "note-000.md");
 });

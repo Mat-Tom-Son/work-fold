@@ -42,8 +42,29 @@ available only when the current data including its revision matches that result
 and the app revision is unchanged. An interrupted attempt remains recorded but
 is never presented as successful. Later app writes invalidate Undo; another
 clear or restore replaces this single recovery point. Uninstall purge removes
-it with its namespace; retain keeps it inert. Restore and Undo always advance
-the current storage revision, never reset it to a past value.
+it with its namespace, after a complete copy has been placed in Recently
+deleted; retain keeps it inert. Restore and Undo always advance the current
+storage revision, never reset it to a past value.
+
+## Recently deleted
+
+Clearing app data, purging retained data, and uninstalling with purge each
+write a complete, sha256-sealed `work-fold.app-data` export into the
+machine-local Recently deleted store before any live data is removed
+([Receipts, not gates](receipts-not-gates.md), F20). Clearing storage that
+holds nothing writes no copy: there is nothing to bring back. Each copy is
+machine-local, is kept for the retention window in Settings → The fold →
+Recently deleted (30 days by default), and records the Space, the app, its
+exact revision, the installation, the Data Namespace, and the receipt id of
+the act that produced it.
+
+Restoring a copy uses the same restore path and the same rules as any other
+restore: it goes back only into the same installation at the same revision, it
+advances the current storage revision, and it leaves the storage layer's own
+single recovery point available to undo the restore itself. A copy whose app
+is no longer installed — every purged retained record among them — can only be
+saved as a file, from Recently deleted or with
+`work-fold trash restore --entry <id> --to <absolute-file-path>`.
 
 Recovery is not automatic backup or cross-installation adoption. Save exports
 outside the app before removing it when long-term access matters. Schema

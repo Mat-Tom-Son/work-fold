@@ -125,7 +125,9 @@ export type WorkFoldCliActCommandName =
   | "pages.status"
   | "pages.revoke"
   | "pages.narrow"
-  | "pages.snapshot-off";
+  | "pages.snapshot-off"
+  | "trash.list"
+  | "trash.restore";
 
 export interface WorkFoldCliActParsedCommand {
   name: WorkFoldCliActCommandName;
@@ -207,6 +209,10 @@ export interface WorkFoldCliActParsedCommand {
   serveRatePerMinute?: number;
   /** Narrowed daily byte budget for pages.narrow. */
   byteBudgetPerDay?: number;
+  /** Recently deleted item id for trash.restore. */
+  entry?: string;
+  /** Absolute destination for `trash restore --to`, the "save a copy" path for app data. */
+  toPath?: string;
 }
 
 /** The running interactive app's act authority: the facade plus this run's token. */
@@ -329,6 +335,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "--instructions",
     "--serve-rate",
     "--byte-budget",
+    "--entry",
   ]);
   const booleanFlags = new Set(["--new", "--message-from-payload", "--retain-data", "--purge-data", "--snapshot", "--clear"]);
 
@@ -548,6 +555,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "pages revoke",
     "pages narrow",
     "pages snapshot-off",
+    "trash restore",
   ]);
   if (rawParentTaskId !== undefined && !lineageCommands.has(command)) {
     throw usageError(`--parent-task cannot be used with '${command || "(none)"}'.`);
@@ -1360,6 +1368,22 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         proposalPath: requireBoundedFlag("--proposal", "proposal-path", maxActPathLength),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
+    // Recently deleted sits above Spaces (docs/receipts-not-gates.md, F20):
+    // each item names the Space it came from, so neither verb takes --space.
+    case "trash list":
+      allowOnlyFlags();
+      return { name: "trash.list", output };
+    case "trash restore": {
+      allowOnlyFlags("--entry", "--to", "--parent-task");
+      const toPath = optionalBoundedFlag("--to", "absolute-path", maxActPathLength);
+      return {
+        name: "trash.restore",
+        output,
+        entry: requireBoundedFlag("--entry", "recently-deleted-id", 64),
+        ...(toPath ? { toPath } : {}),
+        ...(parentTaskId ? { parentTaskId } : {}),
+      };
+    }
     case "routings list":
       allowOnlyFlags();
       return { name: "routings.list", output };
@@ -2128,6 +2152,15 @@ async function runActCommand(
     // Routing management verbs (docs/fold-routings.md): above Spaces, all
     // content-bearing results pass the bounding sanitizer. Run-now carries the
     // act request id into the run's own journal as its trigger cause.
+    case "trash.list":
+      return toChecksJson(await facade.trashList());
+    case "trash.restore":
+      return toChecksJson(await facade.trashRestore({
+        entry: command.entry!,
+        ...(command.toPath ? { toPath: command.toPath } : {}),
+        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
+        requestId: request.id,
+      }));
     case "routings.list":
       return toChecksJson(await facade.routingsList());
     case "routings.show":
@@ -2574,8 +2607,28 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       return `Moved ${terminalText(record.fromPath)} to ${terminalText(record.path)} in ${spaceLabel}.\nSafety restore point: ${terminalText(record.safetyCheckpointId)}\n`;
     case "files.rename":
       return `Renamed ${terminalText(record.fromPath)} to ${terminalText(record.path)} in ${spaceLabel}.\nSafety restore point: ${terminalText(record.safetyCheckpointId)}\n`;
-    case "files.delete":
-      return `Deleted ${record.kind === "folder" ? "folder" : "file"} ${terminalText(record.path)} in ${spaceLabel}.\nSafety restore point: ${terminalText(record.safetyCheckpointId)} — restore it with 'history restore' to undo this delete.\n`;
+    case "files.delete": {
+      const kindLabel = record.kind === "folder" ? "folder" : "file";
+      const recovery = (record.recovery ?? {}) as {
+        kind?: unknown;
+        entryId?: unknown;
+        restoreBy?: unknown;
+        uncovered?: Array<{ path?: unknown; reason?: unknown }>;
+      };
+      if (recovery.kind !== "trash") {
+        return `Deleted ${kindLabel} ${terminalText(record.path)} in ${spaceLabel}.\n`
+          + `Safety restore point: ${terminalText(record.safetyCheckpointId)} — restore it with 'history restore' to undo this delete.\n`;
+      }
+      const uncovered = Array.isArray(recovery.uncovered) ? recovery.uncovered : [];
+      const named = uncovered.slice(0, 5)
+        .map((file) => `${terminalText(file.path)} (${trashUncoveredReasonLabel(file.reason)})`)
+        .join("; ");
+      const more = uncovered.length > 5 ? `; and ${uncovered.length - 5} more` : "";
+      return `Deleted ${kindLabel} ${terminalText(record.path)} in ${spaceLabel}.\n`
+        + `It is in Recently deleted until ${terminalText(recovery.restoreBy)} because History could not keep a copy of `
+        + `${uncovered.length} file${uncovered.length === 1 ? "" : "s"}: ${named}${more}.\n`
+        + `Put it back with 'trash restore --entry ${terminalText(recovery.entryId)}', or in Settings → The fold → Recently deleted.\n`;
+    }
     case "files.mkdir":
       return `Created folder ${terminalText(record.path)} in ${spaceLabel}.\n`;
     case "files.create":
@@ -2786,7 +2839,11 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         const cleanup = record.cleanupPending === true
           ? "\nSome app cleanup is still pending; work-fold finishes it on the next start."
           : "";
-        return `Uninstalled instance ${terminalText(record.runtimeInstanceId)} from ${spaceLabel} and purged its data.${cleanup}\n`;
+        const kept = (Array.isArray(record.trash) ? record.trash : []) as unknown[];
+        const copies = kept.length
+          ? ` ${kept.length} cop${kept.length === 1 ? "y is" : "ies are"} in Recently deleted; see 'trash list'.`
+          : "";
+        return `Uninstalled instance ${terminalText(record.runtimeInstanceId)} from ${spaceLabel} and purged its data.${copies}${cleanup}\n`;
       }
       const retained = (Array.isArray(record.retainedNamespaceIds) ? record.retainedNamespaceIds : []) as unknown[];
       const cleanup = record.cleanupPending === true
@@ -2801,7 +2858,10 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
     }
     case "spaces.delete": {
       const cleanup = record.cleanupPending === true ? " Final cleanup completes at the next start." : "";
-      return `Deleted the managed folder of ${spaceLabel}.${cleanup}\n`;
+      const trash = (record.trash ?? null) as { entryId?: unknown; restoreBy?: unknown } | null;
+      if (!trash) return `Deleted the managed folder of ${spaceLabel}.${cleanup}\n`;
+      return `Deleted ${spaceLabel}. Its folder is in Recently deleted until ${terminalText(trash.restoreBy)}; `
+        + `put it back with 'trash restore --entry ${terminalText(trash.entryId)}'.${cleanup}\n`;
     }
     case "tools.import-skill":
       return `Imported ${skillNameList(record.skillNames)} (${terminalText(record.scope)} scope).\n`;
@@ -2825,12 +2885,28 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       return `Connected ${terminalText(record.appId)} to ${terminalText(record.destination)} (${terminalText(record.target)}) through the browser sign-in flow.\n`;
     case "apps.automation.enable":
       return `Enabled automation ${terminalText(record.automationId)} (${terminalText(record.scheduleSummary)}) of ${terminalText(record.appId)} in ${spaceLabel}.\n`;
-    case "apps.storage.clear":
-      return `Cleared ${terminalText(record.clearedBytes)} bytes of live storage of ${terminalText(record.appId)} in ${spaceLabel}; ${terminalText(record.remainingBytes)} bytes remain.\n`;
-    case "apps.retained.purge":
-      return `Purged retained App data ${terminalText(record.retainedDataId)} in ${spaceLabel}.\n`;
+    case "apps.storage.clear": {
+      const trash = (record.trash ?? null) as { entryId?: unknown; restoreBy?: unknown } | null;
+      return `Cleared ${terminalText(record.clearedBytes)} bytes of live storage of ${terminalText(record.appId)} in ${spaceLabel}; `
+        + `${terminalText(record.remainingBytes)} bytes remain.\n`
+        + (trash
+          ? `A copy is in Recently deleted until ${terminalText(trash.restoreBy)} — put it back with 'trash restore --entry ${terminalText(trash.entryId)}'.\n`
+          : "");
+    }
+    case "apps.retained.purge": {
+      const entries = (Array.isArray(record.trash) ? record.trash : []) as Array<{ entryId?: unknown; restoreBy?: unknown }>;
+      return `Purged retained App data ${terminalText(record.retainedDataId)} in ${spaceLabel}.\n`
+        + (entries[0]
+          ? `A copy is in Recently deleted until ${terminalText(entries[0].restoreBy)} — save it with 'trash restore --entry ${terminalText(entries[0].entryId)} --to <path>'.\n`
+          : "");
+    }
     case "routings.enable":
-      return `Enabled routing "${terminalText(record.title)}" [${terminalText(record.routingId)}].\n`;
+      return record.alreadyEnabled === true
+        ? `Routing "${terminalText(record.title)}" [${terminalText(record.routingId)}] is already on with this exact declaration; nothing changed.\n`
+        : `Enabled routing "${terminalText(record.title)}" [${terminalText(record.routingId)}]. It now runs on its trigger; `
+          + `'routings run --routing ${terminalText(record.routingId)}' starts a copy now and `
+          + `'routings disable --routing ${terminalText(record.routingId)}' turns it off.`
+          + `${typeof record.stoppedRunId === "string" ? ` The run ${terminalText(record.stoppedRunId)} that was executing the previous declaration was stopped.` : ""}\n`;
     case "pages.stage": {
       const publication = (record.publication ?? {}) as Record<string, unknown>;
       return `Sharing "${terminalText(publication.title)}" (${terminalText(publication.relativePath)}) from ${spaceLabel} at ${terminalText(publication.viewerPath)}. `
@@ -2839,6 +2915,58 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
     case "pages.stage-app": {
       const publication = (record.publication ?? {}) as Record<string, unknown>;
       return `Sharing "${terminalText(publication.title)}" (App Instance ${terminalText(publication.appInstanceId)}) from ${spaceLabel} at ${terminalText(publication.viewerPath)}.\n`;
+    }
+    case "trash.list": {
+      const entries = (Array.isArray(record.entries) ? record.entries : []) as Array<{
+        id?: unknown;
+        kind?: unknown;
+        name?: unknown;
+        spaceName?: unknown;
+        spaceId?: unknown;
+        sizeBytes?: unknown;
+        deletedAt?: unknown;
+        restoreBy?: unknown;
+        restorable?: unknown;
+        held?: unknown;
+      }>;
+      const days = terminalText(record.retentionDays);
+      if (!entries.length) return `Nothing in Recently deleted (items are kept ${days} days).\n`;
+      const lines = entries.slice(0, 50).map((entry) => {
+        const where = typeof entry.spaceName === "string" && entry.spaceName
+          ? `from ${terminalText(entry.spaceName)} [${terminalText(entry.spaceId)}]`
+          : `from Space ${terminalText(entry.spaceId)}`;
+        const how = entry.restorable === "save-only" ? " — can only be saved as a copy" : "";
+        const held = entry.held ? " — kept indefinitely; it holds records from the earlier Workspace product" : "";
+        return `- ${terminalText(entry.id)} — ${trashKindLabel(entry.kind)} "${terminalText(entry.name)}" ${where}`
+          + ` — ${terminalText(entry.sizeBytes)} bytes — deleted ${terminalText(entry.deletedAt)}`
+          + ` — kept until ${terminalText(entry.restoreBy)}${how}${held}`;
+      });
+      const more = entries.length > lines.length ? `\n${entries.length - lines.length} more in the --json result.` : "";
+      const damaged = Number(record.damagedCount) > 0
+        ? `\n${terminalText(record.damagedCount)} item(s) could not be read; they are left alone.`
+        : "";
+      return `${entries.length} item(s) in Recently deleted (kept ${days} days):\n${lines.join("\n")}${more}${damaged}\n`;
+    }
+    case "trash.restore": {
+      const restored = (record.restored ?? {}) as {
+        kind?: unknown;
+        path?: unknown;
+        renamed?: unknown;
+        spaceRoot?: unknown;
+        appId?: unknown;
+        space?: { name?: unknown; id?: unknown };
+      };
+      const where = typeof restored.space?.name === "string"
+        ? `${terminalText(restored.space.name)} [${terminalText(restored.space.id)}]`
+        : "its Space";
+      if (restored.kind === "saved-copy") return `Saved a copy to ${terminalText(restored.path)}.\n`;
+      if (restored.kind === "space") {
+        return `Restored Space ${where} to ${terminalText(restored.spaceRoot)}`
+          + `${restored.renamed === true ? " under a new folder name, because the old one was taken" : ""}.\n`;
+      }
+      if (restored.kind === "app-storage") return `Restored ${terminalText(restored.appId)}'s data in ${where}.\n`;
+      return `Restored ${restored.kind === "folder" ? "folder" : "file"} ${terminalText(restored.path)} to ${where}`
+        + `${restored.renamed === true ? " under a new name, because the old one was taken" : ""}.\n`;
     }
     case "routings.list": {
       const routings = (Array.isArray(record.routings) ? record.routings : []) as Array<{
@@ -2896,6 +3024,9 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
               : `files created by step ${terminalText(source.step)} (max ${terminalText(source.maxFiles)} files, ${terminalText(source.maxTotalBytes)} bytes)`;
           return `- ${terminalText(step.id)}: files from ${spaceRef(step.fromSpaceId, step.fromSpaceName)} — ${sourceLabel} → ${spaceRef(step.toSpaceId, step.toSpaceName)}:${terminalText(step.to)}`;
         }
+        if (step.kind === "fold") {
+          return `- ${terminalText(step.id)}: message to the fold (verbatim, becomes management transcript content): ${terminalText(step.message)}`;
+        }
         return `- ${terminalText(step.id)}: check in ${spaceRef(step.spaceId, step.spaceName)} — ${typeof step.checkId === "string" ? terminalText(step.checkId) : "all enabled Checks"}`;
       });
       const trigger = routing.trigger?.kind === "interval"
@@ -2909,9 +3040,9 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
           : "manual (run-now only)";
       const grants = (Array.isArray(routing.grants) ? routing.grants : []) as Array<Record<string, unknown>>;
       const grantLines = grants.map((grant) =>
-        `- ${terminalText(grant.approvedAt)} on ${terminalText(grant.surface)} — request ${terminalText(grant.decisionId)} — digest ${terminalText(grant.digest)}`);
+        `- enabled ${terminalText(grant.enabledAt)} via ${terminalText(grant.surface)} (request ${terminalText(grant.requestId)}) — digest ${terminalText(grant.digest)}`);
       const health = routing.health === "suspended" && routing.suspension
-        ? `suspended since ${terminalText(routing.suspension.at)} (missing Space ${(Array.isArray(routing.suspension.missingSpaceIds) ? routing.suspension.missingSpaceIds : []).map(terminalText).join(", ")}${Array.isArray(routing.suspension.reRegisteredSpaceIds) && routing.suspension.reRegisteredSpaceIds.length ? "; re-registered with preserved identity — re-enabling is a fresh receipted act" : ""})`
+        ? `suspended since ${terminalText(routing.suspension.at)} (missing Space ${(Array.isArray(routing.suspension.missingSpaceIds) ? routing.suspension.missingSpaceIds : []).map(terminalText).join(", ")}${Array.isArray(routing.suspension.reRegisteredSpaceIds) && routing.suspension.reRegisteredSpaceIds.length ? "; re-registered with preserved identity — turn it on again after reading it through" : ""})`
         : routing.health === "disabled"
           ? `disabled${typeof routing.disabledAt === "string" ? ` since ${terminalText(routing.disabledAt)}` : ""}`
           : routing.health === "completed"
@@ -2924,7 +3055,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         `Trigger: ${trigger}${typeof routing.nextScheduledAt === "string" ? `; next run ${terminalText(routing.nextScheduledAt)}` : ""}`,
         "Steps:",
         ...stepLines,
-        ...(grantLines.length ? ["Enablement grants:", ...grantLines] : []),
+        ...(grantLines.length ? ["Enablement receipts:", ...grantLines] : []),
       ];
       return `${lines.join("\n")}\n`;
     }
@@ -2955,16 +3086,24 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         routingId?: unknown;
         runId?: unknown;
         hopId?: unknown;
+        hopKind?: unknown;
+        placeholders?: unknown;
         detail?: unknown;
       }>;
       if (!receipts.length) return "No routing receipts recorded.\n";
       const shown = receipts.slice(-50);
       const lines = shown.map((entry) => {
+        const kind = typeof entry.hopKind === "string" ? ` (${terminalText(entry.hopKind)})` : "";
         const scope = entry.scope === "hop"
-          ? `hop ${terminalText(entry.hopId)} of run ${terminalText(entry.runId)}`
+          ? `hop ${terminalText(entry.hopId)}${kind} of run ${terminalText(entry.runId)}`
           : entry.scope === "run" ? `run ${terminalText(entry.runId)}` : "routing";
+        const filled = Array.isArray(entry.placeholders) && entry.placeholders.length
+          ? ` — filled in ${entry.placeholders
+            .map((placeholder) => terminalText((placeholder as { name?: unknown }).name))
+            .join(", ")} (see --json for the text)`
+          : "";
         const detail = typeof entry.detail === "string" && entry.detail ? ` — ${terminalText(entry.detail)}` : "";
-        return `- ${terminalText(entry.at)} [${terminalText(entry.routingId)}] ${scope}: ${terminalText(entry.outcome)}${detail}`;
+        return `- ${terminalText(entry.at)} [${terminalText(entry.routingId)}] ${scope}: ${terminalText(entry.outcome)}${filled}${detail}`;
       });
       const omitted = receipts.length > shown.length ? `\n${receipts.length - shown.length} older receipt(s) in the --json result.` : "";
       const damaged = typeof record.damagedLineCount === "number" && record.damagedLineCount > 0
@@ -3060,6 +3199,29 @@ function humanCheckEvidence(value: WorkFoldCliJson): string {
   }
 }
 
+/** Person-facing names for what is waiting in Recently deleted. */
+function trashKindLabel(kind: unknown): string {
+  switch (kind) {
+    case "file": return "file";
+    case "folder": return "folder";
+    case "space": return "Space folder";
+    case "app-storage":
+    case "app-retained": return "app data";
+    default: return "item";
+  }
+}
+
+/** Why History alone could not keep a copy of one path. */
+function trashUncoveredReasonLabel(reason: unknown): string {
+  switch (reason) {
+    case "too_large": return "too large";
+    case "unreadable": return "unreadable";
+    case "symbolic_link": return "a link";
+    case "excluded": return "kept out of History";
+    default: return "not covered";
+  }
+}
+
 /**
  * Verbs whose receipt's checkpoint column is the safety restore point the act
  * itself recorded (docs/fold-act-ledger.md "receipt adds"). `files.mkdir` and
@@ -3072,6 +3234,9 @@ const actSafetyCheckpointCommands: ReadonlySet<WorkFoldCliActCommandName> = new 
   "files.move",
   "files.rename",
   "files.delete",
+  // Restoring from Recently deleted is additive, and the restore point it
+  // records is what undoes it.
+  "trash.restore",
 ]);
 
 function receiptDetails(name: WorkFoldCliActCommandName, data: WorkFoldCliJson): {
@@ -3096,12 +3261,17 @@ function receiptDetails(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
     scope?: unknown;
     path?: unknown;
     copied?: unknown;
+    restored?: { space?: { id?: unknown }; safetyCheckpointId?: unknown };
   };
-  const spaceId = typeof record.space?.id === "string" ? record.space.id : undefined;
+  const spaceId = typeof record.space?.id === "string"
+    ? record.space.id
+    : typeof record.restored?.space?.id === "string" ? record.restored.space.id : undefined;
   const conversationId = typeof record.conversationId === "string"
     ? record.conversationId
     : typeof record.conversation?.id === "string" ? record.conversation.id : undefined;
-  const safetyCheckpointId = typeof record.safetyCheckpointId === "string" ? record.safetyCheckpointId : undefined;
+  const safetyCheckpointId = typeof record.safetyCheckpointId === "string"
+    ? record.safetyCheckpointId
+    : typeof record.restored?.safetyCheckpointId === "string" ? record.restored.safetyCheckpointId : undefined;
   // Per-family receipt growth from the ledger's "receipt adds" column:
   // history.save records the restore-point id plus the honest created flag,
   // and the restore and file-mutation verbs record the safety restore point
@@ -3178,6 +3348,7 @@ function actReceiptDetail(
     retainedDataId?: unknown;
     routingId?: unknown;
     declarationDigest?: unknown;
+    alreadyEnabled?: unknown;
     relativePath?: unknown;
     appInstanceId?: unknown;
     viewerEntry?: unknown;
@@ -3213,15 +3384,40 @@ function actReceiptDetail(
     apps?: unknown[];
     tool?: unknown;
     result?: unknown;
+    recovery?: { kind?: unknown; entryId?: unknown };
+    trash?: unknown;
+    entry?: { id?: unknown; kind?: unknown };
+    restored?: { kind?: unknown; path?: unknown; spaceRoot?: unknown; appId?: unknown; space?: { id?: unknown } };
   },
 ): string | undefined {
   // The verbs that install code, widen a power, or destroy data share one
   // detail spine — the prepared-act kind — with the family's exact
   // identifiers appended per the ledger's "receipt adds" column. Identifiers
   // and digests only; receipts never grow titles, messages, or file contents.
+  const trashRef = (value: unknown): string | null => {
+    if (Array.isArray(value)) {
+      const ids = value
+        .map((item) => (item && typeof item === "object" ? (item as { entryId?: unknown }).entryId : undefined))
+        .filter((id): id is string => typeof id === "string");
+      return ids.length ? `trash ${ids.join(",")}` : null;
+    }
+    const entryId = value && typeof value === "object" ? (value as { entryId?: unknown }).entryId : undefined;
+    return typeof entryId === "string" ? `trash ${entryId}` : null;
+  };
   switch (name) {
+    case "files.delete":
+      return record.recovery?.kind === "trash" && typeof record.recovery.entryId === "string"
+        ? `trash ${record.recovery.entryId}`
+        : undefined;
+    case "trash.list":
+      return undefined;
+    case "trash.restore":
+      return `entry ${String(record.entry?.id ?? "")}; kind ${String(record.restored?.kind ?? "")}; `
+        + `restored ${boundedReceiptText(String(
+          record.restored?.path ?? record.restored?.spaceRoot ?? record.restored?.appId ?? "",
+        ))}`;
     case "spaces.delete":
-      return "space.delete-folder";
+      return `space.delete-folder${trashRef(record.trash) ? `; ${trashRef(record.trash)}` : ""}`;
     case "tools.import-skill":
       return `capability.skills.import; scope ${String(record.scope)}; source ${boundedReceiptText(String(record.source))}; digest ${String(record.contentDigest)}`;
     case "tools.install":
@@ -3242,14 +3438,21 @@ function actReceiptDetail(
     case "apps.automation.enable":
       return `app.automation.enable; app ${String(record.appId)}; automation ${String(record.automationId)}`;
     case "apps.storage.clear":
-      return `app.storage.clear; app ${String(record.appId)}; bytes ${String(record.clearedBytes)}`;
+      return `app.storage.clear; app ${String(record.appId)}; bytes ${String(record.clearedBytes)}`
+        + `${trashRef(record.trash) ? `; ${trashRef(record.trash)}` : ""}`;
     case "apps.retained.purge":
-      return `app.data.purge; retained ${String(record.retainedDataId)}`;
+      return `app.data.purge; retained ${String(record.retainedDataId)}`
+        + `${trashRef(record.trash) ? `; ${trashRef(record.trash)}` : ""}`;
     case "apps.uninstall":
-      if (Array.isArray(record.purgedNamespaceIds)) return `app.data.purge; instance ${String(record.runtimeInstanceId)}`;
+      if (Array.isArray(record.purgedNamespaceIds)) {
+        return `app.data.purge; instance ${String(record.runtimeInstanceId)}`
+          + `${trashRef(record.trash) ? `; ${trashRef(record.trash)}` : ""}`;
+      }
       break;
     case "routings.enable":
-      return `routing.enable; routing ${String(record.routingId)}; digest ${String(record.declarationDigest)}`;
+      return `routing.enable; routing ${String(record.routingId)}; digest ${String(record.declarationDigest)}`
+        + `${record.alreadyEnabled === true ? "; already enabled" : ""}`
+        + `${typeof record.stoppedRunId === "string" ? `; stopped run ${String(record.stoppedRunId)}` : ""}`;
     case "pages.stage":
       return `publish.viewer.expose; source ${boundedReceiptText(String(record.publication?.relativePath))}; publication ${String(record.publication?.publicationId)}`;
     case "pages.stage-app":
@@ -3429,6 +3632,9 @@ function actUndoRef(
     priorName?: unknown;
     path?: unknown;
     space?: { spaceRoot?: unknown };
+    recovery?: { kind?: unknown; entryId?: unknown };
+    trash?: unknown;
+    restored?: { kind?: unknown; spaceRoot?: unknown };
     priorAppearanceRef?: unknown;
     displacedAppearanceRef?: unknown;
     priorPresentationRef?: unknown;
@@ -3460,10 +3666,31 @@ function actUndoRef(
           : "active";
       return { kind: "chat-lifecycle", value };
     }
+    case "files.delete":
+      // A delete History could not fully cover is undone by putting the
+      // Recently deleted item back, not by the partial restore point.
+      if (record.recovery?.kind === "trash" && typeof record.recovery.entryId === "string") {
+        return { kind: "trash-entry", value: record.recovery.entryId };
+      }
+      return safetyCheckpointId ? { kind: "safety-checkpoint", value: safetyCheckpointId } : undefined;
+    case "spaces.delete":
+    case "apps.storage.clear":
+    case "apps.retained.purge":
+    case "apps.uninstall": {
+      const first = Array.isArray(record.trash) ? record.trash[0] : record.trash;
+      const entryId = first && typeof first === "object" ? (first as { entryId?: unknown }).entryId : undefined;
+      return typeof entryId === "string" ? { kind: "trash-entry", value: entryId } : undefined;
+    }
+    case "trash.restore":
+      // A file or folder restore is undone by its own restore point; a Space
+      // restore's inverse is `spaces delete` of the root it came back to.
+      if (record.restored?.kind === "space" && typeof record.restored.spaceRoot === "string") {
+        return { kind: "space-root", value: record.restored.spaceRoot };
+      }
+      return safetyCheckpointId ? { kind: "safety-checkpoint", value: safetyCheckpointId } : undefined;
     case "history.restore":
     case "history.restore-file":
     case "files.move":
-    case "files.delete":
       return safetyCheckpointId ? { kind: "safety-checkpoint", value: safetyCheckpointId } : undefined;
     case "files.rename":
       return typeof record.priorName === "string" ? { kind: "entry-name", value: record.priorName } : undefined;

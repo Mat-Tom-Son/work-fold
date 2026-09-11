@@ -443,7 +443,10 @@ test("a failing restore leaves the entry intact", async (t) => {
 
 test("app data round-trips through the trash and every integrity failure is named", async (t) => {
   const root = await sandbox(t);
-  const now = new Date("2026-09-10T08:30:00.000Z");
+  // The listing orders by deleted-at, so two entries kept in the same second
+  // are deliberately not ordered against each other; the clock moves here to
+  // assert the order the store does promise.
+  let now = new Date("2026-09-10T08:30:00.000Z");
   const store = await openStore(root, { now: () => now });
   const backup = await exportedBackup(root);
 
@@ -494,6 +497,7 @@ test("app data round-trips through the trash and every integrity failure is name
   }), "INPUT_INVALID", /retained-data id/);
   assert.equal((await store.list()).entries.length, 1);
 
+  now = new Date("2026-09-10T08:30:05.000Z");
   const retained = await store.trashAppData({
     kind: "app-retained", reason: "apps.uninstall.purge", backup, identity: { ...appIdentity, retainedDataId: "retained-data_1" }, spaceId: "space-1", receiptId: null,
   });

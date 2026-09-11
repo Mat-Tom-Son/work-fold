@@ -52,6 +52,11 @@ export type FoldRoutingStepView =
     kind: "check";
     space: FoldRoutingSpaceRef;
     checkId?: string;
+  }
+  | {
+    id: string;
+    kind: "fold";
+    message: string;
   };
 
 export interface FoldRoutingSummaryView {
@@ -87,7 +92,7 @@ export interface FoldRoutingDetailView extends FoldRoutingSummaryView {
 
 export interface FoldRoutingHistoryHopView {
   hopId: string;
-  kind: "chat" | "files" | "check";
+  kind: "chat" | "files" | "check" | "fold";
   outcome: FoldRoutingOutcome;
   spaceName?: string;
   detail?: string;
@@ -129,6 +134,8 @@ export interface FoldRoutingEnableResponse {
   routingId: string;
   requestId: string;
   enabled: true;
+  /** True when this exact routing was already on, so nothing changed. */
+  alreadyEnabled: boolean;
 }
 
 export interface FoldRoutingRunResponse {
@@ -506,8 +513,8 @@ function RoutingActions({ routing, pending, storeUnavailable, wideningUnavailabl
             type="button"
             disabled={wideningUnavailable || anyPending}
             onClick={() => onRun(`enable:${routing.routingId}`, async () => {
-              await routingBridge().enable(routing.routingId);
-              return "Routing turned on";
+              const result = await routingBridge().enable(routing.routingId);
+              return result.alreadyEnabled ? "Routing is already on" : "Routing turned on";
             })}
           >
             {pending.includes(`enable:${routing.routingId}`) ? "Turning on…" : "Turn on"}
@@ -564,6 +571,14 @@ function RoutingStep({ step }: { step: FoldRoutingStepView }) {
       <li>
         <div className="fold-routing-step-heading"><strong>Copy files</strong><span>{spaceLabel(step.fromSpace)} → {spaceLabel(step.toSpace)}</span></div>
         <p>{filesSourceSummary(step.source)} into <code>{step.to || "/"}</code></p>
+      </li>
+    );
+  }
+  if (step.kind === "fold") {
+    return (
+      <li>
+        <div className="fold-routing-step-heading"><strong>Message the fold</strong><span>Starts a new thread</span></div>
+        <blockquote>{step.message}</blockquote>
       </li>
     );
   }
@@ -651,7 +666,9 @@ function outcomeLabel(outcome: FoldRoutingOutcome): string {
 }
 
 function hopLabel(kind: FoldRoutingHistoryHopView["kind"]): string {
-  return kind === "chat" ? "Chat" : kind === "files" ? "Copy files" : "Run Checks";
+  if (kind === "chat") return "Chat";
+  if (kind === "files") return "Copy files";
+  return kind === "fold" ? "Message the fold" : "Run Checks";
 }
 
 function formatMinutes(minutes: number): string {

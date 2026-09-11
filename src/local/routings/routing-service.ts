@@ -12,11 +12,16 @@ import {
 import {
   workFoldRoutingBounds,
   normalizeWorkFoldRoutingDeclaration,
+  workFoldRoutingDigest,
+  workFoldRoutingMessagePlaceholders,
   type WorkFoldRoutingChatStep,
   type WorkFoldRoutingCheckStep,
   type WorkFoldRoutingDeclaration,
   type WorkFoldRoutingFilesStep,
+  type WorkFoldRoutingFoldStep,
+  type WorkFoldRoutingPlaceholder,
   type WorkFoldRoutingSettleSource,
+  type WorkFoldRoutingStep,
   type WorkFoldRoutingStepCreatedFilesSource,
   type WorkFoldRoutingTrigger,
 } from "./routing-declarations.js";
@@ -25,6 +30,8 @@ import {
   type WorkFoldRoutingActionReceiptContext,
   type WorkFoldRoutingHealth,
   type WorkFoldRoutingReceipts,
+  type WorkFoldRoutingReceiptPlaceholder,
+  type WorkFoldRoutingReceiptV1,
   type WorkFoldRoutingRecord,
   type WorkFoldRoutingRunCause,
   type WorkFoldRoutingStore,
@@ -39,12 +46,14 @@ import type {
 /**
  * The routing executor (docs/fold-routings.md): deterministic app code that
  * evaluates triggers over settle signals and the bounded schedule, admits
- * runs through its own two-slot FIFO scheduler instance, executes at most
- * eight reviewed hops strictly in order, and writes journal-first receipts
- * for every run and hop. There is no model call anywhere in this module:
- * agentic work happens only inside a Space Chat hop, run by that Space's own
- * Assistant through the injected ports, and the executor appends no ambient
- * context to anything it dispatches.
+ * runs through its own FIFO scheduler instance, executes at most sixteen
+ * declared hops by default strictly in order, and writes journal-first
+ * receipts for every run and hop. There is no model call anywhere in this
+ * module: agentic work happens only inside a Space Chat hop or a fold hop,
+ * run by that Space's own Assistant or the management conversation through
+ * the injected ports. The executor appends no ambient context to anything it
+ * dispatches — the only text it adds is the closed placeholder set, filled in
+ * host-side from the run's own cause and its earlier hops' host records.
  *
  * The service owns its own `WorkFoldAutomationService` instance — the same
  * proven class the restricted-app scheduler uses, deliberately a separate
@@ -54,8 +63,11 @@ import type {
  */
 export const workFoldRoutingAutomationOwnerId = "work-fold.routing";
 
-/** Machine-wide concurrent routing runs; FIFO beyond it, per the scheduler default. */
-export const workFoldRoutingMaxConcurrentRuns = 2;
+/**
+ * Machine-wide concurrent routing runs by default; FIFO beyond it. A generous
+ * default, not a cap.
+ */
+export const workFoldRoutingMaxConcurrentRuns = 8;
 
 export interface WorkFoldRoutingHopContext {
   routingId: string;
@@ -73,6 +85,17 @@ export interface WorkFoldRoutingChatHopResult {
   error?: string;
   preCheckpointId?: string;
   postCheckpointId?: string;
+}
+
+/** A fold hop's own management turn; it records no checkpoints and names no Space. */
+export type WorkFoldRoutingFoldHopResult = Pick<
+  WorkFoldRoutingChatHopResult,
+  "conversationId" | "turnTaskId" | "outcome" | "error"
+>;
+
+/** The active findings of a settled Check run, for `{{trigger.findings}}`. */
+export interface WorkFoldRoutingCheckRunFindings {
+  findings: Array<{ checkId: string; title: string; targetPath: string; severity: string }>;
 }
 
 export interface WorkFoldRoutingFilesHopResult {
@@ -121,11 +144,27 @@ export type WorkFoldRoutingResolvedFilesSource =
  * mutations and honor the abort signal through their own domain's abort
  * paths; a files port is not interruptible mid-copy — the copy either
  * completes with its restore point or fails as one unit. Ports return
- * evidence, never content: the executor journals identifiers, paths, and
- * counts only.
+ * evidence, never content: the executor journals identifiers, paths, counts,
+ * and the bounded text it filled into a message itself.
+ *
+ * A message port receives the resolved message as an explicit argument: the
+ * executor, never the port, fills placeholders, so every port sees exactly
+ * what was sent.
  */
 export interface WorkFoldRoutingHopPorts {
-  chat(step: WorkFoldRoutingChatStep, context: WorkFoldRoutingHopContext): Promise<WorkFoldRoutingChatHopResult>;
+  chat(
+    step: WorkFoldRoutingChatStep,
+    message: string,
+    context: WorkFoldRoutingHopContext,
+  ): Promise<WorkFoldRoutingChatHopResult>;
+  /** Starts a new thread in the management conversation and waits for its turn. */
+  fold(
+    step: WorkFoldRoutingFoldStep,
+    message: string,
+    context: WorkFoldRoutingHopContext,
+  ): Promise<WorkFoldRoutingFoldHopResult>;
+  /** The settled Check run's active findings; null when the run cannot be read. */
+  checkRunFindings(spaceId: string, taskId: string): Promise<WorkFoldRoutingCheckRunFindings | null>;
   files(
     step: WorkFoldRoutingFilesStep,
     source: WorkFoldRoutingResolvedFilesSource,
@@ -245,7 +284,7 @@ export class WorkFoldRoutingService {
   readonly #launchedRunIds = new Set<string>();
   readonly #activeRuns = new Map<string, ActiveRunState>();
   readonly #recoveredRunIds: string[] = [];
-  #stagedCause: WorkFoldRoutingRunCause | null = null;
+  #pendingCause: WorkFoldRoutingRunCause | null = null;
   #unsubscribeSettle: (() => void) | null = null;
   #journalDamageReason: string | null = null;
   #suspensionGeneration = 0;
@@ -265,19 +304,19 @@ export class WorkFoldRoutingService {
       ...(options.clock ? { clock: options.clock } : {}),
       ...(options.catchUpStagger ? { catchUpStagger: options.catchUpStagger } : {}),
       // The scheduler mints exactly one run id per admission, synchronously
-      // inside the admission call. Binding the staged trigger cause to that
+      // inside the admission call. Binding the pending trigger cause to that
       // id here — instead of to a per-routing slot — makes attribution exact
       // even when an admission waits in the FIFO queue behind a full budget.
       createRunId: () => {
         const runId = createRunId();
-        const staged = this.#stagedCause;
-        this.#stagedCause = null;
-        if (staged) {
+        const pending = this.#pendingCause;
+        this.#pendingCause = null;
+        if (pending) {
           if (this.#causeByRunId.size >= causeMapGuard) {
             const oldest = this.#causeByRunId.keys().next().value;
             if (oldest !== undefined) this.#causeByRunId.delete(oldest);
           }
-          this.#causeByRunId.set(runId, staged);
+          this.#causeByRunId.set(runId, pending);
         }
         return runId;
       },
@@ -318,15 +357,22 @@ export class WorkFoldRoutingService {
   }
 
   /**
-   * Commits a consecrated enablement and arms the routing. Replacing an
-   * already-enabled routing (an edit that went back through a fresh
-   * consecration) first stops any run still executing under the prior
-   * digest: revocation stops stale work before the authority change reads
-   * as complete.
+   * Commits an enablement receipt and arms the routing. Enabling an
+   * already-enabled identical declaration is a no-op: no fresh receipt, no
+   * journal line, and the active run is left alone, so asking twice never
+   * costs a person work in flight. Replacing an already-enabled routing with
+   * a changed declaration is a fresh receipt that first stops any run still
+   * executing under the prior digest: revocation stops stale work before the
+   * authority change reads as complete.
    */
   async enable(input: WorkFoldRoutingEnableInput): Promise<WorkFoldRoutingRecord> {
     this.#assertOperational();
     const declaration = normalizeWorkFoldRoutingDeclaration(input.declaration);
+    const digest = workFoldRoutingDigest(declaration);
+    const current = await this.#store.get(declaration.id);
+    if (current?.health === "enabled" && current.digest === digest && input.expectedDigest === digest) {
+      return current;
+    }
     if (declaration.trigger.kind === "files-changed") {
       if (!this.#observeFiles) throw new Error("Folder-change triggers are unavailable in this runtime.");
       await this.#observeFiles(declaration.trigger);
@@ -381,7 +427,7 @@ export class WorkFoldRoutingService {
   /**
    * Manual run-now for an enabled routing: receipted, never a schedule
    * mutation. A merely proposed routing is refused — the executor never runs
-   * an unreviewed standing declaration, even once.
+   * a merely proposed standing declaration, even once.
    */
   async runNow(
     routingId: string,
@@ -400,17 +446,17 @@ export class WorkFoldRoutingService {
     if (!record) {
       throw new WorkFoldRoutingServiceError(
         "NOT_FOUND",
-        "No routing has this id. A proposal holds no authority; enablement binds a person's review to the exact declaration digest before anything runs.",
+        "No routing has this id. A proposal holds no authority; enabling pins the exact declaration before anything runs.",
       );
     }
     if (record.health !== "enabled") {
       throw new WorkFoldRoutingServiceError(
         "HEALTH_INVALID",
         record.health === "suspended"
-          ? "This routing is suspended because a referenced Space was removed; re-enablement is a fresh consecration."
+          ? "This routing is suspended because a referenced Space was removed; enable it again to resume."
           : record.health === "completed"
             ? "This one-time routing is completed; its scheduled occurrence has already been consumed."
-            : "This routing is disabled; re-enablement is a fresh consecration.",
+            : "This routing is off; enable it again to run it.",
         { health: record.health },
       );
     }
@@ -446,7 +492,7 @@ export class WorkFoldRoutingService {
    * Space is suspended with the missing Space id recorded (durable, in the
    * store), its active run is stopped, and its schedule is disarmed. A
    * suspended routing never runs, never retargets, and never resumes
-   * automatically; re-enablement is a fresh consecration. With a damaged
+   * automatically; turning it on again is a fresh enablement. With a damaged
    * store this returns empty: damage already fails closed, because nothing
    * is armed and nothing can run.
    */
@@ -678,7 +724,7 @@ export class WorkFoldRoutingService {
         digest: record.digest,
         cause: { kind: "resume", slotAt: trigger.at },
         occurrenceId: claimed.atOccurrence.occurrenceId,
-        detail: "The one-time occurrence passed while work-fold was unavailable and its missed policy is skip.",
+        detail: "The one-time occurrence passed while work-fold was unavailable, and this routing is declared to skip a missed slot.",
       });
       await this.#store.finishAtOccurrence(record.declaration.id, runId, now.toISOString());
       this.#disarm(record.declaration.id);
@@ -709,9 +755,15 @@ export class WorkFoldRoutingService {
         try {
           const snapshot = await this.#observeFiles(armed.trigger);
           if (epoch !== this.#fileEpoch || this.#closed || this.#suspensionDesired || this.#activeRuns.size) return;
-          const count = watch.observe(snapshot, this.#now().getTime(), armed.trigger);
-          if (count !== null) {
-            const admission = this.#dispatchAdmission(routingId, { kind: "files-changed", spaceId: armed.trigger.space, snapshotDigest: snapshot.digest, changedCount: count });
+          const observed = watch.observe(snapshot, this.#now().getTime(), armed.trigger);
+          if (observed !== null) {
+            const admission = this.#dispatchAdmission(routingId, {
+              kind: "files-changed",
+              spaceId: armed.trigger.space,
+              snapshotDigest: snapshot.digest,
+              changedCount: observed.changedCount,
+              changedPaths: observed.changedPaths,
+            });
             void admission.result.catch(() => undefined);
           }
         } catch (error) {
@@ -739,11 +791,11 @@ export class WorkFoldRoutingService {
   }
 
   #dispatchAdmission(routingId: string, cause: WorkFoldRoutingRunCause): WorkFoldAutomationRunAdmission {
-    this.#stagedCause = cause;
+    this.#pendingCause = cause;
     try {
       return this.#automation.runNowAdmission(this.#jobKey(routingId));
     } finally {
-      this.#stagedCause = null;
+      this.#pendingCause = null;
     }
   }
 
@@ -766,8 +818,9 @@ export class WorkFoldRoutingService {
     const cause = this.#takeCause(context);
 
     // Authority is rechecked at the launch boundary, not assumed from the
-    // admission: a routing disabled, suspended, or re-consecrated while this
-    // admission waited in the queue must not run under stale authority.
+    // admission: a routing disabled, suspended, or re-enabled at a different
+    // digest while this admission waited in the queue must not run under
+    // stale authority.
     let record: WorkFoldRoutingRecord | undefined;
     let refusal: string | null = null;
     try {
@@ -779,7 +832,7 @@ export class WorkFoldRoutingService {
     if (refusal === null) {
       if (!record || !armed) refusal = "This routing's enablement was revoked before the run could start.";
       else if (record.digest !== armed.digest) {
-        refusal = "This routing's declaration changed before the run could start; an edited routing never coasts on a stale approval.";
+        refusal = "This routing's declaration changed before the run could start; an edited routing never coasts on a stale enablement.";
       } else if (record.health !== "enabled") {
         refusal = `This routing is ${record.health}; the admission was skipped.`;
       }
@@ -872,7 +925,7 @@ export class WorkFoldRoutingService {
     this.#resetFileWatches(true);
     this.#activeRuns.set(runId, active);
     try {
-      const summary = await this.#executeHops(record.declaration, active);
+      const summary = await this.#executeHops(record.declaration, active, cause);
       if (summary.kind === "succeeded") {
         await this.#receipts.append({
           scope: "run", outcome: "succeeded", routingId, runId, cause, ...runReceiptFields(cause, record),
@@ -931,7 +984,11 @@ export class WorkFoldRoutingService {
     }
   }
 
-  async #executeHops(declaration: WorkFoldRoutingDeclaration, active: ActiveRunState): Promise<RunSummary> {
+  async #executeHops(
+    declaration: WorkFoldRoutingDeclaration,
+    active: ActiveRunState,
+    cause: WorkFoldRoutingRunCause,
+  ): Promise<RunSummary> {
     const { routingId, runId, controller } = active;
     const chatResults = new Map<string, WorkFoldRoutingChatHopResult>();
     let failure: { hopId: string; error: string } | null = null;
@@ -993,36 +1050,55 @@ export class WorkFoldRoutingService {
       }
 
       try {
-        if (step.kind === "chat") {
-          const result = await this.#ports.chat(step, hopContext);
-          chatResults.set(step.id, result);
-          const evidence = {
-            spaceId: step.space,
-            conversationId: result.conversationId,
-            taskId: result.turnTaskId,
-            ...(result.preCheckpointId !== undefined && result.postCheckpointId !== undefined
-              ? { checkpointIds: [result.preCheckpointId, result.postCheckpointId] }
-              : {}),
-          };
+        if (step.kind === "chat" || step.kind === "fold") {
+          // Placeholders are filled in host-side, after this hop's accepted
+          // receipt and before the port is called, from the run's own cause
+          // and its earlier hops' host records. A resolution that cannot be
+          // proven throws here and fails the hop closed.
+          const resolved = await this.#resolveMessage(step, declaration, cause, chatResults);
+          const filled: Partial<WorkFoldRoutingReceiptV1> = resolved.placeholders.length
+            ? { placeholders: resolved.placeholders, messageBytes: resolved.bytes }
+            : {};
+          let result: WorkFoldRoutingChatHopResult | WorkFoldRoutingFoldHopResult;
+          let evidence: Partial<WorkFoldRoutingReceiptV1>;
+          if (step.kind === "chat") {
+            const chat = await this.#ports.chat(step, resolved.message, hopContext);
+            chatResults.set(step.id, chat);
+            result = chat;
+            evidence = {
+              spaceId: step.space,
+              conversationId: chat.conversationId,
+              taskId: chat.turnTaskId,
+              ...(chat.preCheckpointId !== undefined && chat.postCheckpointId !== undefined
+                ? { checkpointIds: [chat.preCheckpointId, chat.postCheckpointId] }
+                : {}),
+            };
+          } else {
+            const fold = await this.#ports.fold(step, resolved.message, hopContext);
+            result = fold;
+            evidence = { conversationId: fold.conversationId, taskId: fold.turnTaskId };
+          }
           if (result.outcome === "succeeded") {
             await this.#receipts.append({
-              scope: "hop", outcome: "succeeded", routingId, runId, hopId: step.id, hopKind: step.kind, ...evidence,
+              scope: "hop", outcome: "succeeded", routingId, runId, hopId: step.id, hopKind: step.kind, ...evidence, ...filled,
             });
           } else if (result.outcome === "aborted" && active.stopRequested) {
             active.stoppedHopTaskIds.push(result.turnTaskId);
             await this.#receipts.append({
-              scope: "hop", outcome: "stopped", routingId, runId, hopId: step.id, hopKind: step.kind, ...evidence,
+              scope: "hop", outcome: "stopped", routingId, runId, hopId: step.id, hopKind: step.kind, ...evidence, ...filled,
             });
             halted = { kind: "stopped" };
           } else if (result.outcome === "aborted" && controller.signal.aborted) {
             await this.#receipts.append({
-              scope: "hop", outcome: "interrupted", routingId, runId, hopId: step.id, hopKind: step.kind, ...evidence,
+              scope: "hop", outcome: "interrupted", routingId, runId, hopId: step.id, hopKind: step.kind, ...evidence, ...filled,
             });
             halted = { kind: "interrupted", detail: abortReasonText(controller.signal.reason) };
           } else {
-            const error = result.error ?? `The Space Assistant turn settled ${result.outcome}.`;
+            const error = result.error ?? (step.kind === "chat"
+              ? `The Space Assistant turn settled ${result.outcome}.`
+              : `The fold's turn settled ${result.outcome}.`);
             await this.#receipts.append({
-              scope: "hop", outcome: "failed", routingId, runId, hopId: step.id, hopKind: step.kind, ...evidence, detail: error,
+              scope: "hop", outcome: "failed", routingId, runId, hopId: step.id, hopKind: step.kind, ...evidence, ...filled, detail: error,
             });
             failure = { hopId: step.id, error };
           }
@@ -1119,6 +1195,106 @@ export class WorkFoldRoutingService {
     return { kind: "succeeded" };
   }
 
+  /**
+   * Fills the closed placeholder set into one chat- or fold-step message.
+   * Resolution is by the run's own cause, never by the declared trigger: a
+   * run-now on a folder-change routing says so in plain words instead of
+   * pretending files changed. Versions 1–3 are never scanned — their
+   * messages are literal text, braces included.
+   */
+  async #resolveMessage(
+    step: WorkFoldRoutingChatStep | WorkFoldRoutingFoldStep,
+    declaration: WorkFoldRoutingDeclaration,
+    cause: WorkFoldRoutingRunCause,
+    chatResults: Map<string, WorkFoldRoutingChatHopResult>,
+  ): Promise<{ message: string; bytes: number; placeholders: WorkFoldRoutingReceiptPlaceholder[] }> {
+    const literal = () => ({
+      message: step.message,
+      bytes: Buffer.byteLength(step.message, "utf8"),
+      placeholders: [] as WorkFoldRoutingReceiptPlaceholder[],
+    });
+    if (declaration.version < 4) return literal();
+    const occurrences = workFoldRoutingMessagePlaceholders(step.message, `Routing step "${step.id}"`);
+    if (!occurrences.length) return literal();
+    const texts = new Map<string, { text: string; truncated: boolean }>();
+    for (const placeholder of occurrences) {
+      if (texts.has(placeholder.name)) continue;
+      texts.set(placeholder.name, await this.#placeholderText(placeholder, declaration, cause, chatResults));
+    }
+    const message = step.message.replace(
+      /\{\{([^{}]*)\}\}/g,
+      (match, inner: string) => texts.get(inner.trim())?.text ?? match,
+    );
+    const bytes = Buffer.byteLength(message, "utf8");
+    if (bytes > workFoldRoutingBounds.maxResolvedMessageBytes) {
+      throw new Error(
+        `The filled-in message would exceed the ${workFoldRoutingBounds.maxResolvedMessageBytes / 1024} KiB limit for one step.`,
+      );
+    }
+    return {
+      message,
+      bytes,
+      placeholders: [...texts].map(([name, value]) => ({
+        name,
+        text: value.text,
+        bytes: Buffer.byteLength(value.text, "utf8"),
+        truncated: value.truncated,
+      })),
+    };
+  }
+
+  /**
+   * One placeholder's text. Nothing here parses model output: the summary and
+   * changed paths come from the run cause the host recorded, findings come
+   * from the settled Check run's own record, and created files come from the
+   * source chat hop's History checkpoint pair.
+   */
+  async #placeholderText(
+    placeholder: WorkFoldRoutingPlaceholder,
+    declaration: WorkFoldRoutingDeclaration,
+    cause: WorkFoldRoutingRunCause,
+    chatResults: Map<string, WorkFoldRoutingChatHopResult>,
+  ): Promise<{ text: string; truncated: boolean }> {
+    if (placeholder.name === "trigger.summary") {
+      return { text: causeSummary(cause, declaration), truncated: false };
+    }
+    if (placeholder.name === "trigger.changedFiles") {
+      if (cause.kind !== "files-changed") {
+        return { text: `(no changed files: ${causeClause(cause)})`, truncated: false };
+      }
+      const paths = cause.changedPaths ?? [];
+      return paths.length ? boundedPlaceholderList(paths) : { text: "(no changed files)", truncated: false };
+    }
+    if (placeholder.name === "trigger.findings") {
+      if (cause.kind !== "on-settled" || cause.source.kind !== "check-run") {
+        return { text: "(no findings: this run was not started by a Check run)", truncated: false };
+      }
+      const unreadable = "The Check run's findings could not be read, so {{trigger.findings}} cannot be filled in.";
+      const taskId = cause.source.taskId;
+      if (taskId === undefined) throw new Error(unreadable);
+      let read: WorkFoldRoutingCheckRunFindings | null;
+      try {
+        read = await this.#ports.checkRunFindings(cause.source.spaceId, taskId);
+      } catch (error) {
+        throw new Error(unreadable, { cause: error });
+      }
+      if (!read) throw new Error(unreadable);
+      if (!read.findings.length) return { text: "(no findings)", truncated: false };
+      return boundedPlaceholderList(read.findings.map(
+        (finding) => `- [${finding.severity}] ${finding.title} — ${finding.targetPath} (${finding.checkId})`,
+      ));
+    }
+    const sourceStepId = placeholder.step!;
+    const source = declaration.steps.find((candidate) => candidate.id === sourceStepId);
+    if (source?.kind !== "chat") {
+      throw new Error(`Routing step "${sourceStepId}" is not a chat step, so its created files cannot be filled in.`);
+    }
+    const created = await this.#createdFiles(sourceStepId, source.space, chatResults);
+    return created.length
+      ? boundedPlaceholderList(created.map((file) => file.path))
+      : { text: "(no files created)", truncated: false };
+  }
+
   async #resolveFilesSource(
     step: WorkFoldRoutingFilesStep,
     chatResults: Map<string, WorkFoldRoutingChatHopResult>,
@@ -1152,22 +1328,47 @@ export class WorkFoldRoutingService {
     source: WorkFoldRoutingStepCreatedFilesSource,
     chatResults: Map<string, WorkFoldRoutingChatHopResult>,
   ): Promise<string[]> {
-    const chat = chatResults.get(source.step);
+    const created = await this.#createdFiles(source.step, step.fromSpace, chatResults, source.extensions);
+    if (created.length > source.maxFiles) {
+      throw new Error(
+        `The turn created or changed ${created.length} matching files, more than this handoff's bound of ${source.maxFiles}.`,
+      );
+    }
+    const totalBytes = created.reduce((sum, file) => sum + file.sizeBytes, 0);
+    if (totalBytes > source.maxTotalBytes) {
+      throw new Error(
+        `The turn's matching files total ${totalBytes} bytes, more than this handoff's bound of ${source.maxTotalBytes}.`,
+      );
+    }
+    return created.map((file) => file.path);
+  }
+
+  /**
+   * The manifest diff itself, shared by the declared files handoff and the
+   * `{{steps.<id>.createdFiles}}` placeholder: sorted paths with their sizes,
+   * fail-closed on every gap.
+   */
+  async #createdFiles(
+    sourceStepId: string,
+    spaceId: string,
+    chatResults: Map<string, WorkFoldRoutingChatHopResult>,
+    extensions?: string[],
+  ): Promise<WorkFoldRoutingCheckpointManifestEntry[]> {
+    const chat = chatResults.get(sourceStepId);
     if (!chat || chat.outcome !== "succeeded") {
-      throw new Error(`The created-files handoff needs chat hop "${source.step}" to have succeeded in this run.`);
+      throw new Error(`The created-files handoff needs chat hop "${sourceStepId}" to have succeeded in this run.`);
     }
     if (chat.preCheckpointId === undefined || chat.postCheckpointId === undefined) {
       throw new Error(
-        `Chat hop "${source.step}" did not record its pre/post-turn checkpoint pair, so the created files cannot be resolved.`,
+        `Chat hop "${sourceStepId}" did not record its pre/post-turn checkpoint pair, so the created files cannot be resolved.`,
       );
     }
-    const pre = await this.#ports.checkpointManifest(step.fromSpace, chat.preCheckpointId);
-    const post = await this.#ports.checkpointManifest(step.fromSpace, chat.postCheckpointId);
+    const pre = await this.#ports.checkpointManifest(spaceId, chat.preCheckpointId);
+    const post = await this.#ports.checkpointManifest(spaceId, chat.postCheckpointId);
     if (!pre || !post) {
       const missing = !pre ? chat.preCheckpointId : chat.postCheckpointId;
       throw new Error(`Checkpoint ${missing} is missing from the source Space's History, so the created files cannot be resolved.`);
     }
-    const extensions = source.extensions;
     const matches = (path: string): boolean => {
       if (!extensions || extensions.length === 0) return true;
       const lowered = path.toLocaleLowerCase("en-US");
@@ -1183,19 +1384,10 @@ export class WorkFoldRoutingService {
       }
     }
     const before = new Map(pre.files.map((file) => [file.path, file.hashSha256]));
-    const created = post.files.filter((file) => matches(file.path) && before.get(file.path) !== file.hashSha256);
-    if (created.length > source.maxFiles) {
-      throw new Error(
-        `The turn created or changed ${created.length} matching files, more than this handoff's bound of ${source.maxFiles}.`,
-      );
-    }
-    const totalBytes = created.reduce((sum, file) => sum + file.sizeBytes, 0);
-    if (totalBytes > source.maxTotalBytes) {
-      throw new Error(
-        `The turn's matching files total ${totalBytes} bytes, more than this handoff's bound of ${source.maxTotalBytes}.`,
-      );
-    }
-    return created.map((file) => file.path).sort();
+    return post.files
+      .filter((file) => matches(file.path) && before.get(file.path) !== file.hashSha256)
+      .map((file) => ({ ...file }))
+      .sort((left, right) => compareRoutingStrings(left.path, right.path));
   }
 
   async #onAutomationResult(result: WorkFoldAutomationRunResult): Promise<void> {
@@ -1298,11 +1490,11 @@ export class WorkFoldRoutingService {
 }
 
 function hopSpaceFields(
-  step: WorkFoldRoutingChatStep | WorkFoldRoutingFilesStep | WorkFoldRoutingCheckStep,
-): { spaceId: string } | { fromSpaceId: string; toSpaceId: string } {
-  return step.kind === "files"
-    ? { fromSpaceId: step.fromSpace, toSpaceId: step.toSpace }
-    : { spaceId: step.space };
+  step: WorkFoldRoutingStep,
+): { spaceId: string } | { fromSpaceId: string; toSpaceId: string } | Record<string, never> {
+  if (step.kind === "files") return { fromSpaceId: step.fromSpace, toSpaceId: step.toSpace };
+  // A fold hop names no Space: the management conversation sits above them.
+  return step.kind === "fold" ? {} : { spaceId: step.space };
 }
 
 function settleMatchesSource(source: WorkFoldRoutingSettleSource, record: WorkFoldSettleRecord): boolean {
@@ -1329,6 +1521,9 @@ function settleCause(record: WorkFoldSettleRecord): WorkFoldRoutingRunCause {
         runId: record.runId,
         state: record.state,
         checkIds: [...record.checkIds],
+        // The Check task id is how `{{trigger.findings}}` reads the settled
+        // run's own findings back from the host.
+        taskId: record.taskId,
       },
     };
   }
@@ -1343,6 +1538,80 @@ function settleCause(record: WorkFoldSettleRecord): WorkFoldRoutingRunCause {
       outcome: record.outcome,
     },
   };
+}
+
+function compareRoutingStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/** Room for the "… and n more" marker inside the per-placeholder byte bound. */
+const placeholderMarkerAllowanceBytes = 96;
+
+/**
+ * One filled-in list placeholder, cut at a line boundary. Every cut names the
+ * limit that actually bit, so a person reading the message knows the list is
+ * short because work-fold stopped, not because the work did.
+ */
+function boundedPlaceholderList(lines: string[]): { text: string; truncated: boolean } {
+  const maxItems = workFoldRoutingBounds.maxPlaceholderListItems;
+  const maxBytes = workFoldRoutingBounds.maxPlaceholderTextBytes;
+  const kept: string[] = [];
+  let bytes = 0;
+  let byteLimited = false;
+  for (const line of lines.slice(0, maxItems)) {
+    const cost = Buffer.byteLength(line, "utf8") + (kept.length ? 1 : 0);
+    if (bytes + cost > maxBytes - placeholderMarkerAllowanceBytes) {
+      byteLimited = true;
+      break;
+    }
+    kept.push(line);
+    bytes += cost;
+  }
+  const omitted = lines.length - kept.length;
+  if (omitted <= 0) return { text: kept.join("\n"), truncated: false };
+  const limit = byteLimited ? `${maxBytes / 1024} KiB` : `${maxItems}-item`;
+  return {
+    text: [...kept, `… and ${omitted} more (${limit} limit for one filled-in placeholder)`].join("\n"),
+    truncated: true,
+  };
+}
+
+/** `{{trigger.summary}}`: what actually started this run, in one sentence. */
+function causeSummary(cause: WorkFoldRoutingRunCause, declaration: WorkFoldRoutingDeclaration): string {
+  switch (cause.kind) {
+    case "run-now":
+      return "Started by hand.";
+    case "scheduled":
+      return `Scheduled run for ${cause.slotAt}.`;
+    case "resume":
+      return `Caught-up run for the ${cause.slotAt} slot.`;
+    case "files-changed": {
+      const watched = declaration.trigger.kind === "files-changed" ? declaration.trigger.watch.path : "the watched folder";
+      return `${cause.changedCount} file(s) changed under "${watched}" in Space ${cause.spaceId}.`;
+    }
+    default:
+      return cause.source.kind === "check-run"
+        ? `Check run ${cause.source.runId} in Space ${cause.source.spaceId} settled ${cause.source.state}`
+          + ` (Checks: ${cause.source.checkIds.join(", ")}).`
+        : `App automation ${cause.source.appId}/${cause.source.automationId} in Space ${cause.source.spaceId}`
+          + ` settled ${cause.source.outcome}.`;
+  }
+}
+
+/** Why a placeholder has nothing to fill in for this run, in the same sentence. */
+function causeClause(cause: WorkFoldRoutingRunCause): string {
+  switch (cause.kind) {
+    case "run-now":
+      return "this run was started by hand";
+    case "scheduled":
+      return "this was a scheduled run";
+    case "resume":
+      return "this was a caught-up run";
+    case "files-changed":
+      return "this run was started by a folder change";
+    default:
+      return "this run was started by a settled run";
+  }
 }
 
 function abortReasonText(reason: unknown): string {

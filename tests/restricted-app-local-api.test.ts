@@ -304,12 +304,24 @@ test("restricted app API keeps review, install, grants, connections, invocation,
     }
     await waitFor(async () => (await api.kernel.getTasks({ kind: "system" })).tasks.length === 0);
 
-    const cleared = await request<{ usage: { keyCount: number } }>(
+    const cleared = await request<{ usage: { keyCount: number }; trash: { entryId: string; restoreBy: string } | null }>(
       api.origin,
       `/api/spaces/${space.id}/restricted-apps/mail-app/storage`,
       { method: "DELETE", body: { expectedDigest: inspected.review.digest } },
     );
     assert.equal(cleared.usage.keyCount, 0);
+    // Clearing writes a complete copy into Recently deleted first
+    // (docs/receipts-not-gates.md, F20).
+    assert.ok(cleared.trash?.entryId, "clearing app data keeps a copy");
+    const keptAppData = (await api.trash.list()).entries;
+    assert.equal(keptAppData.length, 1);
+    assert.equal(keptAppData[0]?.kind, "app-storage");
+    assert.equal(keptAppData[0]?.reason, "apps.storage.clear");
+    assert.equal(keptAppData[0]?.id, cleared.trash!.entryId);
+    const keptBackup = await api.trash.readAppData(cleared.trash!.entryId);
+    assert.deepEqual(keptBackup.data, exported.backup.data, "the kept copy holds the data that was cleared");
+    assert.equal(keptBackup.appId, exported.backup.appId);
+    assert.equal(keptBackup.appDigest, exported.backup.appDigest);
     const controlUpdate = new TextDecoder().decode((await controlReader.read()).value);
     assert.match(controlUpdate, /data: \{"type":"apps"\}/);
     assert.equal(controlUpdate.includes("inbox"), false, "control hints never contain app data");
@@ -465,6 +477,22 @@ test("restricted app API keeps review, install, grants, connections, invocation,
     assert.equal(storageCleared.remainingBytes, 0);
     assert.equal((await storage.usage(dataOwner(released))).keyCount, 0);
     assert.equal(await storage.get(dataOwner(reinstalled.app), "preview"), "keep this", "a clear affects only its pinned sibling");
+
+    // The copy the clear kept goes back into the same installation at the same
+    // revision, and the revision advances rather than replaying a past value
+    // (docs/receipts-not-gates.md, F20; docs/app-data-recovery.md).
+    assert.ok(storageCleared.trash?.entryId, "clearing app data keeps a copy");
+    const clearedRevision = (await storage.usage(dataOwner(released))).revision;
+    const refilled = await api.actFacade.trashRestore({ entry: storageCleared.trash!.entryId });
+    assert.equal(refilled.restored.kind, "app-storage");
+    assert.equal(await storage.get(dataOwner(released), "release"), "clear this");
+    assert.ok((await storage.usage(dataOwner(released))).revision > clearedRevision);
+    assert.equal(await storage.get(dataOwner(reinstalled.app), "preview"), "keep this", "a restore affects only its own installation");
+    assert.equal(
+      (await api.trash.list()).entries.some((entry) => entry.id === storageCleared.trash!.entryId),
+      false,
+      "a restored copy leaves Recently deleted",
+    );
     const previewGrant = await request<{ app: RestrictedAppInstalled }>(api.origin, `${itemUrl}/permissions/network/mail-api`, { method: "DELETE", body: current });
     assert.deepEqual(previewGrant.app.networkGrants, []);
     assert.equal(previewGrant.app.featureInstallationId, reinstalled.app.featureInstallationId);

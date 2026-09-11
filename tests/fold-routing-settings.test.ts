@@ -12,6 +12,7 @@ import {
 } from "../src/local/routings/routing-declarations.js";
 import type { WorkFoldRoutingReceiptV1 } from "../src/local/routings/routing-store.js";
 import { startLocalApi } from "../src/local/server.js";
+import { workFoldManagementRoot } from "../src/local/state-paths.js";
 
 test("trusted Settings manages routings with receipted enablement, bounded run history, and global receipts", async (t) => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-routing-settings-"));
@@ -50,7 +51,7 @@ test("trusted Settings manages routings with receipted enablement, bounded run h
   await api.routings.enable({
     declaration,
     expectedDigest: workFoldRoutingDigest(declaration),
-    decision: { decisionId: "decision-settings-fixture", surface: "main-window" },
+    grant: { requestId: "request-settings-fixture", surface: "main-window" },
   });
 
   const listed = await api.routingSettings.list();
@@ -101,11 +102,17 @@ test("trusted Settings manages routings with receipted enablement, bounded run h
   // Enabling from Settings runs at once through the prepared-act path
   // (docs/receipts-not-gates.md, F19/F23) under a Settings-minted request id.
   const enabled = await api.routingSettings.enable(declaration.id);
-  assert.deepEqual(enabled, { routingId: declaration.id, requestId: enabled.requestId, enabled: true });
+  assert.deepEqual(enabled, {
+    routingId: declaration.id,
+    requestId: enabled.requestId,
+    enabled: true,
+    alreadyEnabled: false,
+  });
   assert.match(enabled.requestId, /^settings:/);
   const reEnabled = await api.routings.getRouting(declaration.id);
   assert.equal(reEnabled?.health, "enabled");
-  assert.equal(reEnabled?.grants.at(-1)?.decisionId, enabled.requestId, "the grant carries the enabling act's request id");
+  assert.equal(reEnabled?.grants.at(-1)?.requestId, enabled.requestId, "the enablement receipt carries the act's request id");
+  assert.ok(reEnabled?.grants.at(-1)?.enabledAt, "the receipt records when it was enabled");
   assert.equal(reEnabled?.grants.at(-1)?.surface, "main-window");
   await assert.rejects(() => api.routingSettings.enable(declaration.id), /already on/);
   await api.routingSettings.disable(declaration.id);
@@ -133,8 +140,97 @@ test("trusted Settings manages routings with receipted enablement, bounded run h
   assert.equal(runNow?.requestId, accepted.requestId);
 });
 
-async function waitFor(predicate: () => Promise<boolean>, label: string): Promise<void> {
-  for (let attempt = 0; attempt < 400; attempt += 1) {
+
+test("routings enable is direct and a fold step opens a new management thread", async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-routing-fold-step-"));
+  const stateRoot = join(sandbox, "state");
+  const api = await startLocalApi({
+    port: 0,
+    stateBase: stateRoot,
+    spaceBase: join(sandbox, "spaces"),
+    loadEnv: false,
+  });
+  t.after(async () => {
+    await api.close();
+    // The fold hop's own turn may still be flushing a best-effort receipt as
+    // the API closes; retry so a racing write never fails the test.
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      try {
+        await rm(sandbox, { recursive: true, force: true });
+        return;
+      } catch {
+        await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      }
+    }
+    await rm(sandbox, { recursive: true, force: true });
+  });
+
+  // An inert typed proposal on disk is the whole input; `routings enable`
+  // reads it, pins its digest, and turns the routing on at once.
+  const proposalPath = join(sandbox, "digest.work-fold-routing.json");
+  await writeFile(proposalPath, JSON.stringify({
+    kind: "work-fold.routing-proposal",
+    version: 4,
+    name: "Fold digest",
+    createdBy: "assistant",
+    createdAt: "2026-09-01T12:00:00.000Z",
+    routing: {
+      title: "Fold digest",
+      trigger: { kind: "manual" },
+      steps: [{ id: "digest", kind: "fold", message: "{{trigger.summary}} Say hello." }],
+    },
+  }), "utf8");
+
+  const enabled = await api.actFacade.routingsEnable({ proposalPath, cwd: sandbox, requestId: "act:fold-step-enable" });
+  assert.equal(enabled.health, "enabled");
+  assert.equal(enabled.alreadyEnabled, false);
+  assert.deepEqual(enabled.referencedSpaceIds, [], "a fold step names no Space");
+  assert.match(enabled.routingId, /^routing-[a-f0-9]{16}$/);
+  const again = await api.actFacade.routingsEnable({ proposalPath, cwd: sandbox, requestId: "act:fold-step-enable-2" });
+  assert.equal(again.alreadyEnabled, true, "enabling the same declaration again changes nothing");
+  assert.equal((await api.routings.getRouting(enabled.routingId))?.grants.length, 1);
+
+  await api.routingSettings.run(enabled.routingId);
+  await waitFor(async () => {
+    const history = await api.routingSettings.history(enabled.routingId);
+    return history.runs[0]?.hops[0]?.outcome !== undefined && history.runs[0]?.hops[0]?.outcome !== "accepted";
+  }, "the fold hop to settle", 4_000);
+  const hop = (await api.routingSettings.history(enabled.routingId)).runs[0]?.hops[0];
+  assert.equal(hop?.kind, "fold");
+
+  const receipts = (await api.actFacade.routingsReceipts({ routing: enabled.routingId })).receipts;
+  const terminal = receipts.find((receipt) => receipt.hopId === "digest" && receipt.outcome !== "accepted");
+  assert.equal(terminal?.hopKind, "fold");
+  assert.deepEqual(terminal?.placeholders, [{
+    name: "trigger.summary",
+    text: "Started by hand.",
+    bytes: "Started by hand.".length,
+    truncated: false,
+  }], "the receipt records exactly what work-fold filled in");
+  assert.equal(terminal?.messageBytes, "Started by hand. Say hello.".length);
+
+  // In this sandbox the management turn settles on its own (the hop records
+  // `succeeded` with a real conversation id). Without prepared management
+  // instructions the hop would instead fail honestly, so both branches are
+  // asserted; what must hold either way is that a *new* management thread
+  // carries the filled-in message as its first person-visible message.
+  if (terminal?.conversationId) {
+    const transcript = await readFile(
+      join(workFoldManagementRoot(), ".work-fold", "conversations", `${terminal.conversationId}.jsonl`),
+      "utf8",
+    );
+    const first = transcript.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line) as {
+      role?: string;
+      content?: string;
+    }).find((entry) => entry.role === "user");
+    assert.equal(first?.content, "Started by hand. Say hello.");
+  } else {
+    assert.match(terminal?.detail ?? "", /management conversation is unavailable/);
+  }
+});
+
+async function waitFor(predicate: () => Promise<boolean>, label: string, attempts = 400): Promise<void> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (await predicate()) return;
     await new Promise<void>((resolve) => setTimeout(resolve, 5));
   }

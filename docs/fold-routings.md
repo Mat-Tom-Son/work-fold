@@ -42,11 +42,11 @@ justifies (decision F9). Routings enforce the boundary structurally:
 - The declaration, enablement grant, cadence anchor, health state, and every
   run receipt are machine-local application state. Nothing routing-shaped is
   ever written under any Space's `.work-fold/`.
-- A Chat step sends only the fixed message text the person reviewed at
-  enablement, into a new conversation in that one Space. The executor
-  appends no ambient context, no other Space's name, no trigger detail. The
-  person approves that exact string knowing it becomes portable transcript
-  content in that Space.
+- A Chat step sends only the declared message text, with the closed
+  placeholder set filled in host-side, into a new conversation in that one
+  Space. The executor appends no ambient context and no other Space's name.
+  The declaration says exactly what becomes portable transcript content in
+  that Space, and the hop receipt records the text work-fold filled in.
 - The only cross-Space transfer is the files step: bytes copied through the
   same additive, restore-pointed path as `files add`. Transcript text is
   never relayed between Spaces by the executor.
@@ -111,9 +111,8 @@ deterministic jitter. Missed slots never queue.
 `{"kind":"at","at":"2026-09-01T21:00:00-04:00","ifMissed":"run"}`
 and requires declaration version 2. `at` must carry an explicit UTC offset;
 normalization stores one UTC instant. Enablement rechecks that the instant is
-at least 1 minute and no more than 366 days ahead. Staging requires at least
-2 minutes so Reviewed mode never creates a card already destined to fail
-while a person reads it. `ifMissed` is `run` or `skip`: after launch or wake,
+at least 1 minute and no more than 366 days ahead. `ifMissed` is `run` or
+`skip`: after launch or wake,
 `run` admits one bounded catch-up for the exact slot while `skip` records that
 the occurrence did not run. Nothing runs while work-fold is quit.
 
@@ -147,24 +146,25 @@ proposal and enablement.
 ## The declaration
 
 Authoring follows the Check-proposal pattern: the fold writes an inert,
-typed, kind/version JSON file (`work-fold.routing-proposal`, version 1, 2, or 3,
-`.work-fold-routing.json` suffix) in its own management working folder —
+typed, kind/version JSON file (`work-fold.routing-proposal`, version 1, 2, 3,
+or 4, `.work-fold-routing.json` suffix) in its own management working folder —
 never inside a Space folder, because the proposal names multiple Spaces and
 Space folders travel. `src/local/routings/routing-declarations.ts` is the
 schema authority. Spaces are pinned by stable Space id; duplicate names are
-rejected as ambiguous, and the review surface resolves ids to current names
-and folders so the person approves something readable.
+rejected as ambiguous, and `routings show` resolves ids to current names and
+folders so the declaration reads as something a person can check.
 
 Declarations are closed, typed data under the same discipline as Check
-declarations: no prompts beyond the literal Chat-step message, no
-instructions, no source code, no shell commands, no model names, no
-credentials, no connection data, no expressions. The Chat-step `message` is
-bounded (16 KiB) and is data addressed to one Space's Assistant, reviewed
-verbatim at enablement.
+declarations: no prompts beyond the literal Chat- and fold-step message plus
+the closed placeholder set below, no instructions, no source code, no shell
+commands, no model names, no credentials, no connection data, no expressions.
+The Chat- and fold-step `message` is bounded (16 KiB) and is data addressed to
+one Space's Assistant or to the fold; in version 4 it may carry the closed
+placeholder set.
 
 ### Steps
 
-At most 8 steps, executed strictly in order. Three kinds:
+Up to 16 steps by default, executed strictly in order. Four kinds:
 
 - **`chat`** — start a **new** conversation in the named Space with the
   fixed message, through the same acceptance path as
@@ -191,12 +191,51 @@ At most 8 steps, executed strictly in order. Three kinds:
   when the run settles `succeeded` — **including when it admits findings**:
   findings are content state for the person; glue is not a gate. `failed`,
   `aborted`, or `interrupted` fails the hop.
+- **`fold`** (version 4) — start a **new** thread in the management
+  conversation with the message, through the same acceptance path as
+  `work-fold manage send --new`. It names no Space: the fold sits above
+  them. Always a new thread, so standing behavior never entangles a live
+  management thread and turn-conflict rejection stays exact. The hop waits
+  for its own turn's terminal outcome and `routings stop` aborts it like a
+  Chat hop. This is the one admitted way the fold runs unattended (F8,
+  narrowed by [receipts-not-gates.md](receipts-not-gates.md)), so a person
+  can put the fold on a cadence deliberately. A fold hop records no History
+  checkpoints and is never a created-files source.
 
-### Static parameters, and the one handoff
+### Placeholders and the created-files handoff
 
-Every step parameter is a literal reviewed at enablement; there is no
-step-output-to-step-input templating. The single exception is the
-**declared created-files handoff**: a `files` step may name an earlier
+Every step parameter is a literal in the declaration; there is no
+step-output-to-step-input templating and nothing evaluates model output.
+Version 4 admits exactly one narrow addition: a **closed set of host-filled
+placeholders** in a `chat` or `fold` message. Nothing else inside `{{ }}` is
+accepted — an unknown placeholder is a declaration error refused when the
+routing is enabled, so it can never appear as an empty sentence in a message
+a Space Assistant already received.
+
+| Placeholder | Filled in from | Declaration rule |
+|---|---|---|
+| `{{trigger.summary}}` | The run's own cause, in one sentence | Valid with every trigger |
+| `{{trigger.changedFiles}}` | The changed paths the folder observer recorded | Requires a folder-change trigger |
+| `{{trigger.findings}}` | The settled Check run's active findings, read back from the host | Requires a Check-run `on-settled` trigger |
+| `{{steps.<id>.createdFiles}}` | The manifest diff of that chat hop's own pre/post checkpoints | Must name an earlier `chat` step in the same routing |
+
+Resolution happens in the executor, after the hop's `accepted` receipt and
+before the port is called, and it reads the **run's cause**, never the
+declared trigger. A run-now on a folder-change routing therefore says
+`(no changed files: this run was started by hand)` instead of pretending
+files changed. A resolution that cannot be proven — a Check run whose
+findings cannot be read, a created-files gap — fails the hop closed with a
+typed reason and skips the later hops; nothing is sent.
+
+Bounds, each named in the text it produces: 8 KiB per filled-in placeholder,
+100 items per filled-in list, and 64 KiB for the whole message after
+substitution (exceeding it fails the hop). The hop's terminal receipt records
+`placeholders[]` — each name, the bounded text, its byte length, and whether
+it was cut — plus `messageBytes`. That is the one place the receipts journal
+carries message text, and it carries only the part work-fold itself wrote.
+
+The other declared exception is the **declared created-files handoff**: a
+`files` step may name an earlier
 `chat` step in the same routing as its source
 (`{"kind": "step-created-files", "step": "<id>"}` plus mandatory bounds —
 `maxFiles` and `maxTotalBytes` required, extension filters optional). It
@@ -211,7 +250,7 @@ Determinism covers **selection, not content**. The copied bytes are whatever
 the chat step's turn wrote — model output, steered by the fixed message and
 by whatever the source Space's folder contains at run time. An enabled
 routing with this handoff is a standing, content-dependent channel from the
-source Space into the destination Space; the enablement card states this in
+source Space into the destination Space; `routings show` states this in
 plain words. Every delivery is inspectable after the fact: the hop receipt
 lists the exact copied paths, and the glance's routing-run-settled item
 names the destination Space and the delivered file count.
@@ -230,7 +269,7 @@ names the destination Space and the delivered file count.
 The routing service (`src/local/routings/routing-service.ts`) owns execution
 as app code. It creates its **own** instance of the existing
 `WorkFoldAutomationService` — the same class, the same discipline, a
-separate two-slot budget with `ownerId: "work-fold.routing"`. Sharing the
+separate eight-slot default budget with `ownerId: "work-fold.routing"`. Sharing the
 restricted-app service's instance was rejected: it would let one Space
 app's jobs starve cross-Space glue and couple two authority domains to one
 lifecycle. That buys, verbatim from the proven scheduler: FIFO admission,
@@ -277,8 +316,7 @@ automatically — not even when a folder carrying the same portable Space
 identity is re-registered, because registration must never silently re-arm
 standing behavior. Copy distinguishes "Space removed" from "re-registered
 with preserved identity"; the semantics are deliberately identical, and
-leaving suspension is a fresh enablement consecration over the unchanged
-declaration.
+leaving suspension is a fresh enablement over the unchanged declaration.
 
 **Crash mid-run.** Startup scans the journal for runs with an `accepted`
 record and no terminal record and appends `interrupted` — record, never
@@ -313,38 +351,31 @@ are not queued. Routing runs register as the experimental kernel task kind
 1. **Propose.** The fold (or a person, by hand) writes the inert typed
    proposal. Nothing is registered, armed, or scheduled; proposals are
    ordinary files with no authority.
-2. **Stage enablement.** A receipted act-lane command submits the proposal
-   for enablement, producing a pending decision: fully prepared,
-   inspectable, inert. Staged decisions expire; expiry is not approval;
-   denial is recorded, not retried.
-3. **Consecrate.** Enabling a routing is consecration 2 — widening a power
-   into standing behavior — and no standing policy can pre-approve it. In
-   Reviewed it requires the human click described by
-   [fold-consecrations.md](fold-consecrations.md), from the desktop or an
-   eligible approved browser. In Unrestricted the desktop host consumes a
-   fresh admission automatically, including when the staging request came
-   from an approved browser. The receipt records the decision surface and
-   browser identity, and revoking a browser cancels its pending decisions.
-   In Reviewed, the card shows the whole declaration in review form: every
-   Space by current name and folder, the Chat step's message verbatim, exact
-   paths, selectors, filters and bounds, the Check by exact id, and the
-   trigger; a created-files handoff is stated plainly as future model
-   output shaped by the source Space's content. Enablement records an
-   exact-authority grant over the declaration digest. The digest pins the
-   declaration, not the referenced Spaces' capabilities: a chat step runs
-   with whatever Assistant authority its Space holds at run time — stated
-   on the card, with the deliberate absence of re-review machinery recorded
-   below. The declaration write and the grant commit are one logical
-   operation; a failure may leave an inert declaration, never undeclared or
-   digest-mismatched authority.
-4. **Run.** Scheduled, on-settled, or run-now. Any edit to the declaration
-   changes its digest and returns the routing to proposed until a fresh
-   consecration — an edited routing never coasts on a stale approval.
-5. **Disable.** A direct verb (and a desktop control): narrowing authority
-   is always direct. Re-enable is a fresh consecration governed by the mode
-   active at that admission.
-6. **Delete.** A direct verb on an inert disabled, suspended, or completed
-   routing: removes the declaration, grant history pointer, and cadence
+2. **Enable.** `work-fold routings enable --proposal <path>` is a direct
+   receipted verb (docs/receipts-not-gates.md, F23). It normalizes the
+   declaration, rechecks the one-time horizon, requires every referenced
+   Space to be registered, and commits the enablement through the same
+   prepare-pin-journal-execute path every act verb takes — immediately, on
+   the first call. The receipt pins the declaration digest and records the
+   surface and request id. Enabling a declaration that is already on at the
+   same digest is a no-op: no fresh receipt, no journal line, and an active
+   run is left alone. Enabling a *changed* declaration is a fresh receipt
+   that first stops any run still executing the previous one, because
+   revocation must stop stale work before the change reads as complete.
+   The digest pins the declaration, not the referenced Spaces'
+   capabilities: a chat step runs with whatever Assistant authority its
+   Space holds at run time — the deliberate absence of re-review machinery
+   is recorded below. The declaration write and the enablement commit are
+   one logical operation; a failure may leave an inert declaration, never
+   undeclared or digest-mismatched authority.
+3. **Run.** Scheduled, on-settled, or run-now. Any edit to the declaration
+   changes its digest, and a run admitted under the old digest is refused at
+   the launch boundary — an edited routing never coasts on a stale
+   enablement.
+4. **Disable.** Narrowing is always direct: it journals the disable,
+   persists it, cancels pending admissions, and stops the active run.
+5. **Delete.** A direct verb on an inert disabled, suspended, or completed
+   routing: removes the declaration, enablement history, and cadence
    anchor. An active or claimed-but-unfinished one-time run must settle or be
    stopped first. The receipts journal is retained — audit records survive
    the object, as with Checks.
@@ -353,12 +384,11 @@ The five questions, per mutation:
 
 | Mutation | Journaled by | Receipt contains | Revoked / undone by | Mid-act failure | Replay prevented by |
 |---|---|---|---|---|---|
-| Stage enablement | Act-lane journal (`accepted` before, terminal after) plus the pending-decision record | Proposal digest, routing summary, staging actor, parent-task lineage | Expiry, explicit denial, browser revocation cancelling its pending decisions | Staging is inert; a torn stage is an absent decision, refused at decision time | Act request-id at-most-once; single-use decision ids |
-| Enable | Consecration decision record plus routing store commit | Routing id, declaration digest, decision surface/browser identity, timestamp | Disable; Space removal (automatic revocation to `suspended`) | Declaration-then-grant as one logical operation; failure leaves inert declaration, never digest-mismatched authority | Single-use decision id; expired stages cannot be approved |
+| Enable | Act-lane journal plus routing store commit (`routing/enabled` with digest, surface, request id) | Routing id, declaration digest, surface and browser identity, timestamp | Disable; Space removal (automatic revocation to `suspended`) | Declaration-then-receipt as one logical operation; failure leaves inert declaration, never digest-mismatched authority | Act request-id at-most-once; an identical already-enabled digest is a no-op |
 | Run (scheduled / on-settled) | Routing receipts journal, run `accepted` then durable schedule claim before hop 1, per-hop accepted/terminal pairs | Trigger cause, digest, occurrence id for one-time work, per-hop domain evidence (task ids, run ids, conversation id, restore-point id, counts) | Stop (active); files effects restorable via the hop's restore point; chat effects are an ordinary archivable Chat | Startup reconciles an accepted slot, records `interrupted`, and never replays it; completed hops keep receipts | Host-minted run ids; journal-first accepted gate; pre-hop interval/occurrence claim; serialized trigger funnel |
 | Run-now | Act-lane journal plus the same run journal | As above, plus the act request id | Same as a run | Same as a run | Act request-id at-most-once plus run-id gate |
 | Stop | Act-lane journal (or desktop action record) plus run terminal record | Run id, aborted hop task ids, skipped hops | Not applicable — stop is itself the revocation act | Abort signals are idempotent; a second stop finds a settled run | Act request-id at-most-once; a settled run refuses stop with its terminal state |
-| Disable | Act-lane journal plus routing store | Prior state, stopped run id if one was aborted | Re-enable (fresh consecration) | Disabled intent persists first; startup refuses to arm a disabled routing; the active run at a crash is `interrupted` anyway | Act request-id at-most-once |
+| Disable | Act-lane journal plus routing store | Prior state, stopped run id if one was aborted | Enable again (a fresh receipt) | Disabled intent persists first; startup refuses to arm a disabled routing; the active run at a crash is `interrupted` anyway | Act request-id at-most-once |
 | Delete | Act-lane journal plus routing store | Routing id, digest, final health state | Not undoable; the declaration was inert data and receipts are retained | Active and claimed-but-unfinished occurrences are refused; grant is removed before declaration so no window holds authority without a declaration | Act request-id at-most-once |
 
 ## Where routings live in the product
@@ -367,13 +397,14 @@ Routings are managed in **Settings → The fold** (decision F15) — Assistant
 tools was rejected because a routing is not one Space's object, and a
 management work tab was rejected because it would spend the Space-bound tab
 contract's own deliberate design. The Settings section carries the list,
-state, declaration, bounded run history, and valid actions; pending enablement
-decisions surface as needs-you cards. The fold narrates run history on demand,
-never on a schedule. A routing's effects remain visible where they land: the copied
+state, declaration, bounded run history, and valid actions; **Turn on** is one
+click that enables the routing and writes its receipt. The fold narrates run
+history on demand, and only a routing's own `fold` step ever puts it on a
+cadence. A routing's effects remain visible where they land: the copied
 files and restore point in the destination Space's Files and History, the
 new conversation in the source Space's Chats.
 
-The CLI act-lane group is `work-fold routings list|show|stage|run|stop|
+The CLI act-lane group is `work-fold routings enable|list|show|run|stop|
 disable|delete|receipts` — per-launch token, journal-first, and like the
 `manage` group routings are above Spaces and take no `--space`.
 `list`/`show`/`receipts` are content-bearing (Space names, paths, messages)
@@ -390,18 +421,21 @@ execution:
 | Bound | Value | Source of the value |
 |---|---|---|
 | Routings per machine | 32 | Small on purpose — glue, not a job system |
-| Steps per routing | 8 | Composition beyond this suggests a Space app or a human process |
+| Steps per routing | 16 | A generous default, visible in `help routings`; composition beyond it suggests a Space app or a human process |
 | Triggers per routing | 1 (plus always-available run-now) | This design |
 | Interval | 15–1440 minutes | `restrictedAppAutomationIntervalMinutes` |
 | Catch-up | `latest` only (one make-up run) | `WorkFoldAutomationService` |
 | One-time horizon | 1 minute–366 days ahead at enablement | Long enough for annual planning, bounded enough for intentional review |
 | One-time missed policy | `run` or `skip` | One bounded catch-up or one recorded non-run |
 | One-time occurrence | One scheduled/resume claim ever; completed retained until Delete | Durable completed health and deterministic occurrence id |
-| Concurrent routing runs | 2, FIFO, machine-wide | Scheduler default |
+| Concurrent routing runs | 8, FIFO, machine-wide | A generous default, not a cap |
 | Exact source paths per files step | 25 | `maxActFromPaths` |
 | Tree selector resolution | The Check target resolver's hard limits; tighten-only | `src/local/checks/target-resolver.ts` |
 | Created-files handoff | `maxFiles` and `maxTotalBytes` mandatory in the declaration | This design |
-| Chat step message | 16 KiB | A fixed dispatch message, not a document |
+| Chat and fold step message | 16 KiB | A fixed dispatch message, not a document |
+| One filled-in placeholder | 8 KiB | Bounded context, not a document; the cut names the limit |
+| Items in one filled-in list | 100 | Same |
+| Whole message after substitution | 64 KiB | Exceeding it fails the hop rather than sending a document |
 | Run history / journal | 500 recent results; journal rotation on the act-receipts pattern | Scheduler default; `src/local/cli/act-receipts.ts` |
 
 ## Implementation record
@@ -414,11 +448,12 @@ The plan items shipped as follows:
 4. Executor service and the `routing_run` kernel kind — `src/local/routings/routing-service.ts`, `src/local/work-fold-kernel.ts`; `tests/work-fold-routing-service.test.ts`, `tests/work-fold-kernel.test.ts`.
 5. Space-removal revocation — `src/local/space.ts`; `tests/local-space.test.ts`.
 6. Act-lane verbs — `src/local/cli/act-commands.ts`, `src/local/cli/act-facade.ts`; `tests/work-fold-cli-act-protocol.test.ts`, `tests/work-fold-act-facade.test.ts`.
-7. Consecration wiring — staged enablement through [fold-consecrations.md](fold-consecrations.md)'s machinery; `tests/fold-decisions.test.ts`, `tests/work-fold-routing-service.test.ts`.
+7. Enablement wiring (superseded by 12) — the original gated enablement path; `tests/work-fold-routing-service.test.ts`.
 8. Fold instruction teaching — `src/local/management-instructions.ts`; `tests/work-fold-management-conversation.test.ts`.
-9. Settings surface, needs-you cards, glance projection — `web-local/`; `tests/routings-settings-ui.test.ts`, `tests/fold-routing-settings.test.ts`, `tests/web-ui-contract.test.ts`, `tests/frontend-interaction-contract.test.ts`.
+9. Settings surface and glance projection — `web-local/`; `tests/routings-settings-ui.test.ts`, `tests/fold-routing-settings.test.ts`, `tests/web-ui-contract.test.ts`, `tests/frontend-interaction-contract.test.ts`.
 10. Docs promotion — recorded in [Fold integration](fold-integration.md).
 11. Version-2 one-time scheduling and schema migration — `src/local/agent/work-fold-automation-service.ts`, `src/local/routings/`; `tests/work-fold-automation-service.test.ts`, `tests/work-fold-routing-declarations.test.ts`, `tests/work-fold-routing-store.test.ts`, `tests/work-fold-routing-service.test.ts`.
+12. Receipts-not-gates: direct `routings enable`, version-4 placeholders and the `fold` step, raised defaults — `src/local/routings/`, `src/local/server.ts`; `tests/work-fold-routing-*.test.ts`, `tests/fold-routing-settings.test.ts`, `tests/routings-settings-ui.test.ts`.
 
 ## Deliberately not in this design
 
@@ -427,11 +462,13 @@ The plan items shipped as follows:
 - **Assistant-turn, compaction, and management-request triggers**, for the
   reasons recorded under Triggers.
 - **Ambient or durable file watching.** Version 3 admits only the explicitly reviewed bounded folder observation described above; it never watches an unselected Space or replays offline events.
-- **Templating, expressions, conditions, branching, retries, or any
-  step-output piping** beyond the declared created-files handoff.
+- **Expressions, conditions, branching, retries, or free templating.**
+  Version 4 admits only the closed, host-filled placeholder set; nothing
+  evaluates model output, and there is no step-output piping beyond it and
+  the declared created-files handoff.
 - **Cross-Space moves or deletions.** The files step only copies additively
-  with restore points; destructive operations stay human, and irreversible
-  destruction anywhere remains the third consecration.
+  with restore points; destructive operations stay with the person and are
+  reversible through Recently deleted.
 - **Recurring time-of-day and calendar schedules.** One-time absolute
   instants are admitted in version 2; daily, weekday, monthly, and
   RRULE-shaped recurrence remain later register decisions.
@@ -439,12 +476,12 @@ The plan items shipped as follows:
   unchanged selector matches is safe by construction (additive,
   collision-renamed, restore-pointed), just noisy; the filter is deferred
   until dogfooding shows the noise matters.
-- **Re-consecration when a referenced Space's capabilities change.** The
+- **Re-enablement when a referenced Space's capabilities change.** The
   enablement digest pins the declaration; the Spaces it names govern their
-  own capabilities through their own consecrations. Disclosed on the
-  enablement card as a residual rather than policed with re-review
-  machinery; if dogfooding shows it bites, that machinery is a register
-  decision of its own.
+  own capabilities through their own grants. `routings show` states this as
+  a residual rather than policing it with re-review machinery; if
+  dogfooding shows it bites, that machinery is a register decision of its
+  own.
 - **Portable or shared routings.** Declarations never enter `.work-fold/`,
   sync, export, or any distribution lane.
 - **A routings rail destination, badge, or notification stream.** Settings
@@ -454,14 +491,14 @@ The plan items shipped as follows:
   the app runs; outward exposure of anything a routing produces stays in
   [the publishing ladder](fold-publishing.md) with its own grants, and no
   routing step may create or widen viewer exposure.
-- **A general job system.** Two slots, small bounds, three step kinds. If a
-  flow does not fit, it belongs to a Space app's named automations, a
-  Check, or a person.
+- **A general job system.** Eight run slots by default, generous bounds,
+  four step kinds. If a flow does not fit, it belongs to a Space app's named
+  automations, a Check, or a person.
 
 ## Authoring guidance
 
-`work-fold help routings` includes a complete version-3 folder-change proposal
-with file-copy, Chat, and Check steps. The fold is instructed to consult it
+`work-fold help routings` includes a complete version-4 folder-change proposal
+with file-copy, Chat, Check, and fold steps and two placeholders. The fold is instructed to consult it
 before authoring. The example is checked against the real proposal validator;
 it documents the nested `routing` envelope, additive copies, observer pauses,
 and the distinction between a completed Check run and clear findings.

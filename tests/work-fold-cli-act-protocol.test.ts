@@ -812,6 +812,37 @@ test("direct verbs parse with strict shapes", () => {
     "apps have no snapshot lane; asleep is the only offline state",
   );
 
+  // Recently deleted sits above Spaces too (docs/receipts-not-gates.md, F20):
+  // each item names the Space it came from, so neither verb takes --space.
+  assert.deepEqual(parseWorkFoldCliActArgv(["trash", "list", "--json"]), { name: "trash.list", output: "json" });
+  assert.deepEqual(
+    parseWorkFoldCliActArgv(["trash", "restore", "--entry", "trash-20260910083000-53db781d"]),
+    { name: "trash.restore", output: "human", entry: "trash-20260910083000-53db781d" },
+  );
+  assert.deepEqual(
+    parseWorkFoldCliActArgv(["trash", "restore", "--entry", "trash-20260910083000-53db781d", "--to", "/tmp/copy.json", "--parent-task", "task-4"]),
+    {
+      name: "trash.restore",
+      output: "human",
+      entry: "trash-20260910083000-53db781d",
+      toPath: "/tmp/copy.json",
+      parentTaskId: "task-4",
+    },
+  );
+  assert.throws(
+    () => parseWorkFoldCliActArgv(["trash", "list", "--space", "space-1"]),
+    /--space cannot be used with 'trash list'/,
+  );
+  assert.throws(
+    () => parseWorkFoldCliActArgv(["trash", "restore", "--space", "space-1", "--entry", "trash-20260910083000-53db781d"]),
+    /--space cannot be used with 'trash restore'/,
+  );
+  assert.throws(() => parseWorkFoldCliActArgv(["trash", "restore"]), /--entry/);
+  assert.throws(
+    () => parseWorkFoldCliActArgv(["trash", "list", "--parent-task", "task-1"]),
+    /--parent-task cannot be used with 'trash list'/,
+  );
+
   // The pending-decision family and permanent deletion are gone from the
   // vocabulary (docs/receipts-not-gates.md, F19/F20): unknown commands, not
   // refusals with a story.
@@ -833,6 +864,7 @@ test("formerly gated verbs execute through the facade and receipt without a deci
     createdAt, updatedAt: createdAt, bridgeSlot: "pending", viewerPath: "/p/pub-1",
   };
   const calls: Array<{ method: string; input?: unknown }> = [];
+  let routingsEnableAlready = false;
   const facade = {
     spacesDelete: async (input: unknown) => {
       calls.push({ method: "spacesDelete", input });
@@ -867,7 +899,16 @@ test("formerly gated verbs execute through the facade and receipt without a deci
     },
     routingsEnable: async (input: unknown) => {
       calls.push({ method: "routingsEnable", input });
-      return { routingId: "routing-weekly", declarationDigest: "e".repeat(64), title: "Weekly glue", referencedSpaceIds: ["space-1"], health: "enabled" };
+      return {
+        routingId: "routing-weekly",
+        declarationDigest: "e".repeat(64),
+        title: "Weekly glue",
+        referencedSpaceIds: ["space-1"],
+        health: "enabled",
+        enabledAt: "2026-09-01T12:00:00.000Z",
+        alreadyEnabled: routingsEnableAlready,
+        stoppedRunId: null,
+      };
     },
     pagesStage: async (input: unknown) => {
       calls.push({ method: "pagesStage", input });
@@ -954,12 +995,21 @@ test("formerly gated verbs execute through the facade and receipt without a deci
 
   const routing = await execute(["routings", "enable", "--proposal", "fold/weekly.json"]);
   assert.equal(routing.exitCode, 0);
-  assert.match(routing.stdout, /^Enabled routing "Weekly glue" \[routing-weekly\]\.\n$/);
+  assert.match(routing.stdout, /^Enabled routing "Weekly glue" \[routing-weekly\]\. It now runs on its trigger; /);
+  assert.match(routing.stdout, /'routings disable --routing routing-weekly' turns it off\.\n$/);
   assert.equal(calls.at(-1)?.method, "routingsEnable");
   assert.equal((calls.at(-1)?.input as { proposalPath: string }).proposalPath, "fold/weekly.json");
   assert.equal((calls.at(-1)?.input as { cwd: string }).cwd, cwd);
   assert.equal(lastOk().detail, `routing.enable; routing routing-weekly; digest ${"e".repeat(64)}`);
   assert.deepEqual(lastOk().undoRef, { kind: "routing-id", value: "routing-weekly" });
+
+  // Enabling the same declaration again changes nothing, and says so.
+  routingsEnableAlready = true;
+  const again = await execute(["routings", "enable", "--proposal", "fold/weekly.json"]);
+  assert.equal(again.exitCode, 0);
+  assert.match(again.stdout, /^Routing "Weekly glue" \[routing-weekly\] is already on with this exact declaration; nothing changed\.\n$/);
+  assert.equal(lastOk().detail, `routing.enable; routing routing-weekly; digest ${"e".repeat(64)}; already enabled`);
+  routingsEnableAlready = false;
 
   const page = await execute(["pages", "stage", "--space", "space-1", "--path", "reports/weekly.md", "--title", "Weekly report"]);
   assert.equal(page.exitCode, 0);
@@ -1341,6 +1391,8 @@ test("file, search, and Library acts dispatch to the facade, stamp receipts, and
   const spaceRef = { id: "space-1", name: "Fold Space", spaceRoot: "/tmp/fold" };
   const calls: Array<{ method: string; input?: unknown }> = [];
   let searchResult: Record<string, unknown> = {};
+  /** Swapped per case: a delete History covered, then one it could not. */
+  let deleteRecovery: Record<string, unknown> = { kind: "history" as const };
   const facade = {
     filesMove: async (input: unknown) => {
       calls.push({ method: "filesMove", input });
@@ -1371,6 +1423,54 @@ test("file, search, and Library acts dispatch to the facade, stamp receipts, and
         path: "docs/old.md",
         kind: "file" as const,
         safetyCheckpointId: "cp-20260810130200-cccccccc",
+        recovery: deleteRecovery,
+      };
+    },
+    trashList: async () => {
+      calls.push({ method: "trashList" });
+      return {
+        entries: [{
+          id: "trash-20260910083000-53db781d",
+          kind: "folder" as const,
+          reason: "files.delete" as const,
+          spaceId: "space-1",
+          spaceName: "Fold Space",
+          originalPath: "Drafts",
+          name: "Drafts",
+          sizeBytes: 12_400,
+          deletedAt: "2026-09-10T08:30:00.000Z",
+          restoreBy: "2026-10-10T08:30:00.000Z",
+          receiptId: "req-1",
+          restorable: "in-place" as const,
+        }],
+        retentionDays: 30,
+        damagedCount: 0,
+      };
+    },
+    trashRestore: async (input: unknown) => {
+      calls.push({ method: "trashRestore", input });
+      return {
+        entry: {
+          id: "trash-20260910083000-53db781d",
+          kind: "folder" as const,
+          reason: "files.delete" as const,
+          spaceId: "space-1",
+          spaceName: "Fold Space",
+          originalPath: "Drafts",
+          name: "Drafts",
+          sizeBytes: 12_400,
+          deletedAt: "2026-09-10T08:30:00.000Z",
+          restoreBy: "2026-10-10T08:30:00.000Z",
+          receiptId: "req-1",
+          restorable: "in-place" as const,
+        },
+        restored: {
+          kind: "folder" as const,
+          space: spaceRef,
+          path: "Drafts-2",
+          renamed: true,
+          safetyCheckpointId: "cp-20260910083100-aaaabbbb",
+        },
       };
     },
     filesMkdir: async (input: unknown) => {
@@ -1470,6 +1570,41 @@ test("file, search, and Library acts dispatch to the facade, stamp receipts, and
   assert.deepEqual(calls.at(-1)?.input, { space: "space-1", path: "docs/old.md" });
   assert.equal(lastOk().checkpointId, "cp-20260810130200-cccccccc");
   assert.deepEqual(lastOk().undoRef, { kind: "safety-checkpoint", value: "cp-20260810130200-cccccccc" });
+
+  // F20: when History could not keep a copy of every matched file, the delete
+  // still goes through, names why, and its undo reference is the Recently
+  // deleted item rather than the partial restore point.
+  deleteRecovery = {
+    kind: "trash" as const,
+    entryId: "trash-20260910083000-53db781d",
+    restoreBy: "2026-10-10T08:30:00.000Z",
+    uncovered: [
+      { path: "docs/big.iso", reason: "too_large" as const },
+      { path: "docs/link.md", reason: "symbolic_link" as const },
+    ],
+  };
+  const movedToTrash = await execute(["files", "delete", "--space", "space-1", "--path", "docs/old.md"]);
+  assert.match(movedToTrash.stdout, /It is in Recently deleted until 2026-10-10T08:30:00\.000Z because History could not keep a copy of 2 files: docs\/big\.iso \(too large\); docs\/link\.md \(a link\)\./);
+  assert.match(movedToTrash.stdout, /Put it back with 'trash restore --entry trash-20260910083000-53db781d'/);
+  assert.equal(lastOk().detail, "trash trash-20260910083000-53db781d");
+  assert.deepEqual(lastOk().undoRef, { kind: "trash-entry", value: "trash-20260910083000-53db781d" });
+  assert.equal(lastOk().checkpointId, "cp-20260810130200-cccccccc", "the restore point still covered what it could");
+  deleteRecovery = { kind: "history" as const };
+
+  // Recently deleted's own verbs: a content-free listing and a restore whose
+  // undo is the additive restore point it recorded.
+  const trashListed = await execute(["trash", "list"]);
+  assert.match(trashListed.stdout, /1 item\(s\) in Recently deleted \(kept 30 days\):/);
+  assert.match(trashListed.stdout, /- trash-20260910083000-53db781d — folder "Drafts" from Fold Space \[space-1\] — 12400 bytes/);
+  assert.match(trashListed.stdout, /kept until 2026-10-10T08:30:00\.000Z/);
+  assert.deepEqual(calls.at(-1), { method: "trashList" });
+
+  const trashRestored = await execute(["trash", "restore", "--entry", "trash-20260910083000-53db781d"]);
+  assert.match(trashRestored.stdout, /Restored folder Drafts-2 to Fold Space \[space-1\] under a new name, because the old one was taken\./);
+  assert.equal((calls.at(-1) as { input: { entry: string } }).input.entry, "trash-20260910083000-53db781d");
+  assert.equal(lastOk().spaceId, "space-1");
+  assert.equal(lastOk().detail, "entry trash-20260910083000-53db781d; kind folder; restored Drafts-2");
+  assert.deepEqual(lastOk().undoRef, { kind: "safety-checkpoint", value: "cp-20260910083100-aaaabbbb" });
 
   const madeFolder = await execute(["files", "mkdir", "--space", "space-1", "--path", "notes"]);
   assert.match(madeFolder.stdout, /Created folder notes in Fold Space \[space-1\]\./);

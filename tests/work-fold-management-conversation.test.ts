@@ -106,7 +106,7 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /re-exposing after a revoke is a fresh staged `pages stage-app`/);
     assert.match(managementContext, /Apps take no `--snapshot` — an offline desktop is an honestly asleep app/);
     // Staging `pages stage-app` joins the widen-power family list verbatim.
-    assert.match(managementContext, /`routings stage`, `pages stage`, `pages stage-app`\)/);
+    assert.match(managementContext, /`pages stage`, `pages stage-app`\)/);
     // Publishing top-up (docs/fold-publishing.md): outward exposure is never
     // policy-eligible, publication problems reach the person as glance change
     // items with the precise reason, and Settings → The fold holds the
@@ -149,16 +149,21 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /Unrestricted mode deliberately grants the whole Space/);
     // Help topics exist now, and the instructions cite them.
     assert.match(managementContext, /work-fold help <family>/);
-    // Routings: inert proposals, mode-governed enablement, one-time v2
-    // deferral, and no cross-Space execution inside a portable Space Chat.
+    // Routings: inert proposals, direct receipted enablement, the closed
+    // placeholder set and the fold step, one-time v2 deferral, and no
+    // cross-Space execution inside a portable Space Chat.
     assert.match(managementContext, /Never run cross-Space work through a Space Chat\./);
     assert.match(managementContext, /work-fold\.routing-proposal/);
     assert.match(managementContext, /Use version 1 for manual, interval, and on-settled triggers/);
     assert.match(managementContext, /Use version 2 for a one-time trigger shaped exactly/);
     assert.match(managementContext, /`ifMissed` is required/);
     assert.match(managementContext, /1 minute through 366 days ahead/);
-    assert.match(managementContext, /routings stage --proposal/);
-    assert.match(managementContext, /Reviewed waits for a person; Unrestricted lets the host consume/);
+    assert.match(managementContext, /routings enable --proposal/);
+    assert.match(managementContext, /enabling the same declaration again changes nothing/);
+    assert.match(managementContext, /Use version 4 for placeholders or a fold step/);
+    assert.match(managementContext, /\{\{trigger\.summary\}\}/);
+    assert.match(managementContext, /a message into a new thread of this management conversation/);
+    assert.match(managementContext, /Anything else inside `\{\{ \}\}` is refused when you enable/);
     assert.match(managementContext, /routings show --routing <id>/);
     assert.match(managementContext, /routings receipts \[--routing <id>\]/);
     assert.match(managementContext, /routings sit above Spaces and take no `--space`/);
@@ -166,7 +171,8 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /For deferred work, resolve an unambiguous absolute time/);
     assert.match(managementContext, /finish the current turn/);
     assert.match(managementContext, /Never busy-wait/);
-    assert.match(managementContext, /The fold is never a routing target/);
+    assert.match(managementContext, /A fold step is the only way you are ever scheduled/);
+    assert.match(managementContext, /a thread a routing started must never enable or run routings itself/);
     assert.match(managementContext, /Run-now creates a copy without consuming the declared slot/);
     // The glance (docs/fold-glance.md): narration on demand from the digest,
     // truncation disclosed, seen markers untouched, never self-scheduled.
@@ -193,12 +199,15 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(skillContent, /one-time trigger requires version 2/);
     assert.match(skillContent, /`ifMissed` is required/);
     assert.match(skillContent, /1 minute through 366 days ahead/);
+    assert.match(skillContent, /routings enable --proposal/);
+    assert.match(skillContent, /Version 4 adds the closed placeholder set and the `fold` step/);
     assert.match(skillContent, /routings list\|show\|run\|stop\|disable\|delete\|receipts/);
     assert.match(skillContent, /A pure reminder does no future Assistant work/);
     assert.match(skillContent, /Deferred work uses a version-2 `at` routing/);
     assert.match(skillContent, /finish the current turn/);
     assert.match(skillContent, /Never busy-wait/);
-    assert.match(skillContent, /the fold is never the routing target/);
+    assert.match(skillContent, /enable it, report the receipt/);
+    assert.match(skillContent, /a routing's `fold` step is the only way you are ever scheduled/);
     assert.match(skillContent, /Run-now is a copy that does not consume the one-time slot/);
     assert.match(skillContent, /pages status\|revoke\|narrow\|snapshot-off --publication <id>/);
     // The staged list teaches `pages stage-app` with its boundaries: either

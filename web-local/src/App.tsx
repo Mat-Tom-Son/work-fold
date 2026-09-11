@@ -73,6 +73,14 @@ interface PendingDelete {
   selectedPath: string | null;
   deletedTabPaths: Set<string>;
 }
+/**
+ * A delete always goes through (docs/receipts-not-gates.md, F20). `trash` is
+ * present when History could not keep a copy of everything, so the entry is
+ * waiting in Settings → The fold → Recently deleted instead of being gone.
+ */
+interface DeleteLocalFileResult {
+  trash?: { entryId: string; restoreBy: string; uncoveredCount: number };
+}
 interface SpaceChecksControl {
   spaceId: string;
   suspend: () => Promise<void>;
@@ -750,7 +758,11 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     let removed = false;
     try {
       if (suspendedChecks) await checks.suspend();
-      const removal = await api<{ cleanupPending: boolean; deleted: boolean }>(`/api/spaces/${target.id}`, { method: "DELETE" });
+      const removal = await api<{
+        cleanupPending: boolean;
+        deleted: boolean;
+        trash?: { entryId: string; restoreBy: string } | null;
+      }>(`/api/spaces/${target.id}`, { method: "DELETE" });
       removed = true;
       const nextCustomizations = { ...customizationsRef.current };
       delete nextCustomizations[target.id];
@@ -765,7 +777,10 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
             : `${target.name} was removed. work-fold will finish machine-local cleanup when it next starts.`
           : target.location.storage === "linked"
             ? `${target.name} removed. The folder and its files remain on your computer.`
-            : `${target.name} and its managed folder were deleted.`,
+            : removal.trash
+              ? `${target.name} was deleted. Its folder is in Recently deleted until `
+                + `${new Date(removal.trash.restoreBy).toLocaleDateString()}; Settings → The fold puts it back.`
+              : `${target.name} and its managed folder were deleted.`,
         tone: removal.cleanupPending ? "info" : "success",
       });
     } catch (caught) {
@@ -1024,8 +1039,15 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     if (pendingDeletesRef.current.get(key) !== pending) return;
     pendingDeletesRef.current.delete(key);
     try {
-      await deleteLocalFileRequest(pending);
+      const result = await deleteLocalFileRequest(pending);
       tabs.closeFileSurfaceTabsForDeletedPaths(pending.spaceId, pending.deletedTabPaths);
+      if (result.trash) {
+        showToast({
+          text: `${pending.name} is in Recently deleted — History could not keep a copy of everything in it.`,
+          tone: "info",
+          durationMs: 8000,
+        });
+      }
     } catch (caught) {
       onError(errorText(caught));
       if (pending.spaceId === activeSpaceIdRef.current) {
@@ -1480,7 +1502,7 @@ function pendingDeleteKey(pending: Pick<PendingDelete, "spaceId" | "path">) {
   return `${pending.spaceId}:${pending.path}`;
 }
 
-async function deleteLocalFileRequest(pending: PendingDelete, keepalive = false) {
+async function deleteLocalFileRequest(pending: PendingDelete, keepalive = false): Promise<DeleteLocalFileResult> {
   const sessionHeaders = await window.workFoldDesktop?.api.getSessionHeaders?.();
   const response = await fetch(apiUrl(`/api/spaces/${pending.spaceId}/local-file`), {
     method: "DELETE",
@@ -1488,7 +1510,11 @@ async function deleteLocalFileRequest(pending: PendingDelete, keepalive = false)
     body: JSON.stringify({ path: pending.path }),
     keepalive,
   });
-  if (response.ok) return;
+  if (response.ok) {
+    // A delete History could not fully keep a copy of still succeeds: the
+    // entry is waiting in Recently deleted instead (docs/receipts-not-gates.md).
+    try { return await response.json() as DeleteLocalFileResult; } catch { return {}; }
+  }
   let message = response.statusText || `Request failed (${response.status}).`;
   try { message = (await response.json() as { error?: string }).error || message; } catch { /* keep the status message */ }
   throw new Error(message);

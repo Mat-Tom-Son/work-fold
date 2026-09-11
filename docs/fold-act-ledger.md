@@ -107,7 +107,7 @@ rules, which mirror the desktop's.
 | Register folder | Header menu, native picker | act | direct verb | `spaces register --path <abs>` | spaceId | `spaces unregister` revokes runtime authorization | already-registered path rejected |
 | Rename Space | Manage Spaces pane | none | direct verb | `spaces rename --space <id> --name <n>` | prior name | rename back (prior name in receipt) | duplicate exact name rejected as ambiguous-making |
 | Unregister Space | Manage Spaces → Remove (linked) | none | direct verb | `spaces unregister --space <id>` | storage kind | re-register the folder; `.work-fold/` identity persists | refused while a release-backed App Instance is sourced by or installed in it, or its Project owns retained data — same App Studio impact checks as the desktop; refused while live publications are backed by it, named in the refusal ([Publishing](fold-publishing.md)); on success, routings referencing it suspend with active runs stopped ([Routings](fold-routings.md)) |
-| Delete managed Space folder | Manage Spaces → Delete (managed) | none | **prepared verb** | `spaces delete --space <id>` | trash entry id, canonical root | `trash restore --entry <id>` re-registers the Space from Recently deleted | same impact checks as unregister, including the live-publication block; fails closed if the claimed tree contains `.workspace/` |
+| Delete managed Space folder | Manage Spaces → Delete (managed) | none | **prepared verb** | `spaces delete --space <id>` | trash entry id, canonical root | `trash restore --entry <id>` re-registers the Space from Recently deleted with its portable identity, its Chats, and its History | same impact checks as unregister, including the live-publication block; the claimed folder is moved into Recently deleted, never erased, so a legacy `.workspace/` tree moves like any other and the retention purge is what fails closed on it |
 | Apply appearance | Customize Space → Import proposal | none | direct verb (argued below) | `spaces appearance apply --space <id> --proposal <path>` | prior customization ref | `spaces appearance undo --space <id>` | proposal must parse as the typed `space-appearance` proposal; nothing else is accepted |
 | Reset appearance | Customize Space → Reset | none | direct verb | `spaces appearance reset --space <id>` | prior customization ref | `spaces appearance undo` | — |
 | Undo appearance | — (the desktop re-imports or resets instead) | none | direct verb | `spaces appearance undo --space <id>` | restored and displaced customization refs | apply the displaced ref again — undo is its own inverse | refused with a typed error when the receipt chain records no prior customization ref for that Space, including when the current appearance was last changed on the desktop rather than through a receipted act |
@@ -179,16 +179,20 @@ to honestly present.
 | Add outside material | Upload button, drag-drop, chat drop | act | direct verb | `files add --space <id> --from <p>… [--to <folder>]` | checkpointId, copied paths count | restore the checkpoint | copy and restore point succeed or fail together |
 | Move entry | Drag in tree, context menu | none | direct verb | `files move --space <id> --from <space-path> --to <space-folder>` | safety checkpointId, moved path | restore the safety checkpoint | into-own-subtree refused; `.work-fold/`, `.pi/`, `.workspace/` never valid endpoints (same path policy as the renderer) |
 | Rename entry | Context menu → Rename | none | direct verb | `files rename --space <id> --path <p> --name <n>` | safety checkpointId, prior name | restore the safety checkpoint or rename back | same path policy |
-| Delete entry | Context menu → Delete (+ Undo toast) | none | direct verb | `files delete --space <id> --path <p>` | safety checkpointId; Recently-deleted entry ids for any path the checkpoint could not cover | restore the safety checkpoint, or `trash restore` for the uncoverable paths — the durable form of the desktop's Undo toast | never refuses for coverage reasons; `.work-fold/`, `.pi/`, `.workspace/` remain invalid endpoints |
+| Delete entry | Context menu → Delete (+ Undo toast) | none | direct verb | `files delete --space <id> --path <p>` | safety checkpointId; the Recently-deleted entry id when the checkpoint could not cover every matched file | the safety checkpoint, or `trash restore --entry <id>` when the receipt names one — the durable form of the desktop's Undo toast | never refuses for coverage reasons; `.work-fold/`, `.pi/`, `.workspace/` remain invalid endpoints |
 | New folder | Context menu → New folder here | none | direct verb | `files mkdir --space <id> --path <folder>` | created path — no safety checkpoint, stated deliberately: creation is additive and destroys nothing | `files delete` (an empty folder is fully checkpoint-coverable) | existing name refused; same `.work-fold/`/`.pi/`/`.workspace/` path policy |
 | New empty file | Context menu → New file here | none | direct verb | `files create --space <id> --path <p>` | created path — same no-checkpoint note as `files mkdir` | `files delete` | existing name refused; same path policy |
 | Content search | Files search field, Chats search | none | direct verb (content-bearing act read) | `search --space <id> --query <q> [--scope files\|chats\|all]` | scope only — **not** the query text | n/a | honours ignore rules, skips binary/oversized files, and reports when a bound stopped the search rather than implying completeness — same contract as `/api/spaces/:id/search` |
 
 The file verbs use the renderer's own mutation paths and add receipts.
-Desktop and CLI delete both succeed on every coverable or uncoverable path:
-what the safety checkpoint cannot capture (oversized, unreadable, symlink —
-the checkpoint's own skip rules) is moved into Recently deleted with a
-manifest. History recovery still refuses overlapping uncovered content,
+Desktop and CLI delete both succeed on every coverable or uncoverable path.
+When the safety checkpoint captured everything it matched, the delete removes
+the entry and the checkpoint is its undo. When it could not capture some
+matched file (oversized, unreadable, symlink, excluded — the checkpoint's own
+skip rules), the **whole selected entry** is moved into Recently deleted with
+a manifest naming each uncovered path and why, so one delete keeps one undo
+reference instead of splitting across two recovery stores. Both desktop
+deletions are journaled like act verbs, with the `main-window` surface. History recovery still refuses overlapping uncovered content,
 protects registered child Spaces and excluded descendants, and reserves
 affected work against concurrent launches and ownership changes.
 
@@ -201,11 +205,14 @@ entry records its source Space, so the family takes no `--space`.
 | Verb | Human surface | Fold today | Target | Command shape | Receipt adds | Undo / revocation | Conflicts |
 |---|---|---|---|---|---|---|---|
 | List Recently deleted | Settings → The fold → Recently deleted | none | direct verb (content-bearing act read) | `trash list --json` | — | n/a | entries carry source Space id, original Space-relative path or folder, kind (`file`, `folder`, `space`, `app-storage`, `app-retained`), size, deleted-at, restore-by, and the producing receipt id |
-| Restore an entry | Recently deleted → Restore; the Undo toast | none | direct verb | `trash restore --entry <id>` | restored path or Space id | delete it again | refused when the destination path is occupied (the collision is named) or the source Space is unregistered and the entry is not itself a Space |
+| Restore an entry | Recently deleted → Restore / Save a copy | none | direct verb | `trash restore --entry <id> [--to <absolute-path>]` | entry id, kind, restored path or Space id; the additive restore point for a file or folder | file/folder: its restore point; Space: `spaces delete`; app data: the app's own single recovery point | an occupied destination is collision-renamed, never overwritten (`stem (2).ext` / `name-2`); refused when the source Space is unregistered and the entry is not itself a Space, when the entry's portable Space identity is registered elsewhere, or when app data's installation is gone or changed — that data can only be saved as a file with `--to`, at an absolute path outside every Space and outside work-fold's own state |
 
 No verb empties Recently deleted. **Delete now** is a Settings-only action;
-retention (default 30 days, adjustable in Settings → The fold → Limits) is
-the only automatic purge, run on app start and daily while awake. The
+retention (default 30 days, adjustable in Settings → The fold → Recently
+deleted) is the only automatic purge, run on app start and daily while awake.
+Neither the purge nor **Delete now** ever erases an entry whose tree holds
+legacy `.workspace/` records: it is marked held and stays until the person
+handles the folder outside the product (the clean-break rule). The
 producers are `files delete` for uncoverable paths, `spaces delete`,
 `apps storage clear`, `apps retained purge`, and `apps uninstall
 --purge-data`; the last three write a recovery export into the trash before
@@ -266,7 +273,7 @@ the person's narrowing and re-allowing controls.
 | Disable automation | App details toggle | none | direct verb | `apps automation disable --space <id> --app <id> --automation <id>` | job id | re-enable with `apps automation enable` | — |
 | Run automation now | App details → Run now | none | direct verb | `apps automation run --space <id> --app <id> --automation <id>` | run receipt id | n/a — the run already produces a durable, authority-captured receipt | scheduler admission rules apply (two slots, same-job non-overlap); a disabled job still has no notification authority |
 | Invoke an app tool from the fold | — (the fold's verb; a Space Assistant calls tools in its own Space) | none | direct verb | `apps invoke --space <id> --app <id> --tool <name> --input <json>` | app id, tool name, result bytes, lineage | n/a — the tool's own effects follow their domain undo | schema and current-grant checks by `RestrictedAppService.invoke`; fenced like an app action |
-| Clear app storage | App details → storage | none | **prepared verb** | `apps storage clear --space <id> --app <id>` | recovery-export entry id, byte count | `trash restore --entry <id>` | the recovery export is written into Recently deleted before live data is removed |
+| Clear app storage | App details → storage | none | **prepared verb** | `apps storage clear --space <id> --app <id>` | recovery-export entry id, byte count | `trash restore --entry <id>` while the same installation is present at the same revision; otherwise save a copy | the recovery export is written into Recently deleted before live data is removed; clearing storage that holds nothing writes no entry |
 
 ### App Studio
 
@@ -285,7 +292,7 @@ arrive with installation and are narrowed through the rows above.
 | Activate operation | App Studio → Activate | none | direct verb | `apps operation activate --space <id> --operation <id>` | operationId, resulting release | rollback is a new prepared operation | activation rechecks the plan, fences the old runtime, changes Release and authority atomically; declared powers are granted and declared automations enabled on install; a changed digest carries forward byte-identical connections, automation enabled states by id, and run receipts |
 | Cancel prepared operation | App Studio → Cancel | none | direct verb | `apps operation cancel --space <id> --operation <id>` | operationId | prepare again | — |
 | Uninstall with retain | Uninstall dialog → retain | none | direct verb | `apps uninstall --space <id> --instance <id> --retain-data` | instance id, retained namespace ids | reinstall creates a **new** Instance; retained namespaces do not remain runnable | fences the whole release-backed runtime; cleanup is the durable restart-retried outbox |
-| Uninstall with purge / purge retained data | Uninstall dialog → purge; retained-data list | none | **prepared verb** | `apps uninstall … --purge-data` / `apps retained purge --space <id> --retained <id>` | recovery-export entry id | `trash restore --entry <id>` | `apps uninstall` without a disposition flag is refused — the choice is never defaulted; the recovery export lands in Recently deleted before live data is removed |
+| Uninstall with purge / purge retained data | Uninstall dialog → purge; retained-data list | none | **prepared verb** | `apps uninstall … --purge-data` / `apps retained purge --space <id> --retained <id>` | recovery-export entry ids | `trash restore --entry <id> --to <absolute-path>` saves a copy — both leave no app to restore into | `apps uninstall` without a disposition flag is refused — the choice is never defaulted; a recovery export for every affected namespace lands in Recently deleted before live data is removed |
 
 ### The fold itself
 
@@ -390,7 +397,7 @@ optional fields beyond the baseline; readers accept every prior version:
 - `undoRef` — a typed reference to the prior state an undo verb needs:
   prior title or name, prior lifecycle state, prior appearance
   customization ref, safety checkpoint id, Recently-deleted entry id
-  <!-- verify: undoRef kind for trash entries -->. Identifiers and digests
+  (`trash-entry`). Identifiers and digests
   only; receipts never grow file contents, message text, queries, or
   secrets.
 

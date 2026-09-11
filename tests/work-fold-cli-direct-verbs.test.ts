@@ -159,7 +159,13 @@ test("spaces delete deletes a managed folder on the first call, refuses a linked
     assert.equal(deletedJson.data.staged, undefined);
     assert.equal(existsSync(managed.space.spaceRoot), false, "the managed folder is deleted on the first call");
     assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "ok"]);
-    assert.equal(h.lastOk().detail, "space.delete-folder");
+    // The folder is moved, not erased: the receipt names the Recently deleted
+    // item that puts it back (docs/receipts-not-gates.md, F20).
+    const keptSpace = (await h.api.trash.list()).entries;
+    assert.equal(keptSpace.length, 1);
+    assert.equal(keptSpace[0]?.kind, "space");
+    assert.equal(h.lastOk().detail, `space.delete-folder; trash ${keptSpace[0]!.id}`);
+    assert.deepEqual(h.lastOk().undoRef, { kind: "trash-entry", value: keptSpace[0]!.id });
     assert.equal(h.lastOk().spaceId, managed.space.id);
 
     // A linked registration is never deletable through this verb.

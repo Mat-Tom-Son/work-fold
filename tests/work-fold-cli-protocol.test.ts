@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import test from "node:test";
-import { normalizeWorkFoldRoutingProposal } from "../src/local/routings/routing-declarations.js";
+import {
+  normalizeWorkFoldRoutingProposal,
+  workFoldRoutingMessagePlaceholders,
+} from "../src/local/routings/routing-declarations.js";
 
 import {
   WORKFOLD_CLI_PROTOCOL_VERSION,
@@ -127,6 +130,7 @@ test("CLI help covers every landed act family and is honest about staging", () =
     ],
     routings: ["enable", "list", "show", "run", "stop", "disable", "delete", "receipts"],
     pages: ["stage", "list", "status", "revoke", "narrow", "snapshot-off"],
+    trash: ["list", "restore"],
   };
   const overview = workFoldCliHelp("work-fold");
   for (const [family, verbs] of Object.entries(families)) {
@@ -147,6 +151,16 @@ test("CLI help covers every landed act family and is honest about staging", () =
   assert.doesNotMatch(overview, /[Ss]taged|decision|approv|Reviewed|Unrestricted|polic/);
   assert.match(workFoldCliHelp("work-fold", "tools"), /immediately with a receipt/);
   assert.match(workFoldCliHelp("work-fold", "apps"), /--purge-data/);
+  // Recently deleted is where a delete History could not fully cover goes
+  // (docs/receipts-not-gates.md, F20), and nothing empties it early.
+  const trashTopic = workFoldCliHelp("work-fold", "trash");
+  assert.match(trashTopic, /Recently deleted holds what a delete could not leave to History/);
+  assert.match(trashTopic, /30 days by default/);
+  assert.match(trashTopic, /Nothing empties Recently deleted early/);
+  assert.match(overview, /trash list\|restore  Bring back what was deleted/);
+  assert.match(workFoldCliHelp("work-fold", "files"), /moves to Recently deleted instead/);
+  assert.match(workFoldCliHelp("work-fold", "spaces"), /moves a managed Space's folder\nto Recently deleted/);
+  assert.doesNotMatch(overview, /files destroy|\bdestroy\b/);
   // The setup-only boundary stays visible where an agent looks first.
   assert.match(overview, /local setup/);
   assert.match(overview, /runs immediately and leaves a receipt/);
@@ -305,8 +319,24 @@ test("Routing help's complete authoring example passes the real proposal validat
   const example = workFoldCliHelp("work-fold", "routings").split("\n").find((line) => line.startsWith('{"kind":"work-fold.routing-proposal"'));
   assert.ok(example);
   const proposal = normalizeWorkFoldRoutingProposal(JSON.parse(example));
+  assert.equal(proposal.version, 4);
   assert.equal(proposal.routing.trigger.kind, "files-changed");
-  assert.deepEqual(proposal.routing.steps.map((step) => step.kind), ["files", "chat", "check"]);
+  assert.deepEqual(proposal.routing.steps.map((step) => step.kind), ["files", "chat", "check", "fold"]);
+  // The example teaches the closed placeholder set, so it must itself be
+  // something the parser accepts and the executor can fill in.
+  const adopt = proposal.routing.steps[1] as { message: string };
+  assert.deepEqual(
+    workFoldRoutingMessagePlaceholders(adopt.message).map((entry) => entry.name),
+    ["trigger.changedFiles"],
+  );
+  const report = proposal.routing.steps[3] as { message: string };
+  assert.deepEqual(
+    workFoldRoutingMessagePlaceholders(report.message).map((entry) => entry.name),
+    ["trigger.summary", "steps.adopt.createdFiles"],
+  );
+  const help = workFoldCliHelp("work-fold", "routings");
+  assert.match(help, /Up to 16 steps and/);
+  assert.doesNotMatch(help, /staged|approve|policy|Reviewed|Unrestricted|\bcard\b|\bmode\b/i);
 });
 
 test("CLI help/version avoid kernel work and kernel failures map to stable exit codes", async () => {

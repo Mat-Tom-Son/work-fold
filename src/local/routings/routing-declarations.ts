@@ -9,20 +9,21 @@ import { workFoldCheckDigest } from "../checks/check-integrity.js";
 import { workFoldCheckTargetHardLimits } from "../checks/target-resolver.js";
 
 /**
- * Routing declarations are closed, typed, machine-local data: a reviewed
- * trigger plus at most eight deterministic steps that move work between
- * Spaces. They carry no prompts beyond the literal chat-step message, no
+ * Routing declarations are closed, typed, machine-local data: a declared
+ * trigger plus at most sixteen deterministic steps by default that move work
+ * between Spaces. They carry no prompts beyond the literal chat- and
+ * fold-step message plus a closed set of host-filled placeholders, no
  * instructions, no source code, no shell commands, no model names, no
  * credentials, no connection data, and no expressions — the closed field
  * vocabulary here is the enforcement. Parsing fails closed on unknown kinds,
- * versions, fields, and every bound in the routings bounds table; nothing a
- * parse produces holds authority until the routing store records an
- * exact-digest enablement grant.
+ * versions, fields, placeholders, and every bound in the routings bounds
+ * table; the routing store records an exact-digest enablement receipt over
+ * whatever a parse produces.
  */
 export const workFoldRoutingProposalKind = "work-fold.routing-proposal" as const;
 export const workFoldRoutingDeclarationKind = "work-fold.routing" as const;
-export const workFoldRoutingContractVersion = 3 as const;
-export const workFoldRoutingSupportedContractVersions = [1, 2, workFoldRoutingContractVersion] as const;
+export const workFoldRoutingContractVersion = 4 as const;
+export const workFoldRoutingSupportedContractVersions = [1, 2, 3, workFoldRoutingContractVersion] as const;
 export type WorkFoldRoutingContractVersion = (typeof workFoldRoutingSupportedContractVersions)[number];
 
 /** Filename convention for inert routing proposals in the fold's management working folder. */
@@ -40,10 +41,19 @@ export const workFoldRoutingProposalFileSuffix = ".work-fold-routing.json" as co
 export const workFoldRoutingBounds = Object.freeze({
   /** Machine-wide declaration budget; the routing store enforces it at enablement. */
   maxRoutingsPerMachine: 32,
-  maxSteps: 8,
+  /** A generous default, not a cap: a routing is glue, not a job system. */
+  maxSteps: 16,
   maxExactPathsPerFilesStep: 25,
   /** A fixed dispatch message, not a document. */
   maxChatMessageBytes: 16 * 1024,
+  /** One filled-in placeholder; a longer list is cut and says so. */
+  maxPlaceholderTextBytes: 8 * 1024,
+  /** Items in one filled-in list placeholder (paths, findings). */
+  maxPlaceholderListItems: 100,
+  /** The whole message after every placeholder is filled in. */
+  maxResolvedMessageBytes: 64 * 1024,
+  /** Changed paths a folder-change run cause records for its placeholders. */
+  maxChangedPathsRecorded: 100,
   minIntervalMinutes: restrictedAppAutomationIntervalMinutes.minimum,
   maxIntervalMinutes: restrictedAppAutomationIntervalMinutes.maximum,
   minAtAdvanceMs: 60_000,
@@ -51,14 +61,6 @@ export const workFoldRoutingBounds = Object.freeze({
   maxHandoffFiles: workFoldCheckTargetHardLimits.maxFiles,
   maxHandoffTotalBytes: workFoldCheckTargetHardLimits.maxTotalBytes,
 });
-
-/**
- * A pending Reviewed-mode card needs a small usable decision window. The
- * store still performs the canonical one-minute admission recheck; staging
- * uses two minutes so it never creates a card that is already destined to
- * expire before an ordinary person can inspect it.
- */
-export const workFoldRoutingMinAtStagingAdvanceMs = 2 * 60_000;
 
 /**
  * Check-run settles an on-settled trigger may admit. `interrupted` is never
@@ -133,8 +135,8 @@ export type WorkFoldRoutingTrigger =
   | WorkFoldRoutingFilesChangedTrigger;
 
 /**
- * Starts a new conversation in the named Space with exactly this message —
- * reviewed verbatim at enablement, sent with no ambient additions.
+ * Starts a new conversation in the named Space with exactly this message,
+ * sent with no ambient additions beyond the closed placeholder set.
  */
 export interface WorkFoldRoutingChatStep {
   id: string;
@@ -192,10 +194,71 @@ export interface WorkFoldRoutingCheckStep {
   check?: string;
 }
 
+/**
+ * Starts a new thread in the management conversation with exactly this
+ * message, so a person can put the fold on a cadence deliberately. It names
+ * no Space: the fold sits above them. Version 4 only.
+ */
+export interface WorkFoldRoutingFoldStep {
+  id: string;
+  kind: "fold";
+  message: string;
+}
+
 export type WorkFoldRoutingStep =
   | WorkFoldRoutingChatStep
   | WorkFoldRoutingFilesStep
-  | WorkFoldRoutingCheckStep;
+  | WorkFoldRoutingCheckStep
+  | WorkFoldRoutingFoldStep;
+
+/** The closed set of trigger placeholders a version-4 message may carry. */
+export const workFoldRoutingTriggerPlaceholders = [
+  "trigger.summary",
+  "trigger.changedFiles",
+  "trigger.findings",
+] as const;
+export type WorkFoldRoutingTriggerPlaceholder = (typeof workFoldRoutingTriggerPlaceholders)[number];
+
+/** One `{{…}}` occurrence: a trigger name, or an earlier chat step's created files. */
+export interface WorkFoldRoutingPlaceholder {
+  name: WorkFoldRoutingTriggerPlaceholder | string;
+  /** Present only for `steps.<id>.createdFiles`. */
+  step?: string;
+}
+
+const createdFilesPlaceholderPattern = /^steps\.([a-z0-9][a-z0-9-]{0,63})\.createdFiles$/;
+const placeholderOccurrencePattern = /\{\{([^{}]*)\}\}/g;
+
+/**
+ * Every `{{…}}` occurrence in a version-4 chat- or fold-step message, in
+ * message order and with duplicates kept. The set is closed: anything else
+ * inside braces is a declaration error, so nothing a routing sends can ever
+ * interpolate something the person did not read. Versions 1–3 never reach
+ * here — their messages are literal text, braces included.
+ */
+export function workFoldRoutingMessagePlaceholders(
+  message: string,
+  label = "This routing step",
+): WorkFoldRoutingPlaceholder[] {
+  const placeholders: WorkFoldRoutingPlaceholder[] = [];
+  for (const match of message.matchAll(placeholderOccurrencePattern)) {
+    const name = (match[1] ?? "").trim();
+    if ((workFoldRoutingTriggerPlaceholders as readonly string[]).includes(name)) {
+      placeholders.push({ name });
+      continue;
+    }
+    const created = createdFilesPlaceholderPattern.exec(name);
+    if (created) {
+      placeholders.push({ name, step: created[1]! });
+      continue;
+    }
+    throw new Error(
+      `${label} message uses an unknown placeholder ${match[0]}. The placeholders are `
+        + "{{trigger.summary}}, {{trigger.changedFiles}}, {{trigger.findings}}, and {{steps.<id>.createdFiles}}.",
+    );
+  }
+  return placeholders;
+}
 
 export interface WorkFoldRoutingDefinition {
   title: string;
@@ -223,8 +286,8 @@ export interface WorkFoldRoutingDeclaration extends WorkFoldRoutingDefinition {
 const maximumProposalBytes = 256 * 1024;
 
 // Mirrors isSpaceId in src/local/space.ts: routings pin Spaces by stable
-// registered Space id, never by name or path. A staging surface may resolve
-// an exact name for convenience, but the stored declaration records ids only.
+// registered Space id, never by name or path. The CLI may resolve an exact
+// name for convenience, but the stored declaration records ids only.
 const spaceIdPattern = /^space-[a-f0-9]{16}$/;
 // Mirrors the Check id rule in src/shared/checks.ts.
 const checkIdPattern = /^check-[a-z0-9][a-z0-9-]{7,154}$/;
@@ -234,7 +297,7 @@ const restrictedAppIdPattern = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const stepIdPattern = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const extensionPattern = /^\.[a-z0-9][a-z0-9._+-]*$/;
 // Tabs and newlines are ordinary message text; other C0/C1 controls and
-// bidirectional overrides would defeat the verbatim review at enablement.
+// bidirectional overrides are never allowed in a routing message.
 const forbiddenMessageCharacters = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/;
 
 const inadmissibleOutcomeReasons = new Map<string, string>([
@@ -315,17 +378,18 @@ export function workFoldRoutingReferencedSpaceIds(definition: WorkFoldRoutingDef
     if (step.kind === "files") {
       ids.add(step.fromSpace);
       ids.add(step.toSpace);
-    } else {
+    } else if (step.kind === "chat" || step.kind === "check") {
       ids.add(step.space);
     }
+    // A fold step names no Space: the fold sits above them.
   }
   return [...ids].sort();
 }
 
 /**
- * Rechecks the time-sensitive one-time horizon at authority admission. The
- * declaration parser validates only the stable shape because a stored inert
- * proposal must not become syntactically damaged merely as time passes.
+ * Rechecks the time-sensitive one-time horizon when the routing is enabled.
+ * The declaration parser validates only the stable shape because a stored
+ * inert proposal must not become syntactically damaged merely as time passes.
  */
 export function assertWorkFoldRoutingAtAdmissionHorizon(
   definition: Pick<WorkFoldRoutingDefinition, "trigger">,
@@ -340,20 +404,6 @@ export function assertWorkFoldRoutingAtAdmissionHorizon(
   }
 }
 
-/** Rejects a one-time proposal before work-fold creates an unusable card. */
-export function assertWorkFoldRoutingAtStagingHorizon(
-  definition: Pick<WorkFoldRoutingDefinition, "trigger">,
-  now: Date,
-): void {
-  if (definition.trigger.kind !== "at") return;
-  const nowMs = now.getTime();
-  if (!Number.isFinite(nowMs)) throw new Error("Routing staging time is invalid.");
-  const advanceMs = Date.parse(definition.trigger.at) - nowMs;
-  if (advanceMs < workFoldRoutingMinAtStagingAdvanceMs || advanceMs > workFoldRoutingBounds.maxAtAdvanceMs) {
-    throw new Error("Routing one-time trigger must be between 2 minutes and 366 days in the future when it is staged.");
-  }
-}
-
 export async function readWorkFoldRoutingProposal(path: string): Promise<WorkFoldRoutingProposal> {
   const resolved = resolve(path);
   return normalizeWorkFoldRoutingProposal(JSON.parse(await readBoundedOrdinaryFile(resolved)));
@@ -365,7 +415,8 @@ function normalizeRoutingDefinition(value: unknown, version: WorkFoldRoutingCont
   if (!Array.isArray(record.steps) || record.steps.length < 1 || record.steps.length > workFoldRoutingBounds.maxSteps) {
     throw new Error(`Routing steps must contain between 1 and ${workFoldRoutingBounds.maxSteps} steps.`);
   }
-  const steps = record.steps.map((step, index) => normalizeStep(step, index));
+  const trigger = normalizeTrigger(record.trigger, version);
+  const steps = record.steps.map((step, index) => normalizeStep(step, index, version));
   const positions = new Map<string, number>();
   for (const [index, step] of steps.entries()) {
     if (positions.has(step.id)) throw new Error(`Routing steps contain duplicate id "${step.id}".`);
@@ -385,11 +436,47 @@ function normalizeRoutingDefinition(value: unknown, version: WorkFoldRoutingCont
       throw new Error(`${label} must copy from Space ${source.space}, where its source chat step runs.`);
     }
   }
+  if (version >= 4) assertPlaceholdersResolvable(steps, positions, trigger);
   return {
     title: boundedText(record.title, "Routing title", 160),
-    trigger: normalizeTrigger(record.trigger, version),
+    trigger,
     steps,
   };
+}
+
+/**
+ * A placeholder that could never be filled in for the declared trigger — or
+ * that names a step whose created files no run can know — is a declaration
+ * error, refused when the routing is enabled rather than discovered as an
+ * empty sentence in a message a Space Assistant already received.
+ */
+function assertPlaceholdersResolvable(
+  steps: WorkFoldRoutingStep[],
+  positions: Map<string, number>,
+  trigger: WorkFoldRoutingTrigger,
+): void {
+  for (const [index, step] of steps.entries()) {
+    if (step.kind !== "chat" && step.kind !== "fold") continue;
+    const label = `Routing step "${step.id}"`;
+    for (const placeholder of workFoldRoutingMessagePlaceholders(step.message, label)) {
+      if (placeholder.name === "trigger.changedFiles" && trigger.kind !== "files-changed") {
+        throw new Error(`${label} uses {{trigger.changedFiles}}, but the trigger is not a folder-change trigger.`);
+      }
+      if (placeholder.name === "trigger.findings"
+        && !(trigger.kind === "on-settled" && trigger.source.kind === "check-run")) {
+        throw new Error(`${label} uses {{trigger.findings}}, but the trigger is not a Check-run trigger.`);
+      }
+      if (placeholder.step === undefined) continue;
+      const sourceIndex = positions.get(placeholder.step);
+      const source = sourceIndex === undefined ? undefined : steps[sourceIndex];
+      if (sourceIndex === undefined || sourceIndex >= index || source?.kind !== "chat") {
+        throw new Error(
+          `${label} uses {{steps.${placeholder.step}.createdFiles}}, but "${placeholder.step}" `
+            + "is not an earlier chat step in this routing.",
+        );
+      }
+    }
+  }
 }
 
 function normalizeTrigger(value: unknown, version: WorkFoldRoutingContractVersion): WorkFoldRoutingTrigger {
@@ -464,7 +551,7 @@ function normalizeSettleSource(value: unknown): WorkFoldRoutingSettleSource {
   throw new Error("Routing trigger source kind must be check-run or app-automation-run.");
 }
 
-function normalizeStep(value: unknown, index: number): WorkFoldRoutingStep {
+function normalizeStep(value: unknown, index: number, version: WorkFoldRoutingContractVersion): WorkFoldRoutingStep {
   const label = `Routing step ${index + 1}`;
   const record = objectRecord(value, `${label} must be a JSON object.`);
   if (record.kind === "chat") {
@@ -496,7 +583,18 @@ function normalizeStep(value: unknown, index: number): WorkFoldRoutingStep {
       ...(record.check !== undefined ? { check: checkRef(record.check, `${label} check`) } : {}),
     };
   }
-  throw new Error(`${label} kind must be chat, files, or check.`);
+  if (record.kind === "fold") {
+    if (version < 4) throw new Error("Fold steps require contract version 4.");
+    assertKeys(record, ["id", "kind", "message"], [], label);
+    return {
+      id: stepId(record.id, `${label} id`),
+      kind: "fold",
+      message: boundedMessage(record.message, `${label} message`),
+    };
+  }
+  throw new Error(version >= 4
+    ? `${label} kind must be chat, files, check, or fold.`
+    : `${label} kind must be chat, files, or check.`);
 }
 
 function normalizeFilesSource(value: unknown, stepLabel: string): WorkFoldRoutingFilesSource {
@@ -579,7 +677,7 @@ function boundedMessage(value: unknown, label: string): string {
     throw new Error(`${label} exceeds ${workFoldRoutingBounds.maxChatMessageBytes} bytes.`);
   }
   if (forbiddenMessageCharacters.test(message)) {
-    throw new Error(`${label} contains control or direction-override characters that would defeat verbatim review.`);
+    throw new Error(`${label} contains control or direction-override characters, which are never allowed in a routing message.`);
   }
   return message;
 }

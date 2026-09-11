@@ -17,12 +17,18 @@ const managedSpace = {
   location: { storage: "managed", providerHint: "local" },
 } as SpaceSummary;
 
-test("managed Space deletion names every recursively deleted content class", () => {
+test("managed Space deletion names what moves and where it waits", () => {
+  // Deleting a managed Space moves its folder to Recently deleted rather than
+  // erasing it (docs/receipts-not-gates.md, F20), so the confirm names the
+  // content classes that travel and where they can be brought back from,
+  // instead of promising permanence it no longer delivers.
   const copy = removeSpaceConfirmText(managedSpace);
-  assert.match(copy, /permanently deletes the managed Space folder/i);
   assert.match(copy, /every file and folder inside it/i);
-  assert.match(copy, /local chat history/i);
-  assert.match(copy, /cannot be undone/i);
+  assert.match(copy, /Chats and History/i);
+  assert.match(copy, /moves to Recently deleted/i);
+  assert.match(copy, /Settings → The fold/i);
+  assert.match(copy, /put it back until its time runs out/i);
+  assert.doesNotMatch(copy, /cannot be undone/i);
 });
 
 test("Space removal warns when it will erase machine-local App Studio lineage", () => {

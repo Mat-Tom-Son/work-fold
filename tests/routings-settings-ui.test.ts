@@ -21,11 +21,14 @@ const [settingsSource, paneSource, mainPreload, popoverPreload, desktopMain] = a
 ]);
 
 test("The fold Settings includes Routings without introducing a builder", () => {
-  assert.match(settingsSource, /type FoldSettingsSection = "access" \| "pages" \| "routings";/);
+  assert.match(settingsSource, /type FoldSettingsSection = "access" \| "pages" \| "routings" \| "deleted";/);
   assert.match(settingsSource, /"routings",\s*"Routings"/);
   assert.match(settingsSource, /foldSection === "routings" \? <FoldRoutingsPane \/>/);
   assert.doesNotMatch(paneSource, /builder|cron|RRULE/i);
   assert.match(paneSource, /No routings yet\. Ask the fold to set one up\./);
+  // receipts-not-gates: nothing in this pane asks for permission or names an
+  // authority mode; turning a routing on is one receipted click.
+  assert.doesNotMatch(paneSource, /staged|approve|policy|Reviewed|Unrestricted|\bcard\b|\bmode\b/i);
 });
 
 test("Routing Settings has no HTTP fallback and stays on the trusted main-window bridge", () => {
@@ -68,6 +71,11 @@ test("Routing actions are gated by enabled, disabled, suspended, and completed h
       .map((button) => button.textContent?.trim() ?? "");
     for (const label of expectation.shown) assert.ok(labels.includes(label), `${expectation.health} shows ${label}`);
     for (const label of expectation.hidden) assert.ok(!labels.includes(label), `${expectation.health} hides ${label}`);
+    assert.ok(
+      [...dom.container.querySelectorAll(".fold-routing-step-heading strong")]
+        .some((heading) => heading.textContent?.trim() === "Message the fold"),
+      "a fold step reads as a message to the fold, not a Space",
+    );
 
     await dom.cleanup();
   }
@@ -237,7 +245,10 @@ function installRoutingBridge(health: FoldRoutingHealth, running = false, journa
       ...summary,
       createdAt: "2026-09-01T11:00:00.000Z",
       spaces: [{ spaceId: "space-a", spaceName: "Client launch" }],
-      steps: [{ id: "handoff", kind: "chat", space: { spaceId: "space-a", spaceName: "Client launch" }, message: "Prepare the handoff." }],
+      steps: [
+        { id: "handoff", kind: "chat", space: { spaceId: "space-a", spaceName: "Client launch" }, message: "Prepare the handoff." },
+        { id: "report", kind: "fold", message: "The handoff finished." },
+      ],
       ...(health === "suspended" ? { suspension: { at: "2026-09-01T11:30:00.000Z", reason: "A referenced Space was removed." } } : {}),
       ...(health === "completed" ? { completedAt: "2026-09-01T12:00:00.000Z" } : {}),
     },
@@ -260,7 +271,12 @@ function installRoutingBridge(health: FoldRoutingHealth, running = false, journa
         list: async () => list,
         show: async () => show,
         history: async () => history(),
-        enable: async () => ({ routingId: summary.routingId, requestId: "settings:request-1", enabled: true as const }),
+        enable: async () => ({
+          routingId: summary.routingId,
+          requestId: "settings:request-1",
+          enabled: true as const,
+          alreadyEnabled: false,
+        }),
         run: async () => {
           calls.run += 1;
           return { routingId: summary.routingId, requestId: "settings:request-1", runId: "run-1", accepted: true as const };
@@ -329,7 +345,12 @@ function installSwitchingRoutingBridge(): {
           return detail(routingId as "routing-a" | "routing-b");
         },
         history: async () => history,
-        enable: async (routingId: string) => ({ routingId, requestId: "settings:request-1", enabled: true as const }),
+        enable: async (routingId: string) => ({
+          routingId,
+          requestId: "settings:request-1",
+          enabled: true as const,
+          alreadyEnabled: false,
+        }),
         run: async (routingId: string) => ({ routingId, requestId: "settings:request-1", runId: "run-1", accepted: true as const }),
         stop: async () => ({ stopped: true }),
         disable: async (routingId: string) => {

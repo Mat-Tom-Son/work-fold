@@ -43,6 +43,30 @@ export const foldPublicationsSettings = {
 } as const;
 
 /**
+ * Settings → The fold → Recently deleted (docs/receipts-not-gates.md, F20).
+ * Nothing work-fold deletes is gone at the moment it happens: History covers
+ * what it can, and this is where the rest waits.
+ */
+export const recentlyDeletedSettings = {
+  heading: "Recently deleted",
+  intro: "Deleted files History could not keep a copy of, deleted Space folders, and app data that was cleared or purged "
+    + "wait here until the time below runs out. Everything here is on this computer only.",
+  restore: "Restore",
+  saveCopy: "Save a copy",
+  deleteNow: "Delete now",
+  deleteNowConfirm: "Delete this for good? It cannot be brought back afterwards.",
+  retentionLabel: "Keep deleted items for",
+  retentionUnit: "days",
+  retentionSave: "Save",
+  retentionSaved: "Saved",
+  retentionRange: "Choose between 1 and 365 days.",
+  empty: "Nothing here.",
+  heldNote: "This folder holds records from the earlier Workspace product, which work-fold never erases. "
+    + "It stays here until you handle the folder yourself.",
+  damagedNote: "Some items could not be read. work-fold leaves them alone rather than removing them.",
+} as const;
+
+/**
  * Settings → The fold → Web access: what pairing a browser means. Pairing is
  * an identity act on this desktop, never a gate on work; a paired browser
  * holds the fold's full authority (docs/receipts-not-gates.md).

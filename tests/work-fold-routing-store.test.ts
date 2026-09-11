@@ -42,12 +42,12 @@ function declarationInput(id: string, overrides: Record<string, unknown> = {}): 
   };
 }
 
-function enableInput(raw: unknown, decisionId: string): WorkFoldRoutingEnableInput {
+function enableInput(raw: unknown, requestId: string): WorkFoldRoutingEnableInput {
   const declaration = normalizeWorkFoldRoutingDeclaration(raw);
   return {
     declaration,
     expectedDigest: workFoldRoutingDigest(declaration),
-    decision: { decisionId, surface: "popover" },
+    grant: { requestId, surface: "popover" },
   };
 }
 
@@ -80,17 +80,17 @@ test("the receipts journal path is the exact contract the glance's tolerant read
   assert.equal(workFoldRoutingReceiptsRotatedFile(root), workFoldGlanceRoutingReceiptsRotatedFile(root));
 });
 
-test("enable is journal-first exact-digest authority: declaration and grant commit together", async (t) => {
+test("enable is journal-first exact-digest authority: declaration and enable receipt commit together", async (t) => {
   const { sandbox, store, statePath, journalPath } = await createSandbox("work-fold-routing-store-enable-");
   t.after(() => rm(sandbox, { recursive: true, force: true }));
 
-  const record = await store.enable(enableInput(declarationInput("routing-weekly-handoff"), "decision-1"));
+  const record = await store.enable(enableInput(declarationInput("routing-weekly-handoff"), "request-1"));
   assert.equal(record.health, "enabled");
   assert.equal(record.digest, workFoldRoutingDigest(record.declaration));
   assert.deepEqual(record.grants, [{
     digest: record.digest,
-    decisionId: "decision-1",
-    approvedAt: fixedNow.toISOString(),
+    requestId: "request-1",
+    enabledAt: fixedNow.toISOString(),
     surface: "popover",
   }]);
   assert.equal(record.lastScheduledAt, fixedNow.toISOString(), "an interval enablement anchors its cadence at enable time");
@@ -100,46 +100,48 @@ test("enable is journal-first exact-digest authority: declaration and grant comm
   assert.equal(journal[0]?.scope, "routing");
   assert.equal(journal[0]?.outcome, "enabled");
   assert.equal(journal[0]?.digest, record.digest);
-  assert.equal(journal[0]?.decisionId, "decision-1");
+  assert.equal(journal[0]?.requestId, "request-1");
+  assert.equal(journal[0]?.decisionId, undefined, "receipts-not-gates: nothing writes a decision id any more");
   assert.equal(journal[0]?.surface, "popover");
 
   const reloaded = await WorkFoldRoutingStore.create({ path: statePath, now: () => fixedNow });
   assert.deepEqual(await reloaded.list(), [record], "the enablement round-trips through the durable state file");
 
   await assert.rejects(
-    () => store.enable({ ...enableInput(declarationInput("routing-weekly-handoff"), "decision-2"), expectedDigest: "0".repeat(64) }),
+    () => store.enable({ ...enableInput(declarationInput("routing-weekly-handoff"), "request-2"), expectedDigest: "0".repeat(64) }),
     (error: unknown) => error instanceof WorkFoldRoutingStoreError && error.code === "DIGEST_MISMATCH",
-    "a declaration that does not hash to the reviewed digest is refused",
+    "a declaration that does not hash to the pinned digest is refused",
   );
+  for (const surface of ["policy", "unrestricted"] as const) {
+    await assert.rejects(
+      () => store.enable({
+        ...enableInput(declarationInput("routing-weekly-handoff"), "request-3"),
+        grant: { requestId: "request-3", surface: surface as never },
+      }),
+      (error: unknown) => error instanceof WorkFoldRoutingStoreError && error.code === "INPUT_INVALID"
+        && /act surface/.test(error.message),
+      `a legacy ${surface} surface is never written again`,
+    );
+  }
   await assert.rejects(
     () => store.enable({
-      ...enableInput(declarationInput("routing-weekly-handoff"), "decision-3"),
-      decision: { decisionId: "decision-3", surface: "policy" },
-    }),
-    (error: unknown) => error instanceof WorkFoldRoutingStoreError && error.code === "INPUT_INVALID"
-      && /act surface/.test(error.message),
-    "a legacy policy surface is never written again",
-  );
-  await assert.rejects(
-    () => store.enable({
-      ...enableInput(declarationInput("routing-weekly-handoff"), "decision-4"),
-      decision: { decisionId: "decision-4", surface: "remote_web" },
+      ...enableInput(declarationInput("routing-weekly-handoff"), "request-4"),
+      grant: { requestId: "request-4", surface: "remote_web" },
     }),
     (error: unknown) => error instanceof WorkFoldRoutingStoreError && error.code === "INPUT_INVALID",
-    "a remote decision must record the approving browser identity",
+    "a remote enablement must record the paired browser identity",
   );
   const remote = await store.enable({
-    ...enableInput(declarationInput("routing-weekly-handoff"), "decision-5"),
-    decision: { decisionId: "decision-5", surface: "remote_web", browserId: "browser-1", browserGrantId: "grant-1" },
+    ...enableInput(declarationInput("routing-weekly-handoff"), "request-5"),
+    grant: { requestId: "request-5", surface: "remote_web", browserId: "browser-1" },
   });
-  assert.equal(remote.grants.length, 2, "re-enablement appends a fresh grant instead of rewriting history");
+  assert.equal(remote.grants.length, 2, "re-enablement appends a fresh receipt instead of rewriting history");
   assert.deepEqual(remote.grants[1], {
     digest: remote.digest,
-    decisionId: "decision-5",
-    approvedAt: fixedNow.toISOString(),
+    requestId: "request-5",
+    enabledAt: fixedNow.toISOString(),
     surface: "remote_web",
     browserId: "browser-1",
-    browserGrantId: "grant-1",
   });
 });
 
@@ -170,7 +172,7 @@ test("the 32-routing machine bound applies to new ids at enablement, not to re-e
     (error: unknown) => error instanceof WorkFoldRoutingStoreError && error.code === "BOUND_EXCEEDED",
   );
   const again = await store.enable(enableInput(declarationInput("routing-bound-0000"), "decision-again"));
-  assert.equal(again.grants.length, 2, "re-consecrating an existing routing never counts against the machine bound");
+  assert.equal(again.grants.length, 2, "re-enabling an existing routing never counts against the machine bound");
 });
 
 test("disable narrows and delete removes only inert routings; receipts survive the object", async (t) => {
@@ -336,20 +338,65 @@ test("one-time enablement rechecks the 1-minute to 366-day horizon and a durable
   assert.equal(deleted?.surface, "main-window");
 });
 
-test("schema 1 stores load into the version 2 writer while newer stores still fail closed", async (t) => {
+test("schema 1 and 2 stores load into the version 3 writer, converting the grants an older build wrote", async (t) => {
   const { sandbox, store, statePath, receipts, journalPath } = await createSandbox("work-fold-routing-store-v1-upgrade-");
   t.after(() => rm(sandbox, { recursive: true, force: true }));
-  await store.enable(enableInput(declarationInput("routing-v1-upgrade"), "decision-v1"));
-  const legacy = JSON.parse(await readFile(statePath, "utf8")) as { schemaVersion: number };
-  legacy.schemaVersion = 1;
+  await store.enable(enableInput(declarationInput("routing-v1-upgrade"), "request-v1"));
+  const legacy = JSON.parse(await readFile(statePath, "utf8")) as {
+    schemaVersion: number;
+    routings: Array<{ digest: string; grants: unknown[] }>;
+  };
+  legacy.schemaVersion = 2;
+  // Exactly what a pre-receipts-not-gates build wrote: a decision-shaped
+  // grant, including the surface an Unrestricted-mode execution recorded.
+  legacy.routings[0]!.grants = [
+    {
+      digest: legacy.routings[0]!.digest,
+      decisionId: "decision-v0",
+      approvedAt: fixedNow.toISOString(),
+      surface: "unrestricted",
+    },
+    {
+      digest: legacy.routings[0]!.digest,
+      decisionId: "decision-v1",
+      approvedAt: fixedNow.toISOString(),
+      surface: "remote_web",
+      browserId: "browser-1",
+      browserGrantId: "grant-1",
+    },
+  ];
   await writeFile(statePath, `${JSON.stringify(legacy, null, 2)}\n`, "utf8");
 
   const upgraded = await WorkFoldRoutingStore.create({ path: statePath, receipts, now: () => fixedNow });
-  assert.equal(upgraded.status().damaged, false);
+  assert.equal(upgraded.status().damaged, false, "an older state file still opens");
+  assert.deepEqual((await upgraded.list())[0]?.grants, [
+    {
+      digest: legacy.routings[0]!.digest,
+      requestId: "decision-v0",
+      enabledAt: fixedNow.toISOString(),
+      surface: "unrestricted",
+    },
+    {
+      // The browser grant id a decision card carried is dropped; the paired
+      // browser identity stays.
+      digest: legacy.routings[0]!.digest,
+      requestId: "decision-v1",
+      enabledAt: fixedNow.toISOString(),
+      surface: "remote_web",
+      browserId: "browser-1",
+    },
+  ]);
   await upgraded.disable("routing-v1-upgrade");
   const rewritten = JSON.parse(await readFile(statePath, "utf8")) as { schemaVersion: number };
-  assert.equal(rewritten.schemaVersion, 2);
+  assert.equal(rewritten.schemaVersion, 3, "the first commit rewrites the file at the current schema version");
   assert.equal((await readJournal(journalPath)).at(-1)?.outcome, "disabled");
+
+  const schema1 = JSON.parse(await readFile(statePath, "utf8")) as { schemaVersion: number };
+  schema1.schemaVersion = 1;
+  const schema1Path = join(sandbox, "routings", "schema1.json");
+  await writeFile(schema1Path, `${JSON.stringify(schema1, null, 2)}\n`, "utf8");
+  const oldest = await WorkFoldRoutingStore.create({ path: schema1Path, receipts, now: () => fixedNow });
+  assert.equal(oldest.status().damaged, false);
 });
 
 test("damaged or tampered state disables the store and is never overwritten", async (t) => {

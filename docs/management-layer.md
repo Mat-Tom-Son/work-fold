@@ -125,7 +125,22 @@ work-fold manage send --message "Put this where it belongs and start a review." 
 work-fold manage wait --task <task-id> --json
 work-fold manage status --task <task-id> --json
 work-fold manage stop --task <task-id> --json
+work-fold trash list --json
+work-fold trash restore --entry <recently-deleted-id> --json
 ```
+
+`work-fold trash …` reads and restores **Recently deleted**, the machine-local
+store under the state root that holds what a delete could not leave to History:
+files and folders the safety restore point could not keep a copy of, deleted
+managed Space folders, and app data that was cleared or purged
+([Receipts, not gates](receipts-not-gates.md), F20). Like `routings` and
+`pages` it sits above Spaces, so neither verb takes `--space`; each item names
+the Space it came from. `trash list` is content-free — ids, kinds, paths,
+sizes, and dates. `trash restore` puts one item back where it came from,
+renaming it when something else took the name, and app data whose app is gone
+is saved as a file with `--to <absolute-path>`. Nothing empties the store: the
+retention window in Settings → The fold → Recently deleted does, and a tree
+holding legacy `.workspace/` records is never erased.
 
 `work-fold manage …` talks to the **management conversation** — user-facing name: **the fold** — the one conversation above all Spaces. It reuses the same acceptance path, Pi runtime, kernel task records, and task-scoped outcome semantics as Space Chats under the dedicated scope id `work-fold-management` instead of a Space id. Its transcript lives in machine-local application state under the app profile's `management/` root — it describes this machine's registry, so it is deliberately not portable Space data. Its Pi session loads personal-scope Skills and Extensions plus exactly two app-materialized project resources — a management `AGENTS.md` context file and the `manage-spaces` Skill, rewritten on every start — and gets no user Space's `.pi` configuration, no restricted-app bridges, and no History checkpoints (History is a Space concept).
 

@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { foldPublicationsSettings, primaryNavigation, remoteAccessSettings, welcomeActions } from "../web-local/src/ui-contract.js";
+import {
+  foldPublicationsSettings,
+  primaryNavigation,
+  recentlyDeletedSettings,
+  remoteAccessSettings,
+  welcomeActions,
+} from "../web-local/src/ui-contract.js";
 
 test("Space navigation separates the active Space from its surfaces", () => {
   assert.deepEqual(primaryNavigation.map(({ id, label }) => [id, label]), [
@@ -41,12 +47,32 @@ test("the publications Settings section keeps the doc's copy rules and the widen
   assert.doesNotMatch(copy, /consecrat/i, "person-facing copy never says consecration");
 });
 
+test("Recently deleted says what is waiting, how long, and what work-fold never erases", () => {
+  // Settings → The fold → Recently deleted (docs/receipts-not-gates.md, F20):
+  // nothing work-fold destroys is gone at the moment it happens, and the copy
+  // names the retention window and the clean-break rule instead of implying
+  // permanence either way.
+  assert.equal(recentlyDeletedSettings.heading, "Recently deleted");
+  assert.match(recentlyDeletedSettings.intro, /History could not keep a copy of/i);
+  assert.match(recentlyDeletedSettings.intro, /until the time below runs out/i);
+  assert.match(recentlyDeletedSettings.intro, /on this computer only/i);
+  assert.equal(recentlyDeletedSettings.restore, "Restore");
+  assert.equal(recentlyDeletedSettings.saveCopy, "Save a copy");
+  assert.equal(recentlyDeletedSettings.deleteNow, "Delete now");
+  assert.match(recentlyDeletedSettings.deleteNowConfirm, /cannot be brought back/i);
+  assert.match(recentlyDeletedSettings.retentionLabel, /^Keep deleted items for$/);
+  assert.match(recentlyDeletedSettings.heldNote, /earlier Workspace product/i);
+  assert.match(recentlyDeletedSettings.heldNote, /never erases/i);
+  assert.match(recentlyDeletedSettings.damagedNote, /leaves them alone/i);
+});
+
 test("person-facing fold copy promises receipts and undo, never a gate", () => {
   // docs/receipts-not-gates.md: no surface offers an authority mode, a
   // policy, or a decision card. Pairing copy names identity, not a gate on
   // work.
   assert.match(remoteAccessSettings.pairedBrowserTrust, /six-digit code/);
   assert.match(remoteAccessSettings.pairedBrowserTrust, /full trust/);
-  const copy = JSON.stringify({ foldPublicationsSettings, remoteAccessSettings });
+  const copy = JSON.stringify({ foldPublicationsSettings, recentlyDeletedSettings, remoteAccessSettings });
   assert.doesNotMatch(copy, /staged|approv|polic|Reviewed|Unrestricted|needs-you card|decision card|consecrat/i);
+  assert.doesNotMatch(JSON.stringify(recentlyDeletedSettings), /\bmode\b|\bcard\b|sandbox|digest|trash/i);
 });

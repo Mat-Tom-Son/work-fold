@@ -3,7 +3,7 @@ import { lstat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { listSpaces, resolveSpacePath } from "../space.js";
 import { resolveWorkFoldCheckTargets } from "../checks/target-resolver.js";
-import type { WorkFoldRoutingFilesChangedTrigger } from "./routing-declarations.js";
+import { workFoldRoutingBounds, type WorkFoldRoutingFilesChangedTrigger } from "./routing-declarations.js";
 
 export interface WorkFoldRoutingFileSnapshot { digest: string; entries: Record<string, string>; }
 export type WorkFoldRoutingFileObserver = (trigger: WorkFoldRoutingFilesChangedTrigger) => Promise<WorkFoldRoutingFileSnapshot>;
@@ -51,7 +51,7 @@ export interface WorkFoldRoutingFileWatchStatus {
 
 /** In-memory observations deliberately restart from a baseline: changes
  * while quit, asleep, or while a routing is working never become replayed
- * authority. Cross-Space handoffs belong in one reviewed sequence. */
+ * authority. Cross-Space handoffs belong in one declared sequence. */
 export class WorkFoldRoutingFileWatch {
   baseline?: WorkFoldRoutingFileSnapshot;
   candidate?: { snapshot: WorkFoldRoutingFileSnapshot; since: number };
@@ -62,20 +62,28 @@ export class WorkFoldRoutingFileWatch {
     this.candidate = undefined;
     this.status = { ...this.status, state: paused ? "paused" : "starting", detail: undefined };
   }
-  observe(snapshot: WorkFoldRoutingFileSnapshot, now: number, trigger: WorkFoldRoutingFilesChangedTrigger): number | null {
+  /** The changed paths feed `{{trigger.changedFiles}}`; the count is always the true one. */
+  observe(
+    snapshot: WorkFoldRoutingFileSnapshot,
+    now: number,
+    trigger: WorkFoldRoutingFilesChangedTrigger,
+  ): { changedCount: number; changedPaths: string[] } | null {
     this.status = { ...this.status, state: "watching", detail: undefined, lastObservedAt: new Date(now).toISOString() };
     if (!this.baseline) { this.baseline = snapshot; return null; }
     if (snapshot.digest === this.baseline.digest) { this.candidate = undefined; return null; }
     if (this.candidate?.snapshot.digest !== snapshot.digest) { this.candidate = { snapshot, since: now }; return null; }
     if (now - this.candidate.since < trigger.debounceSeconds * 1000 || now - this.lastFired < trigger.cooldownMinutes * 60_000) return null;
     const changed = new Set([...Object.keys(this.baseline.entries), ...Object.keys(snapshot.entries)]);
-    const count = [...changed].filter((path) => this.baseline!.entries[path] !== snapshot.entries[path]).length;
+    const changedPaths = [...changed].filter((path) => this.baseline!.entries[path] !== snapshot.entries[path]).sort();
     this.baseline = snapshot;
     this.candidate = undefined;
-    if (!count) return null;
+    if (!changedPaths.length) return null;
     this.lastFired = now;
     this.status.lastTriggeredAt = new Date(now).toISOString();
-    return count;
+    return {
+      changedCount: changedPaths.length,
+      changedPaths: changedPaths.slice(0, workFoldRoutingBounds.maxChangedPathsRecorded),
+    };
   }
   fail(error: unknown): void {
     this.reset();

@@ -21,6 +21,7 @@ import {
   listPendingSpaceRemovals,
   markSpaceRemovalAppStateRemoved,
   readSpaceTextFile,
+  registerManagedSpaceFolder,
   renameSpace,
   registerLinkedSpace,
   resolveSpacePath,
@@ -317,6 +318,48 @@ test("a preserve-disposition removal unregisters a managed Space while its folde
   // The preserved folder registers again with the same portable identity.
   const reRegistered = await registerLinkedSpace(space.spaceRoot);
   assert.equal(reRegistered.id, space.id, "re-registration restores the persisted identity");
+});
+
+test("a managed folder registers again with its portable identity, and only inside the managed base", async () => {
+  // How a Space folder comes back from Recently deleted
+  // (docs/receipts-not-gates.md, F20): the folder is already in the managed
+  // base, and its `.work-fold/space.json` identity is what makes it the same
+  // Space rather than a copy.
+  const space = await createManagedSpace("Restorable", contentRoot);
+  await writeFile(join(space.spaceRoot, "brief.md"), "# brief\n", "utf8");
+  await beginSpaceRemoval(space.id, contentRoot, {});
+  await markSpaceRemovalAppStateRemoved(space.id, {});
+  // The removal moves the claimed folder away instead of erasing it, exactly
+  // as the trash io does; putting it back is what a restore then does.
+  const parked = join(dirname(space.spaceRoot), "parked-managed-folder");
+  await finalizeSpaceRemoval(space.id, {
+    removeClaimedManagedRoot: async (claimPath) => { await rename(claimPath, parked); },
+  });
+  assert.equal((await listSpaces()).some((item) => item.id === space.id), false);
+  assert.equal(existsSync(space.spaceRoot), false);
+
+  await rename(parked, space.spaceRoot);
+  const restored = await registerManagedSpaceFolder(space.spaceRoot, "Restorable", contentRoot);
+  assert.equal(restored.id, space.id, "the portable identity comes back with the folder");
+  assert.equal(restored.location.storage, "managed");
+  assert.equal(await readFile(join(space.spaceRoot, "brief.md"), "utf8"), "# brief\n");
+
+  // Nothing outside the managed base is a managed Space, and a missing
+  // folder is refused rather than created.
+  const outside = join(dirname(contentRoot), "outside-managed-base");
+  await mkdir(outside, { recursive: true });
+  await assert.rejects(
+    () => registerManagedSpaceFolder(outside, "Outside", contentRoot),
+    /inside its managed-content folder/,
+  );
+  await assert.rejects(
+    () => registerManagedSpaceFolder(join(contentRoot, "never-existed"), "Ghost", contentRoot),
+    /does not exist/,
+  );
+  await assert.rejects(
+    () => registerManagedSpaceFolder(contentRoot, "The base itself", contentRoot),
+    /inside its managed-content folder/,
+  );
 });
 
 test("a preserve marker is valid only on a managed intent that holds no deletion authority", async () => {

@@ -9,18 +9,23 @@ import type { WorkFoldAutomationClock } from "../src/local/agent/work-fold-autom
 import { createWorkFoldGlanceRoutingRunReader } from "../src/local/glance.js";
 import {
   normalizeWorkFoldRoutingDeclaration,
+  workFoldRoutingBounds,
   workFoldRoutingDigest,
   type WorkFoldRoutingChatStep,
   type WorkFoldRoutingCheckStep,
   type WorkFoldRoutingFilesStep,
+  type WorkFoldRoutingFoldStep,
 } from "../src/local/routings/routing-declarations.js";
 import {
   WorkFoldRoutingService,
   WorkFoldRoutingServiceError,
+  workFoldRoutingMaxConcurrentRuns,
   type WorkFoldRoutingChatHopResult,
   type WorkFoldRoutingCheckHopResult,
+  type WorkFoldRoutingCheckRunFindings,
   type WorkFoldRoutingCheckpointManifest,
   type WorkFoldRoutingFilesHopResult,
+  type WorkFoldRoutingFoldHopResult,
   type WorkFoldRoutingHopContext,
   type WorkFoldRoutingHopPorts,
   type WorkFoldRoutingResolvedFilesSource,
@@ -40,18 +45,22 @@ const spaceB = "space-bbbbbbbbbbbbbbbb";
 const spaceC = "space-cccccccccccccccc";
 
 interface RecordedPortCall {
-  kind: "chat" | "files" | "check";
+  kind: "chat" | "files" | "check" | "fold";
   hopId: string;
   runId: string;
   routingId: string;
   lineage: WorkFoldRoutingHopContext["lineage"];
   source?: WorkFoldRoutingResolvedFilesSource;
+  /** The message the executor actually sent, with every placeholder filled in. */
+  message?: string;
 }
 
 class FakePorts implements WorkFoldRoutingHopPorts {
   readonly calls: RecordedPortCall[] = [];
   readonly manifests = new Map<string, WorkFoldRoutingCheckpointManifest>();
+  readonly findingsByTask = new Map<string, WorkFoldRoutingCheckRunFindings | null>();
   chatImpl: (step: WorkFoldRoutingChatStep, context: WorkFoldRoutingHopContext) => Promise<WorkFoldRoutingChatHopResult>;
+  foldImpl: (step: WorkFoldRoutingFoldStep, context: WorkFoldRoutingHopContext) => Promise<WorkFoldRoutingFoldHopResult>;
   filesImpl: (
     step: WorkFoldRoutingFilesStep,
     source: WorkFoldRoutingResolvedFilesSource,
@@ -61,6 +70,11 @@ class FakePorts implements WorkFoldRoutingHopPorts {
 
   constructor() {
     this.chatImpl = this.defaultChat;
+    this.foldImpl = async (_step, context) => ({
+      conversationId: `management-conversation-${context.hopId}`,
+      turnTaskId: `management-turn-task-${context.hopId}`,
+      outcome: "succeeded",
+    });
     this.filesImpl = async (_step, source, context) => ({
       restorePointId: `restore-${context.hopId}`,
       copiedPaths: source.kind === "paths" ? [...source.paths] : ["resolved/tree.md"],
@@ -102,9 +116,40 @@ class FakePorts implements WorkFoldRoutingHopPorts {
     else context.signal.addEventListener("abort", settle, { once: true });
   });
 
-  async chat(step: WorkFoldRoutingChatStep, context: WorkFoldRoutingHopContext): Promise<WorkFoldRoutingChatHopResult> {
-    this.calls.push({ kind: "chat", hopId: context.hopId, runId: context.runId, routingId: context.routingId, lineage: context.lineage });
+  /** A fold turn that runs until its abort path settles it, like a real turn abort. */
+  readonly abortableFold = (
+    _step: WorkFoldRoutingFoldStep,
+    context: WorkFoldRoutingHopContext,
+  ): Promise<WorkFoldRoutingFoldHopResult> => new Promise((resolvePromise) => {
+    const settle = () => resolvePromise({
+      conversationId: `management-conversation-${context.hopId}`,
+      turnTaskId: `management-turn-task-${context.hopId}`,
+      outcome: "aborted",
+    });
+    if (context.signal.aborted) settle();
+    else context.signal.addEventListener("abort", settle, { once: true });
+  });
+
+  async chat(
+    step: WorkFoldRoutingChatStep,
+    message: string,
+    context: WorkFoldRoutingHopContext,
+  ): Promise<WorkFoldRoutingChatHopResult> {
+    this.calls.push({ kind: "chat", hopId: context.hopId, runId: context.runId, routingId: context.routingId, lineage: context.lineage, message });
     return this.chatImpl(step, context);
+  }
+
+  async fold(
+    step: WorkFoldRoutingFoldStep,
+    message: string,
+    context: WorkFoldRoutingHopContext,
+  ): Promise<WorkFoldRoutingFoldHopResult> {
+    this.calls.push({ kind: "fold", hopId: context.hopId, runId: context.runId, routingId: context.routingId, lineage: context.lineage, message });
+    return this.foldImpl(step, context);
+  }
+
+  async checkRunFindings(_spaceId: string, taskId: string): Promise<WorkFoldRoutingCheckRunFindings | null> {
+    return this.findingsByTask.get(taskId) ?? null;
   }
 
   async files(
@@ -173,7 +218,7 @@ interface Harness {
   store: WorkFoldRoutingStore;
   service: WorkFoldRoutingService;
   journalPath: string;
-  enable(raw: unknown, decisionId?: string): Promise<WorkFoldRoutingRecord>;
+  enable(raw: unknown, requestId?: string): Promise<WorkFoldRoutingRecord>;
   journal(): Promise<WorkFoldRoutingReceiptV1[]>;
   runLines(): Promise<string[]>;
 }
@@ -231,12 +276,12 @@ async function createHarness(t: TestContext, options: { maxConcurrency?: number;
     store,
     service,
     journalPath,
-    enable: async (raw, decisionId = "decision-1") => {
+    enable: async (raw, requestId = "request-1") => {
       const declaration = normalizeWorkFoldRoutingDeclaration(raw);
       return await service.enable({
         declaration,
         expectedDigest: workFoldRoutingDigest(declaration),
-        decision: { decisionId, surface: "popover" },
+        grant: { requestId, surface: "popover" },
       });
     },
     journal,
@@ -559,7 +604,7 @@ test("a crash after the durable one-time claim cannot replay the occurrence", as
   await store.enable({
     declaration,
     expectedDigest: workFoldRoutingDigest(declaration),
-    decision: { decisionId: "decision-claim", surface: "popover" },
+    grant: { requestId: "decision-claim", surface: "popover" },
   });
   await store.claimAtOccurrence(
     declaration.id,
@@ -598,7 +643,7 @@ test("startup reconciles a crash between a one-time accepted receipt and its dur
   const enabled = await store.enable({
     declaration,
     expectedDigest: workFoldRoutingDigest(declaration),
-    decision: { decisionId: "decision-accepted", surface: "main-window" },
+    grant: { requestId: "decision-accepted", surface: "main-window" },
   });
   await receipts.append({
     scope: "run",
@@ -797,7 +842,7 @@ test("restart catch-up runs or skips a missed one-time occurrence exactly as dec
     await first.enable({
       declaration,
       expectedDigest: workFoldRoutingDigest(declaration),
-      decision: { decisionId: `decision-${ifMissed}`, surface: "popover" },
+      grant: { requestId: `decision-${ifMissed}`, surface: "popover" },
     });
   }
   first.close();
@@ -845,7 +890,15 @@ test("an on-settled trigger admits matching settles only, and routing-caused set
   const accepted = (await harness.journal()).find((line) => line.scope === "run" && line.outcome === "accepted");
   assert.deepEqual(accepted?.cause, {
     kind: "on-settled",
-    source: { kind: "check-run", spaceId: spaceA, runId: "settled-check-run-1", state: "succeeded", checkIds: ["check-quality-gate"] },
+    source: {
+      kind: "check-run",
+      spaceId: spaceA,
+      runId: "settled-check-run-1",
+      state: "succeeded",
+      checkIds: ["check-quality-gate"],
+      // The Check task id is how {{trigger.findings}} reads the settled run back.
+      taskId: "settled-check-task-1",
+    },
   }, "the run receipt names the settled source exactly");
   assert.equal(harness.ports.calls[0]?.lineage.routingId, "routing-on-settle");
 
@@ -1203,7 +1256,7 @@ test("Space removal stops the active run, suspends durably, disarms every trigge
   await assert.rejects(
     () => harness.service.runNow("routing-alpha-weekly"),
     (error: unknown) => error instanceof WorkFoldRoutingServiceError && error.code === "HEALTH_INVALID" && error.health === "suspended"
-      && /fresh consecration/.test(error.message),
+      && /enable it again/.test(error.message),
   );
 
   harness.ports.chatImpl = harness.ports.defaultChat;
@@ -1286,7 +1339,13 @@ test("folder changes debounce into one receipted cross-Space sequence and absorb
   await waitForCondition(async () => (await harness.journal()).some((line) => line.scope === "run" && line.outcome === "succeeded"), "folder handoff");
   assert.deepEqual(harness.ports.calls.map(({ kind }) => kind), ["chat", "files", "check"]);
   const accepted = (await harness.journal()).find((line) => line.scope === "run" && line.outcome === "accepted");
-  assert.deepEqual(accepted?.cause, { kind: "files-changed", spaceId: spaceA, snapshotDigest: "3".repeat(64), changedCount: 1 });
+  assert.deepEqual(accepted?.cause, {
+    kind: "files-changed",
+    spaceId: spaceA,
+    snapshotDigest: "3".repeat(64),
+    changedCount: 1,
+    changedPaths: ["Drafts/notes.md"],
+  });
   revision = "4";
   harness.clock.advance(120_000);
   await harness.service.pollFileChanges();
@@ -1330,4 +1389,299 @@ test("folder observer failures stay visible and a scan cannot outlive revocation
   await scan;
   assert.equal(harness.ports.calls.length, 0);
   await assert.rejects(harness.enable(declarationInput("routing-folder-health", { version: 2, trigger })), /version 3/);
+});
+
+// The version-4 placeholder set (docs/receipts-not-gates.md, F23). Resolution
+// is host-side, in the executor, from the run's own cause and its earlier
+// hops' host records — never from model output — and every filled-in text
+// lands on the hop's terminal receipt so a person can see what was said.
+const placeholderTrigger = {
+  kind: "files-changed",
+  space: spaceA,
+  watch: { kind: "tree", path: "Drafts", recursive: true, extensions: [".md"] },
+  debounceSeconds: 2,
+  cooldownMinutes: 1,
+};
+
+const placeholderSteps = [
+  { id: "review", kind: "chat", space: spaceA, message: "{{trigger.summary}}\nChanged:\n{{trigger.changedFiles}}" },
+  { id: "report", kind: "fold", message: "Created:\n{{steps.review.createdFiles}}" },
+];
+
+function seedReviewManifests(harness: Harness, created: Array<{ path: string; sizeBytes?: number }>): void {
+  harness.ports.manifests.set(`${spaceA}/pre-review`, { files: [], skippedFilePaths: [] });
+  harness.ports.manifests.set(`${spaceA}/post-review`, {
+    files: created.map((file) => ({ path: file.path, hashSha256: `hash-${file.path}`, sizeBytes: file.sizeBytes ?? 10 })),
+    skippedFilePaths: [],
+  });
+}
+
+test("placeholders resolve host-side from the cause and earlier chat hops, and land on the hop receipt", async (t) => {
+  let revision = "1";
+  const harness = await createHarness(t, {
+    observeFiles: async () => ({
+      digest: revision.repeat(64),
+      entries: { "Drafts/notes.md": revision, "Drafts/plan.md": revision },
+    }),
+  });
+  await harness.enable(declarationInput("routing-placeholders", {
+    version: 4,
+    trigger: placeholderTrigger,
+    steps: placeholderSteps,
+  }));
+  seedReviewManifests(harness, [{ path: "reports/new.md" }, { path: "reports/a.md" }]);
+
+  await harness.service.pollFileChanges();
+  harness.clock.advance(10_000);
+  revision = "2";
+  await harness.service.pollFileChanges();
+  harness.clock.advance(3_000);
+  await harness.service.pollFileChanges();
+  await waitForCondition(
+    async () => (await harness.journal()).some((line) => line.scope === "run" && line.outcome === "succeeded"),
+    "the folder-change run to settle",
+  );
+
+  const chatCall = harness.ports.calls.find((call) => call.kind === "chat");
+  assert.equal(
+    chatCall?.message,
+    '2 file(s) changed under "Drafts" in Space space-aaaaaaaaaaaaaaaa.\nChanged:\nDrafts/notes.md\nDrafts/plan.md',
+    "the trigger summary and changed paths are filled in from the run cause",
+  );
+  const foldCall = harness.ports.calls.find((call) => call.kind === "fold");
+  assert.equal(
+    foldCall?.message,
+    "Created:\nreports/a.md\nreports/new.md",
+    "created files come from the chat hop's own checkpoint pair, sorted",
+  );
+
+  const reportHop = (await harness.journal()).find((line) => line.hopId === "report" && line.outcome === "succeeded");
+  assert.equal(reportHop?.hopKind, "fold");
+  assert.deepEqual(reportHop?.placeholders, [{
+    name: "steps.review.createdFiles",
+    text: "reports/a.md\nreports/new.md",
+    bytes: Buffer.byteLength("reports/a.md\nreports/new.md", "utf8"),
+    truncated: false,
+  }]);
+  assert.equal(reportHop?.messageBytes, Buffer.byteLength(foldCall!.message!, "utf8"));
+
+  // Resolution is by cause, never by the declared trigger: a run started by
+  // hand says so instead of pretending files changed.
+  await waitForCondition(() => harness.service.status().activeRunCount === 0, "the folder-change run to release its slot");
+  harness.ports.calls.length = 0;
+  const manual = await harness.service.runNow("routing-placeholders", { requestId: "request-by-hand" });
+  assert.equal(manual.outcome, "success");
+  assert.equal(
+    harness.ports.calls.find((call) => call.kind === "chat")?.message,
+    "Started by hand.\nChanged:\n(no changed files: this run was started by hand)",
+  );
+});
+
+test("a filled-in list names the limit that cut it, and a too-large message fails the hop", async (t) => {
+  const harness = await createHarness(t);
+  await harness.enable(declarationInput("routing-placeholder-bounds", {
+    version: 4,
+    steps: [
+      { id: "review", kind: "chat", space: spaceA, message: "Write the weekly summary." },
+      { id: "report", kind: "fold", message: "Created:\n{{steps.review.createdFiles}}" },
+    ],
+  }));
+  const many = workFoldRoutingBounds.maxPlaceholderListItems + 50;
+  seedReviewManifests(harness, Array.from({ length: many }, (_, index) => ({
+    path: `reports/note-${String(index).padStart(3, "0")}.md`,
+  })));
+
+  assert.equal((await harness.service.runNow("routing-placeholder-bounds", { requestId: "request-1" })).outcome, "success");
+  const reportHop = (await harness.journal()).find((line) => line.hopId === "report" && line.outcome === "succeeded");
+  assert.equal(reportHop?.placeholders?.[0]?.truncated, true);
+  assert.match(
+    reportHop?.placeholders?.[0]?.text ?? "",
+    /\n… and 50 more \(100-item limit for one filled-in placeholder\)$/,
+  );
+  assert.equal(
+    reportHop?.placeholders?.[0]?.text.split("\n").length,
+    workFoldRoutingBounds.maxPlaceholderListItems + 1,
+    "the cut happens at a line boundary, plus the marker line",
+  );
+
+  // One filled-in placeholder is bounded; the whole message has its own
+  // bound, and exceeding it fails the hop rather than sending a document.
+  const chatMessage = `Work on this.\n${Array.from({ length: 12 }, () => "{{steps.review.createdFiles}}").join("\n")}`;
+  await harness.enable(declarationInput("routing-message-bound", {
+    version: 4,
+    steps: [
+      { id: "review", kind: "chat", space: spaceA, message: "Write the weekly summary." },
+      { id: "flood", kind: "chat", space: spaceB, message: chatMessage },
+      { id: "after", kind: "check", space: spaceB },
+    ],
+  }), "request-message-bound");
+  const wide = "x".repeat(4_000);
+  harness.ports.manifests.set(`${spaceA}/pre-review`, { files: [], skippedFilePaths: [] });
+  harness.ports.manifests.set(`${spaceA}/post-review`, {
+    files: Array.from({ length: 2 }, (_, index) => ({ path: `reports/${wide}-${index}.md`, hashSha256: `h-${index}`, sizeBytes: 10 })),
+    skippedFilePaths: [],
+  });
+  const flooded = await harness.service.runNow("routing-message-bound", { requestId: "request-2" });
+  assert.equal(flooded.outcome, "failure");
+  const floodLines = (await harness.journal()).filter((line) => line.routingId === "routing-message-bound" && line.scope === "hop");
+  const failed = floodLines.find((line) => line.hopId === "flood" && line.outcome === "failed");
+  assert.match(failed?.detail ?? "", /64 KiB limit for one step/);
+  assert.equal(
+    floodLines.find((line) => line.hopId === "after" && line.outcome === "skipped")?.failedHopId,
+    "flood",
+    "a resolution that cannot be proven fails the hop closed and later hops are skipped",
+  );
+  assert.equal(harness.ports.calls.filter((call) => call.hopId === "flood").length, 0, "nothing was sent");
+});
+
+test("{{trigger.findings}} reads the settled Check run through the port and fails closed when it cannot", async (t) => {
+  const harness = await createHarness(t);
+  await harness.enable(declarationInput("routing-findings", {
+    version: 4,
+    trigger: { kind: "on-settled", source: { kind: "check-run", space: spaceA, outcomes: ["succeeded"] } },
+    steps: [{ id: "triage", kind: "chat", space: spaceB, message: "Triage these:\n{{trigger.findings}}" }],
+  }));
+  harness.ports.findingsByTask.set("settled-check-task-1", {
+    findings: [
+      { checkId: "check-quality-gate", title: "Stale link", targetPath: "docs/a.md", severity: "warning" },
+      { checkId: "check-quality-gate", title: "Missing owner", targetPath: "docs/b.md", severity: "notice" },
+    ],
+  });
+
+  harness.signal.publish(checkSettle);
+  await waitForCondition(
+    async () => (await harness.journal()).some((line) => line.scope === "run" && line.outcome === "succeeded"),
+    "the settle-admitted run to settle",
+  );
+  assert.equal(
+    harness.ports.calls.find((call) => call.kind === "chat")?.message,
+    "Triage these:\n- [warning] Stale link — docs/a.md (check-quality-gate)\n- [notice] Missing owner — docs/b.md (check-quality-gate)",
+  );
+
+  await waitForCondition(() => harness.service.status().activeRunCount === 0, "the first run to release its slot");
+  harness.ports.findingsByTask.delete("settled-check-task-1");
+  harness.ports.calls.length = 0;
+  harness.signal.publish({ ...checkSettle, runId: "settled-check-run-2" });
+  await waitForCondition(
+    async () => (await harness.journal()).some((line) => line.hopId === "triage" && line.outcome === "failed"),
+    "the unreadable findings to fail the hop",
+  );
+  const failed = (await harness.journal()).find((line) => line.hopId === "triage" && line.outcome === "failed");
+  assert.match(failed?.detail ?? "", /could not be read/);
+  assert.equal(harness.ports.calls.length, 0, "nothing was sent on an unprovable resolution");
+});
+
+test("a fold hop starts a management turn, stops honestly, and never fires another trigger", async (t) => {
+  const harness = await createHarness(t);
+  await harness.enable(declarationInput("routing-fold-only", {
+    version: 4,
+    steps: [{ id: "digest", kind: "fold", message: "{{trigger.summary}} Say hello." }],
+  }));
+
+  assert.equal((await harness.service.runNow("routing-fold-only", { requestId: "request-1" })).outcome, "success");
+  assert.equal(harness.ports.calls[0]?.kind, "fold");
+  assert.equal(harness.ports.calls[0]?.message, "Started by hand. Say hello.");
+  const hop = (await harness.journal()).find((line) => line.hopId === "digest" && line.outcome === "succeeded");
+  assert.equal(hop?.hopKind, "fold");
+  assert.equal(hop?.conversationId, "management-conversation-digest");
+  assert.equal(hop?.taskId, "management-turn-task-digest");
+  assert.equal(hop?.spaceId, undefined, "the fold names no Space: it sits above them");
+
+  harness.ports.foldImpl = harness.ports.abortableFold;
+  const stoppable = harness.service.runNow("routing-fold-only", { requestId: "request-2" });
+  await waitForCondition(() => harness.ports.calls.filter((call) => call.kind === "fold").length === 2, "the fold turn to start");
+  assert.deepEqual(harness.service.stopRun("routing-fold-only", { requestId: "request-stop", surface: "cli" }), { runId: "run-2" });
+  assert.equal((await stoppable).outcome, "failure");
+  const stopped = (await harness.journal()).find((line) => line.scope === "hop" && line.outcome === "stopped");
+  assert.equal(stopped?.hopId, "digest");
+  const stoppedRun = (await harness.journal()).find((line) => line.scope === "run" && line.outcome === "stopped");
+  assert.deepEqual(stoppedRun?.stoppedHopTaskIds, ["management-turn-task-digest"], "stop names the management turn it aborted");
+});
+
+test("enabling an identical declaration again changes nothing and leaves the active run alone", async (t) => {
+  const harness = await createHarness(t);
+  const raw = declarationInput("routing-idempotent", {
+    steps: [{ id: "review", kind: "chat", space: spaceA, message: "Review chapters." }],
+  });
+  const first = await harness.enable(raw, "request-enable-1");
+  assert.equal(first.grants.length, 1);
+
+  harness.ports.chatImpl = harness.ports.abortableChat;
+  const running = harness.service.runNow("routing-idempotent", { requestId: "request-run" });
+  await waitForCondition(() => harness.ports.calls.length === 1, "the run to hold its hop");
+
+  const again = await harness.enable(raw, "request-enable-2");
+  assert.equal(again.grants.length, 1, "an identical enablement writes no fresh receipt");
+  assert.deepEqual(again.grants[0]?.requestId, "request-enable-1");
+  assert.equal(
+    (await harness.journal()).filter((line) => line.scope === "routing" && line.outcome === "enabled").length,
+    1,
+    "and no second journal line",
+  );
+  assert.equal((await harness.service.getRouting("routing-idempotent"))?.activeRunId, "run-1", "the run in flight is untouched");
+
+  // A changed declaration is a fresh receipt that stops the run still
+  // executing the previous one.
+  const changed = await harness.enable(declarationInput("routing-idempotent", {
+    steps: [{ id: "review", kind: "chat", space: spaceA, message: "Review chapters and the appendix." }],
+  }), "request-enable-3");
+  assert.equal(changed.grants.length, 2);
+  await running.catch(() => undefined);
+  await waitForCondition(
+    async () => (await harness.journal()).some((line) => line.scope === "run" && line.outcome === "stopped"),
+    "the run under the previous declaration to settle stopped",
+  );
+  assert.equal((await harness.journal()).find((line) => line.scope === "run" && line.outcome === "stopped")?.runId, "run-1");
+});
+
+test("the raised defaults are sixteen steps and eight concurrent runs", async (t) => {
+  const harness = await createHarness(t);
+  assert.equal(workFoldRoutingMaxConcurrentRuns, 8);
+  assert.equal(workFoldRoutingBounds.maxSteps, 16);
+
+  const sixteen = Array.from({ length: 16 }, (_, index) => ({
+    id: `hop-${index}`,
+    kind: "chat",
+    space: spaceA,
+    message: `Step ${index}.`,
+  }));
+  const enabled = await harness.enable(declarationInput("routing-sixteen-steps", { version: 4, steps: sixteen }));
+  assert.equal(enabled.declaration.steps.length, 16);
+  await assert.rejects(
+    () => harness.enable(declarationInput("routing-seventeen-steps", {
+      version: 4,
+      steps: [...sixteen, { id: "hop-16", kind: "chat", space: spaceA, message: "One too many." }],
+    }), "request-seventeen"),
+    /between 1 and 16 steps/,
+  );
+
+  harness.ports.chatImpl = harness.ports.abortableChat;
+  const routingIds = Array.from({ length: 9 }, (_, index) => `routing-slot-hold-${index}`);
+  for (const routingId of routingIds) {
+    await harness.enable(declarationInput(routingId, {
+      steps: [{ id: "hold", kind: "chat", space: spaceA, message: "Hold the slot." }],
+    }), `request-${routingId}`);
+  }
+  const runs = routingIds.map((routingId) => harness.service.runNow(routingId, { requestId: `request-run-${routingId}` }));
+  await waitForCondition(
+    () => harness.ports.calls.filter((call) => call.hopId === "hold").length === workFoldRoutingMaxConcurrentRuns,
+    "eight runs to hold every slot",
+  );
+  assert.equal(harness.service.status().activeRunCount, workFoldRoutingMaxConcurrentRuns);
+  await new Promise<void>((resolve) => setTimeout(resolve, 20));
+  assert.equal(
+    harness.ports.calls.filter((call) => call.hopId === "hold").length,
+    workFoldRoutingMaxConcurrentRuns,
+    "the ninth admission queues behind the budget instead of launching",
+  );
+  // Let the queued ninth admission finish once a slot frees, so the harness
+  // tears down with nothing in flight.
+  harness.ports.chatImpl = harness.ports.defaultChat;
+  for (const routingId of routingIds) harness.service.stopRun(routingId);
+  await Promise.allSettled(runs);
+  assert.equal(
+    harness.ports.calls.filter((call) => call.hopId === "hold").length,
+    routingIds.length,
+    "the ninth run launched after a slot freed, never lost",
+  );
 });

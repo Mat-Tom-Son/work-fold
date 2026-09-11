@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -531,41 +531,52 @@ test("the act facade drives file, search, and Library families with ledger safet
     await facade.historyRestore({ space: space.id, checkpointId: deletedEntry.safetyCheckpointId });
     assert.equal(await readFile(join(space.spaceRoot, "notes", "done.md"), "utf8"), "keep me");
 
-    // Ledger conflict rule 10: a delete whose restore point cannot cover a
-    // matched file refuses, names the uncoverable paths, and leaves no
-    // partial restore point behind (the trash lane takes these paths once it
-    // lands, docs/receipts-not-gates.md F20).
+    // F20: a delete whose restore point cannot cover every matched file never
+    // refuses. The whole selected entry moves to Recently deleted, the
+    // receipt's undo reference is that entry, and restoring it puts the
+    // entry back byte for byte — links included.
     await mkdir(join(space.spaceRoot, "bulk"), { recursive: true });
     await writeFile(join(space.spaceRoot, "bulk", "big.bin"), "0123456789", "utf8");
+    if (process.platform !== "win32") {
+      await symlink(join(space.spaceRoot, "notes", "done.md"), join(space.spaceRoot, "bulk", "link.md"));
+    }
     const checkpointsBefore = (await facade.historyList({ space: space.id })).checkpoints.length;
     process.env.WORKFOLD_HISTORY_MAX_FILE_BYTES = "4";
+    let uncoverable;
     try {
-      await assert.rejects(
-        () => facade.filesDelete({ space: space.id, path: "bulk" }),
-        (error: unknown) => error instanceof WorkFoldCliError
-          && error.code === "conflict"
-          && /bulk\/big\.bin \(oversized\)/.test(error.message)
-          && /nothing was deleted/.test(error.message),
-      );
+      uncoverable = await facade.filesDelete({ space: space.id, path: "bulk" });
     } finally {
       delete process.env.WORKFOLD_HISTORY_MAX_FILE_BYTES;
     }
-    assert.equal(existsSync(join(space.spaceRoot, "bulk", "big.bin")), true, "a refused delete must not touch the entry");
+    assert.equal(uncoverable.deleted, true);
+    assert.equal(uncoverable.kind, "folder");
+    assert.equal(existsSync(join(space.spaceRoot, "bulk")), false, "the entry moves out of the Space");
+    assert.equal(uncoverable.recovery.kind, "trash");
     assert.equal(
       (await facade.historyList({ space: space.id })).checkpoints.length,
-      checkpointsBefore,
-      "the refusal discards its unused restore point",
+      checkpointsBefore + 1,
+      "the delete still records its restore point for what History could cover",
     );
+    const uncoveredReasons = uncoverable.recovery.kind === "trash"
+      ? uncoverable.recovery.uncovered.map((file) => `${file.path}:${file.reason}`).sort()
+      : [];
+    assert.ok(uncoveredReasons.includes("bulk/big.bin:too_large"), uncoveredReasons.join(","));
     if (process.platform !== "win32") {
-      await symlink(join(space.spaceRoot, "notes", "done.md"), join(space.spaceRoot, "bulk", "link.md"));
-      await assert.rejects(
-        () => facade.filesDelete({ space: space.id, path: "bulk" }),
-        (error: unknown) => error instanceof WorkFoldCliError
-          && error.code === "conflict"
-          && /bulk\/link\.md \(symbolic link\)/.test(error.message),
-      );
+      assert.ok(uncoveredReasons.includes("bulk/link.md:symbolic_link"), uncoveredReasons.join(","));
+    }
+    const kept = (await api.trash.list()).entries;
+    assert.equal(kept.length, 1);
+    assert.equal(kept[0]?.kind, "folder");
+    assert.equal(kept[0]?.originalPath, "bulk");
+    assert.equal(kept[0]?.spaceId, space.id);
+    const restored = await facade.trashRestore({ entry: kept[0]!.id });
+    assert.equal(restored.restored.kind, "folder");
+    assert.equal(await readFile(join(space.spaceRoot, "bulk", "big.bin"), "utf8"), "0123456789");
+    if (process.platform !== "win32") {
+      assert.equal((await lstat(join(space.spaceRoot, "bulk", "link.md"))).isSymbolicLink(), true);
       await rm(join(space.spaceRoot, "bulk", "link.md"));
     }
+    assert.deepEqual((await api.trash.list()).entries, [], "a restored item leaves Recently deleted");
 
     // Search reuses the Space search service: ignore rules hold, scopes
     // narrow, and malformed queries map to usage errors.
@@ -1260,7 +1271,7 @@ test("space unregister blocks on live publications and suspends routing authorit
     const enabled = await api.routings.enable({
       declaration,
       expectedDigest: workFoldRoutingDigest(normalizeWorkFoldRoutingDeclaration(declaration)),
-      decision: { decisionId: "decision-routing-1", surface: "main-window" },
+      grant: { requestId: "request-routing-1", surface: "main-window" },
     });
     assert.equal(enabled.health, "enabled");
 
@@ -1344,7 +1355,7 @@ test("routing runs drive live chat hops with receipts, stop honestly, and refuse
     await api.routings.enable({
       declaration,
       expectedDigest: workFoldRoutingDigest(normalizeWorkFoldRoutingDeclaration(declaration)),
-      decision: { decisionId: "decision-routing-run", surface: "main-window" },
+      grant: { requestId: "request-routing-run", surface: "main-window" },
     });
 
     const run = api.routings.runNow(routingId, { requestId: "req-run-now" });
@@ -1447,13 +1458,13 @@ test("routing enablement and page exposure execute on one call with one request 
       createdAt: new Date().toISOString(),
       routing: {
         title: "Too soon",
-        trigger: { kind: "at", at: new Date(Date.now() + 90_000).toISOString(), ifMissed: "run" },
+        trigger: { kind: "at", at: new Date(Date.now() + 30_000).toISOString(), ifMissed: "run" },
         steps: [{ id: "review", kind: "chat", space: space.space.id, message: "Review the report." }],
       },
     }, null, 2), "utf8");
     await assert.rejects(
       () => facade.routingsEnable({ proposalPath: tooSoonPath, cwd: sandbox, requestId: "req-routing-too-soon" }),
-      /between 2 minutes and 366 days/,
+      /between 1 minute and 366 days/,
       "an unusable one-time routing is refused before anything is enabled",
     );
 
@@ -1486,8 +1497,56 @@ test("routing enablement and page exposure execute on one call with one request 
     assert.equal(routing?.health, "enabled");
     assert.equal(routing?.digest, enabled.declarationDigest);
     assert.deepEqual(routing?.declaration.trigger, { kind: "at", at: oneTimeAt, ifMissed: "run" });
-    assert.equal(routing?.grants.at(-1)?.decisionId, "req-routing-enable", "the enablement grant carries the act's request id");
+    assert.equal(routing?.grants.at(-1)?.requestId, "req-routing-enable", "the enablement receipt carries the act's request id");
     assert.equal(routing?.grants.at(-1)?.surface, "cli");
+    assert.equal(enabled.alreadyEnabled, false);
+    assert.equal(enabled.stoppedRunId, null);
+
+    // Enabling the identical declaration again is a no-op: the same routing,
+    // no fresh receipt, and nothing in flight disturbed.
+    const twice = await facade.routingsEnable({ proposalPath, cwd: sandbox, requestId: "req-routing-enable-again" });
+    assert.equal(twice.alreadyEnabled, true);
+    assert.equal(twice.routingId, enabled.routingId);
+    assert.equal((await api.routings.getRouting(enabled.routingId))?.grants.length, 1);
+
+    // A proposal naming a Space this machine does not have never arms.
+    const strangerPath = join(sandbox, "stranger.work-fold-routing.json");
+    await writeFile(strangerPath, JSON.stringify({
+      kind: "work-fold.routing-proposal",
+      version: 2,
+      name: "Stranger",
+      createdBy: "assistant",
+      createdAt: "2026-08-01T00:00:00.000Z",
+      routing: {
+        title: "Stranger",
+        trigger: { kind: "manual" },
+        steps: [{ id: "review", kind: "chat", space: "space-0123456789abcdef", message: "Review the report." }],
+      },
+    }, null, 2), "utf8");
+    await assert.rejects(
+      () => facade.routingsEnable({ proposalPath: strangerPath, cwd: sandbox, requestId: "req-routing-stranger" }),
+      /not registered on this machine/,
+    );
+
+    // An unknown placeholder is a declaration error, refused when enabling.
+    const unknownPlaceholderPath = join(sandbox, "unknown-placeholder.work-fold-routing.json");
+    await writeFile(unknownPlaceholderPath, JSON.stringify({
+      kind: "work-fold.routing-proposal",
+      version: 4,
+      name: "Unknown placeholder",
+      createdBy: "assistant",
+      createdAt: "2026-08-01T00:00:00.000Z",
+      routing: {
+        title: "Unknown placeholder",
+        trigger: { kind: "manual" },
+        steps: [{ id: "review", kind: "chat", space: space.space.id, message: "Review {{nope}}." }],
+      },
+    }, null, 2), "utf8");
+    await assert.rejects(
+      () => facade.routingsEnable({ proposalPath: unknownPlaceholderPath, cwd: sandbox, requestId: "req-routing-unknown" }),
+      /unknown placeholder \{\{nope\}\}/,
+    );
+    assert.equal((await api.routings.listRoutings()).length, 1, "a refused declaration arms nothing");
 
     // Page exposure: `pages stage` pins the publication shape per the
     // publishing mutation ledger and activates through the publication

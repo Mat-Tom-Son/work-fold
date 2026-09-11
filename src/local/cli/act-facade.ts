@@ -29,6 +29,39 @@ export interface WorkFoldActSpaceRef {
   spaceRoot: string;
 }
 
+/** One Recently deleted item, as the act lane reports it: identifiers and paths only. */
+export interface WorkFoldActTrashEntry {
+  id: string;
+  kind: "file" | "folder" | "space" | "app-storage" | "app-retained";
+  reason: "files.delete" | "spaces.delete" | "apps.storage.clear" | "apps.retained.purge" | "apps.uninstall.purge";
+  spaceId: string;
+  spaceName?: string;
+  /** Space-relative path, the Space folder's original path, or `<appId>/<namespace>`. */
+  originalPath: string;
+  name: string;
+  sizeBytes: number;
+  sizeApproximate?: true;
+  deletedAt: string;
+  restoreBy: string;
+  receiptId: string | null;
+  uncovered?: Array<{ path: string; reason: "too_large" | "unreadable" | "symbolic_link" | "excluded" }>;
+  /** A tree holding records from the earlier Workspace product; work-fold never erases those. */
+  held?: { reason: "legacy-metadata" | "unreadable"; noticedAt: string };
+  /**
+   * `in-place` goes back where it came from; `save-only` can only be written
+   * out as a file with `--to` (app data whose app is gone); `blocked` cannot
+   * be brought back right now, and `note` says why.
+   */
+  restorable: "in-place" | "save-only" | "blocked";
+  note?: string;
+}
+
+/** The Recently deleted item a destroying verb produced. */
+export interface WorkFoldActTrashRef {
+  entryId: string;
+  restoreBy: string;
+}
+
 export interface WorkFoldActConversationRef {
   id: string;
   title: string;
@@ -313,14 +346,14 @@ export interface WorkFoldActRoutingTriggerRef {
 }
 
 /**
- * One enablement grant in a routing's grant history; `decisionId` holds the
- * enabling act's request id. A legacy surface appears only on grants an
- * older build recorded.
+ * One enablement receipt in a routing's history; `requestId` is the enabling
+ * act's request id. A legacy surface appears only on grants an older build
+ * recorded.
  */
 export interface WorkFoldActRoutingGrantRef {
   digest: string;
-  decisionId: string;
-  approvedAt: string;
+  requestId: string;
+  enabledAt: string;
   surface: WorkFoldCliActSurface | WorkFoldCliActLegacySurface;
   browserId?: string;
 }
@@ -338,7 +371,7 @@ export interface WorkFoldActRoutingSummary {
   trigger: WorkFoldActRoutingTriggerRef;
   stepCount: number;
   referencedSpaceIds: string[];
-  /** The live grant's approval time while enabled; absent otherwise. */
+  /** When the live enablement receipt was written; absent unless enabled. */
   enabledAt?: string;
   disabledAt?: string;
   suspension?: { at: string; missingSpaceIds: string[]; reRegisteredSpaceIds: string[] };
@@ -348,9 +381,10 @@ export interface WorkFoldActRoutingSummary {
 }
 
 /**
- * A routing step in review form: ids resolved to current Space names where
- * the Space is still registered, the chat message verbatim (it is the text a
- * person reviewed at enablement), and the files source exactly as declared.
+ * A routing step as declared: ids resolved to current Space names where the
+ * Space is still registered, the chat- and fold-step message verbatim (with
+ * its placeholders unfilled — work-fold fills them when a run starts), and
+ * the files source exactly as declared.
  */
 export type WorkFoldActRoutingStepView =
   | { id: string; kind: "chat"; spaceId: string; spaceName?: string; message: string }
@@ -367,7 +401,8 @@ export type WorkFoldActRoutingStepView =
     toSpaceName?: string;
     to: string;
   }
-  | { id: string; kind: "check"; spaceId: string; spaceName?: string; checkId?: string };
+  | { id: string; kind: "check"; spaceId: string; spaceName?: string; checkId?: string }
+  | { id: string; kind: "fold"; message: string };
 
 /** The full review projection for `routings show`. */
 export interface WorkFoldActRoutingDetail extends WorkFoldActRoutingSummary {
@@ -377,8 +412,9 @@ export interface WorkFoldActRoutingDetail extends WorkFoldActRoutingSummary {
 
 /**
  * Bounded projection of one routing receipts-journal line. Identifiers,
- * digests, paths, and counts only — the journal never holds message text or
- * file contents, and this projection adds nothing to it.
+ * digests, paths, and counts, plus the bounded text work-fold itself filled
+ * into a chat- or fold-step message — never file contents, and this
+ * projection adds nothing to the journal.
  */
 export interface WorkFoldActRoutingReceipt {
   at: string;
@@ -387,7 +423,7 @@ export interface WorkFoldActRoutingReceipt {
   routingId: string;
   runId?: string;
   hopId?: string;
-  hopKind?: "chat" | "files" | "check";
+  hopKind?: "chat" | "files" | "check" | "fold";
   title?: string;
   digest?: string;
   detail?: string;
@@ -409,7 +445,11 @@ export interface WorkFoldActRoutingReceipt {
   admittedCount?: number;
   failedHopId?: string;
   stoppedHopTaskIds?: string[];
+  /** What work-fold filled into this hop's message. */
+  placeholders?: Array<{ name: string; text: string; bytes: number; truncated: boolean }>;
+  messageBytes?: number;
   surface?: string;
+  /** Legacy field on receipts an older build wrote; never written now. */
   decisionId?: string;
   missingSpaceIds?: string[];
   requestId?: string;
@@ -607,15 +647,14 @@ export interface WorkFoldActFacade {
    * In-Space file verbs (docs/fold-act-ledger.md): the same local-entry
    * mutations as the desktop routes — same path policy (`.work-fold/`,
    * `.pi/`, and `.workspace/` are never valid endpoints), same safety restore
-   * points — plus one deliberate strengthening: `filesDelete` refuses
-   * whenever its safety restore point skipped a matched file (oversized,
-   * unreadable, a symbolic link, or History-excluded), because a delete the
-   * restore point cannot cover would make the Undo promise false; the trash
-   * lane (docs/receipts-not-gates.md, F20) is where such paths go once it
-   * lands. Creation verbs record the
-   * same pre-create restore point as the desktop routes, but their receipts
-   * carry the created path as the undo reference — the canonical inverse of
-   * creating is `files delete`, and creation destroys nothing.
+   * points. `filesDelete` never refuses for lack of coverage
+   * (docs/receipts-not-gates.md, F20): when the restore point could not keep
+   * a copy of every matched file (oversized, unreadable, a symbolic link, or
+   * History-excluded), the selected entry is moved into Recently deleted
+   * instead of erased and `recovery` names the trash entry. Creation verbs
+   * record the same pre-create restore point as the desktop routes, but their
+   * receipts carry the created path as the undo reference — the canonical
+   * inverse of creating is `files delete`, and creation destroys nothing.
    */
   filesMove(input: { space: string; fromPath: string; toDir: string; parentTaskId?: string }): Promise<{
     space: WorkFoldActSpaceRef;
@@ -632,12 +671,25 @@ export interface WorkFoldActFacade {
     kind: "file" | "folder";
     safetyCheckpointId: string;
   }>;
-  filesDelete(input: { space: string; path: string; parentTaskId?: string }): Promise<{
+  filesDelete(input: { space: string; path: string; parentTaskId?: string; requestId?: string }): Promise<{
     space: WorkFoldActSpaceRef;
     deleted: true;
     path: string;
     kind: "file" | "folder";
     safetyCheckpointId: string;
+    /**
+     * Where this delete can be undone from: History's restore point, or the
+     * Recently deleted entry the whole selected entry moved into because the
+     * restore point could not keep a copy of every matched file.
+     */
+    recovery:
+      | { kind: "history" }
+      | {
+        kind: "trash";
+        entryId: string;
+        restoreBy: string;
+        uncovered: Array<{ path: string; reason: "too_large" | "unreadable" | "symbolic_link" | "excluded" }>;
+      };
   }>;
   filesMkdir(input: { space: string; path: string; parentTaskId?: string }): Promise<{
     space: WorkFoldActSpaceRef;
@@ -964,12 +1016,17 @@ export interface WorkFoldActFacade {
    * verb produced; the receipt is in the act journal under `requestId`, the
    * act request's journal id. Nothing waits on a person.
    */
-  /** Deletes a managed Space's folder and unregisters it, after the same impact checks as unregister. */
+  /**
+   * Moves a managed Space's folder into Recently deleted and unregisters it,
+   * after the same impact checks as unregister. `trash` names the entry that
+   * puts the folder — and the Space's Chats and History — back.
+   */
   spacesDelete(input: { space: string; parentTaskId?: string; requestId?: string }): Promise<{
     space: WorkFoldActSpaceRef;
     storage: "managed";
     removed: true;
     cleanupPending: boolean;
+    trash: { entryId: string; restoreBy: string } | null;
   }>;
   /** Imports one skill bundle, pinning the exact inspected bytes. */
   toolsImportSkill(input: {
@@ -1097,35 +1154,71 @@ export interface WorkFoldActFacade {
     scheduleSummary: string;
     enabled: true;
   }>;
-  /** Clears one installed app's live storage; the observed byte count is pinned and a change before the effect is a conflict. */
+  /**
+   * Clears one installed app's live storage; the observed byte count is
+   * pinned and a change before the effect is a conflict. A complete copy of
+   * the data lands in Recently deleted first, unless the app held nothing
+   * (docs/receipts-not-gates.md, F20).
+   */
   appsStorageClear(input: { space: string; app: string; parentTaskId?: string; requestId?: string }): Promise<{
     space: WorkFoldActSpaceRef;
     appId: string;
     clearedBytes: number;
     remainingBytes: number;
+    trash: WorkFoldActTrashRef | null;
   }>;
-  /** Purges one retained App data record. */
+  /** Purges one retained App data record, after a copy of it lands in Recently deleted. */
   appsRetainedPurge(input: { space: string; retained: string; parentTaskId?: string; requestId?: string }): Promise<{
     space: WorkFoldActSpaceRef;
     retainedDataId: string;
     dataNamespaceIds: string[];
     purged: true;
     cleanupPending: boolean;
+    trash: WorkFoldActTrashRef[];
   }>;
-  /** The purge disposition of `apps uninstall --purge-data`. */
+  /** The purge disposition of `apps uninstall --purge-data`; every affected namespace is copied into Recently deleted first. */
   appsUninstallPurge(input: { space: string; instance: string; parentTaskId?: string; requestId?: string }): Promise<{
     space: WorkFoldActSpaceRef;
     runtimeInstanceId: string;
     purgedNamespaceIds: string[];
     removed: true;
     cleanupPending: boolean;
+    trash: WorkFoldActTrashRef[];
   }>;
   /**
-   * Enables one declared routing from its inert typed proposal file
-   * (docs/fold-routings.md). The declaration is normalized and digest-pinned,
-   * and the routing service's enablement records the grant with the act's
-   * request id as its identity. Routings are above Spaces: no `--space`
-   * exists on this verb.
+   * Recently deleted (docs/receipts-not-gates.md, F20). The trash sits above
+   * Spaces, like routings and pages, so neither verb takes `--space`; each
+   * entry names the Space it came from. Listing is content-free: ids, kinds,
+   * paths, sizes, and dates, never file contents. Nothing empties the store —
+   * only its retention window does, and that lives in Settings.
+   */
+  trashList(): Promise<{
+    entries: WorkFoldActTrashEntry[];
+    retentionDays: number;
+    damagedCount: number;
+  }>;
+  /**
+   * Puts one item back. A file or folder returns to its Space at its original
+   * path, renamed when something else took the name; a Space folder returns
+   * and is re-registered with its portable identity; app data goes back into
+   * the same installation at the same revision. App data whose app is gone
+   * can only be saved as a file, which is what `--to` does.
+   */
+  trashRestore(input: { entry: string; toPath?: string; parentTaskId?: string; requestId?: string }): Promise<{
+    entry: WorkFoldActTrashEntry | null;
+    restored:
+      | { kind: "file" | "folder"; space: WorkFoldActSpaceRef; path: string; renamed: boolean; safetyCheckpointId: string }
+      | { kind: "space"; space: WorkFoldActSpaceRef; spaceRoot: string; renamed: boolean }
+      | { kind: "app-storage"; space: WorkFoldActSpaceRef; appId: string; usage: { revision: number; usageBytes: number } }
+      | { kind: "saved-copy"; path: string };
+  }>;
+  /**
+   * Enables one declared routing from its inert typed proposal file, or a
+   * full declaration (docs/fold-routings.md): direct, receipted, and
+   * digest-pinned. Every referenced Space must be registered, a one-time
+   * trigger must be 1 minute–366 days ahead, and enabling an identical
+   * already-enabled declaration is a no-op that leaves any active run alone.
+   * Routings are above Spaces: no `--space` exists on this verb.
    */
   routingsEnable(input: { proposalPath: string; cwd: string; parentTaskId?: string; requestId?: string }): Promise<{
     routingId: string;
@@ -1133,6 +1226,9 @@ export interface WorkFoldActFacade {
     title: string;
     referencedSpaceIds: string[];
     health: "enabled";
+    enabledAt: string;
+    alreadyEnabled: boolean;
+    stoppedRunId: string | null;
   }>;
   /**
    * Shares one Space file as a page (docs/fold-publishing.md), pinning the

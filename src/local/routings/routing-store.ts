@@ -25,13 +25,14 @@ import {
  * enabled declarations, their exact-digest enablement grants, cadence
  * anchors, health states, and the append-only run/hop receipts. A file
  * claiming to be routing state is inert bytes anywhere else — authority
- * exists only in this store, and only over a digest a person consecrated.
+ * exists only in this store, and only over the exact digest the enabling
+ * receipt pinned.
  */
-export const WORKFOLD_ROUTING_STORE_SCHEMA_VERSION = 2;
+export const WORKFOLD_ROUTING_STORE_SCHEMA_VERSION = 3;
 
 export const WORKFOLD_ROUTING_RECEIPTS_MAX_BYTES = 1024 * 1024;
 
-/** Bounded per-routing enablement history; every re-enablement is a fresh consecration. */
+/** Bounded per-routing enablement history; every re-enablement with a changed declaration is a fresh receipt. */
 export const WORKFOLD_ROUTING_GRANT_HISTORY_LIMIT = 16;
 
 const maximumStateBytes = 8 * 1024 * 1024;
@@ -82,12 +83,19 @@ export type WorkFoldRoutingReceiptScope = "routing" | "run" | "hop";
 /** Why a run was admitted; the terminal record names the trigger cause exactly. */
 export type WorkFoldRoutingRunCause =
   | { kind: "scheduled" | "resume"; slotAt: string }
-  | { kind: "files-changed"; spaceId: string; snapshotDigest: string; changedCount: number }
+  | {
+      kind: "files-changed";
+      spaceId: string;
+      snapshotDigest: string;
+      changedCount: number;
+      /** The first `maxChangedPathsRecorded` changed paths, sorted; `changedCount` keeps the true total. */
+      changedPaths?: string[];
+    }
   | { kind: "run-now"; requestId?: string; surface?: WorkFoldCliActSurface }
   | {
       kind: "on-settled";
       source:
-        | { kind: "check-run"; spaceId: string; runId: string; state: string; checkIds: string[] }
+        | { kind: "check-run"; spaceId: string; runId: string; state: string; checkIds: string[]; taskId?: string }
         | { kind: "app-automation-run"; spaceId: string; appId: string; automationId: string; runId: string; outcome: string };
     };
 
@@ -95,8 +103,12 @@ export type WorkFoldRoutingRunCause =
  * One journal line. Lines are written at version 1 and read tolerantly:
  * unknown fields are ignored by readers (the glance destructures only what it
  * knows), and every text field is scrubbed before it is written. Receipts
- * carry identifiers, digests, paths, and counts — never message text, file
- * contents, or secrets.
+ * carry identifiers, digests, paths, and counts — never file contents or
+ * secrets. The one bounded exception is `placeholders`: the text work-fold
+ * itself filled into a chat- or fold-step message, so a person can see what
+ * the routing actually said. The message the step declared is in the
+ * declaration; the whole sent message lives in the conversation named by
+ * `conversationId`.
  */
 export interface WorkFoldRoutingReceiptV1 {
   v: 1;
@@ -107,7 +119,7 @@ export interface WorkFoldRoutingReceiptV1 {
   /** Present on every run- and hop-scoped record; absent on lifecycle records. */
   runId?: string;
   hopId?: string;
-  hopKind?: "chat" | "files" | "check";
+  hopKind?: "chat" | "files" | "check" | "fold";
   title?: string;
   digest?: string;
   cause?: WorkFoldRoutingRunCause;
@@ -133,13 +145,26 @@ export interface WorkFoldRoutingReceiptV1 {
   failedHopId?: string;
   /** Hop task ids a stop aborted, exactly as `manage stop` names child turns. */
   stoppedHopTaskIds?: string[];
+  /** What work-fold filled into this hop's message, bounded per placeholder. */
+  placeholders?: WorkFoldRoutingReceiptPlaceholder[];
+  /** Byte length of the message the hop actually sent. */
+  messageBytes?: number;
   surface?: WorkFoldCliActSurface;
+  /** Legacy field on receipts written before receipts-not-gates; never written now. */
   decisionId?: string;
   browserId?: string;
   missingSpaceIds?: string[];
   requestId?: string;
   occurrenceId?: string;
   scheduledRunId?: string;
+}
+
+/** One filled-in placeholder, as the hop's terminal receipt records it. */
+export interface WorkFoldRoutingReceiptPlaceholder {
+  name: string;
+  text: string;
+  bytes: number;
+  truncated: boolean;
 }
 
 export interface WorkFoldRoutingOpenRun {
@@ -222,6 +247,12 @@ export class WorkFoldRoutingReceipts {
           ...entry,
           ...(entry.title !== undefined ? { title: scrubText(entry.title) } : {}),
           ...(entry.detail !== undefined ? { detail: scrubText(entry.detail) } : {}),
+          ...(entry.placeholders !== undefined
+            ? { placeholders: entry.placeholders.map((placeholder) => ({
+              ...placeholder,
+              text: scrubPlaceholderText(placeholder.text),
+            })) }
+            : {}),
         };
         await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
         await this.#rotateIfNeeded();
@@ -340,16 +371,25 @@ export class WorkFoldRoutingReceipts {
 }
 
 /**
- * One enablement consecration over one exact declaration digest. Grants are
+ * One enablement receipt over one exact declaration digest. Grants are
  * history, never destroyed by disable or suspension; only the newest grant on
  * an `enabled` record is live authority.
  */
 export interface WorkFoldRoutingGrant {
   digest: string;
   /** The enabling act's request id. */
+  requestId: string;
+  enabledAt: string;
+  /** Current surfaces on write; a legacy surface an older build recorded still loads. */
+  surface: WorkFoldCliActSurface | WorkFoldCliActLegacySurface;
+  browserId?: string;
+}
+
+/** The grant shape builds before receipts-not-gates wrote; converted on load. */
+interface LegacyWorkFoldRoutingGrant {
+  digest: string;
   decisionId: string;
   approvedAt: string;
-  /** Current surfaces on write; a legacy surface an older build recorded still loads. */
   surface: WorkFoldCliActSurface | WorkFoldCliActLegacySurface;
   browserId?: string;
   browserGrantId?: string;
@@ -362,7 +402,7 @@ export interface WorkFoldRoutingSuspension {
   /**
    * Missing Spaces later re-registered with preserved portable identity.
    * Copy-level detail only: the routing stays suspended either way, and
-   * leaving suspension is always a fresh consecration.
+   * leaving suspension is always a fresh enablement.
    */
   reRegisteredSpaceIds: string[];
 }
@@ -394,15 +434,14 @@ export interface WorkFoldRoutingActionReceiptContext {
 export interface WorkFoldRoutingEnableInput {
   declaration: unknown;
   /**
-   * The digest the person reviewed and approved. Enablement is exact
-   * authority: a declaration that does not hash to this digest is refused.
+   * The digest the enabling call pinned. Enablement is exact authority: a
+   * declaration that does not hash to this digest is refused.
    */
   expectedDigest: string;
-  decision: {
-    decisionId: string;
+  grant: {
+    requestId: string;
     surface: WorkFoldCliActSurface;
     browserId?: string;
-    browserGrantId?: string;
   };
   now?: Date;
 }
@@ -505,11 +544,11 @@ export class WorkFoldRoutingStore {
   }
 
   /**
-   * Commits a consecrated enablement: the declaration write and the grant
-   * commit are one logical operation (one atomic state write), so a failure
-   * leaves prior state intact — never undeclared or digest-mismatched
-   * authority. Re-enabling an existing routing id records a fresh grant; the
-   * 32-routing machine bound applies to new ids at exactly this door.
+   * Commits an enablement receipt: the declaration write and the grant commit
+   * are one logical operation (one atomic state write), so a failure leaves
+   * prior state intact — never undeclared or digest-mismatched authority.
+   * Re-enabling an existing routing id records a fresh grant; the 32-routing
+   * machine bound applies to new ids at exactly this door.
    */
   async enable(input: WorkFoldRoutingEnableInput): Promise<WorkFoldRoutingRecord> {
     return await this.#mutate(async () => {
@@ -519,10 +558,10 @@ export class WorkFoldRoutingStore {
       if (typeof input.expectedDigest !== "string" || input.expectedDigest !== digest) {
         throw new WorkFoldRoutingStoreError(
           "DIGEST_MISMATCH",
-          "This declaration does not match the reviewed digest; an edited routing never coasts on a stale approval.",
+          "This declaration does not match the digest the enabling call pinned; an edited routing never coasts on a stale enablement.",
         );
       }
-      const decision = normalizeDecision(input.decision);
+      const grantRef = normalizeGrantInput(input.grant);
       const admissionTime = input.now ?? this.#now();
       try {
         assertWorkFoldRoutingAtAdmissionHorizon(declaration, admissionTime);
@@ -542,13 +581,13 @@ export class WorkFoldRoutingStore {
           `This machine already holds ${workFoldRoutingBounds.maxRoutingsPerMachine} routings; delete one before enabling another. Routings are glue, not a job system.`,
         );
       }
-      const grant: WorkFoldRoutingGrant = { digest, approvedAt: now, ...decision };
+      const grant: WorkFoldRoutingGrant = { digest, enabledAt: now, ...grantRef };
       const record: WorkFoldRoutingRecord = {
         declaration,
         digest,
         health: "enabled",
         grants: [...(existing?.grants ?? []), grant].slice(-WORKFOLD_ROUTING_GRANT_HISTORY_LIMIT),
-        // A fresh consecration starts a fresh cadence: the first scheduled
+        // A fresh enablement starts a fresh cadence: the first scheduled
         // slot is one interval after enablement, as restricted-app
         // automations anchor at enable time.
         ...(declaration.trigger.kind === "interval" ? { lastScheduledAt: now } : {}),
@@ -559,10 +598,10 @@ export class WorkFoldRoutingStore {
         routingId: declaration.id,
         digest,
         title: declaration.title,
-        surface: decision.surface,
-        decisionId: decision.decisionId,
-        ...(decision.browserId !== undefined ? { browserId: decision.browserId } : {}),
-        ...(existing ? { detail: `Re-enabled from ${existing.health}; a fresh consecration replaced the prior grant.` } : {}),
+        surface: grantRef.surface,
+        requestId: grantRef.requestId,
+        ...(grantRef.browserId !== undefined ? { browserId: grantRef.browserId } : {}),
+        ...(existing ? { detail: `Re-enabled from ${existing.health}; a fresh enablement replaced the prior grant.` } : {}),
       });
       draft.routings = [...draft.routings.filter((candidate) => candidate.declaration.id !== declaration.id), record];
       await this.#commit(draft);
@@ -592,7 +631,7 @@ export class WorkFoldRoutingStore {
             ? "This routing is already disabled."
             : routing.health === "completed"
               ? "This one-time routing is completed; its scheduled occurrence has already been consumed."
-              : "This routing is suspended because a referenced Space was removed; there is no enablement left to disable, and leaving suspension is a fresh consecration.",
+              : "This routing is suspended because a referenced Space was removed; there is no enablement left to disable, and leaving suspension is a fresh enablement.",
           { health: routing.health },
         );
       }
@@ -615,7 +654,7 @@ export class WorkFoldRoutingStore {
    * Space loses its grant and enters durable `suspended` health with the
    * missing Space id recorded. A suspended routing never runs, never
    * retargets, and never resumes automatically — re-registration is noted in
-   * copy only, and leaving suspension is a fresh consecration.
+   * copy only, and leaving suspension is a fresh enablement.
    */
   async suspendForSpaceRemoval(spaceId: string, now?: Date): Promise<WorkFoldRoutingSuspendResult> {
     return await this.#mutate(async () => {
@@ -638,7 +677,7 @@ export class WorkFoldRoutingStore {
             routingId: routing.declaration.id,
             digest: routing.digest,
             missingSpaceIds: [spaceId],
-            detail: "A referenced Space was removed; the enablement grant is revoked and re-enablement is a fresh consecration.",
+            detail: "A referenced Space was removed; the enablement is revoked and turning the routing on again is a fresh enablement.",
           });
           continue;
         }
@@ -687,7 +726,7 @@ export class WorkFoldRoutingStore {
           routingId: routing.declaration.id,
           digest: routing.digest,
           missingSpaceIds: [spaceId],
-          detail: "The missing Space was re-registered with preserved identity. The routing stays suspended; re-enablement is a fresh consecration.",
+          detail: "The missing Space was re-registered with preserved identity. The routing stays suspended; turning it on again is a fresh enablement.",
         });
       }
       if (affected.length) await this.#commit(draft);
@@ -813,7 +852,7 @@ export class WorkFoldRoutingStore {
     if (!routing) {
       throw new WorkFoldRoutingStoreError(
         "NOT_FOUND",
-        "No routing has this id. A proposal holds no authority until its enablement is consecrated.",
+        "No routing has this id. A proposal holds no authority; enabling pins the exact declaration before anything runs.",
       );
     }
     return routing;
@@ -869,25 +908,23 @@ function normalizeDeclarationInput(value: unknown): WorkFoldRoutingDeclaration {
   }
 }
 
-function normalizeDecision(value: WorkFoldRoutingEnableInput["decision"]): WorkFoldRoutingEnableInput["decision"] {
+function normalizeGrantInput(value: WorkFoldRoutingEnableInput["grant"]): WorkFoldRoutingEnableInput["grant"] {
   if (!value || typeof value !== "object") {
     throw new WorkFoldRoutingStoreError("INPUT_INVALID", "An enablement requires its enabling act record.");
   }
-  requireReference(value.decisionId, "Decision id");
+  requireReference(value.requestId, "Request id");
   if (!WORKFOLD_CLI_ACT_SURFACES.includes(value.surface)) {
     throw new WorkFoldRoutingStoreError("INPUT_INVALID", "The enabling surface must be an act surface.");
   }
   if (value.surface === "remote_web") {
-    requireReference(value.browserId, "Approving browser id");
-    requireReference(value.browserGrantId, "Approving browser grant id");
-  } else if (value.browserId !== undefined || value.browserGrantId !== undefined) {
-    throw new WorkFoldRoutingStoreError("INPUT_INVALID", "Browser identity belongs only to remote decisions.");
+    requireReference(value.browserId, "Paired browser id");
+  } else if (value.browserId !== undefined) {
+    throw new WorkFoldRoutingStoreError("INPUT_INVALID", "Browser identity belongs only to the remote surface.");
   }
   return {
-    decisionId: value.decisionId,
+    requestId: value.requestId,
     surface: value.surface,
     ...(value.browserId !== undefined ? { browserId: value.browserId } : {}),
-    ...(value.browserGrantId !== undefined ? { browserGrantId: value.browserGrantId } : {}),
   };
 }
 
@@ -915,6 +952,14 @@ function requireReference(value: unknown, label: string): asserts value is strin
 
 function scrubText(value: string): string {
   return value.replace(scrubReplacePattern, "�").slice(0, maximumTextLength);
+}
+
+// Filled-in placeholder text is already bounded by the executor; it keeps its
+// newlines (it is a list) and is defensively re-bounded here.
+function scrubPlaceholderText(value: string): string {
+  return value
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "�")
+    .slice(0, workFoldRoutingBounds.maxPlaceholderTextBytes);
 }
 
 function compareStrings(left: string, right: string): number {
@@ -953,11 +998,12 @@ async function loadRoutingStoreFile(
   const record = parsed as Record<string, unknown>;
   const unknown = Object.keys(record).find((key) => key !== "schemaVersion" && key !== "routings");
   if (unknown) return damaged(`carries the unknown field ${unknown}`);
-  if (record.schemaVersion !== 1 && record.schemaVersion !== WORKFOLD_ROUTING_STORE_SCHEMA_VERSION) {
+  if (record.schemaVersion !== 1 && record.schemaVersion !== 2 && record.schemaVersion !== WORKFOLD_ROUTING_STORE_SCHEMA_VERSION) {
     return typeof record.schemaVersion === "number" && record.schemaVersion > WORKFOLD_ROUTING_STORE_SCHEMA_VERSION
       ? damaged(`was written by a newer work-fold (schema version ${record.schemaVersion})`)
       : damaged(`uses the unsupported schema version ${String(record.schemaVersion)}`);
   }
+  const legacyGrants = record.schemaVersion !== WORKFOLD_ROUTING_STORE_SCHEMA_VERSION;
   if (!Array.isArray(record.routings)) return damaged("does not list its routings");
   if (record.routings.length > workFoldRoutingBounds.maxRoutingsPerMachine) {
     return damaged(`holds more than ${workFoldRoutingBounds.maxRoutingsPerMachine} routings`);
@@ -965,9 +1011,10 @@ async function loadRoutingStoreFile(
   const routings: WorkFoldRoutingRecord[] = [];
   const ids = new Set<string>();
   for (const [index, candidate] of record.routings.entries()) {
-    const issue = routingRecordIssue(candidate);
+    const converted = legacyGrants ? convertLegacyGrants(candidate) : candidate;
+    const issue = routingRecordIssue(converted);
     if (issue) return damaged(`holds an invalid routing at index ${index}: ${issue}`);
-    const routing = candidate as WorkFoldRoutingRecord;
+    const routing = converted as WorkFoldRoutingRecord;
     if (ids.has(routing.declaration.id)) return damaged(`holds the duplicate routing id ${routing.declaration.id}`);
     ids.add(routing.declaration.id);
     routings.push(structuredClone(routing));
@@ -985,7 +1032,36 @@ const ROUTING_RECORD_KEYS = [
   "suspension",
   "atOccurrence",
 ];
-const GRANT_KEYS = ["digest", "decisionId", "approvedAt", "surface", "browserId", "browserGrantId"];
+const GRANT_KEYS = ["digest", "requestId", "enabledAt", "surface", "browserId"];
+const LEGACY_GRANT_KEYS = ["digest", "decisionId", "approvedAt", "surface", "browserId", "browserGrantId"];
+
+/**
+ * Converts a pre-receipts-not-gates grant on load: the enabling act's id and
+ * time keep their meaning under their honest names, and the browser grant id
+ * a decision card carried is dropped. The first commit rewrites the file at
+ * the current schema version, so the conversion runs once.
+ */
+function convertLegacyGrants(candidate: unknown): unknown {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return candidate;
+  const record = candidate as Record<string, unknown>;
+  if (!Array.isArray(record.grants)) return candidate;
+  return {
+    ...record,
+    grants: record.grants.map((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
+      const grant = entry as Record<string, unknown>;
+      if (grant.decisionId === undefined && grant.approvedAt === undefined) return entry;
+      const legacy = grant as unknown as LegacyWorkFoldRoutingGrant;
+      return {
+        digest: legacy.digest,
+        requestId: legacy.decisionId,
+        enabledAt: legacy.approvedAt,
+        surface: legacy.surface,
+        ...(legacy.browserId !== undefined ? { browserId: legacy.browserId } : {}),
+      };
+    }),
+  };
+}
 const SUSPENSION_KEYS = ["at", "missingSpaceIds", "reRegisteredSpaceIds"];
 const AT_OCCURRENCE_KEYS = ["occurrenceId", "slotAt", "consumedAt", "runId", "finishedAt"];
 
@@ -1084,15 +1160,19 @@ function grantIssue(value: unknown): string | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return "a grant must be an object";
   const grant = value as Record<string, unknown>;
   const unknown = Object.keys(grant).find((key) => !GRANT_KEYS.includes(key));
-  if (unknown) return `grant field ${unknown} is not part of the grant contract`;
+  if (unknown) {
+    return LEGACY_GRANT_KEYS.includes(unknown)
+      ? `grant field ${unknown} was not converted from its older shape`
+      : `grant field ${unknown} is not part of the grant contract`;
+  }
   if (typeof grant.digest !== "string" || !/^[a-f0-9]{64}$/.test(grant.digest)) return "a grant digest is invalid";
-  if (typeof grant.decisionId !== "string" || !grant.decisionId.trim()) return "a grant decision id is invalid";
-  if (!isTimestamp(grant.approvedAt)) return "a grant approvedAt is invalid";
+  if (typeof grant.requestId !== "string" || !grant.requestId.trim()) return "a grant request id is invalid";
+  if (!isTimestamp(grant.enabledAt)) return "a grant enabledAt is invalid";
   if (!(WORKFOLD_CLI_ACT_SURFACES as readonly string[]).includes(String(grant.surface))
     && !(WORKFOLD_CLI_ACT_LEGACY_SURFACES as readonly string[]).includes(String(grant.surface))) {
     return "a grant surface is invalid";
   }
-  if ((grant.surface === "remote_web") !== (typeof grant.browserId === "string" && typeof grant.browserGrantId === "string")) {
+  if ((grant.surface === "remote_web") !== (typeof grant.browserId === "string")) {
     return "a grant's browser identity must accompany exactly the remote surface";
   }
   return null;

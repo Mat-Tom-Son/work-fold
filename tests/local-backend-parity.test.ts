@@ -337,7 +337,8 @@ test("Space lifecycle renames external metadata and removes linked versus manage
   assert.equal(await readFile(join(linkedRoot, "keep.txt"), "utf8"), "keep");
   assert.equal(existsSync(spaceManifestFile(linkedRoot)), true);
   const removedLinked = await json(`${api.origin}/api/spaces/${linked.space.id}`, { method: "DELETE" }) as { removed: true; deleted: boolean };
-  assert.deepEqual(removedLinked, { removed: true, deleted: false, spaceRoot: linkedRoot, cleanupPending: false });
+  // Removing a linked registration destroys nothing, so nothing is kept.
+  assert.deepEqual(removedLinked, { removed: true, deleted: false, spaceRoot: linkedRoot, cleanupPending: false, trash: null });
   assert.equal(existsSync(linkedRoot), true);
   assert.equal(existsSync(spaceManifestFile(linkedRoot)), true);
   assert.equal(existsSync(spaceStateDir(linkedRoot)), false);
@@ -348,11 +349,18 @@ test("Space lifecycle renames external metadata and removes linked versus manage
     body: JSON.stringify({ name: "Managed lifecycle" }),
   }) as { space: { id: string; spaceRoot: string } };
   await writeFile(join(managed.space.spaceRoot, "delete-with-space.txt"), "managed", "utf8");
-  const removedManaged = await json(`${api.origin}/api/spaces/${managed.space.id}`, { method: "DELETE" }) as { removed: true; deleted: boolean; spaceRoot: string };
+  const removedManaged = await json(`${api.origin}/api/spaces/${managed.space.id}`, { method: "DELETE" }) as {
+    removed: true; deleted: boolean; spaceRoot: string; trash: { entryId: string } | null;
+  };
   assert.equal(removedManaged.deleted, true);
   assert.equal(removedManaged.spaceRoot, managed.space.spaceRoot);
   assert.equal(existsSync(managed.space.spaceRoot), false);
   assert.equal(existsSync(spaceStateDir(managed.space.spaceRoot)), false);
+  // The managed folder moved to Recently deleted with its History state.
+  const keptSpaces = (await api.trash.list()).entries.filter((entry) => entry.kind === "space");
+  assert.equal(keptSpaces.length, 1);
+  assert.equal(keptSpaces[0]?.originalPath, managed.space.spaceRoot);
+  assert.equal(removedManaged.trash?.entryId, keptSpaces[0]?.id);
 });
 
 async function json(url: string, init?: RequestInit): Promise<unknown> {

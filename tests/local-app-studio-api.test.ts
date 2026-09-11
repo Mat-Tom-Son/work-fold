@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -432,7 +432,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
     );
     assert.equal((await storage.usage(owner)).keyCount, 1, "a foreign Space cannot purge another Project's retained data");
 
-    const purged = await request<{ purged: boolean; cleanupPending: boolean }>(
+    const purged = await request<{ purged: boolean; cleanupPending: boolean; trash: Array<{ entryId: string }> }>(
       api.origin,
       `${studioPath}/retained-data/${retainedDataId}`,
       { method: "DELETE" },
@@ -440,6 +440,39 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
     assert.equal(purged.purged, true);
     assert.equal(typeof purged.cleanupPending, "boolean");
     assert.equal((await storage.usage(owner)).keyCount, 0);
+    // The purge keeps a complete copy in Recently deleted first
+    // (docs/receipts-not-gates.md, F20). Retained data has no app to go back
+    // into, so the copy is a file the person can save.
+    assert.equal(purged.trash.length, 1);
+    const keptRetained = (await api.trash.list()).entries.filter((entry) => entry.kind === "app-retained");
+    assert.equal(keptRetained.length, 1);
+    assert.equal(keptRetained[0]?.id, purged.trash[0]?.entryId);
+    assert.equal(keptRetained[0]?.reason, "apps.retained.purge");
+    assert.deepEqual(
+      (await api.trash.readAppData(keptRetained[0]!.id)).data.entries,
+      retainedExport.backup.data.entries,
+    );
+    // Retained data has no app to go back into, so it can only be saved as a
+    // file, and never into a Space or work-fold's own files.
+    assert.equal(keptRetained[0]!.kind, "app-retained");
+    await assert.rejects(
+      api.actFacade.trashRestore({ entry: keptRetained[0]!.id }),
+      /no app to go back into|Save a copy/i,
+    );
+    await assert.rejects(
+      api.actFacade.trashRestore({ entry: keptRetained[0]!.id, toPath: join(source.spaceRoot, "copy.json") }),
+      /outside your Spaces/i,
+    );
+    const savedTo = join(sandbox, "saved-app-data.json");
+    const saved = await api.actFacade.trashRestore({ entry: keptRetained[0]!.id, toPath: savedTo });
+    assert.equal(saved.restored.kind, "saved-copy");
+    const savedBackup = JSON.parse(await readFile(savedTo, "utf8")) as { data: { entries: unknown[] } };
+    assert.deepEqual(savedBackup.data.entries, retainedExport.backup.data.entries);
+    assert.equal(
+      (await api.trash.list()).entries.some((entry) => entry.id === keptRetained[0]!.id),
+      false,
+      "a saved copy leaves Recently deleted",
+    );
     assert.deepEqual(
       (await request<{ studio: LocalAppStudioSnapshot }>(api.origin, studioPath)).studio.retainedData,
       [],
@@ -457,7 +490,11 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
     const purgeApp = purgeActivated.apps[0]!;
     const purgeOwner = storageOwner(purgeApp);
     await storage.set(purgeOwner, "temporary", true);
-    const purgeUninstall = await request<{ removed: boolean; retainedData: LocalAppRetainedData[] }>(
+    const purgeUninstall = await request<{
+      removed: boolean;
+      retainedData: LocalAppRetainedData[];
+      trash: Array<{ entryId: string; restoreBy: string }>;
+    }>(
       api.origin,
       `/api/spaces/${target.id}/local-app-instances/${purgeApp.runtimeInstanceId}`,
       { method: "DELETE", body: { dataDisposition: "purge" } },
@@ -465,6 +502,22 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
     assert.equal(purgeUninstall.removed, true);
     assert.deepEqual(purgeUninstall.retainedData, []);
     assert.equal((await storage.usage(purgeOwner)).keyCount, 0);
+    // Uninstall-with-purge keeps a copy of every namespace it destroys
+    // (docs/receipts-not-gates.md, F20). The app is gone, so the copy can only
+    // be saved as a file.
+    assert.equal(purgeUninstall.trash.length, 1);
+    const keptPurge = (await api.trash.list()).entries
+      .find((entry) => entry.id === purgeUninstall.trash[0]?.entryId);
+    assert.equal(keptPurge?.reason, "apps.uninstall.purge");
+    assert.equal(keptPurge?.kind, "app-storage");
+    assert.deepEqual(
+      (await api.trash.readAppData(keptPurge!.id)).data.entries,
+      [{ key: "temporary", value: true }],
+    );
+    await assert.rejects(
+      api.actFacade.trashRestore({ entry: keptPurge!.id }),
+      /no longer installed|Save a copy/i,
+    );
 
     const releaseDeletion = await request<{ deletion: { deleted: boolean; cleanupPending: boolean } }>(
       api.origin,

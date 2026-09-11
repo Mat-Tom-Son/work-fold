@@ -183,6 +183,42 @@ export async function createManagedSpace(name: string, baseDir = managedSpaceRoo
   }
 }
 
+/**
+ * Registers a managed folder that already exists inside the managed base —
+ * the path a Space folder takes when it comes back from Recently deleted
+ * (docs/receipts-not-gates.md, F20). The folder's portable
+ * `.work-fold/space.json` identity is reused, so a restored Space keeps its
+ * id, its Chats, and its History. Creating a brand-new managed folder stays
+ * `createManagedSpace`.
+ */
+export async function registerManagedSpaceFolder(
+  spaceRoot: string,
+  name: string,
+  baseDir = managedSpaceRoot(),
+): Promise<SpaceSummary> {
+  const safeRoot = ensureSafeSpaceRoot(spaceRoot);
+  const base = resolve(baseDir);
+  if (samePath(safeRoot, base) || !pathContains(base, safeRoot)) {
+    throw new Error("work-fold only registers a managed Space inside its managed-content folder.");
+  }
+  const info = await stat(safeRoot).catch(() => null);
+  if (!info?.isDirectory()) throw new Error("The folder for this Space does not exist.");
+  return registerSpace({
+    name: normalizeSpaceName(name),
+    spaceRoot: safeRoot,
+    location: { kind: "local", storage: "managed" },
+  });
+}
+
+/**
+ * Records a content mutation a caller performed through another path (the
+ * trash move behind `files delete`), so the registry's `updatedAt` and the
+ * portable manifest stay as truthful as they are after `deleteSpaceEntry`.
+ */
+export async function touchSpaceRoot(spaceRoot: string): Promise<void> {
+  await touchSpace(ensureSafeSpaceRoot(spaceRoot));
+}
+
 export async function registerLinkedSpace(spaceRoot: string, providerHint?: "google-drive"): Promise<SpaceSummary> {
   const safeRoot = ensureSafeSpaceRoot(spaceRoot);
   assertLinkedSpaceStateSeparation(safeRoot);
@@ -717,7 +753,16 @@ export async function createSpaceTextFile(
   };
 }
 
-export async function deleteSpaceEntry(spaceRoot: string, relativePath: string): Promise<{ deleted: true; path: string; kind: "file" | "folder" }> {
+/**
+ * The one resolution a delete performs before it commits to erasing or
+ * moving: the same path policy, root refusal, and existence check
+ * `deleteSpaceEntry` applies, exposed so the trash lane
+ * (docs/receipts-not-gates.md, F20) can move the exact entry instead.
+ */
+export async function resolveSpaceDeleteTarget(
+  spaceRoot: string,
+  relativePath: string,
+): Promise<{ absolutePath: string; path: string; kind: "file" | "folder" }> {
   const root = ensureSafeSpaceRoot(spaceRoot);
   const normalized = normalizeRelative(relativePath);
   if (!normalized || normalized === ".") throw new Error("Select a file or folder to delete.");
@@ -725,9 +770,15 @@ export async function deleteSpaceEntry(spaceRoot: string, relativePath: string):
   if (samePath(path, root)) throw new Error("The Space root cannot be deleted.");
   const info = await stat(path).catch(() => null);
   if (!info || (!info.isFile() && !info.isDirectory())) throw notFound("Space item not found.");
-  await rm(path, { recursive: info.isDirectory(), force: false });
+  return { absolutePath: path, path: normalized, kind: info.isDirectory() ? "folder" : "file" };
+}
+
+export async function deleteSpaceEntry(spaceRoot: string, relativePath: string): Promise<{ deleted: true; path: string; kind: "file" | "folder" }> {
+  const root = ensureSafeSpaceRoot(spaceRoot);
+  const target = await resolveSpaceDeleteTarget(root, relativePath);
+  await rm(target.absolutePath, { recursive: target.kind === "folder", force: false });
   await touchSpace(root);
-  return { deleted: true, path: normalized, kind: info.isDirectory() ? "folder" : "file" };
+  return { deleted: true, path: target.path, kind: target.kind };
 }
 
 export async function writeUploadedFiles(
