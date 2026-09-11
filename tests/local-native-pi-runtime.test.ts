@@ -219,7 +219,7 @@ test("routed extension UI bridge resolves host responses", async () => {
   const bridge = new RoutedPiExtensionUiBridge();
   bridge.publish({ id: "editor-1", method: "setEditorText", text: "hello", conversationId: "conversation", spaceRoot: "C:/workspace" });
   bridge.publish({ id: "editor-2", method: "pasteToEditor", text: " world", conversationId: "conversation", spaceRoot: "C:/workspace" });
-  assert.equal(bridge.getEditorText(), "hello world");
+  assert.equal(bridge.getEditorText({ conversationId: "conversation", spaceRoot: "C:/workspace" }), "hello world");
   const requestPromise = once(bridge, "request");
   const resultPromise = bridge.request({
     id: "request-1",

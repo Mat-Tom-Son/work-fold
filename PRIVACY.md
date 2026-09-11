@@ -6,6 +6,16 @@ work-fold is a local-first desktop application. Core Space use does not require 
 
 This document describes the behavior of the open-source work-fold application. Model providers, GitHub, package hosts, cloud-sync software, and third-party Skills or Extensions have their own privacy terms.
 
+In development, live Pi Extension questions and answers pass through the local
+UI adapter without being written to a transcript or its event replay log.
+Pending callbacks and bounded answer drafts stay in memory; the latter are
+not saved to browser storage. Extensions remain full-trust and may themselves
+record their inputs. A paired browser receives only non-secret questions for
+its own management turn through the encrypted operation lane. It receives no
+setup-secret prompt, OAuth code, absolute scope root, or other Chat's editor
+contents through this adapter. Session restart cancels these live callbacks;
+durable Assistant questions remain in the separately documented request store.
+
 ## What stays on this computer
 
 By default, work-fold stores:

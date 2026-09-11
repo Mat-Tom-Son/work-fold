@@ -270,7 +270,8 @@ test("Chat event streams replay retained cursor events after reconnect", async (
     await pump;
     assert.equal(frames.some((frame) => frame.data.type === "turn_state" && frame.data.running === true), true);
     assert.equal(frames.some((frame) => frame.data.type === "done"), true);
-    assert.equal(frames.filter((frame) => frame.data.type !== "status").every((frame) => (frame.id ?? 0) > 0), true);
+    assert.equal(frames.filter((frame) => frame.data.type !== "status" && frame.data.type !== "extension_ui_snapshot").every((frame) => (frame.id ?? 0) > 0), true);
+    assert.equal(frames.find((frame) => frame.data.type === "extension_ui_snapshot")?.id, null, "live Extension questions never advance the replay cursor");
     const ids = frames.map((frame) => frame.id).filter((id): id is number => id !== null);
     assert.deepEqual(ids, [...ids].sort((left, right) => left - right));
   } finally {

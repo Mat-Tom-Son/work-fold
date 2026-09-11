@@ -29,6 +29,19 @@ work-fold now has a small management layer over its existing product model. It g
 
 This is infrastructure, not another navigation item. **work-fold**, **Space**, **Files**, **Chats**, **Library**, **History**, and **Assistant tools** remain the user-facing nouns. The management layer makes their underlying state inspectable in a consistent, versioned form.
 
+The development extension UI adapter treats the fold as its own valid scope.
+`GET /api/management/conversations/:id/extension-ui` and its Space equivalent
+return current live Pi questions; `POST .../extension-ui/:requestId` validates
+one response for that exact Chat. Chat SSE sends `extension_ui_snapshot` on
+connection and change without putting prompts or answers in its replay log.
+Remote summary advertises `capabilities.extensionUi` and includes only the
+originating browser's non-secret questions. `management.extensionAnswer`
+requires that request's exact active task, question id and browser grant,
+rechecking revocation before callback delivery. It cannot answer another
+surface's work or a setup-secret prompt. These session-local callbacks are
+not durable request questions and never dispatch a continuation turn; see
+[Assistant capabilities](assistant-capabilities.md#live-extension-questions-development).
+
 ## Why it exists
 
 The desktop UI already knows how to work with Spaces and Pi, but a higher-level Assistant, an Extension, a script, or a future Space runtime also needs answers to basic questions:

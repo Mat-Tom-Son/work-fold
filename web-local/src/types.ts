@@ -899,7 +899,7 @@ export interface ExtensionUiRequest {
 }
 
 export interface ChatStreamEvent {
-  type: "status" | "turn_state" | "turn_snapshot" | "assistant_delta" | "assistant_message" | "assistant_thinking" | "tool" | "resources_changed" | "error" | "done" | "extension_ui_request" | "restricted_app_proposal" | "restricted_app_proposal_settled" | "editor";
+  type: "status" | "turn_state" | "turn_snapshot" | "assistant_delta" | "assistant_message" | "assistant_thinking" | "tool" | "resources_changed" | "error" | "done" | "extension_ui_request" | "extension_ui_snapshot" | "restricted_app_proposal" | "restricted_app_proposal_settled" | "editor";
   conversationId: string;
   running?: boolean;
   turnId?: string | null;
@@ -911,6 +911,7 @@ export interface ChatStreamEvent {
   thinkingPhase?: "start" | "delta" | "end";
   detail?: string;
   request?: ExtensionUiRequest;
+  requests?: ExtensionUiRequest[];
   proposal?: RestrictedAppProposal;
   editorMode?: "replace" | "append";
 }

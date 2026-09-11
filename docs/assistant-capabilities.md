@@ -78,6 +78,41 @@ Extensions are more powerful than Library materials and should be presented with
 
 Pi's built-in tools remain available alongside loaded Extensions. work-fold does not replace them with a private tool registry.
 
+### Live Extension questions (development)
+
+Ordinary Pi selection, confirmation, text input, and editor requests appear
+inline in their owning Space Chat or fold Chat. Multiple questions remain
+separate; switching Chats and reconnecting restores the current pending set.
+Typed responses are validated before the callback settles. A failed send keeps
+the field available for retry. The paired web client can see and answer only
+non-secret requests from its own exact management turn and browser grant.
+Async context carries the originating task identity; a delayed callback from
+an ended turn cannot become a question owned by a newer turn in that Chat.
+
+These are live Pi callbacks, not durable collaboration questions. Stop,
+timeout, session disposal and app shutdown cancel them. Restart never recreates
+or auto-answers one. Extensions needing a question that ends the turn and
+resumes after an answer use `chat ask` or `manage ask` instead. Native
+third-party confirmations keep their meaning; work-fold does not silently
+answer them or turn them into product approval cards.
+
+The host allows eight pending questions per Chat, 64 total, 64 choices per
+selection, and 64 KiB per question or answer. The enforcing code and
+Settings → The fold → Limits read the same shared constants. Current questions travel as
+transient snapshots, outside the Chat replay log. Extension-managed editor
+text is scoped by root and conversation. Answer drafts stay in renderer memory
+only; password drafts are not retained across navigation. Extensions themselves
+remain full-trust and may record values they receive. Standard Pi text input
+does not identify secrets; credential setup must use the appropriate desktop
+setup surface, not an ordinary Chat question. Terminal-only component
+factories remain unsupported.
+
+[Extensions and computer work](extension-foundation.md) defines the shared
+design and staged inclusion requirements for computer control, Chrome, web
+access, document tools, and MCP. The candidates listed there are not yet
+bundled or represented as ready. “Included with work-fold” will describe
+maintenance and tested compatibility, not a different Extension runtime.
+
 ### Declarative Extension surfaces
 
 A loaded Extension may place a versioned `surface.json` manifest beside its entry point. For the model, the creation and lifecycle unit is the normal Pi package containing that Extension, its tools or connection logic, and the adjacent manifest. work-fold validates the static manifest and can contribute an app destination below the stable primary rail, a left-pane navigator, and Space-bound view tabs. The renderer owns every component; manifests cannot provide HTML, scripts, styles, React modules, event handlers, or direct renderer access. This is the **full-trust Pi Extension lane**.
@@ -90,7 +125,7 @@ The declarative surface does not reduce the trust level of its owning Extension.
 
 Agent-created apps use a second package lane rather than pretending to be native Pi Extensions. A restricted package declares `agentApp` in `package.json` and a strict version-2 `agent-app.json` with a `sandboxed-web` HTML entry, an optional worker for Assistant actions and named automations, bounded host-tool schemas, exact network targets and auth modes, reviewed Space-file needs, and a required automation list that may be empty. Each automation names its handler, interval, catch-up and overlap policies, and an exact permission subset. The preflight rejects lifecycle scripts, binaries, native build metadata, `pi.extensions`, unsafe paths, links, excessive files, and oversized content. Dependency metadata may describe the toolchain used to produce the reviewed assets, but work-fold never installs dependencies or invokes npm. It copies the completed bytes into content-addressed application staging and revalidates the digest without importing JavaScript.
 
-That parser feeds a machine-local reviewed-digest lifecycle and separate sandboxed Chromium hosts for visible UI and optional worker execution. A visible app gets an ephemeral `WebContentsView`, reviewed same-origin assets, CSP/direct-network denial, sender-bound IPC, and narrow context, tab, network, storage, storage-invalidation, and file bridges. The app occupies its Space rail navigator and may request normal persistent Space-owned tabs; work-fold derives every owner id and shell tab id. The normal proposal review and install decision appear in the owning Chat; The separate Space-owned **Apps** tab manages installed apps, exact destination, Space-file, and reviewed notification grants, host-owned connections, each opt-in automation and its run history, local-data controls, removal, and the advanced local-install path. One machine-wide scheduler coordinates named jobs across Spaces with two execution slots, FIFO admission, same-job non-overlap, durable cadence, and bounded catch-up. Notifications use fixed reviewed copy and require an enabled automation, inclusion in that job's permission subset, and a current category grant. Installation and every authority remain separate. File and network grants can compose, so app code with both may send granted file content or other app data to a granted destination; the broker controls the route and bounds, not the meaning of the payload. Every launch revalidates the installed revision, intersects the job subset with current grants, and is serialized with authority-changing mutations. A Node child, worker, or `vm` is not the security boundary. Restricted packages must never declare `pi.extensions`, enter Pi's package manager, or be discovered through the loaded Extension catalog because Pi evaluates Extension factories during catalog loading. See [Restricted app authoring](restricted-app-authoring.md) for the package contract and [Restricted app runtime](restricted-app-runtime.md) for the security boundary.
+That parser feeds a machine-local reviewed-digest lifecycle and separate sandboxed Chromium hosts for visible UI and optional worker execution. A visible app gets an ephemeral `WebContentsView`, reviewed same-origin assets, CSP/direct-network denial, sender-bound IPC, and narrow context, tab, network, storage, storage-invalidation, and file bridges. The app occupies its Space rail navigator and may request normal persistent Space-owned tabs; work-fold derives every owner id and shell tab id. Proposing an app installs its preview immediately and shows its receipt in the owning Chat. The separate Space-owned **Apps** tab manages installed apps, exact destination, Space-file, and reviewed notification grants, host-owned connections, each declared automation and its run history, local-data controls, removal, and the advanced local-install path. One machine-wide scheduler coordinates named jobs across Spaces with two execution slots, FIFO admission, same-job non-overlap, durable cadence, and bounded catch-up. Notifications use fixed reviewed copy and require an enabled automation, inclusion in that job's permission subset, and a current category grant. Installation grants the declared powers and enables the declared automations; the person can narrow them afterwards. Connection secrets remain separate setup. File and network grants can compose, so app code with both may send granted file content or other app data to a granted destination; the broker controls the route and bounds, not the meaning of the payload. Every launch revalidates the installed revision, intersects the job subset with current grants, and is serialized with authority-changing mutations. A Node child, worker, or `vm` is not the security boundary. Restricted packages must never declare `pi.extensions`, enter Pi's package manager, or be discovered through the loaded Extension catalog because Pi evaluates Extension factories during catalog loading. See [Restricted app authoring](restricted-app-authoring.md) for the package contract and [Restricted app runtime](restricted-app-runtime.md) for the security boundary.
 
 ## Scopes
 
@@ -121,7 +156,7 @@ In product language, lead with the outcome (“install this Skill” or “add t
 
 work-fold delegates package update and removal to Pi so its settings, installed paths, pinned references, and deduplication rules stay authoritative. Project package installation, update, and removal require a registered target Space. Capability mutations are rejected while an affected Space has an active Assistant turn or Chat compaction; switching tabs or minimizing the app must not let a catalog reload terminate background work.
 
-Direct Skill imports and packages have different ownership semantics. Package-provided resources can be updated or removed through their package record. Direct-imported Skills do not yet have an ownership receipt and safe removal workflow; that remains separate follow-up work. Per-resource enable/disable and Pi package filters are likewise future controls, even though the catalog already distinguishes active tools from tools that are merely available.
+Direct Skill imports and packages have different ownership semantics. Package-provided resources can be updated or removed through their package record. Direct-imported Skills have import receipts and a separate removal path that checks their recorded ownership. Per-resource enable/disable and Pi package filters are likewise future controls, even though the catalog already distinguishes active tools from tools that are merely available.
 
 ## Discovery sources
 

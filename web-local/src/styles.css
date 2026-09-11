@@ -16921,8 +16921,6 @@ textarea,
 .context-menu-separator { height: 1px; margin: 5px 7px; background: #e5e9ef; }
 .file-row.is-ignored { opacity: 0.58; }
 .file-status-badge.ignored { margin-left: auto; font-size: 0.62rem; }
-.extension-request-backdrop { z-index: 500; }
-.extension-request-dialog { width: min(540px, calc(100vw - 32px)); }
 
 @media (max-width: 700px) {
   .update-settings-section { grid-template-columns: minmax(0, 1fr); }

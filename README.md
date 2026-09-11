@@ -71,3 +71,10 @@ answered in place, selected files that open directly, and explicit recovery for
 saved work.
 
 The fold popover’s **Chats** view reopens saved conversations and preserves unsent drafts while switching. The paired web client keeps questions inside Chats and offers Space browsing with Files, Apps, and read-only previews. **Ask the fold** prepares an unsent Space or file reference. See [Collaboration experience](docs/collaboration-experience.md).
+
+The development branch also brings ordinary Pi Extension questions into their
+owning Chats across these surfaces. These live callbacks cancel on Stop or
+session end; durable Assistant questions retain their separate continuation
+contract. [Extensions and computer work](docs/extension-foundation.md) records
+the design and remaining work for included computer, Chrome, web, document,
+and MCP capabilities.

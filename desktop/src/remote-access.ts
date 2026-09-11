@@ -31,7 +31,7 @@ const maximumProtocolErrorFramesPerConnection = 1;
 const operationSet = new Set<WorkFoldRemoteOperation>([
   "management.summary", "management.chats", "management.transcript", "management.rename", "management.send", "management.request",
   "management.stop", "management.watch", "management.glance", "management.glanceSeen",
-  "management.work", "management.answer", "management.continue",
+  "management.work", "management.answer", "management.continue", "management.extensionAnswer",
   "spaces.list", "spaces.tree", "spaces.filePreview", "apps.list", "apps.read",
   "apps.actions.request", "apps.actions.get", "apps.actions.list", "apps.actions.cancel",
 ]);

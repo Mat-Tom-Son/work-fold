@@ -1481,7 +1481,7 @@ test("the fold's glance and app operations pass the management allowlist content
   // signed ciphertext untouched. Digests stay end-to-end encrypted between
   // the desktop and the paired browser. App actions run on request; there is
   // no review or approve operation to relay.
-  for (const operation of ["management.glance", "management.glanceSeen", "spaces.filePreview", "apps.list", "apps.read",
+  for (const operation of ["management.glance", "management.glanceSeen", "management.extensionAnswer", "spaces.filePreview", "apps.list", "apps.read",
     "apps.actions.request", "apps.actions.get", "apps.actions.list", "apps.actions.cancel"]) {
     const envelope = signedEnvelope({
       type: "work-fold.remote-request.v1",

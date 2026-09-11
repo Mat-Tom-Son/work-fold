@@ -9,6 +9,7 @@ import "@fontsource/poppins/700.css";
 import "./brand.css";
 import "./styles.css";
 import "../../services/bridge/public/work-request.css";
+import "../../services/bridge/public/extension-questions.css";
 import "./professional-foundation.css";
 import "./professional-shell.css";
 import "./professional-surfaces.css";

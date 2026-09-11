@@ -1,5 +1,6 @@
 import { buildWorkFixture } from "./work-fixtures.js";
 import { clearQuestionDrafts } from "./question-drafts.js";
+import { renderExtensionQuestions } from "./extension-questions.js";
 import { renderWorkRequest } from "./work-request.js";
 import { scheduleBrowserRefresh, deferAfterRateLimit, canResume, canRecover, pollDelay } from "./refresh.js";
 import { shouldSubmitComposerKey } from "./composer.js";
@@ -257,6 +258,11 @@ async function boot() {
 function bootFixture(name) {
   const fixture = buildFixture(name);
   Object.assign(state, fixture.state);
+  if (new URL(location.href).searchParams.get("extensions") === "1") {
+    state.summary = { ...state.summary, conversation: { id: state.selectedConversationId }, extensionRequests: [
+      { id: "fixture-extension", taskId: "fixture-task", method: "select", title: "Which account should I use for the report?", options: ["Work account", "Personal account"] },
+    ] };
+  }
   const workFixture = new URL(location.href).searchParams.get("work");
   if (["question", "saved-answer", "partial", "interrupted"].includes(workFixture)) {
     state.work = buildWorkFixture(state.selectedConversationId, workFixture);
@@ -675,7 +681,7 @@ function renderApplication() {
             <footer class="composer-wrap" id="new-composer-slot"></footer>
           </section>
           <section id="context-chat" class="context context-chat" aria-label="Chat" hidden>
-            <section id="messages" class="messages" tabindex="0"><div class="message-stream"><div id="transcript-notice"></div><div id="message-rows"></div><div id="work-status"></div><div id="request-work"></div></div><button id="jump-latest" class="jump-latest" type="button" aria-label="Jump to newest" title="Jump to newest" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14m-5-5 5 5 5-5" /></svg></button></section>
+            <section id="messages" class="messages" tabindex="0"><div class="message-stream"><div id="transcript-notice"></div><div id="message-rows"></div><div id="work-status"></div><div id="request-work"></div><div id="extension-questions"></div></div><button id="jump-latest" class="jump-latest" type="button" aria-label="Jump to newest" title="Jump to newest" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14m-5-5 5 5 5-5" /></svg></button></section>
             <footer class="composer-wrap" id="chat-composer-slot"></footer>
           </section>
           <section id="context-spaces" class="context context-spaces" aria-label="Spaces" hidden>
@@ -984,6 +990,18 @@ function renderMessages() {
   const visibleWork = !state.startingNewChat && state.work?.owner.conversationId === state.selectedConversationId ? state.work : null;
   const workEvents = requestEvents(request, Boolean(visibleWork));
   renderWorkRequest(document.querySelector("#request-work"), visibleWork, { act: workAction, openFile: openFilePreview, error: state.workError });
+  renderExtensionQuestions(document.querySelector("#extension-questions"), {
+    scope: state.selectedConversationId,
+    requests: !state.startingNewChat && state.summary?.conversation?.id === state.selectedConversationId ? state.summary.extensionRequests ?? [] : [],
+    answer: async (question, value, cancelled = false) => {
+      const conversationId = state.selectedConversationId;
+      if (!fixtureName) await remote("management.extensionAnswer", { taskId: question.taskId, id: question.id, value, cancelled });
+      if (state.selectedConversationId !== conversationId) return;
+      if (state.summary?.extensionRequests) state.summary.extensionRequests = state.summary.extensionRequests.filter((item) => item.id !== question.id);
+      renderMessages();
+      await refreshConversation();
+    },
+  });
   const working = !state.startingNewChat && (
     state.summary?.state === "running"
     || requestPhase === "working"

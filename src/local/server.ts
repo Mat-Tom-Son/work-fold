@@ -35,6 +35,9 @@ import {
   type PiExtensionUiEvent,
   type PiExtensionUiRequest,
   type PiExtensionUiSettled,
+  type PiExtensionUiScope,
+  type PiExtensionUiResponse,
+  validateExtensionUiResponse,
 } from "./agent/extension-ui.js";
 import {
   appendMessage,
@@ -1145,7 +1148,11 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
 
   const requestListener = (request: PiExtensionUiRequest) => routeExtensionRequest(state, request);
   const eventListener = (event: PiExtensionUiEvent) => routeExtensionEvent(state, event);
-  const settledListener = (event: PiExtensionUiSettled) => state.extensionRequests.delete(event.id);
+  const settledListener = (event: PiExtensionUiSettled) => {
+    const request = state.extensionRequests.get(event.id);
+    state.extensionRequests.delete(event.id);
+    if (request) publishExtensionSnapshot(state, request);
+  };
   const proposalListener = (proposal: RestrictedAppProposalReceipt) => routeRestrictedAppProposal(state, proposal);
   const proposalSettledListener = (event: RestrictedAppProposalSettled) => routeRestrictedAppProposalSettled(state, event.proposal);
 
@@ -3249,18 +3256,20 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
 
-  const extensionResponseMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/conversations\/([^/]+)\/extension-ui\/([^/]+)$/);
-  if (method === "POST" && extensionResponseMatch) {
-    const space = await getSpace(extensionResponseMatch[1]);
-    const request = state.extensionRequests.get(extensionResponseMatch[3]);
-    if (!request || request.spaceRoot !== space.spaceRoot || request.conversationId !== extensionResponseMatch[2]) {
-      throw notFound("Extension request not found or already completed.");
+  const extensionResponseMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/conversations\/([^/]+)\/extension-ui(?:\/([^/]+))?$/);
+  const managementExtensionMatch = match(url.pathname, /^\/api\/management\/conversations\/([^/]+)\/extension-ui(?:\/([^/]+))?$/);
+  if ((extensionResponseMatch || managementExtensionMatch) && (method === "GET" || method === "POST")) {
+    const scope: PiExtensionUiScope = extensionResponseMatch
+      ? { spaceRoot: (await getSpace(extensionResponseMatch[1])).spaceRoot, conversationId: extensionResponseMatch[2] }
+      : { spaceRoot: workFoldManagementRoot(), conversationId: managementExtensionMatch![1] };
+    const id = extensionResponseMatch?.[3] ?? managementExtensionMatch?.[2];
+    if (!id && method === "GET") {
+      sendJson(res, { requests: extensionSnapshot(state, scope) });
+      return;
     }
+    if (!id || method !== "POST") throw notFound("Extension request not found.");
     const body = await readJsonBody<{ value?: unknown; cancelled?: boolean }>(state, req);
-    const accepted = body.cancelled
-      ? state.extensionUi.cancel(request.id)
-      : state.extensionUi.respond(request.id, extensionResponse(request, body.value));
-    if (accepted) state.extensionRequests.delete(request.id);
+    const accepted = answerExtensionRequest(state, scope, id, body);
     sendJson(res, { accepted });
     return;
   }
@@ -4436,7 +4445,8 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
             // Capability advertisement: the browser starts a live watch only
             // after seeing this, so an older desktop is never asked for an
             // operation it cannot answer.
-            capabilities: { watch: true, work: true },
+            capabilities: { watch: true, work: true, extensionUi: true },
+            extensionRequests: owned && latest ? remoteExtensionRequests(state, latest) : [],
           };
         }
         case "management.chats": {
@@ -4571,6 +4581,18 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
             await staged.rollback();
             throw error;
           }
+        }
+        case "management.extensionAnswer": {
+          assertRemoteKeys(input, ["taskId", "id", "value", "cancelled"]);
+          const taskId = remoteStableId(input.taskId, "task id", 160);
+          const id = remoteStableId(input.id, "Extension question id", 160);
+          assertRemoteManagementRequestOwner(state, taskId, principal);
+          const record = state.requests.byTaskId(taskId)!;
+          if (!remoteExtensionRequests(state, record).some((item) => item.id === id && item.taskId === taskId)) {
+            throw notFound("This Extension question has ended or is available only on the desktop.");
+          }
+          authority?.assertCurrent();
+          return { accepted: answerExtensionRequest(state, { spaceRoot: workFoldManagementRoot(), conversationId: record.owner.conversationId }, id, input) };
         }
         case "management.work":
         case "management.answer":
@@ -9826,7 +9848,8 @@ async function evaluateRequestGraphSettle(state: LocalApiState, taskId: string):
 async function managementConversationAttention(state: LocalApiState, conversationId: string) {
   const record = state.requests.latestForConversation(conversationId);
   const work = record?.state === "waiting" ? await requestPresentation(state, record) : null;
-  return { requestState: record?.state ?? null, needsAnswer: (work?.questionCount ?? 0) > 0 };
+  return { requestState: record?.state ?? null, needsAnswer: (work?.questionCount ?? 0) > 0
+    || extensionSnapshot(state, { spaceRoot: workFoldManagementRoot(), conversationId }).length > 0 };
 }
 
 async function requestPresentation(state: LocalApiState, record: WorkFoldRequestRecord, remote = false): Promise<WorkRequestView> {
@@ -12531,29 +12554,82 @@ function closeSpaceStreams(state: LocalApiState, spaceId: string): void {
   }
 }
 
-function routeExtensionRequest(state: LocalApiState, request: PiExtensionUiRequest): void {
-  state.extensionRequests.set(request.id, request);
-  const spaceId = spaceIdForRoot(state, request.spaceRoot);
-  if (!spaceId) {
-    state.extensionUi.cancel(request.id);
-    state.extensionRequests.delete(request.id);
-    return;
-  }
-  const rendererRequest = {
-    id: request.id,
-    method: request.method,
-    title: request.title,
+function extensionScopeId(state: LocalApiState, scope: PiExtensionUiScope): string | null {
+  return spaceRootKey(scope.spaceRoot) === spaceRootKey(workFoldManagementRoot())
+    ? workFoldManagementScopeId : spaceIdForRoot(state, scope.spaceRoot);
+}
+
+function sameExtensionScope(left: PiExtensionUiScope, right: PiExtensionUiScope): boolean {
+  return spaceRootKey(left.spaceRoot) === spaceRootKey(right.spaceRoot) && left.conversationId === right.conversationId;
+}
+
+function remoteExtensionRequests(state: LocalApiState, record: WorkFoldRequestRecord): Array<Record<string, unknown>> {
+  const taskId = record.turns.at(-1)?.taskId;
+  if (!taskId || record.owner.spaceId || record.stopRequestedAt || record.state === "expired" || Date.now() >= Date.parse(record.deadline) || state.cancelledTurnTasks.has(taskId)
+      || state.activeTurnIdsByKey.get(streamKey(workFoldManagementScopeId, record.owner.conversationId)) !== taskId) return [];
+  return [...state.extensionRequests.values()].filter((request) => request.taskId === taskId
+    && sameExtensionScope(request, { spaceRoot: workFoldManagementRoot(), conversationId: record.owner.conversationId })
+    && !(request.method === "input" && request.secret))
+    .map((request) => ({ ...rendererExtensionRequest(request), taskId }));
+}
+
+function rendererExtensionRequest(request: PiExtensionUiRequest): Record<string, unknown> {
+  return {
+    id: request.id, method: request.method, title: request.title,
     ...(request.method === "confirm" ? { message: request.message } : {}),
     ...(request.method === "select" ? { options: request.options } : {}),
     ...(request.method === "input" && request.placeholder ? { placeholder: request.placeholder } : {}),
     ...(request.method === "input" && request.secret ? { secret: true } : {}),
     ...(request.method === "editor" && request.prefill ? { initialValue: request.prefill } : {}),
   };
-  broadcast(state, streamKey(spaceId, request.conversationId), {
-    type: "extension_ui_request",
-    conversationId: request.conversationId,
-    request: rendererRequest,
-  });
+}
+
+function extensionSnapshot(state: LocalApiState, scope: PiExtensionUiScope): Array<Record<string, unknown>> {
+  return [...state.extensionRequests.values()].filter((request) => sameExtensionScope(request, scope)).map(rendererExtensionRequest);
+}
+
+/** Transient interactions never enter the replay log or portable transcript. */
+function publishExtensionSnapshot(state: LocalApiState, scope: PiExtensionUiScope): void {
+  publishTransientExtensionEvent(state, scope, { type: "extension_ui_snapshot", conversationId: scope.conversationId, requests: extensionSnapshot(state, scope) });
+}
+
+/** Desktop UI only: no durable log and no remote-watch listeners. */
+function publishTransientExtensionEvent(state: LocalApiState, scope: PiExtensionUiScope, event: unknown): void {
+  const scopeId = extensionScopeId(state, scope);
+  if (!scopeId) return;
+  const streams = state.chatStreams.get(streamKey(scopeId, scope.conversationId));
+  for (const response of [...streams ?? []]) {
+    try {
+      if (response.writableEnded || response.destroyed || response.writableLength > maxChatStreamQueuedBytes) {
+        response.end(); streams?.delete(response);
+      } else writeSseData(response, event);
+    } catch { streams?.delete(response); }
+  }
+}
+
+function routeExtensionRequest(state: LocalApiState, request: PiExtensionUiRequest): void {
+  const scopeId = extensionScopeId(state, request);
+  if (!scopeId) {
+    state.extensionUi.cancel(request.id);
+    return;
+  }
+  if (request.taskId && state.activeTurnIdsByKey.get(streamKey(scopeId, request.conversationId)) !== request.taskId) {
+    state.extensionUi.cancel(request.id);
+    return;
+  }
+  state.extensionRequests.set(request.id, request);
+  publishExtensionSnapshot(state, request);
+}
+
+function answerExtensionRequest(state: LocalApiState, scope: PiExtensionUiScope, id: string, body: { value?: unknown; cancelled?: unknown }): boolean {
+  const request = state.extensionRequests.get(id);
+  if (!request || !sameExtensionScope(request, scope)) throw notFound("Extension question has ended or belongs to another Chat.");
+  if (body.cancelled !== undefined && typeof body.cancelled !== "boolean") throw badRequest("cancelled must be a boolean.");
+  const response: PiExtensionUiResponse = body.cancelled === true ? { cancelled: true }
+    : request.method === "confirm" ? { confirmed: body.value as boolean } : { value: body.value as string };
+  try { validateExtensionUiResponse(request, response); }
+  catch (error) { throw badRequest(errorMessage(error)); }
+  return state.extensionUi.respond(request.id, response);
 }
 
 function routeRestrictedAppProposal(state: LocalApiState, proposal: RestrictedAppProposalReceipt): void {
@@ -12589,8 +12665,12 @@ function rendererRestrictedAppProposal(proposal: RestrictedAppProposalReceipt): 
 }
 
 function routeExtensionEvent(state: LocalApiState, event: PiExtensionUiEvent): void {
-  const spaceId = spaceIdForRoot(state, event.spaceRoot);
+  const spaceId = extensionScopeId(state, event);
   if (!spaceId) return;
+  if (event.method === "oauthDeviceCode" || event.method === "openExternal") {
+    publishTransientExtensionEvent(state, event, { type: "status", conversationId: event.conversationId, message: extensionEventMessage(event) });
+    return;
+  }
   if (event.method === "notify") {
     broadcast(state, streamKey(spaceId, event.conversationId), {
       type: "extension_ui_request",
@@ -12610,11 +12690,6 @@ function routeExtensionEvent(state: LocalApiState, event: PiExtensionUiEvent): v
   }
   const message = extensionEventMessage(event);
   if (message) broadcast(state, streamKey(spaceId, event.conversationId), { type: "status", conversationId: event.conversationId, message });
-}
-
-function extensionResponse(request: PiExtensionUiRequest, value: unknown): { value: string } | { confirmed: boolean } {
-  if (request.method === "confirm") return { confirmed: Boolean(value) };
-  return { value: typeof value === "string" ? value : String(value ?? "") };
 }
 
 function extensionEventMessage(event: PiExtensionUiEvent): string | null {
@@ -12717,6 +12792,9 @@ function openChatStream(
   const streams = state.chatStreams.get(key) ?? new Set<ServerResponse>();
   streams.add(res);
   state.chatStreams.set(key, streams);
+  const extensionScope = { conversationId, spaceRoot: spaceId === workFoldManagementScopeId
+    ? workFoldManagementRoot() : [...state.spaceIdsByRoot].find(([, id]) => id === spaceId)?.[0] ?? "" };
+  writeSseData(res, { type: "extension_ui_snapshot", conversationId, requests: extensionSnapshot(state, extensionScope) });
   void state.restrictedAppProposals.list({ spaceId, conversationId }).then(async (proposals) => {
     for (const proposal of proposals) {
       if (proposal.status !== "pending" || res.writableEnded) continue;
@@ -13277,7 +13355,7 @@ function isWorkFoldCheckDecisionKind(value: unknown): value is WorkFoldCheckDeci
 
 function match(path: string, pattern: RegExp): string[] | null {
   const result = pattern.exec(path);
-  return result ? result.map((value) => decodeURIComponent(value)) : null;
+  return result ? result.map((value) => value === undefined ? "" : decodeURIComponent(value)) : null;
 }
 
 function streamKey(spaceId: string, conversationId: string): string { return `${spaceId}:${conversationId}`; }

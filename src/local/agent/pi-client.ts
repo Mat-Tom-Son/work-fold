@@ -1,6 +1,7 @@
 import { modelReviewSubmissionSchema, modelReviewSystemPrompt, type WorkFoldModelCheckRequest, type WorkFoldModelCheckResponse } from "../checks/model-review-sensor.js";
 import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
@@ -174,6 +175,8 @@ export class PiConversationClient extends EventEmitter {
   private assistantSegments: string[] = [];
   private assistantAttemptStartSegment = 0;
   private promptInFlight = false;
+  private readonly extensionTurn = new AsyncLocalStorage<{ taskId?: string; cancelled: boolean }>();
+  private activeExtensionTurn: { taskId?: string; cancelled: boolean } | null = null;
   private rejectPrompt: ((error: Error) => void) | null = null;
   private runtimeGeneration = 0;
   private cancellationRequested: Error | null = null;
@@ -206,7 +209,13 @@ export class PiConversationClient extends EventEmitter {
 
   /** Sends the user's exact text to Pi; /skill and extension commands stay raw. */
   async prompt(message: string, context: PiTurnContext = {}): Promise<string> {
+    const owner = { taskId: context.managementTaskId ?? context.spaceTurn?.taskId, cancelled: false };
+    return this.extensionTurn.run(owner, () => this.promptInContext(message, context, owner));
+  }
+
+  private async promptInContext(message: string, context: PiTurnContext, owner: { taskId?: string; cancelled: boolean }): Promise<string> {
     if (this.promptInFlight) throw new Error("The Assistant is already working in this Chat.");
+    this.activeExtensionTurn = owner;
     this.resetTurnState();
     this.cancellationRequested = null;
     this.promptInFlight = true;
@@ -262,8 +271,10 @@ export class PiConversationClient extends EventEmitter {
       return this.assistantText() || "Command completed.";
     } finally {
       this.lastTurnUsage = measuredSession && baseline ? settledTurnUsage(measuredSession, baseline) : null;
+      owner.cancelled = true;
+      this.activeExtensionTurn = null;
+      this.resolvedRuntime?.config.extensionUi?.cancelScope?.(this.extensionUiScope());
       this.promptInFlight = false;
-      this.cancellationRequested = null;
     }
   }
 
@@ -301,6 +312,8 @@ export class PiConversationClient extends EventEmitter {
     error.name = "PiTurnCancelledError";
     this.cancellationRequested = error;
     this.turnError = error;
+    if (this.activeExtensionTurn) this.activeExtensionTurn.cancelled = true;
+    this.resolvedRuntime?.config.extensionUi?.cancelScope?.(this.extensionUiScope());
     this.emitEvent({ type: "status", message: reason });
     this.rejectPrompt?.(error);
     if (session) void session.abort().catch(() => undefined);
@@ -496,6 +509,8 @@ export class PiConversationClient extends EventEmitter {
   async stop(): Promise<void> {
     const preserveActiveTurnTrail = this.promptInFlight;
     this.runtimeGeneration += 1;
+    if (this.activeExtensionTurn) this.activeExtensionTurn.cancelled = true;
+    this.resolvedRuntime?.config.extensionUi?.forgetScope?.(this.extensionUiScope());
     // Bounded app inference has no turn to settle; abort it so callers see an interruption, not a hang.
     for (const call of this.boundedCalls) call.abort();
     const session = this.runtimeHost?.session;
@@ -644,7 +659,10 @@ export class PiConversationClient extends EventEmitter {
     const scope = this.extensionUiScope();
     await session.bindExtensions({
       mode: "rpc",
-      uiContext: createExtensionUiContext(bridge, scope),
+      uiContext: createExtensionUiContext(bridge, scope, {
+        isCancelled: () => this.extensionTurn.getStore()?.cancelled === true || this.runtimeHost?.session !== session,
+        taskId: () => this.extensionTurn.getStore()?.taskId,
+      }),
       abortHandler: () => {
         void this.abort("Agent turn cancelled by an extension.");
       },

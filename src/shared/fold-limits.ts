@@ -99,3 +99,12 @@ export const workFoldRequestLimits = Object.freeze({
 
 /** F28: continuation turns are on by default and a person can turn them off. */
 export const workFoldRequestContinuationsDefaultEnabled = true;
+
+/** Live native Pi callbacks, distinct from durable request questions. */
+export const workFoldExtensionUiLimits = Object.freeze({
+  pendingPerChat: 8,
+  pendingTotal: 64,
+  requestBytes: 64 * 1024,
+  answerBytes: 64 * 1024,
+  options: 64,
+});

@@ -9,6 +9,7 @@ export type WorkFoldRemoteOperation =
   | "management.request"
   | "management.work"
   | "management.answer"
+  | "management.extensionAnswer"
   | "management.continue"
   | "management.stop"
   | "management.watch"

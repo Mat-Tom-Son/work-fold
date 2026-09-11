@@ -11,6 +11,7 @@ import { restrictedAppInferenceLimits } from "../src/shared/restricted-app-infer
 import { restrictedAppAssistantLimits } from "../src/shared/restricted-app-tasks.js";
 import {
   workFoldAutomationDefaultConcurrency,
+  workFoldExtensionUiLimits,
   workFoldRequestLimits,
   workFoldRoutingDeclarationBounds,
   workFoldRoutingMaxConcurrentRuns,
@@ -107,6 +108,8 @@ test("the Limits pane shows the assistant, routing, and automation numbers a ref
   assert.ok(text.includes(`A result summary${workFoldRequestLimits.maxResultSummaryBytes / 1024} KB`), "the summary bound is shown");
   assert.ok(text.includes(`Result details${workFoldRequestLimits.maxResultDataBytes / 1024} KB`), "the data bound is shown");
   assert.ok(text.includes(`Files one result may name${workFoldRequestLimits.maxResultFiles}`), "the file count is shown");
+  assert.ok(text.includes(`Pending Extension questions per Chat${workFoldExtensionUiLimits.pendingPerChat}`));
+  assert.ok(text.includes(`An Extension answer or editor text${workFoldExtensionUiLimits.answerBytes / 1024} KB`));
 });
 
 /**

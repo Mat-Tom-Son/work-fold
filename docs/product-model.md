@@ -132,6 +132,14 @@ This separation is a core product rail. “Available,” “in this Space,” �
 
 work-fold hosts Pi instead of recreating an agent framework. Pi owns model/provider behavior, built-in tools, standard resource discovery, packages, Skills, Extensions, and project trust mechanics. work-fold supplies the desktop experience: setup, catalog surfaces, secure credential persistence, folder selection, the registered-Space authorization override, extension UI bridges, and clear execution/permission explanations.
 
+In development, supported native Extension questions stay inline in their
+owning Chat, including the fold, with transient reconnect recovery and Stop.
+They are live Pi callbacks rather than durable Assistant questions. Planned
+included capabilities use this same native Extension path; inclusion describes
+work-fold's maintenance responsibility, not another trust or runtime tier.
+See [Extensions and computer work](extension-foundation.md) for the design,
+compatibility requirements, and work still required before inclusion.
+
 There are two capability scopes:
 
 - **Everywhere** (personal scope): available to the fold and every Space from the user's Pi agent directory.

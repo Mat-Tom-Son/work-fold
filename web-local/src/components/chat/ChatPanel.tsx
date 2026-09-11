@@ -30,7 +30,7 @@ import { resolveFixtureSpacePathCandidates } from "../../lib/space-path-links";
 import { spaceIdentityFor, spaceIdentityStyle, type SpaceIdentity } from "../../lib/space-identity";
 import type { AgentCatalog, AgentCommand, AgentStatus, AssistantComposerState, ChatContextPathRequest,
   ChatDraftRequest, ChatLifecycleView, ChatMessage, ChatStreamEvent, ContextAttachment, ConversationRuntime, ConversationSummary, ExtensionUiRequest, PendingChatSend, RestrictedAppInstalled, RestrictedAppProposal, RuntimePreviewEntry, TreeEntry, SpaceCustomizationMap, SpaceFixtureConversation, SpaceSummary } from "../../types";
-import { useModalDialog } from "../../hooks/useModalDialog";
+import { ExtensionQuestions } from "./ExtensionQuestions";
 import { Banner, FluentGlyph, SpaceIconGlyph } from "../chrome/common";
 import { FileTypeIcon } from "../tree/FileTree";
 import { RuntimeContextPreview } from "./activity";
@@ -180,7 +180,8 @@ export function ChatPanel({
   const [conversationRuntime, setConversationRuntime] = useState<ConversationRuntime | null>(null);
   const [configuredAssistant, setConfiguredAssistant] = useState<AgentStatus | null>(null);
   const [assistantComposer, setAssistantComposer] = useState<AssistantComposerState | null>(null);
-  const [extensionRequest, setExtensionRequest] = useState<ExtensionUiRequest | null>(null);
+  const [extensionSnapshot, setExtensionSnapshot] = useState<{ conversationId: string; requests: ExtensionUiRequest[] } | null>(null);
+  const extensionRequests = extensionSnapshot && extensionSnapshot.conversationId === conversation?.id ? extensionSnapshot.requests : [];
   const [appProposal, setAppProposal] = useState<RestrictedAppProposal | null>(null);
   const [appProposalBusy, setAppProposalBusy] = useState(false);
   const appProposalVersionsRef = useRef(new Map<string, Pick<RestrictedAppProposal, "status" | "updatedAt">>());
@@ -600,9 +601,10 @@ export function ChatPanel({
         if (data.request.method === "notify") {
           showToast({ text: data.request.message ?? "Extension notification", tone: "info" });
         } else {
-          setExtensionRequest(data.request);
+          setExtensionSnapshot((current) => ({ conversationId, requests: [...(current?.conversationId === conversationId ? current.requests.filter((request) => request.id !== data.request!.id) : []), data.request!] }));
         }
       }
+      if (data.type === "extension_ui_snapshot") setExtensionSnapshot({ conversationId, requests: data.requests ?? [] });
       // A proposal installs inside the proposing turn; the Chat surfaces the
       // settled receipt (added, or failed with a retry), never a review.
       if (data.type === "restricted_app_proposal" && data.proposal?.spaceId === space.id && data.proposal.conversationId === conversationId && observeAppProposal(data.proposal)) {
@@ -1501,18 +1503,14 @@ export function ChatPanel({
   const suggestedNextPrompt = !running && !streamingAssistant
     ? latestAssistantMessage?.landing?.followUpPrompt?.trim() ?? ""
     : "";
-  async function respondToExtension(value: unknown, cancelled = false) {
-    if (!extensionRequest || !conversation) return;
-    const request = extensionRequest;
-    setExtensionRequest(null);
-    try {
-      await api(`/api/spaces/${space.id}/conversations/${conversation.id}/extension-ui/${request.id}`, {
-        method: "POST",
-        body: { value, cancelled },
-      });
-    } catch (caught) {
-      setError(errorText(caught));
-    }
+  async function respondToExtension(request: ExtensionUiRequest, value: unknown, cancelled = false) {
+    if (!conversation) return;
+    const conversationId = conversation.id;
+    await api(`/api/spaces/${space.id}/conversations/${conversationId}/extension-ui/${request.id}`, {
+      method: "POST", body: { value, cancelled },
+    });
+    setExtensionSnapshot((current) => current?.conversationId === conversationId
+      ? { ...current, requests: current.requests.filter((item) => item.id !== request.id) } : current);
   }
 
   function observeAppProposal(proposal: RestrictedAppProposal): boolean {
@@ -1640,6 +1638,7 @@ export function ChatPanel({
           <WorkRequest {...workState} showProgress={!running} showStop={!running && !requestBusy} onOpenFile={(spaceId, path) => {
             if (spaceId === space.id && onOpenSpaceFile) onOpenSpaceFile(path); else return openWorkFile(spaceId, path);
           }} />
+          {extensionSnapshot && extensionSnapshot.conversationId === conversation?.id ? <ExtensionQuestions requests={extensionRequests} scope={`${space.id}/${conversation.id}`} respond={respondToExtension} /> : null}
           <div className="message-end-sentinel" ref={messageEndRef} aria-hidden="true" />
         </div>
         {!userPinnedToBottom ? (
@@ -1856,7 +1855,6 @@ export function ChatPanel({
           )}
         </div>
       </form>
-      {extensionRequest ? <ExtensionRequestDialog request={extensionRequest} onRespond={respondToExtension} /> : null}
       {appProposal ? <RestrictedAppAddedNotice proposal={appProposal} busy={appProposalBusy} onOpen={appProposal.installedApp && onRestrictedAppInstalled ? () => { onRestrictedAppInstalled(appProposal.installedApp!); setAppProposal(null); } : undefined} onRetry={() => void retryAppProposal()} onDismiss={() => void dismissAppProposal()} /> : null}
     </section>
   );
@@ -2044,28 +2042,6 @@ function formatTokenCount(value: number | null): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1).replace(/\.0$/, "")}m`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1).replace(/\.0$/, "")}k`;
   return value.toLocaleString();
-}
-
-function ExtensionRequestDialog({ request, onRespond }: { request: ExtensionUiRequest; onRespond: (value: unknown, cancelled?: boolean) => Promise<void> }) {
-  const [value, setValue] = useState(request.initialValue ?? "");
-  // The Assistant's question rides the shared dialog contract like every
-  // other modal: focus enters and stays, Escape cancels, Enter answers an
-  // input, and focus returns to the invoking control after close.
-  const entryFieldRef = useRef<HTMLElement | null>(null);
-  const dialogRef = useModalDialog({
-    onClose: () => void onRespond(null, true),
-    initialFocusRef: entryFieldRef,
-  });
-  return <div className="modal-backdrop extension-request-backdrop" role="presentation" onMouseDown={() => void onRespond(null, true)}>
-    <section ref={dialogRef} tabIndex={-1} className="modal-card extension-request-dialog" role="dialog" aria-modal="true" aria-labelledby={`extension-request-${request.id}`} onMouseDown={(event) => event.stopPropagation()}>
-      <header><div><h2 id={`extension-request-${request.id}`}>{request.title || "Extension request"}</h2>{request.message ? <p>{request.message}</p> : null}</div><button className="minimal-icon-button" type="button" onClick={() => void onRespond(null, true)} aria-label="Cancel extension request"><X size={16} /></button></header>
-      <div className="modal-body extension-dialog-content">
-        {request.method === "select" ? <div className="select-options">{request.options?.map((option) => <button className="secondary-button" type="button" key={option} onClick={() => void onRespond(option)}>{option}</button>)}</div> : null}
-        {request.method === "confirm" ? <div className="modal-actions"><button className="secondary-button" type="button" onClick={() => void onRespond(false)}>No</button><button className="primary-button" type="button" onClick={() => void onRespond(true)}>Yes</button></div> : null}
-        {request.method === "input" || request.method === "editor" ? <form onSubmit={(event) => { event.preventDefault(); void onRespond(value); }}><label>{request.method === "editor" ? "Response" : "Value"}{request.method === "editor" ? <textarea ref={(node) => { entryFieldRef.current = node; }} rows={9} value={value} onChange={(event) => setValue(event.target.value)} placeholder={request.placeholder} /> : <input ref={(node) => { entryFieldRef.current = node; }} type={request.secret ? "password" : "text"} value={value} onChange={(event) => setValue(event.target.value)} placeholder={request.placeholder} autoComplete={request.secret ? "off" : undefined} />}</label><div className="modal-actions"><button className="secondary-button" type="button" onClick={() => void onRespond(null, true)}>Cancel</button><button className="primary-button" type="submit">Continue</button></div></form> : null}
-      </div>
-    </section>
-  </div>;
 }
 
 function ContextModeIcon({ attachment }: { attachment: ContextAttachment }) {

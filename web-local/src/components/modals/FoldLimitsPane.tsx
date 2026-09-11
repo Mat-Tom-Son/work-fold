@@ -4,6 +4,7 @@ import { restrictedAppInferenceLimits } from "../../../../src/shared/restricted-
 import { restrictedAppAssistantLimits } from "../../../../src/shared/restricted-app-tasks";
 import {
   workFoldAutomationDefaultConcurrency,
+  workFoldExtensionUiLimits,
   workFoldRequestContinuationsDefaultEnabled,
   workFoldRequestLimits,
   workFoldRoutingDeclarationBounds,
@@ -156,6 +157,16 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
           ["Time one short answer may take", seconds(inference.timeoutMs)],
         ]}
       />
+
+      <h4>Live Extension questions</h4>
+      <p>Questions from an Extension stay with their Chat and end when its session closes.</p>
+      <LimitRows rows={[
+        ["Pending Extension questions per Chat", String(workFoldExtensionUiLimits.pendingPerChat)],
+        ["Pending Extension questions on this computer", String(workFoldExtensionUiLimits.pendingTotal)],
+        ["Choices in an Extension question", String(workFoldExtensionUiLimits.options)],
+        ["An Extension question", kib(workFoldExtensionUiLimits.requestBytes)],
+        ["An Extension answer or editor text", kib(workFoldExtensionUiLimits.answerBytes)],
+      ]} />
 
       <h4 id="fold-limits-requests-title">{foldLimitsSettings.requestsHeading}</h4>
       <p>{foldLimitsSettings.requestsIntro}</p>

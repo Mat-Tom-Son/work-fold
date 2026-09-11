@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { workFoldExtensionUiLimits as extensionUiLimits } from "../../shared/fold-limits.js";
+export { workFoldExtensionUiLimits as extensionUiLimits } from "../../shared/fold-limits.js";
 
 import type {
   ExtensionUIContext,
@@ -10,6 +12,8 @@ import type {
 export interface PiExtensionUiScope {
   conversationId: string;
   spaceRoot: string;
+  /** Exact originating host turn, when this call was made within one. */
+  taskId?: string;
 }
 
 export type PiExtensionUiRequest = PiExtensionUiScope & {
@@ -123,8 +127,26 @@ export type PiExtensionUiEventPayload = StripUiEnvelope<PiExtensionUiEvent>;
 export interface PiExtensionUiBridge {
   request(request: PiExtensionUiRequest): Promise<PiExtensionUiResponse>;
   publish(event: PiExtensionUiEvent): void;
-  getEditorText?(): string;
+  getEditorText?(scope: PiExtensionUiScope): string;
   cancel?(id: string): boolean;
+  cancelScope?(scope: PiExtensionUiScope): void;
+  forgetScope?(scope: PiExtensionUiScope): void;
+}
+
+function scopeKey(scope: PiExtensionUiScope): string {
+  return JSON.stringify([scope.spaceRoot, scope.conversationId]);
+}
+
+/** Validate at the callback boundary too, so every adapter obeys the same contract. */
+export function validateExtensionUiResponse(request: PiExtensionUiRequest, response: PiExtensionUiResponse): void {
+  if ("cancelled" in response && response.cancelled === true) return;
+  if (request.method === "confirm") {
+    if (!("confirmed" in response) || typeof response.confirmed !== "boolean") throw new Error("Choose Yes or No.");
+    return;
+  }
+  if (!("value" in response) || typeof response.value !== "string") throw new Error("An Extension answer must be text.");
+  if (Buffer.byteLength(response.value, "utf8") > extensionUiLimits.answerBytes) throw new Error(`Extension answer exceeds the ${extensionUiLimits.answerBytes / 1024} KiB limit. See Settings → The fold → Limits.`);
+  if (request.method === "select" && !request.options.includes(response.value)) throw new Error("Choose one of the Extension's options.");
 }
 
 /**
@@ -133,41 +155,52 @@ export interface PiExtensionUiBridge {
  */
 export class RoutedPiExtensionUiBridge extends EventEmitter implements PiExtensionUiBridge {
   private readonly pending = new Map<string, {
+    request: PiExtensionUiRequest;
     resolve: (response: PiExtensionUiResponse) => void;
     timeout?: NodeJS.Timeout;
   }>();
-  private editorText = "";
+  private readonly editorText = new Map<string, string>();
 
   request(request: PiExtensionUiRequest): Promise<PiExtensionUiResponse> {
+    if (this.pending.has(request.id)) return Promise.reject(new Error("Extension request id is already pending."));
+    if (this.pending.size >= extensionUiLimits.pendingTotal || [...this.pending.values()].filter((item) => scopeKey(item.request) === scopeKey(request)).length >= extensionUiLimits.pendingPerChat) {
+      return Promise.reject(new Error(`Too many pending Extension questions (${extensionUiLimits.pendingPerChat} per Chat, ${extensionUiLimits.pendingTotal} total). Settings → The fold → Limits shows these bounds.`));
+    }
+    if (Buffer.byteLength(JSON.stringify(request), "utf8") > extensionUiLimits.requestBytes || (request.method === "select" && (!request.options.length || request.options.length > extensionUiLimits.options))) {
+      return Promise.reject(new Error(`Extension question exceeds the ${extensionUiLimits.requestBytes / 1024} KiB or ${extensionUiLimits.options} choices limit. See Settings → The fold → Limits.`));
+    }
     return new Promise((resolve) => {
       const timeout = "timeout" in request && request.timeout && request.timeout > 0
         ? setTimeout(() => this.respond(request.id, { cancelled: true }), request.timeout)
         : undefined;
-      this.pending.set(request.id, { resolve, ...(timeout ? { timeout } : {}) });
-      this.emit("request", request);
+      this.pending.set(request.id, { request: structuredClone(request), resolve, ...(timeout ? { timeout } : {}) });
+      this.emit("request", structuredClone(request));
     });
   }
 
   publish(event: PiExtensionUiEvent): void {
     if (event.method === "setEditorText") {
-      this.editorText = event.text;
+      this.setEditorText(event, event.text);
     } else if (event.method === "pasteToEditor") {
-      this.editorText += event.text;
+      this.setEditorText(event, this.getEditorText(event) + event.text);
     }
     this.emit("event", event);
   }
 
-  getEditorText(): string {
-    return this.editorText;
+  getEditorText(scope: PiExtensionUiScope): string {
+    return this.editorText.get(scopeKey(scope)) ?? "";
   }
 
-  setEditorText(value: string): void {
-    this.editorText = value;
+  setEditorText(scope: PiExtensionUiScope, value: string): void {
+    if (Buffer.byteLength(value, "utf8") > extensionUiLimits.answerBytes) throw new Error(`Extension editor exceeds the ${extensionUiLimits.answerBytes / 1024} KiB limit. See Settings → The fold → Limits.`);
+    if (value) this.editorText.set(scopeKey(scope), value);
+    else this.editorText.delete(scopeKey(scope));
   }
 
   respond(id: string, response: PiExtensionUiResponse): boolean {
     const pending = this.pending.get(id);
     if (!pending) return false;
+    validateExtensionUiResponse(pending.request, response);
     this.pending.delete(id);
     if (pending.timeout) clearTimeout(pending.timeout);
     pending.resolve(response);
@@ -181,6 +214,18 @@ export class RoutedPiExtensionUiBridge extends EventEmitter implements PiExtensi
 
   cancelAll(): void {
     for (const id of [...this.pending.keys()]) this.cancel(id);
+    this.editorText.clear();
+  }
+
+  cancelScope(scope: PiExtensionUiScope): void {
+    for (const [id, pending] of [...this.pending]) {
+      if (scopeKey(pending.request) === scopeKey(scope)) this.cancel(id);
+    }
+  }
+
+  forgetScope(scope: PiExtensionUiScope): void {
+    this.cancelScope(scope);
+    this.editorText.delete(scopeKey(scope));
   }
 }
 
@@ -212,15 +257,21 @@ export function createHeadlessExtensionUiBridge(): PiExtensionUiBridge {
 export function createExtensionUiContext(
   bridge: PiExtensionUiBridge,
   scope: PiExtensionUiScope,
+  options: { isCancelled?: () => boolean; taskId?: () => string | undefined } = {},
 ): ExtensionUIContext {
+  const currentScope = () => {
+    const taskId = options.taskId?.();
+    return { ...scope, ...(taskId ? { taskId } : {}) };
+  };
   const publish = (event: PiExtensionUiEventPayload) => {
-    publishExtensionUiEvent(bridge, scope, event);
+    if (options.isCancelled?.()) return;
+    publishExtensionUiEvent(bridge, currentScope(), event);
   };
   const request = async (
     value: PiExtensionUiRequestPayload,
     options?: ExtensionUIDialogOptions,
   ): Promise<PiExtensionUiResponse> => {
-    if (options?.signal?.aborted) return { cancelled: true };
+    if (options?.signal?.aborted || isCancelled()) return { cancelled: true };
     const id = randomUUID();
     return new Promise<PiExtensionUiResponse>((resolve, reject) => {
       let settled = false;
@@ -243,7 +294,7 @@ export function createExtensionUiContext(
       if (options?.timeout && options.timeout > 0) {
         timeout = setTimeout(onAbort, options.timeout);
       }
-      bridge.request({ ...scope, id, ...value } as PiExtensionUiRequest).then(finish, (error) => {
+      bridge.request({ ...currentScope(), id, ...value } as PiExtensionUiRequest).then(finish, (error) => {
         if (settled) return;
         settled = true;
         cleanup();
@@ -252,6 +303,7 @@ export function createExtensionUiContext(
     });
   };
 
+  const isCancelled = () => options.isCancelled?.() === true;
   return {
     async select(title, options, dialogOptions) {
       const response = await request({ method: "select", title, options, timeout: dialogOptions?.timeout }, dialogOptions);
@@ -313,7 +365,7 @@ export function createExtensionUiContext(
       publish({ method: "setEditorText", text });
     },
     getEditorText() {
-      return bridge.getEditorText?.() ?? "";
+      return bridge.getEditorText?.(scope) ?? "";
     },
     async editor(title, prefill) {
       const response = await request({ method: "editor", title, prefill });

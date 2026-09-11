@@ -17,6 +17,13 @@ The person-facing presentation is specified in [Collaboration experience](collab
 request-wide progress and Stop, addressed questions, selected files, and explicit recovery
 across Chats, the fold, Apps, and the paired browser.
 
+Native Pi Extension dialogs are a separate compatibility mechanism: the
+development [Extension UI adapter](assistant-capabilities.md#live-extension-questions-development)
+places live callbacks in the owning Chat and cancels them on Stop or session
+end. It cannot reconstruct a callback after restart and does not claim F27's
+durable answer/continuation semantics. An Extension needing those semantics
+uses the collaboration verbs below.
+
 ## Register entries
 
 | # | Decision | What it does not change |

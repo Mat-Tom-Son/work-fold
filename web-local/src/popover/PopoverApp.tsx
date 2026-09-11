@@ -1,3 +1,4 @@
+import { ExtensionQuestions } from "../components/chat/ExtensionQuestions";
 import { WorkRequest } from "../components/chat/WorkRequest";
 import { useWorkRequest } from "../hooks/useWorkRequest";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -7,7 +8,7 @@ import remarkGfm from "remark-gfm";
 
 import { ApiError, api, createEventSource, errorText } from "../lib/api";
 import { WorkFoldLockup } from "../components/brand/WorkFoldBrand";
-import type { AssistantComposerState, ConversationRuntime } from "../types";
+import type { AssistantComposerState, ConversationRuntime, ChatStreamEvent, ExtensionUiRequest } from "../types";
 
 /** Mirrors the server's WorkFoldActManagementRequest projection. */
 interface ManagementRequestView {
@@ -99,6 +100,7 @@ const terminalPhases = new Set(["done", "failed", "stopped"]);
 const pollIntervalMs = 1_500;
 const idlePollIntervalMs = 5_000;
 const popoverFixtureRequested = new URLSearchParams(window.location.search).get("fixture") === "fold";
+const extensionFixtureRequested = popoverFixtureRequested && new URLSearchParams(window.location.search).get("extensions") === "1";
 
 const popoverFixtureMessages: ManagementMessage[] = [
   {
@@ -158,6 +160,11 @@ export function PopoverApp() {
   const searchRef = useRef<HTMLInputElement | null>(null);
   const selectionRef = useRef<string | null>(popoverFixtureRequested ? "fixture-fold" : null);
   const refreshGeneration = useRef(0);
+  const [extensionSnapshot, setExtensionSnapshot] = useState<{ conversationId: string; requests: ExtensionUiRequest[] } | null>(extensionFixtureRequested ? {
+    conversationId: "fixture-fold", requests: [
+      { id: "fixture-extension", method: "select", title: "Which account should I use for the report?", options: ["Work account", "Personal account"] },
+    ],
+  } : null);
   const draftsRef = useRef(new Map<string, { text: string; staged: StagedItem[] }>());
   const transcriptRef = useRef<HTMLElement | null>(null);
   const transcriptPinnedRef = useRef(true);
@@ -304,12 +311,15 @@ export function PopoverApp() {
     const stream = createEventSource(`/api/management/conversations/${encodeURIComponent(conversationId)}/events`);
     stream.onmessage = (raw) => {
       if (selectionRef.current !== conversationId) return;
-      let event: { type?: string; message?: string; toolName?: string; text?: string; running?: boolean };
+      let event: ChatStreamEvent;
       try {
-        event = JSON.parse(raw.data) as { type?: string; message?: string; toolName?: string; text?: string; running?: boolean };
+        event = JSON.parse(raw.data) as ChatStreamEvent;
       } catch {
         return;
       }
+      if (event.type === "extension_ui_snapshot") setExtensionSnapshot({ conversationId, requests: event.requests ?? [] });
+      if (event.type === "extension_ui_request" && event.request?.method === "notify") setActivity(event.request.message ?? "");
+      if (event.type === "editor" && typeof event.text === "string") setText((current) => event.editorMode === "replace" ? event.text! : current + event.text);
       if (event.type === "status" || event.type === "tool") {
         const message = typeof event.message === "string" && event.message !== "Connected." ? event.message.trim() : "";
         const tool = event.type === "tool" && typeof event.toolName === "string" ? event.toolName.trim() : "";
@@ -728,7 +738,7 @@ export function PopoverApp() {
             {filteredChats.map((chat) => (
               <button key={chat.id} className="fold-chat-row" type="button" aria-current={chat.id === conversationId ? "page" : undefined} disabled={navigationBusy} onClick={() => selectChat(chat.id)}>
                 <span>{chat.title || "Untitled chat"}</span>
-                <small><time dateTime={chat.updatedAt}>{chatDateLabel(chat.updatedAt)}</time>{chat.requestState === "working" || chat.requestState === "handed_off" ? <em>Working</em> : chat.needsAnswer ? <em>Needs your answer</em> : chat.archivedAt ? <em>Archived</em> : chat.snoozedUntil && Date.parse(chat.snoozedUntil) > now ? <em>Snoozed</em> : draftsRef.current.get(chat.id)?.text || draftsRef.current.get(chat.id)?.staged.length ? <em>Draft</em> : null}</small>
+                <small><time dateTime={chat.updatedAt}>{chatDateLabel(chat.updatedAt)}</time>{chat.needsAnswer ? <em>Needs your answer</em> : chat.requestState === "working" || chat.requestState === "handed_off" ? <em>Working</em> : chat.archivedAt ? <em>Archived</em> : chat.snoozedUntil && Date.parse(chat.snoozedUntil) > now ? <em>Snoozed</em> : draftsRef.current.get(chat.id)?.text || draftsRef.current.get(chat.id)?.staged.length ? <em>Draft</em> : null}</small>
               </button>
             ))}
             {!filteredChats.length ? <p className="fold-history-empty">{historyQuery ? "No chats match your search." : "Your chats will appear here after you send a message."}</p> : null}
@@ -789,6 +799,11 @@ export function PopoverApp() {
           {request && !activePhases.has(request.phase) ? (
             <ResultEntry request={request} showState={!workState.work} />
           ) : null}
+          {conversationId && extensionSnapshot?.conversationId === conversationId ? <ExtensionQuestions requests={extensionSnapshot.requests} scope={`management/${conversationId}`} respond={async (question, value, cancelled = false) => {
+            const selectedId = conversationId;
+            if (!popoverFixtureRequested) await api(`/api/management/conversations/${encodeURIComponent(selectedId)}/extension-ui/${encodeURIComponent(question.id)}`, { method: "POST", body: { value, cancelled } });
+            setExtensionSnapshot((current) => current?.conversationId === selectedId ? { ...current, requests: current.requests.filter((item) => item.id !== question.id) } : current);
+          }} /> : null}
           <WorkRequest {...workState} showProgress={request?.phase !== "working"} showStop={request?.phase === "needs_you"} />
         </section>
           {request && activePhases.has(request.phase) ? (

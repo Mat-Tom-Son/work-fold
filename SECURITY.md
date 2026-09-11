@@ -1,5 +1,16 @@
 # Security
 
+The development native Extension UI adapter scopes pending callbacks and
+extension-managed editor text to a root and conversation, validates response
+types and selection membership, bounds text and pending counts, and cancels
+callbacks on Stop/session disposal. Its paired-web response operation requires
+the exact originating management turn and browser grant, checks live
+revocation before delivery, and excludes explicitly secret inputs. Standard
+Pi text input has no secret classification, so Extension authors must use a
+desktop setup path for credentials. This adapter is not a sandbox for native
+Extensions and does not make their external effects reversible. See
+[Extensions and computer work](docs/extension-foundation.md).
+
 ## Report a vulnerability privately
 
 Please use a [GitHub private security advisory](https://github.com/Mat-Tom-Son/work-fold/security/advisories/new) to report a suspected vulnerability. Do not open a public issue for an unpatched security problem.

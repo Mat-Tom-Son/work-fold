@@ -1,0 +1,17 @@
+.extension-questions { display: grid; gap: 20px; margin: 20px 0; min-width: 0; }
+.extension-question { padding: 4px 0 4px 14px; border-left: 2px solid var(--accent, var(--pop-accent, #0b6fd6)); text-align: left; min-width: 0; }
+.extension-question-source { margin: 0 0 5px; font-size: 11px; font-weight: 600; letter-spacing: .03em; color: var(--text-muted, #657069); }
+.extension-question h3 { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.extension-question-detail { margin: 6px 0 12px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.extension-question fieldset { border: 0; padding: 0; margin: 10px 0 0; min-width: 0; }
+.extension-question input, .extension-question textarea { box-sizing: border-box; width: 100%; padding: 9px 11px; border: 1px solid var(--border, #cbd2cc); background: var(--surface, var(--pop-surface, #fff)); color: inherit; border-radius: 7px; font: inherit; font-size: 13px; }
+.extension-question textarea { resize: vertical; min-height: 90px; }
+.extension-question-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.extension-question button { font: inherit; font-size: 12px; line-height: 1.4; padding: 7px 12px; border: 1px solid var(--border, #cbd2cc); border-radius: 6px; background: transparent; color: inherit; cursor: pointer; text-align: left; overflow-wrap: anywhere; transition: background-color 120ms ease; }
+.extension-question button:hover { background: var(--surface-hover, var(--pop-surface-2, #eaf0eb)); }
+.extension-question button.extension-answer { background: var(--accent, var(--pop-accent, #0b6fd6)); border-color: transparent; color: white; }
+.extension-question button.extension-cancel { border-color: transparent; color: var(--text-muted, #657069); }
+.extension-question :focus-visible { outline: 2px solid var(--accent, var(--pop-accent, #0b6fd6)); outline-offset: 3px; }
+.extension-question :disabled { cursor: default; opacity: .55; }
+.extension-question-error { margin: 8px 0 0; font-size: 12px; color: var(--danger, #a53434); }
+@media (prefers-reduced-motion: reduce) { .extension-question button { transition: none; } }
