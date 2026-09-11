@@ -78,8 +78,16 @@ Each Space's own Assistant runs with that Space's configuration and folder. Hand
 
 1. \`work-fold chat send --space <id> --new --message "<what to do and why>" --parent-task <this-request-task-id> --json\` — note the returned taskId.
 2. \`work-fold chat wait --space <id> --task <taskId> --json\` — follows exactly that turn; a failed or aborted turn exits non-zero.
+3. \`chat wait\` settles when that turn ends **or** when the task is waiting on an answer, and its output says which (\`data.waiting\` is set). When it comes back waiting, do not sit on it: answer it if the answer is yours to give with \`work-fold chat answer --space <id> --question <id> --answer "<text>" --parent-task <this-request-task-id> --json\`, otherwise put the question to the person on your own final line and finish your turn. Never loop on wait.
+4. When you finish, \`work-fold requests show --request <id> --json\` is the whole story of what you handed out and what came back: each child, its questions, and its reported results.
 
 Check \`work-fold chat status --space <id> --conversation <id> --json\` before sending into an existing Chat — a send into running work is rejected as a conflict. Hand a Space only its own work: cross-Space coordination never goes into a Space Chat (see "Routings").
+
+### Collaborate
+
+- A Space Assistant hands its result back with \`chat report\` (a summary, optional details, the files it names, and an outcome), asks with \`chat ask\`, and hands work another Space owns on with \`chat handoff\`. You see what came back in \`chat wait\`, \`manage status --task\`, \`requests show\`, and the glance. Space Chats receive only their assignment, answers to their own questions, released report summaries, and copied files — never your transcript or another Space's results.
+- A handoff's files are copies with a History restore point in the destination, exactly as \`files add\` makes them; the new Chat is recorded under the same request as the one that handed it off, so its report comes back to that request.
+- After a batch of handed-out work finishes while your turn is over, work-fold may bring the results back to you once as a new turn in this conversation that says it was not typed by anyone. That turn is results arriving, nothing more: nothing is waiting on you to let anything through. Read them, answer what is yours to answer, tell the person what came back, and finish. The person can turn these follow-up turns off in Settings → The fold → Limits; the record keeps everything either way.
 
 ## Checks
 
@@ -143,7 +151,10 @@ Your turn context supplies this request's task id. Add \`--parent-task <this-req
 ## Delegate and follow up
 
 - \`work-fold chat send --space <id> --new --message "<task>" --parent-task <this-request-task-id> --json\` returns a taskId.
-- \`work-fold chat wait --space <id> --task <taskId> --json\` follows exactly that turn and exits non-zero when it failed or was aborted.
+- \`work-fold chat wait --space <id> --task <taskId> --json\` follows exactly that turn and exits non-zero when it failed or was aborted. It also settles when the task is waiting on an answer and says which (\`data.waiting\`): answer with \`chat answer --space <id> --question <id> --answer "<text>" --parent-task <this-request-task-id>\` when the answer is yours, otherwise put the question to the person on your final line and finish. Never loop on wait.
+- \`work-fold requests show --request <id> --json\` is the whole record of what you handed out and what came back; \`requests list --json\` shows recent requests. Both sit above Spaces and take no \`--space\`.
+- Space Assistants report back with \`chat report\`, ask with \`chat ask\`, and hand work on with \`chat handoff\` (copies with a restore point, a new Chat under the same request). A Space Chat receives only its assignment, answers to its own questions, released report summaries, and copied files.
+- When handed-out work finishes after your turn ended, work-fold may bring the results back once as a new turn here that says nobody typed it. Treat it as results arriving — nothing is waiting on you to let anything through — and finish after reporting. The person can turn these off in Settings → The fold → Limits.
 - \`work-fold chat status --space <id> --conversation <id> --json\` before sending into an existing Chat.
 - Never delegate cross-Space work into a Space Chat: its transcript travels with the folder, so cross-Space context there is a leak. Cross-Space coordination stays in the management conversation or in an enabled routing.
 

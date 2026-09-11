@@ -197,11 +197,16 @@ test("packaged Remote access enrollment carries no shared client credential", as
 function assertActLaneShimContract(shim: string): void {
   const routedFamilies = [
     "chat", "chats", "files", "manage", "checks", "spaces", "history", "search",
-    "library", "tools", "apps", "routings", "pages", "trash",
+    "library", "tools", "apps", "routings", "pages", "trash", "requests",
   ];
   for (const routed of [...routedFamilies, "list", "status", "wait", "task", "result"]) {
     assert.match(shim, new RegExp(`["']${routed}["']`), `act routing must reference ${routed}`);
   }
+  // F28: the wait loop settles on a task that is waiting on an answer, not
+  // only on a terminal turn state, and says which by printing the status
+  // document in that case. A shim that reads only task.state fails here.
+  assert.match(shim, /data\.waiting|\$data\.waiting/, "the wait loop must read the status document's waiting field");
+  assert.match(shim, /waiting/);
   assert.match(shim, /act-token\.json/);
   assert.match(shim, /\[A-Za-z0-9_-\]\{16,256\}/);
   assert.match(shim, /protocolVersion\s*[:=]\s*3/);

@@ -125,9 +125,36 @@ work-fold manage send --message "Put this where it belongs and start a review." 
 work-fold manage wait --task <task-id> --json
 work-fold manage status --task <task-id> --json
 work-fold manage stop --task <task-id> --json
+work-fold chat report --space "Home" --task <own-task-id> --summary "Filed three invoices." --file "Invoices/2026-09.pdf" --json
+work-fold chat ask --space "Home" --task <own-task-id> --question "Which quarter?" --to parent --json
+work-fold chat answer --space "Home" --question <question-id> --answer "Q3." --json
+work-fold chat handoff --space "Home" --task <own-task-id> --to-space "Vendor Audits" --message "Review the filed invoices." --file "Invoices/2026-09.pdf" --json
+work-fold requests list --json
+work-fold requests show --request <request-id> --json
 work-fold trash list --json
 work-fold trash restore --entry <recently-deleted-id> --json
 ```
+
+The four collaboration verbs (docs/collaboration-contract.md, F27) are
+Space-scoped, receipted, and host-delivered: `chat report` attaches one
+result envelope to the caller's own running turn, `chat ask` records a
+question and puts that task's request in `waiting` without suspending the
+turn, `chat answer` records exactly one answer and starts exactly one linked
+continuation turn in the same Chat (the turn store dedups it under
+`answer-<question-id>`; a second answer, an expired question, a stopped
+request, the wrong Space, or a busy Chat is refused by name), and
+`chat handoff` copies the named files into the destination through the same
+additive, restore-pointed path as `files add` and then starts a new Chat
+there as a child of the caller's request. `requests list|show` are
+management-scope reads of the request graph. `chat wait` and `manage wait`
+settle when the followed turn ends or when the task is waiting on an answer,
+and say which (F28); the status documents carry `waiting` and the request
+ref beside the turn state. When every child of a root management request has
+settled after the fold's own turn ended, the host starts at most one
+continuation turn in that conversation carrying the collected reports — a
+`system`-actor turn joined to the root, at most four per root, off in
+Settings → The fold → Limits, never after a root Stop, never started by a
+restart.
 
 `work-fold trash …` reads and restores **Recently deleted**, the machine-local
 store under the state root that holds what a delete could not leave to History:

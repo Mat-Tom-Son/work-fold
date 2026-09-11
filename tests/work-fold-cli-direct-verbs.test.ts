@@ -25,21 +25,49 @@ type ReceiptEntry = Omit<WorkFoldCliActReceiptV3, "v" | "at">;
  * a terminal line after, and stamps no decision id anywhere
  * (docs/receipts-not-gates.md, F19).
  */
+interface HeldTurn {
+  taskId: string;
+  spaceId: string;
+  release: () => void;
+}
+
 async function directVerbHarness(prefix: string): Promise<{
   sandbox: string;
   api: LocalApiHandle;
   records: ReceiptEntry[];
   execute: (argv: string[]) => ReturnType<typeof executeWorkFoldCliActRequest>;
   lastOk: () => ReceiptEntry;
+  /** Space ids (the management scope id included) whose turns wait at the prompt gate until released. */
+  held: Set<string>;
+  release: (taskId: string) => Promise<void>;
   close: () => Promise<void>;
 }> {
   const sandbox = await mkdtemp(join(tmpdir(), `work-fold-direct-verbs-${prefix}-`));
+  // A `/hold` extension command lets a test run a turn that needs no model,
+  // and the prompt gate lets it act inside "its own running turn".
+  await mkdir(join(sandbox, "agent", "extensions"), { recursive: true });
+  await writeFile(join(sandbox, "agent", "extensions", "hold.ts"), `export default function (pi) {
+    pi.registerCommand("hold", {
+      description: "Hold a test turn",
+      handler: async () => await new Promise((resolve) => setTimeout(resolve, 50)),
+    });
+  }\n`, "utf8");
+  const held = new Set<string>();
+  const pending: HeldTurn[] = [];
+  // Once teardown starts no turn is held: a turn accepted a moment ago may
+  // reach the gate after the last release, and a held turn would keep
+  // `close()` waiting forever.
+  let draining = false;
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
     spaceBase: join(sandbox, "content"),
     loadEnv: false,
-    piRuntimeProvider: { async resolveRuntime() { return {}; } },
+    piRuntimeProvider: { async resolveRuntime() { return { agentDir: join(sandbox, "agent") }; } },
+    beforeAgentPrompt: async (event) => {
+      if (draining || !held.has(event.spaceId)) return;
+      await new Promise<void>((release) => pending.push({ taskId: event.taskId, spaceId: event.spaceId, release }));
+    },
   });
   const records: ReceiptEntry[] = [];
   const execute = (argv: string[]) => executeWorkFoldCliActRequest(
@@ -63,11 +91,32 @@ async function directVerbHarness(prefix: string): Promise<{
     records,
     execute,
     lastOk: () => records.filter((record) => record.outcome === "ok").at(-1)!,
+    held,
+    release: async (taskId) => {
+      const deadline = Date.now() + 15_000;
+      while (!pending.some((turn) => turn.taskId === taskId)) {
+        if (Date.now() > deadline) throw new Error(`Timed out waiting for turn ${taskId} to reach the prompt gate.`);
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      pending.splice(pending.findIndex((turn) => turn.taskId === taskId), 1)[0]!.release();
+    },
     close: async () => {
+      draining = true;
+      for (const turn of pending.splice(0)) turn.release();
       await api.close();
       await rm(sandbox, { recursive: true, force: true });
     },
   };
+}
+
+async function settledTask(api: LocalApiHandle, spaceId: string, taskId: string): Promise<void> {
+  const deadline = Date.now() + 15_000;
+  for (;;) {
+    const status = await api.actFacade.turnStatus({ space: spaceId, taskId });
+    if (status.task.state !== "running") return;
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for turn ${taskId} to settle.`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
 }
 
 function errorCodeOf(stderr: string): string | undefined {
@@ -334,6 +383,154 @@ test("apps grant --kind files --path binds a single-file permission to that exac
     const folderGrant = await h.execute([...grantArgv, "--declaration", "exports", "--json"]);
     assert.equal(folderGrant.exitCode, 0, folderGrant.stderr);
     assert.equal((JSON.parse(folderGrant.stdout) as { data: { root: string } }).data.root, ".");
+  } finally {
+    await h.close();
+  }
+});
+
+test("chat report, ask, answer, and handoff run through the act lane with content-free receipts, and requests show reads them back", async () => {
+  const h = await directVerbHarness("collaboration");
+  try {
+    const drafts = await h.api.actFacade.createSpace({ name: "Drafts" });
+    const reviews = await h.api.actFacade.createSpace({ name: "Reviews" });
+    await writeFile(join(drafts.space.spaceRoot, "draft.md"), "# Draft\n", "utf8");
+    await writeFile(join(h.sandbox, "details.json"), JSON.stringify({ pages: 3, sections: ["intro"] }), "utf8");
+    h.held.add(drafts.space.id);
+
+    // A Space turn that is its own root, held open at the prompt gate so the
+    // verbs below run inside "its own running turn".
+    const own = await h.api.actFacade.sendMessage({ space: drafts.space.id, newConversation: true, content: "/hold" });
+    const rootId = h.api.requests.byTaskId(own.taskId)!.requestId;
+
+    // Report: the envelope comes back whole; the receipt records the outcome
+    // and file count and never the summary or data.
+    const reported = await h.execute([
+      "chat", "report", "--space", drafts.space.id, "--task", own.taskId,
+      "--summary", "Drafted draft.md from the brief.", "--data", "@details.json", "--file", "draft.md", "--outcome", "partial", "--json",
+    ]);
+    assert.equal(reported.exitCode, 0, reported.stderr);
+    const reportedJson = JSON.parse(reported.stdout) as {
+      ok: boolean;
+      data: { taskId: string; result: { summary: string; data: unknown; files: Array<{ path: string; sha256: string; sizeBytes: number }>; outcome: string }; request: { id: string; state: string } };
+    };
+    assert.equal(reportedJson.ok, true);
+    assert.equal(reportedJson.data.result.outcome, "partial");
+    assert.deepEqual(reportedJson.data.result.data, { pages: 3, sections: ["intro"] }, "--data @<path> is read against the directory the command ran in");
+    assert.equal(reportedJson.data.result.files[0]!.path, "draft.md");
+    assert.equal(reportedJson.data.result.files[0]!.sizeBytes, 8);
+    assert.match(reportedJson.data.result.files[0]!.sha256, /^[a-f0-9]{64}$/);
+    assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "ok"]);
+    assert.equal(h.lastOk().detail, "report partial; 1 file");
+    assert.equal(h.lastOk().taskId, own.taskId);
+    assert.equal(h.lastOk().spaceId, drafts.space.id);
+    assert.equal(h.lastOk().undoRef, undefined, "a report is a record, not a mutation");
+    assert.doesNotMatch(JSON.stringify(h.records), /Drafted|pages/, "receipts never carry the summary or the data");
+
+    // A file outside the Space, a reserved folder, and a missing file are
+    // each refused before anything is recorded.
+    for (const [file, code] of [["../outside.md", "usage"], [".work-fold/space.json", "usage"], ["ghost.md", "notFound"]] as const) {
+      const refused = await h.execute(["chat", "report", "--space", drafts.space.id, "--task", own.taskId, "--summary", "Nope.", "--file", file, "--json"]);
+      assert.equal(errorCodeOf(refused.stderr), code, `${file} → ${code}: ${refused.stderr}`);
+    }
+    assert.equal(h.api.requests.get(rootId)!.results.length, 1);
+
+    // Ask: the task is waiting while its turn still runs, and the status
+    // document says so; the receipt names the question, never its text.
+    h.records.length = 0;
+    const asked = await h.execute(["chat", "ask", "--space", drafts.space.id, "--task", own.taskId, "--question", "Which quarter?", "--json"]);
+    assert.equal(asked.exitCode, 0, asked.stderr);
+    const askedJson = JSON.parse(asked.stdout) as { data: { question: { questionId: string; respondent: string }; redirectedToPerson: boolean; request: { state: string } } };
+    assert.equal(askedJson.data.question.respondent, "person");
+    assert.equal(askedJson.data.request.state, "waiting");
+    assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "ok"]);
+    assert.equal(h.lastOk().detail, `question ${askedJson.data.question.questionId} to person`);
+    assert.doesNotMatch(JSON.stringify(h.records), /quarter/i);
+    const status = await h.execute(["chat", "status", "--space", drafts.space.id, "--task", own.taskId, "--json"]);
+    const statusJson = JSON.parse(status.stdout) as { data: { task: { state: string }; waiting: { questionId: string; question: string } | null; request: { state: string } } };
+    assert.equal(statusJson.data.task.state, "running");
+    assert.equal(statusJson.data.waiting?.questionId, askedJson.data.question.questionId);
+    assert.equal(statusJson.data.waiting?.question, "Which quarter?");
+    const humanStatus = await h.execute(["chat", "status", "--space", drafts.space.id, "--task", own.taskId]);
+    assert.match(humanStatus.stdout, /^Task [^ ]+ — waiting on you since /, humanStatus.stderr);
+    assert.match(humanStatus.stdout, /Question q-[^:]+: Which quarter\?/);
+    assert.match(humanStatus.stdout, new RegExp(`Answer it with: work-fold chat answer --space ${drafts.space.id} --question ${askedJson.data.question.questionId}`));
+
+    // Handoff: copies with a restore point in the destination, a new Chat
+    // there under this request, and the receipt names the destination.
+    h.records.length = 0;
+    const handed = await h.execute([
+      "chat", "handoff", "--space", drafts.space.id, "--task", own.taskId, "--to-space", reviews.space.id,
+      "--message", "/hold", "--file", "draft.md", "--json",
+    ]);
+    assert.equal(handed.exitCode, 0, handed.stderr);
+    const handedJson = JSON.parse(handed.stdout) as { data: { taskId: string; conversationId: string; copied: string[]; checkpointId: string; request: { rootId: string; depth: number } } };
+    assert.deepEqual(handedJson.data.copied, ["draft.md"]);
+    assert.ok(handedJson.data.checkpointId);
+    assert.equal(handedJson.data.request.rootId, rootId);
+    assert.equal(handedJson.data.request.depth, 1);
+    assert.equal(existsSync(join(reviews.space.spaceRoot, "draft.md")), true);
+    assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "ok"]);
+    assert.equal(h.lastOk().detail, `handoff to ${reviews.space.id}; 1 file`);
+    assert.equal(h.lastOk().spaceId, reviews.space.id, "the receipt names the Space the effect landed in");
+    assert.equal(h.lastOk().checkpointId, handedJson.data.checkpointId);
+    assert.deepEqual(h.lastOk().undoRef, { kind: "checkpoint", value: handedJson.data.checkpointId });
+    assert.equal(h.lastOk().taskId, handedJson.data.taskId);
+    await settledTask(h.api, reviews.space.id, handedJson.data.taskId);
+
+    // The asking turn ends; the question stays open; an answer from the
+    // wrong Space is refused by name, and the right one continues exactly
+    // once — the second call executes nothing.
+    await h.release(own.taskId);
+    await settledTask(h.api, drafts.space.id, own.taskId);
+    h.records.length = 0;
+    const wrong = await h.execute(["chat", "answer", "--space", reviews.space.id, "--question", askedJson.data.question.questionId, "--answer", "Q3", "--json"]);
+    assert.equal(wrong.exitCode, 5);
+    assert.equal(errorCodeOf(wrong.stderr), "conflict");
+    assert.match(wrong.stderr, /belongs to Drafts/);
+    assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "error"]);
+    h.records.length = 0;
+    const answered = await h.execute(["chat", "answer", "--space", drafts.space.id, "--question", askedJson.data.question.questionId, "--answer", "/hold", "--json"]);
+    assert.equal(answered.exitCode, 0, answered.stderr);
+    const answeredJson = JSON.parse(answered.stdout) as { data: { question: { state: string; continuationTaskId: string }; continuation: { taskId: string; conversationId: string } } };
+    assert.equal(answeredJson.data.question.state, "answered");
+    assert.equal(answeredJson.data.continuation.conversationId, own.conversationId);
+    assert.equal(answeredJson.data.question.continuationTaskId, answeredJson.data.continuation.taskId);
+    assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "ok"]);
+    assert.equal(h.lastOk().detail, `answered ${askedJson.data.question.questionId}; continuation ${answeredJson.data.continuation.taskId}`);
+    assert.equal(h.lastOk().taskId, answeredJson.data.continuation.taskId);
+    assert.doesNotMatch(JSON.stringify(h.records), /hold/, "receipts never carry the answer text");
+    await h.release(answeredJson.data.continuation.taskId);
+    await settledTask(h.api, drafts.space.id, answeredJson.data.continuation.taskId);
+    h.records.length = 0;
+    const again = await h.execute(["chat", "answer", "--space", drafts.space.id, "--question", askedJson.data.question.questionId, "--answer", "/hold", "--json"]);
+    assert.equal(again.exitCode, 5);
+    assert.match(again.stderr, /already has an answer/);
+    assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "error"]);
+    assert.equal(h.api.requests.get(rootId)!.turns.length, 2, "exactly one continuation turn");
+
+    // requests list|show read the record above Spaces; the human form clamps,
+    // the JSON form carries the envelope whole.
+    const listed = await h.execute(["requests", "list", "--json"]);
+    assert.equal(listed.exitCode, 0, listed.stderr);
+    const listedJson = JSON.parse(listed.stdout) as { data: { requests: Array<{ id: string; children: number }>; truncated: boolean } };
+    assert.ok(listedJson.data.requests.some((request) => request.id === rootId && request.children === 1));
+    const shown = await h.execute(["requests", "show", "--request", rootId, "--json"]);
+    assert.equal(shown.exitCode, 0, shown.stderr);
+    const shownJson = JSON.parse(shown.stdout) as {
+      data: { request: { state: string; questions: Array<{ text: string; answer: string | null }>; resultRecords: Array<{ envelope: { summary: string; data: unknown } }>; childRequests: Array<{ spaceName: string }> } };
+    };
+    assert.equal(shownJson.data.request.questions[0]!.text, "Which quarter?");
+    assert.equal(shownJson.data.request.questions[0]!.answer, "/hold");
+    assert.equal(shownJson.data.request.resultRecords[0]!.envelope.summary, "Drafted draft.md from the brief.");
+    assert.deepEqual(shownJson.data.request.resultRecords[0]!.envelope.data, { pages: 3, sections: ["intro"] });
+    assert.equal(shownJson.data.request.childRequests[0]!.spaceName, "Reviews");
+    const shownHuman = await h.execute(["requests", "show", "--request", rootId]);
+    assert.match(shownHuman.stdout, /^Request req-[^ ]+ — cli, partial — Drafts \[/);
+    assert.match(shownHuman.stdout, /question q-[^ ]+ to you — answered: Which quarter\?/);
+    assert.match(shownHuman.stdout, /result res-[^ ]+ from task [^ ]+ — partial, 1 file: Drafted draft\.md from the brief\./);
+    assert.match(shownHuman.stdout, /\n  Request req-[^ ]+ — space, done — Reviews \[/, "children are indented beneath the root");
+    const missing = await h.execute(["requests", "show", "--request", "req-00000000000000-00000000", "--json"]);
+    assert.equal(errorCodeOf(missing.stderr), "notFound");
   } finally {
     await h.close();
   }

@@ -82,7 +82,7 @@ function Test-WorkFoldActCommand {
   $group = if ($positional.Count -gt 0) { [string]$positional[0] } else { '' }
   $actGroups = @(
     'chat', 'chats', 'files', 'manage', 'history', 'search', 'library',
-    'tools', 'apps', 'routings', 'pages', 'trash'
+    'tools', 'apps', 'routings', 'pages', 'trash', 'requests'
   )
   if ($actGroups -contains $group) { return $true }
   if ($group -ceq 'checks') { return $positional.Count -lt 2 -or [string]$positional[1] -cne 'status' }
@@ -256,11 +256,17 @@ function Invoke-WorkFoldChatWait {
   param([pscustomobject]$Plan, [string]$ActToken)
   # Waiting is task-scoped: it follows the exact turn the send accepted, so
   # an older assistant message can never read as this turn's success.
+  # The loop settles on two things and says which: the turn reached a
+  # terminal state (then the result is printed), or the task is waiting on
+  # an answer (then the status document with its `waiting` field is
+  # printed, exit 0). A parent never sits on a child's question.
   $statusArguments = [Collections.Generic.List[string]]::new()
   $statusVerb = if ($Plan.Group -ceq 'checks') { 'task' } else { 'status' }
   $statusArguments.AddRange([string[]]@($Plan.Group, $statusVerb))
   if ((@('chat', 'checks') -contains $Plan.Group)) { $statusArguments.AddRange([string[]]@('--space', $Plan.Space)) }
-  $statusArguments.AddRange([string[]]@('--task', $Plan.Task, '--json'))
+  $statusArguments.AddRange([string[]]@('--task', $Plan.Task))
+  $humanStatusArguments = $statusArguments.ToArray()
+  $statusArguments.Add('--json')
   $deadline = [DateTimeOffset]::UtcNow.AddSeconds($Plan.TimeoutSeconds)
   for (;;) {
     $status = Invoke-WorkFoldRequest -RequestArguments $statusArguments.ToArray() -ActToken $ActToken -Payload $null
@@ -269,10 +275,22 @@ function Invoke-WorkFoldChatWait {
       return $status.ExitCode
     }
     $state = ''
+    $waiting = $null
     try {
-      $state = [string](($status.Stdout | ConvertFrom-Json).data.task.state)
+      $data = ($status.Stdout | ConvertFrom-Json).data
+      $state = [string]$data.task.state
+      $waiting = $data.waiting
     } catch {
       throw 'work-fold returned an unreadable task status.'
+    }
+    if ($null -ne $waiting) {
+      if ($Plan.Json) {
+        Write-WorkFoldOutcome $status
+        return 0
+      }
+      $humanStatus = Invoke-WorkFoldRequest -RequestArguments $humanStatusArguments -ActToken $ActToken -Payload $null
+      Write-WorkFoldOutcome $humanStatus
+      return $humanStatus.ExitCode
     }
     if (@('accepted', 'running') -notcontains $state) { break }
     if ([DateTimeOffset]::UtcNow -ge $deadline) {

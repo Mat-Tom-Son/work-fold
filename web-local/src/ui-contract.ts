@@ -96,6 +96,13 @@ export const foldLimitsSettings = {
   requestsHeading: "Requests you start",
   requestsIntro: "When you ask the fold for something, work-fold keeps one record of that request and everything it hands to "
     + "a Space. These are the sizes and counts it stops at.",
+  continuationsHeading: "When work you handed out finishes",
+  continuationsIntro: "work-fold can bring the results back to the fold for you, once each time a batch of handed-out work "
+    + "finishes after the fold's own turn ended. Turn this off and the results still land in the request record and the "
+    + "glance — nothing is lost, and nothing is brought back as a turn.",
+  continuationsLabel: "Bring finished work back to the fold",
+  continuationsSaved: "Saved",
+  continuationsUnavailable: "This setting needs the work-fold app running.",
   routingsHeading: "Routings",
   routingsIntro: "A routing is the deterministic glue that moves work between Spaces.",
   automationsHeading: "App automations",

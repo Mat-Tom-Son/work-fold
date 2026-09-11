@@ -1926,3 +1926,96 @@ async function writeAuthorityPackage(root: string): Promise<void> {
     "utf8",
   );
 }
+
+test("the act facade's status documents say what a task is waiting on, and a stale task id is refused by name", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-act-facade-waiting-test-"));
+  await mkdir(join(sandbox, "agent", "extensions"), { recursive: true });
+  await writeFile(join(sandbox, "agent", "extensions", "hold.ts"), `export default function (pi) {
+    pi.registerCommand("hold", {
+      description: "Hold a test turn",
+      handler: async () => await new Promise((resolve) => setTimeout(resolve, 50)),
+    });
+  }\n`, "utf8");
+  const gates: Array<{ taskId: string; release: () => void }> = [];
+  const held = new Set<string>();
+  let draining = false;
+  const api = await startLocalApi({
+    port: 0,
+    stateBase: join(sandbox, "state"),
+    spaceBase: join(sandbox, "content"),
+    loadEnv: false,
+    piRuntimeProvider: { async resolveRuntime() { return { agentDir: join(sandbox, "agent") }; } },
+    beforeAgentPrompt: async (event) => {
+      if (draining || !held.has(event.spaceId)) return;
+      await new Promise<void>((release) => gates.push({ taskId: event.taskId, release }));
+    },
+  });
+  const release = async (taskId: string): Promise<void> => {
+    await waitForAsync(async () => gates.some((gate) => gate.taskId === taskId));
+    gates.splice(gates.findIndex((gate) => gate.taskId === taskId), 1)[0]!.release();
+  };
+  try {
+    const facade = api.actFacade;
+    const space = await facade.createSpace({ name: "Waiting Space" });
+    held.add(space.space.id);
+
+    // Before any question: the status carries the request ref and no waiting.
+    const own = await facade.sendMessage({ space: space.space.id, newConversation: true, content: "/hold" });
+    const before = await facade.turnStatus({ space: space.space.id, taskId: own.taskId });
+    assert.equal(before.task.state, "running");
+    assert.equal(before.waiting, null);
+    assert.equal(before.request?.kind, "cli");
+    assert.equal(before.request?.state, "working");
+    assert.equal(before.request?.depth, 0);
+
+    // A question from the running turn: waiting is set while the turn runs,
+    // and still set once it ends. The management status of an unrelated
+    // task carries the same two fields.
+    const asked = await facade.chatAsk({ space: space.space.id, taskId: own.taskId, question: "Ship it?", respondent: "person" });
+    const during = await facade.turnStatus({ space: space.space.id, taskId: own.taskId });
+    assert.equal(during.task.state, "running");
+    assert.deepEqual(during.waiting, {
+      questionId: asked.question.questionId,
+      requestId: asked.request.id,
+      respondent: "person",
+      question: "Ship it?",
+      askedAt: asked.question.askedAt,
+      expiresAt: asked.question.expiresAt,
+    });
+    assert.equal(during.request?.state, "waiting");
+    assert.equal(during.request?.openQuestions, 1);
+    await release(own.taskId);
+    await waitForAsync(async () => (await facade.turnStatus({ space: space.space.id, taskId: own.taskId })).task.state !== "running");
+    const after = await facade.turnStatus({ space: space.space.id, taskId: own.taskId });
+    assert.equal(after.task.state, "succeeded");
+    assert.equal(after.waiting?.questionId, asked.question.questionId);
+
+    // A task id whose turn has ended is not "the caller's own running turn":
+    // report, ask, and handoff refuse it by name, exactly as --parent-task
+    // would be refused, and record nothing.
+    for (const attempt of [
+      () => facade.chatReport({ space: space.space.id, taskId: own.taskId, summary: "Late.", files: [], outcome: "succeeded" }),
+      () => facade.chatAsk({ space: space.space.id, taskId: own.taskId, question: "Late?", respondent: "person" }),
+      () => facade.chatHandoff({ space: space.space.id, taskId: own.taskId, toSpace: space.space.id, message: "/hold", files: [] }),
+    ]) {
+      await assert.rejects(attempt, (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict" && /stopping or has already finished/.test(error.message));
+    }
+    assert.equal(api.requests.get(asked.request.id)!.results.length, 0);
+    assert.equal(api.requests.get(asked.request.id)!.questionIds.length, 1);
+    assert.equal(api.requests.get(asked.request.id)!.childRequestIds.length, 0);
+
+    // The management status names the F25 graph beside its shipped projection.
+    held.delete(space.space.id);
+    const manage = await facade.manageSend({ content: "/hold" });
+    const managed = await facade.manageTurnStatus({ taskId: manage.taskId });
+    assert.equal(managed.waiting, null);
+    assert.equal(managed.requestGraph?.kind, "management");
+    assert.equal(managed.requestGraph?.id, managed.request?.requestId);
+    await waitForAsync(async () => (await facade.manageTurnStatus({ taskId: manage.taskId })).task.state !== "running");
+  } finally {
+    draining = true;
+    for (const gate of gates.splice(0)) gate.release();
+    await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});

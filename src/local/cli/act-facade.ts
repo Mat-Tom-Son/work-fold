@@ -22,6 +22,10 @@ import type {
   WorkFoldRequestKind,
   WorkFoldRequestLimitHit,
   WorkFoldRequestState,
+  WorkFoldRequestSurface,
+  WorkFoldRequestTurnState,
+  WorkFoldRequestUsage,
+  WorkFoldResultEnvelope,
   WorkFoldResultOutcome,
 } from "../requests/request-records.js";
 import type { SpaceChatMatch, SpaceFileMatch } from "../search.js";
@@ -251,6 +255,104 @@ export interface WorkFoldActCheckTaskStatus {
   startedAt: string | null;
   endedAt: string | null;
   error: string | null;
+}
+
+/**
+ * F27/F28 (docs/collaboration-contract.md): the request graph as the act lane
+ * shows it. A request ref is the compact form every collaboration verb returns
+ * beside its own result; the summary and detail forms are what `requests
+ * list|show` read. `--json` carries a result's summary and data whole; the
+ * human renderer clamps them. Nothing here reaches a Space transcript.
+ */
+export interface WorkFoldActRequestRef {
+  id: string;
+  rootId: string;
+  kind: WorkFoldRequestKind;
+  state: WorkFoldRequestState;
+  /** 0 for a root. */
+  depth: number;
+  /** Null exactly for the management scope. */
+  spaceId: string | null;
+  spaceName: string | null;
+  conversationId: string;
+  deadline: string;
+  openQuestions: number;
+  children: number;
+  results: number;
+}
+
+export interface WorkFoldActQuestionRef {
+  questionId: string;
+  requestId: string;
+  /** The asking turn. */
+  taskId: string;
+  respondent: "person" | "parent";
+  text: string;
+  state: "open" | "answered" | "expired" | "cancelled";
+  askedAt: string;
+  expiresAt: string;
+  answer: string | null;
+  answeredAt: string | null;
+  /** The one linked follow-up turn an answer started, once it has. */
+  continuationTaskId: string | null;
+}
+
+/**
+ * F28: the followed task is waiting on an answer. Absent when nothing is
+ * owed. This is a fact about the task's request, never a turn state — the
+ * turn may still be running or may already have ended.
+ */
+export interface WorkFoldActWaitingRef {
+  questionId: string;
+  requestId: string;
+  respondent: "person" | "parent";
+  question: string;
+  askedAt: string;
+  expiresAt: string;
+}
+
+export interface WorkFoldActRequestSummary extends WorkFoldActRequestRef {
+  surface: WorkFoldRequestSurface;
+  createdAt: string;
+  updatedAt: string;
+  settledAt: string | null;
+  /** The request's newest turn. */
+  taskId: string;
+  continuationCount: number;
+  limitHit: WorkFoldRequestLimitHit | null;
+}
+
+export interface WorkFoldActRequestResult {
+  resultId: string;
+  taskId: string;
+  recordedAt: string;
+  receiptId: string;
+  outcome: WorkFoldResultOutcome;
+  fileCount: number;
+  /** The whole envelope; null when its file could not be read back, with `damaged` saying why. */
+  envelope: WorkFoldResultEnvelope | null;
+  damaged?: string;
+}
+
+export interface WorkFoldActRequestDetail extends WorkFoldActRequestSummary {
+  parentRequestId: string | null;
+  parentTaskId: string | null;
+  content: string;
+  turns: Array<{
+    taskId: string;
+    role: "origin" | "continuation";
+    state: WorkFoldRequestTurnState;
+    acceptedAt: string;
+    settledAt: string | null;
+    error: string | null;
+  }>;
+  questions: WorkFoldActQuestionRef[];
+  resultRecords: WorkFoldActRequestResult[];
+  usage: WorkFoldRequestUsage;
+  stopRequestedAt: string | null;
+  reconciledAt: string | null;
+  /** Every request directly below this one, each with its own subtree. */
+  childRequests: WorkFoldActRequestDetail[];
 }
 
 /** Registered-Space storage kind, mirrored from the Space registry. */
@@ -612,6 +714,9 @@ export interface WorkFoldActFacade {
   turnStatus(input: { space: string; taskId: string }): Promise<{
     space: WorkFoldActSpaceRef;
     task: WorkFoldActTurnStatus;
+    /** F28: set while this task's request waits on an answer to a question this task asked. */
+    waiting: WorkFoldActWaitingRef | null;
+    request: WorkFoldActRequestRef | null;
   }>;
   turnResult(input: { space: string; taskId: string }): Promise<{
     space: WorkFoldActSpaceRef;
@@ -619,6 +724,97 @@ export interface WorkFoldActFacade {
     task: { taskId: string; state: "succeeded"; endedAt: string };
     message: WorkFoldActChatMessage;
   }>;
+
+  /**
+   * The collaboration verbs (docs/collaboration-contract.md, F27). Each is
+   * journal-first and receipted; delivery is host-side, so none of them
+   * needs a fold model turn. `--task` must name the caller's own turn — the
+   * newest, still-running turn of a request the named Space owns — checked
+   * the way `--parent-task` is checked.
+   */
+  chatReport(input: {
+    space: string;
+    taskId: string;
+    summary: string;
+    /** Inline JSON already parsed by the CLI. */
+    data?: unknown;
+    /** `--data @<path>`: resolved host-side against `cwd`, bounded, parsed here. */
+    dataPath?: string;
+    cwd?: string;
+    /** Space-relative deliverables; each is fingerprinted and measured inside the Space. */
+    files: string[];
+    outcome: WorkFoldResultOutcome;
+    /** Act-envelope request id, recorded as the result's receipt id. */
+    requestId?: string;
+    parentTaskId?: string;
+  }): Promise<{
+    space: WorkFoldActSpaceRef;
+    taskId: string;
+    resultId: string;
+    result: WorkFoldResultEnvelope;
+    request: WorkFoldActRequestRef;
+  }>;
+  chatAsk(input: {
+    space: string;
+    taskId: string;
+    question: string;
+    respondent: "person" | "parent";
+    requestId?: string;
+    parentTaskId?: string;
+  }): Promise<{
+    space: WorkFoldActSpaceRef;
+    taskId: string;
+    question: WorkFoldActQuestionRef;
+    request: WorkFoldActRequestRef;
+    /** True when --to parent named a root with no parent, so the question went to the person. */
+    redirectedToPerson: boolean;
+  }>;
+  /**
+   * Exactly one answer, exactly one linked continuation turn in the same
+   * Chat. Refuses a second answer, an answer past the request's window, an
+   * answer from a Space that does not own the question, and an answer while
+   * that Chat's turn or compaction is still running (the question stays open
+   * and can be answered once the Chat is idle).
+   */
+  chatAnswer(input: {
+    space: string;
+    questionId: string;
+    answer: string;
+    requestId?: string;
+    parentTaskId?: string;
+  }): Promise<{
+    space: WorkFoldActSpaceRef;
+    question: WorkFoldActQuestionRef;
+    continuation: { taskId: string; messageId: string; conversationId: string };
+    request: WorkFoldActRequestRef;
+  }>;
+  /**
+   * Copies the named files into the destination through the same additive,
+   * restore-pointed path as `files add`, then starts a new Chat there through
+   * ordinary acceptance as a child of the caller's request. The copy runs
+   * first so a refused copy never leaves a started Chat behind.
+   */
+  chatHandoff(input: {
+    space: string;
+    taskId: string;
+    toSpace: string;
+    message: string;
+    files: string[];
+    requestId?: string;
+    parentTaskId?: string;
+  }): Promise<{
+    space: WorkFoldActSpaceRef;
+    toSpace: WorkFoldActSpaceRef;
+    conversationId: string;
+    messageId: string;
+    taskId: string;
+    copied: string[];
+    checkpointId: string | null;
+    request: WorkFoldActRequestRef;
+  }>;
+  /** Management-scope reads of the request graph: recent roots, newest first. */
+  requestsList(): Promise<{ requests: WorkFoldActRequestSummary[]; truncated: boolean }>;
+  requestsShow(input: { request: string }): Promise<{ request: WorkFoldActRequestDetail }>;
 
   /**
    * Chat lifecycle verbs (docs/fold-act-ledger.md). Each performs exactly one
@@ -1527,7 +1723,15 @@ export interface WorkFoldActFacade {
   }>;
   manageTurnStatus(input: { taskId: string }): Promise<{
     task: WorkFoldActTurnStatus;
+    /** The shipped attachment-and-actions projection (`manage status` keeps it, F25). */
     request: WorkFoldActManagementRequest | null;
+    /** F28: set while this task's request waits on an answer to a question this task asked. */
+    waiting: WorkFoldActWaitingRef | null;
+    /**
+     * The F25 graph ref, named apart from `request` so the shipped field keeps
+     * its shape for the popover and the human renderer.
+     */
+    requestGraph: WorkFoldActRequestRef | null;
   }>;
   /** Request-level stop: aborts the management turn and every recorded child turn still running. */
   manageStop(input: { taskId: string }): Promise<{

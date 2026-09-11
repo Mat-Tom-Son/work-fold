@@ -72,7 +72,7 @@ function run(rawArguments) {
 function isActCommand(argumentsList) {
   const positional = argumentsList.filter((token) => token !== "--json");
   const group = positional[0] || "";
-  const actGroups = ["chat", "chats", "files", "manage", "history", "search", "library", "tools", "apps", "routings", "pages", "trash"];
+  const actGroups = ["chat", "chats", "files", "manage", "history", "search", "library", "tools", "apps", "routings", "pages", "trash", "requests"];
   if (actGroups.includes(group)) return true;
   if (group === "checks") return positional[1] !== "status";
   return group === "spaces" && positional[1] !== "list";
@@ -111,6 +111,10 @@ function parseWaitCommand(argumentsList) {
 function runWaitLoop(context, plan, actToken) {
   // Waiting is task-scoped: it follows the exact turn the send accepted, so
   // an older assistant message can never read as this turn's success.
+  // The loop settles on two things and says which: the turn reached a
+  // terminal state (then the result is printed), or the task is waiting on
+  // an answer (then the status document with its `waiting` field is
+  // printed, exit 0). A parent never sits on a child's question.
   const scopeArgv = plan.group === "chat" || plan.group === "checks" ? ["--space", plan.space] : [];
   const statusArgv = [plan.group, plan.group === "checks" ? "task" : "status"].concat(scopeArgv, ["--task", plan.task, "--json"]);
   const deadline = Date.now() + plan.timeoutSeconds * 1000;
@@ -121,10 +125,22 @@ function runWaitLoop(context, plan, actToken) {
       return status.exitCode;
     }
     let state = "";
+    let waiting = null;
     try {
-      state = JSON.parse(status.stdout).data.task.state;
+      const data = JSON.parse(status.stdout).data;
+      state = data.task.state;
+      waiting = data.waiting || null;
     } catch (error) {
       throw new Error("work-fold returned an unreadable task status.");
+    }
+    if (waiting) {
+      if (plan.json) {
+        emitOutcome(status);
+        return 0;
+      }
+      const humanStatus = performRequest(context, statusArgv.slice(0, -1), actToken, null);
+      emitOutcome(humanStatus);
+      return humanStatus.exitCode;
     }
     if (state !== "accepted" && state !== "running") break;
     if (Date.now() >= deadline) {

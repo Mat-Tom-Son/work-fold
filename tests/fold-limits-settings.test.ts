@@ -54,8 +54,16 @@ test("the Limits pane reads the frozen contracts instead of retyping them", () =
   ]) {
     assert.ok(paneSource.includes(contract), `the pane sources ${contract}`);
   }
-  // Read-only this wave: nothing here changes a bound, and nothing here is a gate.
-  assert.doesNotMatch(paneSource, /<input|api</);
+  // Nothing here changes a bound, and nothing here is a gate. The one control
+  // is the F28 switch for bringing finished handed-out work back to the fold
+  // (docs/collaboration-contract.md); it is the only input and the only API
+  // call the pane makes, and turning it off records everything just the same.
+  const inputs = paneSource.match(/<input\b/g) ?? [];
+  assert.equal(inputs.length, 1, "the pane has exactly one control: the continuation switch");
+  assert.match(paneSource, /type="checkbox"/);
+  const apiCalls = paneSource.match(/\bapi</g) ?? [];
+  assert.equal(apiCalls.length, 2, "one read and one save of the continuation setting, nothing else");
+  assert.match(paneSource, /\/api\/settings\/requests\/continuations/);
   assert.doesNotMatch(paneSource, /staged|approve|policy|Reviewed|Unrestricted|\bcard\b|\bmode\b/i);
 });
 

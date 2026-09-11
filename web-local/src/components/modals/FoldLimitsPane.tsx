@@ -1,12 +1,16 @@
+import { useEffect, useState } from "react";
+
 import { restrictedAppInferenceLimits } from "../../../../src/shared/restricted-app-inference";
 import { restrictedAppAssistantLimits } from "../../../../src/shared/restricted-app-tasks";
 import {
   workFoldAutomationDefaultConcurrency,
+  workFoldRequestContinuationsDefaultEnabled,
   workFoldRequestLimits,
   workFoldRoutingDeclarationBounds,
   workFoldRoutingMaxConcurrentRuns,
   workFoldTrashDefaultRetentionDays,
 } from "../../../../src/shared/fold-limits";
+import { api, errorText } from "../../lib/api";
 import { foldLimitsSettings } from "../../ui-contract";
 
 /**
@@ -15,14 +19,83 @@ import { foldLimitsSettings } from "../../ui-contract";
  * person might want to raise them"). Every app and routing refusal names this
  * section, so this pane is where those phrases resolve.
  *
- * Read-only this wave: the bounds are frozen constants, and the one adjustable
- * number — how long Recently deleted keeps an item — is set in its own pane,
- * which this one links to. Every value is read from the frozen contract the
- * host enforces (`restrictedAppAssistantLimits`, `restrictedAppInferenceLimits`,
+ * The bounds are frozen constants. The one adjustable number — how long
+ * Recently deleted keeps an item — is set in its own pane, which this one
+ * links to, and the one switch — whether finished handed-out work is brought
+ * back to the fold as a turn (docs/collaboration-contract.md, F28) — lives
+ * here. Every shown value is read from the frozen contract the host enforces
+ * (`restrictedAppAssistantLimits`, `restrictedAppInferenceLimits`,
  * `workFoldRequestLimits`, `workFoldRoutingDeclarationBounds`,
  * `workFoldRoutingMaxConcurrentRuns`, `workFoldAutomationDefaultConcurrency`),
  * so the shown number cannot drift from the enforced one.
  */
+
+interface RequestSettingsResponse {
+  continuationsEnabled: boolean;
+}
+
+/**
+ * The F28 switch. It loads from the running app and saves through a journaled
+ * Settings act; without the app it shows the shipped default, disabled, and
+ * says why. Turning it off changes nothing about what is recorded.
+ */
+function ContinuationsSwitch() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await api<RequestSettingsResponse>("/api/settings/requests");
+        if (!cancelled) setEnabled(response.continuationsEnabled);
+      } catch {
+        if (!cancelled) setError(foldLimitsSettings.continuationsUnavailable);
+      }
+    })().catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
+
+  async function save(next: boolean): Promise<void> {
+    setBusy(true);
+    setNotice(null);
+    setError(null);
+    try {
+      const response = await api<RequestSettingsResponse>("/api/settings/requests/continuations", { method: "PUT", body: { enabled: next } });
+      setEnabled(response.continuationsEnabled);
+      setNotice(foldLimitsSettings.continuationsSaved);
+    } catch (cause) {
+      setError(errorText(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const checked = enabled ?? workFoldRequestContinuationsDefaultEnabled;
+  return (
+    <>
+      <h4 id="fold-limits-continuations-title">{foldLimitsSettings.continuationsHeading}</h4>
+      <p>{foldLimitsSettings.continuationsIntro}</p>
+      <div className="settings-actions">
+        <label htmlFor="fold-limits-continuations">
+          <input
+            id="fold-limits-continuations"
+            type="checkbox"
+            checked={checked}
+            disabled={enabled === null || busy}
+            onChange={(event) => { void save(event.target.checked); }}
+          />
+          {" "}
+          {foldLimitsSettings.continuationsLabel}
+        </label>
+        {notice ? <span className="settings-save-status" role="status">{notice}</span> : null}
+        {error ? <span className="settings-inline-error" role="alert">{error}</span> : null}
+      </div>
+    </>
+  );
+}
 
 function kib(bytes: number): string {
   const kibibytes = bytes / 1024;
@@ -102,6 +175,7 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
           ["Kept for", `${requests.retentionDays} days`],
         ]}
       />
+      <ContinuationsSwitch />
 
       <h4 id="fold-limits-routings-title">{foldLimitsSettings.routingsHeading}</h4>
       <p>{foldLimitsSettings.routingsIntro}</p>

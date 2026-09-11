@@ -171,6 +171,12 @@ test("management requests carry attachments, record lineage, and expose honest p
   });
   try {
     const facade = api.actFacade;
+    // This test pins attachments, lineage, and phases. Its delegated child
+    // settles after the fold's turn ends, which is exactly when F28 would
+    // bring the result back as a continuation turn and make that turn the
+    // request's newest; tests/work-fold-collaboration-verbs.test.ts covers
+    // that path, so here the setting is off and the projection stays put.
+    await api.requests.setContinuationsEnabled(false);
     const target = await facade.createSpace({ name: "Target Space" });
     const sourceDir = join(sandbox, "incoming");
     await mkdir(sourceDir, { recursive: true });

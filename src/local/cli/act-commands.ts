@@ -884,7 +884,10 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     case "chat wait":
     case "manage wait":
     case "checks wait":
-      throw usageError(`${command} runs inside the work-fold shim; update the installed work-fold CLI.`);
+      // The wait is a shim-side poll on purpose: a host-side blocking wait
+      // would hold the broker request open past its timeout. The current
+      // shim also settles when the task is waiting on an answer (F28).
+      throw usageError(`${command} runs inside the work-fold shim; update the installed work-fold CLI (it now settles on a waiting task too).`);
     case "checks propose-fix":
     case "checks propose":
     case "checks enable":
@@ -1881,19 +1884,54 @@ async function runActCommand(
           }));
     case "chat.abort":
       return toJson(await facade.abortTurn({ space: command.space!, conversationId: command.conversation! }));
-    // The collaboration verbs parse, journal, and receipt here already; the
-    // host side of them (docs/collaboration-contract.md, F27/F28) arrives
-    // with the request record, so refuse honestly rather than half-running.
+    // The collaboration verbs (docs/collaboration-contract.md, F27/F28).
+    // Their results carry person content — summaries, questions, answers —
+    // so they pass through the same bounding sanitizer as the glance.
     case "chat.report":
+      return toChecksJson(await facade.chatReport({
+        space: command.space!,
+        taskId: command.task!,
+        summary: command.summary!,
+        ...(command.resultData !== undefined ? { data: command.resultData } : {}),
+        ...(command.resultDataPath ? { dataPath: command.resultDataPath, cwd: request.cwd } : {}),
+        files: command.files ?? [],
+        outcome: command.outcome ?? "succeeded",
+        requestId: request.id,
+        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
+      }));
     case "chat.ask":
+      return toChecksJson(await facade.chatAsk({
+        space: command.space!,
+        taskId: command.task!,
+        question: command.question!,
+        respondent: command.respondent ?? "person",
+        requestId: request.id,
+        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
+      }));
     case "chat.answer":
-    case "chat.handoff":
+      return toChecksJson(await facade.chatAnswer({
+        space: command.space!,
+        questionId: command.questionId!,
+        answer: command.answer!,
+        requestId: request.id,
+        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
+      }));
+    case "chat.handoff": {
+      const content = command.messageFromPayload ? request.payload?.messageFile ?? "" : command.message ?? "";
+      return toChecksJson(await facade.chatHandoff({
+        space: command.space!,
+        taskId: command.task!,
+        toSpace: command.toSpace!,
+        message: content,
+        files: command.files ?? [],
+        requestId: request.id,
+        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
+      }));
+    }
     case "requests.list":
+      return toChecksJson(await facade.requestsList());
     case "requests.show":
-      throw new WorkFoldCliError(
-        "unavailable",
-        `work-fold understood '${command.name}' but cannot run it yet: the collaboration verbs arrive with the request record.`,
-      );
+      return toChecksJson(await facade.requestsShow({ request: command.request! }));
     case "chats.list":
       return toJson(await facade.listConversations({ space: command.space! }));
     case "manage.send": {
@@ -2596,18 +2634,41 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       if (task) {
         const error = typeof task.error === "string" && task.error ? `\n${terminalText(task.error)}` : "";
         const conversation = task.conversationId ? ` — Chat ${terminalText(task.conversationId)}` : "";
+        // `manage status --task` carries the management projection (a phase
+        // and delegated children); `chat status --task` carries the request
+        // graph ref (a state and counts). Both render, each in its own shape.
         const request = record.request as {
           phase?: string;
-          children?: Array<{ taskId?: string; spaceName?: string; state?: string }>;
+          children?: Array<{ taskId?: string; spaceName?: string; state?: string }> | number;
+          id?: string;
+          state?: string;
+          openQuestions?: number;
         } | null | undefined;
-        const requestLines = request
+        const requestLines = request && typeof request.phase === "string"
           ? [
               `Request phase: ${terminalText(request.phase)}`,
-              ...(request.children ?? []).map((child) =>
+              ...(Array.isArray(request.children) ? request.children : []).map((child) =>
                 `- delegated task ${terminalText(child.taskId)} in ${terminalText(child.spaceName)} — ${terminalText(child.state)}`),
             ].join("\n")
+          : request && typeof request.state === "string"
+            ? `Request ${terminalText(request.id)} — ${terminalText(request.state)}, ${terminalText(request.children ?? 0)} handed out, ${terminalText(request.openQuestions ?? 0)} waiting`
+            : "";
+        // F28: a task waiting on an answer says so first, and says how to
+        // answer it. The turn state below stays exactly what it is.
+        const waiting = record.waiting as {
+          questionId?: string; respondent?: string; question?: string; askedAt?: string; expiresAt?: string;
+        } | null | undefined;
+        const waitingLines = waiting
+          ? [
+              `Task ${terminalText(task.taskId)} — waiting on ${waiting.respondent === "parent" ? "the request above it" : "you"} since ${terminalText(waiting.askedAt)} (until ${terminalText(waiting.expiresAt)})`,
+              `Question ${terminalText(waiting.questionId)}: ${clampLine(waiting.question)}`,
+              ...(record.space && typeof record.space.id === "string"
+                ? [`Answer it with: work-fold chat answer --space ${terminalText(record.space.id)} --question ${terminalText(waiting.questionId)} --answer "<text>" --json`]
+                : []),
+              "",
+            ].join("\n")
           : "";
-        return `Task ${terminalText(task.taskId)} — ${terminalText(task.state)}${conversation}${error}${requestLines ? `\n${requestLines}` : ""}\n`;
+        return `${waitingLines}Task ${terminalText(task.taskId)} — ${terminalText(task.state)}${conversation}${error}${requestLines ? `\n${requestLines}` : ""}\n`;
       }
       const conversation = record.conversation;
       const lifecycle = conversation?.archivedAt ? " (archived)" : conversation?.snoozedUntil ? " (snoozed)" : "";
@@ -2626,6 +2687,46 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
     }
     case "chat.abort":
       return record.aborted ? "Aborted the active turn.\n" : "No active turn to abort.\n";
+    case "chat.report": {
+      const result = record.result as { outcome?: string; files?: Array<{ path?: string }> } | undefined;
+      const request = record.request as { id?: string; state?: string } | undefined;
+      const files = result?.files ?? [];
+      const fileLine = files.length
+        ? `\n${files.length} file${files.length === 1 ? "" : "s"}: ${files.map((file) => terminalText(file.path)).join(", ")}`
+        : "";
+      return `Reported ${terminalText(result?.outcome)} on task ${terminalText(record.taskId)} in ${spaceLabel}.${fileLine}\nRequest ${terminalText(request?.id)} — ${terminalText(request?.state)}.\n`;
+    }
+    case "chat.ask": {
+      const question = record.question as { questionId?: string; respondent?: string; expiresAt?: string } | undefined;
+      const to = record.redirectedToPerson
+        ? "you (this request has nothing above it, so the question came to you instead)"
+        : question?.respondent === "parent" ? "the request above this one" : "you";
+      return `Asked ${to}. Question ${terminalText(question?.questionId)}, open until ${terminalText(question?.expiresAt)}.\nTask ${terminalText(record.taskId)} is waiting.\n`;
+    }
+    case "chat.answer": {
+      const question = record.question as { questionId?: string } | undefined;
+      const continuation = record.continuation as { taskId?: string; conversationId?: string } | undefined;
+      return `Answer recorded for question ${terminalText(question?.questionId)}.\nContinuing in Chat ${terminalText(continuation?.conversationId)} as task ${terminalText(continuation?.taskId)}.\n`;
+    }
+    case "chat.handoff": {
+      const destination = record.toSpace as { id?: string; name?: string } | undefined;
+      const copied = (Array.isArray(record.copied) ? record.copied : []) as unknown[];
+      const copiedLine = copied.length
+        ? `\nCopied ${copied.length} item${copied.length === 1 ? "" : "s"}: ${copied.map(terminalText).join(", ")}${record.checkpointId ? ` (restore point ${terminalText(record.checkpointId)})` : ""}`
+        : "";
+      return `Handed off to ${terminalText(destination?.name)} [${terminalText(destination?.id)}]. Chat ${terminalText(record.conversationId)}, task ${terminalText(record.taskId)}.${copiedLine}\n`;
+    }
+    case "requests.list": {
+      const requests = (Array.isArray(record.requests) ? record.requests : []) as Array<{
+        id?: string; kind?: string; state?: string; spaceName?: string | null; children?: number; openQuestions?: number; createdAt?: string;
+      }>;
+      if (!requests.length) return "No requests on record.\n";
+      const lines = requests.map((request) =>
+        `${terminalText(request.id)}  ${terminalText(request.kind)}  ${terminalText(request.state)}  ${request.spaceName ? `${terminalText(request.spaceName)}  ` : ""}${terminalText(request.children ?? 0)} handed out, ${terminalText(request.openQuestions ?? 0)} waiting  (${terminalText(request.createdAt)})`);
+      return `${lines.join("\n")}${record.truncated ? "\n(more omitted)" : ""}\n`;
+    }
+    case "requests.show":
+      return `${renderRequestDetail(record.request as Record<string, WorkFoldCliJson>, 0).join("\n")}\n`;
     case "manage.glance": {
       const snapshot = data as {
         composedAt?: string;
@@ -3566,10 +3667,16 @@ function receiptDetails(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
     path?: unknown;
     copied?: unknown;
     restored?: { space?: { id?: unknown }; safetyCheckpointId?: unknown };
+    toSpace?: { id?: unknown };
+    continuation?: { taskId?: unknown };
   };
-  const spaceId = typeof record.space?.id === "string"
-    ? record.space.id
-    : typeof record.restored?.space?.id === "string" ? record.restored.space.id : undefined;
+  // A handoff's effects — the copies, their restore point, the new Chat —
+  // land in the destination, so its receipt names that Space.
+  const spaceId = name === "chat.handoff" && typeof record.toSpace?.id === "string"
+    ? record.toSpace.id
+    : typeof record.space?.id === "string"
+      ? record.space.id
+      : typeof record.restored?.space?.id === "string" ? record.restored.space.id : undefined;
   const conversationId = typeof record.conversationId === "string"
     ? record.conversationId
     : typeof record.conversation?.id === "string" ? record.conversation.id : undefined;
@@ -3599,7 +3706,9 @@ function receiptDetails(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         ? { taskId: record.task.taskId }
         : typeof record.run?.taskId === "string"
           ? { taskId: record.run.taskId }
-          : {}),
+          : typeof record.continuation?.taskId === "string"
+            ? { taskId: record.continuation.taskId }
+            : {}),
     ...(undoRef ? { undoRef } : {}),
     ...(detail ? { detail } : {}),
   };
@@ -3695,8 +3804,37 @@ function actReceiptDetail(
     needs?: unknown;
     entry?: { id?: unknown; kind?: unknown };
     restored?: { kind?: unknown; path?: unknown; spaceRoot?: unknown; appId?: unknown; space?: { id?: unknown } };
+    question?: { questionId?: unknown; respondent?: unknown };
+    redirectedToPerson?: unknown;
+    continuation?: { taskId?: unknown };
+    toSpace?: { id?: unknown };
+    taskId?: unknown;
   },
 ): string | undefined {
+  // The collaboration verbs record identifiers, outcomes, and counts only:
+  // never a summary, a question, or an answer (docs/collaboration-contract.md).
+  const countOf = (value: unknown): number => (Array.isArray(value) ? value.length : 0);
+  switch (name) {
+    case "chat.report": {
+      const outcome = record.result && typeof record.result === "object" ? (record.result as { outcome?: unknown; files?: unknown }) : {};
+      const files = countOf(outcome.files);
+      return `report ${typeof outcome.outcome === "string" ? outcome.outcome : "unknown"}; ${files} file${files === 1 ? "" : "s"}`;
+    }
+    case "chat.ask":
+      return typeof record.question?.questionId === "string"
+        ? `question ${record.question.questionId} to ${record.redirectedToPerson ? "person (redirected from parent)" : typeof record.question.respondent === "string" ? record.question.respondent : "person"}`
+        : undefined;
+    case "chat.answer":
+      return typeof record.question?.questionId === "string"
+        ? `answered ${record.question.questionId}; continuation ${typeof record.continuation?.taskId === "string" ? record.continuation.taskId : "none"}`
+        : undefined;
+    case "chat.handoff": {
+      const copied = countOf(record.copied);
+      return `handoff to ${typeof record.toSpace?.id === "string" ? record.toSpace.id : "unknown"}; ${copied} file${copied === 1 ? "" : "s"}`;
+    }
+    default:
+      break;
+  }
   // The verbs that install code, widen a power, or destroy data share one
   // detail spine — the prepared-act kind — with the family's exact
   // identifiers appended per the ledger's "receipt adds" column. Identifiers
@@ -3972,6 +4110,13 @@ function actUndoRef(
       return typeof record.priorTitle === "string"
         ? { kind: "chat-title", value: record.priorTitle }
         : undefined;
+    // A handoff's copies are undone from the destination's restore point. A
+    // report, a question, and an answer are records, not mutations: they
+    // have no undo, and the ledger says so rather than inventing one.
+    case "chat.handoff":
+      return typeof (record as { checkpointId?: unknown }).checkpointId === "string"
+        ? { kind: "checkpoint", value: (record as { checkpointId: string }).checkpointId }
+        : undefined;
     case "chat.snooze":
     case "chat.archive":
     case "chat.resume": {
@@ -4102,6 +4247,44 @@ function toJson(value: unknown): WorkFoldCliJson {
 // lines (assistant replies, provider errors), so newlines and tabs survive.
 function terminalText(value: unknown): string {
   return String(value).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "\uFFFD");
+}
+
+/** One bounded line of person content for a human listing; `--json` carries the whole text. */
+function clampLine(value: unknown, maximumLength = 200): string {
+  const text = terminalText(value ?? "").replace(/\s+/g, " ").trim();
+  return text.length <= maximumLength ? text : `${text.slice(0, maximumLength - 1)}…`;
+}
+
+/**
+ * `requests show`: the request, its turns, questions, results, and each child
+ * request indented beneath it. Summaries and question text are clamped here;
+ * the JSON form carries them whole.
+ */
+function renderRequestDetail(request: Record<string, WorkFoldCliJson> | null | undefined, depth: number): string[] {
+  if (!request) return ["Request not found."];
+  const pad = "  ".repeat(depth);
+  const turns = (Array.isArray(request.turns) ? request.turns : []) as Array<{ taskId?: string; role?: string; state?: string }>;
+  const questions = (Array.isArray(request.questions) ? request.questions : []) as Array<{
+    questionId?: string; respondent?: string; state?: string; text?: string; answer?: string | null; continuationTaskId?: string | null;
+  }>;
+  const results = (Array.isArray(request.resultRecords) ? request.resultRecords : []) as Array<{
+    resultId?: string; taskId?: string; outcome?: string; fileCount?: number; envelope?: { summary?: string } | null; damaged?: string;
+  }>;
+  const children = (Array.isArray(request.childRequests) ? request.childRequests : []) as Array<Record<string, WorkFoldCliJson>>;
+  const where = request.spaceName ? `${terminalText(request.spaceName)} [${terminalText(request.spaceId)}]` : "the fold";
+  const lines = [
+    `${pad}Request ${terminalText(request.id)} — ${terminalText(request.kind)}, ${terminalText(request.state)} — ${where}, Chat ${terminalText(request.conversationId)}`,
+    `${pad}  started ${terminalText(request.createdAt)}, open until ${terminalText(request.deadline)}${request.settledAt ? `, settled ${terminalText(request.settledAt)}` : ""}${request.stopRequestedAt ? `, stopped ${terminalText(request.stopRequestedAt)}` : ""}`,
+    ...(typeof request.content === "string" && request.content.trim() ? [`${pad}  asked: ${clampLine(request.content)}`] : []),
+    ...turns.map((turn) => `${pad}  turn ${terminalText(turn.taskId)} (${terminalText(turn.role)}) — ${terminalText(turn.state)}`),
+    ...questions.map((question) =>
+      `${pad}  question ${terminalText(question.questionId)} to ${question.respondent === "parent" ? "the request above" : "you"} — ${terminalText(question.state)}: ${clampLine(question.text)}`
+      + (question.answer ? `\n${pad}    answer: ${clampLine(question.answer)}${question.continuationTaskId ? ` (continued as task ${terminalText(question.continuationTaskId)})` : ""}` : "")),
+    ...results.map((result) =>
+      `${pad}  result ${terminalText(result.resultId)} from task ${terminalText(result.taskId)} — ${terminalText(result.outcome)}, ${terminalText(result.fileCount ?? 0)} file${result.fileCount === 1 ? "" : "s"}: ${result.envelope ? clampLine(result.envelope.summary) : `(unreadable: ${terminalText(result.damaged)})`}`),
+  ];
+  for (const child of children) lines.push(...renderRequestDetail(child, depth + 1));
+  return lines;
 }
 
 function humanActErrorMessage(error: WorkFoldCliError): string {

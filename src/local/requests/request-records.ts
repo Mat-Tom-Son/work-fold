@@ -174,6 +174,13 @@ export const workFoldRequestActionCommands = [
   "chat.archive",
   "chat.resume",
   "chat.compact",
+  // The collaboration verbs (F27): attributed like every other act, and
+  // recorded by identifiers only — the report, question, and answer text
+  // live in their own records, never in the action trail.
+  "chat.report",
+  "chat.ask",
+  "chat.answer",
+  "chat.handoff",
   "history.save",
   "history.restore",
   "history.restore-file",
