@@ -106,6 +106,11 @@ desktop is watched continuously.
 
 ## Computer and browser contract
 
+The general [feedback contract](tool-feedback.md) applies to all tools and
+domains, including text and data operations. Computer observations and document
+renders use Pi's existing model/tool loop; the requirements below specialize
+target ownership and physical input rather than introduce a separate loop.
+
 1. **Explicit target.** Bind a desktop application/window or browser target to
    the owning task. No implicit adoption of whichever foreground surface a
    different Chat is using. Background browser targets can work concurrently;

@@ -5,6 +5,7 @@ import { restrictedAppAssistantLimits } from "../../../../src/shared/restricted-
 import {
   workFoldAutomationDefaultConcurrency,
   workFoldExtensionUiLimits,
+  workFoldModelContextLimits,
   workFoldRequestContinuationsDefaultEnabled,
   workFoldRequestLimits,
   workFoldRoutingDeclarationBounds,
@@ -157,6 +158,20 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
           ["Time one short answer may take", seconds(inference.timeoutMs)],
         ]}
       />
+
+      <h4>Model context inspection</h4>
+      <p>Optional local diagnostics. Recording starts off and clearing it removes captured content from memory.</p>
+      <LimitRows rows={[
+        ["Retained model requests", String(workFoldModelContextLimits.records)],
+        ["One captured request", kib(workFoldModelContextLimits.recordBytes)],
+        ["Captured requests on this computer", kib(workFoldModelContextLimits.totalBytes)],
+        ["Capture retention", `${workFoldModelContextLimits.retentionMs / 60_000} minutes`],
+        ["Provider payload samples per request", String(workFoldModelContextLimits.payloadSamples)],
+        ["One captured text field", kib(workFoldModelContextLimits.stringBytes)],
+        ["Capture nesting depth", String(workFoldModelContextLimits.depth)],
+        ["Values in one snapshot", String(workFoldModelContextLimits.nodes)],
+        ["Image data hashed per snapshot", kib(workFoldModelContextLimits.digestBytes)],
+      ]} />
 
       <h4>Live Extension questions</h4>
       <p>Questions from an Extension stay with their Chat and end when its session closes.</p>

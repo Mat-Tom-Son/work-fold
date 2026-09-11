@@ -2,6 +2,7 @@ import { modelReviewSubmissionSchema, modelReviewSystemPrompt, type WorkFoldMode
 import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { installModelContextInspection } from "./model-context-inspector.js";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
@@ -42,6 +43,7 @@ import {
 } from "./pi-runtime-config.js";
 import { runBoundedInference, type BoundedInferenceOutcome, type BoundedInferenceRequest } from "./bounded-inference.js";
 import { appendSpaceOperationsGuide } from "./space-operations-guide.js";
+import { appendToolFeedbackGuide } from "./tool-feedback-guide.js";
 import type { PiSpaceTurnContext } from "./space-turn-context.js";
 import type { WorkFoldDurableTurnUsage } from "./turn-store.js";
 import { type RestrictedAppProposalHost, type RestrictedAppProposalResult } from "./restricted-app-proposals.js";
@@ -162,6 +164,19 @@ export interface PiConversationHostCapabilities {
   restrictedApps?: Pick<RestrictedAppService, "list" | "invoke">;
 }
 
+interface PiTurnOwner {
+  taskId?: string;
+  cancelled: boolean;
+}
+
+/** Stop settles the request promptly; its native tool may still be unwinding. */
+export class PiTurnDrainingError extends Error {
+  constructor() {
+    super("The previous tool is still stopping in this Chat. Wait for it to finish before starting more work here.");
+    this.name = "PiTurnDrainingError";
+  }
+}
+
 export class PiConversationClient extends EventEmitter {
   private runtimeHost: AgentSessionRuntime | null = null;
   private resolvedRuntime: ResolvedPiRuntime | null = null;
@@ -175,8 +190,11 @@ export class PiConversationClient extends EventEmitter {
   private assistantSegments: string[] = [];
   private assistantAttemptStartSegment = 0;
   private promptInFlight = false;
-  private readonly extensionTurn = new AsyncLocalStorage<{ taskId?: string; cancelled: boolean }>();
-  private activeExtensionTurn: { taskId?: string; cancelled: boolean } | null = null;
+  private readonly extensionTurn = new AsyncLocalStorage<PiTurnOwner>();
+  private readonly modelCall = new AsyncLocalStorage<{ purpose: string; taskId?: string }>();
+  private activeExtensionTurn: PiTurnOwner | null = null;
+  /** Native prompt lifetime survives the promptly rejected host promise on Stop. */
+  private nativePrompt: { session: AgentSession; owner: PiTurnOwner } | null = null;
   private rejectPrompt: ((error: Error) => void) | null = null;
   private runtimeGeneration = 0;
   private cancellationRequested: Error | null = null;
@@ -205,16 +223,30 @@ export class PiConversationClient extends EventEmitter {
     private readonly options: PiConversationClientOptions = {},
   ) {
     super();
+    // Attribute auxiliary calls without changing their transport implementations.
+    // In particular, the Check request body is source-pinned sensor authority:
+    // diagnostics must neither change its bytes nor require re-enablement.
+    const title = this.generateConversationTitle;
+    this.generateConversationTitle = (request, response) => this.modelCall.run(
+      { purpose: "title" }, () => title.call(this, request, response));
+    const infer = this.infer;
+    this.infer = (request) => this.modelCall.run(
+      { purpose: "app_inference" }, () => infer.call(this, request));
+    const review = this.reviewCheck;
+    this.reviewCheck = (input) => this.modelCall.run(
+      { purpose: "check" }, () => review.call(this, input));
   }
 
   /** Sends the user's exact text to Pi; /skill and extension commands stay raw. */
   async prompt(message: string, context: PiTurnContext = {}): Promise<string> {
     const owner = { taskId: context.managementTaskId ?? context.spaceTurn?.taskId, cancelled: false };
-    return this.extensionTurn.run(owner, () => this.promptInContext(message, context, owner));
+    return this.modelCall.run({ purpose: "assistant", taskId: owner.taskId }, () =>
+      this.extensionTurn.run(owner, () => this.promptInContext(message, context, owner)));
   }
 
-  private async promptInContext(message: string, context: PiTurnContext, owner: { taskId?: string; cancelled: boolean }): Promise<string> {
+  private async promptInContext(message: string, context: PiTurnContext, owner: PiTurnOwner): Promise<string> {
     if (this.promptInFlight) throw new Error("The Assistant is already working in this Chat.");
+    this.assertNativePromptSettled();
     this.activeExtensionTurn = owner;
     this.resetTurnState();
     this.cancellationRequested = null;
@@ -322,13 +354,15 @@ export class PiConversationClient extends EventEmitter {
 
   async compact(customInstructions?: string): Promise<void> {
     if (this.promptInFlight) throw new Error("Wait for the Assistant to finish before compacting this Chat.");
+    this.assertNativePromptSettled();
     const session = await this.ensureSession();
     this.emitEvent({ type: "status", message: "Compacting conversation context." });
-    await session.compact(customInstructions);
+    await this.modelCall.run({ purpose: "compaction" }, () => session.compact(customInstructions));
   }
 
   async reloadResources(): Promise<PiResourceCatalog> {
     if (this.promptInFlight) throw new Error("Wait for the Assistant to finish before reloading Pi resources.");
+    this.assertNativePromptSettled();
     const session = await this.ensureSession();
     await session.reload();
     if (this.resolvedRuntime) configurePiHttpTransport(this.resolvedRuntime.settingsManager);
@@ -571,10 +605,10 @@ export class PiConversationClient extends EventEmitter {
           additionalThemePaths: runtime.config.additionalThemePaths,
           // Space instructions first, then the operations guide (F26), so the
           // person's own text keeps the position it always had.
-          appendSystemPromptOverride: (base) => appendSpaceOperationsGuide(
+          appendSystemPromptOverride: (base) => appendToolFeedbackGuide(appendSpaceOperationsGuide(
             appendAssistantInstructions(base, runtime.config.assistantInstructions),
             this.options.operationsGuide,
-          ),
+          )),
         },
       });
       const preferred = options.sessionManager.buildSessionContext().messages.length === 0
@@ -653,7 +687,29 @@ export class PiConversationClient extends EventEmitter {
   private async bindSession(session: AgentSession): Promise<void> {
     this.unsubscribeSession?.();
     installRetryableProviderErrorNormalization(session);
-    this.unsubscribeSession = session.subscribe((event) => this.handleSessionEvent(event));
+    const inspector = this.resolvedRuntime?.config.modelContextInspector;
+    if (inspector) installModelContextInspection(session, inspector, () => {
+      const call = this.modelCall.getStore();
+      return {
+        spaceRoot: this.spaceRoot,
+        conversationId: this.conversationId,
+        sessionId: session.sessionId,
+        taskId: call?.taskId,
+        // An explicit auxiliary call keeps its identity even if this session
+        // is concurrently compacting. Only the native Assistant loop inherits
+        // Pi's automatic-compaction state.
+        purpose: call?.purpose && call.purpose !== "assistant" ? call.purpose
+          : session.isCompacting ? "compaction" : call?.purpose ?? "unknown",
+      };
+    });
+    this.unsubscribeSession = session.subscribe((event) => {
+      // Native event persistence remains Pi-owned. Only its UI projection is
+      // suppressed: a stopped turn cannot repaint the Chat as active or done.
+      if (this.runtimeHost?.session !== session) return;
+      const owner = this.extensionTurn.getStore() ?? this.nativePrompt?.owner;
+      if (owner?.cancelled) return;
+      this.handleSessionEvent(event);
+    });
     const resolved = this.resolvedRuntime;
     const bridge = resolved?.config.extensionUi ?? createHeadlessExtensionUiBridge();
     const scope = this.extensionUiScope();
@@ -689,6 +745,9 @@ export class PiConversationClient extends EventEmitter {
   }
 
   private async promptWithTimeout(session: AgentSession, message: string, images: ImageContent[] = []): Promise<void> {
+    this.assertNativePromptSettled();
+    const native = { session, owner: this.activeExtensionTurn! };
+    this.nativePrompt = native;
     const startedAt = Date.now();
     const heartbeatMs = piHeartbeatMs();
     const timeoutMs = piTurnTimeoutMs();
@@ -711,13 +770,20 @@ export class PiConversationClient extends EventEmitter {
           timeout = setTimeout(() => {
             const error = new Error(`work-fold stopped this turn after its configured ${formatTimeoutDuration(timeoutMs)} limit (WORKFOLD_PI_TURN_TIMEOUT_MS).`);
             error.name = "PiTurnTimeoutError";
+            native.owner.cancelled = true;
             finish(() => rejectPromise(error));
             void session.abort().catch(() => undefined);
           }, timeoutMs);
         }
         session.prompt(message, { source: "rpc", ...(images.length ? { images } : {}) }).then(
-          () => finish(resolvePromise),
-          (error) => finish(() => rejectPromise(asError(error))),
+          () => {
+            if (this.nativePrompt === native) this.nativePrompt = null;
+            finish(resolvePromise);
+          },
+          (error) => {
+            if (this.nativePrompt === native) this.nativePrompt = null;
+            finish(() => rejectPromise(asError(error)));
+          },
         );
       });
     } finally {
@@ -725,6 +791,10 @@ export class PiConversationClient extends EventEmitter {
       if (heartbeat) clearInterval(heartbeat);
       if (timeout) clearTimeout(timeout);
     }
+  }
+
+  private assertNativePromptSettled(): void {
+    if (this.nativePrompt) throw new PiTurnDrainingError();
   }
 
   private handleSessionEvent(event: AgentSessionEvent): void {
@@ -899,7 +969,7 @@ export class PiConversationClient extends EventEmitter {
         this.emitEvent({ type: "resources_changed", message: "Pi resources reloaded." });
         return "Reloaded Pi extensions, skills, prompts, themes, context files, and tools.";
       case "compact":
-        await session.compact(parsed.args || undefined);
+        await this.modelCall.run({ purpose: "compaction" }, () => session.compact(parsed.args || undefined));
         return "Conversation context compacted.";
       case "model":
         return this.runModelCommand(parsed.args);

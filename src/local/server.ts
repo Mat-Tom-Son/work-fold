@@ -1,6 +1,7 @@
 import { RestrictedAppTaskService, RestrictedAppTaskError, restrictedAppTaskAuthorityDigest, restrictedAppTaskPrompt, restrictedAppTaskTurnRequestId, type RestrictedAppAssistantActivity } from "./agent/restricted-app-tasks.js";
 import { RestrictedAppInferenceService, RestrictedAppInferenceError, type RestrictedAppInferenceActivity } from "./agent/restricted-app-inference.js";
 import { BrowserAppActionService } from "./agent/restricted-app-browser-actions.js";
+import { ModelContextInspector } from "./agent/model-context-inspector.js";
 import { observeWorkFoldRoutingFiles } from "./routings/routing-file-observer.js";
 import { isRemoteFileVisible, readRemoteFilePreview } from "./remote-file-preview.js";
 import { turnFileChanges } from "./agent/turn-file-changes.js";
@@ -20,6 +21,7 @@ import {
   isPiTurnNotRunningError,
   isPiTurnTimeoutError,
   PiTurnFailure,
+  PiTurnDrainingError,
   isPiTurnCancelledError,
   type PiChatEvent,
   type PiRuntimeProvider,
@@ -580,6 +582,7 @@ interface LocalApiState {
   maxBodyBytes: number;
   runtimeProvider: PiRuntimeProvider;
   extensionUi: RoutedPiExtensionUiBridge;
+  modelContextInspector: ModelContextInspector;
   piOAuthHooks?: PiOAuthHooks;
   capabilityRegistry: CapabilityRegistryService;
   restrictedApps: RestrictedAppService;
@@ -738,12 +741,14 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   const host = options.host ?? "127.0.0.1";
   const requestedPort = options.port ?? developmentDefaults?.port ?? numberFromEnv("WORKFOLD_LOCAL_API_PORT", 4327);
   const extensionUi = options.extensionUiBridge ?? new RoutedPiExtensionUiBridge();
+  const modelContextInspector = new ModelContextInspector();
   const extensionRuntimeProvider: PiRuntimeProvider = {
     async resolveRuntime(spaceRoot) {
       const runtime = await options.piRuntimeProvider?.resolveRuntime(spaceRoot) ?? {};
       return {
         ...runtime,
         extensionUi,
+        modelContextInspector,
       };
     },
     ...(options.piRuntimeProvider?.setPreferredModel ? {
@@ -894,6 +899,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     maxBodyBytes: options.maxBodyBytes ?? numberFromEnv("WORKFOLD_LOCAL_MAX_BODY_BYTES", 100 * 1024 * 1024),
     runtimeProvider,
     extensionUi,
+    modelContextInspector,
     piOAuthHooks: options.piOAuthHooks,
     capabilityRegistry: options.capabilityRegistry ?? new RemoteCapabilityRegistry(),
     restrictedApps,
@@ -1211,6 +1217,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     trash,
     close: async () => {
       state.acceptingTurns = false;
+      state.modelContextInspector.setEnabled(false);
       const browserActionsClosed = state.browserAppActions.close();
       unsubscribeAppCatalog();
       state.appAssistantTasks.off("changed", appTasksChanged);
@@ -1260,6 +1267,38 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   authorize(state, req);
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   const method = req.method ?? "GET";
+
+  // Trusted local diagnostics only. These routes read retained snapshots and
+  // never create clients/sessions or enter the CLI/paired-browser facade.
+  const contextInspectionMatch = match(url.pathname, /^\/api\/model-context(?:\/([^/]+))?$/);
+  if (contextInspectionMatch && (method === "GET" || method === "POST")) {
+    const spaceId = url.searchParams.get("spaceId");
+    const conversationId = url.searchParams.get("conversationId");
+    if (conversationId && !spaceId) throw badRequest("Choose the Chat's Space when inspecting its context.");
+    const filter = spaceId ? {
+      spaceRoot: spaceId === workFoldManagementScopeId ? workFoldManagementRoot() : (await getSpace(spaceId)).spaceRoot,
+      ...(conversationId ? { conversationId } : {}),
+    } : undefined;
+    const id = contextInspectionMatch[1];
+    if (method === "GET") {
+      if (id) {
+        const record = state.modelContextInspector.get(id, filter);
+        if (!record) throw notFound("This context capture is unavailable. It may have expired, been cleared, or belong to another Chat.");
+        sendJson(res, { record });
+      } else {
+        sendJson(res, state.modelContextInspector.inspect(filter));
+      }
+      return;
+    }
+    if (id) throw badRequest("Context captures are read-only.");
+    const body = await readJsonBody<{ enabled?: unknown; clear?: unknown }>(state, req);
+    if (Object.keys(body).length !== 1) throw badRequest("Choose recording or clear captures.");
+    if (typeof body.enabled === "boolean") state.modelContextInspector.setEnabled(body.enabled);
+    else if (body.clear === true) state.modelContextInspector.clear();
+    else throw badRequest("Specify enabled as a boolean or clear as true.");
+    sendJson(res, state.modelContextInspector.inspect(filter));
+    return;
+  }
 
   if (method === "GET" && url.pathname === "/api/health") {
     sendJson(res, { ok: true, app: "work-fold", mode: state.appMode });
@@ -10559,6 +10598,7 @@ function assistantFailureTranscriptContent(error: unknown, checkpointText = "", 
 }
 
 function assistantFailurePublicDetail(error: unknown): string {
+  if (error instanceof PiTurnDrainingError) return error.message;
   if (error instanceof PiTurnFailure) {
     const retrySummary = error.retryAttempts > 0
       ? ` after ${error.retryAttempts} automatic ${error.retryAttempts === 1 ? "retry" : "retries"}`

@@ -140,6 +140,13 @@ work-fold's maintenance responsibility, not another trust or runtime tier.
 See [Extensions and computer work](extension-foundation.md) for the design,
 compatibility requirements, and work still required before inclusion.
 
+The development [tool feedback contract](tool-feedback.md) applies across
+general computer work: native tools return observations, and the Assistant
+uses Pi's ordinary loop to verify or correct its result. **Inspect context**
+is a local diagnostic action from Chats and Settings → Assistant, with optional
+memory-only recording of assembled model context and observable provider
+payloads. It does not add a new navigation concept or execution framework.
+
 There are two capability scopes:
 
 - **Everywhere** (personal scope): available to the fold and every Space from the user's Pi agent directory.

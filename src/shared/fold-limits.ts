@@ -108,3 +108,16 @@ export const workFoldExtensionUiLimits = Object.freeze({
   answerBytes: 64 * 1024,
   options: 64,
 });
+
+/** Optional, memory-only model context diagnostics; never model input limits. */
+export const workFoldModelContextLimits = Object.freeze({
+  records: 24,
+  recordBytes: 2 * 1024 * 1024,
+  totalBytes: 16 * 1024 * 1024,
+  retentionMs: 30 * 60 * 1000,
+  payloadSamples: 2,
+  depth: 12,
+  nodes: 4000,
+  stringBytes: 32 * 1024,
+  digestBytes: 256 * 1024,
+});

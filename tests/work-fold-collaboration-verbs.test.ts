@@ -223,6 +223,9 @@ test("chat ask puts the task in waiting without suspending its turn, and chat an
     const continued = api.requests.get(rootRecord.requestId)!;
     assert.equal(continued.continuationCount, 1);
     assert.equal(continued.turns[1]!.role, "continuation");
+    // Joining the request precedes the asynchronous transcript write. Wait
+    // for this exact turn's prompt gate before inspecting its saved message.
+    await waitFor(async () => h.pending.some((turn) => turn.taskId === continued.turns[1]!.taskId));
     const first = (await managementMessages(api, root.conversationId))
       .filter((message) => message.role === "user" && message.requestId === `continuation-${rootRecord.requestId}-1`);
     assert.equal(first.length, 1);
@@ -269,6 +272,7 @@ test("chat ask puts the task in waiting without suspending its turn, and chat an
     await settled(api, drafts.space.id, answered.continuation.taskId);
     await waitFor(async () => api.requests.get(rootRecord.requestId)!.turns.length === 3);
     assert.equal(api.requests.get(rootRecord.requestId)!.continuationCount, 2);
+    await waitFor(async () => h.pending.some((turn) => turn.taskId === api.requests.get(rootRecord.requestId)!.turns[2]!.taskId));
     const second = (await managementMessages(api, root.conversationId))
       .find((message) => message.role === "user" && message.requestId === `continuation-${rootRecord.requestId}-2`);
     assert.ok(second);

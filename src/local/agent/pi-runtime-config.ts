@@ -22,6 +22,7 @@ import {
 
 import { defaultAgentSdkDir, spaceSessionDir } from "./agent-data-dir.js";
 import type { PiExtensionUiBridge } from "./extension-ui.js";
+import type { ModelContextInspector } from "./model-context-inspector.js";
 
 export interface PiPreferredModel {
   provider: string;
@@ -73,6 +74,8 @@ export interface PiRuntimeConfig {
   assistantInstructions?: string;
   projectTrust?: PiProjectTrustPolicy;
   extensionUi?: PiExtensionUiBridge;
+  /** Optional local diagnostic recorder; never a source of model context. */
+  modelContextInspector?: ModelContextInspector;
   additionalExtensionPaths?: string[];
   additionalSkillPaths?: string[];
   additionalPromptTemplatePaths?: string[];

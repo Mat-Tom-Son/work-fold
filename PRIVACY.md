@@ -41,6 +41,26 @@ Managed-folder deletion is also blocked when the claimed tree contains preserved
 deleting the ordinary folder; work-fold never uses managed deletion to erase
 legacy product data.
 
+## Optional local context diagnostics
+
+Development builds include optional **Record model context** diagnostics,
+available from **Inspect context** in Chats and Settings → Assistant. Recording
+starts off and retains future request snapshots only in app memory: at most
+24 requests, 2 MiB per record, 16 MiB total and 30 minutes. Text fields and
+snapshot depth/size have additional disclosed limits. Images are represented
+by metadata, not retained image bytes. Disabling, clearing or quitting discards
+the recordings. Opening the inspector does not invoke a model.
+
+Captures may include private instructions, messages, file text, tool results
+and tool definitions. Authentication headers, environment variables and
+provider authentication options are never collected. Known credential-like
+payload fields are omitted, but message text can itself contain secrets;
+redaction is not comprehensive. Captures have no automatic export, log,
+portable-transcript or paired-web path. Copying displayed JSON to the clipboard
+is an explicit action. The inspector distinguishes assembled context from
+observed provider payloads, which are not proof of network delivery; calls an
+Extension makes through its own independent transport are outside coverage.
+
 ## When data leaves this computer
 
 The development branch supports named [app-requested Assistant tasks](docs/app-assistant-tasks.md).

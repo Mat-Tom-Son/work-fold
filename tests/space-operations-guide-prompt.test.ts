@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { PiConversationClient } from "../src/local/agent/pi-client.js";
+import { workFoldToolFeedbackGuide } from "../src/local/agent/tool-feedback-guide.js";
 import {
   spaceOperationsGuideForScope,
   workFoldSpaceOperationsGuide,
@@ -37,16 +38,18 @@ test("a Space Chat's system prompt carries Space instructions and then the opera
   t.after(() => guided.stop());
   await guided.getCatalog();
   const appended = sessionAppendix(guided);
-  assert.equal(appended.length, 2, "Space instructions and the guide, nothing else");
+  assert.equal(appended.length, 3, "Space instructions, operations guide, and shared tool feedback guidance");
   assert.match(appended[0]!, /^## Space instructions\n\nPrefer short answers\.$/);
   assert.ok(appended[1]!.startsWith(workFoldSpaceOperationsGuideHeading));
+  assert.equal(appended[2], workFoldToolFeedbackGuide);
 
   const unguided = new PiConversationClient("plain", spaceRoot, provider);
   t.after(() => unguided.stop());
   await unguided.getCatalog();
   const plain = sessionAppendix(unguided);
-  assert.equal(plain.length, 1, "a client built without the guide (the management scope) has only the instructions entry");
+  assert.equal(plain.length, 2, "management also receives shared tool feedback guidance without Space operations");
   assert.match(plain[0]!, /^## Space instructions/);
+  assert.equal(plain[1], workFoldToolFeedbackGuide);
 
   // The guide is a session appendix; nothing new is written into the Space folder.
   const { readdir } = await import("node:fs/promises");

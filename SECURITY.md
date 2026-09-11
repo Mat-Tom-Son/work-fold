@@ -36,6 +36,18 @@ work-fold is local first, but local does not mean that every action is sandboxed
 
 work-fold intentionally treats successful Space creation or registration as the project-runtime grant and removes the redundant trust prompt. Native Pi Extensions in that folder can execute with the current user's permissions during catalog loading, and later local, source-control, or synchronization changes to `.pi` do not trigger another prompt. Removing the Space revokes work-fold's exact-root override; it does not rewrite Pi's independent trust store for other Pi clients.
 
+### Model context inspection (development)
+
+The model-context inspector is an opt-in, memory-only local diagnostic
+surface. Its routes require the existing renderer authentication; Chat filters
+check exact scope and conversation identity. It has no remote, CLI or
+restricted-app operation. Capture excludes authentication options, headers and
+environment, bounds snapshots and replaces image bytes with metadata, but
+recorded message text can contain secrets. Clearing or disabling invalidates
+late recorder callbacks. The observer preserves native Pi hooks and payloads,
+does not consume model streams, and cannot gate model work. See
+[the context inspection contract](docs/tool-feedback.md#inspect-model-context).
+
 ### Legacy containment and clean break
 
 work-fold has a new application id, profile, updater cache, internal scheme, CLI, repositories, and `.work-fold/` metadata contract. It never opens, parses, imports, migrates, mutates, or deletes the legacy Workspace profile, `.workspace/` metadata, restricted-app registry, storage, connections, receipts, or artifacts. Those formats confer no work-fold identity or authority. Legacy `.workspace/` content remains hidden from Files and excluded from History, Search, Check targets, and restricted-app grants so registering the same ordinary folder cannot accidentally expose it. Pi's personal resources and auth may remain shared at the configured Pi root, but work-fold sessions use a separate `sessions/work-fold/` namespace.

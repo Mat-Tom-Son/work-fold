@@ -78,6 +78,26 @@ Extensions are more powerful than Library materials and should be presented with
 
 Pi's built-in tools remain available alongside loaded Extensions. work-fold does not replace them with a private tool registry.
 
+### Feedback and context inspection (development)
+
+The fold and Space Assistants share concise guidance for inspecting the outcome
+of their work using native tools and Skills. Text, data and image observations
+follow Pi's existing tool-result path; native image settings and provider
+conversion remain authoritative. A stopped native tool may still be draining:
+its late activity is hidden and this Chat refuses overlapping work until Pi
+settles, while other Chats continue.
+
+**Inspect context** beside the Chat model controls, in the fold header, or in
+Settings → Assistant opens local diagnostics. Enable **Record model context**
+before the request to capture its assembled instructions, messages and tools,
+plus provider payloads where Pi's adapter exposes them. Settings shows all
+captured requests, including host title, Check, app inference and compaction
+calls; Chat entry points filter by their exact owner. Independent transports
+inside third-party Extensions are outside this recorder. Images appear as
+metadata. Recording is off by default, bounded and memory-only; clearing,
+disabling and restart remove recordings. Inspection never starts model work.
+See [the feedback contract](tool-feedback.md) for fidelity and coverage limits.
+
 ### Live Extension questions (development)
 
 Ordinary Pi selection, confirmation, text input, and editor requests appear

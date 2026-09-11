@@ -60,6 +60,23 @@ surface. `npm run work-fold:drive` is a separate real-Pi-turn test driver and
 can use a chosen agent directory; it is not an offline unit test. See
 [Management and CLI](management-layer.md) before driving real work.
 
+## Inspect a model request
+
+Open **Inspect context** beside a Chat's model controls or in the fold header.
+For requests across the desktop, including titles, Checks and app inference,
+use **Settings → Assistant → Inspect context**. Enable **Record model context**,
+reproduce the behavior, then refresh and choose the request. Search or copy its
+assembled context and compare the provider payload when the adapter exposes it.
+Inspection itself never starts a model request.
+
+Recording starts off, covers future calls through work-fold's native Pi
+transport, and keeps bounded snapshots in memory for up to 30 minutes. Images
+appear as metadata. Text may contain private content; review it before sharing
+a copied snapshot. **Clear all** discards captures while recording continues;
+turning recording off clears them and stops capture. Independent transports
+inside Extensions are outside this observer. See [the feedback contract](tool-feedback.md#inspect-model-context)
+for capture stages, coverage and bounds.
+
 ## Source map
 
 | Path | Responsibility |

@@ -42,6 +42,18 @@ surface's work or a setup-secret prompt. These session-local callbacks are
 not durable request questions and never dispatch a continuation turn; see
 [Assistant capabilities](assistant-capabilities.md#live-extension-questions-development).
 
+## Local context diagnostics
+
+The development `GET /api/model-context` and `GET /api/model-context/:id`
+routes read retained local diagnostics; optional `spaceId` and `conversationId`
+filters pin the exact owner. A conversation filter requires a Space filter.
+`POST /api/model-context` accepts either `{ enabled: boolean }` or
+`{ clear: true }`. These use the existing local renderer authentication, have
+no CLI or paired-browser operation, never create a client or Pi session, and
+cannot influence execution. All-request access is a trusted local Settings
+view. Disabling, clearing, expiry and shutdown discard the memory-only records.
+See [model context inspection](tool-feedback.md#inspect-model-context).
+
 ## Why it exists
 
 The desktop UI already knows how to work with Spaces and Pi, but a higher-level Assistant, an Extension, a script, or a future Space runtime also needs answers to basic questions:

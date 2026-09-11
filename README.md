@@ -78,3 +78,10 @@ session end; durable Assistant questions retain their separate continuation
 contract. [Extensions and computer work](docs/extension-foundation.md) records
 the design and remaining work for included computer, Chrome, web, document,
 and MCP capabilities.
+
+Development builds also include **Inspect context** in Chats, the fold and
+Settings → Assistant. Optional recording shows the assembled model context and
+provider payloads where available, including host auxiliary model calls. It
+stays in bounded local memory and starts off. The shared
+[feedback contract](docs/tool-feedback.md) preserves Pi's tool loop for text,
+data and visual work; included backends remain separate integration work.
