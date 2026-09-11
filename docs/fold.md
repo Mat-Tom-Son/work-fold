@@ -28,6 +28,7 @@ remote operations, the verification map), `README.md`, `SECURITY.md`,
 contract references retaining the detail canon does not carry:
 
 - [Receipts, not gates](receipts-not-gates.md) — the 2026-09-10 decisions F19–F24, the trash, app defaults, app AI lanes, and routing changes.
+- [The collaboration contract](collaboration-contract.md) — the 2026-09-11 decisions F25–F30: durable requests, Space turn context, report/ask/answer/handoff, one result shape, app change hints.
 - [The verb ledger](fold-act-ledger.md) — every product verb's classification, command shape, receipt additions, undo path, and conflict rules.
 - [Consecrations](fold-consecrations.md) — superseded 2026-09-10; retained for the threat-model residuals that still apply.
 - [Routings](fold-routings.md) — declared deterministic cross-Space glue: triggers, declarations, the executor, and bounds.
@@ -47,8 +48,12 @@ receipts, and the Apps tab say what happened, and needs-you means an
 Assistant asked a question. Setup that establishes identity or secrets —
 pairing, provider secrets, remote enrollment — stays outside the act
 vocabulary and never blocks a task. Bounds are generous defaults in
-Settings, and every limit hit names the limit. Above Spaces, only declared
-deterministic routings run unattended. The glance is the app-composed digest
+Settings, and every limit hit names the limit. A person's ask is a durable
+request: the fold and Space Assistants divide it into child turns, hand each
+other one result shape, ask each other and the person questions, and continue
+exactly once when an answer arrives. Waiting is a host state, so no turn sits
+on a child that is waiting. Above Spaces, only declared deterministic
+routings run unattended. The glance is the app-composed digest
 of recorded state; narration of it is interactive, never scheduled. Outward,
 the publishing ladder serves "pages your fold serves" to link-scoped viewers
 who never touch the management lane.
@@ -78,7 +83,9 @@ decisions, not around them. Rows without an inline date were recorded on
 (2026-09-10); F8, F9, and F18 are narrowed as noted in their rows. The
 2026-09-10 decisions F19–F24 are recorded here verbatim from
 [Receipts, not gates](receipts-not-gates.md), which remains their
-specification.
+specification. The 2026-09-11 decisions F25–F30 are recorded here verbatim
+from [the collaboration contract](collaboration-contract.md), which remains
+their specification; F8 and F9 keep the narrowings that record relies on.
 
 | # | Decision (dated) | What it does not change |
 |---|---|---|
@@ -106,6 +113,12 @@ specification.
 | F22 | **Apps use the AI runtime without a click** (2026-09-10). `assistant.request` dispatches a fresh full-tools Chat in the owning Space immediately and is available to active views, workers, and named automations. A new `assistant.infer` operation performs a bounded model call on the Space's configured model with no tools, no transcript, and optional schema-validated JSON output, available to views and workers. Neither needs a grant beyond installation. Both leave receipts with the effective model and usage. Viewers and remote app views get neither. | Full Assistant work and bounded inference stay distinct operations with distinct powers. Model selection stays with the person per Space and for the fold. |
 | F23 | **Cross-Space glue runs on request, not on ceremony** (2026-09-10). `routings stage` becomes `routings enable`, a direct receipted verb that pins the declaration digest. Chat-step messages accept a closed set of host-resolved placeholders for the triggering event and earlier steps' created files. A `fold` step kind sends a message into the management conversation, so a person can put the fold on a cadence deliberately. Run slots and step counts are raised to generous defaults. | Routing-caused settles still never fire triggers, observers still pause during routing work, and the files step is still additive and restore-pointed. Those are loop guards and recovery, not gates. |
 | F24 | **Needs-you means questions** (2026-09-10). The glance's needs-you section carries Assistant questions, due snoozes, and requests waiting on a person's answer. Nothing there is an approval. Paired browsers see the same. | The glance stays a deterministic digest with no model call. |
+| F25 | **Durable requests** (2026-09-11). Every accepted Assistant turn belongs to a machine-local request record. A management turn creates a root request; a `chat send --parent-task` creates a child request under it; a Space turn with no parent creates its own root. Records live under the state root (`requests/`), survive restart, are reconciled against the turn journal, and are never replayed. The in-memory management request registry is replaced by this store; `manage status` keeps its projection. | Turn acceptance, conflict rules, History checkpoints, and kernel task records stay where they are. Space transcripts carry nothing new. |
+| F26 | **Space turns get their own context** (2026-09-11). Every Space turn's hidden context names its task id and request id and, when delegated, an opaque parent handle and the assignment text. A compact operations guide is appended to the system prompt the way Space instructions are, describing the verbs below and the rule that cross-Space work goes through them. The fold transcript, the Space registry, and other Spaces' results never enter a Space turn. | Nothing is written into the Space folder. `.pi/` and `.work-fold/` are untouched. |
+| F27 | **Report, ask, answer, handoff** (2026-09-11). Four Space-scoped act verbs, receipted and journal-first: `chat report` attaches a result envelope to the caller's task; `chat ask` records a question and puts the task in `waiting`; `chat answer` delivers one accepted answer and starts exactly one linked continuation turn; `chat handoff` asks the host to start a new Chat in another Space with a message and copies of named files. Delivery is host-side: no fold model turn is needed to move a report, an answer, or a handoff. | The person's free-text Chat reply stays a supported way to answer. Routings remain the only unattended cross-Space glue on a trigger. |
+| F28 | **Waiting is a host state** (2026-09-11). `chat wait` and `manage wait` return when the followed task reaches a terminal state or `waiting`, and say which. A parent turn never blocks on a child that is waiting for input; it finishes and reports the request as `waiting`. When every child of a root management request has settled after the fold's own turn ended, the host starts at most one continuation turn in that management conversation carrying the collected reports, within the request's limits. The person can turn continuations off in Settings → The fold → Limits. | F8's ban on scheduled or arbitrary event-driven fold turns. A continuation belongs to a person-initiated request and happens once per settle batch. |
+| F29 | **One result shape** (2026-09-11). A result envelope is `summary` (text, at most 32 KiB), optional `data` (JSON, at most 256 KiB, validated against a schema when the request declared one), optional `files` (Space-relative paths with digest and size), and `outcome` (`succeeded`, `partial`, or `failed`). Reports, app assistant tasks, handoff outcomes, and routing chat hops all produce it. | Existing `fileChanges` turn metadata stays as evidence; a report's `files` are the deliverables the Assistant chose. |
+| F30 | **Apps see their own work change** (2026-09-11). `bridge.tasks.onChanged`, `bridge.checks.onChanged`, and `bridge.files.onChanged` deliver bounded hints for the app's own assistant tasks and inference receipts, its selected Checks, and its granted file roots. Views and workers subscribe; viewers do not. A hint carries ids and revisions, never content; the app re-reads. | Hints never start a model turn. The internal settle signal stays private. |
 
 ## One-sentence definitions
 
@@ -130,6 +143,24 @@ specification.
   sixteen deterministic steps (`chat`, `files`, `check`, `fold`) on one
   reviewed trigger, executed by app code with per-hop receipts; enabling it
   is one receipted call that pins the declaration digest.
+- **A request:** the machine-local record that owns one outcome — who asked,
+  the turns and Spaces it spans, its questions, its results, its usage, and
+  its deadline — living under the state root's `requests/` directory,
+  reconciled against the turn journal after a restart and never replayed.
+- **A question:** a durable record of one Assistant asking the person or its
+  parent for something. One accepted answer delivers exactly one
+  continuation turn in the asking Chat; a second answer, an answer to an
+  expired question, and an answer from a Space that does not own the
+  question are refused.
+- **A result envelope:** the one shape every report, app assistant task,
+  handoff outcome, and routing chat hop produces — a summary, optional
+  structured data, optional chosen files, and an outcome of succeeded,
+  partial, or failed.
+- **Waiting:** a host state, not a blocked process. `chat wait` and
+  `manage wait` return when the task they follow settles or starts waiting
+  and say which; a parent turn finishes rather than sitting on a waiting
+  child; and one continuation turn per settle batch carries the collected
+  reports back, within the request's limits.
 - **The glance:** a deterministic digest — running work, needs-you questions
   and due snoozes, what changed since the person last looked, Check status —
   composed by app code from recorded state only.
@@ -211,6 +242,10 @@ taught behavior in `src/local/management-instructions.ts`.
   changing that is a separate deliberate design.
 - **No gate reintroduced as a convenience.** A confirmation, hold, or
   approval state on any verb is a register decision, not a UI tweak.
+- **No fold on a cadence.** A continuation turn belongs to a
+  person-initiated request and happens once per settle batch, within that
+  request's limits. It is not a schedule, a watcher, or an event bus, and
+  F8's ban on ambient fold turns is unchanged.
 
 ## Fold-led Checks
 

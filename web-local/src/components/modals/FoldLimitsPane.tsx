@@ -2,6 +2,7 @@ import { restrictedAppInferenceLimits } from "../../../../src/shared/restricted-
 import { restrictedAppAssistantLimits } from "../../../../src/shared/restricted-app-tasks";
 import {
   workFoldAutomationDefaultConcurrency,
+  workFoldRequestLimits,
   workFoldRoutingDeclarationBounds,
   workFoldRoutingMaxConcurrentRuns,
   workFoldTrashDefaultRetentionDays,
@@ -18,9 +19,9 @@ import { foldLimitsSettings } from "../../ui-contract";
  * number — how long Recently deleted keeps an item — is set in its own pane,
  * which this one links to. Every value is read from the frozen contract the
  * host enforces (`restrictedAppAssistantLimits`, `restrictedAppInferenceLimits`,
- * `workFoldRoutingDeclarationBounds`, `workFoldRoutingMaxConcurrentRuns`,
- * `workFoldAutomationDefaultConcurrency`), so the shown number cannot drift
- * from the enforced one.
+ * `workFoldRequestLimits`, `workFoldRoutingDeclarationBounds`,
+ * `workFoldRoutingMaxConcurrentRuns`, `workFoldAutomationDefaultConcurrency`),
+ * so the shown number cannot drift from the enforced one.
  */
 
 function kib(bytes: number): string {
@@ -37,6 +38,11 @@ function seconds(milliseconds: number): string {
   return `${formatNumber(milliseconds / 1000)} seconds`;
 }
 
+function hours(milliseconds: number): string {
+  const value = milliseconds / 3_600_000;
+  return `${formatNumber(value)} hour${value === 1 ? "" : "s"}`;
+}
+
 function LimitRows({ rows }: { rows: Array<[string, string]> }) {
   return (
     <dl className="context-meta-grid">
@@ -51,6 +57,7 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
   const assistant = restrictedAppAssistantLimits;
   const inference = restrictedAppInferenceLimits;
   const routing = workFoldRoutingDeclarationBounds;
+  const requests = workFoldRequestLimits;
 
   return (
     <section className="settings-section" aria-labelledby="fold-limits-title">
@@ -75,6 +82,24 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
           ["Short answers running per app", `${inference.runningPerInstallation}, with ${inference.waitingPerInstallation} more waiting`],
           ["Short answers running on this computer", String(inference.runningMachineWide)],
           ["Time one short answer may take", seconds(inference.timeoutMs)],
+        ]}
+      />
+
+      <h4 id="fold-limits-requests-title">{foldLimitsSettings.requestsHeading}</h4>
+      <p>{foldLimitsSettings.requestsIntro}</p>
+      <LimitRows
+        rows={[
+          ["How long one request stays open", hours(requests.deadlineMs)],
+          ["Space turns one request may start", String(requests.maxChildRequestsPerRoot)],
+          ["How far a request may hand work on", `${requests.maxDelegationDepth} levels`],
+          ["Space turns running together", String(requests.maxConcurrentChildrenPerRoot)],
+          ["Follow-up turns after work settles", String(requests.maxContinuationsPerRoot)],
+          ["Model spending for one request", requests.providerBudgetUsd === null ? "No limit" : `$${formatNumber(requests.providerBudgetUsd)}`],
+          ["A question the Assistant asks", kib(requests.maxQuestionTextBytes)],
+          ["A result summary", kib(requests.maxResultSummaryBytes)],
+          ["Result details", kib(requests.maxResultDataBytes)],
+          ["Files one result may name", String(requests.maxResultFiles)],
+          ["Kept for", `${requests.retentionDays} days`],
         ]}
       />
 

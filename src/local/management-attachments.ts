@@ -100,6 +100,71 @@ export async function classifyManagementAttachments(
   return refs;
 }
 
+export type ManagementAttachmentDispositionStatus = "placed" | "registered" | "unrecorded";
+
+export interface ManagementAttachmentDisposition {
+  attachment: ManagementAttachmentRef;
+  status: ManagementAttachmentDispositionStatus;
+  spaceId?: string;
+  spaceName?: string;
+  copied?: string[];
+  checkpointId?: string | null;
+}
+
+/**
+ * The slice of a recorded request action that disposition accounting reads.
+ * Structural on purpose: the durable request record owns the full action
+ * shape, and this module must not depend on it.
+ */
+export interface ManagementAttachmentActionRef {
+  command: string;
+  spaceId?: string;
+  spaceName?: string;
+  sources?: string[];
+  copied?: string[];
+  checkpointId?: string | null;
+  spaceRoot?: string;
+}
+
+/**
+ * Accounts for every attachment against the recorded actions. Nothing may
+ * silently disappear from the story: an attachment with no mechanically
+ * matched action is reported as `unrecorded`, and the Assistant's own report
+ * remains the narrative for it.
+ */
+export function managementAttachmentDispositions(input: {
+  attachments: readonly ManagementAttachmentRef[];
+  actions: readonly ManagementAttachmentActionRef[];
+}): ManagementAttachmentDisposition[] {
+  return input.attachments.map((attachment) => {
+    if (attachment.kind !== "url") {
+      const placed = input.actions.find((action) =>
+        action.command === "files.add" && action.sources?.includes(attachment.target));
+      if (placed) {
+        return {
+          attachment,
+          status: "placed" as const,
+          spaceId: placed.spaceId,
+          spaceName: placed.spaceName,
+          copied: placed.copied ?? [],
+          checkpointId: placed.checkpointId ?? null,
+        };
+      }
+      const registered = input.actions.find((action) =>
+        action.command === "spaces.register" && action.spaceRoot === attachment.target);
+      if (registered) {
+        return {
+          attachment,
+          status: "registered" as const,
+          spaceId: registered.spaceId,
+          spaceName: registered.spaceName,
+        };
+      }
+    }
+    return { attachment, status: "unrecorded" as const };
+  });
+}
+
 /** Links are handed to the turn as a separate typed list, never as fake files. */
 export function managementAttachmentLinks(refs: readonly ManagementAttachmentRef[]): string[] {
   return refs.filter((ref) => ref.kind === "url").map((ref) => ref.target);

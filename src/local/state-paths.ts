@@ -45,6 +45,11 @@ export function workFoldTrashRoot(): string {
   return join(workFoldStateRoot(), "trash");
 }
 
+/** Machine-local durable request graph (docs/collaboration-contract.md, F25). */
+export function workFoldRequestsRoot(): string {
+  return join(workFoldStateRoot(), "requests");
+}
+
 /**
  * Scope id for the management conversation that sits above all Spaces. It is
  * a distinct conversation scope, not a Space: its records describe this

@@ -12,6 +12,7 @@ import {
 import { createWorkFoldCliActRequest } from "../src/local/cli/act-protocol.js";
 import type { WorkFoldActFacade } from "../src/local/cli/act-facade.js";
 import { WorkFoldCliActReceipts, type WorkFoldCliActReceiptV1 } from "../src/local/cli/act-receipts.js";
+import { WorkFoldCliError } from "../src/local/cli/protocol.js";
 import { startLocalApi } from "../src/local/server.js";
 import { setSpaceIgnoreState } from "../src/local/space-ignore.js";
 
@@ -230,6 +231,20 @@ test("management requests carry attachments, record lineage, and expose honest p
     assert.equal(request.children.length, 1);
     assert.equal(request.children[0]!.taskId, childSend.taskId);
     assert.equal(request.children[0]!.spaceName, "Target Space");
+    // The durable record beneath the phase (docs/collaboration-contract.md, F25).
+    assert.match(request.requestId, /^req-/);
+    assert.equal(request.kind, "management");
+    assert.equal(request.rootId, request.requestId, "a management turn is its own root");
+    assert.ok(["working", "handed_off", "done"].includes(request.state));
+    assert.deepEqual(request.questions, []);
+    assert.deepEqual(request.results, []);
+    const childRecord = api.requests.byTaskId(childSend.taskId);
+    assert.ok(childRecord, "a delegated chat send is a child request");
+    assert.equal(childRecord!.rootId, request.requestId, "the child keeps the management request's root");
+    assert.equal(childRecord!.depth, 1);
+    assert.equal(childRecord!.parentTaskId, send.taskId);
+    assert.equal(childRecord!.kind, "cli");
+    assert.equal(childRecord!.owner.spaceId, target.space.id);
     const placed = request.dispositions.find((item) => item.attachment.name === "report.txt")!;
     assert.equal(placed.status, "placed");
     assert.equal(placed.spaceName, "Target Space");
@@ -340,9 +355,9 @@ test("management requests carry attachments, record lineage, and expose honest p
     assert.equal(prePromptView.children.find((child) => child.taskId === prePromptChild.taskId)?.state, "aborted");
     assert.equal(prePromptView.phase, "stopped");
 
-    // Stopping the parent also fences a child accepted just before its
-    // explicit parent attribution is recorded. The late attribution remains
-    // visible, but its already-accepted task is immediately cancelled.
+    // Stopping the parent between its check and the child's acceptance
+    // refuses the child at acceptance: no child request, no child turn, and
+    // no user message in the Space Chat (docs/collaboration-contract.md, F25).
     const admissionRaceParent = await facade.manageSend({ content: "/hold" });
     const admissionRaceConversation = await facade.createConversation({ space: target.space.id });
     holdChildAttribution = true;
@@ -355,17 +370,23 @@ test("management requests carry attachments, record lineage, and expose honest p
     await childAttributionReached;
     const admissionRaceStop = await facade.manageStop({ taskId: admissionRaceParent.taskId });
     assert.equal(admissionRaceStop.managementAborted, true);
-    assert.deepEqual(admissionRaceStop.children, [], "the child has not been attributed at the stop snapshot");
+    assert.deepEqual(admissionRaceStop.children, [], "the child has not been accepted at the stop snapshot");
     releaseChildAttribution();
-    const admissionRaceChild = await admissionRaceChildPromise;
-    await waitForAsync(async () => {
-      const view = await facade.manageTurnStatus({ taskId: admissionRaceParent.taskId });
-      return view.task.state !== "running"
-        && view.request?.children.find((child) => child.taskId === admissionRaceChild.taskId)?.state === "aborted";
-    });
+    await assert.rejects(
+      () => admissionRaceChildPromise,
+      (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict" && /stopping or has already finished/.test(error.message),
+    );
+    await waitForAsync(async () =>
+      (await facade.manageTurnStatus({ taskId: admissionRaceParent.taskId })).task.state !== "running");
     const admissionRaceView = (await facade.manageTurnStatus({ taskId: admissionRaceParent.taskId })).request!;
-    assert.equal(admissionRaceView.children.find((child) => child.taskId === admissionRaceChild.taskId)?.state, "aborted");
+    assert.deepEqual(admissionRaceView.children, [], "the refused child never became a child request");
     assert.equal(admissionRaceView.phase, "stopped");
+    const admissionRaceTranscript = await getJson(api.origin, `/api/spaces/${target.space.id}/conversations/${admissionRaceConversation.conversation.id}`);
+    assert.deepEqual(
+      (admissionRaceTranscript.messages as Array<{ role: string }>).filter((message) => message.role === "user"),
+      [],
+      "a refused child leaves no user message behind",
+    );
 
     // A failed delegated turn is a failed request, not a green parent success.
     const failedParent = await facade.manageSend({ content: "/hold" });

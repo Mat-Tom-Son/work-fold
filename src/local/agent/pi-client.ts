@@ -40,6 +40,8 @@ import {
   type ResolvedPiRuntime,
 } from "./pi-runtime-config.js";
 import { runBoundedInference, type BoundedInferenceOutcome, type BoundedInferenceRequest } from "./bounded-inference.js";
+import { appendSpaceOperationsGuide } from "./space-operations-guide.js";
+import type { PiSpaceTurnContext } from "./space-turn-context.js";
 import type { WorkFoldDurableTurnUsage } from "./turn-store.js";
 import { type RestrictedAppProposalHost, type RestrictedAppProposalResult } from "./restricted-app-proposals.js";
 import type {
@@ -48,6 +50,7 @@ import type {
 } from "./restricted-app-service.js";
 
 export type { PiRuntimeConfig, PiRuntimeMetadata, PiRuntimeProvider } from "./pi-runtime-config.js";
+export type { PiSpaceTurnContext, PiSpaceTurnDelegation } from "./space-turn-context.js";
 
 export interface PiChatEvent {
   type:
@@ -118,7 +121,18 @@ export interface PiTurnContext {
   managementTaskId?: string;
   /** Exact host-owned Space registry at the start of this management turn. */
   managementSpaces?: Array<{ id: string; name: string; spaceRoot: string }>;
+  /**
+   * Host-owned identity of this Space turn (docs/collaboration-contract.md,
+   * F26). Set only for Space scopes; the two management fields above are set
+   * only for the management scope, so a context never carries both.
+   */
+  spaceTurn?: PiSpaceTurnContext;
   selectedPath?: string | null;
+}
+
+export interface PiConversationClientOptions {
+  /** Appended after this Space's instructions; absent for the management scope. */
+  operationsGuide?: string;
 }
 
 export interface PiConversationState {
@@ -185,6 +199,7 @@ export class PiConversationClient extends EventEmitter {
     private readonly spaceRoot: string,
     private readonly runtimeProvider?: PiRuntimeProvider,
     private readonly hostCapabilities?: PiConversationHostCapabilities,
+    private readonly options: PiConversationClientOptions = {},
   ) {
     super();
   }
@@ -539,7 +554,12 @@ export class PiConversationClient extends EventEmitter {
           additionalSkillPaths: runtime.config.additionalSkillPaths,
           additionalPromptTemplatePaths: runtime.config.additionalPromptTemplatePaths,
           additionalThemePaths: runtime.config.additionalThemePaths,
-          appendSystemPromptOverride: (base) => appendAssistantInstructions(base, runtime.config.assistantInstructions),
+          // Space instructions first, then the operations guide (F26), so the
+          // person's own text keeps the position it always had.
+          appendSystemPromptOverride: (base) => appendSpaceOperationsGuide(
+            appendAssistantInstructions(base, runtime.config.assistantInstructions),
+            this.options.operationsGuide,
+          ),
         },
       });
       const preferred = options.sessionManager.buildSessionContext().messages.length === 0
@@ -1252,6 +1272,28 @@ function findPreferredModel(runtime: ResolvedPiRuntime) {
 
 export function buildTurnContextMessage(context: PiTurnContext): string {
   const lines: string[] = [];
+  if (context.spaceTurn) {
+    // Identity before data: a Space turn reads its own ids first. The block
+    // never names another Space, the registry, or the parent's real task id.
+    const turn = context.spaceTurn;
+    lines.push(
+      "This turn's work-fold identity (host-owned; use these exact ids):",
+      JSON.stringify({ spaceId: turn.spaceId, taskId: turn.taskId, requestId: turn.requestId }, null, 2),
+      "Pass --space with that Space id and --task with that task id on chat report, chat ask, and chat handoff. A task id is accepted only while that exact turn is yours and running.",
+    );
+    if (turn.delegated) {
+      lines.push(
+        `Another request delegated this work. Refer to it as ${turn.delegated.parentHandle}; that handle is all you get, and no command takes it.`,
+        turn.delegated.assignmentIsThisMessage
+          ? "Your assignment is the message in this turn."
+          : `Your assignment from that request:\n${turn.delegated.assignment ?? ""}${turn.delegated.assignmentTruncated ? "\n[The assignment was cut at 16 KB.]" : ""}`,
+        "Report back with chat report when the assignment is done, and ask with chat ask --to parent when you need that request to decide something.",
+      );
+    }
+    lines.push(
+      "Work only in this Space. Other Spaces' folders and results and the fold's own conversation are not yours to read; hand off or ask instead.",
+    );
+  }
   if (context.managementSpaces) {
     lines.push(
       "Current work-fold profile snapshot for this exact request (authoritative):",

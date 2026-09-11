@@ -17,6 +17,15 @@ import type {
 import type { WorkFoldCliActRequest } from "./act-protocol.js";
 import type { WorkFoldCliActReceipts, WorkFoldCliActUndoRef } from "./act-receipts.js";
 import { maximumAssistantInstructionsLength } from "../agent/model-preferences.js";
+// The collaboration bounds and their person-facing refusal text live with the
+// request record that enforces them, so a parse-time refusal and a store-time
+// refusal say the same words (docs/collaboration-contract.md, F25/F29).
+import {
+  workFoldRequestLimitMessage,
+  workFoldRequestLimitsSection,
+  type WorkFoldResultOutcome,
+} from "../requests/request-records.js";
+import { workFoldRequestLimits, workFoldRoutingDeclarationBounds } from "../../shared/fold-limits.js";
 import {
   WorkFoldCliError,
   WorkFoldCliExitCode,
@@ -37,6 +46,13 @@ export type WorkFoldCliActCommandName =
   | "chat.archive"
   | "chat.resume"
   | "chat.compact"
+  // The four Space-scoped collaboration verbs (docs/collaboration-contract.md,
+  // F27). Delivery is host-side: no fold model turn moves a report, an
+  // answer, or a handoff.
+  | "chat.report"
+  | "chat.ask"
+  | "chat.answer"
+  | "chat.handoff"
   | "chats.list"
   | "manage.send"
   | "manage.status"
@@ -127,7 +143,11 @@ export type WorkFoldCliActCommandName =
   | "pages.narrow"
   | "pages.snapshot-off"
   | "trash.list"
-  | "trash.restore";
+  | "trash.restore"
+  // Management-scope reads of the request graph (docs/collaboration-contract.md,
+  // F25): one request, everything handed out under it, and what came back.
+  | "requests.list"
+  | "requests.show";
 
 export interface WorkFoldCliActParsedCommand {
   name: WorkFoldCliActCommandName;
@@ -216,6 +236,27 @@ export interface WorkFoldCliActParsedCommand {
   entry?: string;
   /** Absolute destination for `trash restore --to`, the "save a copy" path for app data. */
   toPath?: string;
+  /** Result-envelope summary for chat.report (docs/collaboration-contract.md, F29). */
+  summary?: string;
+  /** Inline `--data` JSON for chat.report; the host validates it against a declared schema. */
+  resultData?: unknown;
+  /** `--data @<path>`: a JSON file the host reads from the directory the command ran in. */
+  resultDataPath?: string;
+  /** Space-relative deliverables for chat.report, and the copies chat.handoff carries. */
+  files?: string[];
+  outcome?: WorkFoldResultOutcome;
+  /** chat.ask question text. */
+  question?: string;
+  /** Who chat.ask is asking; `parent` on a root request is delivered to the person. */
+  respondent?: "person" | "parent";
+  /** chat.answer target. `--question` carries an id here and free text in chat.ask. */
+  questionId?: string;
+  /** chat.answer answer text. */
+  answer?: string;
+  /** chat.handoff destination Space selector. */
+  toSpace?: string;
+  /** requests.show target. */
+  request?: string;
 }
 
 /** The running interactive app's act authority: the facade plus this run's token. */
@@ -287,6 +328,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
   const fromPaths: string[] = [];
   const attachValues: string[] = [];
   const pathValues: string[] = [];
+  const fileValues: string[] = [];
   const positional: string[] = [];
 
   const valueFlags = new Set([
@@ -338,6 +380,14 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "--serve-rate",
     "--byte-budget",
     "--entry",
+    "--summary",
+    "--data",
+    "--outcome",
+    "--question",
+    "--answer",
+    "--to-space",
+    "--file",
+    "--request",
   ]);
   const booleanFlags = new Set(["--new", "--message-from-payload", "--retain-data", "--purge-data", "--snapshot", "--clear"]);
 
@@ -370,6 +420,10 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
       }
       if (flagName === "--path") {
         pathValues.push(value);
+        continue;
+      }
+      if (flagName === "--file") {
+        fileValues.push(value);
         continue;
       }
       if (flags.has(flagName)) throw usageError(`${flagName} may be provided only once.`);
@@ -418,6 +472,17 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
   if (!pathCommands.has(command) && pathValues.length) {
     throw usageError(`--path cannot be used with '${command || "(none)"}'.`);
   }
+  // --file is repeatable and names deliverables to hand back or copies to
+  // carry (docs/collaboration-contract.md, F27/F29); nothing else takes it.
+  const fileCommands = new Set(["chat report", "chat handoff"]);
+  if (!fileCommands.has(command) && fileValues.length) {
+    throw usageError(`--file cannot be used with '${command || "(none)"}'.`);
+  }
+  // The request graph sits above Spaces (F25): every request names the Space
+  // it belongs to, so neither read takes one.
+  if (positional[0] === "requests" && flags.has("--space")) {
+    throw usageError("The request graph sits above Spaces, so 'requests' takes no --space.");
+  }
   const stringFlag = (name: string): string | undefined => {
     const value = flags.get(name);
     return typeof value === "string" ? value : undefined;
@@ -463,6 +528,62 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     if (cliControlCharacters.test(value)) throw usageError(`${flag} contains unsupported control characters.`);
     return value;
   };
+  /**
+   * A report summary, a question, and an answer are prose: they may carry the
+   * newlines `chat send --message` already allows, and the contract states
+   * their bounds in KiB, so they are measured in bytes. The act lane's own
+   * per-argument cap still bites first for very long text, which is what
+   * `--message-file` and `--data @<path>` exist for.
+   */
+  const requireCollaborationText = (
+    name: string,
+    label: string,
+    limit: "questionText" | "answerText" | "resultSummary",
+    maximumBytes: number,
+  ): string => {
+    const value = stringFlag(name);
+    if (value === undefined || !value.trim()) throw usageError(`Provide ${name} <${label}>.`);
+    if (value.includes("\u0000")) throw usageError(`${name} contains unsupported control characters.`);
+    if (Buffer.byteLength(value, "utf8") > maximumBytes) {
+      throw usageError(workFoldRequestLimitMessage(limit, maximumBytes));
+    }
+    return value;
+  };
+  const collaborationFiles = (maximum: number, limit: "resultFiles" | null): string[] => {
+    if (fileValues.length > maximum) {
+      throw usageError(limit
+        ? workFoldRequestLimitMessage(limit, maximum)
+        : `A handoff may copy at most ${maximum} files. ${workFoldRequestLimitsSection} shows this number.`);
+    }
+    const files = fileValues.map((value) => boundedActPath("--file", value, "space-path"));
+    if (new Set(files).size !== files.length) throw usageError("--file names the same path twice.");
+    return files;
+  };
+  /**
+   * `--data` is either inline JSON or `@<path>`. The file form defers the
+   * read to the host, which resolves it against the directory the command ran
+   * in — the same shape as `checks enable --proposal`. It is not a
+   * convenience: one act argument caps well below the envelope's own data
+   * limit, so anything sizeable has to arrive as a file.
+   */
+  const resultDataFlag = (): { resultData?: unknown; resultDataPath?: string } => {
+    const raw = stringFlag("--data");
+    if (raw === undefined) return {};
+    const value = raw.trim();
+    if (!value) throw usageError("Provide --data <json> or --data @<path>.");
+    if (value.startsWith("@")) return { resultDataPath: boundedActPath("--data", value.slice(1), "json-path") };
+    if (Buffer.byteLength(value, "utf8") > workFoldRequestLimits.maxResultDataBytes) {
+      throw usageError(workFoldRequestLimitMessage("resultData", workFoldRequestLimits.maxResultDataBytes));
+    }
+    // Deliberately not requireBoundedFlag: pretty-printed JSON carries the
+    // newlines that rule refuses, and the host validates the parsed value
+    // against the schema the request declared, when it declared one.
+    try {
+      return { resultData: JSON.parse(value) };
+    } catch {
+      throw usageError("--data must be valid JSON, or @<path> naming a JSON file.");
+    }
+  };
   const requireSinglePath = (label: string): string => {
     if (pathValues.length > 1) throw usageError("--path may be provided only once.");
     if (!pathValues.length) throw usageError(`Provide --path <${label}>.`);
@@ -499,6 +620,10 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "chat archive",
     "chat resume",
     "chat compact",
+    "chat report",
+    "chat ask",
+    "chat answer",
+    "chat handoff",
     "history save",
     "history restore",
     "history restore-file",
@@ -674,6 +799,88 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         conversation: requireConversation(),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
+    case "chat report": {
+      // F27/F29: one result envelope attached to a task the caller owns. Parse
+      // bounds only what argv can carry; the host resolves each --file inside
+      // the Space, records its content hash and size, and applies the declared
+      // schema to --data when the request declared one.
+      allowOnlyFlags("--space", "--task", "--summary", "--data", "--outcome", "--parent-task");
+      const rawOutcome = stringFlag("--outcome")?.trim();
+      if (rawOutcome !== undefined && rawOutcome !== "succeeded" && rawOutcome !== "partial" && rawOutcome !== "failed") {
+        throw usageError("--outcome must be succeeded, partial, or failed.");
+      }
+      return {
+        name: "chat.report",
+        output,
+        space: requireSpace(),
+        task: requireBoundedFlag("--task", "task-id"),
+        summary: requireCollaborationText("--summary", "text", "resultSummary", workFoldRequestLimits.maxResultSummaryBytes),
+        files: collaborationFiles(workFoldRequestLimits.maxResultFiles, "resultFiles"),
+        outcome: (rawOutcome ?? "succeeded") as WorkFoldResultOutcome,
+        ...resultDataFlag(),
+        ...(parentTaskId ? { parentTaskId } : {}),
+      };
+    }
+    case "chat ask": {
+      // F27: recording a question never suspends the asking turn. The turn
+      // ends; the task's request is what waits.
+      allowOnlyFlags("--space", "--task", "--question", "--to", "--parent-task");
+      const rawRespondent = stringFlag("--to")?.trim();
+      if (rawRespondent !== undefined && rawRespondent !== "person" && rawRespondent !== "parent") {
+        throw usageError("--to must be person or parent.");
+      }
+      return {
+        name: "chat.ask",
+        output,
+        space: requireSpace(),
+        task: requireBoundedFlag("--task", "task-id"),
+        // Free text here; `chat answer --question` carries an id. That is the
+        // contract's spelling, not an oversight.
+        question: requireCollaborationText("--question", "text", "questionText", workFoldRequestLimits.maxQuestionTextBytes),
+        // A root request has no parent, so the host delivers `parent` to the
+        // person and says it did.
+        respondent: (rawRespondent ?? "person") as "person" | "parent",
+        ...(parentTaskId ? { parentTaskId } : {}),
+      };
+    }
+    case "chat answer":
+      // --space names the Space that owns the question and in which the one
+      // linked continuation runs; an answer from anywhere else is refused.
+      allowOnlyFlags("--space", "--question", "--answer", "--parent-task");
+      return {
+        name: "chat.answer",
+        output,
+        space: requireSpace(),
+        questionId: requireBoundedFlag("--question", "question-id"),
+        answer: requireCollaborationText("--answer", "text", "answerText", workFoldRequestLimits.maxAnswerTextBytes),
+        ...(parentTaskId ? { parentTaskId } : {}),
+      };
+    case "chat handoff": {
+      // The message either/or is exactly `chat send`'s, because a handoff
+      // starts a Chat in the destination through that same acceptance path.
+      allowOnlyFlags("--space", "--task", "--to-space", "--message", "--message-from-payload", "--parent-task");
+      const message = stringFlag("--message");
+      const messageFromPayload = flags.get("--message-from-payload") === true;
+      if (message !== undefined && messageFromPayload) {
+        throw usageError("Use either --message <text> or --message-file <path>, not both.");
+      }
+      if (message === undefined && !messageFromPayload) {
+        throw usageError("Provide --message <text> or --message-file <path>.");
+      }
+      return {
+        name: "chat.handoff",
+        output,
+        space: requireSpace(),
+        task: requireBoundedFlag("--task", "task-id"),
+        toSpace: requireBoundedFlag("--to-space", "id-or-name"),
+        ...(message !== undefined ? { message } : {}),
+        ...(messageFromPayload ? { messageFromPayload } : {}),
+        // A handoff copies through the same additive, restore-pointed path a
+        // routing files step uses, so it carries that step's own path bound.
+        files: collaborationFiles(workFoldRoutingDeclarationBounds.maxExactPathsPerFilesStep, null),
+        ...(parentTaskId ? { parentTaskId } : {}),
+      };
+    }
     case "chat wait":
     case "manage wait":
     case "checks wait":
@@ -1396,6 +1603,15 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         ...(parentTaskId ? { parentTaskId } : {}),
       };
     }
+    // Reads of the request graph (docs/collaboration-contract.md, F25): what
+    // was handed out under one request, what is still open, and what came
+    // back. Reads take no lineage, matching the other act reads.
+    case "requests list":
+      allowOnlyFlags();
+      return { name: "requests.list", output };
+    case "requests show":
+      allowOnlyFlags("--request");
+      return { name: "requests.show", output, request: requireBoundedFlag("--request", "request-id") };
     case "routings list":
       allowOnlyFlags();
       return { name: "routings.list", output };
@@ -1665,6 +1881,19 @@ async function runActCommand(
           }));
     case "chat.abort":
       return toJson(await facade.abortTurn({ space: command.space!, conversationId: command.conversation! }));
+    // The collaboration verbs parse, journal, and receipt here already; the
+    // host side of them (docs/collaboration-contract.md, F27/F28) arrives
+    // with the request record, so refuse honestly rather than half-running.
+    case "chat.report":
+    case "chat.ask":
+    case "chat.answer":
+    case "chat.handoff":
+    case "requests.list":
+    case "requests.show":
+      throw new WorkFoldCliError(
+        "unavailable",
+        `work-fold understood '${command.name}' but cannot run it yet: the collaboration verbs arrive with the request record.`,
+      );
     case "chats.list":
       return toJson(await facade.listConversations({ space: command.space! }));
     case "manage.send": {

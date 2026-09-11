@@ -16,11 +16,14 @@ import type {
 } from "../checks/check-types.js";
 import type { WorkFoldCliActLegacySurface, WorkFoldCliActSurface } from "./act-receipts.js";
 import type { WorkFoldGlanceSnapshot } from "../glance.js";
-import type { ManagementAttachmentRef } from "../management-attachments.js";
+import type { ManagementAttachmentDisposition, ManagementAttachmentRef } from "../management-attachments.js";
 import type {
-  ManagementAttachmentDisposition,
-  ManagementRequestAction,
-} from "../management-requests.js";
+  WorkFoldRequestAction,
+  WorkFoldRequestKind,
+  WorkFoldRequestLimitHit,
+  WorkFoldRequestState,
+  WorkFoldResultOutcome,
+} from "../requests/request-records.js";
 import type { SpaceChatMatch, SpaceFileMatch } from "../search.js";
 
 export interface WorkFoldActSpaceRef {
@@ -153,11 +156,14 @@ export interface WorkFoldActLibraryItem {
 }
 
 /**
- * Phase of one management request. `working` is the management turn itself;
- * `handed_off` means the management turn finished but a Space Assistant turn
- * it started is still running — "done" is never claimed while downstream work
- * continues. `needs_you` reflects a completed turn whose reply ends by asking
- * the person a question.
+ * Phase of one request in the vocabulary `manage status` and the popover
+ * speak. `working` is the request's own turn; `handed_off` means that turn
+ * finished but a Space Assistant turn it started is still running — "done" is
+ * never claimed while downstream work continues. `needs_you` is an open
+ * question, or a completed turn whose reply ends by asking the person one.
+ * The durable record's full state (docs/collaboration-contract.md, F25)
+ * travels beside it as `state`: `partial` reads here as `done` and `expired`
+ * as `stopped`.
  */
 export type WorkFoldActManagementRequestPhase =
   | "working"
@@ -196,6 +202,7 @@ export interface WorkFoldActAttachmentDisposition {
 }
 
 export interface WorkFoldActManagementRequest {
+  /** The request's newest turn; a continued request names its latest turn here. */
   taskId: string;
   conversationId: string;
   phase: WorkFoldActManagementRequestPhase;
@@ -205,12 +212,36 @@ export interface WorkFoldActManagementRequest {
   content: string;
   attachments: ManagementAttachmentRef[];
   dispositions: WorkFoldActAttachmentDisposition[];
-  actions: ManagementRequestAction[];
+  actions: WorkFoldRequestAction[];
   children: WorkFoldActManagementChildStatus[];
   reply: { messageId: string; content: string } | null;
   source: "local" | "remote_web";
   remotePrincipalId: string | null;
   remoteRequestId: string | null;
+  // --- the durable request record beneath the phase (F25), additive.
+  requestId: string;
+  kind: WorkFoldRequestKind;
+  rootId: string;
+  state: WorkFoldRequestState;
+  deadline: string;
+  limitHit: WorkFoldRequestLimitHit | null;
+  /** Bounded: ids and states, never the question text. */
+  questions: Array<{
+    questionId: string;
+    taskId: string;
+    respondent: "person" | "parent";
+    state: "open" | "answered" | "expired" | "cancelled";
+    askedAt: string;
+    answeredAt: string | null;
+  }>;
+  /** Bounded: ids, outcomes, and file counts, never the summary or data. */
+  results: Array<{
+    resultId: string;
+    taskId: string;
+    outcome: WorkFoldResultOutcome;
+    recordedAt: string;
+    fileCount: number;
+  }>;
 }
 
 export interface WorkFoldActCheckTaskStatus {

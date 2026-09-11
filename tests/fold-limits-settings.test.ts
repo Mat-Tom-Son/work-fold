@@ -7,6 +7,7 @@ import { restrictedAppInferenceLimits } from "../src/shared/restricted-app-infer
 import { restrictedAppAssistantLimits } from "../src/shared/restricted-app-tasks.js";
 import {
   workFoldAutomationDefaultConcurrency,
+  workFoldRequestLimits,
   workFoldRoutingDeclarationBounds,
   workFoldRoutingMaxConcurrentRuns,
 } from "../src/shared/fold-limits.js";
@@ -46,6 +47,7 @@ test("the Limits pane reads the frozen contracts instead of retyping them", () =
   for (const contract of [
     "restrictedAppAssistantLimits",
     "restrictedAppInferenceLimits",
+    "workFoldRequestLimits",
     "workFoldRoutingDeclarationBounds",
     "workFoldRoutingMaxConcurrentRuns",
     "workFoldAutomationDefaultConcurrency",
@@ -82,6 +84,17 @@ test("the Limits pane shows the assistant, routing, and automation numbers a ref
     text.includes(`Automations running on this computer${workFoldAutomationDefaultConcurrency}`),
     "the automation concurrency default is shown",
   );
+
+  // The request bounds every collaboration refusal names (docs/collaboration-contract.md).
+  assert.ok(text.includes(`How long one request stays open${workFoldRequestLimits.deadlineMs / 3_600_000} hours`), "the request window is shown");
+  assert.ok(text.includes(`Space turns one request may start${workFoldRequestLimits.maxChildRequestsPerRoot}`), "the child count is shown");
+  assert.ok(text.includes(`How far a request may hand work on${workFoldRequestLimits.maxDelegationDepth} levels`), "the depth is shown");
+  assert.ok(text.includes(`Space turns running together${workFoldRequestLimits.maxConcurrentChildrenPerRoot}`), "the concurrency is shown");
+  assert.ok(text.includes(`Follow-up turns after work settles${workFoldRequestLimits.maxContinuationsPerRoot}`), "the continuation count is shown");
+  assert.ok(text.includes("Model spending for one requestNo limit"), "no spending cap is shipped");
+  assert.ok(text.includes(`A result summary${workFoldRequestLimits.maxResultSummaryBytes / 1024} KB`), "the summary bound is shown");
+  assert.ok(text.includes(`Result details${workFoldRequestLimits.maxResultDataBytes / 1024} KB`), "the data bound is shown");
+  assert.ok(text.includes(`Files one result may name${workFoldRequestLimits.maxResultFiles}`), "the file count is shown");
 });
 
 test("the Limits pane links to Recently deleted rather than setting retention itself", async (t) => {

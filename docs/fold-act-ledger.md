@@ -418,7 +418,7 @@ The ledger's plan items shipped as follows (suites named in
 3. Facade growth over the exact route internals — `src/local/cli/act-facade.ts`, `src/local/server.ts`; `tests/work-fold-act-facade.test.ts` plus the owning domain suites.
 4. History-restore fencing and `chat compact` — `src/local/work-fold-kernel.ts`; `tests/work-fold-kernel.test.ts`.
 5. Prepared verbs returning receipts — `src/local/fold-prepared-acts.ts`; `tests/fold-prepared-acts.test.ts`.
-6. Surface attribution — `src/local/management-requests.ts`; `tests/management-requests.test.ts`, `tests/work-fold-management-api.test.ts`.
+6. Surface attribution — `src/local/requests/request-store.ts`; `tests/management-requests.test.ts`, `tests/work-fold-management-api.test.ts`.
 7. Desktop host and shims — `desktop/src/work-fold-cli-host.ts`, `desktop/cli/`; `tests/desktop-work-fold-cli-host.test.ts`, `tests/desktop-cli-packaging.test.ts`.
 8. Help and read-lane text — `src/local/cli/commands.ts`; `tests/work-fold-cli-protocol.test.ts`.
 9. Management-instruction teaching — `src/local/management-instructions.ts`; `tests/work-fold-management-conversation.test.ts`.

@@ -14,6 +14,7 @@ import {
   createWorkFoldCliRequest,
   createWorkFoldCliResponse,
   executeWorkFoldCliRequest,
+  parseWorkFoldCliActArgv,
   parseWorkFoldCliArgv,
   parseWorkFoldCliRequest,
   parseWorkFoldCliResponse,
@@ -21,6 +22,8 @@ import {
   type WorkFoldCliActor,
   type WorkFoldCliKernel,
 } from "../src/local/cli/index.js";
+import { workFoldRequestLimitMessage } from "../src/local/requests/request-records.js";
+import { workFoldRequestLimits, workFoldRoutingDeclarationBounds } from "../src/shared/fold-limits.js";
 
 test("CLI request and response schemas preserve the locked protocol fields", () => {
   const id = randomUUID();
@@ -107,7 +110,10 @@ test("CLI help covers every landed act family and is honest about what it runs",
   // routings/pages plans, as the act argv parser accepts them. Growing the
   // act table without growing help fails here on purpose.
   const families: Record<string, string[]> = {
-    chat: ["create", "send", "status", "result", "wait", "abort", "rename", "snooze", "archive", "resume", "compact"],
+    chat: [
+      "create", "send", "status", "result", "wait", "abort", "rename", "snooze", "archive", "resume", "compact",
+      "report", "ask", "answer", "handoff",
+    ],
     chats: ["list"],
     manage: ["send", "status", "result", "wait", "stop", "abort", "list", "glance"],
     checks: ["status", "enable", "disable", "run", "task", "result", "wait", "abort", "problems", "decide"],
@@ -131,6 +137,7 @@ test("CLI help covers every landed act family and is honest about what it runs",
     routings: ["enable", "list", "show", "run", "stop", "disable", "delete", "receipts"],
     pages: ["share", "share-app", "list", "status", "revoke", "narrow", "snapshot-off"],
     trash: ["list", "restore"],
+    requests: ["list", "show"],
   };
   const overview = workFoldCliHelp("work-fold");
   for (const [family, verbs] of Object.entries(families)) {
@@ -144,7 +151,9 @@ test("CLI help covers every landed act family and is honest about what it runs",
   }
   // Every verb runs immediately and leaves a receipt (docs/receipts-not-gates.md):
   // no family topic promises a gate, and none of the retired vocabulary survives.
-  for (const family of Object.keys(families)) {
+  // `collaborate` is a topic without a verb family of its own, so the loop
+  // names it explicitly rather than picking it up from the table.
+  for (const family of [...Object.keys(families), "collaborate"]) {
     const topic = workFoldCliHelp("work-fold", family);
     assert.doesNotMatch(topic, /[Ss]taged|pending decision|decision card|needs-you card|approv|Reviewed mode|Unrestricted|polic/, `help ${family} must not describe a gate`);
   }
@@ -343,6 +352,176 @@ test("Routing help's complete authoring example passes the real proposal validat
   assert.doesNotMatch(help, /staged|approve|policy|Reviewed|Unrestricted|\bcard\b|\bmode\b/i);
 });
 
+test("help collaborate's worked example parses through the real act parser", () => {
+  const help = workFoldCliHelp("work-fold", "collaborate");
+  const example = help.split("\n").filter((line) => line.startsWith("  $ work-fold "));
+  // send -> wait -> answer -> wait -> report -> requests show: the whole F27
+  // round trip, so a flag spelled one way in help and another in the parser
+  // fails here instead of in someone's terminal.
+  assert.equal(example.length, 6);
+  const parsed = example.map((line) => {
+    const argv = exampleArgv(line.slice("  $ work-fold ".length));
+    if (argv[0] === "chat" && argv[1] === "wait") {
+      // The wait loop runs inside the installed shim, not the host, so the
+      // host parser refuses it on purpose and says where it lives.
+      assert.throws(() => parseWorkFoldCliActArgv(argv), /runs inside the work-fold shim/);
+      return "chat.wait";
+    }
+    return parseWorkFoldCliActArgv(argv).name;
+  });
+  assert.deepEqual(parsed, ["chat.send", "chat.wait", "chat.answer", "chat.wait", "chat.report", "requests.show"]);
+  // The topic documents every verb the contract lists, in the contract's own
+  // spelling, so an agent reading help sees the shape the parser accepts.
+  for (const spelled of [
+    "chat report", "chat ask", "chat answer", "chat handoff", "chat wait", "manage wait", "requests list", "requests show",
+  ]) {
+    assert.ok(help.includes(`work-fold ${spelled} `), `help collaborate must show usage for '${spelled}'`);
+  }
+  // Bounds are visible where a person can change them, and a refusal names
+  // the same place (docs/receipts-not-gates.md, principle 6).
+  assert.match(help, /Settings → The fold →/);
+  assert.match(help, /Nothing waits on someone clicking something\./);
+  assert.doesNotMatch(help, /\bcard\b|\bmode\b|sandboxed/i);
+});
+
+test("the act parser accepts the four collaboration verbs and the request reads", () => {
+  assert.deepEqual(
+    parseWorkFoldCliActArgv([
+      "chat", "report", "--space", "space-1", "--task", "task-1",
+      "--summary", "Drafted the note.", "--file", "drafts/q3.md", "--file", "drafts/q3-data.csv",
+      "--data", '{"words":812}', "--outcome", "partial", "--json",
+    ]),
+    {
+      name: "chat.report", output: "json", space: "space-1", task: "task-1",
+      summary: "Drafted the note.", files: ["drafts/q3.md", "drafts/q3-data.csv"],
+      outcome: "partial", resultData: { words: 812 },
+    },
+  );
+  // An outcome is succeeded unless the reporter says otherwise, and a report
+  // that names no file carries an empty list rather than a missing field.
+  assert.deepEqual(
+    parseWorkFoldCliActArgv(["chat", "report", "--space", "space-1", "--task", "task-1", "--summary", "Done."]),
+    { name: "chat.report", output: "human", space: "space-1", task: "task-1", summary: "Done.", files: [], outcome: "succeeded" },
+  );
+  // `--data @<path>` defers the read to the host, which resolves it against
+  // the directory the command ran in; argv could not carry 256 KiB anyway.
+  assert.deepEqual(
+    parseWorkFoldCliActArgv([
+      "chat", "report", "--space", "space-1", "--task", "task-1", "--summary", "Done.", "--data", "@out/result.json",
+    ]),
+    {
+      name: "chat.report", output: "human", space: "space-1", task: "task-1",
+      summary: "Done.", files: [], outcome: "succeeded", resultDataPath: "out/result.json",
+    },
+  );
+  assert.deepEqual(
+    parseWorkFoldCliActArgv(["chat", "ask", "--space", "space-1", "--task", "task-1", "--question", "Which quarter?"]),
+    { name: "chat.ask", output: "human", space: "space-1", task: "task-1", question: "Which quarter?", respondent: "person" },
+  );
+  assert.equal(
+    parseWorkFoldCliActArgv([
+      "chat", "ask", "--space", "space-1", "--task", "task-1", "--question", "Which quarter?", "--to", "parent",
+    ]).respondent,
+    "parent",
+  );
+  // --question carries free text for ask and an id for answer. That is the
+  // contract's spelling (docs/collaboration-contract.md), not a slip.
+  assert.deepEqual(
+    parseWorkFoldCliActArgv(["chat", "answer", "--space", "space-1", "--question", "question-1", "--answer", "November."]),
+    { name: "chat.answer", output: "human", space: "space-1", questionId: "question-1", answer: "November." },
+  );
+  assert.deepEqual(
+    parseWorkFoldCliActArgv([
+      "chat", "handoff", "--space", "space-1", "--task", "task-1", "--to-space", "space-2",
+      "--message", "Take this on.", "--file", "drafts/q3.md",
+    ]),
+    {
+      name: "chat.handoff", output: "human", space: "space-1", task: "task-1", toSpace: "space-2",
+      message: "Take this on.", files: ["drafts/q3.md"],
+    },
+  );
+  assert.deepEqual(
+    parseWorkFoldCliActArgv([
+      "chat", "handoff", "--space", "space-1", "--task", "task-1", "--to-space", "space-2", "--message-from-payload",
+    ]),
+    {
+      name: "chat.handoff", output: "human", space: "space-1", task: "task-1", toSpace: "space-2",
+      messageFromPayload: true, files: [],
+    },
+  );
+  assert.deepEqual(parseWorkFoldCliActArgv(["requests", "list", "--json"]), { name: "requests.list", output: "json" });
+  assert.deepEqual(
+    parseWorkFoldCliActArgv(["requests", "show", "--request", "request-1"]),
+    { name: "requests.show", output: "human", request: "request-1" },
+  );
+  // All four are mutations, so all four record management lineage; the two
+  // request reads deliberately do not.
+  for (const argv of [
+    ["chat", "report", "--space", "space-1", "--task", "task-1", "--summary", "Done."],
+    ["chat", "ask", "--space", "space-1", "--task", "task-1", "--question", "Which?"],
+    ["chat", "answer", "--space", "space-1", "--question", "question-1", "--answer", "November."],
+    ["chat", "handoff", "--space", "space-1", "--task", "task-1", "--to-space", "space-2", "--message", "Go."],
+  ]) {
+    assert.equal(parseWorkFoldCliActArgv([...argv, "--parent-task", "task-root"]).parentTaskId, "task-root", argv.join(" "));
+  }
+});
+
+test("the act parser refuses malformed collaboration arguments with stable usage errors", () => {
+  const refusals: Array<[string[], RegExp]> = [
+    [["chat", "send", "--space", "space-1", "--new", "--message", "hi", "--file", "notes.md"], /--file cannot be used with 'chat send'\./],
+    [["requests", "list", "--space", "space-1"], /sits above Spaces, so 'requests' takes no --space\./],
+    [["requests", "show"], /Provide --request <request-id>\./],
+    [["requests", "list", "--parent-task", "task-1"], /--parent-task cannot be used with 'requests list'\./],
+    [["chat", "ask", "--space", "space-1", "--task", "task-1", "--question", "Which?", "--to", "someone"], /--to must be person or parent\./],
+    [["chat", "report", "--space", "space-1", "--task", "task-1", "--summary", "Done.", "--outcome", "great"], /--outcome must be succeeded, partial, or failed\./],
+    [["chat", "report", "--space", "space-1", "--task", "task-1", "--summary", "Done.", "--data", "not json"], /--data must be valid JSON, or @<path> naming a JSON file\./],
+    [["chat", "report", "--space", "space-1", "--task", "task-1"], /Provide --summary <text>\./],
+    [["chat", "report", "--task", "task-1", "--summary", "Done."], /explicit --space/],
+    [
+      ["chat", "report", "--space", "space-1", "--task", "task-1", "--summary", "Done.", "--file", "q3.md", "--file", "q3.md"],
+      /--file names the same path twice\./,
+    ],
+    [["chat", "handoff", "--space", "space-1", "--task", "task-1", "--to-space", "space-2"], /Provide --message <text> or --message-file <path>\./],
+    [["chat", "answer", "--space", "space-1", "--question", "question-1"], /Provide --answer <text>\./],
+    [["chat", "answer", "--space", "space-1", "--question", "question-1", "--answer", "November.", "--task", "task-1"], /--task cannot be used with 'chat answer'\./],
+  ];
+  for (const [argv, message] of refusals) {
+    assert.throws(
+      () => parseWorkFoldCliActArgv(argv),
+      (error) => error instanceof WorkFoldCliError && error.exitCode === WorkFoldCliExitCode.usage && message.test(error.message),
+      argv.join(" "),
+    );
+  }
+  // A bound refused at parse time says exactly what the same bound says when
+  // the request record refuses it (docs/receipts-not-gates.md, principle 6).
+  const overLongQuestion = () => parseWorkFoldCliActArgv([
+    "chat", "ask", "--space", "space-1", "--task", "task-1",
+    "--question", "x".repeat(workFoldRequestLimits.maxQuestionTextBytes + 1),
+  ]);
+  assert.throws(overLongQuestion, (error) => error instanceof WorkFoldCliError
+    && error.exitCode === WorkFoldCliExitCode.usage
+    && error.message.startsWith(workFoldRequestLimitMessage("questionText", workFoldRequestLimits.maxQuestionTextBytes)));
+  const handoffFileLimit = workFoldRoutingDeclarationBounds.maxExactPathsPerFilesStep;
+  const tooManyFiles = Array.from({ length: handoffFileLimit + 1 }, (_, index) => ["--file", `notes/${index}.md`]).flat();
+  assert.throws(
+    () => parseWorkFoldCliActArgv([
+      "chat", "handoff", "--space", "space-1", "--task", "task-1", "--to-space", "space-2", "--message", "Take this.", ...tooManyFiles,
+    ]),
+    new RegExp(`A handoff may copy at most ${handoffFileLimit} files\\. Settings → The fold → Limits shows this number\\.`),
+  );
+  const tooManyDeliverables = Array.from(
+    { length: workFoldRequestLimits.maxResultFiles + 1 },
+    (_, index) => ["--file", `drafts/${index}.md`],
+  ).flat();
+  assert.throws(
+    () => parseWorkFoldCliActArgv([
+      "chat", "report", "--space", "space-1", "--task", "task-1", "--summary", "Done.", ...tooManyDeliverables,
+    ]),
+    (error) => error instanceof WorkFoldCliError
+      && error.message.startsWith(workFoldRequestLimitMessage("resultFiles", workFoldRequestLimits.maxResultFiles)),
+  );
+});
+
 test("CLI help/version avoid kernel work and kernel failures map to stable exit codes", async () => {
   let called = false;
   const kernel: WorkFoldCliKernel = {
@@ -366,6 +545,16 @@ test("CLI help/version avoid kernel work and kernel failures map to stable exit 
   assert.equal(denied.exitCode, WorkFoldCliExitCode.permissionDenied);
   assert.equal(JSON.parse(denied.stderr).error.code, "permissionDenied");
 });
+
+/** Splits one documented example line the way a shell would: quoted text is one argument. */
+function exampleArgv(line: string): string[] {
+  const argv: string[] = [];
+  const tokens = /"([^"]*)"|(\S+)/g;
+  for (let match = tokens.exec(line); match; match = tokens.exec(line)) {
+    argv.push(match[1] ?? match[2] ?? "");
+  }
+  return argv;
+}
 
 function fixtureKernel(calls: Array<{ method: string; actor: WorkFoldCliActor; space?: string }>): WorkFoldCliKernel {
   return {

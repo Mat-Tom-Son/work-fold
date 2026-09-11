@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import type { ChatMessage, ConversationSummary } from "./agent/chat-store.js";
 import type { WorkFoldActManagementRequestPhase } from "./cli/act-facade.js";
+import type { WorkFoldRequestKind, WorkFoldRequestState } from "./requests/request-records.js";
 import type { WorkFoldCliActReceipt } from "./cli/act-receipts.js";
 import type {
   WorkFoldCheckAggregateState,
@@ -74,7 +75,10 @@ export interface WorkFoldGlanceItemRef {
   taskId?: string;
   conversationId?: string;
   checkpointId?: string;
+  /** An act receipt's request id, or a durable request's id (F25). */
   requestId?: string;
+  /** The open question a needs-you item points at (F27). */
+  questionId?: string;
   routingId?: string;
   runId?: string;
   publicationId?: string;
@@ -167,15 +171,56 @@ export interface WorkFoldGlanceSettledTurnRecord {
   endedAt: string;
 }
 
+/**
+ * One durable request (docs/collaboration-contract.md, F25) as the glance
+ * reads it: its state, the vocabulary `manage status` speaks beside it, the
+ * turns it started, and its open questions by id — never a question's text,
+ * a result's summary, or any Space content.
+ */
 export interface WorkFoldGlanceManagementRequestRecord {
+  /** Stable across continuations, unlike the task id; item ids key on it. */
+  requestId: string;
+  kind: WorkFoldRequestKind;
+  state: WorkFoldRequestState;
+  /** The request's newest turn. */
   taskId: string;
   conversationId: string;
+  /** Absent exactly for the management scope. */
+  spaceId?: string;
   phase: WorkFoldActManagementRequestPhase;
   startedAt: string;
   endedAt: string | null;
-  /** Space Assistant turns this request started, for running-item folding. */
+  /** Every turn under this request's descendants, for running-item folding. */
   childTaskIds: string[];
+  /** Questions still open on this request, by id and respondent (needs you). */
+  openQuestions: Array<{ questionId: string; respondent: "person" | "parent"; askedAt: string }>;
+  questionCount: number;
+  resultCount: number;
 }
+
+/**
+ * Work above a single turn: the fold's own requests, and any request that
+ * delegated, asked, or reported. A plain Space turn is one kernel task and
+ * one settled turn already; rendering its root request as well would list
+ * the same work twice.
+ */
+function requestIsAboveSingleTurn(request: WorkFoldGlanceManagementRequestRecord): boolean {
+  return request.kind === "management"
+    || request.childTaskIds.length > 0
+    || request.questionCount > 0
+    || request.resultCount > 0;
+}
+
+const requestSettledHeadlines: Record<WorkFoldRequestState, string | null> = {
+  working: null,
+  waiting: null,
+  handed_off: null,
+  done: "Request done",
+  partial: "Request partly done",
+  failed: "Request failed",
+  stopped: "Request stopped",
+  expired: "Request ran out of time",
+};
 
 export interface WorkFoldGlanceChatLifecycleEvent {
   messageId: string;
@@ -355,8 +400,9 @@ export async function composeWorkFoldGlance(input: WorkFoldGlanceComposeInput): 
   const routingRuns = await readSource("routing-runs", sources.routingRuns, unavailable);
   const viewerGrants = await readSource("viewer-grants", sources.viewerGrants, unavailable);
 
+  // A request in `waiting` is not running: what it waits on is in Needs you.
   const runningRequests = (requests ?? []).filter(
-    (request) => request.phase === "working" || request.phase === "handed_off",
+    (request) => requestIsAboveSingleTurn(request) && (request.state === "working" || request.state === "handed_off"),
   );
   // One item per request: the request's own turn task and its running child
   // turns fold into that item's headline count instead of listing twice.
@@ -438,16 +484,17 @@ function composeRunning(input: {
   const items: WorkFoldGlanceItem[] = [];
   for (const request of input.runningRequests.slice(0, maxSourceRecords)) {
     const runningChildren = request.childTaskIds.filter((taskId) => input.runningTaskIds.has(taskId)).length;
-    const base = request.phase === "handed_off" ? "Handed off" : "Handling your request";
+    const base = request.state === "handed_off" ? "Handed off" : "Handling your request";
     const suffix = runningChildren > 0
       ? ` — ${runningChildren} Space turn${runningChildren === 1 ? "" : "s"} running`
       : "";
     items.push(glanceItem({
-      id: `management-requests:${request.taskId}`,
+      id: `management-requests:${request.requestId}`,
       at: request.startedAt,
       kind: "management-request",
+      ...(request.spaceId ? { spaceId: request.spaceId, spaceNames: input.spaceNames } : {}),
       headline: `${base}${suffix}`,
-      ref: { taskId: request.taskId, conversationId: request.conversationId },
+      ref: { taskId: request.taskId, conversationId: request.conversationId, requestId: request.requestId },
     }));
   }
   for (const task of input.tasks.slice(0, maxSourceRecords)) {
@@ -521,13 +568,35 @@ function composeNeedsYou(input: {
 }): { items: WorkFoldGlanceItem[]; truncated: boolean } {
   const others: WorkFoldGlanceItem[] = [];
   for (const request of input.requests.slice(0, maxSourceRecords)) {
-    if (request.phase !== "needs_you") continue;
+    // One item per open question addressed to the person (docs/fold-glance.md).
+    // A question addressed to the parent request belongs to that request's
+    // Assistant, never to the person. The question's text is model output and
+    // stays out of the digest; the ref carries the ids a surface reads by.
+    const personQuestions = request.openQuestions.filter((question) => question.respondent === "person");
+    const spaceName = request.spaceId ? input.spaceNames.get(request.spaceId) ?? `${request.spaceId} (removed)` : null;
+    const headline = spaceName
+      ? `"${clampText(spaceName, maxTitleInHeadline)}" is waiting on your answer`
+      : "Your request is waiting on your answer";
+    for (const question of personQuestions.slice(0, maxSourceRecords)) {
+      others.push(glanceItem({
+        id: `management-requests:${request.requestId}:question:${question.questionId}`,
+        at: question.askedAt,
+        kind: "request-question",
+        ...(request.spaceId ? { spaceId: request.spaceId, spaceNames: input.spaceNames } : {}),
+        headline,
+        ref: { taskId: request.taskId, conversationId: request.conversationId, requestId: request.requestId, questionId: question.questionId },
+      }));
+    }
+    // The closing-question heuristic on a finished management reply, kept
+    // exactly where it was: only when no recorded question already asks.
+    if (personQuestions.length || request.phase !== "needs_you") continue;
     others.push(glanceItem({
-      id: `management-requests:${request.taskId}`,
+      id: `management-requests:${request.requestId}`,
       at: request.endedAt ?? request.startedAt,
       kind: "request-question",
-      headline: "Your request is waiting on your answer",
-      ref: { taskId: request.taskId, conversationId: request.conversationId },
+      ...(request.spaceId ? { spaceId: request.spaceId, spaceNames: input.spaceNames } : {}),
+      headline,
+      ref: { taskId: request.taskId, conversationId: request.conversationId, requestId: request.requestId },
     }));
   }
   for (const { space, records } of input.chats) {
@@ -612,13 +681,19 @@ function composeChanges(input: {
     }));
   }
   for (const request of input.requests.slice(0, maxSourceRecords)) {
-    if (request.phase !== "done" && request.phase !== "failed" && request.phase !== "stopped") continue;
+    // Every terminal state names its outcome honestly; the ref carries the
+    // request id so a surface reads what came back through `requests show`.
+    // A finished request whose reply still asks the person something is in
+    // Needs you, not here, exactly as before the durable store.
+    const headline = requestSettledHeadlines[request.state];
+    if (!headline || request.phase === "needs_you" || !requestIsAboveSingleTurn(request)) continue;
     add(glanceItem({
-      id: `management-requests:${request.taskId}`,
+      id: `management-requests:${request.requestId}`,
       at: request.endedAt ?? request.startedAt,
       kind: "request-settled",
-      headline: `Request ${request.phase}`,
-      ref: { taskId: request.taskId, conversationId: request.conversationId },
+      ...(request.spaceId ? { spaceId: request.spaceId, spaceNames: input.spaceNames } : {}),
+      headline,
+      ref: { taskId: request.taskId, conversationId: request.conversationId, requestId: request.requestId },
     }));
   }
   for (const { space, records } of input.chats) {
@@ -1013,6 +1088,7 @@ function pruneRef(ref: WorkFoldGlanceItemRef): WorkFoldGlanceItemRef | undefined
     ...(ref.conversationId ? { conversationId: ref.conversationId } : {}),
     ...(ref.checkpointId ? { checkpointId: ref.checkpointId } : {}),
     ...(ref.requestId ? { requestId: ref.requestId } : {}),
+    ...(ref.questionId ? { questionId: ref.questionId } : {}),
     ...(ref.routingId ? { routingId: ref.routingId } : {}),
     ...(ref.runId ? { runId: ref.runId } : {}),
     ...(ref.publicationId ? { publicationId: ref.publicationId } : {}),

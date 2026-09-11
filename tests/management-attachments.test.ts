@@ -7,6 +7,7 @@ import { test } from "node:test";
 import {
   classifyManagementAttachments,
   loadManagementAttachmentsForTurn,
+  managementAttachmentDispositions,
   managementAttachmentLinks,
   maxManagementAttachments,
 } from "../src/local/management-attachments.js";
@@ -97,4 +98,41 @@ test("management attachment loading inlines readable files and keeps folders and
   } finally {
     await rm(sandbox, { recursive: true, force: true });
   }
+});
+
+test("attachment dispositions account for every attachment and never guess", () => {
+  // The accounting reads the attachment references and the recorded action
+  // trail of a request; it depends on neither the registry that used to hold
+  // them nor the durable store that holds them now.
+  const dispositions = managementAttachmentDispositions({
+    attachments: [
+      { kind: "file", target: "/tmp/report.pdf", name: "report.pdf" },
+      { kind: "folder", target: "/tmp/project", name: "project" },
+      { kind: "url", target: "https://example.com/repo", name: "example.com/repo" },
+    ],
+    actions: [
+      {
+        command: "files.add",
+        spaceId: "space-1",
+        spaceName: "Vendor Audits",
+        sources: ["/tmp/report.pdf"],
+        copied: ["Inbox/report.pdf"],
+        checkpointId: "cp-1",
+      },
+      {
+        command: "spaces.register",
+        spaceId: "space-2",
+        spaceName: "Project",
+        spaceRoot: "/tmp/project",
+      },
+    ],
+  });
+  assert.equal(dispositions.length, 3, "every attachment appears in the story");
+  assert.equal(dispositions[0]!.status, "placed");
+  assert.equal(dispositions[0]!.spaceName, "Vendor Audits");
+  assert.deepEqual(dispositions[0]!.copied, ["Inbox/report.pdf"]);
+  assert.equal(dispositions[0]!.checkpointId, "cp-1");
+  assert.equal(dispositions[1]!.status, "registered");
+  assert.equal(dispositions[1]!.spaceName, "Project");
+  assert.equal(dispositions[2]!.status, "unrecorded", "a link with no mechanical match stays honestly unrecorded");
 });

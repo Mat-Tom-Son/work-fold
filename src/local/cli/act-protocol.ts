@@ -21,6 +21,15 @@ import {
  * and started returning their receipted result (docs/receipts-not-gates.md);
  * an older shim is refused with the typed version error instead of receiving
  * a silently different result.
+ *
+ * The collaboration verbs (docs/collaboration-contract.md, F27/F28) do not
+ * advance it, and that is deliberate rather than an oversight: adding
+ * `chat report|ask|answer|handoff` and the `requests` family changes the
+ * meaning of no existing response, so an older shim running a newer host
+ * keeps every verb it already had. The one surface that does change is the
+ * shim-side wait loop, which learns to settle on a task that is waiting on an
+ * answer; a shim that has not learned it still sees a terminal turn state and
+ * prints the Assistant's question, which is honest rather than wrong.
  */
 export const WORKFOLD_CLI_ACT_PROTOCOL_VERSION = 3 as const;
 

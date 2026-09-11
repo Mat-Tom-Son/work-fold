@@ -18,6 +18,14 @@ on a person's answer, and nothing else. Nothing in the digest waits to be
 allowed, so no surface that renders it offers a control that allows an
 action.
 
+**Amended 2026-09-11** by [the collaboration contract](collaboration-contract.md)
+(F25, F27, F28): the request records the digest reads are durable, so an
+outstanding request survives a restart; **Running now** folds a request with
+the turns it started; a needs-you item is one **open question** rather than a
+request phase; and a settled request item names the outcome handed back.
+Nothing else about the sections, ordering, caps, markers, or the non-goals
+changes.
+
 The glance is a small digest a person reads in a few seconds: what is
 running right now, what is waiting on them, what changed since they last
 looked, and where Checks stand. It is composed by app code from state the
@@ -41,7 +49,7 @@ product keeps for its own sake. The glance never causes a record to exist.
 |---|---|---|---|
 | Running task registry | `WorkFoldKernel` in `src/local/work-fold-kernel.ts` | In-memory, app run | Running `assistant_turn` and `compaction` tasks (stable v1) plus experimental `check_run` and `routing_run` tasks, with Space id, actor, `startedAt` |
 | Settled turn outcomes | `SettledTurnRecord` in `src/local/server.ts` | In-memory, app run | Task-scoped `succeeded`/`failed`/`aborted` results with `endedAt` |
-| Management requests | `ManagementRequestRegistry` in `src/local/management-requests.ts` | In-memory, bounded to 100 records | Requests in `working`/`handed_off` (running), `needs_you` (waiting on the person), and settled phases |
+| Requests and questions | The durable request store under the state root's `requests/` directory (F25) | Durable machine-local app state, reconciled against the turn journal after a restart, never replayed | Requests in `working`/`handed_off` (running) with the child task ids they started, open questions whose respondent is the person (needs you), and settled requests with their outcome |
 | Chat lifecycle and titles | `src/local/agent/chat-store.ts` | Durable — append-only portable transcripts with a rebuildable machine-local summary index | `conversation_lifecycle` events, title changes, `snoozedUntil` due times, and the newest assistant `landing.followUpPrompt` |
 | History checkpoints | `listSpaceCheckpoints` in `src/local/history.ts` | Durable machine-local app state | `checkpointId`, `createdAt`, `label`, `reason`, `scope` |
 | Check status | `WorkFoldCheckService.status()` in `src/local/checks/check-service.ts` | Durable machine-local Check state, locally re-verified designated inputs | Per-Space aggregate state and counts; text freshness reads/hashes designated files locally without executing a sensor or calling a model |
@@ -54,7 +62,10 @@ product keeps for its own sake. The glance never causes a record to exist.
 Durability is disclosed, not papered over. In-memory sources live for the
 app run only; after a restart the digest recomputes from durable records
 and simply contains less — it never fabricates continuity it cannot
-re-derive.
+re-derive. Requests moved to a durable store on 2026-09-11, so an
+outstanding request and its open questions now survive a restart; the
+sources still living for the app run are the kernel's running-task
+registry, the settled-turn outcomes, and the automation scheduler.
 
 ## The digest
 
@@ -68,29 +79,46 @@ re-wording. A receipt naming an unregistered Space renders the id plus
 disclosure, not curation.
 
 **Running now** — everything the product knows is executing: assistant
-turns and compactions (a management request and its child turns are folded
-into one item, never double-counted), Check runs, automation runs, and
-routing runs. Ordered by `startedAt` ascending (longest-running first),
-tie-broken by id. Cap 16; overflow drops the newest, never the oldest — a
-long-running turn must not be hidden by churn.
+turns and compactions, Check runs, automation runs, and routing runs.
+Running work above a single turn is request-derived: a request in `working`
+or `handed_off` is one item that carries the turns it started, wherever
+those turns run, so a delegated request and its Space turns are never
+double-counted. A request in `waiting` is not running: what it is waiting on
+appears in **Needs you** instead. Ordered by
+`startedAt` ascending (longest-running first), tie-broken by id. Cap 16;
+overflow drops the newest, never the oldest — a long-running turn must not
+be hidden by churn.
 
 **Needs you** — only things structurally waiting on the person's answer:
-`request-question` (management requests in `needs_you` phase),
+`request-question` (one item per **open question** on a request whose
+respondent is the person, not one item per request phase — a request with
+two open questions contributes two items, and a question addressed to its
+parent Assistant belongs to that parent and never appears here),
 `chat-question` (a Space Chat whose newest transcript message carries a
 recorded follow-up prompt, while Active and not running; it clears when the
 person replies, never merely because it was looked at), and `due-snooze`.
-Nothing here is an action waiting to be allowed — needs-you means a question
-(decision F24). Ordered newest-first. Cap 16; overflow keeps the newest and
-states truncation. A needs-you item never disappears because it was seen;
-only answering, resuming, or revocation removes it.
+The headline stays a fixed template over typed fields: a question's own text
+is model output, so it is not in the digest — the item's `ref` carries the
+question id and the asking Space, and a surface reads the text through
+`requests show`. Nothing here is an action waiting to be allowed —
+needs-you means a question (decisions F24 and F27). Ordered newest-first.
+Cap 16; overflow keeps the newest and states truncation. A needs-you item
+never disappears because it was seen; only answering, expiry, resuming, or
+revocation removes it.
 
 **Since you last looked** — settled and recorded changes, newest first:
-`checkpoint-saved`, `turn-settled`, `request-settled`, `chat-lifecycle`,
+`checkpoint-saved`, `turn-settled`, `request-settled` (a request reaching
+`done`, `partial`, `failed`, `stopped`, or `expired`; the headline names
+that outcome, and the item's `ref` carries the request id so a surface can
+read the results handed back through `requests show` — a result's summary,
+structured data, and files are never in the digest), `chat-lifecycle`,
 `chat-renamed`, `check-run-settled`, `act-performed` (every receipted verb,
 including the ones that install code, widen a power, or delete),
 `automation-run-settled`, `routing-run-settled`, `viewer-grant-changed`, and
 `publication-state` (page health: not-available and resting reach the person
-here with the precise reason viewers never see). Bounded
+here with the precise reason viewers never see). An answered question adds
+no kind of its own: it simply leaves **Needs you**, and the request's own
+settle carries the story. Bounded
 twice: at most 12 items per kind and 48 total. The `cursor` identifies the
 newest change item as `"<at>/<id>"`; surfaces render items newer than their
 own marker as new and older items quieter, and a **Show earlier**
@@ -234,6 +262,7 @@ The plan items shipped as follows:
 9. Main-window panel — `web-local/src/components/chrome/GlancePanel.tsx`; `tests/web-ui-contract.test.ts`, `tests/frontend-interaction-contract.test.ts`.
 10. Documentation promotion — recorded in [Fold integration](fold-integration.md).
 11. Receipts-not-gates (2026-09-10, F24) — needs-you reduced to questions and due snoozes, the removed source and its change kind dropped, the remote screen's allow controls removed — `src/local/glance.ts`, `services/bridge/`; `tests/work-fold-glance.test.ts`, the bridge suite.
+12. Collaboration contract (2026-09-11, F25/F27/F28) — the request source read from the durable request store, running items folded from the request and the turns it started, one needs-you item per open question the person owns, and settled items covering `partial` and `expired` — `src/local/glance.ts`; `tests/work-fold-glance.test.ts`.
 
 ## Deliberately not in this design
 

@@ -4,7 +4,7 @@ import { BrowserAppActionService } from "./agent/restricted-app-browser-actions.
 import { observeWorkFoldRoutingFiles } from "./routings/routing-file-observer.js";
 import { isRemoteFileVisible, readRemoteFilePreview } from "./remote-file-preview.js";
 import { turnFileChanges } from "./agent/turn-file-changes.js";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createReadStream, existsSync, watch } from "node:fs";
@@ -116,17 +116,29 @@ import { loadConversationContextAttachmentsForTurn, previewConversationContextAt
 import {
   classifyManagementAttachments,
   loadManagementAttachmentsForTurn,
+  managementAttachmentDispositions,
   managementAttachmentLinks,
   maxManagementAttachments,
   type ManagementAttachmentRef,
 } from "./management-attachments.js";
 import {
-  ManagementRequestRegistry,
-  managementAttachmentDispositions,
-  type ManagementRequestAction,
-  type ManagementRequestActionCommand,
-  type ManagementRequestRecord,
-} from "./management-requests.js";
+  WorkFoldRequestLimitError,
+  WorkFoldRequestLineageError,
+  workFoldRequestLimitsSection,
+  workFoldRequestSource,
+  workFoldRequestStateToManagementPhase,
+  type WorkFoldRequestAction,
+  type WorkFoldRequestActionCommand,
+  type WorkFoldRequestAppRef,
+  type WorkFoldRequestKind,
+  type WorkFoldRequestLimitName,
+  type WorkFoldRequestRecord,
+  type WorkFoldRequestSurface,
+} from "./requests/request-records.js";
+import { WorkFoldRequestStore } from "./requests/request-store.js";
+import { workFoldRequestLimits } from "../shared/fold-limits.js";
+import { spaceOperationsGuideForScope } from "./agent/space-operations-guide.js";
+import { buildSpaceTurnContext, type PiSpaceTurnContext } from "./agent/space-turn-context.js";
 import type {
   WorkFoldRemoteFacade,
   WorkFoldRemoteOperation,
@@ -246,6 +258,7 @@ import {
   workFoldManagementRoot,
   workFoldManagementScopeId,
   workFoldStateRoot,
+  workFoldRequestsRoot,
   workFoldTrashRoot,
 } from "./state-paths.js";
 import {
@@ -282,7 +295,6 @@ import type {
   WorkFoldActFileVersionRef,
   WorkFoldActLibraryItem,
   WorkFoldActManagementRequest,
-  WorkFoldActManagementRequestPhase,
   WorkFoldActPublicationRef,
   WorkFoldActRoutingDetail,
   WorkFoldActRoutingReceipt,
@@ -291,6 +303,7 @@ import type {
   WorkFoldActRoutingTriggerRef,
   WorkFoldActSpaceRef,
   WorkFoldActTrashEntry,
+  WorkFoldActTurnState,
   WorkFoldActTurnStatus,
 } from "./cli/act-facade.js";
 import { resolveWorkFoldCliSpaceSelector } from "./work-fold-cli-adapter.js";
@@ -380,6 +393,8 @@ export interface LocalApiOptions {
   actReceipts?: WorkFoldCliActReceipts;
   /** Test seam for the machine-local durable Assistant-turn journal. */
   turnStore?: WorkFoldTurnStore;
+  /** Test seam for the durable request graph (docs/collaboration-contract.md, F25). */
+  requestStore?: WorkFoldRequestStore;
   /**
    * Publication page keys. The desktop passes the operating-system-encrypted
    * secure-settings store (`desktop/src/settings.ts`); without one, keys live
@@ -401,9 +416,17 @@ export interface LocalApiOptions {
   maxBodyBytes?: number;
   loadEnv?: boolean;
   onAgentTurnActivity?: (activeTurns: number) => void;
-  /** Failure-injection seam immediately before a Pi prompt starts. */
-  beforeAgentPrompt?: (event: { spaceId: string; conversationId: string; taskId: string }) => Promise<void>;
-  /** Failure-injection seam after child acceptance but before parent attribution. */
+  /**
+   * Failure-injection seam immediately before a Pi prompt starts. A Space
+   * turn's event carries the host-composed turn context (F26) so a test can
+   * observe it without a second option.
+   */
+  beforeAgentPrompt?: (event: { spaceId: string; conversationId: string; taskId: string; spaceTurn?: PiSpaceTurnContext }) => Promise<void>;
+  /**
+   * Failure-injection seam between the parent check and child acceptance of
+   * a delegated `chat send`. The child is not accepted yet when it runs, so
+   * a parent stop inside it refuses the child at acceptance.
+   */
   beforeManagementActionRecord?: (event: { parentTaskId: string; command: "chat.send"; taskId: string }) => Promise<void>;
   onHistoryCheckpoint?: (event: {
     spaceId: string;
@@ -513,6 +536,8 @@ export interface LocalApiHandle {
    * browser identity the act receipts stamp (docs/receipts-not-gates.md).
    */
   resolveManagementLineageParent: (taskId: string) => { taskId: string; browserId?: string; grantId?: string } | null;
+  /** The durable request graph every accepted turn belongs to (docs/collaboration-contract.md, F25). */
+  requests: WorkFoldRequestStore;
   /** The routing executor (docs/fold-routings.md), for the desktop surfaces and lifecycle wiring. */
   routings: WorkFoldRoutingService;
   /** Main-window Settings capability; never exposed on the local HTTP or remote facades. */
@@ -575,7 +600,10 @@ interface LocalApiState {
   /** Recently deleted (docs/receipts-not-gates.md, F20). */
   trash: WorkFoldTrashStore;
   beforeRestrictedAppSpaceRevalidation?: (spaceId: string) => Promise<void>;
-  managementRequests: ManagementRequestRegistry;
+  /** Every accepted turn's request record (docs/collaboration-contract.md, F25). */
+  requests: WorkFoldRequestStore;
+  /** Per-launch salt behind the opaque parent handle a delegated Space turn sees (F26). */
+  spaceTurnHandleSalt: string;
   chatStreams: Map<string, Set<ServerResponse>>;
   controlStreams: Set<ServerResponse>;
   /** In-process subscribers riding the same publish point as the SSE streams (remote watch). */
@@ -787,6 +815,9 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   // acts and publications land in the journal the act lane already audits.
   const actReceipts = options.actReceipts ?? new WorkFoldCliActReceipts({ stateRoot: workFoldStateRoot() });
   const turnStore = options.turnStore ?? await WorkFoldTurnStore.create({ stateRoot: workFoldStateRoot() });
+  // The durable request graph beside the turn journal it aggregates. It is
+  // reconciled against that journal after startup recovery below.
+  const requestStore = options.requestStore ?? await WorkFoldRequestStore.open({ rootPath: workFoldRequestsRoot() });
   // Gate state an older build left behind is removed unread before any
   // facade exists: a pending record there is an intent nobody confirmed
   // (docs/receipts-not-gates.md, F19).
@@ -858,7 +889,8 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     spaceRemovalIo: options.spaceRemovalIo ?? {},
     trash,
     beforeRestrictedAppSpaceRevalidation: options.beforeRestrictedAppSpaceRevalidation,
-    managementRequests: new ManagementRequestRegistry(),
+    requests: requestStore,
+    spaceTurnHandleSalt: randomBytes(16).toString("hex"),
     chatStreams: new Map(),
     controlStreams: new Set(),
     chatEventListeners: new Map(),
@@ -925,6 +957,17 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
         await acceptConversationTurn(state, space, receipt.conversationId, {
           content: restrictedAppTaskPrompt(receipt, app.title), contextPaths: [], selectedPath: null, actorKind: "system",
           requestId: restrictedAppTaskTurnRequestId(receipt), userMessageId: `message-app-${receipt.id}`,
+          // An app-requested task is its own root request, owned by the app
+          // installation that asked (docs/collaboration-contract.md, F25).
+          request: {
+            kind: "app",
+            app: {
+              spaceId: receipt.scope.spaceId,
+              appId: receipt.scope.appId,
+              featureInstallationId: receipt.scope.featureInstallationId,
+              digest: receipt.scope.digest,
+            },
+          },
         });
       },
       findTurn: (receipt) => turnStore.findRequest(receipt.scope.spaceId, receipt.conversationId, restrictedAppTaskTurnRequestId(receipt)),
@@ -1004,6 +1047,17 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     },
   });
   await recoverDurableTurnState(state);
+  // Strictly after turn recovery: reconciliation consumes the journal's
+  // already-repaired outcomes. It settles requests; it never dispatches one.
+  const reconciled = await state.requests.reconcile({ turns: state.turnStore.list() });
+  if (reconciled.settled || reconciled.expired) {
+    console.info(`work-fold reconciled ${reconciled.settled} request turn${reconciled.settled === 1 ? "" : "s"} against the turn journal (${reconciled.expired} ran out of time).`);
+  }
+  // Retention is background work, as for Recently deleted: nothing a task
+  // needs sits behind it, and it never runs twice in one day.
+  void state.requests.purgeExpiredIfDue().catch((error: unknown) => {
+    console.warn(`work-fold could not tidy its request records at startup: ${errorMessage(error)}`);
+  });
 
   const requestListener = (request: PiExtensionUiRequest) => routeExtensionRequest(state, request);
   const eventListener = (event: PiExtensionUiEvent) => routeExtensionEvent(state, event);
@@ -1028,6 +1082,11 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     // never twice in one day.
     void state.trash.purgeExpiredIfDue().catch((error: unknown) => {
       console.warn(`work-fold could not clean Recently deleted: ${errorMessage(error)}`);
+    });
+    // Requests past their window close, and settled graphs older than the
+    // retention window leave, on the same cadence.
+    void state.requests.expireDue().then(() => state.requests.purgeExpiredIfDue()).catch((error: unknown) => {
+      console.warn(`work-fold could not tidy its request records: ${errorMessage(error)}`);
     });
   }, 60 * 60 * 1_000);
   remoteUploadPruneTimer.unref();
@@ -1054,6 +1113,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     actFacade: createWorkFoldActFacade(state),
     remoteFacade: createWorkFoldRemoteFacade(state),
     resolveManagementLineageParent: (taskId) => resolveManagementLineageParent(state, taskId),
+    requests: state.requests,
     routings: state.routings,
     routingSettings: createWorkFoldRoutingSettingsFacade(state),
     publications,
@@ -2719,12 +2779,14 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       return;
     }
     const conversation = await resolveManagementConversation(false).catch(() => null);
-    const latest = state.managementRequests.latest();
+    // The popover's "latest request" keeps its meaning: the newest request
+    // the fold itself is handling, not whichever Space turn came last.
+    const latest = state.requests.list({ kind: "management", limit: 1 })[0] ?? null;
     sendJson(res, {
       available: true,
       conversation: conversation ? toActConversationRef(conversation) : null,
       state: conversation ? conversationRuntimeState(state, workFoldManagementScopeId, conversation.id) : "idle",
-      latestRequest: latest ? await managementRequestView(state, latest.taskId) : null,
+      latestRequest: latest ? await managementRequestView(state, latest.turns.at(-1)!.taskId) : null,
     });
     return;
   }
@@ -2788,6 +2850,9 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
         throw badRequest(`A continued request can reference at most ${maxManagementAttachments} attachments in total.`);
       }
     }
+    // A reply to a waiting request joins that request (F25): one record, one
+    // story, a further turn — never a second record copying the trail.
+    const continuedRequestId = continuationTaskId ? state.requests.byTaskId(continuationTaskId)?.requestId : undefined;
     const { message, taskId } = await acceptConversationTurn(state, { id: scope.id, spaceRoot: scope.rootPath }, conversationId, {
       content,
       contextPaths: [],
@@ -2795,6 +2860,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       actorKind: "renderer",
       managementAttachments: attachments,
       ...(continuationTaskId ? { continuedFromManagementTaskId: continuationTaskId } : {}),
+      ...(continuedRequestId ? { request: { joinRequestId: continuedRequestId } } : {}),
       requestId,
       userMessageId,
     });
@@ -2805,7 +2871,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   if (managementRequestMatch && method === "GET") {
     assertManagementReadyForRoutes(state);
     const request = await managementRequestView(state, managementRequestMatch[1]);
-    if (!request) throw notFound("Request not found. Request records are kept while the Space app stays running.");
+    if (!request) throw notFound(`Request not found. Requests are kept for ${state.requests.retentionDays()} days.`);
     sendJson(res, { request });
     return;
   }
@@ -3063,9 +3129,25 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
  * message persistence with rollback, and the detached Pi turn start, so every
  * caller obeys identical concurrency and persistence rules.
  */
+/**
+ * F25 lineage for one accepted turn. Absent means "a Space turn with no
+ * parent": the turn is its own root. `parentTaskId` makes it a child request
+ * under the request that task belongs to; `joinRequestId` makes it a further
+ * turn of an existing request (a reply to a question, a follow-up turn).
+ */
+interface AcceptedTurnRequestInput {
+  kind?: WorkFoldRequestKind;
+  surface?: WorkFoldRequestSurface;
+  parentTaskId?: string;
+  joinRequestId?: string;
+  app?: WorkFoldRequestAppRef;
+  /** The assignment text when it differs from this turn's message (an answer continuation). */
+  assignment?: string;
+}
+
 async function acceptConversationTurn(
   state: LocalApiState,
-  space: { id: string; spaceRoot: string },
+  space: { id: string; spaceRoot: string; name?: string },
   conversationId: string,
   input: {
     content: string;
@@ -3083,6 +3165,8 @@ async function acceptConversationTurn(
     requestId?: string;
     /** Stable optimistic message identity supplied by renderer clients. */
     userMessageId?: string;
+    /** Which durable request this turn creates or joins (docs/collaboration-contract.md, F25). */
+    request?: AcceptedTurnRequestInput;
   },
 ): Promise<{ message: { id: string; role: "user"; content: string; createdAt: string }; taskId: string; replayed: boolean }> {
   if (!state.acceptingTurns) throw httpError(503, "work-fold is closing and cannot accept another Assistant turn.");
@@ -3121,6 +3205,16 @@ async function acceptConversationTurn(
   assertNoCapabilityMutationForTurn(state, space.id);
   if (state.compactingConversations.has(turnKey)) throw httpError(409, "Wait for the current Chat compaction to finish.");
   if (state.runningTurns.has(turnKey)) throw httpError(409, "Wait for the current agent turn to finish.");
+  // A delegated child is refused by name before anything durable exists for
+  // it: the parent must still be accepting, and every request bound is
+  // checked here rather than after a turn was already accepted.
+  if (input.request?.parentTaskId && !durable) {
+    try {
+      state.requests.assertCanAddChild(input.request.parentTaskId);
+    } catch (error) {
+      throw requestRefusal(error);
+    }
+  }
   state.runningTurns.add(turnKey);
   // Clear the settled turn's retained stream state in the same synchronous
   // admission step that marks this Chat running. A reconnect can never observe
@@ -3169,23 +3263,6 @@ async function acceptConversationTurn(
   const managementAttachments = space.id === workFoldManagementScopeId
     ? input.managementAttachments ?? []
     : undefined;
-  if (managementAttachments) {
-    state.managementRequests.begin({
-      taskId: task.id,
-      conversationId,
-      content: input.content,
-      attachments: managementAttachments,
-      ...(input.continuedFromManagementTaskId
-        ? { continuedFromTaskId: input.continuedFromManagementTaskId }
-        : {}),
-      ...(input.remotePrincipal ? {
-        source: "remote_web" as const,
-        remotePrincipalId: input.remotePrincipal.browserId,
-        remoteGrantId: input.remotePrincipal.grantId,
-        remoteRequestId: input.remotePrincipal.requestId,
-      } : {}),
-    });
-  }
   broadcast(state, turnKey, turnStateEvent(conversationId, true));
   const message = {
     id: durable.userMessageId,
@@ -3205,18 +3282,30 @@ async function acceptConversationTurn(
     } : {}),
   };
   try {
+    // Every accepted turn belongs to exactly one request record (F25). The
+    // record is created before the user message lands so a refused child
+    // never leaves a message behind; a failure here rolls back with the rest.
+    const lineage = await recordAcceptedTurnRequest(state, space, conversationId, task.id, input, managementAttachments);
     await appendMessage(space.spaceRoot, conversationId, message);
     await state.turnStore.markRunning(task.id);
+    await state.requests.markTurnRunning(task.id);
+    // A person's free-text reply is a supported way to answer (F27): once
+    // the message is the transcript's, it answers each open question that
+    // was waiting on the person and is that answer's one continuation.
+    await answerPersonQuestionsWithReply(state, lineage.answers, task.id, input.content);
   } catch (error) {
     state.runningTurns.delete(turnKey);
     state.activeTurnTasks.delete(task.id);
     state.cancelledTurnTasks.delete(task.id);
     state.activeTurnIdsByKey.delete(turnKey);
     state.kernel.finishTask(task.id);
-    await state.turnStore.settle(task.id, { status: "failed", error: "The accepted user message could not be persisted." }).catch(() => undefined);
-    if (managementAttachments) state.managementRequests.finish(task.id, "failed");
+    const detail = error instanceof WorkFoldRequestLimitError || error instanceof WorkFoldRequestLineageError
+      ? error.message
+      : "The accepted user message could not be persisted.";
+    await state.turnStore.settle(task.id, { status: "failed", error: detail }).catch(() => undefined);
+    await state.requests.settleTurn(task.id, { status: "failed", error: detail }).catch(() => undefined);
     broadcast(state, turnKey, turnStateEvent(conversationId, false));
-    throw error;
+    throw requestRefusal(error);
   }
   const turn = runAgentTurn(
     state,
@@ -3227,7 +3316,11 @@ async function acceptConversationTurn(
     input.contextPaths,
     input.selectedPath,
     task.id,
-    managementAttachments,
+    {
+      ...(managementAttachments ? { managementAttachments } : {}),
+      ...(input.request?.parentTaskId ? { parentTaskId: input.request.parentTaskId } : {}),
+      ...(input.request?.assignment !== undefined ? { assignment: input.request.assignment } : {}),
+    },
   );
   state.activeTurnPromises.add(turn);
   void turn.then(
@@ -3238,6 +3331,153 @@ async function acceptConversationTurn(
     },
   );
   return { message, taskId: task.id, replayed: false };
+}
+
+/**
+ * A request bound or lineage refusal reaches the caller verbatim as a
+ * conflict, so the limit's own text — number and Settings section — is what
+ * the person or Assistant reads. Anything else passes through unchanged.
+ */
+function requestRefusal(error: unknown): unknown {
+  if (error instanceof WorkFoldRequestLimitError || error instanceof WorkFoldRequestLineageError) {
+    return httpError(409, error.message);
+  }
+  return error;
+}
+
+/**
+ * Creates or joins the durable request record for one accepted turn. Kind
+ * and surface default from the scope and actor when the caller names none:
+ *
+ *   management scope, renderer, remote principal → management / remote_web
+ *   management scope, renderer                    → management / popover
+ *   management scope, cli                         → management / cli
+ *   management scope, system (routing fold hop)   → routing / system
+ *   Space scope, system, app dispatch             → app / system
+ *   Space scope, system (routing chat hop)        → routing / system
+ *   Space scope, cli                              → cli / cli
+ *   Space scope, assistant (renderer Space Chat)  → space / renderer
+ *
+ * A child of an explicit parent keeps the parent's root; a needs-you reply
+ * joins its earlier request instead of copying its trail into a second one.
+ */
+async function recordAcceptedTurnRequest(
+  state: LocalApiState,
+  space: { id: string; spaceRoot: string; name?: string },
+  conversationId: string,
+  taskId: string,
+  input: {
+    content: string;
+    actorKind: "assistant" | "cli" | "renderer" | "system";
+    continuedFromManagementTaskId?: string;
+    remotePrincipal?: WorkFoldRemotePrincipal;
+    request?: AcceptedTurnRequestInput;
+  },
+  managementAttachments: ManagementAttachmentRef[] | undefined,
+): Promise<{ record: WorkFoldRequestRecord; answers: string[] }> {
+  const management = space.id === workFoldManagementScopeId;
+  // This Chat's newest request is waiting on the person and no parent was
+  // named: the reply joins that request rather than opening a second root,
+  // whether the caller named the request it continues or not.
+  const pending = input.request?.parentTaskId ? null : pendingPersonQuestions(state, conversationId);
+  const joinRequestId = input.request?.joinRequestId ?? pending?.requestId;
+  const answers = pending && pending.requestId === joinRequestId ? pending.questionIds : [];
+  const request: AcceptedTurnRequestInput | undefined = joinRequestId
+    ? { ...input.request, joinRequestId }
+    : input.request;
+  input = { ...input, request };
+  const owner = management
+    ? { conversationId }
+    : { spaceId: space.id, ...(space.name ? { spaceName: space.name } : {}), conversationId };
+  const kind: WorkFoldRequestKind = input.request?.kind
+    ?? (management
+      ? (input.actorKind === "system" ? "routing" : "management")
+      : input.actorKind === "system"
+        ? (input.request?.app ? "app" : "routing")
+        : input.actorKind === "cli"
+          ? "cli"
+          : "space");
+  const surface: WorkFoldRequestSurface = input.request?.surface
+    ?? (input.actorKind === "system"
+      ? "system"
+      : input.actorKind === "cli"
+        ? "cli"
+        : management
+          ? (input.remotePrincipal ? "remote_web" : "popover")
+          : "renderer");
+  const attachments = managementAttachments ?? [];
+  const record = input.request?.joinRequestId
+    ? await state.requests.joinTurn({
+      requestId: input.request.joinRequestId,
+      taskId,
+      role: "continuation",
+      content: input.content,
+      attachments,
+    })
+    : input.request?.parentTaskId
+      ? await state.requests.beginChild({
+        parentTaskId: input.request.parentTaskId,
+        kind,
+        owner,
+        surface,
+        taskId,
+        content: input.content,
+        attachments,
+        ...(input.request.app ? { app: input.request.app } : {}),
+      })
+      : await state.requests.beginRoot({
+        kind,
+        owner,
+        surface,
+        taskId,
+        content: input.content,
+        attachments,
+        ...(input.request?.app ? { app: input.request.app } : {}),
+        ...(input.continuedFromManagementTaskId ? { continuedFromTaskId: input.continuedFromManagementTaskId } : {}),
+        ...(input.remotePrincipal ? {
+          remote: {
+            principalId: input.remotePrincipal.browserId,
+            grantId: input.remotePrincipal.grantId,
+            requestId: input.remotePrincipal.requestId,
+          },
+        } : {}),
+      });
+  // A retried acceptance whose earlier attempt could not persist its message
+  // reopens the same turn: a task id belongs to exactly one request.
+  const turn = record.turns.find((candidate) => candidate.taskId === taskId);
+  if (turn && turn.state !== "accepted" && turn.state !== "running") {
+    return { record: (await state.requests.reopenTurn(taskId)) ?? record, answers };
+  }
+  return { record, answers };
+}
+
+/** The open questions addressed to the person on this Chat's newest request, if it is waiting on them. */
+function pendingPersonQuestions(state: LocalApiState, conversationId: string): { requestId: string; questionIds: string[] } | null {
+  const latest = state.requests.latestForConversation(conversationId);
+  if (!latest || latest.state !== "waiting") return null;
+  const open = state.requests.questions(latest.requestId)
+    .filter((question) => question.state === "open" && question.respondent === "person");
+  return open.length ? { requestId: latest.requestId, questionIds: open.map((question) => question.questionId) } : null;
+}
+
+/**
+ * Records the person's reply as the one answer to each question it was
+ * waiting on and links this turn as that answer's continuation. Attribution
+ * only: a question that can no longer take an answer (expired, withdrawn,
+ * answered meanwhile) is left as it is, and the turn still runs.
+ */
+async function answerPersonQuestionsWithReply(state: LocalApiState, questionIds: string[], taskId: string, content: string): Promise<void> {
+  const answer = Buffer.byteLength(content, "utf8") > workFoldRequestLimits.maxAnswerTextBytes
+    ? Buffer.from(content, "utf8").subarray(0, workFoldRequestLimits.maxAnswerTextBytes).toString("utf8").replace(/\uFFFD+$/u, "")
+    : content;
+  for (const questionId of questionIds) {
+    try {
+      await state.requests.answer({ questionId, answer });
+      await state.requests.linkContinuation(questionId, taskId);
+    } catch (error) {
+      console.warn(`A reply could not be recorded as the answer to question ${questionId}: ${errorMessage(error)}`);
+    }
+  }
 }
 
 /**
@@ -4003,7 +4243,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
             : await resolveManagementConversation(false).catch(() => null);
           if (requestedConversationId && !conversation) throw notFound("Conversation not found.");
           const latest = conversation
-            ? state.managementRequests.latestForConversation(conversation.id)
+            ? state.requests.latestForConversation(conversation.id)
             : null;
           const owned = latest ? isRemoteManagementRequestOwner(latest, principal) : false;
           return {
@@ -4011,7 +4251,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
             conversation: conversation ? toActConversationRef(conversation) : null,
             state: conversation ? conversationRuntimeState(state, workFoldManagementScopeId, conversation.id) : "idle",
             latestRequest: latest
-              ? remoteManagementRequest(await managementRequestView(state, latest.taskId), { owned })
+              ? remoteManagementRequest(await managementRequestView(state, latest.turns.at(-1)!.taskId), { owned })
               : null,
             // Capability advertisement: the browser starts a live watch only
             // after seeing this, so an older desktop is never asked for an
@@ -4109,11 +4349,10 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
               ? await readConversationSummary(scope.rootPath, conversationIdInput)
               : await resolveManagementConversation(true);
           if (!conversation) throw notFound("Conversation not found.");
-          const latest = state.managementRequests.latestForConversation(conversation.id);
-          const latestView = latest && latest.conversationId === conversation.id
-            ? await managementRequestView(state, latest.taskId)
-            : null;
+          const latest = state.requests.latestForConversation(conversation.id);
+          const latestView = latest ? await managementRequestView(state, latest.turns.at(-1)!.taskId) : null;
           const continuedFromManagementTaskId = latestView?.phase === "needs_you" ? latestView.taskId : undefined;
+          const continuedRequestId = continuedFromManagementTaskId ? latest?.requestId : undefined;
           const staged = await stageRemoteManagementUploads(
             scope.rootPath,
             input.attachments,
@@ -4132,6 +4371,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
                 actorKind: "renderer",
                 managementAttachments: staged.attachments,
                 ...(continuedFromManagementTaskId ? { continuedFromManagementTaskId } : {}),
+                ...(continuedRequestId ? { request: { joinRequestId: continuedRequestId } } : {}),
                 remotePrincipal: principal,
               },
             );
@@ -4153,7 +4393,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
           const taskId = remoteStableId(input.taskId, "task id", 160);
           assertRemoteManagementRequestOwner(state, taskId, principal);
           const request = await managementRequestView(state, taskId);
-          if (!request) throw notFound("Request not found. Request details are kept while work-fold stays running.");
+          if (!request) throw notFound(`Request not found. Requests are kept for ${state.requests.retentionDays()} days.`);
           return { request: remoteManagementRequest(request, { owned: true }) };
         }
         case "management.stop": {
@@ -4304,6 +4544,8 @@ function remoteManagementRequest(
     taskId: request.taskId,
     conversationId: request.conversationId,
     phase: request.phase,
+    state: request.state,
+    requestId: request.requestId,
     startedAt: request.startedAt,
     endedAt: request.endedAt,
     error: request.error,
@@ -4341,8 +4583,9 @@ function remoteManagementConversationState(
 ): WorkFoldActChatState {
   const direct = conversationRuntimeState(state, workFoldManagementScopeId, conversationId);
   if (direct !== "idle") return direct;
-  const latest = state.managementRequests.latestForConversation(conversationId);
-  return latest?.childTasks.some((child) => turnStatusFor(state, child.spaceId, child.taskId).state === "running")
+  const latest = state.requests.latestForConversation(conversationId);
+  return latest && state.requests.children(latest.requestId).some((child) =>
+    child.state === "working" || child.state === "handed_off")
     ? "running"
     : "idle";
 }
@@ -4639,19 +4882,19 @@ function assertRemoteManagementRequestOwner(
   taskId: string,
   principal: WorkFoldRemotePrincipal,
 ): void {
-  const request = state.managementRequests.get(taskId);
+  const request = state.requests.byTaskId(taskId);
   if (!request || !isRemoteManagementRequestOwner(request, principal)) {
     throw notFound("Remote request not found for this browser grant.");
   }
 }
 
 function isRemoteManagementRequestOwner(
-  request: ManagementRequestRecord,
+  request: WorkFoldRequestRecord,
   principal: WorkFoldRemotePrincipal,
 ): boolean {
-  return request.source === "remote_web"
-    && request.remotePrincipalId === principal.browserId
-    && request.remoteGrantId === principal.grantId;
+  return request.remote !== null
+    && request.remote.principalId === principal.browserId
+    && request.remote.grantId === principal.grantId;
 }
 
 function remoteStableId(value: unknown, label: string, maximum: number): string {
@@ -4860,7 +5103,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         );
         return match;
       }, { requireProjectTrust: false }));
-      recordFacadeAction(state, input.parentTaskId, { command: "spaces.assistant.model", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "spaces.assistant.model", space });
       return { space: toActSpaceRef(space), model: { provider: selected.provider, id: selected.id } };
     },
     async assistantSetInstructions(input) {
@@ -4879,7 +5122,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         () => setPiAssistantInstructions(space.spaceRoot, instructions, state.runtimeProvider),
         { requireProjectTrust: false },
       ));
-      recordFacadeAction(state, input.parentTaskId, { command: "spaces.assistant.instructions", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "spaces.assistant.instructions", space });
       return { space: toActSpaceRef(space), instructions };
     },
     async createConversation(input) {
@@ -4901,20 +5144,25 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       }
       return runActOperation(async () => {
         assertManagementParentAccepting(state, input.parentTaskId);
+        if (input.parentTaskId) {
+          await state.beforeManagementActionRecord?.({ parentTaskId: input.parentTaskId, command: "chat.send", taskId: "" });
+        }
         const conversationId = input.newConversation
           ? (await createConversation(space.spaceRoot)).id
           : input.conversationId!;
+        // A delegated send is a child request under the named parent (F25).
+        // The parent check and every request bound run inside acceptance,
+        // before the user message lands, so a refused child is never
+        // accepted and then cancelled.
         const { message, taskId } = await acceptConversationTurn(state, space, conversationId, {
           content,
           contextPaths: [],
           selectedPath: null,
           actorKind: "cli",
           requestId: input.requestId,
+          ...(input.parentTaskId ? { request: { parentTaskId: input.parentTaskId } } : {}),
         });
-        if (input.parentTaskId) {
-          await state.beforeManagementActionRecord?.({ parentTaskId: input.parentTaskId, command: "chat.send", taskId });
-        }
-        const attributedParent = state.managementRequests.recordAction(input.parentTaskId, {
+        await state.requests.recordAction(input.parentTaskId, {
           command: "chat.send",
           at: new Date().toISOString(),
           spaceId: space.id,
@@ -4922,9 +5170,6 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           conversationId,
           taskId,
         });
-        if (input.parentTaskId && (!attributedParent || !state.managementRequests.isActive(input.parentTaskId))) {
-          await cancelAcceptedTurn(state, space.id, conversationId, taskId);
-        }
         return { space: toActSpaceRef(space), conversationId, messageId: message.id, taskId };
       });
     },
@@ -4975,7 +5220,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       assertChatMutable(space.id, input.conversationId);
       const conversation = await runActOperation(() => renameConversation(space.spaceRoot, input.conversationId, title));
       state.clients.get(clientKey(space.id, input.conversationId))?.setSessionName(conversation.title);
-      recordFacadeAction(state, input.parentTaskId, { command: "chat.rename", space, conversationId: conversation.id });
+      await recordFacadeAction(state, input.parentTaskId, { command: "chat.rename", space, conversationId: conversation.id });
       return {
         space: toActSpaceRef(space),
         conversation: toActConversationRef(conversation),
@@ -4993,7 +5238,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       assertChatMutable(space.id, input.conversationId);
       const conversation = await runActOperation(() =>
         updateConversationLifecycle(space.spaceRoot, input.conversationId, { snoozedUntil: until }));
-      recordFacadeAction(state, input.parentTaskId, { command: "chat.snooze", space, conversationId: conversation.id });
+      await recordFacadeAction(state, input.parentTaskId, { command: "chat.snooze", space, conversationId: conversation.id });
       return {
         space: toActSpaceRef(space),
         conversation: toActConversationRef(conversation),
@@ -5008,7 +5253,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       assertChatMutable(space.id, input.conversationId);
       const conversation = await runActOperation(() =>
         updateConversationLifecycle(space.spaceRoot, input.conversationId, { archived: true }));
-      recordFacadeAction(state, input.parentTaskId, { command: "chat.archive", space, conversationId: conversation.id });
+      await recordFacadeAction(state, input.parentTaskId, { command: "chat.archive", space, conversationId: conversation.id });
       return {
         space: toActSpaceRef(space),
         conversation: toActConversationRef(conversation),
@@ -5031,7 +5276,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           input.conversationId,
           summary.archivedAt ? { archived: false } : { snoozedUntil: null },
         ));
-      recordFacadeAction(state, input.parentTaskId, { command: "chat.resume", space, conversationId: conversation.id });
+      await recordFacadeAction(state, input.parentTaskId, { command: "chat.resume", space, conversationId: conversation.id });
       return {
         space: toActSpaceRef(space),
         conversation: toActConversationRef(conversation),
@@ -5067,7 +5312,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           state.compactingConversations.delete(key);
           state.kernel.finishTask(task.id);
         }
-        recordFacadeAction(state, input.parentTaskId, {
+        await recordFacadeAction(state, input.parentTaskId, {
           command: "chat.compact",
           space,
           conversationId: input.conversationId,
@@ -5099,7 +5344,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           ...(input.label !== undefined ? { label: input.label } : {}),
           reason: "manual",
         });
-        recordFacadeAction(state, input.parentTaskId, {
+        await recordFacadeAction(state, input.parentTaskId, {
           command: "history.save",
           space,
           checkpointId: checkpoint.checkpointId,
@@ -5116,7 +5361,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const space = await resolveSpace(input.space);
       await assertSpaceQuietForHistoryRestore(space.id);
       const result = await runActOperation(() => runHistoryRestore(state, space.id, () => restoreSpaceCheckpoint(space.spaceRoot, input.checkpointId)));
-      recordFacadeAction(state, input.parentTaskId, {
+      await recordFacadeAction(state, input.parentTaskId, {
         command: "history.restore",
         space,
         checkpointId: result.safetyCheckpointId,
@@ -5152,7 +5397,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           throw new WorkFoldCliError("conflict", "The selected path is currently a folder.");
         }
         const result = await runHistoryRestore(state, space.id, () => restoreFileVersion(space.spaceRoot, input.path, input.version.trim()));
-        recordFacadeAction(state, input.parentTaskId, {
+        await recordFacadeAction(state, input.parentTaskId, {
           command: "history.restore-file",
           space,
           checkpointId: result.safetyCheckpointId,
@@ -5181,7 +5426,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           sourcePath: moveSource,
           targetFolderPath: input.toDir,
         }));
-        recordFacadeAction(state, input.parentTaskId, { command: "files.move", space, checkpointId: safety.checkpointId });
+        await recordFacadeAction(state, input.parentTaskId, { command: "files.move", space, checkpointId: safety.checkpointId });
         return {
           space: toActSpaceRef(space),
           fromPath: moved.fromPath,
@@ -5207,7 +5452,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           label: `Before renaming ${sourceRaw}`,
         });
         const renamed = await runWithHistorySafety(space.spaceRoot, safety.checkpointId, () => renameSpaceEntry(space.spaceRoot, { path: sourceRaw, newName }));
-        recordFacadeAction(state, input.parentTaskId, { command: "files.rename", space, checkpointId: safety.checkpointId });
+        await recordFacadeAction(state, input.parentTaskId, { command: "files.rename", space, checkpointId: safety.checkpointId });
         return {
           space: toActSpaceRef(space),
           fromPath: renamed.fromPath,
@@ -5227,7 +5472,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         const deleted = await deleteSpaceEntryWithRecovery(state, space, target, {
           receiptId: input.requestId ?? null,
         });
-        recordFacadeAction(state, input.parentTaskId, {
+        await recordFacadeAction(state, input.parentTaskId, {
           command: "files.delete",
           space,
           checkpointId: deleted.safetyCheckpointId,
@@ -5246,7 +5491,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           label: `Before creating ${name}`,
         });
         const folder = await runWithHistorySafety(space.spaceRoot, safety.checkpointId, () => createSpaceFolder(space.spaceRoot, parentPath, name));
-        recordFacadeAction(state, input.parentTaskId, { command: "files.mkdir", space, checkpointId: safety.checkpointId });
+        await recordFacadeAction(state, input.parentTaskId, { command: "files.mkdir", space, checkpointId: safety.checkpointId });
         return {
           space: toActSpaceRef(space),
           created: true as const,
@@ -5267,7 +5512,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           label: `Before creating ${name}`,
         });
         const file = await runWithHistorySafety(space.spaceRoot, safety.checkpointId, () => createSpaceTextFile(space.spaceRoot, parentPath, name, ""));
-        recordFacadeAction(state, input.parentTaskId, { command: "files.create", space, checkpointId: safety.checkpointId });
+        await recordFacadeAction(state, input.parentTaskId, { command: "files.create", space, checkpointId: safety.checkpointId });
         return {
           space: toActSpaceRef(space),
           created: true as const,
@@ -5308,7 +5553,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           reason: "pre_add",
           label: `Before adding ${copied.length} Library item${copied.length === 1 ? "" : "s"}`,
         });
-        recordFacadeAction(state, input.parentTaskId, {
+        await recordFacadeAction(state, input.parentTaskId, {
           command: "library.copy",
           space,
           copied,
@@ -5335,7 +5580,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         // Resolved absolute sources are recorded exactly as files.add records
         // them, so attachment dispositions can account for an attachment that
         // entered the Library (`library` status in the request views).
-        state.managementRequests.recordAction(input.parentTaskId, {
+        await state.requests.recordAction(input.parentTaskId, {
           command: "library.add",
           at: new Date().toISOString(),
           sources: input.fromPaths.map((raw) => {
@@ -5353,7 +5598,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       if (!name) throw new WorkFoldCliError("usage", "A Library folder name is required.");
       return runActOperation(async () => {
         const folder = await createResourceFolder("", name);
-        recordFacadeAction(state, input.parentTaskId, { command: "library.folder.create" });
+        await recordFacadeAction(state, input.parentTaskId, { command: "library.folder.create" });
         return { created: true as const, path: folder.path };
       });
     },
@@ -5362,7 +5607,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const name = input.name.trim();
       if (!name) throw new WorkFoldCliError("usage", "A Space name is required.");
       const space = await runActOperation(() => runCheckSpaceRegistryMutation(state, () => createSpaceInternal(state, name)));
-      state.managementRequests.recordAction(input.parentTaskId, {
+      await state.requests.recordAction(input.parentTaskId, {
         command: "spaces.create",
         at: new Date().toISOString(),
         spaceId: space.id,
@@ -5378,7 +5623,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         throw new WorkFoldCliError("usage", "Provide an absolute folder path to register.");
       }
       const space = await runActOperation(() => runCheckSpaceRegistryMutation(state, () => registerSpaceInternal(state, rootPath)));
-      state.managementRequests.recordAction(input.parentTaskId, {
+      await state.requests.recordAction(input.parentTaskId, {
         command: "spaces.register",
         at: new Date().toISOString(),
         spaceId: space.id,
@@ -5391,7 +5636,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       assertManagementParentAccepting(state, input.parentTaskId);
       const space = await resolveSpace(input.space);
       const result = await runActOperation(() => addExternalFilesInternal(space, input));
-      state.managementRequests.recordAction(input.parentTaskId, {
+      await state.requests.recordAction(input.parentTaskId, {
         command: "files.add",
         at: new Date().toISOString(),
         spaceId: space.id,
@@ -5426,7 +5671,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       }
       const renamed = await runActOperation(() => renameSpace(space.id, name));
       publishControlHint(state, "spaces");
-      recordFacadeAction(state, input.parentTaskId, { command: "spaces.rename", space: renamed });
+      await recordFacadeAction(state, input.parentTaskId, { command: "spaces.rename", space: renamed });
       return { space: toActSpaceRef(renamed), priorName: space.name };
     },
     async spacesUnregister(input) {
@@ -5443,7 +5688,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const removal = await runActOperation(() =>
         removeSpaceRegistrationInternal(state, space, { managedFolderDisposition: "preserve" }));
       appearanceUndoSlots.delete(space.id);
-      recordFacadeAction(state, input.parentTaskId, { command: "spaces.unregister", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "spaces.unregister", space });
       return {
         space: toActSpaceRef(space),
         storage,
@@ -5468,7 +5713,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         const applied = await state.appearance.replaceSpace(space.id, proposal.customization);
         const result = applied.customizations[space.id] ?? null;
         appearanceUndoSlots.set(space.id, { displaced, result });
-        recordFacadeAction(state, input.parentTaskId, { command: "spaces.appearance.apply", space });
+        await recordFacadeAction(state, input.parentTaskId, { command: "spaces.appearance.apply", space });
         return {
           space: toActSpaceRef(space),
           applied: true as const,
@@ -5494,7 +5739,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         }
         await state.appearance.removeSpace(space.id);
         appearanceUndoSlots.set(space.id, { displaced, result: null });
-        recordFacadeAction(state, input.parentTaskId, { command: "spaces.appearance.reset", space });
+        await recordFacadeAction(state, input.parentTaskId, { command: "spaces.appearance.reset", space });
         return {
           space: toActSpaceRef(space),
           reset: true as const,
@@ -5527,7 +5772,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         const restored = stateAfter.customizations[space.id] ?? null;
         // Undo is its own inverse: the displaced and restored refs swap.
         appearanceUndoSlots.set(space.id, { displaced: slot.result, result: restored });
-        recordFacadeAction(state, input.parentTaskId, { command: "spaces.appearance.undo", space });
+        await recordFacadeAction(state, input.parentTaskId, { command: "spaces.appearance.undo", space });
         return {
           space: toActSpaceRef(space),
           restored: true as const,
@@ -5549,7 +5794,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
             scope: "project",
             runtimeProvider: state.runtimeProvider,
           })));
-        recordFacadeAction(state, input.parentTaskId, { command: "tools.remove", space });
+        await recordFacadeAction(state, input.parentTaskId, { command: "tools.remove", space });
         return { scope: "space" as const, space: toActSpaceRef(space), source, removed };
       }
       // Personal scope mutates the personal (user-scope) Pi settings every
@@ -5563,7 +5808,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           scope: "user",
           runtimeProvider: state.runtimeProvider,
         })));
-      recordFacadeAction(state, input.parentTaskId, { command: "tools.remove" });
+      await recordFacadeAction(state, input.parentTaskId, { command: "tools.remove" });
       return { scope: "personal" as const, source, removed };
     },
     async appsList(input) {
@@ -5628,7 +5873,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         action: tool.action,
         input: input.input,
       }));
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.invoke", space, apps: [managementAppResultRef(app)] });
+      await recordFacadeAction(state, input.parentTaskId, { command: "apps.invoke", space, apps: [managementAppResultRef(app)] });
       return {
         space: toActSpaceRef(space),
         appId: app.manifest.id,
@@ -5662,7 +5907,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         throw new WorkFoldCliError("notFound", "App proposal not found.");
       }
       const dismissed = await runActOperation(() => state.restrictedAppProposals.dismiss(proposal.id));
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.proposals.dismiss", space, conversationId: input.conversationId });
+      await recordFacadeAction(state, input.parentTaskId, { command: "apps.proposals.dismiss", space, conversationId: input.conversationId });
       return { space: toActSpaceRef(space), proposalId: proposal.id, dismissed };
     },
     async appsRemove(input) {
@@ -5681,7 +5926,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         });
         return { removed, entry };
       }));
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.remove", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "apps.remove", space });
       return {
         space: toActSpaceRef(space),
         appId: app.manifest.id,
@@ -5709,7 +5954,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         : input.kind === "files"
           ? state.restrictedApps.revokeFiles({ spaceId: space.id, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, permissionId: declaration, expectedDigest: digest })
           : state.restrictedApps.revokeNotifications({ spaceId: space.id, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, permissionId: declaration, expectedDigest: digest })));
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.revoke", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "apps.revoke", space });
       return {
         space: toActSpaceRef(space),
         appId: app.manifest.id,
@@ -5732,7 +5977,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           featureInstallationId: app.featureInstallationId,
           expectedDigest: app.digest,
         })));
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.disconnect", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "apps.disconnect", space });
       return { space: toActSpaceRef(space), appId: app.manifest.id, destination, disconnected };
     },
     async appsAutomationDisable(input) {
@@ -5751,7 +5996,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           expectedDigest: app.digest,
           enabled: false,
         })));
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.automation.disable", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "apps.automation.disable", space });
       return {
         space: toActSpaceRef(space),
         appId: app.manifest.id,
@@ -5774,7 +6019,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           featureInstallationId: app.featureInstallationId,
           expectedDigest: app.digest,
         })));
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.automation.run", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "apps.automation.run", space });
       return {
         space: toActSpaceRef(space),
         appId: app.manifest.id,
@@ -5789,7 +6034,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       return runActOperation(() => runRestrictedAppMutation(state, space.id, async () => {
         const prior = (await state.restrictedApps.localAppStudio(space.id)).project?.presentation ?? null;
         const project = await state.restrictedApps.declareLocalAppProject({ spaceId: space.id, presentation });
-        recordFacadeAction(state, input.parentTaskId, { command: "apps.project.declare", space });
+        await recordFacadeAction(state, input.parentTaskId, { command: "apps.project.declare", space });
         return {
           space: toActSpaceRef(space),
           project: { projectId: project.projectId, presentation: toActAppPresentation(project.presentation) },
@@ -5803,7 +6048,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const space = await resolveSpace(input.space);
       const release = await runActOperation(() => runRestrictedAppMutation(state, space.id, () =>
         state.restrictedApps.prepareLocalAppRelease({ spaceId: space.id, displayVersion: input.version })));
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.release.prepare", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "apps.release.prepare", space });
       return { space: toActSpaceRef(space), release: toActAppReleaseRef(release) };
     },
     async appsReleasePublish(input) {
@@ -5811,7 +6056,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const space = await resolveSpace(input.space);
       const release = await runActOperation(() => runRestrictedAppMutation(state, space.id, () =>
         state.restrictedApps.publishLocalAppRelease({ spaceId: space.id, releaseDigest: input.release })));
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.release.publish", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "apps.release.publish", space });
       return { space: toActSpaceRef(space), release: toActAppReleaseRef(release) };
     },
     async appsReleaseDelete(input) {
@@ -5819,7 +6064,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const space = await resolveSpace(input.space);
       const deletion = await runActOperation(() => runRestrictedAppMutation(state, space.id, () =>
         state.restrictedApps.deleteLocalAppRelease({ spaceId: space.id, releaseDigest: input.release })));
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.release.delete", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "apps.release.delete", space });
       return {
         space: toActSpaceRef(space),
         releaseDigest: input.release,
@@ -5837,7 +6082,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           targetSpaceId: target.id,
           releaseDigest: input.release,
         })));
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.install.prepare", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "apps.install.prepare", space });
       return {
         space: toActSpaceRef(space),
         targetSpace: toActSpaceRef(target),
@@ -5858,7 +6103,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
             runtimeInstanceId: instance.runtimeInstanceId,
             releaseDigest: input.release,
           }));
-        recordFacadeAction(state, input.parentTaskId, { command: "apps.update.prepare", space });
+        await recordFacadeAction(state, input.parentTaskId, { command: "apps.update.prepare", space });
         return {
           space: toActSpaceRef(space),
           targetSpace: toActSpaceRef(target),
@@ -5877,7 +6122,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         const result = await runRestrictedAppMutations(state, [space.id, target.id], () => operation.kind === "install"
           ? state.restrictedApps.activateLocalAppInstall(operation.operationId)
           : state.restrictedApps.activateLocalAppUpdate(operation.operationId));
-        recordFacadeAction(state, input.parentTaskId, { command: "apps.operation.activate", space,
+        await recordFacadeAction(state, input.parentTaskId, { command: "apps.operation.activate", space,
           apps: result.apps.map(managementAppResultRef) });
         return {
           space: toActSpaceRef(space),
@@ -5897,7 +6142,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         }
         return state.restrictedApps.cancelLocalAppOperation(input.operation);
       }));
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.operation.cancel", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "apps.operation.cancel", space });
       return { space: toActSpaceRef(space), operationId: input.operation, cancelled };
     },
     async appsUninstall(input) {
@@ -5915,7 +6160,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
             // path; this facade method is deliberately retain-only.
             dataDisposition: "retain",
           }), { requiredSpaceIds: [space.id] });
-        recordFacadeAction(state, input.parentTaskId, { command: "apps.uninstall", space });
+        await recordFacadeAction(state, input.parentTaskId, { command: "apps.uninstall", space });
         return {
           space: toActSpaceRef(space),
           runtimeInstanceId: input.instance,
@@ -5970,7 +6215,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         requestId: input.requestId,
         context,
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "spaces.delete", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "spaces.delete", space });
       return {
         space: toActSpaceRef(space),
         storage: "managed" as const,
@@ -6004,7 +6249,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         requestId: input.requestId,
         context,
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "tools.import-skill", ...(space ? { space } : {}) });
+      await recordFacadeAction(state, input.parentTaskId, { command: "tools.import-skill", ...(space ? { space } : {}) });
       return {
         scope: input.scope,
         ...(space ? { space: toActSpaceRef(space) } : {}),
@@ -6019,8 +6264,9 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const space = input.scope === "space" ? await resolveSpace(input.space ?? "") : undefined;
       if (space) await assertSpaceCapabilityTrust(space);
       const scopedSpace: FoldPreparedActFields = space ? { spaceId: space.id } : {};
-      const record = (): void =>
-        recordFacadeAction(state, input.parentTaskId, { command: "tools.install", ...(space ? { space } : {}) });
+      const record = async (): Promise<void> => {
+        await recordFacadeAction(state, input.parentTaskId, { command: "tools.install", ...(space ? { space } : {}) });
+      };
       const installBundle = async (source: string, contentDigest: string, skillNames: string[]) => {
         const context: FoldActOutcome<PiSkillBundleImportResult> = {};
         await runPreparedAct({
@@ -6030,7 +6276,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           requestId: input.requestId,
           context,
         });
-        record();
+        await record();
         return {
           scope: input.scope,
           ...(space ? { space: toActSpaceRef(space) } : {}),
@@ -6057,7 +6303,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           },
           requestId: input.requestId,
         });
-        record();
+        await record();
         return {
           scope: input.scope,
           ...(space ? { space: toActSpaceRef(space) } : {}),
@@ -6161,7 +6407,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         },
         requestId: input.requestId,
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "tools.update", ...(space ? { space } : {}) });
+      await recordFacadeAction(state, input.parentTaskId, { command: "tools.update", ...(space ? { space } : {}) });
       return {
         scope: input.scope,
         ...(space ? { space: toActSpaceRef(space) } : {}),
@@ -6199,7 +6445,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const app = managementAppResultRef(context.outcome);
       const settled = await runActOperation(() => state.restrictedAppProposals.get(proposal.id));
       const outcome = managementInstallOutcome(context.outcome, settled?.needs);
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.install-proposal", space, apps: [app] });
+      await recordFacadeAction(state, input.parentTaskId, { command: "apps.install-proposal", space, apps: [app] });
       return { space: toActSpaceRef(space), proposalId: proposal.id, digest: proposal.review.digest, app, ...outcome };
     },
     async appsInstallPreview(input) {
@@ -6240,7 +6486,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const app = managementAppResultRef(context.outcome);
       const settled = await runActOperation(() => state.restrictedAppProposals.get(proposal.id));
       const outcome = managementInstallOutcome(context.outcome, settled?.needs);
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.install-preview", space, apps: [app] });
+      await recordFacadeAction(state, input.parentTaskId, { command: "apps.install-preview", space, apps: [app] });
       return {
         space: toActSpaceRef(space),
         proposalId: proposal.id,
@@ -6311,7 +6557,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         requestId: input.requestId,
         ...(root !== undefined ? { context: { root } } : {}),
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.grant", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "apps.grant", space });
       return {
         space: toActSpaceRef(space),
         appId: app.manifest.id,
@@ -6356,7 +6602,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         requestId: input.requestId,
         context,
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.connect", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "apps.connect", space });
       const connection = context.outcome;
       return {
         space: toActSpaceRef(space),
@@ -6393,7 +6639,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         },
         requestId: input.requestId,
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.automation.enable", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "apps.automation.enable", space });
       return {
         space: toActSpaceRef(space),
         appId: app.manifest.id,
@@ -6422,7 +6668,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         requestId: input.requestId,
         context,
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.storage.clear", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "apps.storage.clear", space });
       return {
         space: toActSpaceRef(space),
         appId: app.manifest.id,
@@ -6450,7 +6696,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         requestId: input.requestId,
         context,
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.retained.purge", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "apps.retained.purge", space });
       return {
         space: toActSpaceRef(space),
         retainedDataId: retained.retainedDataId,
@@ -6480,7 +6726,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         requestId: input.requestId,
         context,
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "apps.uninstall", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "apps.uninstall", space });
       return {
         space: toActSpaceRef(space),
         runtimeInstanceId: installed.runtimeInstanceId,
@@ -6498,7 +6744,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         ...(input.parentTaskId !== undefined ? { parentTaskId: input.parentTaskId } : {}),
         ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
       });
-      recordFacadeAction(state, input.parentTaskId, { command: "routings.enable" });
+      await recordFacadeAction(state, input.parentTaskId, { command: "routings.enable" });
       return enabled;
     },
     async pagesShare(input) {
@@ -6544,7 +6790,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         context,
       });
       if (!context.outcome) throw new WorkFoldCliError("failure", "The page was not activated.");
-      recordFacadeAction(state, input.parentTaskId, { command: "pages.share", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "pages.share", space });
       return { space: toActSpaceRef(space), publication: toActPublicationRef(context.outcome, space.name) };
     },
     async pagesShareApp(input) {
@@ -6594,7 +6840,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         context,
       });
       if (!context.outcome) throw new WorkFoldCliError("failure", "The app was not put at your address.");
-      recordFacadeAction(state, input.parentTaskId, { command: "pages.share-app", space });
+      await recordFacadeAction(state, input.parentTaskId, { command: "pages.share-app", space });
       return { space: toActSpaceRef(space), publication: toActPublicationRef(context.outcome, space.name) };
     },
     async trashList() {
@@ -6616,7 +6862,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         ...(input.toPath === undefined ? {} : { toPath: input.toPath }),
       }));
       const space = "space" in restored ? await getSpace(restored.space.id).catch(() => null) : null;
-      recordFacadeAction(state, input.parentTaskId, {
+      await recordFacadeAction(state, input.parentTaskId, {
         command: "trash.restore",
         ...(space ? { space } : {}),
       });
@@ -7045,30 +7291,56 @@ async function classifyActManagementAttachments(raw: string[], cwd: string | und
 }
 
 /**
- * Rich, honest view of one management request. `done` is claimed only when
- * the management turn succeeded AND no recorded child turn is still running;
- * downstream work keeps the request in `handed_off`. A reply whose final
- * non-empty line asks a question surfaces as `needs_you` — the Assistant is
- * taught to put its question on its own closing line, and a missed detection
- * degrades to `done` with the question still fully visible in the reply.
+ * Rich, honest view of one request, keyed by any of its task ids. The phase
+ * is the durable record's state mapped onto the vocabulary `manage status`
+ * and the popover already speak (docs/collaboration-contract.md, F25): `done`
+ * is claimed only when the request's own turn succeeded AND no child it
+ * started is still running; downstream work keeps it in `handed_off`, and an
+ * open question puts it in `needs_you`. A reply whose final non-empty line
+ * asks a question also surfaces as `needs_you` — the Assistant is taught to
+ * put its question on its own closing line, and a missed detection degrades
+ * to `done` with the question still fully visible in the reply.
+ *
+ * The view names the newest turn of the request, so a task id whose request
+ * was continued resolves to the continued story rather than a stale copy.
  */
 async function managementRequestView(
   state: LocalApiState,
   taskId: string,
 ): Promise<WorkFoldActManagementRequest | null> {
-  const record = state.managementRequests.get(taskId);
+  const record = state.requests.byTaskId(taskId);
   if (!record) return null;
-  const turn = turnStatusFor(state, workFoldManagementScopeId, taskId);
-  const children = record.childTasks.map((child) => {
-    const status = turnStatusFor(state, child.spaceId, child.taskId);
+  const scopeId = record.owner.spaceId ?? workFoldManagementScopeId;
+  const newestTurn = record.turns.at(-1)!;
+  const turn = turnStatusFor(state, scopeId, newestTurn.taskId);
+  const children = state.requests.children(record.requestId).map((child): {
+    taskId: string;
+    spaceId: string;
+    spaceName: string;
+    conversationId: string;
+    state: WorkFoldActTurnState;
+    error: string | null;
+    files: string[];
+  } => {
+    const childTurn = child.turns.at(-1)!;
+    const live = child.owner.spaceId ? turnStatusFor(state, child.owner.spaceId, childTurn.taskId) : null;
+    // A live turn's own status is sharper than the record's; a settled one
+    // reads the record, which the turn journal already reconciled.
+    const childState: WorkFoldActTurnState = live && live.state !== "unknown"
+      ? live.state
+      : childTurn.state === "accepted" || childTurn.state === "running"
+        ? "running"
+        : childTurn.state === "interrupted"
+          ? "failed"
+          : childTurn.state;
     return {
-      taskId: child.taskId,
-      spaceId: child.spaceId,
-      spaceName: child.spaceName,
-      conversationId: child.conversationId,
-      state: status.state,
-      error: status.error,
-      files: [] as string[],
+      taskId: childTurn.taskId,
+      spaceId: child.owner.spaceId ?? workFoldManagementScopeId,
+      spaceName: child.owner.spaceName ?? child.owner.spaceId ?? "the fold",
+      conversationId: child.owner.conversationId,
+      state: childState,
+      error: live?.error ?? childTurn.error,
+      files: [],
     };
   });
   // At most 64 metadata checks and 12 file links for an entire request. No
@@ -7082,42 +7354,64 @@ async function managementRequestView(
   for (const item of visible.filter((item) => item !== null).slice(0, 12)) item.child.files.push(item.path);
   const actions = record.actions;
   let reply: { messageId: string; content: string } | null = null;
-  const replyMessageId = turn.state === "succeeded" || turn.state === "failed" ? turn.messageId : null;
+  const replyMessageId = turn.state === "succeeded" || turn.state === "failed"
+    ? turn.messageId
+    : turn.state === "unknown" && (newestTurn.state === "succeeded" || newestTurn.state === "failed")
+      ? newestTurn.messageId
+      : null;
   if (replyMessageId) {
-    const messages = await readConversation(workFoldManagementRoot(), record.conversationId).catch(() => []);
+    const transcriptRoot = record.owner.spaceId
+      ? await getSpace(record.owner.spaceId).then((space) => space.spaceRoot).catch(() => null)
+      : workFoldManagementRoot();
+    const messages = transcriptRoot ? await readConversation(transcriptRoot, record.owner.conversationId).catch(() => []) : [];
     const message = messages.find((item) => item.id === replyMessageId);
     if (message) reply = { messageId: message.id, content: message.content };
   }
-  const effectiveOutcome = turn.state === "unknown" ? record.outcome : turn.state;
   const failedChild = children.find((child) => child.state === "failed" || child.state === "unknown");
-  const stoppedChild = children.find((child) => child.state === "aborted");
-  let phase: WorkFoldActManagementRequestPhase;
-  if (turn.state === "running" || effectiveOutcome === null) phase = "working";
-  else if (effectiveOutcome === "failed") phase = "failed";
-  else if (effectiveOutcome === "aborted" || record.stopRequestedAt) phase = "stopped";
-  else if (children.some((child) => child.state === "running")) phase = "handed_off";
-  else if (failedChild) phase = "failed";
-  else if (stoppedChild) phase = "stopped";
-  else if (reply && managementReplyAsksQuestion(reply.content)) phase = "needs_you";
-  else phase = "done";
+  // The durable record already knows whether a child is still live; the
+  // in-memory task view only sharpens what a live turn reports.
+  const phase = workFoldRequestStateToManagementPhase(record.state, reply ? managementReplyAsksQuestion(reply.content) : false);
+  const settledAt = record.settledAt ?? newestTurn.settledAt ?? turn.endedAt;
+  const questions = state.requests.questions(record.requestId).map((question) => ({
+    questionId: question.questionId,
+    taskId: question.taskId,
+    respondent: question.respondent,
+    state: question.state,
+    askedAt: question.askedAt,
+    answeredAt: question.answeredAt,
+  }));
   return {
-    taskId: record.taskId,
-    conversationId: record.conversationId,
+    taskId: newestTurn.taskId,
+    conversationId: record.owner.conversationId,
     phase,
-    startedAt: record.startedAt,
-    endedAt: record.endedAt ?? turn.endedAt,
-    error: turn.error ?? failedChild?.error ?? (failedChild?.state === "unknown"
+    startedAt: record.createdAt,
+    endedAt: phase === "working" || phase === "handed_off" ? null : settledAt,
+    error: turn.error ?? newestTurn.error ?? failedChild?.error ?? (failedChild?.state === "unknown"
       ? `Space lost track of work started in ${failedChild.spaceName}.`
-      : null),
+      : record.limitHit ? requestLimitStopMessage(record.limitHit.limit) : null),
     content: record.content,
     attachments: record.attachments,
     dispositions: withLibraryDispositions(record),
     actions,
     children: children.map(({ files, ...child }) => files.length ? { ...child, files } : child),
     reply,
-    source: record.source,
-    remotePrincipalId: record.remotePrincipalId,
-    remoteRequestId: record.remoteRequestId,
+    source: workFoldRequestSource(record),
+    remotePrincipalId: record.remote?.principalId ?? null,
+    remoteRequestId: record.remote?.requestId ?? null,
+    requestId: record.requestId,
+    kind: record.kind,
+    rootId: record.rootId,
+    state: record.state,
+    deadline: record.deadline,
+    limitHit: record.limitHit,
+    questions,
+    results: record.results.map((result) => ({
+      resultId: result.resultId,
+      taskId: result.taskId,
+      outcome: result.outcome,
+      recordedAt: result.recordedAt,
+      fileCount: result.fileCount,
+    })),
   };
 }
 
@@ -7129,8 +7423,8 @@ async function managementRequestView(
  * only `unrecorded` attachments are upgraded here, so one attachment never
  * tells two stories.
  */
-function withLibraryDispositions(record: ManagementRequestRecord): WorkFoldActAttachmentDisposition[] {
-  return managementAttachmentDispositions(record).map((disposition): WorkFoldActAttachmentDisposition => {
+function withLibraryDispositions(record: WorkFoldRequestRecord): WorkFoldActAttachmentDisposition[] {
+  return managementAttachmentDispositions({ attachments: record.attachments, actions: record.actions }).map((disposition): WorkFoldActAttachmentDisposition => {
     if (disposition.status !== "unrecorded" || disposition.attachment.kind === "url") return disposition;
     const added = record.actions.find((action) =>
       action.command === "library.add" && action.sources?.includes(disposition.attachment.target));
@@ -7143,33 +7437,62 @@ function withLibraryDispositions(record: ManagementRequestRecord): WorkFoldActAt
   });
 }
 
+/** The person-facing sentence for a bound a request stopped at; it names the Settings section like every refusal. */
+function requestLimitStopMessage(limit: WorkFoldRequestLimitName): string {
+  const shows = `${workFoldRequestLimitsSection} shows this number.`;
+  switch (limit) {
+    case "providerBudget":
+      return `This request reached its model spending limit, so work-fold stopped it. ${shows}`;
+    case "deadline":
+      return `This request passed its time window, so work-fold stopped it. ${shows}`;
+    default:
+      return `This request reached one of its limits, so work-fold stopped it. ${shows}`;
+  }
+}
+
 function managementReplyAsksQuestion(content: string): boolean {
   const lines = content.split("\n").map((line) => line.trim()).filter(Boolean);
   return (lines.at(-1) ?? "").endsWith("?");
 }
 
 /**
- * Request-level stop. Aborting the management turn does not implicitly stop a
- * review already running in a Space — only recorded child turns are aborted,
- * each explicitly, and the result names every turn it touched.
+ * Request-level stop. Aborting the request's own turn does not implicitly
+ * stop a review already running in a Space — only turns recorded under this
+ * request are aborted, each explicitly, and the result names every turn it
+ * touched. The stop cascades through the whole owned graph: every descendant
+ * request is marked, its open questions are withdrawn, and its running turn
+ * is cancelled (docs/collaboration-contract.md, F25).
  */
 async function stopManagementRequest(
   state: LocalApiState,
   taskId: string,
 ): Promise<{ taskId: string; managementAborted: boolean; children: Array<{ taskId: string; conversationId: string; spaceId: string; aborted: boolean }> }> {
-  const record = state.managementRequests.get(taskId);
+  const record = state.requests.byTaskId(taskId);
   if (!record) {
-    throw new WorkFoldCliError("notFound", "Request not found. Request records are kept while the Space app stays running.");
+    throw new WorkFoldCliError("notFound", `Request not found. Requests are kept for ${state.requests.retentionDays()} days.`);
   }
-  const managementWasRunning = turnStatusFor(state, workFoldManagementScopeId, taskId).state === "running";
-  const initiallyRunningChildren = record.childTasks.filter((child) =>
-    turnStatusFor(state, child.spaceId, child.taskId).state === "running");
-  if (managementWasRunning || initiallyRunningChildren.length) state.managementRequests.markStopRequested(taskId);
-  const runningChildren = record.childTasks.filter((child) =>
-    turnStatusFor(state, child.spaceId, child.taskId).state === "running");
+  const scopeId = record.owner.spaceId ?? workFoldManagementScopeId;
+  const ownTurn = record.turns.at(-1)!;
+  const managementWasRunning = turnStatusFor(state, scopeId, ownTurn.taskId).state === "running";
+  const descendants = state.requests.descendants(record.requestId)
+    .filter((descendant) => descendant.owner.spaceId !== undefined);
+  const runningChildren = descendants.flatMap((descendant) => {
+    const turn = descendant.turns.at(-1)!;
+    return turnStatusFor(state, descendant.owner.spaceId!, turn.taskId).state === "running"
+      ? [{ taskId: turn.taskId, conversationId: descendant.owner.conversationId, spaceId: descendant.owner.spaceId!, requestId: descendant.requestId }]
+      : [];
+  });
+  if (managementWasRunning || runningChildren.length) {
+    await state.requests.markStopRequested(record.requestId);
+    await state.requests.cancelQuestions(record.requestId, "stopped");
+    for (const descendant of descendants) {
+      await state.requests.markStopRequested(descendant.requestId);
+      await state.requests.cancelQuestions(descendant.requestId, "stopped");
+    }
+  }
   let managementAborted = false;
   if (managementWasRunning) {
-    managementAborted = await cancelAcceptedTurn(state, workFoldManagementScopeId, record.conversationId, taskId);
+    managementAborted = await cancelAcceptedTurn(state, scopeId, record.owner.conversationId, ownTurn.taskId);
   }
   const children: Array<{ taskId: string; conversationId: string; spaceId: string; aborted: boolean }> = [];
   for (const child of runningChildren) {
@@ -7186,7 +7509,7 @@ async function stopManagementRequest(
 
 function assertManagementParentAccepting(state: LocalApiState, parentTaskId: string | undefined): void {
   if (!parentTaskId) return;
-  if (!state.managementRequests.isActive(parentTaskId)) {
+  if (!state.requests.isAccepting(parentTaskId)) {
     throw new WorkFoldCliError("conflict", "The management request is stopping or has already finished.");
   }
 }
@@ -7198,21 +7521,21 @@ function assertManagementParentAccepting(state: LocalApiState, parentTaskId: str
  * no Space fields. `chat.send` keeps its own inline recording because it also
  * threads child-task bookkeeping and post-acceptance cancellation.
  */
-function recordFacadeAction(
+async function recordFacadeAction(
   state: LocalApiState,
   parentTaskId: string | undefined,
   input: {
-    command: ManagementRequestActionCommand;
+    command: WorkFoldRequestActionCommand;
     space?: SpaceSummary;
     conversationId?: string;
     checkpointId?: string | null;
     taskId?: string;
     copied?: string[];
-    apps?: ManagementRequestAction["apps"];
+    apps?: WorkFoldRequestAction["apps"];
   },
-): void {
+): Promise<void> {
   if (!parentTaskId) return;
-  state.managementRequests.recordAction(parentTaskId, {
+  await state.requests.recordAction(parentTaskId, {
     command: input.command,
     at: new Date().toISOString(),
     ...(input.space ? { spaceId: input.space.id, spaceName: input.space.name } : {}),
@@ -7250,7 +7573,7 @@ function managementInstallOutcome(
   };
 }
 
-function managementAppResultRef(app: import("./agent/restricted-app-service.js").RestrictedAppInstalled): NonNullable<ManagementRequestAction["apps"]>[number] {
+function managementAppResultRef(app: import("./agent/restricted-app-service.js").RestrictedAppInstalled): NonNullable<WorkFoldRequestAction["apps"]>[number] {
   return { spaceId: app.spaceId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, digest: app.digest, title: app.manifest.title, version: app.version };
 }
 
@@ -8748,8 +9071,15 @@ async function runAgentTurn(
   contextPaths: string[],
   selectedPath: string | null,
   taskId: string,
-  managementAttachments?: ManagementAttachmentRef[],
+  options: {
+    managementAttachments?: ManagementAttachmentRef[];
+    /** The task that delegated this Space turn; decorates its context, never its acceptance. */
+    parentTaskId?: string;
+    /** The assignment when it differs from this turn's message. */
+    assignment?: string;
+  } = {},
 ): Promise<void> {
+  const { managementAttachments, parentTaskId, assignment } = options;
   const key = clientKey(spaceId, conversationId);
   let client: PiConversationClient | null = null;
   let promptStarted = false;
@@ -8773,8 +9103,22 @@ async function runAgentTurn(
           spaceRoot: space.spaceRoot,
         }))
       : undefined;
+    // A Space turn's own identity (F26): its ids, and when delegated, an
+    // opaque handle for the request that asked. Never for the management
+    // scope, which carries the registry snapshot instead.
+    const spaceTurn = spaceId === workFoldManagementScopeId
+      ? undefined
+      : buildSpaceTurnContext({
+        spaceId,
+        taskId,
+        requestId: resolveTurnRequestId(state, taskId),
+        handleSalt: state.spaceTurnHandleSalt,
+        ...(parentTaskId ? { parentTaskId } : {}),
+        ...(assignment !== undefined && assignment !== content ? { assignment } : {}),
+        ...(parentTaskId && (assignment === undefined || assignment === content) ? { assignmentIsThisMessage: true } : {}),
+      });
     beforeCheckpoint = await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "pre_turn");
-    await state.beforeAgentPrompt?.({ spaceId, conversationId, taskId });
+    await state.beforeAgentPrompt?.({ spaceId, conversationId, taskId, ...(spaceTurn ? { spaceTurn } : {}) });
     throwIfTurnCancelled(state, taskId);
     promptStarted = true;
     const finalText = await client.prompt(content, {
@@ -8782,6 +9126,7 @@ async function runAgentTurn(
       selectedPath,
       ...(spaceId === workFoldManagementScopeId ? { managementTaskId: taskId } : {}),
       ...(managementSpaces ? { managementSpaces } : {}),
+      ...(spaceTurn ? { spaceTurn } : {}),
       ...(attachedLinks.length ? { attachedLinks } : {}),
     });
     // Capture synchronously with prompt completion. Shutdown may dispose the
@@ -8896,6 +9241,18 @@ async function runAgentTurn(
       console.error(`Could not persist Assistant turn settlement: ${errorMessage(error)}`);
       return null;
     });
+    // The request record settles with the same outcome and usage, before the
+    // task-scoped record, so a waiter or the glance reads a current request
+    // state on the next tick (F25).
+    await state.requests.settleTurn(taskId, {
+      status: settledStatus,
+      ...(settledMessageId ? { messageId: settledMessageId } : {}),
+      ...(settledError ? { error: settledError } : {}),
+      ...(turnUsage ? { usage: turnUsage } : {}),
+    }).catch((error: unknown) => {
+      console.error(`Could not persist request settlement: ${errorMessage(error)}`);
+      return null;
+    });
     state.runningTurns.delete(key);
     state.cancelledTurnTasks.delete(taskId);
     state.activeTurnIdsByKey.delete(key);
@@ -8909,7 +9266,6 @@ async function runAgentTurn(
         state.clients.delete(key);
       }
     }
-    if (spaceId === workFoldManagementScopeId) state.managementRequests.finish(taskId, settledStatus);
     settleTurnTask(state, taskId, {
       spaceId,
       conversationId,
@@ -8926,6 +9282,19 @@ async function runAgentTurn(
 }
 
 const maxSettledTurnRecords = 500;
+
+/**
+ * The request id a Space turn names in its context: the durable request
+ * record's id when the store holds one, otherwise the turn journal's own
+ * acceptance identity — for an undelegated Space turn that is its own root —
+ * and finally the task id for a turn accepted before either existed. Nothing
+ * here invents a request id.
+ */
+function resolveTurnRequestId(state: LocalApiState, taskId: string): string {
+  return state.requests.byTaskId(taskId)?.requestId
+    ?? state.turnStore.get(taskId)?.requestId
+    ?? taskId;
+}
 
 async function recoverDurableTurnState(state: LocalApiState): Promise<void> {
   const records = state.turnStore.list().sort((left, right) => left.updatedAt.localeCompare(right.updatedAt));
@@ -9113,7 +9482,12 @@ async function getClient(
         restrictedAppProposals: state.restrictedAppProposals,
         restrictedApps: state.restrictedApps,
       };
-  const client = new PiConversationClient(conversationId, spaceRoot, state.runtimeProvider, hostCapabilities);
+  // Space scopes carry the compact operations guide after their own Space
+  // instructions (F26); the management scope has its own taught text.
+  const operationsGuide = spaceOperationsGuideForScope(spaceId);
+  const client = new PiConversationClient(conversationId, spaceRoot, state.runtimeProvider, hostCapabilities, {
+    ...(operationsGuide ? { operationsGuide } : {}),
+  });
   client.on("event", (event: PiChatEvent) => {
     broadcast(state, streamKey(spaceId, conversationId), assistantEventForRenderer(event));
   });
@@ -9489,11 +9863,11 @@ function foldActAttribution(
   surface: WorkFoldCliActSurface,
   parentTaskId?: string,
 ): FoldActAttribution {
-  const record = parentTaskId ? state.managementRequests.get(parentTaskId) : null;
+  const record = parentTaskId ? state.requests.byTaskId(parentTaskId) : null;
   return {
     surface,
-    ...(record?.remotePrincipalId && record.remoteGrantId
-      ? { browserId: record.remotePrincipalId, grantId: record.remoteGrantId }
+    ...(record?.remote
+      ? { browserId: record.remote.principalId, grantId: record.remote.grantId }
       : {}),
   };
 }
@@ -9508,12 +9882,12 @@ function resolveManagementLineageParent(
   state: LocalApiState,
   taskId: string,
 ): { taskId: string; browserId?: string; grantId?: string } | null {
-  if (!state.managementRequests.isActive(taskId)) return null;
-  const record = state.managementRequests.get(taskId);
+  if (!state.requests.isAccepting(taskId)) return null;
+  const record = state.requests.byTaskId(taskId);
   return {
     taskId,
-    ...(record?.remotePrincipalId && record.remoteGrantId
-      ? { browserId: record.remotePrincipalId, grantId: record.remoteGrantId }
+    ...(record?.remote
+      ? { browserId: record.remote.principalId, grantId: record.remote.grantId }
       : {}),
   };
 }
@@ -10974,23 +11348,42 @@ function createServerGlanceSources(state: LocalApiState): WorkFoldGlanceSourceRe
   };
 }
 
-/** Management-request records with the same phase truth the act lane reports. */
+/**
+ * Request records for the glance, with the same phase truth the act lane
+ * reports. A management request's phase goes through the full view so the
+ * closing-question heuristic still counts; every other kind maps its durable
+ * state directly, because the glance must never open Space content.
+ */
 async function glanceManagementRequestRecords(state: LocalApiState): Promise<WorkFoldGlanceManagementRequestRecord[]> {
   const records: WorkFoldGlanceManagementRequestRecord[] = [];
-  for (const record of state.managementRequests.list()) {
-    const view = await managementRequestView(state, record.taskId);
-    if (!view) continue;
+  for (const record of state.requests.list({ limit: maxGlanceRequestRecords })) {
+    const newestTurn = record.turns.at(-1)!;
+    const view = record.kind === "management" ? await managementRequestView(state, newestTurn.taskId) : null;
+    const phase = view?.phase ?? workFoldRequestStateToManagementPhase(record.state);
+    const descendants = state.requests.descendants(record.requestId);
+    const questions = state.requests.questions(record.requestId);
     records.push({
-      taskId: view.taskId,
-      conversationId: view.conversationId,
-      phase: view.phase,
-      startedAt: view.startedAt,
-      endedAt: view.endedAt,
-      childTaskIds: record.childTasks.map((child) => child.taskId),
+      requestId: record.requestId,
+      kind: record.kind,
+      state: record.state,
+      taskId: newestTurn.taskId,
+      conversationId: record.owner.conversationId,
+      ...(record.owner.spaceId ? { spaceId: record.owner.spaceId } : {}),
+      phase,
+      startedAt: record.createdAt,
+      endedAt: view ? view.endedAt : (record.settledAt ?? null),
+      childTaskIds: descendants.flatMap((descendant) => descendant.turns.map((turn) => turn.taskId)),
+      openQuestions: questions
+        .filter((question) => question.state === "open")
+        .map((question) => ({ questionId: question.questionId, respondent: question.respondent, askedAt: question.askedAt })),
+      questionCount: questions.length,
+      resultCount: record.results.length,
     });
   }
   return records;
 }
+
+const maxGlanceRequestRecords = 2_048;
 
 /**
  * Tolerant bounded read of the act-receipts ledger for the glance: the same

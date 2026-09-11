@@ -54,7 +54,7 @@ test("composeWorkFoldGlance is deterministic and orders every section", async ()
   // Running: longest-running first, one item per management request, the
   // request's own turn and its running child folded into the headline count.
   assert.deepEqual(first.running.map((item) => item.id), [
-    "management-requests:task-mgmt",
+    "management-requests:req-mgmt",
     "kernel-tasks:task-turn",
     "kernel-tasks:task-compact",
     "kernel-tasks:task-check",
@@ -62,7 +62,10 @@ test("composeWorkFoldGlance is deterministic and orders every section", async ()
     "routing-runs:rr-1",
   ]);
   assert.equal(first.running[0].headline, "Handling your request — 1 Space turn running");
+  assert.deepEqual(first.running[0].ref, { taskId: "task-mgmt", conversationId: "mgmt-1", requestId: "req-mgmt" });
   assert.equal(first.running[1].spaceName, "Alpha");
+  assert.equal(first.running[1].kind, "assistant-turn", "a plain Space turn's own root never replaces its kernel task");
+  assert.ok(!first.running.some((item) => item.id === "management-requests:req-wait"), "a waiting request is not running");
   assert.equal(first.running[3].kind, "check-run");
   assert.equal(first.running[5].headline, 'Routing "Weekly handoff" running');
 
@@ -70,12 +73,18 @@ test("composeWorkFoldGlance is deterministic and orders every section", async ()
   // an approval (docs/receipts-not-gates.md, F24).
   assert.deepEqual(first.needsYou.map((item) => item.id), [
     "chats:chat-s:due-snooze:2026-08-10T11:30:00.000Z",
+    "management-requests:req-wait:question:q-person",
     "chats:chat-q:question",
-    "management-requests:task-ask",
+    "management-requests:req-ask",
   ]);
   assert.deepEqual(new Set(first.needsYou.map((item) => item.kind)), new Set(["due-snooze", "chat-question", "request-question"]));
-  assert.equal(first.needsYou[1].headline, '"Quarterly plan" is waiting on your reply');
-  assert.equal(first.needsYou[1].spaceName, "Alpha");
+  assert.equal(first.needsYou[1].headline, '"Beta" is waiting on your answer');
+  assert.equal(first.needsYou[1].spaceName, "Beta");
+  assert.deepEqual(first.needsYou[1].ref, { taskId: "task-wait", conversationId: "chat-wait", requestId: "req-wait", questionId: "q-person" });
+  assert.ok(!first.needsYou.some((item) => item.ref?.questionId === "q-parent"), "a question addressed to the parent request belongs to that Assistant, never to the person");
+  assert.equal(first.needsYou[2].headline, '"Quarterly plan" is waiting on your reply');
+  assert.equal(first.needsYou[2].spaceName, "Alpha");
+  assert.equal(first.needsYou[3].headline, "Your request is waiting on your answer");
 
   // Since you last looked: newest first.
   assert.deepEqual(first.changes.map((item) => item.id), [
@@ -87,13 +96,18 @@ test("composeWorkFoldGlance is deterministic and orders every section", async ()
     "automation-receipts:ar-1",
     "checks:space-a:run-1",
     "routing-runs:rr-0",
-    "management-requests:task-done",
+    "management-requests:req-done",
+    "management-requests:req-expired",
     "settled-turns:task-old",
     "history-checkpoints:space-a:cp-2",
     "chats:chat-s:msg-snooze",
     "chats:chat-x:msg-arch",
     "chats:chat-x:msg-ren",
   ]);
+  assert.equal(first.changes[8].headline, "Request done");
+  assert.equal(first.changes[9].headline, "Request ran out of time");
+  assert.deepEqual(first.changes[9].ref, { taskId: "task-expired", conversationId: "mgmt-1", requestId: "req-expired" });
+  assert.ok(!first.changes.some((item) => item.id === "management-requests:req-plain-old"), "a plain Space turn's settle is its turn-settled item, not a second request item");
   assert.equal(first.cursor, "2026-08-10T10:58:00.000Z/viewer-grants:pub-1:revoked");
   const actItem = first.changes[1];
   assert.equal(actItem.headline, "Performed files.add — restore point saved");
@@ -102,7 +116,7 @@ test("composeWorkFoldGlance is deterministic and orders every section", async ()
   assert.equal(first.changes[4].headline, "chat.rename failed");
   assert.equal(first.changes[6].headline, "Check run failed — 2 findings admitted");
   assert.equal(first.changes[7].headline, 'Routing "Weekly handoff" failed — 1/3 steps completed');
-  assert.equal(first.changes[11].headline, '"Waiting" snoozed until 2026-08-10T11:30:00.000Z');
+  assert.equal(first.changes[12].headline, '"Waiting" snoozed until 2026-08-10T11:30:00.000Z');
 
   // Checks: one row per Space with configured Checks; unconfigured is absent.
   assert.deepEqual(first.checks, [{
@@ -581,10 +595,30 @@ function fullFixtureSources(): WorkFoldGlanceSourceReaders {
     settledTurns: async () => [
       { taskId: "task-old", spaceId: "space-a", conversationId: "chat-q", outcome: "succeeded", endedAt: "2026-08-10T07:00:00.000Z" },
     ],
+    // Durable requests (F25): the fold's own requests plus Space-owned ones.
+    // A request is keyed by its id, which is stable across continuations.
     managementRequests: async () => [
-      { taskId: "task-mgmt", conversationId: "mgmt-1", phase: "working", startedAt: "2026-08-10T10:59:00.000Z", endedAt: null, childTaskIds: ["task-child"] },
-      { taskId: "task-ask", conversationId: "mgmt-1", phase: "needs_you", startedAt: "2026-08-10T09:00:00.000Z", endedAt: "2026-08-10T09:05:00.000Z", childTaskIds: [] },
-      { taskId: "task-done", conversationId: "mgmt-1", phase: "done", startedAt: "2026-08-10T08:00:00.000Z", endedAt: "2026-08-10T08:30:00.000Z", childTaskIds: [] },
+      { requestId: "req-mgmt", kind: "management", state: "working", taskId: "task-mgmt", conversationId: "mgmt-1", phase: "working", startedAt: "2026-08-10T10:59:00.000Z", endedAt: null, childTaskIds: ["task-child"], openQuestions: [], questionCount: 0, resultCount: 0 },
+      { requestId: "req-ask", kind: "management", state: "done", taskId: "task-ask", conversationId: "mgmt-1", phase: "needs_you", startedAt: "2026-08-10T09:00:00.000Z", endedAt: "2026-08-10T09:05:00.000Z", childTaskIds: [], openQuestions: [], questionCount: 0, resultCount: 0 },
+      { requestId: "req-done", kind: "management", state: "done", taskId: "task-done", conversationId: "mgmt-1", phase: "done", startedAt: "2026-08-10T08:00:00.000Z", endedAt: "2026-08-10T08:30:00.000Z", childTaskIds: [], openQuestions: [], questionCount: 0, resultCount: 0 },
+      // A Space-owned request waiting on the person: one needs-you item per
+      // open question addressed to the person, none for the one addressed
+      // to its parent, and nothing in Running.
+      {
+        requestId: "req-wait", kind: "space", state: "waiting", taskId: "task-wait", conversationId: "chat-wait", spaceId: "space-b", phase: "needs_you",
+        startedAt: "2026-08-10T10:40:00.000Z", endedAt: null, childTaskIds: [],
+        openQuestions: [
+          { questionId: "q-person", respondent: "person", askedAt: "2026-08-10T10:45:00.000Z" },
+          { questionId: "q-parent", respondent: "parent", askedAt: "2026-08-10T10:46:00.000Z" },
+        ],
+        questionCount: 2, resultCount: 0,
+      },
+      // A request that ran out of time settles into Since you last looked.
+      { requestId: "req-expired", kind: "management", state: "expired", taskId: "task-expired", conversationId: "mgmt-1", phase: "stopped", startedAt: "2026-08-09T07:00:00.000Z", endedAt: "2026-08-10T07:30:00.000Z", childTaskIds: [], openQuestions: [], questionCount: 0, resultCount: 0 },
+      // A plain Space turn's own root: one kernel task and one settled turn
+      // already describe it, so it is never listed a second time as a request.
+      { requestId: "req-plain", kind: "space", state: "working", taskId: "task-turn", conversationId: "chat-busy", spaceId: "space-a", phase: "working", startedAt: "2026-08-10T11:00:00.000Z", endedAt: null, childTaskIds: [], openQuestions: [], questionCount: 0, resultCount: 0 },
+      { requestId: "req-plain-old", kind: "cli", state: "done", taskId: "task-old", conversationId: "chat-q", spaceId: "space-a", phase: "done", startedAt: "2026-08-10T06:50:00.000Z", endedAt: "2026-08-10T07:00:00.000Z", childTaskIds: [], openQuestions: [], questionCount: 0, resultCount: 0 },
     ],
     chats: async (space) => space.id === "space-a" ? [
       {

@@ -72,6 +72,11 @@ test("shared Skills and the fold's materialized instructions stay gate-free", as
   assert.doesNotMatch(instructions, retiredGateWords);
   assert.doesNotMatch(instructions, retiredAuthorityNames);
   assert.match(instructions, /## Receipts, not gates/);
+
+  // The Space Assistant's operations guide (F26) is taught text too.
+  const guide = speakableSource(await read("src/local/agent/space-operations-guide.ts"));
+  assert.doesNotMatch(guide, retiredGateWords);
+  assert.doesNotMatch(guide, retiredAuthorityNames);
 });
 
 test("the desktop copy contract and the remote client never say approve or staged", async () => {

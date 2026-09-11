@@ -93,6 +93,9 @@ export const foldLimitsSettings = {
   assistantHeading: "What an app can ask the Assistant",
   assistantIntro: "An app in a Space can start a Chat with the full Assistant, and can ask for one short answer with no tools. "
     + "Both leave a record under the app in Apps.",
+  requestsHeading: "Requests you start",
+  requestsIntro: "When you ask the fold for something, work-fold keeps one record of that request and everything it hands to "
+    + "a Space. These are the sizes and counts it stops at.",
   routingsHeading: "Routings",
   routingsIntro: "A routing is the deterministic glue that moves work between Spaces.",
   automationsHeading: "App automations",
