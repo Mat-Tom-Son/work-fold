@@ -1,4 +1,4 @@
-# work-fold 0.4.25
+# work-fold 0.4.26
 
 September 11, 2026
 

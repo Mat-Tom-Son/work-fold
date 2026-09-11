@@ -486,11 +486,20 @@ test("journey: a restart between the question and the answer keeps the request g
     await j.release(root.taskId);
     await j.settled(workFoldManagementScopeId, root.taskId);
 
+    // Settling the original turn may start a follow-up about the child's
+    // question. This journey restarts idle, waiting work: drain that exact
+    // follow-up before quitting, or shutdown may correctly abort it and make
+    // the root stopped. Its admission timing is not the restart contract.
+    await waitFor(() => j.api.requests.get(rootRequestId)!.turns.length === 2, "the question follow-up to be accepted");
+    const followupTaskId = j.api.requests.get(rootRequestId)!.turns[1]!.taskId;
+    await j.release(followupTaskId);
+    await j.settled(workFoldManagementScopeId, followupTaskId);
+    assert.equal(j.api.requests.get(rootRequestId)!.state, "waiting");
+
     let promptsBefore = 0;
     let journalBefore = new Map<string, string>();
-    // Capture after the old host drains: a legitimately accepted follow-up
-    // may still reach its prompt gate while close finishes. Only the new
-    // host is forbidden to redispatch it.
+    // Capture after the old host drains. The new host cannot redispatch any
+    // of those settled turns, including the follow-up.
     await j.restart(async () => {
       promptsBefore = j.prompts.length;
       journalBefore = await turnOutcomes(j.sandbox);
