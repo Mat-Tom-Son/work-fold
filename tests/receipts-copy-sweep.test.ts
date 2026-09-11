@@ -94,6 +94,7 @@ test("shared Skills and the fold's materialized instructions stay gate-free", as
 test("the desktop copy contract and the remote client never say approve or staged", async () => {
   for (const source of [
     "web-local/src/ui-contract.ts",
+    "web-local/src/components/panes/SpaceAppsPane.tsx",
     "services/bridge/public/app.js",
     "services/bridge/public/landing.js",
     "services/bridge/public/browser-app-actions.js",
@@ -103,6 +104,7 @@ test("the desktop copy contract and the remote client never say approve or stage
     const text = speakableSource(await read(source));
     assert.doesNotMatch(text, retiredGateWords, `${source} still carries gate vocabulary`);
     assert.doesNotMatch(text, retiredAuthorityNames, `${source} still names a retired authority setting`);
+    assert.doesNotMatch(text, /access stays off until you allow it/i, `${source} still describes the retired installation defaults`);
   }
 
   // Pairing copy names identity, not permission to work.

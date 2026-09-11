@@ -6,7 +6,7 @@ release-note file alone does not mean a version was published.
 
 ## September 11, 2026
 
-[0.4.24](work-fold-0.4.24.md) brings durable Assistant collaboration, inline
+[0.4.25](work-fold-0.4.25.md) brings durable Assistant collaboration, inline
 questions and results, reversible actions, and direct App AI primitives.
 The public Mac feed remains the authority for publication and availability;
 release notes do not replace the exact source-tag and artifact checks.
