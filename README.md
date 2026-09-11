@@ -24,7 +24,7 @@ For example: open a folder of vendor quotes, ask for a comparison, and have the 
 
 Each **Space** has its own Assistant and conversations. Your files stay ordinary files, accessible in Finder and your existing tools.
 
-**The fold** is the Assistant above your Spaces. Ask it what needs attention or have it coordinate work between projects, from the app or Mac menu bar.
+**The fold** is the Assistant above your Spaces. Ask it what needs attention or have it coordinate work between projects, from the app or Mac menu bar. Hand a piece of work to one project's Assistant and it reports back here; if it needs something first it asks, and your answer picks the work up where it stopped.
 
 As a project grows, ask for a custom **app** in its sidebar, add **Checks** to review chosen files, or set up a **routing** to run steps on a schedule or after selected files change. These are optional; start with a folder and a conversation.
 

@@ -11,7 +11,7 @@ instruction to implement its contents.
 | Area | Read |
 |---|---|
 | Product and contributor workflow | [Product model](product-model.md), [Contributing](../CONTRIBUTING.md), [Development](development.md), [Architecture](architecture.md) |
-| The fold and receipts | [Decision register](fold.md), [Receipts, not gates](receipts-not-gates.md), [Management and CLI](management-layer.md), [Act ledger](fold-act-ledger.md), [Consecrations (superseded; threat-model residuals)](fold-consecrations.md) |
+| The fold and receipts | [Decision register](fold.md), [Receipts, not gates](receipts-not-gates.md), [Collaboration contract](collaboration-contract.md), [Management and CLI](management-layer.md), [Act ledger](fold-act-ledger.md), [Consecrations (superseded; threat-model residuals)](fold-consecrations.md) |
 | Checks and automation | [Checks](checks.md), [Routings](fold-routings.md), [The glance](fold-glance.md) |
 | Native Assistant capabilities | [Skills, Extensions, packages, and scopes](assistant-capabilities.md), [Pi resources](pi-resources.md), [Declarative Extension surfaces](extension-surfaces.md) |
 | Restricted Space apps | [Authoring](restricted-app-authoring.md), [Runtime](restricted-app-runtime.md), [App platform foundation](app-platform-foundation.md) |
@@ -36,7 +36,9 @@ viewer pages and app views are a separate shipped capability.
   content is ignored machine-local state. There is no separate `.agent/`
   contract.
 - work-fold's runtime fold instructions and `manage-spaces` Skill are generated
-  from `src/local/management-instructions.ts`. They are app resources, not
+  from `src/local/management-instructions.ts`, and the compact operations guide
+  every Space turn receives is generated from
+  `src/local/agent/space-operations-guide.ts`. They are app resources, not
   copies of the repository's contributor contract.
 - The [filing Skill](reference-skills/organize-dropped-material/SKILL.md) is a
   reference example, not an automatically installed project Skill. Its
@@ -55,8 +57,8 @@ viewer pages and app views are a separate shipped capability.
 |---|---|
 | [Checks expansion](checks-expansion.md) | Shipped decisions reconciled with remaining proposals; the Checks register wins |
 | [Next product directions](next-product-directions.md) | Proposed priorities for discussion, not accepted scope |
-| [Assistant collaboration and app AI primitives](assistant-collaboration-plan.md) | Verified 0.4.23 gap assessment and proposed task, result, question, app AI, and action contracts; amended for wave B by [Receipts, not gates](receipts-not-gates.md) |
-| [Collaboration contract](collaboration-contract.md) | Accepted 2026-09-11 wave B specification: durable requests, Space turn context, report/ask/answer/handoff, one result shape, app subscriptions |
+| [Assistant collaboration and app AI primitives](assistant-collaboration-plan.md) | Design rationale behind wave B and the dated 0.4.23 gap assessment; the built specification is the collaboration contract |
+| [Collaboration contract](collaboration-contract.md) | The built wave B specification (accepted 2026-09-11): durable requests, Space turn context, report/ask/answer/handoff, one result shape, app change hints — also listed under current contracts |
 | [Receipts, not gates](receipts-not-gates.md) | Accepted 2026-09-10 direction and the specification the canonical documents now follow: one authority mode, reversible destruction, apps that come up able to work; supersedes F3–F7 and F17, narrows F8, F9, F18 |
 | [App platform exploration](app-platform-exploration.md) | Completed exploration; the accepted foundation wins |
 | [Runtime spike evidence](app-platform-runtime-spike-evidence.md) | Disposable experiment evidence, not production-service proof |

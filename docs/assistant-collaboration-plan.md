@@ -1,6 +1,13 @@
 # Assistant collaboration and app AI primitives
 
-> **Status:** Proposal for discussion, not accepted implementation scope.
+> **Status:** Design rationale. Accepted and built as wave B per
+> [the collaboration contract](collaboration-contract.md) (2026-09-11), which
+> is the specification for what shipped: durable requests, Space turn context,
+> `chat report|ask|answer|handoff`, one result shape, and app change hints.
+> This document keeps the dated gap assessment and the reasoning behind those
+> primitives. Where it and the contract differ, the contract governs; where the
+> contract and [Receipts, not gates](receipts-not-gates.md) differ, that record
+> governs.
 > **Assessment date:** 2026-09-09.
 > **Source baseline:** `6830942`, package version `0.4.23`, initially clean checkout.
 > This document distinguishes shipped behavior from proposed contracts. It does
@@ -43,7 +50,11 @@ derive implementation boundaries from them.
 Read this table as dated evidence: it records the `6830942` tree of
 2026-09-09, before [Receipts, not gates](receipts-not-gates.md) landed. Rows
 that describe a review step, a held act, or an authority selector describe
-what that tree did, not what ships now.
+what that tree did, not what ships now. Wave B closed the gaps these rows
+identify: durable request lineage, a child reporting channel, typed results,
+durable questions with continuation identity, fold-side app invocation, and
+owned-id subscriptions all ship per
+[the collaboration contract](collaboration-contract.md).
 
 | Earlier claim | Finding in the current tree |
 |---|---|

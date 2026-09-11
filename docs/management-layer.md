@@ -135,26 +135,22 @@ work-fold trash list --json
 work-fold trash restore --entry <recently-deleted-id> --json
 ```
 
-The four collaboration verbs (docs/collaboration-contract.md, F27) are
-Space-scoped, receipted, and host-delivered: `chat report` attaches one
-result envelope to the caller's own running turn, `chat ask` records a
+The four collaboration verbs ([the collaboration contract](collaboration-contract.md),
+F27) are Space-scoped, receipted, and host-delivered: `chat report` attaches
+one result envelope to the caller's own running turn, `chat ask` records a
 question and puts that task's request in `waiting` without suspending the
 turn, `chat answer` records exactly one answer and starts exactly one linked
 continuation turn in the same Chat (the turn store dedups it under
-`answer-<question-id>`; a second answer, an expired question, a stopped
-request, the wrong Space, or a busy Chat is refused by name), and
+`answer-<question-id>`, so a replayed answer returns the same turn), and
 `chat handoff` copies the named files into the destination through the same
 additive, restore-pointed path as `files add` and then starts a new Chat
 there as a child of the caller's request. `requests list|show` are
-management-scope reads of the request graph. `chat wait` and `manage wait`
-settle when the followed turn ends or when the task is waiting on an answer,
-and say which (F28); the status documents carry `waiting` and the request
-ref beside the turn state. When every child of a root management request has
-settled after the fold's own turn ended, the host starts at most one
-continuation turn in that conversation carrying the collected reports — a
-`system`-actor turn joined to the root, at most four per root, off in
-Settings → The fold → Limits, never after a root Stop, never started by a
-restart.
+management-scope reads of the request graph, and `chat wait`/`manage wait`
+settle on a terminal turn **or** on a task that is waiting, saying which; the
+status documents carry `waiting` and the request ref beside the turn state.
+The records, refusals, waiting semantics, continuation rule, and limits are
+specified under
+[Durable requests, questions, and continuation](#durable-requests-questions-and-continuation).
 
 `work-fold trash …` reads and restores **Recently deleted**, the machine-local
 store under the state root that holds what a delete could not leave to History:
@@ -188,6 +184,85 @@ Every accepted management turn is a **request**. Its hidden turn context supplie
 The same request model backs the desktop's **menu-bar popover** (macOS menu-bar item; the Windows tray gains the same "Your fold" entry), which talks to `/api/management/*` local-API routes — send with attachments, summary, request status, request stop, transcript, per-conversation runtime and thinking-level changes, and the event stream — through the same acceptance path, conflict rules, and kernel task records as every other surface. The popover is deliberately a window, not a tab, so the Space-bound tab contract is untouched. Its transcript stays visible as a conventional compact chat: person messages are colored bubbles aligned right, Assistant replies are unboxed and aligned left, and redundant speaker labels and divider lines are absent. It follows streamed text while pinned near the bottom but respects deliberate scrollback. **Open app** plus **New chat** are direct header actions. The per-conversation stream renders replay-safe `turn_snapshot`, incremental `assistant_delta`, and final `assistant_message` text in place; when the request settles, the persisted transcript replaces that transient projection. The composer's model label uses one fixed bridge to show the main window's Assistant settings scoped to **The fold**; the adjacent text-only reasoning selector is hydrated from the fold's selected model before the first send, saves Pi's default for a future session, and writes the live Pi session once the conversation has one. The aligned action becomes **Stop** while the request is active, using the existing request-scoped stop route, while the text area remains available for drafting; one compact live line carries the current activity without displacing the transcript. Dropping onto the macOS menu-bar icon stages bounded references, while dragging over the popover temporarily turns the whole surface into the drop target; neither sends anything, and send is always an explicit act. Its sandboxed renderer has a dedicated preload exposing only the local API session, dropped-file path resolution, hide/show-main, open-fold-model-settings, and window-material actions — it does not inherit the main renderer's folder, restricted-app, update, general settings, or shell bridges.
 
 The fold has one machine-local provider/model preference distinct from every Space preference. Settings → Assistant labels that scope **The fold**; the same choice governs this one management conversation in the menu-bar/tray popover and paired web client. Each registered Space may additionally keep bounded machine-local **Space instructions**, keyed by its portable identity and appended to subsequent Pi turns without changing portable `.work-fold/` or `.pi/` content. Provider credentials remain machine-wide Pi AuthStorage records rather than being duplicated per scope.
+
+### Durable requests, questions, and continuation
+
+[The collaboration contract](collaboration-contract.md) (F25–F29) makes the
+request an owned record rather than a projection. Every accepted turn —
+management, Space, CLI, routing hop, or app-requested — joins one. A
+management turn creates a root; `chat send --parent-task` creates a child
+under that root; a Space turn with no parent is its own root; a person's reply
+to a request that is waiting on their answer joins the existing record. Records
+live under the state root's `requests/` directory, survive restart, and are
+never replayed.
+
+A **request** carries its id, kind (`management`, `space`, `app`, `routing`,
+`cli`), root id, parent task id, owner scope (management, or a Space id plus
+conversation id), app installation where one applies, initiating surface,
+created-at, state, its turns, child request ids, question ids, results,
+rolled-up usage, and a deadline. Its state comes from one vocabulary:
+`working`, `waiting`, `handed_off`, `done`, `partial`, `failed`, `stopped`,
+`expired`. A **question** carries its id, request id, task id, respondent
+(`person` or `parent`), text, asked-at, state (`open`, `answered`, `expired`,
+`cancelled`), the answer and answered-at, and the continuation task id. A
+**result** is the F29 envelope — `summary`, optional `data`, optional `files`
+as Space-relative paths with a fingerprint and size, and an `outcome` of
+`succeeded`, `partial`, or `failed` — plus its task id, recorded-at, and
+receipt id.
+
+`requests list` and `requests show --request <id>` are management-scope act
+reads of that graph. Like `trash`, `routings`, and `pages` they sit above
+Spaces and refuse `--space`; each record names the Space it belongs to.
+
+The four collaboration verbs are refusals, not gates. A `--task` must name the
+caller's own turn. `chat ask --to parent` on a root with no parent is
+delivered to the person, and `--to person` is the default; the asking turn
+ends rather than suspending, and its request reads `waiting`. `chat answer`
+delivers exactly one answer and starts exactly one linked continuation turn in
+the same Chat; a second answer, an expired question, a stopped request, an
+answer from a Space that does not own the question, and a Chat that is busy
+are each refused by name. `chat handoff` copies the named files through the
+same additive, restore-pointed path as `files add`, starts the destination
+Chat through the ordinary acceptance path, and links it as a child of the
+caller's root so its report flows back there. Delivery is host-side
+throughout: no fold model turn is needed to move a report, an answer, or a
+handoff.
+
+Waiting is a host state (F28). `chat wait` and `manage wait` settle when the
+followed turn reaches a terminal state **or** when its task is waiting on an
+answer, and say which; a waiting settle exits 0 and prints the status document
+with its `waiting` field, because waiting is not a failure. A parent turn
+never blocks on a child that is waiting for input: it finishes and reports the
+request as `waiting`. When every child of a root management request has
+settled after the fold's own turn ended, the host composes one deterministic
+follow-up turn in that conversation — a `system`-actor turn joined to the root,
+naming each settled child, its outcome, the files it chose, and any question
+still open beneath it. It is counted against the per-root bound; past that
+bound a settle is recorded rather than narrated. Continuations never follow a
+root Stop, a request that ran out of time or hit a bound, or a restart, and a
+person can turn them off in Settings → The fold → Limits.
+
+Only the assignment text, the answer text, released report summaries, and
+copied files ever enter a Space Chat. The request graph itself, other Spaces'
+results, and the fold's transcript stay above Spaces.
+
+The bounds are generous defaults in Settings → The fold → Limits
+(`src/shared/fold-limits.ts`), and every refusal names the number it hit:
+
+| Limit | Default | On hit |
+|---|---|---|
+| Request deadline | 24 hours | request `expired`; open questions expire; no continuation |
+| Child tasks per root request | 32 | `chat send`/`chat handoff` refused, names this limit |
+| Delegation depth | 4 | same |
+| Concurrent children per root | 8 | same |
+| Continuation turns per root | 4 | further settles are recorded, not narrated |
+| Provider budget per root | unlimited (a host may set a cap) | request `failed`, names the cap |
+| Question lifetime | the request deadline | question `expired` |
+
+Envelope bounds travel with the same machinery: a summary of at most 32 KiB,
+structured details of at most 256 KiB validated against the declared schema
+when there is one, at most 32 named files, and question and answer text of at
+most 16 KiB each. Settled request graphs are kept for 30 days.
 
 ### Remote browser surface
 
@@ -402,6 +477,7 @@ the trusted Apps tab offers Details, Open Chat and Stop. See
 | Recently deleted (trash store, retention, restore) | `src/local/trash-store.ts` | `tests/work-fold-trash-store.test.ts`, `tests/work-fold-cli-trash-verbs.test.ts`, `tests/trash-settings.test.ts` |
 | Durable requests (records, store, reconciliation, retention) | `src/local/requests/request-records.ts`, `src/local/requests/request-store.ts` | `tests/work-fold-request-store.test.ts`, `tests/management-requests.test.ts`, `tests/work-fold-request-integration.test.ts` |
 | Space turn context and operations guide | `src/local/agent/space-turn-context.ts`, `src/local/agent/space-operations-guide.ts` | `tests/space-turn-context.test.ts`, `tests/space-operations-guide-prompt.test.ts`, `tests/management-turn-context.test.ts` |
+| Report, ask, answer, handoff, waiting, and continuation | `src/local/cli/act-commands.ts`, `src/local/cli/act-facade.ts`, `src/local/server.ts` | `tests/work-fold-collaboration-verbs.test.ts`, `tests/collaboration-result-envelope.test.ts`, `tests/work-fold-collaboration-journeys.test.ts` |
 | App Assistant requests and bounded inference | `src/local/agent/restricted-app-tasks.ts`, `src/local/agent/restricted-app-inference.ts`, `src/local/agent/bounded-inference.ts` | `tests/restricted-app-tasks.test.ts`, `tests/restricted-app-inference.test.ts`, `tests/bounded-inference.test.ts` |
 | Routing declarations, store, settle signals, and executor | `src/local/routings/` | `tests/work-fold-routing-declarations.test.ts`, `tests/work-fold-routing-store.test.ts`, `tests/work-fold-routing-settle-signal.test.ts`, `tests/work-fold-routing-service.test.ts` |
 | Glance composition and seen markers | `src/local/glance.ts`, `src/local/glance-seen-store.ts` | `tests/work-fold-glance.test.ts`, `tests/work-fold-glance-seen-store.test.ts` |
@@ -429,6 +505,41 @@ Desktop and CLI History restores reserve affected Space work through completion 
 - `assistant.request` journals and dispatches a Space Chat in one call with no review state, and `assistant.infer` performs a bounded, tool-free model call on the same transport the Check reviewer uses under its own limiter. Installation is the grant for both ([App-requested Assistant work](app-assistant-tasks.md)).
 - Settings → The fold gained **Recently deleted**: the entry list, Restore, Save a copy, Delete now, and the retention window (default 30 days). The Authority selector and the standing-rules section are gone from every surface.
 
+### Collaboration contract (2026-09-11)
+
+[The collaboration contract](collaboration-contract.md) made requests durable
+and gave Assistants a way to hand each other work. The changes a caller can
+observe:
+
+- New act verbs: `chat report`, `chat ask`, `chat answer`, and `chat handoff`,
+  Space-scoped and receipted, plus the Space-free management reads
+  `requests list|show`. They are available to the fold, a Space Assistant, an
+  app-requested task, and an outside harness on the same terms;
+  `work-fold help collaborate` documents them.
+- `chat wait` and `manage wait` now settle on `waiting` as well as on a
+  terminal state, exit 0, and name which happened. A shim that only broke out
+  of `accepted`/`running` would sit on a question forever; the packaged Mac and
+  Windows shims now stop polling and print that task's status instead.
+- `chat status`/`manage status` documents carry a `waiting` field and a
+  `request` reference beside the turn state. `manage status --task` keeps its
+  phase projection (`working`, `needs_you`, `handed_off`, `done`, `failed`,
+  `stopped`) and travels beside the record's own eight-value state, where
+  `partial` reads as `done` and `expired` as `stopped`.
+- The in-memory management request registry is gone. The same projection is
+  now read from the durable request store, so a restart keeps the request graph
+  the popover, the remote client, and the glance read.
+- A settle batch beneath a root management request can start one host-composed
+  follow-up turn in that conversation, bounded per root and switchable off in
+  Settings → The fold → Limits. It is the only automatic fold turn, and it
+  belongs to a person-initiated request.
+- Space turns receive their own hidden context — task id, request id, and, when
+  delegated, an opaque parent handle and the assignment text — plus a compact
+  operations guide appended to the system prompt the way Space instructions
+  are. No registry, no other Space's results, and no fold transcript.
+- Apps subscribe to their own work changing through `bridge.tasks.onChanged`,
+  `bridge.checks.onChanged`, and `bridge.files.onChanged`, and a finished app
+  Assistant task returns the same result envelope every other result uses.
+
 ## Fold-led Checks
 
 Checks authoring uses the fold, with an unsent draft from the Space-owned Checks tab. `checks propose` and `checks propose-fix` are authenticated, receipted, explicitly Space-scoped inert proposal operations; neither enables a Check nor edits a target. Trials and human-reviewed corrections use the same Check service and reservations. The fold displays a passive aggregate Checks disclosure linking to the owning Space. Findings prepare unsent help drafts in fresh Space Chats; no model turn starts merely because a finding appears. See [Checks](checks.md) for the exact review, History, freshness, and trial-isolation contract.
@@ -446,7 +557,9 @@ and sizes. It contains no file bytes and is admitted only on terminal turns;
 old records remain readable. Current management requests project at most 12
 currently visible child-file paths and exact installed app references. Browser
 ownership filtering removes both from another browser's aggregate summary.
-No content-free read-lane contract changes. The request trail retains its
-existing bounded in-memory lifetime; turn metadata alone does not reconstruct
-an old management request. See [file previews](fold-file-previews.md) and
+No content-free read-lane contract changes. The request trail is durable under
+the state root's `requests/` directory and bounded by the same per-request
+limits and 30-day retention as the rest of the record; turn metadata alone
+still does not reconstruct a request that retention has removed. See
+[file previews](fold-file-previews.md) and
 [browser apps](fold-browser-apps.md) for current-file and installation semantics.

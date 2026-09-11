@@ -494,6 +494,7 @@ async function runSmoke() {
     // The three owned-id hints (docs/collaboration-contract.md, F30): pushed by
     // the host, delivered to the mounts each read lane admits, carrying ids and
     // a revision and never content.
+    console.log("[debug] ui-hint-debug", JSON.stringify(await storage.get(storageOwner, "ui-hint-debug")), "keys", JSON.stringify(await storage.keys(storageOwner, "")));
     assert.equal(await storage.get(storageOwner, "ui-hint-listener-type-checked"), 3, "every registration type-checks its listener");
     host.publishAssistantActivity({
       spaceId: descriptor.spaceId,
@@ -826,9 +827,11 @@ bridge.files.onChanged(async (event) => {
   await bridge.storage.set("ui-files-hint", { count: filesHints, revision: event.revision, permissionIds: event.permissionIds, truncated: event.truncated, active: currentActive });
 });
 let hintListenerTypeChecked = 0;
+const hintDebug = [];
 for (const register of [bridge.tasks.onChanged, bridge.checks.onChanged, bridge.files.onChanged]) {
-  try { register("not a function"); } catch (error) { if (error instanceof TypeError) hintListenerTypeChecked += 1; }
+  try { const r = register("not a function"); hintDebug.push({ returned: typeof r, isPromise: r instanceof Promise }); } catch (error) { hintDebug.push({ name: error?.name, ctor: error?.constructor?.name, message: String(error?.message), isTypeError: error instanceof TypeError }); if (error instanceof TypeError) hintListenerTypeChecked += 1; }
 }
+try { await bridge.storage.set("ui-hint-debug", { hintDebug, typeofTasks: typeof bridge.tasks, typeofOnChanged: typeof bridge.tasks?.onChanged }); } catch (error) { }
 await bridge.storage.set("ui-hint-listener-type-checked", hintListenerTypeChecked);
 bridge.context.onChanged(async (next) => {
   currentActive = next.active;

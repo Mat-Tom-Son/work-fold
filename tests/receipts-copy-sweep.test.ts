@@ -72,6 +72,11 @@ test("shared Skills and the fold's materialized instructions stay gate-free", as
   assert.doesNotMatch(instructions, retiredGateWords);
   assert.doesNotMatch(instructions, retiredAuthorityNames);
   assert.match(instructions, /## Receipts, not gates/);
+  // Delegation teaching says what waiting is, and never tells a turn to sit
+  // on a child (docs/collaboration-contract.md, F28).
+  assert.match(instructions, /Waiting is not a failure/);
+  assert.match(instructions, /Never busy-wait, sleep, or poll in a loop/);
+  assert.doesNotMatch(instructions, /\bpoll(ing)? (until|every)\b|\bsleep \d/i);
 
   // The Space Assistant's operations guide (F26) is taught text too.
   const guide = speakableSource(await read("src/local/agent/space-operations-guide.ts"));

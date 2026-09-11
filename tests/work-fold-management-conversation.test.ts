@@ -185,9 +185,42 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /Narration is on demand only\./);
     // Needs-you is a question list, never work waiting to be let through (F24).
     assert.match(managementContext, /needs-you items \(questions, due snoozes, and requests waiting on the person's answer\)/);
+    // Delegation under the collaboration contract (F25–F29): the fold reads
+    // the request graph, a wait that comes back waiting is not a failure, a
+    // waiting or running child never holds this turn open, the follow-up turn
+    // is bounded and ordinary, a child's question is answered with one
+    // `chat answer` or handed to the person, handoffs are host-routed, and a
+    // Space Chat only ever receives its own work (F9 as amended).
+    assert.match(managementContext, /requests list --json/);
+    assert.match(managementContext, /requests show --request <id> --json/);
+    assert.match(managementContext, /Both sit above Spaces and take no `--space`/);
+    assert.match(managementContext, /when its task starts waiting on an answer, and says which/);
+    assert.match(managementContext, /Waiting is not a failure and not a timeout/);
+    assert.match(managementContext, /Never block on a waiting child\./);
+    assert.match(managementContext, /Never busy-wait, sleep, or poll in a loop for one\./);
+    assert.match(managementContext, /when its children settle it brings their reports back here once/);
+    assert.match(managementContext, /bounded at 4 per request by default/);
+    assert.match(managementContext, /turn them off in Settings → The fold → Limits/);
+    assert.match(managementContext, /chat answer --space <id> --question <id> --answer "<text>" --parent-task <this-request-task-id> --json/);
+    assert.match(managementContext, /A second answer, an answer to a question that has expired/);
+    assert.match(managementContext, /There is no management ask verb/);
+    assert.match(managementContext, /Handoffs are host-routed\./);
+    assert.match(managementContext, /A Space Chat receives only its own work\./);
+    assert.match(managementContext, /its assignment, answers to its own questions, report summaries someone deliberately released to it, and copied files/);
+    assert.match(managementContext, /32 child tasks per request, 4 levels deep, 8 running at once/);
+    assert.match(managementContext, /help collaborate/);
+    // The trap this teaching exists to prevent: a sentence a model obeys
+    // literally by sitting on a child instead of finishing its turn.
+    assert.doesNotMatch(
+      managementContext,
+      /\bpoll(ing)? (until|every)\b|\bsleep \d/i,
+      "the fold is never taught to busy-wait",
+    );
     // Report discipline reads receipts and restore paths without losing
     // attachment accounting or the question-on-final-line rule.
     assert.match(managementContext, /Read each receipt before reporting/);
+    assert.match(managementContext, /never call a request done while any child is running, waiting, failed, lost, or stopped/);
+    assert.match(managementContext, /When a child asked a question, quote the question/);
     assert.match(managementContext, /say whether History or Recently deleted holds it/);
     assert.match(managementContext, /Account for every attached item by name/);
     assert.match(managementContext, /own final line ending with a question mark/);
@@ -235,6 +268,27 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(skillContent, /manage glance --json/);
     assert.match(skillContent, /files move --space <id>/);
     assert.match(skillContent, /Read each receipt: executed is done, failed or refused is not/);
+    // The Skill carries the same collaboration teaching in its shorter form.
+    assert.match(skillContent, /requests list --json/);
+    assert.match(skillContent, /requests show --request <id> --json/);
+    assert.match(skillContent, /when its task starts waiting on an answer, and says which/);
+    assert.match(skillContent, /Waiting is not a failure/);
+    assert.match(skillContent, /Never block on a waiting or running child\./);
+    assert.match(skillContent, /Never busy-wait, sleep, or poll in a loop\./);
+    assert.match(skillContent, /the one follow-up turn it starts/);
+    assert.match(skillContent, /A second answer, an expired question, or a Space that does not own the question is refused/);
+    assert.match(skillContent, /there is no management ask verb/);
+    assert.match(skillContent, /asks for a handoff with `chat handoff`/);
+    assert.match(skillContent, /bounded at 4 per request by default/);
+    assert.match(skillContent, /32 child tasks per request, 4 levels deep, 8 running at once/);
+    assert.match(skillContent, /A Space Chat receives only its assignment, answers to its own questions, released report summaries, and copied files/);
+    assert.match(skillContent, /A request is not done while a child is running, waiting, failed, lost, or stopped/);
+    assert.match(skillContent, /help collaborate/);
+    assert.doesNotMatch(
+      skillContent,
+      /\bpoll(ing)? (until|every)\b|\bsleep \d/i,
+      "the manage-spaces Skill is never taught to busy-wait",
+    );
     // Needs-you, paired-browser seen markers, publication problems in the
     // glance, and the help topics reach the Skill too.
     assert.match(skillContent, /never work waiting to be let through/);

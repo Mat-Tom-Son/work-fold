@@ -68,6 +68,23 @@ configured model with no tools and no transcript, available on the same terms an
 receipted with the effective model and usage. Restart never auto-replays an
 uncertain acceptance.
 
+Assistant work is tracked in machine-local request records under the
+application-data `requests/` directory: which turn asked, which Spaces and
+turns it spans, its open questions, and the results handed back. Those records
+never enter a Space folder and are not captured by History. What crosses into a
+Space Chat is only that Chat's assignment, an answer to a question it asked, a
+payload someone deliberately released to it, and files copied through the
+ordinary restore-pointed path — the request graph, other Spaces' results, and
+the fold's transcript stay above Spaces. A question stops its own task rather
+than holding a resource: the turn ends, one accepted answer starts exactly one
+continuation turn, and a second answer, a late answer, or an answer from a
+Space that does not own the question is refused. Requests carry a deadline and
+child, depth, concurrency, and continuation limits so a runaway stops, and
+every refusal names the limit it hit. An app's change hints carry ids and
+revisions for that app's own Assistant tasks, its selected Checks, and its
+granted folders — never content, never replayed after a view closes, and never
+a reason to start a model turn.
+
 The packaged main renderer and management popover talk to a loopback-only local API with a per-launch desktop session token and an app-specific allowed origin. That boundary is for trusted packaged renderers; it is not a network API intended for other local applications. The sandboxed popover uses a dedicated narrow preload exposing only that API session, dropped-file path resolution, hide/show-main actions, and window material; it does not inherit the main renderer's folder, restricted-app, update, settings, or shell bridges. Development mode has different local-origin assumptions and must not be exposed beyond the loopback interface.
 
 Optional Remote access does not expose that loopback API. The public bridge
