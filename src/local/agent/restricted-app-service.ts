@@ -687,9 +687,9 @@ export class RestrictedAppService {
 
   /**
    * Resolves one installed app by its App Instance identity
-   * (`featureInstallationId`). The fold's consecration adapters re-verify
-   * pinned identities through this lookup immediately before a decided act
-   * executes (docs/fold-consecrations.md). A read like `list`, never a
+   * (`featureInstallationId`). The prepared-act adapters re-verify pinned
+   * identities through this lookup immediately before the act's effect
+   * executes (docs/receipts-not-gates.md, F19). A read like `list`, never a
    * mutation; an absent instance is `undefined`, not an error, so the caller
    * can compose its own invalidation reason.
    */
@@ -1713,14 +1713,17 @@ export class RestrictedAppService {
   }
 
   /** Hold exact app authority through bounded request admission, never through a whole Pi turn. */
-  async withAssistantTaskApp<T>(scope: RestrictedAppTaskScope, operation: (actions: readonly RestrictedAppAssistantAction[]) => Promise<T>): Promise<T> {
+  async withAssistantTaskApp<T>(
+    scope: RestrictedAppTaskScope,
+    operation: (actions: readonly RestrictedAppAssistantAction[], app: { title: string }) => Promise<T>,
+  ): Promise<T> {
     return this.#mutate(async () => {
       parseFeatureInstallationId(scope.featureInstallationId);
       const app = this.#installed(scope.spaceId, scope.appId, scope.digest, scope.featureInstallationId);
       if (restrictedAppTaskAuthorityDigest(app.authority) !== scope.authorityDigest) {
         throw new RestrictedAppTaskError("TASK_DENIED", "This app's permissions changed. Open the app again.");
       }
-      return operation(structuredClone(app.manifest.assistantActions ?? []));
+      return operation(structuredClone(app.manifest.assistantActions ?? []), { title: app.manifest.title });
     });
   }
 
@@ -4604,10 +4607,10 @@ function automationDeclaration(manifest: RestrictedAppManifest, automationId: st
 
 /**
  * Deterministic host-composed schedule line for one reviewed automation. The
- * fold's staging path pins these exact words and its decision-time recheck
- * recomposes them from the live declaration (docs/fold-consecrations.md), so
- * a drifted schedule is a pin mismatch, never a silent change under an
- * already-issued card.
+ * prepared act pins these exact words and its effect-time recheck recomposes
+ * them from the live declaration (docs/receipts-not-gates.md, F19), so a
+ * drifted schedule is a pin mismatch, never a silent change under a receipt
+ * that names something else.
  */
 export function restrictedAppAutomationScheduleSummary(declaration: RestrictedAppAutomationDeclaration): string {
   const minutes = declaration.trigger.intervalMinutes;

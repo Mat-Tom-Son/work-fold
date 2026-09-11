@@ -20,8 +20,8 @@ const reservedSlugs = new Set([
 const maximumPublicationsPerAccount = 32;
 const publicationKinds = new Set(["page", "app"]);
 const publicationStates = new Set(["active", "revoked"]);
-// The per-publication starting budgets; raising them is a desktop-side
-// consecration, and these are the bridge's hard admission ceilings.
+// The per-publication starting budgets; raising one is a fresh desktop-side
+// share act, and these are the bridge's hard admission ceilings.
 const publicationServeRateDefault = 60;
 const publicationServeRateMaximum = 600;
 const publicationByteBudgetDefault = 256 * 1024 * 1024;

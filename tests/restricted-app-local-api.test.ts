@@ -451,7 +451,8 @@ test("restricted app API keeps review, install, grants, connections, invocation,
       });
       assert.equal(response.status, 503, `stale ${method} ${route} must not affect the replacement`);
     }
-    assert.deepEqual(await request(api.origin, itemUrl, { method: "DELETE", body: stale }), { removed: false });
+    // A stale removal removes nothing, so it leaves no Recently deleted entry.
+    assert.deepEqual(await request(api.origin, itemUrl, { method: "DELETE", body: stale }), { removed: false, trash: null });
     assert.deepEqual(await service.list(space.id), [reinstalled.app]);
     assert.equal(runtime.invocations.length, callsBeforeStaleRequests);
     const current = { ...stale, featureInstallationId: reinstalled.app.featureInstallationId };

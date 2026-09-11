@@ -51,7 +51,14 @@ test("adding an app states what it adds and that every declared power is on, wit
   // later decision, and keeps the viewer read-only. The copy says "at your
   // address", never "host your website".
   assert.match(apps, /title="At your address"/);
-  assert.match(apps, /title="At your address"[^>]*onWhenAdded=\{false\}/);
+  // Outward exposure is not included by an install, so this one group never
+  // reads green-affirmative: the badge agrees with the sentence below it.
+  assert.match(apps, /title="At your address"[\s\S]*?state=\{review\.manifest\.viewer \? "not-yet" : "included"\}/);
+  assert.match(apps, /\{state === "on" \? "On when added" : state === "included" \? "Included" : "Not shared yet"\}/);
+  // A single-file permission is not on when added, and a Check slot binds only
+  // when the Space has exactly one Check, so neither claims "On when added".
+  assert.match(apps, /state=\{review\.manifest\.permissions\.files\.some\(\(item\) => item\.target === "directory"\) \? "on" : "included"\}/);
+  assert.match(apps, /title="Check results"[\s\S]*?state="included"/);
   assert.match(apps, /Serve \{review\.manifest\.viewer\.entry\} to anyone holding this app's link/);
   assert.match(apps, /viewer-readable \$\{review\.manifest\.viewer\.readable\.length === 1 \? "collection" : "collections"\} declared/);
   assert.match(apps, /Viewer-readable collections: \$\{review\.manifest\.viewer\.readable\.join\(", "\)\}/);
@@ -85,6 +92,13 @@ test("Assistant tools owns access, connection, and lifecycle management without 
   assert.match(apps, /Schedules are on when the app is added\. Turn any off here; Run now is a one-off\./);
   assert.match(apps, /"Whole Space"/);
   assert.match(apps, /Limit to folder/);
+  // Removing a preview takes its data with it, and F20 makes that recoverable:
+  // the confirm and the toast both say so rather than implying finality.
+  assert.match(apps, /A copy of its data goes to Recently deleted, so you can bring it back\./);
+  assert.match(apps, /preview removed\. Its data is in Recently deleted\./);
+  // An editable path needs a control that applies it, for a file as for a folder.
+  assert.match(apps, /grant && rootChanged \?/);
+  assert.match(apps, /"Change file"/);
   assert.match(apps, /Earlier revision/);
   assert.match(apps, /<h3 id="restricted-app-notifications-title">Notifications<\/h3>/);
   assert.doesNotMatch(apps, /Windows notifications|Windows notification settings/);
@@ -192,10 +206,23 @@ test("bounded inference reaches app views and workers over its own channel, and 
   assert.match(restrictedAppPreload, /infer: \(request: unknown\) => invokeHost\(assistantInferChannel, \{ request \}, maximumInferEnvelopeBytes, "INFER_UNAVAILABLE"\)/);
   assert.match(desktopMain, /assistantInference: async \(\) => \(await ensureInteractiveLocalApi\(\)\)\.appInference,/);
 
-  // The smoke exercises both surfaces and the refusal an inactive view meets.
+  // The smoke exercises both surfaces and the refusal an inactive view meets,
+  // and its worker answer deliberately outlasts the invocation deadline.
   assert.match(smoke, /assistantInference: async \(\) => \(\{/);
   assert.match(smoke, /workerInferText: "echo:worker"/);
   assert.match(smoke, /inferDenied: true/);
+  assert.match(smoke, /if \(surface === "worker"\) await new Promise\(\(resolve\) => setTimeout\(resolve, 6_000\)\);/);
+
+  // Disclosure is after the fact, so the Apps tab is the reader: the journaled
+  // receipts reach a surface, with the effective model and its usage.
+  const receipts = await read("web-local/src/components/panes/RestrictedAppInferenceReceipts.tsx");
+  const client = await read("web-local/src/lib/restricted-apps.ts");
+  assert.match(client, /inference-receipts\?\$\{query\}/);
+  assert.match(apps, /<RestrictedAppInferenceReceipts key=\{`infer:\$\{app\.featureInstallationId\}:\$\{app\.digest\}`\} app=\{app\}/);
+  assert.match(receipts, /listRestrictedAppInferenceReceipts/);
+  for (const field of [/receipt\.at/, /receipt\.surface/, /receipt\.inputBytes/, /receipt\.outputBytes/, /receipt\.model/, /receipt\.usage/, /receipt\.errorCode/]) {
+    assert.match(receipts, field, "every disclosed receipt field reaches the reader");
+  }
 
   // Viewers and the app-builder guide keep the boundary the record draws.
   assert.match(viewer, /Assistant actions are mutations executed with the person's runtime; they are not viewer-reachable\./);
@@ -205,4 +232,29 @@ test("bounded inference reaches app views and workers over its own channel, and 
   assert.match(piClient, /INFER_BUSY/);
   assert.match(piClient, /assistantActions \(up to 8|The optional top-level assistantActions array/);
   assert.match(piClient, /permissions\.checks declares Check-result slots/);
+});
+
+test("host-bridge wait time never counts against the worker invocation deadline", async () => {
+  const inference = await read("src/shared/restricted-app-inference.ts");
+  // A real model call is essentially never under the five-second invocation
+  // deadline, and the published inference budget is two minutes. If the
+  // deadline counted host-lane wait time, a worker awaiting `assistant.infer`
+  // would have its renderer forcefully crashed and the action would fail with
+  // APP_TIMEOUT — so the clock stops while a host call is in flight.
+  assert.match(inference, /timeoutMs: 120_000,/);
+  assert.match(desktopHost, /const defaultInvocationTimeoutMs = 5_000;/);
+  assert.match(desktopHost, /hostCalls: \{ inFlight: number; idleSince: number \};/);
+  assert.match(desktopHost, /async #throughHostLane<T>\(/);
+
+  // Each lane a worker may hold runs through the gate.
+  assert.match(desktopHost, /const response = await this\.#throughHostLane\(instance, \(\) => this\.#network\.request\(\{/);
+  assert.match(desktopHost, /const result = await this\.#throughHostLane\(instance, async \(\) => \{/);
+  assert.match(desktopHost, /this\.#throughHostLane\(instance, \(\) => service\.infer\(/);
+
+  // Both worker invocation deadlines read the gate; a worker that simply hangs
+  // with no host call in flight is still crashed on time.
+  const gated = [...desktopHost.matchAll(/this\.#invocationTimeoutMs,\n\s+\(\) => this\.#crash\(instance, "Restricted app (action|automation) timed out\."\),\n\s+instance\.hostCalls,/g)];
+  assert.equal(gated.length, 2, "the action and automation deadlines both suspend for host lanes");
+  assert.match(desktopHost, /if \(gate\) gate\.inFlight \+= 1;/);
+  assert.match(desktopHost, /const idleFor = gate\.inFlight > 0 \? 0 : Date\.now\(\) - gate\.idleSince;/);
 });

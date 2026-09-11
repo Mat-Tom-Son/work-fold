@@ -227,12 +227,11 @@ export interface WorkFoldCliActExecutorOptions {
   now?: () => Date;
   getActFacade: () => WorkFoldCliActAuthority | null;
   receipts: Pick<WorkFoldCliActReceipts, "append" | "hasAccepted">;
-  /** Resolves an explicitly named management parent only while it is active. */
   /**
    * Validates an explicitly named management parent while its turn is active.
-   * When that request arrived through Remote access, the approved browser
+   * When that request arrived through Remote access, the paired browser
    * identity rides along and is stamped on the accepted and terminal receipts
-   * (docs/receipts-not-gates.md, D12).
+   * (docs/receipts-not-gates.md, F19; docs/fold-publishing.md).
    */
   resolveLineageParent?: (taskId: string) => { taskId: string; browserId?: string; grantId?: string } | null;
 }
@@ -1931,6 +1930,7 @@ async function runActCommand(
         space: command.space!,
         app: command.app!,
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
+        requestId: request.id,
       }));
     case "apps.revoke":
       return toJson(await facade.appsRevoke({
@@ -2733,10 +2733,14 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       return record.dismissed === true
         ? `Dismissed app proposal ${terminalText(record.proposalId)} in ${spaceLabel}. Nothing runnable existed; the Assistant may propose again.\n`
         : `App proposal ${terminalText(record.proposalId)} was no longer pending in ${spaceLabel}; nothing was dismissed.\n`;
-    case "apps.remove":
-      return record.removed === true
-        ? `Removed app ${terminalText(record.appId)} [digest ${terminalText(record.digest)}] from ${spaceLabel}. Reinstalling it is a fresh receipted act.\n`
-        : `App ${terminalText(record.appId)} was not installed in ${spaceLabel}; nothing was removed.\n`;
+    case "apps.remove": {
+      if (record.removed !== true) return `App ${terminalText(record.appId)} was not installed in ${spaceLabel}; nothing was removed.\n`;
+      const trash = (record.trash ?? null) as { entryId?: unknown; restoreBy?: unknown } | null;
+      return `Removed app ${terminalText(record.appId)} [digest ${terminalText(record.digest)}] from ${spaceLabel}. Reinstalling it is a fresh receipted act.\n`
+        + (trash
+          ? `Its data is in Recently deleted until ${terminalText(trash.restoreBy)} — save it with 'trash restore --entry ${terminalText(trash.entryId)} --to <path>'.\n`
+          : "");
+    }
     case "apps.revoke":
       return record.revoked === true
         ? `Revoked the ${terminalText(record.grantKind)} grant ${terminalText(record.declaration)} from ${terminalText(record.appId)} in ${spaceLabel}. Re-granting it is a fresh receipted act.\n`
@@ -2859,9 +2863,16 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
     case "spaces.delete": {
       const cleanup = record.cleanupPending === true ? " Final cleanup completes at the next start." : "";
       const trash = (record.trash ?? null) as { entryId?: unknown; restoreBy?: unknown } | null;
-      if (!trash) return `Deleted the managed folder of ${spaceLabel}.${cleanup}\n`;
+      // The Space's preview apps go with it, so their data copies are named
+      // too: the folder coming back is not the whole recovery.
+      const appTrash = (Array.isArray(record.appTrash) ? record.appTrash : []) as Array<{ entryId?: unknown }>;
+      const apps = appTrash.length
+        ? `The data of ${appTrash.length} app${appTrash.length === 1 ? "" : "s"} installed here is in Recently deleted too `
+          + `[${appTrash.map((item) => terminalText(item.entryId)).join(", ")}].\n`
+        : "";
+      if (!trash) return `Deleted the managed folder of ${spaceLabel}.${cleanup}\n${apps}`;
       return `Deleted ${spaceLabel}. Its folder is in Recently deleted until ${terminalText(trash.restoreBy)}; `
-        + `put it back with 'trash restore --entry ${terminalText(trash.entryId)}'.${cleanup}\n`;
+        + `put it back with 'trash restore --entry ${terminalText(trash.entryId)}'.${cleanup}\n${apps}`;
     }
     case "tools.import-skill":
       return `Imported ${skillNameList(record.skillNames)} (${terminalText(record.scope)} scope).\n`;
@@ -2875,7 +2886,30 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
     case "apps.install-preview": {
       const app = (record.app ?? {}) as { title?: unknown; version?: unknown };
       const replaced = record.replacesInstalled === true ? " It replaced the previous installation." : "";
-      return `Installed ${terminalText(app.title)} ${terminalText(app.version)} in ${spaceLabel}.${replaced}\n`;
+      // The same two halves the Chat path reports: what the install turned on,
+      // and what deliberately still needs the person (F21). Without them the
+      // fold cannot say what is missing after it adds an app.
+      const granted = (record.granted ?? {}) as Record<string, unknown>;
+      const count = (value: unknown, singular: string, plural = `${singular}s`): string =>
+        `${terminalText(value)} ${value === 1 ? singular : plural}`;
+      const on = typeof granted.destinations === "number"
+        ? `On now: ${[
+          count(granted.destinations, "destination"),
+          `${count(granted.wholeSpaceFolders, "folder permission")} over the whole Space`,
+          count(granted.notifications, "notification"),
+          count(granted.checks, "Check slot"),
+          count(granted.automations, "automation"),
+        ].join(", ")}.\n`
+        : "";
+      const needs = (record.needs ?? {}) as { connections?: unknown; files?: unknown; checks?: unknown };
+      const list = (value: unknown): string[] => (Array.isArray(value) ? value : []).map((item) => terminalText(item));
+      const still = [
+        ...(list(needs.connections).length ? [`connect ${list(needs.connections).join(", ")}`] : []),
+        ...(list(needs.files).length ? [`choose a file for ${list(needs.files).join(", ")}`] : []),
+        ...(list(needs.checks).length ? [`choose a Check for ${list(needs.checks).join(", ")}`] : []),
+      ];
+      const remainder = still.length ? `Still needs the person, in the Apps tab: ${still.join("; ")}.\n` : "";
+      return `Installed ${terminalText(app.title)} ${terminalText(app.version)} in ${spaceLabel}.${replaced}\n${on}${remainder}`;
     }
     case "apps.grant": {
       const whole = record.grantKind === "files" ? " It covers the whole Space folder." : "";
@@ -2954,6 +2988,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         renamed?: unknown;
         spaceRoot?: unknown;
         appId?: unknown;
+        safetyCheckpointId?: unknown;
         space?: { name?: unknown; id?: unknown };
       };
       const where = typeof restored.space?.name === "string"
@@ -2966,7 +3001,10 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       }
       if (restored.kind === "app-storage") return `Restored ${terminalText(restored.appId)}'s data in ${where}.\n`;
       return `Restored ${restored.kind === "folder" ? "folder" : "file"} ${terminalText(restored.path)} to ${where}`
-        + `${restored.renamed === true ? " under a new name, because the old one was taken" : ""}.\n`;
+        + `${restored.renamed === true ? " under a new name, because the old one was taken" : ""}.\n`
+        // The restore stands either way; a missing undo point is said plainly
+        // rather than reported as a failure the person cannot retry.
+        + `${restored.safetyCheckpointId === null ? "History could not record a restore point for this, so there is no undo point for it.\n" : ""}`;
     }
     case "routings.list": {
       const routings = (Array.isArray(record.routings) ? record.routings : []) as Array<{
@@ -3048,6 +3086,23 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
           : routing.health === "completed"
             ? "completed"
             : `enabled${typeof routing.enabledAt === "string" ? ` since ${terminalText(routing.enabledAt)}` : ""}`;
+      // What stays true for as long as the routing is on (docs/fold-routings.md).
+      // These are residuals, stated plainly here rather than policed with
+      // re-review machinery: a created-files handoff is a standing,
+      // content-dependent channel between two Spaces, and a chat step runs
+      // with whatever Assistant authority its Space holds at run time.
+      const handoffs = steps.filter((step) => step.kind === "files"
+        && ((step.source ?? {}) as Record<string, unknown>).kind === "step-created-files");
+      const residuals = [
+        ...handoffs.map((step) => {
+          const source = (step.source ?? {}) as Record<string, unknown>;
+          return `- Standing channel: whatever step ${terminalText(source.step)}'s turn writes is copied into `
+            + `${spaceRef(step.toSpaceId, step.toSpaceName)} on every run.`;
+        }),
+        ...(steps.some((step) => step.kind === "chat")
+          ? ["- Each chat step's turn runs with whatever Assistant authority its Space holds at that moment, not the authority it held when this routing was turned on."]
+          : []),
+      ];
       const lines = [
         `Routing "${terminalText(routing.title)}" [${terminalText(routing.routingId)}]`,
         `Health: ${health}`,
@@ -3055,6 +3110,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         `Trigger: ${trigger}${typeof routing.nextScheduledAt === "string" ? `; next run ${terminalText(routing.nextScheduledAt)}` : ""}`,
         "Steps:",
         ...stepLines,
+        ...(residuals.length ? ["While this routing is on:", ...residuals] : []),
         ...(grantLines.length ? ["Enablement receipts:", ...grantLines] : []),
       ];
       return `${lines.join("\n")}\n`;
@@ -3386,6 +3442,9 @@ function actReceiptDetail(
     result?: unknown;
     recovery?: { kind?: unknown; entryId?: unknown };
     trash?: unknown;
+    appTrash?: unknown;
+    granted?: unknown;
+    needs?: unknown;
     entry?: { id?: unknown; kind?: unknown };
     restored?: { kind?: unknown; path?: unknown; spaceRoot?: unknown; appId?: unknown; space?: { id?: unknown } };
   },
@@ -3416,8 +3475,12 @@ function actReceiptDetail(
         + `restored ${boundedReceiptText(String(
           record.restored?.path ?? record.restored?.spaceRoot ?? record.restored?.appId ?? "",
         ))}`;
-    case "spaces.delete":
-      return `space.delete-folder${trashRef(record.trash) ? `; ${trashRef(record.trash)}` : ""}`;
+    case "spaces.delete": {
+      const appEntries = (Array.isArray(record.appTrash) ? record.appTrash : []) as Array<{ entryId?: unknown }>;
+      const appIds = appEntries.map((item) => String(item?.entryId ?? "")).filter(Boolean);
+      return `space.delete-folder${trashRef(record.trash) ? `; ${trashRef(record.trash)}` : ""}`
+        + (appIds.length ? `; app data ${appIds.join(", ")}` : "");
+    }
     case "tools.import-skill":
       return `capability.skills.import; scope ${String(record.scope)}; source ${boundedReceiptText(String(record.source))}; digest ${String(record.contentDigest)}`;
     case "tools.install":
@@ -3427,9 +3490,15 @@ function actReceiptDetail(
     case "tools.update":
       return `capability.package.update; scope ${String(record.scope)}; source ${boundedReceiptText(String(record.source))}; version ${String(record.version)}`;
     case "apps.install-proposal":
-    case "apps.install-preview":
+    case "apps.install-preview": {
+      const needs = (record.needs ?? {}) as { connections?: unknown; files?: unknown; checks?: unknown };
+      const pending = [...(Array.isArray(needs.connections) ? needs.connections : []),
+        ...(Array.isArray(needs.files) ? needs.files : []),
+        ...(Array.isArray(needs.checks) ? needs.checks : [])].length;
       return `app.review.install; proposal ${String(record.proposalId)}; digest ${String(record.digest)}`
-        + `${record.replacesInstalled === true ? "; replaced installed preview" : ""}`;
+        + `${record.replacesInstalled === true ? "; replaced installed preview" : ""}`
+        + `${pending ? `; ${pending} still needs the person` : ""}`;
+    }
     case "apps.grant":
       return `app.grant.${String(record.grantKind)}; app ${String(record.appId)}; declaration ${String(record.declaration)}`
         + `${typeof record.root === "string" ? `; root ${boundedReceiptText(record.root)}` : ""}`;
@@ -3499,6 +3568,7 @@ function actReceiptDetail(
     case "apps.remove":
       return typeof record.appId === "string" && typeof record.digest === "string"
         ? `app ${record.appId}; digest ${record.digest}${record.removed === false ? " (not installed)" : ""}`
+          + `${trashRef(record.trash) ? `; ${trashRef(record.trash)}` : ""}`
         : undefined;
     case "apps.revoke":
       return typeof record.appId === "string" && typeof record.grantKind === "string" && typeof record.declaration === "string"

@@ -67,6 +67,43 @@ export const recentlyDeletedSettings = {
 } as const;
 
 /**
+ * Deleting a folder from Files (docs/receipts-not-gates.md, F20). The confirm
+ * is the one moment the person decides, so it states what actually happens:
+ * History keeps what it can, whatever History cannot keep moves into Recently
+ * deleted, and both are recoverable. The word "removed" without that is a
+ * promise of finality the product no longer makes.
+ */
+export const deleteFolderConfirm = {
+  title: (name: string) => `Delete ${name}?`,
+  body: "Everything in it goes to History, or to Recently deleted if History cannot keep a copy. You can bring it back for 30 days.",
+  confirmLabel: "Delete folder",
+} as const;
+
+/**
+ * Settings → The fold → Limits (docs/receipts-not-gates.md, F19 principle 6).
+ * Bounds are defaults, not gates: they exist so a runaway stops and so
+ * envelopes stay sane. Every message that names a limit names this section,
+ * so every number an app or a routing can hit has a row here. The numbers are
+ * read from the same frozen contracts the host enforces, never retyped.
+ */
+export const foldLimitsSettings = {
+  heading: "Limits",
+  intro: "These are the sizes and counts work-fold stops at. Nothing here waits for you: when work reaches one of these "
+    + "numbers, work-fold says which one it was. They are the same for every Space on this computer.",
+  assistantHeading: "What an app can ask the Assistant",
+  assistantIntro: "An app in a Space can start a Chat with the full Assistant, and can ask for one short answer with no tools. "
+    + "Both leave a record under the app in Apps.",
+  routingsHeading: "Routings",
+  routingsIntro: "A routing is the deterministic glue that moves work between Spaces.",
+  automationsHeading: "App automations",
+  automationsIntro: "Named automations an app declares, running on their own cadence.",
+  deletedHeading: "Recently deleted",
+  deletedLink: "Open Recently deleted",
+  deletedIntro: "How long a deleted item stays recoverable. Change it in Recently deleted.",
+  frozenNote: "These numbers are fixed in this version.",
+} as const;
+
+/**
  * Settings → The fold → Web access: what pairing a browser means. Pairing is
  * an identity act on this desktop, never a gate on work; a paired browser
  * holds the fold's full authority (docs/receipts-not-gates.md).

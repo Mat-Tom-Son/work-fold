@@ -62,6 +62,11 @@ import { cp, lstat, mkdir, open, readdir, readFile, rename, rm } from "node:fs/p
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 
 import {
+  workFoldTrashDefaultRetentionDays,
+  workFoldTrashMaxRetentionDays,
+  workFoldTrashMinRetentionDays,
+} from "../shared/fold-limits.js";
+import {
   parseDataNamespaceId,
   parseFeatureInstallationId,
   parseRuntimeInstanceId,
@@ -73,9 +78,9 @@ import {
   type RestrictedAppStorageOwner,
 } from "./agent/restricted-app-storage.js";
 
-export const WORKFOLD_TRASH_DEFAULT_RETENTION_DAYS = 30;
-export const WORKFOLD_TRASH_MIN_RETENTION_DAYS = 1;
-export const WORKFOLD_TRASH_MAX_RETENTION_DAYS = 365;
+export const WORKFOLD_TRASH_DEFAULT_RETENTION_DAYS = workFoldTrashDefaultRetentionDays;
+export const WORKFOLD_TRASH_MIN_RETENTION_DAYS = workFoldTrashMinRetentionDays;
+export const WORKFOLD_TRASH_MAX_RETENTION_DAYS = workFoldTrashMaxRetentionDays;
 /** "Daily while awake": `purgeExpiredIfDue` runs at most this often by default. */
 export const WORKFOLD_TRASH_PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
@@ -87,6 +92,10 @@ export type WorkFoldTrashKind = "file" | "folder" | "space" | "app-storage" | "a
 export type WorkFoldTrashReason =
   | "files.delete"
   | "spaces.delete"
+  /** Removing a Development preview, which takes its namespace with it. */
+  | "apps.remove"
+  /** Unregistering a Space removes the previews installed in it. */
+  | "apps.space.removed"
   | "apps.storage.clear"
   | "apps.retained.purge"
   | "apps.uninstall.purge";
@@ -253,7 +262,8 @@ export interface WorkFoldTrashPurgeResult {
 
 const TRASH_KINDS: readonly WorkFoldTrashKind[] = ["file", "folder", "space", "app-storage", "app-retained"];
 const TRASH_REASONS: readonly WorkFoldTrashReason[] = [
-  "files.delete", "spaces.delete", "apps.storage.clear", "apps.retained.purge", "apps.uninstall.purge",
+  "files.delete", "spaces.delete", "apps.remove", "apps.space.removed",
+  "apps.storage.clear", "apps.retained.purge", "apps.uninstall.purge",
 ];
 const UNCOVERED_REASONS: readonly WorkFoldTrashUncoveredPath["reason"][] = ["too_large", "unreadable", "symbolic_link", "excluded"];
 const HOLD_REASONS: readonly WorkFoldTrashHold["reason"][] = ["legacy-metadata", "unreadable"];
@@ -1203,13 +1213,22 @@ async function measureTree(path: string): Promise<{ sizeBytes: number; approxima
  * metadata work-fold never erases. Directories only (symbolic links are not
  * descended); an unlistable directory fails closed as `unreadable`.
  */
+/**
+ * Whether this entry must be held rather than erased, with the same visited
+ * budget `measureTree` uses. The budget fails closed to `"unreadable"`: one
+ * pathological tree then becomes a held entry a person can deal with, instead
+ * of an unbounded walk that stalls every later purge behind it. Holding is
+ * always the safe answer — it never erases anything.
+ */
 async function holdReasonFor(entryPath: string): Promise<WorkFoldTrashHold["reason"] | null> {
   const stack = [entryPath];
+  let visited = 0;
   while (stack.length) {
     const current = stack.pop()!;
     const children = await readdir(current, { withFileTypes: true }).catch(() => null);
     if (!children) return "unreadable";
     for (const child of children) {
+      if (++visited > MEASURE_ENTRY_BUDGET) return "unreadable";
       if (isLegacyMetadataSegment(child.name)) return "legacy-metadata";
       if (child.isDirectory()) stack.push(join(current, child.name));
     }

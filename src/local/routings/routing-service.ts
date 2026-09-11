@@ -1,6 +1,7 @@
 import { WorkFoldRoutingFileWatch, type WorkFoldRoutingFileObserver, type WorkFoldRoutingFileWatchStatus } from "./routing-file-observer.js";
 import { randomUUID } from "node:crypto";
 
+import { workFoldRoutingMaxConcurrentRuns } from "../../shared/fold-limits.js";
 import {
   WorkFoldAutomationService,
   type WorkFoldAutomationClock,
@@ -12,6 +13,7 @@ import {
 import {
   workFoldRoutingBounds,
   normalizeWorkFoldRoutingDeclaration,
+  scrubWorkFoldRoutingMessageText,
   workFoldRoutingDigest,
   workFoldRoutingMessagePlaceholders,
   type WorkFoldRoutingChatStep,
@@ -65,9 +67,10 @@ export const workFoldRoutingAutomationOwnerId = "work-fold.routing";
 
 /**
  * Machine-wide concurrent routing runs by default; FIFO beyond it. A generous
- * default, not a cap.
+ * default, not a cap. The number lives in the shared limits contract so
+ * Settings → The fold → Limits shows exactly what this executor enforces.
  */
-export const workFoldRoutingMaxConcurrentRuns = 8;
+export { workFoldRoutingMaxConcurrentRuns };
 
 export interface WorkFoldRoutingHopContext {
   routingId: string;
@@ -1552,9 +1555,15 @@ const placeholderMarkerAllowanceBytes = 96;
  * limit that actually bit, so a person reading the message knows the list is
  * short because work-fold stopped, not because the work did.
  */
-function boundedPlaceholderList(lines: string[]): { text: string; truncated: boolean } {
+function boundedPlaceholderList(rawLines: string[]): { text: string; truncated: boolean } {
   const maxItems = workFoldRoutingBounds.maxPlaceholderListItems;
   const maxBytes = workFoldRoutingBounds.maxPlaceholderTextBytes;
+  // Placeholder text is host-supplied, not declared: a pre-existing file named
+  // with a direction override would otherwise carry a character the
+  // declaration contract forbids into the message the destination receives —
+  // and the hop receipt, which replaces the same class, would then disagree
+  // with what was actually sent. Filtering here keeps the two identical.
+  const lines = rawLines.map((line) => scrubWorkFoldRoutingMessageText(line));
   const kept: string[] = [];
   let bytes = 0;
   let byteLimited = false;

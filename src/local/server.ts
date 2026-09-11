@@ -85,6 +85,7 @@ import {
   type LocalAppRelease,
   type LocalAppRetainedData,
   type RestrictedAppAutomationRunReceipt,
+  type RestrictedAppInstallationNeeds,
   type RestrictedAppInstalled,
 } from "./agent/restricted-app-service.js";
 import type { RestrictedAppNetworkDeclaration } from "./agent/restricted-app-manifest.js";
@@ -670,7 +671,11 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   // deletion finished by startup recovery below must reach the trash rather
   // than an erase (docs/receipts-not-gates.md, F20).
   const trash = options.trashStore ?? await WorkFoldTrashStore.open({ rootPath: workFoldTrashRoot() });
-  await trash.purgeExpired().catch((error: unknown) => {
+  // Retention is background work, exactly as the hourly path treats it: one
+  // expired Space-folder entry can hold a large tree, and walking plus
+  // deleting it must not sit between the process starting and the port being
+  // bound. Nothing a task needs is behind this purge.
+  void trash.purgeExpired().catch((error: unknown) => {
     console.warn(`work-fold could not clean Recently deleted at startup: ${errorMessage(error)}`);
   });
   const host = options.host ?? "127.0.0.1";
@@ -909,16 +914,16 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   state.appAssistantTasks = await RestrictedAppTaskService.create({
     path: join(workFoldStateRoot(), "restricted-apps", "assistant-tasks.json"),
     ports: {
-      withApp: (scope, operation) => restrictedApps.withAssistantTaskApp(scope, async (actions) => {
+      withApp: (scope, operation) => restrictedApps.withAssistantTaskApp(scope, async (actions, app) => {
         await getSpace(scope.spaceId);
         if (!state.acceptingTurns) throw new RestrictedAppTaskError("TASK_UNAVAILABLE", "work-fold is closing.");
-        return operation(actions);
+        return operation(actions, app);
       }),
-      dispatch: async (receipt) => {
+      dispatch: async (receipt, app) => {
         const space = await getSpace(receipt.scope.spaceId);
         await createConversation(space.spaceRoot, receipt.title, receipt.conversationId);
         await acceptConversationTurn(state, space, receipt.conversationId, {
-          content: restrictedAppTaskPrompt(receipt), contextPaths: [], selectedPath: null, actorKind: "system",
+          content: restrictedAppTaskPrompt(receipt, app.title), contextPaths: [], selectedPath: null, actorKind: "system",
           requestId: restrictedAppTaskTurnRequestId(receipt), userMessageId: `message-app-${receipt.id}`,
         });
       },
@@ -1323,7 +1328,8 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       const value = await removeSpaceRegistrationInternal(state, space, { receiptId: requestId });
       return {
         value,
-        detail: `space ${space.id}${value.trash ? `; trash ${value.trash.entryId}` : ""}`,
+        detail: `space ${space.id}${value.trash ? `; trash ${value.trash.entryId}` : ""}`
+          + (value.appTrash.length ? `; app data ${value.appTrash.map((item) => item.entryId).join(", ")}` : ""),
       };
     });
     sendJson(res, removal.value);
@@ -1622,13 +1628,26 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   if (restrictedItemMatch && method === "DELETE") {
     const space = await getSpace(restrictedItemMatch[1]);
     const body = await readJsonBody<{ featureInstallationId?: string; expectedDigest?: string }>(state, req);
-    const removed = await runRestrictedAppMutation(state, space.id, () => state.restrictedApps.remove({
-      spaceId: space.id,
-      appId: restrictedItemMatch[2],
-      featureInstallationId: body.featureInstallationId,
-      ...(body.expectedDigest ? { expectedDigest: body.expectedDigest } : {}),
-    }));
-    sendJson(res, { removed });
+    // Removing a preview takes its data with it, so a copy lands in Recently
+    // deleted first (docs/receipts-not-gates.md, F20) — the same
+    // export-then-destroy order "Clear data" and uninstall-with-purge use, and
+    // the removal leaves a receipt naming the entry.
+    const outcome = await runDesktopSettingsAct(state, "apps.remove", async (requestId) => (
+      runRestrictedAppMutation(state, space.id, async () => {
+        const entry = await trashRemovedAppStorage(state, space.id, restrictedItemMatch[2], "apps.remove", requestId, body);
+        const removed = await state.restrictedApps.remove({
+          spaceId: space.id,
+          appId: restrictedItemMatch[2],
+          featureInstallationId: body.featureInstallationId,
+          ...(body.expectedDigest ? { expectedDigest: body.expectedDigest } : {}),
+        });
+        return {
+          value: { removed, trash: entry ? { entryId: entry.id, restoreBy: entry.restoreBy } : null },
+          detail: `app ${restrictedItemMatch[2]}${entry ? `; trash ${entry.id}` : ""}`,
+        };
+      })
+    ));
+    sendJson(res, outcome.value);
     return;
   }
 
@@ -3358,7 +3377,13 @@ export interface WorkFoldTrashEntryView {
 }
 
 export type WorkFoldTrashRestoreResult =
-  | { kind: "file" | "folder"; entryId: string; space: WorkFoldActSpaceRef; path: string; renamed: boolean; safetyCheckpointId: string }
+  /**
+   * `safetyCheckpointId` is null when History could not record the restore
+   * point. The content is back either way, and the entry is already gone, so
+   * reporting the restore as a failure would be a lie that also removes the
+   * thing the person would retry from.
+   */
+  | { kind: "file" | "folder"; entryId: string; space: WorkFoldActSpaceRef; path: string; renamed: boolean; safetyCheckpointId: string | null }
   | { kind: "space"; entryId: string; space: WorkFoldActSpaceRef; spaceRoot: string; renamed: boolean }
   | { kind: "app-storage"; entryId: string; space: WorkFoldActSpaceRef; appId: string; usage: { revision: number; usageBytes: number } }
   | { kind: "saved-copy"; entryId: string; path: string };
@@ -3454,12 +3479,16 @@ async function restoreTrashEntry(
   });
   const relativePath = normalizeSpaceRelativePath(relative(space.spaceRoot, restored.restoredPath));
   // Restoring is additive, so its own undo is a restore point that removes
-  // what came back — the same shape `files add` records.
+  // what came back — the same shape `files add` records. The tree is already
+  // back and the entry is already gone by now, so a History failure here is
+  // reported as a missing undo point, never as a failed restore: the
+  // additive-write rollback helper is the wrong shape, because its rollback
+  // would delete exactly the content just restored.
   const safety = await createSpaceMutationCheckpoint(space.spaceRoot, {
     deleteOnRestore: [relativePath],
     reason: "post_restore",
     label: `Before restoring ${basename(restored.restoredPath)} from Recently deleted`,
-  });
+  }).catch(() => null);
   await touchSpaceRoot(space.spaceRoot).catch(() => undefined);
   publishControlHint(state, "spaces");
   return {
@@ -3468,7 +3497,7 @@ async function restoreTrashEntry(
     space: toActSpaceRef(space),
     path: relativePath,
     renamed: restored.renamed,
-    safetyCheckpointId: safety.checkpointId,
+    safetyCheckpointId: safety?.checkpointId ?? null,
   };
 }
 
@@ -3675,7 +3704,10 @@ async function removeSpaceRegistrationInternal(
   state: LocalApiState,
   space: SpaceSummary,
   options: { managedFolderDisposition?: "delete" | "preserve"; receiptId?: string | null } = {},
-): Promise<SpaceRemovalResult & { trash: { entryId: string; restoreBy: string } | null }> {
+): Promise<SpaceRemovalResult & {
+  trash: { entryId: string; restoreBy: string } | null;
+  appTrash: Array<{ entryId: string; restoreBy: string }>;
+}> {
   const affectedSpaceIds = await state.restrictedApps.spaceRemovalMutationSpaceIds(space.id);
   // A preserve removal keeps the folder, so it keeps the plain state-directory
   // removal; a delete removal sends the claimed folder to Recently deleted.
@@ -3687,9 +3719,22 @@ async function removeSpaceRegistrationInternal(
       spaceName: space.name,
       receiptId: options.receiptId ?? null,
     });
-  const withTrash = <T extends SpaceRemovalResult>(result: T): T & { trash: { entryId: string; restoreBy: string } | null } => {
+  // Removing the Space removes every preview app installed in it, and that
+  // takes each app's data with it. A copy of each reaches Recently deleted
+  // before the registry drops them (docs/receipts-not-gates.md, F20), so
+  // restoring the folder never restores a Space whose app data is gone. The
+  // entry ids ride on the result so the `spaces delete` receipt names them.
+  const appEntries: WorkFoldTrashEntry[] = [];
+  const withTrash = <T extends SpaceRemovalResult>(result: T): T & {
+    trash: { entryId: string; restoreBy: string } | null;
+    appTrash: Array<{ entryId: string; restoreBy: string }>;
+  } => {
     const entry = removal.entry();
-    return { ...result, trash: entry ? { entryId: entry.id, restoreBy: entry.restoreBy } : null };
+    return {
+      ...result,
+      trash: entry ? { entryId: entry.id, restoreBy: entry.restoreBy } : null,
+      appTrash: appEntries.map((item) => ({ entryId: item.id, restoreBy: item.restoreBy })),
+    };
   };
   return runRestrictedAppMutations(state, affectedSpaceIds, async () => {
     const releaseCheckRemoval = state.checks.tryReserveSpaceRemoval(space.id);
@@ -3747,6 +3792,10 @@ async function removeSpaceRegistrationInternal(
         return withTrash(await spaceRemovalPendingResult(intent));
       }
       try {
+        for (const app of await state.restrictedApps.list(space.id)) {
+          const entry = await trashAppStorageExport(state, app, "apps.space.removed", options.receiptId ?? null, { skipWhenStorageUnavailable: true });
+          if (entry) appEntries.push(entry);
+        }
         await state.restrictedApps.removeSpace(space.id);
         await state.restrictedAppProposals.removeSpace(space.id);
       } catch {
@@ -5624,11 +5673,24 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const app = await requireInstalledApp(space, input.app);
       // The exact desktop DELETE route, with the resolved digest pinned; the
       // service refuses release-backed Instances toward `apps uninstall` and
-      // stops the running app host before the registration goes.
-      const removed = await runActOperation(() => runRestrictedAppMutation(state, space.id, () =>
-        state.restrictedApps.remove({ spaceId: space.id, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, expectedDigest: app.digest })));
+      // stops the running app host before the registration goes. A copy of the
+      // app's data reaches Recently deleted first (F20), the same order the
+      // clear and uninstall-with-purge paths use.
+      const outcome = await runActOperation(() => runRestrictedAppMutation(state, space.id, async () => {
+        const entry = await trashAppStorageExport(state, app, "apps.remove", input.requestId ?? null, { skipWhenStorageUnavailable: true });
+        const removed = await state.restrictedApps.remove({
+          spaceId: space.id, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, expectedDigest: app.digest,
+        });
+        return { removed, entry };
+      }));
       recordFacadeAction(state, input.parentTaskId, { command: "apps.remove", space });
-      return { space: toActSpaceRef(space), appId: app.manifest.id, digest: app.digest, removed };
+      return {
+        space: toActSpaceRef(space),
+        appId: app.manifest.id,
+        digest: app.digest,
+        removed: outcome.removed,
+        trash: outcome.entry ? { entryId: outcome.entry.id, restoreBy: outcome.entry.restoreBy } : null,
+      };
     },
     async appsRevoke(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
@@ -5899,7 +5961,10 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
             + `served from this Space before deleting it: ${named}${more}.`,
         );
       }
-      const context: FoldActOutcome<SpaceRemovalResult & { trash: { entryId: string; restoreBy: string } | null }> = {};
+      const context: FoldActOutcome<SpaceRemovalResult & {
+        trash: { entryId: string; restoreBy: string } | null;
+        appTrash: Array<{ entryId: string; restoreBy: string }>;
+      }> = {};
       await runPreparedAct({
         kind: "space.delete-folder",
         parameters: { spaceId: space.id },
@@ -5914,6 +5979,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         removed: true as const,
         cleanupPending: context.outcome?.cleanupPending ?? false,
         trash: context.outcome?.trash ?? null,
+        appTrash: context.outcome?.appTrash ?? [],
       };
     },
     async toolsImportSkill(input) {
@@ -6133,8 +6199,10 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       });
       if (!context.outcome) throw new WorkFoldCliError("failure", "The app review did not report an installed app.");
       const app = managementAppResultRef(context.outcome);
+      const settled = await runActOperation(() => state.restrictedAppProposals.get(proposal.id));
+      const outcome = managementInstallOutcome(context.outcome, settled?.needs);
       recordFacadeAction(state, input.parentTaskId, { command: "apps.install-proposal", space, apps: [app] });
-      return { space: toActSpaceRef(space), proposalId: proposal.id, digest: proposal.review.digest, app };
+      return { space: toActSpaceRef(space), proposalId: proposal.id, digest: proposal.review.digest, app, ...outcome };
     },
     async appsInstallPreview(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
@@ -6172,6 +6240,8 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       });
       if (!context.outcome) throw new WorkFoldCliError("failure", "The package review did not report an installed app.");
       const app = managementAppResultRef(context.outcome);
+      const settled = await runActOperation(() => state.restrictedAppProposals.get(proposal.id));
+      const outcome = managementInstallOutcome(context.outcome, settled?.needs);
       recordFacadeAction(state, input.parentTaskId, { command: "apps.install-preview", space, apps: [app] });
       return {
         space: toActSpaceRef(space),
@@ -6182,6 +6252,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         version: proposal.review.version,
         replacesInstalled,
         app,
+        ...outcome,
       };
     },
     async appsGrant(input) {
@@ -6195,18 +6266,30 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         );
       }
       const declaration = input.declaration.trim();
+      const filePermission = input.kind === "files"
+        ? app.manifest.permissions.files.find((item) => item.id === declaration)
+        : undefined;
       const declared = input.kind === "network"
         ? app.manifest.permissions.network.some((item) => item.id === declaration)
         : input.kind === "files"
-          ? app.manifest.permissions.files.some((item) => item.id === declaration)
+          ? Boolean(filePermission)
           : app.manifest.permissions.notifications.some((item) => item.id === declaration);
       if (!declared) throw new WorkFoldCliError("notFound", "The app does not declare this permission.");
+      // A folder permission binds to the whole Space (docs/receipts-not-gates.md,
+      // F21). A single-file permission names a file only a person can pick, so
+      // this verb says so instead of handing the broker a Space root it will
+      // reject with an error about an unavailable file.
+      if (filePermission && filePermission.target !== "directory") {
+        throw new WorkFoldCliError(
+          "permissionDenied",
+          `This permission needs a file you choose. Pick it for “${declaration}” in the app's Apps tab, under Space files.`,
+        );
+      }
       const kind = input.kind === "network"
         ? "app.grant.network" as const
         : input.kind === "files"
           ? "app.grant.files" as const
           : "app.grant.notifications" as const;
-      // A directory permission binds to the whole Space (docs/receipts-not-gates.md, F21).
       const root = input.kind === "files" ? "." : undefined;
       await runPreparedAct({
         kind,
@@ -7132,6 +7215,32 @@ function recordFacadeAction(
   });
 }
 
+/**
+ * "On now" and "Still needs you" for an act-lane install, the same two halves
+ * the Chat path reports (`restrictedAppProposalResultText` in
+ * src/local/agent/pi-client.ts). F21 puts the fold on the same footing as a
+ * Space Chat, so an install that reports only "Installed" leaves the fold
+ * unable to tell the person what is missing.
+ */
+function managementInstallOutcome(
+  app: RestrictedAppInstalled,
+  needs: RestrictedAppInstallationNeeds | undefined,
+): {
+  granted: { destinations: number; wholeSpaceFolders: number; notifications: number; checks: number; automations: number };
+  needs: RestrictedAppInstallationNeeds;
+} {
+  return {
+    granted: {
+      destinations: app.networkGrants.length,
+      wholeSpaceFolders: app.fileGrants.filter((grant) => grant.root === ".").length,
+      notifications: app.notificationGrants.length,
+      checks: app.checkGrants?.length ?? 0,
+      automations: app.automations.filter((automation) => automation.enabled).length,
+    },
+    needs: needs ?? { connections: [], files: [], checks: [] },
+  };
+}
+
 function managementAppResultRef(app: import("./agent/restricted-app-service.js").RestrictedAppInstalled): NonNullable<ManagementRequestAction["apps"]>[number] {
   return { spaceId: app.spaceId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, digest: app.digest, title: app.manifest.title, version: app.version };
 }
@@ -7412,9 +7521,19 @@ async function trashAppStorageExport(
   app: RestrictedAppInstalled,
   reason: WorkFoldTrashReason,
   receiptId: string | null,
+  options: { skipWhenStorageUnavailable?: boolean } = {},
 ): Promise<WorkFoldTrashEntry | null> {
-  const usage = await state.restrictedApps.storageUsage(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId);
-  if (usage.usageBytes === 0) return null;
+  // Removal paths must never fail because this process has no storage host:
+  // without one there is no live app data in it to lose, so there is nothing
+  // to export and the removal proceeds. Every other failure still fails the
+  // removal, so data is never destroyed without a recoverable copy.
+  const usage = await state.restrictedApps
+    .storageUsage(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId)
+    .catch((error: unknown) => {
+      if (options.skipWhenStorageUnavailable && error instanceof RestrictedAppError && error.code === "APP_UNAVAILABLE") return null;
+      throw error;
+    });
+  if (!usage || usage.usageBytes === 0) return null;
   const backup = await state.restrictedApps.exportStorage(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId);
   return state.trash.trashAppData({
     kind: "app-storage",
@@ -7435,6 +7554,30 @@ async function trashAppStorageExport(
       releaseDigest: app.releaseDigest,
     },
   });
+}
+
+/**
+ * The recovery export a removal owes its app's data before the namespace goes
+ * (docs/receipts-not-gates.md, F20). Resolution is deliberately tolerant: the
+ * removal itself stays the identity authority, so a missing or mismatched
+ * installation returns null here and is refused by `remove` with its own
+ * message rather than by a second, differently worded error.
+ */
+async function trashRemovedAppStorage(
+  state: LocalApiState,
+  spaceId: string,
+  appId: string,
+  reason: WorkFoldTrashReason,
+  receiptId: string | null,
+  selector: { featureInstallationId?: string; expectedDigest?: string } = {},
+): Promise<WorkFoldTrashEntry | null> {
+  const app = (await state.restrictedApps.list(spaceId)).find((item) => (
+    item.manifest.id === appId
+    && (selector.featureInstallationId === undefined || item.featureInstallationId === selector.featureInstallationId)
+    && (selector.expectedDigest === undefined || item.digest === selector.expectedDigest)
+  ));
+  if (!app) return null;
+  return await trashAppStorageExport(state, app, reason, receiptId, { skipWhenStorageUnavailable: true });
 }
 
 async function trashRetainedExport(
@@ -9324,8 +9467,8 @@ function sendFoldPublicationError(res: ServerResponse, error: unknown): void {
 /**
  * Attribution the prepared-act verbs thread into routing grants and
  * publication receipts: the initiating surface plus, when the management
- * request behind the act arrived through Remote access, the approved browser
- * identity (docs/receipts-not-gates.md, D12).
+ * request behind the act arrived through Remote access, the paired browser
+ * identity (docs/receipts-not-gates.md, F19; docs/fold-publishing.md).
  */
 function foldActAttribution(
   state: LocalApiState,
@@ -10354,7 +10497,10 @@ function createViewerExposeAdapter(state: LocalApiState): FoldPreparedActAdapter
  */
 function createManagedSpaceDeletionAdapter(
   state: LocalApiState,
-): FoldPreparedActAdapter<FoldActOutcome<SpaceRemovalResult & { trash: { entryId: string; restoreBy: string } | null }> | undefined> {
+): FoldPreparedActAdapter<FoldActOutcome<SpaceRemovalResult & {
+  trash: { entryId: string; restoreBy: string } | null;
+  appTrash: Array<{ entryId: string; restoreBy: string }>;
+}> | undefined> {
   return {
     fenceScope: () => null,
     recheckPins(act) {
@@ -10367,7 +10513,8 @@ function createManagedSpaceDeletionAdapter(
       const space = await getSpace(String(act.pins.spaceId ?? act.parameters.spaceId));
       const result = await removeSpaceRegistrationInternal(state, space, { receiptId: context?.requestId ?? null });
       if (context) context.outcome = result;
-      const trashed = result.trash ? `; trash ${result.trash.entryId}` : "";
+      const trashed = (result.trash ? `; trash ${result.trash.entryId}` : "")
+        + (result.appTrash.length ? `; app data ${result.appTrash.map((item) => item.entryId).join(", ")}` : "");
       return {
         detail: result.cleanupPending
           ? `Moved the managed Space folder ${space.spaceRoot} to Recently deleted${trashed}; final cleanup completes at the next start.`

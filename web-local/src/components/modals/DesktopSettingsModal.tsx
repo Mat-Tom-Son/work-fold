@@ -19,11 +19,12 @@ import type { AgentStatus, AppTheme, AppThemePreference, AppTypographyPreference
 import { foldPublicationsSettings, remoteAccessSettings } from "../../ui-contract";
 import { WorkFoldLockup } from "../brand/WorkFoldBrand";
 import { AssistantSetupPane, type AssistantModelScope } from "../panes/spacePanes";
+import { FoldLimitsPane } from "./FoldLimitsPane";
 import { FoldRoutingsPane } from "./FoldRoutingsPane";
 import { FoldRecentlyDeletedPane } from "./RecentlyDeletedPane";
 
 export type SettingsPage = "appearance" | "assistant" | "remote" | "desktop" | "about";
-type FoldSettingsSection = "access" | "pages" | "routings" | "deleted";
+type FoldSettingsSection = "access" | "pages" | "routings" | "deleted" | "limits";
 
 export function DesktopSettingsModal({ theme, themePreference, onThemePreferenceChange, typography, onTypographyChange, space, agentStatus, fixtureMode = false, initialPage = "appearance", initialAssistantScope, focusAssistantModel = false, onAgentConfigured, onAssistantChanged, onClose, updateStatus, onUpdateAction }: {
   theme: AppTheme;
@@ -183,6 +184,9 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
                   ], [
                     "deleted",
                     "Recently deleted",
+                  ], [
+                    "limits",
+                    "Limits",
                   ]] as Array<[FoldSettingsSection, string]>).map(([id, label]) => (
                     <button className={foldSection === id ? "active" : ""} type="button" role="tab" aria-selected={foldSection === id} key={id} onClick={() => setFoldSection(id)}>{label}</button>
                   ))}
@@ -191,6 +195,7 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
                 {foldSection === "pages" ? <FoldPublicationsPane /> : null}
                 {foldSection === "routings" ? <FoldRoutingsPane /> : null}
                 {foldSection === "deleted" ? <FoldRecentlyDeletedPane /> : null}
+                {foldSection === "limits" ? <FoldLimitsPane onOpenRecentlyDeleted={() => setFoldSection("deleted")} /> : null}
               </div>
             ) : null}
             {page === "desktop" ? (

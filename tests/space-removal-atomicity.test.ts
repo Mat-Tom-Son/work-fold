@@ -93,7 +93,7 @@ test("managed-folder deletion failure returns committed removal and startup reco
       cleanupPending: boolean;
       trash: { entryId: string } | null;
     }>(api, `/api/spaces/${space.id}`, { method: "DELETE" });
-    assert.deepEqual(removal, { removed: true, deleted: false, spaceRoot: space.spaceRoot, cleanupPending: true, trash: null });
+    assert.deepEqual(removal, { removed: true, deleted: false, spaceRoot: space.spaceRoot, cleanupPending: true, trash: null, appTrash: [] });
     assert.equal(existsSync(space.spaceRoot), true);
     assert.equal((await service.localAppStudio(space.id)).project, null);
     assert.equal((await request<{ spaces: Array<{ id: string }> }>(api, "/api/bootstrap")).spaces.some((item) => item.id === space.id), false);
@@ -185,7 +185,7 @@ test("post-intent Check cleanup failure returns committed pending removal and re
       `/api/spaces/${space.id}`,
       { method: "DELETE" },
     );
-    assert.deepEqual(removal, { removed: true, deleted: false, spaceRoot: space.spaceRoot, cleanupPending: true, trash: null });
+    assert.deepEqual(removal, { removed: true, deleted: false, spaceRoot: space.spaceRoot, cleanupPending: true, trash: null, appTrash: [] });
     assert.equal((await listPendingSpaceRemovals())[0]?.phase, "requested");
     assert.deepEqual((await request<{ spaces: unknown[] }>(api, "/api/bootstrap")).spaces, []);
 
@@ -419,7 +419,7 @@ test("post-intent App cleanup failure reports pending and cannot block later API
       `/api/spaces/${space.id}`,
       { method: "DELETE" },
     );
-    assert.deepEqual(removal, { removed: true, deleted: false, spaceRoot: space.spaceRoot, cleanupPending: true, trash: null });
+    assert.deepEqual(removal, { removed: true, deleted: false, spaceRoot: space.spaceRoot, cleanupPending: true, trash: null, appTrash: [] });
     assert.equal((await listPendingSpaceRemovals())[0]?.phase, "requested");
     assert.equal(existsSync(space.spaceRoot), true);
     assert.deepEqual(runtime.authorities, [], "the durable removal intent must fence live broker authority");

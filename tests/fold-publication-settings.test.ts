@@ -44,9 +44,9 @@ test("the publication Settings routes list, reveal transiently, narrow, and revo
     assert.deepEqual(empty.publications, []);
     assert.equal((empty.status as { damaged: boolean }).damaged, false);
 
-    // Activation is the consecration's execution path; the Settings surface
-    // never creates exposure. Drive the service directly as the approved
-    // decision adapter does.
+    // Activation is the share act's execution path; the Settings surface
+    // never creates exposure. Drive the service directly, as the prepared-act
+    // adapter does.
     const view = await api.publications.activate(
       { spaceId: space.space.id, relativePath: "report.md", title: "Quarterly report", snapshotEnabled: true },
       { requestId: "req-settings-activate", surface: "main-window" },

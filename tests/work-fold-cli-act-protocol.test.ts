@@ -926,7 +926,18 @@ test("formerly gated verbs execute through the facade and receipt without a deci
     },
     appsInstallPreview: async (input: unknown) => {
       calls.push({ method: "appsInstallPreview", input });
-      return { space: spaceRef, proposalId: "proposal-1", digest: "f".repeat(64), title: "Quote board", packageName: "quote-board", version: "0.9.0", replacesInstalled: true, app: appRef };
+      return {
+        space: spaceRef,
+        proposalId: "proposal-1",
+        digest: "f".repeat(64),
+        title: "Quote board",
+        packageName: "quote-board",
+        version: "0.9.0",
+        replacesInstalled: true,
+        app: appRef,
+        granted: { destinations: 2, wholeSpaceFolders: 1, notifications: 0, checks: 0, automations: 1 },
+        needs: { connections: ["crm"], files: ["ledger"], checks: ["review"] },
+      };
     },
   } as unknown as WorkFoldActFacade;
   const records: Array<Record<string, unknown>> = [];
@@ -1029,13 +1040,23 @@ test("formerly gated verbs execute through the facade and receipt without a deci
   records.length = 0;
   const preview = await execute(["apps", "install-preview", "--space", "space-1", "--package", "apps/preview"]);
   assert.equal(preview.exitCode, 0);
-  assert.match(preview.stdout, /^Installed Quote board 0\.9\.0 in Fold Space \[space-1\]\. It replaced the previous installation\.\n$/);
+  // Both halves, the way the Chat path reports them: what came on, and what
+  // deliberately still needs the person (docs/receipts-not-gates.md, F21).
+  assert.match(preview.stdout, /^Installed Quote board 0\.9\.0 in Fold Space \[space-1\]\. It replaced the previous installation\.\n/);
+  assert.match(preview.stdout, /On now: 2 destinations, 1 folder permission over the whole Space, 0 notifications, 0 Check slots, 1 automation\.\n/);
+  assert.match(
+    preview.stdout,
+    /Still needs the person, in the Apps tab: connect crm; choose a file for ledger; choose a Check for review\.\n$/,
+  );
   const previewInput = calls.at(-1)?.input as { space: string; packagePath: string; requestId?: string };
   assert.equal(previewInput.space, "space-1");
   assert.equal(previewInput.packagePath, "apps/preview");
   assert.ok(previewInput.requestId, "the act request's journal id rides into the facade");
   assert.deepEqual(records.map((record) => record.outcome), ["accepted", "ok"]);
-  assert.equal(lastOk().detail, `app.review.install; proposal proposal-1; digest ${"f".repeat(64)}; replaced installed preview`);
+  assert.equal(
+    lastOk().detail,
+    `app.review.install; proposal proposal-1; digest ${"f".repeat(64)}; replaced installed preview; 3 still needs the person`,
+  );
 
   // A setup-only refusal happens at parse time: no journal entry at all.
   records.length = 0;
@@ -1927,7 +1948,13 @@ test("Space, appearance, tools, and App Studio acts dispatch to the facade, stam
     },
     appsRemove: async (input: unknown) => {
       calls.push({ method: "appsRemove", input });
-      return { space: spaceRef, appId: "connected-inbox", digest: "d".repeat(64), removed: true };
+      return {
+        space: spaceRef,
+        appId: "connected-inbox",
+        digest: "d".repeat(64),
+        removed: true,
+        trash: { entryId: "trash-app-1", restoreBy: "2026-10-10T00:00:00.000Z" },
+      };
     },
     appsRevoke: async (input: unknown) => {
       calls.push({ method: "appsRevoke", input });
@@ -2110,8 +2137,9 @@ test("Space, appearance, tools, and App Studio acts dispatch to the facade, stam
   assert.equal(lastOk().parentTaskId, "task-9");
   assert.match(String(lastOk().detail), /^app connected-inbox; tool summarize; result \d+ bytes$/);
 
-  // The Space-app authority direct verbs: narrowing and neutral only, with
-  // honest receipt details; widening stays consecrated.
+  // The Space-app authority direct verbs: narrowing, neutral, and widening
+  // alike, with honest receipt details. Under F21 `apps grant` is a direct
+  // receipted verb too; nothing here waits on a second act.
   const proposals = await execute(["apps", "proposals", "list", "--space", "space-1", "--conversation", "conv-1"]);
   assert.match(proposals.stdout, /1 app proposal in Chat \[conv-1\] of Fold Space \[space-1\]:/);
   assert.match(proposals.stdout, /- Connected inbox 0\.1\.0 \[proposal-1\] — pending — digest d+/);
@@ -2124,8 +2152,11 @@ test("Space, appearance, tools, and App Studio acts dispatch to the facade, stam
 
   const removedApp = await execute(["apps", "remove", "--space", "space-1", "--app", "connected-inbox"]);
   assert.match(removedApp.stdout, /Removed app connected-inbox \[digest d+\] from Fold Space \[space-1\]\. Reinstalling it is a fresh receipted act/);
-  assert.deepEqual(calls.at(-1)?.input, { space: "space-1", app: "connected-inbox" });
-  assert.equal(lastOk().detail, `app connected-inbox; digest ${"d".repeat(64)}`);
+  // Removing a preview takes its data with it, so the removal names the
+  // recoverable copy it left behind (docs/receipts-not-gates.md, F20).
+  assert.match(removedApp.stdout, /Its data is in Recently deleted until 2026-10-10T00:00:00\.000Z — save it with 'trash restore --entry trash-app-1 --to <path>'\./);
+  assert.deepEqual(calls.at(-1)?.input, { space: "space-1", app: "connected-inbox", requestId: lastOk().requestId });
+  assert.equal(lastOk().detail, `app connected-inbox; digest ${"d".repeat(64)}; trash trash-app-1`);
 
   const revoked = await execute(["apps", "revoke", "--space", "space-1", "--app", "connected-inbox", "--digest", "d".repeat(64), "--kind", "files", "--declaration", "space-notes"]);
   assert.match(revoked.stdout, /Revoked the files grant space-notes from connected-inbox in Fold Space \[space-1\]\. Re-granting it is a fresh receipted act/);
@@ -2155,7 +2186,7 @@ test("Space, appearance, tools, and App Studio acts dispatch to the facade, stam
   assert.match(ranAutomation.stdout, /Automation daily-sync of connected-inbox ran with outcome success \(run run-77\)\./);
   assert.equal(lastOk().detail, "app connected-inbox; automation daily-sync; run run-77; outcome success");
 
-  // The consecrated uninstall disposition stages: the executor routes
+  // The uninstall disposition executes immediately: the executor routes
   // `--purge-data` to the purge method, never to the retain-only uninstall.
   records.length = 0;
   const purge = await execute(["apps", "uninstall", "--space", "space-1", "--instance", "runtime-instance_1", "--purge-data"]);

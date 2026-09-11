@@ -410,6 +410,7 @@ export function FoldRoutingsPane() {
                   <ol className="fold-routing-step-list">
                     {detail.steps.map((step) => <RoutingStep key={step.id} step={step} />)}
                   </ol>
+                  <RoutingResiduals steps={detail.steps} />
                 </section>
 
                 <RoutingActions
@@ -555,6 +556,40 @@ function RoutingHealth({ health, running, starting = false }: { health: FoldRout
           ? "Done"
           : "Suspended";
   return <span className={`fold-routing-health ${running ? "running" : health}`}>{label}</span>;
+}
+
+/**
+ * What stays true for as long as this routing is on (docs/fold-routings.md).
+ * These are residuals rather than gates: a created-files handoff is a
+ * standing, content-dependent channel from one Space into another, and a chat
+ * step's turn runs with whatever Assistant authority its Space holds at that
+ * moment. `routings show` states the same two things in the terminal.
+ */
+function RoutingResiduals({ steps }: { steps: FoldRoutingStepView[] }) {
+  const handoffs = steps.flatMap((step) => step.kind === "files" && step.source.kind === "step-created-files"
+    ? [{ id: step.id, from: step.source.step, toSpace: step.toSpace }]
+    : []);
+  const hasChat = steps.some((step) => step.kind === "chat");
+  if (!handoffs.length && !hasChat) return null;
+  return (
+    <div className="fold-routing-residuals">
+      <h6>While this routing is on</h6>
+      <ul>
+        {handoffs.map((handoff) => (
+          <li key={`residual-${handoff.id}`}>
+            Standing channel: whatever step {handoff.from}&apos;s turn writes is copied into{" "}
+            {spaceLabel(handoff.toSpace)} on every run.
+          </li>
+        ))}
+        {hasChat ? (
+          <li key="residual-authority">
+            Each chat step&apos;s turn runs with whatever Assistant authority its Space holds at that moment, not the
+            authority it held when this routing was turned on.
+          </li>
+        ) : null}
+      </ul>
+    </div>
+  );
 }
 
 function RoutingStep({ step }: { step: FoldRoutingStepView }) {

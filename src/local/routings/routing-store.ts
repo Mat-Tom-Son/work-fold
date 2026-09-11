@@ -12,6 +12,7 @@ import { workFoldStateRoot } from "../state-paths.js";
 import {
   assertWorkFoldRoutingAtAdmissionHorizon,
   normalizeWorkFoldRoutingDeclaration,
+  scrubWorkFoldRoutingMessageText,
   workFoldRoutingBounds,
   workFoldRoutingDigest,
   workFoldRoutingReferencedSpaceIds,
@@ -954,12 +955,11 @@ function scrubText(value: string): string {
   return value.replace(scrubReplacePattern, "�").slice(0, maximumTextLength);
 }
 
-// Filled-in placeholder text is already bounded by the executor; it keeps its
-// newlines (it is a list) and is defensively re-bounded here.
+// Filled-in placeholder text is already filtered and bounded by the executor
+// before it is substituted, so this is defense in depth over the same
+// character class; it keeps its newlines (it is a list) and is re-bounded.
 function scrubPlaceholderText(value: string): string {
-  return value
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "�")
-    .slice(0, workFoldRoutingBounds.maxPlaceholderTextBytes);
+  return scrubWorkFoldRoutingMessageText(value).slice(0, workFoldRoutingBounds.maxPlaceholderTextBytes);
 }
 
 function compareStrings(left: string, right: string): number {

@@ -337,8 +337,9 @@ test("Space lifecycle renames external metadata and removes linked versus manage
   assert.equal(await readFile(join(linkedRoot, "keep.txt"), "utf8"), "keep");
   assert.equal(existsSync(spaceManifestFile(linkedRoot)), true);
   const removedLinked = await json(`${api.origin}/api/spaces/${linked.space.id}`, { method: "DELETE" }) as { removed: true; deleted: boolean };
-  // Removing a linked registration destroys nothing, so nothing is kept.
-  assert.deepEqual(removedLinked, { removed: true, deleted: false, spaceRoot: linkedRoot, cleanupPending: false, trash: null });
+  // Removing a linked registration destroys nothing, so nothing is kept —
+  // neither the folder nor any app data belonging to it.
+  assert.deepEqual(removedLinked, { removed: true, deleted: false, spaceRoot: linkedRoot, cleanupPending: false, trash: null, appTrash: [] });
   assert.equal(existsSync(linkedRoot), true);
   assert.equal(existsSync(spaceManifestFile(linkedRoot)), true);
   assert.equal(existsSync(spaceStateDir(linkedRoot)), false);

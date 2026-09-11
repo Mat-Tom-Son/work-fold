@@ -87,12 +87,12 @@ export type RestrictedAppViewerServeOutcome =
   | { state: "not-available"; reason: string };
 
 /**
- * The exposure identity pinned by the `publish.viewer.expose` consecration
- * (hosted-app shape): App Instance id, exact Release digest, viewer entry,
- * and the complete viewer-readable surface. The serve path re-verifies the
- * *surface* on every call — an update that kept the reviewed viewer surface
- * identical rides the normal update-review lane and keeps serving, while any
- * widened or moved surface stops serving until a fresh consecration.
+ * The exposure identity pinned by the `publish.viewer.expose` act (hosted-app
+ * shape): App Instance id, exact Release digest, viewer entry, and the
+ * complete viewer-readable surface. The serve path re-verifies the *surface*
+ * on every call — an update that kept the reviewed viewer surface identical
+ * rides the normal update-review lane and keeps serving, while any widened or
+ * moved surface stops serving until a fresh receipted exposure.
  */
 export interface RestrictedAppViewerExposurePins {
   appInstanceId: string;
@@ -287,9 +287,9 @@ export function createRestrictedAppViewerAdapter(options: RestrictedAppViewerAda
       return { state: "not-available", reason: "the installed app no longer declares a viewer surface; put it at your address again after review" };
     }
     // Effect-time surface recheck: the reviewed viewer surface must equal the
-    // consecrated pins exactly. An unchanged-surface update (new digest, same
+    // exposure's pins exactly. An unchanged-surface update (new digest, same
     // surface) keeps serving; a widened or moved surface stops until a fresh
-    // outward-exposure consecration approves it.
+    // receipted exposure names it.
     if (viewer.entry !== pins.viewerEntry || !sameStringList(restrictedAppViewerSurfacePins(viewer), pins.viewerSurface)) {
       return {
         state: "not-available",

@@ -170,6 +170,12 @@ async function runSmoke() {
           assert.match(scope.authorityDigest, /^[a-f0-9]{64}$/);
           const model = { provider: "smoke", id: "smoke-model" };
           const usage = { inputTokens: 1, outputTokens: 1 };
+          // A real model call is never under the five-second worker invocation
+          // deadline, and the published inference budget is 120 s
+          // (docs/receipts-not-gates.md, F22). A worker awaiting this lane must
+          // not be crashed for it, so the worker surface deliberately answers
+          // later than that deadline.
+          if (surface === "worker") await new Promise((resolve) => setTimeout(resolve, 6_000));
           return parsed.outputSchema
             ? { json: { echoed: parsed.input }, model, usage }
             : { text: "echo:" + surface, truncated: false, model, usage };

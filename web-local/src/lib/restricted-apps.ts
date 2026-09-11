@@ -188,11 +188,18 @@ export async function installRestrictedApp(spaceId: string, sourcePath: string, 
   })).app;
 }
 
-export async function removeRestrictedApp(app: RestrictedAppInstalled): Promise<boolean> {
-  return (await api<{ removed: boolean }>(appPath(app.spaceId, app.manifest.id), {
+/**
+ * Removing a preview takes its data with it, so the host leaves a recoverable
+ * copy in Recently deleted first (docs/receipts-not-gates.md, F20) and names
+ * the entry here.
+ */
+export async function removeRestrictedApp(
+  app: RestrictedAppInstalled,
+): Promise<{ removed: boolean; trash: { entryId: string; restoreBy: string } | null }> {
+  return await api<{ removed: boolean; trash: { entryId: string; restoreBy: string } | null }>(appPath(app.spaceId, app.manifest.id), {
     method: "DELETE",
     body: { featureInstallationId: app.featureInstallationId, expectedDigest: app.digest },
-  })).removed;
+  });
 }
 
 export async function listRestrictedAppConnections(app: RestrictedAppInstalled): Promise<RestrictedAppConnectionStatus[]> {
@@ -237,6 +244,18 @@ export async function cancelRestrictedAppAssistantTask(app: RestrictedAppInstall
   return (await api<{ task: import("../../../src/shared/restricted-app-tasks").RestrictedAppAssistantTask }>(`${appPath(app.spaceId, app.manifest.id)}/assistant-tasks/${encodeURIComponent(requestId)}/cancel`, {
     method: "POST", body: { featureInstallationId: app.featureInstallationId, expectedDigest: app.digest },
   })).task;
+}
+
+/**
+ * Bounded inference receipts for this installation, across code changes
+ * (docs/receipts-not-gates.md, F22: disclosure is after the fact). Every
+ * `assistant.infer` call leaves one, with the effective model and its usage.
+ */
+export async function listRestrictedAppInferenceReceipts(app: RestrictedAppInstalled) {
+  const query = new URLSearchParams({ featureInstallationId: app.featureInstallationId, expectedDigest: app.digest });
+  return (await api<{ receipts: import("../../../src/shared/restricted-app-inference").RestrictedAppInferenceReceipt[] }>(
+    `${appPath(app.spaceId, app.manifest.id)}/inference-receipts?${query}`,
+  )).receipts;
 }
 
 export async function setRestrictedAppCheckGrant(app: RestrictedAppInstalled, permissionId: string, selection: { checkId: string; declarationDigest: string } | null): Promise<RestrictedAppInstalled> {

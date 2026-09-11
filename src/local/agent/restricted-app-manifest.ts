@@ -172,8 +172,8 @@ export interface RestrictedAppAutomationDeclaration {
  * viewer adapter refuses every read outside it, and every write, action,
  * network, connection, notification, file, automation, OAuth, or host-UI
  * call regardless of it. Because the field is reviewed, it appears in review
- * copy and is pinned by the outward-exposure consecration; an update that
- * widens `readable` or changes `entry` is a fresh consecration.
+ * copy and is pinned by the outward-exposure act; an update that widens
+ * `readable` or changes `entry` needs a fresh receipted exposure.
  */
 export interface RestrictedAppViewerDeclaration {
   entry: string;
@@ -374,7 +374,7 @@ export function parseRestrictedAppJsonSchema(value: unknown, label = "Restricted
  * The reviewed viewer surface (docs/fold-publishing.md, rung 3). The entry is
  * a packaged HTML document like the runtime entry; readable prefixes are a
  * bounded, deduplicated, sorted list so the declaration — and therefore the
- * consecration pins derived from it — has exactly one canonical spelling.
+ * exposure pins derived from it — has exactly one canonical spelling.
  */
 function parseViewerDeclaration(value: unknown): RestrictedAppViewerDeclaration | undefined {
   if (value === undefined) return undefined;
@@ -396,11 +396,11 @@ function parseViewerDeclaration(value: unknown): RestrictedAppViewerDeclaration 
 }
 
 /**
- * The complete viewer-readable surface as consecration pins
- * (docs/fold-consecrations.md `publish.viewer.expose`, hosted-app shape):
- * one canonical string list a decision card can render and a serve-time
- * recheck can compare exactly. An app without a viewer declaration has no
- * viewer surface and cannot be put at an address.
+ * The complete viewer-readable surface as exposure pins
+ * (`publish.viewer.expose`, hosted-app shape; docs/fold-publishing.md): one
+ * canonical string list the review copy can render and a serve-time recheck
+ * can compare exactly. An app without a viewer declaration has no viewer
+ * surface and cannot be put at an address.
  */
 export function restrictedAppViewerSurfacePins(viewer: RestrictedAppViewerDeclaration): string[] {
   return [`entry:${viewer.entry}`, ...viewer.readable.map((prefix) => `data:${prefix}`)];

@@ -23,13 +23,14 @@ bounded one-time `at` trigger on 2026-09-01; version 3 adds explicit folder
 observation, shipped in September 2026; version 4 adds the closed placeholder
 set and the `fold` step, shipped with the receipts-not-gates build.
 Settings → The fold → Routings is the desktop management surface. The
-store schema is version 2; version-1 records load and are rewritten as
-version 2 on the next mutation, while newer schemas still fail closed.
+store schema is version 3; version-1 and version-2 records load and are
+rewritten as version 3 on the next mutation, converting the grants an older
+build wrote, while newer schemas still fail closed.
 
 A **routing** is a machine-local, inert-until-enabled declaration of
 deterministic steps that move work between Spaces: start a Space Chat with a
 fixed message, copy files from one Space into another with a History restore
-point, run a Check. It is executed by app code on the shared scheduler
+point, run a Check, message the fold. It is executed by app code on the shared scheduler
 discipline, never by an open-ended Assistant conversation, and it is the
 only thing above Spaces that runs unattended. A routing is not a workflow
 language: no conditions, no branching, no retries, no loops, no expression
@@ -256,8 +257,8 @@ Determinism covers **selection, not content**. The copied bytes are whatever
 the chat step's turn wrote — model output, steered by the fixed message and
 by whatever the source Space's folder contains at run time. An enabled
 routing with this handoff is a standing, content-dependent channel from the
-source Space into the destination Space; `routings show` states this in
-plain words. Every delivery is inspectable after the fact: the hop receipt
+source Space into the destination Space; `routings show` and the desktop
+Routings pane both state this under "While this routing is on". Every delivery is inspectable after the fact: the hop receipt
 lists the exact copied paths, and the glance's routing-run-settled item
 names the destination Space and the delivered file count.
 
@@ -484,8 +485,9 @@ The plan items shipped as follows:
   until dogfooding shows the noise matters.
 - **Re-enablement when a referenced Space's capabilities change.** The
   enablement digest pins the declaration; the Spaces it names govern their
-  own capabilities through their own grants. `routings show` states this as
-  a residual rather than policing it with re-review machinery; if
+  own capabilities through their own grants. `routings show` and the desktop
+  Routings pane state this as a residual rather than policing it with
+  re-review machinery; if
   dogfooding shows it bites, that machinery is a register decision of its
   own.
 - **Portable or shared routings.** Declarations never enter `.work-fold/`,

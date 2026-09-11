@@ -442,10 +442,12 @@ export async function finalizeSpaceRemoval(
 }
 
 /**
- * Decision-time pin recheck for the fold's consecrated `space.delete-folder`
- * act (docs/fold-consecrations.md): re-verifies the pinned Space identity and
- * canonical root against the live registry immediately before a decided
- * deletion executes. This is identity only — the `.workspace/` fail-closed
+ * Effect-time pin recheck for the prepared `space.delete-folder` act
+ * (docs/receipts-not-gates.md, F19): re-verifies the pinned Space identity
+ * and canonical root against the live registry immediately before the
+ * deletion executes. There is no decision time — the verb runs on its first
+ * call — so this is the recheck the prepare-pin-journal-execute path performs
+ * on its way to the effect. Identity only: the `.workspace/` fail-closed
  * rule, managed-base containment, and managed-root identity claims are
  * re-verified by the removal machinery itself at execution, exactly as they
  * are for a desktop-initiated deletion.

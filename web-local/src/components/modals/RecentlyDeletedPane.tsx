@@ -18,7 +18,14 @@ export type RecentlyDeletedKind = "file" | "folder" | "space" | "app-storage" | 
 export interface RecentlyDeletedEntry {
   id: string;
   kind: RecentlyDeletedKind;
-  reason: "files.delete" | "spaces.delete" | "apps.storage.clear" | "apps.retained.purge" | "apps.uninstall.purge";
+  reason:
+    | "files.delete"
+    | "spaces.delete"
+    | "apps.remove"
+    | "apps.space.removed"
+    | "apps.storage.clear"
+    | "apps.retained.purge"
+    | "apps.uninstall.purge";
   spaceId: string;
   spaceName?: string;
   originalPath: string;

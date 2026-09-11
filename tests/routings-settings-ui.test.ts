@@ -21,10 +21,15 @@ const [settingsSource, paneSource, mainPreload, popoverPreload, desktopMain] = a
 ]);
 
 test("The fold Settings includes Routings without introducing a builder", () => {
-  assert.match(settingsSource, /type FoldSettingsSection = "access" \| "pages" \| "routings" \| "deleted";/);
+  assert.match(settingsSource, /type FoldSettingsSection = "access" \| "pages" \| "routings" \| "deleted" \| "limits";/);
   assert.match(settingsSource, /"routings",\s*"Routings"/);
   assert.match(settingsSource, /foldSection === "routings" \? <FoldRoutingsPane \/>/);
   assert.doesNotMatch(paneSource, /builder|cron|RRULE/i);
+  // The two residuals `routings show` prints are mirrored here, so both
+  // surfaces tell a person the same thing (docs/fold-routings.md).
+  assert.match(paneSource, /While this routing is on/);
+  assert.match(paneSource, /Standing channel: whatever step \{handoff\.from\}/);
+  assert.match(paneSource, /Assistant authority its Space holds at that moment/);
   assert.match(paneSource, /No routings yet\. Ask the fold to set one up\./);
   // receipts-not-gates: nothing in this pane asks for permission or names an
   // authority mode; turning a routing on is one receipted click.

@@ -501,7 +501,7 @@ test("viewer declarations are optional, closed, canonical, and pinned determinis
   assert.deepEqual(
     restrictedAppViewerSurfacePins(parsed.viewer!),
     ["entry:viewer.html", "data:notes/", "data:public"],
-    "the consecration pins derive one complete viewer-readable surface",
+    "the exposure pins derive one complete viewer-readable surface",
   );
 
   const readableOnlyEntry = parseRestrictedAppManifest(manifest({ viewer: { entry: "viewer.html" } }));

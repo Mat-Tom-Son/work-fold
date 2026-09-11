@@ -34,10 +34,18 @@ export interface RestrictedAppTaskReceipt extends RestrictedAppAssistantTask {
 }
 
 export interface RestrictedAppTaskPorts {
-  /** Must serialize admission against installation/grant changes and recheck every pin. */
-  withApp<T>(scope: RestrictedAppTaskScope, operation: (actions: readonly RestrictedAppAssistantAction[]) => Promise<T>): Promise<T>;
+  /**
+   * Must serialize admission against installation/grant changes and recheck
+   * every pin. `app` carries the installed app's own title, which is the
+   * provenance the dispatched Chat is told — a receipt's `title` is the
+   * per-request action label, not the app's name.
+   */
+  withApp<T>(
+    scope: RestrictedAppTaskScope,
+    operation: (actions: readonly RestrictedAppAssistantAction[], app: { title: string }) => Promise<T>,
+  ): Promise<T>;
   /** Ordinary Space Chat acceptance, using the receipt's fixed Chat/request identities. */
-  dispatch(receipt: Readonly<RestrictedAppTaskReceipt>): Promise<void>;
+  dispatch(receipt: Readonly<RestrictedAppTaskReceipt>, app: { title: string }): Promise<void>;
   findTurn(receipt: Readonly<RestrictedAppTaskReceipt>): WorkFoldDurableTurnRecord | null;
   cancelTurn(receipt: Readonly<RestrictedAppTaskReceipt>, turnId: string): Promise<void>;
 }
@@ -109,7 +117,7 @@ export class RestrictedAppTaskService extends EventEmitter {
 
   /** Journal first, then dispatch the Chat. A lost response replays the same record. */
   async request(scope: RestrictedAppTaskScope, value: unknown, assertCurrent = () => {}): Promise<RestrictedAppAssistantTask> {
-    return this.#run(() => this.#ports.withApp(scope, async (actions) => {
+    return this.#run(() => this.#ports.withApp(scope, async (actions, app) => {
       exact(value, ["requestId", "requestedAt", "actionId", "input"]);
       if (typeof value.requestId !== "string" || !uuid.test(value.requestId)) invalid("Supply a unique request id.");
       const requestedAt = date(value.requestedAt);
@@ -154,7 +162,7 @@ export class RestrictedAppTaskService extends EventEmitter {
         scope: structuredClone(scope), instructions: action.instructions, inputJson, conversationId: `chat-app-${id}` };
       assertCurrent();
       await this.#save([...records, record]); // Journal the receipt before ordinary Chat admission.
-      try { await this.#ports.dispatch(structuredClone(record)); }
+      try { await this.#ports.dispatch(structuredClone(record), { title: app.title }); }
       catch {
         // Admission can throw after its own durable acceptance. Reconcile first;
         // never convert an uncertain outcome into a fresh dispatch.
@@ -276,9 +284,21 @@ export class RestrictedAppTaskService extends EventEmitter {
 
 export function restrictedAppTaskTurnRequestId(record: Pick<RestrictedAppTaskReceipt, "id">): string { return `app-task-${record.id}`; }
 
-/** Stable, fully inspectable content; no arbitrary Chat, fold context or tool policy injection. */
-export function restrictedAppTaskPrompt(record: Pick<RestrictedAppTaskReceipt, "title" | "instructions" | "inputJson">): string {
-  return `App request: ${record.title}\n\n${record.instructions}\n\nApp-supplied input (JSON):\n${record.inputJson}\n\nThis request came from the app “${record.title}” installed in this Space. Work in this Space using your usual tools. Your final reply will be shared with the requesting app; include only the task's result and relevant Space-relative deliverable paths.`;
+/**
+ * Stable, fully inspectable content; no arbitrary Chat, fold context or tool
+ * policy injection. `record.title` is the action's own label (for example
+ * "Compare quotes"); `appTitle` is the installed app's name, and the
+ * provenance sentence must use that one. Without a resolved app title the
+ * sentence says only that an app asked, rather than naming the wrong thing.
+ */
+export function restrictedAppTaskPrompt(
+  record: Pick<RestrictedAppTaskReceipt, "title" | "instructions" | "inputJson">,
+  appTitle?: string,
+): string {
+  const from = appTitle?.trim()
+    ? `This request came from the app “${appTitle.trim()}” installed in this Space.`
+    : "This request came from an app installed in this Space.";
+  return `App request: ${record.title}\n\n${record.instructions}\n\nApp-supplied input (JSON):\n${record.inputJson}\n\n${from} Work in this Space using your usual tools. Your final reply will be shared with the requesting app; include only the task's result and relevant Space-relative deliverable paths.`;
 }
 
 export function restrictedAppTaskAuthorityDigest(authority: unknown): string { return hash(authority); }

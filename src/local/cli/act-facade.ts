@@ -33,7 +33,14 @@ export interface WorkFoldActSpaceRef {
 export interface WorkFoldActTrashEntry {
   id: string;
   kind: "file" | "folder" | "space" | "app-storage" | "app-retained";
-  reason: "files.delete" | "spaces.delete" | "apps.storage.clear" | "apps.retained.purge" | "apps.uninstall.purge";
+  reason:
+    | "files.delete"
+    | "spaces.delete"
+    | "apps.remove"
+    | "apps.space.removed"
+    | "apps.storage.clear"
+    | "apps.retained.purge"
+    | "apps.uninstall.purge";
   spaceId: string;
   spaceName?: string;
   /** Space-relative path, the Space folder's original path, or `<appId>/<namespace>`. */
@@ -314,6 +321,32 @@ export interface WorkFoldActAppListing {
   };
   connections: Array<{ destinationId: string; kind: string | null; configured: boolean }>;
   automations: Array<{ id: string; title: string; enabled: boolean; nextRunAt: string | null; lastRunAt: string | null }>;
+}
+
+/**
+ * What an install turned on, and what still needs the person. F21 grants every
+ * declared destination, folder permission, notification category, and
+ * automation at install; a permission that names a single file, a Check slot
+ * in a Space with several Checks, and a destination whose secret the person
+ * types are the deliberate remainder. Both halves ride the result so the fold
+ * can say them the way a Space Chat does.
+ */
+export interface WorkFoldActAppInstallOutcome {
+  granted: {
+    destinations: number;
+    wholeSpaceFolders: number;
+    notifications: number;
+    checks: number;
+    automations: number;
+  };
+  needs: {
+    /** Destinations whose declared credential the person still enters in the Apps tab. */
+    connections: string[];
+    /** Permissions that name a single file the person still chooses. */
+    files: string[];
+    /** Check-result slots not bound to a Check. */
+    checks: string[];
+  };
 }
 
 /** Bounded projection of one named-automation run receipt. */
@@ -886,11 +919,13 @@ export interface WorkFoldActFacade {
     dismissed: boolean;
   }>;
   /** Removes a reviewed development app; release-backed Instances take `appsUninstall`. Reinstalling is a fresh receipted act. */
-  appsRemove(input: { space: string; app: string; parentTaskId?: string }): Promise<{
+  appsRemove(input: { space: string; app: string; parentTaskId?: string; requestId?: string }): Promise<{
     space: WorkFoldActSpaceRef;
     appId: string;
     digest: string;
     removed: boolean;
+    /** A removed preview takes its data with it, so a copy lands in Recently deleted first. */
+    trash: WorkFoldActTrashRef | null;
   }>;
   /**
    * Revokes one granted declaration on the exact reviewed digest. Revocation
@@ -1027,6 +1062,8 @@ export interface WorkFoldActFacade {
     removed: true;
     cleanupPending: boolean;
     trash: { entryId: string; restoreBy: string } | null;
+    /** One recoverable copy per preview app in the Space that held local data. */
+    appTrash: Array<{ entryId: string; restoreBy: string }>;
   }>;
   /** Imports one skill bundle, pinning the exact inspected bytes. */
   toolsImportSkill(input: {
@@ -1092,7 +1129,7 @@ export interface WorkFoldActFacade {
     proposal: string;
     parentTaskId?: string;
     requestId?: string;
-  }): Promise<{
+  }): Promise<WorkFoldActAppInstallOutcome & {
     space: WorkFoldActSpaceRef;
     proposalId: string;
     digest: string;
@@ -1109,7 +1146,7 @@ export interface WorkFoldActFacade {
     packagePath: string;
     parentTaskId?: string;
     requestId?: string;
-  }): Promise<{
+  }): Promise<WorkFoldActAppInstallOutcome & {
     space: WorkFoldActSpaceRef;
     proposalId: string;
     digest: string;
@@ -1207,7 +1244,8 @@ export interface WorkFoldActFacade {
   trashRestore(input: { entry: string; toPath?: string; parentTaskId?: string; requestId?: string }): Promise<{
     entry: WorkFoldActTrashEntry | null;
     restored:
-      | { kind: "file" | "folder"; space: WorkFoldActSpaceRef; path: string; renamed: boolean; safetyCheckpointId: string }
+      /** `safetyCheckpointId` is null when the restore succeeded but History could not record an undo point for it. */
+      | { kind: "file" | "folder"; space: WorkFoldActSpaceRef; path: string; renamed: boolean; safetyCheckpointId: string | null }
       | { kind: "space"; space: WorkFoldActSpaceRef; spaceRoot: string; renamed: boolean }
       | { kind: "app-storage"; space: WorkFoldActSpaceRef; appId: string; usage: { revision: number; usageBytes: number } }
       | { kind: "saved-copy"; path: string };

@@ -739,7 +739,7 @@ function decryptServedApp(
   return JSON.parse(Buffer.concat([decipher.update(bytes.subarray(0, -16)), decipher.final()]).toString("utf8")) as never;
 }
 
-test("hosted-app exposure activates with the consecrated pins and serves the viewer-safe subset", async () => {
+test("hosted-app exposure activates with its pinned surface and serves the viewer-safe subset", async () => {
   const app = await hostedAppFixture();
   const fixture = await publicationFixture({ apps: app.adapter });
 
@@ -865,8 +865,8 @@ test("hosted-app serves recheck the grant, the surface, and the kind at effect t
   app.state.releaseDigest = `sha256:${"b".repeat(64)}`;
   assert.equal((await fixture.service.serveViewerAppCall(view.publicationId, { kind: "entry" })).state, "served");
 
-  // A widened or moved viewer surface stops serving until a fresh
-  // consecration; the audience sees the vague state, the publisher the reason.
+  // A widened or moved viewer surface stops serving until a fresh receipted
+  // exposure; the audience sees the vague state, the publisher the reason.
   app.state.mutateViewer = (viewer) => viewer.readable.push("private/");
   assert.equal((await fixture.service.serveViewerAppCall(view.publicationId, { kind: "entry" })).state, "not-available");
   assert.match((await fixture.service.get(view.publicationId))!.lastProblem!.reason, /viewer surface changed after approval/);

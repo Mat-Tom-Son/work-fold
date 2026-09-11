@@ -9,6 +9,7 @@ import {
 } from "../../src/shared/space-appearance";
 
 import { defaultTypographyPreference, productName, textSizeValues, themePreferenceKey, typographyFontValues, typographyPreferenceKey, spaceCustomizationStorageKey, spacePathDragType } from "./constants";
+import { deleteFolderConfirm } from "./ui-contract";
 import { ChatActionsPopover } from "./components/chat/ChatActionsPopover";
 import { ChatPanel } from "./components/chat/ChatPanel";
 import { SpaceSurfaceTabBar } from "./components/chat/SpaceSurfaceTabBar";
@@ -950,7 +951,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     if (!path || fixture) return;
     const entry = findTreeEntry(tree.tree, path);
     if (entry?.kind === "folder") {
-      const confirmed = await requestConfirm({ title: `Delete ${entry.name}?`, body: "The folder and everything in it will be removed after the Undo window closes.", confirmLabel: "Delete folder", tone: "danger" });
+      const confirmed = await requestConfirm({ title: deleteFolderConfirm.title(entry.name), body: deleteFolderConfirm.body, confirmLabel: deleteFolderConfirm.confirmLabel, tone: "danger" });
       if (!confirmed) return;
     }
     const selectedPath = tree.selectedPath && (tree.selectedPath === path || tree.selectedPath.startsWith(`${path}/`)) ? tree.selectedPath : null;

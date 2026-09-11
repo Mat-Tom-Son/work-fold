@@ -4,6 +4,7 @@ import { lstat, open } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { normalizeWorkFoldCheckTargetPath } from "../../shared/checks.js";
+import { workFoldRoutingDeclarationBounds } from "../../shared/fold-limits.js";
 import { restrictedAppAutomationIntervalMinutes } from "../agent/restricted-app-manifest.js";
 import { workFoldCheckDigest } from "../checks/check-integrity.js";
 import { workFoldCheckTargetHardLimits } from "../checks/target-resolver.js";
@@ -39,25 +40,9 @@ export const workFoldRoutingProposalFileSuffix = ".work-fold-routing.json" as co
  * limits.
  */
 export const workFoldRoutingBounds = Object.freeze({
-  /** Machine-wide declaration budget; the routing store enforces it at enablement. */
-  maxRoutingsPerMachine: 32,
-  /** A generous default, not a cap: a routing is glue, not a job system. */
-  maxSteps: 16,
-  maxExactPathsPerFilesStep: 25,
-  /** A fixed dispatch message, not a document. */
-  maxChatMessageBytes: 16 * 1024,
-  /** One filled-in placeholder; a longer list is cut and says so. */
-  maxPlaceholderTextBytes: 8 * 1024,
-  /** Items in one filled-in list placeholder (paths, findings). */
-  maxPlaceholderListItems: 100,
-  /** The whole message after every placeholder is filled in. */
-  maxResolvedMessageBytes: 64 * 1024,
-  /** Changed paths a folder-change run cause records for its placeholders. */
-  maxChangedPathsRecorded: 100,
+  ...workFoldRoutingDeclarationBounds,
   minIntervalMinutes: restrictedAppAutomationIntervalMinutes.minimum,
   maxIntervalMinutes: restrictedAppAutomationIntervalMinutes.maximum,
-  minAtAdvanceMs: 60_000,
-  maxAtAdvanceMs: 366 * 24 * 60 * 60 * 1_000,
   maxHandoffFiles: workFoldCheckTargetHardLimits.maxFiles,
   maxHandoffTotalBytes: workFoldCheckTargetHardLimits.maxTotalBytes,
 });
@@ -296,9 +281,24 @@ const routingIdPattern = /^routing-[a-z0-9][a-z0-9-]{7,154}$/;
 const restrictedAppIdPattern = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const stepIdPattern = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const extensionPattern = /^\.[a-z0-9][a-z0-9._+-]*$/;
-// Tabs and newlines are ordinary message text; other C0/C1 controls and
-// bidirectional overrides are never allowed in a routing message.
-const forbiddenMessageCharacters = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/;
+/**
+ * Tabs and newlines are ordinary message text; other C0/C1 controls and
+ * bidirectional overrides are never allowed in a routing message.
+ *
+ * The one character rule for anything that becomes a routing message. A
+ * declared message is refused outright when it carries these; filled-in
+ * placeholder text is host-supplied and cannot be refused at declaration
+ * time, so the executor replaces the same characters before substitution
+ * (src/local/routings/routing-service.ts). Both go through this class so the
+ * hop receipt records exactly the text the destination received.
+ */
+export const workFoldRoutingForbiddenMessageCharacters = "\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069";
+const forbiddenMessageCharacters = new RegExp(`[${workFoldRoutingForbiddenMessageCharacters}]`);
+
+/** Replaces every forbidden message character; the result is safe to substitute and to record. */
+export function scrubWorkFoldRoutingMessageText(value: string): string {
+  return value.replace(new RegExp(`[${workFoldRoutingForbiddenMessageCharacters}]`, "gu"), "\uFFFD");
+}
 
 const inadmissibleOutcomeReasons = new Map<string, string>([
   ["interrupted", "it records a crashed run, not a result"],

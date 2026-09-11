@@ -25,12 +25,12 @@ export function piSkillBundleContentDigest(bytes: Uint8Array): string {
 }
 
 /**
- * Digest-verified import for the fold's consecrated `capability.skills.import`
- * execution (docs/fold-consecrations.md). The staged act pins the exact bytes
- * that were enumerated at staging time; this path refuses changed content
- * before any archive parsing, mirroring the restricted-app install path's
- * revision-changed posture, so approval can only ever execute the reviewed
- * bundle.
+ * Digest-verified import for the prepared `capability.skills.import` act
+ * (docs/receipts-not-gates.md, F19). The prepared act pins the exact bytes
+ * that were enumerated when it was prepared; this path refuses changed
+ * content before any archive parsing, mirroring the restricted-app install
+ * path's revision-changed posture, so the execution can only ever run the
+ * bytes the receipt names.
  */
 export async function importPiSkillBundleVerified(
   spaceRoot: string,

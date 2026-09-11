@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { RestrictedAppTaskService, restrictedAppTaskTurnRequestId, restrictedAppTaskAuthorityDigest, type RestrictedAppTaskPorts, type RestrictedAppTaskReceipt, type RestrictedAppTaskScope } from "../src/local/agent/restricted-app-tasks.js";
+import { RestrictedAppTaskService, restrictedAppTaskPrompt, restrictedAppTaskTurnRequestId, restrictedAppTaskAuthorityDigest, type RestrictedAppTaskPorts, type RestrictedAppTaskReceipt, type RestrictedAppTaskScope } from "../src/local/agent/restricted-app-tasks.js";
 import type { RestrictedAppAssistantAction } from "../src/local/agent/restricted-app-manifest.js";
 import type { WorkFoldDurableTurnRecord } from "../src/local/agent/turn-store.js";
 
@@ -19,11 +19,15 @@ async function fixture(t: test.TestContext) {
   let current = structuredClone(scope);
   const turns = new Map<string, WorkFoldDurableTurnRecord>();
   const dispatched: RestrictedAppTaskReceipt[] = [];
+  const dispatchedAppTitles: string[] = [];
   const cancelled: string[] = [];
   let dispatchBehavior: "normal" | "before-failure" | "after-failure" | "missing" = "normal";
   const ports: RestrictedAppTaskPorts = {
-    async withApp(pin, operation) { assert.deepEqual(pin, current, "host rejects stale or foreign authority"); return operation([action]); },
-    async dispatch(record) {
+    // The installed app's own name, which is what the dispatched Chat is told;
+    // the receipt's `title` is the per-request action label.
+    async withApp(pin, operation) { assert.deepEqual(pin, current, "host rejects stale or foreign authority"); return operation([action], { title: "Quote board" }); },
+    async dispatch(record, app) {
+      dispatchedAppTitles.push(app.title);
       dispatched.push(record);
       const durable = JSON.parse(await readFile(join(root, "tasks.json"), "utf8"));
       assert.equal(durable.records.find((item: any) => item.id === record.id).status, "dispatching", "the receipt is durable before a Chat can be accepted");
@@ -39,7 +43,7 @@ async function fixture(t: test.TestContext) {
   };
   const options = { path: join(root, "tasks.json"), ports, now: () => now };
   let service = await RestrictedAppTaskService.create(options);
-  return { root, ports, turns, dispatched, cancelled, get service() { return service; },
+  return { root, ports, turns, dispatched, dispatchedAppTitles, cancelled, get service() { return service; },
     request: (extra: Record<string, unknown> = {}) => ({ requestId: randomUUID(), requestedAt: now.toISOString(), actionId: action.id, input: { quote: "North: $42" }, ...extra }),
     advance: (ms: number) => { now = new Date(now.getTime() + ms); },
     changeScope: (next: RestrictedAppTaskScope) => { current = next; },
@@ -47,6 +51,25 @@ async function fixture(t: test.TestContext) {
     restart: async () => { await service.flush(); service = await RestrictedAppTaskService.create(options); },
   };
 }
+
+test("the dispatched Chat is told the app's name, not the action's label", async (t) => {
+  const f = await fixture(t);
+  await f.service.request(scope, f.request());
+  assert.deepEqual(f.dispatchedAppTitles, ["Quote board"], "the dispatch port receives the installed app's own title");
+
+  const receipt = f.dispatched[0]!;
+  assert.equal(receipt.title, "Compare quotes", "the receipt title stays the per-request action label");
+  const prompt = restrictedAppTaskPrompt(receipt, f.dispatchedAppTitles[0]);
+  assert.match(prompt, /^App request: Compare quotes\n/);
+  assert.match(prompt, /This request came from the app “Quote board” installed in this Space\./);
+  assert.doesNotMatch(prompt, /the app “Compare quotes”/, "the action label is never presented as the app's name");
+
+  // Without a resolved app title the sentence says less rather than something false.
+  assert.match(
+    restrictedAppTaskPrompt(receipt),
+    /This request came from an app installed in this Space\./,
+  );
+});
 
 test("app Assistant requests are journaled then dispatched once into their own Chat, and replay returns the same record", async (t) => {
   const f = await fixture(t);

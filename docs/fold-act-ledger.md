@@ -41,9 +41,8 @@ deleted.
 
 The tables' "Fold today" column is historical: it records what the act lane
 had before the fold shipped (`act`/`read`/`none`, audited 2026-08-10). Every
-row's target class and command shape is now shipped behavior; rows marked
-`<!-- verify -->` name the record's spelling where the build has not yet
-landed the token.
+row's target class and command shape is now shipped behavior, and every token
+in this record is the token the build ships.
 
 ## Rules every verb inherits
 
@@ -200,7 +199,6 @@ affected work against concurrent launches and ownership changes.
 
 The machine-local trash under the state root (`trash/`) is Space-free: each
 entry records its source Space, so the family takes no `--space`.
-<!-- verify against act-commands.ts: `trash` family tokens -->
 
 | Verb | Human surface | Fold today | Target | Command shape | Receipt adds | Undo / revocation | Conflicts |
 |---|---|---|---|---|---|---|---|
@@ -262,12 +260,12 @@ the person's narrowing and re-allowing controls.
 | List proposals | Chat proposal | none | direct verb (act read) | `apps proposals list --space <id> --conversation <id>` | — | n/a | — |
 | Dismiss proposal | Chat proposal → dismiss | none | direct verb | `apps proposals dismiss --space <id> --conversation <id> --proposal <id>` | proposal id | the Assistant may propose again; the preview it installed is removed with `apps remove` | — |
 | List installed apps | Apps tab | none | direct verb (content-bearing act read) | `apps list --space <id> --json` | app count | n/a | returns installed apps with their tools, actions, grants, connections, and automations |
-| Install proposal as local preview | Chat proposal (installed at once when proposed; this verb re-installs the same inspected digest) | none | **prepared verb** | `apps install-proposal --space <id> --conversation <id> --proposal <id>` | digest, granted declarations, enabled automations, destinations still needing a secret | `apps remove` | digest-pinned; desktop refuses install while an Assistant turn runs; an identical digest is idempotent |
-| Add / update local preview | Chat proposal (the Apps tab has no manual add path) | none | **prepared verb** | `apps install-preview --space <id> --package <space-path>` | digest, granted declarations, enabled automations, destinations still needing a secret | `apps remove` | digest-pinned; a changed digest carries forward connections whose destination declaration is byte-identical, automation enabled states by id, and run receipts; grants follow the new declarations; an identical digest is idempotent |
+| Install proposal as local preview | Chat proposal (installed at once when proposed; this verb re-installs the same inspected digest) | none | **prepared verb** (`app.review.install`) | `apps install-proposal --space <id> --conversation <id> --proposal <id>` | kind `app.review.install`, digest, granted declarations, enabled automations, destinations still needing a secret | `apps remove` | digest-pinned; desktop refuses install while an Assistant turn runs; an identical digest is idempotent |
+| Add / update local preview | Chat proposal (the Apps tab has no manual add path) | none | **prepared verb** (`app.review.install`) | `apps install-preview --space <id> --package <space-path>` | kind `app.review.install`, digest, granted declarations, enabled automations, destinations still needing a secret | `apps remove` | digest-pinned; a changed digest carries forward connections whose destination declaration is byte-identical, automation enabled states by id, and run receipts; grants follow the new declarations; an identical digest is idempotent |
 | Remove app | App details → Remove | none | direct verb | `apps remove --space <id> --app <id>` | app id, digest | reinstall is a fresh prepared verb | fenced against running automation jobs |
 | Re-allow network / file / notification | App details toggles | none | direct verb | `apps grant --space <id> --app <id> --digest <sha> --kind network\|files\|notifications --declaration <id>` | exact declaration | `apps revoke` (direct) | declared powers are on from install, so this re-allows after a revoke; grants bind to the exact digest and single declaration; nothing is batched |
 | Revoke grant | App details toggles | none | direct verb | `apps revoke --space <id> --app <id> --digest <sha> --kind … --declaration <id>` | declaration id | re-allow with `apps grant` | revocation stops stale launches before authority changes take effect |
-| Save connection | App details → Connect | none | direct verb <!-- verify: `apps connect` retained on the branch --> | `apps connect --space <id> --app <id> --destination <id>` | destination, adapter kind, `needs-secret` marker | `apps disconnect` (direct); deleting the local record does not revoke the credential at its provider — the receipt says so | the verb records the destination shape and reports that a secret is still needed; **the secret is entered by the person in the Apps tab, once per destination** — credentials never ride argv, payloads, or the journal |
+| Save connection | App details → Connect | none | direct verb | `apps connect --space <id> --app <id> --destination <id>` | destination, adapter kind, `needs-secret` marker | `apps disconnect` (direct); deleting the local record does not revoke the credential at its provider — the receipt says so | the verb records the destination shape and reports that a secret is still needed; **the secret is entered by the person in the Apps tab, once per destination** — credentials never ride argv, payloads, or the journal |
 | Remove connection | App details → Disconnect | none | direct verb | `apps disconnect --space <id> --app <id> --destination <id>` | destination id | reconnect by entering the secret again in the Apps tab | — |
 | Re-enable automation | App details → automation toggle | none | direct verb | `apps automation enable --space <id> --app <id> --automation <id>` | job id | `apps automation disable` (direct) | declared automations are enabled at install, so this re-enables one after a disable; runs receive only the intersection of current grants and the job's reviewed permission subset |
 | Disable automation | App details toggle | none | direct verb | `apps automation disable --space <id> --app <id> --automation <id>` | job id | re-enable with `apps automation enable` | — |
@@ -419,7 +417,7 @@ The ledger's plan items shipped as follows (suites named in
 2. Act argv and command table, with parse-time setup-only refusal — `src/local/cli/act-commands.ts`; `tests/work-fold-cli-act-protocol.test.ts`.
 3. Facade growth over the exact route internals — `src/local/cli/act-facade.ts`, `src/local/server.ts`; `tests/work-fold-act-facade.test.ts` plus the owning domain suites.
 4. History-restore fencing and `chat compact` — `src/local/work-fold-kernel.ts`; `tests/work-fold-kernel.test.ts`.
-5. Prepared verbs returning receipts — `src/local/fold-staged-acts.ts` (or its renamed successor) and the suite the verification map names <!-- verify: prepared-act module and suite names -->.
+5. Prepared verbs returning receipts — `src/local/fold-prepared-acts.ts`; `tests/fold-prepared-acts.test.ts`.
 6. Surface attribution — `src/local/management-requests.ts`; `tests/management-requests.test.ts`, `tests/work-fold-management-api.test.ts`.
 7. Desktop host and shims — `desktop/src/work-fold-cli-host.ts`, `desktop/cli/`; `tests/desktop-work-fold-cli-host.test.ts`, `tests/desktop-cli-packaging.test.ts`.
 8. Help and read-lane text — `src/local/cli/commands.ts`; `tests/work-fold-cli-protocol.test.ts`.

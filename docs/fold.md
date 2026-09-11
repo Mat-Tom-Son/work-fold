@@ -189,11 +189,9 @@ line keeps the phrase "management conversation").
 
 The [management layer](management-layer.md)'s implementation and verification
 map is the authority; in brief: prepared acts in
-`src/local/fold-staged-acts.ts` (or its renamed successor once the build
-settles the name) <!-- verify: prepared-act module name -->, the Recently
-deleted store under the state root's `trash/` directory with its module in
-`src/local/` <!-- verify: trash store module name -->, routings under
-`src/local/routings/`, the glance in `src/local/glance.ts` and
+`src/local/fold-prepared-acts.ts`, the Recently deleted store under the state
+root's `trash/` directory with its module in `src/local/trash-store.ts`,
+routings under `src/local/routings/`, the glance in `src/local/glance.ts` and
 `src/local/glance-seen-store.ts`, publications in `src/local/publications.ts`
 with the bridge's viewer plane in `services/bridge/`, the verb families in
 `src/local/cli/act-commands.ts` and `src/local/cli/act-facade.ts`, and the

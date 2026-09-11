@@ -1,5 +1,6 @@
 import { RestrictedAppCheckAccess } from "./RestrictedAppCheckAccess";
 import { RestrictedAppAssistantTasks } from "./RestrictedAppAssistantTasks";
+import { RestrictedAppInferenceReceipts } from "./RestrictedAppInferenceReceipts";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   Add16Regular,
@@ -159,18 +160,24 @@ export function RestrictedAppsSection({
   async function remove(app: RestrictedAppInstalled) {
     const confirmed = await requestConfirm({
       title: `Remove ${app.manifest.title} preview?`,
-      body: "work-fold will stop this Development preview and remove its reviewed snapshot, saved credentials, grants, schedules, and local preview data. Files in the Space are left unchanged.",
+      body: "work-fold will stop this Development preview and remove its reviewed snapshot, saved credentials, grants, schedules, and local preview data. "
+        + "A copy of its data goes to Recently deleted, so you can bring it back. Files in the Space are left unchanged.",
       confirmLabel: "Remove preview",
       tone: "danger",
     });
     if (!confirmed || spaceIdRef.current !== app.spaceId) return;
     setBusy(true);
     try {
-      if (!fixtureMode) await removeRestrictedApp(app);
+      const outcome = fixtureMode ? { removed: true, trash: null } : await removeRestrictedApp(app);
       if (spaceIdRef.current !== app.spaceId) return;
       onRemoveApp(app.featureInstallationId);
       setSelectedInstallationId(null);
-      showToast({ text: `${app.manifest.title} preview removed.`, tone: "success" });
+      showToast({
+        text: outcome.trash
+          ? `${app.manifest.title} preview removed. Its data is in Recently deleted.`
+          : `${app.manifest.title} preview removed.`,
+        tone: "success",
+      });
     } catch (caught) {
       if (spaceIdRef.current === app.spaceId) onError(errorText(caught));
     } finally {
@@ -305,7 +312,7 @@ function ReviewDeclarations({ review }: { review: RestrictedAppReview }) {
       <h4>Assistant requests</h4><p>Each request starts a Chat in this Space; open or stop it in Apps.</p>
       <div className="restricted-app-authority-items">{review.manifest.assistantActions.map((action) => <details key={action.id}><summary>{action.title}</summary><pre className="restricted-app-task-declaration">{action.instructions}</pre></details>)}</div>
     </section> : null}
-    <ReviewAuthorityGroup icon={<PlugConnected20Regular />} title="Network & connections" summary={review.manifest.permissions.network.length ? `${review.manifest.permissions.network.length} ${review.manifest.permissions.network.length === 1 ? "destination" : "destinations"} declared` : "None requested"} onWhenAdded={Boolean(review.manifest.permissions.network.length)}>
+    <ReviewAuthorityGroup icon={<PlugConnected20Regular />} title="Network & connections" summary={review.manifest.permissions.network.length ? `${review.manifest.permissions.network.length} ${review.manifest.permissions.network.length === 1 ? "destination" : "destinations"} declared` : "None requested"} state={review.manifest.permissions.network.length ? "on" : "included"}>
       {review.manifest.permissions.network.length
         ? <div className="restricted-app-authority-items">{review.manifest.permissions.network.map((destination) => <article key={destination.id}>
           <strong>{destinationLabel(destination)}</strong>
@@ -316,19 +323,19 @@ function ReviewDeclarations({ review }: { review: RestrictedAppReview }) {
         </article>)}</div>
         : null}
     </ReviewAuthorityGroup>
-    <ReviewAuthorityGroup icon={<ShieldCheckmark20Regular />} title="Space files" summary={review.manifest.permissions.files.length ? `${review.manifest.permissions.files.length} ${review.manifest.permissions.files.length === 1 ? "file choice" : "file choices"} declared` : "None requested"} onWhenAdded={Boolean(review.manifest.permissions.files.length)}>
+    <ReviewAuthorityGroup icon={<ShieldCheckmark20Regular />} title="Space files" summary={review.manifest.permissions.files.length ? `${review.manifest.permissions.files.length} ${review.manifest.permissions.files.length === 1 ? "file choice" : "file choices"} declared` : "None requested"} state={review.manifest.permissions.files.some((item) => item.target === "directory") ? "on" : "included"}>
       {review.manifest.permissions.files.length ? <div className="restricted-app-authority-items">{review.manifest.permissions.files.map((permission) => <article key={permission.id}><strong>{permission.access === "read-write" ? "Read and write" : "Read"} {permission.target === "directory" ? "the whole Space folder" : "a file you choose"}</strong><span>{permission.target === "directory" ? "On when added; limit it to one folder in Apps." : "Off until you choose a file in Apps."}</span></article>)}</div> : null}
     </ReviewAuthorityGroup>
-    {review.manifest.permissions.checks?.length ? <ReviewAuthorityGroup icon={<ShieldCheckmark20Regular />} title="Check results" summary={`${review.manifest.permissions.checks.length} choices requested`} onWhenAdded>
+    {review.manifest.permissions.checks?.length ? <ReviewAuthorityGroup icon={<ShieldCheckmark20Regular />} title="Check results" summary={`${review.manifest.permissions.checks.length} choices requested`} state="included">
       <div className="restricted-app-authority-items">{review.manifest.permissions.checks.map((permission) => <article key={permission.id}><strong>{permission.title}</strong><span>Reads status and findings from this Space's Check; when the Space has more than one, choose it in Apps.</span></article>)}</div>
     </ReviewAuthorityGroup> : null}
-    <ReviewAuthorityGroup icon={<Alert20Regular />} title="Notifications" summary={review.manifest.permissions.notifications.length ? `${review.manifest.permissions.notifications.length} fixed ${review.manifest.permissions.notifications.length === 1 ? "notification" : "notifications"} declared` : "None requested"} onWhenAdded={Boolean(review.manifest.permissions.notifications.length)}>
+    <ReviewAuthorityGroup icon={<Alert20Regular />} title="Notifications" summary={review.manifest.permissions.notifications.length ? `${review.manifest.permissions.notifications.length} fixed ${review.manifest.permissions.notifications.length === 1 ? "notification" : "notifications"} declared` : "None requested"} state={review.manifest.permissions.notifications.length ? "on" : "included"}>
       {review.manifest.permissions.notifications.length ? <div className="restricted-app-authority-items">{review.manifest.permissions.notifications.map((permission) => <article key={permission.id}><strong>work-fold · {review.manifest.title} — {permission.title}</strong><span>{permission.description}</span></article>)}</div> : null}
     </ReviewAuthorityGroup>
-    <ReviewAuthorityGroup icon={<Clock20Regular />} title="Automations" summary={review.manifest.automations.length ? `${review.manifest.automations.length} ${review.manifest.automations.length === 1 ? "schedule" : "schedules"} declared` : "None declared"} onWhenAdded={Boolean(review.manifest.automations.length)}>
+    <ReviewAuthorityGroup icon={<Clock20Regular />} title="Automations" summary={review.manifest.automations.length ? `${review.manifest.automations.length} ${review.manifest.automations.length === 1 ? "schedule" : "schedules"} declared` : "None declared"} state={review.manifest.automations.length ? "on" : "included"}>
       {review.manifest.automations.length ? <div className="restricted-app-authority-items">{review.manifest.automations.map((automation) => <article key={automation.id}><strong>{automation.title}</strong><span>{automation.description || `Runs the ${automation.handler} handler.`}</span><small>{formatAutomationSchedule(automation)} · Power: {automationPowerSummary(review.manifest, automation)}</small></article>)}</div> : null}
     </ReviewAuthorityGroup>
-    <ReviewAuthorityGroup icon={<Globe20Regular />} title="At your address" summary={review.manifest.viewer ? (review.manifest.viewer.readable.length ? `Viewer entry plus ${review.manifest.viewer.readable.length} viewer-readable ${review.manifest.viewer.readable.length === 1 ? "collection" : "collections"} declared` : "Viewer entry declared — viewers can read no app data") : "None declared"} onWhenAdded={false}>
+    <ReviewAuthorityGroup icon={<Globe20Regular />} title="At your address" summary={review.manifest.viewer ? (review.manifest.viewer.readable.length ? `Viewer entry plus ${review.manifest.viewer.readable.length} viewer-readable ${review.manifest.viewer.readable.length === 1 ? "collection" : "collections"} declared` : "Viewer entry declared — viewers can read no app data") : "None declared"} state={review.manifest.viewer ? "not-yet" : "included"}>
       {review.manifest.viewer ? <div className="restricted-app-authority-items"><article>
         <strong>Serve {review.manifest.viewer.entry} to anyone holding this app's link</strong>
         <span>{review.manifest.viewer.readable.length ? `Viewer-readable collections: ${review.manifest.viewer.readable.join(", ")} — this app's own stored data only.` : "Viewers can read none of this app's stored data."}</span>
@@ -338,12 +345,23 @@ function ReviewDeclarations({ review }: { review: RestrictedAppReview }) {
   </div>;
 }
 
-function ReviewAuthorityGroup({ icon, title, summary, onWhenAdded, children }: { icon: ReactNode; title: string; summary: string; onWhenAdded: boolean; children?: ReactNode }) {
+/**
+ * What the badge may claim (docs/receipts-not-gates.md, F21): `on` is a power
+ * the install actually turns on; `included` is declared and carried by the
+ * install but not itself a power that is now live; `not-yet` is declared and
+ * deliberately not on — outward exposure, which stays its own later act. The
+ * badge never overstates what adding the app did.
+ */
+type ReviewAuthorityState = "on" | "included" | "not-yet";
+
+function ReviewAuthorityGroup({ icon, title, summary, state, children }: { icon: ReactNode; title: string; summary: string; state: ReviewAuthorityState; children?: ReactNode }) {
   return <section className="restricted-app-authority-group">
     <div className="restricted-app-authority-heading">
       <span aria-hidden="true">{icon}</span>
       <div><h4>{title}</h4><p>{summary}</p></div>
-      <span className="professional-status-badge enabled">{onWhenAdded ? "On when added" : "Included"}</span>
+      <span className={state === "not-yet" ? "professional-status-badge" : "professional-status-badge enabled"}>
+        {state === "on" ? "On when added" : state === "included" ? "Included" : "Not shared yet"}
+      </span>
     </div>
     {children}
   </section>;
@@ -635,6 +653,10 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
       <div className="capability-dialog-body">
         <p className="capability-details-summary">{app.manifest.description}</p>
         {app.manifest.assistantActions?.length ? <RestrictedAppAssistantTasks key={`${app.featureInstallationId}:${app.digest}`} app={app} disabled={busy || Boolean(actionBusy) || fixtureMode} onOpenChat={onOpenBuildChat ? async (spaceId, conversationId) => { await onOpenBuildChat(spaceId, conversationId); onClose(); } : undefined} /> : null}
+        {/* `assistant.infer` needs no grant beyond installation, so its
+            disclosure is after the fact and belongs here, under the app
+            (docs/receipts-not-gates.md, F22). */}
+        <RestrictedAppInferenceReceipts key={`infer:${app.featureInstallationId}:${app.digest}`} app={app} disabled={busy || Boolean(actionBusy) || fixtureMode} />
         <section className="restricted-app-access-overview" aria-label="App access overview">
           <div className="restricted-app-access-overview-heading">
             <ShieldCheckmark20Regular aria-hidden="true" />
@@ -780,7 +802,11 @@ function FilePermissionCard({ permission, grant, busy, active, onChange }: {
     <div className="restricted-app-destination-heading"><div><strong>{permission.access === "read-write" ? "Read and write" : "Read"} one {permission.target}</strong><span>{grant ? wholeSpace ? "Whole Space" : `Granted: ${grant.root}` : "Choose a path inside this Space"}</span></div><code>{permission.id}</code></div>
     <div className="restricted-app-credential-fields"><label><span>Space-relative path</span><input value={root} disabled={busy} onChange={(event) => setRoot(event.target.value)} placeholder={permission.target === "directory" ? "data (or . for the whole Space)" : "data/report.json"} /></label></div>
     <div className="restricted-app-destination-actions">
-      {grant && permission.target === "directory" ? <button className="professional-button professional-button-secondary" type="button" disabled={busy || !rootChanged} onClick={() => onChange(root.trim(), true)}>{active && rootChanged ? <ArrowSync16Regular className="spin" /> : null}{wholeSpace ? "Limit to folder" : "Change folder"}</button> : null}
+      {/* An editable path needs a way to apply it: a granted folder can be
+          narrowed or moved, and a granted single file can be pointed at a
+          different file. Without this the field would accept an edit the
+          neighbouring Revoke button silently discards. */}
+      {grant && rootChanged ? <button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={() => onChange(root.trim(), true)}>{active ? <ArrowSync16Regular className="spin" /> : null}{permission.target === "directory" ? wholeSpace ? "Limit to folder" : "Change folder" : "Change file"}</button> : null}
       <button className={grant ? "professional-button professional-button-secondary" : "professional-button professional-button-primary"} type="button" disabled={busy || (!grant && !root.trim())} onClick={() => onChange(grant?.root ?? root.trim(), !grant)}>{active && !rootChanged ? <ArrowSync16Regular className="spin" /> : null}{grant ? "Revoke access" : "Allow access"}</button>
     </div>
     <p className="restricted-app-oauth-note">Links, work-fold metadata, Pi configuration, and paths outside this Space are always blocked. App writes create History checkpoints.</p>

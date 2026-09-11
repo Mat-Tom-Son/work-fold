@@ -430,13 +430,12 @@ in product copy; "publish" without qualification is reserved for App
 Studio's local Release transition. Copy never frames a share as something
 waiting to happen: the verb shares the page and says so, and **Stop
 sharing** is always one click away.
-<!-- verify: the CLI still spells the share verbs `pages stage` and
-`pages stage-app` (`src/local/cli/act-commands.ts`); the record's copy rule
-wants `pages share` / `pages share-app`, and this document follows the token
-that ships. -->
 The CLI act verbs are `pages stage|stage-app|list|status|revoke|narrow|
-snapshot-off`; `stage` there is the shipped token, not a holding state — it
-shares the page immediately and returns the receipt.
+snapshot-off`. `stage` there is a decision, not a pending verification: it is
+the shipped token and it is not a holding state — it shares the page
+immediately and returns the receipt. The copy rule governs what a person
+reads, never this argv spelling; renaming the verbs to `pages share` /
+`pages share-app` would be its own compatibility decision.
 
 ## Deliberately not in this design
 

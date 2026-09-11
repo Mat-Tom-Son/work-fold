@@ -17272,6 +17272,36 @@ textarea,
   font-size: 0.68rem;
 }
 
+/* Residuals: what stays true while the routing is on (docs/fold-routings.md). */
+.fold-routing-residuals {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  border-top: 1px solid #e4e9ef;
+  padding-top: 10px;
+}
+
+.fold-routing-residuals h6 {
+  margin: 0;
+  color: #344054;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.fold-routing-residuals ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 16px;
+}
+
+.fold-routing-residuals li {
+  color: #667085;
+  font-size: 0.7rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .fold-routing-actions {
   display: grid;
   gap: 6px;
@@ -17430,6 +17460,7 @@ textarea,
 .app-shell[data-theme="dark"] .fold-routing-step-heading span,
 .app-shell[data-theme="dark"] .fold-routing-step-list p,
 .app-shell[data-theme="dark"] .fold-routing-step-list small,
+.app-shell[data-theme="dark"] .fold-routing-residuals li,
 .app-shell[data-theme="dark"] .fold-routing-section-heading span,
 .app-shell[data-theme="dark"] .fold-routing-history > p,
 .app-shell[data-theme="dark"] .fold-routing-run summary > span:last-child,
@@ -17439,6 +17470,7 @@ textarea,
 .app-shell[data-theme="dark"] .fold-routing-inspector-header h4,
 .app-shell[data-theme="dark"] .fold-routing-facts dd,
 .app-shell[data-theme="dark"] .fold-routing-step-heading strong,
+.app-shell[data-theme="dark"] .fold-routing-residuals h6,
 .app-shell[data-theme="dark"] .fold-routing-step-list blockquote,
 .app-shell[data-theme="dark"] .fold-routing-step-list code,
 .app-shell[data-theme="dark"] .fold-routing-run summary,
@@ -17447,6 +17479,7 @@ textarea,
 .app-shell[data-theme="dark"] .fold-routing-facts,
 .app-shell[data-theme="dark"] .fold-routing-facts > div + div,
 .app-shell[data-theme="dark"] .fold-routing-step-list > li,
+.app-shell[data-theme="dark"] .fold-routing-residuals,
 .app-shell[data-theme="dark"] .fold-routing-actions,
 .app-shell[data-theme="dark"] .fold-routing-history,
 .app-shell[data-theme="dark"] .fold-routing-run-list,

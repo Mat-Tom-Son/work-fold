@@ -257,7 +257,7 @@ test("Space removal suspends exactly the enabled routings that reference it, dur
 
   const reEnabled = await store.enable(enableInput(crossSpace, "decision-fresh"));
   assert.equal(reEnabled.health, "enabled");
-  assert.equal(reEnabled.suspension, undefined, "leaving suspension is a fresh consecration over the unchanged declaration");
+  assert.equal(reEnabled.suspension, undefined, "leaving suspension is a fresh receipted enablement over the unchanged declaration");
   assert.equal(reEnabled.grants.length, 2);
 });
 

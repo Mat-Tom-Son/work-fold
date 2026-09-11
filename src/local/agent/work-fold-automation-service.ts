@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
 
+import { workFoldAutomationDefaultConcurrency } from "../../shared/fold-limits.js";
+
 export const workFoldAutomationMaxErrorLength = 300;
 
-const defaultMaxConcurrency = 4;
+/** Shared with Settings → The fold → Limits so the shown number is the enforced one. */
+const defaultMaxConcurrency = workFoldAutomationDefaultConcurrency;
 const defaultMaxRunResults = 500;
 const maximumTimerDelayMs = 2_147_483_647;
 const maximumKeyPartLength = 200;

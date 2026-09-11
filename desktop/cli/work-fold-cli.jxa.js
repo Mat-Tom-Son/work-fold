@@ -72,7 +72,7 @@ function run(rawArguments) {
 function isActCommand(argumentsList) {
   const positional = argumentsList.filter((token) => token !== "--json");
   const group = positional[0] || "";
-  const actGroups = ["chat", "chats", "files", "manage", "history", "search", "library", "tools", "apps", "routings", "pages"];
+  const actGroups = ["chat", "chats", "files", "manage", "history", "search", "library", "tools", "apps", "routings", "pages", "trash"];
   if (actGroups.includes(group)) return true;
   if (group === "checks") return positional[1] !== "status";
   return group === "spaces" && positional[1] !== "list";

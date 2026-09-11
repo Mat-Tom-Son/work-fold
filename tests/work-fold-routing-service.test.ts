@@ -1266,7 +1266,7 @@ test("Space removal stops the active run, suspends durably, disarms every trigge
   assert.equal(reEnabled.health, "enabled");
   const before = await acceptedForAlpha();
   harness.clock.advance(60 * minute);
-  await waitForCondition(async () => (await acceptedForAlpha()) === before + 1, "the fresh consecration to re-arm the schedule");
+  await waitForCondition(async () => (await acceptedForAlpha()) === before + 1, "the fresh receipted enablement to re-arm the schedule");
   await waitForCondition(
     async () => (await harness.journal())
       .some((line) => line.scope === "run" && line.outcome === "succeeded" && line.routingId === "routing-alpha-weekly"),
@@ -1475,6 +1475,41 @@ test("placeholders resolve host-side from the cause and earlier chat hops, and l
     harness.ports.calls.find((call) => call.kind === "chat")?.message,
     "Started by hand.\nChanged:\n(no changed files: this run was started by hand)",
   );
+});
+
+test("filled-in placeholder text obeys the routing message character rule, so the receipt matches what was sent", async (t) => {
+  const harness = await createHarness(t);
+  await harness.enable(declarationInput("routing-placeholder-characters", {
+    version: 4,
+    steps: [
+      { id: "review", kind: "chat", space: spaceA, message: "Write the weekly summary." },
+      { id: "report", kind: "fold", message: "Created:\n{{steps.review.createdFiles}}" },
+    ],
+  }));
+  // A file work-fold did not create can carry a direction override or a C0
+  // control in its name. A declared message carrying either is refused at
+  // parse time, so substituted text must not smuggle one past that rule.
+  seedReviewManifests(harness, [
+    { path: "reports/\u202einvoice.md" },
+    { path: "reports/plain\u0007.md" },
+  ]);
+
+  assert.equal((await harness.service.runNow("routing-placeholder-characters", { requestId: "request-1" })).outcome, "success");
+  const foldCall = harness.ports.calls.find((call) => call.kind === "fold");
+  assert.equal(
+    foldCall?.message,
+    "Created:\nreports/plain\ufffd.md\nreports/\ufffdinvoice.md",
+    "the destination receives text that obeys the same character rule as a declared message",
+  );
+  assert.doesNotMatch(foldCall?.message ?? "", /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/);
+
+  const reportHop = (await harness.journal()).find((line) => line.hopId === "report" && line.outcome === "succeeded");
+  assert.equal(
+    reportHop?.placeholders?.[0]?.text,
+    "reports/plain\ufffd.md\nreports/\ufffdinvoice.md",
+    "the receipt records exactly the text the destination received",
+  );
+  assert.equal(reportHop?.messageBytes, Buffer.byteLength(foldCall!.message!, "utf8"));
 });
 
 test("a filled-in list names the limit that cut it, and a too-large message fails the hop", async (t) => {

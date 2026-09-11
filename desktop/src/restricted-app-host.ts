@@ -153,6 +153,15 @@ interface RestrictedAppInstance {
   window: BrowserWindow;
   session: Session;
   pendingOperation: RestrictedAppPendingOperation | null;
+  /**
+   * Host-bridge calls this worker is waiting on right now, and when it last
+   * stopped waiting. The invocation deadline measures *worker* time, so time
+   * spent inside a host lane the product deliberately gives workers — a
+   * network request, an Assistant request, a bounded model call whose own
+   * budget is 120 s — must not count against it (docs/receipts-not-gates.md,
+   * F22; docs/app-assistant-tasks.md). Each lane keeps its own timeout.
+   */
+  hostCalls: { inFlight: number; idleSince: number };
   idleTimer?: NodeJS.Timeout;
   crashed: boolean;
   abortController: AbortController;
@@ -354,6 +363,8 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       assertCurrent,
     };
     instance.pendingOperation = operation;
+    instance.hostCalls.inFlight = 0;
+    instance.hostCalls.idleSince = Date.now();
     const abort = () => {
       if (instance.pendingOperation === operation) void this.#destroy(instance);
     };
@@ -366,6 +377,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
         instance.window.webContents.executeJavaScript(expression, false),
         this.#invocationTimeoutMs,
         () => this.#crash(instance, "Restricted app action timed out."),
+        instance.hostCalls,
       );
       const result = parseInvocationEnvelope(envelope);
       this.#assertEffectLease({ instance, operation, requireActiveUi: false });
@@ -423,6 +435,8 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     }
     if (instance.pendingOperation) throw new RestrictedAppError("APP_UNAVAILABLE", "This restricted app is already handling work.");
     instance.pendingOperation = { kind: "automation", id: event.runId, effectivePrincipal };
+    instance.hostCalls.inFlight = 0;
+    instance.hostCalls.idleSince = Date.now();
     const serializedEvent = JSON.stringify(rendererEvent);
     const expression = `globalThis.__workFoldRunAutomation(JSON.parse(${JSON.stringify(serializedEvent)}))`;
     const abort = () => { void this.#destroy(instance); };
@@ -432,6 +446,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
         instance.window.webContents.executeJavaScript(expression, false),
         this.#invocationTimeoutMs,
         () => this.#crash(instance, "Restricted app automation timed out."),
+        instance.hostCalls,
       );
       parseInvocationEnvelope(envelope);
     } catch (error) {
@@ -775,6 +790,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
         window,
         session: isolatedSession,
         pendingOperation: null,
+        hostCalls: { inFlight: 0, idleSince: Date.now() },
         crashed: false,
         abortController: new AbortController(),
       };
@@ -915,6 +931,27 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     this.#onTabCommand?.(command);
   }
 
+  /**
+   * Runs one host lane on behalf of a caller, stopping the worker invocation
+   * deadline for its duration. A view instance has no invocation deadline, so
+   * the gate is a no-op there.
+   */
+  async #throughHostLane<T>(
+    instance: RestrictedAppNetworkInstance,
+    run: () => Promise<T>,
+  ): Promise<T> {
+    const gate = "window" in instance ? instance.hostCalls : null;
+    if (gate) gate.inFlight += 1;
+    try {
+      return await run();
+    } finally {
+      if (gate) {
+        gate.inFlight = Math.max(gate.inFlight - 1, 0);
+        gate.idleSince = Date.now();
+      }
+    }
+  }
+
   async #handleNetwork(event: IpcMainInvokeEvent, value: unknown): Promise<unknown> {
     const instance = this.#ownedPowerInstance(event.sender, ipcFromMainFrame(event));
     if (!instance) return { ok: false, error: { code: "NETWORK_DENIED", message: "The network caller is not an active restricted app." } };
@@ -929,7 +966,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       } catch {
         throw new RestrictedAppError("NETWORK_DENIED", "The network request envelope is invalid.");
       }
-      const response = await this.#network.request({
+      const response = await this.#throughHostLane(instance, () => this.#network.request({
         tenantId: instance.app.tenantId,
         runtimeInstanceId: instance.app.runtimeInstanceId,
         featureId: instance.app.manifest.id,
@@ -940,7 +977,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
           : instance.app.principalId,
         connectionOwner: { kind: "instance", runtimeInstanceId: instance.app.runtimeInstanceId },
         networkGrants: [...instance.app.networkGrants],
-      }, instance.app.manifest, request, instance.abortController.signal, () => this.#assertEffectLease(lease));
+      }, instance.app.manifest, request, instance.abortController.signal, () => this.#assertEffectLease(lease)));
       this.#assertEffectLease(lease);
       return { ok: true, value: response };
     } catch (error) {
@@ -1024,12 +1061,13 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       const app = instance.app;
       const scope = { spaceId: app.spaceId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId,
         digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority) };
-      let result: unknown;
-      if (request.operation === "request") result = await service.request(scope, request.request, assertCurrent);
-      else if (request.operation === "list") result = await service.list(scope);
-      else if (request.operation === "get" && typeof request.requestId === "string") result = await service.get(scope, request.requestId);
-      else if (request.operation === "cancel" && typeof request.requestId === "string") result = await service.cancel(scope, request.requestId, assertCurrent);
-      else throw new RestrictedAppTaskError("TASK_INVALID", "Choose an Assistant request operation.");
+      const result = await this.#throughHostLane(instance, async () => {
+        if (request.operation === "request") return await service.request(scope, request.request, assertCurrent);
+        if (request.operation === "list") return await service.list(scope);
+        if (request.operation === "get" && typeof request.requestId === "string") return await service.get(scope, request.requestId);
+        if (request.operation === "cancel" && typeof request.requestId === "string") return await service.cancel(scope, request.requestId, assertCurrent);
+        throw new RestrictedAppTaskError("TASK_INVALID", "Choose an Assistant request operation.");
+      });
       assertCurrent();
       return { ok: true, value: result };
     } catch (error) {
@@ -1056,10 +1094,10 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       const app = instance.app;
       const scope = { spaceId: app.spaceId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId,
         digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority) };
-      const result = await service.infer(scope, "window" in instance ? "worker" : "view", envelope.request, {
+      const result = await this.#throughHostLane(instance, () => service.infer(scope, "window" in instance ? "worker" : "view", envelope.request, {
         signal: instance.abortController.signal,
         assertCurrent,
-      });
+      }));
       assertCurrent();
       return { ok: true, value: result };
     } catch (error) {
@@ -1743,19 +1781,48 @@ function response(body: BodyInit | null, status: number, contentType: string, cs
   });
 }
 
-async function withDeadline<T>(operation: Promise<T>, timeoutMs: number, onTimeout: () => never): Promise<T> {
+/**
+ * The invocation deadline, optionally suspended while the caller is waiting on
+ * a host lane.
+ *
+ * Without a gate this is a plain timer. With one it measures *idle* worker
+ * time: the clock stops while the worker holds an in-flight host-bridge call
+ * and restarts when that call returns. A worker awaiting `assistant.infer`
+ * (120 s budget), `assistant.request`, or a network request (15 s budget) is
+ * therefore never crashed for being slower than the five-second invocation
+ * deadline; a worker that simply hangs still is.
+ */
+async function withDeadline<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  onTimeout: () => never,
+  gate?: { inFlight: number; idleSince: number },
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       operation,
       new Promise<T>((_resolve, reject) => {
-        timer = setTimeout(() => {
+        const fire = (): void => {
           try {
             onTimeout();
           } catch (error) {
             reject(error);
           }
-        }, timeoutMs);
+        };
+        if (!gate) {
+          timer = setTimeout(fire, timeoutMs);
+          return;
+        }
+        const check = (): void => {
+          const idleFor = gate.inFlight > 0 ? 0 : Date.now() - gate.idleSince;
+          if (idleFor >= timeoutMs) {
+            fire();
+            return;
+          }
+          timer = setTimeout(check, Math.max(timeoutMs - idleFor, 25));
+        };
+        timer = setTimeout(check, timeoutMs);
       }),
     ]);
   } finally {

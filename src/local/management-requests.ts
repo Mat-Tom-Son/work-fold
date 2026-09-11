@@ -79,8 +79,7 @@ export type ManagementRequestActionCommand =
   | "routings.enable"
   | "pages.stage"
   | "pages.stage-app"
-  | "trash.restore"
-  | "staged.cancel";
+  | "trash.restore";
 
 export interface ManagementRequestAction {
   command: ManagementRequestActionCommand;

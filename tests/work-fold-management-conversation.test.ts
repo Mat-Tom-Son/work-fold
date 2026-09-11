@@ -135,7 +135,12 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /moves its folder into Recently deleted/);
     // Apps come up able to work (F21) and are usable as tools (F22 lineage).
     assert.match(managementContext, /Space apps come up able to work\./);
-    assert.match(managementContext, /a folder permission covers the whole Space/);
+    assert.match(managementContext, /grant each declared folder permission over the whole Space/);
+    // What the installer actually does not grant: the fold must relay it
+    // rather than report a Check slot or a chosen file as already granted.
+    assert.match(managementContext, /a permission that names a single file/);
+    assert.match(managementContext, /a Check-result slot when the Space has more than one Check/);
+    assert.match(managementContext, /Relay that list; do not report those as granted\./);
     assert.match(managementContext, /apps list --space <id> --json/);
     assert.match(managementContext, /apps invoke --space <id> --app <id> --tool <name> --input/);
     assert.match(managementContext, /leave a copy in Recently deleted before removing live data/);
@@ -200,7 +205,9 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(skillContent, /Every verb runs on the first call and returns a receipt/);
     assert.match(skillContent, /## Tools, apps, and pages/);
     assert.match(skillContent, /Space apps come up able to work/);
-    assert.match(skillContent, /a folder permission covers the whole Space/);
+    assert.match(skillContent, /grant each declared folder permission over the whole Space/);
+    assert.match(skillContent, /bind a Check-result slot when the Space has exactly one Check/);
+    assert.match(skillContent, /still need the person in the Apps tab/);
     assert.match(skillContent, /apps invoke --space <id> --app <id> --tool <name> --input <json>/);
     assert.match(skillContent, /leave a copy in Recently deleted first/);
     assert.match(skillContent, /trash restore --entry <id>/);
