@@ -3,18 +3,20 @@ import type { RestrictedAppAssistantTask, RestrictedAppTaskDetail } from "../../
 import type { RestrictedAppInstalled } from "../../types";
 import { errorText } from "../../lib/api";
 import { subscribeControlEvents } from "../../lib/control-events";
-import { restrictedAppAssistantResultOutcomeLabel, restrictedAppAssistantResultTrimNote, restrictedAppAssistantTaskCanStop, restrictedAppAssistantTaskStatusLabel, restrictedAppAssistantTaskUsageLine, restrictedAppResultFileSize } from "../../lib/restricted-app-assistant";
+import { restrictedAppAssistantResultTrimNote, restrictedAppAssistantTaskCanStop, restrictedAppAssistantTaskStatusLabel, restrictedAppAssistantTaskUsageLine, restrictedAppResultFileSize } from "../../lib/restricted-app-assistant";
 import { cancelRestrictedAppAssistantTask, listRestrictedAppAssistantTasks, readRestrictedAppAssistantTask } from "../../lib/restricted-apps";
+import { ConnectedWorkRequest, openWorkFile } from "../chat/WorkRequest";
 
 /**
  * Requests this app handed to the Space's Assistant. Each one already started
  * its own Chat when the app asked; this list shows status, the exact
  * instructions and input, the reply once done, and offers Open Chat and Stop.
  */
-export function RestrictedAppAssistantTasks({ app, disabled, onOpenChat }: {
+export function RestrictedAppAssistantTasks({ app, disabled, onOpenChat, onOpenFile = openWorkFile }: {
   app: RestrictedAppInstalled;
   disabled: boolean;
   onOpenChat?: (spaceId: string, conversationId: string) => Promise<void>;
+  onOpenFile?: (spaceId: string, path: string) => Promise<void>;
 }) {
   const [tasks, setTasks] = useState<RestrictedAppAssistantTask[]>([]);
   const [detail, setDetail] = useState<RestrictedAppTaskDetail | null>(null);
@@ -38,7 +40,9 @@ export function RestrictedAppAssistantTasks({ app, disabled, onOpenChat }: {
   }, [app, disabled]);
 
   useEffect(() => {
-    if (!detail || disabled || tasks.find((task) => task.id === detail.task.id)?.status === detail.task.status) return;
+    if (!detail || disabled) return;
+    const current = tasks.find((task) => task.id === detail.task.id);
+    if (!current || (current.status === detail.task.status && current.updatedAt === detail.task.updatedAt)) return;
     let alive = true;
     void readRestrictedAppAssistantTask(app, detail.task.requestId).then((next) => { if (alive) setDetail(next); })
       .catch((caught) => { if (alive) setError(errorText(caught)); });
@@ -66,34 +70,41 @@ export function RestrictedAppAssistantTasks({ app, disabled, onOpenChat }: {
   return <section className="restricted-app-connections restricted-app-assistant-tasks" aria-label="Assistant requests">
     <div className="restricted-app-connections-heading"><h3>Assistant requests</h3></div>
     {error ? <p role="alert">{error}</p> : null}
-    {!tasks.length ? <p>No requests yet.</p> : tasks.map((task) => <article className="restricted-app-destination-card" key={task.id}>
-      <div><strong>{task.title}</strong><span className="professional-status-badge">{restrictedAppAssistantTaskStatusLabel(task)}</span></div>
-      {restrictedAppAssistantTaskUsageLine(task)
-        ? <p className="restricted-app-task-usage">{restrictedAppAssistantTaskUsageLine(task)}</p>
-        : null}
+    {!tasks.length ? <p>No requests yet.</p> : tasks.map((task) => <article className="restricted-app-destination-card" key={task.id} tabIndex={-1}>
+      <div className="restricted-app-task-heading"><strong>{task.title}</strong><span className="professional-status-badge">{restrictedAppAssistantTaskStatusLabel(task)}</span></div>
+      {task.result ? <div className="restricted-app-task-result">
+        <p className="work-result-summary" aria-label="Assistant result">{task.result.summary}{task.result.truncated ? restrictedAppAssistantResultTrimNote : ""}</p>
+        {task.result.files?.length ? <ul className="work-result-files" aria-label="Assistant result files">
+          {task.result.files.map((file) => <li key={file.path}><button className="work-file-button" type="button" onClick={() => void onOpenFile(app.spaceId, file.path).catch((caught) => setError(errorText(caught)))}><span>{file.path}</span><small>{restrictedAppResultFileSize(file.sizeBytes)} · Open file</small></button></li>)}
+        </ul> : null}
+      </div> : null}
       <div className="restricted-app-task-actions">
         <button className="professional-button professional-button-secondary" disabled={unavailable} onClick={() => void inspect(task)}>Details</button>
         {onOpenChat ? <button className="professional-button professional-button-secondary" disabled={unavailable} onClick={() => void inspect(task, true)}>Open Chat</button> : null}
         {restrictedAppAssistantTaskCanStop(task) ? <button className="professional-button professional-button-secondary" disabled={unavailable} onClick={() => void stop(task)}>Stop</button> : null}
       </div>
+      {task.status === "waiting" ? <AppTaskQuestion app={app} task={task} onOpenFile={onOpenFile} /> : null}
       {detail?.task.id === task.id ? <div className="restricted-app-task-review">
-        <pre tabIndex={0} aria-label="Assistant request">{detail.instructions}{"\n\n"}{JSON.stringify(JSON.parse(detail.inputJson), null, 2)}</pre>
-        {detail.task.result ? <>
-          {restrictedAppAssistantResultOutcomeLabel(detail.task.result.outcome)
-            ? <p className="professional-status-badge">{restrictedAppAssistantResultOutcomeLabel(detail.task.result.outcome)}</p>
-            : null}
-          <pre tabIndex={0} aria-label="Assistant result">{detail.task.result.summary}{detail.task.result.truncated ? restrictedAppAssistantResultTrimNote : ""}</pre>
-          {detail.task.result.data === undefined
-            ? null
-            : <pre tabIndex={0} aria-label="Assistant result details">{JSON.stringify(detail.task.result.data, null, 2)}</pre>}
-          {detail.task.result.files?.length
-            ? <ul aria-label="Assistant result files">
-              {detail.task.result.files.map((file) => <li key={file.path}>{file.path} · {restrictedAppResultFileSize(file.sizeBytes)}</li>)}
-            </ul>
-            : null}
-        </> : null}
+        <details><summary>Request details</summary>
+          <pre tabIndex={0} aria-label="Assistant request">{detail.instructions}{"\n\n"}{JSON.stringify(JSON.parse(detail.inputJson), null, 2)}</pre>
+          {restrictedAppAssistantTaskUsageLine(task) ? <p className="restricted-app-task-usage">{restrictedAppAssistantTaskUsageLine(task)}</p> : null}
+        </details>
+        {task.status !== "waiting" && detail.taskId ? <ConnectedWorkRequest path={`/api/tasks/${encodeURIComponent(detail.taskId)}/work`} showResultSummary={false} showResultFiles={false} showStop={false} onOpenFile={onOpenFile} /> : null}
+        {detail.task.result?.data === undefined ? null : <details><summary>Result details</summary><pre tabIndex={0} aria-label="Assistant result details">{JSON.stringify(detail.task.result.data, null, 2)}</pre></details>}
         <button className="professional-button professional-button-secondary" disabled={busy} onClick={() => setDetail(null)}>Close</button>
       </div> : null}
     </article>)}
   </section>;
+}
+
+function AppTaskQuestion({ app, task, onOpenFile }: { app: RestrictedAppInstalled; task: RestrictedAppAssistantTask; onOpenFile: (spaceId: string, path: string) => Promise<void> }) {
+  const [taskId, setTaskId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void readRestrictedAppAssistantTask(app, task.requestId).then((detail) => { if (alive) setTaskId(detail.taskId ?? null); })
+      .catch((caught) => { if (alive) setError(errorText(caught)); });
+    return () => { alive = false; };
+  }, [app, task.requestId]);
+  return taskId ? <ConnectedWorkRequest path={`/api/tasks/${encodeURIComponent(taskId)}/work`} showStop={false} onOpenFile={onOpenFile} /> : error ? <p role="alert">{error}</p> : null;
 }

@@ -1,5 +1,14 @@
 # work-fold management layer
 
+> Request lifecycle consolidation: the [collaboration contract](collaboration-contract.md#completion-delivery-and-recovery)
+> governs completion across turns. Questions use `chat ask|answer` or `manage
+> ask|answer`; an accepted answer remains outstanding until linked. The fold,
+> Space and app owners receive bounded, recorded child-result deliveries.
+> App status/stop/usage follow the owned request, and task result reads expose
+> its selected envelope. Counts and transport sizes shown in Limits are fixed
+> in this build; the continuation switch is configurable.
+
+
 The development desktop also exposes the authenticated renderer-only
 `GET /api/management/control-events` SSE endpoint. Its closed `reset`, `apps`,
 and `spaces` hints contain no content or authority and are not remote act
@@ -233,8 +242,8 @@ followed turn reaches a terminal state **or** when its task is waiting on an
 answer, and say which; a waiting settle exits 0 and prints the status document
 with its `waiting` field, because waiting is not a failure. A parent turn
 never blocks on a child that is waiting for input: it finishes and reports the
-request as `waiting`. When every child of a root management request has
-settled after the fold's own turn ended, the host composes one deterministic
+request as `waiting`. When every child of an owning request has
+settled when the owning Chat is idle and selected child results have not been delivered, the host composes one deterministic
 follow-up turn in that conversation — a `system`-actor turn joined to the root,
 naming each settled child, its outcome, the files it chose, and any question
 still open beneath it. It is counted against the per-root bound; past that
@@ -263,6 +272,36 @@ Envelope bounds travel with the same machinery: a summary of at most 32 KiB,
 structured details of at most 256 KiB validated against the declared schema
 when there is one, at most 32 named files, and question and answer text of at
 most 16 KiB each. Settled request graphs are kept for 30 days.
+
+### Work presentation for trusted surfaces
+
+`src/shared/request-presentation.ts` defines the version-1 work view. It projects
+one request and its linked descendants into labels, available actions, exact
+person questions, and selected results with Space-owned file references. It
+contains no sibling transcripts or general request-graph access. Questions are
+shown four at a time, with the remaining count; answering reveals the next ones.
+
+The authenticated local API reads it through
+`GET /api/spaces/:spaceId/conversations/:conversationId/work`,
+`GET /api/management/conversations/:conversationId/work`, and
+`GET /api/tasks/:taskId/work`. The original task id keeps Apps pinned to their own
+request even if the Chat later starts unrelated work. Journaled
+`POST /api/requests/:requestId/answer|stop|continue` uses the shared answer, Stop,
+and turn-admission paths. Answers carry `questionId` and `answer`; explicit
+continuations carry a stable `deliveryId`. A lost-response retry acknowledges
+the accepted answer or turn rather than dispatching another one. A continuation
+carries the selected child reports and records their delivery before prompting.
+
+The remote equivalents are `management.work`, `management.answer`, and
+`management.continue`, plus the existing `management.stop`. They accept a task id
+and require the root management request's original browser and grant. A child
+inherits that root's ownership; unrelated Space requests do not. Summary
+capabilities advertise `work: true`; older hosts keep the existing presentation.
+The glance advertises whether an item can open these controls for that grant.
+
+See [Collaboration experience](collaboration-experience.md) for rendering,
+recovery, keyboard, and privacy behavior. These endpoints are for trusted
+surfaces; restricted app bridges and published viewers receive no new access.
 
 ### Remote browser surface
 
@@ -511,7 +550,7 @@ Desktop and CLI History restores reserve affected Space work through completion 
 and gave Assistants a way to hand each other work. The changes a caller can
 observe:
 
-- New act verbs: `chat report`, `chat ask`, `chat answer`, and `chat handoff`,
+- New act verbs: `manage ask|answer` and `chat report`, `chat ask`, `chat answer`, and `chat handoff`,
   Space-scoped and receipted. They are available to the fold, a Space
   Assistant, an app-requested task, and an outside harness on the same terms;
   `work-fold help collaborate` documents them. `requests list|show` are the
@@ -532,10 +571,10 @@ observe:
 - The in-memory management request registry is gone. The same projection is
   now read from the durable request store, so a restart keeps the request graph
   the popover, the remote client, and the glance read.
-- A settle batch beneath a root management request can start one host-composed
+- A settle batch beneath an owning request can start one host-composed
   follow-up turn in that conversation, bounded per root and switchable off in
-  Settings → The fold → Limits. It is the only automatic fold turn, and it
-  belongs to a person-initiated request.
+  Settings → The fold → Limits. It follows only an explicit request; a declared routing fold step is the
+  separate trigger-driven entry.
 - Space turns receive their own hidden context — task id, request id, and, when
   delegated, an opaque parent handle and the assignment text — plus a compact
   operations guide appended to the system prompt the way Space instructions

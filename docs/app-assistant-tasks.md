@@ -77,22 +77,44 @@ viewers and remote app views have no Assistant bridge. Private browser worker
 actions use their separate action lane, which runs a request on acceptance
 (see [browser app views](fold-browser-apps.md#actions)).
 
-Task states are `dispatching`, `running`, `succeeded`, `failed`, `cancelled`
+Task states are `dispatching`, `running`, `waiting`, `succeeded`, `failed`, `cancelled`
 and `interrupted`; every task carries `startedAt`, its dispatch time. A
 settled task also carries `model` (`provider`, `id`) and `usage`
 (`inputTokens`, `outputTokens`, and `amountUsd` when the model carries pricing)
 — the same two fields bounded inference returns, described under
 [Model and usage](#model-and-usage) below. A
-requested stop leaves a running task running, with `cancellationRequested:
-true`, until the ordinary turn actually settles. Failed, cancelled and
+requested stop fences the request and its descendants immediately, with
+`cancellationRequested: true`; running tools then finish their abort cleanup. Failed, cancelled and
 interrupted tasks expose no result at all — no partial reply and no private
 provider error. `list` contains at most 50 summaries, active requests first,
 with no result. Only what the task reported, or its final reply, is shared;
 other messages in its Chat are never app-readable.
 
+The receipt follows the durable request across questions, answers and delegated
+work. `waiting` has no final result and remains stoppable; it counts toward the
+installation's active-request bound. Stop cancels outstanding descendants too.
+Output-schema pins apply to every continuation in the owned Chat. Reported usage
+is the total of settled request and descendant turns; `model` identifies the
+latest reported model of the owned Chat, which may differ from child models.
+
+## The trusted Apps experience
+
+The Apps screen displays each completed request's summary and selected file
+buttons directly. Its authenticated installation list includes bounded summaries
+and file references, without structured data; the sandboxed `assistant.list`
+continues to omit results. Instructions, input, model usage, and structured result
+details stay behind Details. A partial outcome reads **Partly finished**.
+
+Waiting requests show the exact person question and its origin using the shared
+[work presentation](collaboration-experience.md). The trusted detail response
+includes the original accepted `taskId` so questions and recovery stay attached
+to that request, even if another request later uses the same Chat. This adds no
+question access to sandboxed or remote App views. **Open Chat** and request-wide
+**Stop** remain available in the trusted screen.
+
 ## The result
 
-A successful `get` returns one result shape
+Once the owned request completes, `get` returns one result shape
 ([Collaboration contract](collaboration-contract.md), F29), the same envelope a
 report, a handoff outcome, and a routing chat hop produce:
 
@@ -105,8 +127,9 @@ report, a handoff outcome, and a routing chat hop produce:
 | `files` | Space-relative deliverables the Assistant named, each with `path`, `sha256`, and `sizeBytes` |
 
 The Assistant files that envelope with `work-fold chat report` during its turn.
-If it does not, the turn's final reply becomes the summary, the outcome is
-`succeeded`, and there are no details or files. `files` are the deliverables the
+The latest own turn's latest report is selected. If that turn files none, its
+final reply becomes the summary and the request determines the outcome, with
+no details or files. `files` are the deliverables the
 Assistant chose to hand back; the turn's own `fileChanges` metadata stays
 evidence and never becomes a deliverable list.
 
@@ -123,7 +146,7 @@ considered, and that is the bound an ordinary long reply reaches. The whole
 serialized envelope is then bounded at 256 KiB: over that, `data` is dropped
 first, then `files` are trimmed, then the summary. Either sets `truncated`.
 **Apps → the app → Assistant requests** names both numbers and the Settings
-section where a person can raise them, and offers **Open Chat** for the full
+section showing these fixed bounds, and offers **Open Chat** for the full
 reply.
 
 ## Knowing a task moved
@@ -133,7 +156,9 @@ tasks or inference receipts move: `{ revision, taskIds, receiptIds }`. Active
 views get it, and so does a worker while it holds a tool action or an automation
 run — the same mounts that may read `assistant.list()` at all. It carries ids
 and an ordering revision, never content: re-read with `assistant.list()` or
-`assistant.get()`. Nothing is replayed, and a hint never starts a model turn.
+`assistant.get()` for tasks. Inference receipt ids support the trusted Apps
+receipt view; there is no app-bridge receipt lookup. Nothing is replayed, and
+a hint never starts a model turn.
 See [Invalidation hints](restricted-app-authoring.md#invalidation-hints).
 
 ## Bounds

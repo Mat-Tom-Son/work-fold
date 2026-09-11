@@ -54,6 +54,22 @@ The translation is intentionally narrow. It does not justify replacing the shell
 - Preserve the command palette, keyboard shortcuts, toast/confirm feedback, onboarding, Space creation/linking, themes, typography, and resizable layout.
 - The persistent Space-identity header menu chooses the root-folder entity and offers compact create/register/manage actions on every left-pane surface. Primary rail navigation uses `Files`, `Chats`, and `History`; Chats in other Spaces stay collapsed below the selected Space's list. The bottom-rail Add menu has three entries, Your Library, Skills & Extensions, and Apps; apps are managed in the Space-owned Apps tab, and Build with Assistant there seeds a fresh Chat with starter text. Library stays one shared personal collection: the owning Space is the default copy target, and any registered Space can be selected explicitly. The Space-owned Assistant tools work tab combines Installed and Discover views for Skills and Extensions while retaining scope, provenance, load state, diagnostics, and package lifecycle. Provider connections, model defaults, per-Space instructions, API-key, and OAuth setup live in `Settings → Assistant`; only model defaults and Space instructions have narrow fold verbs.
 
+### Collaboration within a conversation
+
+[Collaboration experience](collaboration-experience.md) defines the shared work
+presentation. Space Chats, the fold, and trusted App requests follow the durable
+request while the message stream follows its current turn. Questions show their
+origin and an addressed answer field; Needs you opens those questions inline.
+Stop includes outstanding delegated work and remains available between turns.
+Selected files open in their owning Space; partial results are named explicitly.
+Host continuations appear as quiet activity, never as messages typed by the person.
+
+Refresh and reconnect preserve drafts and focus. Unsent question answers use
+session storage for the current renderer or browser tab, clear after acceptance,
+and never enter model context before sending. A saved but undelivered answer has
+an explicit recovery action. The paired browser has these controls only for its
+own browser-grant request family; other Needs you items direct it to the desktop.
+
 ### Management layer and CLI
 
 - The read-only management layer is additive infrastructure; it must not replace or weaken Space-bound tabs, background continuity, native menus, or the visible trust and capability-management surfaces.

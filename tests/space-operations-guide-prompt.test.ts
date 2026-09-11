@@ -58,20 +58,20 @@ test("a Space Chat's system prompt carries Space instructions and then the opera
  * Assistant a refused command or a false boundary if the text drifts:
  * `chat answer` names the ASKING Space, not this one (src/local/server.ts
  * refuses any other), and `chat wait` returns the destination turn's own
- * closing reply — it is not a released-result filter.
+ * latest reply and the selected request result.
  */
 test("the guide teaches the two rules the host actually enforces", () => {
   const guide = workFoldSpaceOperationsGuide();
 
   // `--space` is this Space's id everywhere except `chat answer`.
-  assert.match(guide, /the one exception is `chat answer`/);
+  assert.match(guide, /child result\/wait and answer reads name the owning Space/);
   assert.match(guide, /chat answer --space <the Space that asked>/);
   assert.match(guide, /Name the asking Space, never your own/);
   assert.doesNotMatch(guide, /chat answer --space <id>/, "the answer verb never shows the caller's own id");
 
   // `chat wait` does not promise a filter the built path does not apply.
   assert.doesNotMatch(guide, /never its Chat/);
-  assert.match(guide, /finished gives you that turn's closing reply/);
+  assert.match(guide, /completion returns the latest reply and selected result/);
 
   assert.ok(Buffer.byteLength(guide, "utf8") <= workFoldSpaceOperationsGuideMaxBytes, "the guide stays inside its prompt budget");
 });

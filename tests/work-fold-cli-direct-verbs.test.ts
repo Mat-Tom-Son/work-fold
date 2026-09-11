@@ -529,7 +529,7 @@ test("chat report, ask, answer, and handoff run through the act lane with conten
     assert.deepEqual(shownJson.data.request.resultRecords[0]!.envelope.data, { pages: 3, sections: ["intro"] });
     assert.equal(shownJson.data.request.childRequests[0]!.spaceName, "Reviews");
     const shownHuman = await h.execute(["requests", "show", "--request", rootId]);
-    assert.match(shownHuman.stdout, /^Request req-[^ ]+ — cli, partial — Drafts \[/);
+    assert.match(shownHuman.stdout, /^Request req-[^ ]+ — cli, done — Drafts \[/);
     assert.match(shownHuman.stdout, /question q-[^ ]+ to you — answered: Which quarter\?/);
     assert.match(shownHuman.stdout, /result res-[^ ]+ from task [^ ]+ — partial, 1 file: Drafted draft\.md from the brief\./);
     assert.match(shownHuman.stdout, /\n  Request req-[^ ]+ — space, done — Reviews \[/, "children are indented beneath the root");
@@ -538,4 +538,25 @@ test("chat report, ask, answer, and handoff run through the act lane with conten
   } finally {
     await h.close();
   }
+});
+
+
+test("management questions use the act lane and content-free receipts", async () => {
+  const h = await directVerbHarness("management-questions");
+  const scope = "work-fold-management"; h.held.add(scope);
+  try {
+    const sent = await h.api.actFacade.manageSend({ content: "/hold" });
+    const ask = await h.execute(["manage", "ask", "--task", sent.taskId, "--question", "Which private quarter?", "--json"]);
+    assert.equal(ask.exitCode, 0, ask.stderr);
+    const question = JSON.parse(ask.stdout).data.question;
+    assert.doesNotMatch(JSON.stringify(h.records), /private quarter/);
+    await h.release(sent.taskId);
+    for (let n = 0; n < 100 && (await h.api.actFacade.manageTurnStatus({ taskId: sent.taskId })).task.state === "running"; n++) await new Promise(r => setTimeout(r, 25));
+    const answer = await h.execute(["manage", "answer", "--question", question.questionId, "--answer", "/hold Q3", "--json"]);
+    assert.equal(answer.exitCode, 0, answer.stderr);
+    assert.equal(JSON.parse(answer.stdout).data.question.state, "answered");
+    assert.doesNotMatch(JSON.stringify(h.records), /Q3/);
+    const invalid = await h.execute(["manage", "ask", "--space", "anything", "--task", sent.taskId, "--question", "No", "--json"]);
+    assert.notEqual(invalid.exitCode, 0);
+  } finally { await h.close(); }
 });

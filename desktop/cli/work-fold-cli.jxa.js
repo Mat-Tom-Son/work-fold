@@ -109,8 +109,8 @@ function parseWaitCommand(argumentsList) {
 }
 
 function runWaitLoop(context, plan, actToken) {
-  // Waiting is task-scoped: it follows the exact turn the send accepted, so
-  // an older assistant message can never read as this turn's success.
+  // The task id pins a request; follow its later turns as well, so an
+  // earlier reply can never read as completion of outstanding work.
   // The loop settles on two things and says which: the turn reached a
   // terminal state (then the result is printed), or the task is waiting on
   // an answer (then the status document with its `waiting` field is
@@ -126,14 +126,16 @@ function runWaitLoop(context, plan, actToken) {
     }
     let state = "";
     let waiting = null;
+    let requestState = "";
     try {
       const data = JSON.parse(status.stdout).data;
       state = data.task.state;
       waiting = data.waiting || null;
+      requestState = data.requestGraph ? data.requestGraph.state : data.request ? data.request.state : "";
     } catch (error) {
       throw new Error("work-fold returned an unreadable task status.");
     }
-    if (waiting) {
+    if (waiting || requestState === "waiting") {
       if (plan.json) {
         emitOutcome(status);
         return 0;
@@ -142,7 +144,7 @@ function runWaitLoop(context, plan, actToken) {
       emitOutcome(humanStatus);
       return humanStatus.exitCode;
     }
-    if (state !== "accepted" && state !== "running") break;
+    if (requestState ? requestState !== "working" && requestState !== "handed_off" : state !== "accepted" && state !== "running") break;
     if (Date.now() >= deadline) {
       writeHandle($.NSFileHandle.fileHandleWithStandardError, `work-fold: ${plan.group} wait timed out after ${plan.timeoutSeconds}s.\n`);
       return 7;

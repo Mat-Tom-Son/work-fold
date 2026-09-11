@@ -4,6 +4,13 @@ The [public Mac feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/rele
 is the authority for the newest available desktop update. A source tag or
 release-note file alone does not mean a version was published.
 
+## September 11, 2026
+
+[0.4.24](work-fold-0.4.24.md) brings durable Assistant collaboration, inline
+questions and results, reversible actions, and direct App AI primitives.
+The public Mac feed remains the authority for publication and availability;
+release notes do not replace the exact source-tag and artifact checks.
+
 ## September 7, 2026 release record
 
 [0.4.23](work-fold-0.4.23.md) is [published](https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/tag/v0.4.23).

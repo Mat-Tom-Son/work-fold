@@ -33,9 +33,11 @@ keeping the useful distinction:
 ## Canonical object model
 
 An installed Feature may submit a [named Assistant request](app-assistant-tasks.md)
-bound to its exact incarnation and authority. A person approves the individual
-task in Apps before it enters the owning Space's normal full-trust Chat runtime.
-Neither the declaration nor a request confers standing Assistant authority.
+bound to its exact incarnation and authority. An accepted task enters the
+owning Space's normal full-trust Chat runtime immediately and leaves a receipt
+([Receipts, not gates](receipts-not-gates.md), F22). Direct app broker grants do
+not restrict that Assistant's native tools. The app observes its owned request,
+including questions and continuations, through the task bridge.
 
 ```mermaid
 flowchart TB
@@ -155,9 +157,9 @@ The complete definitions and journey tests live in
     `apps.read` adapter can open a reviewed read-only web view privately under
     exact installation and authority pins; see [browser app views](fold-browser-apps.md).
     Its separate browser-action foundation journals declared worker intents,
-    exact review and acceptance under a live browser fence. That lane cannot
-    author grants or invoke arbitrary code; approval belongs in the trusted
-    parent UI outside app code, and shared viewers remain read-only.
+    acceptance under a live browser fence and executes admitted actions immediately.
+    That lane cannot author grants or invoke arbitrary code, and shared viewers
+    remain read-only.
 15. **Legacy product state is outside the platform.** work-fold does not import,
     migrate, parse, mutate, or delete the legacy Workspace profile, portable
     metadata, registries, app storage, connections, receipts, or artifacts.

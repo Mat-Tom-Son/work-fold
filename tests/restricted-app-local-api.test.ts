@@ -1026,7 +1026,8 @@ test("app requests use reviewed native Pi turns, History, exact task cancellatio
     assert.ok(bodies.some((body) => body.includes("App request: Compare quotes")), "ordinary Pi sees the app's request");
     assert.ok((await listSpaceCheckpoints(space.spaceRoot)).length > 0, "the ordinary turn captures History");
     const listed = (await request<{ tasks: RestrictedAppAssistantTask[] }>(api.origin, `${taskBase}?${query}`)).tasks[0]!;
-    assert.equal(listed.result, undefined, "list replies remain compact");
+    assert.equal(listed.result?.summary, "Saved comparison.md. North costs $42.", "the trusted Apps list shows its primary result");
+    assert.equal(listed.result?.data, undefined, "the trusted list leaves structured details to the individual read");
     assert.equal(listed.startedAt, started.startedAt);
     const calls = bodies.length;
     await api.close();

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "../lib/api";
+import { ConnectedWorkRequest } from "../components/chat/WorkRequest";
 
 /**
  * The glance (docs/fold-glance.md): the app-composed digest rendered at the
@@ -24,6 +25,7 @@ export interface GlanceItemView {
   spaceId?: string;
   spaceName?: string;
   headline: string;
+  ref?: { taskId?: string; requestId?: string; questionId?: string; conversationId?: string };
 }
 
 export interface GlanceCheckRowView {
@@ -222,10 +224,15 @@ export function GlanceSection({ state, surface }: { state: GlanceState; surface:
 }
 
 function GlanceRow({ item, quiet = false }: { item: GlanceItemView; quiet?: boolean }) {
+  const [open, setOpen] = useState(false);
   return (
     <li className={`glance-item${quiet ? " quiet" : ""}`}>
-      {item.spaceName ? <><strong>{item.spaceName}</strong> · </> : null}
+      {item.spaceName && item.kind !== "request-question" ? <><strong>{item.spaceName}</strong> · </> : null}
       {item.headline}
+      {item.ref?.questionId && item.ref.taskId ? <>
+        <button className="work-text-button" type="button" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Close question" : "Answer"}</button>
+        {open ? <ConnectedWorkRequest path={`/api/tasks/${encodeURIComponent(item.ref.taskId)}/work`} /> : null}
+      </> : null}
     </li>
   );
 }

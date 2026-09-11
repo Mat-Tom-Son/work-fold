@@ -14,7 +14,7 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   createdAt: string;
-  kind?: "conversation_title" | "conversation_lifecycle";
+  kind?: "conversation_title" | "conversation_lifecycle" | "assistant_continuation";
   titleSource?: "placeholder" | "generated" | "attempted" | "manual";
   lifecycle?: ConversationLifecyclePatch;
   landing?: ChatMessageLanding;
@@ -501,6 +501,7 @@ function parseChatMessage(line: string): ChatMessage | null {
       message.kind = parsed.kind;
       message.lifecycle = normalizeLifecyclePatch(parsed.lifecycle);
     }
+    if (parsed.kind === "assistant_continuation") message.kind = parsed.kind;
     if (isChatMessageLanding(parsed.landing)) message.landing = parsed.landing;
     const workTrail = parseChatMessageWorkTrail(parsed.workTrail);
     if (workTrail?.length) message.workTrail = workTrail;

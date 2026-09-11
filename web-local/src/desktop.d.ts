@@ -157,6 +157,7 @@ declare global {
       };
       management?: {
         openChecks?: (spaceId: string) => Promise<boolean>;
+        openResultFile?: (spaceId: string, path: string) => Promise<void>;
         getPathForFile: (file: File) => string;
         hide: () => void;
         openMainWindow: () => Promise<boolean>;

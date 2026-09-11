@@ -45,7 +45,10 @@ export interface PiSpaceTurnContext {
    * context rather than only in the travelling transcript.
    */
   answeredQuestionId?: string;
+  releasedChildResults?: string;
   delegated?: PiSpaceTurnDelegation;
+  /** Reestablished for a root request continuing after an answer or delivery. */
+  assignment?: string;
 }
 
 export interface SpaceTurnContextInput {
@@ -74,7 +77,10 @@ export function buildSpaceTurnContext(input: SpaceTurnContextInput): PiSpaceTurn
   const answeredQuestionId = input.answeredQuestionId?.trim();
   if (answeredQuestionId) context.answeredQuestionId = answeredQuestionId;
   const parentTaskId = input.parentTaskId?.trim();
-  if (!parentTaskId) return context;
+  if (!parentTaskId) {
+    if (input.assignment !== undefined) context.assignment = boundAssignment(input.assignment).text;
+    return context;
+  }
   const delegated: PiSpaceTurnDelegation = { parentHandle: spaceTurnParentHandle(parentTaskId, input.handleSalt) };
   if (input.assignmentIsThisMessage) {
     delegated.assignmentIsThisMessage = true;

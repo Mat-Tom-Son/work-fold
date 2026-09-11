@@ -33,7 +33,7 @@ test("opening an app task Chat closes its retained Apps dialog and restores shel
     model: { provider: "anthropic", id: "claude-sonnet-4-5" }, usage: { inputTokens: 12048, outputTokens: 486, amountUsd: 0.0312 },
     result: { summary: "North is cheaper by $8.", truncated: true, outcome: "partial",
       data: { cheapest: "North" }, files: [{ path: "exports/comparison.md", sha256: "b".repeat(64), sizeBytes: 2_048 }] } };
-  const running = { ...task, id: "task-two", requestId: "request-two", status: "running", model: undefined, usage: undefined };
+  const running = { ...task, id: "task-two", requestId: "request-two", status: "running", model: undefined, usage: undefined, result: undefined };
   globalThis.fetch = async (input, options) => {
     const path = String(input);
     if (path.includes("control-events")) return new Promise((_resolve, reject) => { options?.signal?.addEventListener("abort", () => reject(new DOMException("Closed", "AbortError")), { once: true }); });
@@ -68,21 +68,26 @@ test("opening an app task Chat closes its retained Apps dialog and restores shel
   await dom.waitFor(() => Boolean(button("Open Chat")));
   assert.equal(document.getElementById("shell-navigation")!.inert, true);
   assert.ok(buttons().includes("Stop"), "a running request offers Stop");
-  assert.deepEqual(
-    Array.from(document.querySelectorAll(".restricted-app-task-usage")).map((item) => item.textContent),
-    ["anthropic · claude-sonnet-4-5 · 12048 in · 486 out · $0.0312"],
-    "a settled request shows one compact model and usage line; a running one shows none yet",
-  );
+  assert.equal(document.querySelector(".restricted-app-task-usage"), null, "model and usage belong in request details");
   assert.ok(!buttons().some((label) => label === "Review" || label === "Run in this Space" || label === "Dismiss"), "no review or approval controls");
+
+  assert.match(document.querySelector('[aria-label="Assistant result"]')!.textContent!, /North is cheaper/,
+    "the summary is visible without opening request details");
+  assert.ok(document.querySelector('[aria-label="Assistant result files"] button'), "selected files open directly from the request row");
 
   // The one result shape (docs/collaboration-contract.md, F29): the summary,
   // the Assistant's own outcome, the details it reported, and the files it
-  // named. A trimmed result names its bound and where to raise it.
+  // named. A trimmed result names its bound and where to find it.
   // The first settled request's own Details button, not another card's.
   const taskDetails = Array.from(document.querySelectorAll(".restricted-app-assistant-tasks button"))
     .find((item) => item.textContent === "Details") as HTMLButtonElement;
   await dom.act(() => taskDetails.click());
   await dom.waitFor(() => Boolean(document.querySelector('[aria-label="Assistant result"]')));
+  assert.deepEqual(
+    Array.from(document.querySelectorAll(".restricted-app-task-usage")).map((item) => item.textContent),
+    ["anthropic · claude-sonnet-4-5 · 12048 in · 486 out · $0.0312"],
+    "request details show the settled model and usage",
+  );
   const summary = document.querySelector('[aria-label="Assistant result"]')!.textContent!;
   assert.match(summary, /North is cheaper by \$8\./);
   // `truncated` covers two bounds and the ordinary one is the summary, cut at
@@ -93,16 +98,26 @@ test("opening an app task Chat closes its retained Apps dialog and restores shel
   assert.match(summary, /Details over the 256 KB result limit are left out there too\./);
   assert.doesNotMatch(summary, /KiB/, "the note spells its numbers the way the Limits rows do");
   assert.equal(
-    Array.from(document.querySelectorAll(".professional-status-badge")).map((item) => item.textContent).includes("Partial"),
+    Array.from(document.querySelectorAll(".professional-status-badge")).map((item) => item.textContent).includes("Partly finished"),
     true,
     "an outcome the Assistant did not call a success is visible beside the status",
   );
   assert.match(document.querySelector('[aria-label="Assistant result details"]')!.textContent!, /"cheapest": "North"/);
   assert.deepEqual(
     Array.from(document.querySelectorAll('[aria-label="Assistant result files"] li')).map((item) => item.textContent),
-    ["exports/comparison.md · 2 KB"],
+    ["exports/comparison.md2 KB · Open file"],
     "deliverables are listed by Space-relative path and size",
   );
+  const filesOpened: unknown[] = [];
+  const openedFile = (event: Event) => filesOpened.push((event as CustomEvent).detail);
+  window.addEventListener("work-fold:open-result-file", openedFile);
+  await dom.act(async () => { (document.querySelector('[aria-label="Assistant result files"] button') as HTMLButtonElement).click(); });
+  await dom.waitFor(() => !document.querySelector('[role="dialog"]'));
+  window.removeEventListener("work-fold:open-result-file", openedFile);
+  assert.deepEqual(filesOpened, [{ spaceId: "space-one", path: "exports/comparison.md" }]);
+  assert.notEqual(document.getElementById("shell-navigation")!.inert, true, "opening a selected file releases the retained Apps dialog");
+  await dom.act(() => button("Details").click());
+  await dom.waitFor(() => Boolean(button("Open Chat")));
   await dom.act(() => button("Open Chat").click());
   await dom.waitFor(() => Boolean(document.getElementById("chat")) && !document.querySelector('[role="dialog"]'));
   assert.deepEqual(opened, [["space-one", "chat-one"]]);

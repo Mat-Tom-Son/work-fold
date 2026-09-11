@@ -58,7 +58,7 @@ export type WorkFoldRequestState =
   | "stopped"
   | "expired";
 
-/** A terminal request never moves again except by retention. */
+/** No outstanding work. Done/partial/failed may reopen through explicit continuation; stop and expiry do not. */
 export const workFoldRequestTerminalStates = ["done", "partial", "failed", "stopped", "expired"] as const;
 
 export function isWorkFoldRequestTerminalState(state: WorkFoldRequestState): boolean {
@@ -298,11 +298,16 @@ export interface WorkFoldRequestRecord {
   results: WorkFoldRequestResultRef[];
   usage: WorkFoldRequestUsage;
   continuationCount: number;
+  /** Settled child turns already reserved for delivery, independent of timing. */
+  deliveredChildTaskIds: string[];
+  continuationState: "pending" | "failed" | null;
   stopRequestedAt: string | null;
   limitHit: WorkFoldRequestLimitHit | null;
   /** Set when startup reconciliation settled this request, so no one continues it. */
   reconciledAt: string | null;
   remote: WorkFoldRequestRemoteRef | null;
+  /** The original assignment, retained when answers and follow-ups join. */
+  assignment: string;
   /** The newest turn's message text, bounded. */
   content: string;
   attachments: ManagementAttachmentRef[];
@@ -518,7 +523,7 @@ export type WorkFoldRequestManagementPhase =
 
 export function workFoldRequestStateToManagementPhase(
   state: WorkFoldRequestState,
-  replyAsksQuestion = false,
+  _legacyReplyAsksQuestion = false,
 ): WorkFoldRequestManagementPhase {
   const phase = ((): WorkFoldRequestManagementPhase => {
     switch (state) {
@@ -538,9 +543,7 @@ export function workFoldRequestStateToManagementPhase(
         return "stopped";
     }
   })();
-  // The older closing-question heuristic still upgrades a finished request,
-  // exactly where it did before: never over a failure or a stop.
-  return phase === "done" && replyAsksQuestion ? "needs_you" : phase;
+  return phase;
 }
 
 /** `local` or `remote_web`, derived rather than stored twice. */
@@ -727,7 +730,7 @@ export function parseWorkFoldRequestRecord(value: unknown): WorkFoldRequestRecor
       "schema", "requestId", "kind", "rootId", "parentRequestId", "parentTaskId", "depth", "owner", "app", "surface",
       "createdAt", "updatedAt", "settledAt", "deadline", "state", "turns", "childRequestIds", "questionIds", "results",
       "usage", "continuationCount", "stopRequestedAt", "limitHit", "reconciledAt", "remote", "content", "attachments",
-      "actions", "continuedFromTaskId",
+      "actions", "continuedFromTaskId", "assignment", "deliveredChildTaskIds", "continuationState",
     ],
     label,
   );
@@ -791,11 +794,15 @@ export function parseWorkFoldRequestRecord(value: unknown): WorkFoldRequestRecor
       : (() => { throw new Error(`${label} results are invalid.`); })(),
     usage: parseUsage(record.usage),
     continuationCount: nonNegativeInteger(record.continuationCount, `${label} follow-up count`),
+    deliveredChildTaskIds: stringArray(record.deliveredChildTaskIds ?? [], `${label} delivered children`, workFoldRequestLimits.maxContinuationsPerRoot * workFoldRequestLimits.maxChildRequestsPerRoot),
+    continuationState: record.continuationState === null || record.continuationState === undefined ? null
+      : enumValue(record.continuationState, ["pending", "failed"] as const, `${label} continuation`),
     stopRequestedAt: nullableIsoDate(record.stopRequestedAt, `${label} stop time`),
     limitHit: record.limitHit === null || record.limitHit === undefined ? null : parseLimitHit(record.limitHit, label),
     reconciledAt: nullableIsoDate(record.reconciledAt, `${label} recovery time`),
     remote: record.remote === null || record.remote === undefined ? null : parseRemoteRef(record.remote, label),
     content: boundedText(record.content, `${label} message`, workFoldRequestLimits.maxRequestContentBytes),
+    assignment: boundedText(record.assignment ?? record.content, `${label} assignment`, workFoldRequestLimits.maxRequestContentBytes),
     attachments: Array.isArray(record.attachments) && record.attachments.length <= maxManagementAttachments
       ? record.attachments.map((item, index) => parseWorkFoldAttachmentRef(item, `${label} attachment ${index + 1}`))
       : (() => { throw new Error(`${label} attachments are invalid.`); })(),

@@ -149,8 +149,8 @@ convenience.
 | Resume Chat | Popover "Resume now" / "Restore to Active", read-only banner | none | direct verb | `chat resume --space <id> --conversation <id>` | prior lifecycle state | re-archive or re-snooze | refused while turn/compaction runs |
 | Compact Chat | Composer `/compact` | none | direct verb | `chat compact --space <id> --conversation <id>` | kernel task id | none — compaction is additive summarization, not deletion | refused while a turn runs; registers the same kernel `compaction` task and capability-mutation fencing as the renderer |
 | Report a result | — (Space Assistant, app task, or outside harness) | act | direct verb | `chat report --space <id> --task <own-task-id> --summary <text> [--data <json-or-@path>] [--file <space-path>]... [--outcome …]` | outcome and file count — never the summary or data | none — a report is a record, not a mutation | `--task` must be the caller's own running turn; summary ≤ 32 KiB, data ≤ 256 KiB, ≤ 32 files, each a file inside the Space; refusals name Settings → The fold → Limits |
-| Ask a question | — (the same callers) | act | direct verb | `chat ask --space <id> --task <own-task-id> --question <text> [--to person\|parent]` | question id and respondent — never the text | none — the question stays on record; a root Stop closes it | `--to parent` on a root reaches the person and says so; the asking turn is never suspended; the request reads `waiting` |
-| Answer a question | Composer (free-text reply) | act | direct verb | `chat answer --space <id> --question <id> --answer <text>` | question id and the continuation task id — never the answer | none — one accepted answer, one linked continuation turn | refuses a second answer, an expired question, a stopped request, a Space that does not own the question, and a Chat whose turn or compaction is running (the question stays open); the turn store dedups the continuation under `answer-<question-id>` |
+| Ask a question | — (the same callers) | act | direct verb | `chat ask --space <id> --task <own-task-id> --question <text> [--to person\|parent]` or `manage ask --task <own-task-id> --question <text>` | question id and respondent — never the text | none — the question stays on record; a root Stop closes it | `--to parent` on a root reaches the person and says so; the asking turn is never suspended; the request reads `waiting` |
+| Answer a question | Composer (free-text reply) | act | direct verb | `chat answer --space <id> --question <id> --answer <text>` or `manage answer --question <id> --answer <text>` | question id and the continuation task id — never the answer | none — one accepted answer, one linked continuation turn | refuses a second answer, an expired question, a stopped request, a Space that does not own the question, and a Chat whose turn or compaction is running (the question stays open); the turn store dedups the continuation under `answer-<question-id>` |
 | Hand work on | — (the same callers) | act | direct verb | `chat handoff --space <id> --task <own-task-id> --to-space <id> (--message <text> \| --message-file <path>) [--file <space-path>]...` | destination Space, new Chat, task, restore point, copy count | the destination's restore point (copies are additive, exactly `files add`'s path) | child-count, depth, and concurrency bounds checked before any copy; copy before acceptance so a refused copy never leaves a started Chat; same-Space handoff takes no `--file` |
 
 ### Requests
@@ -313,7 +313,7 @@ arrive with installation and are narrowed through the rows above.
 
 ### The fold itself
 
-`manage send|status|result|wait|stop|abort|list` are shipped direct verbs,
+`manage send|ask|answer|status|result|wait|stop|abort|list` are shipped direct verbs,
 joined by `manage glance` ([the glance](fold-glance.md)). The CLI group
 keeps the contract name `manage`; "the fold" is user-facing copy per
 [The fold](fold.md). Routing verbs are in [Routings](fold-routings.md)

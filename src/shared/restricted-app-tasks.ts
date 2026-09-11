@@ -53,17 +53,17 @@ export interface RestrictedAppAssistantTask {
   requestId: string;
   actionId: string;
   title: string;
-  status: "dispatching" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted";
+  status: "dispatching" | "running" | "waiting" | "succeeded" | "failed" | "cancelled" | "interrupted";
   createdAt: string;
   updatedAt: string;
   /** Dispatch time. A request is journaled and dispatched in the same call. */
   startedAt: string;
   cancellationRequested?: true;
-  /** Present only after a successful turn. No other Chat messages are exposed. */
+  /** Present after the request completes. No other Chat messages are exposed. */
   result?: RestrictedAppTaskResult;
-  /** The model that ran the dispatched Chat turn; present once that turn settles. */
+  /** The latest reported model on the owned Chat; delegated models may differ. */
   model?: RestrictedAppAssistantModelRef;
-  /** What Pi reported for that turn; present once it settles and reported usage. */
+  /** Settled usage across the request and its children, including continuations. */
   usage?: RestrictedAppAssistantUsage;
 }
 
@@ -73,6 +73,8 @@ export interface RestrictedAppTaskDetail {
   instructions: string;
   inputJson: string;
   conversationId: string;
+  /** Original accepted turn, so the trusted UI follows this task, not a later request in its Chat. */
+  taskId?: string;
 }
 
 /**
@@ -94,7 +96,7 @@ export const restrictedAppAssistantLimits = Object.freeze({
   resultFiles: workFoldRequestLimits.maxResultFiles,
   records: 1_000,
   listItems: 50,
-  /** Counts dispatching and running tasks for one installation. */
+  /** Counts dispatching, running and waiting tasks for one installation. */
   runningPerInstallation: 4,
   /** Replay window for a retained request envelope. */
   requestAgeMs: 15 * 60_000,

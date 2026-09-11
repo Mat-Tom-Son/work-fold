@@ -723,6 +723,8 @@ export interface WorkFoldActFacade {
     conversationId: string;
     task: { taskId: string; state: "succeeded"; endedAt: string };
     message: WorkFoldActChatMessage;
+    request: WorkFoldActRequestRef | null;
+    result: WorkFoldResultEnvelope | null;
   }>;
 
   /**
@@ -1708,6 +1710,8 @@ export interface WorkFoldActFacade {
    * management conversation, creating it on first send.
    */
   manageList(): Promise<{ conversations: WorkFoldActConversationRef[] }>;
+  manageAsk(input: Omit<Parameters<WorkFoldActFacade["chatAsk"]>[0], "space" | "respondent">): Promise<Omit<Awaited<ReturnType<WorkFoldActFacade["chatAsk"]>>, "space">>;
+  manageAnswer(input: Omit<Parameters<WorkFoldActFacade["chatAnswer"]>[0], "space">): Promise<Omit<Awaited<ReturnType<WorkFoldActFacade["chatAnswer"]>>, "space">>;
   manageSend(input: {
     conversationId?: string;
     newConversation?: boolean;
@@ -1756,6 +1760,8 @@ export interface WorkFoldActFacade {
     conversationId: string;
     task: { taskId: string; state: "succeeded"; endedAt: string };
     message: WorkFoldActChatMessage;
+    request: WorkFoldActRequestRef | null;
+    result: WorkFoldResultEnvelope | null;
   }>;
   manageAbort(input: { conversationId?: string }): Promise<{ conversationId: string; aborted: boolean }>;
   /**

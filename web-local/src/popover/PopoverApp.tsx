@@ -1,4 +1,6 @@
 import { CheckInbox } from "./CheckInbox";
+import { WorkRequest } from "../components/chat/WorkRequest";
+import { useWorkRequest } from "../hooks/useWorkRequest";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, File, Link2, SquarePen, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -122,6 +124,7 @@ export function PopoverApp() {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [startingNewChat, setStartingNewChat] = useState(false);
+  const workState = useWorkRequest(!popoverFixtureRequested && conversationId && !startingNewChat ? `/api/management/conversations/${encodeURIComponent(conversationId)}/work` : null);
   const [stopping, setStopping] = useState(false);
   const [banner, setBanner] = useState<string>("");
   const [dropActive, setDropActive] = useState(false);
@@ -209,7 +212,7 @@ export function PopoverApp() {
       }
       const transcript = await api<{ messages: ManagementMessage[] }>(`/api/management/conversations/${encodeURIComponent(nextConversationId)}`);
       const next = transcript.messages.filter((message) =>
-        (message.role === "user" || message.role === "assistant") && !message.kind);
+        (message.role === "user" || message.role === "assistant") && (!message.kind || message.kind === "assistant_continuation"));
       // Polling refetches the same transcript most ticks; keeping the old
       // array identity for identical content spares re-renders and the
       // follow-scroll effect.
@@ -228,7 +231,6 @@ export function PopoverApp() {
       const message = errorText(error);
       setAvailable(false);
       setUnavailableReason(message);
-      setBanner(message);
     }
   }, [replaceStreamingAssistant]);
 
@@ -561,7 +563,7 @@ export function PopoverApp() {
   if (available === null) {
     return <div className="popover popover-loading"><WorkFoldLockup className="popover-loading-brand" animated /><p className="muted">Connecting…</p></div>;
   }
-  if (available === false) {
+  if (available === false && !conversationId) {
     return (
       <div className="popover">
         <header className="popover-header">
@@ -584,6 +586,7 @@ export function PopoverApp() {
   const composerThinking = conversationRuntime && !startingNewChat ? conversationRuntime : managementComposer;
   const thinkingLevels = composerThinking?.thinkingLevels ?? [];
   const managementModelLabel = managementComposer?.model?.name || managementComposer?.model?.id || "Choose model";
+  const visibleBanner = banner || (available === false ? unavailableReason : "");
 
   const changeThinkingLevel = async (level: string) => {
     if (requestRunning || level === composerThinking?.thinkingLevel) return;
@@ -630,9 +633,9 @@ export function PopoverApp() {
         </div>
       </header>
 
-      {banner ? (
+      {visibleBanner ? (
         <div className="banner" role="alert">
-          <span className="banner-text">{banner}</span>
+          <span className="banner-text">{visibleBanner}</span>
           <button className="banner-dismiss" type="button" aria-label="Dismiss" onClick={() => setBanner("")}><X aria-hidden="true" /></button>
         </div>
       ) : null}
@@ -653,12 +656,12 @@ export function PopoverApp() {
         >
           {messages.map((message) => (
             <article
-              className={`popover-message ${message.role}`}
+              className={message.kind === "assistant_continuation" ? "work-continuation" : `popover-message ${message.role}`}
               key={message.id}
               title={`${message.source === "remote_web" ? "Sent from the web · " : ""}${timestampTitle(message.createdAt)}`}
             >
               <div className="popover-message-body">
-                {message.role === "assistant"
+                {message.kind === "assistant_continuation" ? "Continuing with the results from delegated work." : message.role === "assistant"
                   ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
                   : message.content}
               </div>
@@ -671,7 +674,7 @@ export function PopoverApp() {
               </div>
             </article>
           ) : null}
-          {request && request.phase === "handed_off" ? (
+          {request && request.phase === "handed_off" && !workState.work ? (
             <article className="popover-entry">
               <ul className="trail">
                 {request.children.map((child) => (
@@ -684,8 +687,9 @@ export function PopoverApp() {
             </article>
           ) : null}
           {request && !activePhases.has(request.phase) ? (
-            <ResultEntry request={request} />
+            <ResultEntry request={request} showState={!workState.work} />
           ) : null}
+          <WorkRequest {...workState} showProgress={request?.phase !== "working"} showStop={request?.phase === "needs_you"} />
         </section>
           {request && activePhases.has(request.phase) ? (
             <div className="fold-tail">
@@ -695,9 +699,9 @@ export function PopoverApp() {
                   <span className="working-copy">{activity || "Thinking…"}</span>
                   {elapsedLabel ? <span className="working-elapsed">{elapsedLabel}</span> : null}
                 </p>
-              ) : (
+              ) : !workState.work ? (
                 <p className="working-line" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" /><span className="working-copy">Working in {request.children.filter((child) => child.state === "running").length === 1 ? "a Space" : "Spaces"}…</span></p>
-              )}
+              ) : null}
             </div>
           ) : null}
       </section>
@@ -785,7 +789,7 @@ export function PopoverApp() {
  * The settled request's inline conversation entry — the same host-recorded
  * outcome the old result card carried, absorbed into the one narrator.
  */
-function ResultEntry({ request }: { request: ManagementRequestView }) {
+function ResultEntry({ request, showState = true }: { request: ManagementRequestView; showState?: boolean }) {
   const showOutcome = request.phase === "failed"
     || request.phase === "stopped"
     || request.dispositions.length > 0
@@ -793,11 +797,11 @@ function ResultEntry({ request }: { request: ManagementRequestView }) {
   if (!showOutcome) return null;
   return (
     <article className="popover-entry">
-      {request.phase === "failed" ? (
+      {showState && request.phase === "failed" ? (
         <p className="error-line">Couldn't finish{request.error ? `: ${request.error}` : "."}</p>
       ) : null}
-      {request.phase === "stopped" ? <p>Stopped before it finished.</p> : null}
-      <DispositionTrail request={request} />
+      {showState && request.phase === "stopped" ? <p>Stopped before it finished.</p> : null}
+      <DispositionTrail request={showState ? request : { ...request, actions: request.actions.filter((action) => action.command !== "chat.send") }} />
     </article>
   );
 }

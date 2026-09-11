@@ -84,8 +84,8 @@ test("the fold uses ordinary chat geometry and one compact live line", async () 
   // The handed-off per-child trail and the settled result render inside the
   // drawer as inline entries, after the transcript messages — every recorded
   // state keeps its shipped label, and nothing silently disappears.
-  const handedOffTrail = popover.search(/request\.phase === "handed_off" \? \(\s*<article className="popover-entry">/);
-  const resultEntry = popover.indexOf("<ResultEntry request={request} />");
+  const handedOffTrail = popover.search(/request\.phase === "handed_off" && !workState\.work \? \(\s*<article className="popover-entry">/);
+  const resultEntry = popover.indexOf("<ResultEntry request={request} showState={!workState.work} />");
   assert.ok(handedOffTrail > drawerStart && handedOffTrail < drawerEnd, "the handed-off trail is a conversation entry");
   assert.ok(resultEntry > handedOffTrail && resultEntry < drawerEnd, "the settled result is a conversation entry");
   assert.match(popover, /\{child\.spaceName\}: \{childStateLabel\(child\.state\)\}/);

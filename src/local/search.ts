@@ -183,7 +183,7 @@ async function searchChats(
     for (const message of await readConversation(root, conversation.id).catch(() => [])) {
       throwIfSearchAborted(signal);
       // Lifecycle and title bookkeeping are not conversation content.
-      if (message.kind === "conversation_lifecycle" || message.kind === "conversation_title") continue;
+      if (message.kind === "conversation_lifecycle" || message.kind === "conversation_title" || message.kind === "assistant_continuation") continue;
       const normalizedContent = message.content.replace(/\s+/g, " ");
       const at = normalizedContent.toLocaleLowerCase().indexOf(needle);
       if (at < 0) continue;

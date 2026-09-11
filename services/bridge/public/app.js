@@ -1,3 +1,6 @@
+import { buildWorkFixture } from "./work-fixtures.js";
+import { clearQuestionDrafts } from "./question-drafts.js";
+import { renderWorkRequest } from "./work-request.js";
 import { scheduleBrowserRefresh, deferAfterRateLimit, canResume, canRecover, pollDelay } from "./refresh.js";
 import { shouldSubmitComposerKey } from "./composer.js";
 import { browserApiPath } from "./api-path.js";
@@ -52,6 +55,9 @@ const sidebarStorageKey = "work-fold-remote-sidebar-v1";
 const phoneQuery = matchMedia("(max-width: 859.98px)");
 
 const state = {
+  work: null,
+  workError: "",
+  questionTaskId: null,
   context: null,
   session: null,
   identity: null,
@@ -224,6 +230,17 @@ async function boot() {
 function bootFixture(name) {
   const fixture = buildFixture(name);
   Object.assign(state, fixture.state);
+  const workFixture = new URL(location.href).searchParams.get("work");
+  if (["question", "saved-answer", "partial", "interrupted"].includes(workFixture)) {
+    state.work = buildWorkFixture(state.selectedConversationId, workFixture);
+    state.activeTasks.clear(); state.liveAssistantText = ""; state.liveActivity = "";
+    state.conversations = state.conversations.map((chat) => chat.id === state.selectedConversationId ? { ...chat, title: "Kitchen budget", state: "idle" } : chat);
+    state.messages = [
+      { id: "work-user", role: "user", content: "Compare the supplier quotes and put together a budget for the kitchen refresh." },
+      { id: "work-assistant", role: "assistant", content: "I’ve asked the Assistant in Supplier quotes to check the totals. I’ll bring the comparison back here." },
+    ];
+    state.summary = { state: "idle", latestRequest: { phase: "needs_you", children: [], actions: [], dispositions: [] } };
+  }
   if (fixtureChrome.sidebar) state.sidebarState = fixtureChrome.sidebar;
   renderApplication();
   renderMessages();
@@ -635,7 +652,7 @@ function renderApplication() {
             <footer class="composer-wrap" id="new-composer-slot"></footer>
           </section>
           <section id="context-chat" class="context context-chat" aria-label="Chat" hidden>
-            <section id="messages" class="messages" tabindex="0"><div class="message-stream"><div id="transcript-notice"></div><div id="message-rows"></div><div id="work-status"></div></div><button id="jump-latest" class="jump-latest" type="button" aria-label="Jump to newest" title="Jump to newest" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14m-5-5 5 5 5-5" /></svg></button></section>
+            <section id="messages" class="messages" tabindex="0"><div class="message-stream"><div id="transcript-notice"></div><div id="message-rows"></div><div id="work-status"></div><div id="request-work"></div></div><button id="jump-latest" class="jump-latest" type="button" aria-label="Jump to newest" title="Jump to newest" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14m-5-5 5 5 5-5" /></svg></button></section>
             <footer class="composer-wrap" id="chat-composer-slot"></footer>
           </section>
           <section id="context-needs" class="context context-needs" aria-label="Needs you" hidden>
@@ -644,7 +661,7 @@ function renderApplication() {
                 <header class="context-head">
                   <h1 id="needs-title" class="context-title" tabindex="-1">Needs you</h1>
                 </header>
-                <div id="fold-home" class="fold-home"></div>
+                <div id="fold-home" class="fold-home"></div><div id="question-work"></div>
               </div>
             </div>
           </section>
@@ -943,10 +960,12 @@ function renderMessages() {
   if (!container || !notice || !rows || !workStatus) return;
   const wasNearBottom = !container.dataset.rendered
     || container.scrollHeight - container.scrollTop - container.clientHeight < 120;
-  const visible = state.messages.filter((message) => (message.role === "user" || message.role === "assistant") && !message.kind);
+  const visible = state.messages.filter((message) => (message.role === "user" || message.role === "assistant") && (!message.kind || message.kind === "assistant_continuation"));
   const request = state.startingNewChat ? null : state.summary?.latestRequest;
   const requestPhase = request?.phase;
-  const workEvents = requestEvents(request);
+  const visibleWork = !state.startingNewChat && state.work?.owner.conversationId === state.selectedConversationId ? state.work : null;
+  const workEvents = requestEvents(request, Boolean(visibleWork));
+  renderWorkRequest(document.querySelector("#request-work"), visibleWork, { act: workAction, openFile: openFilePreview, error: state.workError });
   const working = !state.startingNewChat && (
     state.summary?.state === "running"
     || requestPhase === "working"
@@ -989,7 +1008,7 @@ function renderMessages() {
   const messagesChanged = reconcileMessageRows(rows, visible, sameConversation && container.dataset.rendered === "true");
   const workChanged = replaceHtmlIfChanged(workStatus, `
     ${workEvents.map((event) => `<div class="work-event ${event.state}"${event.title ? ` title="${escapeAttribute(event.title)}"` : ""}><span class="work-event-mark" aria-hidden="true"></span><span>${event.html}</span></div>`).join("")}
-    ${working && !workEvents.some((event) => event.state === "running") ? `<div class="working-row"><span class="spinner"></span><span>${escapeHtml(state.liveActivity || "Working")}</span></div>` : ""}
+    ${working && !visibleWork && !workEvents.some((event) => event.state === "running") ? `<div class="working-row"><span class="spinner"></span><span>${escapeHtml(state.liveActivity || "Working")}</span></div>` : ""}
   `);
   if (workChanged) {
     const resultLinks = requestResultLinks(request);
@@ -1047,12 +1066,12 @@ function reconcileMessageRows(container, messages, animateNew) {
       }
       changed = true;
     }
-    row.classList.toggle("user", message.role === "user");
+    row.classList.toggle("user", message.role === "user" && message.kind !== "assistant_continuation");
     row.classList.toggle("assistant", message.role === "assistant");
     row.classList.toggle("web", message.source === "remote_web");
     row.classList.toggle("pending", message.pending === true);
     row.classList.toggle("streaming", message.streaming === true);
-    changed = replaceHtmlIfChanged(row, `
+    changed = replaceHtmlIfChanged(row, message.kind === "assistant_continuation" ? `<p class="work-continuation">Continuing with the results from delegated work.</p>` : `
       <div class="message-role"${message.createdAt ? ` title="${escapeAttribute(cardTime(message.createdAt))}"` : ""}>${message.role === "assistant" ? escapeHtml(assistantLabel()) : "You"}</div>
       <div class="message-content"><div class="message-body markdown">${renderMarkdown(message.content)}</div>${message.attachments?.length ? `<div class="message-attachments">${message.attachments.map((attachment) => `<span>${fileGlyph(attachment.kind)}${escapeHtml(attachment.name)}</span>`).join("")}</div>` : ""}${message.streaming && message.truncated ? `<div class="live-reply-limit">The rest will appear when this reply finishes.</div>` : ""}</div>
     `) || changed;
@@ -1070,10 +1089,10 @@ function reconcileMessageRows(container, messages, animateNew) {
   return changed;
 }
 
-function requestEvents(request) {
+function requestEvents(request, hasWork = false) {
   if (!request || typeof request !== "object") return [];
   const events = [];
-  const children = Array.isArray(request.children) ? request.children : [];
+  const children = !hasWork && Array.isArray(request.children) ? request.children : [];
   for (const child of children) {
     if (!child?.spaceName) continue;
     const spaceName = `<strong>${escapeHtml(child.spaceName)}</strong>`;
@@ -1102,12 +1121,12 @@ function requestEvents(request) {
       events.push({ state: "succeeded", html: `Added <strong>${escapeHtml(attachment)}</strong> as <strong>${escapeHtml(spaceName)}</strong>` });
     }
   }
-  if (request.phase === "failed" && !events.some((event) => event.state === "failed")) {
+  if (!hasWork && request.phase === "failed" && !events.some((event) => event.state === "failed")) {
     events.push({ state: "failed", html: "Couldn’t finish", title: request.error || "" });
-  } else if (request.phase === "stopped" && !events.some((event) => event.state === "stopped")) {
+  } else if (!hasWork && request.phase === "stopped" && !events.some((event) => event.state === "stopped")) {
     events.push({ state: "stopped", html: "Stopped" });
   }
-  const results = requestResultLinks(request);
+  const results = requestResultLinks(request).filter((result) => !hasWork || result.kind !== "file");
   if (results.length) events.push({ state: "result", html: `<span class="request-result-links">${results.map((result) => result.kind === "file"
     ? `<button type="button" class="quiet" data-space-id="${escapeAttribute(result.spaceId)}" data-result-file="${escapeAttribute(result.path)}" title="${escapeAttribute(result.spaceName)} · ${escapeAttribute(result.path)}">${escapeHtml(result.label)}</button>`
     : `<button type="button" class="quiet" data-space-id="${escapeAttribute(result.spaceId)}" data-result-app="${escapeAttribute(result.featureInstallationId)}">${escapeHtml(result.label)}</button>`).join("")}</span>` });
@@ -1126,6 +1145,7 @@ async function refreshConversation({ loadTranscript = true } = {}) {
   try {
     if (state.startingNewChat || !state.selectedConversationId) {
       state.summary = { state: "idle" };
+      state.work = null; state.workError = "";
       state.messages = [];
       state.transcriptConversationId = null;
       state.transcriptTruncated = false;
@@ -1138,6 +1158,17 @@ async function refreshConversation({ loadTranscript = true } = {}) {
     const summary = await remote("management.summary", { conversationId });
     if (!conversationRefreshIsCurrent(refreshVersion, conversationId)) return;
     state.summary = summary;
+    if (summary.capabilities?.work && summary.latestRequest?.taskId) {
+      try {
+        const result = await remote("management.work", { taskId: summary.latestRequest.taskId });
+        if (!conversationRefreshIsCurrent(refreshVersion, conversationId)) return;
+        state.work = result.work; state.workError = "";
+      } catch (error) {
+        if (!conversationRefreshIsCurrent(refreshVersion, conversationId)) return;
+        if (state.work?.requestId !== summary.latestRequest.requestId) state.work = null;
+        state.workError = errorText(error);
+      }
+    } else { state.work = null; state.workError = ""; }
     const summaryPhase = summary?.latestRequest?.phase;
     const latest = summary?.latestRequest;
     const active = summary?.state === "running" || summaryPhase === "working" || summaryPhase === "handed_off";
@@ -1827,6 +1858,7 @@ async function readFoldHome() {
   try {
     const glance = await remote("management.glance");
     state.glance = glance.glance ?? null;
+    if (state.questionTaskId) void showWorkQuestion(state.questionTaskId);
     renderFoldHome();
     acknowledgeGlance();
     return true;
@@ -1907,7 +1939,7 @@ function renderFromChats() {
       const conversationId = typeof item.ref?.conversationId === "string" ? item.ref.conversationId : "";
       const known = conversationId && state.conversations.some((conversation) => conversation.id === conversationId);
       const space = item.spaceName ? `<strong>${escapeHtml(item.spaceName)}</strong> · ` : "";
-      return `<li class="glance-item from-chat"><span>${space}${escapeHtml(item.headline ?? "")}</span>${known ? `<button type="button" class="text-button" data-open-chat="${escapeAttribute(conversationId)}">Open chat</button>` : ""}</li>`;
+      return `<li class="glance-item from-chat"><span>${space}${escapeHtml(item.headline ?? "")}</span>${item.canOpenWork && item.ref?.taskId ? `<button type="button" class="text-button" data-open-work="${escapeAttribute(item.ref.taskId)}">Answer</button>` : known ? `<button type="button" class="text-button" data-open-chat="${escapeAttribute(conversationId)}">Open chat</button>` : `<span class="work-detail">Open work-fold on the desktop to answer.</span>`}</li>`;
     }).join("")}</ul>
   </section>`;
 }
@@ -2006,9 +2038,39 @@ function calendarDay(value) {
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+async function showWorkQuestion(taskId) {
+  const changed = state.questionTaskId !== taskId;
+  state.questionTaskId = taskId;
+  const target = document.querySelector("#question-work");
+  if (changed) renderWorkRequest(target, null);
+  const options = { act: workAction, openFile: openFilePreview, onClose: () => {
+    state.questionTaskId = null; renderWorkRequest(target, null);
+  } };
+  try {
+    const result = await remote("management.work", { taskId });
+    if (state.questionTaskId !== taskId) return;
+    renderWorkRequest(target, result.work, options);
+  } catch (error) { if (state.questionTaskId === taskId) renderWorkRequest(target, null, { ...options, error: errorText(error) }); }
+}
+
+async function workAction(action, input, work) {
+  if (fixtureName) {
+    state.work = action === "stop" ? { ...work, state: "stopped", label: "Stopped", canStop: false, canContinue: false, questions: [], questionCount: 0 } : buildWorkFixture(work.owner.conversationId, "partial");
+    return { work: state.work };
+  }
+  if (action === "stop") {
+    await remote("management.stop", { taskId: work.taskId });
+    return remote("management.work", { taskId: work.taskId });
+  }
+  const result = await remote(action === "answer" ? "management.answer" : "management.continue", { taskId: work.taskId, ...input });
+  void refreshConversation(); void refreshFoldHome();
+  return result;
+}
+
 function onFoldHomeClick(event) {
   const button = event.target.closest?.("button");
   if (!button) return;
+  if (button.dataset.openWork) { void showWorkQuestion(button.dataset.openWork); return; }
   if (button.dataset.openChat) {
     void selectConversation(button.dataset.openChat);
     return;
@@ -2405,11 +2467,13 @@ function resumeLiveConnection() {
 }
 
 async function logout() {
+  clearQuestionDrafts();
   try { await api("/api/auth/session", { method: "DELETE", csrf: true }); } catch {}
   location.reload();
 }
 
 function clearGrantFromIdentity() {
+  clearQuestionDrafts();
   for (const key of ["grantId", "generation", "approvalCertificate", "approvalSignature", "deviceSigningPublicJwk", "deviceEncryptionPublicJwk"]) delete state.identity[key];
 }
 

@@ -295,9 +295,15 @@ When a design is ambiguous, prefer the option that best preserves these properti
 - Read the glance — the app-composed digest of running work, needs-you questions and due snoozes, and changes since each surface last looked — on the main window and remote client, with narration on demand that never advances seen markers. The compact popover stays focused on the live conversation and capture.
 - Share "pages your fold serves": one designated file or one reviewed hosted App Instance served live from the desktop at the person's `<name>.work-fold.com` address to link-scoped, read-only viewers — end-to-end encrypted with URL-fragment keys, rate- and byte-budgeted, snapshot caching an explicit labeled opt-in, and revocable desktop-first.
 
+- Follow an explicit request across Assistant turns and delegated work. The
+  [collaboration contract](collaboration-contract.md) provides durable questions,
+  selected result envelopes, non-blocking waits and bounded continuations.
+  Chats, the fold, Apps and the paired browser share the
+  [collaboration experience](collaboration-experience.md): questions answered in
+  place, request-wide Stop, visible results and explicit saved-work recovery.
+
 ### Next product layer
 
-- Build the collaboration primitives amended by [Receipts, not gates](receipts-not-gates.md): durable requests, questions without schemas, budgets as settings, non-blocking waits, and host-routed handoffs.
 - Add a deliberate portable App Project declaration, import/relink, and
   collision model only if it can preserve ordinary-folder semantics without
   treating a copied id as ownership.

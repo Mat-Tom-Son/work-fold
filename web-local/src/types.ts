@@ -92,7 +92,7 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   createdAt: string;
-  kind?: "conversation_title" | "conversation_lifecycle";
+  kind?: "conversation_title" | "conversation_lifecycle" | "assistant_continuation";
   titleSource?: "placeholder" | "generated" | "attempted" | "manual";
   lifecycle?: { archived?: boolean; snoozedUntil?: string | null };
   landing?: ChatMessageLanding;

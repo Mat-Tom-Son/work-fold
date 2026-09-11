@@ -8,6 +8,7 @@ import "@fontsource/poppins/600.css";
 import "@fontsource/poppins/700.css";
 import "../brand.css";
 import "./popover.css";
+import "../../../services/bridge/public/work-request.css";
 import { PopoverApp } from "./PopoverApp";
 
 const platform = window.workFoldDesktop?.app.platform;

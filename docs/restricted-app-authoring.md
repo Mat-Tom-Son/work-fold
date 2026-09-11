@@ -1,5 +1,14 @@
 # Restricted app authoring
 
+> Request lifecycle consolidation: the [collaboration contract](collaboration-contract.md#completion-delivery-and-recovery)
+> governs completion across turns. Questions use `chat ask|answer` or `manage
+> ask|answer`; an accepted answer remains outstanding until linked. The fold,
+> Space and app owners receive bounded, recorded child-result deliveries.
+> App status/stop/usage follow the owned request, and task result reads expose
+> its selected envelope. Counts and transport sizes shown in Limits are fixed
+> in this build; the continuation switch is configurable.
+
+
 This is the canonical package and bridge reference for Space apps that run in
 work-fold's restricted web runtime. Read [Restricted app runtime](restricted-app-runtime.md)
 for the security architecture, lifecycle boundaries, and remaining host gaps.

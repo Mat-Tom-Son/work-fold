@@ -106,7 +106,7 @@ interface Journey {
   release(taskId: string): Promise<void>;
   settled(spaceId: string, taskId: string): Promise<void>;
   /** Close the app and open it again on the same state root, the way a relaunch does. */
-  restart(): Promise<void>;
+  restart(beforeOpen?: () => Promise<void>): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -194,9 +194,10 @@ async function startJourney(prefix: string): Promise<Journey> {
         return status.task.state !== "running";
       }, `turn ${taskId} to settle`);
     },
-    restart: async () => {
+    restart: async (beforeOpen) => {
       drain();
       await api.close();
+      await beforeOpen?.();
       // Only ever one live handle: `configureWorkFoldStateRoot` is
       // process-global, so two open APIs would silently share a state root.
       api = await open();
@@ -361,6 +362,11 @@ test("journey: the fold delegates to a Space, the Space asks once, one answer co
     await j.settled(quotes.id, child.taskId);
     await j.release(root.taskId);
     await j.settled(workFoldManagementScopeId, root.taskId);
+    // The question is delivered even though the child ended before its parent.
+    await waitFor(() => j.api.requests.get(rootRequestId)!.turns.length === 2, "the question delivery");
+    const questionDelivery = j.api.requests.get(rootRequestId)!.turns[1]!;
+    await j.release(questionDelivery.taskId);
+    await j.settled(workFoldManagementScopeId, questionDelivery.taskId);
     const parked = await j.api.actFacade.manageTurnStatus({ taskId: root.taskId });
     assert.equal(parked.task.state, "succeeded", "the fold's own turn finished instead of waiting");
     assert.equal(parked.requestGraph?.state, "waiting");
@@ -429,27 +435,27 @@ test("journey: the fold delegates to a Space, the Space asks once, one answer co
     const afterReport = (await j.ok<{ request: RequestDetail }>(["requests", "show", "--request", rootRequestId, "--json"])).request;
     assert.equal(afterReport.childRequests[0]!.resultRecords[0]!.envelope!.summary, "North is cheaper by $8.");
     assert.equal(j.prompts.length, promptsBefore, "no turn ran to move the result");
-    assert.equal(j.api.requests.get(rootRequestId)!.turns.length, 1);
+    assert.equal(j.api.requests.get(rootRequestId)!.turns.length, 2);
 
     // 10. Every child has now settled after the fold's own turn ended, so the
     //     host brings the fold back exactly once with what came in.
     await j.release(answered.continuation.taskId);
     await j.settled(quotes.id, answered.continuation.taskId);
-    await waitFor(() => j.api.requests.get(rootRequestId)!.turns.length === 2, "the fold to be brought back");
+    await waitFor(() => j.api.requests.get(rootRequestId)!.turns.length === 3, "the fold to be brought back");
     const continuation = j.api.requests.get(rootRequestId)!;
-    assert.equal(continuation.continuationCount, 1);
-    assert.equal(continuation.turns[1]!.role, "continuation");
+    assert.equal(continuation.continuationCount, 2);
+    assert.equal(continuation.turns[2]!.role, "continuation");
     const brought = (await managementTranscript(j.api, root.conversationId))
-      .filter((message) => message.role === "user" && message.requestId === `continuation-${rootRequestId}-1`);
+      .filter((message) => message.role === "user" && message.requestId === `continuation-${rootRequestId}-2`);
     assert.equal(brought.length, 1, "one continuation turn for the whole settle batch");
     assert.match(brought[0]!.content, /Nobody typed this message/);
     assert.match(brought[0]!.content, /succeeded: North is cheaper by \$8\./);
     assert.match(brought[0]!.content, /files: quotes\/comparison\.md/);
     assert.doesNotMatch(brought[0]!.content, gateVocabulary);
-    await j.release(continuation.turns[1]!.taskId);
-    await j.settled(workFoldManagementScopeId, continuation.turns[1]!.taskId);
+    await j.release(continuation.turns[2]!.taskId);
+    await j.settled(workFoldManagementScopeId, continuation.turns[2]!.taskId);
     await new Promise((resolve) => setTimeout(resolve, 250));
-    assert.equal(j.api.requests.get(rootRequestId)!.turns.length, 2, "a continuation never continues itself");
+    assert.equal(j.api.requests.get(rootRequestId)!.turns.length, 3, "a continuation never continues itself");
 
     // 11. The whole journey left receipts and nothing that waited on anyone.
     assert.doesNotMatch(JSON.stringify(j.records), gateVocabulary);
@@ -480,12 +486,16 @@ test("journey: a restart between the question and the answer keeps the request g
     await j.release(root.taskId);
     await j.settled(workFoldManagementScopeId, root.taskId);
 
-    const promptsBefore = j.prompts.length;
-    const journalBefore = await turnOutcomes(j.sandbox);
-    assert.equal(journalBefore.get(child.taskId), "succeeded");
-
-    // The app closes and opens again on the same state root.
-    await j.restart();
+    let promptsBefore = 0;
+    let journalBefore = new Map<string, string>();
+    // Capture after the old host drains: a legitimately accepted follow-up
+    // may still reach its prompt gate while close finishes. Only the new
+    // host is forbidden to redispatch it.
+    await j.restart(async () => {
+      promptsBefore = j.prompts.length;
+      journalBefore = await turnOutcomes(j.sandbox);
+      assert.equal(journalBefore.get(child.taskId), "succeeded");
+    });
     await new Promise((resolve) => setTimeout(resolve, 250));
 
     // Nothing was replayed: no turn prompted, no turn ran, and no settled
@@ -722,3 +732,116 @@ async function portableRecords(spaceRoot: string): Promise<string> {
   await walk(root);
   return parts.join("\n");
 }
+
+
+test("person-facing work follows delegation, routes exact answers, exposes saved answers, and stops the whole request", async () => {
+  const j = await startJourney("work-ui");
+  try {
+    const a = (await j.api.actFacade.createSpace({ name: "Planning" })).space;
+    const b = (await j.api.actFacade.createSpace({ name: "Quotes" })).space;
+    j.held.add(a.id); j.held.add(b.id);
+    const parent = await j.api.actFacade.sendMessage({ space: a.id, newConversation: true, content: "/hold" });
+    const child = await j.api.actFacade.sendMessage({ space: b.id, newConversation: true, content: "/hold", parentTaskId: parent.taskId });
+    const question = await j.api.actFacade.chatAsk({ space: b.id, taskId: child.taskId, question: "Which currency?", respondent: "person" });
+    await j.release(child.taskId); await j.settled(b.id, child.taskId);
+    const root = j.api.requests.byTaskId(parent.taskId)!;
+    const read = async () => {
+      const response = await fetch(`${j.api.origin}/api/spaces/${a.id}/conversations/${parent.conversationId}/work`);
+      assert.equal(response.status, 200);
+      return (await response.json() as any).work;
+    };
+    const post = (action: string, body: unknown) => fetch(`${j.api.origin}/api/requests/${root.requestId}/${action}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const view = await read();
+    assert.equal(view.requestId, root.requestId);
+    assert.equal(view.canStop, true);
+    assert.equal(view.questions[0].text, "Which currency?");
+    assert.equal(view.questions[0].from, "Quotes");
+    assert.equal(view.questions[0].canAnswer, true);
+    assert.equal(view.children[0].label, "Needs your answer");
+    const answered = await post("answer", { questionId: question.question.questionId, answer: "/hold" });
+    assert.equal(answered.status, 200, await answered.text());
+    const continued = j.api.requests.byTaskId(child.taskId)!;
+    assert.equal(continued.turns.length, 2);
+    assert.equal((await read()).questions.length, 0);
+    const replay = await post("answer", { questionId: question.question.questionId, answer: "/hold" });
+    assert.equal(replay.status, 200);
+    assert.equal(j.api.requests.byTaskId(child.taskId)!.turns.length, 2);
+    const other = await j.api.actFacade.chatAsk({ space: b.id, taskId: continued.turns[1]!.taskId, question: "Confirm the date?", respondent: "person" });
+    await j.release(continued.turns[1]!.taskId); await j.settled(b.id, continued.turns[1]!.taskId);
+    await j.api.requests.answer({ questionId: other.question.questionId, answer: "/hold" });
+    assert.equal((await read()).questions[0].state, "recorded");
+    assert.equal((await read()).children[0].label, "Ready to continue");
+    const stop = await fetch(`${j.api.origin}/api/spaces/${a.id}/conversations/${parent.conversationId}/abort`, { method: "POST" });
+    assert.equal(stop.status, 200);
+    assert.equal(j.api.requests.get(root.requestId)!.state, "stopped");
+    assert.equal(j.api.requests.question(other.question.questionId)!.state, "cancelled");
+    assert.equal((await read()).canStop, false);
+    const late = await post("answer", { questionId: other.question.questionId, answer: "/hold" });
+    assert.notEqual(late.status, 200);
+    await j.release(parent.taskId);
+  } finally { await j.close(); }
+});
+
+test("paired work views admit only the browser's management request and its descendants", async () => {
+  const j = await startJourney("work-ui-remote");
+  try {
+    const space = (await j.api.actFacade.createSpace({ name: "Research" })).space;
+    j.held.add(workFoldManagementScopeId); j.held.add(space.id);
+    const principal = { browserId: "browser-one", grantId: "grant-one", requestId: "remote-origin" };
+    const root = await j.api.remoteFacade.execute("management.send", { content: "/hold", newConversation: true }, principal) as any;
+    const child = await j.api.actFacade.sendMessage({ space: space.id, newConversation: true, content: "/hold", parentTaskId: root.taskId });
+    const question = await j.api.actFacade.chatAsk({ space: space.id, taskId: child.taskId, question: "Which region?", respondent: "person" });
+    await j.release(child.taskId); await j.settled(space.id, child.taskId);
+    const work = await j.api.remoteFacade.execute("management.work", { taskId: child.taskId }, principal) as any;
+    assert.equal(work.work.questions[0].id, question.question.questionId);
+    await assert.rejects(j.api.remoteFacade.execute("management.work", { taskId: child.taskId }, { ...principal, grantId: "another-grant" }), /another surface/);
+    await assert.rejects(j.api.remoteFacade.execute("management.answer", { taskId: root.taskId, questionId: question.question.questionId, answer: "/hold" }, { ...principal, browserId: "other-browser" }), /another surface/);
+    await j.api.remoteFacade.execute("management.answer", { taskId: root.taskId, questionId: question.question.questionId, answer: "/hold" }, principal);
+    assert.equal(j.api.requests.byTaskId(child.taskId)!.turns.length, 2);
+    const local = await j.api.actFacade.sendMessage({ space: space.id, newConversation: true, content: "/hold" });
+    const localQuestion = await j.api.actFacade.chatAsk({ space: space.id, taskId: local.taskId, question: "Private question", respondent: "person" });
+    await assert.rejects(j.api.remoteFacade.execute("management.answer", { taskId: root.taskId, questionId: localQuestion.question.questionId, answer: "/hold" }, principal), /does not belong/);
+    const glance = await j.api.remoteFacade.execute("management.glance", {}, principal) as any;
+    assert.equal(glance.glance.needsYou.find((item: any) => item.ref.questionId === localQuestion.question.questionId).canOpenWork, false);
+  } finally { await j.close(); }
+});
+
+test("saved delegated files are usable and an explicit follow-up carries those results once", async () => {
+  const j = await startJourney("work-ui-results");
+  try {
+    await j.api.requests.setContinuationsEnabled(false);
+    const a = (await j.api.actFacade.createSpace({ name: "Planning" })).space;
+    const b = (await j.api.actFacade.createSpace({ name: "Quotes" })).space;
+    j.held.add(a.id); j.held.add(b.id);
+    const parent = await j.api.actFacade.sendMessage({ space: a.id, newConversation: true, content: "/hold" });
+    const child = await j.api.actFacade.sendMessage({ space: b.id, newConversation: true, content: "/hold", parentTaskId: parent.taskId });
+    await writeFile(join(b.spaceRoot, "comparison.txt"), "North: $42; South: $50");
+    await j.api.actFacade.chatReport({ space: b.id, taskId: child.taskId, summary: "North costs eight dollars less.", outcome: "partial", files: ["comparison.txt"] });
+    await j.release(child.taskId); await j.settled(b.id, child.taskId);
+    await j.release(parent.taskId); await j.settled(a.id, parent.taskId);
+    const record = j.api.requests.byTaskId(parent.taskId)!;
+    const response = await fetch(`${j.api.origin}/api/tasks/${parent.taskId}/work`);
+    const view = (await response.json() as any).work;
+    assert.equal(view.state, "partial");
+    assert.equal(view.label, "Partly finished");
+    assert.equal(view.canContinue, true);
+    assert.equal(view.result.files[0].spaceId, b.id);
+    assert.equal(view.result.files[0].path, "comparison.txt");
+    const resume = () => fetch(`${j.api.origin}/api/requests/${record.requestId}/continue`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ deliveryId: "manual-ui-once" }) });
+    const accepted = await resume();
+    assert.equal(accepted.status, 200, await accepted.text());
+    const replay = await resume();
+    assert.equal(replay.status, 200, await replay.text());
+    assert.equal(j.api.requests.get(record.requestId)!.turns.length, 2);
+    assert.deepEqual(j.api.requests.get(record.requestId)!.deliveredChildTaskIds, [child.taskId]);
+    const transcript = await readFile(join(conversationsDir(a.spaceRoot), `${parent.conversationId}.jsonl`), "utf8");
+    const followup = transcript.trim().split("\n").map((line) => JSON.parse(line)).find((message) => message.kind === "assistant_continuation");
+    assert.ok(followup);
+    assert.match(followup.content, /North costs eight dollars less/);
+    assert.match(followup.content, /comparison.txt/);
+    const currentTask = j.api.requests.get(record.requestId)!.turns.at(-1)!.taskId;
+    await j.release(currentTask); await j.settled(a.id, currentTask);
+    const finished = await fetch(`${j.api.origin}/api/tasks/${parent.taskId}/work`);
+    assert.equal((await finished.json() as any).work.canContinue, false, "delivered results do not offer another synthesis");
+  } finally { await j.close(); }
+});

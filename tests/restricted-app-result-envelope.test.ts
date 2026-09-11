@@ -80,6 +80,7 @@ async function fixture(t: test.TestContext, options: { actions?: RestrictedAppAs
   let service = await RestrictedAppTaskService.create({ path, ports, now: () => now });
   return {
     path,
+    ports,
     turns,
     get service() { return service; },
     file: async (actionId = action.id) => {
@@ -121,6 +122,11 @@ test("a filed report carries its summary, its outcome, validated details and the
   assert.equal(result.outcome, "partial", "the Assistant's own account of the outcome survives");
   assert.deepEqual(result.data, { cheapest: "North", total: 42 });
   assert.deepEqual(result.files, [{ path: "exports/comparison.md", sha256: sha256("comparison"), sizeBytes: 512 }]);
+  assert.equal((await f.service.list(scope))[0].result, undefined, "the sandbox list stays content-free");
+  const primary = (await f.service.list(scope, "installation", "summary"))[0].result!;
+  assert.equal(primary.summary, result.summary, "the trusted Apps screen gets its primary summary");
+  assert.deepEqual(primary.files, result.files);
+  assert.equal(primary.data, undefined, "structured details stay in the individual read");
 
   await f.restart();
   assert.deepEqual((await f.service.get(scope, task.requestId)).result, result, "the envelope survives a restart intact");
@@ -275,4 +281,33 @@ test("the dispatched Chat is told how to report and what shape the app asked for
   const plain = restrictedAppTaskPrompt({ title: "Summarize", instructions: "Do it.", inputJson: "{}" }, "Quote board");
   assert.doesNotMatch(plain, /JSON Schema/);
   assert.match(plain, /work-fold chat report/);
+});
+
+
+test("an unavailable selected report is a retriable read failure, never fallback success", async (t) => {
+  const f = await fixture(t); const task = await f.file();
+  f.settle(task.id, "Earlier reply");
+  f.ports.findReport = async () => { throw new Error("temporary report read failure"); };
+  await assert.rejects(f.service.get(scope, task.requestId), /temporary report read failure/);
+  f.ports.findReport = async () => ({ summary: "Recovered selected result", outcome: "succeeded", truncated: false });
+  assert.equal((await f.service.get(scope, task.requestId)).result?.summary, "Recovered selected result");
+});
+
+test("status polling reuses a validated report but follows a later request turn", async (t) => {
+  const f = await fixture(t); const task = await f.file();
+  const origin = f.turns.get(task.id)!;
+  let latest = origin;
+  let reads = 0;
+  f.ports.findRequest = () => ({ state: latest.status === "succeeded" ? "done" : "working", taskIds: [origin.turnId, latest.turnId], turn: latest, usage: { turns: 1, inputTokens: 10, outputTokens: 5, amountUsdComplete: false } });
+  f.ports.findReport = async () => ({ summary: `Result ${++reads}`, outcome: "succeeded", truncated: false });
+  f.settle(task.id, "Initial result");
+  assert.equal((await f.service.get(scope, task.requestId)).result?.summary, "Result 1");
+  await f.service.get(scope, task.requestId);
+  assert.equal(reads, 1);
+  latest = { ...origin, turnId: "later-turn", status: "running", updatedAt: "2026-09-07T12:01:00.000Z" };
+  const running = await f.service.get(scope, task.requestId);
+  assert.equal(running.status, "running");
+  assert.equal(running.result, undefined);
+  latest.status = "succeeded";
+  assert.equal((await f.service.get(scope, task.requestId)).result?.summary, "Result 2");
 });

@@ -510,3 +510,11 @@ with file-copy, Chat, Check, and fold steps and two placeholders. The fold is in
 before authoring. The example is checked against the real proposal validator;
 it documents the nested `routing` envelope, additive copies, observer pauses,
 and the distinction between a completed Check run and clear findings.
+
+
+A Chat or fold hop follows its durable request through answer and synthesis
+turns. A question ends this routing at that hop with a visible failure and a
+Chat reference; answering continues the request, never the remaining routing
+effects. A completed hop carries the selected result envelope internally,
+while its receipt keeps identifiers and attribution rather than copying the
+report's content. Created-file steps still use their declared checkpoint diff.

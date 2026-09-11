@@ -18,7 +18,8 @@ const internalProtocol = argumentValue("internal-protocol");
 const maxStagedItems = 16;
 const maxStagedValueLength = 4_096;
 
-// This window only needs the local API session and five fixed popover actions. Keep
+// This window needs the local API session, fixed popover actions, and opening
+// a selected Space-relative result through the existing checked path handler. Keep
 // it separate from the main renderer preload so a UI bug here cannot reach
 // folder pickers, restricted-app brokers, updates, settings, or shell actions.
 contextBridge.exposeInMainWorld("workFoldDesktop", {
@@ -34,6 +35,7 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
     iconUrl: internalProtocol ? `${internalProtocol}://app/_desktop-assets/icon-32.png` : "",
   },
   management: {
+    openResultFile: (spaceId: string, path: string) => ipcRenderer.invoke("work-fold:space:open-path", { spaceId, path, action: "open" }),
     openChecks: (spaceId: string) => ipcRenderer.invoke("work-fold:management:open-checks", spaceId),
     getPathForFile: (file: File): string => {
       try {

@@ -1,5 +1,14 @@
 # Restricted app runtime
 
+> Request lifecycle consolidation: the [collaboration contract](collaboration-contract.md#completion-delivery-and-recovery)
+> governs completion across turns. Questions use `chat ask|answer` or `manage
+> ask|answer`; an accepted answer remains outstanding until linked. The fold,
+> Space and app owners receive bounded, recorded child-result deliveries.
+> App status/stop/usage follow the owned request, and task result reads expose
+> its selected envelope. Counts and transport sizes shown in Limits are fixed
+> in this build; the continuation switch is configurable.
+
+
 work-fold has a second executable lane for apps an agent creates for a Space.
 These apps can render arbitrary reviewed web UI in the left navigator and open
 normal persistent tabs in the work area. They are intentionally separate from

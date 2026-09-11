@@ -36,9 +36,10 @@ The replacement principle is **receipts, not gates**:
 5. **The only human-only surfaces are not work.** Entering a secret,
    pairing a browser, and enrolling a remote address establish identity or
    secrets. No task ever needs them mid-flight, so they never block a task.
-6. **Bounds are defaults, not caps.** Limits exist so a runaway stops and so
-   envelopes stay sane. They are generous, visible in Settings where a
-   person might want to raise them, and every limit hit names the limit.
+6. **Bounds are visible and named.** Limits stop runaway work and keep
+   transport envelopes bounded. Counts and sizes are fixed in this build;
+   Settings shows their values. The continuation switch and trash retention
+   are configurable. Every limit hit names the limit.
 7. **One shape for everyone.** The fold, a Space Assistant, an app, a
    routing, and an outside harness on the CLI use the same verbs, the same
    receipts, the same result and question shapes. A feature that needs its

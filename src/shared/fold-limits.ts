@@ -85,6 +85,8 @@ export const workFoldRequestLimits = Object.freeze({
   maxResultDataBytes: 256 * 1024,
   maxResultFiles: 32,
   maxQuestionsPerRequest: 64,
+  /** UI page size; further questions follow as earlier answers are delivered. */
+  questionsPerPresentation: 4,
   maxResultsPerRequest: 64,
   maxTurnsPerRequest: 64,
   /** The assignment text a request record keeps for its own projection. */

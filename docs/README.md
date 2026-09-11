@@ -16,7 +16,7 @@ instruction to implement its contents.
 | Native Assistant capabilities | [Skills, Extensions, packages, and scopes](assistant-capabilities.md), [Pi resources](pi-resources.md), [Declarative Extension surfaces](extension-surfaces.md) |
 | Restricted Space apps | [Authoring](restricted-app-authoring.md), [Runtime](restricted-app-runtime.md), [App platform foundation](app-platform-foundation.md) |
 | Web access and sharing | [Bridge operations](../services/bridge/README.md), [Publishing and viewers](fold-publishing.md), [Privacy](../PRIVACY.md), [Security](../SECURITY.md) |
-| Desktop interaction and appearance | [Desktop parity](ui-parity.md), [Visual system](visual-design.md), [Space customization](space-customization.md) |
+| Desktop interaction and appearance | [Desktop parity](ui-parity.md), [Collaboration experience](collaboration-experience.md), [Visual system](visual-design.md), [Space customization](space-customization.md) |
 | Mac distribution | [Build lanes](macos-build.md), [Release procedure](macos-release.md), [Release notes and candidate history](releases/README.md) |
 
 The App platform's [ontology](app-platform-ontology.md),

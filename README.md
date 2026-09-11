@@ -56,3 +56,16 @@ Open **http://localhost:5173** for the browser development UI. See [Contributing
 Check changes with `npm run check` and `npm test`; run `npm run desktop:prepare` for desktop integration changes. The [docs map](docs/README.md) covers architecture, product decisions, and release procedures. [AGENTS.md](AGENTS.md) is the shared contributor contract.
 
 [MIT License](LICENSE) · [Security](SECURITY.md) · [CI](https://github.com/Mat-Tom-Son/work-fold/actions/workflows/ci.yml)
+
+
+The [collaboration contract](docs/collaboration-contract.md#completion-delivery-and-recovery)
+tracks work across model turns: durable questions and answer delivery, bounded
+continuations for each owner, and selected request results. The request graph
+and original assignments remain machine-local. Only deliberately released
+child reports enter a Space Chat; app task reads remain pinned to their own
+installation. See the contract for stop, expiry and restart behavior.
+
+The [collaboration experience](docs/collaboration-experience.md) brings that work
+into Chats, the fold, Apps, and the paired browser: visible progress, questions
+answered in place, selected files that open directly, and explicit recovery for
+saved work.

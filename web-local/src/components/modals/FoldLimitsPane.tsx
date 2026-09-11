@@ -15,14 +15,13 @@ import { foldLimitsSettings } from "../../ui-contract";
 
 /**
  * Settings → The fold → Limits (docs/receipts-not-gates.md, F19 principle 6:
- * bounds are defaults, not caps, and they are "visible in Settings where a
- * person might want to raise them"). Every app and routing refusal names this
+ * bounds are visible and named). Every app and routing refusal names this
  * section, so this pane is where those phrases resolve.
  *
  * The bounds are frozen constants. The one adjustable number — how long
  * Recently deleted keeps an item — is set in its own pane, which this one
  * links to, and the one switch — whether finished handed-out work is brought
- * back to the fold as a turn (docs/collaboration-contract.md, F28) — lives
+ * back to its owner as a turn (docs/collaboration-contract.md, F28) — lives
  * here. Every shown value is read from the frozen contract the host enforces
  * (`restrictedAppAssistantLimits`, `restrictedAppInferenceLimits`,
  * `workFoldRequestLimits`, `workFoldRoutingDeclarationBounds`,

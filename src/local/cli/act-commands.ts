@@ -50,6 +50,8 @@ export type WorkFoldCliActCommandName =
   // F27). Delivery is host-side: no fold model turn moves a report, an
   // answer, or a handoff.
   | "chat.report"
+  | "manage.ask"
+  | "manage.answer"
   | "chat.ask"
   | "chat.answer"
   | "chat.handoff"
@@ -623,6 +625,8 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "chat report",
     "chat ask",
     "chat answer",
+    "manage ask",
+    "manage answer",
     "chat handoff",
     "history save",
     "history restore",
@@ -821,18 +825,19 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         ...(parentTaskId ? { parentTaskId } : {}),
       };
     }
+    case "manage ask":
     case "chat ask": {
       // F27: recording a question never suspends the asking turn. The turn
       // ends; the task's request is what waits.
-      allowOnlyFlags("--space", "--task", "--question", "--to", "--parent-task");
+      allowOnlyFlags(...(command === "manage ask" ? ["--task", "--question", "--parent-task"] : ["--space", "--task", "--question", "--to", "--parent-task"]));
       const rawRespondent = stringFlag("--to")?.trim();
       if (rawRespondent !== undefined && rawRespondent !== "person" && rawRespondent !== "parent") {
         throw usageError("--to must be person or parent.");
       }
       return {
-        name: "chat.ask",
+        name: command === "manage ask" ? "manage.ask" : "chat.ask",
         output,
-        space: requireSpace(),
+        ...(command === "chat ask" ? { space: requireSpace() } : {}),
         task: requireBoundedFlag("--task", "task-id"),
         // Free text here; `chat answer --question` carries an id. That is the
         // contract's spelling, not an oversight.
@@ -843,14 +848,15 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         ...(parentTaskId ? { parentTaskId } : {}),
       };
     }
+    case "manage answer":
     case "chat answer":
       // --space names the Space that owns the question and in which the one
       // linked continuation runs; an answer from anywhere else is refused.
-      allowOnlyFlags("--space", "--question", "--answer", "--parent-task");
+      allowOnlyFlags(...(command === "manage answer" ? ["--question", "--answer", "--parent-task"] : ["--space", "--question", "--answer", "--parent-task"]));
       return {
-        name: "chat.answer",
+        name: command === "manage answer" ? "manage.answer" : "chat.answer",
         output,
-        space: requireSpace(),
+        ...(command === "chat answer" ? { space: requireSpace() } : {}),
         questionId: requireBoundedFlag("--question", "question-id"),
         answer: requireCollaborationText("--answer", "text", "answerText", workFoldRequestLimits.maxAnswerTextBytes),
         ...(parentTaskId ? { parentTaskId } : {}),
@@ -1876,7 +1882,7 @@ async function runActCommand(
         : toJson(await facade.conversationStatus({ space: command.space!, conversationId: command.conversation! }));
     case "chat.result":
       return command.task
-        ? toJson(await facade.turnResult({ space: command.space!, taskId: command.task }))
+        ? toChecksJson(await facade.turnResult({ space: command.space!, taskId: command.task }))
         : toJson(await facade.conversationResult({
             space: command.space!,
             conversationId: command.conversation!,
@@ -1896,6 +1902,20 @@ async function runActCommand(
         ...(command.resultDataPath ? { dataPath: command.resultDataPath, cwd: request.cwd } : {}),
         files: command.files ?? [],
         outcome: command.outcome ?? "succeeded",
+        requestId: request.id,
+        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
+      }));
+    case "manage.ask":
+      return toChecksJson(await facade.manageAsk({
+        taskId: command.task!,
+        question: command.question!,
+        requestId: request.id,
+        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
+      }));
+    case "manage.answer":
+      return toChecksJson(await facade.manageAnswer({
+        questionId: command.questionId!,
+        answer: command.answer!,
         requestId: request.id,
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));
@@ -1954,7 +1974,7 @@ async function runActCommand(
           }));
     case "manage.result":
       return command.task
-        ? toJson(await facade.manageTurnResult({ taskId: command.task }))
+        ? toChecksJson(await facade.manageTurnResult({ taskId: command.task }))
         : toJson(await facade.manageConversationResult({
             ...(command.conversation ? { conversationId: command.conversation } : {}),
             ...(command.messages !== undefined ? { messages: command.messages } : {}),
@@ -2664,7 +2684,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
               `Question ${terminalText(waiting.questionId)}: ${clampLine(waiting.question)}`,
               ...(record.space && typeof record.space.id === "string"
                 ? [`Answer it with: work-fold chat answer --space ${terminalText(record.space.id)} --question ${terminalText(waiting.questionId)} --answer "<text>" --json`]
-                : []),
+                : [`Answer it with: work-fold manage answer --question ${terminalText(waiting.questionId)} --answer "<text>" --json`]),
               "",
             ].join("\n")
           : "";
@@ -2696,6 +2716,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         : "";
       return `Reported ${terminalText(result?.outcome)} on task ${terminalText(record.taskId)} in ${spaceLabel}.${fileLine}\nRequest ${terminalText(request?.id)} — ${terminalText(request?.state)}.\n`;
     }
+    case "manage.ask":
     case "chat.ask": {
       const question = record.question as { questionId?: string; respondent?: string; expiresAt?: string } | undefined;
       const to = record.redirectedToPerson
@@ -2703,6 +2724,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         : question?.respondent === "parent" ? "the request above this one" : "you";
       return `Asked ${to}. Question ${terminalText(question?.questionId)}, open until ${terminalText(question?.expiresAt)}.\nTask ${terminalText(record.taskId)} is waiting.\n`;
     }
+    case "manage.answer":
     case "chat.answer": {
       const question = record.question as { questionId?: string } | undefined;
       const continuation = record.continuation as { taskId?: string; conversationId?: string } | undefined;
@@ -3820,10 +3842,12 @@ function actReceiptDetail(
       const files = countOf(outcome.files);
       return `report ${typeof outcome.outcome === "string" ? outcome.outcome : "unknown"}; ${files} file${files === 1 ? "" : "s"}`;
     }
+    case "manage.ask":
     case "chat.ask":
       return typeof record.question?.questionId === "string"
         ? `question ${record.question.questionId} to ${record.redirectedToPerson ? "person (redirected from parent)" : typeof record.question.respondent === "string" ? record.question.respondent : "person"}`
         : undefined;
+    case "manage.answer":
     case "chat.answer":
       return typeof record.question?.questionId === "string"
         ? `answered ${record.question.questionId}; continuation ${typeof record.continuation?.taskId === "string" ? record.continuation.taskId : "none"}`

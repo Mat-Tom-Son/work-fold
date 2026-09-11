@@ -306,7 +306,7 @@ test("journey: an app's assistant task produces a deliverable, returns the one r
     restrictedApps,
     // The app's own task writes the deliverable; every other turn is held
     // open so a verb can run inside it.
-    script: (body) => (/App request:/.test(body) && !/"role":"tool"/.test(body)
+    script: (body) => body.includes("Write a specific 3 to 7 word title") ? { kind: "text", text: "Comparison" } : (/App request:/.test(body) && !/"role":"tool"/.test(body)
       ? { kind: "tool", name: "write", arguments: { path: "comparison.md", content: comparisonBytes } }
       : { kind: "hold" }),
   });
@@ -438,10 +438,17 @@ test("journey: an app's assistant task produces a deliverable, returns the one r
       false,
     );
 
-    // 9. The held turns finish honestly, and the app's task settles as the
-    //    ordinary Pi turn it always was.
+    // 9. The app request synthesizes its child result before completing.
     j.provider.release("Saved comparison.md.");
-    await waitFor(async () => (await j.api.appAssistantTasks.get(scope, requestId)).status === "succeeded", "the app task to settle");
+    await waitFor(() => j.api.requests.get(appRequest.requestId)!.turns.length === 2, "the app synthesis turn");
+    await j.provider.waitForHolds(1);
+    const synthesis = j.api.requests.get(appRequest.requestId)!.turns.at(-1)!;
+    await j.api.actFacade.chatReport({ space: quotes.id, taskId: synthesis.taskId, summary: "North is cheaper by $8; the review confirmed the figures.", outcome: "succeeded", files: ["comparison.md"] });
+    j.provider.release("Reviewed comparison saved.");
+    await waitFor(async () => {
+      j.provider.release("Reviewed comparison saved.");
+      return (await j.api.appAssistantTasks.get(scope, requestId)).status === "succeeded";
+    }, "the app request to settle");
     // What the app itself reads back is the same envelope vocabulary the act
     // lane returned: a summary, an F29 outcome, and deliverables whose digests
     // are the bytes on disk.
@@ -456,7 +463,7 @@ test("journey: an app's assistant task produces a deliverable, returns the one r
       );
     }
     const journal = (await readFile(join(j.sandbox, "state", "turns", "turns.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { conversationId?: string; status?: string; fileChanges?: { files?: Array<{ path: string }> } });
-    const settled = journal.filter((record) => record.conversationId === `chat-app-${started.id}` && record.status === "succeeded").at(-1)!;
+    const settled = journal.find((record) => record.conversationId === `chat-app-${started.id}` && record.status === "succeeded" && record.fileChanges?.files?.some((file) => file.path === "comparison.md"))!;
     assert.deepEqual(settled.fileChanges?.files?.map((file) => file.path), ["comparison.md"], "the deliverable has durable evidence of its own");
   } finally {
     await j.close();
@@ -623,3 +630,62 @@ async function writeAppPackage(root: string): Promise<void> {
   await writeFile(join(root, "app.js"), "export {};\n", "utf8");
   await writeFile(join(root, "worker.js"), "export async function handleAction() { return { count: 0 }; }\n", "utf8");
 }
+
+test("an app Assistant task remains pending after asking a question", {timeout:30000}, async () => {
+  const appsPath = await mkdtemp(join(tmpdir(), "review-apps-"));
+  const apps = await RestrictedAppService.create({ rootPath: join(appsPath,"apps"), deferAutomationStart:true });
+  const j = await startModelJourney("review-question", {
+    restrictedApps: apps,
+    script: body => body.includes("Write a specific 3 to 7 word title") ? {kind:"text",text:"Quote question"} : {kind:"hold"}
+  });
+  try {
+    const {space} = await j.api.actFacade.createSpace({name:"Quotes"});
+    await writeAppPackage(join(space.spaceRoot,"app"));
+    const manifestPath = join(space.spaceRoot, "app", "agent-app.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.assistantActions[0].outputSchema = { type: "object", properties: { winner: { type: "string" } }, required: ["winner"], additionalProperties: false };
+    await writeFile(manifestPath, JSON.stringify(manifest));
+    const review = await apps.inspect({spaceId:space.id,spaceRoot:space.spaceRoot,sourcePath:"app"});
+    const app = await apps.install({spaceId:space.id,spaceRoot:space.spaceRoot,sourcePath:"app",expectedDigest:review.digest});
+    const scope = {spaceId:space.id,appId:app.manifest.id,featureInstallationId:app.featureInstallationId,digest:app.digest,authorityDigest:restrictedAppTaskAuthorityDigest(app.authority)};
+    const requestId=randomUUID();
+    const task=await j.api.appAssistantTasks.request(scope,{actionId:"compare",input:{quote:"North $42"},requestId,requestedAt:new Date().toISOString()});
+    await j.provider.waitForHolds(1);
+    const req=j.api.requests.list().find(r=>r.kind==="app")!;
+    const taskId=req.turns[0]!.taskId;
+    await j.api.actFacade.chatAsk({space:space.id,taskId,question:"Which currency?",respondent:"person"});
+    j.provider.release("Which currency should I use?");
+    await waitFor(async()=>{
+      // Title generation uses a second request; release it as needed.
+      j.provider.release("Quote question");
+      return (await j.api.actFacade.turnStatus({space:space.id,taskId})).task.state!=="running";
+    },"asking turn to end");
+    const observed=await j.api.appAssistantTasks.get(scope,requestId);
+    assert.equal(observed.status, "waiting");
+    assert.equal(observed.result, undefined);
+    const question = j.api.requests.questions(req.requestId)[0]!;
+    const answered = await j.api.actFacade.chatAnswer({ space: space.id, questionId: question.questionId, answer: "USD" });
+    await j.provider.waitForHolds(1);
+    assert.equal((await j.api.appAssistantTasks.get(scope, requestId)).status, "running");
+    await assert.rejects(j.api.actFacade.chatReport({ space: space.id, taskId: answered.continuation.taskId, summary: "Bad shape", data: { wrong: true }, outcome: "succeeded", files: [] }), /shape|winner|required|additional/i);
+    await j.api.actFacade.chatReport({ space: space.id, taskId: answered.continuation.taskId, summary: "North costs 42 USD.", outcome: "succeeded", files: [] });
+    j.provider.release("North costs 42 USD.");
+    await waitFor(async () => (await j.api.appAssistantTasks.get(scope, requestId)).status === "succeeded", "continued app request");
+    const finished = await j.api.appAssistantTasks.get(scope, requestId);
+    assert.equal(finished.result?.summary, "North costs 42 USD.");
+    assert.equal(finished.result?.outcome, "succeeded");
+    assert.equal(j.api.requests.get(req.requestId)?.turns.length, 2);
+    const secondId = randomUUID();
+    const second = await j.api.appAssistantTasks.request(scope, { actionId: "compare", input: { quote: "Another quote" }, requestId: secondId, requestedAt: new Date().toISOString() });
+    await j.provider.waitForHolds(1);
+    const owned = j.api.requests.latestForConversation(`chat-app-${second.id}`, { spaceId: space.id })!;
+    const destination = (await j.api.actFacade.createSpace({ name: "Second opinion" })).space;
+    const child = await j.api.actFacade.chatHandoff({ space: space.id, taskId: owned.turns[0]!.taskId, toSpace: destination.id, message: "Review this quote", files: [] });
+    await j.provider.waitForHolds(2);
+    const stopped = await j.api.appAssistantTasks.cancel(scope, secondId);
+    assert.equal(stopped.status, "cancelled");
+    assert.equal(j.api.requests.get(owned.requestId)?.state, "stopped");
+    assert.equal(j.api.requests.byTaskId(child.taskId)?.state, "stopped");
+
+  } finally { await j.close(); await rm(appsPath,{recursive:true,force:true}); }
+});

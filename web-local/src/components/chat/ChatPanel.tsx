@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useWorkRequest } from "../../hooks/useWorkRequest";
+import { WorkRequest, openWorkFile } from "./WorkRequest";
 import type * as React from "react";
 import { ArrowDown20Regular, ArrowUp20Regular } from "@fluentui/react-icons";
 import { AlertTriangle, Archive, CircleCheck, Clock3, Loader2, Square, X } from "lucide-react";
@@ -142,6 +144,8 @@ export function ChatPanel({
   fixtureTreeEntries?: TreeEntry[];
 }) {
   const [conversation, setConversation] = useState<ConversationSummary | null>(null);
+  const workState = useWorkRequest(!fixtureMode && conversation ? `/api/spaces/${encodeURIComponent(space.id)}/conversations/${encodeURIComponent(conversation.id)}/work` : null);
+  const requestBusy = Boolean(workState.work?.canStop && workState.work.state !== "waiting");
   const activeRef = useRef(active);
   const onRunningChangeRef = useRef(onRunningChange);
   const onSettledRef = useRef(onSettled);
@@ -187,8 +191,8 @@ export function ChatPanel({
   );
 
   useEffect(() => {
-    if (conversation?.id) onRunningChangeRef.current?.(conversation.id, running);
-  }, [conversation?.id, running]);
+    if (conversation?.id) onRunningChangeRef.current?.(conversation.id, running || requestBusy);
+  }, [conversation?.id, running, requestBusy]);
 
   useEffect(() => {
     if (active && conversation?.id) onViewedRef.current?.(conversation.id);
@@ -210,7 +214,7 @@ export function ChatPanel({
   }, [active, conversation?.id, lifecycleView]);
   // Cmd/Ctrl+. stops the running turn from anywhere in the active Chat.
   useEffect(() => {
-    if (!active || !running) return;
+    if (!active || (!running && !workState.work?.canStop)) return;
     function stopKeydown(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key === ".") {
         event.preventDefault();
@@ -219,7 +223,7 @@ export function ChatPanel({
     }
     window.addEventListener("keydown", stopKeydown);
     return () => window.removeEventListener("keydown", stopKeydown);
-  }, [active, running]);
+  }, [active, running, workState.work?.canStop, workState.work?.requestId]);
   const [userPinnedToBottom, setUserPinnedToBottom] = useState(true);
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
@@ -1274,11 +1278,11 @@ export function ChatPanel({
   // The queued draft fires through the ordinary send path the moment the
   // turn settles; the Enter that queued it was the explicit act.
   useEffect(() => {
-    if (running || !queuedSend || lifecycleView !== "active") return;
+    if (running || workState.work?.canStop || !queuedSend || lifecycleView !== "active") return;
     const content = queuedSend;
     setQueuedSend(null);
     void sendMessage(content);
-  }, [running, queuedSend, lifecycleView]);
+  }, [running, queuedSend, lifecycleView, workState.work?.canStop]);
 
   function returnQueuedSendToComposer() {
     if (!queuedSend) return;
@@ -1289,7 +1293,7 @@ export function ChatPanel({
   }
 
   async function abortTurn() {
-    if (!running) return;
+    if (!running && !workState.work?.canStop) return;
     // Stop means everything: a queued follow-up returns to the composer
     // instead of firing into the stopped turn's aftermath.
     returnQueuedSendToComposer();
@@ -1318,6 +1322,7 @@ export function ChatPanel({
     }
     if (!conversation) return;
     try {
+      if (workState.work?.canStop) { await workState.act("stop"); return; }
       await api<{ aborted: boolean }>(`/api/spaces/${space.id}/conversations/${conversation.id}/abort`, { method: "POST" });
     } catch (abortError) {
       setError(errorText(abortError));
@@ -1632,6 +1637,9 @@ export function ChatPanel({
               </button>
             </div>
           ) : null}
+          <WorkRequest {...workState} showProgress={!running} showStop={!running && !requestBusy} onOpenFile={(spaceId, path) => {
+            if (spaceId === space.id && onOpenSpaceFile) onOpenSpaceFile(path); else return openWorkFile(spaceId, path);
+          }} />
           <div className="message-end-sentinel" ref={messageEndRef} aria-hidden="true" />
         </div>
         {!userPinnedToBottom ? (
@@ -1664,7 +1672,7 @@ export function ChatPanel({
         onDrop={handleComposerDrop}
         onSubmit={(event) => {
           event.preventDefault();
-          if (draft.trim() && !running) void sendMessage();
+          if (draft.trim() && !running && !requestBusy) void sendMessage();
         }}
       >
         {dragActive ? <div className="composer-drop-affordance" aria-hidden="true">Attach to chat</div> : null}
@@ -1788,6 +1796,7 @@ export function ChatPanel({
               }
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
+                if (requestBusy && !running) return;
                 if (!draft.trim()) return;
                 if (running) {
                   const content = draft.trim();
@@ -1836,7 +1845,7 @@ export function ChatPanel({
               )
               : null}
           </div>
-          {running ? (
+          {running || requestBusy ? (
             <button className="send-button stop-send-button" type="button" onClick={() => void abortTurn()} aria-label="Stop Assistant" title="Stop Assistant">
               <Square size={15} />
             </button>

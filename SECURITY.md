@@ -156,9 +156,12 @@ own requests, neither the read bridge nor shared viewers can reach them, and
 the private trusted parent outside the frame shows each request and offers
 Stop. Forged frame request messages are refused before entering the encrypted
 adapter.
-Direct task-scoped request status and stop calls through the remote semantic
-adapter are bound to the browser identity and exact grant that accepted the
-request. Summary projections omit task ids and action details for other grants.
+Direct task-scoped request status, work details, addressed answers, explicit
+continuation, and stop calls through the remote semantic adapter are bound to
+the browser identity and exact grant that accepted the root management request.
+These controls include its deliberately linked descendants; unrelated requests
+are refused. Local trusted screens share the same host projection and journaled
+action paths; restricted app bridges and public viewers gain no question access. Summary projections omit task ids and action details for other grants.
 This is not isolation between mutually hostile paired browsers: each can
 still prompt the same full-trust management Assistant inside the product's
 personal single-user trust boundary.
@@ -277,3 +280,11 @@ Feature Installation. Current revisions are resolved explicitly and disclosed;
 removed/reinstalled apps cannot inherit old links. Browser ownership filtering
 excludes file and app references from another browser's aggregate request view.
 These links grant no app powers and do not widen the content-free CLI read lane.
+
+
+The [collaboration contract](docs/collaboration-contract.md#completion-delivery-and-recovery)
+tracks work across model turns: durable questions and answer delivery, bounded
+continuations for each owner, and selected request results. The request graph
+and original assignments remain machine-local. Only deliberately released
+child reports enter a Space Chat; app task reads remain pinned to their own
+installation. See the contract for stop, expiry and restart behavior.

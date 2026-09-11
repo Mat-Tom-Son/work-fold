@@ -1,3 +1,4 @@
+import type { WorkFoldResultEnvelope } from "../requests/request-records.js";
 import { WorkFoldRoutingFileWatch, type WorkFoldRoutingFileObserver, type WorkFoldRoutingFileWatchStatus } from "./routing-file-observer.js";
 import { randomUUID } from "node:crypto";
 
@@ -85,6 +86,8 @@ export interface WorkFoldRoutingChatHopResult {
   conversationId: string;
   turnTaskId: string;
   outcome: "succeeded" | "failed" | "aborted";
+  /** Selected request result, never turn file-change evidence. Null while waiting. */
+  result?: WorkFoldResultEnvelope | null;
   error?: string;
   preCheckpointId?: string;
   postCheckpointId?: string;
@@ -93,7 +96,7 @@ export interface WorkFoldRoutingChatHopResult {
 /** A fold hop's own management turn; it records no checkpoints and names no Space. */
 export type WorkFoldRoutingFoldHopResult = Pick<
   WorkFoldRoutingChatHopResult,
-  "conversationId" | "turnTaskId" | "outcome" | "error"
+  "conversationId" | "turnTaskId" | "outcome" | "error" | "result"
 >;
 
 /** The active findings of a settled Check run, for `{{trigger.findings}}`. */

@@ -203,7 +203,7 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /turn them off in Settings → The fold → Limits/);
     assert.match(managementContext, /chat answer --space <id> --question <id> --answer "<text>" --parent-task <this-request-task-id> --json/);
     assert.match(managementContext, /A second answer, an answer to a question that has expired/);
-    assert.match(managementContext, /There is no management ask verb/);
+    assert.match(managementContext, /work-fold manage ask --task/);
     assert.match(managementContext, /Handoffs are host-routed\./);
     assert.match(managementContext, /A Space Chat receives only its own work\./);
     assert.match(managementContext, /its assignment, answers to its own questions, report summaries someone deliberately released to it, and copied files/);
@@ -223,7 +223,7 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /When a child asked a question, quote the question/);
     assert.match(managementContext, /say whether History or Recently deleted holds it/);
     assert.match(managementContext, /Account for every attached item by name/);
-    assert.match(managementContext, /own final line ending with a question mark/);
+    assert.match(managementContext, /record a question with `manage ask`/);
     // The fold is never taught a gate vocabulary (docs/receipts-not-gates.md
     // acceptance: no user-facing copy says staged, approve, policy, Reviewed,
     // or Unrestricted).
@@ -277,7 +277,7 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(skillContent, /Never busy-wait, sleep, or poll in a loop\./);
     assert.match(skillContent, /the one follow-up turn it starts/);
     assert.match(skillContent, /A second answer, an expired question, or a Space that does not own the question is refused/);
-    assert.match(skillContent, /there is no management ask verb/);
+    assert.match(skillContent, /work-fold manage ask --task/);
     assert.match(skillContent, /asks for a handoff with `chat handoff`/);
     assert.match(skillContent, /bounded at 4 per request by default/);
     assert.match(skillContent, /32 child tasks per request, 4 levels deep, 8 running at once/);

@@ -1,6 +1,6 @@
 {
   "name": "work-fold-desktop",
-  "version": "0.4.23",
+  "version": "0.4.24",
   "private": true,
   "type": "module",
   "description": "A local-first desktop app powered by Pi.",
@@ -97,7 +97,7 @@
     "react-dom": "^19.2.5",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "sharp": "^0.35.3",
+    "sharp": "^0.35.4",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vite": "^8.1.4"
@@ -106,7 +106,7 @@
     "brace-expansion": "5.0.9",
     "extract-zip": "npm:@electron-internal/extract-zip@1.0.5",
     "fast-uri": "3.1.7",
-    "js-yaml": "4.3.1",
+    "js-yaml": "4.3.2",
     "nanoid": "3.3.18",
     "postcss": "8.5.26",
     "protobufjs": "7.6.5",

@@ -336,7 +336,7 @@ test("the state ladder decides the same facts the same way every time", () => {
   assert.equal(workFoldRequestStateToManagementPhase("waiting"), "needs_you");
   assert.equal(workFoldRequestStateToManagementPhase("partial"), "done");
   assert.equal(workFoldRequestStateToManagementPhase("expired"), "stopped");
-  assert.equal(workFoldRequestStateToManagementPhase("done", true), "needs_you");
+  assert.equal(workFoldRequestStateToManagementPhase("done", true), "done");
   assert.equal(workFoldRequestStateToManagementPhase("failed", true), "failed");
 });
 
@@ -420,12 +420,13 @@ test("questions take exactly one answer, from the Space that was asked, inside t
   const answered = await store.answer({ questionId: question.questionId, answer: "Use the 2026 ledger.", answeredBySpaceId: "space-audits" });
   assert.equal(answered.state, "answered");
   assert.equal(answered.answer, "Use the 2026 ledger.");
-  assert.equal(store.get(request.requestId)?.state, "working");
+  assert.equal(store.get(request.requestId)?.state, "waiting");
 
   const second = await store.answer({ questionId: question.questionId, answer: "Actually the 2025 one." })
     .then(() => null, (error: unknown) => error);
   assert.ok(second instanceof WorkFoldRequestLineageError);
 
+  await store.joinTurn({ requestId: request.requestId, taskId: "task-2" });
   const linked = await store.linkContinuation(question.questionId, "task-2");
   assert.equal(linked.continuationTaskId, "task-2");
   const relinked = await store.linkContinuation(question.questionId, "task-3").then(() => null, (error: unknown) => error);
@@ -746,6 +747,9 @@ test("retention removes a settled graph whole and leaves one with work outstandi
   await store.answer({ questionId: oldQuestion.questionId, answer: "Audits." });
   await store.recordResult({ requestId: oldChild.requestId, taskId: "old-2", receiptId: "receipt-1", envelope: { summary: "Placed.", outcome: "succeeded" } });
   await store.settleTurn("old-2", { status: "succeeded", messageId: "reply-2" });
+  await store.joinTurn({ requestId: oldChild.requestId, taskId: "old-answer" });
+  await store.linkContinuation(oldQuestion.questionId, "old-answer");
+  await store.settleTurn("old-answer", { status: "succeeded" });
   await store.settleTurn("old-1", { status: "succeeded", messageId: "reply-1" });
   assert.equal(store.get(old.requestId)?.state, "done");
 
@@ -935,4 +939,64 @@ test("every bound names its number and the Settings section that shows it", () =
     // A bound is a bound, never a gate: nothing here asks a person to allow anything.
     assert.doesNotMatch(message, /staged|approv|polic|Reviewed|Unrestricted|\bcard\b|\bmode\b|sandbox|digest/i);
   }
+});
+
+
+test("an accepted answer stays outstanding through restart until its continuation is linked", async (t) => {
+  const rootPath = await temporaryRoot(t);
+  let store = await WorkFoldRequestStore.open({ rootPath });
+  const root = await store.beginRoot({ kind: "management", owner: managementOwner, surface: "cli", taskId: "parent" });
+  const child = await store.beginChild({ parentTaskId: "parent", kind: "space", owner: spaceOwner, surface: "cli", taskId: "child", content: "Compare the annual quotes." });
+  const question = await store.ask({ requestId: child.requestId, taskId: "child", respondent: "person", text: "Which quarter?" });
+  await store.settleTurn("parent", { status: "succeeded" });
+  await store.settleTurn("child", { status: "succeeded" });
+  await store.answer({ questionId: question.questionId, answer: "Q3" });
+  assert.equal(store.get(root.requestId)?.state, "waiting");
+  store = await WorkFoldRequestStore.open({ rootPath });
+  assert.equal(store.get(root.requestId)?.state, "waiting");
+  assert.equal(store.question(question.questionId)?.continuationTaskId, null);
+  await store.joinTurn({ requestId: child.requestId, taskId: "answer-turn", content: "Q3" });
+  await store.linkContinuation(question.questionId, "answer-turn");
+  assert.equal(store.get(root.requestId)?.state, "handed_off");
+  assert.equal(store.get(child.requestId)?.assignment, "Compare the annual quotes.");
+  assert.equal(store.get(child.requestId)?.content, "Q3");
+  await store.settleTurn("answer-turn", { status: "succeeded" });
+  assert.equal(store.get(root.requestId)?.state, "done");
+  await store.joinTurn({ requestId: child.requestId, taskId: "follow-up" });
+  assert.equal(store.get(root.requestId)?.state, "handed_off");
+  await store.markStopRequested(root.requestId);
+  await assert.rejects(store.joinTurn({ requestId: child.requestId, taskId: "too-late" }), /stopp/i);
+  await store.settleTurn("follow-up", { status: "succeeded" });
+  assert.equal(store.get(root.requestId)?.state, "stopped");
+});
+
+test("recorded answers cannot restart a request after its window expires", async (t) => {
+  const clock = clockFrom("2026-09-11T09:00:00.000Z");
+  const store = await WorkFoldRequestStore.open({ rootPath: await temporaryRoot(t), now: clock.now });
+  const request = await store.beginRoot({ kind: "space", owner: spaceOwner, surface: "cli", taskId: "asker" });
+  const question = await store.ask({ requestId: request.requestId, taskId: "asker", respondent: "person", text: "Which date?" });
+  await store.settleTurn("asker", { status: "succeeded" });
+  await store.answer({ questionId: question.questionId, answer: "Tomorrow" });
+  clock.advance(workFoldRequestLimits.deadlineMs);
+  await store.expireDue();
+  assert.equal(store.get(request.requestId)?.state, "expired");
+  await assert.rejects(store.joinTurn({ requestId: request.requestId, taskId: "late" }), WorkFoldRequestLimitError);
+});
+
+
+test("a reserved child delivery survives restart without starting or repeating a turn", async (t) => {
+  const rootPath = await temporaryRoot(t);
+  let store = await WorkFoldRequestStore.open({ rootPath });
+  const root = await store.beginRoot({ kind: "space", owner: spaceOwner, surface: "cli", taskId: "parent" });
+  await store.beginChild({ parentTaskId: "parent", kind: "space", owner: { spaceId: "child-space", conversationId: "child-chat" }, surface: "cli", taskId: "child" });
+  await store.settleTurn("child", { status: "succeeded" });
+  await store.settleTurn("parent", { status: "succeeded" });
+  assert.deepEqual(await store.noteContinuation(root.requestId, ["child"]), { allowed: true, count: 1 });
+  assert.equal(store.get(root.requestId)?.state, "working");
+  store = await WorkFoldRequestStore.open({ rootPath });
+  await store.reconcile({ turns: [] });
+  assert.equal(store.get(root.requestId)?.state, "failed");
+  assert.equal(store.get(root.requestId)?.continuationState, "failed");
+  assert.equal(store.get(root.requestId)?.turns.length, 1);
+  assert.deepEqual(await store.noteContinuation(root.requestId, ["child"]), { allowed: false, count: 1 });
 });

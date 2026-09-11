@@ -69,6 +69,8 @@ export const ChatMessageRow = memo(function ChatMessageRow({
     };
   }, [message.content, message.id, message.role, onOpenSpaceFile, resolveSpacePathLinks, spaceLinkCacheKey]);
 
+  if (message.kind === "assistant_continuation") return <p className="work-continuation" role="note">Continuing with the results from delegated work.</p>;
+
   return (
     <article className={`message ${message.role}${suppressEnterAnimation ? " settled" : ""}`}>
       <div className="message-surface">

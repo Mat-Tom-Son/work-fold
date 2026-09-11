@@ -39,7 +39,7 @@ test("mid-turn Enter steers the running turn; ⌘Enter queues one visible, cance
   assert.match(localServer, /body\.delivery === "steer"/);
   assert.match(localServer, /await client\.steer\(input\.content\);/);
   assert.match(chatPanel, /setQueuedSend\(\(current\) => \(current \? `\$\{current\}\\n\$\{content\}` : content\)\);/);
-  assert.match(chatPanel, /if \(running \|\| !queuedSend \|\| lifecycleView !== "active"\) return;/);
+  assert.match(chatPanel, /if \(running \|\| workState\.work\?\.canStop \|\| !queuedSend \|\| lifecycleView !== "active"\) return;/);
   assert.match(chatPanel, /className="queued-send-row"/);
   assert.match(chatPanel, /aria-label="Cancel queued message"/);
   assert.match(chatPanel, /returnQueuedSendToComposer\(\);\s*\n\s*if \(pendingSendRef\.current\)/);
@@ -198,7 +198,7 @@ test("assistant rendering has complete Markdown chrome and Space-aware accents",
   const darkFencedCodeRule = styles.match(/\.app-shell\[data-theme="dark"\] \.message-body \.message-code-block pre code\s*\{([\s\S]*?)\}/)?.[1] ?? "";
   assert.match(darkFencedCodeRule, /background:\s*transparent/, "dark fenced code must not inherit the inline-code highlight");
   assert.match(darkFencedCodeRule, /color:\s*inherit/);
-  assert.match(chatPanel, /running \? \(\s*<button className="send-button stop-send-button"/);
+  assert.match(chatPanel, /running \|\| requestBusy \? \(\s*<button className="send-button stop-send-button"/);
   assert.doesNotMatch(chatPanel, /chat-floating-actions|stop-chat-button/);
   assert.match(identity, /onPrimaryAccentColor:\s*readableTextColorOn\(colorOption\.color\)/);
   assert.match(identity, /"--space-on-primary-accent":\s*identity\.onPrimaryAccentColor/);

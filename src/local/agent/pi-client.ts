@@ -1289,6 +1289,8 @@ export function buildTurnContextMessage(context: PiTurnContext): string {
         `This turn continues question ${turn.answeredQuestionId}: the message in this turn is that question's answer. Carry on the work that question stopped.`,
       );
     }
+    if (turn.releasedChildResults) lines.push(turn.releasedChildResults);
+    if (turn.assignment !== undefined) lines.push(`Your original assignment:\n${turn.assignment}`);
     if (turn.delegated) {
       lines.push(
         `Another request delegated this work. Refer to it as ${turn.delegated.parentHandle}; that handle is all you get, and no command takes it.`,
@@ -1299,7 +1301,7 @@ export function buildTurnContextMessage(context: PiTurnContext): string {
       );
     }
     lines.push(
-      "Work only in this Space. Other Spaces' folders and results and the fold's own conversation are not yours to read; hand off or ask instead.",
+      "Work only in this Space. Other Spaces' folders, unselected results and the fold's conversation are not yours to read. Read selected child results through chat result; hand off or ask for other help.",
     );
   }
   if (context.managementSpaces) {

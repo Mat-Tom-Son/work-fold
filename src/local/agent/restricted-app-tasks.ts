@@ -5,6 +5,7 @@ import { dirname } from "node:path";
 import { restrictedAppAssistantLimits as limits, type RestrictedAppAssistantModelRef, type RestrictedAppAssistantTask, type RestrictedAppAssistantUsage, type RestrictedAppResultFile, type RestrictedAppTaskDetail, type RestrictedAppTaskResult } from "../../shared/restricted-app-tasks.js";
 import { parseRestrictedAppJsonSchema, validateRestrictedAppValue, type RestrictedAppAssistantAction, type RestrictedAppJsonSchema } from "./restricted-app-manifest.js";
 import type { WorkFoldDurableTurnRecord, WorkFoldDurableTurnUsage } from "./turn-store.js";
+import type { WorkFoldRequestState, WorkFoldRequestUsage } from "../requests/request-records.js";
 
 export interface RestrictedAppTaskScope {
   spaceId: string;
@@ -68,6 +69,13 @@ export interface RestrictedAppTaskPorts {
   dispatch(receipt: Readonly<RestrictedAppTaskReceipt>, app: { title: string }): Promise<void>;
   findTurn(receipt: Readonly<RestrictedAppTaskReceipt>): WorkFoldDurableTurnRecord | null;
   cancelTurn(receipt: Readonly<RestrictedAppTaskReceipt>, turnId: string): Promise<void>;
+  /** The owned request, including later turns and delegated usage. */
+  findRequest?(receipt: Readonly<RestrictedAppTaskReceipt>): {
+    state: WorkFoldRequestState;
+    taskIds: string[];
+    turn: WorkFoldDurableTurnRecord;
+    usage: WorkFoldRequestUsage;
+  } | null;
   /**
    * The result envelope the Space Assistant filed for this task with `chat
    * report`, or null when the turn finished without filing one. The report
@@ -87,8 +95,8 @@ const legacySchema = "work-fold.app-assistant-tasks.v1";
 const acceptedSchemas = [schema, priorSchema, legacySchema];
 const outcomes: RestrictedAppTaskResult["outcome"][] = ["succeeded", "partial", "failed"];
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const statuses: RestrictedAppAssistantTask["status"][] = ["dispatching", "running", "succeeded", "failed", "cancelled", "interrupted"];
-const live = new Set<RestrictedAppAssistantTask["status"]>(["dispatching", "running"]);
+const statuses: RestrictedAppAssistantTask["status"][] = ["dispatching", "running", "waiting", "succeeded", "failed", "cancelled", "interrupted"];
+const live = new Set<RestrictedAppAssistantTask["status"]>(["dispatching", "running", "waiting"]);
 const maxFileBytes = 64 * 1024 * 1024;
 const limitsSection = "Settings → The fold → Limits";
 
@@ -105,6 +113,8 @@ export class RestrictedAppTaskService extends EventEmitter {
   #records: RestrictedAppTaskReceipt[] = [];
   #queue: Promise<unknown> = Promise.resolve();
   #unavailable = false;
+  /** Avoid rereading settled reports on every status poll; later turns invalidate it. */
+  #requestProjections = new Map<string, string>();
 
   private constructor(options: { path: string; ports: RestrictedAppTaskPorts; now?: () => Date }) {
     super();
@@ -144,7 +154,7 @@ export class RestrictedAppTaskService extends EventEmitter {
     } finally { await handle?.close(); }
     // Reconcile with the durable turn journal; never redispatch after a crash.
     if (!service.#unavailable) {
-      try { await service.#refresh(); } catch { service.#unavailable = true; }
+      try { await service.#refresh(); } catch { /* A projection read can be retried; the receipt journal parsed successfully. */ }
     }
     return service;
   }
@@ -213,12 +223,19 @@ export class RestrictedAppTaskService extends EventEmitter {
     }));
   }
 
-  async list(scope: RestrictedAppTaskScope, ownership: RestrictedAppTaskOwnership = "revision"): Promise<RestrictedAppAssistantTask[]> {
+  async list(scope: RestrictedAppTaskScope, ownership: RestrictedAppTaskOwnership = "revision", results: "omit" | "summary" = "omit"): Promise<RestrictedAppAssistantTask[]> {
     return this.#run(() => this.#ports.withApp(scope, async () => {
       await this.#refresh();
       return this.#records.filter((item) => matches(item.scope, scope, ownership)).reverse()
         .sort((a, b) => Number(live.has(b.status)) - Number(live.has(a.status))).slice(0, limits.listItems)
-        .map((item) => { const { result: _result, ...summary } = projection(item); return summary; });
+        .map((item) => {
+          const { result, ...summary } = projection(item);
+          // Only the trusted Apps screen asks for primary summaries/files.
+          // Structured details still require an individual read. App bridges
+          // use the default content-free list, as before.
+          if (results === "summary" && result) { const { data: _data, ...selected } = result; return { ...summary, result: selected }; }
+          return summary;
+        });
     }));
   }
 
@@ -234,7 +251,8 @@ export class RestrictedAppTaskService extends EventEmitter {
     return this.#run(() => this.#ports.withApp(scope, async () => {
       await this.#refresh();
       const record = this.#owned(scope, requestId, ownership);
-      return { task: projection(record), instructions: record.instructions, inputJson: record.inputJson, conversationId: record.conversationId };
+      const turn = this.#turn(record);
+      return { task: projection(record), instructions: record.instructions, inputJson: record.inputJson, conversationId: record.conversationId, ...(turn ? { taskId: turn.turnId } : {}) };
     }));
   }
 
@@ -258,6 +276,9 @@ export class RestrictedAppTaskService extends EventEmitter {
 
   async flush(): Promise<void> { await this.#queue.catch(() => undefined); }
 
+  /** Host lifecycle notification; emits only when the owned projection changes. */
+  async refresh(): Promise<void> { await this.#run(() => this.#refresh()); }
+
   /**
    * The output shape pinned when this task was requested, found from the Chat
    * turn that is running it (F29). `chat report` reads it so a mismatched
@@ -269,7 +290,8 @@ export class RestrictedAppTaskService extends EventEmitter {
     for (const record of this.#records) {
       if (record.scope.spaceId !== input.spaceId || record.conversationId !== input.conversationId) continue;
       if (!record.outputSchema) continue;
-      if (this.#ports.findTurn(record)?.turnId !== input.taskId) continue;
+      if (this.#ports.findTurn(record)?.turnId !== input.taskId
+        && !this.#ports.findRequest?.(record)?.taskIds.includes(input.taskId)) continue;
       return structuredClone(record.outputSchema);
     }
     return null;
@@ -294,25 +316,44 @@ export class RestrictedAppTaskService extends EventEmitter {
     const at = this.#now().toISOString();
     const current = this.#records;
     const next: RestrictedAppTaskReceipt[] = [];
+    const projections = new Map<string, string>();
     for (const record of current) {
-      if (!live.has(record.status)) { next.push(record); continue; }
-      const turn = this.#turn(record);
-      const status = !turn ? "interrupted" : turn.status === "accepted" || turn.status === "running" ? "running"
+      const request = this.#ports.findRequest?.(record);
+      const fingerprint = request ? JSON.stringify([request.state, request.taskIds.at(-1), request.turn.updatedAt, request.usage]) : null;
+      if (fingerprint) {
+        projections.set(record.id, fingerprint);
+        if (this.#requestProjections.get(record.id) === fingerprint) { next.push(record); continue; }
+      }
+      if (!live.has(record.status) && !request) { next.push(record); continue; }
+      const origin = this.#turn(record);
+      const turn = request?.turn ?? origin;
+      if (request && (!origin || !turn || turn.spaceId !== record.scope.spaceId || turn.conversationId !== record.conversationId)) {
+        throw new RestrictedAppTaskError("TASK_UNAVAILABLE", "The Assistant request outcome is unavailable.");
+      }
+      const status = request ? requestTaskStatus(request.state) : !turn ? "interrupted" : turn.status === "accepted" || turn.status === "running" ? "running"
         : turn.status === "aborted" ? "cancelled" : turn.status;
-      const result = status === "succeeded" && turn ? await this.#resolveResult(record, turn) : undefined;
+      const result = status === "succeeded" && turn ? await this.#resolveResult(record, turn, request?.state) : undefined;
       // The settled turn journal owns the effective model and its usage; the
       // receipt copies them so the Apps tab and the app read the same numbers,
       // including for a turn that failed or was stopped after spending them.
-      const spent = turn?.usage ? turnSpend(turn.usage) : undefined;
+      const lastUsage = turn?.usage ?? origin?.usage;
+      const spent = lastUsage ? turnSpend(lastUsage) : undefined;
+      if (spent && request) spent.usage = {
+        inputTokens: request.usage.inputTokens,
+        outputTokens: request.usage.outputTokens,
+        ...(request.usage.amountUsdComplete && request.usage.amountUsd !== undefined ? { amountUsd: request.usage.amountUsd } : {}),
+      };
       if (status === record.status && JSON.stringify(result) === JSON.stringify(record.result)
         && JSON.stringify(spent?.model) === JSON.stringify(record.model)
         && JSON.stringify(spent?.usage) === JSON.stringify(record.usage)) { next.push(record); continue; }
-      next.push({ ...record, status, updatedAt: at, ...(result ? { result } : {}), ...(spent ?? {}) });
+      const { result: _oldResult, model: _oldModel, usage: _oldUsage, ...base } = record;
+      next.push({ ...base, status, updatedAt: at, ...(result ? { result } : {}), ...(spent ?? {}) });
     }
     // The read above can await, so the journal is only rewritten when nothing
     // else replaced it while this pass ran.
     if (this.#records !== current) return;
     if (next.some((item, index) => item !== current[index])) await this.#save(next);
+    this.#requestProjections = projections;
   }
 
   /**
@@ -322,10 +363,11 @@ export class RestrictedAppTaskService extends EventEmitter {
    * no report the final reply is the summary and nothing else is exposed —
    * `fileChanges` turn metadata stays evidence and never becomes `files`.
    */
-  async #resolveResult(record: RestrictedAppTaskReceipt, turn: WorkFoldDurableTurnRecord): Promise<RestrictedAppTaskResult> {
-    const report = await this.#ports.findReport?.(structuredClone(record)).catch(() => null) ?? null;
-    if (!report) return withinResultCeiling({ ...boundedSummary(turn.assistantText), outcome: "succeeded" });
+  async #resolveResult(record: RestrictedAppTaskReceipt, turn: WorkFoldDurableTurnRecord, state?: WorkFoldRequestState): Promise<RestrictedAppTaskResult> {
+    const report = await this.#ports.findReport?.(structuredClone(record)) ?? null;
+    if (!report) return withinResultCeiling({ ...boundedSummary(turn.assistantText), outcome: state === "partial" ? "partial" : "succeeded" });
     let outcome: RestrictedAppTaskResult["outcome"] = outcomes.includes(report.outcome) ? report.outcome : "failed";
+    if (state === "partial" && outcome === "succeeded") outcome = "partial";
     let summaryText = typeof report.summary === "string" && report.summary.length ? report.summary : turn.assistantText;
     let data: unknown;
     if (report.data !== undefined) {
@@ -424,6 +466,17 @@ function projection(record: RestrictedAppTaskReceipt): RestrictedAppAssistantTas
  * and model id, token counts, and a cost only when one was actually reported.
  * Missing pricing stays missing rather than becoming a zero charge.
  */
+function requestTaskStatus(state: WorkFoldRequestState): RestrictedAppAssistantTask["status"] {
+  switch (state) {
+    case "working": case "handed_off": return "running";
+    case "waiting": return "waiting";
+    case "done": case "partial": return "succeeded";
+    case "failed": return "failed";
+    case "stopped": return "cancelled";
+    case "expired": return "interrupted";
+  }
+}
+
 function turnSpend(usage: WorkFoldDurableTurnUsage): { model: RestrictedAppAssistantModelRef; usage: RestrictedAppAssistantUsage } {
   return {
     model: { provider: usage.provider, id: usage.modelId },
@@ -548,7 +601,7 @@ function taskActivity(
   for (const record of after) {
     const prior = previous.get(record.id);
     if (prior && prior.updatedAt === record.updatedAt && prior.status === record.status) continue;
-    const key = `${record.scope.spaceId} ${record.scope.appId} ${record.scope.featureInstallationId}`;
+    const key = `${record.scope.spaceId}\u0000${record.scope.appId}\u0000${record.scope.featureInstallationId}`;
     const change = changes.get(key) ?? {
       spaceId: record.scope.spaceId,
       appId: record.scope.appId,

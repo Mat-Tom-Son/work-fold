@@ -89,7 +89,7 @@ export const deleteFolderConfirm = {
 export const foldLimitsSettings = {
   heading: "Limits",
   intro: "These are the sizes and counts work-fold stops at. Nothing here waits for you: when work reaches one of these "
-    + "numbers, work-fold says which one it was. They are the same for every Space on this computer.",
+    + "numbers, work-fold says which one it was. The counts and sizes below are fixed in this build.",
   assistantHeading: "What an app can ask the Assistant",
   assistantIntro: "An app in a Space can start a Chat with the full Assistant, and can ask for one short answer with no tools. "
     + "Both leave a record under the app in Apps.",
@@ -97,10 +97,10 @@ export const foldLimitsSettings = {
   requestsIntro: "When you ask the fold for something, work-fold keeps one record of that request and everything it hands to "
     + "a Space. These are the sizes and counts it stops at.",
   continuationsHeading: "When work you handed out finishes",
-  continuationsIntro: "work-fold can bring the results back to the fold for you, once each time a batch of handed-out work "
-    + "finishes after the fold's own turn ended. Turn this off and the results still land in the request record and the "
-    + "glance — nothing is lost, and nothing is brought back as a turn.",
-  continuationsLabel: "Bring finished work back to the fold",
+  continuationsIntro: "work-fold can return selected child results to the Assistant that asked, in the fold or a Space, "
+    + "including work an app requested. Each batch can start one follow-up turn within the request limit. "
+    + "Turn this off and results remain available in their request and Chat.",
+  continuationsLabel: "Continue requests when their child results arrive",
   continuationsSaved: "Saved",
   continuationsUnavailable: "This setting needs the work-fold app running.",
   routingsHeading: "Routings",

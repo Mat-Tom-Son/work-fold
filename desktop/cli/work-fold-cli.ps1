@@ -276,14 +276,17 @@ function Invoke-WorkFoldChatWait {
     }
     $state = ''
     $waiting = $null
+    $requestState = ""
     try {
       $data = ($status.Stdout | ConvertFrom-Json).data
       $state = [string]$data.task.state
       $waiting = $data.waiting
+      if ($data.requestGraph) { $requestState = [string]$data.requestGraph.state }
+      elseif ($data.request) { $requestState = [string]$data.request.state }
     } catch {
       throw 'work-fold returned an unreadable task status.'
     }
-    if ($null -ne $waiting) {
+    if ($null -ne $waiting -or $requestState -eq "waiting") {
       if ($Plan.Json) {
         Write-WorkFoldOutcome $status
         return 0
@@ -292,7 +295,9 @@ function Invoke-WorkFoldChatWait {
       Write-WorkFoldOutcome $humanStatus
       return $humanStatus.ExitCode
     }
-    if (@('accepted', 'running') -notcontains $state) { break }
+    if ($requestState) {
+      if (@('working', 'handed_off') -notcontains $requestState) { break }
+    } elseif (@('accepted', 'running') -notcontains $state) { break }
     if ([DateTimeOffset]::UtcNow -ge $deadline) {
       [Console]::Error.Write("work-fold: $($Plan.Group) wait timed out after $($Plan.TimeoutSeconds)s.$([Environment]::NewLine)")
       return 7

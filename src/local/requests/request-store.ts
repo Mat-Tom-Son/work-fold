@@ -419,9 +419,7 @@ export class WorkFoldRequestStore {
       const existing = this.#byTask.get(input.taskId);
       if (existing) return copyRecord(this.#records.get(existing)!);
       const record = this.#requireRecord(input.requestId);
-      if (record.turns.length >= workFoldRequestLimits.maxTurnsPerRequest) {
-        throw workFoldRequestLimitError("turnsPerRequest", workFoldRequestLimits.maxTurnsPerRequest);
-      }
+      this.assertCanContinue(record.requestId);
       const at = input.acceptedAt ?? this.#now().toISOString();
       const turn: WorkFoldRequestTurnRef = {
         taskId: input.taskId,
@@ -443,6 +441,7 @@ export class WorkFoldRequestStore {
         state: "working",
         settledAt: null,
         reconciledAt: null,
+        continuationState: null,
       };
       await this.#writeRequest(next);
       await this.#recomputeFrom(next.requestId);
@@ -587,6 +586,7 @@ export class WorkFoldRequestStore {
         throw workFoldRequestLimitError("questionLifetime", workFoldRequestLimits.deadlineMs);
       }
       const record = this.#requireRecord(question.requestId);
+      this.assertCanContinue(record.requestId);
       if (input.answeredBySpaceId !== undefined && record.owner.spaceId !== input.answeredBySpaceId) {
         throw new WorkFoldRequestLineageError("An answer can only come from the Space that was asked.");
       }
@@ -614,12 +614,14 @@ export class WorkFoldRequestStore {
       if (question.continuationTaskId !== null) {
         throw new WorkFoldRequestLineageError("This question already started its follow-up turn.");
       }
+      this.#requireOwnTurn(this.#requireRecord(question.requestId), continuationTaskId);
       const linked = parseWorkFoldQuestionRecord({
         ...question,
         updatedAt: this.#now().toISOString(),
         continuationTaskId,
       });
       await this.#writeQuestion(linked);
+      await this.#recomputeFrom(question.requestId);
       return { ...linked };
     });
   }
@@ -694,6 +696,25 @@ export class WorkFoldRequestStore {
 
   // --- limits ------------------------------------------------------------
 
+  /** Rechecked at acceptance, including every ancestor's stop and window. */
+  assertCanContinue(requestId: string): void {
+    let record: WorkFoldRequestRecord | null = this.#requireRecord(requestId);
+    if (record.turns.length >= workFoldRequestLimits.maxTurnsPerRequest) {
+      throw workFoldRequestLimitError("turnsPerRequest", workFoldRequestLimits.maxTurnsPerRequest);
+    }
+    const seen = new Set<string>();
+    while (record && !seen.has(record.requestId)) {
+      seen.add(record.requestId);
+      if (record.stopRequestedAt || record.state === "stopped" || record.limitHit) {
+        throw this.#terminalRefusal(record, "This request or its parent stopped and cannot continue.");
+      }
+      if (record.state === "expired" || this.#now().getTime() >= Date.parse(record.deadline)) {
+        throw workFoldRequestLimitError("deadline", workFoldRequestLimits.deadlineMs);
+      }
+      record = record.parentRequestId ? this.#requireRecord(record.parentRequestId) : null;
+    }
+  }
+
   /**
    * Every bound that can refuse a new child turn, in the order a person would
    * read them. Each throws a `WorkFoldRequestLimitError` naming its number.
@@ -720,19 +741,60 @@ export class WorkFoldRequestStore {
    * Counts one follow-up turn against a root. Past the bound the settle is
    * still recorded — it is simply not narrated by another turn (F28).
    */
-  noteContinuation(rootId: string): Promise<{ allowed: boolean; count: number }> {
+  noteContinuation(requestId: string, childTaskIds: string[] = []): Promise<{ allowed: boolean; count: number }> {
     return this.#run(async () => {
-      const record = this.#requireRecord(rootId);
-      if (record.continuationCount >= workFoldRequestLimits.maxContinuationsPerRoot) {
-        return { allowed: false, count: record.continuationCount };
+      const record = this.#requireRecord(requestId);
+      const root = this.#requireRecord(record.rootId);
+      this.assertCanContinue(requestId);
+      if (root.continuationCount >= workFoldRequestLimits.maxContinuationsPerRoot
+        || (childTaskIds.length > 0 && childTaskIds.every((id) => record.deliveredChildTaskIds.includes(id)))) {
+        return { allowed: false, count: root.continuationCount };
       }
-      const count = record.continuationCount + 1;
-      await this.#writeRequest({ ...record, continuationCount: count });
+      for (const id of childTaskIds) {
+        if (this.#requireByTask(id).parentRequestId !== requestId) throw new WorkFoldRequestLineageError("A continuation can receive only its own children's results.");
+      }
+      const count = root.continuationCount + 1;
+      await this.#writeRequest({ ...root, continuationCount: count });
+      if (childTaskIds.length) {
+        await this.#writeRequest({
+          ...this.#requireRecord(requestId),
+          deliveredChildTaskIds: this.#childDeliveryIds(record, childTaskIds),
+          continuationState: "pending",
+        });
+        await this.#recomputeFrom(requestId);
+      }
       return { allowed: true, count };
     });
   }
 
+  failContinuation(requestId: string): Promise<void> {
+    return this.#run(async () => {
+      const record = this.#requireRecord(requestId);
+      if (record.continuationState !== "pending") return;
+      await this.#writeRequest({ ...record, continuationState: "failed" });
+      await this.#recomputeFrom(requestId);
+    });
+  }
+
   // --- lifecycle ---------------------------------------------------------
+
+  /** Selected child results admitted into an already accepted turn's context. */
+  noteChildDelivery(requestId: string, taskIds: string[]): Promise<void> {
+    return this.#run(async () => {
+      const record = this.#requireRecord(requestId);
+      await this.#writeRequest({ ...record, deliveredChildTaskIds: this.#childDeliveryIds(record, taskIds) });
+    });
+  }
+
+  #childDeliveryIds(record: WorkFoldRequestRecord, taskIds: string[]): string[] {
+    const delivered = new Map<string, string>();
+    for (const id of [...record.deliveredChildTaskIds, ...taskIds]) {
+      const child = this.#requireByTask(id);
+      if (child.parentRequestId !== record.requestId) throw new WorkFoldRequestLineageError("A request can receive only its own children's results.");
+      delivered.set(child.requestId, id);
+    }
+    return [...delivered.values()];
+  }
 
   /**
    * Startup recovery, run strictly after the turn journal has repaired
@@ -770,7 +832,8 @@ export class WorkFoldRequestStore {
             error: recovered?.error ?? (recovered ? turn.error : interruptedByShutdown),
           };
         });
-        await this.#writeRequest({ ...record, turns, usage, reconciledAt: now.toISOString() });
+        await this.#writeRequest({ ...record, turns, usage, reconciledAt: now.toISOString(),
+          continuationState: record.continuationState === "pending" ? "failed" : record.continuationState });
         await this.#expireQuestionsDue(record.requestId, now);
         await this.#recomputeFrom(record.requestId, now);
         if (this.#records.get(record.requestId)?.state === "expired") expired += 1;
@@ -959,10 +1022,13 @@ export class WorkFoldRequestStore {
       results: [],
       usage: { turns: 0, inputTokens: 0, outputTokens: 0, amountUsdComplete: true },
       continuationCount: 0,
+      deliveredChildTaskIds: [],
+      continuationState: null,
       stopRequestedAt: null,
       limitHit: null,
       reconciledAt: null,
       remote: input.remote ?? null,
+      assignment: boundContent(input.content ?? ""),
       content: boundContent(input.content ?? ""),
       attachments: dedupeAttachments([...(input.attachments ?? [])]).slice(0, maxManagementAttachments),
       actions: [],
@@ -1011,18 +1077,19 @@ export class WorkFoldRequestStore {
   }
 
   #withComputedState(record: WorkFoldRequestRecord, now: Date): WorkFoldRequestRecord {
-    const active = record.turns.some((turn) => turn.state === "accepted" || turn.state === "running");
-    // Terminal is terminal: only a newly joined turn reopens a request.
-    if (isWorkFoldRequestTerminalState(record.state) && !active) return record;
+    // Completion can change when a descendant legitimately continues. Stop
+    // and expiry remain final; they cannot be undone by a later child settle.
+    if (record.state === "stopped" || record.state === "expired") return record;
     const state = computeWorkFoldRequestState({
       stopRequestedAt: record.stopRequestedAt,
       deadline: record.deadline,
       now,
-      turnStates: record.turns.map((turn) => turn.state),
+      turnStates: [record.turns.at(-1)!.state,
+        ...(record.continuationState === "pending" ? ["accepted" as const] : record.continuationState === "failed" ? ["failed" as const] : [])],
       openQuestions: this.#openQuestionCount(record.requestId),
       openDescendantQuestions: record.childRequestIds.reduce((total, id) => total + this.#openQuestionCount(id, true), 0),
       childStates: record.childRequestIds.map((id) => this.#records.get(id)?.state ?? null),
-      resultOutcomes: record.results.map((ref) => ref.outcome),
+      resultOutcomes: record.results.filter((ref) => ref.taskId === record.turns.at(-1)!.taskId).slice(-1).map((ref) => ref.outcome),
       limitHit: record.limitHit,
     });
     const terminal = isWorkFoldRequestTerminalState(state);
@@ -1046,7 +1113,8 @@ export class WorkFoldRequestStore {
     if (!record) return 0;
     let count = 0;
     for (const questionId of record.questionIds) {
-      if (this.#questions.get(questionId)?.state === "open") count += 1;
+      const question = this.#questions.get(questionId);
+      if (question && (question.state === "open" || (question.state === "answered" && question.continuationTaskId === null))) count += 1;
     }
     if (!subtree) return count;
     for (const childId of record.childRequestIds) count += this.#openQuestionCount(childId, true, seen);
@@ -1056,7 +1124,7 @@ export class WorkFoldRequestStore {
   async #expireQuestionsDue(requestId: string, now: Date): Promise<number> {
     let expired = 0;
     for (const question of [...this.#questions.values()]) {
-      if (question.requestId !== requestId || question.state !== "open") continue;
+      if (question.requestId !== requestId || !(question.state === "open" || (question.state === "answered" && question.continuationTaskId === null))) continue;
       if (now.getTime() < Date.parse(question.expiresAt)) continue;
       await this.#writeQuestion({ ...question, state: "expired", updatedAt: now.toISOString() });
       expired += 1;
@@ -1069,7 +1137,7 @@ export class WorkFoldRequestStore {
     const at = this.#now().toISOString();
     let touched = 0;
     for (const question of [...this.#questions.values()]) {
-      if (question.requestId !== requestId || question.state !== "open") continue;
+      if (question.requestId !== requestId || !(question.state === "open" || (question.state === "answered" && question.continuationTaskId === null))) continue;
       await this.#writeQuestion({ ...question, state: reason === "stopped" ? "cancelled" : "expired", updatedAt: at });
       touched += 1;
     }

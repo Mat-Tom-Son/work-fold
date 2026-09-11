@@ -395,6 +395,15 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     onSwitchSpace,
   });
   const handleRestrictedAppError = useCallback((caught: unknown) => onError(errorText(caught)), [onError]);
+  useEffect(() => {
+    function openResult(event: Event) {
+      const { spaceId, path } = (event as CustomEvent<{ spaceId: string; path: string }>).detail;
+      const target = spaces.find((item) => item.id === spaceId);
+      if (target && typeof path === "string") tabs.openFileSurfaceTab(target, path);
+    }
+    window.addEventListener("work-fold:open-result-file", openResult);
+    return () => window.removeEventListener("work-fold:open-result-file", openResult);
+  }, [spaces, tabs.openFileSurfaceTab]);
   const restrictedAppsState = useRestrictedApps({
     activeSpaceId: space.id,
     fixtureMode: Boolean(fixture),
