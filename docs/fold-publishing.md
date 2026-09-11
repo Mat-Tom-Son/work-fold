@@ -114,12 +114,14 @@ Consequences, consistent with the fold doctrine:
   it happens: one revoke kills every copy of the link at once,
   desktop-first, regardless of who holds them.
 
-## Rung 1 — the glance on your phone
+## Rung 1 — paired access to your own work
 
-Rung 1 is not a publishing feature and introduces no viewer: it is
-[the glance](fold-glance.md) rendered on the paired remote client's
-**Needs you** screen. Same paired-browser grant, same envelope encryption,
-zero new audience.
+Rung 1 is not a publishing feature and introduces no viewer. The paired
+client keeps work and questions inside Chats and offers Space file and App
+browsing. Its earlier Needs you screen, which showed
+[the glance](fold-glance.md), has been retired; the host glance operations
+remain compatible with older clients. The paired-browser grant and envelope
+encryption stay the same, with no new audience.
 
 ## Rung 2 — share a page
 

@@ -83,3 +83,30 @@ question rendering, escaping, draft/focus retention, failed sends, and duplicate
 submission. `tests/renderer-app-assistant-tasks.test.ts` covers results and Chat
 navigation in the trusted Apps surface. These are development checks; packaged
 Electron and signed-release verification remain separate release work.
+
+## Conversation navigation and Space browsing
+
+The fold popover has a searchable **Chats** view over saved machine-local fold
+conversations, with titles, dates, and quiet working/answer indicators. Selecting
+a chat pins its transcript, request, model state, and next message to that id;
+background refresh never switches the selection. New chat opens a clean draft
+without a success alert or confirmation. Text and attachment drafts remain with
+their conversation while this renderer lives. A compact return link keeps
+background work reachable, including its Stop action.
+
+The paired web client has Chats and Spaces, with no separate **Needs you**
+destination or activity-receipt feed. Questions and saved-answer recovery stay
+inside the owning Chat. Its sidebar marks browser-owned Chats needing an answer;
+this does not grant access to another browser’s request. The current web client
+neither reads nor acknowledges the glance; host operations remain compatible
+with older clients. Old `#needs` links return to Chat.
+
+Spaces opens a directory of registered Spaces. Each Space has a named workspace
+with Files and Apps views and a clear return to Chat. File selection opens a
+read-only preview alongside the file list (below it on phones), using the same
+bounded, inert preview broker as Chat result links. Switching Spaces or losing
+the desktop connection clears the preview. **Ask the fold** and **Ask about this
+file** append an explicit Space/file reference to an unsent new-chat draft;
+they do not read additional file bytes, send a message, or start an Assistant.
+Existing drafts survive that navigation. App opening retains the existing exact
+installation and connection fences.

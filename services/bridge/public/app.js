@@ -29,7 +29,8 @@ const fixtureName = (() => {
   const requested = new URL(location.href).searchParams.get("fixture");
   if (requested === "home" || requested === "chats") return "new";
   if (requested === "files") return "spaces";
-  return requested === "new" || requested === "chat" || requested === "needs" || requested === "spaces" ? requested : null;
+  if (requested === "needs") return "chat";
+  return requested === "new" || requested === "chat" || requested === "spaces" ? requested : null;
 })();
 const fixtureCapture = fixtureName !== null && new URL(location.href).searchParams.get("capture") === "1";
 
@@ -44,10 +45,10 @@ const fixtureChrome = (() => {
   };
 })();
 
-// The four screens of the client. One is visible at a time on every width; the
+// The conversation and Space screens of the client. One is visible at a time on every width; the
 // chrome around them differs (sidebar on desktop, top bar plus drawer on the
 // phone) but the screens themselves are the same.
-const contextNames = ["new", "chat", "needs", "spaces"];
+const contextNames = ["new", "chat", "spaces"];
 
 // The sidebar's desktop state outlives the tab: it is a workspace preference,
 // not a per-visit one.
@@ -57,7 +58,6 @@ const phoneQuery = matchMedia("(max-width: 859.98px)");
 const state = {
   work: null,
   workError: "",
-  questionTaskId: null,
   context: null,
   session: null,
   identity: null,
@@ -68,6 +68,7 @@ const state = {
   earlyEvents: new Map(),
   spaces: [],
   explorerSpaceId: null,
+  explorerTab: "files",
   trees: new Map(),
   treeStatus: new Map(),
   expanded: new Set(),
@@ -87,10 +88,6 @@ const state = {
   summary: null,
   activeTasks: new Map(),
   banner: "",
-  glance: null,
-  foldHomeRefreshing: false,
-  glanceAcknowledged: "",
-  showEarlierChanges: false,
   stoppingTask: false,
   refreshTimer: null,
   conversationListRequestVersion: 0,
@@ -123,21 +120,51 @@ function openFilePreview(spaceId, path) {
   filePreview ??= createFilePreview({
     available: () => Boolean(fixtureName || state.filePreviewAvailable),
     online: () => Boolean(state.session?.desktopOnline),
-    fetchPreview: async (selectedSpaceId, selectedPath) => {
-      if (fixtureName) {
-        const text = selectedPath.endsWith(".csv") ? "item,next_step\nTwo invoices,Match purchase orders\nTravel,Reconcile category labels"
-          : selectedPath === "delivery-plan.md" ? "# Delivery plan\n\nDelivery target: five days."
-          : selectedPath === "notes.md" ? `# Field notes\n\n${"Keep the original quote and delivery estimate together so the next review has the same evidence.\n\n".repeat(60)}`
-            : "# Quarterly summary\n\nRevenue is up **12%**.\n\n| Item | Next step |\n|---|---|\n| Two invoices | Match purchase orders |\n| Travel | Reconcile category labels |";
-        return { spaceId: selectedSpaceId, path: selectedPath, kind: "text", format: selectedPath.endsWith(".md") ? "markdown" : "text", text, truncated: false };
-      }
-      return (await remote("spaces.filePreview", { spaceId: selectedSpaceId, path: selectedPath })).preview;
-    },
+    fetchPreview: readSpaceFilePreview,
   });
   void filePreview.open({ spaceId, path, spaceName: space?.name ?? "Space" });
 }
 
-function closeFilePreview() { filePreview?.destroy(); filePreview = null; }
+async function readSpaceFilePreview(selectedSpaceId, selectedPath) {
+  if (fixtureName) {
+    const text = selectedPath.endsWith(".csv") ? "item,next_step\nTwo invoices,Match purchase orders\nTravel,Reconcile category labels"
+      : selectedPath === "delivery-plan.md" ? "# Delivery plan\n\nDelivery target: five days."
+      : selectedPath === "notes.md" ? `# Field notes\n\n${"Keep the original quote and delivery estimate together so the next review has the same evidence.\n\n".repeat(60)}`
+        : "# Quarterly summary\n\nRevenue is up **12%**.\n\n| Item | Next step |\n|---|---|\n| Two invoices | Match purchase orders |\n| Travel | Reconcile category labels |";
+    return { spaceId: selectedSpaceId, path: selectedPath, kind: "text", format: selectedPath.endsWith(".md") ? "markdown" : "text", text, truncated: false };
+  }
+  return (await remote("spaces.filePreview", { spaceId: selectedSpaceId, path: selectedPath })).preview;
+}
+
+let inlineFilePreview = null;
+function closeInlinePreview() { inlineFilePreview?.destroy(); inlineFilePreview = null; }
+function closeFilePreview() { filePreview?.destroy(); filePreview = null; closeInlinePreview(); }
+function openSpaceFile(spaceId, path) {
+  const container = document.querySelector("#space-preview");
+  const empty = document.querySelector("#space-preview-empty");
+  const space = state.spaces.find((item) => item.id === spaceId);
+  if (!container || !space) return;
+  inlineFilePreview ??= createFilePreview({ container, fetchPreview: readSpaceFilePreview,
+    available: () => Boolean(fixtureName || state.filePreviewAvailable),
+    online: () => Boolean(state.session?.desktopOnline),
+    askAboutFile: (file) => draftSpaceQuestion(file.spaceId, file.path),
+    onClose: () => { if (empty) empty.hidden = false; },
+  });
+  if (empty) empty.hidden = true;
+  void inlineFilePreview.open({ spaceId, path, spaceName: space.name });
+  container.scrollIntoView?.({ block: "nearest", behavior: "instant" });
+}
+function draftSpaceQuestion(spaceId, path = null) {
+  const space = state.spaces.find((item) => item.id === spaceId);
+  if (!space || state.sending || state.renameSaving) return;
+  startNewChat();
+  const prompt = document.querySelector("#prompt");
+  if (!prompt) return;
+  const reference = `I’d like to work ${path ? `on the file ${JSON.stringify(path)} in` : "in"} the Space ${JSON.stringify(space.name)} (Space ID: ${space.id}).`;
+  prompt.value = prompt.value ? `${prompt.value}\n\n${reference}\n\n` : `${reference}\n\n`;
+  syncComposer(); saveComposerDraft(); persistDrafts();
+  prompt.focus({ preventScroll: true });
+}
 
 let browserApp = null;
 const fixtureAppActions = createFixtureAppActions();
@@ -503,7 +530,6 @@ async function openApplication() {
     renderBanner();
   }
   history.replaceState({ context: state.contextName }, "", contextHash(state.contextName));
-  void refreshFoldHome();
   scheduleRefresh();
 }
 
@@ -523,6 +549,7 @@ function parseLocationHash() {
     const conversationId = decodeURIComponent(raw.slice("chat=".length));
     return { context: "chat", conversationId: conversationId || null };
   }
+  if (raw === "needs") return { context: "chat", conversationId: state.selectedConversationId };
   // `#files` was this screen's name before it was called Spaces; a link from
   // that window still lands where it meant to.
   if (raw === "files") return { context: "spaces", conversationId: null };
@@ -550,16 +577,17 @@ function onPopState() {
   showContext(requested.context, { fromHistory: true });
 }
 
-// --- The shell: one sidebar, four screens ---------------------------------
-// New chat is the door; Chat is one transcript; Needs you carries the fold's
-// questions and its digest; Files is the read-only tree. The sidebar exists
+// --- The shell: conversations and Spaces ----------------------------------
+// New chat is the door; Chat holds the work and its questions; Spaces holds
+// browsable files and apps. The sidebar exists
 // once in the DOM: from 860px up it is the left column (expanded or collapsed
 // to an icon rail), and below that the same markup is the drawer behind ☰.
 
 function renderApplication() {
+  closeInlinePreview();
   // A rebuilt shell starts from no context so the next showContext call
   // re-toggles every section even when the name is unchanged (session reboot
-  // while on Needs you or Files).
+  // while browsing Spaces).
   state.contextName = null;
   app.innerHTML = `
     <div class="app-shell" data-context="new" data-sidebar="${escapeAttribute(state.sidebarState)}" data-drawer="closed">
@@ -582,11 +610,7 @@ function renderApplication() {
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v11h-9l-4 3.5v-3.5H4Z" /></svg>
             <span class="sidebar-label">Chats</span>
           </button>
-          <button class="sidebar-item" type="button" data-nav-context="needs" data-nav-current="needs" data-tip="Needs you" aria-label="Needs you">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 13.5h5l1.5 2.5h4l1.5-2.5h5" /><path d="M3.5 13.5v5h17v-5" /><path d="M6.3 13.5 8 6h8l1.7 7.5" /></svg>
-            <span class="sidebar-label">Needs you</span>
-            <span class="nav-badge" data-nav-badge hidden></span>
-          </button>
+
         </div>
         <div class="sidebar-chats">
           <ul id="chats" class="chat-list"></ul>
@@ -611,7 +635,6 @@ function renderApplication() {
         <header class="top-bar">
           <button id="menu-button" class="rail-item top-bar-menu" type="button" aria-label="Menu" title="Menu" aria-controls="drawer" aria-expanded="false">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
-            <span class="menu-dot" data-nav-dot hidden></span>
           </button>
           <div class="top-bar-center">
             <img class="top-bar-mark" src="/brand-mark.png" alt="work-fold" />
@@ -655,26 +678,18 @@ function renderApplication() {
             <section id="messages" class="messages" tabindex="0"><div class="message-stream"><div id="transcript-notice"></div><div id="message-rows"></div><div id="work-status"></div><div id="request-work"></div></div><button id="jump-latest" class="jump-latest" type="button" aria-label="Jump to newest" title="Jump to newest" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14m-5-5 5 5 5-5" /></svg></button></section>
             <footer class="composer-wrap" id="chat-composer-slot"></footer>
           </section>
-          <section id="context-needs" class="context context-needs" aria-label="Needs you" hidden>
-            <div class="context-scroll">
-              <div class="context-column">
-                <header class="context-head">
-                  <h1 id="needs-title" class="context-title" tabindex="-1">Needs you</h1>
-                </header>
-                <div id="fold-home" class="fold-home"></div><div id="question-work"></div>
-              </div>
-            </div>
-          </section>
           <section id="context-spaces" class="context context-spaces" aria-label="Spaces" hidden>
-            <div class="context-scroll">
-              <div class="context-column">
-                <header class="context-head">
-                  <h1 class="context-title" tabindex="-1">Spaces</h1>
-                </header>
-                <div id="workspace-pane" class="workspace-pane">
-                  <select id="space-picker" class="space-picker" aria-label="Choose a Space"></select>
-                  <div id="file-tree" class="file-tree"></div>
-                </div>
+            <div class="space-workspace">
+              <header class="space-workspace-header">
+                <button id="spaces-back" type="button" class="text-button" hidden>‹ All Spaces</button>
+                <div class="space-title-row"><h1 id="space-title" tabindex="-1">Spaces</h1><div class="space-actions"><button id="return-to-chat" type="button" class="quiet">Back to chat</button><button id="ask-space" type="button" class="primary" hidden>Ask the fold</button></div></div>
+                <p id="space-description">Browse files and apps from your desktop.</p>
+              </header>
+              <div id="space-directory" class="space-directory"></div>
+              <div id="workspace-pane" class="workspace-pane" hidden>
+                <nav class="space-views" aria-label="Space view"><button type="button" data-space-view="files" aria-pressed="true">Files</button><button type="button" data-space-view="apps" aria-pressed="false">Apps</button><button id="refresh-space" type="button" class="text-button">Refresh</button></nav>
+                <div id="space-files" class="space-files"><div id="file-tree" class="file-tree" aria-label="Space files"></div><div id="space-preview" class="space-preview"><p id="space-preview-empty">Select a file to preview it here.</p></div></div>
+                <section id="space-apps" class="space-apps" aria-label="Space apps" hidden></section>
               </div>
             </div>
           </section>
@@ -765,9 +780,6 @@ function renderApplication() {
       closeDrawer();
     }
   });
-  const foldHome = document.querySelector("#fold-home");
-  // Delegated listeners survive the section's innerHTML refreshes.
-  foldHome?.addEventListener("click", onFoldHomeClick);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {
       // A backgrounded phone tab may never come back: park the draft.
@@ -775,7 +787,6 @@ function renderApplication() {
       persistDrafts();
       return;
     }
-    acknowledgeGlance();
     // iOS kills background event streams and throttles timers; returning to
     // the app refreshes immediately instead of waiting out the next tick.
     resumeLiveConnection();
@@ -793,7 +804,17 @@ function renderApplication() {
     cancelChatRename();
   });
   document.querySelector("#stop-task")?.addEventListener("click", () => void stopCurrentTask());
-  document.querySelector("#space-picker")?.addEventListener("change", (event) => void selectExplorerSpace(event.currentTarget.value));
+  document.querySelector("#spaces-back")?.addEventListener("click", () => void selectExplorerSpace(null));
+  document.querySelector("#return-to-chat")?.addEventListener("click", () => showContext(state.selectedConversationId && !state.startingNewChat ? "chat" : "new", { moveFocus: true }));
+  document.querySelector("#ask-space")?.addEventListener("click", () => draftSpaceQuestion(state.explorerSpaceId));
+  document.querySelector("#refresh-space")?.addEventListener("click", () => void refreshExplorerTree());
+  document.querySelector("#space-directory")?.addEventListener("click", (event) => {
+    const row = event.target.closest?.("[data-explore-space]");
+    if (row) void selectExplorerSpace(row.dataset.exploreSpace);
+  });
+  for (const button of document.querySelectorAll("[data-space-view]")) button.addEventListener("click", () => {
+    state.explorerTab = button.dataset.spaceView; renderWorkspace();
+  });
   document.querySelector("#attach-files")?.addEventListener("click", () => document.querySelector("#file-input")?.click());
   document.querySelector("#file-input")?.addEventListener("change", (event) => {
     addUploads([...event.currentTarget.files]);
@@ -826,7 +847,6 @@ function renderApplication() {
   syncComposer();
   renderConversationChrome();
   renderConversations();
-  renderFoldHome();
   renderWorkspace();
   updateConnection();
 }
@@ -857,8 +877,6 @@ function showContext(name, { moveFocus = false, fromHistory = false } = {}) {
     }
     renderConversationChrome();
     renderConversations();
-    // The digest is marked seen only from the surface that shows it.
-    if (name === "needs") acknowledgeGlance();
   }
   // Outside the change guard: the first render lands on a screen the shell
   // already claims, and its destination still has to read as the current one.
@@ -866,7 +884,7 @@ function showContext(name, { moveFocus = false, fromHistory = false } = {}) {
     if (button.dataset.navCurrent === name) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   }
-  updateNavBadges();
+  updateContextTitle();
   if (!fromHistory && !fixtureName && document.querySelector(".app-shell")) {
     const hash = contextHash(name);
     if (location.hash !== hash) history.pushState({ context: name }, "", hash);
@@ -1138,7 +1156,6 @@ async function refreshConversation({ loadTranscript = true } = {}) {
   if (fixtureName) {
     renderConversationChrome();
     renderMessages();
-    renderFoldHome();
     return;
   }
   const refreshVersion = ++state.conversationRefreshVersion;
@@ -1151,7 +1168,6 @@ async function refreshConversation({ loadTranscript = true } = {}) {
       state.transcriptTruncated = false;
       renderConversationChrome();
       renderMessages();
-      renderFoldHome();
       return;
     }
     const conversationId = state.selectedConversationId;
@@ -1207,7 +1223,6 @@ async function refreshConversation({ loadTranscript = true } = {}) {
     }
     renderConversationChrome();
     renderMessages();
-    renderFoldHome();
     ensureConversationWatch();
   } catch (error) {
     state.transcriptLoading = false;
@@ -1479,13 +1494,14 @@ async function loadSpaces() {
     state.filePreviewAvailable = result.capabilities?.filePreview === true;
     state.appViewsAvailable = result.capabilities?.appViews === true;
     state.spacesLoaded = true;
+    if (state.explorerSpaceId && !state.spaces.some((space) => space.id === state.explorerSpaceId)) { closeInlinePreview(); state.explorerSpaceId = null; }
     if (!state.explorerSpaceId && state.spaces.length) {
       // The Files context remembers its Space across reloads on this tab.
       let remembered = null;
       try { remembered = sessionStorage.getItem(explorerSpaceStorageKey); } catch {}
       state.explorerSpaceId = remembered && state.spaces.some((space) => space.id === remembered)
         ? remembered
-        : state.spaces[0].id;
+        : null;
     }
     renderWorkspace();
     if (state.explorerSpaceId) await loadTree(state.explorerSpaceId, "");
@@ -1550,7 +1566,7 @@ function renderConversations() {
       const active = conversation.id === state.selectedConversationId && !state.startingNewChat && state.contextName !== "new";
       // The open chat keeps its fill from anywhere in the app, but it is only
       // the current page while its transcript is the screen being shown.
-      return `<li><button class="chat-button${active ? " active" : ""}" type="button" data-chat-id="${escapeAttribute(conversation.id)}"${active && state.contextName === "chat" ? ` aria-current="page"` : ""}${busy ? " disabled" : ""}><span class="chat-title">${escapeHtml(conversation.title)}</span>${conversation.state === "running" ? `<span class="chat-working"><span class="chat-working-dot" aria-hidden="true"></span>Working</span>` : ""}</button></li>`;
+      return `<li><button class="chat-button${active ? " active" : ""}" type="button" data-chat-id="${escapeAttribute(conversation.id)}"${active && state.contextName === "chat" ? ` aria-current="page"` : ""}${busy ? " disabled" : ""}><span class="chat-title">${escapeHtml(conversation.title)}</span>${conversation.needsAnswer ? `<span class="chat-waiting">Needs your answer</span>` : conversation.state === "running" || conversation.requestState === "working" || conversation.requestState === "handed_off" ? `<span class="chat-working"><span class="chat-working-dot" aria-hidden="true"></span>Working</span>` : ""}</button></li>`;
     }).join("")}`).join("");
   // "No chats yet" is an answer, not a guess: before the first load the list
   // shows its loading state instead of a false empty.
@@ -1625,7 +1641,7 @@ async function loadSpaceApps(spaceId) {
     state.spaceApps.set(spaceId, result.apps ?? []);
     renderWorkspace();
   } catch {
-    state.spaceApps.delete(spaceId);
+    state.spaceApps.set(spaceId, null);
     renderWorkspace();
   }
 }
@@ -1736,42 +1752,52 @@ function cancelChatRename({ restoreFocus = true } = {}) {
 }
 
 function renderWorkspace() {
-  const picker = document.querySelector("#space-picker");
+  const directory = document.querySelector("#space-directory");
+  const pane = document.querySelector("#workspace-pane");
   const tree = document.querySelector("#file-tree");
-  if (picker) {
-    replaceHtmlIfChanged(picker, state.spaces.map((space) => `<option value="${escapeAttribute(space.id)}" ${space.id === state.explorerSpaceId ? "selected" : ""}>${escapeHtml(space.name)}</option>`).join(""));
-    picker.disabled = !state.spaces.length;
-    picker.hidden = !state.spaces.length;
-  }
-  if (!tree) return;
-  if (!state.explorerSpaceId) {
-    tree.setAttribute("aria-busy", String(!state.spacesLoaded));
-    replaceHtmlIfChanged(tree, state.spacesLoaded ? `<div class="file-empty">No Spaces yet</div>` : `<div class="file-empty">Loading…</div>`);
+  const selected = state.spaces.find((space) => space.id === state.explorerSpaceId);
+  const hasSpace = Boolean(selected);
+  if (!directory || !pane || !tree) return;
+  directory.hidden = hasSpace; pane.hidden = !hasSpace;
+  document.querySelector("#spaces-back").hidden = !hasSpace;
+  document.querySelector("#ask-space").hidden = !hasSpace;
+  document.querySelector("#ask-space").disabled = state.sending || state.renameSaving;
+  document.querySelector("#space-title").textContent = selected?.name ?? "Spaces";
+  document.querySelector("#space-description").textContent = hasSpace ? "Files and apps in this Space. Ask the fold to work with them." : "Browse files and apps from your desktop.";
+  if (!hasSpace) {
+    directory.setAttribute("aria-busy", String(!state.spacesLoaded));
+    replaceHtmlIfChanged(directory, state.spaces.length ? state.spaces.map((space) => `<button type="button" class="space-directory-row" data-explore-space="${escapeAttribute(space.id)}">${fileGlyph("folder")}<span>${escapeHtml(space.name)}</span><span aria-hidden="true">›</span></button>`).join("") : `<p class="file-empty">${state.spacesLoaded ? "Your Spaces will appear here when you add them on your desktop." : "Loading Spaces…"}</p>`);
     return;
   }
-  const entries = state.trees.get(`${state.explorerSpaceId}:`) ?? [];
-  tree.setAttribute("aria-busy", String(state.treeStatus.get(`${state.explorerSpaceId}:`) === "loading"));
-  const apps = state.spaceApps.get(state.explorerSpaceId) ?? [];
-  const appsHtml = apps.length ? `<section class="space-web-apps" aria-label="Apps"><h3>Apps</h3>${apps.map((app) => `<button type="button" class="quiet" data-open-app="${escapeAttribute(app.featureInstallationId)}">${escapeHtml(app.title)}${app.preview ? " · Preview" : ""}${app.webView ? "" : " · Desktop only"}</button>`).join("")}</section>` : "";
-  const changed = replaceHtmlIfChanged(tree, appsHtml + renderTreeRows(state.explorerSpaceId, entries, "", 0));
+  document.querySelector("#space-files").hidden = state.explorerTab !== "files";
+  document.querySelector("#space-apps").hidden = state.explorerTab !== "apps";
+  for (const button of document.querySelectorAll("[data-space-view]")) button.setAttribute("aria-pressed", String(button.dataset.spaceView === state.explorerTab));
+  const spaceId = selected.id;
+  const entries = state.trees.get(`${spaceId}:`) ?? [];
+  tree.setAttribute("aria-busy", String(state.treeStatus.get(`${spaceId}:`) === "loading"));
+  const apps = state.spaceApps.get(spaceId);
+  const appsPane = document.querySelector("#space-apps");
+  const appsStatus = !fixtureName && !state.appViewsAvailable ? "Update work-fold on your desktop to browse apps here." : apps === undefined ? "Loading apps…" : apps === null ? "Couldn’t load apps. Try Refresh." : "No apps in this Space yet. Ask the fold to help you build one.";
+  if (replaceHtmlIfChanged(appsPane, apps?.length ? apps.map((app) => `<button type="button" class="space-app-row" data-open-app="${escapeAttribute(app.featureInstallationId)}"><span>${escapeHtml(app.title)}</span><small>${app.webView ? app.preview ? "Preview" : "Open app" : "Desktop only"}</small></button>`).join("") : `<p class="file-empty">${appsStatus}</p>`)) {
+    for (const button of appsPane.querySelectorAll("[data-open-app]")) button.addEventListener("click", () => openBrowserApp(spaceId, button.dataset.openApp));
+  }
+  const focusedPath = document.activeElement?.closest?.("[data-file-path], [data-tree-path]")?.dataset;
+  const changed = replaceHtmlIfChanged(tree, renderTreeRows(spaceId, entries, "", 0));
   if (!changed) return;
   for (const row of tree.querySelectorAll("[data-depth]")) row.style.setProperty("--depth", row.dataset.depth);
-  for (const button of tree.querySelectorAll("[data-open-app]")) button.addEventListener("click", () => openBrowserApp(state.explorerSpaceId, button.dataset.openApp));
-  for (const button of tree.querySelectorAll("[data-tree-path]")) {
-    button.addEventListener("click", () => void toggleTree(button.dataset.spaceId, button.dataset.treePath));
-  }
-  for (const button of tree.querySelectorAll("[data-file-path]")) {
-    button.addEventListener("click", () => openFilePreview(button.dataset.spaceId, button.dataset.filePath));
-  }
+  for (const button of tree.querySelectorAll("[data-tree-path]")) button.addEventListener("click", () => void toggleTree(button.dataset.spaceId, button.dataset.treePath));
+  for (const button of tree.querySelectorAll("[data-file-path]")) button.addEventListener("click", () => openSpaceFile(button.dataset.spaceId, button.dataset.filePath));
+  if (focusedPath?.filePath) tree.querySelector(`[data-file-path="${CSS.escape(focusedPath.filePath)}"]`)?.focus({ preventScroll: true });
+  else if (focusedPath?.treePath) tree.querySelector(`[data-tree-path="${CSS.escape(focusedPath.treePath)}"]`)?.focus({ preventScroll: true });
 }
 
 function renderTreeRows(spaceId, entries, path, depth) {
   const key = `${spaceId}:${path}`;
   const status = state.treeStatus.get(key);
   if (status === "loading" || (!status && !state.trees.has(key))) return `<div class="file-empty">Loading…</div>`;
-  if (status === "error") return `<div class="file-empty error">Couldn’t load</div>`;
+  if (status === "error") return `<div class="file-empty error">Couldn’t load files. Try Refresh.</div>`;
   const truncated = state.treeTruncated.get(`${spaceId}:${path}`) === true;
-  if (!entries.length) return `<div class="file-empty">Empty</div>`;
+  if (!entries.length) return `<div class="file-empty">${path ? "This folder is empty." : "No visible files in this Space yet."}</div>`;
   return `${truncated ? `<div class="tree-notice">First 500 items. Ignored files omitted.</div>` : ""}${entries.map((entry) => {
     const expanded = entry.kind === "folder" && state.expanded.has(`${spaceId}:${entry.path}`);
     const children = expanded ? state.trees.get(`${spaceId}:${entry.path}`) ?? [] : [];
@@ -1788,13 +1814,17 @@ function renderTreeRows(spaceId, entries, path, depth) {
 }
 
 async function selectExplorerSpace(spaceId) {
+  closeInlinePreview();
+  state.explorerTab = "files";
   state.explorerSpaceId = spaceId;
-  try { sessionStorage.setItem(explorerSpaceStorageKey, spaceId); } catch {}
+  try { if (spaceId) sessionStorage.setItem(explorerSpaceStorageKey, spaceId); else sessionStorage.removeItem(explorerSpaceStorageKey); } catch {}
   renderWorkspace();
+  document.querySelector("#space-title")?.focus({ preventScroll: true });
   if (spaceId) await loadTree(spaceId, "");
 }
 
 async function refreshExplorerTree() {
+  if (fixtureName) return renderWorkspace();
   const spaceId = state.explorerSpaceId;
   if (!spaceId) return;
   for (const key of [...state.trees.keys()]) if (key.startsWith(`${spaceId}:`)) state.trees.delete(key);
@@ -1822,7 +1852,6 @@ async function stopCurrentTask() {
   state.stoppingTask = true;
   const button = document.querySelector("#stop-task");
   if (button) button.disabled = true;
-  renderFoldHome();
   try {
     await remote("management.stop", { taskId: task.taskId });
     state.activeTasks.delete(task.conversationId);
@@ -1834,184 +1863,14 @@ async function stopCurrentTask() {
     state.stoppingTask = false;
     if (button) button.disabled = false;
     renderConversationChrome();
-    renderFoldHome();
-  }
+    }
 }
 
-// --- The fold's Home: the questions waiting on the person and the glance as
-// the page body -------------------------------------------------------------
-// The digest is app-composed on the desktop from recorded state
-// (docs/fold-glance.md); this client renders that projection and never
-// composes copy of its own. Desktop offline means no digest — recorded state,
-// never a stale one presented as current.
-
-let foldHomeRefresh = null;
-function refreshFoldHome() {
-  if (fixtureName) return Promise.resolve(true);
-  if (foldHomeRefresh) return foldHomeRefresh;
-  if (!state.session?.desktopOnline) return Promise.resolve(false);
-  foldHomeRefresh = readFoldHome().finally(() => { foldHomeRefresh = null; });
-  return foldHomeRefresh;
-}
-
-async function readFoldHome() {
-  try {
-    const glance = await remote("management.glance");
-    state.glance = glance.glance ?? null;
-    if (state.questionTaskId) void showWorkQuestion(state.questionTaskId);
-    renderFoldHome();
-    acknowledgeGlance();
-    return true;
-  } catch {
-    // The home section renders recorded state only. A failed refresh keeps
-    // the last rendered projection instead of inventing an empty, clear one;
-    // the conversation lane already surfaces connection problems.
-    return false;
-  }
-}
-
-/**
- * Marking seen happens only after the digest has actually rendered on a
- * visible surface, and only for this grant's own `remote:<grantId>` marker.
- * The desktop refuses backward or replayed advances, so acknowledging is
- * always safe to retry.
- */
-function acknowledgeGlance() {
-  if (fixtureName) return;
-  const cursor = state.glance?.cursor;
-  // Needs you is the only surface that shows the digest, so it is the only
-  // surface that can mark it seen.
-  if (state.contextName !== "needs") return;
-  if (!cursor || document.visibilityState === "hidden" || !state.identity?.grantId) return;
-  const seenThrough = state.glance.seen?.[`remote:${state.identity.grantId}`] ?? "";
-  if (cursor === seenThrough || state.glanceAcknowledged === cursor) return;
-  state.glanceAcknowledged = cursor;
-  remote("management.glanceSeen", { cursor }).catch(() => {
-    state.glanceAcknowledged = "";
-  });
-}
-
-// Questions waiting on the person surface on the Needs you destination from
-// every screen, not only for someone who happens to be looking at it: the
-// sidebar count, the screen title, and the ☰ dot all read the same digest.
-function updateNavBadges() {
-  const count = (state.glance?.needsYou ?? []).length;
-  const label = count > 9 ? "9+" : String(count);
-  for (const badge of document.querySelectorAll("[data-nav-badge]")) {
-    badge.hidden = !count;
-    if (badge.textContent !== label) badge.textContent = label;
-  }
-  for (const dot of document.querySelectorAll("[data-nav-dot]")) dot.hidden = !count;
-  const heading = needsHeading();
-  const title = document.querySelector("#needs-title");
-  if (title && title.textContent !== heading) title.textContent = heading;
-  const barTitle = document.querySelector("#top-bar-title");
-  const barText = state.contextName === "needs" ? heading : state.contextName === "spaces" ? "Spaces" : "";
-  if (barTitle && barTitle.textContent !== barText) barTitle.textContent = barText;
-}
-
-function needsHeading() {
-  return "Needs you";
-}
-
-function renderFoldHome() {
-  const container = document.querySelector("#fold-home");
-  if (!container) return;
-  updateNavBadges();
-  // The questions waiting on the person come first, then the glance.
-  const body = `${renderFromChats()}${renderGlance()}`;
-  const markup = body || `<p class="glance-empty">Nothing needs you right now.</p>`;
-  replaceHtmlIfChanged(container, markup);
-}
-
-// Needs you means questions (docs/receipts-not-gates.md, F24): every item the
-// glance lists under needs-you renders as an inert row — an Assistant question
-// or a due snooze, answered in its own chat, so the row offers a way in
-// whenever the chat is one this browser can open. No kind is filtered out and
-// no kind gets a control, so an older desktop that still emits other kinds
-// renders text here, never a button.
-function renderFromChats() {
-  const questions = state.glance?.needsYou ?? [];
-  if (!questions.length) return "";
-  return `<section class="glance">
-    <h3 class="glance-heading">Needs you</h3>
-    <ul class="glance-list">${questions.map((item) => {
-      const conversationId = typeof item.ref?.conversationId === "string" ? item.ref.conversationId : "";
-      const known = conversationId && state.conversations.some((conversation) => conversation.id === conversationId);
-      const space = item.spaceName ? `<strong>${escapeHtml(item.spaceName)}</strong> · ` : "";
-      return `<li class="glance-item from-chat"><span>${space}${escapeHtml(item.headline ?? "")}</span>${item.canOpenWork && item.ref?.taskId ? `<button type="button" class="text-button" data-open-work="${escapeAttribute(item.ref.taskId)}">Answer</button>` : known ? `<button type="button" class="text-button" data-open-chat="${escapeAttribute(conversationId)}">Open chat</button>` : `<span class="work-detail">Open work-fold on the desktop to answer.</span>`}</li>`;
-    }).join("")}</ul>
-  </section>`;
-}
-
-function renderGlance() {
-  const glance = state.glance;
-  if (!glance) return "";
-  const seenThrough = glance.seen?.[`remote:${state.identity?.grantId ?? ""}`] ?? "";
-  const running = glance.running ?? [];
-  const changes = glance.changes ?? [];
-  const checks = glance.checks ?? [];
-  const unavailable = glance.unavailable ?? [];
-  if (!running.length && !changes.length && !checks.length && !unavailable.length) return "";
-  const parts = [];
-  if (running.length) {
-    parts.push(`<h3 class="glance-heading">Running now</h3>
-      <ul class="glance-list">${running.map((item) => glanceRow(item)).join("")}</ul>
-      ${glance.truncated?.running ? `<p class="glance-truncated">More is running than fits here.</p>` : ""}`);
-  }
-  if (changes.length) {
-    const isNew = (item) => glanceCursorIsNewer(`${item.at}/${item.id}`, seenThrough);
-    const fresh = changes.filter((item) => isNew(item));
-    const shown = state.showEarlierChanges ? changes : fresh;
-    const earlierCount = changes.length - fresh.length;
-    parts.push(`<h3 class="glance-heading">Since you last looked</h3>
-      ${shown.length
-        ? `<ul class="glance-list">${shown.map((item) => glanceRow(item, !isNew(item))).join("")}</ul>`
-        : `<p class="glance-empty">Nothing new since you last looked.</p>`}
-      ${!state.showEarlierChanges && earlierCount ? `<button type="button" class="glance-show-earlier" data-show-earlier="true">Show earlier (${earlierCount})</button>` : ""}
-      ${glance.truncated?.changes ? `<p class="glance-truncated">Older changes don’t fit here.</p>` : ""}`);
-  }
-  if (checks.length) {
-    parts.push(`<h3 class="glance-heading">Checks</h3>
-      <ul class="glance-list">${checks.map((row) => `<li class="glance-item"><strong>${escapeHtml(row.spaceName)}</strong>${row.state === "needs-attention" && row.needsAttention ? "" : ` · ${escapeHtml(checkStateLabel(row.state))}`}${row.needsAttention ? ` · ${row.needsAttention} need${row.needsAttention === 1 ? "s" : ""} attention` : ""}</li>`).join("")}</ul>
-      ${glance.truncated?.checks ? `<p class="glance-truncated">More Spaces have Checks than fit here.</p>` : ""}`);
-  }
-  if (unavailable.length) {
-    parts.push(`<p class="glance-unavailable">Some records could not be read just now: ${unavailable.map((source) => escapeHtml(source)).join(", ")}.</p>`);
-  }
-  return `<section class="glance" aria-label="Recent activity">${parts.join("")}</section>`;
-}
-
-function glanceRow(item, quiet = false) {
-  const space = item.spaceName ? `<strong>${escapeHtml(item.spaceName)}</strong> · ` : "";
-  return `<li class="glance-item${quiet ? " quiet" : ""}">${space}${escapeHtml(item.headline ?? "")}</li>`;
-}
-
-/** Mirrors the desktop's cursor order: timestamp first, then item id. */
-function glanceCursorIsNewer(cursor, seenThrough) {
-  if (!seenThrough) return true;
-  const parse = (value) => {
-    const separator = value.indexOf("/");
-    return separator > 0 ? { at: value.slice(0, separator), id: value.slice(separator + 1) } : { at: value, id: "" };
-  };
-  const left = parse(cursor);
-  const right = parse(seenThrough);
-  const leftAt = Date.parse(left.at);
-  const rightAt = Date.parse(right.at);
-  if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && leftAt !== rightAt) return leftAt > rightAt;
-  if (left.at !== right.at) return left.at > right.at;
-  return left.id > right.id;
-}
-
-function checkStateLabel(value) {
-  return {
-    "current-clear": "clear",
-    "needs-attention": "needs attention",
-    "check-error": "check error",
-    "blocked": "blocked",
-    "stale": "stale",
-    "never-run": "never run",
-  }[value] ?? String(value ?? "");
+// The conversation is the only question surface. Receipts remain on the host;
+// this client neither reads nor acknowledges a feed it does not display.
+function updateContextTitle() {
+  const title = document.querySelector("#top-bar-title");
+  if (title) title.textContent = state.contextName === "spaces" ? "Spaces" : "";
 }
 
 function cardTime(value) {
@@ -2038,21 +1897,6 @@ function calendarDay(value) {
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-async function showWorkQuestion(taskId) {
-  const changed = state.questionTaskId !== taskId;
-  state.questionTaskId = taskId;
-  const target = document.querySelector("#question-work");
-  if (changed) renderWorkRequest(target, null);
-  const options = { act: workAction, openFile: openFilePreview, onClose: () => {
-    state.questionTaskId = null; renderWorkRequest(target, null);
-  } };
-  try {
-    const result = await remote("management.work", { taskId });
-    if (state.questionTaskId !== taskId) return;
-    renderWorkRequest(target, result.work, options);
-  } catch (error) { if (state.questionTaskId === taskId) renderWorkRequest(target, null, { ...options, error: errorText(error) }); }
-}
-
 async function workAction(action, input, work) {
   if (fixtureName) {
     state.work = action === "stop" ? { ...work, state: "stopped", label: "Stopped", canStop: false, canContinue: false, questions: [], questionCount: 0 } : buildWorkFixture(work.owner.conversationId, "partial");
@@ -2063,22 +1907,8 @@ async function workAction(action, input, work) {
     return remote("management.work", { taskId: work.taskId });
   }
   const result = await remote(action === "answer" ? "management.answer" : "management.continue", { taskId: work.taskId, ...input });
-  void refreshConversation(); void refreshFoldHome();
+  void refreshConversation();
   return result;
-}
-
-function onFoldHomeClick(event) {
-  const button = event.target.closest?.("button");
-  if (!button) return;
-  if (button.dataset.openWork) { void showWorkQuestion(button.dataset.openWork); return; }
-  if (button.dataset.openChat) {
-    void selectConversation(button.dataset.openChat);
-    return;
-  }
-  if (button.dataset.showEarlier) {
-    state.showEarlierChanges = true;
-    renderFoldHome();
-  }
 }
 
 function addUploads(files) {
@@ -2160,7 +1990,6 @@ function renderDesktopPresence() {
 function scheduleRefresh() {
   if (fixtureName) return;
   scheduleBrowserRefresh(state, {
-    refreshHome: refreshFoldHome,
     refreshChats: () => loadConversations({ refreshTranscript: true }),
     onError: (error) => {
       state.banner = errorText(error);
@@ -2215,7 +2044,6 @@ async function receiveRemoteEvent(event) {
     if (progress?.assistantTextTruncated === true) state.liveAssistantTextTruncated = true;
     if (activity || assistantText !== null || assistantDelta) {
       renderMessages();
-      renderFoldHome();
     }
     return;
   }
@@ -2440,6 +2268,7 @@ function scheduleSessionReboot() {
   saveComposerDraft();
   state.session = null;
   filePreview?.connectionChanged(false);
+  inlineFilePreview?.connectionChanged(false);
   browserApp?.connectionChanged(false);
   if (state.refreshTimer) clearTimeout(state.refreshTimer);
   state.refreshTimer = null;
@@ -2459,7 +2288,6 @@ function resumeLiveConnection() {
   // signal); one burst per ten seconds is plenty, and none during a cooldown.
   if (!canResume(state)) return;
   state.lastResumeAt = Date.now();
-  void refreshFoldHome();
   void loadConversations().catch((error) => {
     state.banner = errorText(error);
     renderBanner();
@@ -2478,7 +2306,7 @@ function clearGrantFromIdentity() {
 }
 
 function updateConnection(online = state.session?.desktopOnline) {
-  if (Boolean(online) !== Boolean(state.session?.desktopOnline)) filePreview?.connectionChanged(Boolean(online));
+  if (Boolean(online) !== Boolean(state.session?.desktopOnline)) { filePreview?.connectionChanged(Boolean(online)); inlineFilePreview?.connectionChanged(Boolean(online)); }
   if (Boolean(online) !== Boolean(state.session?.desktopOnline)) browserApp?.connectionChanged(Boolean(online));
   if (state.session) state.session.desktopOnline = Boolean(online);
   if (online && state.banner === "Your work-fold desktop is offline.") {

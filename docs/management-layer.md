@@ -585,7 +585,7 @@ observe:
 
 ## Fold-led Checks
 
-Checks authoring uses the fold, with an unsent draft from the Space-owned Checks tab. `checks propose` and `checks propose-fix` are authenticated, receipted, explicitly Space-scoped inert proposal operations; neither enables a Check nor edits a target. Trials and human-reviewed corrections use the same Check service and reservations. The fold displays a passive aggregate Checks disclosure linking to the owning Space. Findings prepare unsent help drafts in fresh Space Chats; no model turn starts merely because a finding appears. See [Checks](checks.md) for the exact review, History, freshness, and trial-isolation contract.
+Checks authoring uses the fold, with an unsent draft from the Space-owned Checks tab. `checks propose` and `checks propose-fix` are authenticated, receipted, explicitly Space-scoped inert proposal operations; neither enables a Check nor edits a target. Trials and human-reviewed corrections use the same Check service and reservations. The main-window glance links to the owning Space’s Checks tab. The fold popover stays focused on conversations and has no separate Checks disclosure. Findings prepare unsent help drafts in fresh Space Chats; no model turn starts merely because a finding appears. See [Checks](checks.md) for the exact review, History, freshness, and trial-isolation contract.
 
 Check help drafts name their Space-scoped CLI operations. `help checks` documents
 the full correction JSON, and `help routings` provides a validated complete
@@ -606,3 +606,5 @@ limits and 30-day retention as the rest of the record; turn metadata alone
 still does not reconstruct a request that retention has removed. See
 [file previews](fold-file-previews.md) and
 [browser apps](fold-browser-apps.md) for current-file and installation semantics.
+
+The authenticated renderer can list saved fold Chats at `GET /api/management/conversations` and pin `GET /api/management/summary?conversationId=<id>` to a selected Chat. The transcript and latest request always come from that same id. The paired `management.chats` projection optionally includes `requestState` and `needsAnswer` for browser-owned requests; older clients and host operations remain compatible. This changes no CLI protocol or request authority.

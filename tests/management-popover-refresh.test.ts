@@ -118,7 +118,7 @@ test("the compact popover leaves the glance to the main window and approved web 
 test("Escape still hides the popover and the fold region stays live", async () => {
   const popover = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
   assert.match(popover, /aria-label="Your fold" aria-live="polite"/);
-  assert.match(popover, /if \(event\.key === "Escape"\) \{\s*bridge\?\.management\?\.hide\(\);/);
+  assert.match(popover, /if \(event\.key === "Escape"\) \{[\s\S]*?else bridge\?\.management\?\.hide\(\);/);
 });
 
 test("the popover composer behaves like every other work-fold composer", async () => {
@@ -143,7 +143,7 @@ test("the popover composer behaves like every other work-fold composer", async (
   // mounted as a safe draft area and sending is refused until the turn settles.
   assert.match(popover, /if \(requestRunning\) void stop\(\); else void send\(\);/);
   assert.match(popover, /requestRunning\s*\? stopping \? "Stopping…" : "Stop"/);
-  assert.match(popover, /if \(!content \|\| sending \|\| \(currentRequest && activePhases\.has\(currentRequest\.phase\)\)\) return;/);
+  assert.match(popover, /if \(!content \|\| sending \|\| loadingChat \|\| stopping \|\| \(currentRequest && activePhases\.has\(currentRequest\.phase\)\)\) return;/);
   // The transcript follows new entries only while pinned near the bottom, so
   // reading scrollback is never yanked away by the poll cadence — and a
   // refetch that changes nothing keeps the old array identity.
@@ -164,8 +164,8 @@ test("the popover composer behaves like every other work-fold composer", async (
   assert.match(popover, />Drop to add<\/strong>/);
   assert.match(css, /\.drop-overlay \{[\s\S]*position: fixed;[\s\S]*inset: 6px;[\s\S]*pointer-events: none;/);
   assert.doesNotMatch(popover, /className="drop-hint"/);
-  // New chat cannot orphan a running request's live tail and Stop button.
-  assert.match(popover, /if \(current && activePhases\.has\(current\.phase\)\) return;\s*startingNewChatRef\.current = true/);
+  // Background work remains reachable when navigating to another Chat.
+  assert.match(popover, /className="fold-background-work"/);
 });
 
 test("the fold composer names its model and exposes real text-only reasoning controls", async () => {
@@ -199,8 +199,8 @@ test("the header exposes Open app and New chat directly", async () => {
   assert.match(source, /title="Start a new chat\. This chat stays saved on your desktop\."/);
   assert.match(source, />\s*<SquarePen aria-hidden="true" \/>\s*<span>New chat<\/span>/);
   assert.doesNotMatch(source, /popover-overflow-menu|aria-haspopup="menu"|Ellipsis|role="menuitem"/);
-  assert.match(source, /startingNewChatRef\.current = true/);
+  assert.match(source, /startingNewChatRef\.current = id === null/);
   assert.match(source, /body\.newConversation = true/);
-  assert.match(source, /previous chat is still saved on this desktop/);
+  assert.doesNotMatch(source, /setBanner\("New chat ready/);
   assert.match(source, /idlePollIntervalMs = 5_000/);
 });

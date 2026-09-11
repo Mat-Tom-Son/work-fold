@@ -288,3 +288,5 @@ continuations for each owner, and selected request results. The request graph
 and original assignments remain machine-local. Only deliberately released
 child reports enter a Space Chat; app task reads remain pinned to their own
 installation. See the contract for stop, expiry and restart behavior.
+
+The popover’s saved-chat list and explicitly selected summary use the authenticated renderer lane and read only management-scope transcripts. The paired web chat list adds request state and an answer indicator only for requests owned by that browser/grant; this does not widen question, answer, result, or Stop authority. Inline Space previews reuse the existing bounded inert preview broker. Preparing a Space/file chat draft is local UI state and does not execute work.

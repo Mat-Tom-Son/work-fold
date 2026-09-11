@@ -38,7 +38,7 @@ export function buildFixture(name) {
   ];
   const conversations = [
     { id: "chat-1", title: "Quarterly report", updatedAt: minutes(2), state: "running" },
-    { id: "chat-2", title: "Field notes cleanup", updatedAt: minutes(140), state: "idle" },
+    { id: "chat-2", title: "Field notes cleanup", updatedAt: minutes(140), state: "idle", needsAnswer: true },
     { id: "chat-3", title: "Grant application draft", updatedAt: daysAgo(1), state: "idle" },
     { id: "chat-4", title: "Reading list", updatedAt: daysAgo(4), state: "idle" },
   ];
@@ -102,8 +102,9 @@ export function buildFixture(name) {
         { id: "space-2", name: "Field notes" },
       ],
       explorerSpaceId: "space-1",
-      spaceApps: new Map([["space-1", [{ spaceId: "space-1", appId: "quote-board", featureInstallationId: "fixture-quote-board", digest: "a".repeat(64), authorityDigest: "fixture", title: "Quote board", version: "1.0.0", preview: false, webView: true, actions: true }]]]),
+      spaceApps: new Map([["space-2", []], ["space-1", [{ spaceId: "space-1", appId: "quote-board", featureInstallationId: "fixture-quote-board", digest: "a".repeat(64), authorityDigest: "fixture", title: "Quote board", version: "1.0.0", preview: false, webView: true, actions: true }]]]),
       trees: new Map([
+        ["space-2:", []],
         ["space-1:", [
           { kind: "folder", name: "reports", path: "reports" },
           { kind: "file", name: "q3-numbers.csv", path: "q3-numbers.csv", sizeBytes: 48_213 },
@@ -114,6 +115,7 @@ export function buildFixture(name) {
         ]],
       ]),
       treeStatus: new Map([
+        ["space-2:", "loaded"],
         ["space-1:", "loaded"],
         ["space-1:reports", "loaded"],
       ]),

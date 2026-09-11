@@ -6,6 +6,10 @@ release-note file alone does not mean a version was published.
 
 ## September 11, 2026
 
+[0.4.27](work-fold-0.4.27.md) adds searchable fold chat history and a calmer
+new-chat experience, keeps questions in their Chats, and gives web Spaces a
+cohesive Files and Apps view.
+
 [0.4.26](work-fold-0.4.26.md) brings durable Assistant collaboration, inline
 questions and results, reversible actions, and direct App AI primitives.
 The public Mac feed remains the authority for publication and availability;

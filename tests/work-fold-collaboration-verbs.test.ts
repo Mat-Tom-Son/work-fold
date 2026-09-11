@@ -649,13 +649,20 @@ test("the fold asks and receives one durable answer through the same lifecycle",
   const h = await collaborationHarness(t); const api = await h.open();
   h.held.add(workFoldManagementScopeId);
   try {
-    const root = await api.actFacade.manageSend({ content: "/hold" });
+    const principal = { browserId: "question-browser", grantId: "question-grant", requestId: "question-send" };
+    const root = await api.remoteFacade.execute("management.send", { content: "/hold", newConversation: true }, principal) as { taskId: string; conversationId: string };
     const asked = await api.actFacade.manageAsk({ taskId: root.taskId, question: "Which quarter?" });
     assert.equal(asked.request.state, "waiting");
     await h.release(root.taskId); await settled(api, workFoldManagementScopeId, root.taskId);
+    const ownedList = await api.remoteFacade.execute("management.chats", {}, principal) as { conversations: Array<{ id: string; needsAnswer?: boolean }> };
+    assert.equal(ownedList.conversations.find((chat) => chat.id === root.conversationId)?.needsAnswer, true);
+    const otherList = await api.remoteFacade.execute("management.chats", {}, { ...principal, grantId: "another-grant" }) as typeof ownedList;
+    assert.equal(otherList.conversations.find((chat) => chat.id === root.conversationId)?.needsAnswer, undefined, "the chat list does not grant another browser question access");
     const answer = await api.actFacade.manageAnswer({ questionId: asked.question.questionId, answer: "/hold Q3" });
     assert.equal(answer.request.id, asked.request.id);
     assert.equal(answer.request.state, "working");
+    const answeredList = await api.remoteFacade.execute("management.chats", {}, principal) as typeof ownedList;
+    assert.equal(answeredList.conversations.find((chat) => chat.id === root.conversationId)?.needsAnswer, false);
     await assert.rejects(api.actFacade.manageAnswer({ questionId: asked.question.questionId, answer: "Q4" }), /already has an answer/);
     await h.release(answer.continuation.taskId); await settled(api, workFoldManagementScopeId, answer.continuation.taskId);
     assert.equal(api.requests.byTaskId(root.taskId)?.state, "done");

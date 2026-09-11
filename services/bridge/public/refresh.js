@@ -32,7 +32,7 @@ export function scheduleBrowserRefresh(state, effects, clock = globalThis) {
     // Chats every tick; the two-operation home digest less often. Never start
     // another chat refresh while the previous one is still settling.
     if (state.refreshTick % (active ? 3 : 2) === 0) {
-      void Promise.resolve().then(effects.refreshHome).catch(effects.onError);
+      void Promise.resolve().then(() => effects.refreshHome?.()).catch(effects.onError);
     }
     try { await effects.refreshChats(); }
     catch (error) { effects.onError(error); }

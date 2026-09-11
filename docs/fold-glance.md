@@ -175,7 +175,8 @@ Marker advance is the glance's only mutation, and its standard answers:
 
 ## Surfaces
 
-Two human surfaces read the digest; each owns one marker. No surface
+The main window reads the digest and owns its marker. Older paired clients
+retain their grant-scoped marker through the compatible host operations. No surface
 receives push: the digest is pulled when a surface is visible and never
 recomputed in the background for nobody.
 
@@ -183,24 +184,14 @@ recomputed in the background for nobody.
 conversation and capture. It has no **What's new**
 footer, does not request `GET /api/management/glance`, and never advances a
 glance marker. Removing that presentation does not remove or clear any
-recorded state; the two reading surfaces below compose the same current
-digest when opened.
+recorded state; the main window composes the same current digest when opened.
 
-**The remote client's Needs you screen.** The paired-browser client shows the
-same digest on its **Needs you** screen: the digest's needs-you questions and
-due snoozes list first as **From chats**, then **Running now**, **Since you
-last looked**, and the Checks rows. That screen carries no control that allows
-an action — there is nothing to allow. The digest arrives through the
-`management.glance`/`management.glanceSeen` operations — signed envelopes,
-no digest content persisted at the bridge, only the requesting grant's own
-marker in the projection, and the serialized digest bounded to 64 KB.
-Acknowledgement is screen-gated: the marker advances only while **Needs
-you** is the visible screen, under the same rendered-digest rule every
-surface follows. Desktop offline means no digest: the client shows its
-honest offline state rather than a stale digest presented as current.
-Viewers never receive the glance — rung 1 of
-[publishing](fold-publishing.md) is deliberately the paired-browser trust
-and nothing weaker.
+**The paired web client.** Questions now live inside their owning Chat, with an
+answer indicator in the saved-chat list. There is no Needs you destination or
+receipt feed. The current client neither requests nor acknowledges the glance.
+The signed `management.glance`/`management.glanceSeen` host operations remain
+compatible with older paired clients, with their existing 64 KB bound and
+per-grant marker isolation. Viewers never receive the glance.
 
 **The main window.** The same digest as a compact panel reachable from the
 Space-identity header region — deliberately not a new rail destination,
@@ -293,4 +284,4 @@ The plan items shipped as follows:
 
 ## Checks navigation refinement
 
-The popover now has a compact passive Checks disclosure projected from the existing aggregate Check rows. It does not render the full glance or advance a seen marker. Review opens the owning Space’s existing Checks tab through the durable main-window open request. The main-window Check rows offer the same Review action. No sensor or model turn starts from either view. Trial runs are excluded from settled Check changes and live status.
+The popover has no Checks disclosure and does not read or acknowledge the glance. The main-window Check rows offer Review, opening the owning Space’s Checks tab. No sensor or model turn starts from either view. Trial runs are excluded from settled Check changes and live status.

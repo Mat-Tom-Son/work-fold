@@ -51,8 +51,8 @@ test("remote client keeps the load-bearing copy exact", async () => {
   // The screens name themselves: the door asks the question, and Needs you
   // and Spaces carry their own titles.
   assert.ok(app.includes('<h1 class="new-heading" tabindex="-1">What are we working on?</h1>'));
-  assert.ok(app.includes('<h1 id="needs-title" class="context-title" tabindex="-1">Needs you</h1>'));
-  assert.ok(app.includes('<h1 class="context-title" tabindex="-1">Spaces</h1>'));
+  assert.equal(app.includes('id="context-needs"'), false);
+  assert.ok(app.includes('<h1 id="space-title" tabindex="-1">Spaces</h1>'));
 
   // The retired shell's copy is gone, not hidden: the Home heading and its
   // address line, the recent-chat tail, the back affordance, the composer
@@ -72,7 +72,7 @@ test("remote client keeps the load-bearing copy exact", async () => {
   assert.ok(page.includes("<title>work-fold</title>"));
 });
 
-test("the remote Needs you screen renders questions only", async () => {
+test("remote questions live in their owning Chats", async () => {
   const app = await clientSource("app.js");
 
   // Needs you means questions (docs/receipts-not-gates.md, F24): no decision
@@ -90,10 +90,9 @@ test("the remote Needs you screen renders questions only", async () => {
     "Add a note",
     "pending-decision",
   ]) assert.equal(app.includes(retired), false, `retired decision copy still present: ${retired}`);
-  assert.ok(app.includes("Nothing needs you right now."));
-  assert.ok(app.includes("${renderFromChats()}${renderGlance()}"));
-  assert.match(app, /const questions = state\.glance\?\.needsYou \?\? \[\]/);
-  assert.match(app, /const count = \(state\.glance\?\.needsYou \?\? \[\]\)\.length/);
+  assert.ok(app.includes('id="request-work"'));
+  assert.ok(app.includes('class="chat-waiting">Needs your answer'));
+  assert.equal(app.includes('data-nav-context="needs"'), false);
 
   // Person-facing copy never carries the retired gate vocabulary
   // (docs/receipts-not-gates.md acceptance). Protocol identifiers that survive
@@ -109,54 +108,23 @@ test("the remote Needs you screen renders questions only", async () => {
   assert.doesNotMatch(speakable, /\bstaged\b|\bapprov|\bpolicy\b|\bReviewed\b|\bUnrestricted\b/i);
 });
 
-test("remote glance renders the digest sections with quiet-not-hidden seen items", async () => {
+test("the remote client does not fetch or acknowledge a hidden activity feed", async () => {
   const app = await clientSource("app.js");
-
-  // Section vocabulary from docs/fold-glance.md's remote spec.
-  assert.ok(app.includes(">Running now</h3>"));
-  assert.ok(app.includes(">Since you last looked</h3>"));
-  assert.ok(app.includes(">Checks</h3>"));
-  assert.ok(app.includes(">Needs you</h3>"));
-
-  // Marking seen advances only this grant's own marker, only after the digest
-  // rendered on the visible surface that shows it; fetching never advances it.
-  assert.match(app, /renderFoldHome\(\);\s*\n\s*acknowledgeGlance\(\);/);
-  assert.match(app, /if \(state\.contextName !== "needs"\) return;/);
-  assert.match(app, /document\.visibilityState === "hidden"/);
-  assert.match(app, /remote\("management\.glanceSeen", \{ cursor \}\)/);
-
-  // Seen items render quieter, never hidden: Show earlier reveals the bounded
-  // tail, and truncation is disclosed instead of pretending completeness.
-  assert.ok(app.includes("Show earlier"));
-  assert.match(app, /glance-item\$\{quiet \? " quiet" : ""\}/);
-  assert.ok(app.includes("Nothing new since you last looked."));
-  assert.ok(app.includes("More is running than fits here."));
-  // "digest" is contract vocabulary; the client never says it to a person.
-  assert.equal(app.includes("this digest"), false);
-  assert.ok(app.includes("Some records could not be read just now:"));
-
-  // A question raised inside a chat is answered in that chat — but only when
-  // this browser can actually open it.
-  assert.match(app, /state\.conversations\.some\(\(conversation\) => conversation\.id === conversationId\)/);
-  assert.ok(app.includes(">Open chat</button>"));
-
-  // Desktop offline means no digest: the client refreshes only while online
-  // and keeps its honest offline state otherwise.
-  assert.match(app, /if \(!state\.session\?\.desktopOnline\) return Promise\.resolve\(false\);/);
-  assert.match(app, /if \(foldHomeRefresh\) return foldHomeRefresh;/);
+  assert.doesNotMatch(app, /remote\("management\.glance(?:Seen)?"/);
+  assert.doesNotMatch(app, /id="fold-home"|Since you last looked|Nothing needs you right now/);
 });
 
-test("remote client navigation is one sidebar over four screens", async () => {
+test("remote client navigation is one sidebar over conversations and Spaces", async () => {
   const app = await clientSource("app.js");
   const styles = await clientSource("app.css");
 
-  // Four screens, New chat as the door; the retired hashes land there too.
-  assert.match(app, /const contextNames = \["new", "chat", "needs", "spaces"\];/);
+  // Three screens, New chat as the door; the retired hashes land there too.
+  assert.match(app, /const contextNames = \["new", "chat", "spaces"\];/);
   // The Space browser is named for where it goes; `#files` still lands there.
   assert.match(app, /if \(raw === "files"\) return \{ context: "spaces"/);
   assert.match(app, /contextNames\.includes\(raw\) \? raw : "new"/);
   assert.match(app, /requested === "home" \|\| requested === "chats"\) return "new"/);
-  assert.match(app, /id="context-new"[\s\S]*?id="context-chat"[\s\S]*?id="context-needs"[\s\S]*?id="context-spaces"/);
+  assert.match(app, /id="context-new"[\s\S]*?id="context-chat"[\s\S]*?id="context-spaces"/);
   assert.match(app, /id="new-composer-slot"[\s\S]*?id="messages"[\s\S]*?id="chat-composer-slot"/);
 
   // The sidebar exists once in the DOM and is both the desktop column and the
@@ -168,9 +136,9 @@ test("remote client navigation is one sidebar over four screens", async () => {
   assert.equal(app.includes("tab-bar"), false);
   assert.equal(styles.includes(".tab-bar"), false);
 
-  // Expanded order: New chat, Needs you with its count, the grouped chat
+  // Expanded order: New chat, the grouped chat
   // list, then Spaces, presence, and Settings in the footer.
-  assert.match(app, /id="new-chat"[\s\S]*?data-nav-context="needs"[\s\S]*?data-nav-badge[\s\S]*?<ul id="chats"[\s\S]*?data-nav-context="spaces"[\s\S]*?id="desktop-presence"[\s\S]*?id="account-settings"/);
+  assert.match(app, /id="new-chat"[\s\S]*?<ul id="chats"[\s\S]*?data-nav-context="spaces"[\s\S]*?id="desktop-presence"[\s\S]*?id="account-settings"/);
   assert.match(app, /"Today"[\s\S]*?"Yesterday"[\s\S]*?"Earlier"/);
   assert.ok(app.includes("No chats yet"));
   assert.ok(app.includes("Older chats hidden"));
@@ -184,17 +152,17 @@ test("remote client navigation is one sidebar over four screens", async () => {
   assert.match(styles, /\.app-shell\[data-sidebar="collapsed"\] \.sidebar \[data-tip\]::after \{\s*\n\s*content: attr\(data-tip\)/);
   assert.match(styles, /@media \(min-width: 860px\) and \(hover: hover\)[\s\S]*?\[data-tip\]:hover::after/);
   assert.match(styles, /\[data-tip\]:focus-visible::after/);
-  for (const name of ["New chat", "Chats", "Needs you", "Spaces", "Settings"]) {
+  for (const name of ["New chat", "Chats", "Spaces", "Settings"]) {
     assert.ok(app.includes(`data-tip="${name}" aria-label="${name}"`) || app.includes(`aria-label="${name}" data-tip="${name}"`),
       `tooltip and accessible name disagree for ${name}`);
   }
   // The CSS tooltip is the only tooltip: no native title doubles it up.
   assert.equal(app.includes('title="Settings"'), false);
 
-  // The phone's top bar: ☰ with the needs-you dot, and a drawer that
+  // The phone's top bar: ☰ and a drawer that
   // is a real dialog — focus trapped, Escape closing, body scroll locked.
   assert.match(app, /id="menu-button"[\s\S]*?aria-label="Menu"[\s\S]*?aria-controls="drawer"[\s\S]*?aria-expanded="false"/);
-  assert.match(app, /class="menu-dot" data-nav-dot hidden/);
+  assert.doesNotMatch(app, /data-nav-dot/);
   assert.match(app, /drawer\?\.setAttribute\("role", "dialog"\);\s*\n\s*drawer\?\.setAttribute\("aria-modal", "true"\);/);
   assert.match(app, /document\.body\.classList\.add\("drawer-locked"\)/);
   assert.match(app, /if \(event\.key === "Tab" && state\.drawerOpen\) return trapDrawerFocus\(event\)/);
@@ -207,9 +175,7 @@ test("remote client navigation is one sidebar over four screens", async () => {
   assert.match(app, /if \(sentFromNewChat\) showContext\("chat"\)/);
   assert.match(app, /state\.sending \? "Sending message" : unavailable \? "Desktop offline" : "Send message"/);
 
-  // Needs you renders the questions first, then the digest.
-  assert.ok(app.includes("${renderFromChats()}${renderGlance()}"));
-  assert.ok(app.includes("Nothing needs you right now."));
+  assert.ok(app.includes('id="request-work"'));
 
   // Presence is a sidebar-footer line, honest in both directions.
   assert.ok(app.includes('online ? "Desktop online" : "Desktop offline"'));

@@ -2871,16 +2871,29 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       sendJson(res, { available: false, reason: state.managementInstructionsError, conversation: null, state: "idle", latestRequest: null });
       return;
     }
-    const conversation = await resolveManagementConversation(false).catch(() => null);
-    // The popover's "latest request" keeps its meaning: the newest request
-    // the fold itself is handling, not whichever Space turn came last.
-    const latest = state.requests.list({ kind: "management", limit: 1 })[0] ?? null;
+    const selectedId = url.searchParams.get("conversationId");
+    const conversation = selectedId
+      ? (await listConversations(workFoldManagementRoot())).find((item) => item.id === selectedId)
+      : await resolveManagementConversation(false).catch(() => null);
+    if (selectedId && !conversation) throw notFound("This fold chat is no longer available.");
+    // The selected transcript and its request must describe the same work,
+    // even when another surface has started a newer management conversation.
+    const latest = conversation ? state.requests.latestForConversation(conversation.id) : null;
     sendJson(res, {
       available: true,
       conversation: conversation ? toActConversationRef(conversation) : null,
       state: conversation ? conversationRuntimeState(state, workFoldManagementScopeId, conversation.id) : "idle",
       latestRequest: latest ? await managementRequestView(state, latest.turns.at(-1)!.taskId) : null,
     });
+    return;
+  }
+  if (url.pathname === "/api/management/conversations" && method === "GET") {
+    assertManagementReadyForRoutes(state);
+    const conversations = await listConversations(workFoldManagementRoot());
+    sendJson(res, { conversations: await Promise.all(conversations.map(async (conversation) => ({
+      ...toActConversationRef(conversation),
+      ...await managementConversationAttention(state, conversation.id),
+    }))) });
     return;
   }
   if (url.pathname === "/api/management/messages" && method === "POST") {
@@ -4432,9 +4445,14 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
           const conversations = await listConversations(workFoldManagementRoot());
           const selected = conversations.slice(0, maxRemoteConversationSummaries);
           return {
-            conversations: selected.map((conversation) => ({
-              ...toActConversationRef(conversation),
-              state: remoteManagementConversationState(state, conversation.id),
+            conversations: await Promise.all(selected.map(async (conversation) => {
+              const record = state.requests.latestForConversation(conversation.id);
+              return {
+                ...toActConversationRef(conversation),
+                state: remoteManagementConversationState(state, conversation.id),
+                ...(record && isRemoteManagementRequestOwner(record, principal)
+                  ? await managementConversationAttention(state, conversation.id) : {}),
+              };
             })),
             truncated: selected.length < conversations.length,
           };
@@ -9805,6 +9823,12 @@ async function evaluateRequestGraphSettle(state: LocalApiState, taskId: string):
 }
 
 /** Person-facing work is scoped to one request and its deliberately linked work. */
+async function managementConversationAttention(state: LocalApiState, conversationId: string) {
+  const record = state.requests.latestForConversation(conversationId);
+  const work = record?.state === "waiting" ? await requestPresentation(state, record) : null;
+  return { requestState: record?.state ?? null, needsAnswer: (work?.questionCount ?? 0) > 0 };
+}
+
 async function requestPresentation(state: LocalApiState, record: WorkFoldRequestRecord, remote = false): Promise<WorkRequestView> {
   const family = [record, ...state.requests.subtree(record.requestId)];
   const latest = record.turns.at(-1)!;

@@ -313,10 +313,10 @@ signals. They never create or replace an enablement grant. **Turn on** grants
 manual run authority; it does not run the Check. Model trials disclose provider
 use and possible charges at the action boundary.
 
-The fold's compact Checks disclosure is a passive aggregate view with **Review**
-links to the owning Space's existing Checks tab. It does not start an agent,
-notify another agent, or acknowledge the glance cursor. The main-window glance
-uses the same navigation. Details and evidence remain in the Space work tab.
+The main-window glance links to the owning Space’s existing Checks tab.
+The compact fold popover has no separate Checks disclosure. Details and
+evidence remain in the Space work tab; neither navigation nor a status
+refresh starts an agent.
 Automatic runs still require a separately enabled Routing.
 
 **Ask Space Assistant to help** re-verifies the selected finding and prepares an

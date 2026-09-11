@@ -4,6 +4,32 @@ import { JSDOM } from "jsdom";
 import { createFilePreview, filePreviewMarkup } from "../services/bridge/public/file-preview.js";
 import { requestResultLinks } from "../services/bridge/public/request-results.js";
 
+test("Space previews stay inline and ask with the explicitly selected file identity", async () => {
+  const dom = new JSDOM('<!doctype html><main id="preview"></main>');
+  const originalDocument = globalThis.document;
+  Object.defineProperty(globalThis, "document", { configurable: true, writable: true, value: dom.window.document });
+  const asked: unknown[] = [];
+  const controller = createFilePreview({ container: document.querySelector("main"), available: () => true, online: () => true,
+    fetchPreview: async (spaceId: string, path: string) => ({ spaceId, path, kind: "text", format: "text", text: "Selected file" }),
+    askAboutFile: (file: unknown) => asked.push(file) });
+  try {
+    await controller.open({ spaceId: "space-a", spaceName: "Quotes", path: "budget.txt" });
+    assert.equal(document.querySelector("dialog"), null);
+    assert.match(document.querySelector("main")!.textContent!, /Selected file/);
+    const button = [...document.querySelectorAll("button")].find((item) => item.textContent === "Ask about this file")!;
+    button.click();
+    assert.deepEqual(asked, [{ spaceId: "space-a", spaceName: "Quotes", path: "budget.txt" }]);
+    controller.connectionChanged(false);
+    assert.doesNotMatch(document.querySelector("main")!.textContent!, /Selected file/);
+    document.querySelector<HTMLButtonElement>(".file-preview-close")!.click();
+    assert.equal(document.querySelector<HTMLElement>(".file-preview-inline")!.hidden, true);
+  } finally {
+    controller.destroy(); dom.window.close();
+    if (originalDocument === undefined) delete (globalThis as any).document;
+    else Object.defineProperty(globalThis, "document", { configurable: true, writable: true, value: originalDocument });
+  }
+});
+
 test("web previews escape file content and accept only bounded inert image types", () => {
   const text = filePreviewMarkup({ kind: "text", text: '<script>steal()</script><img src="https://track.example/x">', format: "text" });
   assert.ok(!text.includes("<script>"));

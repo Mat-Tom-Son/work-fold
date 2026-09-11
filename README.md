@@ -69,3 +69,5 @@ The [collaboration experience](docs/collaboration-experience.md) brings that wor
 into Chats, the fold, Apps, and the paired browser: visible progress, questions
 answered in place, selected files that open directly, and explicit recovery for
 saved work.
+
+The fold popover’s **Chats** view reopens saved conversations and preserves unsent drafts while switching. The paired web client keeps questions inside Chats and offers Space browsing with Files, Apps, and read-only previews. **Ask the fold** prepares an unsent Space or file reference. See [Collaboration experience](docs/collaboration-experience.md).

@@ -53,9 +53,11 @@ bound.
 
 The browser can open and rename bounded saved management Chats, invoke that one canonical
 management Assistant, inspect filtered relative Space trees, and attach at most
-six files (6 MB each, 8 MB total) per message. Selecting a Space changes only
-the Files tree; the management Assistant performs or delegates Space work
-through the desktop's attributed act path. The bridge only relays the encrypted
+six files (6 MB each, 8 MB total) per message. Selecting a Space opens its Files
+and Apps views, with an inline file preview. Asking about a Space or file prepares
+an explicit reference in a Chat draft; the management Assistant performs or
+delegates Space work through the desktop's attributed act path. Questions remain
+in their owning Chats rather than a separate activity inbox. The bridge only relays the encrypted
 upload envelope, and the desktop keeps uploads in quota- and expiry-bounded
 app-owned staging until the Assistant explicitly uses or places them. No
 operation is a direct Space Chat, generic local-HTTP tunnel, or direct

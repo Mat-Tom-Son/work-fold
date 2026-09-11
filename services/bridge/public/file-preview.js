@@ -17,24 +17,39 @@ export function filePreviewMarkup(preview) {
   throw new Error("The file preview is unavailable.");
 }
 
-export function createFilePreview({ fetchPreview, available, online }) {
-  const dialog = document.createElement("dialog");
-  dialog.className = "file-preview-dialog";
+export function createFilePreview({ fetchPreview, available, online, container = null, askAboutFile = null, onClose = null }) {
+  const dialog = document.createElement(container ? "section" : "dialog");
+  dialog.className = container ? "file-preview-inline" : "file-preview-dialog";
+  if (container) dialog.hidden = true;
   dialog.setAttribute("aria-labelledby", "file-preview-title");
   dialog.innerHTML = '<header><div><h2 id="file-preview-title"></h2><p class="file-preview-location"></p></div><button type="button" class="file-preview-close" aria-label="Close preview">✕</button></header><div class="file-preview-content" tabindex="0" aria-live="polite"></div><footer><span class="file-preview-status"></span><button class="quiet" type="button" data-refresh>Refresh</button></footer>';
-  document.body.append(dialog);
+  if (container) {
+    dialog.querySelector("h2").id = "space-file-preview-title";
+    dialog.setAttribute("aria-labelledby", "space-file-preview-title");
+  }
+  (container ?? document.body).append(dialog);
+  if (askAboutFile) {
+    const ask = document.createElement("button");
+    ask.type = "button"; ask.className = "quiet"; ask.textContent = "Ask about this file";
+    ask.addEventListener("click", () => { if (selected) askAboutFile({ ...selected }); });
+    dialog.querySelector("footer").append(ask);
+  }
   const content = dialog.querySelector(".file-preview-content");
   const status = dialog.querySelector(".file-preview-status");
   const refresh = dialog.querySelector("[data-refresh]");
   let selected = null;
   let version = 0;
   let opener = null;
+  let opened = false;
 
   function clear() { version++; content.replaceChildren(); status.textContent = ""; }
   function close() {
     clear(); selected = null;
-    if (dialog.open) dialog.close();
+    opened = false;
+    if (container) dialog.hidden = true;
+    else if (dialog.open) dialog.close();
     if (opener?.isConnected) opener.focus({ preventScroll: true });
+    onClose?.();
   }
   async function load() {
     clear();
@@ -47,14 +62,14 @@ export function createFilePreview({ fetchPreview, available, online }) {
     const target = selected;
     try {
       const preview = await fetchPreview(target.spaceId, target.path);
-      if (requestVersion !== version || !dialog.open || !online()) return;
+      if (requestVersion !== version || !opened || !online()) return;
       if (preview.spaceId !== target.spaceId || preview.path !== target.path) throw new Error("The file preview does not match the selected file.");
       content.innerHTML = filePreviewMarkup(preview);
       const image = content.querySelector("img");
       image?.addEventListener("error", () => { if (requestVersion === version) content.textContent = "This image could not be displayed. Open it on your desktop."; }, { once: true });
       status.textContent = "Read-only preview";
     } catch (error) {
-      if (requestVersion === version && dialog.open) content.textContent = error instanceof Error ? error.message : "The file preview is unavailable.";
+      if (requestVersion === version && opened) content.textContent = error instanceof Error ? error.message : "The file preview is unavailable.";
     } finally { if (requestVersion === version) refresh.disabled = !online(); }
   }
   dialog.querySelector(".file-preview-close").addEventListener("click", close);
@@ -66,7 +81,9 @@ export function createFilePreview({ fetchPreview, available, online }) {
       selected = { ...target };
       dialog.querySelector("h2").textContent = target.path.split("/").at(-1);
       dialog.querySelector(".file-preview-location").textContent = `${target.spaceName} · ${target.path}`;
-      if (!dialog.open) dialog.showModal();
+      opened = true;
+      if (container) dialog.hidden = false;
+      else if (!dialog.open) dialog.showModal();
       await load();
     },
     connectionChanged(connected) {

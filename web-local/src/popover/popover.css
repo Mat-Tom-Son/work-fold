@@ -193,9 +193,7 @@ body {
 .cross { color: var(--pop-danger); font-weight: 600; }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--pop-text-muted); flex: none; align-self: center; }
 
-/* The ordinary conversation stays visible. Only the exceptional decision
-   stack uses a disclosure so it can demand attention without taking over the
-   whole popover. */
+/* Conversation details expand in place. */
 .fold-section { display: flex; flex-direction: column; }
 .fold-section-conversation { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .fold-strip {
@@ -460,5 +458,30 @@ button.primary:not(:disabled):active { filter: brightness(0.92); }
 .drop-overlay strong { font-size: 14px; font-weight: 650; }
 .drop-overlay span { color: var(--pop-text-muted); font-size: 12px; }
 
-.check-inbox-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 8px 0; }
-.check-inbox-row p { margin: 4px 0; font-size: 12px; opacity: .7; }
+[hidden] { display: none !important; }
+.popover-chat { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 10px; }
+.fold-chat-title { margin: 0; padding: 2px 6px 0; font-size: 14px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fold-chat-empty { margin: auto; padding: 20px 10px; text-align: center; }
+.fold-chat-empty p { margin: 0 0 5px; font-size: 15px; font-weight: 550; }
+.fold-chat-empty span, .fold-history-empty { color: var(--pop-text-muted); font-size: 12px; }
+.fold-chat-history { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 12px; }
+.fold-history-heading { display: flex; align-items: center; gap: 8px; }
+.fold-history-heading h1 { margin: 0; font-size: 16px; font-weight: 650; }
+.fold-history-heading > span { margin-left: auto; color: var(--pop-text-muted); font-size: 11px; }
+.fold-back { display: grid; place-items: center; padding: 6px; border: none; background: none; }
+.fold-back svg { width: 16px; height: 16px; }
+.fold-chat-search { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--pop-border); border-radius: 8px; background: var(--pop-surface); }
+.fold-chat-search:focus-within { outline: 2px solid var(--pop-accent); outline-offset: -1px; }
+.fold-chat-search svg { width: 15px; height: 15px; color: var(--pop-text-muted); flex: none; }
+.fold-chat-search input { width: 100%; min-width: 0; outline: none; border: none; background: none; color: var(--pop-text); font: inherit; }
+.fold-chat-list { flex: 1; min-height: 0; overflow-y: auto; }
+.fold-chat-row { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 11px 10px; border: none; border-radius: 7px; background: none; text-align: left; transition: background 120ms ease; }
+.fold-chat-row:hover, .fold-chat-row[aria-current] { background: var(--pop-surface-2); }
+.fold-chat-row > span { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+.fold-chat-row small { display: flex; gap: 10px; font-size: 11px; color: var(--pop-text-muted); }
+.fold-chat-row em { font-style: normal; color: var(--pop-accent); }
+.fold-history-empty { padding: 8px 10px; }
+.fold-background-work { display: flex; align-items: center; gap: 7px; padding: 6px; background: none; border: none; color: var(--pop-text-muted); text-align: left; font-size: 11px; }
+.fold-background-work > span:not(.spinner) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.fold-background-work > svg { width: 14px; height: 14px; flex: none; }
+@media (prefers-reduced-motion: reduce) { .fold-chat-row { transition: none; } }

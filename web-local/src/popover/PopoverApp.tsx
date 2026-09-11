@@ -1,8 +1,7 @@
-import { CheckInbox } from "./CheckInbox";
 import { WorkRequest } from "../components/chat/WorkRequest";
 import { useWorkRequest } from "../hooks/useWorkRequest";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, File, Link2, SquarePen, X } from "lucide-react";
+import { ArrowLeft, ChevronRight, File, History, Link2, Search, SquarePen, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -59,7 +58,7 @@ function managementTurnIdentity(prefix: "request" | "message"): string {
 interface ManagementSummary {
   available: boolean;
   reason?: string;
-  conversation: { id: string } | null;
+  conversation: { id: string; title: string } | null;
   state: "idle" | "running" | "compacting";
   latestRequest: ManagementRequestView | null;
 }
@@ -78,6 +77,22 @@ interface StagedItem {
   label: string;
   isLink: boolean;
 }
+
+interface FoldChat {
+  id: string;
+  title: string;
+  updatedAt: string;
+  archivedAt?: string | null;
+  snoozedUntil?: string | null;
+  requestState: string | null;
+  needsAnswer?: boolean;
+}
+
+const fixtureChats: FoldChat[] = [
+  { id: "fixture-fold", title: "Catch up on my Spaces", updatedAt: "2026-09-11T19:30:00Z", requestState: "done" },
+  { id: "fixture-plan", title: "Plan next week’s workshop", updatedAt: "2026-09-10T16:00:00Z", requestState: "waiting", needsAnswer: true },
+  { id: "fixture-notes", title: "Organize the field notes", updatedAt: "2026-09-09T15:00:00Z", requestState: "done" },
+];
 
 const activePhases = new Set(["working", "handed_off"]);
 const terminalPhases = new Set(["done", "failed", "stopped"]);
@@ -124,6 +139,12 @@ export function PopoverApp() {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [startingNewChat, setStartingNewChat] = useState(false);
+  const [chats, setChats] = useState<FoldChat[]>(popoverFixtureRequested ? fixtureChats : []);
+  const [chatTitle, setChatTitle] = useState(popoverFixtureRequested ? fixtureChats[0].title : "New chat");
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [historyError, setHistoryError] = useState("");
+  const [loadingChat, setLoadingChat] = useState(false);
   const workState = useWorkRequest(!popoverFixtureRequested && conversationId && !startingNewChat ? `/api/management/conversations/${encodeURIComponent(conversationId)}/work` : null);
   const [stopping, setStopping] = useState(false);
   const [banner, setBanner] = useState<string>("");
@@ -134,6 +155,10 @@ export function PopoverApp() {
   const [conversationRuntime, setConversationRuntime] = useState<ConversationRuntime | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const selectionRef = useRef<string | null>(popoverFixtureRequested ? "fixture-fold" : null);
+  const refreshGeneration = useRef(0);
+  const draftsRef = useRef(new Map<string, { text: string; staged: StagedItem[] }>());
   const transcriptRef = useRef<HTMLElement | null>(null);
   const transcriptPinnedRef = useRef(true);
   const dragDepthRef = useRef(0);
@@ -162,9 +187,9 @@ export function PopoverApp() {
     if (popoverFixtureRequested) return;
     try {
       const result = await api<{ runtime: ConversationRuntime }>(`/api/management/conversations/${encodeURIComponent(id)}/runtime`);
-      setConversationRuntime(result.runtime);
+      if (selectionRef.current === id) setConversationRuntime(result.runtime);
     } catch {
-      setConversationRuntime(null);
+      if (selectionRef.current === id) setConversationRuntime(null);
     }
   }, []);
 
@@ -197,20 +222,39 @@ export function PopoverApp() {
 
   const refreshConversation = useCallback(async () => {
     if (popoverFixtureRequested) return;
+    const generation = ++refreshGeneration.current;
+    const selectedId = selectionRef.current;
     try {
-      const summary = await api<ManagementSummary>("/api/management/summary");
+      const [summary, history] = await Promise.all([
+        api<ManagementSummary>(selectedId ? `/api/management/summary?conversationId=${encodeURIComponent(selectedId)}` : "/api/management/summary"),
+        api<{ conversations: FoldChat[] }>("/api/management/conversations").then(
+          (result) => ({ chats: result.conversations, error: "" }),
+          (error) => ({ chats: null, error: errorText(error) }),
+        ),
+      ]);
+      if (generation !== refreshGeneration.current) return;
+      if (history.chats) setChats(history.chats);
+      setHistoryError(history.error);
       setAvailable(summary.available);
       setUnavailableReason(summary.available ? "" : summary.reason ?? "");
       if (startingNewChatRef.current) return;
-      setRequest(summary.latestRequest);
       const nextConversationId = summary.conversation?.id ?? null;
-      setConversationId(nextConversationId);
       if (!nextConversationId) {
+        // An empty desktop is a new-chat draft too. Another surface creating
+        // a conversation later must not silently become this draft's target.
+        startingNewChatRef.current = true;
+        setStartingNewChat(true);
+        setRequest(null);
         setMessages([]);
         replaceStreamingAssistant("");
         return;
       }
       const transcript = await api<{ messages: ManagementMessage[] }>(`/api/management/conversations/${encodeURIComponent(nextConversationId)}`);
+      if (generation !== refreshGeneration.current) return;
+      selectionRef.current = nextConversationId;
+      setConversationId(nextConversationId);
+      setChatTitle(summary.conversation?.title || "Untitled chat");
+      setRequest(summary.latestRequest);
       const next = transcript.messages.filter((message) =>
         (message.role === "user" || message.role === "assistant") && (!message.kind || message.kind === "assistant_continuation"));
       // Polling refetches the same transcript most ticks; keeping the old
@@ -219,18 +263,20 @@ export function PopoverApp() {
       setMessages((current) => (sameTranscript(current, next) ? current : next));
       if (!summary.latestRequest || !activePhases.has(summary.latestRequest.phase)) replaceStreamingAssistant("");
     } catch (error) {
+      if (generation !== refreshGeneration.current) return;
       if (error instanceof ApiError && error.status === 404) {
         setRequest(null);
-        setConversationId(null);
         setMessages([]);
         replaceStreamingAssistant("");
         setAvailable(true);
-        setBanner("That request belonged to an earlier app run. Start a new request to continue.");
+        setBanner("This chat is no longer available. Choose another chat or start a new one.");
         return;
       }
       const message = errorText(error);
       setAvailable(false);
       setUnavailableReason(message);
+    } finally {
+      if (generation === refreshGeneration.current) setLoadingChat(false);
     }
   }, [replaceStreamingAssistant]);
 
@@ -257,6 +303,7 @@ export function PopoverApp() {
     if (!conversationId || popoverFixtureRequested) return;
     const stream = createEventSource(`/api/management/conversations/${encodeURIComponent(conversationId)}/events`);
     stream.onmessage = (raw) => {
+      if (selectionRef.current !== conversationId) return;
       let event: { type?: string; message?: string; toolName?: string; text?: string; running?: boolean };
       try {
         event = JSON.parse(raw.data) as { type?: string; message?: string; toolName?: string; text?: string; running?: boolean };
@@ -293,8 +340,7 @@ export function PopoverApp() {
     else setConversationRuntime(null);
   }, [conversationId, refreshConversationRuntime, replaceStreamingAssistant]);
 
-  // Poll quickly while work is active and quietly while idle. The latter keeps
-  // the persistent popover aligned when the web surface starts a fresh chat.
+  // Refresh saved Chats without replacing the person's selected conversation.
   const phase = request?.phase ?? null;
   useEffect(() => {
     if (popoverFixtureRequested) return;
@@ -385,7 +431,7 @@ export function PopoverApp() {
   const send = useCallback(async () => {
     const content = text.trim();
     const currentRequest = requestRef.current;
-    if (!content || sending || (currentRequest && activePhases.has(currentRequest.phase))) return;
+    if (!content || sending || loadingChat || stopping || (currentRequest && activePhases.has(currentRequest.phase))) return;
     setSending(true);
     setBanner("");
     setActivity("");
@@ -396,7 +442,7 @@ export function PopoverApp() {
         content,
         attachments: staged.map((item) => item.value),
         newConversation: startingNewChatRef.current,
-        conversationId: current?.phase === "needs_you" ? current.conversationId : null,
+        conversationId: selectionRef.current,
         continuationTaskId: current?.phase === "needs_you" ? current.taskId : null,
       });
       const identity = pendingSendIdentityRef.current?.signature === signature
@@ -415,9 +461,9 @@ export function PopoverApp() {
       if (staged.length) body.attachments = staged.map((item) => item.value);
       if (startingNewChatRef.current) {
         body.newConversation = true;
-      } else if (current && current.phase === "needs_you") {
-        body.conversationId = current.conversationId;
-        body.continuationTaskId = current.taskId;
+      } else if (selectionRef.current) {
+        body.conversationId = selectionRef.current;
+        if (current?.phase === "needs_you") body.continuationTaskId = current.taskId;
       }
       const result = await api<{ taskId: string; conversationId: string }>(
         "/api/management/messages",
@@ -430,6 +476,8 @@ export function PopoverApp() {
       // was in flight stay in the box.
       setText((current) => (current === text ? "" : current));
       setStaged([]);
+      draftsRef.current.delete(selectionRef.current ?? "new");
+      selectionRef.current = result.conversationId;
       setConversationId(result.conversationId);
       await refreshConversation();
     } catch (error) {
@@ -437,32 +485,51 @@ export function PopoverApp() {
     } finally {
       setSending(false);
     }
-  }, [text, staged, sending, refreshConversation, replaceStreamingAssistant]);
+  }, [text, staged, sending, loadingChat, stopping, refreshConversation, replaceStreamingAssistant]);
 
-  const startNewChat = useCallback(() => {
-    if (sending || startingNewChatRef.current) return;
-    // While work runs, the request keeps its live tail and Stop on screen; a
-    // clean slate now would orphan a turn that continues server-side.
-    const current = requestRef.current;
-    if (current && activePhases.has(current.phase)) return;
-    startingNewChatRef.current = true;
+  const selectChat = useCallback((id: string | null) => {
+    if (sending || stopping || workState.busy) return;
+    setHistoryOpen(false);
+    setHistoryQuery("");
+    if (id === selectionRef.current && (id || startingNewChatRef.current)) {
+      window.setTimeout(() => composerRef.current?.focus(), 0);
+      return;
+    }
+    draftsRef.current.set(selectionRef.current ?? "new", { text, staged });
+    const draft = draftsRef.current.get(id ?? "new");
+    setText(draft?.text ?? "");
+    setStaged(draft?.staged ?? []);
+    refreshGeneration.current++;
+    selectionRef.current = id;
+    startingNewChatRef.current = id === null;
     pendingSendIdentityRef.current = null;
-    setStartingNewChat(true);
+    setStartingNewChat(id === null);
+    setLoadingChat(Boolean(id) && !popoverFixtureRequested);
+    setChatTitle(id ? chats.find((chat) => chat.id === id)?.title || "Untitled chat" : "New chat");
     setRequest(null);
-    setConversationId(null);
-    setMessages([]);
+    requestRef.current = null;
+    setConversationId(id);
+    setConversationRuntime(null);
+    setMessages(popoverFixtureRequested && id ? popoverFixtureMessages : []);
     setActivity("");
     replaceStreamingAssistant("");
-    setBanner("New chat ready. Your previous chat is still saved on this desktop.");
+    setBanner("");
+    void refreshConversation();
     window.setTimeout(() => composerRef.current?.focus(), 0);
-  }, [sending, replaceStreamingAssistant]);
+  }, [sending, stopping, workState.busy, text, staged, chats, refreshConversation, replaceStreamingAssistant]);
+  const startNewChat = useCallback(() => selectChat(null), [selectChat]);
+
+  useEffect(() => {
+    if (historyOpen) searchRef.current?.focus();
+  }, [historyOpen]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       // Cancelling an IME composition must not dismiss the surface.
       if (event.isComposing) return;
       if (event.key === "Escape") {
-        bridge?.management?.hide();
+        if (historyOpen) { setHistoryOpen(false); window.setTimeout(() => composerRef.current?.focus(), 0); }
+        else bridge?.management?.hide();
       }
       // ⌘N/Ctrl+N mirrors the direct header action.
       if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "n") {
@@ -472,7 +539,7 @@ export function PopoverApp() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [bridge, startNewChat]);
+  }, [bridge, startNewChat, historyOpen]);
 
   const stop = useCallback(async () => {
     const current = requestRef.current;
@@ -585,18 +652,22 @@ export function PopoverApp() {
       : "Tell work-fold what to do";
   const composerThinking = conversationRuntime && !startingNewChat ? conversationRuntime : managementComposer;
   const thinkingLevels = composerThinking?.thinkingLevels ?? [];
-  const managementModelLabel = managementComposer?.model?.name || managementComposer?.model?.id || "Choose model";
+  const managementModelLabel = composerThinking?.model?.name || composerThinking?.model?.id || "Choose model";
   const visibleBanner = banner || (available === false ? unavailableReason : "");
+  const backgroundChats = chats.filter((chat) => chat.id !== conversationId && (chat.requestState === "working" || chat.requestState === "handed_off"));
+  const filteredChats = chats.filter((chat) => chat.title.toLocaleLowerCase().includes(historyQuery.trim().toLocaleLowerCase()));
+  const navigationBusy = sending || stopping || workState.busy;
 
   const changeThinkingLevel = async (level: string) => {
-    if (requestRunning || level === composerThinking?.thinkingLevel) return;
+    if (requestRunning || loadingChat || level === composerThinking?.thinkingLevel) return;
+    const selectedId = selectionRef.current;
     try {
       if (conversationId && conversationRuntime && !startingNewChat) {
         const result = await api<{ runtime: ConversationRuntime }>(`/api/management/conversations/${encodeURIComponent(conversationId)}/thinking`, {
           method: "POST",
           body: { level },
         });
-        setConversationRuntime(result.runtime);
+        if (selectionRef.current === selectedId) setConversationRuntime(result.runtime);
       } else {
         const result = await api<{ composer: AssistantComposerState }>("/api/agent/thinking", {
           method: "POST",
@@ -605,7 +676,7 @@ export function PopoverApp() {
         setManagementComposer(result.composer);
       }
     } catch (error) {
-      setBanner(errorText(error));
+      if (selectionRef.current === selectedId) setBanner(errorText(error));
     }
   };
 
@@ -620,11 +691,15 @@ export function PopoverApp() {
       <header className="popover-header">
         <button className="popover-open-app" type="button" onClick={() => { void bridge?.management?.openMainWindow(); }}>Open app</button>
         <div className="popover-header-actions">
+          <button className="popover-new-chat" type="button" aria-expanded={historyOpen} aria-controls="fold-chat-history"
+            onClick={() => { setHistoryOpen((open) => !open); void refreshConversation(); }}>
+            <History aria-hidden="true" /><span>Chats</span>
+          </button>
           <button
             className="popover-new-chat"
             type="button"
             onClick={startNewChat}
-            disabled={sending || startingNewChat || (request !== null && activePhases.has(request.phase))}
+            disabled={navigationBusy}
             title="Start a new chat. This chat stays saved on your desktop."
           >
             <SquarePen aria-hidden="true" />
@@ -640,7 +715,31 @@ export function PopoverApp() {
         </div>
       ) : null}
 
-      {!popoverFixtureRequested ? <CheckInbox /> : null}
+      {historyOpen ? (
+        <section className="fold-chat-history" id="fold-chat-history" aria-label="Saved fold chats">
+          <div className="fold-history-heading">
+            <button type="button" className="fold-back" aria-label="Back to chat" onClick={() => { setHistoryOpen(false); window.setTimeout(() => composerRef.current?.focus(), 0); }}><ArrowLeft aria-hidden="true" /></button>
+            <h1>Chats</h1><span>On this desktop</span>
+          </div>
+          <label className="fold-chat-search"><Search aria-hidden="true" /><input ref={searchRef} type="search" aria-label="Search chats" placeholder="Search chats" value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} /></label>
+          {historyError ? <p className="error-line" role="alert">{historyError} <button type="button" onClick={() => void refreshConversation()}>Try again</button></p> : null}
+          <div className="fold-chat-list">
+            {draftsRef.current.get("new")?.text || draftsRef.current.get("new")?.staged.length ? <button className="fold-chat-row" type="button" disabled={navigationBusy} onClick={startNewChat}><span>New chat</span><small>Draft</small></button> : null}
+            {filteredChats.map((chat) => (
+              <button key={chat.id} className="fold-chat-row" type="button" aria-current={chat.id === conversationId ? "page" : undefined} disabled={navigationBusy} onClick={() => selectChat(chat.id)}>
+                <span>{chat.title || "Untitled chat"}</span>
+                <small><time dateTime={chat.updatedAt}>{chatDateLabel(chat.updatedAt)}</time>{chat.requestState === "working" || chat.requestState === "handed_off" ? <em>Working</em> : chat.needsAnswer ? <em>Needs your answer</em> : chat.archivedAt ? <em>Archived</em> : chat.snoozedUntil && Date.parse(chat.snoozedUntil) > now ? <em>Snoozed</em> : draftsRef.current.get(chat.id)?.text || draftsRef.current.get(chat.id)?.staged.length ? <em>Draft</em> : null}</small>
+              </button>
+            ))}
+            {!filteredChats.length ? <p className="fold-history-empty">{historyQuery ? "No chats match your search." : "Your chats will appear here after you send a message."}</p> : null}
+          </div>
+        </section>
+      ) : null}
+
+      {backgroundChats.length ? <button type="button" className="fold-background-work" onClick={() => selectChat(backgroundChats[0].id)} disabled={navigationBusy}><span className="spinner" aria-hidden="true" /><span>{backgroundChats.length === 1 ? backgroundChats[0].title : `${backgroundChats.length} chats`} · Working</span><ChevronRight aria-hidden="true" /></button> : null}
+
+      <div className="popover-chat" hidden={historyOpen}>
+      <h1 className="fold-chat-title" title={chatTitle}>{chatTitle}</h1>
 
       <section className="fold-section fold-section-conversation">
         <section
@@ -654,6 +753,7 @@ export function PopoverApp() {
             transcriptPinnedRef.current = target.scrollHeight - target.scrollTop - target.clientHeight < 48;
           }}
         >
+          {loadingChat ? <p className="muted small" role="status">Loading chat…</p> : !messages.length && !streamingAssistant && !request ? <div className="fold-chat-empty"><p>What would you like to work on?</p><span>Pick up a saved chat, or start here.</span></div> : null}
           {messages.map((message) => (
             <article
               className={message.kind === "assistant_continuation" ? "work-continuation" : `popover-message ${message.role}`}
@@ -766,7 +866,7 @@ export function PopoverApp() {
           <button
             className={`composer-action${requestRunning ? " composer-stop" : " primary"}`}
             onClick={() => { if (requestRunning) void stop(); else void send(); }}
-            disabled={requestRunning ? stopping : sending || !text.trim()}
+            disabled={requestRunning ? stopping : sending || loadingChat || available === false || !text.trim()}
           >
             {requestRunning
               ? stopping ? "Stopping…" : "Stop"
@@ -774,6 +874,7 @@ export function PopoverApp() {
           </button>
         </div>
       </section>
+      </div>
       {dropActive ? (
         <div className="drop-overlay" role="status" aria-live="polite">
           <File aria-hidden="true" />
@@ -783,6 +884,11 @@ export function PopoverApp() {
       ) : null}
     </div>
   );
+}
+
+function chatDateLabel(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(date.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}) });
 }
 
 /**

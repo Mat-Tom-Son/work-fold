@@ -311,6 +311,19 @@ test("management requests carry attachments, record lineage, and expose honest p
     const invalidThinking = await postJson(api.origin, `/api/management/conversations/${send.conversationId}/thinking`, { level: "galaxy-brain" });
     assert.equal(invalidThinking.status, 400);
 
+    const newerChat = await facade.manageSend({ content: "/hold", newConversation: true });
+    const history = await getJson(api.origin, "/api/management/conversations");
+    const savedChats = history.conversations as Array<{ id: string; title: string }>;
+    assert.ok(savedChats.some((chat) => chat.id === send.conversationId));
+    assert.ok(savedChats.some((chat) => chat.id === newerChat.conversationId));
+    assert.ok(!savedChats.some((chat) => chat.id === changedConversationId), "Space transcripts do not appear in fold history");
+    const olderSummary = await getJson(api.origin, `/api/management/summary?conversationId=${send.conversationId}`);
+    assert.equal((olderSummary.conversation as { id: string }).id, send.conversationId);
+    assert.equal((olderSummary.latestRequest as { taskId: string }).taskId, send.taskId, "the selected Chat keeps its own request after a newer Chat starts");
+    assert.equal((await fetch(`${api.origin}/api/management/summary?conversationId=missing-chat`)).status, 404);
+    await facade.manageStop({ taskId: newerChat.taskId });
+    await waitForAsync(async () => (await getJson(api.origin, `/api/management/summary?conversationId=${newerChat.conversationId}`)).state === "idle");
+
     // Stop is request-scoped and honest about what it touched.
     const stopped = await facade.manageStop({ taskId: send.taskId });
     assert.equal(stopped.managementAborted, false, "a settled turn has nothing to abort");

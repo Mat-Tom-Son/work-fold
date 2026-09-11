@@ -249,3 +249,5 @@ continuations for each owner, and selected request results. The request graph
 and original assignments remain machine-local. Only deliberately released
 child reports enter a Space Chat; app task reads remain pinned to their own
 installation. See the contract for stop, expiry and restart behavior.
+
+The fold popover keeps per-chat text and attachment drafts in renderer memory while switching saved conversations. The current paired web client shows questions in their owning Chat and does not read or acknowledge the aggregate glance feed. Space/file reference drafts use the existing browser draft storage; preview bytes remain transient and use the same read-only preview limits as Chat result links.
