@@ -196,7 +196,11 @@ test("the host pushes the three hints on their own channels, to the mounts each 
   assert.match(preload, /tasks: Object\.freeze\(\{\s*\n\s*onChanged:/);
   for (const [name, message] of [["tasks", "Assistant task"], ["checks", "Check"], ["files", "File"]] as const) {
     assert.ok(preload.includes(`throw new TypeError("${message} listener must be a function.")`), `${name} type-checks its listener`);
+    // A preload-side TypeError crosses the bridge as a plain Error, so the
+    // app world re-checks and throws its own TypeError before delegating.
+    assert.ok(preload.includes(`"${name}.onChanged": "${message} listener must be a function.",`), `${name} type-checks its listener in the app world`);
   }
+  assert.match(preload, /if \(typeof listener !== "function"\) throw new TypeErrorConstructor\(registrationMessage\);\s*\n\s*return value\(listener\);/);
 
   // Eligibility follows each read lane: Check results are view-only, tasks and
   // granted files also reach a worker holding an operation.

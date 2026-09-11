@@ -246,7 +246,17 @@ test("desktop main wires one settle seam, one receipts ledger, and routing sleep
   assert.match(hostBody, /const settleSignal = new WorkFoldSettleSignal\(\);/);
   const restrictedCreate = hostBody.slice(hostBody.indexOf("RestrictedAppService.create({"), hostBody.indexOf("})", hostBody.indexOf("RestrictedAppService.create({")));
   assert.match(restrictedCreate, /settleSignal,/, "the restricted-app service publishes into the shared signal");
-  assert.match(hostBody, /createDesktopCheckService\(\{ kernel, settleSignal, getLocalApi: ensureInteractiveLocalApi \}\)/, "the shared Check service uses the fold model transport and settle signal");
+  // The shared Check service takes the kernel, the same settle signal, and
+  // the fold model transport; its result-change hint reaches app views only
+  // through the restricted-app host (F30), never through the settle signal.
+  const checkCreateStart = hostBody.indexOf("createDesktopCheckService({");
+  assert.ok(checkCreateStart >= 0, "desktop main creates the shared Check service");
+  const checkCreate = hostBody.slice(checkCreateStart, hostBody.indexOf("});", checkCreateStart));
+  assert.match(checkCreate, /\bkernel,/, "the Check service reads Spaces through the kernel");
+  assert.match(checkCreate, /\bsettleSignal,/, "the Check service publishes into the shared signal");
+  assert.match(checkCreate, /getLocalApi: ensureInteractiveLocalApi,/, "the shared Check service uses the fold model transport");
+  assert.match(checkCreate, /onResultChanged: \(event\) => restrictedRuntime\.publishCheckResultsChanged\(event\),/, "Check result changes reach app views as ids-only hints");
+  assert.doesNotMatch(checkCreate, /onResultChanged:[^\n]*settleSignal/, "the hint never routes through the settle signal");
   assert.match(hostBody, /settleSignal \};\s*$/m);
 
   const apiStart = main.indexOf("function ensureInteractiveLocalApi");

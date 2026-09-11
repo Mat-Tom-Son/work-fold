@@ -300,6 +300,16 @@ const synchronousBridgePaths = [
   // cross the bridge unwrapped exactly as `storage.onChanged` does.
   "tasks.onChanged", "checks.onChanged", "files.onChanged",
 ];
+// A TypeError thrown on this side of the bridge reaches the app as a plain
+// Error, so the listener registrations re-check their argument in the app
+// world and throw the app world's own TypeError. The checks above remain the
+// last line for anything that reaches them another way.
+const listenerRegistrationMessages: Record<string, string> = {
+  "storage.onChanged": "Storage listener must be a function.",
+  "tasks.onChanged": "Assistant task listener must be a function.",
+  "checks.onChanged": "Check listener must be a function.",
+  "files.onChanged": "File listener must be a function.",
+};
 function bridgeTransport(value: unknown, path = ""): unknown {
   if (typeof value === "function") {
     if (synchronousBridgePaths.includes(path)) return value;
@@ -314,15 +324,23 @@ function bridgeTransport(value: unknown, path = ""): unknown {
   return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, bridgeTransport(item, path ? `${path}.${key}` : key)]));
 }
 contextBridge.executeInMainWorld({
-  args: [bridgeTransport(appBridge), synchronousBridgePaths],
-  func: (transport: Record<string, unknown>, synchronous: string[]) => {
+  args: [bridgeTransport(appBridge), synchronousBridgePaths, listenerRegistrationMessages],
+  func: (transport: Record<string, unknown>, synchronous: string[], registrations: Record<string, string>) => {
     const ErrorConstructor = Error;
+    const TypeErrorConstructor = TypeError;
     const defineProperty = Object.defineProperty;
     const freeze = Object.freeze;
     const sync = new Set(synchronous);
     const rebuild = (value: unknown, path = ""): unknown => {
       if (typeof value === "function") {
-        if (sync.has(path)) return value;
+        if (sync.has(path)) {
+          const registrationMessage = registrations[path];
+          if (registrationMessage === undefined) return value;
+          return (listener: unknown) => {
+            if (typeof listener !== "function") throw new TypeErrorConstructor(registrationMessage);
+            return value(listener);
+          };
+        }
         return async (...args: unknown[]) => {
           const outcome = await value(...args);
           if (outcome.ok) return outcome.value;

@@ -472,6 +472,10 @@ async function runSmoke() {
       json: { echoed: "south" },
       invalidRefused: true,
     });
+    // The three owned-id registrations (docs/collaboration-contract.md, F30)
+    // type-check their listener at startup; read it before the automation
+    // below clears the app's storage.
+    assert.equal(await storage.get(storageOwner, "ui-hint-listener-type-checked"), 3, "every registration type-checks its listener");
     await storage.transaction(storageOwner, {
       set: Array.from({ length: 128 }, (_, index) => ({ key: "seed-" + String(index).padStart(3, "0"), value: index })),
     });
@@ -494,8 +498,6 @@ async function runSmoke() {
     // The three owned-id hints (docs/collaboration-contract.md, F30): pushed by
     // the host, delivered to the mounts each read lane admits, carrying ids and
     // a revision and never content.
-    console.log("[debug] ui-hint-debug", JSON.stringify(await storage.get(storageOwner, "ui-hint-debug")), "keys", JSON.stringify(await storage.keys(storageOwner, "")));
-    assert.equal(await storage.get(storageOwner, "ui-hint-listener-type-checked"), 3, "every registration type-checks its listener");
     host.publishAssistantActivity({
       spaceId: descriptor.spaceId,
       appId: descriptor.manifest.id,
@@ -522,14 +524,28 @@ async function runSmoke() {
     assert.equal((await storage.get(storageOwner, "ui-checks-hint")).count, 1,
       "a Check this app did not select, or another Space's, produces nothing");
 
-    // The view wrote smoke.txt into its granted root at startup, so the bounded
-    // granted-root observation has a real change to notice.
-    await waitFor(async () => (await storage.get(storageOwner, "ui-files-hint"))?.count >= 1,
-      "the active app view never learned its granted folder changed", 20_000);
+    // A granted-root watch starts without a baseline and its first observation
+    // is silent, so the view's startup write of smoke.txt is never news. Change
+    // the granted folder here instead, spaced wider than one poll plus the
+    // debounce so a changed snapshot can hold still and fire.
+    const observedPath = join(spaceRoot, "exports", "observed.txt");
+    let observedWrites = 0;
+    let lastObservedWriteAt = Number.NEGATIVE_INFINITY;
+    await waitFor(async () => {
+      if ((await storage.get(storageOwner, "ui-files-hint"))?.count >= 1) return true;
+      if (Date.now() - lastObservedWriteAt >= 5_000) {
+        observedWrites += 1;
+        lastObservedWriteAt = Date.now();
+        await appendFile(observedPath, `change ${observedWrites}\n`, "utf8");
+      }
+      return false;
+    }, "the active app view never learned its granted folder changed", 20_000);
     const filesHint = await storage.get(storageOwner, "ui-files-hint");
     assert.deepEqual(filesHint.permissionIds, ["exports"], "a file hint names the grant the app already passes to files.read");
     assert.equal(filesHint.truncated, false);
-    assert.ok(!JSON.stringify(filesHint).includes("smoke.txt"), "a hint carries ids and a revision, never a path");
+    for (const leaked of ["smoke.txt", "observed.txt", "exports/"]) {
+      assert.ok(!JSON.stringify(filesHint).includes(leaked), "a hint carries ids and a revision, never a path");
+    }
 
     host.syncAuthority([authorityOf(descriptor), authorityOf(peer)]);
     await host.invoke(peer, "signal", {});
@@ -827,11 +843,9 @@ bridge.files.onChanged(async (event) => {
   await bridge.storage.set("ui-files-hint", { count: filesHints, revision: event.revision, permissionIds: event.permissionIds, truncated: event.truncated, active: currentActive });
 });
 let hintListenerTypeChecked = 0;
-const hintDebug = [];
 for (const register of [bridge.tasks.onChanged, bridge.checks.onChanged, bridge.files.onChanged]) {
-  try { const r = register("not a function"); hintDebug.push({ returned: typeof r, isPromise: r instanceof Promise }); } catch (error) { hintDebug.push({ name: error?.name, ctor: error?.constructor?.name, message: String(error?.message), isTypeError: error instanceof TypeError }); if (error instanceof TypeError) hintListenerTypeChecked += 1; }
+  try { register("not a function"); } catch (error) { if (error instanceof TypeError) hintListenerTypeChecked += 1; }
 }
-try { await bridge.storage.set("ui-hint-debug", { hintDebug, typeofTasks: typeof bridge.tasks, typeofOnChanged: typeof bridge.tasks?.onChanged }); } catch (error) { }
 await bridge.storage.set("ui-hint-listener-type-checked", hintListenerTypeChecked);
 bridge.context.onChanged(async (next) => {
   currentActive = next.active;
