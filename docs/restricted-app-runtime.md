@@ -360,13 +360,30 @@ blocked while an active App Instance still depends on it. A retain choice also
 keeps the source Space registered until its Project's retained data is purged;
 the former target is no longer required.
 
-Active visible UI may subscribe to bounded `storage.onChanged` invalidation
-hints. The host coalesces keys, caps the list (falling back to `reset: true`),
-and emits at most ten times per second. Hints are briefly coalesced in memory,
-never durably queued or replayed, and are never delivered to workers, inactive
-or occluded views, minimized windows,
-or a view owned by another Feature Installation, even in the same Space. Apps re-read storage after a hint; event data
-is not a second state channel.
+Four invalidation channels tell an app that something it can already read has
+moved: `storage.onChanged`, `tasks.onChanged`, `checks.onChanged`, and
+`files.onChanged` ([Collaboration contract](collaboration-contract.md), F30).
+Each carries ids and an ordering `revision` and never content; the app re-reads
+through the lane it already has, and event data is not a second state channel.
+The host coalesces per installation per channel and emits at most ten times per
+second — once per second for `files` — capping storage keys with a fallback of
+`reset: true` and capping task and receipt ids at 64.
+
+Eligibility follows each read lane exactly, because a hint an app cannot act on
+would be a lie. Storage and Check hints reach active visible views only, matching
+the Check-result lane's own view-only rule. Task and granted-file hints also
+reach a worker while it holds a tool action or an automation run, matching the
+owned-power rule those two read lanes use. Nothing reaches an inactive or
+occluded view, a minimized window, a worker between operations, a view owned by
+another Feature Installation even in the same Space, a viewer page, or a remote
+app view.
+
+Hints are briefly coalesced in memory and never durably queued or replayed. A
+hint whose eligible mounts all closed while it waited is dropped and its
+revision does not advance; a new mount starts with no backlog; the revision
+sequence is cleared wherever an installation's mounts are destroyed — an
+authority or bytes change, a stop, or host close. A hint never starts a model
+turn, and the internal settle signal stays private to the routing service.
 
 A directory declaration is granted over the whole Space when the app is
 added; in the Apps tab the person can limit it to one folder or revoke it. A
@@ -568,8 +585,34 @@ otherwise grants the slot and reports it as still needing the person's pick
 ([Receipts, not gates](receipts-not-gates.md), F21); changed revisions reset
 the binding and exact unchanged release updates may retain it through the
 visible continuity plan. The existing Check service
-owns the bounded projection and never runs a sensor while reading. See
+owns the bounded projection and never runs a sensor while reading. It notifies
+the host through its own narrow callback — separate from the internal settle
+signal — when a run settles, when a correction is applied, and when a Check is
+turned off; each of those produces one `checks.onChanged` hint naming only the
+permission ids of installations that selected that Check. A result that merely
+drifts stale on the clock, and a target edited on disk, produce no hint. See
 [the authoring contract](restricted-app-authoring.md#selected-check-results).
+
+## Granted-root observation
+
+While at least one eligible mount is open, the host observes each granted file
+root on a bounded metadata-only poll: device, inode, size, and modification and
+change times, never file bytes. Links and the `.work-fold`, `.pi`, and
+preserved legacy `.workspace` trees are invisible here exactly as they are to
+the file broker. A changed observation must hold still for a debounce before it
+becomes a hint, and at most one hint per root per second follows. Reaching a
+bound — files, visited entries, or depth — sets `truncated: true` and keeps the
+partial observation rather than failing, so the app still learns that something
+under its root moved. A root that moved or disappeared fails that watch, which
+emits nothing and re-establishes a baseline on its next success.
+
+No path and no byte crosses the bridge: the hint names the grant id. Polling
+rather than an OS watcher is deliberate, for the same reason the routing folder
+observer polls — it behaves the same on a synchronized drive as on a local
+disk, where watcher events are lossy. On such a drive a hint can arrive late
+rather than wrongly. Nothing polls while no eligible mount exists, sleep stops
+the poll and drops every baseline, and waking re-establishes baselines instead
+of announcing what happened while the machine was asleep.
 
 ## Bounded inference channel
 
@@ -589,7 +632,9 @@ carrier, no transcript, nothing persisted. Provider text never crosses the
 bridge; every failure is one of the closed `INFER_*` codes whose message names
 the bound or state it reports. Each call appends accepted and terminal lines to
 a machine-local receipt journal that records the surface, byte sizes, the
-effective model, and its usage, never app content.
+effective model, and its usage, never app content. The delivered result carries
+that line's `receiptId`, so the id a `tasks.onChanged` hint carries can be
+matched to the call the app made without reading anything back.
 
 The native bridge transfers asynchronous outcomes as plain data and constructs
 public Errors in the app's JavaScript world. This preserves `error.code`, which

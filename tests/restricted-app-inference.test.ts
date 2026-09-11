@@ -120,13 +120,15 @@ test("an inference request is parsed against every published bound", () => {
 test("a bounded call reaches the transport unprompted and returns text with its model and usage", async (t) => {
   const f = await fixture(t);
   const result = await f.service.infer(scope, "view", { instructions: "Summarize", input: "North $42" });
-  assert.deepEqual(result, { text: "echo:North $42", truncated: false, model, usage: { inputTokens: 3, outputTokens: 4 } });
+  const { receiptId, ...delivered } = result as { receiptId: string } & Record<string, unknown>;
+  assert.deepEqual(delivered, { text: "echo:North $42", truncated: false, model, usage: { inputTokens: 3, outputTokens: 4 } });
   assert.equal(f.calls.length, 1);
   assert.equal(f.calls[0]?.instructions, "Summarize");
   assert.equal((f.calls[0]?.timeoutMs ?? 0) > 0, true);
   const receipts = await f.lines();
   assert.deepEqual(receipts.map((receipt) => receipt.outcome), ["accepted", "ok"]);
   assert.equal(receipts[0].id, receipts[1].id, "one call is one receipt identity");
+  assert.equal(receiptId, receipts[1].id, "the app can match a tasks hint to the call it made");
   assert.deepEqual(receipts[1].model, model);
   assert.deepEqual(receipts[1].usage, { inputTokens: 3, outputTokens: 4 });
   assert.equal(receipts[1].surface, "view");
@@ -138,7 +140,9 @@ test("a schema makes the result validated JSON and the usage cost stays off the 
   const f = await fixture(t);
   const outputSchema = { type: "object", properties: { echoed: { type: "string", maxLength: 100 } }, required: ["echoed"], additionalProperties: false };
   const result = await f.service.infer(scope, "worker", { instructions: "Echo", input: "south", outputSchema });
-  assert.deepEqual(result, { json: { echoed: "south" }, model, usage: { inputTokens: 3, outputTokens: 4 } });
+  const { receiptId, ...delivered } = result as { receiptId: string } & Record<string, unknown>;
+  assert.deepEqual(delivered, { json: { echoed: "south" }, model, usage: { inputTokens: 3, outputTokens: 4 } });
+  assert.equal(typeof receiptId, "string");
   assert.equal("amountUsd" in (result as { usage: Record<string, unknown> }).usage, false);
   const receipts = await f.lines();
   assert.equal(receipts.at(-1).usage.amountUsd, 0.002, "the receipt keeps what the provider charged");

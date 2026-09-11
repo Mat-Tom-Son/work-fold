@@ -191,10 +191,14 @@ test("routings enable is direct and a fold step opens a new management thread", 
   assert.equal((await api.routings.getRouting(enabled.routingId))?.grants.length, 1);
 
   await api.routingSettings.run(enabled.routingId);
+  // A fold hop opens a real management Chat and runs a real Pi turn against
+  // it. Building that session is the slowest thing in the suite: measured
+  // between 4 s idle and 17 s while the rest of the suite shares the machine,
+  // so the budget is generous on purpose. It bounds a hang, not a slow start.
   await waitFor(async () => {
     const history = await api.routingSettings.history(enabled.routingId);
     return history.runs[0]?.hops[0]?.outcome !== undefined && history.runs[0]?.hops[0]?.outcome !== "accepted";
-  }, "the fold hop to settle", 4_000);
+  }, "the fold hop to settle", 120_000);
   const hop = (await api.routingSettings.history(enabled.routingId)).runs[0]?.hops[0];
   assert.equal(hop?.kind, "fold");
 
@@ -229,12 +233,15 @@ test("routings enable is direct and a fold step opens a new management thread", 
   }
 });
 
-async function waitFor(predicate: () => Promise<boolean>, label: string, attempts = 400): Promise<void> {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
+// A wall-clock budget, not an attempt count: every attempt awaits a real API
+// call, so a count means nothing under full-suite load.
+async function waitFor(predicate: () => Promise<boolean>, label: string, timeoutMs = 15_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
     if (await predicate()) return;
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${label}.`);
     await new Promise<void>((resolve) => setTimeout(resolve, 5));
   }
-  throw new Error(`Timed out waiting for ${label}.`);
 }
 
 async function jsonLines<T>(path: string): Promise<T[]> {

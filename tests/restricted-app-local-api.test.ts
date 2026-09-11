@@ -1016,7 +1016,9 @@ test("app requests use reviewed native Pi turns, History, exact task cancellatio
     }
     const done = await waitForTask(input.requestId, "succeeded");
     assert.equal(done.id, started.id);
-    assert.match(done.result!.text, /Saved comparison.md/);
+    assert.match(done.result!.summary, /Saved comparison.md/);
+    assert.equal(done.result!.outcome, "succeeded");
+    assert.equal(done.result!.files, undefined, "turn evidence is not a deliverable list");
     assert.equal(await readFile(join(space.spaceRoot, "comparison.md"), "utf8"), "# Comparison\nNorth: $42\n");
     const journal = (await readFile(join(sandbox, "state", "turns", "turns.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
     const completedTurn = journal.filter((record) => record.conversationId === `chat-app-${started.id}` && record.status === "succeeded").at(-1);
@@ -1093,7 +1095,7 @@ test("app inference runs on the Space's configured model with no Chat and leaves
       digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority) };
 
     const text = await api.appInference.infer(scope, "view", { instructions: "Name the cheapest quote.", input: "North $42, South $58" });
-    assert.deepEqual(Object.keys(text).sort(), ["model", "text", "truncated", "usage"]);
+    assert.deepEqual(Object.keys(text).sort(), ["model", "receiptId", "text", "truncated", "usage"]);
     assert.equal((text as { text: string }).text, "North is cheapest.");
     assert.deepEqual((text as { model: { provider: string; id: string } }).model, { provider: "app-provider", id: "app-model" });
     assert.equal(bodies.length, 1);

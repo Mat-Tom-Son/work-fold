@@ -512,7 +512,14 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       const spaceTrustAuthority = new RegisteredSpaceTrustAuthority((await listSpaces()).map((space) => space.spaceRoot));
       const runtimeProvider = new RegisteredSpaceRuntimeProvider(runtime, spaceTrustAuthority);
       const kernel = new WorkFoldKernel({ runtimeProvider });
-      checks = createDesktopCheckService({ kernel, settleSignal, getLocalApi: ensureInteractiveLocalApi });
+      checks = createDesktopCheckService({
+        kernel,
+        settleSignal,
+        getLocalApi: ensureInteractiveLocalApi,
+        // Views that read a selected Check learn it moved; ids only, and a
+        // failure here never fails the Check operation.
+        onResultChanged: (event) => restrictedRuntime.publishCheckResultsChanged(event),
+      });
       const cli = new WorkFoldDesktopCliHost({
       stateRoot: userData,
       kernel: new WorkFoldCliKernelAdapter(kernel, {
@@ -677,6 +684,9 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
       localFolderGrantProvider: { consumeLocalFolderGrant },
       restrictedAppService: host.restrictedApps,
       onAgentTurnActivity: updateAgentPowerState,
+      // Resolved before any window exists, so no app view can be mounted
+      // without this wire in place (docs/collaboration-contract.md, F30).
+      onAppAssistantActivity: (activity) => host.restrictedAppHost.publishAssistantActivity(activity),
       // Pages your fold serves (docs/fold-publishing.md): publication keys
       // live in operating-system-encrypted secure settings beside the other
       // Remote access material, and the slot/snapshot sync lane reads the

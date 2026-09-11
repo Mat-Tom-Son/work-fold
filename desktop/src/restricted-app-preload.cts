@@ -5,6 +5,9 @@ const tabCommandChannel = "work-fold:restricted-app:tabs";
 const contextChannel = "work-fold:restricted-app:context";
 const storageChannel = "work-fold:restricted-app:storage";
 const storageChangedChannel = "work-fold:restricted-app:storage-changed";
+const tasksChangedChannel = "work-fold:restricted-app:tasks-changed";
+const checksChangedChannel = "work-fold:restricted-app:checks-changed";
+const filesChangedChannel = "work-fold:restricted-app:files-changed";
 const checksChannel = "work-fold:restricted-app:checks";
 const assistantTasksChannel = "work-fold:restricted-app:assistant-tasks";
 const assistantInferChannel = "work-fold:restricted-app:assistant-infer";
@@ -151,6 +154,74 @@ ipcRenderer.on(storageChangedChannel, (_event, value: unknown) => {
   }
 });
 
+/**
+ * The three owned-id change hints (docs/collaboration-contract.md, F30). A
+ * hint carries ids and an ordering revision, never content: the app re-reads
+ * through the lane it already has. Every payload is validated here so a
+ * malformed push reaches no app callback, and every callback failure stays
+ * inside the app.
+ */
+type TasksChangedEvent = { revision: number; taskIds: string[]; receiptIds: string[] };
+type ChecksChangedEvent = { revision: number; permissionIds: string[] };
+type FilesChangedEvent = { revision: number; permissionIds: string[]; truncated: boolean };
+
+function boundedIdList(value: unknown, maximum: number): string[] | null {
+  if (!Array.isArray(value) || value.length > maximum) return null;
+  if (value.some((item) => typeof item !== "string" || !item.length)) return null;
+  return [...(value as string[])];
+}
+
+const tasksListeners = new Set<(event: TasksChangedEvent) => void>();
+ipcRenderer.on(tasksChangedChannel, (_event, value: unknown) => {
+  if (!value || typeof value !== "object") return;
+  const candidate = value as { revision?: unknown; taskIds?: unknown; receiptIds?: unknown };
+  if (!Number.isSafeInteger(candidate.revision)) return;
+  const taskIds = boundedIdList(candidate.taskIds, 64);
+  const receiptIds = boundedIdList(candidate.receiptIds, 64);
+  if (!taskIds || !receiptIds) return;
+  const event = Object.freeze({
+    revision: candidate.revision as number,
+    taskIds: Object.freeze(taskIds) as unknown as string[],
+    receiptIds: Object.freeze(receiptIds) as unknown as string[],
+  });
+  for (const listener of tasksListeners) {
+    try { listener(event); } catch { /* app callback errors stay inside the app */ }
+  }
+});
+
+const checksChangedListeners = new Set<(event: ChecksChangedEvent) => void>();
+ipcRenderer.on(checksChangedChannel, (_event, value: unknown) => {
+  if (!value || typeof value !== "object") return;
+  const candidate = value as { revision?: unknown; permissionIds?: unknown };
+  if (!Number.isSafeInteger(candidate.revision)) return;
+  const permissionIds = boundedIdList(candidate.permissionIds, 8);
+  if (!permissionIds) return;
+  const event = Object.freeze({
+    revision: candidate.revision as number,
+    permissionIds: Object.freeze(permissionIds) as unknown as string[],
+  });
+  for (const listener of checksChangedListeners) {
+    try { listener(event); } catch { /* app callback errors stay inside the app */ }
+  }
+});
+
+const filesChangedListeners = new Set<(event: FilesChangedEvent) => void>();
+ipcRenderer.on(filesChangedChannel, (_event, value: unknown) => {
+  if (!value || typeof value !== "object") return;
+  const candidate = value as { revision?: unknown; permissionIds?: unknown; truncated?: unknown };
+  if (!Number.isSafeInteger(candidate.revision) || typeof candidate.truncated !== "boolean") return;
+  const permissionIds = boundedIdList(candidate.permissionIds, 16);
+  if (!permissionIds) return;
+  const event = Object.freeze({
+    revision: candidate.revision as number,
+    permissionIds: Object.freeze(permissionIds) as unknown as string[],
+    truncated: candidate.truncated,
+  });
+  for (const listener of filesChangedListeners) {
+    try { listener(event); } catch { /* app callback errors stay inside the app */ }
+  }
+});
+
 const appBridge = Object.freeze({
   request: networkRequest,
   network: Object.freeze({ request: networkRequest }),
@@ -170,6 +241,18 @@ const appBridge = Object.freeze({
   }),
   checks: Object.freeze({
     read: (request: { permissionId: string }) => invokeHost(checksChannel, request, 1024, "CHECK_UNAVAILABLE"),
+    onChanged: (listener: (event: ChecksChangedEvent) => void) => {
+      if (typeof listener !== "function") throw new TypeError("Check listener must be a function.");
+      checksChangedListeners.add(listener);
+      return () => checksChangedListeners.delete(listener);
+    },
+  }),
+  tasks: Object.freeze({
+    onChanged: (listener: (event: TasksChangedEvent) => void) => {
+      if (typeof listener !== "function") throw new TypeError("Assistant task listener must be a function.");
+      tasksListeners.add(listener);
+      return () => tasksListeners.delete(listener);
+    },
   }),
   assistant: Object.freeze({
     request: (request: unknown) => invokeHost(assistantTasksChannel, { operation: "request", request }, maximumAssistantEnvelopeBytes, "TASK_UNAVAILABLE"),
@@ -182,6 +265,11 @@ const appBridge = Object.freeze({
     list: (request: unknown) => fileRequest("list", request),
     read: (request: unknown) => fileRequest("read", request),
     write: (request: unknown) => fileRequest("write", request),
+    onChanged: (listener: (event: FilesChangedEvent) => void) => {
+      if (typeof listener !== "function") throw new TypeError("File listener must be a function.");
+      filesChangedListeners.add(listener);
+      return () => filesChangedListeners.delete(listener);
+    },
   }),
   notifications: Object.freeze({
     show: (request: { permissionId: string }) => notificationRequest(request),
@@ -206,7 +294,12 @@ const appBridge = Object.freeze({
 // Error custom properties do not survive Electron's context bridge. Carry a
 // plain outcome across it, then construct the public Error in the app world.
 // No raw IPC function or transport object is installed on window.
-const synchronousBridgePaths = ["context.get", "context.onChanged", "limits.get", "storage.onChanged"];
+const synchronousBridgePaths = [
+  "context.get", "context.onChanged", "limits.get", "storage.onChanged",
+  // Registrations return an unsubscribe function, not a promise, so they must
+  // cross the bridge unwrapped exactly as `storage.onChanged` does.
+  "tasks.onChanged", "checks.onChanged", "files.onChanged",
+];
 function bridgeTransport(value: unknown, path = ""): unknown {
   if (typeof value === "function") {
     if (synchronousBridgePaths.includes(path)) return value;

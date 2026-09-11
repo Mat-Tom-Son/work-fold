@@ -21,8 +21,10 @@ The optional top-level `assistantActions` array in `agent-app.json` declares up
 to eight actions. Absent or empty declarations preserve existing normalized
 manifest bytes. Each action has an id, a single-line title (80 characters),
 static instructions (4,096 characters) and the same closed JSON Schema subset
-used for app tools. A declaration names what the app may ask for; it starts
-nothing by itself.
+used for app tools. An action may also declare `outputSchema` in that same
+subset: declaring it is what lets the finished task come back with structured
+`result.data`. A declaration names what the app may ask for; it starts nothing
+by itself.
 
 ```json
 {
@@ -34,6 +36,12 @@ nothing by itself.
       "type": "object",
       "properties": { "quotes": { "type": "string", "maxLength": 4000 } },
       "required": ["quotes"],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": { "cheapest": { "type": "string", "maxLength": 80 } },
+      "required": ["cheapest"],
       "additionalProperties": false
     }
   }]
@@ -76,12 +84,53 @@ settled task also carries `model` (`provider`, `id`) and `usage`
 — the same two fields bounded inference returns, described under
 [Model and usage](#model-and-usage) below. A
 requested stop leaves a running task running, with `cancellationRequested:
-true`, until the ordinary turn actually settles. Failed and interrupted tasks
-expose no partial reply or private provider error. A successful `get` returns
-`result: { text, truncated }`, bounded to 256 KiB without splitting a UTF-8
-character. `list` contains at most 50 summaries, active requests first, with no
-reply text. Only the task's final reply is shared; other messages in its Chat
-are never app-readable.
+true`, until the ordinary turn actually settles. Failed, cancelled and
+interrupted tasks expose no result at all — no partial reply and no private
+provider error. `list` contains at most 50 summaries, active requests first,
+with no result. Only what the task reported, or its final reply, is shared;
+other messages in its Chat are never app-readable.
+
+## The result
+
+A successful `get` returns one result shape
+([Collaboration contract](collaboration-contract.md), F29), the same envelope a
+report, a handoff outcome, and a routing chat hop produce:
+
+| Field | What it is |
+|---|---|
+| `summary` | text, at most 32 KiB, never split mid-character |
+| `outcome` | `succeeded`, `partial`, or `failed` — the Assistant's own account |
+| `truncated` | the envelope did not fit its ceiling and what the app holds is trimmed |
+| `data` | present only for an action that declared `outputSchema`, and only when the reported value matches it |
+| `files` | Space-relative deliverables the Assistant named, each with `path`, `sha256`, and `sizeBytes` |
+
+The Assistant files that envelope with `work-fold chat report` during its turn.
+If it does not, the turn's final reply becomes the summary, the outcome is
+`succeeded`, and there are no details or files. `files` are the deliverables the
+Assistant chose to hand back; the turn's own `fileChanges` metadata stays
+evidence and never becomes a deliverable list.
+
+Details that do not match the declared `outputSchema` — or details reported for
+an action that declared none — are left out, the outcome becomes `failed`, and
+the summary says so in a sentence naming the declared shape. The validation
+happens twice: once when the report is filed against the shape on the request
+record, and again when the result is projected to the app.
+
+The whole serialized envelope is bounded at 256 KiB. Over that, `data` is
+dropped first, then `files` are trimmed, then the summary, and `truncated`
+becomes true. **Apps → the app → Assistant requests** names that number and the
+Settings section where a person can raise it, and offers **Open Chat** for the
+full reply.
+
+## Knowing a task moved
+
+`bridge.tasks.onChanged(listener)` fires when this installation's own Assistant
+tasks or inference receipts move: `{ revision, taskIds, receiptIds }`. Active
+views get it, and so does a worker while it holds a tool action or an automation
+run — the same mounts that may read `assistant.list()` at all. It carries ids
+and an ordering revision, never content: re-read with `assistant.list()` or
+`assistant.get()`. Nothing is replayed, and a hint never starts a model turn.
+See [Invalidation hints](restricted-app-authoring.md#invalidation-hints).
 
 ## Bounds
 
@@ -90,7 +139,10 @@ refused with a message that names the limit and the Settings section. The
 15-minute replay window and the 24-hour receipt retention are fixed; terminal
 receipts older than a day prune on the next submission, and their original
 timestamps can no longer submit fresh work. The journal caps at 1,000 receipts
-and 64 MiB and refuses more work rather than dropping live receipts.
+and 64 MiB and refuses more work rather than dropping live receipts. A result
+summary is bounded at 32 KiB, reported details at 256 KiB, deliverables at 32
+entries, and the whole envelope at 256 KiB; `limits.get()` publishes all four
+under `assistant`.
 
 While any of an app's request Chats runs, capability changes for that Space
 (grant, revoke, install, update) wait with "Wait for affected Assistant work to

@@ -3,7 +3,7 @@ import type { RestrictedAppAssistantTask, RestrictedAppTaskDetail } from "../../
 import type { RestrictedAppInstalled } from "../../types";
 import { errorText } from "../../lib/api";
 import { subscribeControlEvents } from "../../lib/control-events";
-import { restrictedAppAssistantTaskCanStop, restrictedAppAssistantTaskStatusLabel, restrictedAppAssistantTaskUsageLine } from "../../lib/restricted-app-assistant";
+import { restrictedAppAssistantResultOutcomeLabel, restrictedAppAssistantResultTrimNote, restrictedAppAssistantTaskCanStop, restrictedAppAssistantTaskStatusLabel, restrictedAppAssistantTaskUsageLine, restrictedAppResultFileSize } from "../../lib/restricted-app-assistant";
 import { cancelRestrictedAppAssistantTask, listRestrictedAppAssistantTasks, readRestrictedAppAssistantTask } from "../../lib/restricted-apps";
 
 /**
@@ -78,7 +78,20 @@ export function RestrictedAppAssistantTasks({ app, disabled, onOpenChat }: {
       </div>
       {detail?.task.id === task.id ? <div className="restricted-app-task-review">
         <pre tabIndex={0} aria-label="Assistant request">{detail.instructions}{"\n\n"}{JSON.stringify(JSON.parse(detail.inputJson), null, 2)}</pre>
-        {detail.task.result ? <pre tabIndex={0} aria-label="Assistant result">{detail.task.result.text}{detail.task.result.truncated ? "\n… Open Chat for the full reply." : ""}</pre> : null}
+        {detail.task.result ? <>
+          {restrictedAppAssistantResultOutcomeLabel(detail.task.result.outcome)
+            ? <p className="professional-status-badge">{restrictedAppAssistantResultOutcomeLabel(detail.task.result.outcome)}</p>
+            : null}
+          <pre tabIndex={0} aria-label="Assistant result">{detail.task.result.summary}{detail.task.result.truncated ? restrictedAppAssistantResultTrimNote : ""}</pre>
+          {detail.task.result.data === undefined
+            ? null
+            : <pre tabIndex={0} aria-label="Assistant result details">{JSON.stringify(detail.task.result.data, null, 2)}</pre>}
+          {detail.task.result.files?.length
+            ? <ul aria-label="Assistant result files">
+              {detail.task.result.files.map((file) => <li key={file.path}>{file.path} · {restrictedAppResultFileSize(file.sizeBytes)}</li>)}
+            </ul>
+            : null}
+        </> : null}
         <button className="professional-button professional-button-secondary" disabled={busy} onClick={() => setDetail(null)}>Close</button>
       </div> : null}
     </article>)}

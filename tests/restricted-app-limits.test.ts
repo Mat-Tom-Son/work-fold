@@ -9,7 +9,7 @@ import {
   restrictedAppStorageEnvelopeBytes,
 } from "../src/local/agent/restricted-app-limits.js";
 import { restrictedAppInferenceLimits } from "../src/shared/restricted-app-inference.js";
-import { restrictedAppAssistantLimits } from "../src/shared/restricted-app-tasks.js";
+import { restrictedAppAssistantLimits, restrictedAppSubscriptionLimits } from "../src/shared/restricted-app-tasks.js";
 import { RestrictedAppNetworkBroker } from "../src/local/agent/restricted-app-connections.js";
 import { RestrictedAppFileBroker } from "../src/local/agent/restricted-app-files.js";
 import { restrictedAppStorageLimits } from "../src/local/agent/restricted-app-storage.js";
@@ -68,8 +68,23 @@ test("published limits are composed from the live brokers rather than restated",
     instructionsBytes: restrictedAppAssistantLimits.instructions,
     inputBytes: restrictedAppAssistantLimits.inputBytes,
     resultBytes: restrictedAppAssistantLimits.resultBytes,
+    summaryBytes: restrictedAppAssistantLimits.summaryBytes,
+    dataBytes: restrictedAppAssistantLimits.dataBytes,
+    resultFiles: restrictedAppAssistantLimits.resultFiles,
     runningPerInstallation: restrictedAppAssistantLimits.runningPerInstallation,
   });
+  // The hint cadence is published for the same reason: a view designs its
+  // refresh around the hints it will get instead of counting them.
+  assert.deepEqual(limits.subscriptions, {
+    minHintIntervalMs: restrictedAppSubscriptionLimits.minHintIntervalMs,
+    filePollIntervalMs: restrictedAppSubscriptionLimits.filePollIntervalMs,
+    fileDebounceMs: restrictedAppSubscriptionLimits.fileDebounceMs,
+    fileMinHintIntervalMs: restrictedAppSubscriptionLimits.fileMinHintIntervalMs,
+    fileMaxFiles: restrictedAppSubscriptionLimits.fileMaxFiles,
+  });
+  // F29's envelope numbers are the report verb's numbers, not a second set.
+  assert.equal(limits.assistant.summaryBytes, 32 * 1024);
+  assert.equal(limits.assistant.dataBytes, 256 * 1024);
   assert.equal(limits.inference.inputBytes, 256 * 1024);
   assert.equal(limits.assistant.inputBytes, 64 * 1024);
   assert.equal(limits.inference.runningPerInstallation, 4);

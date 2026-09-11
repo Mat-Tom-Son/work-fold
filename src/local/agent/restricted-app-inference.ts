@@ -262,6 +262,16 @@ export interface RestrictedAppInferenceServiceOptions {
 }
 
 /**
+ * One receipt line landed. Emitted with `changed` so a host can turn owned-id
+ * activity into a bounded `bridge.tasks.onChanged` hint without reading the
+ * journal (docs/collaboration-contract.md, F30).
+ */
+export interface RestrictedAppInferenceActivity {
+  receipt: { id: string; spaceId: string; appId: string; featureInstallationId: string };
+  terminal: boolean;
+}
+
+/**
  * Runs bounded calls and journals them. Attribution damage never disables the
  * lane: an unreadable journal is moved aside and a fresh one starts, because a
  * lost record is a lost record, not a reason to stop an app from working.
@@ -355,8 +365,8 @@ export class RestrictedAppInferenceService extends EventEmitter {
       assertCurrent();
       const usage = { inputTokens: outcome.usage.inputTokens, outputTokens: outcome.usage.outputTokens };
       const result: RestrictedAppInferenceResult = outcome.kind === "text"
-        ? { text: outcome.text, truncated: outcome.truncated, model: outcome.model, usage }
-        : { json: outcome.json, model: outcome.model, usage };
+        ? { text: outcome.text, truncated: outcome.truncated, receiptId: id, model: outcome.model, usage }
+        : { json: outcome.json, receiptId: id, model: outcome.model, usage };
       await this.#append({
         v: 1,
         id,
@@ -491,7 +501,18 @@ export class RestrictedAppInferenceService extends EventEmitter {
     });
     this.#journal = write;
     await write;
-    this.emit("changed");
+    // Ids only, after the line is durable. `terminal` marks the lines an app
+    // can act on: an `accepted` line is a half-fact, and a hint for it would
+    // make a view re-read twice for one call.
+    this.emit("changed", {
+      receipt: {
+        id: receipt.id,
+        spaceId: receipt.spaceId,
+        appId: receipt.appId,
+        featureInstallationId: receipt.featureInstallationId,
+      },
+      terminal: receipt.outcome === "ok" || receipt.outcome === "error",
+    } satisfies RestrictedAppInferenceActivity);
   }
 
   /** Keeps the newest half so the file cannot grow without bound. */

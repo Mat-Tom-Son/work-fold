@@ -57,10 +57,15 @@ export interface RestrictedAppInferenceUsage {
   outputTokens: number;
 }
 
-/** What the app receives: text when no schema was given, otherwise the validated value. */
+/**
+ * What the app receives: text when no schema was given, otherwise the validated
+ * value. `receiptId` is the id of the journal line this call produced, so the
+ * id a `bridge.tasks.onChanged` hint carries can be matched to the call the app
+ * made without reading anything back.
+ */
 export type RestrictedAppInferenceResult =
-  | { text: string; truncated: boolean; model: RestrictedAppInferenceModelRef; usage: RestrictedAppInferenceUsage }
-  | { json: unknown; model: RestrictedAppInferenceModelRef; usage: RestrictedAppInferenceUsage };
+  | { text: string; truncated: boolean; receiptId: string; model: RestrictedAppInferenceModelRef; usage: RestrictedAppInferenceUsage }
+  | { json: unknown; receiptId: string; model: RestrictedAppInferenceModelRef; usage: RestrictedAppInferenceUsage };
 
 /** One line of the inference receipt journal; the Apps tab lists these. */
 export interface RestrictedAppInferenceReceipt {

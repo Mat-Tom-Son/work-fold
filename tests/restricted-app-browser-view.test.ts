@@ -153,13 +153,20 @@ test("approved-browser actions use the installed worker service, live grant auth
     const second = { ...request, requestId: randomUUID() };
     const accepted = await api.remoteFacade.execute("apps.actions.request", { ...scope, request: second }, principal, authority) as { action: { status: string } };
     assert.equal(accepted.action.status, "running");
+    // Wait for the dispatch the way the first one is waited for. Revoking
+    // while the dispatch is still in flight cancels it before it reaches the
+    // worker, which is a legitimate outcome but not the one this line is
+    // about: revocation must stop a *later* dispatch, not race the accepted
+    // one.
+    for (let index = 0; index < 200 && calls.length < 2; index++) await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(calls.length, 2, "the second request dispatched exactly once");
     await api.remoteFacade.revokeGrantAuthority!(principal.grantId);
     // The stub worker answers immediately, so the run may have settled before
     // revocation reached it; either way revocation leaves no run alive and a
     // later read under the revoked grant is refused by the live fence.
     const after = await api.remoteFacade.execute("apps.actions.get", { ...scope, requestId: second.requestId }, principal, authority) as { action: { status: string } };
     assert.ok(["cancelled", "succeeded"].includes(after.action.status), after.action.status);
-    assert.equal(calls.length, 2, "the second request dispatched exactly once and never again after revocation");
+    assert.equal(calls.length, 2, "and never dispatched again after revocation");
     await service.remove({ spaceId: app.spaceId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, expectedDigest: app.digest });
     await assert.rejects(api.remoteFacade.execute("apps.actions.get", { ...scope, requestId: request.requestId }, principal, authority));
     assert.throws(() => calls[0]!.execution.assertCurrent(), /authority|installed|changed/i);

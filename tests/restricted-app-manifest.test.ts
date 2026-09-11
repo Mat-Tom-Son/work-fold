@@ -12,6 +12,23 @@ test("named Assistant requests have reviewed static instructions and bounded typ
     Array.from({ length: 9 }, (_, index) => ({ ...action, id: `task-${index}` })), [{ ...action, inputSchema: { type: "object", additionalProperties: true } }]]) {
     assert.throws(() => parseRestrictedAppManifest({ ...base, assistantActions: actions }));
   }
+
+  // An action may declare the shape it wants back as `result.data` (F29). It is
+  // parsed with the same closed subset the input shape uses, and an action that
+  // declares none keeps exactly the bytes — and therefore the identity — it had.
+  const outputSchema = { type: "object", properties: { cheapest: { type: "string", maxLength: 80 } }, required: ["cheapest"], additionalProperties: false };
+  const declared = parseRestrictedAppManifest({ ...base, assistantActions: [{ ...action, outputSchema }] });
+  assert.deepEqual(declared.assistantActions?.[0]?.outputSchema, outputSchema);
+  const absent = parseRestrictedAppManifest({ ...base, assistantActions: [action] });
+  assert.equal("outputSchema" in (absent.assistantActions?.[0] ?? {}), false, "absent stays absent");
+  assert.equal(
+    JSON.stringify(absent),
+    JSON.stringify(parseRestrictedAppManifest({ ...base, assistantActions: [action] })),
+    "adding the field moves no existing manifest's normalized bytes",
+  );
+  for (const bad of [{ type: "object", additionalProperties: true }, { type: "anything" }, { type: "object", properties: {}, unexpected: 1 }]) {
+    assert.throws(() => parseRestrictedAppManifest({ ...base, assistantActions: [{ ...action, outputSchema: bad }] }));
+  }
 });
 
 import {

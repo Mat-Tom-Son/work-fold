@@ -211,11 +211,20 @@ export interface RestrictedAppManifest {
   viewer?: RestrictedAppViewerDeclaration;
 }
 
+/** The reviewed maximum number of file permissions one app revision may declare. */
+export const restrictedAppFilePermissionLimit = 16;
+
 export interface RestrictedAppAssistantAction {
   id: string;
   title: string;
   instructions: string;
   inputSchema: RestrictedAppJsonSchema;
+  /**
+   * The shape the app wants back as `result.data` (F29). Declaring it is what
+   * lets a reported result carry structured details at all; without it a task
+   * result is a summary, an outcome, and any files the Assistant named.
+   */
+  outputSchema?: RestrictedAppJsonSchema;
 }
 
 export function validateRestrictedAppValue(
@@ -304,7 +313,7 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
   assertUnique(network.map((destination) => destination.id), "Restricted app network permission id");
   const files = permissions.files === undefined
     ? []
-    : arrayValue(permissions.files, "Restricted app file permissions", 0, 16)
+    : arrayValue(permissions.files, "Restricted app file permissions", 0, restrictedAppFilePermissionLimit)
       .map((declaration, index) => parseFileDeclaration(declaration, index));
   assertUnique(files.map((declaration) => declaration.id), "Restricted app file permission id");
   const notifications = permissions.notifications === undefined
@@ -322,10 +331,13 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
   const assistantActions = manifest.assistantActions === undefined ? []
     : arrayValue(manifest.assistantActions, "Restricted app Assistant actions", 0, restrictedAppAssistantLimits.actions).map((value) => {
       const label = "Restricted app Assistant action";
-      const action = objectValue(value, label, ["id", "title", "instructions", "inputSchema"]);
+      const action = objectValue(value, label, ["id", "title", "instructions", "inputSchema", "outputSchema"]);
       return { id: idValue(action.id, `${label} id`), title: notificationTextValue(action.title, `${label} title`, 80),
         instructions: stringValue(action.instructions, `${label} instructions`, restrictedAppAssistantLimits.instructions),
-        inputSchema: parseJsonSchema(action.inputSchema, `${label} input schema`, 0) };
+        inputSchema: parseJsonSchema(action.inputSchema, `${label} input schema`, 0),
+        // Absent stays absent so an existing app's normalized manifest bytes,
+        // and therefore its identity, do not move when this field is added.
+        ...(action.outputSchema === undefined ? {} : { outputSchema: parseJsonSchema(action.outputSchema, `${label} output schema`, 0) }) };
     });
   assertUnique(assistantActions.map((item) => item.id), "Restricted app Assistant action id");
 

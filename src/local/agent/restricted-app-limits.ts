@@ -1,5 +1,5 @@
 import { restrictedAppInferenceLimits } from "../../shared/restricted-app-inference.js";
-import { restrictedAppAssistantLimits } from "../../shared/restricted-app-tasks.js";
+import { restrictedAppAssistantLimits, restrictedAppSubscriptionLimits } from "../../shared/restricted-app-tasks.js";
 import { restrictedAppAutomationIntervalMinutes } from "./restricted-app-manifest.js";
 import { restrictedAppStorageLimits } from "./restricted-app-storage.js";
 
@@ -55,7 +55,22 @@ export interface RestrictedAppLimits {
     instructionsBytes: number;
     inputBytes: number;
     resultBytes: number;
+    summaryBytes: number;
+    dataBytes: number;
+    resultFiles: number;
     runningPerInstallation: number;
+  };
+  /**
+   * The cadence of `tasks.onChanged`, `checks.onChanged`, and
+   * `files.onChanged`, so a view can design its refresh around the hints it
+   * will actually get instead of discovering the rate by counting them.
+   */
+  subscriptions: {
+    minHintIntervalMs: number;
+    filePollIntervalMs: number;
+    fileDebounceMs: number;
+    fileMinHintIntervalMs: number;
+    fileMaxFiles: number;
   };
 }
 
@@ -125,7 +140,17 @@ export function buildRestrictedAppLimits(source: RestrictedAppLimitsSource): Res
       instructionsBytes: restrictedAppAssistantLimits.instructions,
       inputBytes: restrictedAppAssistantLimits.inputBytes,
       resultBytes: restrictedAppAssistantLimits.resultBytes,
+      summaryBytes: restrictedAppAssistantLimits.summaryBytes,
+      dataBytes: restrictedAppAssistantLimits.dataBytes,
+      resultFiles: restrictedAppAssistantLimits.resultFiles,
       runningPerInstallation: restrictedAppAssistantLimits.runningPerInstallation,
+    },
+    subscriptions: {
+      minHintIntervalMs: restrictedAppSubscriptionLimits.minHintIntervalMs,
+      filePollIntervalMs: restrictedAppSubscriptionLimits.filePollIntervalMs,
+      fileDebounceMs: restrictedAppSubscriptionLimits.fileDebounceMs,
+      fileMinHintIntervalMs: restrictedAppSubscriptionLimits.fileMinHintIntervalMs,
+      fileMaxFiles: restrictedAppSubscriptionLimits.fileMaxFiles,
     },
   };
 }

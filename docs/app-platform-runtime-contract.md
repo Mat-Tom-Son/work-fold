@@ -200,10 +200,15 @@ Candidate operations:
 | `views.open({ viewId, title, route, state })` | Ask the host to create or activate one app-local persistent view in the current instance. |
 | `views.update({ title, route, state })` | Update the calling view's host-owned presentation. |
 | `views.close()` | Close the calling view. |
+| `tasks.onChanged(listener)` | Deliver bounded hints when the installation's own Assistant tasks or short-answer receipts move: ids and an ordering revision only. |
+| `checks.onChanged(listener)` | Deliver bounded hints when a selected Check's result changes: the feature's own permission ids and a revision. |
+| `files.onChanged(listener)` | Deliver bounded hints when files under a granted root change: the feature's own permission ids, a revision, and whether the bounded observation was partial. |
 
 Routes remain feature-relative. State is bounded JSON, not an identity or secret channel. The host derives the shell tab, browser route, ownership, back-stack, persistence, and cross-instance activation behavior. Popups, arbitrary top-level navigation, downloads, and file pickers remain unavailable unless later introduced as separate reviewed brokers.
 
 An inactive view may retain in-memory UI state, but view activity is not background execution authority. Interactive-only powers may be denied when a view is hidden, occluded, disconnected, or no longer bound to a live principal.
+
+Every `onChanged` hint carries ids and an ordering revision and never content; the feature re-reads through the lane it already holds. Eligibility for a hint follows the matching read lane exactly, so a feature is never told about something it could not then read. Hints are coalesced, never durably queued, and never replayed to a view that was hidden while the change happened.
 
 ## Storage
 
@@ -216,7 +221,7 @@ Candidate operations preserve the current revisioned JSON model. Every call name
 - `storage.delete({ collectionId, key, expectedRevision? })`
 - `storage.clear({ collectionId, expectedRevision? })`
 - `storage.transaction({ collectionId, expectedRevision?, clear?, set?, delete? })`
-- `storage.onChanged(listener)` for lossy invalidation hints
+- `storage.onChanged(listener)` for lossy invalidation hints, alongside the `tasks`, `checks`, and `files` hints above
 
 Each collection declares one ownership class:
 

@@ -20,7 +20,15 @@ import {
   RestrictedAppNetworkBroker,
   type RestrictedAppConnectionStore,
 } from "../../src/local/agent/restricted-app-connections.js";
-import { validateRestrictedAppValue } from "../../src/local/agent/restricted-app-manifest.js";
+import { restrictedAppFilePermissionLimit, validateRestrictedAppValue } from "../../src/local/agent/restricted-app-manifest.js";
+import { restrictedAppCheckLimits } from "../../src/shared/restricted-app-checks.js";
+import {
+  observeRestrictedAppGrantRoot,
+  RestrictedAppFileWatch,
+  type RestrictedAppFileWatchTarget,
+} from "../../src/local/agent/restricted-app-file-watch.js";
+import { restrictedAppSubscriptionLimits } from "../../src/shared/restricted-app-tasks.js";
+import type { RestrictedAppAssistantActivity } from "../../src/local/agent/restricted-app-tasks.js";
 import {
   buildRestrictedAppLimits,
   restrictedAppAssistantEnvelopeBytes,
@@ -72,6 +80,9 @@ const tabCommandChannel = "work-fold:restricted-app:tabs";
 const contextChannel = "work-fold:restricted-app:context";
 const storageChannel = "work-fold:restricted-app:storage";
 const storageChangedChannel = "work-fold:restricted-app:storage-changed";
+const tasksChangedChannel = "work-fold:restricted-app:tasks-changed";
+const checksChangedChannel = "work-fold:restricted-app:checks-changed";
+const filesChangedChannel = "work-fold:restricted-app:files-changed";
 const checksChannel = "work-fold:restricted-app:checks";
 const assistantTasksChannel = "work-fold:restricted-app:assistant-tasks";
 const assistantInferChannel = "work-fold:restricted-app:assistant-infer";
@@ -224,6 +235,37 @@ interface PendingStorageEvent {
   timer: NodeJS.Timeout;
 }
 
+/**
+ * The three owned-id change hints (docs/collaboration-contract.md, F30). They
+ * coalesce exactly as storage hints do, carry ids and a revision and never
+ * content, and are dropped — never queued — wherever their mounts are.
+ */
+type RestrictedAppHintKind = "tasks" | "checks" | "files";
+const hintKinds: readonly RestrictedAppHintKind[] = ["tasks", "checks", "files"];
+const hintChannels: Record<RestrictedAppHintKind, string> = {
+  tasks: tasksChangedChannel,
+  checks: checksChangedChannel,
+  files: filesChangedChannel,
+};
+
+interface PendingHintEvent {
+  primary: Set<string>;
+  secondary: Set<string>;
+  truncated: boolean;
+  timer: NodeJS.Timeout;
+}
+
+interface RestrictedAppScopeRef {
+  spaceId: string;
+  appId: string;
+  featureInstallationId: string;
+}
+
+interface RestrictedAppFileWatchEntry extends RestrictedAppScopeRef {
+  target: RestrictedAppFileWatchTarget;
+  watch: RestrictedAppFileWatch;
+}
+
 export class RestrictedAppHost implements RestrictedAppRuntimeHost {
   readonly #connections: RestrictedAppConnectionStore;
   readonly #preloadPath: string;
@@ -246,6 +288,13 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
   readonly #authorities = new Map<string, RestrictedAppRuntimeAuthority>();
   readonly #pendingStorageEvents = new Map<string, PendingStorageEvent>();
   readonly #storageLastEmittedAt = new Map<string, number>();
+  readonly #pendingHints = new Map<string, PendingHintEvent>();
+  readonly #hintLastEmittedAt = new Map<string, number>();
+  readonly #hintRevisions = new Map<string, number>();
+  readonly #fileWatches = new Map<string, RestrictedAppFileWatchEntry>();
+  #filePollTimer?: NodeJS.Timeout;
+  #filePollBusy = false;
+  #suspended = false;
   #notificationsSuspended = false;
   #closed = false;
 
@@ -312,6 +361,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
         this.#advanceGeneration(previous.spaceId, previous.appId, previous.featureInstallationId);
         this.#clearPendingStorageEvent(key);
         this.#storageLastEmittedAt.delete(key);
+        this.#clearPendingHints(key);
         this.#notifications.closeApp(previous, previous.digest);
       }
     }
@@ -363,6 +413,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       assertCurrent,
     };
     instance.pendingOperation = operation;
+    this.#syncFileWatches();
     instance.hostCalls.inFlight = 0;
     instance.hostCalls.idleSince = Date.now();
     const abort = () => {
@@ -435,6 +486,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     }
     if (instance.pendingOperation) throw new RestrictedAppError("APP_UNAVAILABLE", "This restricted app is already handling work.");
     instance.pendingOperation = { kind: "automation", id: event.runId, effectivePrincipal };
+    this.#syncFileWatches();
     instance.hostCalls.inFlight = 0;
     instance.hostCalls.idleSince = Date.now();
     const serializedEvent = JSON.stringify(rendererEvent);
@@ -588,6 +640,9 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       this.#assertLaunchCurrent(app, generation);
       if (this.#uiInstances.get(key) !== instance || instance.crashed) throw new RestrictedAppError("APP_UNAVAILABLE", "The app view was closed before it finished loading.");
       this.#emitUiState(instance, "ready");
+      // A new mount starts with no backlog: the first observation of each
+      // granted root establishes a baseline and emits nothing.
+      this.#syncFileWatches();
       return { mounted: true, digest: app.digest };
     } catch (error) {
       const invalidated = this.#closed || this.#generation(app.spaceId, app.manifest.id, app.featureInstallationId) !== generation;
@@ -633,6 +688,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       this.#advanceGeneration(scope.spaceId, scope.appId, scope.featureInstallationId);
       this.#clearPendingStorageEvent(key);
       this.#storageLastEmittedAt.delete(key);
+      this.#clearPendingHints(key);
     }
     this.#notifications.closeApp({ spaceId, appId, ...(featureInstallationId ? { featureInstallationId } : {}) }, digest);
     const workerDisposals: Promise<void>[] = [];
@@ -645,8 +701,12 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       if (!matches({ ...instance.app, appId: instance.app.manifest.id })) continue;
       uiDisposals.push(this.#destroyUi(instance, "stopped"));
     }
-    for (const key of scopes.keys()) this.#clearPendingStorageEvent(key);
+    for (const key of scopes.keys()) {
+      this.#clearPendingStorageEvent(key);
+      this.#clearPendingHints(key);
+    }
     await Promise.all([...workerDisposals, ...uiDisposals]);
+    this.#syncFileWatches();
     const launching = [...this.#launches.values()]
       .filter(matches)
       .map((item) => item.promise);
@@ -655,11 +715,18 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
 
   suspend(): void {
     this.#notificationsSuspended = true;
+    this.#suspended = true;
     this.#notifications.closeAll();
+    // Every watch drops its baseline, so what changed while the machine slept
+    // is never delivered as news after it wakes.
+    this.#stopFilePoll();
+    for (const entry of this.#fileWatches.values()) entry.watch.reset();
   }
 
   resume(): void {
     this.#notificationsSuspended = false;
+    this.#suspended = false;
+    this.#syncFileWatches();
   }
 
   async close(): Promise<void> {
@@ -676,6 +743,12 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     for (const event of this.#pendingStorageEvents.values()) clearTimeout(event.timer);
     this.#pendingStorageEvents.clear();
     this.#storageLastEmittedAt.clear();
+    for (const hint of this.#pendingHints.values()) clearTimeout(hint.timer);
+    this.#pendingHints.clear();
+    this.#hintLastEmittedAt.clear();
+    this.#hintRevisions.clear();
+    this.#stopFilePoll();
+    this.#fileWatches.clear();
     this.#notifications.dispose();
     for (const instance of this.#instances.values()) this.#advanceGeneration(instance.app.spaceId, instance.app.manifest.id, instance.app.featureInstallationId);
     await Promise.allSettled([...this.#launches.values()].map((item) => item.promise));
@@ -881,6 +954,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
         active: instance.active && !instance.occluded,
       });
     }
+    this.#syncFileWatches();
   }
 
   #applyUiLayout(instance: RestrictedAppUiInstance, requestedBounds: Rectangle): void {
@@ -908,6 +982,8 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       if (!instance.parent.isDestroyed()) instance.parent.contentView.removeChildView(instance.view);
       if (!instance.view.webContents.isDestroyed()) instance.view.webContents.close({ waitForBeforeUnload: false });
       await this.#disposeSession(instance.session);
+      // The last eligible mount leaving stops the granted-root poll.
+      this.#syncFileWatches();
       this.#emitUiState(instance, state, message);
     })();
     return await instance.destroyPromise;
@@ -1261,6 +1337,226 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     if (!pending) return;
     clearTimeout(pending.timer);
     this.#pendingStorageEvents.delete(key);
+  }
+
+  /**
+   * This installation's own Assistant tasks or inference receipts moved
+   * (docs/collaboration-contract.md, F30). The hint carries ids only; the app
+   * re-reads with `assistant.list()`, which is the authority.
+   */
+  publishAssistantActivity(event: RestrictedAppAssistantActivity): void {
+    this.#queueHint("tasks", event, { primary: event.taskIds, secondary: event.receiptIds });
+  }
+
+  /**
+   * A selected Check's result changed. Each installation is told only about the
+   * slots it selected, using its own permission ids; an installation with no
+   * matching selection is told nothing.
+   */
+  publishCheckResultsChanged(event: { spaceId: string; checkIds: readonly string[] }): void {
+    if (this.#closed || !event.checkIds.length) return;
+    const changed = new Set(event.checkIds);
+    const scopes = new Map<string, { scope: RestrictedAppScopeRef; permissionIds: Set<string> }>();
+    for (const instance of this.#instancesByWebContents.values()) {
+      if (instance.app.spaceId !== event.spaceId) continue;
+      const scope = {
+        spaceId: instance.app.spaceId,
+        appId: instance.app.manifest.id,
+        featureInstallationId: instance.app.featureInstallationId,
+      };
+      const key = appScopeKey(scope.spaceId, scope.appId, scope.featureInstallationId);
+      const entry = scopes.get(key) ?? { scope, permissionIds: new Set<string>() };
+      for (const grant of instance.app.checkGrants ?? []) {
+        if (changed.has(grant.checkId)) entry.permissionIds.add(grant.permissionId);
+      }
+      scopes.set(key, entry);
+    }
+    for (const entry of scopes.values()) {
+      if (!entry.permissionIds.size) continue;
+      this.#queueHint("checks", entry.scope, { primary: [...entry.permissionIds] });
+    }
+  }
+
+  /**
+   * Coalesces like `#queueStorageChanged`: at most one hint per kind per
+   * installation per interval, and nothing at all when no mount could act on
+   * it. Ids past the kind's bound are dropped — a hint is not state, and the
+   * app's own read is the authority.
+   */
+  #queueHint(
+    kind: RestrictedAppHintKind,
+    scope: RestrictedAppScopeRef,
+    ids: { primary?: readonly string[]; secondary?: readonly string[]; truncated?: boolean },
+  ): void {
+    if (this.#closed) return;
+    if (!this.#hintTargets(kind, scope).length) return;
+    const key = `${appScopeKey(scope.spaceId, scope.appId, scope.featureInstallationId)}:${kind}`;
+    const bound = hintIdBound(kind);
+    const pending = this.#pendingHints.get(key);
+    if (pending) {
+      addBounded(pending.primary, ids.primary, bound);
+      addBounded(pending.secondary, ids.secondary, restrictedAppSubscriptionLimits.receiptIds);
+      pending.truncated ||= ids.truncated === true;
+      return;
+    }
+    const primary = new Set<string>();
+    const secondary = new Set<string>();
+    addBounded(primary, ids.primary, bound);
+    addBounded(secondary, ids.secondary, restrictedAppSubscriptionLimits.receiptIds);
+    const interval = kind === "files"
+      ? restrictedAppSubscriptionLimits.fileMinHintIntervalMs
+      : restrictedAppSubscriptionLimits.minHintIntervalMs;
+    const lastEmittedAt = this.#hintLastEmittedAt.get(key) ?? 0;
+    const delay = Math.max(interval, lastEmittedAt + interval - Date.now());
+    const timer = setTimeout(() => this.#flushHint(kind, scope), delay);
+    timer.unref?.();
+    this.#pendingHints.set(key, { primary, secondary, truncated: ids.truncated === true, timer });
+  }
+
+  #flushHint(kind: RestrictedAppHintKind, scope: RestrictedAppScopeRef): void {
+    const key = `${appScopeKey(scope.spaceId, scope.appId, scope.featureInstallationId)}:${kind}`;
+    const pending = this.#pendingHints.get(key);
+    if (!pending) return;
+    this.#pendingHints.delete(key);
+    const targets = this.#hintTargets(kind, scope);
+    // A mount that closed while the hint waited gets nothing, and the revision
+    // does not move: nothing was told, so nothing was ordered.
+    if (!targets.length) return;
+    this.#hintLastEmittedAt.set(key, Date.now());
+    const revision = (this.#hintRevisions.get(key) ?? 0) + 1;
+    this.#hintRevisions.set(key, revision);
+    const primary = [...pending.primary].sort();
+    const event = kind === "tasks"
+      ? { revision, taskIds: primary, receiptIds: [...pending.secondary].sort() }
+      : kind === "checks"
+        ? { revision, permissionIds: primary }
+        : { revision, permissionIds: primary, truncated: pending.truncated };
+    for (const instance of targets) instanceContents(instance).send(hintChannels[kind], event);
+  }
+
+  /**
+   * Eligibility follows each read lane exactly, because a hint an app cannot
+   * act on would be a lie: Check results are view-only (`#handleChecks`), while
+   * tasks and granted files also reach a worker that holds an operation, the
+   * same set `#ownedPowerInstance` admits.
+   */
+  #hintTargets(kind: RestrictedAppHintKind, scope: RestrictedAppScopeRef): RestrictedAppNetworkInstance[] {
+    if (this.#closed) return [];
+    const targets: RestrictedAppNetworkInstance[] = [];
+    for (const instance of this.#instancesByWebContents.values()) {
+      if (instance.app.spaceId !== scope.spaceId || instance.app.manifest.id !== scope.appId
+        || instance.app.featureInstallationId !== scope.featureInstallationId) continue;
+      if (this.#eligibleForHint(kind, instance)) targets.push(instance);
+    }
+    return targets;
+  }
+
+  #eligibleForHint(kind: RestrictedAppHintKind, instance: RestrictedAppNetworkInstance): boolean {
+    if (instance.crashed) return false;
+    if ("window" in instance) {
+      if (kind === "checks") return false;
+      return Boolean(instance.pendingOperation) && !instance.window.isDestroyed() && !instance.window.webContents.isDestroyed();
+    }
+    if (!this.#uiIsActive(instance)) return false;
+    const bounds = instance.view.getBounds();
+    return bounds.width > 0 && bounds.height > 0 && !instance.view.webContents.isDestroyed();
+  }
+
+  #clearPendingHints(scopeKey: string): void {
+    for (const kind of hintKinds) {
+      const key = `${scopeKey}:${kind}`;
+      const pending = this.#pendingHints.get(key);
+      if (pending) {
+        clearTimeout(pending.timer);
+        this.#pendingHints.delete(key);
+      }
+      this.#hintLastEmittedAt.delete(key);
+      this.#hintRevisions.delete(key);
+    }
+    for (const [key, entry] of [...this.#fileWatches]) {
+      if (key.startsWith(`${scopeKey}:`)) this.#fileWatches.delete(key);
+      else void entry;
+    }
+  }
+
+  /**
+   * One watch per granted root that at least one eligible mount could read,
+   * created without a baseline so the first observation is silent. A mount that
+   * becomes ineligible drops its watches, so nothing polls while no app can be
+   * told, and a view that becomes active again rebaselines rather than
+   * receiving a replay.
+   */
+  #syncFileWatches(): void {
+    const desired = new Map<string, Omit<RestrictedAppFileWatchEntry, "watch">>();
+    if (!this.#closed && !this.#suspended) {
+      for (const instance of this.#instancesByWebContents.values()) {
+        if (!this.#eligibleForHint("files", instance)) continue;
+        const scope = {
+          spaceId: instance.app.spaceId,
+          appId: instance.app.manifest.id,
+          featureInstallationId: instance.app.featureInstallationId,
+        };
+        const scopeKey = appScopeKey(scope.spaceId, scope.appId, scope.featureInstallationId);
+        for (const grant of instance.app.fileGrants) {
+          const declaration = instance.app.manifest.permissions.files.find((item) => item.id === grant.declarationId);
+          if (!declaration) continue;
+          desired.set(`${scopeKey}:${grant.id}`, { ...scope, target: { grant, target: declaration.target } });
+        }
+      }
+    }
+    for (const key of [...this.#fileWatches.keys()]) {
+      if (!desired.has(key)) this.#fileWatches.delete(key);
+    }
+    for (const [key, entry] of desired) {
+      const existing = this.#fileWatches.get(key);
+      if (existing && existing.target.grant.root === entry.target.grant.root
+        && existing.target.target === entry.target.target) continue;
+      this.#fileWatches.set(key, { ...entry, watch: new RestrictedAppFileWatch() });
+    }
+    if (this.#fileWatches.size) this.#ensureFilePoll();
+    else this.#stopFilePoll();
+  }
+
+  #ensureFilePoll(): void {
+    if (this.#closed || this.#suspended || this.#filePollTimer) return;
+    const timer = setInterval(() => void this.#pollFileChanges(), restrictedAppSubscriptionLimits.filePollIntervalMs);
+    timer.unref?.();
+    this.#filePollTimer = timer;
+  }
+
+  #stopFilePoll(): void {
+    if (this.#filePollTimer) clearInterval(this.#filePollTimer);
+    this.#filePollTimer = undefined;
+  }
+
+  /** Metadata only, never overlapping itself, and silent while suspended. */
+  async #pollFileChanges(): Promise<void> {
+    if (this.#closed || this.#suspended || this.#filePollBusy) return;
+    this.#filePollBusy = true;
+    try {
+      this.#syncFileWatches();
+      for (const [key, entry] of [...this.#fileWatches]) {
+        if (this.#closed || this.#suspended) return;
+        if (this.#fileWatches.get(key) !== entry) continue;
+        let fired: { truncated: boolean } | null = null;
+        try {
+          const spaceRoot = await this.#resolveSpaceRoot(entry.spaceId);
+          if (!spaceRoot) throw new Error("The app's Space is no longer registered.");
+          const snapshot = await observeRestrictedAppGrantRoot(spaceRoot, entry.target);
+          if (this.#closed || this.#suspended) return;
+          // A watch replaced while this observation ran belongs to a different
+          // grant or a fresh baseline; its own next poll is the honest one.
+          if (this.#fileWatches.get(key) !== entry) continue;
+          fired = entry.watch.observe(snapshot, Date.now());
+        } catch (error) {
+          entry.watch.fail(error);
+          continue;
+        }
+        if (fired) this.#queueHint("files", entry, { primary: [entry.target.grant.declarationId], truncated: fired.truncated });
+      }
+    } finally {
+      this.#filePollBusy = false;
+    }
   }
 
   #ownedInstance(sender: WebContents, isMainFrame: boolean): RestrictedAppNetworkInstance | null {
@@ -1895,6 +2191,28 @@ function instanceKey(spaceId: string, appId: string, digest: string, featureInst
 
 function appScopeKey(spaceId: string, appId: string, featureInstallationId: string): string {
   return JSON.stringify([spaceId, appId, featureInstallationId]);
+}
+
+function instanceContents(instance: RestrictedAppNetworkInstance): WebContents {
+  return "window" in instance ? instance.window.webContents : instance.view.webContents;
+}
+
+/**
+ * Check and file permission ids are already capped by the manifest, so those
+ * hints cannot overflow. Task and receipt ids can, and the overflow is dropped:
+ * the app re-reads its own list, which is the authority.
+ */
+function hintIdBound(kind: RestrictedAppHintKind): number {
+  if (kind === "tasks") return restrictedAppSubscriptionLimits.taskIds;
+  if (kind === "checks") return restrictedAppCheckLimits.permissions;
+  return restrictedAppFilePermissionLimit;
+}
+
+function addBounded(target: Set<string>, values: readonly string[] | undefined, bound: number): void {
+  for (const value of values ?? []) {
+    if (target.size >= bound) return;
+    if (typeof value === "string" && value.length) target.add(value);
+  }
 }
 
 

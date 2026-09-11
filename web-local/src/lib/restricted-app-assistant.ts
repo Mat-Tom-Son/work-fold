@@ -1,4 +1,4 @@
-import type { RestrictedAppAssistantTask } from "../../../src/shared/restricted-app-tasks.js";
+import { restrictedAppAssistantLimits, type RestrictedAppAssistantTask, type RestrictedAppResultOutcome } from "../../../src/shared/restricted-app-tasks.js";
 
 /** Person-facing status of one app-requested Assistant task. */
 export function restrictedAppAssistantTaskStatusLabel(
@@ -40,4 +40,33 @@ export function restrictedAppAssistantTaskCanStop(
   task: Pick<RestrictedAppAssistantTask, "status" | "cancellationRequested">,
 ): boolean {
   return (task.status === "running" || task.status === "dispatching") && !task.cancellationRequested;
+}
+
+/**
+ * The badge beside the status when the Assistant said the work did not fully
+ * land. A result that succeeded needs no extra word; the status already says
+ * Done.
+ */
+export function restrictedAppAssistantResultOutcomeLabel(
+  outcome: RestrictedAppResultOutcome,
+): string | null {
+  switch (outcome) {
+    case "succeeded": return null;
+    case "partial": return "Partial";
+    case "failed": return "Did not finish";
+  }
+}
+
+/**
+ * Bounds are defaults, not caps: a trimmed result says which number it hit and
+ * where a person can raise it (docs/receipts-not-gates.md, principle 6).
+ */
+export const restrictedAppAssistantResultTrimNote =
+  `\n… Trimmed to the ${restrictedAppAssistantLimits.resultBytes / 1024} KiB result limit in Settings → The fold → Limits. Open Chat for the full reply.`;
+
+/** Compact size for one deliverable a result named. */
+export function restrictedAppResultFileSize(sizeBytes: number): string {
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  if (sizeBytes < 1024 * 1024) return `${Math.round(sizeBytes / 1024)} KB`;
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }

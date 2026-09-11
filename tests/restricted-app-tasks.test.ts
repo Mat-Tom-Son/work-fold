@@ -90,7 +90,7 @@ test("app Assistant requests are journaled then dispatched once into their own C
   assert.equal((await f.service.get(scope, request.requestId)).result, undefined);
   turn.status = "succeeded";
   turn.assistantText = "Comparison saved to comparison.md. North is cheaper.";
-  assert.deepEqual((await f.service.get(scope, request.requestId)).result, { text: turn.assistantText, truncated: false });
+  assert.deepEqual((await f.service.get(scope, request.requestId)).result, { summary: turn.assistantText, truncated: false, outcome: "succeeded" });
   await f.restart();
   assert.equal((await f.service.request(scope, request)).status, "succeeded");
   assert.equal(f.dispatched.length, 1, "restart never redispatches");
@@ -164,16 +164,19 @@ test("four requests run per installation, the fifth names the limit, and old rec
   assert.equal((await f.service.list(scope)).length, 1, "terminal receipts older than a day prune on submission");
 });
 
-test("final replies are bounded UTF-8 at 256 KiB", async (t) => {
+test("final replies become the summary, bounded UTF-8 at 32 KiB", async (t) => {
   const f = await fixture(t);
   const first = await f.service.request(scope, f.request());
   const turn = f.turns.get(first.id)!;
   turn.status = "succeeded";
-  turn.assistantText = "🐈".repeat(80_000);
+  turn.assistantText = "\u{1f408}".repeat(80_000);
   const result = (await f.service.get(scope, first.requestId)).result!;
-  assert.equal(Buffer.byteLength(result.text), 262_144);
+  assert.equal(Buffer.byteLength(result.summary), 32 * 1024);
   assert.equal(result.truncated, true);
-  assert.ok(!result.text.includes("�"));
+  assert.equal(result.outcome, "succeeded");
+  assert.equal(result.data, undefined, "no report means no details");
+  assert.equal(result.files, undefined, "turn evidence never becomes deliverables");
+  assert.ok(!result.summary.includes("\ufffd"));
 });
 
 test("a settled request records the model that ran its turn and what that turn used", async (t) => {
@@ -238,7 +241,7 @@ test("foreign turn responses fail closed; damaged journals disable only the task
   f.turns.get(first.id)!.spaceId = scope.spaceId;
   const file = join(f.root, "tasks.json");
   const good = JSON.parse(await readFile(file, "utf8"));
-  assert.equal(good.schema, "work-fold.app-assistant-tasks.v2");
+  assert.equal(good.schema, "work-fold.app-assistant-tasks.v3");
   for (const modify of [
     (data: any) => { data.schema = "legacy.tasks"; },
     (data: any) => { data.records.push(data.records[0]); },
@@ -279,7 +282,7 @@ test("the trusted Apps tab sees an installation's tasks across revisions while t
   assert.deepEqual(await f.service.list(other, "installation"), [], "another installation never sees it");
 });
 
-test("a v1 journal loads with its inert and expired requests stopped and is rewritten as v2 on the next save", async (t) => {
+test("a v1 journal loads with its inert and expired requests stopped and is rewritten as v3 on the next save", async (t) => {
   const f = await fixture(t);
   const file = join(f.root, "tasks.json");
   const started = await f.service.request(scope, f.request());
@@ -304,5 +307,5 @@ test("a v1 journal loads with its inert and expired requests stopped and is rewr
   assert.ok(tasks.every((task) => typeof task.startedAt === "string"));
   assert.equal(f.dispatched.length, 1, "loading never dispatches a legacy inert request");
   await f.service.request(scope, f.request());
-  assert.equal(JSON.parse(await readFile(file, "utf8")).schema, "work-fold.app-assistant-tasks.v2");
+  assert.equal(JSON.parse(await readFile(file, "utf8")).schema, "work-fold.app-assistant-tasks.v3");
 });

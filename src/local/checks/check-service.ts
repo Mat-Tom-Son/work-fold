@@ -65,6 +65,14 @@ export interface WorkFoldCheckServiceOptions {
   resolveSensor?: (id: string, revision: number) => WorkFoldCheckSensor | null;
   /** Routing-trigger seam; terminal runs are published only after they are durable. */
   settleSignal?: WorkFoldSettleSignal;
+  /**
+   * A selected Check's result may have changed, so a host can tell an app view
+   * that reads it to re-read (docs/collaboration-contract.md, F30). Deliberately
+   * separate from `settleSignal`, which keeps exactly one consumer: the routing
+   * service. Carries ids only, and a listener that throws never fails the Check
+   * operation that produced it.
+   */
+  onResultChanged?: (event: { spaceId: string; checkIds: string[] }) => void;
 }
 
 interface ActiveCheckRun {
@@ -121,6 +129,7 @@ export class WorkFoldCheckService {
   readonly #listSpaces: () => Promise<SpaceSummary[]>;
   readonly #resolveSensor: (id: string, revision: number) => WorkFoldCheckSensor | null;
   readonly #settleSignal: WorkFoldSettleSignal | null;
+  readonly #onResultChanged: WorkFoldCheckServiceOptions["onResultChanged"];
   readonly #stores = new Map<string, Promise<WorkFoldCheckStore>>();
   readonly #active = new Map<string, ActiveCheckRun>();
   readonly #runReservations = new Set<string>();
@@ -144,6 +153,7 @@ export class WorkFoldCheckService {
     const modelSensor = createModelReviewSensor(options.reviewModel);
     this.#resolveSensor = options.resolveSensor ?? ((id, revision) => id === modelSensor.id && revision === modelSensor.revision ? modelSensor : resolveWorkFoldCheckSensor(id, revision));
     this.#settleSignal = options.settleSignal ?? null;
+    this.#onResultChanged = options.onResultChanged;
   }
 
   enable(input: {
@@ -266,6 +276,9 @@ export class WorkFoldCheckService {
         await writeCheckCorrection(space.spaceRoot, correction.proposal);
         const applied = { ...applying, state: "applied" as const };
         await store.saveCorrection(applied);
+        // The corrected file is the Check's own evidence, so an app reading
+        // that selection is now holding an older answer.
+        this.#publishResultChanged(space.id, [reviewed.finding.checkId]);
         return { correction: applied, checkId: reviewed.finding.checkId };
       } catch (error) {
         await store.saveCorrection({ ...applying, state: "failed", error: errorMessage(error).slice(0, 2000) });
@@ -289,7 +302,11 @@ export class WorkFoldCheckService {
       const registered = await this.#registeredSpace(space);
       const active = [...this.#active.values()].find((run) => run.spaceId === registered.id && run.checkIds.includes(checkId));
       if (active) active.controller.abort("Check disabled.");
-      return (await this.#store(registered.id)).disable(checkId);
+      const removed = await (await this.#store(registered.id)).disable(checkId);
+      // An app holding this selection now reads a Check that is gone; it should
+      // learn that from a hint rather than from its next stale render.
+      if (removed) this.#publishResultChanged(registered.id, [checkId]);
+      return removed;
     });
   }
 
@@ -1102,6 +1119,18 @@ export class WorkFoldCheckService {
     return true;
   }
 
+  /**
+   * The host notification behind `bridge.checks.onChanged`. Ids only, and the
+   * listener's failure is contained here the way the settle signal contains
+   * its own: publishing a change can never fail the Check operation that
+   * produced it.
+   */
+  #publishResultChanged(spaceId: string, checkIds: readonly string[]): void {
+    if (!this.#onResultChanged || !checkIds.length) return;
+    try { this.#onResultChanged({ spaceId, checkIds: [...new Set(checkIds)] }); }
+    catch { /* a host listener never fails a Check operation */ }
+  }
+
   #finishActiveTask(taskId: string): void {
     if (!this.#active.delete(taskId)) return;
     this.#kernel.finishTask(taskId);
@@ -1116,6 +1145,13 @@ export class WorkFoldCheckService {
    */
   #publishRunSettle(spaceId: string, run: WorkFoldCheckRunRecord, lineage?: WorkFoldSettleLineage): void {
     if (run.trial) return;
+    // A settled run is the moment a selected result changes, so the app hint
+    // leaves from the same funnel. It is published before the routing seam so
+    // a slow routing consumer cannot delay a view's re-read, and independently
+    // of whether a settle signal is configured at all.
+    if (run.state !== "accepted" && run.state !== "running" && run.endedAt) {
+      this.#publishResultChanged(spaceId, run.checkIds);
+    }
     if (!this.#settleSignal) return;
     if (run.state === "accepted" || run.state === "running" || !run.endedAt) return;
     this.#settleSignal.publish({

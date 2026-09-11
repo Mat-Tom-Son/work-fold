@@ -77,6 +77,13 @@ test("shared Skills and the fold's materialized instructions stay gate-free", as
   const guide = speakableSource(await read("src/local/agent/space-operations-guide.ts"));
   assert.doesNotMatch(guide, retiredGateWords);
   assert.doesNotMatch(guide, retiredAuthorityNames);
+
+  // The prompt an app's Assistant request dispatches is taught text as well,
+  // and so is the app-building guide the proposal tool hands the model.
+  const taskPrompt = speakableSource(await read("src/local/agent/restricted-app-tasks.ts"));
+  assert.doesNotMatch(taskPrompt, retiredGateWords);
+  assert.doesNotMatch(taskPrompt, retiredAuthorityNames);
+  assert.match(taskPrompt, /work-fold chat report/);
 });
 
 test("the desktop copy contract and the remote client never say approve or staged", async () => {

@@ -430,7 +430,7 @@ small safe header map, `body`, and `encoding` (`utf8` for recognized text
 types, otherwise `base64`). The host injects credentials after validation; app
 code never sets or reads an authorization secret.
 
-### App storage and invalidation hints
+### App storage
 
 Storage is machine-local and keyed by the host-owned Tenant and Data Namespace.
 A preview and installed Release have separate storage, even in the same Space:
@@ -471,6 +471,63 @@ coalesced, are not state themselves, and are never queued or replayed for an
 inactive, occluded, minimized, or worker view. Always re-read storage. Also
 read required state during startup because the view may have missed a hint.
 
+### Invalidation hints
+
+Four channels tell an app that something it can already read has moved
+([Collaboration contract](collaboration-contract.md), F30). Every one of them
+carries ids and an ordering `revision` and never content, is coalesced, and is
+dropped rather than queued when no eligible mount exists. Registration returns
+an unsubscribe function:
+
+```js
+const stopWatchingTasks = bridge.tasks.onChanged(async (event) => {
+  // event: { revision, taskIds, receiptIds }
+  renderTasks(await bridge.assistant.list());
+});
+
+bridge.checks.onChanged(async (event) => {
+  // event: { revision, permissionIds }
+  for (const permissionId of event.permissionIds) {
+    renderCheck(await bridge.checks.read({ permissionId }));
+  }
+});
+
+bridge.files.onChanged(async (event) => {
+  // event: { revision, permissionIds, truncated }
+  for (const grantId of event.permissionIds) {
+    renderFolder(await bridge.files.list({ grantId, path: "." }));
+  }
+});
+```
+
+| Channel | Fires for | Reaches |
+|---|---|---|
+| `storage.onChanged` | this installation's own app storage | active views |
+| `tasks.onChanged` | its own `assistant.request` tasks and `assistant.infer` receipts | active views, and a worker while it holds a tool action or automation run |
+| `checks.onChanged` | a selected Check whose result changed | active views only, because only an active view may read a Check result |
+| `files.onChanged` | files under a granted root, observed on a bounded metadata poll | active views, and a worker while it holds an operation |
+
+`permissionIds` on both `checks.onChanged` and `files.onChanged` are this app's
+own declaration ids — exactly the `permissionId` and `grantId` values it
+already passes to `checks.read` and `files.list/read/write`.
+
+`revision` increases for as long as this view is mounted. Use it to order
+hints, not to compare against anything stored: it counts hints work-fold
+actually delivered to this installation, and it starts again when the app's
+bytes or grants change, when the app is stopped, and when work-fold restarts.
+
+`tasks.onChanged` carries at most 64 task ids and 64 receipt ids per hint, and
+`files.onChanged` sets `truncated` when its bounded observation of the root hit
+one of its own limits. In both cases the app's own read is the authority.
+
+**Hints are not state; always re-read, and read what you need at startup
+because a view can miss a hint.** Nothing is replayed: a view that was
+inactive, occluded, or minimized while something changed is told nothing then
+and nothing extra when it comes back, a new mount starts with no backlog, and
+a machine that slept re-establishes its baseline instead of announcing what
+happened while it was asleep. A hint never starts a model turn. Viewers and
+remote app views have no push channel at all.
+
 People can export and restore app-owned data from the Apps details surface;
 see [App data recovery](app-data-recovery.md). This management operation adds no
 runtime bridge power and never restores connections or grants.
@@ -504,6 +561,10 @@ selected Space target.
 For a declaration whose target is one exact `file`, use `path: "."` to read or
 replace that selected file. Exact-file grants cannot list children or create a
 different filename; `mode: "replace"` is the only permitted write mode.
+
+While an eligible mount is open, work-fold observes each granted root on a
+bounded metadata-only poll and calls `files.onChanged` when it settles; see
+[Invalidation hints](#invalidation-hints).
 
 ### Selected Check results
 
@@ -544,6 +605,10 @@ Changed app bytes reset these grants; an exact unchanged Release update can
 retain them through its reviewed continuity plan. Revocation fences in-flight
 reads before results reach the app.
 
+A settled Check run, an applied correction, and turning a Check off each call
+`checks.onChanged`; a result that merely drifts stale on the clock does not.
+See [Invalidation hints](#invalidation-hints).
+
 ### Assistant work and bounded inference
 
 Installation is the grant for both AI lanes
@@ -567,13 +632,37 @@ const { json } = await bridge.assistant.infer({
 
 `instructions` is the system prompt and `input` is delivered as untrusted
 data, so an app's own content cannot redirect the task. Without `outputSchema`
-the result is `{ text, truncated }`; with one — the same closed JSON Schema
-subset tool declarations use — it is `{ json }`, already validated. Active
+the result is `{ text, truncated, receiptId }`; with one — the same closed JSON
+Schema subset tool declarations use — it is `{ json, receiptId }`, already
+validated. `receiptId` matches the id a `tasks.onChanged` hint carries. Active
 views, workers holding a tool action, and named automation runs reach
 `assistant.request`; views and workers reach `assistant.infer`; viewers and
 remote app views reach neither and get `INFER_UNAVAILABLE`. Both leave
-receipts naming the effective model and its usage. The full contract, bounds,
-and error codes are in
+receipts naming the effective model and its usage.
+
+An `assistantActions` entry may declare `outputSchema` beside its
+`inputSchema`, in the same closed subset. That is what lets a finished task
+come back with structured details:
+
+```json
+{
+  "id": "compare-quotes",
+  "title": "Compare quotes",
+  "instructions": "Compare the submitted quotes and write comparison.md.",
+  "inputSchema": { "type": "object", "properties": { "quotes": { "type": "string" } },
+    "required": ["quotes"], "additionalProperties": false },
+  "outputSchema": { "type": "object", "properties": { "cheapest": { "type": "string" } },
+    "required": ["cheapest"], "additionalProperties": false }
+}
+```
+
+A settled task carries one result shape
+([Collaboration contract](collaboration-contract.md), F29): `summary` (at most
+32 KiB), `outcome` (`succeeded`, `partial`, or `failed`), `truncated`,
+optional `data` matching the declared `outputSchema`, and optional `files`
+naming Space-relative deliverables with their fingerprint and size. Details
+that do not match the declared shape never reach the app: they are left out and
+the outcome says so. The full contract, bounds, and error codes are in
 [App-requested Assistant work](app-assistant-tasks.md).
 
 ## Worker tools and automations
@@ -784,8 +873,11 @@ It reports `network` (`maxRequestBytes`, `maxResponseBytes`, `timeoutMs`,
 (`maxReadBytes`, `maxWriteBytes`), `automations`
 (`minimumIntervalMinutes`, `maximumIntervalMinutes`), `inference`
 (`instructionsBytes`, `inputBytes`, `schemaBytes`, `defaultOutputBytes`,
-`maxOutputBytes`, `runningPerInstallation`, `timeoutMs`), and `assistant`
-(`instructionsBytes`, `inputBytes`, `resultBytes`, `runningPerInstallation`).
+`maxOutputBytes`, `runningPerInstallation`, `timeoutMs`), `assistant`
+(`instructionsBytes`, `inputBytes`, `resultBytes`, `summaryBytes`, `dataBytes`,
+`resultFiles`, `runningPerInstallation`), and `subscriptions`
+(`minHintIntervalMs`, `filePollIntervalMs`, `fileDebounceMs`,
+`fileMinHintIntervalMs`, `fileMaxFiles`).
 They are composed from the live brokers and the shared limit records, so a host
 running non-default bounds publishes the bounds it is actually enforcing.
 

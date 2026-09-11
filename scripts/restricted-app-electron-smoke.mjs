@@ -309,6 +309,7 @@ async function runSmoke() {
       actionNotificationDenied: true,
       workerInferText: "echo:worker",
       workerTopLevelInferDenied: true,
+      workerChecksHints: 0,
     });
 
     await mark("frame-denial-start");
@@ -361,6 +362,10 @@ async function runSmoke() {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 350));
     assert.equal(shownNotifications.length, 1, "notification calls after handleAutomation returns are denied");
     assert.equal(await storage.get(storageOwner, "worker-storage-events"), 0);
+    // A worker subscribes, but only what it can act on reaches it: Check
+    // results are view-only, and tasks arrive only while it holds an operation.
+    assert.equal(await storage.get(storageOwner, "worker-checks-hints"), 0);
+    assert.equal(await storage.get(storageOwner, "worker-tasks-hints"), 0);
     const suspendedRun = host.runAutomation(descriptor, automationEvent("2026-07-13T00:00:30.000Z", "scheduled", {
       principalId: descriptor.servicePrincipalId,
       kind: "service",
@@ -486,6 +491,45 @@ async function runSmoke() {
     })}`, 15_000);
     assert.equal(await storage.get(storageOwner, "active-storage-event"), true, "automation storage changes reach the active owning UI");
     assert.equal(await storage.get(storageOwner, "reset-storage-event"), true, "more than 128 changed keys produce a bounded reset hint");
+    // The three owned-id hints (docs/collaboration-contract.md, F30): pushed by
+    // the host, delivered to the mounts each read lane admits, carrying ids and
+    // a revision and never content.
+    assert.equal(await storage.get(storageOwner, "ui-hint-listener-type-checked"), 3, "every registration type-checks its listener");
+    host.publishAssistantActivity({
+      spaceId: descriptor.spaceId,
+      appId: descriptor.manifest.id,
+      featureInstallationId: descriptor.featureInstallationId,
+      taskIds: ["smoke-task"],
+      receiptIds: ["smoke-receipt"],
+    });
+    await waitFor(async () => (await storage.get(storageOwner, "ui-tasks-hint"))?.count === 1,
+      "the active app view never received its Assistant task hint", 15_000);
+    const firstTasksHint = await storage.get(storageOwner, "ui-tasks-hint");
+    assert.deepEqual(firstTasksHint.taskIds, ["smoke-task"]);
+    assert.deepEqual(firstTasksHint.receiptIds, ["smoke-receipt"]);
+    assert.equal(firstTasksHint.revision, 1, "a revision orders hints inside one mount's lifetime");
+    assert.equal(firstTasksHint.active, true);
+
+    host.publishCheckResultsChanged({ spaceId: descriptor.spaceId, checkIds: ["smoke-check", "not-selected"] });
+    await waitFor(async () => (await storage.get(storageOwner, "ui-checks-hint"))?.count === 1,
+      "the active app view never received its Check result hint", 15_000);
+    assert.deepEqual((await storage.get(storageOwner, "ui-checks-hint")).permissionIds, ["review"],
+      "a Check hint names this app's own slot, never the Check id");
+    host.publishCheckResultsChanged({ spaceId: descriptor.spaceId, checkIds: ["not-selected"] });
+    host.publishCheckResultsChanged({ spaceId: "another-space", checkIds: ["smoke-check"] });
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 400));
+    assert.equal((await storage.get(storageOwner, "ui-checks-hint")).count, 1,
+      "a Check this app did not select, or another Space's, produces nothing");
+
+    // The view wrote smoke.txt into its granted root at startup, so the bounded
+    // granted-root observation has a real change to notice.
+    await waitFor(async () => (await storage.get(storageOwner, "ui-files-hint"))?.count >= 1,
+      "the active app view never learned its granted folder changed", 20_000);
+    const filesHint = await storage.get(storageOwner, "ui-files-hint");
+    assert.deepEqual(filesHint.permissionIds, ["exports"], "a file hint names the grant the app already passes to files.read");
+    assert.equal(filesHint.truncated, false);
+    assert.ok(!JSON.stringify(filesHint).includes("smoke.txt"), "a hint carries ids and a revision, never a path");
+
     host.syncAuthority([authorityOf(descriptor), authorityOf(peer)]);
     await host.invoke(peer, "signal", {});
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
@@ -515,6 +559,27 @@ async function runSmoke() {
       assistantDenied: true,
       inferDenied: true,
     });
+    // An inactive view is told nothing and gets no replay when it comes back.
+    const hintsWhenInactive = {
+      tasks: (await storage.get(storageOwner, "ui-tasks-hint"))?.count,
+      checks: (await storage.get(storageOwner, "ui-checks-hint"))?.count,
+      files: (await storage.get(storageOwner, "ui-files-hint"))?.count,
+    };
+    host.publishAssistantActivity({
+      spaceId: descriptor.spaceId,
+      appId: descriptor.manifest.id,
+      featureInstallationId: descriptor.featureInstallationId,
+      taskIds: ["while-inactive"],
+      receiptIds: [],
+    });
+    host.publishCheckResultsChanged({ spaceId: descriptor.spaceId, checkIds: ["smoke-check"] });
+    await writeFile(join(spaceRoot, "exports", "while-inactive.txt"), "changed while inactive", "utf8");
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 4_000));
+    assert.deepEqual({
+      tasks: (await storage.get(storageOwner, "ui-tasks-hint"))?.count,
+      checks: (await storage.get(storageOwner, "ui-checks-hint"))?.count,
+      files: (await storage.get(storageOwner, "ui-files-hint"))?.count,
+    }, hintsWhenInactive, "an inactive app view receives no hint and no replay");
     assert.equal(hits, 0, "an inactive app view must not retain file or network powers");
     await host.runAutomation(descriptor, automationEvent("2026-07-13T00:02:00.000Z", "resume", {
       principalId: descriptor.servicePrincipalId,
@@ -743,6 +808,28 @@ bridge.storage.onChanged(async (event) => {
   await bridge.storage.set("automation-storage-event-count", automationStorageEventCount);
   await bridge.storage.set(currentActive ? "active-storage-event" : "inactive-storage-event", true);
 });
+// The three owned-id hints (docs/collaboration-contract.md, F30). Each carries
+// ids and an ordering revision only; the counters prove no replay.
+let tasksHints = 0;
+let checksHints = 0;
+let filesHints = 0;
+bridge.tasks.onChanged(async (event) => {
+  tasksHints += 1;
+  await bridge.storage.set("ui-tasks-hint", { count: tasksHints, revision: event.revision, taskIds: event.taskIds, receiptIds: event.receiptIds, active: currentActive });
+});
+bridge.checks.onChanged(async (event) => {
+  checksHints += 1;
+  await bridge.storage.set("ui-checks-hint", { count: checksHints, revision: event.revision, permissionIds: event.permissionIds, active: currentActive });
+});
+bridge.files.onChanged(async (event) => {
+  filesHints += 1;
+  await bridge.storage.set("ui-files-hint", { count: filesHints, revision: event.revision, permissionIds: event.permissionIds, truncated: event.truncated, active: currentActive });
+});
+let hintListenerTypeChecked = 0;
+for (const register of [bridge.tasks.onChanged, bridge.checks.onChanged, bridge.files.onChanged]) {
+  try { register("not a function"); } catch (error) { if (error instanceof TypeError) hintListenerTypeChecked += 1; }
+}
+await bridge.storage.set("ui-hint-listener-type-checked", hintListenerTypeChecked);
 bridge.context.onChanged(async (next) => {
   currentActive = next.active;
   if (next.active) return;
@@ -806,6 +893,13 @@ catch (error) { workerTopLevelInferDenied = error instanceof Error && error.code
 let workerStorageEvents = 0;
 const workerInstanceToken = crypto.randomUUID();
 globalThis.workFoldRestrictedApp.storage.onChanged(() => { workerStorageEvents += 1; });
+// A worker subscribes at top level but is only eligible while it holds an
+// operation, and it is never eligible for Check results at all.
+let workerTasksHints = 0;
+let workerChecksHints = 0;
+globalThis.workFoldRestrictedApp.tasks.onChanged(() => { workerTasksHints += 1; });
+globalThis.workFoldRestrictedApp.checks.onChanged(() => { workerChecksHints += 1; });
+globalThis.workFoldRestrictedApp.files.onChanged(() => {});
 
 export async function handleAction(action, input) {
   if (action === "revocation-fence") {
@@ -829,7 +923,7 @@ export async function handleAction(action, input) {
     let actionNotificationDenied = false;
     try { await globalThis.workFoldRestrictedApp.notifications.show({ permissionId: "automation-update" }); }
     catch { actionNotificationDenied = true; }
-    return { workerTopLevelNotificationDenied, actionNotificationDenied, workerInferText: workerInference.text, workerTopLevelInferDenied };
+    return { workerTopLevelNotificationDenied, actionNotificationDenied, workerInferText: workerInference.text, workerTopLevelInferDenied, workerChecksHints };
   }
   if (action === "huge") return "x".repeat(300000);
   if (action === "cyclic") { const value = {}; value.self = value; return value; }
@@ -899,6 +993,8 @@ export async function handleAutomation(event) {
   await globalThis.workFoldRestrictedApp.notifications.show({ permissionId: "automation-update" });
   await new Promise((resolve) => setTimeout(resolve, 120));
   await globalThis.workFoldRestrictedApp.storage.set("worker-storage-events", workerStorageEvents);
+  await globalThis.workFoldRestrictedApp.storage.set("worker-checks-hints", workerChecksHints);
+  await globalThis.workFoldRestrictedApp.storage.set("worker-tasks-hints", workerTasksHints);
   setTimeout(async () => {
     try { await globalThis.workFoldRestrictedApp.notifications.show({ permissionId: "post-return" }); }
     catch {}
@@ -972,8 +1068,9 @@ function smokeManifest(loopbackPort) {
             actionNotificationDenied: { type: "boolean" },
             workerInferText: { type: "string", maxLength: 40 },
             workerTopLevelInferDenied: { type: "boolean" },
+            workerChecksHints: { type: "integer", minimum: 0, maximum: 64 },
           },
-          required: ["workerTopLevelNotificationDenied", "actionNotificationDenied", "workerInferText", "workerTopLevelInferDenied"],
+          required: ["workerTopLevelNotificationDenied", "actionNotificationDenied", "workerInferText", "workerTopLevelInferDenied", "workerChecksHints"],
           additionalProperties: false,
         },
       },

@@ -1,5 +1,5 @@
-import { RestrictedAppTaskService, RestrictedAppTaskError, restrictedAppTaskAuthorityDigest, restrictedAppTaskPrompt, restrictedAppTaskTurnRequestId } from "./agent/restricted-app-tasks.js";
-import { RestrictedAppInferenceService, RestrictedAppInferenceError } from "./agent/restricted-app-inference.js";
+import { RestrictedAppTaskService, RestrictedAppTaskError, restrictedAppTaskAuthorityDigest, restrictedAppTaskPrompt, restrictedAppTaskTurnRequestId, type RestrictedAppAssistantActivity } from "./agent/restricted-app-tasks.js";
+import { RestrictedAppInferenceService, RestrictedAppInferenceError, type RestrictedAppInferenceActivity } from "./agent/restricted-app-inference.js";
 import { BrowserAppActionService } from "./agent/restricted-app-browser-actions.js";
 import { observeWorkFoldRoutingFiles } from "./routings/routing-file-observer.js";
 import { isRemoteFileVisible, readRemoteFilePreview } from "./remote-file-preview.js";
@@ -426,6 +426,12 @@ export interface LocalApiOptions {
   maxBodyBytes?: number;
   loadEnv?: boolean;
   onAgentTurnActivity?: (activeTurns: number) => void;
+  /**
+   * One installation's own Assistant tasks or inference receipts moved. The
+   * desktop turns this into a bounded `bridge.tasks.onChanged` hint; a host
+   * without app views ignores it (docs/collaboration-contract.md, F30).
+   */
+  onAppAssistantActivity?: (activity: RestrictedAppAssistantActivity) => void;
   /**
    * Failure-injection seam immediately before a Pi prompt starts. A Space
    * turn's event carries the host-composed turn context (F26) so a test can
@@ -993,6 +999,25 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       },
       findTurn: (receipt) => turnStore.findRequest(receipt.scope.spaceId, receipt.conversationId, restrictedAppTaskTurnRequestId(receipt)),
       cancelTurn: async (receipt, turnId) => { await cancelAcceptedTurn(state, receipt.scope.spaceId, receipt.conversationId, turnId); },
+      // The envelope the Space Assistant filed for this task with `chat report`
+      // (docs/collaboration-contract.md, F29). The request store stays the
+      // authority; the newest report for this exact turn wins, and a turn that
+      // reported nothing falls back to its final reply as the summary.
+      findReport: async (receipt) => {
+        const turn = turnStore.findRequest(receipt.scope.spaceId, receipt.conversationId, restrictedAppTaskTurnRequestId(receipt));
+        const request = turn ? state.requests.byTaskId(turn.turnId) : null;
+        const ref = [...(request?.results ?? [])].reverse().find((item) => item.taskId === turn!.turnId);
+        const read = ref ? await state.requests.result(ref.resultId) : null;
+        if (read?.state !== "ok") return null;
+        const { summary, outcome, data, files } = read.record.envelope;
+        return {
+          summary,
+          truncated: false,
+          outcome,
+          ...(data === undefined ? {} : { data }),
+          ...(files?.length ? { files: files.map((file) => ({ ...file })) } : {}),
+        };
+      },
     },
   });
   // Bounded app inference (docs/receipts-not-gates.md, F22). The transport is
@@ -1014,9 +1039,25 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     },
   });
   proposalState = state;
-  const appTasksChanged = () => publishControlHint(state, "apps");
+  // Ids only, forwarded to whatever host wants to turn owned-app activity into
+  // a bounded view hint (docs/collaboration-contract.md, F30). The control hint
+  // behaviour is unchanged: every change still refreshes the Apps tab.
+  const appTasksChanged = (change?: { tasks?: RestrictedAppAssistantActivity[] }) => {
+    publishControlHint(state, "apps");
+    for (const activity of change?.tasks ?? []) options.onAppAssistantActivity?.(activity);
+  };
   state.appAssistantTasks.on("changed", appTasksChanged);
-  const appInferenceChanged = () => publishControlHint(state, "apps");
+  const appInferenceChanged = (change?: RestrictedAppInferenceActivity) => {
+    publishControlHint(state, "apps");
+    if (!change?.terminal) return;
+    options.onAppAssistantActivity?.({
+      spaceId: change.receipt.spaceId,
+      appId: change.receipt.appId,
+      featureInstallationId: change.receipt.featureInstallationId,
+      taskIds: [],
+      receiptIds: [change.receipt.id],
+    });
+  };
   state.appInference.on("changed", appInferenceChanged);
   const unsubscribeAppCatalog = restrictedApps.subscribeCatalog(() => publishControlHint(state, "apps"));
   state.routings = await WorkFoldRoutingService.create({
