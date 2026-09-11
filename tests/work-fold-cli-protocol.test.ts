@@ -102,7 +102,7 @@ test("CLI argv parser produces stable usage errors", () => {
   }
 });
 
-test("CLI help covers every landed act family and is honest about staging", () => {
+test("CLI help covers every landed act family and is honest about what it runs", () => {
   // The spelled verb inventory of docs/fold-act-ledger.md plus the sibling
   // routings/pages plans, as the act argv parser accepts them. Growing the
   // act table without growing help fails here on purpose.
@@ -129,7 +129,7 @@ test("CLI help covers every landed act family and is honest about staging", () =
       "operation activate", "operation cancel", "uninstall",
     ],
     routings: ["enable", "list", "show", "run", "stop", "disable", "delete", "receipts"],
-    pages: ["stage", "list", "status", "revoke", "narrow", "snapshot-off"],
+    pages: ["share", "share-app", "list", "status", "revoke", "narrow", "snapshot-off"],
     trash: ["list", "restore"],
   };
   const overview = workFoldCliHelp("work-fold");
@@ -151,6 +151,10 @@ test("CLI help covers every landed act family and is honest about staging", () =
   assert.doesNotMatch(overview, /[Ss]taged|decision|approv|Reviewed|Unrestricted|polic/);
   assert.match(workFoldCliHelp("work-fold", "tools"), /immediately with a receipt/);
   assert.match(workFoldCliHelp("work-fold", "apps"), /--purge-data/);
+  // A single-file permission is granted by naming its file; a folder
+  // permission covers the whole Space (docs/receipts-not-gates.md, F21).
+  assert.match(workFoldCliHelp("work-fold", "apps"), /--kind <network\|files\|notifications> --declaration <id> \[--path <space-path>\]/);
+  assert.match(workFoldCliHelp("work-fold", "apps"), /names a single file needs\n?.*--path <space-path>/);
   // Recently deleted is where a delete History could not fully cover goes
   // (docs/receipts-not-gates.md, F20), and nothing empties it early.
   const trashTopic = workFoldCliHelp("work-fold", "trash");

@@ -70,6 +70,10 @@ actions keep their separate reviewed action lane.
 
 Task states are `dispatching`, `running`, `succeeded`, `failed`, `cancelled`
 and `interrupted`; every task carries `startedAt`, its dispatch time. A
+settled task also carries `model` (`provider`, `id`) and `usage`
+(`inputTokens`, `outputTokens`, and `amountUsd` when the model carries pricing)
+— the same two fields bounded inference returns, described under
+[Model and usage](#model-and-usage) below. A
 requested stop leaves a running task running, with `cancellationRequested:
 true`, until the ordinary turn actually settles. Failed and interrupted tasks
 expose no partial reply or private provider error. A successful `get` returns
@@ -90,6 +94,32 @@ and 64 MiB and refuses more work rather than dropping live receipts.
 While any of an app's request Chats runs, capability changes for that Space
 (grant, revoke, install, update) wait with "Wait for affected Assistant work to
 finish". Stop the request first, or let it finish.
+
+## Model and usage
+
+When the dispatched Chat turn settles, the durable turn journal records the
+provider and model id that actually ran it and the usage Pi reported for that
+turn, and the request receipt copies both. The same settlement writes the
+outcome and the spend, so a turn that failed or was stopped still reports what
+it used, and a turn that spent nothing — a built-in command, or a provider that
+never reported a settled request — reports no usage at all.
+
+`usage` carries `inputTokens` and `outputTokens`, plus `amountUsd` only when the
+effective model carries pricing work-fold can apply. A model with no published
+rates leaves the cost out: it is unknown, not zero. Token counts are measured
+around that one turn, so a Chat title request or a bounded inference call on the
+same Space is never charged to it.
+
+`assistant.get` and `assistant.list` carry `model` and `usage` to the app, and
+**Apps → the app → Assistant requests** shows them as one compact line under
+each request:
+
+```
+anthropic · claude-sonnet-4-5 · 12048 in · 486 out · $0.0312
+```
+
+Short answers carry the same two fields under the same names, so both app AI
+lanes read alike. Neither records prompt or reply content in that receipt.
 
 ## Bounded inference
 

@@ -17,6 +17,20 @@ export type WorkFoldDurableTurnStatus =
   | "aborted"
   | "interrupted";
 
+/**
+ * What the turn actually spent: the provider and model id that ran it and the
+ * usage Pi reported for it. `amountUsd` is present only when the effective
+ * model carries pricing work-fold can apply — a model without published rates
+ * leaves the cost unknown rather than zero.
+ */
+export interface WorkFoldDurableTurnUsage {
+  provider: string;
+  modelId: string;
+  inputTokens: number;
+  outputTokens: number;
+  amountUsd?: number;
+}
+
 export interface WorkFoldDurableTurnRecord {
   schema: typeof workFoldTurnRecordSchema;
   turnId: string;
@@ -35,6 +49,7 @@ export interface WorkFoldDurableTurnRecord {
   messageId?: string;
   error?: string;
   fileChanges?: WorkFoldTurnFileChanges;
+  usage?: WorkFoldDurableTurnUsage;
 }
 
 export interface WorkFoldTurnStoreOptions {
@@ -171,7 +186,7 @@ export class WorkFoldTurnStore {
 
   settle(
     turnId: string,
-    input: { status: Exclude<WorkFoldDurableTurnStatus, "accepted" | "running">; messageId?: string; error?: string; assistantText?: string; fileChanges?: WorkFoldTurnFileChanges },
+    input: { status: Exclude<WorkFoldDurableTurnStatus, "accepted" | "running">; messageId?: string; error?: string; assistantText?: string; fileChanges?: WorkFoldTurnFileChanges; usage?: WorkFoldDurableTurnUsage },
   ): Promise<WorkFoldDurableTurnRecord | null> {
     return this.#update(turnId, (record) => ({
       ...record,
@@ -181,6 +196,8 @@ export class WorkFoldTurnStore {
       ...(input.messageId ? { messageId: input.messageId } : {}),
       ...(input.error ? { error: input.error.slice(0, 2_048) } : {}),
       ...(input.fileChanges ? { fileChanges: parseTurnFileChanges(input.fileChanges) } : {}),
+      // Attribution only: a settled turn's usage never changes what the turn did.
+      ...(input.usage ? { usage: parseTurnUsage(input.usage) } : {}),
     }));
   }
 
@@ -317,7 +334,35 @@ function parseRecord(value: unknown): WorkFoldDurableTurnRecord {
   if (typeof record.assistantText !== "string" || record.assistantText.length > maxDurableTurnTextChars) throw new Error("Turn checkpoint is invalid.");
   if (record.messageId !== undefined) validateStableId(record.messageId, "response message id");
   if (record.error !== undefined && (typeof record.error !== "string" || record.error.length > 2_048)) throw new Error("Turn error is invalid.");
+  if (record.usage !== undefined) record.usage = parseTurnUsage(record.usage);
   return record as WorkFoldDurableTurnRecord;
+}
+
+/** A usage receipt records only counts and identifiers, never prompt or reply content. */
+export function parseTurnUsage(value: unknown): WorkFoldDurableTurnUsage {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Turn usage is invalid.");
+  const usage = value as Record<string, unknown>;
+  const allowed = ["provider", "modelId", "inputTokens", "outputTokens", "amountUsd"];
+  if (Object.keys(usage).some((key) => !allowed.includes(key))) throw new Error("Turn usage has invalid fields.");
+  for (const key of ["provider", "modelId"] as const) {
+    const text = usage[key];
+    if (typeof text !== "string" || !text.length || text.length > 200) throw new Error("Turn usage model is invalid.");
+  }
+  for (const key of ["inputTokens", "outputTokens"] as const) {
+    const count = usage[key];
+    if (typeof count !== "number" || !Number.isFinite(count) || count < 0) throw new Error("Turn usage token count is invalid.");
+  }
+  // Absent means unknown pricing. A cost is recorded only when one was reported.
+  if (usage.amountUsd !== undefined && (typeof usage.amountUsd !== "number" || !Number.isFinite(usage.amountUsd) || usage.amountUsd < 0)) {
+    throw new Error("Turn usage cost is invalid.");
+  }
+  return {
+    provider: usage.provider as string,
+    modelId: usage.modelId as string,
+    inputTokens: usage.inputTokens as number,
+    outputTokens: usage.outputTokens as number,
+    ...(usage.amountUsd === undefined ? {} : { amountUsd: usage.amountUsd as number }),
+  };
 }
 
 function validateStableId(value: unknown, label: string): asserts value is string {
@@ -335,5 +380,9 @@ function requestKey(spaceId: string, conversationId: string, requestId: string):
 }
 
 function copyRecord(record: WorkFoldDurableTurnRecord): WorkFoldDurableTurnRecord {
-  return { ...record, ...(record.fileChanges ? { fileChanges: structuredClone(record.fileChanges) } : {}) };
+  return {
+    ...record,
+    ...(record.fileChanges ? { fileChanges: structuredClone(record.fileChanges) } : {}),
+    ...(record.usage ? { usage: { ...record.usage } } : {}),
+  };
 }

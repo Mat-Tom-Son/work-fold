@@ -3,7 +3,7 @@ import type { RestrictedAppAssistantTask, RestrictedAppTaskDetail } from "../../
 import type { RestrictedAppInstalled } from "../../types";
 import { errorText } from "../../lib/api";
 import { subscribeControlEvents } from "../../lib/control-events";
-import { restrictedAppAssistantTaskCanStop, restrictedAppAssistantTaskStatusLabel } from "../../lib/restricted-app-assistant";
+import { restrictedAppAssistantTaskCanStop, restrictedAppAssistantTaskStatusLabel, restrictedAppAssistantTaskUsageLine } from "../../lib/restricted-app-assistant";
 import { cancelRestrictedAppAssistantTask, listRestrictedAppAssistantTasks, readRestrictedAppAssistantTask } from "../../lib/restricted-apps";
 
 /**
@@ -68,6 +68,9 @@ export function RestrictedAppAssistantTasks({ app, disabled, onOpenChat }: {
     {error ? <p role="alert">{error}</p> : null}
     {!tasks.length ? <p>No requests yet.</p> : tasks.map((task) => <article className="restricted-app-destination-card" key={task.id}>
       <div><strong>{task.title}</strong><span className="professional-status-badge">{restrictedAppAssistantTaskStatusLabel(task)}</span></div>
+      {restrictedAppAssistantTaskUsageLine(task)
+        ? <p className="restricted-app-task-usage">{restrictedAppAssistantTaskUsageLine(task)}</p>
+        : null}
       <div className="restricted-app-task-actions">
         <button className="professional-button professional-button-secondary" disabled={unavailable} onClick={() => void inspect(task)}>Details</button>
         {onOpenChat ? <button className="professional-button professional-button-secondary" disabled={unavailable} onClick={() => void inspect(task, true)}>Open Chat</button> : null}

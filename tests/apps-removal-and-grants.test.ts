@@ -19,9 +19,8 @@ import { startLocalApi, type LocalApiHandle } from "../src/local/server.js";
  * and uninstall-with-purge already use.
  *
  * F21: an installed app comes up able to work, and a folder permission binds
- * to the whole Space. A single-file permission names a file only a person can
- * pick, so `apps grant` says that plainly instead of handing the file broker a
- * Space root it can only refuse.
+ * to the whole Space. A single-file permission has no whole-Space reading, so
+ * `apps grant` takes the Space file it covers and binds to exactly that file.
  */
 
 interface Harness {
@@ -92,8 +91,8 @@ async function trashEntries(api: LocalApiHandle): Promise<Array<{ id: string; ki
   return listed.entries.map((entry) => ({ id: entry.id, kind: entry.kind, reason: entry.reason, sizeBytes: entry.sizeBytes }));
 }
 
-test("a folder permission grants over the whole Space; a single-file permission says it needs a chosen file", async () => {
-  await withApp(async ({ api, spaceId, appDigest }) => {
+test("a folder permission grants over the whole Space; a single-file permission binds to the named file", async () => {
+  await withApp(async ({ api, spaceId, spaceRoot, appDigest }) => {
     await api.actFacade.appsRevoke({
       space: spaceId, app: "ledger-app", digest: appDigest, kind: "files", declaration: "exports",
     });
@@ -104,15 +103,26 @@ test("a folder permission grants over the whole Space; a single-file permission 
     assert.equal(granted.granted, true);
     assert.equal(granted.root, ".", "a folder permission binds to the whole Space");
 
-    // The file-target branch refuses before journaling, naming the real path
-    // instead of letting the broker answer with an unavailable-file error.
+    // A folder permission has nothing to narrow to, and a single-file
+    // permission has no whole-Space reading: both refuse before journaling,
+    // rather than letting the broker answer with an unavailable-file error.
+    await assert.rejects(
+      () => api.actFacade.appsGrant({
+        space: spaceId, app: "ledger-app", digest: appDigest, kind: "files", declaration: "exports", path: "books/ledger.csv",
+      }),
+      (error: Error & { code?: string }) => {
+        assert.equal(error.code, "usage");
+        assert.match(error.message, /covers the whole Space/);
+        return true;
+      },
+    );
     await assert.rejects(
       () => api.actFacade.appsGrant({
         space: spaceId, app: "ledger-app", digest: appDigest, kind: "files", declaration: "ledger",
       }),
       (error: Error & { code?: string }) => {
-        assert.equal(error.code, "permissionDenied");
-        assert.match(error.message, /needs a file you choose/);
+        assert.equal(error.code, "usage");
+        assert.match(error.message, /needs one file/);
         assert.match(error.message, /Apps tab/);
         assert.doesNotMatch(error.message, /unavailable/);
         return true;
@@ -121,9 +131,22 @@ test("a folder permission grants over the whole Space; a single-file permission 
 
     // Nothing was granted for the file declaration, so nothing is pinned to a
     // root the broker would reject at read time.
-    const apps = await api.actFacade.appsList({ space: spaceId });
-    const fileGrants = apps.apps[0]?.grants.files ?? [];
-    assert.deepEqual(fileGrants.map((grant) => grant.declarationId), ["exports"]);
+    const before = await api.actFacade.appsList({ space: spaceId });
+    assert.deepEqual((before.apps[0]?.grants.files ?? []).map((grant) => grant.declarationId), ["exports"]);
+
+    // Naming the file grants it, and the grant binds to that file alone.
+    await mkdir(join(spaceRoot, "books"), { recursive: true });
+    await writeFile(join(spaceRoot, "books", "ledger.csv"), "date,amount\n", "utf8");
+    const file = await api.actFacade.appsGrant({
+      space: spaceId, app: "ledger-app", digest: appDigest, kind: "files", declaration: "ledger", path: "./books/ledger.csv",
+    });
+    assert.equal(file.granted, true);
+    assert.equal(file.root, "books/ledger.csv", "the grant root is the canonical Space-relative file");
+    const after = await api.actFacade.appsList({ space: spaceId });
+    assert.deepEqual(
+      (after.apps[0]?.grants.files ?? []).map((grant) => [grant.declarationId, grant.root]).sort(),
+      [["exports", "."], ["ledger", "books/ledger.csv"]],
+    );
   });
 });
 

@@ -176,6 +176,60 @@ test("final replies are bounded UTF-8 at 256 KiB", async (t) => {
   assert.ok(!result.text.includes("�"));
 });
 
+test("a settled request records the model that ran its turn and what that turn used", async (t) => {
+  const f = await fixture(t);
+  const request = f.request();
+  const started = await f.service.request(scope, request);
+  assert.equal(started.model, undefined, "nothing is claimed before the turn settles");
+  assert.equal(started.usage, undefined);
+
+  const turn = f.turns.get(started.id)!;
+  turn.status = "succeeded";
+  turn.assistantText = "Comparison saved to comparison.md.";
+  turn.usage = { provider: "anthropic", modelId: "claude-sonnet-4-5", inputTokens: 12_048, outputTokens: 486, amountUsd: 0.0312 };
+  const done = await f.service.get(scope, request.requestId);
+  assert.deepEqual(done.model, { provider: "anthropic", id: "claude-sonnet-4-5" });
+  assert.deepEqual(done.usage, { inputTokens: 12_048, outputTokens: 486, amountUsd: 0.0312 });
+
+  // The same two fields the short-answer lane returns, on the summary too.
+  const [summary] = await f.service.list(scope);
+  assert.deepEqual(summary!.model, done.model);
+  assert.deepEqual(summary!.usage, done.usage);
+  assert.equal(summary!.result, undefined, "a summary still carries no reply text");
+  assert.deepEqual((await f.service.detail(scope, request.requestId)).task.usage, done.usage);
+
+  await f.restart();
+  const reloaded = await f.service.get(scope, request.requestId);
+  assert.deepEqual(reloaded.model, done.model, "the receipt survives a restart");
+  assert.deepEqual(reloaded.usage, done.usage);
+});
+
+test("a turn without pricing leaves the cost unknown, and a failed turn still reports its spend", async (t) => {
+  const f = await fixture(t);
+  const request = f.request();
+  const started = await f.service.request(scope, request);
+  const turn = f.turns.get(started.id)!;
+  turn.status = "failed";
+  turn.usage = { provider: "custom", modelId: "local-model", inputTokens: 900, outputTokens: 0 };
+  const failed = await f.service.get(scope, request.requestId);
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.result, undefined, "a failed turn still exposes no partial reply");
+  assert.deepEqual(failed.model, { provider: "custom", id: "local-model" });
+  assert.deepEqual(failed.usage, { inputTokens: 900, outputTokens: 0 });
+  assert.equal("amountUsd" in failed.usage!, false, "missing pricing stays unknown rather than becoming a zero charge");
+
+  // A turn that reported nothing at all leaves both fields off entirely.
+  const quiet = f.request();
+  const second = await f.service.request(scope, quiet);
+  const quietTurn = f.turns.get(second.id)!;
+  quietTurn.status = "succeeded";
+  quietTurn.assistantText = "Done.";
+  const settled = await f.service.get(scope, quiet.requestId);
+  assert.equal(settled.status, "succeeded");
+  assert.equal(settled.model, undefined);
+  assert.equal(settled.usage, undefined);
+});
+
 test("foreign turn responses fail closed; damaged journals disable only the task lane without overwriting evidence", async (t) => {
   const f = await fixture(t);
   const first = await f.service.request(scope, f.request());
@@ -192,6 +246,8 @@ test("foreign turn responses fail closed; damaged journals disable only the task
     (data: any) => { data.records[0].scope.extra = "power"; },
     (data: any) => { data.records[0].startedAt = 0; },
     (data: any) => { data.records[0].status = "pending"; },
+    (data: any) => { data.records[0].usage = { inputTokens: -1, outputTokens: 0 }; },
+    (data: any) => { data.records[0].model = { provider: "anthropic", id: "" }; },
   ]) {
     const data = structuredClone(good);
     modify(data);

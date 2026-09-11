@@ -1548,10 +1548,10 @@ test("routing enablement and page exposure execute on one call with one request 
     );
     assert.equal((await api.routings.listRoutings()).length, 1, "a refused declaration arms nothing");
 
-    // Page exposure: `pages stage` pins the publication shape per the
+    // Page exposure: `pages share` pins the publication shape per the
     // publishing mutation ledger and activates through the publication
     // service on the same call, under a derived request id.
-    const shared = await facade.pagesStage({
+    const shared = await facade.pagesShare({
       space: space.space.id,
       path: "weekly.md",
       title: "Weekly report",
@@ -1578,12 +1578,12 @@ test("routing enablement and page exposure execute on one call with one request 
 
     // A second identical call refuses: the page is already shared.
     await assert.rejects(
-      () => facade.pagesStage({ space: space.space.id, path: "weekly.md", title: "Weekly report", requestId: "req-page-share-2" }),
+      () => facade.pagesShare({ space: space.space.id, path: "weekly.md", title: "Weekly report", requestId: "req-page-share-2" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict" && /already shared/.test(error.message),
     );
     // A missing source refuses honestly and exposes nothing.
     await assert.rejects(
-      () => facade.pagesStage({ space: space.space.id, path: "missing.md", title: "Missing", requestId: "req-page-missing" }),
+      () => facade.pagesShare({ space: space.space.id, path: "missing.md", title: "Missing", requestId: "req-page-missing" }),
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
     assert.equal((await api.publications.list()).length, 1);
@@ -1740,7 +1740,7 @@ test("hosted-app exposure activates from an installed Instance and puts the app 
     // installed App Instance of a prepared Release.
     const development = (await restrictedApps.list(studio.id)).find((app) => app.runtimeInstanceKind === "development");
     await assert.rejects(
-      () => facade.pagesStageApp({ space: studio.id, instance: development!.featureInstallationId, requestId: "req-rung3-dev" }),
+      () => facade.pagesShareApp({ space: studio.id, instance: development!.featureInstallationId, requestId: "req-rung3-dev" }),
       (error: unknown) => error instanceof WorkFoldCliError
         && error.code === "conflict"
         && /prepared Release/.test(error.message),
@@ -1760,7 +1760,7 @@ test("hosted-app exposure activates from an installed Instance and puts the app 
     // The verb accepts the Runtime Instance id like the other apps verbs,
     // pins the App Instance identity plus the complete viewer surface, and
     // activates the exposure on the first call.
-    const shared = await facade.pagesStageApp({
+    const shared = await facade.pagesShareApp({
       space: target.id,
       instance: activated.instance.runtimeInstanceId,
       requestId: "req-rung3-share",
@@ -1826,7 +1826,7 @@ test("hosted-app exposure activates from an installed Instance and puts the app 
     });
     assert.ok((await restrictedApps.list(target.id)).some((app) => app.runtimeInstanceKind === "app"),
       "revoking exposure never uninstalls the Instance");
-    const reshared = await facade.pagesStageApp({
+    const reshared = await facade.pagesShareApp({
       space: target.id,
       instance: activated.instance.runtimeInstanceId,
       requestId: "req-rung3-reshare",

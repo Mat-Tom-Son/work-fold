@@ -266,30 +266,30 @@ async function runSmoke() {
     await assert.rejects(host.invoke(descriptor, "signal", {}, { invocationId: randomUUID(), signal: stoppedAction.signal, assertCurrent() {} }), (error) => error?.code === "AUTHORITY_STALE");
     let browserAllowed = true;
     const actionSignal = new AbortController();
-    const reviewedExecution = { invocationId: randomUUID(), signal: actionSignal.signal,
+    const revocationExecution = { invocationId: randomUUID(), signal: actionSignal.signal,
       assertCurrent() { if (!browserAllowed) throw new RestrictedAppError("AUTHORITY_STALE", "The browser was revoked."); } };
     nextLateEffectStarted = () => { browserAllowed = false; };
-    const effectsBeforeReview = lateNetworkEffects;
-    await assert.rejects(host.invoke(descriptor, "reviewed-effect", {}, reviewedExecution));
-    assert.equal(lateNetworkEffects, effectsBeforeReview, "browser revocation fences an already-admitted network effect without relying on abort");
-    assert.equal(await storage.get(storageOwner, "reviewed-effect"), undefined, "a revoked action cannot continue into storage");
+    const effectsBeforeFence = lateNetworkEffects;
+    await assert.rejects(host.invoke(descriptor, "revocation-fence", {}, revocationExecution));
+    assert.equal(lateNetworkEffects, effectsBeforeFence, "browser revocation fences an already-admitted network effect without relying on abort");
+    assert.equal(await storage.get(storageOwner, "revocation-fence"), undefined, "a revoked action cannot continue into storage");
     browserAllowed = true;
     nextLateEffectStarted = () => actionSignal.abort();
-    await assert.rejects(host.invoke(descriptor, "reviewed-effect", {}, reviewedExecution));
-    assert.equal(lateNetworkEffects, effectsBeforeReview);
-    assert.deepEqual(await host.invoke(peer, "instance", {}), peerIdentity, "stopping a reviewed action does not stop its sibling installation");
+    await assert.rejects(host.invoke(descriptor, "revocation-fence", {}, revocationExecution));
+    assert.equal(lateNetworkEffects, effectsBeforeFence);
+    assert.deepEqual(await host.invoke(peer, "instance", {}), peerIdentity, "stopping a fenced action does not stop its sibling installation");
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 220));
-    assert.equal(lateNetworkEffects, effectsBeforeReview, "a stopped worker's delayed effect remains fenced");
+    assert.equal(lateNetworkEffects, effectsBeforeFence, "a stopped worker's delayed effect remains fenced");
     const reusedSignal = new AbortController();
     await host.invoke(descriptor, "signal", {}, { invocationId: randomUUID(), signal: reusedSignal.signal, assertCurrent() {} });
-    const afterReviewedAction = await host.invoke(descriptor, "instance", {});
+    const afterFencedAction = await host.invoke(descriptor, "instance", {});
     reusedSignal.abort();
-    assert.deepEqual(await host.invoke(descriptor, "instance", {}), afterReviewedAction, "a completed action releases its abort listener");
-    await mark("reviewed-action-authority-complete");
+    assert.deepEqual(await host.invoke(descriptor, "instance", {}), afterFencedAction, "a completed action releases its abort listener");
+    await mark("revocation-fence-complete");
     assert.equal((await host.invoke(descriptor, "instance", {})).value, sourceIdentity.value, "a sibling must not replace the original data owner");
     host.syncAuthority([authorityOf(descriptor)]);
     await assert.rejects(host.invoke(peer, "instance", {}), (error) => error?.code === "AUTHORITY_STALE");
-    assert.deepEqual(await host.invoke(descriptor, "instance", {}), afterReviewedAction, "revoking a sibling must not invalidate the original worker");
+    assert.deepEqual(await host.invoke(descriptor, "instance", {}), afterFencedAction, "revoking a sibling must not invalidate the original worker");
     host.syncAuthority([authorityOf(descriptor), authorityOf(peer)]);
     const peerAfterRevocation = await host.invoke(peer, "instance", {});
     await host.stop(descriptor.spaceId, descriptor.manifest.id, descriptor.digest, descriptor.featureInstallationId);
@@ -808,9 +808,9 @@ const workerInstanceToken = crypto.randomUUID();
 globalThis.workFoldRestrictedApp.storage.onChanged(() => { workerStorageEvents += 1; });
 
 export async function handleAction(action, input) {
-  if (action === "reviewed-effect") {
+  if (action === "revocation-fence") {
     await globalThis.workFoldRestrictedApp.request({ destinationId: "late-effect", method: "POST", path: "/commit" });
-    await globalThis.workFoldRestrictedApp.storage.set("reviewed-effect", true);
+    await globalThis.workFoldRestrictedApp.storage.set("revocation-fence", true);
     return true;
   }
   if (action === "instance") return { token: workerInstanceToken, value: await globalThis.workFoldRestrictedApp.storage.get("instance-value") };
@@ -918,7 +918,7 @@ function smokeManifest(loopbackPort) {
     ui: { icon: "apps", cornerRadius: 24 },
     tools: [
       {
-        name: "reviewed-effect", description: "Probe action authority across a delayed effect.", action: "reviewed-effect",
+        name: "revocation-fence", description: "Probe action authority across a delayed effect.", action: "revocation-fence",
         inputSchema: emptyInput, resultSchema: { type: "boolean" },
       },
       {

@@ -40,6 +40,7 @@ import {
   type ResolvedPiRuntime,
 } from "./pi-runtime-config.js";
 import { runBoundedInference, type BoundedInferenceOutcome, type BoundedInferenceRequest } from "./bounded-inference.js";
+import type { WorkFoldDurableTurnUsage } from "./turn-store.js";
 import { type RestrictedAppProposalHost, type RestrictedAppProposalResult } from "./restricted-app-proposals.js";
 import type {
   RestrictedAppInstalled,
@@ -172,6 +173,12 @@ export class PiConversationClient extends EventEmitter {
   private lastToolEventKey = "";
   /** In-flight bounded app inference calls; `stop()` aborts them so a runtime rebuild interrupts them honestly. */
   private readonly boundedCalls = new Set<AbortController>();
+  /**
+   * What the last settled turn spent, measured as the session's own totals
+   * before and after that turn. It is attribution the caller journals with the
+   * turn outcome; nothing here decides whether a turn is accepted or how it ends.
+   */
+  private lastTurnUsage: WorkFoldDurableTurnUsage | null = null;
 
   constructor(
     private readonly conversationId: string,
@@ -188,8 +195,15 @@ export class PiConversationClient extends EventEmitter {
     this.resetTurnState();
     this.cancellationRequested = null;
     this.promptInFlight = true;
+    this.lastTurnUsage = null;
+    // Measured around this turn only, so a later Chat title request or a bounded
+    // app inference call on the same session cannot be charged to it.
+    let measuredSession: AgentSession | null = null;
+    let baseline: SessionUsageBaseline | null = null;
     try {
       const session = await this.awaitCancellation(this.ensureSession(), { settleOperationAfterCancellation: true });
+      measuredSession = session;
+      baseline = sessionUsageBaseline(session);
       this.throwIfCancellationRequested();
 
       const builtInResult = await this.awaitCancellation(this.executeBuiltInCommand(message));
@@ -232,9 +246,20 @@ export class PiConversationClient extends EventEmitter {
       }
       return this.assistantText() || "Command completed.";
     } finally {
+      this.lastTurnUsage = measuredSession && baseline ? settledTurnUsage(measuredSession, baseline) : null;
       this.promptInFlight = false;
       this.cancellationRequested = null;
     }
+  }
+
+  /**
+   * The effective model and reported usage of the turn this client last ran,
+   * or null when nothing was spent on it (a built-in command, or a provider
+   * that never reported a settled request). The caller journals it with the
+   * turn outcome.
+   */
+  getTurnUsage(): WorkFoldDurableTurnUsage | null {
+    return this.lastTurnUsage ? { ...this.lastTurnUsage } : null;
   }
 
   /**
@@ -1321,6 +1346,54 @@ function resolveModelArgument(models: any[], argument: string): any | undefined 
   }
   const matches = models.filter((model) => model.id === value);
   return matches.length === 1 ? matches[0] : undefined;
+}
+
+interface SessionUsageBaseline {
+  inputTokens: number;
+  outputTokens: number;
+  amountUsd: number;
+}
+
+/** The session's running totals before a turn; the delta afterwards is that turn's usage. */
+function sessionUsageBaseline(session: AgentSession): SessionUsageBaseline | null {
+  try {
+    const stats = session.getSessionStats();
+    return { inputTokens: stats.tokens.input, outputTokens: stats.tokens.output, amountUsd: stats.cost };
+  } catch {
+    // Usage is attribution. A session that cannot report totals still runs its turn.
+    return null;
+  }
+}
+
+/**
+ * What the settled turn spent, as the session's own totals moved across it.
+ * Compaction can shrink those totals mid-turn, so the delta is floored at zero
+ * rather than reported as a negative charge.
+ */
+function settledTurnUsage(session: AgentSession, baseline: SessionUsageBaseline): WorkFoldDurableTurnUsage | null {
+  const model = session.model;
+  const after = sessionUsageBaseline(session);
+  if (!model || !after) return null;
+  const inputTokens = Math.max(0, Math.round(after.inputTokens - baseline.inputTokens));
+  const outputTokens = Math.max(0, Math.round(after.outputTokens - baseline.outputTokens));
+  if (!inputTokens && !outputTokens) return null;
+  const amountUsd = Math.max(0, after.amountUsd - baseline.amountUsd);
+  return {
+    provider: model.provider,
+    modelId: model.id,
+    inputTokens,
+    outputTokens,
+    // Pi can only price a model that carries rates. Without them the cost is
+    // unknown, so the receipt omits it instead of claiming the turn was free.
+    ...(modelCarriesPricing(model) && Number.isFinite(amountUsd) ? { amountUsd } : {}),
+  };
+}
+
+function modelCarriesPricing(model: NonNullable<AgentSession["model"]>): boolean {
+  const cost = model.cost as Partial<Record<"input" | "output" | "cacheRead" | "cacheWrite", number>> | undefined;
+  if (!cost) return false;
+  return [cost.input, cost.output, cost.cacheRead, cost.cacheWrite]
+    .some((rate) => typeof rate === "number" && Number.isFinite(rate) && rate > 0);
 }
 
 function formatSessionStats(stats: ReturnType<AgentSession["getSessionStats"]>): string {

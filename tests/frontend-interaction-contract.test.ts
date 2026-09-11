@@ -98,7 +98,7 @@ test("the publications Settings section reveals links transiently and only narro
   // Narrowing inputs clamp at the current budgets — the UI cannot ask to widen.
   assert.match(settings, /max=\{publication\.serveRatePerMinute\}/);
   assert.match(settings, /max=\{Math\.round\(publication\.byteBudgetPerDay \/ \(1024 \* 1024\)\)\}/);
-  // Snapshot has an off verb only; turning it on is a fresh `pages stage`.
+  // Snapshot has an off verb only; turning it on is a fresh `pages share`.
   assert.match(settings, /\/snapshot-off`/);
   assert.doesNotMatch(settings, /snapshot-on/);
   // The retention choice stays labeled: opted-in pages carry the explicit

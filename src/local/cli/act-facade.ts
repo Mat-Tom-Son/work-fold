@@ -1157,13 +1157,19 @@ export interface WorkFoldActFacade {
     replacesInstalled: boolean;
     app: WorkFoldActInstalledAppRef;
   }>;
-  /** Grants one exact reviewed declaration on the exact installed digest; a files grant covers the whole Space. */
+  /**
+   * Grants one exact reviewed declaration on the exact installed digest. A
+   * folder permission covers the whole Space; a permission that names a
+   * single file binds to the Space-relative file given as `path`, which must
+   * already exist inside the Space and outside its reserved metadata.
+   */
   appsGrant(input: {
     space: string;
     app: string;
     digest: string;
     kind: "network" | "files" | "notifications";
     declaration: string;
+    path?: string;
     parentTaskId?: string;
     requestId?: string;
   }): Promise<{
@@ -1273,7 +1279,7 @@ export interface WorkFoldActFacade {
    * Space id, exact relative path, title, budgets, and snapshot flag per the
    * publishing mutation ledger, and activating the publication at once.
    */
-  pagesStage(input: {
+  pagesShare(input: {
     space: string;
     path: string;
     title: string;
@@ -1291,7 +1297,7 @@ export interface WorkFoldActFacade {
    * Eligibility requires an installed Release-backed Instance whose reviewed
    * manifest declares a viewer surface.
    */
-  pagesStageApp(input: {
+  pagesShareApp(input: {
     space: string;
     instance: string;
     parentTaskId?: string;
@@ -1362,7 +1368,7 @@ export interface WorkFoldActFacade {
    * grant records; revoke, budget narrowing, and snapshot-off are direct
    * verbs — narrowing never needs a click, and raising a budget or turning
    * snapshot caching on is refused here because widening is a fresh
-   * `pagesStage`. Revocation is desktop-first: the grant dies before bridge
+   * `pagesShare`. Revocation is desktop-first: the grant dies before bridge
    * cleanup is attempted, and unconfirmed cleanup is reported honestly.
    */
   pagesList(): Promise<{ publications: WorkFoldActPublicationRef[] }>;

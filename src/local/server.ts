@@ -2908,7 +2908,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   // narrowing verbs — revoke, cut budgets, snapshot off — are direct
   // receipted acts minted with a per-request id and the main-window surface.
   // Widening has no route here: a new page or a wider budget is a fresh
-  // `pages stage` through the fold, receipted like every act. The reveal
+  // `pages share` through the fold, receipted like every act. The reveal
   // route composes the share link's secret
   // fragment on demand from the key store and returns it transiently — it is
   // never listed, journaled, or logged.
@@ -6276,13 +6276,20 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           : app.manifest.permissions.notifications.some((item) => item.id === declaration);
       if (!declared) throw new WorkFoldCliError("notFound", "The app does not declare this permission.");
       // A folder permission binds to the whole Space (docs/receipts-not-gates.md,
-      // F21). A single-file permission names a file only a person can pick, so
-      // this verb says so instead of handing the broker a Space root it will
-      // reject with an error about an unavailable file.
-      if (filePermission && filePermission.target !== "directory") {
+      // F21) and takes no file. A permission that names a single file binds to
+      // the exact Space-relative file named here; without one there is nothing
+      // to hand the broker but a Space root it would reject.
+      const requestedPath = input.path?.trim();
+      if (requestedPath !== undefined && requestedPath !== "" && (input.kind !== "files" || filePermission?.target === "directory")) {
         throw new WorkFoldCliError(
-          "permissionDenied",
-          `This permission needs a file you choose. Pick it for “${declaration}” in the app's Apps tab, under Space files.`,
+          "usage",
+          "Only a permission that names a single file takes a file; a folder permission covers the whole Space.",
+        );
+      }
+      if (filePermission && filePermission.target !== "directory" && !requestedPath) {
+        throw new WorkFoldCliError(
+          "usage",
+          `This permission needs one file. Name it with --path <space-path>, or pick it for “${declaration}” in the app's Apps tab, under Space files.`,
         );
       }
       const kind = input.kind === "network"
@@ -6290,7 +6297,11 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         : input.kind === "files"
           ? "app.grant.files" as const
           : "app.grant.notifications" as const;
-      const root = input.kind === "files" ? "." : undefined;
+      const root = input.kind !== "files"
+        ? undefined
+        : requestedPath
+          ? await grantedSpaceFile(space.spaceRoot, requestedPath)
+          : ".";
       await runPreparedAct({
         kind,
         parameters: { spaceId: space.id, appInstanceId: app.featureInstallationId, declarationId: declaration },
@@ -6492,7 +6503,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       recordFacadeAction(state, input.parentTaskId, { command: "routings.enable" });
       return enabled;
     },
-    async pagesStage(input) {
+    async pagesShare(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
       const space = await resolveSpace(input.space);
       const title = input.title.trim();
@@ -6535,10 +6546,10 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         context,
       });
       if (!context.outcome) throw new WorkFoldCliError("failure", "The page was not activated.");
-      recordFacadeAction(state, input.parentTaskId, { command: "pages.stage", space });
+      recordFacadeAction(state, input.parentTaskId, { command: "pages.share", space });
       return { space: toActSpaceRef(space), publication: toActPublicationRef(context.outcome, space.name) };
     },
-    async pagesStageApp(input) {
+    async pagesShareApp(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
       const space = await resolveSpace(input.space);
       const status = state.publications.status();
@@ -6585,7 +6596,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         context,
       });
       if (!context.outcome) throw new WorkFoldCliError("failure", "The app was not put at your address.");
-      recordFacadeAction(state, input.parentTaskId, { command: "pages.stage-app", space });
+      recordFacadeAction(state, input.parentTaskId, { command: "pages.share-app", space });
       return { space: toActSpaceRef(space), publication: toActPublicationRef(context.outcome, space.name) };
     },
     async trashList() {
@@ -8872,12 +8883,17 @@ async function runAgentTurn(
     if (promptStarted) afterCheckpoint = await captureTurnCheckpointSafe(state, spaceId, spaceRoot, conversationId, "post_turn");
     await flushTurnCheckpoint(state, key, taskId);
     const durableText = state.turnStore.get(taskId)?.assistantText ?? "";
+    // Attribution, recorded with the outcome: the model that actually ran this
+    // turn and what Pi reported it used. App-requested tasks read it back from
+    // the turn journal as their receipt (docs/receipts-not-gates.md, F22).
+    const turnUsage = client?.getTurnUsage() ?? null;
     await state.turnStore.settle(taskId, {
       status: settledStatus,
       ...(settledMessageId ? { messageId: settledMessageId } : {}),
       ...(settledError ? { error: settledError } : {}),
       assistantText: durableText,
       fileChanges: turnFileChanges(beforeCheckpoint, afterCheckpoint),
+      ...(turnUsage ? { usage: turnUsage } : {}),
     }).catch((error) => {
       console.error(`Could not persist Assistant turn settlement: ${errorMessage(error)}`);
       return null;
@@ -9754,6 +9770,31 @@ async function designatedPageSource(spaceRoot: string, relativePath: string): Pr
     throw new WorkFoldCliError("usage", "The designated file is larger than a shareable page (8 MiB).");
   }
   return { relativePath: normalized, byteSize: info.size };
+}
+
+/**
+ * The exact Space file an app's single-file permission binds to. The Space
+ * path policy already refuses an escape, a symlinked segment, and reserved
+ * `.work-fold/`, `.pi/`, and `.workspace/` metadata; this adds the one thing
+ * a grant root needs on top: the file has to exist as an ordinary file right
+ * now. The broker re-verifies the same facts at effect time and on every
+ * read, so this is an honest early refusal, not the authority.
+ */
+async function grantedSpaceFile(spaceRoot: string, relativePath: string): Promise<string> {
+  let path: string;
+  try {
+    path = resolveSpacePath(spaceRoot, relativePath);
+  } catch (error) {
+    throw new WorkFoldCliError("usage", errorMessage(error), { cause: error });
+  }
+  // Canonical Space-relative form, so "./notes.md" and "notes.md" bind one root.
+  const normalized = relative(resolve(spaceRoot), path).split(sep).join("/");
+  if (!normalized) throw new WorkFoldCliError("usage", "Name the file inside the Space that this permission covers.");
+  const info = await lstat(path).catch(() => null);
+  if (!info || !info.isFile() || info.isSymbolicLink()) {
+    throw new WorkFoldCliError("notFound", "That file does not exist in this Space as an ordinary file.");
+  }
+  return normalized;
 }
 
 /**

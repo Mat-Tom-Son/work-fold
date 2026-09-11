@@ -430,12 +430,11 @@ in product copy; "publish" without qualification is reserved for App
 Studio's local Release transition. Copy never frames a share as something
 waiting to happen: the verb shares the page and says so, and **Stop
 sharing** is always one click away.
-The CLI act verbs are `pages stage|stage-app|list|status|revoke|narrow|
-snapshot-off`. `stage` there is a decision, not a pending verification: it is
-the shipped token and it is not a holding state — it shares the page
-immediately and returns the receipt. The copy rule governs what a person
-reads, never this argv spelling; renaming the verbs to `pages share` /
-`pages share-app` would be its own compatibility decision.
+
+The CLI act verbs are `pages share|share-app|list|status|revoke|narrow|
+snapshot-off`. The verb and the copy now say the same thing: `pages share`
+shares the page on the call that asks and returns the receipt, and there is
+no holding spelling left in the vocabulary.
 
 ## Deliberately not in this design
 
@@ -467,9 +466,10 @@ The plan items shipped as follows (numbering preserved for references):
 1. Viewer namespace and slot schema at the bridge — `services/bridge/database.mjs`; `services/bridge/server.test.mjs`, `services/bridge/database-security.test.mjs`.
 2. Viewer plane at the bridge — host routing, the shell under `services/bridge/public/viewer/`, rate limits, `viewer.fetch` frames; the bridge suite and `services/bridge/metrics.test.mjs`.
 3. Desktop publication authority and serving — `src/local/publications.ts`, `desktop/src/remote-access.ts`, `desktop/src/settings.ts`; `tests/work-fold-publications.test.ts`, `tests/desktop-remote-access.test.ts`.
-4. Act verbs and receipts — `pages stage|stage-app|list|status|revoke|narrow|snapshot-off` in `src/local/cli/act-commands.ts` and `src/local/cli/act-facade.ts`; `tests/work-fold-cli-act-protocol.test.ts`, `tests/work-fold-act-facade.test.ts`.
+4. Act verbs and receipts — `pages share|share-app|list|status|revoke|narrow|snapshot-off` in `src/local/cli/act-commands.ts` and `src/local/cli/act-facade.ts`; `tests/work-fold-cli-act-protocol.test.ts`, `tests/work-fold-act-facade.test.ts`.
 5. Desktop surfaces — publications list, share-link reveal, budget and snapshot controls, and revoke in Settings → The fold; glance change items; `tests/fold-publication-settings.test.ts`, `tests/web-ui-contract.test.ts`, `tests/frontend-interaction-contract.test.ts`.
 6. Snapshot opt-in lane — push/delete in `desktop/src/remote-access.ts`, bridge storage, "as of" rendering, label copy.
 7. Rung 3 viewer surface — the `viewer` manifest declaration in `src/local/agent/restricted-app-manifest.ts`, the viewer adapter in `src/local/agent/restricted-app-viewer.ts`, opaque-origin iframe hosting in the shell, probe denial cases in `scripts/restricted-app-electron-smoke.mjs`; `tests/restricted-app-manifest.test.ts`, `tests/restricted-app-product-contract.test.ts`, `tests/work-fold-publications.test.ts`.
 8. Docs and canonical promotion — recorded in [Fold integration](fold-integration.md).
 9. Receipts, not gates (2026-09-10, F19) — sharing became a prepared verb that executes and receipts on the call that asks; the receipt's retired decision fields were dropped — `src/local/publications.ts`, `src/local/cli/act-receipts.ts`; `tests/work-fold-publications.test.ts`, `tests/work-fold-cli-act-receipts.test.ts`.
+10. Verb rename (2026-09-10) — the two outward-exposure verbs became `pages share` and `pages share-app` across the act protocol, help, the fold's instructions, and these docs; the retired holding spellings are unknown commands — `src/local/cli/act-commands.ts`, `src/local/cli/act-facade.ts`, `src/local/cli/commands.ts`, `src/local/management-instructions.ts`; `tests/work-fold-cli-act-protocol.test.ts`, `tests/work-fold-cli-direct-verbs.test.ts`.

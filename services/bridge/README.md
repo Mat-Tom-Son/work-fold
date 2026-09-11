@@ -8,7 +8,7 @@ The durable PostgreSQL records contain the address and password verifier,
 device/browser public keys and revocation generations, hashed session tokens,
 pairing certificates, and bounded operation metadata. Prompt text, transcript
 content, file names, file contents, and Assistant results cross the service only
-inside signed AES-GCM envelopes whose private keys remain in the approved
+inside signed AES-GCM envelopes whose private keys remain in the paired
 browser and desktop app. Completed envelope bodies are not written to the
 database. This is application-layer protection against passive handling and
 plaintext persistence, not an untrusted-origin guarantee: the service also
@@ -121,12 +121,16 @@ npm --prefix . run railway -- up services/bridge --path-as-root --service bridge
 ```
 
 Roll out the bridge and hosted browser client before distributing a desktop
-build that enforces key-bound pairing codes. New bridge code remains compatible
-with older desktops, while the hardened desktop deliberately rejects a legacy
-bridge's random pairing code. Wait at least the 10-minute pending-pairing TTL
-after the bridge rollout (or otherwise confirm that no legacy approval remains)
-before the desktop release, and ask anyone with an approval already open to
+build that depends on new bridge behavior. New bridge code stays compatible with
+older desktops, while a hardened desktop deliberately rejects an older bridge.
+When a rollout changes pairing, let the 10-minute pending-pairing TTL elapse
+after the bridge deploy and before the desktop release so no browser is left
+part-way through pairing, and ask anyone holding an open pairing prompt to
 refresh and start it again.
+
+History: the key-bound pairing-code rollout followed this order in August 2026
+and finished before the desktop release that requires it, so no bridge serving
+random pairing codes remains in service.
 
 Railway must route `*.work-fold.com` to this service; that certificate includes
 `www.work-fold.com`. GoDaddy needs the Railway traffic CNAME plus the ownership

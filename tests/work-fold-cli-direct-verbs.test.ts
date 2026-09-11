@@ -78,13 +78,13 @@ function errorCodeOf(stderr: string): string | undefined {
   }
 }
 
-test("pages stage shares the page on the first call with receipts and no decision id", async () => {
+test("pages share shares the page on the first call with receipts and no decision id", async () => {
   const h = await directVerbHarness("pages");
   try {
     const space = await h.api.actFacade.createSpace({ name: "Fold Space" });
     await writeFile(join(space.space.spaceRoot, "weekly.md"), "# Weekly\n\nAll clear.\n", "utf8");
 
-    const shared = await h.execute(["pages", "stage", "--space", space.space.id, "--path", "./weekly.md", "--title", "Weekly report", "--json"]);
+    const shared = await h.execute(["pages", "share", "--space", space.space.id, "--path", "./weekly.md", "--title", "Weekly report", "--json"]);
     assert.equal(shared.exitCode, 0, shared.stderr);
     const sharedJson = JSON.parse(shared.stdout) as {
       ok: boolean;
@@ -111,7 +111,7 @@ test("pages stage shares the page on the first call with receipts and no decisio
     // A second identical call refuses: the page is already shared. The
     // refusal is journaled as an error under a fresh request id.
     h.records.length = 0;
-    const again = await h.execute(["pages", "stage", "--space", space.space.id, "--path", "weekly.md", "--title", "Weekly report", "--json"]);
+    const again = await h.execute(["pages", "share", "--space", space.space.id, "--path", "weekly.md", "--title", "Weekly report", "--json"]);
     assert.notEqual(again.exitCode, 0);
     assert.equal(errorCodeOf(again.stderr), "conflict");
     assert.match(again.stderr, /already shared/);
@@ -121,20 +121,24 @@ test("pages stage shares the page on the first call with receipts and no decisio
     // Sources the publication service could not serve refuse before anything
     // is exposed.
     await writeFile(join(space.space.spaceRoot, "tool.exe"), "bytes", "utf8");
-    const badType = await h.execute(["pages", "stage", "--space", space.space.id, "--path", "tool.exe", "--title", "Nope", "--json"]);
+    const badType = await h.execute(["pages", "share", "--space", space.space.id, "--path", "tool.exe", "--title", "Nope", "--json"]);
     assert.equal(errorCodeOf(badType.stderr), "usage");
-    const missing = await h.execute(["pages", "stage", "--space", space.space.id, "--path", "ghost.md", "--title", "Nope", "--json"]);
+    const missing = await h.execute(["pages", "share", "--space", space.space.id, "--path", "ghost.md", "--title", "Nope", "--json"]);
     assert.equal(errorCodeOf(missing.stderr), "notFound");
     assert.equal((await h.api.publications.list()).length, 1);
 
     // The human form names the address and where the link lives.
     await writeFile(join(space.space.spaceRoot, "notes.md"), "# Notes\n", "utf8");
-    const human = await h.execute(["pages", "stage", "--space", space.space.id, "--path", "notes.md", "--title", "Notes"]);
+    const human = await h.execute(["pages", "share", "--space", space.space.id, "--path", "notes.md", "--title", "Notes"]);
     assert.equal(human.exitCode, 0, human.stderr);
     assert.match(human.stdout, /^Sharing "Notes" \(notes\.md\) from Fold Space \[[^\]]+\] at \/p\/[^.]+\. Reveal the link in Settings → The fold\.\n$/);
 
-    // The pending-decision family and permanent deletion are unknown commands.
-    for (const argv of [["staged", "list"], ["staged", "show"], ["files", "destroy"], ["routings", "stage"]]) {
+    // The pending-decision family, permanent deletion, and the retired holding
+    // spellings of the routing and outward-exposure verbs are unknown commands.
+    for (const argv of [
+      ["staged", "list"], ["staged", "show"], ["files", "destroy"],
+      ["routings", "stage"], ["pages", "stage"],
+    ]) {
       h.records.length = 0;
       const unknown = await h.execute(argv);
       assert.equal(unknown.exitCode, 2, `'${argv.join(" ")}' must be a usage error`);
@@ -190,6 +194,146 @@ test("spaces delete deletes a managed folder on the first call, refuses a linked
     assert.match(orphan.stderr, /no longer active/);
     assert.deepEqual(h.records.map((record) => record.outcome), ["rejected"]);
     assert.equal(existsSync(other.space.spaceRoot), true, "a refused act changes nothing");
+  } finally {
+    await h.close();
+  }
+});
+
+/**
+ * A file permission that names a single file is granted from the act lane by
+ * naming that file (docs/receipts-not-gates.md, F21). The folder permission
+ * beside it keeps binding to the whole Space and takes no file at all.
+ */
+async function writeSingleFilePackage(root: string): Promise<void> {
+  await mkdir(root, { recursive: true });
+  await writeFile(join(root, "package.json"), JSON.stringify({
+    name: "ledger-demo",
+    version: "0.1.0",
+    private: true,
+    type: "module",
+    agentApp: "agent-app.json",
+  }), "utf8");
+  await writeFile(join(root, "agent-app.json"), JSON.stringify({
+    version: 2,
+    id: "ledger-demo",
+    title: "Ledger demo",
+    description: "Declares one single-file permission beside a folder permission.",
+    runtime: { kind: "sandboxed-web", entry: "index.html" },
+    ui: { icon: "shield" },
+    tools: [],
+    automations: [],
+    permissions: {
+      network: [],
+      files: [
+        { id: "ledger", target: "file", access: "read-write" },
+        { id: "exports", target: "directory", access: "read-write" },
+      ],
+      notifications: [],
+    },
+  }), "utf8");
+  await writeFile(join(root, "index.html"), "<!doctype html><script type=module src=app.js></script>", "utf8");
+  await writeFile(join(root, "app.js"), "export {};\n", "utf8");
+}
+
+test("apps grant --kind files --path binds a single-file permission to that exact file", async () => {
+  const h = await directVerbHarness("grants");
+  try {
+    const space = await h.api.actFacade.createSpace({ name: "Ledger Space" });
+    await writeSingleFilePackage(join(space.space.spaceRoot, "apps", "ledger-demo"));
+    const installed = await h.execute(["apps", "install-preview", "--space", space.space.id, "--package", "apps/ledger-demo", "--json"]);
+    assert.equal(installed.exitCode, 0, installed.stderr);
+    const installedJson = JSON.parse(installed.stdout) as {
+      data: {
+        app: { appId: string; digest: string };
+        granted: { wholeSpaceFolders: number };
+        needs: { files: string[] };
+      };
+    };
+    const digest = installedJson.data.app.digest;
+    assert.equal(installedJson.data.granted.wholeSpaceFolders, 1, "the folder permission is on from install");
+    assert.deepEqual(
+      installedJson.data.needs.files,
+      ["ledger"],
+      "the single-file permission is what installation leaves open",
+    );
+
+    await mkdir(join(space.space.spaceRoot, "books"), { recursive: true });
+    await writeFile(join(space.space.spaceRoot, "books", "ledger.csv"), "date,amount\n", "utf8");
+
+    const grantArgv = ["apps", "grant", "--space", space.space.id, "--app", "ledger-demo", "--digest", digest, "--kind", "files"];
+
+    // Nothing but an existing ordinary file inside the Space can be named, and
+    // reserved metadata is not a file endpoint.
+    for (const [path, code] of [
+      ["ghost.csv", "notFound"],
+      ["books", "notFound"],
+      ["../outside.csv", "usage"],
+      [".work-fold/space.json", "usage"],
+      [".pi/config.json", "usage"],
+      [".workspace/legacy.json", "usage"],
+    ] as const) {
+      const refused = await h.execute([...grantArgv, "--declaration", "ledger", "--path", path, "--json"]);
+      assert.notEqual(refused.exitCode, 0, `'${path}' must be refused`);
+      assert.equal(errorCodeOf(refused.stderr), code, `'${path}' refuses as ${code}`);
+    }
+
+    // A single-file permission with no file named says what it needs; the
+    // folder permission beside it refuses a file outright.
+    const unnamed = await h.execute([...grantArgv, "--declaration", "ledger", "--json"]);
+    assert.equal(errorCodeOf(unnamed.stderr), "usage");
+    assert.match(unnamed.stderr, /needs one file/);
+    const folderWithPath = await h.execute([...grantArgv, "--declaration", "exports", "--path", "books/ledger.csv", "--json"]);
+    assert.equal(errorCodeOf(folderWithPath.stderr), "usage");
+    assert.match(folderWithPath.stderr, /covers the whole Space/);
+
+    // A file is not part of the network or notification shapes, and revoking
+    // names a declaration rather than a root: both are usage errors at parse
+    // time, before anything is journaled.
+    h.records.length = 0;
+    const networkWithPath = await h.execute([
+      "apps", "grant", "--space", space.space.id, "--app", "ledger-demo", "--digest", digest,
+      "--kind", "network", "--declaration", "mail-api", "--path", "books/ledger.csv", "--json",
+    ]);
+    assert.equal(errorCodeOf(networkWithPath.stderr), "usage");
+    assert.match(networkWithPath.stderr, /--path can be used only with 'apps grant --kind files'/);
+    const revokeWithPath = await h.execute([
+      "apps", "revoke", "--space", space.space.id, "--app", "ledger-demo", "--digest", digest,
+      "--kind", "files", "--declaration", "ledger", "--path", "books/ledger.csv", "--json",
+    ]);
+    assert.equal(errorCodeOf(revokeWithPath.stderr), "usage");
+    assert.match(revokeWithPath.stderr, /--path cannot be used with 'apps revoke'/);
+    assert.deepEqual(h.records, [], "a usage error leaves no receipt");
+
+    // The grant binds to the exact file, and the receipt names that root.
+    h.records.length = 0;
+    const granted = await h.execute([...grantArgv, "--declaration", "ledger", "--path", "./books/ledger.csv", "--json"]);
+    assert.equal(granted.exitCode, 0, granted.stderr);
+    const grantedJson = JSON.parse(granted.stdout) as { data: { granted: boolean; grantKind: string; declaration: string; root: string } };
+    assert.equal(grantedJson.data.granted, true);
+    assert.equal(grantedJson.data.grantKind, "files");
+    assert.equal(grantedJson.data.declaration, "ledger");
+    assert.equal(grantedJson.data.root, "books/ledger.csv", "the root is the canonical Space-relative file");
+    assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "ok"]);
+    assert.equal(h.lastOk().detail, "app.grant.files; app ledger-demo; declaration ledger; root books/ledger.csv");
+    assert.deepEqual(h.lastOk().undoRef, { kind: "declaration", value: "ledger" });
+
+    // The human form says what the app can reach, and re-granting the same
+    // file changes nothing.
+    const human = await h.execute([...grantArgv, "--declaration", "ledger", "--path", "books/ledger.csv"]);
+    assert.equal(human.exitCode, 0, human.stderr);
+    assert.match(human.stdout, /^Granted files ledger to ledger-demo in Ledger Space \[[^\]]+\]\. It covers books\/ledger\.csv and nothing else\.\n$/);
+
+    // Revoking takes the file grant away; the whole-Space folder grant is
+    // untouched and still reports its own root.
+    const revoked = await h.execute([
+      "apps", "revoke", "--space", space.space.id, "--app", "ledger-demo", "--digest", digest,
+      "--kind", "files", "--declaration", "ledger", "--json",
+    ]);
+    assert.equal(revoked.exitCode, 0, revoked.stderr);
+    assert.equal((JSON.parse(revoked.stdout) as { data: { revoked: boolean } }).data.revoked, true);
+    const folderGrant = await h.execute([...grantArgv, "--declaration", "exports", "--json"]);
+    assert.equal(folderGrant.exitCode, 0, folderGrant.stderr);
+    assert.equal((JSON.parse(folderGrant.stdout) as { data: { root: string } }).data.root, ".");
   } finally {
     await h.close();
   }

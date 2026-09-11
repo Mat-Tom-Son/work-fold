@@ -541,14 +541,6 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
   }
 
   async function changeAutomation(automation: RestrictedAppAutomation, enabled: boolean) {
-    if (enabled) {
-      const confirmed = await requestConfirm({
-        title: `Enable ${automation.title}?`,
-        body: `${app.manifest.title} may run this automation ${formatAutomationSchedule(automation).toLowerCase()} while work-fold is running. Its reviewed power subset is ${automationPowerSummary(app.manifest, automation)}. Those powers still require their separate grants.`,
-        confirmLabel: "Enable automation",
-      });
-      if (!confirmed) return;
-    }
     const key = `automation:${automation.id}`;
     setActionBusy(key);
     try {

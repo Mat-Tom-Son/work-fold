@@ -1,3 +1,19 @@
+import type { RestrictedAppInferenceModelRef, RestrictedAppInferenceUsage } from "./restricted-app-inference.js";
+
+/**
+ * The provider and model that actually ran the work, and what it used. Both
+ * app AI lanes carry the same two fields under the same names so a request
+ * receipt and a short-answer receipt read alike.
+ */
+export type RestrictedAppAssistantModelRef = RestrictedAppInferenceModelRef;
+
+/**
+ * `amountUsd` is present only when the effective model carries pricing work-fold
+ * can apply. A model without published rates leaves the cost unknown; it is
+ * never reported as zero.
+ */
+export type RestrictedAppAssistantUsage = RestrictedAppInferenceUsage & { amountUsd?: number };
+
 /** Public projection of one app-requested Space Assistant task. */
 export interface RestrictedAppAssistantTask {
   id: string;
@@ -12,6 +28,10 @@ export interface RestrictedAppAssistantTask {
   cancellationRequested?: true;
   /** Present only after a successful turn. No other Chat messages are exposed. */
   result?: { text: string; truncated: boolean };
+  /** The model that ran the dispatched Chat turn; present once that turn settles. */
+  model?: RestrictedAppAssistantModelRef;
+  /** What Pi reported for that turn; present once it settles and reported usage. */
+  usage?: RestrictedAppAssistantUsage;
 }
 
 /** Trusted Apps-tab detail: the exact instructions and input the Chat received. */

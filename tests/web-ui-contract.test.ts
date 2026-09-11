@@ -24,7 +24,7 @@ test("Space navigation separates the active Space from its surfaces", () => {
 test("the publications Settings section keeps the doc's copy rules and the widening boundary", () => {
   // Settings → The fold → Pages your fold serves (docs/fold-publishing.md,
   // plan item 5): narrowing only — stop sharing, tighten budgets, snapshot
-  // off. Widening is a fresh `pages stage` through the fold, and the copy
+  // off. Widening is a fresh `pages share` through the fold, and the copy
   // says so instead of offering a control.
   assert.equal(foldPublicationsSettings.heading, "Pages your fold serves");
   assert.match(foldPublicationsSettings.linkMeaning, /anyone with this link can read this page while your desktop is online/i);

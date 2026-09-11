@@ -77,8 +77,8 @@ export type ManagementRequestActionCommand =
   | "apps.operation.cancel"
   | "apps.uninstall"
   | "routings.enable"
-  | "pages.stage"
-  | "pages.stage-app"
+  | "pages.share"
+  | "pages.share-app"
   | "trash.restore";
 
 export interface ManagementRequestAction {

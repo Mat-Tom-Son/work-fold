@@ -90,21 +90,21 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /a local state transition — nothing is uploaded, hosted, or granted/);
     assert.match(managementContext, /apps uninstall --space <id> --instance <id> --retain-data\|--purge-data/);
     assert.match(managementContext, /The disposition flag is never defaulted/);
-    assert.match(managementContext, /pages stage --space <id> --path "<space-path>" --title/);
+    assert.match(managementContext, /pages share --space <id> --path "<space-path>" --title/);
     assert.match(managementContext, /pages status --publication <id>/);
     assert.match(managementContext, /pages narrow --publication <id> --serve-rate <per-minute>\|--byte-budget <bytes-per-day>/);
     assert.match(managementContext, /pages snapshot-off --publication <id>/);
-    assert.match(managementContext, /Widening back — re-exposing, raising a budget, turning snapshot on — is a fresh `pages stage` with its own receipt\./);
+    assert.match(managementContext, /Widening back — re-exposing, raising a budget, turning snapshot on — is a fresh `pages share` with its own receipt\./);
     // Hosted-app exposure (docs/fold-publishing.md, rung 3) rides the same
-    // pages family: `pages stage-app` shares on the call, `--instance` accepts
+    // pages family: `pages share-app` shares on the call, `--instance` accepts
     // either installed-instance id, the pins resolve host-side from the app's
     // declared manifest, one instance holds one exposure, and apps have no
     // snapshot lane — asleep is the only offline state.
-    assert.match(managementContext, /pages stage-app --space <id> --instance <id>/);
+    assert.match(managementContext, /pages share-app --space <id> --instance <id>/);
     assert.match(managementContext, /accepts the App Instance id or, like `apps uninstall`, the Runtime Instance id/);
     assert.match(managementContext, /resolve host-side from the app's declared manifest, never from your flags/);
     assert.match(managementContext, /An instance holds at most one exposure/);
-    assert.match(managementContext, /re-exposing after a revoke is a fresh `pages stage-app`/);
+    assert.match(managementContext, /re-exposing after a revoke is a fresh `pages share-app`/);
     assert.match(managementContext, /Apps take no `--snapshot` — an offline desktop is an honestly asleep app/);
     // Publishing top-up (docs/fold-publishing.md): publication problems reach
     // the person as glance change items with the precise reason, and
@@ -229,9 +229,9 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(skillContent, /a routing's `fold` step is the only way you are ever scheduled/);
     assert.match(skillContent, /Run-now is a copy that does not consume the one-time slot/);
     assert.match(skillContent, /pages status\|revoke\|narrow\|snapshot-off --publication <id>/);
-    // The pages line teaches `pages stage-app` with its boundaries: either
+    // The pages line teaches `pages share-app` with its boundaries: either
     // instance id, one exposure per instance, and no snapshot lane for apps.
-    assert.match(skillContent, /`pages stage-app` \(an installed App Instance at the person's address — `--instance` accepts the App Instance id or the Runtime Instance id, one exposure per instance, and never `--snapshot`: apps have no sleep copy\)/);
+    assert.match(skillContent, /`pages share-app` \(an installed App Instance at the person's address — `--instance` accepts the App Instance id or the Runtime Instance id, one exposure per instance, and never `--snapshot`: apps have no sleep copy\)/);
     assert.match(skillContent, /manage glance --json/);
     assert.match(skillContent, /files move --space <id>/);
     assert.match(skillContent, /Read each receipt: executed is done, failed or refused is not/);

@@ -778,37 +778,37 @@ test("direct verbs parse with strict shapes", () => {
   );
 
   assert.deepEqual(
-    parseWorkFoldCliActArgv(["pages", "stage", "--space", "space-1", "--path", "reports/weekly.md", "--title", "Weekly report"]),
-    { name: "pages.stage", output: "human", space: "space-1", path: "reports/weekly.md", title: "Weekly report" },
+    parseWorkFoldCliActArgv(["pages", "share", "--space", "space-1", "--path", "reports/weekly.md", "--title", "Weekly report"]),
+    { name: "pages.share", output: "human", space: "space-1", path: "reports/weekly.md", title: "Weekly report" },
   );
   assert.deepEqual(
-    parseWorkFoldCliActArgv(["pages", "stage", "--space", "space-1", "--path", "weekly.md", "--title", "Weekly", "--snapshot"]),
-    { name: "pages.stage", output: "human", space: "space-1", path: "weekly.md", title: "Weekly", snapshot: true },
+    parseWorkFoldCliActArgv(["pages", "share", "--space", "space-1", "--path", "weekly.md", "--title", "Weekly", "--snapshot"]),
+    { name: "pages.share", output: "human", space: "space-1", path: "weekly.md", title: "Weekly", snapshot: true },
   );
-  assert.throws(() => parseWorkFoldCliActArgv(["pages", "stage", "--path", "weekly.md", "--title", "W"]), /explicit --space/);
+  assert.throws(() => parseWorkFoldCliActArgv(["pages", "share", "--path", "weekly.md", "--title", "W"]), /explicit --space/);
   assert.throws(
-    () => parseWorkFoldCliActArgv(["pages", "stage", "--space", "space-1", "--path", "a.md", "--title", "A", "--message", "x"]),
-    /--message cannot be used with 'pages stage'/,
+    () => parseWorkFoldCliActArgv(["pages", "share", "--space", "space-1", "--path", "a.md", "--title", "A", "--message", "x"]),
+    /--message cannot be used with 'pages share'/,
   );
 
   // Rung 3: hosted-app exposure. The pins come from the installed Instance's
   // reviewed manifest host-side; argv names only the identity.
   assert.deepEqual(
-    parseWorkFoldCliActArgv(["pages", "stage-app", "--space", "space-1", "--instance", "feature-installation-1"]),
-    { name: "pages.stage-app", output: "human", space: "space-1", instance: "feature-installation-1" },
+    parseWorkFoldCliActArgv(["pages", "share-app", "--space", "space-1", "--instance", "feature-installation-1"]),
+    { name: "pages.share-app", output: "human", space: "space-1", instance: "feature-installation-1" },
   );
   assert.deepEqual(
-    parseWorkFoldCliActArgv(["pages", "stage-app", "--space", "space-1", "--instance", "fi-1", "--parent-task", "task-9", "--json"]),
-    { name: "pages.stage-app", output: "json", space: "space-1", instance: "fi-1", parentTaskId: "task-9" },
+    parseWorkFoldCliActArgv(["pages", "share-app", "--space", "space-1", "--instance", "fi-1", "--parent-task", "task-9", "--json"]),
+    { name: "pages.share-app", output: "json", space: "space-1", instance: "fi-1", parentTaskId: "task-9" },
   );
-  assert.throws(() => parseWorkFoldCliActArgv(["pages", "stage-app", "--instance", "fi-1"]), /explicit --space/);
+  assert.throws(() => parseWorkFoldCliActArgv(["pages", "share-app", "--instance", "fi-1"]), /explicit --space/);
   assert.throws(
-    () => parseWorkFoldCliActArgv(["pages", "stage-app", "--space", "space-1", "--instance", "fi-1", "--title", "T"]),
-    /--title cannot be used with 'pages stage-app'/,
+    () => parseWorkFoldCliActArgv(["pages", "share-app", "--space", "space-1", "--instance", "fi-1", "--title", "T"]),
+    /--title cannot be used with 'pages share-app'/,
   );
   assert.throws(
-    () => parseWorkFoldCliActArgv(["pages", "stage-app", "--space", "space-1", "--instance", "fi-1", "--snapshot"]),
-    /--snapshot cannot be used with 'pages stage-app'/,
+    () => parseWorkFoldCliActArgv(["pages", "share-app", "--space", "space-1", "--instance", "fi-1", "--snapshot"]),
+    /--snapshot cannot be used with 'pages share-app'/,
     "apps have no snapshot lane; asleep is the only offline state",
   );
 
@@ -843,10 +843,14 @@ test("direct verbs parse with strict shapes", () => {
     /--parent-task cannot be used with 'trash list'/,
   );
 
-  // The pending-decision family and permanent deletion are gone from the
+  // The pending-decision family, permanent deletion, and the retired holding
+  // spellings of the routing and outward-exposure verbs are gone from the
   // vocabulary (docs/receipts-not-gates.md, F19/F20): unknown commands, not
   // refusals with a story.
-  for (const argv of [["staged", "list"], ["staged", "show"], ["staged", "cancel"], ["routings", "stage"]]) {
+  for (const argv of [
+    ["staged", "list"], ["staged", "show"], ["staged", "cancel"],
+    ["routings", "stage"], ["pages", "stage"],
+  ]) {
     assert.throws(() => parseWorkFoldCliActArgv(argv), /Unknown command/, `expected an unknown command for '${argv.join(" ")}'`);
   }
   assert.throws(
@@ -910,12 +914,12 @@ test("formerly gated verbs execute through the facade and receipt without a deci
         stoppedRunId: null,
       };
     },
-    pagesStage: async (input: unknown) => {
-      calls.push({ method: "pagesStage", input });
+    pagesShare: async (input: unknown) => {
+      calls.push({ method: "pagesShare", input });
       return { space: spaceRef, publication };
     },
-    pagesStageApp: async (input: unknown) => {
-      calls.push({ method: "pagesStageApp", input });
+    pagesShareApp: async (input: unknown) => {
+      calls.push({ method: "pagesShareApp", input });
       return {
         space: spaceRef,
         publication: {
@@ -1022,16 +1026,16 @@ test("formerly gated verbs execute through the facade and receipt without a deci
   assert.equal(lastOk().detail, `routing.enable; routing routing-weekly; digest ${"e".repeat(64)}; already enabled`);
   routingsEnableAlready = false;
 
-  const page = await execute(["pages", "stage", "--space", "space-1", "--path", "reports/weekly.md", "--title", "Weekly report"]);
+  const page = await execute(["pages", "share", "--space", "space-1", "--path", "reports/weekly.md", "--title", "Weekly report"]);
   assert.equal(page.exitCode, 0);
   assert.match(page.stdout, /^Sharing "Weekly report" \(reports\/weekly\.md\) from Fold Space \[space-1\] at \/p\/pub-1\. Reveal the link in Settings → The fold\.\n$/);
   assert.equal(lastOk().detail, "publish.viewer.expose; source reports/weekly.md; publication pub-1");
   assert.deepEqual(lastOk().undoRef, { kind: "publicationId", value: "pub-1" });
 
-  const hostedApp = await execute(["pages", "stage-app", "--space", "space-1", "--instance", "feature-installation-1"]);
+  const hostedApp = await execute(["pages", "share-app", "--space", "space-1", "--instance", "feature-installation-1"]);
   assert.equal(hostedApp.exitCode, 0);
   assert.match(hostedApp.stdout, /^Sharing "Fixture app" \(App Instance feature-installation-1\) from Fold Space \[space-1\] at \/a\/pub-app\.\n$/);
-  assert.equal(calls.at(-1)?.method, "pagesStageApp");
+  assert.equal(calls.at(-1)?.method, "pagesShareApp");
   assert.equal((calls.at(-1)?.input as { instance: string }).instance, "feature-installation-1");
   assert.equal(lastOk().detail, `publish.viewer.expose; appInstanceId feature-installation-1; releaseDigest sha256:${"a".repeat(64)}; publication pub-app`);
 

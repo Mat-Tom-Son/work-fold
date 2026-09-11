@@ -119,8 +119,8 @@ export type WorkFoldCliActCommandName =
   | "routings.disable"
   | "routings.delete"
   | "routings.receipts"
-  | "pages.stage"
-  | "pages.stage-app"
+  | "pages.share"
+  | "pages.share-app"
   | "pages.list"
   | "pages.status"
   | "pages.revoke"
@@ -161,7 +161,10 @@ export interface WorkFoldCliActParsedCommand {
   /** Optional restore-point label for history.save. */
   label?: string;
   checkpoint?: string;
-  /** Single Space-relative entry path for file and History verbs. */
+  /**
+   * Single Space-relative entry path for file and History verbs, and the
+   * exact file an `apps grant --kind files` single-file permission binds to.
+   */
   path?: string;
   /** File-version hash for history.restore-file; display version for apps.release.prepare. */
   version?: string;
@@ -199,7 +202,7 @@ export interface WorkFoldCliActParsedCommand {
   retained?: string;
   /** Explicit apps.uninstall data disposition; deliberately never defaulted. */
   disposition?: "retain-data" | "purge-data";
-  /** Snapshot-caching opt-in for pages.stage; an explicitly labeled choice, never defaulted on. */
+  /** Snapshot-caching opt-in for pages.share; an explicitly labeled choice, never defaulted on. */
   snapshot?: boolean;
   /** Routing id for the routings management verbs; routings take no --space. */
   routing?: string;
@@ -409,7 +412,8 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "files create",
     "history versions",
     "history restore-file",
-    "pages stage",
+    "apps grant",
+    "pages share",
   ]);
   if (!pathCommands.has(command) && pathValues.length) {
     throw usageError(`--path cannot be used with '${command || "(none)"}'.`);
@@ -549,8 +553,8 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "routings stop",
     "routings disable",
     "routings delete",
-    "pages stage",
-    "pages stage-app",
+    "pages share",
+    "pages share-app",
     "pages revoke",
     "pages narrow",
     "pages snapshot-off",
@@ -1222,6 +1226,14 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
       if (rawKind !== "network" && rawKind !== "files" && rawKind !== "notifications") {
         throw usageError("--kind must be network, files, or notifications.");
       }
+      // A file permission that names one file is granted by naming that file
+      // (docs/receipts-not-gates.md, F21). A folder permission keeps binding
+      // to the whole Space and takes no --path, and revoking takes none
+      // either: it names the declaration, not a root.
+      if (pathValues.length && !(command === "apps grant" && rawKind === "files")) {
+        throw usageError("--path can be used only with 'apps grant --kind files'.");
+      }
+      const filePath = pathValues.length ? requireSinglePath("space-file-path") : undefined;
       return {
         name: command === "apps grant" ? "apps.grant" : "apps.revoke",
         output,
@@ -1230,6 +1242,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         digest: requireBoundedFlag("--digest", "sha256"),
         grantKind: rawKind,
         declaration: requireBoundedFlag("--declaration", "declaration-id"),
+        ...(filePath !== undefined ? { path: filePath } : {}),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
     }
@@ -1411,13 +1424,13 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
       const routing = optionalBoundedFlag("--routing", "routing-id");
       return { name: "routings.receipts", output, ...(routing ? { routing } : {}) };
     }
-    case "pages stage":
-      // Outward exposure staging (docs/fold-publishing.md): the page slot's
-      // pins are the Space id, exact relative path, title, budgets, and the
-      // snapshot flag. Snapshot caching is an explicitly labeled opt-in.
+    case "pages share":
+      // Outward exposure (docs/fold-publishing.md): the page slot's pins are
+      // the Space id, exact relative path, title, budgets, and the snapshot
+      // flag. Snapshot caching is an explicitly labeled opt-in.
       allowOnlyFlags("--space", "--title", "--snapshot", "--parent-task");
       return {
-        name: "pages.stage",
+        name: "pages.share",
         output,
         space: requireSpace(),
         path: requireSinglePath("space-path"),
@@ -1425,15 +1438,15 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         ...(flags.get("--snapshot") === true ? { snapshot: true } : {}),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
-    case "pages stage-app":
-      // Hosted-app exposure staging (docs/fold-publishing.md, rung 3): the
-      // pins — App Instance id, exact Release digest, viewer entry, complete
+    case "pages share-app":
+      // Hosted-app exposure (docs/fold-publishing.md, rung 3): the pins —
+      // App Instance id, exact Release digest, viewer entry, complete
       // viewer-readable surface — are resolved host-side from the installed
       // Instance's reviewed manifest, never supplied here. Snapshot caching
       // does not exist for apps: asleep is the only offline state.
       allowOnlyFlags("--space", "--instance", "--parent-task");
       return {
-        name: "pages.stage-app",
+        name: "pages.share-app",
         output,
         space: requireSpace(),
         instance: requireBoundedFlag("--instance", "instance-id"),
@@ -1449,7 +1462,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     case "pages snapshot-off":
       // Narrowing verbs (docs/fold-publishing.md): revoking and turning
       // snapshot caching off never need a click; widening back is a fresh
-      // `pages stage`.
+      // `pages share`.
       allowOnlyFlags("--publication", "--parent-task");
       return {
         name: command === "pages revoke" ? "pages.revoke" : "pages.snapshot-off",
@@ -2083,6 +2096,7 @@ async function runActCommand(
         digest: command.digest!,
         kind: command.grantKind!,
         declaration: command.declaration!,
+        ...(command.path !== undefined ? { path: command.path } : {}),
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
         requestId: request.id,
       }));
@@ -2123,8 +2137,8 @@ async function runActCommand(
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
         requestId: request.id,
       }));
-    case "pages.stage":
-      return toChecksJson(await facade.pagesStage({
+    case "pages.share":
+      return toChecksJson(await facade.pagesShare({
         space: command.space!,
         path: command.path!,
         title: command.title!,
@@ -2132,8 +2146,8 @@ async function runActCommand(
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
         requestId: request.id,
       }));
-    case "pages.stage-app":
-      return toChecksJson(await facade.pagesStageApp({
+    case "pages.share-app":
+      return toChecksJson(await facade.pagesShareApp({
         space: command.space!,
         instance: command.instance!,
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
@@ -2912,8 +2926,13 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       return `Installed ${terminalText(app.title)} ${terminalText(app.version)} in ${spaceLabel}.${replaced}\n${on}${remainder}`;
     }
     case "apps.grant": {
-      const whole = record.grantKind === "files" ? " It covers the whole Space folder." : "";
-      return `Granted ${terminalText(record.grantKind)} ${terminalText(record.declaration)} to ${terminalText(record.appId)} in ${spaceLabel}.${whole}\n`;
+      const root = typeof record.root === "string" ? record.root : undefined;
+      const covers = record.grantKind !== "files"
+        ? ""
+        : root && root !== "."
+          ? ` It covers ${terminalText(root)} and nothing else.`
+          : " It covers the whole Space folder.";
+      return `Granted ${terminalText(record.grantKind)} ${terminalText(record.declaration)} to ${terminalText(record.appId)} in ${spaceLabel}.${covers}\n`;
     }
     case "apps.connect":
       return `Connected ${terminalText(record.appId)} to ${terminalText(record.destination)} (${terminalText(record.target)}) through the browser sign-in flow.\n`;
@@ -2941,12 +2960,12 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
           + `'routings run --routing ${terminalText(record.routingId)}' starts a copy now and `
           + `'routings disable --routing ${terminalText(record.routingId)}' turns it off.`
           + `${typeof record.stoppedRunId === "string" ? ` The run ${terminalText(record.stoppedRunId)} that was executing the previous declaration was stopped.` : ""}\n`;
-    case "pages.stage": {
+    case "pages.share": {
       const publication = (record.publication ?? {}) as Record<string, unknown>;
       return `Sharing "${terminalText(publication.title)}" (${terminalText(publication.relativePath)}) from ${spaceLabel} at ${terminalText(publication.viewerPath)}. `
         + "Reveal the link in Settings → The fold.\n";
     }
-    case "pages.stage-app": {
+    case "pages.share-app": {
       const publication = (record.publication ?? {}) as Record<string, unknown>;
       return `Sharing "${terminalText(publication.title)}" (App Instance ${terminalText(publication.appInstanceId)}) from ${spaceLabel} at ${terminalText(publication.viewerPath)}.\n`;
     }
@@ -3228,13 +3247,13 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       return `Narrowed budgets of "${terminalText(publication.title)}" [${terminalText(publication.publicationId)}]: `
         + `serve rate ${terminalText(record.priorServeRatePerMinute)} -> ${terminalText(publication.serveRatePerMinute)}/min, `
         + `byte budget ${terminalText(record.priorByteBudgetPerDay)} -> ${terminalText(publication.byteBudgetPerDay)}/day. `
-        + `Raising a budget again is a fresh 'pages stage'.\n`;
+        + `Raising a budget again is a fresh 'pages share'.\n`;
     }
     case "pages.snapshot-off": {
       const publication = (record.publication ?? {}) as Record<string, unknown>;
       const already = record.wasEnabled === false ? " Snapshot caching was already off." : "";
       return `Turned snapshot caching off for "${terminalText(publication.title)}" [${terminalText(publication.publicationId)}].${already} `
-        + `The stored relay copy is deleted${publication.bridgeSlot === "confirmed" ? "" : " once the bridge sync completes"}; turning it back on is a fresh 'pages stage'.\n`;
+        + `The stored relay copy is deleted${publication.bridgeSlot === "confirmed" ? "" : " once the bridge sync completes"}; turning it back on is a fresh 'pages share'.\n`;
     }
     default:
       return `${terminalText(name)} completed.\n`;
@@ -3522,9 +3541,9 @@ function actReceiptDetail(
       return `routing.enable; routing ${String(record.routingId)}; digest ${String(record.declarationDigest)}`
         + `${record.alreadyEnabled === true ? "; already enabled" : ""}`
         + `${typeof record.stoppedRunId === "string" ? `; stopped run ${String(record.stoppedRunId)}` : ""}`;
-    case "pages.stage":
+    case "pages.share":
       return `publish.viewer.expose; source ${boundedReceiptText(String(record.publication?.relativePath))}; publication ${String(record.publication?.publicationId)}`;
-    case "pages.stage-app":
+    case "pages.share-app":
       return `publish.viewer.expose; appInstanceId ${String(record.publication?.appInstanceId)}; `
         + `releaseDigest ${String(record.publication?.releaseDigest)}; publication ${String(record.publication?.publicationId)}`;
     default:
@@ -3811,8 +3830,8 @@ function actUndoRef(
     // reference names the identifier its narrowing inverse takes —
     // `pages revoke`, `routings disable`, `apps revoke|disconnect`,
     // `apps automation disable`, `tools remove`.
-    case "pages.stage":
-    case "pages.stage-app":
+    case "pages.share":
+    case "pages.share-app":
       return typeof record.publication?.publicationId === "string"
         ? { kind: "publicationId", value: record.publication.publicationId }
         : undefined;

@@ -2,9 +2,9 @@ import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { mkdir, open, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
-import { restrictedAppAssistantLimits as limits, type RestrictedAppAssistantTask, type RestrictedAppTaskDetail } from "../../shared/restricted-app-tasks.js";
+import { restrictedAppAssistantLimits as limits, type RestrictedAppAssistantModelRef, type RestrictedAppAssistantTask, type RestrictedAppAssistantUsage, type RestrictedAppTaskDetail } from "../../shared/restricted-app-tasks.js";
 import { validateRestrictedAppValue, type RestrictedAppAssistantAction } from "./restricted-app-manifest.js";
-import type { WorkFoldDurableTurnRecord } from "./turn-store.js";
+import type { WorkFoldDurableTurnRecord, WorkFoldDurableTurnUsage } from "./turn-store.js";
 
 export interface RestrictedAppTaskScope {
   spaceId: string;
@@ -246,8 +246,14 @@ export class RestrictedAppTaskService extends EventEmitter {
       const status = !turn ? "interrupted" : turn.status === "accepted" || turn.status === "running" ? "running"
         : turn.status === "aborted" ? "cancelled" : turn.status;
       const result = status === "succeeded" && turn ? boundedResult(turn.assistantText) : undefined;
-      if (status === record.status && JSON.stringify(result) === JSON.stringify(record.result)) return record;
-      return { ...record, status, updatedAt: at, ...(result ? { result } : {}) };
+      // The settled turn journal owns the effective model and its usage; the
+      // receipt copies them so the Apps tab and the app read the same numbers,
+      // including for a turn that failed or was stopped after spending them.
+      const spent = turn?.usage ? turnSpend(turn.usage) : undefined;
+      if (status === record.status && JSON.stringify(result) === JSON.stringify(record.result)
+        && JSON.stringify(spent?.model) === JSON.stringify(record.model)
+        && JSON.stringify(spent?.usage) === JSON.stringify(record.usage)) return record;
+      return { ...record, status, updatedAt: at, ...(result ? { result } : {}), ...(spent ?? {}) };
     });
     if (next.some((item, index) => item !== this.#records[index])) await this.#save(next);
   }
@@ -307,7 +313,25 @@ function projection(record: RestrictedAppTaskReceipt): RestrictedAppAssistantTas
   return { id: record.id, requestId: record.requestId, actionId: record.actionId, title: record.title,
     status: record.status, createdAt: record.createdAt, updatedAt: record.updatedAt, startedAt: record.startedAt,
     ...(record.cancellationRequested ? { cancellationRequested: true as const } : {}),
-    ...(record.result ? { result: structuredClone(record.result) } : {}) };
+    ...(record.result ? { result: structuredClone(record.result) } : {}),
+    ...(record.model ? { model: { ...record.model } } : {}),
+    ...(record.usage ? { usage: { ...record.usage } } : {}) };
+}
+
+/**
+ * The turn journal's usage, in the shape both app AI lanes publish: a provider
+ * and model id, token counts, and a cost only when one was actually reported.
+ * Missing pricing stays missing rather than becoming a zero charge.
+ */
+function turnSpend(usage: WorkFoldDurableTurnUsage): { model: RestrictedAppAssistantModelRef; usage: RestrictedAppAssistantUsage } {
+  return {
+    model: { provider: usage.provider, id: usage.modelId },
+    usage: {
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      ...(usage.amountUsd === undefined ? {} : { amountUsd: usage.amountUsd }),
+    },
+  };
 }
 function hash(value: unknown): string { return createHash("sha256").update(canonicalJson(value)).digest("hex"); }
 function canonicalJson(value: unknown): string {
@@ -357,7 +381,7 @@ function upgradeLegacyReceipt(value: unknown, loadedAt: string): unknown {
 
 function parseReceipt(value: unknown): RestrictedAppTaskReceipt {
   if (!value || typeof value !== "object") invalid("The Assistant request journal is invalid.");
-  const optional = ["result", "cancellationRequested"].filter((key) => Object.hasOwn(value, key));
+  const optional = ["result", "cancellationRequested", "model", "usage"].filter((key) => Object.hasOwn(value, key));
   exact(value, ["id", "requestId", "actionId", "title", "status", "createdAt", "updatedAt", "startedAt", "scope", "requestedAt", "requestDigest", "instructions", "inputJson", "conversationId", ...optional]);
   exact(value.scope, ["spaceId", "appId", "featureInstallationId", "digest", "authorityDigest"]);
   if (typeof value.id !== "string" || typeof value.requestId !== "string" || !uuid.test(value.id) || !uuid.test(value.requestId) || value.conversationId !== `chat-app-${value.id}`
@@ -378,5 +402,14 @@ function parseReceipt(value: unknown): RestrictedAppTaskReceipt {
     if (value.status !== "succeeded" || typeof value.result.text !== "string" || Buffer.byteLength(value.result.text) > limits.resultBytes || typeof value.result.truncated !== "boolean") invalid("The Assistant result is invalid.");
   }
   if (value.status === "succeeded" && !value.result) invalid("The Assistant result is missing.");
+  if (value.model !== undefined) {
+    exact(value.model, ["provider", "id"]);
+    if (Object.values(value.model).some((item) => typeof item !== "string" || !item.length || item.length > 200)) invalid("The Assistant usage receipt is invalid.");
+  }
+  if (value.usage !== undefined) {
+    exact(value.usage, ["inputTokens", "outputTokens", ...(Object.hasOwn(value.usage, "amountUsd") ? ["amountUsd"] : [])]);
+    if ([value.usage.inputTokens, value.usage.outputTokens, ...(Object.hasOwn(value.usage, "amountUsd") ? [value.usage.amountUsd] : [])]
+      .some((item) => typeof item !== "number" || !Number.isFinite(item) || item < 0)) invalid("The Assistant usage receipt is invalid.");
+  }
   return structuredClone(value) as RestrictedAppTaskReceipt;
 }
