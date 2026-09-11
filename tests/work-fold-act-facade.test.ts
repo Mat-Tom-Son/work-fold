@@ -1047,8 +1047,10 @@ test("the act facade drives Space rename, appearance, tools, and App Studio fami
       root: "reports",
     });
 
-    // Proposals are Chat-bound receipts: list is scoped, dismissal settles
-    // pending only, and a mismatched Chat is not-found rather than a leak.
+    // Proposals are Chat-bound receipts that install the preview in the same
+    // call (docs/receipts-not-gates.md, F21): list is scoped, an installed
+    // receipt is not dismissable, and a mismatched Chat is not-found rather
+    // than a leak.
     const proposalChat = (await facade.createConversation({ space: studio.id })).conversation;
     const proposed = await restrictedAppProposals.propose({
       spaceId: studio.id,
@@ -1056,11 +1058,12 @@ test("the act facade drives Space rename, appearance, tools, and App Studio fami
       conversationId: proposalChat.id,
       sourcePath: "apps/authority-demo",
     });
-    assert.equal(proposed.status, "pending");
+    assert.equal(proposed.status, "installed");
+    assert.equal(proposed.app?.digest, authorityReview.digest, "the already-installed revision is an idempotent install");
     const proposalList = await facade.appsProposalsList({ space: studio.id, conversationId: proposalChat.id });
     assert.equal(proposalList.proposals.length, 1);
     assert.equal(proposalList.proposals[0]?.id, proposed.proposal!.id);
-    assert.equal(proposalList.proposals[0]?.status, "pending");
+    assert.equal(proposalList.proposals[0]?.status, "installed");
     assert.equal(proposalList.proposals[0]?.digest, authorityReview.digest);
     await assert.rejects(
       () => facade.appsProposalsList({ space: studio.id, conversationId: "chat-missing" }),
@@ -1076,7 +1079,7 @@ test("the act facade drives Space rename, appearance, tools, and App Studio fami
       conversationId: proposalChat.id,
       proposal: proposed.proposal!.id,
     });
-    assert.equal(dismissed.dismissed, true);
+    assert.equal(dismissed.dismissed, false, "an installed receipt is the record of the install and reports no dismissal");
     const dismissedAgain = await facade.appsProposalsDismiss({
       space: studio.id,
       conversationId: proposalChat.id,
@@ -1098,14 +1101,12 @@ test("the act facade drives Space rename, appearance, tools, and App Studio fami
       [],
       "revocation lands in the service registry",
     );
-    const revokeMiss = await facade.appsRevoke({
-      space: studio.id,
-      app: "authority-demo",
-      digest: authorityReview.digest,
-      kind: "network",
-      declaration: "mail-api",
-    });
-    assert.equal(revokeMiss.revoked, false, "an ungranted declaration honestly reports no authority change");
+    // The destination was on since the install (docs/receipts-not-gates.md,
+    // F21); revoking it narrows, and a second revoke is an honest no-op.
+    const revokeNetwork = { space: studio.id, app: "authority-demo", digest: authorityReview.digest, kind: "network" as const, declaration: "mail-api" };
+    assert.equal((await facade.appsRevoke(revokeNetwork)).revoked, true, "the install-time destination grant can be taken away");
+    const revokeMiss = await facade.appsRevoke(revokeNetwork);
+    assert.equal(revokeMiss.revoked, false, "an already-revoked declaration honestly reports no authority change");
 
     const disconnected = await facade.appsDisconnect({ space: studio.id, app: "authority-demo", destination: "mail-api" });
     assert.equal(disconnected.disconnected, false, "no connection store exists in this host, so nothing was removed");
@@ -1116,7 +1117,9 @@ test("the act facade drives Space rename, appearance, tools, and App Studio fami
       automation: "export-digest",
     });
     assert.equal(disabledAutomation.disabled, true);
-    assert.equal(disabledAutomation.wasEnabled, false, "automations start disabled; the act reports the no-change honestly");
+    assert.equal(disabledAutomation.wasEnabled, true, "automations are on when the app is added; disabling narrows");
+    const disabledAgain = await facade.appsAutomationDisable({ space: studio.id, app: "authority-demo", automation: "export-digest" });
+    assert.equal(disabledAgain.wasEnabled, false, "a second disable reports the no-change honestly");
     await assert.rejects(
       () => facade.appsAutomationRun({ space: studio.id, app: "authority-demo", automation: "export-digest" }),
       /desktop host/,
@@ -1525,6 +1528,87 @@ test("routing enablement and page exposure execute on one call with one request 
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
     );
     assert.equal((await api.publications.list()).length, 1);
+  } finally {
+    await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("the act facade lists what an installed app can do and runs one of its declared tools", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-act-apps-test-"));
+  const invocations: Array<{ digest: string; action: string; input: unknown }> = [];
+  const runtimeHost = {
+    async invoke(app: { digest: string }, action: string, input: unknown) {
+      invocations.push({ digest: app.digest, action, input: structuredClone(input) });
+      return { count: 3 };
+    },
+    async runAutomation() { /* unused */ },
+    async stop() { /* unused */ },
+    async close() { /* unused */ },
+  };
+  const restrictedApps = await RestrictedAppService.create({
+    rootPath: join(sandbox, "restricted-apps"),
+    deferAutomationStart: true,
+    runtimeHost: runtimeHost as never,
+  });
+  const api = await startLocalApi({
+    port: 0,
+    stateBase: join(sandbox, "state"),
+    spaceBase: join(sandbox, "content"),
+    loadEnv: false,
+    restrictedAppService: restrictedApps,
+  });
+  try {
+    const facade = api.actFacade;
+    const { space } = await facade.createSpace({ name: "Apps Fold" });
+    const empty = await facade.appsList({ space: space.id });
+    assert.deepEqual(empty.apps, []);
+    assert.equal(empty.truncated, false);
+
+    const packageRoot = join(space.spaceRoot, "apps", "connected-inbox");
+    await writeStudioPackage(packageRoot, "inbox-bytes");
+    const review = await restrictedApps.inspect({ spaceId: space.id, spaceRoot: space.spaceRoot, sourcePath: "apps/connected-inbox" });
+    const installed = await restrictedApps.install({
+      spaceId: space.id,
+      spaceRoot: space.spaceRoot,
+      sourcePath: "apps/connected-inbox",
+      expectedDigest: review.digest,
+    });
+
+    // The listing carries everything a caller needs to build an invocation
+    // without opening the package.
+    const listed = await facade.appsList({ space: "Apps Fold" });
+    assert.equal(listed.apps.length, 1);
+    const app = listed.apps[0]!;
+    assert.equal(app.appId, "connected-inbox");
+    assert.equal(app.kind, "preview");
+    assert.equal(app.digest, installed.digest);
+    assert.equal(app.description, "Search a deliberately restricted inbox.");
+    assert.deepEqual(app.tools.map((tool) => tool.name), ["inbox_search"]);
+    assert.equal((app.tools[0]!.inputSchema as { type: string }).type, "object");
+    assert.deepEqual(app.connections, []);
+    assert.deepEqual(app.automations, []);
+    assert.deepEqual(app.assistantActions, []);
+
+    const invoked = await facade.appsInvoke({ space: space.id, app: "connected-inbox", tool: "inbox_search", input: { query: "north" } });
+    assert.deepEqual(invoked.result, { count: 3 });
+    assert.equal(invoked.action, "search");
+    assert.equal(invoked.digest, installed.digest);
+    assert.equal(invoked.featureInstallationId, installed.featureInstallationId);
+    // The revision resolved by the lookup is the revision that ran.
+    assert.deepEqual(invocations, [{ digest: installed.digest, action: "search", input: { query: "north" } }]);
+
+    await assert.rejects(
+      () => facade.appsInvoke({ space: space.id, app: "connected-inbox", tool: "not_a_tool", input: {} }),
+      (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound" && /has no tool named not_a_tool/.test(error.message),
+    );
+    // Input is handed to the app's own runtime unchanged; that runtime holds
+    // the schema check, exactly as it does for a Chat tool call.
+    await assert.rejects(
+      () => facade.appsInvoke({ space: space.id, app: "missing-app", tool: "inbox_search", input: {} }),
+      (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
+    );
+    assert.equal(invocations.length, 1, "a refused invocation never reaches the app");
   } finally {
     await api.close();
     await rm(sandbox, { recursive: true, force: true });

@@ -3,9 +3,13 @@ import test from "node:test";
 
 import {
   buildRestrictedAppLimits,
+  restrictedAppAssistantEnvelopeBytes,
+  restrictedAppInferenceEnvelopeBytes,
   restrictedAppNetworkEnvelopeBytes,
   restrictedAppStorageEnvelopeBytes,
 } from "../src/local/agent/restricted-app-limits.js";
+import { restrictedAppInferenceLimits } from "../src/shared/restricted-app-inference.js";
+import { restrictedAppAssistantLimits } from "../src/shared/restricted-app-tasks.js";
 import { RestrictedAppNetworkBroker } from "../src/local/agent/restricted-app-connections.js";
 import { RestrictedAppFileBroker } from "../src/local/agent/restricted-app-files.js";
 import { restrictedAppStorageLimits } from "../src/local/agent/restricted-app-storage.js";
@@ -49,6 +53,27 @@ test("published limits are composed from the live brokers rather than restated",
   assert.equal(limits.storage.maxValueBytes, restrictedAppStorageLimits.valueBytes);
   assert.equal(limits.automations.minimumIntervalMinutes, restrictedAppAutomationIntervalMinutes.minimum);
   assert.equal(limits.automations.maximumIntervalMinutes, restrictedAppAutomationIntervalMinutes.maximum);
+  // The AI lanes publish their bounds the same way, so an app can design to
+  // them instead of discovering them by being refused.
+  assert.deepEqual(limits.inference, {
+    instructionsBytes: restrictedAppInferenceLimits.instructionsBytes,
+    inputBytes: restrictedAppInferenceLimits.inputBytes,
+    schemaBytes: restrictedAppInferenceLimits.schemaBytes,
+    defaultOutputBytes: restrictedAppInferenceLimits.defaultOutputBytes,
+    maxOutputBytes: restrictedAppInferenceLimits.maxOutputBytes,
+    runningPerInstallation: restrictedAppInferenceLimits.runningPerInstallation,
+    timeoutMs: restrictedAppInferenceLimits.timeoutMs,
+  });
+  assert.deepEqual(limits.assistant, {
+    instructionsBytes: restrictedAppAssistantLimits.instructions,
+    inputBytes: restrictedAppAssistantLimits.inputBytes,
+    resultBytes: restrictedAppAssistantLimits.resultBytes,
+    runningPerInstallation: restrictedAppAssistantLimits.runningPerInstallation,
+  });
+  assert.equal(limits.inference.inputBytes, 256 * 1024);
+  assert.equal(limits.assistant.inputBytes, 64 * 1024);
+  assert.equal(limits.inference.runningPerInstallation, 4);
+  assert.equal(limits.assistant.runningPerInstallation, 4);
 });
 
 test("default broker bounds are the ones apps are told about", () => {
@@ -146,4 +171,26 @@ test("bridge envelopes preserve every request allowed by the published byte limi
   const transactionBytes = Buffer.byteLength(JSON.stringify(transaction.transaction));
   assert.ok(transactionBytes <= restrictedAppStorageLimits.transactionBytes);
   assert.ok(Buffer.byteLength(JSON.stringify(transaction)) <= restrictedAppStorageEnvelopeBytes);
+
+  // The published inference input bound must stay reachable for text that
+  // escapes into six bytes per character, instructions and schema included.
+  const inferenceEnvelope = JSON.stringify({
+    request: {
+      instructions: "x".repeat(restrictedAppInferenceLimits.instructionsBytes),
+      input: "\0".repeat(restrictedAppInferenceLimits.inputBytes),
+      maxOutputBytes: restrictedAppInferenceLimits.maxOutputBytes,
+    },
+  });
+  assert.ok(
+    Buffer.byteLength(inferenceEnvelope) <= restrictedAppInferenceEnvelopeBytes,
+    "JSON escaping must not make an allowed inference input fail in the preload",
+  );
+  const assistantEnvelope = JSON.stringify({
+    operation: "request",
+    request: { requestId: "r", requestedAt: "2026-09-10T12:00:00.000Z", actionId: "compare", input: "\0".repeat(restrictedAppAssistantLimits.inputBytes - 2) },
+  });
+  assert.ok(
+    Buffer.byteLength(assistantEnvelope) <= restrictedAppAssistantEnvelopeBytes,
+    "JSON escaping must not make an allowed Assistant request input fail in the preload",
+  );
 });

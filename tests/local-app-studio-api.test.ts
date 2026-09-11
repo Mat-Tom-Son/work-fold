@@ -243,7 +243,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
     assert.equal(activated.instance.spaceId, target.id);
     assert.equal(activated.instance.releaseDigest, published.release.releaseDigest);
     assert.equal(activated.apps.length, 1);
-    assertPowersOff(activated.apps[0]!, published.release.releaseDigest);
+    assertPowersOn(activated.apps[0]!, published.release.releaseDigest);
     await assertConnectionIsUnset(api.origin, target.id, activated.apps[0]!);
     assert.deepEqual(
       (await request<{ impact: LocalAppSpaceRemovalImpact }>(
@@ -272,7 +272,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
       `/api/spaces/${target.id}/restricted-apps`,
     );
     assert.equal(firstTargetList.apps.length, 1);
-    assertPowersOff(firstTargetList.apps[0]!, published.release.releaseDigest);
+    assertPowersOn(firstTargetList.apps[0]!, published.release.releaseDigest);
 
     await expectFailure(
       api.origin,
@@ -354,7 +354,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
     assert.equal(updated.instance.runtimeInstanceId, activated.instance.runtimeInstanceId);
     assert.equal(updated.instance.releaseDigest, secondPublished.release.releaseDigest);
     assert.equal(updated.apps.length, 1);
-    assertPowersOff(updated.apps[0]!, secondPublished.release.releaseDigest);
+    assertPowersOn(updated.apps[0]!, secondPublished.release.releaseDigest);
     await assertConnectionIsUnset(api.origin, target.id, updated.apps[0]!);
 
     await expectFailure(
@@ -616,14 +616,15 @@ async function inspect(origin: string, spaceId: string): Promise<{ digest: strin
   )).review;
 }
 
-function assertPowersOff(app: RestrictedAppInstalled, releaseDigest: string): void {
+/** An installed or reset Feature comes up with the install defaults (docs/receipts-not-gates.md, F21). */
+function assertPowersOn(app: RestrictedAppInstalled, releaseDigest: string): void {
   assert.equal(app.runtimeInstanceKind, "app");
   assert.equal(app.releaseDigest, releaseDigest);
-  assert.deepEqual(app.networkGrants, []);
-  assert.deepEqual(app.fileGrants, []);
-  assert.deepEqual(app.notificationGrants, []);
+  assert.deepEqual(app.networkGrants, ["mail-api"]);
+  assert.deepEqual(app.fileGrants, [{ id: "exports", declarationId: "exports", root: ".", access: "read-write" }]);
+  assert.deepEqual(app.notificationGrants, ["new-mail"]);
   assert.ok(app.automations.length > 0);
-  assert.equal(app.automations.every((automation) => automation.enabled === false), true);
+  assert.equal(app.automations.every((automation) => automation.enabled === true), true);
 }
 
 async function assertConnectionIsUnset(origin: string, spaceId: string, app: RestrictedAppInstalled): Promise<void> {

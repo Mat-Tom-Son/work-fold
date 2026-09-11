@@ -302,6 +302,15 @@ export class RestrictedAppOAuthPkceClient {
     headers.set("authorization", `${connection.tokenType} ${connection.accessToken}`);
   }
 
+  /**
+   * Retires the live generation of a binding without touching its stored
+   * credential, so an in-flight refresh on the old binding fails closed while
+   * the record moves to a successor Feature revision.
+   */
+  retire(bindingValue: RestrictedAppOAuthBinding): void {
+    this.#advanceGeneration(normalizeBinding(bindingValue));
+  }
+
   async disconnect(bindingValue: RestrictedAppOAuthBinding, authorizeEffect?: RestrictedAppEffectAuthorizer): Promise<boolean> {
     const binding = normalizeBinding(bindingValue);
     const generation = this.#advanceGeneration(binding);

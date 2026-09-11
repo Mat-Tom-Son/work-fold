@@ -4,7 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 const root = process.cwd();
-const [capabilities, apps, chat, spaceApp, spaceChrome, viewport, styles, professionalShell, professionalSurfaces, desktopHost, desktopMain, desktopPreload, tooltipOverlay] = await Promise.all([
+const [capabilities, apps, chat, spaceApp, spaceChrome, viewport, styles, professionalShell, professionalSurfaces, desktopHost, desktopMain, desktopPreload, tooltipOverlay, restrictedAppPreload] = await Promise.all([
   read("web-local/src/components/panes/CapabilitiesPane.tsx"),
   read("web-local/src/components/panes/RestrictedAppsSection.tsx"),
   read("web-local/src/components/chat/ChatPanel.tsx"),
@@ -18,6 +18,7 @@ const [capabilities, apps, chat, spaceApp, spaceChrome, viewport, styles, profes
   read("desktop/src/main.ts"),
   read("desktop/src/preload.cts"),
   read("desktop/src/rail-tooltip-overlay.ts"),
+  read("desktop/src/restricted-app-preload.cts"),
 ]);
 
 test("Apps product hierarchy starts with the Assistant and keeps local preview loading advanced", () => {
@@ -29,23 +30,28 @@ test("Apps product hierarchy starts with the Assistant and keeps local preview l
   assert.doesNotMatch(apps, />Add app</);
 });
 
-test("review separates what is added now from access that still requires a later decision", () => {
-  const decision = apps.indexOf("One decision now");
+test("adding an app states what it adds and that every declared power is on, with narrowing in Apps", () => {
+  const decision = apps.indexOf("Adds now");
   const contribution = apps.indexOf("Added now");
-  const access = apps.indexOf("What you may approve later");
+  const access = apps.indexOf("What this app can do");
   assert.ok(decision >= 0 && contribution > decision && access > contribution);
   assert.match(apps, /<ReviewDeclarations review=\{review\} \/>[\s\S]*?<details className="restricted-app-package-details"><summary>Package details/);
-  assert.match(apps, /Add app with access off/);
-  assert.match(apps, /Network, files, notifications, and automations remain off/);
+  assert.match(apps, /"Add app"/);
+  assert.match(apps, /"Update app"/);
+  assert.match(apps, /every declared destination, folder, notification, and automation on/);
+  assert.match(apps, /Each is on when added and can be turned off in Apps/);
+  assert.match(apps, /Unchanged connections, automation settings, and run history carry over/);
   assert.match(apps, /restricted-app-authority-list/);
-  assert.match(apps, /Off when added/);
+  assert.match(apps, /On when added/);
+  assert.doesNotMatch(apps, /Off when added|access off|approve|Reviewed|Unrestricted|staged/);
+  assert.match(apps, /Each request starts a Chat in this Space; open or stop it in Apps/);
   // The reviewed viewer declaration (docs/fold-publishing.md, rung 3) is part
   // of review copy and the install decision: the group shows the viewer entry
   // and the complete viewer-readable surface, states that exposure is its own
   // later decision, and keeps the viewer read-only. The copy says "at your
   // address", never "host your website".
   assert.match(apps, /title="At your address"/);
-  assert.match(apps, /startsOff=\{Boolean\(review\.manifest\.viewer\)\}/);
+  assert.match(apps, /title="At your address"[^>]*onWhenAdded=\{false\}/);
   assert.match(apps, /Serve \{review\.manifest\.viewer\.entry\} to anyone holding this app's link/);
   assert.match(apps, /viewer-readable \$\{review\.manifest\.viewer\.readable\.length === 1 \? "collection" : "collections"\} declared/);
   assert.match(apps, /Viewer-readable collections: \$\{review\.manifest\.viewer\.readable\.join\(", "\)\}/);
@@ -76,6 +82,10 @@ test("Assistant tools owns access, connection, and lifecycle management without 
   assert.match(apps, /Local app data/);
   assert.match(apps, /App access overview/);
   assert.match(apps, /Each permission and automation is controlled separately/);
+  assert.match(apps, /Schedules are on when the app is added\. Turn any off here; Run now is a one-off\./);
+  assert.match(apps, /"Whole Space"/);
+  assert.match(apps, /Limit to folder/);
+  assert.match(apps, /Earlier revision/);
   assert.match(apps, /<h3 id="restricted-app-notifications-title">Notifications<\/h3>/);
   assert.doesNotMatch(apps, /Windows notifications|Windows notification settings/);
   assert.match(apps, /work-fold · \{app\.manifest\.title\} — \{permission\.title\}/);
@@ -130,13 +140,18 @@ test("contributed app canvases share built-in spacing and native rounded corners
   assert.match(desktopHost, /view\.setBorderRadius\(resolveRestrictedAppCornerRadius\(app\.manifest\.ui\.cornerRadius\)\)/);
 });
 
-test("owning Chat renders digest review, defers install while running, and opens the installed interactive app", () => {
+test("owning Chat shows the added-app receipt with a retry for failures and opens the installed interactive app", () => {
   assert.match(chat, /restricted_app_proposal/);
   assert.match(chat, /restricted_app_proposal_settled/);
-  assert.match(chat, /data\.proposal\.spaceId === space\.id/);
+  assert.match(chat, /data\.proposal\?\.spaceId === space\.id/);
   assert.match(chat, /data\.proposal\.conversationId === conversationId/);
-  assert.match(chat, /installDisabled=\{running\}/);
-  assert.match(chat, /closeLabel="Decline"/);
+  assert.match(chat, /settled\.status === "installed" \|\| settled\.status === "failed"/);
+  assert.match(chat, /function RestrictedAppAddedNotice/);
+  assert.match(chat, /Added \{title\} to this Space\./);
+  assert.match(chat, /Still needs you:/);
+  assert.match(chat, />Open app</);
+  assert.match(chat, />Try again</);
+  assert.doesNotMatch(chat, /installDisabled=\{running\}|closeLabel="Decline"|RestrictedAppReviewDialog/);
   assert.match(chat, /installRestrictedAppProposal\(space\.id, proposal\.conversationId, proposal\.id\)/);
   assert.match(spaceApp, /restrictedAppsState\.upsertApp\(app\)/);
   assert.match(spaceApp, /setActiveMode\(restrictedAppRailMode\(targetSpace\.id, app\.manifest\.id, app\.featureInstallationId\)\)/);
@@ -148,3 +163,46 @@ test("owning Chat renders digest review, defers install while running, and opens
 async function read(relativePath: string): Promise<string> {
   return readFile(join(root, relativePath), "utf8");
 }
+
+test("the worker bridge can request Assistant work while it holds an operation lease, within the raised envelope", () => {
+  assert.match(desktopHost, /Assistant requests need an active app view or a running worker operation\./);
+  assert.doesNotMatch(desktopHost, /Assistant requests require an active app view\./);
+  // The envelope carries the JSON-escaping allowance over the published 64 KiB
+  // input bound, so the service — not the transport — reports a limit hit.
+  assert.match(desktopHost, /const maxAssistantEnvelopeBytes = restrictedAppAssistantEnvelopeBytes;/);
+  assert.match(desktopHost, /jsonEnvelope\(value, maxAssistantEnvelopeBytes, "Assistant request"\)/);
+  assert.match(restrictedAppPreload, /\{ operation: "request", request \}, maximumAssistantEnvelopeBytes/);
+  assert.match(restrictedAppPreload, /nestedPositiveInteger\(limits, "assistant", "inputBytes", 64 \* 1024\) \* 6/);
+  assert.match(desktopMain, /listChecks,/);
+});
+
+test("bounded inference reaches app views and workers over its own channel, and viewers never see it", async () => {
+  const [smoke, piClient, viewer] = await Promise.all([
+    read("scripts/restricted-app-electron-smoke.mjs"),
+    read("src/local/agent/pi-client.ts"),
+    read("src/local/agent/restricted-app-viewer.ts"),
+  ]);
+  // One channel, registered and removed with the others, admitted through the
+  // same owned-power rule as an Assistant request.
+  assert.match(desktopHost, /const assistantInferChannel = "work-fold:restricted-app:assistant-infer";/);
+  assert.match(desktopHost, /ipcMain\.handle\(assistantInferChannel/);
+  assert.match(desktopHost, /ipcMain\.removeHandler\(assistantInferChannel\);/);
+  assert.match(desktopHost, /Inference needs an active app view or a running worker operation\./);
+  assert.match(desktopHost, /"window" in instance \? "worker" : "view"/);
+  assert.match(restrictedAppPreload, /infer: \(request: unknown\) => invokeHost\(assistantInferChannel, \{ request \}, maximumInferEnvelopeBytes, "INFER_UNAVAILABLE"\)/);
+  assert.match(desktopMain, /assistantInference: async \(\) => \(await ensureInteractiveLocalApi\(\)\)\.appInference,/);
+
+  // The smoke exercises both surfaces and the refusal an inactive view meets.
+  assert.match(smoke, /assistantInference: async \(\) => \(\{/);
+  assert.match(smoke, /workerInferText: "echo:worker"/);
+  assert.match(smoke, /inferDenied: true/);
+
+  // Viewers and the app-builder guide keep the boundary the record draws.
+  assert.match(viewer, /Assistant actions are mutations executed with the person's runtime; they are not viewer-reachable\./);
+  assert.doesNotMatch(viewer, /assistant\.infer|INFER_/);
+  assert.match(piClient, /assistant\.infer\(\{ instructions, input, outputSchema\?, maxOutputBytes\? \}\)/);
+  assert.match(piClient, /from an app view or a worker/);
+  assert.match(piClient, /INFER_BUSY/);
+  assert.match(piClient, /assistantActions \(up to 8|The optional top-level assistantActions array/);
+  assert.match(piClient, /permissions\.checks declares Check-result slots/);
+});

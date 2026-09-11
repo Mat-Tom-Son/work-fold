@@ -335,9 +335,10 @@ Restricted apps already have an explicit package, permission, lifecycle, sandbox
 
 App-requested Assistant tasks use the same `acceptConversationTurn`, kernel
 task, History, cancellation and durable turn journal as a normal Space Chat.
-The native bridge cannot approve its own request or read arbitrary Chats.
-The trusted Apps review is a one-off human send, with exact installation,
-authority and input pins. See [App-requested Assistant work](app-assistant-tasks.md).
+A request is journaled and dispatched in one call with exact installation,
+authority and input pins; the native bridge cannot read arbitrary Chats, and
+the trusted Apps tab offers Details, Open Chat and Stop. See
+[App-requested Assistant work](app-assistant-tasks.md).
 
 | Area | Source | Primary tests |
 |---|---|---|
@@ -367,7 +368,7 @@ See [Architecture](architecture.md) for the surrounding process boundaries, [Pro
 
 ### September 2026 contract expansion
 
-Checks retain protocol-v1 content-free status and the authenticated act lane. Their experimental snapshot payload is now version 1; machine Check state is version 2 and reads version 1. The built-in `work-fold.text-review` sensor adds quoted text evidence and hashes every designated primary/reference input. Its bounded request uses the fold's model and never includes the management transcript. Opening status performs no provider request. Native model requests serialize machine-wide. The desktop New Check form, enable/disable controls, and installed CLI use the same Check service; re-enabling existing definitions pins the reviewed declaration digest.
+Checks retain protocol-v1 content-free status and the authenticated act lane. Their experimental snapshot payload is now version 1; machine Check state is version 2 and reads version 1. The built-in `work-fold.text-review` sensor adds quoted text evidence and hashes every designated primary/reference input. Its bounded request uses the fold's model and never includes the management transcript. Opening status performs no provider request. Check runs serialize their native model requests machine-wide; the Space-app inference lane reuses the same transport under its own separate limiter. The desktop New Check form, enable/disable controls, and installed CLI use the same Check service; re-enabling existing definitions pins the reviewed declaration digest.
 
 Routing declaration version 3 adds `files-changed` with an explicit folder, recursion, extensions, debounce, and cooldown. Versions 1 and 2 remain readable. Its bounded metadata observer carries no content into Chat: only the fixed, reviewed step message is dispatched. Trigger receipts retain snapshot digest/change count, and Settings reports observer health. Global pause/baseline behavior avoids routing feedback and deliberately does not replay changes while routing work runs or the app is asleep/quit. See [Routings](fold-routings.md).
 

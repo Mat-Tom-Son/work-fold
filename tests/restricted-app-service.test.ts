@@ -14,6 +14,7 @@ import type {
 } from "../src/local/agent/restricted-app-connections.js";
 import {
   RestrictedAppService,
+  installationNeeds,
   type RestrictedAppInstalled,
   type RestrictedAppRuntimeAuthority,
   type RestrictedAppRuntimeDescriptor,
@@ -95,16 +96,60 @@ test("RestrictedAppService inspects reviewed bytes and requires the expected dig
     });
     assert.equal(installed.digest, review.digest);
     assert.equal(installed.spaceId, spaceOne);
-    assert.deepEqual(installed.networkGrants, [], "installation reviews code but does not implicitly grant network access");
-    assert.deepEqual(installed.fileGrants, [], "installation does not implicitly grant Space files");
-    assert.deepEqual(installed.notificationGrants, [], "installation does not implicitly grant notifications");
+    assert.deepEqual(installed.networkGrants, ["mail-api"], "an installed app reaches every declared destination");
+    assert.deepEqual(installed.fileGrants, [{ id: "exports", declarationId: "exports", root: ".", access: "read-write" }], "a directory permission binds to the whole Space");
+    assert.deepEqual(installed.notificationGrants, ["new-mail"], "every notification category is on");
     assert.deepEqual(installed.automations, [
-      { id: refreshAutomation, enabled: false },
-      { id: exportAutomation, enabled: false },
-    ], "installation does not implicitly enable reviewed automations");
+      { id: refreshAutomation, enabled: true },
+      { id: exportAutomation, enabled: true },
+    ], "every declared automation is on (no next run while the scheduler is deferred)");
     assert.equal("stagedRoot" in installed, false, "app-data staging paths must remain internal");
     assert.equal(existsSync(join(rootPath, "staged", review.digest, "worker.js")), true);
     assert.match(await readFile(join(rootPath, "staged", review.digest, "worker.js"), "utf8"), /must remain inert/);
+    await service.close();
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("install defaults bind a Check slot only to a Space's single Check, leave file-target permissions for the person, and report every need", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-restricted-service-defaults-"));
+  const spaceRoot = join(sandbox, "space");
+  const rootPath = join(sandbox, "state", "restricted-apps");
+  const checksBySpace = new Map<string, Array<{ checkId: string; declarationDigest: string; title: string }>>([
+    [spaceOne, [{ checkId: "quote-review", declarationDigest: "a".repeat(64), title: "Quote review" }]],
+    [spaceTwo, [
+      { checkId: "quote-review", declarationDigest: "a".repeat(64), title: "Quote review" },
+      { checkId: "tone", declarationDigest: "b".repeat(64), title: "Tone" },
+    ]],
+  ]);
+  try {
+    await writePackage(join(spaceRoot, "apps", "inbox"), {
+      checks: [{ id: "review-slot", title: "Review result" }, { id: "second-slot", title: "Second result" }],
+      files: [{ id: "exports", target: "directory", access: "read-write" }, { id: "ledger", target: "file", access: "read" }],
+    });
+    const service = await RestrictedAppService.create({ rootPath, listChecks: async (spaceId) => checksBySpace.get(spaceId) ?? [] });
+    const review = await service.inspect({ spaceId: spaceOne, spaceRoot, sourcePath: "apps/inbox" });
+    const single = await service.install({ spaceId: spaceOne, spaceRoot, sourcePath: "apps/inbox", expectedDigest: review.digest });
+    assert.deepEqual(single.checkGrants, [
+      { permissionId: "review-slot", title: "Quote review", checkId: "quote-review", declarationDigest: "a".repeat(64) },
+      { permissionId: "second-slot", title: "Quote review", checkId: "quote-review", declarationDigest: "a".repeat(64) },
+    ], "exactly one registered Check binds every declared slot");
+    assert.deepEqual(single.fileGrants, [{ id: "exports", declarationId: "exports", root: ".", access: "read-write" }], "a file-target permission waits for a chosen file");
+    assert.deepEqual(installationNeeds(single, await service.connectionStatus(spaceOne, "connected-inbox", single.digest)), {
+      connections: ["mail-api"],
+      files: ["ledger"],
+      checks: [],
+    }, "the api-key destination and the file choice still need the person");
+
+    const ambiguous = await service.install({ spaceId: spaceTwo, spaceRoot, sourcePath: "apps/inbox", expectedDigest: review.digest });
+    assert.equal(ambiguous.checkGrants, undefined, "two Checks bind nothing; the person chooses in Apps");
+    assert.deepEqual(installationNeeds(ambiguous, []).checks, ["review-slot", "second-slot"]);
+
+    const chosen = await service.grantFiles({
+      spaceId: spaceOne, spaceRoot, appId: "connected-inbox", expectedDigest: single.digest, permissionId: "ledger", root: "apps/inbox/package.json",
+    });
+    assert.deepEqual(installationNeeds(chosen, [{ destinationId: "mail-api", owner: "instance", kind: "api-key", configured: true }] as any).files, []);
     await service.close();
   } finally {
     await rm(sandbox, { recursive: true, force: true });
@@ -343,20 +388,20 @@ test("RestrictedAppService advances only the durable authority domains affected 
     const firstReview = await service.inspect({ spaceId: spaceOne, spaceRoot, sourcePath: "apps/inbox" });
     const installed = await service.install({ spaceId: spaceOne, spaceRoot, sourcePath: "apps/inbox", expectedDigest: firstReview.digest });
 
-    const granted = await service.grantNetwork({
-      spaceId: spaceOne,
-      appId: "connected-inbox",
-      expectedDigest: firstReview.digest,
-      destinationId: "mail-api",
-    });
-    assert.deepEqual(changedAuthorityFields(installed.authority, granted.authority), ["grantGeneration"]);
     const repeatedGrant = await service.grantNetwork({
       spaceId: spaceOne,
       appId: "connected-inbox",
       expectedDigest: firstReview.digest,
       destinationId: "mail-api",
     });
-    assert.deepEqual(repeatedGrant.authority, granted.authority, "an idempotent grant does not create a false authority transition");
+    assert.deepEqual(repeatedGrant.authority, installed.authority, "granting an already-on destination does not create a false authority transition");
+    const granted = await service.revokeNetwork({
+      spaceId: spaceOne,
+      appId: "connected-inbox",
+      expectedDigest: firstReview.digest,
+      destinationId: "mail-api",
+    });
+    assert.deepEqual(changedAuthorityFields(installed.authority, granted.authority), ["grantGeneration"]);
 
     await service.setConnection({
       spaceId: spaceOne,
@@ -373,7 +418,7 @@ test("RestrictedAppService advances only the durable authority domains affected 
       appId: "connected-inbox",
       expectedDigest: firstReview.digest,
       automationId: refreshAutomation,
-      enabled: true,
+      enabled: false,
     });
     assert.deepEqual(changedAuthorityFields(connected.authority, enabled.authority), ["jobGeneration"]);
 
@@ -441,6 +486,13 @@ test("RestrictedAppService keeps installs idempotent, repairs missing staged byt
     assert.equal(repaired.digest, firstReview.digest);
     assert.equal(existsSync(join(rootPath, "staged", firstReview.digest, "worker.js")), true, "idempotent install must restore a missing staged snapshot");
 
+    await service.setConnection({
+      spaceId: spaceOne,
+      appId: "connected-inbox",
+      expectedDigest: firstReview.digest,
+      destinationId: "mail-api",
+      credential: { kind: "api-key", value: "secret-before-update" },
+    });
     await writePackage(sourceRoot, {
       version: "0.2.0",
       appSource: "export async function handleAction() { return { count: 2 }; }\nexport async function handleAutomation() {}\n",
@@ -449,15 +501,31 @@ test("RestrictedAppService keeps installs idempotent, repairs missing staged byt
     const updated = await service.install({ spaceId: spaceOne, spaceRoot, sourcePath: "apps/inbox", expectedDigest: updateReview.digest });
     assert.equal(updated.installedAt, firstInstall.installedAt);
     assert.notEqual(updated.updatedAt, firstInstall.updatedAt);
-    assert.deepEqual(runtime.stops, [{ spaceId: spaceOne, appId: "connected-inbox", digest: firstReview.digest }]);
+    assert.deepEqual(runtime.stops.slice(0, 2), [
+      { spaceId: spaceOne, appId: "connected-inbox", digest: firstReview.digest },
+      { spaceId: spaceOne, appId: "connected-inbox", digest: firstReview.digest },
+    ], "the connection change and the update stop the old runtime owner");
     assert.equal(existsSync(join(rootPath, "staged", firstReview.digest)), false);
+    assert.equal(connections.carriedForward.length, 1);
+    assert.deepEqual(connections.carriedForward[0]!.kept, ["mail-api"], "a byte-identical destination declaration carries its connection");
+    assert.equal(connections.carriedForward[0]!.to.featureRevisionDigest, updateReview.artifactDigest);
+    assert.deepEqual(await connections.get(platformConnectionBinding(updated)), { kind: "api-key", value: "secret-before-update" });
+    assert.equal((await service.connectionStatus(spaceOne, "connected-inbox", updateReview.digest))[0]?.configured, true);
     assert.deepEqual(connections.deletedFeatures, [{
       tenantId: firstInstall.tenantId,
       runtimeInstanceId: firstInstall.runtimeInstanceId,
       featureId: firstInstall.manifest.id,
       featureInstallationId: firstInstall.featureInstallationId,
       featureRevisionDigest: firstReview.artifactDigest,
-    }]);
+    }], "the emptied predecessor scope is still cleaned up");
+
+    await writePackage(sourceRoot, { version: "0.3.0", networkMethods: ["GET", "POST"] });
+    const changedReview = await service.inspect({ spaceId: spaceOne, spaceRoot, sourcePath: "apps/inbox" });
+    const changed = await service.install({ spaceId: spaceOne, spaceRoot, sourcePath: "apps/inbox", expectedDigest: changedReview.digest });
+    assert.deepEqual(connections.carriedForward[1]!.kept, [], "a changed destination declaration drops its connection");
+    assert.equal(await connections.get(platformConnectionBinding(changed)), undefined);
+    assert.equal((await service.connectionStatus(spaceOne, "connected-inbox", changedReview.digest))[0]?.configured, false);
+    assert.deepEqual(changed.networkGrants, ["mail-api"], "the grant itself carries by id");
 
     await writePackage(join(spaceRoot, "apps", "takeover"), { packageName: "different-package" });
     const takeover = await service.inspect({ spaceId: spaceOne, spaceRoot, sourcePath: "apps/takeover" });
@@ -465,7 +533,7 @@ test("RestrictedAppService keeps installs idempotent, repairs missing staged byt
       service.install({ spaceId: spaceOne, spaceRoot, sourcePath: "apps/takeover", expectedDigest: takeover.digest }),
       (error: unknown) => errorCode(error) === "INPUT_INVALID" && /different package already owns/i.test(errorMessage(error)),
     );
-    assert.equal((await service.list(spaceOne))[0]?.digest, updateReview.digest);
+    assert.equal((await service.list(spaceOne))[0]?.digest, changedReview.digest);
     await service.close();
   } finally {
     await rm(sandbox, { recursive: true, force: true });
@@ -491,15 +559,15 @@ test("RestrictedAppService durably retries post-activation cleanup after restart
       credential: { kind: "api-key", value: "predecessor-secret" },
     });
 
-    await writePackage(sourceRoot, {
-      version: "0.2.0",
-      appSource: "export async function handleAction() { return { count: 2 }; }\nexport async function handleAutomation() {}\n",
-    });
+    // A changed destination declaration drops its connection: the retired scope's
+    // record is removed by the durable cleanup, not carried forward.
+    await writePackage(sourceRoot, { version: "0.2.0", networkMethods: ["GET", "POST"] });
     const second = await service.inspect({ spaceId: spaceOne, spaceRoot, sourcePath: "apps/inbox" });
     connections.failNextFeatureDelete = true;
     const updated = await service.install({ spaceId: spaceOne, spaceRoot, sourcePath: "apps/inbox", expectedDigest: second.digest });
     assert.equal(updated.digest, second.digest, "activation succeeds once stale authority is durably unreachable");
     assert.equal(connections.records.size, 1, "failed physical cleanup remains pending rather than rolling back activation");
+    assert.equal((await service.connectionStatus(spaceOne, "connected-inbox", second.digest))[0]?.configured, false, "the successor never reads the retired record");
     let registry = JSON.parse(await readFile(join(rootPath, "registry.json"), "utf8")) as { pendingCleanups: unknown[] };
     assert.equal(registry.pendingCleanups.length, 1);
     await service.close();
@@ -583,14 +651,8 @@ test("RestrictedAppService binds connections to explicit Tenant, Runtime Instanc
       configured: true,
     }]);
 
-    const granted = await service.grantNetwork({
-      spaceId: spaceOne,
-      appId: "connected-inbox",
-      expectedDigest: review.digest,
-      destinationId: "mail-api",
-    });
-    assert.deepEqual(granted.networkGrants, ["mail-api"]);
-    assert.deepEqual((await service.list(spaceOne))[0]?.networkGrants, ["mail-api"], "the explicit grant must be durable");
+    assert.deepEqual(installed.networkGrants, ["mail-api"], "the destination is reachable from the install");
+    assert.deepEqual((await service.list(spaceOne))[0]?.networkGrants, ["mail-api"], "the default grant is durable");
 
     const result = await service.invoke({
       spaceId: spaceOne,
@@ -623,8 +685,7 @@ test("RestrictedAppService binds connections to explicit Tenant, Runtime Instanc
     assert.deepEqual(runtime.stops, [
       { spaceId: spaceOne, appId: "connected-inbox", digest: review.digest },
       { spaceId: spaceOne, appId: "connected-inbox", digest: review.digest },
-      { spaceId: spaceOne, appId: "connected-inbox", digest: review.digest },
-    ], "credential replacement, grant, and revoke stop the old runtime owner before changing its authority");
+    ], "credential replacement and revoke stop the old runtime owner before changing its authority");
     assert.equal(await service.deleteConnection({
       spaceId: spaceOne,
       appId: "connected-inbox",
@@ -639,7 +700,7 @@ test("RestrictedAppService binds connections to explicit Tenant, Runtime Instanc
   }
 });
 
-test("RestrictedAppService scopes automation powers, resets live authority, and retains historical receipts on update", async () => {
+test("RestrictedAppService scopes automation powers and carries grants, automation state, run receipts, and byte-identical connections across a preview digest change", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-restricted-service-powers-"));
   const spaceRoot = join(sandbox, "space");
   const sourceRoot = join(spaceRoot, "apps", "inbox");
@@ -659,6 +720,7 @@ test("RestrictedAppService scopes automation powers, resets live authority, and 
     const owner = platformStorageOwner(installed);
     await storage.set(owner, "view", { folder: "inbox" });
 
+    assert.deepEqual(installed.fileGrants, [{ id: "exports", declarationId: "exports", root: ".", access: "read-write" }], "the directory permission starts over the whole Space");
     await assert.rejects(service.grantFiles({
       spaceId: spaceOne,
       spaceRoot,
@@ -677,36 +739,11 @@ test("RestrictedAppService scopes automation powers, resets live authority, and 
       permissionId: "exports",
       root: "reports",
     });
-    assert.deepEqual(withFiles.fileGrants, [{ id: "exports", declarationId: "exports", root: "reports", access: "read-write" }]);
-    const withNotifications = await service.grantNotifications({
-      spaceId: spaceOne,
-      appId: "connected-inbox",
-      expectedDigest: review.digest,
-      permissionId: "new-mail",
-    });
-    assert.deepEqual(withNotifications.notificationGrants, ["new-mail"]);
-    const withNetwork = await service.grantNetwork({
-      spaceId: spaceOne,
-      appId: "connected-inbox",
-      expectedDigest: review.digest,
-      destinationId: "mail-api",
-    });
-    assert.deepEqual(withNetwork.networkGrants, ["mail-api"]);
-    const refreshEnabled = await service.setAutomationEnabled({
-      spaceId: spaceOne,
-      appId: "connected-inbox",
-      expectedDigest: review.digest,
-      automationId: refreshAutomation,
-      enabled: true,
-    });
-    assert.equal(refreshEnabled.automations.find(({ id }) => id === refreshAutomation)?.enabled, true);
-    await service.setAutomationEnabled({
-      spaceId: spaceOne,
-      appId: "connected-inbox",
-      expectedDigest: review.digest,
-      automationId: exportAutomation,
-      enabled: true,
-    });
+    assert.deepEqual(withFiles.fileGrants, [{ id: "exports", declarationId: "exports", root: "reports", access: "read-write" }], "granting again with a folder narrows the whole-Space default");
+    assert.deepEqual(changedAuthorityFields(installed.authority, withFiles.authority), ["grantGeneration"]);
+    assert.deepEqual(withFiles.notificationGrants, ["new-mail"]);
+    assert.deepEqual(withFiles.networkGrants, ["mail-api"]);
+    assert.ok(withFiles.automations.every((automation) => automation.enabled && automation.nextRunAt), "every automation is on with a scheduled next run");
     const refreshed = await service.runAutomationNow({
       spaceId: spaceOne,
       appId: "connected-inbox",
@@ -757,23 +794,24 @@ test("RestrictedAppService scopes automation powers, resets live authority, and 
       version: "0.2.0",
       appSource: "export async function handleAction() { return { count: 2 }; }\nexport async function handleAutomation() {}\n",
     });
+    await service.revokeNotifications({ spaceId: spaceOne, appId: "connected-inbox", expectedDigest: review.digest, permissionId: "new-mail" });
+    await service.setAutomationEnabled({ spaceId: spaceOne, appId: "connected-inbox", expectedDigest: review.digest, automationId: exportAutomation, enabled: false });
     const nextReview = await service.inspect({ spaceId: spaceOne, spaceRoot, sourcePath: "apps/inbox" });
     const updated = await service.install({ spaceId: spaceOne, spaceRoot, sourcePath: "apps/inbox", expectedDigest: nextReview.digest });
-    assert.deepEqual(updated.fileGrants, []);
-    assert.deepEqual(updated.notificationGrants, []);
-    assert.deepEqual(updated.networkGrants, []);
-    assert.deepEqual(updated.automations, [
-      { id: refreshAutomation, enabled: false },
-      { id: exportAutomation, enabled: false },
-    ]);
-    assert.deepEqual(await service.listAutomationRuns(spaceOne, "connected-inbox", nextReview.digest, refreshAutomation), []);
-    assert.deepEqual(await service.listAutomationRuns(spaceOne, "connected-inbox", nextReview.digest, exportAutomation), []);
+    assert.deepEqual(updated.fileGrants, [{ id: "exports", declarationId: "exports", root: "reports", access: "read-write" }], "the chosen folder carries when the declaration is unchanged");
+    assert.deepEqual(updated.notificationGrants, [], "a revocation survives the code change");
+    assert.deepEqual(updated.networkGrants, ["mail-api"]);
+    assert.equal(updated.automations.find(({ id }) => id === refreshAutomation)?.enabled, true);
+    assert.equal(updated.automations.find(({ id }) => id === exportAutomation)?.enabled, false, "a disabled automation stays disabled");
+    assert.deepEqual(await service.listAutomationRuns(spaceOne, "connected-inbox", nextReview.digest, refreshAutomation), [refreshed.run], "run history carries across revisions");
+    assert.deepEqual(await service.listAutomationRuns(spaceOne, "connected-inbox", nextReview.digest, exportAutomation), [exported.run]);
+    assert.equal(refreshed.run.featureRevisionDigest, review.artifactDigest, "a carried receipt still names its own revision");
     const updatedRegistry = JSON.parse(await readFile(join(rootPath, "registry.json"), "utf8")) as {
       installations: Array<{ automationRuns: Array<{ packageDigest: string; verification: string }> }>;
       acceptedAutomationRuns: unknown[];
       historicalAutomationRuns: Array<{ runId: string; state: string; acceptedAt: string; scheduledAt: string }>;
     };
-    assert.deepEqual(updatedRegistry.installations[0]?.automationRuns, [], "the new revision has no predecessor runs in its current view");
+    assert.equal(updatedRegistry.installations[0]?.automationRuns.length, 2, "the new revision keeps the predecessor's receipts");
     assert.deepEqual(updatedRegistry.acceptedAutomationRuns, []);
     assert.equal(updatedRegistry.historicalAutomationRuns.length, 2);
     assert.equal(updatedRegistry.historicalAutomationRuns.every((run) => run.state === "succeeded"), true);
@@ -788,8 +826,8 @@ test("RestrictedAppService scopes automation powers, resets live authority, and 
     const reopened = await RestrictedAppService.create({ rootPath, runtimeHost: runtime, storage });
     assert.deepEqual(
       await reopened.listAutomationRuns(spaceOne, "connected-inbox", nextReview.digest, refreshAutomation),
-      [],
-      "a restart after update keeps predecessor receipts only in the independent historical ledger",
+      [refreshed.run],
+      "a restart after update keeps the carried receipts",
     );
     await reopened.remove({ spaceId: spaceOne, appId: "connected-inbox", expectedDigest: nextReview.digest });
     const removedRegistry = JSON.parse(await readFile(join(rootPath, "registry.json"), "utf8")) as {
@@ -878,6 +916,7 @@ test("RestrictedAppService re-reads scoped notification grants when a queued aut
       rootPath,
       runtimeHost: runtime,
       deferAutomationStart: false,
+      automationMaxConcurrency: 2,
     });
     const review = await service.inspect({ spaceId: spaceOne, spaceRoot, sourcePath: "apps/inbox" });
     for (const spaceId of [spaceOne, spaceTwo, spaceThree]) {
@@ -1215,7 +1254,8 @@ test("RestrictedAppService serializes an automation launch started by stop behin
     assert.equal(run.run.outcome, "success");
     assert.equal(runtime.automationRuns.length, 1);
     assert.deepEqual(runtime.automationRuns[0]?.app.notificationGrants, [], "the post-stop launch must re-read the committed grant state");
-    assert.deepEqual(runtime.automationRuns[0]?.app.networkGrants, [], "the named job must not inherit undeclared app powers");
+    assert.deepEqual(runtime.automationRuns[0]?.app.networkGrants, ["mail-api"], "the named job keeps the declared destination it names");
+    assert.deepEqual(runtime.automationRuns[0]?.app.fileGrants, [], "the named job must not inherit undeclared app powers");
     assert.deepEqual(await service.listAutomationRuns(spaceOne, "connected-inbox", review.digest, refreshAutomation), [run.run]);
     await service.close();
   } finally {
@@ -1495,9 +1535,9 @@ test("RestrictedAppService invalidates OAuth generations before credential repla
 
     assert.deepEqual(connections.deleteBindings.map((binding) => binding.featureRevisionDigest), [
       first.artifactDigest,
-      first.artifactDigest,
       second.artifactDigest,
-    ]);
+    ], "credential replacement and removal disconnect; the byte-identical update carries the binding instead");
+    assert.deepEqual(connections.carriedForward.map((item) => item.kept), [["mail-api"]]);
     await service.close();
   } finally {
     await rm(sandbox, { recursive: true, force: true });
@@ -1913,6 +1953,7 @@ class MemoryConnectionStore implements RestrictedAppConnectionStore {
   readonly deleteBindings: RestrictedAppConnectionBinding[] = [];
   readonly deletedFeatures: RestrictedAppConnectionFeatureScope[] = [];
   readonly deletedRuntimeInstances: RestrictedAppConnectionInstanceScope[] = [];
+  readonly carriedForward: Array<{ from: RestrictedAppConnectionFeatureScope; to: RestrictedAppConnectionFeatureScope; kept: string[] }> = [];
 
   async get(binding: RestrictedAppConnectionBinding): Promise<RestrictedAppCredential | undefined> {
     return structuredClone(this.records.get(connectionKey(binding)));
@@ -1946,6 +1987,25 @@ class MemoryConnectionStore implements RestrictedAppConnectionStore {
       if (record[0] === scope.tenantId && record[1] === scope.runtimeInstanceId) this.records.delete(key);
     }
   }
+
+  async carryForward(
+    from: RestrictedAppConnectionFeatureScope,
+    to: RestrictedAppConnectionFeatureScope,
+    keep: readonly { declarationId: string; declarationDigest: string }[],
+  ): Promise<string[]> {
+    const kept: string[] = [];
+    for (const [key, credential] of [...this.records]) {
+      const record = JSON.parse(key) as string[];
+      if (!(record[0] === from.tenantId && record[1] === from.runtimeInstanceId && record[2] === from.featureId
+        && record[3] === from.featureInstallationId && record[4] === from.featureRevisionDigest)) continue;
+      if (!keep.some((item) => item.declarationId === record[5] && item.declarationDigest === record[6])) continue;
+      this.records.delete(key);
+      this.records.set(JSON.stringify([to.tenantId, to.runtimeInstanceId, to.featureId, to.featureInstallationId, to.featureRevisionDigest, ...record.slice(5)]), credential);
+      kept.push(record[5]!);
+    }
+    this.carriedForward.push({ from: structuredClone(from), to: structuredClone(to), kept: kept.sort() });
+    return kept.sort();
+  }
 }
 
 class FlakyConnectionStore extends MemoryConnectionStore {
@@ -1978,6 +2038,9 @@ async function writePackage(root: string, options: {
   appId?: string;
   appSource?: string;
   networkAuth?: unknown[];
+  networkMethods?: string[];
+  checks?: Array<{ id: string; title: string }>;
+  files?: Array<{ id: string; target: "file" | "directory"; access: "read" | "read-write" }>;
 } = {}): Promise<void> {
   const packageName = options.packageName ?? "connected-inbox";
   const version = options.version ?? "0.1.0";
@@ -2033,14 +2096,15 @@ async function writePackage(root: string, options: {
       overlap: "skip",
     }],
     permissions: {
-      files: [{ id: "exports", target: "directory", access: "read-write" }],
+      files: options.files ?? [{ id: "exports", target: "directory", access: "read-write" }],
       notifications: [{ id: "new-mail", title: "New mail", description: "New messages are ready." }],
       network: [{
         id: "mail-api",
         target: { kind: "public-https", origin: "https://mail.example.com" },
-        methods: ["GET"],
+        methods: options.networkMethods ?? ["GET"],
         auth: options.networkAuth ?? [{ kind: "api-key", header: "x-api-key" }],
       }],
+      ...(options.checks ? { checks: options.checks } : {}),
     },
   }), "utf8");
   await writeFile(join(root, "index.html"), "<!doctype html><script type=module src=app.js></script>", "utf8");

@@ -104,6 +104,36 @@ export class EncryptedRestrictedAppConnectionStore implements RestrictedAppConne
     });
   }
 
+  async carryForward(
+    from: RestrictedAppConnectionFeatureScope,
+    to: RestrictedAppConnectionFeatureScope,
+    keep: readonly { declarationId: string; declarationDigest: DeclarationDigest }[],
+  ): Promise<string[]> {
+    const source = normalizeFeatureScope(from);
+    const target = normalizeFeatureScope(to);
+    const declarationKey = (declarationId: string, declarationDigest: string) => JSON.stringify([declarationId, declarationDigest]);
+    const kept = new Set(keep.map((item) => declarationKey(identifier(item.declarationId, "declaration id"), parseDeclarationDigest(item.declarationDigest))));
+    const carried: string[] = [];
+    await this.#update((data) => {
+      const remaining: ConnectionRecord[] = [];
+      const moved: ConnectionRecord[] = [];
+      for (const record of data.records) {
+        // Unlisted records of the retired scope stay for the caller's scope cleanup.
+        if (featureScopeKey(record) !== featureScopeKey(source) || !kept.has(declarationKey(record.declarationId, record.declarationDigest))) {
+          remaining.push(record);
+          continue;
+        }
+        const { tenantId: _tenantId, runtimeInstanceId: _runtimeInstanceId, featureId: _featureId,
+          featureInstallationId: _featureInstallationId, featureRevisionDigest: _featureRevisionDigest, ...rest } = record;
+        moved.push({ ...rest, ...target, updatedAt: this.now().toISOString() });
+      }
+      const movedKeys = new Set(moved.map(bindingKey));
+      data.records = [...remaining.filter((item) => !movedKeys.has(bindingKey(item))), ...moved];
+      carried.push(...moved.map((item) => item.declarationId));
+    });
+    return carried.sort();
+  }
+
   async #update(
     mutator: (data: ConnectionFile) => void,
     authorizeCommit?: RestrictedAppEffectAuthorizer,

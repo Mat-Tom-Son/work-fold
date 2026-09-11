@@ -82,6 +82,19 @@ export interface RestrictedAppConnectionStore {
   delete(binding: RestrictedAppConnectionBinding, authorizeCommit?: RestrictedAppEffectAuthorizer): Promise<boolean>;
   deleteFeature(scope: RestrictedAppConnectionFeatureScope): Promise<void>;
   deleteRuntimeInstance(scope: RestrictedAppConnectionInstanceScope): Promise<void>;
+  /**
+   * Moves the records of `from` whose (declarationId, declarationDigest) is
+   * listed in `keep` onto the `to` Feature scope in one commit. Owner, target
+   * identity, connection id, and credential are preserved; a record already
+   * under `to` with the same binding is replaced. Unlisted `from` records stay
+   * where they are for the caller's scope cleanup. Returns the carried
+   * declaration ids.
+   */
+  carryForward(
+    from: RestrictedAppConnectionFeatureScope,
+    to: RestrictedAppConnectionFeatureScope,
+    keep: readonly { declarationId: string; declarationDigest: DeclarationDigest }[],
+  ): Promise<string[]>;
 }
 
 export type RestrictedAppEffectAuthorizer = () => void | Promise<void>;

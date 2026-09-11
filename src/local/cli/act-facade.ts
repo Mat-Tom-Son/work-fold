@@ -239,7 +239,7 @@ export interface WorkFoldActAppInstanceRef {
  */
 export interface WorkFoldActAppProposalRef {
   id: string;
-  status: "pending" | "installed" | "dismissed" | "revision-changed";
+  status: "pending" | "installed" | "failed" | "dismissed" | "revision-changed";
   sourcePath: string;
   title: string;
   packageName: string;
@@ -247,6 +247,40 @@ export interface WorkFoldActAppProposalRef {
   digest: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/** One declared tool of an installed app, with the schemas a caller needs to invoke it. */
+export interface WorkFoldActAppToolRef {
+  name: string;
+  description: string;
+  action: string;
+  inputSchema: unknown;
+  resultSchema: unknown;
+}
+
+/**
+ * What one installed app can do, as the fold sees it before acting: its
+ * declared tools and Assistant actions, the powers it holds, which
+ * destinations have a saved connection, and its named automations.
+ */
+export interface WorkFoldActAppListing {
+  appId: string;
+  featureInstallationId: string;
+  digest: string;
+  title: string;
+  description: string | null;
+  version: string;
+  kind: "preview" | "installed";
+  tools: WorkFoldActAppToolRef[];
+  assistantActions: Array<{ id: string; title: string }>;
+  grants: {
+    network: string[];
+    files: Array<{ declarationId: string; root: string; access: string }>;
+    notifications: string[];
+    checks: Array<{ permissionId: string; checkId: string }>;
+  };
+  connections: Array<{ destinationId: string; kind: string | null; configured: boolean }>;
+  automations: Array<{ id: string; title: string; enabled: boolean; nextRunAt: string | null; lastRunAt: string | null }>;
 }
 
 /** Bounded projection of one named-automation run receipt. */
@@ -762,6 +796,32 @@ export interface WorkFoldActFacade {
    * the mutation, so a revision change between lookup and act fails instead
    * of acting on different bytes.
    */
+  /**
+   * Act read: what is installed in one Space and what each app can do —
+   * tools with their schemas, named Assistant actions, grants, connection
+   * state, and automations (docs/receipts-not-gates.md, Space apps). Reads
+   * carry no lineage and write no action record.
+   */
+  appsList(input: { space: string }): Promise<{
+    space: WorkFoldActSpaceRef;
+    apps: WorkFoldActAppListing[];
+    truncated: boolean;
+  }>;
+  /**
+   * Runs one declared tool through the app's own runtime, with the installed
+   * revision pinned at lookup so a code change between lookup and call fails
+   * instead of running different bytes. The tool's own effects are the app's,
+   * bounded by the powers it holds; the receipt names the app and the tool.
+   */
+  appsInvoke(input: { space: string; app: string; tool: string; input: unknown; parentTaskId?: string }): Promise<{
+    space: WorkFoldActSpaceRef;
+    appId: string;
+    featureInstallationId: string;
+    digest: string;
+    tool: string;
+    action: string;
+    result: unknown;
+  }>;
   appsProposalsList(input: { space: string; conversationId: string }): Promise<{
     space: WorkFoldActSpaceRef;
     conversationId: string;

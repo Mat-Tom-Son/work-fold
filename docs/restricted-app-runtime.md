@@ -33,8 +33,8 @@ cannot confer identity or authority in work-fold.
 ## Package contract
 
 Apps may also declare [named Assistant requests](app-assistant-tasks.md).
-Each request waits for a person in Apps before an ordinary Space Chat starts;
-the active native view can read only its own request's state and bounded reply.
+A request journals and starts its ordinary Space Chat in the same call; the
+caller can read only its own request's state and bounded reply.
 
 `agent-app.json` is strict and versioned. It declares:
 
@@ -357,8 +357,9 @@ or occluded views, minimized windows,
 or a view owned by another Feature Installation, even in the same Space. Apps re-read storage after a hint; event data
 is not a second state channel.
 
-A file declaration grants nothing by itself. In the Apps tab, the person maps
-it to a relative file or folder inside that app's Space. The sandbox sends only
+A directory declaration is granted over the whole Space when the app is
+added; in the Apps tab the person can limit it to one folder or revoke it. A
+file declaration needs the person to choose the file first. The sandbox sends only
 the grant id and a grant-relative path; the host derives Runtime Instance,
 Feature Installation, exact revision, current authority, and the selected root.
 The broker rejects absolute paths, traversal, links and
@@ -374,26 +375,31 @@ uninstall never deletes or rewrites Space files.
 ## Review and lifecycle
 
 The primary path starts in a Space Chat. The host-owned `propose_space_app`
-tool accepts only a Space-relative package folder, inspects it, and creates a
-machine-local review receipt bound to that Space, Chat, source path, and digest.
-The tool cannot execute or install code, grant a destination, or collect a
-credential. Its model-facing guidelines include the complete package, bridge,
-worker, permission, storage, file, tab, automation, and OAuth declaration
-contract, so app generation does not depend on a source checkout or hidden
-work-fold-only skill.
+tool accepts only a Space-relative package folder, inspects it, records a
+machine-local receipt bound to that Space, Chat, source path, and digest, and
+adds that exact revision as a Local preview in the source Space's Development
+Instance in the same call (docs/receipts-not-gates.md, F21). The tool never
+collects a credential. Its model-facing guidelines include the complete
+package, bridge, worker, permission, storage, file, tab, automation, Assistant
+request, and OAuth declaration contract, so app generation does not depend on
+a source checkout or hidden work-fold-only skill.
 
-Human approval adds the receipt's exact revision as a Local preview in the
-source Space's Development Instance, with network, file, and notification
-access off and every automation disabled. Source changes require a new review.
-The Space's **Apps** tab manages destination, file,
-and notification grants, connections, each automation's schedule and run
-history, local data, and removal; advanced
-local preview remains a recovery/developer path. A reviewed update preserves
-the Feature Installation and Data Namespace but advances the Feature, grant,
-connection, and job authority domains; network, file, and notification grants,
-connections, and every automation reset. Prior receipts remain immutable
-predecessor lineage and are not presented as current-revision runs. Removing or
-updating an app stops its UI views and worker before changing staged bytes.
+An added app comes up able to work: every declared destination, every
+directory permission (bound to the whole Space), every notification category,
+and every Check slot when the Space has exactly one Check are on, and every
+automation is enabled. Secrets stay person-entered once per destination; a
+file-target permission needs a chosen file. The receipt and the Chat report
+what still needs the person. The Space's **Apps** tab is where the person
+narrows any of that: destination, file, and notification grants, connections,
+each automation's schedule and run history, local data, and removal; advanced
+local preview remains a recovery/developer path. A code change preserves the
+Feature Installation and Data Namespace and advances the Feature, grant,
+connection, and job authority domains; the person's granted or revoked state
+carries by declaration id, a chosen file root carries when the declaration is
+unchanged, automation states carry by id, run receipts carry (labelled with
+the revision they ran under), and connections carry only for destinations
+whose declaration is byte-identical. Removing or updating an app stops its UI
+views and worker before changing staged bytes.
 
 App Studio is a separate Space-bound work tab for moving reviewed previews into
 the local release-backed lane. The shipped lifecycle is:
@@ -411,14 +417,15 @@ the local release-backed lane. The shipped lifecycle is:
 4. Prepare installation into one chosen registered Space, then activate the
    persisted operation. Activation re-verifies and stages the closure before a
    single registry commit creates a new App Runtime Instance, Feature
-   Installation ids, and Data Namespace ids. Preview state never transfers and
-   every external power starts off.
+   Installation ids, and Data Namespace ids. Preview state never transfers;
+   the installed Features come up with the same defaults as a preview.
 5. Prepare an update or rollback to another published Release, review the
    deterministic per-Feature continuity/reset plan, then activate it. The host
    recomputes the durable plan and verifies the active Release before fencing
-   the old runtime and committing the new pointer. Exact unchanged content may
-   retain eligible authority; changed content keeps the Feature/Data lineage but
-   resets grants, connections, jobs, and current-revision run state.
+   the old runtime and committing the new pointer. The default continuity
+   carries grants, byte-identical connections, automation states, and run
+   receipts across changed content; **reset** is the person's explicit choice
+   to start over with the install defaults.
 6. Uninstall the whole App Instance with an explicit data disposition. Purge
    queues namespace deletion; retain detaches the namespace from all execution
    and exposes a later explicit purge action. Project source and separately
@@ -547,6 +554,26 @@ no selections; changed revisions reset them and exact unchanged release updates
 may retain them through the visible continuity plan. The existing Check service
 owns the bounded projection and never runs a sensor while reading. See
 [the authoring contract](restricted-app-authoring.md#selected-check-results).
+
+## Bounded inference channel
+
+`work-fold:restricted-app:assistant-infer` carries one bounded model call
+(docs/receipts-not-gates.md, F22). It is admitted exactly like the Assistant
+request channel: the sender must be an owned main frame that is either an
+active app view or a worker holding a tool action or an automation run, and the
+host captures an effect lease it rechecks before the result is delivered. An
+inactive view, a worker between operations, a viewer page, and a remote app
+view are refused with `INFER_UNAVAILABLE`.
+
+The host parses the request against the published bounds, pins the
+installation, revision, and authority before and after the model call, and runs
+it on the owning Space's configured session through the same transport the
+text-review Check uses — no tools beyond an optional `submit_result` schema
+carrier, no transcript, nothing persisted. Provider text never crosses the
+bridge; every failure is one of the closed `INFER_*` codes whose message names
+the bound or state it reports. Each call appends accepted and terminal lines to
+a machine-local receipt journal that records the surface, byte sizes, the
+effective model, and its usage, never app content.
 
 The native bridge transfers asynchronous outcomes as plain data and constructs
 public Errors in the app's JavaScript world. This preserves `error.code`, which

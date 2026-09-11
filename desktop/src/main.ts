@@ -434,8 +434,17 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       if (!space || !checks) throw new Error("The Check's Space is unavailable.");
       return checks.selectedResult(space, checkId, declarationDigest);
     };
+    // An install binds a declared Check slot only when the Space has exactly one Check.
+    const listChecks = async (spaceId: string) => {
+      const space = (await listSpaces()).find((item) => item.id === spaceId);
+      if (!space || !checks) throw new Error("The Check's Space is unavailable.");
+      return (await checks.overview(space)).checks
+        .filter((item): item is typeof item & { digest: string } => typeof item.digest === "string")
+        .map((item) => ({ checkId: item.id, declarationDigest: item.digest, title: item.title }));
+    };
     const restrictedRuntime = new RestrictedAppHost({
       assistantTasks: async () => (await ensureInteractiveLocalApi()).appAssistantTasks,
+    assistantInference: async () => (await ensureInteractiveLocalApi()).appInference,
       readCheckResult,
       connections: restrictedConnections,
       oauth: restrictedOAuth,
@@ -471,6 +480,7 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
       restrictedApps = await RestrictedAppService.create({
         rootPath: restrictedAppRoot(),
         readCheckResult,
+        listChecks,
         runtimeHost: restrictedRuntime,
         connections: restrictedConnections,
         oauth: restrictedOAuth,

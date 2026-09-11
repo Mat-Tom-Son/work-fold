@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { mkdir, open, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
-import { restrictedAppAssistantLimits as limits, type RestrictedAppAssistantTask, type RestrictedAppTaskReview } from "../../shared/restricted-app-tasks.js";
+import { restrictedAppAssistantLimits as limits, type RestrictedAppAssistantTask, type RestrictedAppTaskDetail } from "../../shared/restricted-app-tasks.js";
 import { validateRestrictedAppValue, type RestrictedAppAssistantAction } from "./restricted-app-manifest.js";
 import type { WorkFoldDurableTurnRecord } from "./turn-store.js";
 
@@ -14,6 +14,14 @@ export interface RestrictedAppTaskScope {
   authorityDigest: string;
 }
 
+/**
+ * Who may see a task. The app bridge sees only its own revision and authority
+ * ("revision"); the trusted Apps tab sees every task of the installation
+ * across code changes ("installation") so a task started before a change can
+ * still be opened and stopped.
+ */
+export type RestrictedAppTaskOwnership = "revision" | "installation";
+
 export interface RestrictedAppTaskReceipt extends RestrictedAppAssistantTask {
   scope: RestrictedAppTaskScope;
   requestedAt: string;
@@ -21,7 +29,7 @@ export interface RestrictedAppTaskReceipt extends RestrictedAppAssistantTask {
   instructions: string;
   inputJson: string;
   conversationId: string;
-  approvedAt?: string;
+  startedAt: string;
   cancellationRequested?: true;
 }
 
@@ -38,15 +46,19 @@ export class RestrictedAppTaskError extends Error {
   constructor(readonly code: "TASK_DENIED" | "TASK_INVALID" | "TASK_CONFLICT" | "TASK_UNAVAILABLE", message: string) { super(message); }
 }
 
-const schema = "work-fold.app-assistant-tasks.v1";
+const schema = "work-fold.app-assistant-tasks.v2";
+const legacySchema = "work-fold.app-assistant-tasks.v1";
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const live = new Set<RestrictedAppAssistantTask["status"]>(["pending", "dispatching", "running"]);
+const statuses: RestrictedAppAssistantTask["status"][] = ["dispatching", "running", "succeeded", "failed", "cancelled", "interrupted"];
+const live = new Set<RestrictedAppAssistantTask["status"]>(["dispatching", "running"]);
 const maxFileBytes = 64 * 1024 * 1024;
+const limitsSection = "Settings → The fold → Limits";
 
 /**
- * An app can place an inert request in this journal. Only a trusted review
- * surface gets approve(). An approved request starts a normal full-trust Space
- * Chat; this broker constrains request/result ownership, not Pi's native tools.
+ * An app request is journaled, then dispatched as an ordinary full-trust Space
+ * Chat immediately; the journal is attribution and recovery, not a gate. This
+ * broker constrains request/result ownership and envelope bounds, never Pi's
+ * native tools.
  */
 export class RestrictedAppTaskService extends EventEmitter {
   readonly #path: string;
@@ -76,8 +88,11 @@ export class RestrictedAppTaskService extends EventEmitter {
       if (bytesRead !== stat.size) throw new Error("App Assistant request journal changed while reading.");
       const data = JSON.parse(bytes.subarray(0, bytesRead).toString("utf8"));
       exact(data, ["schema", "records"]);
-      if (data.schema !== schema || !Array.isArray(data.records) || data.records.length > limits.records) throw new Error("App Assistant request journal is invalid.");
-      service.#records = data.records.map(parseReceipt);
+      if ((data.schema !== schema && data.schema !== legacySchema) || !Array.isArray(data.records) || data.records.length > limits.records) {
+        throw new Error("App Assistant request journal is invalid.");
+      }
+      const loadedAt = service.#now().toISOString();
+      service.#records = data.records.map((record: unknown) => parseReceipt(data.schema === legacySchema ? upgradeLegacyReceipt(record, loadedAt) : record));
       if (new Set(service.#records.map((item) => item.id)).size !== service.#records.length
         || new Set(service.#records.map((item) => `${item.scope.featureInstallationId}:${item.requestId}`)).size !== service.#records.length) {
         throw new Error("App Assistant request journal has duplicate identities.");
@@ -92,6 +107,7 @@ export class RestrictedAppTaskService extends EventEmitter {
     return service;
   }
 
+  /** Journal first, then dispatch the Chat. A lost response replays the same record. */
   async request(scope: RestrictedAppTaskScope, value: unknown, assertCurrent = () => {}): Promise<RestrictedAppAssistantTask> {
     return this.#run(() => this.#ports.withApp(scope, async (actions) => {
       exact(value, ["requestId", "requestedAt", "actionId", "input"]);
@@ -99,15 +115,17 @@ export class RestrictedAppTaskService extends EventEmitter {
       const requestedAt = date(value.requestedAt);
       const action = actions.find((item) => item.id === value.actionId);
       if (!action) throw new RestrictedAppTaskError("TASK_DENIED", "Choose a declared Assistant action.");
+      const raw = JSON.stringify(value.input);
+      if (raw === undefined || Buffer.byteLength(raw) > limits.inputBytes) {
+        invalid(`Assistant request input is larger than ${limits.inputBytes / 1024} KiB, the limit in ${limitsSection}.`);
+      }
       let inputJson: string;
       try {
-        const raw = JSON.stringify(value.input);
-        if (raw === undefined || Buffer.byteLength(raw) > limits.inputBytes) invalid("Assistant request input is too large.");
         // Validate the JSON value delivered across the bridge, without prototypes or toJSON methods.
         const input = JSON.parse(raw);
         validateRestrictedAppValue(action.inputSchema, input, "Assistant request input");
         inputJson = canonicalJson(input);
-      } catch { invalid("Assistant request input does not match its declaration or exceeds its limit."); }
+      } catch { invalid("Assistant request input does not match its declaration."); }
       await this.#refresh();
       const requestDigest = hash({ actionId: action.id, requestedAt, inputJson });
       const prior = this.#records.find((item) => item.scope.featureInstallationId === scope.featureInstallationId && item.requestId === value.requestId);
@@ -121,63 +139,21 @@ export class RestrictedAppTaskService extends EventEmitter {
       if (now.getTime() - Date.parse(requestedAt) > limits.requestAgeMs || Date.parse(requestedAt) > now.getTime() + 60_000) {
         invalid("This request is too old. Start a new request in the app.");
       }
-      if (this.#records.filter((item) => item.scope.featureInstallationId === scope.featureInstallationId && live.has(item.status)).length >= limits.pendingPerInstallation) {
-        conflict("Finish or dismiss this app's existing Assistant requests first.");
+      const running = this.#records.filter((item) => item.scope.featureInstallationId === scope.featureInstallationId && live.has(item.status)).length;
+      if (running >= limits.runningPerInstallation) {
+        conflict(`This app already has ${limits.runningPerInstallation} Assistant requests running, the limit in ${limitsSection}. Wait for one to finish.`);
       }
-      // Expired request timestamps cannot be submitted again, even after pruning.
+      // Retired request timestamps cannot be submitted again, even after pruning.
       const records = this.#records.filter((item) => live.has(item.status)
-        || now.getTime() - Date.parse(item.updatedAt) <= limits.reviewAgeMs);
+        || now.getTime() - Date.parse(item.updatedAt) <= limits.receiptRetentionMs);
       if (records.length >= limits.records) conflict("The Assistant request list is full. Try again later.");
       const id = randomUUID();
-      const record: RestrictedAppTaskReceipt = { id, requestId: value.requestId, actionId: action.id, title: action.title,
-        status: "pending", createdAt: now.toISOString(), updatedAt: now.toISOString(), requestedAt, requestDigest,
+      const at = now.toISOString();
+      let record: RestrictedAppTaskReceipt = { id, requestId: value.requestId, actionId: action.id, title: action.title,
+        status: "dispatching", createdAt: at, updatedAt: at, startedAt: at, requestedAt, requestDigest,
         scope: structuredClone(scope), instructions: action.instructions, inputJson, conversationId: `chat-app-${id}` };
       assertCurrent();
-      await this.#save([...records, record]);
-      return projection(record);
-    }));
-  }
-
-  async list(scope: RestrictedAppTaskScope): Promise<RestrictedAppAssistantTask[]> {
-    return this.#run(() => this.#ports.withApp(scope, async () => {
-      await this.#refresh();
-      return this.#records.filter((item) => sameScope(item.scope, scope)).reverse()
-        .sort((a, b) => Number(live.has(b.status)) - Number(live.has(a.status))).slice(0, limits.listItems)
-        .map((item) => { const { result: _result, ...summary } = projection(item); return summary; });
-    }));
-  }
-
-  async get(scope: RestrictedAppTaskScope, requestId: string): Promise<RestrictedAppAssistantTask> {
-    return this.#run(() => this.#ports.withApp(scope, async () => {
-      await this.#refresh();
-      return projection(this.#owned(scope, requestId));
-    }));
-  }
-
-  /** Trusted Apps review only. Never expose through a restricted app bridge. */
-  async review(scope: RestrictedAppTaskScope, requestId: string): Promise<RestrictedAppTaskReview> {
-    return this.#run(() => this.#ports.withApp(scope, async () => {
-      await this.#refresh();
-      const record = this.#owned(scope, requestId);
-      return { task: projection(record), instructions: record.instructions, inputJson: record.inputJson,
-        reviewDigest: reviewDigest(record), conversationId: record.approvedAt ? record.conversationId : null };
-    }));
-  }
-
-  /** The review digest pins the exact app incarnation, authority, instructions and input. */
-  async approve(scope: RestrictedAppTaskScope, requestId: string, expectedReviewDigest: string): Promise<RestrictedAppAssistantTask> {
-    return this.#run(() => this.#ports.withApp(scope, async () => {
-      await this.#refresh();
-      let record = this.#owned(scope, requestId);
-      if (reviewDigest(record) !== expectedReviewDigest) conflict("The Assistant request changed. Review it again.");
-      // A lost approval response returns the first acceptance; it never creates a second turn.
-      if (record.approvedAt) return projection(record);
-      if (record.status !== "pending") conflict("This Assistant request is no longer waiting for review.");
-      if (this.#records.some((item) => item.scope.featureInstallationId === scope.featureInstallationId
-        && (item.status === "running" || item.status === "dispatching"))) conflict("This app already has an Assistant task running.");
-      const at = this.#now().toISOString();
-      record = { ...record, status: "dispatching", approvedAt: at, updatedAt: at };
-      await this.#replace(record); // Journal the clicked decision before ordinary Chat admission.
+      await this.#save([...records, record]); // Journal the receipt before ordinary Chat admission.
       try { await this.#ports.dispatch(structuredClone(record)); }
       catch {
         // Admission can throw after its own durable acceptance. Reconcile first;
@@ -190,19 +166,41 @@ export class RestrictedAppTaskService extends EventEmitter {
         }
       }
       await this.#refresh();
+      return projection(this.#owned(scope, value.requestId));
+    }));
+  }
+
+  async list(scope: RestrictedAppTaskScope, ownership: RestrictedAppTaskOwnership = "revision"): Promise<RestrictedAppAssistantTask[]> {
+    return this.#run(() => this.#ports.withApp(scope, async () => {
+      await this.#refresh();
+      return this.#records.filter((item) => matches(item.scope, scope, ownership)).reverse()
+        .sort((a, b) => Number(live.has(b.status)) - Number(live.has(a.status))).slice(0, limits.listItems)
+        .map((item) => { const { result: _result, ...summary } = projection(item); return summary; });
+    }));
+  }
+
+  async get(scope: RestrictedAppTaskScope, requestId: string): Promise<RestrictedAppAssistantTask> {
+    return this.#run(() => this.#ports.withApp(scope, async () => {
+      await this.#refresh();
       return projection(this.#owned(scope, requestId));
     }));
   }
 
-  async cancel(scope: RestrictedAppTaskScope, requestId: string, assertCurrent = () => {}): Promise<RestrictedAppAssistantTask> {
+  /** Trusted Apps tab only. Never expose through a restricted app bridge. */
+  async detail(scope: RestrictedAppTaskScope, requestId: string, ownership: RestrictedAppTaskOwnership = "revision"): Promise<RestrictedAppTaskDetail> {
     return this.#run(() => this.#ports.withApp(scope, async () => {
       await this.#refresh();
-      let record = this.#owned(scope, requestId);
+      const record = this.#owned(scope, requestId, ownership);
+      return { task: projection(record), instructions: record.instructions, inputJson: record.inputJson, conversationId: record.conversationId };
+    }));
+  }
+
+  async cancel(scope: RestrictedAppTaskScope, requestId: string, assertCurrent = () => {}, ownership: RestrictedAppTaskOwnership = "revision"): Promise<RestrictedAppAssistantTask> {
+    return this.#run(() => this.#ports.withApp(scope, async () => {
+      await this.#refresh();
+      let record = this.#owned(scope, requestId, ownership);
       assertCurrent();
-      if (record.status === "pending") {
-        record = { ...record, status: "cancelled", updatedAt: this.#now().toISOString() };
-        await this.#replace(record);
-      } else if (record.status === "running") {
+      if (live.has(record.status)) {
         const turn = this.#turn(record);
         if (turn) {
           record = { ...record, cancellationRequested: true, updatedAt: this.#now().toISOString() };
@@ -211,14 +209,14 @@ export class RestrictedAppTaskService extends EventEmitter {
           await this.#refresh();
         }
       }
-      return projection(this.#owned(scope, requestId));
+      return projection(this.#owned(scope, requestId, ownership));
     }));
   }
 
   async flush(): Promise<void> { await this.#queue.catch(() => undefined); }
 
-  #owned(scope: RestrictedAppTaskScope, requestId: string): RestrictedAppTaskReceipt {
-    const record = this.#records.find((item) => item.requestId === requestId && sameScope(item.scope, scope));
+  #owned(scope: RestrictedAppTaskScope, requestId: string, ownership: RestrictedAppTaskOwnership = "revision"): RestrictedAppTaskReceipt {
+    const record = this.#records.find((item) => item.requestId === requestId && matches(item.scope, scope, ownership));
     if (!record) throw new RestrictedAppTaskError("TASK_DENIED", "This Assistant request is unavailable to this app revision.");
     return record;
   }
@@ -235,8 +233,7 @@ export class RestrictedAppTaskService extends EventEmitter {
   async #refresh(): Promise<void> {
     const at = this.#now().toISOString();
     const next = this.#records.map((record): RestrictedAppTaskReceipt => {
-      if (record.status === "pending" && Date.parse(at) - Date.parse(record.createdAt) > limits.reviewAgeMs) return { ...record, status: "expired", updatedAt: at };
-      if (record.status !== "running" && record.status !== "dispatching") return record;
+      if (!live.has(record.status)) return record;
       const turn = this.#turn(record);
       const status = !turn ? "interrupted" : turn.status === "accepted" || turn.status === "running" ? "running"
         : turn.status === "aborted" ? "cancelled" : turn.status;
@@ -279,22 +276,18 @@ export class RestrictedAppTaskService extends EventEmitter {
 
 export function restrictedAppTaskTurnRequestId(record: Pick<RestrictedAppTaskReceipt, "id">): string { return `app-task-${record.id}`; }
 
-/** Stable, fully reviewable content; no arbitrary Chat, fold context or tool policy injection. */
+/** Stable, fully inspectable content; no arbitrary Chat, fold context or tool policy injection. */
 export function restrictedAppTaskPrompt(record: Pick<RestrictedAppTaskReceipt, "title" | "instructions" | "inputJson">): string {
-  return `App task: ${record.title}\n\n${record.instructions}\n\nApp-supplied input (JSON):\n${record.inputJson}\n\nThe person approved this one request. Work in this Space using your usual tools. Your final reply will be shared with the requesting app; include only the task's result and relevant Space-relative deliverable paths.`;
+  return `App request: ${record.title}\n\n${record.instructions}\n\nApp-supplied input (JSON):\n${record.inputJson}\n\nThis request came from the app “${record.title}” installed in this Space. Work in this Space using your usual tools. Your final reply will be shared with the requesting app; include only the task's result and relevant Space-relative deliverable paths.`;
 }
 
 export function restrictedAppTaskAuthorityDigest(authority: unknown): string { return hash(authority); }
 
 function projection(record: RestrictedAppTaskReceipt): RestrictedAppAssistantTask {
   return { id: record.id, requestId: record.requestId, actionId: record.actionId, title: record.title,
-    status: record.status, createdAt: record.createdAt, updatedAt: record.updatedAt,
-    ...(record.approvedAt ? { approvedAt: record.approvedAt } : {}),
+    status: record.status, createdAt: record.createdAt, updatedAt: record.updatedAt, startedAt: record.startedAt,
     ...(record.cancellationRequested ? { cancellationRequested: true as const } : {}),
     ...(record.result ? { result: structuredClone(record.result) } : {}) };
-}
-function reviewDigest(record: RestrictedAppTaskReceipt): string {
-  return hash({ id: record.id, scope: record.scope, requestDigest: record.requestDigest, title: record.title, instructions: record.instructions, inputJson: record.inputJson });
 }
 function hash(value: unknown): string { return createHash("sha256").update(canonicalJson(value)).digest("hex"); }
 function canonicalJson(value: unknown): string {
@@ -304,6 +297,10 @@ function canonicalJson(value: unknown): string {
 }
 function sameScope(a: RestrictedAppTaskScope, b: RestrictedAppTaskScope): boolean {
   return a.spaceId === b.spaceId && a.appId === b.appId && a.featureInstallationId === b.featureInstallationId && a.digest === b.digest && a.authorityDigest === b.authorityDigest;
+}
+function matches(recorded: RestrictedAppTaskScope, scope: RestrictedAppTaskScope, ownership: RestrictedAppTaskOwnership): boolean {
+  if (ownership === "revision") return sameScope(recorded, scope);
+  return recorded.spaceId === scope.spaceId && recorded.appId === scope.appId && recorded.featureInstallationId === scope.featureInstallationId;
 }
 function assertScope(a: RestrictedAppTaskScope, b: RestrictedAppTaskScope): void {
   if (!sameScope(a, b)) throw new RestrictedAppTaskError("TASK_DENIED", "This request belongs to a different app revision or permission selection.");
@@ -326,13 +323,25 @@ function date(value: unknown): string {
 function invalid(message: string): never { throw new RestrictedAppTaskError("TASK_INVALID", message); }
 function conflict(message: string): never { throw new RestrictedAppTaskError("TASK_CONFLICT", message); }
 
+/** A v1 journal's inert or expired requests were never dispatched; they load as stopped. */
+function upgradeLegacyReceipt(value: unknown, loadedAt: string): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const { approvedAt, ...rest } = value as Record<string, unknown>;
+  const retired = rest.status === "pending" || rest.status === "expired";
+  return {
+    ...rest,
+    ...(retired ? { status: "cancelled", updatedAt: loadedAt } : {}),
+    startedAt: typeof approvedAt === "string" ? approvedAt : rest.createdAt,
+  };
+}
+
 function parseReceipt(value: unknown): RestrictedAppTaskReceipt {
   if (!value || typeof value !== "object") invalid("The Assistant request journal is invalid.");
-  const optional = ["result", "approvedAt", "cancellationRequested"].filter((key) => Object.hasOwn(value, key));
-  exact(value, ["id", "requestId", "actionId", "title", "status", "createdAt", "updatedAt", "scope", "requestedAt", "requestDigest", "instructions", "inputJson", "conversationId", ...optional]);
+  const optional = ["result", "cancellationRequested"].filter((key) => Object.hasOwn(value, key));
+  exact(value, ["id", "requestId", "actionId", "title", "status", "createdAt", "updatedAt", "startedAt", "scope", "requestedAt", "requestDigest", "instructions", "inputJson", "conversationId", ...optional]);
   exact(value.scope, ["spaceId", "appId", "featureInstallationId", "digest", "authorityDigest"]);
   if (typeof value.id !== "string" || typeof value.requestId !== "string" || !uuid.test(value.id) || !uuid.test(value.requestId) || value.conversationId !== `chat-app-${value.id}`
-    || !["pending", "dispatching", "running", "succeeded", "failed", "cancelled", "interrupted", "expired"].includes(value.status)
+    || !statuses.includes(value.status)
     || typeof value.actionId !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(value.actionId)
     || typeof value.title !== "string" || !value.title.length || value.title.length > 80
     || typeof value.instructions !== "string" || !value.instructions.length || value.instructions.length > limits.instructions
@@ -340,12 +349,10 @@ function parseReceipt(value: unknown): RestrictedAppTaskReceipt {
     || !/^[a-f0-9]{64}$/.test(value.requestDigest)
     || Object.values(value.scope).some((item) => typeof item !== "string" || !item.length || item.length > 200)
     || !/^[a-f0-9]{64}$/.test(value.scope.digest) || !/^[a-f0-9]{64}$/.test(value.scope.authorityDigest)) invalid("The Assistant request journal is invalid.");
-  for (const key of ["createdAt", "updatedAt", "requestedAt", ...(Object.hasOwn(value, "approvedAt") ? ["approvedAt"] : [])]) date(value[key]);
-  if ((value.status === "pending" || value.status === "expired") && Object.hasOwn(value, "approvedAt")) invalid("The pending Assistant request cannot already be approved.");
+  for (const key of ["createdAt", "updatedAt", "startedAt", "requestedAt"]) date(value[key]);
   if (value.requestDigest !== hash({ actionId: value.actionId, requestedAt: value.requestedAt, inputJson: value.inputJson })) invalid("The Assistant request journal input changed.");
   JSON.parse(value.inputJson);
-  if (["dispatching", "running", "succeeded", "failed", "interrupted"].includes(value.status) && !value.approvedAt) invalid("The Assistant request lacks its review receipt.");
-  if (value.cancellationRequested !== undefined && (value.cancellationRequested !== true || !value.approvedAt)) invalid("The Assistant cancellation receipt is invalid.");
+  if (value.cancellationRequested !== undefined && value.cancellationRequested !== true) invalid("The Assistant cancellation receipt is invalid.");
   if (value.result !== undefined) {
     exact(value.result, ["text", "truncated"]);
     if (value.status !== "succeeded" || typeof value.result.text !== "string" || Buffer.byteLength(value.result.text) > limits.resultBytes || typeof value.result.truncated !== "boolean") invalid("The Assistant result is invalid.");

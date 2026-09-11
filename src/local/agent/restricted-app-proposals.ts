@@ -5,6 +5,8 @@ import { dirname, resolve } from "node:path";
 
 import { RestrictedAppError } from "./restricted-app-connections.js";
 import {
+  installationNeeds,
+  type RestrictedAppInstallationNeeds,
   type RestrictedAppInstalled,
   type RestrictedAppReview,
   type RestrictedAppPreviewBase,
@@ -17,7 +19,12 @@ export interface RestrictedAppProposalScope {
   conversationId: string;
 }
 
-export type RestrictedAppProposalStatus = "pending" | "installed" | "dismissed" | "revision-changed";
+/**
+ * `pending` exists only between the receipt write and the install that the
+ * same call performs (or after a crash between them); `failed` keeps a
+ * bounded plain error and can be retried or dismissed.
+ */
+export type RestrictedAppProposalStatus = "pending" | "installed" | "failed" | "dismissed" | "revision-changed";
 
 export interface RestrictedAppProposalReceipt extends RestrictedAppProposalScope {
   id: string;
@@ -27,9 +34,27 @@ export interface RestrictedAppProposalReceipt extends RestrictedAppProposalScope
   createdAt: string;
   updatedAt: string;
   installedApp?: RestrictedAppInstalled;
+  /** Bounded plain text from the failed install; never a credential. */
+  error?: string;
+  /** What still needs a person after the install; the receipt is the record. */
+  needs?: RestrictedAppInstallationNeeds;
   changeId?: string;
   expectedPreviewBase?: RestrictedAppPreviewBase;
 }
+
+export interface RestrictedAppProposalInstallContext {
+  spaceId: string;
+  conversationId: string;
+}
+
+/**
+ * Performs the recorded proposal's install. The server supplies a variant that
+ * waits for other Space work and never stops the proposing turn's own client.
+ */
+export type RestrictedAppProposalInstaller = (
+  proposalId: string,
+  context: RestrictedAppProposalInstallContext,
+) => Promise<RestrictedAppInstalled | null>;
 
 /** Machine-local provenance. This record is never copied into a portable Chat. */
 export interface RestrictedAppChangeReceipt {
@@ -60,8 +85,10 @@ export interface RestrictedAppBuildContext {
 }
 
 export interface RestrictedAppProposalResult {
-  status: "pending" | "cancelled";
+  status: "installed" | "failed" | "cancelled";
   proposal?: RestrictedAppProposalReceipt;
+  app?: RestrictedAppInstalled;
+  needs?: RestrictedAppInstallationNeeds;
 }
 
 export interface RestrictedAppProposalSettled {
@@ -84,25 +111,33 @@ interface ProposalRegistryFile {
 /**
  * Machine-local, conversation-bound receipts for app packages proposed by Pi.
  * The model supplies only a Space-relative folder. work-fold inspects that
- * folder and owns every review field and the digest used for installation.
+ * folder, owns every review field and the digest used for installation, and
+ * installs the local preview in the same call; the receipt is the record of
+ * what was added and what still needs a person (docs/receipts-not-gates.md, F21).
  */
 export class RoutedRestrictedAppProposalHost extends EventEmitter implements RestrictedAppProposalHost {
   readonly #service: RestrictedAppService;
   readonly #registryPath: string;
+  readonly #installNow: RestrictedAppProposalInstaller;
   #registry: ProposalRegistryFile;
   #queue: Promise<void> = Promise.resolve();
 
-  private constructor(service: RestrictedAppService, registryPath: string, registry: ProposalRegistryFile) {
+  private constructor(service: RestrictedAppService, registryPath: string, registry: ProposalRegistryFile, installNow?: RestrictedAppProposalInstaller) {
     super();
     this.#service = service;
     this.#registryPath = registryPath;
     this.#registry = registry;
+    this.#installNow = installNow ?? ((id) => this.install(id));
   }
 
-  static async create(options: { service: RestrictedAppService; registryPath: string }): Promise<RoutedRestrictedAppProposalHost> {
+  static async create(options: {
+    service: RestrictedAppService;
+    registryPath: string;
+    installNow?: RestrictedAppProposalInstaller;
+  }): Promise<RoutedRestrictedAppProposalHost> {
     const registryPath = resolve(options.registryPath);
     await mkdir(dirname(registryPath), { recursive: true });
-    return new RoutedRestrictedAppProposalHost(options.service, registryPath, await readRegistry(registryPath));
+    return new RoutedRestrictedAppProposalHost(options.service, registryPath, await readRegistry(registryPath), options.installNow);
   }
 
   async propose(
@@ -121,9 +156,9 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
       const change = this.#registry.changes.find((item) => item.sourceSpaceId === input.spaceId
         && resolve(input.spaceRoot, item.sourcePath) === resolve(input.spaceRoot, sourcePath));
       if (change && (change.status !== "ready" || change.appId !== review.manifest.id || change.packageName !== review.packageName)) {
-        throw new RestrictedAppError("INPUT_INVALID", "Keep the app and package identity of this working copy before submitting it for review.");
+        throw new RestrictedAppError("INPUT_INVALID", "Keep the app and package identity of this working copy before adding it.");
       }
-      const existing = this.#registry.proposals.find((item) => item.status === "pending"
+      const existing = this.#registry.proposals.find((item) => (item.status === "pending" || item.status === "installed" || item.status === "failed")
         && item.spaceId === input.spaceId
         && item.conversationId === input.conversationId
         && item.sourcePath === sourcePath
@@ -146,8 +181,18 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
       await this.#writeRegistry({ ...this.#registry, proposals });
       return copyReceipt(receipt);
     });
-    this.emit("request", proposal);
-    return { status: "pending", proposal };
+    if (proposal.status === "pending") this.emit("request", proposal);
+    if (signal?.aborted) return { status: "cancelled", proposal };
+    let app: RestrictedAppInstalled | null;
+    try {
+      app = await this.#installNow(proposal.id, { spaceId: input.spaceId, conversationId: input.conversationId });
+    } catch {
+      // install() already recorded the failure and emitted its settlement.
+      return { status: "failed", proposal: (await this.get(proposal.id)) ?? proposal };
+    }
+    const settled = (await this.get(proposal.id)) ?? proposal;
+    if (!app || settled.status !== "installed") return { status: "failed", proposal: settled };
+    return { status: "installed", proposal: settled, app, ...(settled.needs ? { needs: settled.needs } : {}) };
   }
 
   async get(id: string): Promise<RestrictedAppProposalReceipt | undefined> {
@@ -243,12 +288,13 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
       .map(copyReceipt);
   }
 
+  /** Installs the recorded revision; idempotent once installed, retryable after a failure. */
   async install(id: string): Promise<RestrictedAppInstalled | null> {
     return await this.#mutate(async () => {
       const proposal = this.#registry.proposals.find((item) => item.id === id);
       if (!proposal) return null;
       if (proposal.status === "installed" && proposal.installedApp) return structuredClone(proposal.installedApp);
-      if (proposal.status !== "pending") return null;
+      if (proposal.status !== "pending" && proposal.status !== "failed") return null;
       let app: RestrictedAppInstalled;
       try {
         app = await this.#service.install({
@@ -259,17 +305,21 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
           ...(proposal.expectedPreviewBase !== undefined ? { expectedPreviewBase: proposal.expectedPreviewBase } : {}),
         });
       } catch (caught) {
-        if (caught instanceof RestrictedAppError && caught.code === "REVISION_CHANGED") {
-          proposal.status = "revision-changed";
-          proposal.updatedAt = new Date().toISOString();
-          await this.#writeRegistry(this.#registry);
-          this.emit("settled", { proposal: copyReceipt(proposal) } satisfies RestrictedAppProposalSettled);
-        }
+        // A changed preview base is terminal for this receipt (the person
+        // starts the edit again); any other failure can be retried.
+        const revisionChanged = caught instanceof RestrictedAppError && caught.code === "REVISION_CHANGED";
+        proposal.status = revisionChanged ? "revision-changed" : "failed";
+        proposal.updatedAt = new Date().toISOString();
+        proposal.error = boundedError(caught);
+        await this.#writeRegistry(this.#registry);
+        this.emit("settled", { proposal: copyReceipt(proposal) } satisfies RestrictedAppProposalSettled);
         throw caught;
       }
       proposal.status = "installed";
       proposal.updatedAt = new Date().toISOString();
       proposal.installedApp = structuredClone(app);
+      proposal.needs = await this.#needsFor(app);
+      delete proposal.error;
       await this.#writeRegistry({ ...this.#registry, changes: this.#registry.changes.map((item) => item.id === proposal.changeId
         ? { ...item, previewBase: { featureInstallationId: app.featureInstallationId, digest: app.digest } } : item) });
       this.emit("settled", { proposal: copyReceipt(proposal) } satisfies RestrictedAppProposalSettled);
@@ -277,10 +327,20 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
     });
   }
 
+  async #needsFor(app: RestrictedAppInstalled): Promise<RestrictedAppInstallationNeeds> {
+    let statuses: Awaited<ReturnType<RestrictedAppService["connectionStatus"]>> = [];
+    try {
+      statuses = await this.#service.connectionStatus(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId);
+    } catch {
+      // Without a connection store every credential-bearing destination still needs the person.
+    }
+    return installationNeeds(app, statuses);
+  }
+
   async dismiss(id: string): Promise<boolean> {
     return await this.#mutate(async () => {
       const proposal = this.#registry.proposals.find((item) => item.id === id);
-      if (!proposal || proposal.status !== "pending") return false;
+      if (!proposal || (proposal.status !== "pending" && proposal.status !== "failed")) return false;
       proposal.status = "dismissed";
       proposal.updatedAt = new Date().toISOString();
       await this.#writeRegistry(this.#registry);
@@ -383,8 +443,26 @@ function validReceipt(value: unknown): value is RestrictedAppProposalReceipt {
     && typeof receipt.updatedAt === "string"
     && (receipt.changeId === undefined || typeof receipt.changeId === "string" && receipt.expectedPreviewBase !== undefined)
     && (receipt.expectedPreviewBase === undefined || validPreviewBase(receipt.expectedPreviewBase))
-    && ["pending", "installed", "dismissed", "revision-changed"].includes(String(receipt.status))
+    && (receipt.error === undefined || typeof receipt.error === "string" && receipt.error.length <= maximumErrorLength)
+    && (receipt.needs === undefined || validNeeds(receipt.needs))
+    && ["pending", "installed", "failed", "dismissed", "revision-changed"].includes(String(receipt.status))
     && Boolean(receipt.review && typeof receipt.review.digest === "string");
+}
+
+function validNeeds(value: unknown): value is RestrictedAppInstallationNeeds {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const needs = value as Record<string, unknown>;
+  return ["connections", "files", "checks"].every((key) => Array.isArray(needs[key])
+    && (needs[key] as unknown[]).every((item) => typeof item === "string" && item.length > 0 && item.length <= 64))
+    && Object.keys(needs).every((key) => ["connections", "files", "checks"].includes(key));
+}
+
+const maximumErrorLength = 500;
+
+function boundedError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error ?? "unknown error");
+  const text = message.trim() || "The app could not be added.";
+  return text.length > maximumErrorLength ? `${text.slice(0, maximumErrorLength - 1)}…` : text;
 }
 
 function copyReceipt(receipt: RestrictedAppProposalReceipt): RestrictedAppProposalReceipt {

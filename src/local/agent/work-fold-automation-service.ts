@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 export const workFoldAutomationMaxErrorLength = 300;
 
-const defaultMaxConcurrency = 2;
+const defaultMaxConcurrency = 4;
 const defaultMaxRunResults = 500;
 const maximumTimerDelayMs = 2_147_483_647;
 const maximumKeyPartLength = 200;

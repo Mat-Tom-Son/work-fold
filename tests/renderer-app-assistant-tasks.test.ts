@@ -28,13 +28,14 @@ test("opening an app task Chat closes its retained Apps dialog and restores shel
     networkGrants: [], fileGrants: [], notificationGrants: [], automations: [],
     manifest: { id: "quotes", title: "Quotes", version: 2, runtime: { kind: "sandboxed-web", entry: "index.html" }, ui: {}, tools: [], automations: [],
       permissions: { network: [], files: [], notifications: [] }, assistantActions: [{ id: "compare", title: "Compare", instructions: "Compare quotes", inputSchema: { type: "string", maxLength: 100 } }] } } as RestrictedAppInstalled;
-  const task = { id: "task-one", requestId: "request-one", actionId: "compare", title: "Compare", status: "succeeded", createdAt: app.installedAt, updatedAt: app.updatedAt, approvedAt: app.updatedAt };
+  const task = { id: "task-one", requestId: "request-one", actionId: "compare", title: "Compare", status: "succeeded", createdAt: app.installedAt, updatedAt: app.updatedAt, startedAt: app.updatedAt };
+  const running = { ...task, id: "task-two", requestId: "request-two", status: "running" };
   globalThis.fetch = async (input, options) => {
     const path = String(input);
     if (path.includes("control-events")) return new Promise((_resolve, reject) => { options?.signal?.addEventListener("abort", () => reject(new DOMException("Closed", "AbortError")), { once: true }); });
     let value: unknown;
-    if (path.includes("assistant-tasks/request-one")) value = { review: { task, instructions: "Compare quotes", inputJson: '"North $42"', reviewDigest: "review", conversationId: "chat-one" } };
-    else if (path.includes("assistant-tasks")) value = { tasks: [task] };
+    if (path.includes("assistant-tasks/request-one")) value = { detail: { task, instructions: "Compare quotes", inputJson: '"North $42"', conversationId: "chat-one" } };
+    else if (path.includes("assistant-tasks")) value = { tasks: [task, running] };
     else if (path.includes("build-context")) value = { context: { sourceSpaceId: app.spaceId, sourcePath: null, buildConversationId: null, updateTargetRuntimeInstanceId: null } };
     else if (path.includes("connections")) value = { connections: [] };
     else if (path.includes("storage/recovery")) value = { recovery: null };
@@ -57,10 +58,13 @@ test("opening an app task Chat closes its retained Apps dialog and restores shel
       chatOpen ? createElement("article", { id: "chat" }, "Task Chat") : null);
   }
   const button = (label: string) => Array.from(document.querySelectorAll("button")).find((item) => item.textContent === label)!;
+  const buttons = () => Array.from(document.querySelectorAll("button")).map((item) => item.textContent);
   await dom.render(createElement(Screen));
   await dom.act(() => button("Details").click());
   await dom.waitFor(() => Boolean(button("Open Chat")));
   assert.equal(document.getElementById("shell-navigation")!.inert, true);
+  assert.ok(buttons().includes("Stop"), "a running request offers Stop");
+  assert.ok(!buttons().some((label) => label === "Review" || label === "Run in this Space" || label === "Dismiss"), "no review or approval controls");
   await dom.act(() => button("Open Chat").click());
   await dom.waitFor(() => Boolean(document.getElementById("chat")) && !document.querySelector('[role="dialog"]'));
   assert.deepEqual(opened, [["space-one", "chat-one"]]);

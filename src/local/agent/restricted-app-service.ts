@@ -86,6 +86,7 @@ import {
   type AuthorityGeneration,
   type AuthorityStamp,
   type DataNamespaceId,
+  type DeclarationDigest,
   type FeatureInstallationId,
   type EffectivePrincipal,
   type PrincipalId,
@@ -348,9 +349,23 @@ export interface RestrictedAppRuntimeHost {
   close(): Promise<void>;
 }
 
+/** The Space's registered Checks; an install binds a declared Check slot only when there is exactly one. */
+export type RestrictedAppCheckLister = (spaceId: string) => Promise<Array<{ checkId: string; declarationDigest: string; title: string }>>;
+
+/** What an installed app still needs from a person before every declared power works. */
+export interface RestrictedAppInstallationNeeds {
+  /** Destinations whose declared auth needs a secret that is not connected yet. */
+  connections: string[];
+  /** File-target permissions without a chosen file. */
+  files: string[];
+  /** Check slots not bound to a Check. */
+  checks: string[];
+}
+
 export interface RestrictedAppServiceOptions {
   rootPath: string;
   readCheckResult?: RestrictedAppCheckReader;
+  listChecks?: RestrictedAppCheckLister;
   runtimeHost?: RestrictedAppRuntimeHost;
   connections?: RestrictedAppConnectionStore;
   storage?: FileRestrictedAppStorage;
@@ -364,6 +379,8 @@ export interface RestrictedAppServiceOptions {
   deferAutomationStart?: boolean;
   /** Routing-trigger seam; settled runs are published only after their receipt is durable. */
   settleSignal?: WorkFoldSettleSignal;
+  /** Machine-wide automation slots; the scheduler's generous default applies when omitted. */
+  automationMaxConcurrency?: number;
 }
 
 interface RestrictedAppRegistryFile {
@@ -548,6 +565,7 @@ interface RestrictedAppRegistryEntry {
 
 export class RestrictedAppService {
   readonly #readCheckResult?: RestrictedAppCheckReader;
+  readonly #listChecks?: RestrictedAppCheckLister;
   readonly #rootPath: string;
   readonly #catalogListeners = new Set<() => void>();
   readonly #registryPath: string;
@@ -571,6 +589,7 @@ export class RestrictedAppService {
 
   private constructor(options: RestrictedAppServiceOptions, registry: RestrictedAppRegistryFile) {
     this.#readCheckResult = options.readCheckResult;
+    this.#listChecks = options.listChecks;
     this.#rootPath = resolve(options.rootPath);
     this.#registryPath = join(this.#rootPath, "registry.json");
     this.#stagingPath = join(this.#rootPath, "staged");
@@ -595,6 +614,7 @@ export class RestrictedAppService {
     };
     this.#automations = new WorkFoldAutomationService({
       clock,
+      ...(options.automationMaxConcurrency !== undefined ? { maxConcurrency: options.automationMaxConcurrency } : {}),
       onResult: async (result) => { await this.#recordAutomationResult(result); },
     });
   }
@@ -1186,6 +1206,7 @@ export class RestrictedAppService {
         throw new RestrictedAppError("REVISION_CHANGED", "The prepared Runtime Instance id is no longer available.");
       }
       const timestamp = this.#now().toISOString();
+      const checkChoice = await this.#checkChoice(operation.targetSpaceId);
       const runtime: RestrictedAppRuntimeInstanceRegistryEntry = {
         kind: "app",
         host: "local",
@@ -1215,11 +1236,7 @@ export class RestrictedAppService {
           digest: receipt.digest,
           artifactDigest: receipt.artifactDigest,
           manifest: structuredClone(receipt.manifest),
-          networkGrants: [],
-          fileGrants: [],
-          notificationGrants: [],
-          automations: receipt.manifest.automations.map((automation) => ({ id: automation.id, enabled: false })),
-          automationRuns: [],
+          ...installationDefaults(receipt.manifest, timestamp, checkChoice),
           fileCount: receipt.fileCount,
           totalBytes: receipt.totalBytes,
           installedAt: timestamp,
@@ -1413,25 +1430,41 @@ export class RestrictedAppService {
       const packagesByFeature = new Map(packages.map((item) => [item.feature.featureId, item]));
       const current = this.#registry.installations.filter((item) => item.runtimeInstanceId === runtime.runtimeInstanceId);
       await Promise.all(current.map((app) => this.#runtimeHost?.stop(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId)));
+      const timestamp = this.#now().toISOString();
+      const checkChoice = await this.#checkChoice(runtime.spaceId);
+      const startFresh = operation.continuityPolicy === "reset";
+      const carriedByFeature = new Map<string, ReturnType<typeof carryForwardInstallation>>();
       // Connection reset is a revocation boundary, so remove the predecessor
       // credentials before committing the successor authority. Deferring this
       // cleanup is unsafe for exact-revision resets because the old and new
       // Feature identities intentionally match. A failure here leaves the
       // reviewed operation intact and the predecessor installation active,
       // but without the credentials the person explicitly chose to revoke.
+      // Under the default continuity, a changed revision instead carries the
+      // connections whose declarations are byte-identical onto the successor
+      // scope (docs/receipts-not-gates.md, F21) and drops the rest.
       for (const transition of recomputed.transitions) {
-        if (transition.action !== "remove" && !transition.resets.includes("connections")) continue;
         const existing = current.find((item) => item.manifest.id === transition.featureId);
-        if (!existing) throw new Error(`App update connection reset is missing Feature ${transition.featureId}.`);
-        // Invalidate OAuth's per-binding generation before deleting the shared
-        // credential scope. An in-flight refresh or browser callback must not
-        // recreate the exact binding after an explicit reset.
-        await this.#invalidateOAuthApp(existing);
-        if (this.#connections) {
-          await this.#connections.deleteFeature(connectionFeatureScope(existing, this.#registry.localIdentity));
+        if (transition.action === "remove" || transition.resets.includes("connections")) {
+          if (!existing) throw new Error(`App update connection reset is missing Feature ${transition.featureId}.`);
+          // Invalidate OAuth's per-binding generation before deleting the shared
+          // credential scope. An in-flight refresh or browser callback must not
+          // recreate the exact binding after an explicit reset.
+          await this.#invalidateOAuthApp(existing);
+          if (this.#connections) {
+            await this.#connections.deleteFeature(connectionFeatureScope(existing, this.#registry.localIdentity));
+          }
+          continue;
+        }
+        if (transition.action === "add" || !existing || startFresh) continue;
+        const target = packagesByFeature.get(transition.featureId);
+        if (!target) throw new Error(`App update target is missing Feature ${transition.featureId}.`);
+        const carried = carryForwardInstallation(existing, target.receipt.manifest, timestamp, checkChoice);
+        carriedByFeature.set(transition.featureId, carried);
+        if (existing.artifactDigest !== target.receipt.artifactDigest) {
+          await this.#carryConnections(existing, { ...existing, artifactDigest: target.receipt.artifactDigest, manifest: target.receipt.manifest }, carried);
         }
       }
-      const timestamp = this.#now().toISOString();
       const nextRuntime: Extract<RestrictedAppRuntimeInstanceRegistryEntry, { kind: "app" }> = {
         ...runtime,
         runtimeInstanceGeneration: createAuthorityGeneration(),
@@ -1466,11 +1499,7 @@ export class RestrictedAppService {
             digest: target.receipt.digest,
             artifactDigest: target.receipt.artifactDigest,
             manifest: structuredClone(target.receipt.manifest),
-            networkGrants: [],
-            fileGrants: [],
-            notificationGrants: [],
-            automations: target.receipt.manifest.automations.map((automation) => ({ id: automation.id, enabled: false })),
-            automationRuns: [],
+            ...installationDefaults(target.receipt.manifest, timestamp, checkChoice),
             fileCount: target.receipt.fileCount,
             totalBytes: target.receipt.totalBytes,
             installedAt: timestamp,
@@ -1478,23 +1507,23 @@ export class RestrictedAppService {
           });
           continue;
         }
-        const exactContinuity = transition.resets.length === 0 && transition.action === "keep";
         let authority = existing.authority;
         if (transition.featureFenceFields.length > 0) {
           authority = advanceAuthorityStamp(authority, transition.featureFenceFields);
         }
         authority = parseAuthorityStamp({ ...authority, runtimeInstanceGeneration: nextRuntime.runtimeInstanceGeneration });
-        if (!exactContinuity) {
-          pendingCleanups.push(pendingPackageCleanupForEntry(existing, timestamp));
-        } else if (existing.digest !== target.receipt.digest) {
-          pendingCleanups.push({
-            cleanupId: `cleanup_${randomUUID()}`,
-            connectionScope: null,
-            storageOwner: null,
-            packageDigest: existing.digest,
-            createdAt: timestamp,
-          });
+        if (existing.digest !== target.receipt.digest) {
+          // Dropped connections stay under the retired scope until this durable
+          // cleanup removes them; kept ones already moved to the successor scope.
+          pendingCleanups.push(pendingCleanupForEntry(existing, this.#registry.localIdentity, false, timestamp));
         }
+        // "reset" is the person's explicit choice to start over with the
+        // install defaults; the default "eligible" continuity carries grants,
+        // Check slots, automation states, and run receipts by declaration id.
+        const carried = carriedByFeature.get(transition.featureId);
+        const continuity = startFresh || !carried
+          ? installationDefaults(target.receipt.manifest, timestamp, checkChoice)
+          : carried;
         nextApps.push({
           ...existing,
           releaseDigest: operation.releaseDigest,
@@ -1504,14 +1533,12 @@ export class RestrictedAppService {
           digest: target.receipt.digest,
           artifactDigest: target.receipt.artifactDigest,
           manifest: structuredClone(target.receipt.manifest),
-          networkGrants: exactContinuity ? existing.networkGrants : [],
-          fileGrants: exactContinuity ? existing.fileGrants : [],
-          checkGrants: exactContinuity ? existing.checkGrants : undefined,
-          notificationGrants: exactContinuity ? existing.notificationGrants : [],
-          automations: exactContinuity
-            ? existing.automations
-            : target.receipt.manifest.automations.map((automation) => ({ id: automation.id, enabled: false })),
-          automationRuns: exactContinuity ? existing.automationRuns : [],
+          networkGrants: continuity.networkGrants,
+          fileGrants: continuity.fileGrants,
+          checkGrants: continuity.checkGrants,
+          notificationGrants: continuity.notificationGrants,
+          automations: continuity.automations,
+          automationRuns: continuity.automationRuns,
           fileCount: target.receipt.fileCount,
           totalBytes: target.receipt.totalBytes,
           updatedAt: timestamp,
@@ -1825,11 +1852,19 @@ export class RestrictedAppService {
         throw new RestrictedAppError("REVISION_CHANGED", errorMessage(error));
       }
       if (staged.digest !== expectedDigest) throw new RestrictedAppError("REVISION_CHANGED", "The package changed while it was being staged.");
-      if (existing) {
-        await this.#runtimeHost?.stop(input.spaceId, existing.manifest.id, existing.digest, existing.featureInstallationId);
-        await this.#invalidateOAuthApp(existing);
-      }
       const timestamp = this.#now().toISOString();
+      const checkChoice = await this.#checkChoice(input.spaceId);
+      // A changed preview carries grants, Check slots, automation states, run
+      // receipts, and byte-identical connections forward by declaration id
+      // (docs/receipts-not-gates.md, F21). Kept connections move onto the new
+      // revision scope before the registry write; a crash between the two
+      // leaves them unreachable under the new scope until that revision is
+      // installed, and uninstall removes the whole Runtime Instance scope.
+      const carried = existing ? carryForwardInstallation(existing, staged.manifest, timestamp, checkChoice) : null;
+      if (existing && carried) {
+        await this.#runtimeHost?.stop(input.spaceId, existing.manifest.id, existing.digest, existing.featureInstallationId);
+        await this.#carryConnections(existing, { ...existing, artifactDigest: staged.artifactDigest, manifest: staged.manifest }, carried);
+      }
       const hadProject = hasProject;
       const context = developmentContext(this.#registry, input.spaceId, timestamp);
       // The App Project's presentation follows the manifest the Assistant wrote
@@ -1865,11 +1900,7 @@ export class RestrictedAppService {
         digest: staged.digest,
         artifactDigest: staged.artifactDigest,
         manifest: structuredClone(staged.manifest),
-        networkGrants: [],
-        fileGrants: [],
-        notificationGrants: [],
-        automations: staged.manifest.automations.map((automation) => ({ id: automation.id, enabled: false })),
-        automationRuns: [],
+        ...(carried ? installationAuthorityOf(carried) : installationDefaults(staged.manifest, timestamp, checkChoice)),
         fileCount: staged.fileCount,
         totalBytes: staged.totalBytes,
         installedAt: existing?.installedAt ?? timestamp,
@@ -2221,8 +2252,10 @@ export class RestrictedAppService {
     const app = this.#installed(spaceId, appId, expectedDigest, featureInstallationId);
     const declaration = automationDeclaration(app.manifest, automationId);
     const entry = this.#registry.installations.find((item) => item.featureInstallationId === app.featureInstallationId)!;
+    // Run receipts carry across code changes; each public receipt names its
+    // featureRevisionDigest so a surface can label earlier revisions.
     return entry.automationRuns
-      .filter((run) => run.automationId === declaration.id && run.packageDigest === app.digest)
+      .filter((run) => run.automationId === declaration.id)
       .slice(-50)
       .reverse()
       .map(({ packageDigest: _packageDigest, ...run }) => structuredClone(run));
@@ -2534,15 +2567,17 @@ export class RestrictedAppService {
       const app = this.#installed(input.spaceId, input.appId, input.expectedDigest, input.featureInstallationId);
       const permission = app.manifest.permissions.files.find((item) => item.id === input.permissionId);
       if (!permission) throw new RestrictedAppError("FILE_DENIED", "The app did not declare this Space file permission.");
-      const currentlyGranted = app.fileGrants.some((item) => item.declarationId === permission.id);
-      if (currentlyGranted === granted) return app;
-      const existing = this.#registry.installations.find((item) => item.featureInstallationId === app.featureInstallationId)!;
+      const currentGrant = app.fileGrants.find((item) => item.declarationId === permission.id);
       const nextGrant = granted ? {
         id: permission.id,
         declarationId: permission.id,
         root: restrictedAppGrantRoot(input.root),
         access: permission.access,
       } : undefined;
+      // Granting again with a different root narrows or widens the grant (a
+      // whole-Space default can be limited to one folder); the same root is idempotent.
+      if (Boolean(currentGrant) === granted && (!nextGrant || currentGrant?.root === nextGrant.root)) return app;
+      const existing = this.#registry.installations.find((item) => item.featureInstallationId === app.featureInstallationId)!;
       if (nextGrant) {
         if (!input.spaceRoot) throw new RestrictedAppError("FILE_DENIED", "The app's Space is no longer registered.");
         try {
@@ -2560,7 +2595,7 @@ export class RestrictedAppService {
         ...existing,
         authority: advanceAuthorityStamp(existing.authority, ["grantGeneration"]),
         fileGrants: granted
-          ? [...existing.fileGrants, nextGrant!].sort((left, right) => left.id.localeCompare(right.id))
+          ? [...existing.fileGrants.filter((item) => item.declarationId !== permission.id), nextGrant!].sort((left, right) => left.id.localeCompare(right.id))
           : existing.fileGrants.filter((item) => item.declarationId !== permission.id),
       };
       await this.#writeRegistry({
@@ -2837,6 +2872,52 @@ export class RestrictedAppService {
     for (const destination of app.manifest.permissions.network) {
       await this.#invalidateOAuthDestination(app, destination);
     }
+  }
+
+  /** Exactly one registered Check with a declaration digest; otherwise a slot stays unbound and is reported as a need. */
+  async #checkChoice(spaceId: string): Promise<{ checkId: string; declarationDigest: string; title: string } | null> {
+    if (!this.#listChecks) return null;
+    try {
+      const checks = (await this.#listChecks(spaceId)).filter((item) => /^[a-f0-9]{64}$/.test(item.declarationDigest));
+      return checks.length === 1 ? structuredClone(checks[0]!) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Moves the connections a code change keeps (byte-identical destination
+   * declarations) onto the successor revision scope. Kept OAuth bindings retire
+   * their live generation so an in-flight refresh against the predecessor
+   * fails closed; dropped OAuth bindings disconnect at once, and every other
+   * dropped record stays under the retired scope until the durable pending
+   * cleanup deletes that scope (retried after a restart).
+   */
+  async #carryConnections(
+    existing: Pick<RestrictedAppRegistryEntry, "runtimeInstanceId" | "featureInstallationId" | "artifactDigest" | "manifest">,
+    next: Pick<RestrictedAppRegistryEntry, "runtimeInstanceId" | "featureInstallationId" | "artifactDigest" | "manifest">,
+    carried: Pick<ReturnType<typeof carryForwardInstallation>, "keptConnections">,
+  ): Promise<void> {
+    const kept = new Set(carried.keptConnections.map((item) => item.declarationId));
+    for (const destination of existing.manifest.permissions.network) {
+      if (!kept.has(destination.id)) {
+        await this.#invalidateOAuthDestination(existing, destination);
+        continue;
+      }
+      if (!this.#oauth || !destination.auth.some((item) => item.kind === "oauth2-pkce")) continue;
+      try {
+        this.#oauth.retire(connectionBinding(existing, this.#registry.localIdentity, destination));
+      } catch (error) {
+        if (!(error instanceof RestrictedAppOAuthError)) throw error;
+        throw new RestrictedAppError(error.code === "STORAGE_FAILED" ? "STORAGE_FAILED" : "AUTH_REQUIRED", error.message);
+      }
+    }
+    if (!this.#connections) return;
+    await this.#connections.carryForward(
+      connectionFeatureScope(existing, this.#registry.localIdentity),
+      connectionFeatureScope(next, this.#registry.localIdentity),
+      carried.keptConnections,
+    );
   }
 
   async #invalidateOAuthDestination(
@@ -3447,10 +3528,12 @@ function registryFileV6(record: Record<string, unknown>): RestrictedAppRegistryF
         ? localIdentity.principalId
         : localIdentity.servicePrincipalId;
       const expectedPrincipalKind = receipt.reason === "manual" ? "human" : "service";
+      // A carried receipt names the earlier revision it ran under; a receipt
+      // claiming the current package must name the current revision.
       if (receipt.tenantId !== localIdentity.tenantId
         || receipt.runtimeInstanceId !== installation.runtimeInstanceId
         || receipt.featureInstallationId !== installation.featureInstallationId
-        || receipt.featureRevisionDigest !== installation.artifactDigest
+        || (receipt.packageDigest === installation.digest && receipt.featureRevisionDigest !== installation.artifactDigest)
         || receipt.dataNamespaceId !== installation.dataNamespaceId
         || receipt.effectivePrincipal?.realm !== "local"
         || receipt.effectivePrincipal.principalId !== expectedPrincipalId
@@ -4078,6 +4161,136 @@ function releaseDigestValue(value: unknown): Sha256Digest {
   }
 }
 
+type RestrictedAppInstallationAuthority = Pick<RestrictedAppRegistryEntry,
+  "networkGrants" | "fileGrants" | "checkGrants" | "notificationGrants" | "automations" | "automationRuns">;
+
+/**
+ * A fresh installation comes up able to work (docs/receipts-not-gates.md,
+ * F21): every declared destination, every directory permission bound to the
+ * whole Space, every notification category, every Check slot when the Space
+ * has exactly one Check, and every automation on, anchored at install time
+ * so the first run is one interval later. File-target permissions need a
+ * chosen file and Check slots without a single choice stay unbound; both are
+ * reported as needs, not withheld as gates.
+ */
+function installationDefaults(
+  manifest: RestrictedAppManifest,
+  now: string,
+  checkChoice: { checkId: string; declarationDigest: string; title: string } | null,
+): RestrictedAppInstallationAuthority {
+  const checkGrants = checkChoice
+    ? (manifest.permissions.checks ?? []).map((permission): RestrictedAppCheckGrant => ({
+      permissionId: permission.id, title: checkChoice.title, checkId: checkChoice.checkId, declarationDigest: checkChoice.declarationDigest,
+    }))
+    : [];
+  return {
+    networkGrants: manifest.permissions.network.map((item) => item.id).sort(),
+    fileGrants: manifest.permissions.files
+      .filter((item) => item.target === "directory")
+      .map((item): RestrictedAppFileGrant => ({ id: item.id, declarationId: item.id, root: ".", access: item.access }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+    ...(checkGrants.length ? { checkGrants } : {}),
+    notificationGrants: manifest.permissions.notifications.map((item) => item.id).sort(),
+    automations: manifest.automations.map((automation) => ({ id: automation.id, enabled: true, lastScheduledAt: now })),
+    automationRuns: [],
+  };
+}
+
+/**
+ * Carry-forward on a changed revision: the person's granted/revoked state
+ * travels by declaration id (a revocation survives a code change), a chosen
+ * file root travels when the declaration's target and access are unchanged,
+ * Check slots travel by permission id, automation state objects travel by id,
+ * run receipts travel unchanged, and connections travel only for destinations
+ * whose declaration is byte-identical. New declarations take the defaults.
+ */
+function carryForwardInstallation(
+  existing: RestrictedAppRegistryEntry,
+  target: RestrictedAppManifest,
+  now: string,
+  checkChoice: { checkId: string; declarationDigest: string; title: string } | null,
+): RestrictedAppInstallationAuthority & {
+  keptConnections: Array<{ declarationId: string; declarationDigest: DeclarationDigest }>;
+  droppedDestinations: RestrictedAppManifest["permissions"]["network"];
+} {
+  const defaults = installationDefaults(target, now, checkChoice);
+  const previous = existing.manifest.permissions;
+  const carryIds = (declared: string[], oldDeclared: string[], oldGranted: string[]): string[] => declared
+    .filter((id) => oldDeclared.includes(id) ? oldGranted.includes(id) : true)
+    .sort();
+  const networkGrants = carryIds(
+    target.permissions.network.map((item) => item.id),
+    previous.network.map((item) => item.id),
+    existing.networkGrants,
+  );
+  const notificationGrants = carryIds(
+    target.permissions.notifications.map((item) => item.id),
+    previous.notifications.map((item) => item.id),
+    existing.notificationGrants,
+  );
+  const fileGrants = target.permissions.files.flatMap((declaration): RestrictedAppFileGrant[] => {
+    const before = previous.files.find((item) => item.id === declaration.id);
+    const fallback = defaults.fileGrants.filter((grant) => grant.declarationId === declaration.id);
+    if (!before) return fallback;
+    const grant = existing.fileGrants.find((item) => item.declarationId === declaration.id);
+    if (!grant) return [];
+    if (before.target !== declaration.target || before.access !== declaration.access) return fallback;
+    return [{ id: declaration.id, declarationId: declaration.id, root: grant.root, access: declaration.access }];
+  }).sort((left, right) => left.id.localeCompare(right.id));
+  const previousCheckIds = new Set((previous.checks ?? []).map((item) => item.id));
+  const checkGrants = (target.permissions.checks ?? []).flatMap((permission): RestrictedAppCheckGrant[] => {
+    if (!previousCheckIds.has(permission.id)) return (defaults.checkGrants ?? []).filter((grant) => grant.permissionId === permission.id);
+    const grant = existing.checkGrants?.find((item) => item.permissionId === permission.id);
+    return grant ? [structuredClone(grant)] : [];
+  });
+  const automations = target.automations.map((declaration): RestrictedAppAutomationRegistryState => {
+    const state = existing.automations.find((item) => item.id === declaration.id);
+    return state ? structuredClone(state) : { id: declaration.id, enabled: true, lastScheduledAt: now };
+  });
+  const keptConnections: Array<{ declarationId: string; declarationDigest: DeclarationDigest }> = [];
+  const droppedDestinations: RestrictedAppManifest["permissions"]["network"] = [];
+  for (const destination of previous.network) {
+    const successor = target.permissions.network.find((item) => item.id === destination.id);
+    const digest = computeDeclarationDigest(destination);
+    if (successor && computeDeclarationDigest(successor) === digest) keptConnections.push({ declarationId: destination.id, declarationDigest: digest });
+    else droppedDestinations.push(destination);
+  }
+  return {
+    networkGrants,
+    fileGrants,
+    ...(checkGrants.length ? { checkGrants } : {}),
+    notificationGrants,
+    automations,
+    automationRuns: structuredClone(existing.automationRuns),
+    keptConnections,
+    droppedDestinations,
+  };
+}
+
+function installationAuthorityOf(carried: ReturnType<typeof carryForwardInstallation>): RestrictedAppInstallationAuthority {
+  const { keptConnections: _keptConnections, droppedDestinations: _droppedDestinations, ...authority } = carried;
+  return authority;
+}
+
+/** What still needs a person after an install: a secret, a file choice, or a Check choice. */
+export function installationNeeds(
+  app: Pick<RestrictedAppInstalled, "manifest" | "fileGrants" | "checkGrants">,
+  statuses: readonly RestrictedAppConnectionStatus[],
+): RestrictedAppInstallationNeeds {
+  return {
+    connections: app.manifest.permissions.network
+      .filter((destination) => !destination.auth.some((item) => item.kind === "none"))
+      .filter((destination) => !statuses.find((status) => status.destinationId === destination.id)?.configured)
+      .map((destination) => destination.id),
+    files: app.manifest.permissions.files
+      .filter((permission) => !app.fileGrants.some((grant) => grant.declarationId === permission.id))
+      .map((permission) => permission.id),
+    checks: (app.manifest.permissions.checks ?? [])
+      .filter((permission) => !app.checkGrants?.some((grant) => grant.permissionId === permission.id))
+      .map((permission) => permission.id),
+  };
+}
+
 function copyInstalled(
   item: RestrictedAppRegistryEntry,
   localIdentity: RestrictedAppRegistryFile["localIdentity"],
@@ -4601,8 +4814,9 @@ function automationRunReceiptValue(
   const runId = nonempty(item.runId, "Restricted app automation run id", 200);
   const automationId = appIdValue(item.automationId);
   const packageDigest = digestValue(item.packageDigest);
-  if (expectedDigest && (!declarations.some((declaration) => declaration.id === automationId)
-    || packageDigest !== expectedDigest)) {
+  // Run receipts carry across code changes, so a receipt may name an earlier
+  // revision; the automation it belongs to must still be declared.
+  if (expectedDigest && !declarations.some((declaration) => declaration.id === automationId)) {
     throw new Error("Restricted app automation run receipt does not match its reviewed revision.");
   }
   if (item.reason !== "scheduled" && item.reason !== "manual" && item.reason !== "resume") {

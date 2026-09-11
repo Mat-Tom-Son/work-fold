@@ -272,7 +272,7 @@ export function RestrictedAppReviewDialog({ review, sourcePath, updating, busy, 
     + review.manifest.automations.length;
   return <div className="modal-backdrop capability-dialog-backdrop" role="presentation" onMouseDown={onClose}>
     <section ref={dialogRef} tabIndex={-1} className="capability-dialog restricted-app-review-dialog" role="dialog" aria-modal="true" aria-labelledby="restricted-app-review-title" onMouseDown={(event) => event.stopPropagation()}>
-      <div className="modal-title"><div><h2 id="restricted-app-review-title">Review {review.manifest.title}</h2><p>Confirm what this app adds and what it may ask you to allow later.</p></div><button className="minimal-icon-button" type="button" disabled={busy} onClick={onClose} aria-label="Close app review"><Dismiss20Regular /></button></div>
+      <div className="modal-title"><div><h2 id="restricted-app-review-title">Add {review.manifest.title}</h2><p>Confirm what this app adds and what it can do.</p></div><button className="minimal-icon-button" type="button" disabled={busy} onClick={onClose} aria-label="Close app review"><Dismiss20Regular /></button></div>
       <div className="capability-dialog-body">
         <div className="restricted-app-review-summary">
           <span className="restricted-app-review-icon" aria-hidden="true"><PlugConnected20Regular /></span>
@@ -281,21 +281,20 @@ export function RestrictedAppReviewDialog({ review, sourcePath, updating, busy, 
             <strong>{review.manifest.title}</strong>
             <p>{review.manifest.description || "An interactive app for this Space."}</p>
           </div>
-          <span className="professional-status-badge">Access starts off</span>
+          <span className="professional-status-badge enabled">On when added</span>
         </div>
-        <aside className="restricted-app-review-decision"><ShieldCheckmark20Regular aria-hidden="true" /><div><strong>One decision now</strong><p>{updating ? "Update to this exact reviewed revision. Existing access, connections, and automations reset to off." : "Add this exact reviewed revision to the Space. Network, files, notifications, and automations remain off."}</p></div></aside>
+        <aside className="restricted-app-review-decision"><ShieldCheckmark20Regular aria-hidden="true" /><div><strong>Adds now</strong><p>{updating ? "Updates to this exact revision. Unchanged connections, automation settings, and run history carry over." : "Adds this exact revision to the Space with every declared destination, folder, notification, and automation on. Turn any of them off in Apps."}</p></div></aside>
         <div className="restricted-app-review-included">
           <Add16Regular aria-hidden="true" />
           <div><strong>Added now</strong><p>An app destination and work tabs{review.manifest.tools.length ? ` · ${review.manifest.tools.length} Assistant ${review.manifest.tools.length === 1 ? "action" : "actions"}` : ""}</p></div>
           <span className="professional-status-badge enabled">Included</span>
         </div>
-        <div className="restricted-app-review-heading"><div><h3>What you may approve later</h3><p>{requestedAuthorityCount ? `${requestedAuthorityCount} ${requestedAuthorityCount === 1 ? "permission or automation is" : "permissions or automations are"} declared. Each requires its own decision after the app is added.` : "This app declares no external access or automation."}</p></div><span>{requestedAuthorityCount} declared</span></div>
+        <div className="restricted-app-review-heading"><div><h3>What this app can do</h3><p>{requestedAuthorityCount ? `${requestedAuthorityCount} ${requestedAuthorityCount === 1 ? "permission or automation is" : "permissions or automations are"} declared. Each is on when added and can be turned off in Apps.` : "This app declares no external access or automation."}</p></div><span>{requestedAuthorityCount} declared</span></div>
         <ReviewDeclarations review={review} />
-        <details className="restricted-app-package-details"><summary>Package details</summary><dl className="capability-review-facts"><div><dt>Source</dt><dd>{sourcePath}</dd></div><div><dt>Package</dt><dd>{review.packageName} {review.version}</dd></div><div><dt>Files</dt><dd>{review.fileCount} · {formatBytes(review.totalBytes)}</dd></div><div><dt>Browser entry</dt><dd>{review.manifest.runtime.entry}</dd></div><div><dt>Reviewed revision</dt><dd><code>{shortDigest(review.digest)}</code></dd></div></dl></details>
-        {updating ? <aside className="capability-code-warning danger"><Info20Regular aria-hidden="true" /><div><strong>This replaces the current preview</strong><p>The updated preview starts with network, file, notification, and automation permissions off and must have its access approved again.</p></div></aside> : null}
-        {installDisabled && !busy ? <p className="restricted-app-install-wait">Finish the current Assistant turn before adding this reviewed preview.</p> : null}
+        <details className="restricted-app-package-details"><summary>Package details</summary><dl className="capability-review-facts"><div><dt>Source</dt><dd>{sourcePath}</dd></div><div><dt>Package</dt><dd>{review.packageName} {review.version}</dd></div><div><dt>Files</dt><dd>{review.fileCount} · {formatBytes(review.totalBytes)}</dd></div><div><dt>Browser entry</dt><dd>{review.manifest.runtime.entry}</dd></div><div><dt>Revision</dt><dd><code>{shortDigest(review.digest)}</code></dd></div></dl></details>
+        {updating ? <aside className="capability-code-warning"><Info20Regular aria-hidden="true" /><div><strong>This replaces the current preview</strong><p>Connections whose destination is unchanged, automation settings, and run history carry over. A changed destination needs its secret entered again.</p></div></aside> : null}
       </div>
-      <div className="capability-dialog-footer"><button ref={cancelRef} className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onClose}>{closeLabel}</button><button className="professional-button professional-button-primary" type="button" disabled={busy || installDisabled} onClick={onInstall}>{busy ? <ArrowSync16Regular className="spin" /> : null}{installLabel ?? (updating ? "Update and reset access" : "Add app with access off")}</button></div>
+      <div className="capability-dialog-footer"><button ref={cancelRef} className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onClose}>{closeLabel}</button><button className="professional-button professional-button-primary" type="button" disabled={busy || installDisabled} onClick={onInstall}>{busy ? <ArrowSync16Regular className="spin" /> : null}{installLabel ?? (updating ? "Update app" : "Add app")}</button></div>
     </section>
   </div>;
 }
@@ -303,10 +302,10 @@ export function RestrictedAppReviewDialog({ review, sourcePath, updating, busy, 
 function ReviewDeclarations({ review }: { review: RestrictedAppReview }) {
   return <div className="restricted-app-authority-list">
     {review.manifest.assistantActions?.length ? <section className="restricted-app-authority-group">
-      <h4>Assistant requests</h4><p>Each request needs your review before it runs.</p>
+      <h4>Assistant requests</h4><p>Each request starts a Chat in this Space; open or stop it in Apps.</p>
       <div className="restricted-app-authority-items">{review.manifest.assistantActions.map((action) => <details key={action.id}><summary>{action.title}</summary><pre className="restricted-app-task-declaration">{action.instructions}</pre></details>)}</div>
     </section> : null}
-    <ReviewAuthorityGroup icon={<PlugConnected20Regular />} title="Network & connections" summary={review.manifest.permissions.network.length ? `${review.manifest.permissions.network.length} ${review.manifest.permissions.network.length === 1 ? "destination" : "destinations"} declared` : "None requested"} startsOff={Boolean(review.manifest.permissions.network.length)}>
+    <ReviewAuthorityGroup icon={<PlugConnected20Regular />} title="Network & connections" summary={review.manifest.permissions.network.length ? `${review.manifest.permissions.network.length} ${review.manifest.permissions.network.length === 1 ? "destination" : "destinations"} declared` : "None requested"} onWhenAdded={Boolean(review.manifest.permissions.network.length)}>
       {review.manifest.permissions.network.length
         ? <div className="restricted-app-authority-items">{review.manifest.permissions.network.map((destination) => <article key={destination.id}>
           <strong>{destinationLabel(destination)}</strong>
@@ -317,19 +316,19 @@ function ReviewDeclarations({ review }: { review: RestrictedAppReview }) {
         </article>)}</div>
         : null}
     </ReviewAuthorityGroup>
-    <ReviewAuthorityGroup icon={<ShieldCheckmark20Regular />} title="Space files" summary={review.manifest.permissions.files.length ? `${review.manifest.permissions.files.length} ${review.manifest.permissions.files.length === 1 ? "file choice" : "file choices"} declared` : "None requested"} startsOff={Boolean(review.manifest.permissions.files.length)}>
-      {review.manifest.permissions.files.length ? <div className="restricted-app-authority-items">{review.manifest.permissions.files.map((permission) => <article key={permission.id}><strong>{permission.access === "read-write" ? "Read and write" : "Read"} a {permission.target} you choose</strong><span>work-fold blocks every path until you choose one.</span></article>)}</div> : null}
+    <ReviewAuthorityGroup icon={<ShieldCheckmark20Regular />} title="Space files" summary={review.manifest.permissions.files.length ? `${review.manifest.permissions.files.length} ${review.manifest.permissions.files.length === 1 ? "file choice" : "file choices"} declared` : "None requested"} onWhenAdded={Boolean(review.manifest.permissions.files.length)}>
+      {review.manifest.permissions.files.length ? <div className="restricted-app-authority-items">{review.manifest.permissions.files.map((permission) => <article key={permission.id}><strong>{permission.access === "read-write" ? "Read and write" : "Read"} {permission.target === "directory" ? "the whole Space folder" : "a file you choose"}</strong><span>{permission.target === "directory" ? "On when added; limit it to one folder in Apps." : "Off until you choose a file in Apps."}</span></article>)}</div> : null}
     </ReviewAuthorityGroup>
-    {review.manifest.permissions.checks?.length ? <ReviewAuthorityGroup icon={<ShieldCheckmark20Regular />} title="Check results" summary={`${review.manifest.permissions.checks.length} choices requested`} startsOff>
-      <div className="restricted-app-authority-items">{review.manifest.permissions.checks.map((permission) => <article key={permission.id}><strong>{permission.title}</strong><span>Read status and findings from a Check you choose.</span></article>)}</div>
+    {review.manifest.permissions.checks?.length ? <ReviewAuthorityGroup icon={<ShieldCheckmark20Regular />} title="Check results" summary={`${review.manifest.permissions.checks.length} choices requested`} onWhenAdded>
+      <div className="restricted-app-authority-items">{review.manifest.permissions.checks.map((permission) => <article key={permission.id}><strong>{permission.title}</strong><span>Reads status and findings from this Space's Check; when the Space has more than one, choose it in Apps.</span></article>)}</div>
     </ReviewAuthorityGroup> : null}
-    <ReviewAuthorityGroup icon={<Alert20Regular />} title="Notifications" summary={review.manifest.permissions.notifications.length ? `${review.manifest.permissions.notifications.length} fixed ${review.manifest.permissions.notifications.length === 1 ? "notification" : "notifications"} declared` : "None requested"} startsOff={Boolean(review.manifest.permissions.notifications.length)}>
+    <ReviewAuthorityGroup icon={<Alert20Regular />} title="Notifications" summary={review.manifest.permissions.notifications.length ? `${review.manifest.permissions.notifications.length} fixed ${review.manifest.permissions.notifications.length === 1 ? "notification" : "notifications"} declared` : "None requested"} onWhenAdded={Boolean(review.manifest.permissions.notifications.length)}>
       {review.manifest.permissions.notifications.length ? <div className="restricted-app-authority-items">{review.manifest.permissions.notifications.map((permission) => <article key={permission.id}><strong>work-fold · {review.manifest.title} — {permission.title}</strong><span>{permission.description}</span></article>)}</div> : null}
     </ReviewAuthorityGroup>
-    <ReviewAuthorityGroup icon={<Clock20Regular />} title="Automations" summary={review.manifest.automations.length ? `${review.manifest.automations.length} ${review.manifest.automations.length === 1 ? "schedule" : "schedules"} declared` : "None declared"} startsOff={Boolean(review.manifest.automations.length)}>
+    <ReviewAuthorityGroup icon={<Clock20Regular />} title="Automations" summary={review.manifest.automations.length ? `${review.manifest.automations.length} ${review.manifest.automations.length === 1 ? "schedule" : "schedules"} declared` : "None declared"} onWhenAdded={Boolean(review.manifest.automations.length)}>
       {review.manifest.automations.length ? <div className="restricted-app-authority-items">{review.manifest.automations.map((automation) => <article key={automation.id}><strong>{automation.title}</strong><span>{automation.description || `Runs the ${automation.handler} handler.`}</span><small>{formatAutomationSchedule(automation)} · Power: {automationPowerSummary(review.manifest, automation)}</small></article>)}</div> : null}
     </ReviewAuthorityGroup>
-    <ReviewAuthorityGroup icon={<Globe20Regular />} title="At your address" summary={review.manifest.viewer ? (review.manifest.viewer.readable.length ? `Viewer entry plus ${review.manifest.viewer.readable.length} viewer-readable ${review.manifest.viewer.readable.length === 1 ? "collection" : "collections"} declared` : "Viewer entry declared — viewers can read no app data") : "None declared"} startsOff={Boolean(review.manifest.viewer)}>
+    <ReviewAuthorityGroup icon={<Globe20Regular />} title="At your address" summary={review.manifest.viewer ? (review.manifest.viewer.readable.length ? `Viewer entry plus ${review.manifest.viewer.readable.length} viewer-readable ${review.manifest.viewer.readable.length === 1 ? "collection" : "collections"} declared` : "Viewer entry declared — viewers can read no app data") : "None declared"} onWhenAdded={false}>
       {review.manifest.viewer ? <div className="restricted-app-authority-items"><article>
         <strong>Serve {review.manifest.viewer.entry} to anyone holding this app's link</strong>
         <span>{review.manifest.viewer.readable.length ? `Viewer-readable collections: ${review.manifest.viewer.readable.join(", ")} — this app's own stored data only.` : "Viewers can read none of this app's stored data."}</span>
@@ -339,12 +338,12 @@ function ReviewDeclarations({ review }: { review: RestrictedAppReview }) {
   </div>;
 }
 
-function ReviewAuthorityGroup({ icon, title, summary, startsOff, children }: { icon: ReactNode; title: string; summary: string; startsOff: boolean; children?: ReactNode }) {
+function ReviewAuthorityGroup({ icon, title, summary, onWhenAdded, children }: { icon: ReactNode; title: string; summary: string; onWhenAdded: boolean; children?: ReactNode }) {
   return <section className="restricted-app-authority-group">
     <div className="restricted-app-authority-heading">
       <span aria-hidden="true">{icon}</span>
       <div><h4>{title}</h4><p>{summary}</p></div>
-      <span className={startsOff ? "professional-status-badge" : "professional-status-badge enabled"}>{startsOff ? "Off when added" : "Included"}</span>
+      <span className="professional-status-badge enabled">{onWhenAdded ? "On when added" : "Included"}</span>
     </div>
     {children}
   </section>;
@@ -691,7 +690,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
         </section>
         <section className="restricted-app-connections" aria-labelledby="restricted-app-automations-title">
           <div className="restricted-app-connections-heading"><div><Clock20Regular aria-hidden="true" /><h3 id="restricted-app-automations-title">Automations</h3></div></div>
-          {app.manifest.automations.length ? <><p>Schedules are reviewed with the app and install off. Enable each one separately; Run now is an explicit one-off.</p>
+          {app.manifest.automations.length ? <><p>Schedules are on when the app is added. Turn any off here; Run now is a one-off.</p>
           {app.manifest.automations.map((automation) => <AutomationCard
             key={automation.id}
             app={app}
@@ -760,7 +759,7 @@ function AutomationCard({ app, automation, state, runs, runsLoading, runsError, 
       {runsLoading ? <p><ArrowSync16Regular className="spin" /> Loading run history…</p> : null}
       {runsError ? <p role="alert">Run history could not be loaded: {runsError}</p> : null}
       {!runsLoading && !runsError && runs ? runs.length ? <dl className="capability-review-facts">{runs.slice(0, 10).map((run) => {
-        return <div key={run.receiptId}><dt>{restrictedAppAutomationOutcomeLabel(run)}</dt><dd>{formatAutomationReason(run.reason)} · Scheduled {formatTimestamp(run.scheduledAt)} · Started {formatTimestamp(run.startedAt)} · Finished {formatTimestamp(run.finishedAt)}{run.error ? ` · ${run.error}` : ""}</dd></div>;
+        return <div key={run.receiptId}><dt>{restrictedAppAutomationOutcomeLabel(run)}</dt><dd>{formatAutomationReason(run.reason)} · Scheduled {formatTimestamp(run.scheduledAt)} · Started {formatTimestamp(run.startedAt)} · Finished {formatTimestamp(run.finishedAt)}{run.featureRevisionDigest !== app.artifactDigest ? " · Earlier revision" : ""}{run.error ? ` · ${run.error}` : ""}</dd></div>;
       })}</dl> : <p>No recorded runs.</p> : null}
     </details>
   </article>;
@@ -775,10 +774,15 @@ function FilePermissionCard({ permission, grant, busy, active, onChange }: {
 }) {
   const [root, setRoot] = useState(grant?.root ?? "");
   useEffect(() => setRoot(grant?.root ?? ""), [grant?.root, permission.target]);
+  const wholeSpace = grant?.root === ".";
+  const rootChanged = Boolean(grant) && root.trim() !== "" && root.trim() !== grant?.root;
   return <article className="restricted-app-destination-card">
-    <div className="restricted-app-destination-heading"><div><strong>{permission.access === "read-write" ? "Read and write" : "Read"} one {permission.target}</strong><span>{grant ? `Granted: ${grant.root}` : "Choose a path inside this Space"}</span></div><code>{permission.id}</code></div>
-    <div className="restricted-app-credential-fields"><label><span>Space-relative path</span><input value={root} disabled={busy || Boolean(grant)} onChange={(event) => setRoot(event.target.value)} placeholder={permission.target === "directory" ? "data (or . for the whole Space)" : "data/report.json"} /></label></div>
-    <div className="restricted-app-destination-actions"><button className={grant ? "professional-button professional-button-secondary" : "professional-button professional-button-primary"} type="button" disabled={busy || (!grant && !root.trim())} onClick={() => onChange(grant?.root ?? root.trim(), !grant)}>{active ? <ArrowSync16Regular className="spin" /> : null}{grant ? "Revoke access" : "Allow access"}</button></div>
+    <div className="restricted-app-destination-heading"><div><strong>{permission.access === "read-write" ? "Read and write" : "Read"} one {permission.target}</strong><span>{grant ? wholeSpace ? "Whole Space" : `Granted: ${grant.root}` : "Choose a path inside this Space"}</span></div><code>{permission.id}</code></div>
+    <div className="restricted-app-credential-fields"><label><span>Space-relative path</span><input value={root} disabled={busy} onChange={(event) => setRoot(event.target.value)} placeholder={permission.target === "directory" ? "data (or . for the whole Space)" : "data/report.json"} /></label></div>
+    <div className="restricted-app-destination-actions">
+      {grant && permission.target === "directory" ? <button className="professional-button professional-button-secondary" type="button" disabled={busy || !rootChanged} onClick={() => onChange(root.trim(), true)}>{active && rootChanged ? <ArrowSync16Regular className="spin" /> : null}{wholeSpace ? "Limit to folder" : "Change folder"}</button> : null}
+      <button className={grant ? "professional-button professional-button-secondary" : "professional-button professional-button-primary"} type="button" disabled={busy || (!grant && !root.trim())} onClick={() => onChange(grant?.root ?? root.trim(), !grant)}>{active && !rootChanged ? <ArrowSync16Regular className="spin" /> : null}{grant ? "Revoke access" : "Allow access"}</button>
+    </div>
     <p className="restricted-app-oauth-note">Links, work-fold metadata, Pi configuration, and paths outside this Space are always blocked. App writes create History checkpoints.</p>
   </article>;
 }

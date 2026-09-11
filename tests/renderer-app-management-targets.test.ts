@@ -21,7 +21,7 @@ test("every desktop app management helper retains its exact installation and rev
     assert.equal((options?.headers as Record<string, string>)["x-work-fold-session"], "test-session");
     assert.ok(url.pathname.startsWith("/api/spaces/source/restricted-apps/quotes"));
     requests.push(`${options?.method} ${url.pathname}`);
-    return new Response(JSON.stringify({ app, context: {}, connections: [], usage: {}, runs: [], backup: {}, recovery: null, removed: true, connection: {} }));
+    return new Response(JSON.stringify({ app, context: {}, connections: [], usage: {}, runs: [], backup: {}, recovery: null, removed: true, connection: {}, tasks: [], detail: {}, task: {} }));
   });
   await apps.getRestrictedAppBuildContext(app);
   await apps.listRestrictedAppConnections(app);
@@ -47,5 +47,9 @@ test("every desktop app management helper retains its exact installation and rev
   await apps.connectRestrictedAppOAuth(app, "api");
   await apps.deleteRestrictedAppConnection(app, "api");
   await apps.removeRestrictedApp(app);
-  assert.equal(requests.length, 24);
+  await apps.listRestrictedAppAssistantTasks(app);
+  await apps.readRestrictedAppAssistantTask(app, "request-one");
+  await apps.cancelRestrictedAppAssistantTask(app, "request-one");
+  assert.equal(requests.length, 27);
+  assert.ok(requests.includes("POST /api/spaces/source/restricted-apps/quotes/assistant-tasks/request-one/cancel"));
 });

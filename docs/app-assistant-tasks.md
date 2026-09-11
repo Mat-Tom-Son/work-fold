@@ -1,21 +1,19 @@
 # App-requested Assistant work
 
-Implemented and verified in work-fold 0.4.23. Automated Pi tool-loop,
-native review/restart, and an actual configured-model comparison task passed.
-See [integration evidence](apps-fold-workflows.md).
+A Space app can hand one of its named, declared requests to the Space's
+Assistant. The request is journaled and dispatched in the same call: the host
+creates a fresh ordinary Chat in the owning Space and starts the turn at once
+(docs/receipts-not-gates.md, F22). The app reads that task's state and its
+successful reply, or asks for it to stop. In **Apps → the app → Assistant
+requests**, the person sees each request's status, its exact instructions and
+input under **Details**, the reply once done, and **Open Chat** and **Stop**.
+Nothing there waits for a click.
 
-A Space app can ask for one of its reviewed, named Assistant tasks. The request
-starts inert. In **Apps → the app → Assistant requests**, the person opens
-**Review**, reads the instructions and input, and clicks **Run in this Space**.
-The host creates a fresh ordinary Chat in the owning Space. The app can read
-that task's state and successful reply, or request its cancellation. **Open
-Chat** exposes the ordinary transcript and deliverables to the person.
-
-This uses the Space's usual model, native Pi resources and full-trust tools.
-The review states that the reply is shared with the app. Bounds on the request
-and returned text are not a filesystem or tool sandbox for the Assistant.
-No fold transcript, other Space context, arbitrary Chat id, credentials, model
-selection or tool-policy override comes from the app request.
+The Chat uses the Space's usual model, native Pi resources and full-trust
+tools. Bounds on the request and the returned text keep envelopes sane; they
+are not a filesystem or tool sandbox for the Assistant. No fold transcript,
+other Space context, arbitrary Chat id, credential, model selection or
+tool-policy override comes from the app request.
 
 ## Declaration and bridge
 
@@ -23,7 +21,8 @@ The optional top-level `assistantActions` array in `agent-app.json` declares up
 to eight actions. Absent or empty declarations preserve existing normalized
 manifest bytes. Each action has an id, a single-line title (80 characters),
 static instructions (4,096 characters) and the same closed JSON Schema subset
-used for app tools. Declarations never start work or enable standing power.
+used for app tools. A declaration names what the app may ask for; it starts
+nothing by itself.
 
 ```json
 {
@@ -41,11 +40,12 @@ used for app tools. Declarations never start work or enable standing power.
 }
 ```
 
-Only an active native app view can use the bridge:
+An active app view, a worker handling a tool action, and a named automation run
+all reach the same bridge; nothing beyond installation is needed:
 
 ```js
 const bridge = globalThis.workFoldRestrictedApp;
-// Save this envelope in app storage before sending. Retry the same envelope
+// Save this envelope in app storage before sending. Replay the same envelope
 // after an uncertain response; do not regenerate its identity or timestamp.
 const request = {
   requestId: crypto.randomUUID(),
@@ -53,62 +53,127 @@ const request = {
   actionId: "compare",
   input: { quotes: "North: $42; South: $48" }
 };
-const task = await bridge.assistant.request(request);
+const task = await bridge.assistant.request(request); // status: "running"
 const recent = await bridge.assistant.list();
 const current = await bridge.assistant.get(request.requestId);
 await bridge.assistant.cancel(request.requestId);
 ```
 
 The request envelope has exactly those four fields. JSON input is at most
-8 KiB. New requests must have a canonical UTC timestamp within 15 minutes
-(at most one minute ahead for clock skew). Retries of retained requests return
-the same record; changing their input conflicts. The app cannot call review or
-approval, choose another Space, or read arbitrary task/Chat ids. Workers,
-automations, shared viewers and remote app views have no delegation bridge in
-this slice. Private browser worker actions use their separate reviewed action lane; they
-do not expose this native Assistant-delegation bridge.
+64 KiB; a larger input is refused with a message naming the limit and the
+Settings → The fold → Limits section. New requests must carry a canonical UTC
+timestamp within 15 minutes (at most one minute ahead for clock skew). A
+replayed envelope returns the same record; changing its input conflicts. The
+app cannot choose another Space or read arbitrary task or Chat ids. Shared
+viewers and remote app views have no Assistant bridge. Private browser worker
+actions keep their separate reviewed action lane.
 
-Task states are `pending`, `dispatching`, `running`, `succeeded`, `failed`,
-`cancelled`, `interrupted` and `expired`. A requested stop leaves a running task
-running, with `cancellationRequested: true`, until the ordinary turn actually
-settles. Failed/interrupted tasks expose no partial reply or private provider
-error. Successful `get` returns `result: { text, truncated }`, bounded to 32 KiB
-without splitting a UTF-8 character. The list contains at most 50 summaries,
-active requests first, with no reply text. Only the task's successful reply is
-shared; other messages in its Chat are never made app-readable by this grant.
+Task states are `dispatching`, `running`, `succeeded`, `failed`, `cancelled`
+and `interrupted`; every task carries `startedAt`, its dispatch time. A
+requested stop leaves a running task running, with `cancellationRequested:
+true`, until the ordinary turn actually settles. Failed and interrupted tasks
+expose no partial reply or private provider error. A successful `get` returns
+`result: { text, truncated }`, bounded to 256 KiB without splitting a UTF-8
+character. `list` contains at most 50 summaries, active requests first, with no
+reply text. Only the task's final reply is shared; other messages in its Chat
+are never app-readable.
 
-## Authority and recovery
+## Bounds
+
+Up to four requests may be starting or running per installation. A fifth is
+refused with a message that names the limit and the Settings section. The
+15-minute replay window and the 24-hour receipt retention are fixed; terminal
+receipts older than a day prune on the next submission, and their original
+timestamps can no longer submit fresh work. The journal caps at 1,000 receipts
+and 64 MiB and refuses more work rather than dropping live receipts.
+
+While any of an app's request Chats runs, capability changes for that Space
+(grant, revoke, install, update) wait with "Wait for affected Assistant work to
+finish". Stop the request first, or let it finish.
+
+## Bounded inference
+
+`assistant.request` is the app's way to ask for full Assistant work. Its
+sibling, `assistant.infer`, is the app's way to ask one question of the
+Space's configured model and get an answer back. It runs with no tools, no
+files, no conversation history, and nothing persisted to any transcript
+(docs/receipts-not-gates.md, F22). Like requests, it needs no grant beyond
+installation.
+
+```js
+const { text, truncated, model, usage } = await globalThis.workFoldRestrictedApp
+  .assistant.infer({ instructions: "Name the cheapest quote.", input: "North $42, South $58" });
+
+const { json } = await globalThis.workFoldRestrictedApp.assistant.infer({
+  instructions: "Total the quotes.",
+  input: quotesText,
+  outputSchema: { type: "object", properties: { total: { type: "integer", minimum: 0 } },
+    required: ["total"], additionalProperties: false },
+});
+```
+
+`instructions` becomes the system prompt; `input` is delivered as the single
+user message and framed as untrusted data, so an app's own content cannot
+redirect the task. Non-text input is serialized host-side with two-space
+indentation. Without `outputSchema` the result is `{ text, truncated }`; with
+one — the same closed JSON Schema subset tool declarations use — the result is
+`{ json }`, already validated against that schema, carried by one
+`submit_result` tool call. Both shapes carry `model` (`provider`, `id`) and
+`usage` (`inputTokens`, `outputTokens`).
+
+An active app view or a worker holding a tool action or an automation run may
+call it. An inactive view, a worker between operations, a viewer page, and a
+remote app view all get `INFER_UNAVAILABLE`. The installation, revision, and
+authority are pinned before the call and rechecked before the result is
+delivered.
+
+Bounds: instructions 16 KiB, input 256 KiB, schema 32 KiB, output 64 KiB by
+default and `maxOutputBytes` up to 256 KiB, four calls running and twelve
+waiting per installation, eight running machine-wide, and a 120-second budget
+covering time spent waiting for a slot. `limits.get().inference` publishes them
+and Settings → The fold → Limits shows them. Check runs still serialize their
+model requests machine-wide; inference deliberately does not share that queue.
+
+Every refusal names what it hit: `INFER_INVALID`, `INFER_INPUT_TOO_LARGE`,
+`INFER_MODEL_UNAVAILABLE`, `INFER_BUSY`, `INFER_OUTPUT_TOO_LARGE`,
+`INFER_OUTPUT_INVALID`, `INFER_INTERRUPTED`, `INFER_FAILED`, and
+`INFER_UNAVAILABLE`. Provider diagnostics never cross the bridge.
+
+Each call appends an accepted line and then an `ok` or `error` line to the
+machine-local `restricted-apps/inference-receipts.jsonl` journal, recording the
+surface, byte sizes, the effective model, and its usage — never the app's
+content. The Apps tab lists an installation's receipts across code changes. An
+unreadable journal is moved aside and a fresh one starts: lost attribution
+never stops an app from working.
+
+## Authority, receipts and recovery
 
 The host derives and pins the Space, Feature Installation, exact package digest
-and authority generations. The request journal stores the reviewed instructions
-and canonical input; the clicked review digest covers those immutable values.
-App/grant mutations and task admission serialize through the same app service.
-Changed authority blocks both approval and delivery to the old revision.
-Ordinary Space capability-mutation fences refuse app changes while the accepted
-Assistant turn is active. Stop that task first. Once authorized, the Chat is
-ordinary Space work; closing its app view does not stop it.
+and authority generations. The request journal stores the instructions and
+canonical input the Chat received. App and grant mutations and task admission
+serialize through the same app service. A changed authority makes the old
+revision's tasks invisible to the app bridge; the trusted Apps tab still lists
+an installation's requests across code changes, so a task started before a
+change can be opened and stopped. Once dispatched, the Chat is ordinary Space
+work; closing the app view does not stop it.
 
-The machine-local `restricted-apps/assistant-tasks.json` journal is written and
-synced before Chat dispatch. It pins one allocated Chat and turn request id.
-The existing turn journal owns actual acceptance, progress, results and restart
-recovery. A thrown/uncertain admission is reconciled with that journal; it is
-never automatically retried. A crash before acceptance becomes interrupted;
-after acceptance the original turn outcome remains authoritative. A person
-may submit and review a new request after a failure, but a repeated approval
-of the old request never sends another turn.
+The machine-local `restricted-apps/assistant-tasks.json` journal (schema v2; a
+v1 journal loads with its never-dispatched requests marked stopped) is written
+and synced before Chat dispatch. It pins one allocated Chat and turn request
+id. The existing turn journal owns actual acceptance, progress, results and
+restart recovery. A thrown or uncertain admission is reconciled with that
+journal and never automatically retried: a crash before acceptance becomes
+`interrupted`, and after acceptance the original turn outcome stays
+authoritative. Replaying an envelope after a failure returns the failed record;
+a new request is a new envelope.
 
-At most four pending/running requests and one running task belong to an
-installation. Pending reviews expire after 24 hours. Terminal receipts older
-than 24 hours are pruned on new submissions; their original timestamps can no
-longer submit fresh work. The journal caps at 1,000 receipts and 64 MiB and
-refuses more work rather than dropping live decisions. Damage disables only
-this task lane without overwriting its evidence or preventing work-fold startup.
-Task input/results remain machine-local; the explicitly accepted prompt and
-normal reply also belong to the portable Chat in the owning Space. App data
-backup/restore does not restore requests, task approval or authority.
+Damage disables only this task lane without overwriting its evidence or
+preventing work-fold startup. Task input and results stay machine-local; the
+dispatched prompt and the normal reply also belong to the portable Chat in the
+owning Space. App data backup and restore do not restore requests.
 
-This is a one-off Chat send after a trusted human review, not a standing grant
-or a new kind of staged consecration. Root authority and standing-policy rules
-stay with their existing verbs. The CLI and remote management facade gain no
-new generic Assistant or approval endpoint. Native apps get only the narrow
-request/list/get/cancel adapter; the authenticated renderer owns review and Run.
+Each request is a receipt in the journal, not a grant: the app was installed,
+so it may ask; the person sees what it asked for and what came back. The CLI
+and remote management facade gain no generic Assistant endpoint from this. The
+app bridge gets only request, list, get and cancel; the authenticated renderer
+owns Details, Open Chat and Stop.

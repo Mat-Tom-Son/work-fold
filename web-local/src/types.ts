@@ -754,10 +754,14 @@ export interface RestrictedAppProposal {
   conversationId: string;
   sourcePath: string;
   review: RestrictedAppReview;
-  status: "pending" | "installed" | "dismissed" | "revision-changed";
+  status: "pending" | "installed" | "failed" | "dismissed" | "revision-changed";
   createdAt: string;
   updatedAt: string;
   installedApp?: RestrictedAppInstalled;
+  /** Bounded plain text from a failed install. */
+  error?: string;
+  /** What still needs a person after the install. */
+  needs?: { connections: string[]; files: string[]; checks: string[] };
 }
 
 export interface RestrictedAppConnectionStatus {

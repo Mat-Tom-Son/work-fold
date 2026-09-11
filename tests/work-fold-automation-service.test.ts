@@ -22,12 +22,12 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve: resolvePromise };
 }
 
-test("WorkFoldAutomationService defaults to two machine-wide execution slots", async () => {
+test("WorkFoldAutomationService defaults to four machine-wide execution slots", async () => {
   const clock = new FakeClock(startTime);
   const starts: string[] = [];
   const releases: Array<() => void> = [];
   const service = new WorkFoldAutomationService({ clock, createRunId: runIds().next });
-  const keys = [key("space-a/app", "job"), key("space-b/app", "job"), key("space-c/app", "job")];
+  const keys = ["a", "b", "c", "d", "e"].map((space) => key(`space-${space}/app`, "job"));
   for (const automation of keys) {
     service.register(job(automation, async () => {
       starts.push(automation.ownerId);
@@ -36,15 +36,15 @@ test("WorkFoldAutomationService defaults to two machine-wide execution slots", a
   }
 
   const runs = keys.map((automation) => service.runNow(automation));
-  assert.deepEqual(starts, ["space-a/app", "space-b/app"]);
-  assert.equal(service.activeCount, 2);
+  assert.deepEqual(starts, ["space-a/app", "space-b/app", "space-c/app", "space-d/app"]);
+  assert.equal(service.activeCount, 4);
   assert.equal(service.pendingCount, 1);
   releases.shift()?.();
   await flushTasks();
-  assert.deepEqual(starts, ["space-a/app", "space-b/app", "space-c/app"]);
+  assert.deepEqual(starts, ["space-a/app", "space-b/app", "space-c/app", "space-d/app", "space-e/app"]);
   releases.splice(0).forEach((release) => release());
   await flushTasks();
-  assert.deepEqual((await Promise.all(runs)).map(({ outcome }) => outcome), ["success", "success", "success"]);
+  assert.deepEqual((await Promise.all(runs)).map(({ outcome }) => outcome), ["success", "success", "success", "success", "success"]);
   service.close();
 });
 

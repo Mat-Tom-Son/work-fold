@@ -73,28 +73,38 @@ test("two edits cannot overwrite each other's newer preview, including across pr
     const second = await f.host.prepareChange({ ...f.input, id: randomUUID() }, copy);
     await writeFile(join(f.spaceRoot, first.sourcePath, "index.html"), "<p>First edit</p>");
     await writeFile(join(f.spaceRoot, second.sourcePath, "index.html"), "<p>Second edit</p>");
-    const one = (await f.host.propose({ ...f.scope, sourcePath: first.sourcePath })).proposal!;
-    const two = (await f.host.propose({ ...f.scope, sourcePath: second.sourcePath })).proposal!;
-    assert.equal(one.changeId, first.id);
-    const installed = (await f.host.install(one.id))!;
+    // Proposing installs the preview in the same call (docs/receipts-not-gates.md, F21).
+    const one = await f.host.propose({ ...f.scope, sourcePath: first.sourcePath });
+    assert.equal(one.status, "installed");
+    assert.equal(one.proposal!.changeId, first.id);
+    const installed = one.app!;
     assert.equal(installed.featureInstallationId, f.app.featureInstallationId);
     assert.equal(installed.dataNamespaceId, f.app.dataNamespaceId);
+    // The second working copy still expects the original preview base, so it
+    // fails closed instead of overwriting the newer work.
+    const two = await f.host.propose({ ...f.scope, sourcePath: second.sourcePath });
+    assert.equal(two.status, "failed");
+    assert.equal(two.proposal!.status, "revision-changed");
+    assert.match(two.proposal!.error ?? "", /Local preview changed/);
     const reopened = await RoutedRestrictedAppProposalHost.create({ service: f.service, registryPath: f.registryPath });
-    await assert.rejects(reopened.install(two.id), /Local preview changed/);
-    assert.equal((await reopened.get(two.id))?.status, "revision-changed");
+    assert.equal(await reopened.install(two.proposal!.id), null, "a stale receipt cannot be installed later either");
+    assert.equal((await reopened.get(two.proposal!.id))?.status, "revision-changed");
     assert.equal((await f.service.list(f.scope.spaceId))[0]!.digest, installed.digest);
-    // A follow-up edit in the same working copy advances from its own successfully reviewed preview.
+    // A follow-up edit in the same working copy advances from its own installed preview.
     await writeFile(join(f.spaceRoot, first.sourcePath, "index.html"), "<p>First edit continued</p>");
-    const followup = (await reopened.propose({ ...f.scope, sourcePath: first.sourcePath })).proposal!;
-    assert.equal(followup.expectedPreviewBase?.digest, installed.digest);
-    const continued = (await reopened.install(followup.id))!;
+    const followup = await reopened.propose({ ...f.scope, sourcePath: first.sourcePath });
+    assert.equal(followup.status, "installed");
+    assert.equal(followup.proposal!.expectedPreviewBase?.digest, installed.digest);
+    const continued = followup.app!;
     const beforeReinstall = await reopened.prepareChange({ ...f.input, id: randomUUID(), expectedDigest: continued.digest }, copy);
     await f.service.remove({ spaceId: f.scope.spaceId, appId: f.app.manifest.id, expectedDigest: continued.digest });
     const reinstalled = await f.service.install({ ...f.scope, sourcePath: first.sourcePath, expectedDigest: continued.digest });
     assert.notEqual(reinstalled.featureInstallationId, continued.featureInstallationId);
     await writeFile(join(f.spaceRoot, beforeReinstall.sourcePath, "index.html"), "<p>Stale incarnation</p>");
-    const stale = (await reopened.propose({ ...f.scope, sourcePath: beforeReinstall.sourcePath })).proposal!;
-    await assert.rejects(reopened.install(stale.id), /Local preview changed/);
+    const stale = await reopened.propose({ ...f.scope, sourcePath: beforeReinstall.sourcePath });
+    assert.equal(stale.status, "failed");
+    assert.equal(stale.proposal!.status, "revision-changed");
+    assert.match(stale.proposal!.error ?? "", /Local preview changed/);
   } finally { await f.close(); }
 });
 
@@ -229,6 +239,8 @@ test("a source-Space release can be changed, previewed and updated without shari
     const updated = await f.service.activateLocalAppUpdate(update.operationId);
     assert.equal(updated.apps[0]!.featureInstallationId, live.featureInstallationId);
     assert.equal(updated.apps[0]!.digest, preview.digest);
+    assert.deepEqual(updated.apps[0]!.networkGrants, live.networkGrants, "the default continuity carries grants across a changed revision");
+    assert.deepEqual(updated.apps[0]!.automations.map(({ id, enabled }) => ({ id, enabled })), live.automations.map(({ id, enabled }) => ({ id, enabled })));
     assert.equal(await f.storage.get(owner(updated.apps[0]!), "quote"), "release data");
     assert.equal(await f.storage.get(owner(preview), "quote"), "preview data");
     assert.equal((await f.service.localAppStudio(f.scope.spaceId)).previews.length, 1);

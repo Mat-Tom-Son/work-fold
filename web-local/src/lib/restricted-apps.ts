@@ -228,14 +228,14 @@ export async function listRestrictedAppAssistantTasks(app: RestrictedAppInstalle
   return (await api<{ tasks: import("../../../src/shared/restricted-app-tasks").RestrictedAppAssistantTask[] }>(`${appPath(app.spaceId, app.manifest.id)}/assistant-tasks?${query}`)).tasks;
 }
 
-export async function reviewRestrictedAppAssistantTask(app: RestrictedAppInstalled, requestId: string) {
+export async function readRestrictedAppAssistantTask(app: RestrictedAppInstalled, requestId: string) {
   const query = new URLSearchParams({ featureInstallationId: app.featureInstallationId, expectedDigest: app.digest });
-  return (await api<{ review: import("../../../src/shared/restricted-app-tasks").RestrictedAppTaskReview }>(`${appPath(app.spaceId, app.manifest.id)}/assistant-tasks/${encodeURIComponent(requestId)}?${query}`)).review;
+  return (await api<{ detail: import("../../../src/shared/restricted-app-tasks").RestrictedAppTaskDetail }>(`${appPath(app.spaceId, app.manifest.id)}/assistant-tasks/${encodeURIComponent(requestId)}?${query}`)).detail;
 }
 
-export async function actRestrictedAppAssistantTask(app: RestrictedAppInstalled, requestId: string, operation: "approve" | "cancel", reviewDigest?: string) {
-  return (await api<{ task: import("../../../src/shared/restricted-app-tasks").RestrictedAppAssistantTask }>(`${appPath(app.spaceId, app.manifest.id)}/assistant-tasks/${encodeURIComponent(requestId)}/${operation}`, {
-    method: "POST", body: { featureInstallationId: app.featureInstallationId, expectedDigest: app.digest, ...(reviewDigest ? { reviewDigest } : {}) },
+export async function cancelRestrictedAppAssistantTask(app: RestrictedAppInstalled, requestId: string) {
+  return (await api<{ task: import("../../../src/shared/restricted-app-tasks").RestrictedAppAssistantTask }>(`${appPath(app.spaceId, app.manifest.id)}/assistant-tasks/${encodeURIComponent(requestId)}/cancel`, {
+    method: "POST", body: { featureInstallationId: app.featureInstallationId, expectedDigest: app.digest },
   })).task;
 }
 

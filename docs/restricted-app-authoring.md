@@ -27,14 +27,16 @@ The normal product path begins in a Chat belonging to the target Space:
 2. The Assistant calls the host-owned `propose_space_app` tool with only the
    Space-relative package folder.
 3. work-fold inspects the package without running JavaScript, computes its
-   digest, and creates a review bound to the Space, Chat, source folder, and
-   exact bytes.
-4. Review and add that digest in the owning Chat as a **Local preview** in
-   the Space's Development Instance. Proposal does not add a preview, grant a
-   permission, or collect a credential.
-5. Manage the preview under the Space's **Apps** tab. Network destinations,
+   digest, records a receipt bound to the Space, Chat, source folder, and
+   exact bytes, and adds that revision as a **Local preview** in the Space's
+   Development Instance in the same call, with every declared destination,
+   directory permission (whole Space), notification category, and automation
+   on. Nothing collects a credential.
+4. The Chat and the receipt say what still needs you: a secret to connect, a
+   file to choose, or a Check to choose when the Space has more than one.
+5. Narrow the preview under the Space's **Apps** tab. Network destinations,
    file targets, notification categories, connections, and each named
-   automation are separate controls.
+   automation are separate controls there.
 
 The Apps tab deliberately shows no developer path. A completed package that is
 already inside the Space and was not proposed from a Chat is added with
@@ -124,10 +126,10 @@ app manifest, and 24 directory levels. `package.json` is limited to 64 KiB.
 
 ## Complete manifest template
 
-For optional named, person-reviewed Assistant work, see
+For named Assistant work an app can start, see
 [App-requested Assistant work](app-assistant-tasks.md). Its `assistantActions`
 declarations are separate from `tools`: tools let the Assistant call an app;
-requests let the app propose a task for its Space's Assistant.
+requests let the app hand a task to its Space's Assistant.
 
 `agent-app.json` is closed and versioned; unknown fields fail review. This
 template exercises every current section:
@@ -598,12 +600,14 @@ events contain `runId`, `automationId`, `handler`, `reason` (`scheduled`,
 `manual`, or `resume`), and ISO `scheduledAt`. Treat `automationId` and
 `handler` as the reviewed dispatch pair and reject unknown values.
 
-Every automation installs disabled. Enabling one schedules only that job while
-work-fold is running. One scheduler is shared across all Spaces and apps, with
-a two-run global limit, FIFO admission, same-job non-overlap, and at most one
-staggered latest catch-up when requested. **Run now** is a one-off execution:
-it works while the schedule is disabled and does not move the recurring
-cadence. Every attempt receives a durable receipt visible in the Apps tab.
+Every automation is on when the app is added, anchored at that moment so its
+first run is one interval later; the person can turn any off in Apps. A job
+runs only while work-fold is running. One scheduler is shared across all
+Spaces and apps, with a four-run global limit, FIFO admission, same-job
+non-overlap, and at most one staggered latest catch-up when requested. **Run
+now** is a one-off execution: it works while the schedule is off and does not
+move the recurring cadence. Every attempt receives a durable receipt visible in
+the Apps tab.
 
 At launch, the worker sees only current app grants also named by that
 automation's `permissions` subset. `notifications.show({ permissionId })`
@@ -739,10 +743,13 @@ const pageSize = Math.floor(limits.network.maxResponseBytes / 2_048);
 It reports `network` (`maxRequestBytes`, `maxResponseBytes`, `timeoutMs`,
 `maxRedirects`), `storage` (`quotaBytes`, `maxKeys`, `maxKeyBytes`,
 `maxValueBytes`, `maxTransactionBytes`, `maxTransactionOperations`), `files`
-(`maxReadBytes`, `maxWriteBytes`), and `automations`
-(`minimumIntervalMinutes`, `maximumIntervalMinutes`). They are composed from the
-live brokers, so a host running non-default bounds publishes the bounds it is
-actually enforcing.
+(`maxReadBytes`, `maxWriteBytes`), `automations`
+(`minimumIntervalMinutes`, `maximumIntervalMinutes`), `inference`
+(`instructionsBytes`, `inputBytes`, `schemaBytes`, `defaultOutputBytes`,
+`maxOutputBytes`, `runningPerInstallation`, `timeoutMs`), and `assistant`
+(`instructionsBytes`, `inputBytes`, `resultBytes`, `runningPerInstallation`).
+They are composed from the live brokers and the shared limit records, so a host
+running non-default bounds publishes the bounds it is actually enforcing.
 
 Design against these numbers instead of discovering them by failing. In
 particular, app storage is small and is the wrong home for bulk data: request a
@@ -750,23 +757,28 @@ read-write directory permission and write large or long-lived records as
 ordinary Space files, which the person and the Assistant can also read with
 normal tools. Overruns report their own bound —
 `NETWORK_RESPONSE_TOO_LARGE`, `NETWORK_REQUEST_TOO_LARGE`, `FILE_TOO_LARGE`,
-and `STORAGE_QUOTA` are distinct from the generic `NETWORK_FAILED`,
-`FILE_FAILED`, and `STORAGE_FAILED` codes, and each message names the limit it
+`STORAGE_QUOTA`, `INFER_INPUT_TOO_LARGE`, `INFER_OUTPUT_TOO_LARGE`, and
+`INFER_BUSY` are distinct from the generic `NETWORK_FAILED`, `FILE_FAILED`,
+`STORAGE_FAILED`, and `INFER_FAILED` codes, and each message names the limit it
 hit.
 
-## Default-off lifecycle and denial handling
+## Default-on lifecycle, narrowing, and denial handling
 
-Adding a reviewed digest as a Development preview, or installing a published
-Release Feature, makes its UI available but leaves network, file, and
-notification grants off, stores no connection, and leaves every automation
-disabled. Storage is available without an external-power grant. A direct
-preview update preserves the Feature's Data Namespace but resets destination
-grants, file grants, notification grants, connections, and automation state. A
-Release update uses App Studio's persisted continuity plan: only an exact
-unchanged revision can be eligible to retain those powers; changed revisions
-reset them while preserving installation/data lineage. Historical
-run receipts remain predecessor audit lineage while the new revision's run view
-starts empty. New receipts bind the accepting Tenant, Runtime Instance, Feature
+Adding a digest as a Development preview, or installing a published Release
+Feature, makes its UI available with every declared destination, directory
+permission (whole Space), notification category, and automation on, and with a
+Check slot bound when the Space has exactly one Check. No connection is stored:
+a secret is entered by the person once per destination, and a file-target
+permission waits for a chosen file. Storage is available without any grant.
+The person narrows any of this in Apps. A direct preview update preserves the
+Feature's Data Namespace and carries the person's granted or revoked state by
+declaration id, a chosen file root when the declaration is unchanged,
+automation state by id, run receipts, and connections whose destination
+declaration is byte-identical; a changed declaration needs its secret again. A
+Release update uses App Studio's persisted continuity plan with the same
+carry-forward under the default policy; **reset** starts over with the install
+defaults. Run receipts stay in the new revision's view labelled with the
+revision they ran under. New receipts bind the accepting Tenant, Runtime Instance, Feature
 Installation, canonical revision, Data Namespace, effective Principal,
 seven-domain authority, occurrence, and attempt. Legacy Workspace receipts are
 not imported. Removing a Development preview purges its app

@@ -86,6 +86,8 @@ export type WorkFoldCliActCommandName =
   | "tools.install"
   | "tools.update"
   | "tools.remove"
+  | "apps.list"
+  | "apps.invoke"
   | "apps.proposals.list"
   | "apps.proposals.dismiss"
   | "apps.install-proposal"
@@ -182,6 +184,10 @@ export interface WorkFoldCliActParsedCommand {
   declaration?: string;
   destination?: string;
   automation?: string;
+  /** Declared tool name for apps.invoke. */
+  tool?: string;
+  /** Parsed --input JSON for apps.invoke; the app's runtime validates it against the tool's schema. */
+  toolInput?: unknown;
   /** Typed presentation file path for apps.project.declare, resolved host-side. */
   presentationPath?: string;
   release?: string;
@@ -234,6 +240,10 @@ const maxActPathLength = 4_096;
 /** Mirrors `maxQueryLength` in src/local/search.ts so parse and service refuse together. */
 const maxActSearchQueryLength = 200;
 const maxChecksCliIdLength = 256;
+/** Matches the app runtime's own invocation bound (desktop/src/restricted-app-host.ts). */
+const maxActToolInputBytes = 256 * 1024;
+/** Terminal output stays readable; --json always carries the whole result. */
+const maxHumanToolResultLength = 4_096;
 const maxChecksProposalPathLength = 4_096;
 const maxChecksOutputFindings = 100;
 const maxChecksOutputHealthErrors = 20;
@@ -303,6 +313,8 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "--declaration",
     "--destination",
     "--automation",
+    "--tool",
+    "--input",
     "--package",
     "--presentation",
     "--release",
@@ -514,6 +526,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "apps automation enable",
     "apps automation disable",
     "apps automation run",
+    "apps invoke",
     "apps storage clear",
     "apps retained purge",
     "apps project declare",
@@ -1121,6 +1134,34 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         source: requireBoundedFlag("--source", "package-source", maxActPathLength),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
+    case "apps list":
+      allowOnlyFlags("--space");
+      return { name: "apps.list", output, space: requireSpace() };
+    case "apps invoke": {
+      allowOnlyFlags("--space", "--app", "--tool", "--input", "--parent-task");
+      const rawToolInput = stringFlag("--input");
+      if (rawToolInput === undefined) throw usageError("Provide --input <json>.");
+      if (Buffer.byteLength(rawToolInput, "utf8") > maxActToolInputBytes) {
+        throw usageError(`--input must be at most ${maxActToolInputBytes} bytes.`);
+      }
+      let toolInput: unknown;
+      // Deliberately not requireBoundedFlag: pretty-printed JSON carries the
+      // newlines that rule refuses, and the app's runtime validates the value.
+      try {
+        toolInput = JSON.parse(rawToolInput);
+      } catch {
+        throw usageError("--input must be valid JSON.");
+      }
+      return {
+        name: "apps.invoke",
+        output,
+        space: requireSpace(),
+        app: requireBoundedFlag("--app", "app-id"),
+        tool: requireBoundedFlag("--tool", "tool-name"),
+        toolInput,
+        ...(parentTaskId ? { parentTaskId } : {}),
+      };
+    }
     case "apps proposals list":
       allowOnlyFlags("--space", "--conversation");
       return {
@@ -1837,6 +1878,16 @@ async function runActCommand(
         scope: command.toolsScope!,
         ...(command.space ? { space: command.space } : {}),
         source: command.source!,
+        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
+      }));
+    case "apps.list":
+      return toJson(await facade.appsList({ space: command.space! }));
+    case "apps.invoke":
+      return toJson(await facade.appsInvoke({
+        space: command.space!,
+        app: command.app!,
+        tool: command.tool!,
+        input: command.toolInput,
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));
     case "apps.proposals.list":
@@ -2584,6 +2635,34 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
     }
     case "library.folder.create":
       return `Created Library folder ${terminalText(record.path)}.\n`;
+    case "apps.list": {
+      const apps = (Array.isArray(record.apps) ? record.apps : []) as Array<{
+        appId?: unknown;
+        title?: unknown;
+        version?: unknown;
+        kind?: unknown;
+        tools?: Array<{ name?: unknown }>;
+        automations?: Array<{ id?: unknown; enabled?: unknown }>;
+      }>;
+      if (!apps.length) return `No apps are installed in ${spaceLabel}.\n`;
+      const lines = apps.map((app) => {
+        const tools = (app.tools ?? []).map((tool) => terminalText(tool.name)).join(", ") || "none";
+        const automations = (app.automations ?? [])
+          .map((automation) => `${terminalText(automation.id)} ${automation.enabled === true ? "on" : "off"}`)
+          .join(", ") || "none";
+        return `- ${terminalText(app.title)} ${terminalText(app.version)} [${terminalText(app.appId)}] (${terminalText(app.kind)})`
+          + `\n    tools: ${tools}\n    automations: ${automations}`;
+      });
+      const more = record.truncated === true ? "\nMore apps are installed than this list shows.\n" : "";
+      return `${apps.length} app${apps.length === 1 ? "" : "s"} in ${spaceLabel}:\n${lines.join("\n")}\n${more}`;
+    }
+    case "apps.invoke": {
+      const serialized = JSON.stringify(record.result ?? null, null, 2);
+      const shown = serialized.length > maxHumanToolResultLength
+        ? `${serialized.slice(0, maxHumanToolResultLength)}\n… (full result in --json)`
+        : serialized;
+      return `Ran ${terminalText(record.tool)} of ${terminalText(record.appId)} in ${spaceLabel}.\n${terminalText(shown)}\n`;
+    }
     case "apps.proposals.list": {
       const proposals = (Array.isArray(record.proposals) ? record.proposals : []) as Array<{
         id?: unknown;
@@ -3131,6 +3210,9 @@ function actReceiptDetail(
     scheduleSummary?: unknown;
     model?: { provider?: unknown; id?: unknown } | null;
     instructions?: unknown;
+    apps?: unknown[];
+    tool?: unknown;
+    result?: unknown;
   },
 ): string | undefined {
   // The verbs that install code, widen a power, or destroy data share one
@@ -3201,6 +3283,12 @@ function actReceiptDetail(
       return Array.isArray(record.added) ? `added ${record.added.length} file(s) to the Library` : undefined;
     case "library.folder.create":
       return typeof record.path === "string" ? `Library folder ${boundedReceiptText(record.path)}` : undefined;
+    case "apps.list":
+      return Array.isArray(record.apps) ? `apps ${record.apps.length}` : undefined;
+    case "apps.invoke":
+      return typeof record.appId === "string" && typeof record.tool === "string"
+        ? `app ${record.appId}; tool ${record.tool}; result ${Buffer.byteLength(JSON.stringify(record.result ?? null), "utf8")} bytes`
+        : undefined;
     case "apps.proposals.dismiss":
       return typeof record.proposalId === "string"
         ? `proposal ${record.proposalId}${record.dismissed === false ? " (not pending)" : ""}`

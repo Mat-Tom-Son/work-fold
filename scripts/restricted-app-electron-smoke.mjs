@@ -16,6 +16,7 @@ import { stageRestrictedAppPackage } from "../dist/desktop/src/local/agent/restr
 import { FileRestrictedAppStorage } from "../dist/desktop/src/local/agent/restricted-app-storage.js";
 import { RestrictedAppNotificationBroker } from "../dist/desktop/src/local/agent/restricted-app-notifications.js";
 import { RestrictedAppTaskError } from "../dist/desktop/src/local/agent/restricted-app-tasks.js";
+import { parseRestrictedAppInferenceRequest } from "../dist/desktop/src/local/agent/restricted-app-inference.js";
 import {
   RestrictedAppError,
   RestrictedAppNetworkBroker,
@@ -158,6 +159,22 @@ async function runSmoke() {
         async get(_scope, requestId) { return { requestId, status: "pending" }; },
         async cancel(_scope, requestId, assertCurrent) { assertCurrent(); return { requestId, status: "cancelled" }; },
       }),
+      assistantInference: async () => ({
+        async infer(scope, surface, request, options) {
+          // The real request bounds, so the smoke exercises the same refusals
+          // an app meets in the running product.
+          const parsed = parseRestrictedAppInferenceRequest(request);
+          options.assertCurrent();
+          assert.equal(scope.spaceId, "ws-electron-smoke");
+          assert.equal(scope.appId, "restricted-electron-smoke");
+          assert.match(scope.authorityDigest, /^[a-f0-9]{64}$/);
+          const model = { provider: "smoke", id: "smoke-model" };
+          const usage = { inputTokens: 1, outputTokens: 1 };
+          return parsed.outputSchema
+            ? { json: { echoed: parsed.input }, model, usage }
+            : { text: "echo:" + surface, truncated: false, model, usage };
+        },
+      }),
       connections,
       networkBroker,
       storage,
@@ -284,6 +301,8 @@ async function runSmoke() {
     assert.deepEqual(await host.invoke(descriptor, "notification", {}), {
       workerTopLevelNotificationDenied: true,
       actionNotificationDenied: true,
+      workerInferText: "echo:worker",
+      workerTopLevelInferDenied: true,
     });
 
     await mark("frame-denial-start");
@@ -436,6 +455,12 @@ async function runSmoke() {
     assert.deepEqual(await storage.get(storageOwner, "check-read"), { checkId: "smoke-check", declarationDigest: "c".repeat(64), title: "Smoke Check", state: "never-run", lastRunAt: null, findings: [], truncated: false });
     assert.equal(await storage.get(storageOwner, "check-undeclared-denied"), true);
     assert.deepEqual(await storage.get(storageOwner, "assistant-bridge"), { requested: "pending", read: "pending", cancelled: "cancelled", undeclaredDenied: true, approvalAbsent: true });
+    assert.deepEqual(await storage.get(storageOwner, "assistant-infer"), {
+      text: "echo:view",
+      model: "smoke-model",
+      json: { echoed: "south" },
+      invalidRefused: true,
+    });
     await storage.transaction(storageOwner, {
       set: Array.from({ length: 128 }, (_, index) => ({ key: "seed-" + String(index).padStart(3, "0"), value: index })),
     });
@@ -482,6 +507,7 @@ async function runSmoke() {
       networkDenied: true,
       checkDenied: true,
       assistantDenied: true,
+      inferDenied: true,
     });
     assert.equal(hits, 0, "an inactive app view must not retain file or network powers");
     await host.runAutomation(descriptor, automationEvent("2026-07-13T00:02:00.000Z", "resume", {
@@ -722,7 +748,10 @@ bridge.context.onChanged(async (next) => {
   try { await bridge.request({ destinationId: "escape", method: "GET", path: "/escape" }); } catch { networkDenied = true; }
   try { await bridge.checks.read({ permissionId: "review" }); } catch { checkDenied = true; }
   try { await bridge.assistant.list(); } catch (error) { assistantDenied = error instanceof Error && error.code === "TASK_DENIED"; }
-  await bridge.storage.set("inactive-powers", { fileDenied, networkDenied, checkDenied, assistantDenied });
+  let inferDenied = false;
+  try { await bridge.assistant.infer({ instructions: "Echo", input: "hi" }); }
+  catch (error) { inferDenied = error instanceof Error && error.code === "INFER_UNAVAILABLE"; }
+  await bridge.storage.set("inactive-powers", { fileDenied, networkDenied, checkDenied, assistantDenied, inferDenied });
 });
 await bridge.storage.set("check-read", await bridge.checks.read({ permissionId: "review" }));
 let undeclaredCheckDenied = false;
@@ -735,6 +764,16 @@ const cancelledTask = await bridge.assistant.cancel(assistantRequest.requestId);
 let assistantUndeclaredDenied = false;
 try { await bridge.assistant.request({ ...assistantRequest, actionId: "other" }); } catch (error) { assistantUndeclaredDenied = error instanceof Error && error.code === "TASK_DENIED"; }
 await bridge.storage.set("assistant-bridge", { requested: requestedTask.status, read: readTask.status, cancelled: cancelledTask.status, undeclaredDenied: assistantUndeclaredDenied, approvalAbsent: bridge.assistant.approve === undefined });
+const inferredText = await bridge.assistant.infer({ instructions: "Echo the input.", input: "north" });
+const inferredJson = await bridge.assistant.infer({
+  instructions: "Echo the input.",
+  input: "south",
+  outputSchema: { type: "object", properties: { echoed: { type: "string", maxLength: 40 } }, required: ["echoed"], additionalProperties: false },
+});
+let inferInvalid = false;
+try { await bridge.assistant.infer({ instructions: "", input: "x" }); }
+catch (error) { inferInvalid = error instanceof Error && error.code === "INFER_INVALID"; }
+await bridge.storage.set("assistant-infer", { text: inferredText.text, model: inferredText.model.id, json: inferredJson.json, invalidRefused: inferInvalid });
 let uiNotificationDenied = false;
 try { await bridge.notifications.show({ permissionId: "automation-update" }); } catch { uiNotificationDenied = true; }
 await bridge.storage.set("ui-notification-denied", uiNotificationDenied);
@@ -754,6 +793,10 @@ catch { workerTopLevelStorageDenied = true; }
 let workerTopLevelNotificationDenied = false;
 try { await globalThis.workFoldRestrictedApp.notifications.show({ permissionId: "automation-update" }); }
 catch { workerTopLevelNotificationDenied = true; }
+// Outside an operation a worker holds no lease, so neither Assistant lane answers.
+let workerTopLevelInferDenied = false;
+try { await globalThis.workFoldRestrictedApp.assistant.infer({ instructions: "Echo.", input: "top" }); }
+catch (error) { workerTopLevelInferDenied = error instanceof Error && error.code === "INFER_UNAVAILABLE"; }
 let workerStorageEvents = 0;
 const workerInstanceToken = crypto.randomUUID();
 globalThis.workFoldRestrictedApp.storage.onChanged(() => { workerStorageEvents += 1; });
@@ -771,14 +814,16 @@ export async function handleAction(action, input) {
     try { await globalThis.workFoldRestrictedApp.checks.read({ permissionId: "review" }); }
     catch (error) { checkDenied = error instanceof Error && error.code === "CHECK_DENIED"; }
     if (!checkDenied) throw new Error("A worker must not read Check results.");
-    let assistantDenied = false;
-    try { await globalThis.workFoldRestrictedApp.assistant.list(); }
-    catch (error) { assistantDenied = error instanceof Error && error.code === "TASK_DENIED"; }
-    if (!assistantDenied) throw new Error("A worker must not request Assistant work.");
+    // A worker holding an operation may reach both Assistant lanes
+    // (docs/receipts-not-gates.md, F22).
+    const workerTasks = await globalThis.workFoldRestrictedApp.assistant.list();
+    if (!Array.isArray(workerTasks)) throw new Error("A worker action must reach Assistant requests.");
+    const workerInference = await globalThis.workFoldRestrictedApp.assistant.infer({ instructions: "Echo.", input: "worker" });
+    if (workerInference.text !== "echo:worker") throw new Error("A worker action must reach bounded inference.");
     let actionNotificationDenied = false;
     try { await globalThis.workFoldRestrictedApp.notifications.show({ permissionId: "automation-update" }); }
     catch { actionNotificationDenied = true; }
-    return { workerTopLevelNotificationDenied, actionNotificationDenied };
+    return { workerTopLevelNotificationDenied, actionNotificationDenied, workerInferText: workerInference.text, workerTopLevelInferDenied };
   }
   if (action === "huge") return "x".repeat(300000);
   if (action === "cyclic") { const value = {}; value.self = value; return value; }
@@ -919,8 +964,10 @@ function smokeManifest(loopbackPort) {
           properties: {
             workerTopLevelNotificationDenied: { type: "boolean" },
             actionNotificationDenied: { type: "boolean" },
+            workerInferText: { type: "string", maxLength: 40 },
+            workerTopLevelInferDenied: { type: "boolean" },
           },
-          required: ["workerTopLevelNotificationDenied", "actionNotificationDenied"],
+          required: ["workerTopLevelNotificationDenied", "actionNotificationDenied", "workerInferText", "workerTopLevelInferDenied"],
           additionalProperties: false,
         },
       },

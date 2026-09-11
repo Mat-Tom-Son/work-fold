@@ -8,7 +8,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { restrictedAppTaskAuthorityDigest } from "../src/local/agent/restricted-app-tasks.js";
-import type { RestrictedAppAssistantTask, RestrictedAppTaskReview } from "../src/shared/restricted-app-tasks.js";
+import type { RestrictedAppAssistantTask, RestrictedAppTaskDetail } from "../src/shared/restricted-app-tasks.js";
 
 import type {
   RestrictedAppConnectionBinding,
@@ -107,10 +107,12 @@ test("restricted app API keeps review, install, grants, connections, invocation,
       { method: "POST", body: { sourcePath, expectedDigest: inspected.review.digest } },
     );
     assert.equal(installed.app.digest, inspected.review.digest);
-    assert.deepEqual(installed.app.networkGrants, []);
-    assert.deepEqual(installed.app.fileGrants, []);
-    assert.deepEqual(installed.app.notificationGrants, []);
-    assert.deepEqual(installed.app.automations, [{ id: "refresh-mail", enabled: false }]);
+    assert.deepEqual(installed.app.networkGrants, ["mail-api"], "an added app reaches its declared destination");
+    assert.deepEqual(installed.app.fileGrants, [{ id: "exports", declarationId: "exports", root: ".", access: "read-write" }], "a directory permission binds to the whole Space");
+    assert.deepEqual(installed.app.notificationGrants, ["new-mail"]);
+    assert.equal(installed.app.automations[0]?.id, "refresh-mail");
+    assert.equal(installed.app.automations[0]?.enabled, true, "every declared automation is on");
+    assert.ok(installed.app.automations[0]?.nextRunAt, "an enabled automation has a next run");
 
     const changeInput = { requestId: randomUUID(), expectedDigest: installed.app.digest };
     const changeUrl = `/api/spaces/${space.id}/restricted-apps/mail-app/change`;
@@ -149,7 +151,7 @@ test("restricted app API keeps review, install, grants, connections, invocation,
       `/api/spaces/${space.id}/restricted-apps/mail-app/permissions/files/exports`,
       { method: "PUT", body: { expectedDigest: inspected.review.digest, root: "reports" } },
     );
-    assert.deepEqual(fileGranted.app.fileGrants, [{ id: "exports", declarationId: "exports", root: "reports", access: "read-write" }]);
+    assert.deepEqual(fileGranted.app.fileGrants, [{ id: "exports", declarationId: "exports", root: "reports", access: "read-write" }], "granting again with a folder narrows the whole-Space default");
 
     const notificationsGranted = await request<{ app: { notificationGrants: string[] } }>(
       api.origin,
@@ -412,7 +414,7 @@ test("restricted app API keeps review, install, grants, connections, invocation,
     const itemUrl = `/api/spaces/${space.id}/restricted-apps/mail-app`;
     const stale = { expectedDigest: inspected.review.digest, featureInstallationId: installed.app.featureInstallationId };
     const oldQuery = new URLSearchParams(stale);
-    const staleReads = ["build-context", "connections", "automations/refresh-mail/runs", "storage", "storage/export", "storage/recovery"];
+    const staleReads = ["build-context", "connections", "automations/refresh-mail/runs", "storage", "storage/export", "storage/recovery", "assistant-tasks"];
     for (const route of staleReads) {
       const response = await fetch(`${api.origin}${itemUrl}/${route}?${oldQuery}`);
       assert.equal(response.status, 503, `stale ${route} must not read the replacement`);
@@ -428,6 +430,7 @@ test("restricted app API keeps review, install, grants, connections, invocation,
       ["storage/restore", "POST", { expectedRevision: 0, backup: exported.backup }],
       ["connections/mail-api", "PUT", { credential: { kind: "api-key", value: "synthetic" } }],
       ["connections/mail-api", "DELETE", {}], ["connections/mail-api/oauth", "POST", {}],
+      [`assistant-tasks/${randomUUID()}/cancel`, "POST", {}],
     ];
     const callsBeforeStaleRequests = runtime.invocations.length;
     for (const [route, method, extra] of staleWrites) {
@@ -509,6 +512,20 @@ test("machine-wide automation ledgers feed the glance and the restore fence, and
       { method: "PUT", body: { expectedDigest: inspected.review.digest } },
     );
 
+    // The install already granted the directory permission over the whole
+    // Space (docs/receipts-not-gates.md, F21); the person's narrowing control
+    // takes it away first.
+    assert.deepEqual(installed.app.fileGrants, [{ id: "exports", declarationId: "exports", root: ".", access: "read-write" }]);
+    const revoked = await api.actFacade.appsRevoke({
+      space: space.id,
+      app: installed.app.featureInstallationId,
+      digest: installed.app.digest,
+      kind: "files",
+      declaration: "exports",
+    });
+    assert.equal(revoked.revoked, true);
+    assert.deepEqual((await service.list(space.id))[0]?.fileGrants, []);
+
     // Phase A: an active accepted run with no file grants is visible in the
     // machine-wide ledger and the glance, but never blocks a restore.
     assert.deepEqual(await service.listActiveAutomationRuns(), []);
@@ -541,8 +558,8 @@ test("machine-wide automation ledgers feed the glance and the restore fence, and
     assert.equal((await firstRun).run.outcome, "success");
     assert.deepEqual(await service.listActiveAutomationRuns(), []);
 
-    // Phase B: a files grant runs at once and binds to the whole Space
-    // (docs/receipts-not-gates.md, F21); the receipt names the root.
+    // Phase B: granting the files permission again runs at once and binds to
+    // the whole Space, exactly as the install default did; the receipt names the root.
     const granted = await api.actFacade.appsGrant({
       space: space.id,
       app: installed.app.featureInstallationId,
@@ -625,20 +642,26 @@ test("restricted app proposals are host-inspected, owning-Chat bound, persisted,
     const second = await request<{ conversation: { id: string } }>(api.origin, `/api/spaces/${space.id}/conversations`, { method: "POST" });
     await writePackage(join(space.spaceRoot, "tools", "mail-app"));
 
+    const settledEvents: string[] = [];
+    proposals.on("settled", ({ proposal }) => settledEvents.push(proposal.status));
     const result = await proposals.propose({
       spaceId: space.id,
       spaceRoot: space.spaceRoot,
       conversationId: first.conversation.id,
       sourcePath: "tools/mail-app",
     });
-    assert.equal(result.status, "pending");
+    assert.equal(result.status, "installed", "a proposal installs the local preview in the same call");
+    assert.deepEqual(result.needs, { connections: ["mail-api"], files: [], checks: [] });
+    assert.deepEqual(settledEvents, ["installed"]);
     const proposalId = result.proposal!.id;
+    assert.equal((await service.list(space.id))[0]?.digest, result.proposal!.review.digest);
 
-    const owned = await request<{ proposals: Array<{ id: string; sourcePath: string; spaceRoot?: string; status: string }> }>(
+    const owned = await request<{ proposals: Array<{ id: string; sourcePath: string; spaceRoot?: string; status: string; needs?: { connections: string[] }; error?: string }> }>(
       api.origin,
       `/api/spaces/${space.id}/conversations/${first.conversation.id}/restricted-app-proposals`,
     );
-    assert.deepEqual(owned.proposals.map(({ id, sourcePath, status }) => ({ id, sourcePath, status })), [{ id: proposalId, sourcePath: "tools/mail-app", status: "pending" }]);
+    assert.deepEqual(owned.proposals.map(({ id, sourcePath, status }) => ({ id, sourcePath, status })), [{ id: proposalId, sourcePath: "tools/mail-app", status: "installed" }]);
+    assert.deepEqual(owned.proposals[0]!.needs?.connections, ["mail-api"], "the renderer receipt names what still needs the person");
     assert.equal("spaceRoot" in owned.proposals[0]!, false, "machine paths stay outside renderer proposal payloads");
     assert.deepEqual((await request<{ proposals: unknown[] }>(api.origin, `/api/spaces/${space.id}/conversations/${second.conversation.id}/restricted-app-proposals`)).proposals, []);
 
@@ -650,18 +673,20 @@ test("restricted app proposals are host-inspected, owning-Chat bound, persisted,
       `/api/spaces/${space.id}/conversations/${first.conversation.id}/restricted-app-proposals/${proposalId}/install`,
       { method: "POST" },
     );
-    assert.equal(installed.app.digest, result.proposal!.review.digest);
-    assert.deepEqual(installed.app.networkGrants, []);
+    assert.equal(installed.app.digest, result.proposal!.review.digest, "the install route is an idempotent retry");
+    assert.deepEqual(installed.app.networkGrants, ["mail-api"]);
     assert.equal(installed.proposal.status, "installed");
+    assert.equal((await service.list(space.id)).length, 1);
 
-    const dismissedResult = await proposals.propose({ spaceId: space.id, spaceRoot: space.spaceRoot, conversationId: first.conversation.id, sourcePath: "tools/mail-app" });
+    const again = await proposals.propose({ spaceId: space.id, spaceRoot: space.spaceRoot, conversationId: first.conversation.id, sourcePath: "tools/mail-app" });
+    assert.equal(again.proposal!.id, proposalId, "the same source and revision reuse the installed receipt");
     const dismissed = await request<{ dismissed: boolean }>(
       api.origin,
-      `/api/spaces/${space.id}/conversations/${first.conversation.id}/restricted-app-proposals/${dismissedResult.proposal!.id}`,
+      `/api/spaces/${space.id}/conversations/${first.conversation.id}/restricted-app-proposals/${proposalId}`,
       { method: "DELETE" },
     );
-    assert.equal(dismissed.dismissed, true);
-    assert.equal((await proposals.get(dismissedResult.proposal!.id))?.status, "dismissed");
+    assert.equal(dismissed.dismissed, false, "an installed receipt is not dismissable");
+    assert.equal((await proposals.get(proposalId))?.status, "installed");
   } finally {
     await api.close();
     await rm(sandbox, { recursive: true, force: true });
@@ -860,6 +885,20 @@ class Connections implements RestrictedAppConnectionStore {
       if (record[0] === scope.tenantId && record[1] === scope.runtimeInstanceId) this.records.delete(item);
     }
   }
+  async carryForward(from: RestrictedAppConnectionFeatureScope, to: RestrictedAppConnectionFeatureScope, keep: readonly { declarationId: string; declarationDigest: string }[]): Promise<string[]> {
+    const kept: string[] = [];
+    for (const item of [...this.records.keys()]) {
+      const record = JSON.parse(item) as string[];
+      if (!(record[0] === from.tenantId && record[1] === from.runtimeInstanceId && record[2] === from.featureId
+        && record[3] === from.featureInstallationId && record[4] === from.featureRevisionDigest)) continue;
+      if (!keep.some((entry) => entry.declarationId === record[5] && entry.declarationDigest === record[6])) continue;
+      const credential = this.records.get(item)!;
+      this.records.delete(item);
+      this.records.set(JSON.stringify([to.tenantId, to.runtimeInstanceId, to.featureId, to.featureInstallationId, to.featureRevisionDigest, ...record.slice(5)]), credential);
+      kept.push(record[5]!);
+    }
+    return kept.sort();
+  }
 }
 
 function key(binding: RestrictedAppConnectionBinding): string {
@@ -923,17 +962,19 @@ test("app requests use reviewed native Pi turns, History, exact task cancellatio
     const taskBase = `${base}/mail-app/assistant-tasks`;
     const query = new URLSearchParams(pin);
     const input = { actionId: "compare", input: { quote: "North $42" }, requestId: randomUUID(), requestedAt: new Date().toISOString() };
-    const pending = await api.appAssistantTasks.request(scope, input);
-    assert.equal(bodies.length, 0, "proposal must not contact a provider");
-    const { review } = await request<{ review: RestrictedAppTaskReview }>(api.origin, `${taskBase}/${input.requestId}?${query}`);
-    assert.equal(review.task.status, "pending");
-    for (const body of [{ ...pin, featureInstallationId: undefined, reviewDigest: review.reviewDigest }, { ...pin, reviewDigest: "wrong" }, { ...pin, reviewDigest: review.reviewDigest, content: "hidden" }]) {
-      const denied = await fetch(`${api.origin}${taskBase}/${input.requestId}/approve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const started = await api.appAssistantTasks.request(scope, input);
+    assert.equal(started.status, "running", "a request starts its Chat in the same call");
+    assert.ok(started.startedAt);
+    assert.equal("approvedAt" in started, false);
+    const { detail } = await request<{ detail: RestrictedAppTaskDetail }>(api.origin, `${taskBase}/${input.requestId}?${query}`);
+    assert.equal(detail.conversationId, `chat-app-${started.id}`);
+    assert.equal(detail.instructions, "Compare the quote and write comparison.md.");
+    const approve = await fetch(`${api.origin}${taskBase}/${input.requestId}/approve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(pin) });
+    assert.ok(!approve.ok, "there is no approval route");
+    for (const body of [{ ...pin, featureInstallationId: undefined }, { ...pin, content: "hidden" }]) {
+      const denied = await fetch(`${api.origin}${taskBase}/${input.requestId}/cancel`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       assert.ok(!denied.ok);
     }
-    const approve = () => request<{ task: RestrictedAppAssistantTask }>(api.origin, `${taskBase}/${input.requestId}/approve`, { method: "POST", body: { ...pin, reviewDigest: review.reviewDigest } });
-    assert.equal((await approve()).task.status, "running");
-    await approve();
     async function waitForTask(requestId: string, status: string) {
       const deadline = Date.now() + 20_000;
       while (Date.now() < deadline) {
@@ -945,30 +986,118 @@ test("app requests use reviewed native Pi turns, History, exact task cancellatio
       assert.fail(`Task did not become ${status}`);
     }
     const done = await waitForTask(input.requestId, "succeeded");
-    assert.equal(done.id, pending.id);
+    assert.equal(done.id, started.id);
     assert.match(done.result!.text, /Saved comparison.md/);
     assert.equal(await readFile(join(space.spaceRoot, "comparison.md"), "utf8"), "# Comparison\nNorth: $42\n");
     const journal = (await readFile(join(sandbox, "state", "turns", "turns.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
-    const completedTurn = journal.filter((record) => record.conversationId === `chat-app-${pending.id}` && record.status === "succeeded").at(-1);
+    const completedTurn = journal.filter((record) => record.conversationId === `chat-app-${started.id}` && record.status === "succeeded").at(-1);
     assert.deepEqual(completedTurn.fileChanges.files.map((file: { path: string }) => file.path), ["comparison.md"], "the actual Pi write has durable History-derived navigation evidence");
-    assert.ok(bodies.some((body) => body.includes("App task: Compare quotes")), "ordinary Pi sees the reviewed request");
+    assert.ok(bodies.some((body) => body.includes("App request: Compare quotes")), "ordinary Pi sees the app's request");
     assert.ok((await listSpaceCheckpoints(space.spaceRoot)).length > 0, "the ordinary turn captures History");
-    assert.equal((await request<{ tasks: RestrictedAppAssistantTask[] }>(api.origin, `${taskBase}?${query}`)).tasks[0]!.result, undefined, "list replies remain compact");
+    const listed = (await request<{ tasks: RestrictedAppAssistantTask[] }>(api.origin, `${taskBase}?${query}`)).tasks[0]!;
+    assert.equal(listed.result, undefined, "list replies remain compact");
+    assert.equal(listed.startedAt, started.startedAt);
     const calls = bodies.length;
     await api.close();
     api = await startLocalApi(options);
-    assert.equal((await approve()).task.status, "succeeded");
-    assert.equal(bodies.length, calls, "restart/retry does not make another provider request");
+    assert.equal((await api.appAssistantTasks.request(scope, input)).status, "succeeded", "a replayed envelope returns the settled record");
+    assert.equal(bodies.length, calls, "restart/replay does not make another provider request");
     hold = true;
     const next = await api.appAssistantTasks.request(scope, { ...input, requestId: randomUUID(), requestedAt: new Date().toISOString() });
-    const { review: nextReview } = await request<{ review: RestrictedAppTaskReview }>(api.origin, `${taskBase}/${next.requestId}?${query}`);
-    await request(api.origin, `${taskBase}/${next.requestId}/approve`, { method: "POST", body: { ...pin, reviewDigest: nextReview.reviewDigest } });
+    assert.equal(next.status, "running");
     await providerEntered;
     const removal = await fetch(`${api.origin}${base}/mail-app`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify(pin) });
     assert.equal(removal.status, 409, "capability mutation cannot overtake an accepted Space turn");
-    await request(api.origin, `${taskBase}/${next.requestId}/cancel`, { method: "POST", body: pin });
+    const stopping = await request<{ task: RestrictedAppAssistantTask }>(api.origin, `${taskBase}/${next.requestId}/cancel`, { method: "POST", body: pin });
+    assert.equal(stopping.task.cancellationRequested, true);
     assert.equal((await waitForTask(next.requestId, "cancelled")).result, undefined);
     assert.equal((await api.appAssistantTasks.get(scope, input.requestId)).status, "succeeded");
+  } finally {
+    await api.close();
+    provider.closeAllConnections();
+    await new Promise<void>((resolve) => provider.close(() => resolve()));
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("app inference runs on the Space's configured model with no Chat and leaves receipts", { timeout: 45_000 }, async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-app-inference-api-"));
+  const agentDir = join(sandbox, "agent");
+  await mkdir(join(agentDir, "extensions"), { recursive: true });
+  const bodies: string[] = [];
+  let toolArguments = JSON.stringify({ total: 42 });
+  const provider = createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      bodies.push(body);
+      res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "close" });
+      const chunk = (delta: unknown, finish_reason: string | null = null) => res.write(`data: ${JSON.stringify({ id: `completion-${bodies.length}`, object: "chat.completion.chunk", created: 1, model: "app-model", choices: [{ index: 0, delta, finish_reason }] })}\n\n`);
+      if (body.includes("submit_result")) {
+        chunk({ role: "assistant", tool_calls: [{ index: 0, id: "result_1", type: "function", function: { name: "submit_result", arguments: toolArguments } }] });
+        chunk({}, "tool_calls");
+      } else {
+        chunk({ role: "assistant", content: "North is cheapest." });
+        chunk({}, "stop");
+      }
+      res.end("data: [DONE]\n\n");
+    });
+  });
+  await new Promise<void>((resolve) => provider.listen(0, "127.0.0.1", resolve));
+  const providerPort = (provider.address() as AddressInfo).port;
+  await writeFile(join(agentDir, "extensions", "app-provider.ts"), `export default function(pi) { pi.registerProvider("app-provider", { api: "openai-completions", baseUrl: "http://127.0.0.1:${providerPort}/v1", apiKey: "synthetic", models: [{ id: "app-model", name: "App Model", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32768, maxTokens: 1024 }] }); }`);
+  const settingsManager = SettingsManager.inMemory({ defaultProvider: "app-provider", defaultModel: "app-model", defaultThinkingLevel: "off" });
+  const api = await startLocalApi({
+    port: 0,
+    stateBase: join(sandbox, "state"),
+    spaceBase: join(sandbox, "spaces"),
+    loadEnv: false,
+    piRuntimeProvider: { async resolveRuntime() { return { agentDir, settingsManager }; } },
+  });
+  try {
+    const { space } = await request<{ space: { id: string; spaceRoot: string } }>(api.origin, "/api/spaces", { method: "POST", body: { name: "Quotes" } });
+    await writePackage(join(space.spaceRoot, "app"));
+    const base = `/api/spaces/${space.id}/restricted-apps`;
+    const { review } = await request<{ review: { digest: string } }>(api.origin, `${base}/inspect`, { method: "POST", body: { sourcePath: "app" } });
+    const { app } = await request<{ app: RestrictedAppInstalled }>(api.origin, base, { method: "POST", body: { sourcePath: "app", expectedDigest: review.digest } });
+    const scope = { spaceId: app.spaceId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId,
+      digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority) };
+
+    const text = await api.appInference.infer(scope, "view", { instructions: "Name the cheapest quote.", input: "North $42, South $58" });
+    assert.deepEqual(Object.keys(text).sort(), ["model", "text", "truncated", "usage"]);
+    assert.equal((text as { text: string }).text, "North is cheapest.");
+    assert.deepEqual((text as { model: { provider: string; id: string } }).model, { provider: "app-provider", id: "app-model" });
+    assert.equal(bodies.length, 1);
+    assert.ok(bodies[0]!.includes("North $42, South $58"), "the app's input is the only user message");
+    assert.ok(!bodies[0]!.includes("App request:"), "bounded inference never carries a Chat prompt");
+    assert.ok(!bodies[0]!.includes("\"tools\""), "no tools reach the model without a schema");
+    assert.equal((await listSpaceCheckpoints(space.spaceRoot)).length, 0, "a bounded call is not a turn and captures no History");
+    assert.deepEqual(await request<{ conversations: unknown[] }>(api.origin, `/api/spaces/${space.id}/conversations`).then((value) => value.conversations), [], "no Chat is created");
+
+    const outputSchema = { type: "object", properties: { total: { type: "integer", minimum: 0 } }, required: ["total"], additionalProperties: false };
+    const json = await api.appInference.infer(scope, "worker", { instructions: "Total the quotes.", input: "North $42", outputSchema });
+    assert.deepEqual((json as { json: unknown }).json, { total: 42 });
+    assert.ok(bodies[1]!.includes("submit_result"), "a schema rides as the one result tool");
+
+    // A model that answers outside the requested shape is refused, not passed through.
+    toolArguments = JSON.stringify({ total: 42, extra: true });
+    const mismatch = await api.appInference.infer(scope, "view", { instructions: "Total the quotes.", input: "North $42", outputSchema })
+      .then(() => null, (error: unknown) => error as { code?: string });
+    assert.equal(mismatch?.code, "INFER_OUTPUT_INVALID");
+
+    const receipts = (await request<{ receipts: Array<Record<string, unknown>> }>(
+      api.origin,
+      `${base}/mail-app/inference-receipts?${new URLSearchParams({ featureInstallationId: app.featureInstallationId, expectedDigest: app.digest })}`,
+    )).receipts;
+    assert.equal(receipts.length, 6, "an accepted and a terminal line for each of the three calls");
+    assert.deepEqual(receipts.map((receipt) => receipt.outcome), ["error", "accepted", "ok", "accepted", "ok", "accepted"]);
+    const settled = receipts.find((receipt) => receipt.outcome === "ok")!;
+    assert.deepEqual(settled.model, { provider: "app-provider", id: "app-model" });
+    assert.equal(typeof (settled.usage as { inputTokens: number }).inputTokens, "number");
+    assert.equal(receipts.every((receipt) => JSON.stringify(receipt).includes("North $42") === false), true, "receipts record sizes, never app content");
+
+    const stale = await fetch(`${api.origin}${base}/mail-app/inference-receipts?featureInstallationId=${app.featureInstallationId}`);
+    assert.equal(stale.ok, false, "receipt reads name an exact installation and revision");
   } finally {
     await api.close();
     provider.closeAllConnections();

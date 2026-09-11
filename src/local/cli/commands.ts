@@ -351,7 +351,9 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
     return [
       header,
       "",
-      `Usage: ${executable} apps proposals list --space <id-or-name> --conversation <id> [--json]`,
+      `Usage: ${executable} apps list --space <id-or-name> [--json]`,
+      `       ${executable} apps invoke --space <id-or-name> --app <id> --tool <name> --input <json> [--json]`,
+      `       ${executable} apps proposals list --space <id-or-name> --conversation <id> [--json]`,
       `       ${executable} apps proposals dismiss --space <id-or-name> --conversation <id> --proposal <id> [--json]`,
       `       ${executable} apps install-proposal --space <id-or-name> --conversation <id> --proposal <id> [--json]`,
       `       ${executable} apps install-preview --space <id-or-name> --package <space-path> [--json]`,
@@ -384,7 +386,11 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
       "prepare, update prepare, operation activate/cancel, uninstall",
       "--retain-data). Credentials never ride this lane: apps connect opens",
       "the browser sign-in flow; a destination that takes a typed secret is",
-      "connected from the Apps tab. Needs the work-fold app running.",
+      "connected from the Apps tab. list shows each installed app with its",
+      "tools and their schemas, named Assistant actions, powers, connections,",
+      "and automations; invoke runs one declared tool through the app's own",
+      "runtime and returns its result with a receipt.",
+      "Needs the work-fold app running.",
       "",
     ].join("\n");
   }

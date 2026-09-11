@@ -7,6 +7,7 @@ const storageChannel = "work-fold:restricted-app:storage";
 const storageChangedChannel = "work-fold:restricted-app:storage-changed";
 const checksChannel = "work-fold:restricted-app:checks";
 const assistantTasksChannel = "work-fold:restricted-app:assistant-tasks";
+const assistantInferChannel = "work-fold:restricted-app:assistant-infer";
 const filesChannel = "work-fold:restricted-app:files";
 const notificationsChannel = "work-fold:restricted-app:notifications";
 const maximumFileEnvelopeBytes = 800 * 1024;
@@ -49,6 +50,10 @@ const limits = initialLimits();
 const networkRequestBytes = nestedPositiveInteger(limits, "network", "maxRequestBytes", 128 * 1024);
 const maximumNetworkEnvelopeBytes = networkRequestBytes * 6 + 64 * 1024;
 const maximumStorageEnvelopeBytes = nestedPositiveInteger(limits, "storage", "maxTransactionBytes", 160 * 1024) + 64 * 1024;
+// JSON escaping can expand one byte into six, so both Assistant envelopes
+// leave that headroom over the published input bound.
+const maximumAssistantEnvelopeBytes = nestedPositiveInteger(limits, "assistant", "inputBytes", 64 * 1024) * 6 + 64 * 1024;
+const maximumInferEnvelopeBytes = nestedPositiveInteger(limits, "inference", "inputBytes", 256 * 1024) * 6 + 128 * 1024;
 
 function nestedPositiveInteger(
   value: unknown,
@@ -167,10 +172,11 @@ const appBridge = Object.freeze({
     read: (request: { permissionId: string }) => invokeHost(checksChannel, request, 1024, "CHECK_UNAVAILABLE"),
   }),
   assistant: Object.freeze({
-    request: (request: unknown) => invokeHost(assistantTasksChannel, { operation: "request", request }, 12 * 1024, "TASK_UNAVAILABLE"),
+    request: (request: unknown) => invokeHost(assistantTasksChannel, { operation: "request", request }, maximumAssistantEnvelopeBytes, "TASK_UNAVAILABLE"),
     list: () => invokeHost(assistantTasksChannel, { operation: "list" }, 1024, "TASK_UNAVAILABLE"),
     get: (requestId: string) => invokeHost(assistantTasksChannel, { operation: "get", requestId }, 1024, "TASK_UNAVAILABLE"),
     cancel: (requestId: string) => invokeHost(assistantTasksChannel, { operation: "cancel", requestId }, 1024, "TASK_UNAVAILABLE"),
+    infer: (request: unknown) => invokeHost(assistantInferChannel, { request }, maximumInferEnvelopeBytes, "INFER_UNAVAILABLE"),
   }),
   files: Object.freeze({
     list: (request: unknown) => fileRequest("list", request),

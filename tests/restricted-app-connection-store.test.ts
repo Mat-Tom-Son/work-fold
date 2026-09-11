@@ -279,3 +279,24 @@ test("encrypted connection store rejects the 1,025th record without corrupting t
   assert.deepEqual(await readFile(file), before);
   assert.deepEqual(await full.get(binding()), { kind: "bearer", token: "ceiling-secret" });
 });
+
+test("carryForward moves only the listed byte-identical bindings onto the successor revision scope", async (t) => {
+  const { store } = await temporaryStore(t);
+  const successorDigest = parseAppPlatformArtifactDigest(`work-fold.artifact.v1:sha256:${"c".repeat(64)}`);
+  const otherDigest = computeDeclarationDigest({ destinationId: "calendar-api", auth: "api-key" });
+  const kept = binding();
+  const dropped = binding({ declarationId: "calendar-api", declarationDigest: otherDigest, targetIdentity: "https://calendar.example.com" });
+  await store.set(kept, { kind: "bearer", token: "kept-token" });
+  await store.set(dropped, { kind: "api-key", value: "dropped-key" });
+  const from = { tenantId, runtimeInstanceId, featureId: "mail-app", featureInstallationId, featureRevisionDigest };
+  const to = { ...from, featureRevisionDigest: successorDigest };
+
+  assert.deepEqual(await store.carryForward(from, to, [{ declarationId: "mail-api", declarationDigest }]), ["mail-api"]);
+  assert.deepEqual(await store.get({ ...kept, featureRevisionDigest: successorDigest }), { kind: "bearer", token: "kept-token" }, "the kept record reads under the successor binding");
+  assert.equal(await store.get(kept), undefined, "the kept record no longer reads under the retired binding");
+  assert.deepEqual(await store.get(dropped), { kind: "api-key", value: "dropped-key" }, "an unlisted record stays for the scope cleanup");
+  assert.equal(await store.get({ ...dropped, featureRevisionDigest: successorDigest }), undefined);
+  await store.deleteFeature(from);
+  assert.equal(await store.get(dropped), undefined);
+  assert.deepEqual(await store.carryForward(from, to, [{ declarationId: "mail-api", declarationDigest }]), [], "an emptied scope carries nothing");
+});

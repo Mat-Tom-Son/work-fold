@@ -244,14 +244,18 @@ function transitionFor(
   const exactFeature = exactRevision && exactDeclaration;
   const dataDecision = dataTransition(current, target);
   const action: LocalAppFeatureUpdateAction = exactFeature && dataDecision.data === "retain" ? "keep" : "update";
-  const continuity = policy === "eligible" && exactFeature
+  // The default "eligible" continuity carries the current grants, connections,
+  // and enabled jobs onto a changed revision too (docs/receipts-not-gates.md,
+  // F21); the activation path then keeps each by declaration id. "reset" is
+  // the person's explicit choice to start over with the install defaults.
+  const continuity = policy === "eligible"
     ? {
         grants: [...current.grants],
         connections: [...current.connections],
         enabledJobs: [...current.enabledJobs],
       }
     : emptyContinuity();
-  const resets = policy === "eligible" && exactFeature ? [] : liveAuthorityResets(current);
+  const resets = policy === "eligible" ? [] : liveAuthorityResets(current);
   const transition = {
     featureId,
     action,
@@ -537,6 +541,13 @@ function featureFenceFieldsFor(
   if (!existingInstallation) return [];
   const fields = new Set<LocalAppFeatureFenceField>();
   if (transition.action === "update" || transition.action === "remove") fields.add("featureInstallationGeneration");
+  // A changed revision rebinds every carried grant, connection, and job to the
+  // successor, so hosts holding the predecessor stamp stop at their next effect.
+  if (transition.action === "update") {
+    fields.add("grantGeneration");
+    fields.add("connectionGeneration");
+    fields.add("jobGeneration");
+  }
   if (transition.resets.includes("grants")) fields.add("grantGeneration");
   if (transition.resets.includes("connections")) fields.add("connectionGeneration");
   if (transition.resets.includes("jobs")) fields.add("jobGeneration");

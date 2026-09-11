@@ -244,7 +244,7 @@ test("a schema update resolves and orders one exact multi-step migration path", 
   assert.equal(transition.data, "migrate");
   assert.deepEqual(transition.migrationIds, ["schema-v1-to-v2", "schema-v2-to-v3"]);
   assert.equal(transition.migrationDigests.length, 2);
-  assert.deepEqual(transition.resets, ["grants", "connections", "jobs"]);
+  assert.deepEqual(transition.resets, [], "the default continuity carries live authority through a migration");
   assert.deepEqual(transition.featureFenceFields, [
     "featureInstallationGeneration",
     "grantGeneration",
@@ -253,6 +253,30 @@ test("a schema update resolves and orders one exact multi-step migration path", 
     "dataGeneration",
   ]);
   assert.equal(transition.featureFenceFields.includes("runtimeInstanceGeneration"), false);
+});
+
+test("the default continuity carries grants, connections, and enabled jobs onto a changed revision and fences its live domains", () => {
+  const currentRelease = release([releaseFeature("connected-inbox", "one")]);
+  const target = release([releaseFeature("connected-inbox", "two")]);
+  const transition = planLocalAppInstanceUpdate(updateInput(currentRelease, target)).transitions[0]!;
+
+  assert.equal(transition.action, "update");
+  assert.deepEqual(transition.continuity, {
+    grants: ["mail-api"],
+    connections: ["instance-mail"],
+    enabledJobs: ["refresh-mail"],
+  });
+  assert.deepEqual(transition.resets, []);
+  assert.deepEqual(transition.featureFenceFields, [
+    "featureInstallationGeneration",
+    "grantGeneration",
+    "connectionGeneration",
+    "jobGeneration",
+  ], "a changed revision rebinds every live domain to the successor");
+
+  const reset = planLocalAppInstanceUpdate(updateInput(currentRelease, target, { continuityPolicy: "reset" })).transitions[0]!;
+  assert.deepEqual(reset.continuity, { grants: [], connections: [], enabledJobs: [] });
+  assert.deepEqual(reset.resets, ["grants", "connections", "jobs"], "reset is the person's explicit choice to start over");
 });
 
 test("migration planning blocks gaps, reverse-only paths, and wrong schema identities", () => {

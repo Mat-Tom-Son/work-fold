@@ -64,6 +64,7 @@ export type ManagementRequestActionCommand =
   | "apps.automation.enable"
   | "apps.automation.disable"
   | "apps.automation.run"
+  | "apps.invoke"
   | "apps.storage.clear"
   | "apps.retained.purge"
   | "apps.project.declare"

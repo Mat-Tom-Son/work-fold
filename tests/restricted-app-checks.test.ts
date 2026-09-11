@@ -29,7 +29,7 @@ test("restricted Check broker fences in-flight reads and bounds failed or mismat
   }
 });
 
-test("Check grants pin installations and declarations, reset on changed bytes, and survive exact release continuity", async (t) => {
+test("Check grants pin installations and declarations, carry across changed bytes by permission id, and survive release continuity", async (t) => {
   const { mkdtemp, mkdir, writeFile, readFile, rm } = await import("node:fs/promises");
   const { join } = await import("node:path");
   const { tmpdir } = await import("node:os");
@@ -77,7 +77,10 @@ test("Check grants pin installations and declarations, reset on changed bytes, a
   await writeFile(join(packageRoot, "index.html"), "<!doctype html><p>Changed</p>");
   const changed = await service.inspect(scope);
   const next = await service.install({ ...scope, expectedDigest: changed.digest });
-  assert.deepEqual(next.checkGrants ?? [], [], "preview changes reset selection");
+  // A code change carries the chosen Check by permission id (docs/receipts-not-gates.md, F21);
+  // the old revision pin still cannot change it.
+  assert.equal(next.checkGrants?.[0]?.checkId, "selected", "preview changes carry the selection");
+  assert.equal(next.checkGrants?.[0]?.declarationDigest, selection.declarationDigest);
   await assert.rejects(service.setCheckGrant(pin), /changed/);
   await service.close();
   service = await RestrictedAppService.create(options);

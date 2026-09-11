@@ -67,6 +67,7 @@ function createOAuthTransport(): RestrictedAppOAuthPublicHttpsTransport {
     async delete() { return false; },
     async deleteFeature() {},
     async deleteRuntimeInstance() {},
+    async carryForward() { return []; },
   };
   const broker = new RestrictedAppNetworkBroker({
     credentials,

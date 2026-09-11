@@ -495,6 +495,29 @@ test("ledger tools and apps commands parse with strict shapes", () => {
   );
 
   assert.deepEqual(
+    parseWorkFoldCliActArgv(["apps", "list", "--space", "space-1"]),
+    { name: "apps.list", output: "human", space: "space-1" },
+  );
+  // --input carries JSON, so it deliberately escapes the control-character
+  // rule every other bounded flag keeps; the app's runtime validates the value.
+  assert.deepEqual(
+    parseWorkFoldCliActArgv(["apps", "invoke", "--space", "space-1", "--app", "app-1", "--tool", "summarize", "--input", "{\n  \"text\": \"North\"\n}", "--parent-task", "task-1"]),
+    { name: "apps.invoke", output: "human", space: "space-1", app: "app-1", tool: "summarize", toolInput: { text: "North" }, parentTaskId: "task-1" },
+  );
+  assert.throws(
+    () => parseWorkFoldCliActArgv(["apps", "invoke", "--space", "space-1", "--app", "app-1", "--tool", "summarize"]),
+    /Provide --input <json>/,
+  );
+  assert.throws(
+    () => parseWorkFoldCliActArgv(["apps", "invoke", "--space", "space-1", "--app", "app-1", "--tool", "summarize", "--input", "{not json"]),
+    /--input must be valid JSON/,
+  );
+  assert.throws(
+    () => parseWorkFoldCliActArgv(["apps", "invoke", "--space", "space-1", "--app", "app-1", "--tool", "summarize", "--input", JSON.stringify({ text: "x".repeat(300_000) })]),
+    /--input must be at most 262144 bytes/,
+  );
+  assert.throws(() => parseWorkFoldCliActArgv(["apps", "list", "--space", "space-1", "--app", "app-1"]), /--app/);
+  assert.deepEqual(
     parseWorkFoldCliActArgv(["apps", "proposals", "list", "--space", "space-1", "--conversation", "conv-1"]),
     { name: "apps.proposals.list", output: "human", space: "space-1", conversation: "conv-1" },
   );
@@ -1706,6 +1729,45 @@ test("Space, appearance, tools, and App Studio acts dispatch to the facade, stam
       calls.push({ method: "appsUninstallPurge", input });
       return { space: spaceRef, runtimeInstanceId: "runtime-instance_1", purgedNamespaceIds: ["data-namespace_1"], removed: true, cleanupPending: true };
     },
+    appsList: async (input: unknown) => {
+      calls.push({ method: "appsList", input });
+      return {
+        space: spaceRef,
+        apps: [{
+          appId: "connected-inbox",
+          featureInstallationId: "feature-installation_1",
+          digest: "d".repeat(64),
+          title: "Connected inbox",
+          description: "Reads the shared inbox.",
+          version: "0.1.0",
+          kind: "preview" as const,
+          tools: [{
+            name: "summarize",
+            description: "Summarize the inbox.",
+            action: "summarize",
+            inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false },
+            resultSchema: { type: "string" },
+          }],
+          assistantActions: [{ id: "compare", title: "Compare quotes" }],
+          grants: { network: ["crm"], files: [{ declarationId: "space-notes", root: ".", access: "read-write" }], notifications: [], checks: [] },
+          connections: [{ destinationId: "crm", kind: null, configured: false }],
+          automations: [{ id: "daily-sync", title: "Daily sync", enabled: true, nextRunAt: createdAt, lastRunAt: null }],
+        }],
+        truncated: false,
+      };
+    },
+    appsInvoke: async (input: unknown) => {
+      calls.push({ method: "appsInvoke", input });
+      return {
+        space: spaceRef,
+        appId: "connected-inbox",
+        featureInstallationId: "feature-installation_1",
+        digest: "d".repeat(64),
+        tool: "summarize",
+        action: "summarize",
+        result: { summary: "Two quotes, North is cheaper." },
+      };
+    },
     appsProposalsList: async (input: unknown) => {
       calls.push({ method: "appsProposalsList", input });
       return {
@@ -1893,6 +1955,25 @@ test("Space, appearance, tools, and App Studio acts dispatch to the facade, stam
   assert.match(deletedRelease.stdout, /Deleted unused Release \[sha256:a+\] in Fold Space \[space-1\]\./);
   assert.equal(lastOk().detail, `release ${releaseDigest}`);
   assert.equal(lastOk().undoRef, undefined);
+
+  // The fold reads what an app can do, then runs one of its declared tools.
+  const listedApps = await execute(["apps", "list", "--space", "space-1"]);
+  assert.match(listedApps.stdout, /1 app in Fold Space \[space-1\]:/);
+  assert.match(listedApps.stdout, /- Connected inbox 0\.1\.0 \[connected-inbox\] \(preview\)/);
+  assert.match(listedApps.stdout, /tools: summarize/);
+  assert.match(listedApps.stdout, /automations: daily-sync on/);
+  assert.deepEqual(calls.at(-1)?.input, { space: "space-1" });
+  assert.equal(lastOk().detail, "apps 1");
+  const listedJson = JSON.parse((await execute(["apps", "list", "--space", "space-1", "--json"])).stdout);
+  assert.equal(listedJson.data.apps[0].tools[0].inputSchema.type, "object", "a caller can build --input from the listing alone");
+  assert.deepEqual(listedJson.data.apps[0].assistantActions, [{ id: "compare", title: "Compare quotes" }]);
+
+  const invoked = await execute(["apps", "invoke", "--space", "space-1", "--app", "connected-inbox", "--tool", "summarize", "--input", "{\"text\":\"North $42\"}", "--parent-task", "task-9"]);
+  assert.match(invoked.stdout, /Ran summarize of connected-inbox in Fold Space \[space-1\]\./);
+  assert.match(invoked.stdout, /Two quotes, North is cheaper\./);
+  assert.deepEqual(calls.at(-1)?.input, { space: "space-1", app: "connected-inbox", tool: "summarize", input: { text: "North $42" }, parentTaskId: "task-9" });
+  assert.equal(lastOk().parentTaskId, "task-9");
+  assert.match(String(lastOk().detail), /^app connected-inbox; tool summarize; result \d+ bytes$/);
 
   // The Space-app authority direct verbs: narrowing and neutral only, with
   // honest receipt details; widening stays consecrated.

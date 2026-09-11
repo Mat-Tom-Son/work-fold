@@ -123,11 +123,12 @@ test("Local App Studio separates Project declaration, immutable Release review, 
     const installed = activated.apps[0]!;
     assert.equal(installed.runtimeInstanceKind, "app");
     assert.equal(installed.releaseDigest, published.releaseDigest);
-    assert.deepEqual(installed.networkGrants, []);
-    assert.deepEqual(installed.fileGrants, []);
-    assert.deepEqual(installed.notificationGrants, []);
+    // An installed Feature comes up able to work (docs/receipts-not-gates.md, F21).
+    assert.deepEqual(installed.networkGrants, ["mail-api"]);
+    assert.deepEqual(installed.fileGrants, [{ id: "exports", declarationId: "exports", root: ".", access: "read-write" }], "a directory permission binds to the whole Space");
+    assert.deepEqual(installed.notificationGrants, ["new-mail"]);
     assert.ok(installed.automations.length > 0);
-    assert.equal(installed.automations.every((automation) => !automation.enabled), true);
+    assert.equal(installed.automations.every((automation) => automation.enabled), true, "every declared automation is on");
     assert.deepEqual(await service.connectionStatus(targetSpace, featureId, installed.digest), [{
       destinationId: "mail-api",
       owner: "instance",
@@ -440,7 +441,7 @@ test("startup consumes the Release store's single verified reconciliation projec
   }
 });
 
-test("Local App updates preserve only exact continuity, reset every power on revision change, roll back, and retain data explicitly", async () => {
+test("Local App updates carry continuity across revisions by default, reset every power only on request, roll back, and retain data explicitly", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-local-app-studio-update-"));
   const sourceRoot = join(sandbox, "source-space");
   const targetRoot = join(sandbox, "target-space");
@@ -558,18 +559,21 @@ test("Local App updates preserve only exact continuity, reset every power on rev
     assert.deepEqual(resetUpdate.plan.transitions[0]?.resets, ["grants", "connections", "jobs"]);
     const resetActivated = (await service.activateLocalAppUpdate(resetUpdate.operationId)).apps[0]!;
     assert.deepEqual(ids(resetActivated), originalIds, "an explicit authority reset keeps the Feature and data incarnation");
-    assert.deepEqual(resetActivated.networkGrants, []);
-    assert.deepEqual(resetActivated.fileGrants, []);
-    assert.deepEqual(resetActivated.notificationGrants, []);
-    assert.equal(resetActivated.automations.every((automation) => !automation.enabled), true);
+    // "reset" is the person's explicit choice to start over with the install
+    // defaults: every declared power on again, and the connection gone.
+    assert.deepEqual(resetActivated.networkGrants, ["mail-api"]);
+    assert.deepEqual(resetActivated.fileGrants, [{ id: "exports", declarationId: "exports", root: ".", access: "read-write" }], "the reset re-binds the directory permission to the whole Space");
+    assert.deepEqual(resetActivated.notificationGrants, ["new-mail"]);
+    assert.equal(resetActivated.automations.every((automation) => automation.enabled), true);
     assert.equal((await service.connectionStatus(targetSpace, featureId, resetActivated.digest))[0]?.configured, false,
       "an exact-revision reset must synchronously revoke the predecessor connection");
     assert.deepEqual(await storage.get(storageOwner(resetActivated), "durable"), { count: 7 });
-    await service.grantNetwork({
+    // The person narrows one default and connects again before the code changes.
+    await service.revokeNotifications({
       spaceId: targetSpace,
       appId: featureId,
       expectedDigest: resetActivated.digest,
-      destinationId: "mail-api",
+      permissionId: "new-mail",
     });
     await service.setConnection({
       spaceId: targetSpace,
@@ -577,13 +581,6 @@ test("Local App updates preserve only exact continuity, reset every power on rev
       expectedDigest: resetActivated.digest,
       destinationId: "mail-api",
       credential: { kind: "api-key", value: "replacement-test-secret" },
-    });
-    await service.setAutomationEnabled({
-      spaceId: targetSpace,
-      appId: featureId,
-      expectedDigest: resetActivated.digest,
-      automationId: refreshAutomation,
-      enabled: true,
     });
 
     const staleRelease = await service.prepareLocalAppRelease({ spaceId: sourceSpace, displayVersion: "1.1.0" });
@@ -610,14 +607,20 @@ test("Local App updates preserve only exact continuity, reset every power on rev
     assert.equal(changedUpdate.plan.canCommit, true);
     assert.equal(changedUpdate.plan.transitions[0]?.action, "update");
     assert.equal(changedUpdate.plan.transitions[0]?.data, "retain");
-    assert.deepEqual(changedUpdate.plan.transitions[0]?.resets, ["grants", "connections", "jobs"]);
+    assert.deepEqual(changedUpdate.plan.transitions[0]?.resets, [], "the default continuity carries across a changed revision");
+    assert.deepEqual(changedUpdate.plan.transitions[0]?.continuity, {
+      grants: ["file:exports", "network:mail-api"],
+      connections: ["mail-api"],
+      enabledJobs: [refreshAutomation],
+    });
     const changedActivated = (await service.activateLocalAppUpdate(changedUpdate.operationId)).apps[0]!;
     assert.deepEqual(ids(changedActivated), originalIds, "a revision switch keeps the Feature incarnation and data lineage");
-    assert.deepEqual(changedActivated.networkGrants, []);
-    assert.deepEqual(changedActivated.fileGrants, []);
-    assert.deepEqual(changedActivated.notificationGrants, []);
-    assert.equal(changedActivated.automations.every((automation) => !automation.enabled), true);
-    assert.equal((await service.connectionStatus(targetSpace, featureId, changedActivated.digest))[0]?.configured, false);
+    assert.deepEqual(changedActivated.networkGrants, ["mail-api"], "the person's granted state carries by declaration id");
+    assert.deepEqual(changedActivated.fileGrants, [{ id: "exports", declarationId: "exports", root: ".", access: "read-write" }], "the whole-Space file grant carries with its unchanged declaration");
+    assert.deepEqual(changedActivated.notificationGrants, [], "the person's revocation carries across the code change");
+    assert.equal(changedActivated.automations.find((item) => item.id === refreshAutomation)?.enabled, true);
+    assert.equal((await service.connectionStatus(targetSpace, featureId, changedActivated.digest))[0]?.configured, true,
+      "a byte-identical destination declaration keeps its connection");
     assert.deepEqual(await storage.get(storageOwner(changedActivated), "durable"), { count: 7 },
       "code revision must not imply a data namespace reset");
 
@@ -775,6 +778,26 @@ class MemoryConnectionStore implements RestrictedAppConnectionStore {
       if (record.binding.tenantId === scope.tenantId
         && record.binding.runtimeInstanceId === scope.runtimeInstanceId) this.records.delete(key);
     }
+  }
+
+  async carryForward(
+    from: RestrictedAppConnectionFeatureScope,
+    to: RestrictedAppConnectionFeatureScope,
+    keep: readonly { declarationId: string; declarationDigest: string }[],
+  ): Promise<string[]> {
+    const kept: string[] = [];
+    for (const [key, record] of [...this.records]) {
+      const binding = record.binding;
+      if (!(binding.tenantId === from.tenantId && binding.runtimeInstanceId === from.runtimeInstanceId
+        && binding.featureId === from.featureId && binding.featureInstallationId === from.featureInstallationId
+        && binding.featureRevisionDigest === from.featureRevisionDigest)) continue;
+      if (!keep.some((item) => item.declarationId === binding.declarationId && item.declarationDigest === binding.declarationDigest)) continue;
+      this.records.delete(key);
+      const moved = { ...binding, ...to };
+      this.records.set(connectionKey(moved), { binding: moved, credential: record.credential });
+      kept.push(binding.declarationId);
+    }
+    return kept.sort();
   }
 }
 

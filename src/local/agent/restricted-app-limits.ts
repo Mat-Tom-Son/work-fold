@@ -1,3 +1,5 @@
+import { restrictedAppInferenceLimits } from "../../shared/restricted-app-inference.js";
+import { restrictedAppAssistantLimits } from "../../shared/restricted-app-tasks.js";
 import { restrictedAppAutomationIntervalMinutes } from "./restricted-app-manifest.js";
 import { restrictedAppStorageLimits } from "./restricted-app-storage.js";
 
@@ -38,6 +40,23 @@ export interface RestrictedAppLimits {
     minimumIntervalMinutes: number;
     maximumIntervalMinutes: number;
   };
+  /** `assistant.infer`: one bounded model call on the Space's configured model. */
+  inference: {
+    instructionsBytes: number;
+    inputBytes: number;
+    schemaBytes: number;
+    defaultOutputBytes: number;
+    maxOutputBytes: number;
+    runningPerInstallation: number;
+    timeoutMs: number;
+  };
+  /** `assistant.request`: a full-tools Chat in the owning Space. */
+  assistant: {
+    instructionsBytes: number;
+    inputBytes: number;
+    resultBytes: number;
+    runningPerInstallation: number;
+  };
 }
 
 export interface RestrictedAppLimitsSource {
@@ -65,6 +84,18 @@ export function restrictedAppNetworkEnvelopeBytes(maxRequestBytes: number): numb
 export const restrictedAppStorageEnvelopeBytes =
   restrictedAppStorageLimits.transactionBytes + 64 * 1024;
 
+/**
+ * Inference input is JSON-escaped into its envelope exactly like a network
+ * body, so the published input bound stays reachable for text that escapes
+ * badly, plus room for the instructions and schema that ride along.
+ */
+export const restrictedAppInferenceEnvelopeBytes =
+  restrictedAppInferenceLimits.inputBytes * 6 + 128 * 1024;
+
+/** The Assistant-request envelope: the same escaping allowance over the published input bound. */
+export const restrictedAppAssistantEnvelopeBytes =
+  restrictedAppAssistantLimits.inputBytes * 6 + 64 * 1024;
+
 export function buildRestrictedAppLimits(source: RestrictedAppLimitsSource): RestrictedAppLimits {
   return {
     network: { ...source.network },
@@ -80,6 +111,21 @@ export function buildRestrictedAppLimits(source: RestrictedAppLimitsSource): Res
     automations: {
       minimumIntervalMinutes: restrictedAppAutomationIntervalMinutes.minimum,
       maximumIntervalMinutes: restrictedAppAutomationIntervalMinutes.maximum,
+    },
+    inference: {
+      instructionsBytes: restrictedAppInferenceLimits.instructionsBytes,
+      inputBytes: restrictedAppInferenceLimits.inputBytes,
+      schemaBytes: restrictedAppInferenceLimits.schemaBytes,
+      defaultOutputBytes: restrictedAppInferenceLimits.defaultOutputBytes,
+      maxOutputBytes: restrictedAppInferenceLimits.maxOutputBytes,
+      runningPerInstallation: restrictedAppInferenceLimits.runningPerInstallation,
+      timeoutMs: restrictedAppInferenceLimits.timeoutMs,
+    },
+    assistant: {
+      instructionsBytes: restrictedAppAssistantLimits.instructions,
+      inputBytes: restrictedAppAssistantLimits.inputBytes,
+      resultBytes: restrictedAppAssistantLimits.resultBytes,
+      runningPerInstallation: restrictedAppAssistantLimits.runningPerInstallation,
     },
   };
 }

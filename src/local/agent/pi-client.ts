@@ -40,7 +40,7 @@ import {
   type ResolvedPiRuntime,
 } from "./pi-runtime-config.js";
 import { runBoundedInference, type BoundedInferenceOutcome, type BoundedInferenceRequest } from "./bounded-inference.js";
-import { type RestrictedAppProposalHost } from "./restricted-app-proposals.js";
+import { type RestrictedAppProposalHost, type RestrictedAppProposalResult } from "./restricted-app-proposals.js";
 import type {
   RestrictedAppInstalled,
   RestrictedAppService,
@@ -1077,8 +1077,8 @@ export function createRestrictedAppProposalTool(input: {
   return {
     name: "propose_space_app",
     label: "Propose Space app",
-    description: "Submit a completed sandboxed app package inside the current Space for human review. work-fold inspects and hashes the folder itself. This creates a review proposal only: it does not run or install code, grant network, file, or notification access, enable automations, or store credentials.",
-    promptSnippet: "Propose a sandboxed Space app for human review",
+    description: "Add a completed Space app package from the current Space. work-fold inspects and hashes the folder, adds it as this Space's local preview immediately with every declared destination, whole-Space folder access, notification category, and automation on, and records a receipt. Secrets are never stored by this tool.",
+    promptSnippet: "Add a Space app from a package folder in this Space",
     promptGuidelines: [
       "When the user asks you to create or update a work-fold side-rail app, write the complete restricted app package inside the current Space, then call propose_space_app with its Space-relative folder.",
       "The package must contain package.json with an agentApp path and already-built local assets; work-fold never runs npm or installs dependencies. agent-app.json version 2 has id, title, optional description, runtime {kind:'sandboxed-web',entry,worker?}, ui {icon?,cornerRadius?}, tools, automations, and permissions {network,files,notifications?}. cornerRadius is an optional whole number from 0 through 24; omission uses work-fold's rounded 12px canvas and 0 deliberately requests square corners. Each automation has id, title, optional description, handler, trigger {kind:'interval',intervalMinutes:15..1440}, explicit network/file/notification permission-id subsets, catchUp:'none'|'latest', and overlap:'skip'. A notification is {id,title,description} with static single-line reviewed copy and must be referenced by an automation. A file permission is {id,target:'file'|'directory',access:'read'|'read-write'}. A network permission has id, target ({kind:'public-https',origin} or {kind:'loopback-http',host:'127.0.0.1'|'::1',port}), explicit GET/POST/PUT/PATCH/DELETE methods, auth, and an optional requestHeaders array naming up to 16 extra lowercase request headers beyond the always-allowed accept/content-type/if-modified-since/if-none-match; routing, hop-by-hop, and credential header names are rejected. Public auth supports none, api-key {header}, bearer, basic, or oauth2-pkce {issuer,clientId,scopes,discovery?,authorizationEndpoint?,tokenEndpoint?,authorizationParameters?}; loopback is anonymous only. Never put a secret in the package.",
@@ -1087,7 +1087,11 @@ export function createRestrictedAppProposalTool(input: {
       "Visible browser code uses only globalThis.workFoldRestrictedApp: context.get/onChanged; tabs.open/update/close; network.request (also request); storage.usage/keys/get/set/delete/clear/transaction/onChanged; files.list/read/write with a grantId and grant-relative path; and notifications.show({permissionId}). Storage change events are bounded active-UI invalidation hints and may be coalesced or dropped, so re-read storage. File writes also supply data, utf8 or base64 encoding, and mode create or replace. Direct fetch, WebSocket, Node, filesystem APIs, popups, frames, workers, service workers, and dynamic notification copy/actions/URLs are unavailable. Keep all scripts, styles, images, fonts, and JSON inside the reviewed package.",
       "A declared worker is a browser ES module. Export handleAction(action,input) for tools and handleAutomation(event) for named automations; the event includes runId, automationId, handler, reason, and scheduledAt. Tool input/result schemas use the bounded closed JSON-Schema subset and object schemas set additionalProperties:false. A run can use only the intersection of its reviewed permission subsets and the app's current grants. Notifications are narrower: only an enabled automation may select one of its separately granted static categories. Manual Run now remains available while a schedule is off, but notifications stay unavailable. Treat optional powers as optional and catch denied notification or connection calls without failing unrelated work.",
       "Always give the app a short human-readable title, a one-sentence description, and a ui.icon chosen from work-fold's icon catalog (for example apps, mail, calendar, notebook, table, chart, checklist, tasks, clipboard-data, globe, people-team, star, rocket). work-fold shows exactly those three as the app's name, description, and rail icon, so never leave title or description as placeholders like Untitled or TODO.",
-      "Do not claim an app is installed when propose_space_app succeeds. It creates a digest-pinned review only; installation, each network/file/notification grant, connection setup, and each automation enablement remain separate human actions.",
+      "Installed apps come up with every declared destination, directory permission (whole Space), notification, and automation on; the person can turn each off in Apps. A file-target permission needs the person to choose a file and a Check slot binds only when the Space has exactly one Check; both are reported as still needing them. Design for a destination to be unconnected and say so in the UI.",
+      "The optional top-level assistantActions array declares up to 8 named requests the app can hand to this Space's Assistant: each has id, a single-line title (80 characters), static instructions (4096 characters), and an inputSchema in the same closed JSON-Schema subset. From an app view, a worker, or an automation, call globalThis.workFoldRestrictedApp.assistant.request({ requestId, requestedAt, actionId, input }) with a fresh UUID and canonical UTC timestamp; it starts an ordinary Chat in the owning Space immediately and returns the task. Input is at most 64 KiB, the final reply (assistant.get) is at most 256 KiB, and up to 4 requests may run per installation; a fifth is refused naming the limit. Save the envelope in app storage and replay the same envelope after an uncertain response; assistant.list, assistant.get(requestId), and assistant.cancel(requestId) cover the rest. Results are the reply text only.",
+      "assistant.infer({ instructions, input, outputSchema?, maxOutputBytes? }), from an app view or a worker holding an action or automation run, performs one bounded model call on the Space's configured model with no tools, files, or conversation history. It returns { text, truncated } or, when outputSchema (the same closed JSON-Schema subset as tool schemas) is given, { json } already validated against it; both carry the model and its usage, and every call leaves a receipt under the app in Apps. Put the task in instructions and treat input as data. Input is at most 256 KiB, output defaults to 64 KiB and maxOutputBytes may raise it to 262144, and up to 4 calls run at once per installation; each refusal names the bound it hit — INFER_INPUT_TOO_LARGE, INFER_OUTPUT_TOO_LARGE, INFER_BUSY, INFER_OUTPUT_INVALID, INFER_MODEL_UNAVAILABLE. Use assistant.request when the work needs tools or files and assistant.infer when a single answer over supplied text is enough.",
+      "permissions.checks declares Check-result slots as {id,title}; the app reads the bound Check with globalThis.workFoldRestrictedApp.checks.read({ permissionId }). A slot binds automatically only when the Space has exactly one Check; otherwise the person chooses one in Apps.",
+      "When propose_space_app returns installed, the app is added and working; tell the person what still needs them (a secret to connect, a file or Check to choose) and where (Apps → the app). If it returns failed, fix the package and propose again.",
     ],
     parameters: {
       type: "object",
@@ -1112,12 +1116,41 @@ export function createRestrictedAppProposalTool(input: {
         conversationId: input.conversationId,
         sourcePath,
       }, signal);
-      const text = result.status === "pending" && result.proposal
-        ? `work-fold inspected ${result.proposal.review.manifest.title} and opened a human review pinned to revision ${result.proposal.review.digest}. No code was executed or installed; no network, file, or notification access, credential, or automation was enabled.`
-        : "The app proposal was cancelled. No code was executed or installed; no network, file, or notification access, credential, or automation was enabled.";
-      return { content: [{ type: "text", text }], details: result };
+      return { content: [{ type: "text", text: restrictedAppProposalResultText(result) }], details: result };
     },
   };
+}
+
+/** Plain receipt text for the proposing turn: what was added, and what still needs a person. */
+export function restrictedAppProposalResultText(result: RestrictedAppProposalResult): string {
+  const title = result.proposal?.review.manifest.title ?? "the app";
+  if (result.status === "installed" && result.app) {
+    const app = result.app;
+    const count = (value: number, singular: string, plural = `${singular}s`) => `${value} ${value === 1 ? singular : plural}`;
+    const wholeSpace = app.fileGrants.filter((grant) => grant.root === ".").length;
+    const on = [
+      count(app.networkGrants.length, "destination"),
+      `${count(wholeSpace, "folder permission")} over the whole Space`,
+      count(app.notificationGrants.length, "notification"),
+      count(app.automations.filter((automation) => automation.enabled).length, "automation"),
+    ].join(", ");
+    const needs = result.needs;
+    const still = needs ? [
+      ...(needs.connections.length ? [`connect ${needs.connections.join(", ")} in Apps → ${title} → Access & connections`] : []),
+      ...(needs.files.length ? [`choose a file for ${needs.files.join(", ")}`] : []),
+      ...(needs.checks.length ? [`choose a Check for ${needs.checks.join(", ")}`] : []),
+    ] : [];
+    return `work-fold added ${title} as this Space's local preview (revision ${app.digest}). On now: ${on}.`
+      + (still.length ? ` Still needs you: ${still.join("; ")}.` : "")
+      + " Its tools are available from the next turn.";
+  }
+  if (result.status === "failed") {
+    const reason = (result.proposal?.error ?? "the package could not be added").replace(/\.$/, "");
+    return result.proposal?.status === "revision-changed"
+      ? `work-fold could not add ${title}: ${reason}. Propose the current package again.`
+      : `work-fold could not add ${title}: ${reason}. Fix the package and propose again, or try again from Apps.`;
+  }
+  return "The app proposal was cancelled. Nothing was added.";
 }
 
 export function createRestrictedAppTools(input: {
@@ -1132,7 +1165,7 @@ export function createRestrictedAppTools(input: {
     promptSnippet: `${app.manifest.title}: ${tool.description}`,
     promptGuidelines: [
       `Use ${restrictedAppToolName(app.featureInstallationId, tool.name)} only when the user wants ${app.manifest.title} to ${tool.description.charAt(0).toLowerCase()}${tool.description.slice(1)}`,
-      "The app can contact only destinations the user separately allowed in Capabilities; report connection or permission errors without asking for secret values in Chat.",
+      "The app reaches its declared destinations unless the person turned one off in Apps; report connection or permission errors without asking for secret values in Chat.",
     ],
     parameters: structuredClone(tool.inputSchema) as any,
     executionMode: "sequential",

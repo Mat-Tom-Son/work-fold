@@ -1,4 +1,5 @@
 import { RestrictedAppTaskService, RestrictedAppTaskError, restrictedAppTaskAuthorityDigest, restrictedAppTaskPrompt, restrictedAppTaskTurnRequestId } from "./agent/restricted-app-tasks.js";
+import { RestrictedAppInferenceService, RestrictedAppInferenceError } from "./agent/restricted-app-inference.js";
 import { BrowserAppActionService } from "./agent/restricted-app-browser-actions.js";
 import { observeWorkFoldRoutingFiles } from "./routings/routing-file-observer.js";
 import { isRemoteFileVisible, readRemoteFilePreview } from "./remote-file-preview.js";
@@ -471,6 +472,12 @@ export interface WorkFoldRoutingSettingsFacade {
 export interface LocalApiHandle {
   /** Native app bridge calls only request/list/get/cancel; approval stays in trusted Apps UI. */
   appAssistantTasks: RestrictedAppTaskService;
+  /**
+   * Bounded app inference (docs/receipts-not-gates.md, F22): the desktop host
+   * hands an active view's or a running worker's call here, and every call
+   * appends a receipt the Apps tab can list.
+   */
+  appInference: Pick<RestrictedAppInferenceService, "infer" | "list">;
   origin: string;
   port: number;
   kernel: WorkFoldKernel;
@@ -498,6 +505,7 @@ export interface LocalApiHandle {
 interface LocalApiState {
   browserAppActions: BrowserAppActionService;
   appAssistantTasks: RestrictedAppTaskService;
+  appInference: RestrictedAppInferenceService;
   appMode: "dev" | "desktop";
   spaceBase?: string;
   allowedOrigins: string[];
@@ -561,6 +569,8 @@ interface LocalApiState {
   settledTurns: Map<string, SettledTurnRecord>;
   compactingConversations: Set<string>;
   capabilityMutations: Set<string>;
+  /** Turn clients whose Space changed under them; rebuilt when their turn settles. */
+  clientsToRefresh: Set<string>;
   checkRunReservations: Set<string>;
   spaceIdsByRoot: Map<string, string>;
   extensionRequests: Map<string, PiExtensionUiRequest>;
@@ -663,6 +673,10 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   const restrictedApps = options.restrictedAppService ?? await RestrictedAppService.create({
     rootPath: restrictedAppRoot(),
     readCheckResult: async (spaceId, checkId, digest) => checks.selectedResult(await getSpace(spaceId), checkId, digest),
+    // An install binds a declared Check slot only when the Space has exactly one Check.
+    listChecks: async (spaceId) => (await checks.overview(await getSpace(spaceId))).checks
+      .filter((item): item is typeof item & { digest: string } => typeof item.digest === "string")
+      .map((item) => ({ checkId: item.id, declarationDigest: item.digest, title: item.title })),
     deferAutomationStart: true,
   });
   if (options.restrictedAppService?.automationsStarted) {
@@ -670,9 +684,21 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       "The Local API requires an injected restricted App service whose automation startup is still deferred.",
     );
   }
+  // propose_space_app installs the local preview inside the proposing turn's
+  // own tool call. That install waits for other Space work instead of refusing
+  // it and never stops the proposing turn's own Pi client.
+  let proposalState: LocalApiState | undefined;
   const restrictedAppProposals = options.restrictedAppProposalHost ?? await RoutedRestrictedAppProposalHost.create({
     service: restrictedApps,
     registryPath: join(restrictedAppRoot(), "proposals.json"),
+    installNow: async (id, context) => {
+      if (!proposalState) throw new Error("work-fold is still starting.");
+      const current = proposalState;
+      const proposal = await current.restrictedAppProposals.get(id);
+      if (proposal?.status === "installed") return current.restrictedAppProposals.install(id);
+      return runRestrictedAppMutationFromTurn(current, context.spaceId, clientKey(context.spaceId, context.conversationId),
+        () => current.restrictedAppProposals.install(id));
+    },
   });
   const recoveredRemovals = await recoverPendingSpaceRemovals(
     restrictedApps,
@@ -764,6 +790,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   const state: LocalApiState = {
     browserAppActions: undefined as unknown as BrowserAppActionService,
     appAssistantTasks: undefined as unknown as RestrictedAppTaskService,
+    appInference: undefined as unknown as RestrictedAppInferenceService,
     appMode,
     spaceBase: options.spaceBase ? resolve(options.spaceBase) : undefined,
     allowedOrigins: options.allowedOrigins ?? ["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -810,6 +837,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     settledTurns: new Map(),
     compactingConversations: new Set(),
     capabilityMutations: new Set(),
+    clientsToRefresh: new Set(),
     checkRunReservations: new Set(),
     spaceIdsByRoot: new Map(),
     extensionRequests: new Map(),
@@ -866,8 +894,29 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       cancelTurn: async (receipt, turnId) => { await cancelAcceptedTurn(state, receipt.scope.spaceId, receipt.conversationId, turnId); },
     },
   });
+  // Bounded app inference (docs/receipts-not-gates.md, F22). The transport is
+  // the owning Space's own configured session, reached through a client whose
+  // conversation is never prompted, so it stays at zero messages and re-reads
+  // the Space's saved model whenever a capability or model change rebuilds it.
+  state.appInference = await RestrictedAppInferenceService.create({
+    path: join(workFoldStateRoot(), "restricted-apps", "inference-receipts.jsonl"),
+    ports: {
+      pin: (scope) => restrictedApps.withAssistantTaskApp(scope, async () => {
+        await getSpace(scope.spaceId);
+        if (!state.acceptingTurns) throw new RestrictedAppInferenceError("INFER_UNAVAILABLE", "work-fold is closing.");
+      }),
+      infer: async (spaceId, request) => {
+        const space = await getSpace(spaceId);
+        const client = await getClient(state, space.id, space.spaceRoot, workFoldAppInferenceConversationId);
+        return client.infer(request);
+      },
+    },
+  });
+  proposalState = state;
   const appTasksChanged = () => publishControlHint(state, "apps");
   state.appAssistantTasks.on("changed", appTasksChanged);
+  const appInferenceChanged = () => publishControlHint(state, "apps");
+  state.appInference.on("changed", appInferenceChanged);
   const unsubscribeAppCatalog = restrictedApps.subscribeCatalog(() => publishControlHint(state, "apps"));
   state.routings = await WorkFoldRoutingService.create({
     store: routingStore,
@@ -958,6 +1007,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     kernel,
     reviewCheck,
     appAssistantTasks: state.appAssistantTasks,
+    appInference: state.appInference,
     actFacade: createWorkFoldActFacade(state),
     remoteFacade: createWorkFoldRemoteFacade(state),
     resolveManagementLineageParent: (taskId) => resolveManagementLineageParent(state, taskId),
@@ -969,6 +1019,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       const browserActionsClosed = state.browserAppActions.close();
       unsubscribeAppCatalog();
       state.appAssistantTasks.off("changed", appTasksChanged);
+      state.appInference.off("changed", appInferenceChanged);
       for (const response of state.controlStreams) response.end();
       clearInterval(remoteUploadPruneTimer);
       extensionUi.off("request", requestListener);
@@ -991,6 +1042,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       await state.checks.close();
       await state.appearance.flush();
       await state.appAssistantTasks.flush();
+      await state.appInference.flush();
       await browserActionsClosed;
       await state.restrictedApps.close();
       await closeServer(server);
@@ -1609,25 +1661,44 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
 
-  const appTaskMatch = /^\/api\/spaces\/([^/]+)\/restricted-apps\/([^/]+)\/assistant-tasks(?:\/([^/]+))?(?:\/(approve|cancel))?$/.exec(url.pathname)
+  // The trusted Apps tab lists an installation's requests across code changes
+  // (Details, Open Chat, Stop); the app bridge stays pinned to its own revision.
+  const appTaskMatch = /^\/api\/spaces\/([^/]+)\/restricted-apps\/([^/]+)\/assistant-tasks(?:\/([^/]+))?(?:\/(cancel))?$/.exec(url.pathname)
     ?.map((value) => value === undefined ? "" : decodeURIComponent(value));
   if (appTaskMatch && (method === "GET" || method === "POST")) {
     const space = await getSpace(appTaskMatch[1]);
     const body = method === "POST" ? await readJsonBody<Record<string, unknown>>(state, req) : Object.fromEntries(url.searchParams);
     if (typeof body.featureInstallationId !== "string" || typeof body.expectedDigest !== "string") throw badRequest("An exact app installation and revision are required.");
-    const allowed = ["featureInstallationId", "expectedDigest", ...(appTaskMatch[4] === "approve" ? ["reviewDigest"] : [])];
+    const allowed = ["featureInstallationId", "expectedDigest"];
     if (Object.keys(body).some((key) => !allowed.includes(key))) throw badRequest("Assistant request fields are invalid.");
     const app = await state.restrictedApps.runtimeDescriptor(space.id, appTaskMatch[2], body.expectedDigest, body.featureInstallationId);
     const scope = { spaceId: space.id, appId: app.manifest.id, featureInstallationId: app.featureInstallationId,
       digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority) };
     if (method === "GET" && !appTaskMatch[4]) {
-      sendJson(res, appTaskMatch[3] ? { review: await state.appAssistantTasks.review(scope, appTaskMatch[3]) }
-        : { tasks: await state.appAssistantTasks.list(scope) });
-    } else if (method === "POST" && appTaskMatch[3] && appTaskMatch[4] === "approve" && typeof body.reviewDigest === "string") {
-      sendJson(res, { task: await state.appAssistantTasks.approve(scope, appTaskMatch[3], body.reviewDigest) });
+      sendJson(res, appTaskMatch[3] ? { detail: await state.appAssistantTasks.detail(scope, appTaskMatch[3], "installation") }
+        : { tasks: await state.appAssistantTasks.list(scope, "installation") });
     } else if (method === "POST" && appTaskMatch[3] && appTaskMatch[4] === "cancel") {
-      sendJson(res, { task: await state.appAssistantTasks.cancel(scope, appTaskMatch[3]) });
-    } else throw badRequest("Choose an Assistant request and action.");
+      sendJson(res, { task: await state.appAssistantTasks.cancel(scope, appTaskMatch[3], () => {}, "installation") });
+    } else throw badRequest("Choose an Assistant request.");
+    return;
+  }
+
+  // Bounded inference receipts for the Apps tab: the installation's calls
+  // across code changes, with the effective model and its usage.
+  const appInferenceMatch = /^\/api\/spaces\/([^/]+)\/restricted-apps\/([^/]+)\/inference-receipts$/.exec(url.pathname)
+    ?.map((value) => value === undefined ? "" : decodeURIComponent(value));
+  if (appInferenceMatch && method === "GET") {
+    const space = await getSpace(appInferenceMatch[1]);
+    const query = Object.fromEntries(url.searchParams);
+    if (typeof query.featureInstallationId !== "string" || typeof query.expectedDigest !== "string") {
+      throw badRequest("An exact app installation and revision are required.");
+    }
+    const allowed = ["featureInstallationId", "expectedDigest"];
+    if (Object.keys(query).some((key) => !allowed.includes(key))) throw badRequest("Inference receipt fields are invalid.");
+    const app = await state.restrictedApps.runtimeDescriptor(space.id, appInferenceMatch[2], query.expectedDigest, query.featureInstallationId);
+    const scope = { spaceId: space.id, appId: app.manifest.id, featureInstallationId: app.featureInstallationId,
+      digest: app.digest, authorityDigest: restrictedAppTaskAuthorityDigest(app.authority) };
+    sendJson(res, { receipts: await state.appInference.list(scope, { ownership: "installation" }) });
     return;
   }
 
@@ -4080,7 +4151,17 @@ function remoteOperationExhaustive(operation: never): never {
  * install-preview review: the same digest-pinned review record the Chat
  * proposal path stores, bound to the act lane instead of a real Chat.
  */
+/** One `apps list` response stays a readable projection, not a package dump. */
+const maxActAppListings = 64;
+
 const workFoldActInstallPreviewConversationId = "work-fold.act.install-preview";
+
+/**
+ * The per-Space client that carries bounded app inference. It is streamed,
+ * never prompted, so no Chat is created and no transcript exists; the name
+ * only keeps it separate from the Space's real conversations.
+ */
+const workFoldAppInferenceConversationId = "work-fold.app-inference";
 
 function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
   const resolveSpace = async (selector: string): Promise<SpaceSummary> => {
@@ -4932,6 +5013,79 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       recordFacadeAction(state, input.parentTaskId, { command: "tools.remove" });
       return { scope: "personal" as const, source, removed };
     },
+    async appsList(input) {
+      const space = await resolveSpace(input.space);
+      const apps = await runActOperation(() => state.restrictedApps.list(space.id));
+      const listed = apps.slice(0, maxActAppListings);
+      const listing = await Promise.all(listed.map(async (app) => ({
+        appId: app.manifest.id,
+        featureInstallationId: app.featureInstallationId,
+        digest: app.digest,
+        title: app.manifest.title,
+        description: app.manifest.description ?? null,
+        version: app.version,
+        kind: app.runtimeInstanceKind === "development" ? "preview" as const : "installed" as const,
+        // The exact schemas the tool declares, so a caller can build --input
+        // without opening the package.
+        tools: app.manifest.tools.map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          action: tool.action,
+          inputSchema: structuredClone(tool.inputSchema) as unknown,
+          resultSchema: structuredClone(tool.resultSchema) as unknown,
+        })),
+        assistantActions: (app.manifest.assistantActions ?? []).map((action) => ({ id: action.id, title: action.title })),
+        grants: {
+          network: [...app.networkGrants],
+          files: app.fileGrants.map((grant) => ({ declarationId: grant.declarationId, root: grant.root, access: grant.access })),
+          notifications: [...app.notificationGrants],
+          checks: (app.checkGrants ?? []).map((grant) => ({ permissionId: grant.permissionId, checkId: grant.checkId })),
+        },
+        connections: (await runActOperation(() =>
+          state.restrictedApps.connectionStatus(space.id, app.manifest.id, app.digest, app.featureInstallationId)))
+          .map((connection) => ({ destinationId: connection.destinationId, kind: connection.kind, configured: connection.configured })),
+        automations: app.automations.map((automation) => ({
+          id: automation.id,
+          title: app.manifest.automations.find((item) => item.id === automation.id)?.title ?? automation.id,
+          enabled: automation.enabled,
+          nextRunAt: automation.nextRunAt ?? null,
+          lastRunAt: automation.lastRunAt ?? null,
+        })),
+      })));
+      return { space: toActSpaceRef(space), apps: listing, truncated: apps.length > listed.length };
+    },
+    async appsInvoke(input) {
+      assertManagementParentAccepting(state, input.parentTaskId);
+      const space = await resolveSpace(input.space);
+      const app = await requireInstalledApp(space, input.app);
+      const toolName = input.tool.trim();
+      if (!toolName) throw new WorkFoldCliError("usage", "Provide --tool <name>.");
+      const tool = app.manifest.tools.find((item) => item.name === toolName);
+      if (!tool) {
+        throw new WorkFoldCliError("notFound", `${app.manifest.title} has no tool named ${toolName}. Run apps list --json to see its tools.`);
+      }
+      // The same service path a Chat tool call takes: the revision resolved
+      // above is pinned, and the runtime validates input and result against
+      // the tool's own declared schemas.
+      const result = await runActOperation(() => state.restrictedApps.invoke({
+        spaceId: space.id,
+        appId: app.manifest.id,
+        featureInstallationId: app.featureInstallationId,
+        expectedDigest: app.digest,
+        action: tool.action,
+        input: input.input,
+      }));
+      recordFacadeAction(state, input.parentTaskId, { command: "apps.invoke", space, apps: [managementAppResultRef(app)] });
+      return {
+        space: toActSpaceRef(space),
+        appId: app.manifest.id,
+        featureInstallationId: app.featureInstallationId,
+        digest: app.digest,
+        tool: tool.name,
+        action: tool.action,
+        result,
+      };
+    },
     async appsProposalsList(input) {
       const space = await resolveSpace(input.space);
       // The desktop proposal route's own scope rule: proposals are bound to
@@ -5454,12 +5608,12 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       if (!proposal || proposal.spaceId !== space.id || proposal.conversationId !== input.conversationId) {
         throw new WorkFoldCliError("notFound", "App proposal not found.");
       }
-      if (proposal.status !== "pending") {
+      if (proposal.status !== "pending" && proposal.status !== "failed") {
         throw new WorkFoldCliError(
           "conflict",
           proposal.status === "revision-changed"
             ? "The package changed after review; review the new revision before installing it."
-            : `This app review is ${proposal.status}; only a pending review can be installed.`,
+            : `This app proposal is ${proposal.status}; only a pending or failed one can be installed.`,
         );
       }
       const context: FoldActOutcome<RestrictedAppInstalled> = {};
@@ -5491,8 +5645,11 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           conversationId: workFoldActInstallPreviewConversationId,
           sourcePath: packagePath,
         });
-        if (result.status !== "pending" || !result.proposal) {
+        if (!result.proposal || result.status === "cancelled") {
           throw new WorkFoldCliError("failure", "The package review could not be recorded.");
+        }
+        if (result.status === "failed") {
+          throw new WorkFoldCliError("failure", result.proposal.error ?? "The package could not be added.");
         }
         return result.proposal;
       });
@@ -7798,6 +7955,15 @@ async function runAgentTurn(
     state.cancelledTurnTasks.delete(taskId);
     state.activeTurnIdsByKey.delete(key);
     state.kernel.finishTask(taskId);
+    if (state.clientsToRefresh.delete(key)) {
+      // The Space's apps changed during this turn (propose_space_app added a
+      // preview). Rebuild this Chat's client so its next turn sees the new tools.
+      const stale = state.clients.get(key);
+      if (stale) {
+        await stale.stop().catch(() => undefined);
+        state.clients.delete(key);
+      }
+    }
     if (spaceId === workFoldManagementScopeId) state.managementRequests.finish(taskId, settledStatus);
     settleTurnTask(state, taskId, {
       spaceId,
@@ -8120,6 +8286,47 @@ async function runRestrictedAppMutation<T>(
   }
 }
 
+/**
+ * Runs an app mutation from inside a Space turn's own tool call. Other
+ * capability work in the Space is awaited rather than refused (a fence that
+ * would refuse a short wait prefers queueing), the Space lane is held exactly
+ * as runRestrictedAppMutation holds it, and the proposing turn's own Pi
+ * client is never stopped mid-turn: it is marked for a rebuild when the turn
+ * settles so the next turn sees the new app's tools.
+ */
+async function runRestrictedAppMutationFromTurn<T>(
+  state: LocalApiState,
+  spaceId: string,
+  ownTurnKey: string,
+  operation: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  const deadline = Date.now() + 10 * 60_000;
+  while (
+    state.capabilityMutations.has(globalCapabilityMutationKey)
+    || state.capabilityMutations.has(spaceId)
+    || hasActiveCapabilityWorkForSpace(state, spaceId, ownTurnKey)
+  ) {
+    if (signal?.aborted || !state.acceptingTurns) throw new Error("The Assistant turn stopped before the app could be added.");
+    if (Date.now() > deadline) throw new Error("Other work in this Space did not finish in time. Try again from Apps.");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  state.capabilityMutations.add(spaceId);
+  try {
+    await revalidateRestrictedAppSpace(state, spaceId);
+    const result = await operation();
+    for (const [key, client] of [...state.clients]) {
+      if (!key.startsWith(`${spaceId}:`)) continue;
+      if (key === ownTurnKey && state.runningTurns.has(ownTurnKey)) { state.clientsToRefresh.add(key); continue; }
+      await client.stop().catch(() => undefined);
+      state.clients.delete(key);
+    }
+    return result;
+  } finally {
+    state.capabilityMutations.delete(spaceId);
+  }
+}
+
 async function recoverPendingSpaceRemovals(
   restrictedApps: RestrictedAppService,
   restrictedAppProposals: RoutedRestrictedAppProposalHost,
@@ -8249,9 +8456,9 @@ async function runCheckSpaceRegistryMutation<T>(state: LocalApiState, operation:
   }
 }
 
-function hasActiveCapabilityWorkForSpace(state: LocalApiState, spaceId: string): boolean {
+function hasActiveCapabilityWorkForSpace(state: LocalApiState, spaceId: string, exceptTurnKey?: string): boolean {
   const prefix = `${spaceId}:`;
-  return [...state.runningTurns, ...state.compactingConversations].some((key) => key.startsWith(prefix))
+  return [...state.runningTurns, ...state.compactingConversations].some((key) => key.startsWith(prefix) && key !== exceptTurnKey)
     || state.checkRunReservations.has(spaceId)
     || state.checks.hasActiveRun(spaceId);
 }
@@ -9787,6 +9994,8 @@ function rendererRestrictedAppProposal(proposal: RestrictedAppProposalReceipt): 
     createdAt: proposal.createdAt,
     updatedAt: proposal.updatedAt,
     ...(proposal.installedApp ? { installedApp: proposal.installedApp } : {}),
+    ...(proposal.error ? { error: proposal.error } : {}),
+    ...(proposal.needs ? { needs: proposal.needs } : {}),
   };
 }
 

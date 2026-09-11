@@ -85,6 +85,10 @@ class MemoryConnections implements RestrictedAppConnectionStore {
   async deleteRuntimeInstance(): Promise<void> {
     this.credential = undefined;
   }
+
+  async carryForward(): Promise<string[]> {
+    return [];
+  }
 }
 
 function manifest(options: {

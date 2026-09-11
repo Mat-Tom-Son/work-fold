@@ -119,7 +119,7 @@ test("CLI help covers every landed act family and is honest about staging", () =
     ],
     tools: ["import-skill", "install", "update", "remove"],
     apps: [
-      "proposals list", "proposals dismiss", "install-proposal", "install-preview", "remove",
+      "list", "invoke", "proposals list", "proposals dismiss", "install-proposal", "install-preview", "remove",
       "grant", "revoke", "connect", "disconnect", "automation enable", "automation disable",
       "automation run", "storage clear", "retained purge", "project declare", "release prepare",
       "release publish", "release delete", "install prepare", "update prepare",

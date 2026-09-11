@@ -30,7 +30,6 @@ import type { AgentCatalog, AgentCommand, AgentStatus, AssistantComposerState, C
   ChatDraftRequest, ChatLifecycleView, ChatMessage, ChatStreamEvent, ContextAttachment, ConversationRuntime, ConversationSummary, ExtensionUiRequest, PendingChatSend, RestrictedAppInstalled, RestrictedAppProposal, RuntimePreviewEntry, TreeEntry, SpaceCustomizationMap, SpaceFixtureConversation, SpaceSummary } from "../../types";
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { Banner, FluentGlyph, SpaceIconGlyph } from "../chrome/common";
-import { RestrictedAppReviewDialog } from "../panes/RestrictedAppsSection";
 import { FileTypeIcon } from "../tree/FileTree";
 import { RuntimeContextPreview } from "./activity";
 import { composerCommandQuery, composerCommandValue, matchingComposerCommands } from "./command-menu";
@@ -600,12 +599,15 @@ export function ChatPanel({
           setExtensionRequest(data.request);
         }
       }
-      if (data.type === "restricted_app_proposal" && data.proposal?.status === "pending" && data.proposal.spaceId === space.id && data.proposal.conversationId === conversationId && observeAppProposal(data.proposal)) {
-        setAppProposal(data.proposal);
+      // A proposal installs inside the proposing turn; the Chat surfaces the
+      // settled receipt (added, or failed with a retry), never a review.
+      if (data.type === "restricted_app_proposal" && data.proposal?.spaceId === space.id && data.proposal.conversationId === conversationId && observeAppProposal(data.proposal)) {
         onRestrictedAppProposalRequested?.();
       }
       if (data.type === "restricted_app_proposal_settled" && data.proposal?.spaceId === space.id && data.proposal.conversationId === conversationId && observeAppProposal(data.proposal)) {
-        setAppProposal((current) => current?.id === data.proposal?.id ? null : current);
+        const settled = data.proposal;
+        if (settled.status === "installed" || settled.status === "failed") setAppProposal(settled);
+        else setAppProposal((current) => current?.id === settled.id ? null : current);
       }
       if (data.type === "editor" && typeof data.text === "string") {
         setDraft((current) => data.editorMode === "replace" ? data.text ?? "" : `${current}${data.text ?? ""}`);
@@ -1516,15 +1518,13 @@ export function ChatPanel({
     return true;
   }
 
-  async function installAppProposal() {
-    if (!appProposal || running) return;
+  async function retryAppProposal() {
+    if (!appProposal || appProposalBusy) return;
     const proposal = appProposal;
     setAppProposalBusy(true);
     try {
       const app = await installRestrictedAppProposal(space.id, proposal.conversationId, proposal.id);
-      setAppProposal(null);
-      onRestrictedAppInstalled?.(app);
-      showToast({ text: `${app.manifest.title} installed. Review its access in this Space’s Apps tab when you are ready to connect it.`, tone: "success" });
+      showToast({ text: `Added ${app.manifest.title} to this Space.`, tone: "success" });
     } catch (caught) {
       setError(errorText(caught));
     } finally {
@@ -1535,6 +1535,7 @@ export function ChatPanel({
   async function dismissAppProposal() {
     if (!appProposal || appProposalBusy) return;
     const proposal = appProposal;
+    if (proposal.status !== "failed") { setAppProposal(null); return; }
     setAppProposalBusy(true);
     try {
       await dismissRestrictedAppProposal(space.id, proposal.conversationId, proposal.id);
@@ -1847,8 +1848,53 @@ export function ChatPanel({
         </div>
       </form>
       {extensionRequest ? <ExtensionRequestDialog request={extensionRequest} onRespond={respondToExtension} /> : null}
-      {appProposal ? <RestrictedAppReviewDialog review={appProposal.review} sourcePath={appProposal.sourcePath} updating={false} busy={appProposalBusy} installDisabled={running} closeLabel="Decline" onInstall={() => void installAppProposal()} onClose={() => void dismissAppProposal()} /> : null}
+      {appProposal ? <RestrictedAppAddedNotice proposal={appProposal} busy={appProposalBusy} onOpen={appProposal.installedApp && onRestrictedAppInstalled ? () => { onRestrictedAppInstalled(appProposal.installedApp!); setAppProposal(null); } : undefined} onRetry={() => void retryAppProposal()} onDismiss={() => void dismissAppProposal()} /> : null}
     </section>
+  );
+}
+
+/** The proposing Chat's receipt: the app was added (with what still needs a person), or it failed and can be retried. */
+function RestrictedAppAddedNotice({ proposal, busy, onOpen, onRetry, onDismiss }: {
+  proposal: RestrictedAppProposal;
+  busy: boolean;
+  onOpen?: () => void;
+  onRetry: () => void;
+  onDismiss: () => void;
+}) {
+  const title = proposal.review.manifest.title;
+  if (proposal.status === "failed") {
+    return (
+      <aside className="capability-code-warning danger restricted-app-added-notice" role="status">
+        <AlertTriangle size={20} aria-hidden="true" />
+        <div>
+          <strong>Couldn’t add {title}</strong>
+          <p>{proposal.error ?? "The app package could not be added."}</p>
+          <div className="restricted-app-task-actions">
+            <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={onRetry}>Try again</button>
+            <button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onDismiss}>Dismiss</button>
+          </div>
+        </div>
+      </aside>
+    );
+  }
+  const needs = proposal.needs;
+  const still = needs ? [
+    ...(needs.connections.length ? [`Connect ${needs.connections.join(", ")} in Apps → ${title}`] : []),
+    ...(needs.files.length ? [`Choose a file for ${needs.files.join(", ")}`] : []),
+    ...(needs.checks.length ? [`Choose a Check for ${needs.checks.join(", ")}`] : []),
+  ] : [];
+  return (
+    <aside className="capability-code-warning restricted-app-added-notice" role="status">
+      <CircleCheck size={20} aria-hidden="true" />
+      <div>
+        <strong>Added {title} to this Space.</strong>
+        {still.length ? <p>Still needs you: {still.join(" · ")}.</p> : <p>Every declared destination, folder, notification, and automation is on. Turn any of them off in Apps.</p>}
+        <div className="restricted-app-task-actions">
+          {onOpen ? <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={onOpen}>Open app</button> : null}
+          <button className="professional-button professional-button-secondary" type="button" disabled={busy} onClick={onDismiss}>Close</button>
+        </div>
+      </div>
+    </aside>
   );
 }
 
