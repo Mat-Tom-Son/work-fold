@@ -27,8 +27,10 @@ management surface.
 - [x] Fold results: bounded file/app previews and direct deliverable/review
   navigation from completed requests.
 - [x] Web apps: responsive desktop-served views, clear offline/revoked states,
-  and separately authorized bounded actions in approved browsers. Shared viewer
-  links remain read-only, with no management or runtime-action authority.
+  and bounded actions from paired browsers that run on acceptance (the earlier
+  review step was retired by [Receipts, not gates](receipts-not-gates.md)).
+  Shared viewer links remain read-only, with no management or runtime-action
+  authority.
 - [x] Integration: concise UI, canonical docs and harness parity, automated
   adversarial coverage, real desktop/browser journey, clean commits and merge.
 

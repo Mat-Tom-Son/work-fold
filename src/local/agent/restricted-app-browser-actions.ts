@@ -7,13 +7,24 @@ import type { RestrictedAppActionExecution, RestrictedAppInstalled } from "./res
 import { parseAuthorityStamp, parseTenantId, parseRuntimeInstanceId, parseDataNamespaceId, parsePrincipalId } from "./app-platform-contract.js";
 import { parseAppPlatformArtifactDigest } from "./app-platform-artifact.js";
 
+/**
+ * Bounds are defaults, not gates (docs/receipts-not-gates.md, principle 6):
+ * a request that would exceed a running slot is refused with the limit named,
+ * never parked for a person. `running` spans every installation on this
+ * machine; `runningPerInstallation` keeps one app from starving the rest.
+ */
 export const browserAppActionLimits = Object.freeze({
   inputBytes: 16 * 1024, resultBytes: 128 * 1024, records: 1000, fileBytes: 64 * 1024 * 1024,
-  pendingPerInstallation: 4, pendingPerBrowser: 16, running: 2, requestAgeMs: 15 * 60_000, retentionMs: 24 * 60 * 60_000,
+  runningPerInstallation: 2, runningPerBrowser: 16, running: 4, requestAgeMs: 15 * 60_000, retentionMs: 24 * 60 * 60_000,
 });
 const limits = browserAppActionLimits;
 const schema = "work-fold.browser-app-actions.v1";
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+/**
+ * `pending` survives only in journals written before requests ran on
+ * admission; startup expires such records. A current request is `running`
+ * from the moment its acceptance is durable.
+ */
 type Status = "pending" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted" | "expired";
 export interface BrowserAppActionOwner { browserId: string; grantId: string }
 export interface BrowserAppActionReceipt {
@@ -24,7 +35,8 @@ export interface BrowserAppActionReceipt {
   status: Status;
   createdAt: string;
   updatedAt: string;
-  approvedAt?: string;
+  /** When the worker was dispatched; identical to acceptance for every current record. */
+  startedAt?: string;
   cancellationRequested?: true;
 }
 export interface BrowserAppActionResult extends BrowserAppActionReceipt { result?: unknown }
@@ -91,8 +103,12 @@ export class BrowserAppActionService {
     if (!service.#unavailable) {
       try {
         const at = service.#now().toISOString();
+        // Accepted work whose outcome is unknown is interrupted, never replayed.
+        // A legacy queued record never ran and its requesting view is gone.
         const next = service.#records.map((record) => record.receipt.status === "running"
-          ? { ...record, receipt: { ...record.receipt, status: "interrupted" as const, updatedAt: at } } : record);
+          ? { ...record, receipt: { ...record.receipt, status: "interrupted" as const, updatedAt: at } }
+          : record.receipt.status === "pending"
+            ? { ...record, receipt: { ...record.receipt, status: "expired" as const, updatedAt: at } } : record);
         if (next.some((record, index) => record !== service.#records[index])) await service.#save(next);
       } catch { service.#unavailable = true; }
     }
@@ -126,23 +142,45 @@ export class BrowserAppActionService {
       }
       const now = this.#now();
       if (now.getTime() - Date.parse(requestedAt) > limits.requestAgeMs || Date.parse(requestedAt) > now.getTime() + 60_000) invalid("This request is too old. Start a new request in the app.");
-      const pending = this.#records.filter((record) => live(record.receipt.status));
-      if (pending.filter((record) => record.scope.featureInstallationId === scope.featureInstallationId).length >= limits.pendingPerInstallation
-        || pending.filter((record) => record.owner.browserId === owner.browserId).length >= limits.pendingPerBrowser) conflict("Finish or dismiss the existing app requests first.");
+      const active = this.#records.filter((record) => live(record.receipt.status));
+      if (active.filter((record) => record.scope.featureInstallationId === scope.featureInstallationId).length >= limits.runningPerInstallation)
+        conflict(`This app is already running ${limits.runningPerInstallation} actions. Run this request again when one finishes.`);
+      if (active.filter((record) => record.owner.browserId === owner.browserId).length >= limits.runningPerBrowser)
+        conflict(`This browser already has ${limits.runningPerBrowser} app actions running. Run this request again when one finishes.`);
+      if (active.length >= limits.running) conflict(`App actions are busy (${limits.running} running on this computer). Run this request again when one finishes.`);
       const records = this.#records.filter((record) => live(record.receipt.status) || now.getTime() - Date.parse(record.receipt.updatedAt) <= limits.retentionMs);
       this.#cancelled = new Set([...this.#cancelled].filter((id) => records.some((record) => record.receipt.id === id)));
       if (records.length >= limits.records) conflict("The app action list is full. Try again later.");
+      // A request runs on admission: acceptance is durable before dispatch, the
+      // receipt id becomes the invocation id, and a retry returns this record.
+      const at = now.toISOString();
       const record: ActionRecord = {
         receipt: { id: randomUUID(), requestId: value.requestId, action: declaration.action, title: declaration.name,
-          status: "pending", createdAt: now.toISOString(), updatedAt: now.toISOString() },
+          status: "running", createdAt: at, updatedAt: at, startedAt: at },
         scope: structuredClone(scope), owner: structuredClone(owner), requestedAt, requestDigest,
         declaration: structuredClone(declaration), provenance: structuredClone(provenance), inputJson,
       };
       assertCurrent();
       await this.#save([...records, record]);
       assertCurrent();
+      this.#dispatch(record, owner, assertCurrent);
       return projection(record);
     }));
+  }
+
+  #dispatch(accepted: ActionRecord, owner: BrowserAppActionOwner, assertCurrent: () => void): void {
+    const controller = new AbortController();
+    const execution: RestrictedAppActionExecution = {
+      invocationId: accepted.receipt.id, signal: controller.signal,
+      assertCurrent: () => {
+        if (this.#closed || this.#unavailable || controller.signal.aborted || this.#cancelled.has(accepted.receipt.id)) denied("This app action was stopped.");
+        assertCurrent();
+      },
+    };
+    // Do not hold the admission queue throughout worker execution.
+    const settled = Promise.resolve().then(() => this.#execute(accepted, execution))
+      .finally(() => { this.#active.delete(accepted.receipt.id); });
+    this.#active.set(accepted.receipt.id, { owner: structuredClone(owner), controller, settled });
   }
 
   async get(scope: RestrictedAppTaskScope, owner: BrowserAppActionOwner, requestId: string, assertCurrent: () => void): Promise<BrowserAppActionResult> {
@@ -153,44 +191,6 @@ export class BrowserAppActionService {
     return this.#read(scope, owner, assertCurrent, () => this.#records.filter((record) => same(record.scope, scope) && same(record.owner, owner))
       .slice().reverse().sort((a, b) => Number(live(b.receipt.status)) - Number(live(a.receipt.status)))
       .slice(0, 50).map((record) => structuredClone(record.receipt)));
-  }
-
-  /** Only the trusted browser parent exposes review and approval. Never pass these to the app frame. */
-  async review(scope: RestrictedAppTaskScope, owner: BrowserAppActionOwner, requestId: string, assertCurrent: () => void) {
-    return this.#read(scope, owner, assertCurrent, () => {
-      const record = this.#owned(scope, owner, requestId);
-      return { ...projection(record), inputJson: record.inputJson, description: record.declaration.description, reviewDigest: reviewDigest(record) };
-    });
-  }
-
-  async approve(scope: RestrictedAppTaskScope, owner: BrowserAppActionOwner, requestId: string, expectedReviewDigest: string, assertCurrent: () => void): Promise<BrowserAppActionResult> {
-    validateScope(scope); validateOwner(owner);
-    return this.#run(() => this.#ports.withApp(scope, async ({ provenance }) => {
-      await this.#expire();
-      const record = this.#owned(scope, owner, requestId);
-      assertCurrent();
-      if (!same(record.provenance, provenance)) denied("This app's execution authority changed. Review a new request.");
-      if (reviewDigest(record) !== expectedReviewDigest) denied("This action changed. Review it again.");
-      if (record.receipt.status !== "pending") return projection(record);
-      if (this.#records.some((item) => item.scope.featureInstallationId === scope.featureInstallationId && item.receipt.status === "running")) conflict("This app is already handling an action.");
-      if (this.#records.filter((item) => item.receipt.status === "running").length >= limits.running) conflict("App actions are busy. Run this request again when one finishes.");
-      const at = this.#now().toISOString();
-      const accepted: ActionRecord = { ...record, receipt: { ...record.receipt, status: "running", approvedAt: at, updatedAt: at } };
-      await this.#replace(accepted);
-      const controller = new AbortController();
-      const execution: RestrictedAppActionExecution = {
-        invocationId: accepted.receipt.id, signal: controller.signal,
-        assertCurrent: () => {
-          if (this.#closed || this.#unavailable || controller.signal.aborted || this.#cancelled.has(accepted.receipt.id)) denied("This app action was stopped.");
-          assertCurrent();
-        },
-      };
-      // Do not hold either admission queue throughout worker execution.
-      const settled = Promise.resolve().then(() => this.#execute(accepted, execution))
-        .finally(() => { this.#active.delete(accepted.receipt.id); });
-      this.#active.set(accepted.receipt.id, { owner: structuredClone(owner), controller, settled });
-      return projection(accepted);
-    }));
   }
 
   async cancel(scope: RestrictedAppTaskScope, owner: BrowserAppActionOwner, requestId: string, assertCurrent: () => void): Promise<BrowserAppActionResult> {
@@ -333,10 +333,6 @@ export class BrowserAppActionService {
 function projection(record: ActionRecord): BrowserAppActionResult {
   return { ...structuredClone(record.receipt), ...(record.resultJson === undefined ? {} : { result: JSON.parse(record.resultJson) }) };
 }
-function reviewDigest(record: ActionRecord): string {
-  return hash({ id: record.receipt.id, scope: record.scope, owner: record.owner, requestDigest: record.requestDigest,
-    requestedAt: record.requestedAt, createdAt: record.receipt.createdAt, declaration: record.declaration, provenance: record.provenance, input: JSON.parse(record.inputJson) });
-}
 function requestKey(record: ActionRecord): string { return hash([record.scope.featureInstallationId, record.owner, record.receipt.requestId]); }
 function same(a: unknown, b: unknown): boolean { return hash(a) === hash(b); }
 function live(status: Status): boolean { return status === "pending" || status === "running"; }
@@ -382,16 +378,20 @@ function parseRecord(value: unknown): ActionRecord {
   parseDataNamespaceId(value.provenance.dataNamespaceId); parsePrincipalId(value.provenance.principalId);
   parseAuthorityStamp(value.provenance.authority); parseAppPlatformArtifactDigest(value.provenance.artifactDigest);
   if (!["development", "app"].includes(String(value.provenance.runtimeInstanceKind)) || hash(value.provenance.authority) !== value.scope.authorityDigest) invalid("The app execution authority is invalid.");
-  const receipt = value.receipt;
-  const receiptOptional = ["approvedAt", "cancellationRequested"].filter((key) => receipt && typeof receipt === "object" && Object.hasOwn(receipt, key));
+  // Journals written before requests ran on admission named the dispatch time
+  // `approvedAt`; read it as `startedAt` so old receipts stay valid.
+  const receipt = value.receipt && typeof value.receipt === "object" && Object.hasOwn(value.receipt, "approvedAt")
+    ? (({ approvedAt, ...rest }: Record<string, unknown>) => ({ ...rest, startedAt: approvedAt }))(value.receipt as Record<string, unknown>)
+    : value.receipt;
+  const receiptOptional = ["startedAt", "cancellationRequested"].filter((key) => receipt && typeof receipt === "object" && Object.hasOwn(receipt, key));
   exact(receipt, ["id", "requestId", "action", "title", "status", "createdAt", "updatedAt", ...receiptOptional]);
   if (typeof receipt.id !== "string" || !uuid.test(receipt.id) || typeof receipt.requestId !== "string" || !uuid.test(receipt.requestId)
     || !["pending", "running", "succeeded", "failed", "cancelled", "interrupted", "expired"].includes(String(receipt.status))) invalid("The app receipt is invalid.");
   date(receipt.createdAt); date(receipt.updatedAt);
-  if (receipt.approvedAt !== undefined) date(receipt.approvedAt);
-  if (["running", "succeeded", "failed", "interrupted"].includes(String(receipt.status)) && !receipt.approvedAt
-    || ["pending", "expired"].includes(String(receipt.status)) && receipt.approvedAt
-    || receipt.cancellationRequested !== undefined && (receipt.cancellationRequested !== true || !receipt.approvedAt)) invalid("The app approval receipt is invalid.");
+  if (receipt.startedAt !== undefined) date(receipt.startedAt);
+  if (["running", "succeeded", "failed", "interrupted"].includes(String(receipt.status)) && !receipt.startedAt
+    || ["pending", "expired"].includes(String(receipt.status)) && receipt.startedAt
+    || receipt.cancellationRequested !== undefined && (receipt.cancellationRequested !== true || !receipt.startedAt)) invalid("The app acceptance receipt is invalid.");
   exact(value.declaration, ["name", "description", "action", "inputSchema", "resultSchema"]);
   if (typeof value.declaration.name !== "string" || value.declaration.name.length > 200 || !value.declaration.name.length
     || typeof value.declaration.description !== "string" || value.declaration.description.length > 4096
@@ -405,5 +405,5 @@ function parseRecord(value: unknown): ActionRecord {
     if (typeof value.resultJson !== "string" || Buffer.byteLength(value.resultJson) > limits.resultBytes) invalid("The app result is invalid.");
     validateRestrictedAppValue(declaration.resultSchema, JSON.parse(value.resultJson), "App action result");
   } else if (value.resultJson !== undefined) invalid("An unfinished app action cannot have a result.");
-  return structuredClone(value) as unknown as ActionRecord;
+  return structuredClone({ ...value, receipt }) as unknown as ActionRecord;
 }

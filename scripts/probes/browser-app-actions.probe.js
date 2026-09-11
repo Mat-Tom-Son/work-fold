@@ -5,7 +5,8 @@ async (page) => {
   await page.getByRole('button', { name: 'Quote board', exact: true }).click();
   const app = page.locator('iframe[title="Quote board"]').contentFrame().locator('iframe[title="App content"]').contentFrame();
   await app.getByRole('button', { name: 'Save quote', exact: true }).click();
-  await app.getByRole('status').filter({ hasText: 'Waiting for your review' }).waitFor();
+  // A request runs as soon as the fixture accepts it: the app sees running, then succeeded.
+  await app.getByRole('status').filter({ hasText: /running|succeeded/ }).waitFor();
   const isolation = await app.getByRole('button', { name: 'Save quote', exact: true }).evaluate(async () => {
     const denied = await new Promise((resolve) => {
       const listener = (event) => {
@@ -18,18 +19,18 @@ async (page) => {
     });
     const actions = workFoldBrowserApp.actions;
     const prepared = actions.createRequest('save-quote', { quantity: 10 });
+    const listed = (await actions.list())[0];
     return { opaqueRequestIdentity: /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(prepared.requestId),
-      frozen: Object.isFrozen(workFoldBrowserApp) && Object.isFrozen(actions), noApprovalApi: !('approve' in actions) && !('review' in actions), forgedApprovalDenied: denied,
-      stillPending: (await actions.list())[0]?.status === 'pending', viewerStillReadOnly: !('actions' in workFoldViewerApp) && !('set' in workFoldViewerApp.data) };
+      frozen: Object.isFrozen(workFoldBrowserApp) && Object.isFrozen(actions), noApprovalApi: !('approve' in actions) && !('review' in actions), forgedCallDenied: denied,
+      ranOnAcceptance: ['running', 'succeeded'].includes(listed?.status), viewerStillReadOnly: !('actions' in workFoldViewerApp) && !('set' in workFoldViewerApp.data) };
   });
   if (Object.values(isolation).some(value => value !== true)) throw new Error(JSON.stringify(isolation));
   const controls = page.getByRole('region', { name: 'App requests', exact: true });
-  await controls.getByRole('button', { name: 'Review', exact: true }).click();
-  await controls.getByRole('button', { name: 'Run', exact: true }).waitFor();
-  const inputs = await controls.getByLabel('Action inputs').textContent();
-  if (!inputs.includes('"quantity": 10') || !inputs.includes('"unitPrice": 42')) throw new Error('The exact quote inputs were not reviewed');
-  await controls.getByRole('button', { name: 'Run', exact: true }).click();
+  await controls.getByRole('button', { name: 'Run', exact: true }).waitFor({ state: 'detached', timeout: 500 }).catch(() => { throw new Error('A Run control appeared; requests must run on acceptance'); });
   await controls.getByText('Done', { exact: true }).waitFor();
+  await controls.getByRole('button', { name: 'View', exact: true }).first().click();
+  const result = await controls.getByLabel('Action result').textContent();
+  if (!result.includes('"saved": true')) throw new Error('The trusted parent did not show the action result');
   await app.getByRole('button', { name: 'Check request', exact: true }).click();
   await app.getByRole('status').filter({ hasText: '"runs":1' }).waitFor();
   await app.getByRole('button', { name: 'Save quote', exact: true }).click();
@@ -49,5 +50,5 @@ async (page) => {
   if (await page.locator('iframe[title="Quote board"]').count()) throw new Error('Closing left app code mounted');
   const focusRestored = await page.getByRole('button', { name: 'Quote board', exact: true }).evaluate((button) => button === document.activeElement);
   if (!focusRestored) throw new Error('App opener focus was not restored');
-  return { ...isolation, exactInputReviewed: true, receiptRecovered: true, duplicateRuns: 1, focusRestored, ...bounds };
+  return { ...isolation, resultShown: true, receiptRecovered: true, duplicateRuns: 1, focusRestored, ...bounds };
 }

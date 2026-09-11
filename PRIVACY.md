@@ -110,9 +110,10 @@ private machine-local journal, separate from content-free receipt summaries.
 Requests are limited to 16 KiB and results to 128 KiB; the journal has record
 and byte limits and prunes terminal records older than a day on new admission.
 Only the requesting paired browser and exact app authority can retrieve a
-result. Running one runs the installed worker with its existing grants; it does
-not publish data or start a model. Only the trusted browser UI outside the app
-frame can run or stop a request, and shared viewers remain read-only.
+result. A request runs the installed worker with its existing grants as soon as
+the desktop accepts it; it does not publish data or start a model. Only the
+requesting app view and the trusted browser UI outside the frame can stop a
+request, and shared viewers remain read-only.
 Selecting a Space changes only the displayed file tree; it does not select a
 different Assistant or transcript.
 Removing Remote access deletes its server-side account records; browser

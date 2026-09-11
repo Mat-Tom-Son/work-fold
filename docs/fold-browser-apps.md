@@ -57,8 +57,9 @@ URLs. This policy also constrains the app. App code cannot read either parent
 document, cookies, local storage or the management browser's identity keys.
 It receives the frozen `workFoldViewerApp` read API. When the catalog advertises
 declared worker actions, the separate private `workFoldBrowserApp.actions` SDK
-can create, submit, list, read or cancel an app request. It cannot review or
-approve one, including through forged raw frame messages. The host admits at
+can create, submit, list, read or cancel an app request. It cannot widen its
+own grants or reach any other management operation, including through forged
+raw frame messages. The host admits at
 most four concurrent app calls, the SDK caps pending calls at sixteen and times
 them out after thirty seconds, and the relay's
 existing per-session operation budget still applies.
@@ -73,16 +74,18 @@ While visible, a non-overlapping fifteen-second catalog check closes a view
 whose revision or authority changed; every read also rechecks immediately.
 Already displayed information cannot be recalled from someone who copied it.
 
-## Reviewed actions
+## Actions
 
-The action foundation now adds the separate closed operations
-`apps.actions.request|get|list|review|approve|cancel`. They require a host-only
-live browser-authority callback in addition to the authenticated Principal.
-They are not part of `apps.read` or the shared-viewer vocabulary. The catalog's
-`actions` flag is true only for a reviewed web view with a worker and declared
-tools. Older hosts and apps without that capability keep the read-only view.
-The trusted parent lists requests, shows exact input for review, and polls
-status while visible. It never derives an approval from an app message.
+The action foundation adds the separate closed operations
+`apps.actions.request|get|list|cancel`. They require a host-only live
+browser-authority callback in addition to the authenticated Principal. They
+are not part of `apps.read` or the shared-viewer vocabulary. The catalog's
+`actions` flag is true only for an installed web view with a worker and
+declared tools. Older hosts and apps without that capability keep the
+read-only view. A request runs as soon as the desktop accepts it, exactly as
+the same app's actions run on the desktop; the trusted parent lists requests,
+shows each status and result, and offers Stop while one is running. Nothing
+waits for a click.
 
 Requests select a declared worker action and at most 16 KiB of schema-checked
 JSON. The host pins the Space, installation, revision, authority, browser and
@@ -94,29 +97,29 @@ are schema-checked and at most 128 KiB; lists contain summaries without results.
 Record contents are never sent through a shared viewer.
 
 A request UUID and timestamp identify a retry. Identical retries return the
-same record; changed input is refused. A trusted approval must match the exact
-review digest. Acceptance is written and synced before worker dispatch, and
-the durable receipt id becomes the native invocation id. Reconnecting or
-repeating approval cannot dispatch an accepted request again. Startup marks
-uncertain accepted work Interrupted, without replay or a guessed outcome.
+same record; changed input is refused. Acceptance is written and synced before
+worker dispatch, and the durable receipt id becomes the native invocation id.
+Reconnecting or repeating a request cannot dispatch an accepted request again.
+Startup marks uncertain accepted work Interrupted, without replay or a guessed
+outcome; a queued record from an older build expires at startup.
 
-The lane admits four live requests per installation and sixteen per browser,
-runs at most two actions globally and one per installation, and expires pending
-reviews after fifteen minutes. It retains at most 1,000 records in a 64-MiB
-journal and prunes terminal records older than a day when admitting new work.
-An updated revision or changed permission selection cancels obsolete intents
-when the current app submits a request, so old reviews cannot consume its
-request budget. Browser revocation terminalizes matching pending requests in
-one journal update and settles matching active runs.
-Admission reserves room for bounded terminal results. Damaged journals or
-uncertain persistence disable this lane without preventing app startup.
+The lane runs at most four actions on this computer, two per installation and
+sixteen per browser, and refuses a request beyond those bounds with the bound
+named rather than parking it. Requests older than fifteen minutes are refused.
+It retains at most 1,000 records in a 64-MiB journal and prunes terminal
+records older than a day when admitting new work. An updated revision or
+changed permission selection cancels obsolete records when the current app
+submits a request. Browser revocation terminalizes matching records in one
+journal update and settles matching active runs. Admission reserves room for
+bounded terminal results. Damaged journals or uncertain persistence disable
+this lane without preventing app startup.
 
-Stop fences dispatch immediately, including approval races. Native workers
+Stop fences a run immediately, including a race with admission. Native workers
 recheck both installed authority and the browser's live fence at launch, every
-broker effect boundary and result delivery. Revocation aborts matching runs
-and cancels that grant's pending requests; another browser's requests retain
-their own authority. Closing a view does not cancel an accepted run. Stop or a
-failed result does not claim to reverse effects that already completed.
+broker effect boundary and result delivery. Revocation aborts matching runs;
+another browser's requests retain their own authority. Closing a view does not
+cancel an accepted run. Stop or a failed result does not claim to reverse
+effects that already completed.
 
 App authors use `actions.createRequest(action, input)` once, retain that request
 for uncertain retries, and pass it to `actions.request(request)`. The helper
@@ -125,7 +128,7 @@ lack `crypto.randomUUID`. `actions.list()` recovers request ids after reopening;
 `actions.get(requestId)` reads a bounded result, and `actions.cancel(requestId)`
 stops the app's own request. A timeout says the status is uncertain and asks the
 app to check existing requests before starting another. None of these helpers
-approve work or widen a permission. Shared viewers never install this SDK.
+widen a permission. Shared viewers never install this SDK.
 
 ## Verification
 

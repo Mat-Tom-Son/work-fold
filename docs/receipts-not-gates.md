@@ -113,6 +113,10 @@ Narrowed earlier decisions:
 
 - Install and update defaults per F21, including the carry-forward rules on
   a changed digest and idempotent identical-digest installs.
+- An app view in a paired browser runs its declared worker actions on
+  acceptance, exactly as on the desktop. The former review and approve
+  operations and the "Waiting for you" state are removed; the trusted parent
+  shows status and offers Stop.
 - `propose_space_app` installs the local preview immediately with all
   declared grants and reports what it installed and which destinations
   still need a person to connect a secret. The tool's model-facing guide

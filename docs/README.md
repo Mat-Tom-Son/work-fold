@@ -56,6 +56,7 @@ viewer pages and app views are a separate shipped capability.
 | [Checks expansion](checks-expansion.md) | Shipped decisions reconciled with remaining proposals; the Checks register wins |
 | [Next product directions](next-product-directions.md) | Proposed priorities for discussion, not accepted scope |
 | [Assistant collaboration and app AI primitives](assistant-collaboration-plan.md) | Verified 0.4.23 gap assessment and proposed task, result, question, app AI, and action contracts; amended for wave B by [Receipts, not gates](receipts-not-gates.md) |
+| [Collaboration contract](collaboration-contract.md) | Accepted 2026-09-11 wave B specification: durable requests, Space turn context, report/ask/answer/handoff, one result shape, app subscriptions |
 | [Receipts, not gates](receipts-not-gates.md) | Accepted 2026-09-10 direction and the specification the canonical documents now follow: one authority mode, reversible destruction, apps that come up able to work; supersedes F3–F7 and F17, narrows F8, F9, F18 |
 | [App platform exploration](app-platform-exploration.md) | Completed exploration; the accepted foundation wins |
 | [Runtime spike evidence](app-platform-runtime-spike-evidence.md) | Disposable experiment evidence, not production-service proof |

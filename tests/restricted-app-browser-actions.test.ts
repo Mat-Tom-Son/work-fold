@@ -56,10 +56,8 @@ async function fixture(t: test.TestContext) {
     renewAuthority: () => { appProvenance = { ...appProvenance, authority: createAuthorityStamp() }; appScope = { ...scope, authorityDigest: restrictedAppTaskAuthorityDigest(appProvenance.authority) }; return appScope; },
     hold: () => { heldAdmission = deferred<void>(); return () => { heldAdmission!.resolve(); heldAdmission = undefined; }; },
     restart: async () => { await service.close(); service = await BrowserAppActionService.create(options); },
-    async accept() { const request = this.request(); await service.request(scope, owner, request, current);
-      const review = await service.review(scope, owner, request.requestId, current);
-      await service.approve(scope, owner, request.requestId, review.reviewDigest, current);
-      return request; },
+    /** A request runs on acceptance: submitting it is the whole ceremony. */
+    async accept() { const request = this.request(); await service.request(scope, owner, request, current); return request; },
   };
 }
 async function until(check: () => Promise<boolean> | boolean) {
@@ -67,20 +65,16 @@ async function until(check: () => Promise<boolean> | boolean) {
   assert.fail("Expected app action progress did not arrive.");
 }
 
-test("browser actions stage inertly, review exact input, accept once and recover the same result after restart", async (t) => {
+test("browser actions run on acceptance, accept once, expose no input, and recover the same result after restart", async (t) => {
   const f = await fixture(t);
   const request = f.request();
   const [first, duplicate] = await Promise.all([f.service.request(scope, owner, request, current), f.service.request(scope, owner, request, current)]);
-  assert.deepEqual(first, duplicate); assert.equal(first.status, "pending"); assert.equal(f.calls.length, 0);
+  assert.deepEqual(first, duplicate); assert.equal(first.status, "running"); assert.ok(first.startedAt);
   assert.equal(Object.hasOwn(first, "reviewDigest"), false); assert.equal(Object.hasOwn(first, "inputJson"), false);
   assert.deepEqual(await f.service.request(scope, owner, { ...request, input: { count: 10, quote: "North: $42" } }, current), first, "object key order does not change request identity");
   await assert.rejects(f.service.request(scope, owner, { ...request, input: { quote: "South", count: 10 } }, current), /different input/);
-  const review = await f.service.review(scope, owner, request.requestId, current);
-  assert.deepEqual(JSON.parse(review.inputJson), request.input);
-  await assert.rejects(f.service.approve(scope, owner, request.requestId, "invented", current), /Review it again/);
-  await Promise.all([f.service.approve(scope, owner, request.requestId, review.reviewDigest, current), f.service.approve(scope, owner, request.requestId, review.reviewDigest, current)]);
   await until(() => f.calls.length === 1);
-  assert.equal(f.calls[0]!.execution.invocationId, first.id);
+  assert.equal(f.calls[0]!.execution.invocationId, first.id, "the durable receipt id is the invocation id");
   f.calls[0]!.outcome.resolve({ saved: true });
   await until(async () => (await f.service.get(scope, owner, request.requestId, current)).status === "succeeded");
   assert.deepEqual((await f.service.get(scope, owner, request.requestId, current)).result, { saved: true });
@@ -89,28 +83,26 @@ test("browser actions stage inertly, review exact input, accept once and recover
   assert.equal(Object.hasOwn(journal.records[0].receipt, "input"), false);
   assert.equal(Object.hasOwn(journal.records[0].receipt, "result"), false);
   await f.restart();
-  assert.equal((await f.service.approve(scope, owner, request.requestId, review.reviewDigest, current)).status, "succeeded");
+  assert.equal((await f.service.request(scope, owner, request, current)).status, "succeeded", "a retry after restart returns the outcome, never a second run");
   assert.equal(f.calls.length, 1);
 });
 
-test("browser actions reject malformed inputs, wrong owners, changed authority and expired review", async (t) => {
+test("browser actions reject malformed inputs, wrong owners, stale requests and changed authority", async (t) => {
   const f = await fixture(t);
   for (const invalid of [null, {}, f.request({ requestId: "not-a-uuid" }), f.request({ requestedAt: "yesterday" }),
     f.request({ action: "arbitrary" }), f.request({ grantId: "injected" }), f.request({ input: { quote: "x", count: 1, secret: true } }),
     f.request({ input: { quote: "界".repeat(6000), count: 1 } }), f.request({ requestedAt: "2026-09-07T13:00:00.000Z" })]) {
     await assert.rejects(f.service.request(scope, owner, invalid, current));
   }
+  assert.equal(f.calls.length, 0, "nothing invalid reaches a worker");
   const request = f.request();
   await f.service.request(scope, owner, request, current);
-  const review = await f.service.review(scope, owner, request.requestId, current);
+  await until(() => f.calls.length === 1);
   for (const foreign of [{ ...owner, grantId: "other" }, { ...owner, browserId: "other" }]) {
     await assert.rejects(f.service.get(scope, foreign, request.requestId, current));
-    await assert.rejects(f.service.approve(scope, foreign, request.requestId, review.reviewDigest, current));
     await assert.rejects(f.service.cancel(scope, foreign, request.requestId, current));
   }
   f.advance(limits.requestAgeMs + 1);
-  assert.equal((await f.service.approve(scope, owner, request.requestId, review.reviewDigest, current)).status, "expired");
-  assert.equal(f.calls.length, 0);
   await assert.rejects(f.service.request(scope, owner, f.request({ requestedAt: request.requestedAt }), current), /too old/);
   f.changeScope();
   await assert.rejects(f.service.get(scope, owner, request.requestId, current));
@@ -131,40 +123,38 @@ test("Stop fences an active action immediately and cannot cancel another browser
   assert.equal((await f.service.get(scope, owner, request.requestId, current)).result, undefined);
 });
 
-test("Stop racing an approval fences dispatch even while admission is awaiting app authority", async (t) => {
+test("Stop racing admission fences dispatch even while the request is awaiting app authority", async (t) => {
   const f = await fixture(t);
-  const request = f.request(); await f.service.request(scope, owner, request, current);
-  const review = await f.service.review(scope, owner, request.requestId, current);
+  const request = f.request();
   const release = f.hold();
-  const approval = f.service.approve(scope, owner, request.requestId, review.reviewDigest, current);
+  const admission = f.service.request(scope, owner, request, current);
+  release(); await admission;
   const cancellation = f.service.cancel(scope, owner, request.requestId, current);
-  release(); await approval; await cancellation;
+  await cancellation;
   await until(async () => (await f.service.get(scope, owner, request.requestId, current)).status === "cancelled");
-  assert.equal(f.calls.length, 0);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(f.calls.length, 0, "a stop that lands before dispatch keeps the worker from ever being invoked");
+  assert.equal((await f.service.get(scope, owner, request.requestId, current)).result, undefined);
 });
 
 test("browser revocation stops only that grant and a live authority callback fences result delivery", async (t) => {
   const f = await fixture(t);
   const request = await f.accept(); await until(() => f.calls.length === 1);
   const sibling = { browserId: "browser-two", grantId: "grant-two" };
-  const sameGrantPending = [f.request(), f.request()];
-  for (const request of sameGrantPending) await f.service.request(scope, owner, request, current);
-  const pending = f.request(); await f.service.request(scope, sibling, pending, current);
-  await f.service.revoke(owner.grantId);
-  assert.equal((await f.service.get(scope, owner, request.requestId, current)).status, "cancelled");
-  for (const request of sameGrantPending) assert.equal((await f.service.get(scope, owner, request.requestId, current)).status, "cancelled");
-  assert.equal((await f.service.get(scope, sibling, pending.requestId, current)).status, "pending");
   let allowed = true;
   const assertCurrent = () => { if (!allowed) throw new Error("Revoked grant, private diagnostic"); };
-  const review = await f.service.review(scope, sibling, pending.requestId, assertCurrent);
-  await f.service.approve(scope, sibling, pending.requestId, review.reviewDigest, assertCurrent);
+  const siblingRequest = f.request(); await f.service.request(scope, sibling, siblingRequest, assertCurrent);
   await until(() => f.calls.length === 2);
+  await f.service.revoke(owner.grantId);
+  assert.equal((await f.service.get(scope, owner, request.requestId, current)).status, "cancelled");
+  assert.equal(f.calls[0]!.execution.signal.aborted, true);
+  assert.equal((await f.service.get(scope, sibling, siblingRequest.requestId, current)).status, "running", "another browser's run keeps its own authority");
   allowed = false;
   assert.throws(() => f.calls[1]!.execution.assertCurrent(), /Revoked/);
   f.calls[1]!.outcome.resolve({ saved: true });
-  await until(async () => (await f.service.get(scope, sibling, pending.requestId, current)).status === "failed");
-  assert.equal((await f.service.get(scope, sibling, pending.requestId, current)).result, undefined);
-  await assert.rejects(f.service.get(scope, sibling, pending.requestId, assertCurrent), /Revoked/);
+  await until(async () => (await f.service.get(scope, sibling, siblingRequest.requestId, current)).status === "failed");
+  assert.equal((await f.service.get(scope, sibling, siblingRequest.requestId, current)).result, undefined);
+  await assert.rejects(f.service.get(scope, sibling, siblingRequest.requestId, assertCurrent), /Revoked/);
 });
 
 test("browser action failures and oversized results remain failures without leaking worker diagnostics", async (t) => {
@@ -184,17 +174,38 @@ test("an uncertain accepted journal becomes interrupted at startup and is never 
   const f = await fixture(t);
   const request = await f.accept(); await until(() => f.calls.length === 1);
   const acceptedJournal = await readFile(f.path, "utf8");
-  const review = await f.service.review(scope, owner, request.requestId, current);
   await f.service.close();
   await writeFile(f.path, acceptedJournal);
   await f.restart();
-  assert.equal((await f.service.approve(scope, owner, request.requestId, review.reviewDigest, current)).status, "interrupted");
+  assert.equal((await f.service.request(scope, owner, request, current)).status, "interrupted");
+  assert.equal(f.calls.length, 1);
+});
+
+test("a queued record and an accepted receipt from an older build are read, expired, and never dispatched", async (t) => {
+  const f = await fixture(t);
+  const request = await f.accept(); await until(() => f.calls.length === 1);
+  f.calls[0]!.outcome.resolve({ saved: true });
+  await until(async () => (await f.service.get(scope, owner, request.requestId, current)).status === "succeeded");
+  const journal = JSON.parse(await readFile(f.path, "utf8"));
+  const done = journal.records[0];
+  const { startedAt, ...legacyReceipt } = done.receipt;
+  done.receipt = { ...legacyReceipt, approvedAt: startedAt };
+  const queued = structuredClone(done);
+  queued.receipt = { ...legacyReceipt, id: randomUUID(), requestId: randomUUID(), status: "pending" };
+  delete queued.resultJson;
+  await f.service.close();
+  await writeFile(f.path, JSON.stringify({ ...journal, records: [done, queued] }));
+  await f.restart();
+  const recovered = await f.service.get(scope, owner, request.requestId, current);
+  assert.equal(recovered.status, "succeeded"); assert.equal(recovered.startedAt, startedAt); assert.equal(Object.hasOwn(recovered, "approvedAt"), false);
+  assert.equal((await f.service.get(scope, owner, queued.receipt.requestId, current)).status, "expired");
   assert.equal(f.calls.length, 1);
 });
 
 test("journal input changes and inconsistent terminal outcomes fail closed at startup", async (t) => {
   const f = await fixture(t);
   const request = f.request(); await f.service.request(scope, owner, request, current);
+  await until(() => f.calls.length === 1);
   const original = JSON.parse(await readFile(f.path, "utf8"));
   const altered = structuredClone(original);
   altered.records[0].inputJson = '{"quote":"Changed","count":10}';
@@ -208,10 +219,8 @@ test("journal input changes and inconsistent terminal outcomes fail closed at st
 
 test("damaged journals and acceptance write failure disable the lane without dispatch", async (t) => {
   const f = await fixture(t);
-  const request = f.request(); await f.service.request(scope, owner, request, current);
-  const review = await f.service.review(scope, owner, request.requestId, current);
-  await rm(f.path); await mkdir(f.path);
-  await assert.rejects(f.service.approve(scope, owner, request.requestId, review.reviewDigest, current), /records could not be verified/);
+  await rm(f.path, { force: true }); await mkdir(f.path);
+  await assert.rejects(f.service.request(scope, owner, f.request(), current), /records could not be verified/);
   assert.equal(f.calls.length, 0);
   await assert.rejects(f.service.list(scope, owner, current), /records could not be verified/);
   await rm(f.path, { recursive: true }); await writeFile(f.path, '{"schema":"unexpected","records":[]}');
@@ -219,22 +228,22 @@ test("damaged journals and acceptance write failure disable the lane without dis
   await assert.rejects(f.service.request(scope, owner, f.request(), current), /records could not be verified/);
 });
 
-test("bounded pending requests and one active action prevent repeated approval from flooding workers", async (t) => {
+test("running bounds refuse an extra request with the bound named instead of parking it", async (t) => {
   const f = await fixture(t);
   const requests = [];
-  for (let index = 0; index < limits.pendingPerInstallation; index++) {
+  for (let index = 0; index < limits.runningPerInstallation; index++) {
     const request = f.request(); requests.push(request); await f.service.request(scope, owner, request, current);
   }
-  await assert.rejects(f.service.request(scope, owner, f.request(), current), /existing app requests/);
-  for (let index = 0; index < 2; index++) {
-    const request = requests[index]!; const review = await f.service.review(scope, owner, request.requestId, current);
-    const accepting = f.service.approve(scope, owner, request.requestId, review.reviewDigest, current);
-    if (index === 0) await accepting; else await assert.rejects(accepting, /already handling/);
-  }
-  await until(() => f.calls.length === 1);
+  await until(() => f.calls.length === limits.runningPerInstallation);
+  await assert.rejects(f.service.request(scope, owner, f.request(), current), new RegExp(`already running ${limits.runningPerInstallation} actions`));
+  assert.equal(f.calls.length, limits.runningPerInstallation);
+  f.calls[0]!.outcome.resolve({ saved: true });
+  await until(async () => (await f.service.get(scope, owner, requests[0]!.requestId, current)).status === "succeeded");
+  await f.service.request(scope, owner, f.request(), current);
+  await until(() => f.calls.length === limits.runningPerInstallation + 1);
 });
 
-test("the machine-wide browser action limit spans installations and leaves excess reviews pending", async (t) => {
+test("the machine-wide browser action limit spans installations and names itself", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-browser-action-capacity-"));
   let invoked = 0;
   const service = await BrowserAppActionService.create({ path: join(root, "actions.json"), ports: {
@@ -248,26 +257,31 @@ test("the machine-wide browser action limit spans installations and leaves exces
   for (let index = 0; index <= limits.running; index++) {
     const appScope = { ...scope, featureInstallationId: `installation-${index}` };
     const request = { requestId: randomUUID(), requestedAt: new Date().toISOString(), action: "save", input: { quote: "North", count: 1 } };
-    await service.request(appScope, owner, request, current);
-    const review = await service.review(appScope, owner, request.requestId, current);
-    if (index < limits.running) await service.approve(appScope, owner, request.requestId, review.reviewDigest, current);
-    else {
-      await assert.rejects(service.approve(appScope, owner, request.requestId, review.reviewDigest, current), /actions are busy/);
-      assert.equal((await service.get(appScope, owner, request.requestId, current)).status, "pending");
-    }
+    if (index < limits.running) assert.equal((await service.request(appScope, owner, request, current)).status, "running");
+    else await assert.rejects(service.request(appScope, owner, request, current), new RegExp(`${limits.running} running on this computer`));
   }
+  await until(() => invoked === limits.running);
   assert.equal(invoked, limits.running);
 });
 
-test("a new app authority does not inherit old reviews or their pending-request budget", async (t) => {
+test("a new app authority cancels the old revision's records when the current app submits a request", async (t) => {
   const f = await fixture(t);
-  for (let index = 0; index < limits.pendingPerInstallation; index++) await f.service.request(scope, owner, f.request(), current);
+  const old = f.request(); await f.service.request(scope, owner, old, current);
+  await until(() => f.calls.length === 1);
   const renewed = f.renewAuthority();
   const request = f.request();
-  assert.equal((await f.service.request(renewed, owner, request, current)).status, "pending");
+  assert.equal((await f.service.request(renewed, owner, request, current)).status, "running");
   assert.equal((await f.service.list(renewed, owner, current)).length, 1);
   const journal = JSON.parse(await readFile(f.path, "utf8"));
-  assert.equal(journal.records.filter((record: any) => record.receipt.status === "cancelled").length, limits.pendingPerInstallation);
+  const stale = journal.records.find((record: any) => record.receipt.requestId === old.requestId);
+  assert.equal(stale.receipt.cancellationRequested, true, "the old revision's run is fenced, not left running under stale authority");
+  assert.equal(f.calls[0]!.execution.signal.aborted, true);
+  // This fixture's worker port only knows the original scope, so the renewed
+  // request settles on its own; the point here is that a restart never
+  // dispatches it again.
+  await until(async () => (await f.service.get(renewed, owner, request.requestId, current)).status !== "running");
+  const dispatched = f.calls.length;
   await f.restart();
-  assert.equal((await f.service.get(renewed, owner, request.requestId, current)).status, "pending");
+  assert.notEqual((await f.service.get(renewed, owner, request.requestId, current)).status, "running");
+  assert.equal(f.calls.length, dispatched, "a restart replays nothing");
 });

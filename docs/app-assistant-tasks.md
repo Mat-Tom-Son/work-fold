@@ -66,7 +66,8 @@ timestamp within 15 minutes (at most one minute ahead for clock skew). A
 replayed envelope returns the same record; changing its input conflicts. The
 app cannot choose another Space or read arbitrary task or Chat ids. Shared
 viewers and remote app views have no Assistant bridge. Private browser worker
-actions keep their separate reviewed action lane.
+actions use their separate action lane, which runs a request on acceptance
+(see [browser app views](fold-browser-apps.md#actions)).
 
 Task states are `dispatching`, `running`, `succeeded`, `failed`, `cancelled`
 and `interrupted`; every task carries `startedAt`, its dispatch time. A

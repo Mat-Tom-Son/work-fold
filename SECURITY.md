@@ -132,11 +132,13 @@ The separate browser-action foundation requires exact installation and browser
 provenance, an exact installed-revision digest, durable acceptance and a live
 grant fence. Native broker effects recheck that fence even after dispatch.
 Idempotent retry returns the original receipt; uncertain accepted work becomes
-Interrupted at startup without replay. Revocation cancels matching pending
-requests and fences accepted runs. An app frame can only ask: neither the read
-bridge nor shared viewers can run or read one of these requests, and the private
-trusted parent outside the frame alone shows a request and offers Run and Stop.
-Forged frame request messages are refused before entering the encrypted adapter.
+Interrupted at startup without replay. Revocation fences accepted runs. A
+request from a paired browser's app view runs on acceptance, as the same app's
+actions run on the desktop; the app frame can only ask, read, list, or stop its
+own requests, neither the read bridge nor shared viewers can reach them, and
+the private trusted parent outside the frame shows each request and offers
+Stop. Forged frame request messages are refused before entering the encrypted
+adapter.
 Direct task-scoped request status and stop calls through the remote semantic
 adapter are bound to the browser identity and exact grant that accepted the
 request. Summary projections omit task ids and action details for other grants.

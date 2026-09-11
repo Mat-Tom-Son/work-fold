@@ -32,7 +32,7 @@ const operationSet = new Set<WorkFoldRemoteOperation>([
   "management.summary", "management.chats", "management.transcript", "management.rename", "management.send", "management.request",
   "management.stop", "management.watch", "management.glance", "management.glanceSeen",
   "spaces.list", "spaces.tree", "spaces.filePreview", "apps.list", "apps.read",
-  "apps.actions.request", "apps.actions.get", "apps.actions.list", "apps.actions.review", "apps.actions.approve", "apps.actions.cancel",
+  "apps.actions.request", "apps.actions.get", "apps.actions.list", "apps.actions.cancel",
 ]);
 /**
  * The serialized glance digest is bounded to 64 KB (docs/fold-glance.md) so it

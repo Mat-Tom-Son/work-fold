@@ -490,7 +490,7 @@ test("an unrelated grant revocation cannot suppress a queued operation completio
   fixture.client.stop();
 });
 
-for (const operation of ["spaces.list", "spaces.filePreview", "apps.read", "apps.actions.approve"]) test(`${operation}: same-grant revocation suppresses a late completion and response-cache insertion`, async () => {
+for (const operation of ["spaces.list", "spaces.filePreview", "apps.read", "apps.actions.request"]) test(`${operation}: same-grant revocation suppresses a late completion and response-cache insertion`, async () => {
   const browser = remoteTestBrowser("grant-revoked");
   const settings = remoteTestSettings([browser]);
   let releaseFirst!: () => void;

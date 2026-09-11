@@ -1479,9 +1479,10 @@ test("the fold's glance and app operations pass the management allowlist content
   // The remote wave lands allowlist-first (docs/fold-integration.md,
   // reconciliation 7): the bridge accepts the operation names and relays the
   // signed ciphertext untouched. Digests stay end-to-end encrypted between
-  // the desktop and the approved browser.
+  // the desktop and the paired browser. App actions run on request; there is
+  // no review or approve operation to relay.
   for (const operation of ["management.glance", "management.glanceSeen", "spaces.filePreview", "apps.list", "apps.read",
-    "apps.actions.request", "apps.actions.get", "apps.actions.list", "apps.actions.review", "apps.actions.approve", "apps.actions.cancel"]) {
+    "apps.actions.request", "apps.actions.get", "apps.actions.list", "apps.actions.cancel"]) {
     const envelope = signedEnvelope({
       type: "work-fold.remote-request.v1",
       accountId: fixture.account.id,

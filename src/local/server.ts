@@ -4225,12 +4225,12 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
         case "apps.actions.request":
         case "apps.actions.get":
         case "apps.actions.list":
-        case "apps.actions.review":
-        case "apps.actions.approve":
         case "apps.actions.cancel": {
+          // A paired browser's app view runs its declared actions the way the
+          // desktop does: the request is admitted, journaled, and dispatched in
+          // one step under the live grant fence. Nothing waits for a click.
           if (!authority) throw httpError(403, "App actions require a live paired browser.");
-          const extra = operation === "apps.actions.request" ? ["request"] : operation === "apps.actions.list" ? []
-            : operation === "apps.actions.approve" ? ["requestId", "reviewDigest"] : ["requestId"];
+          const extra = operation === "apps.actions.request" ? ["request"] : operation === "apps.actions.list" ? [] : ["requestId"];
           assertRemoteKeys(input, ["spaceId", "appId", "featureInstallationId", "digest", "authorityDigest", ...extra]);
           const scope = {
             spaceId: remoteStableId(input.spaceId, "Space id", 200), appId: remoteStableId(input.appId, "App id", 160),
@@ -4246,8 +4246,6 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
           const result = operation === "apps.actions.request" ? { action: await service.request(scope, owner, input.request, assertCurrent) }
             : operation === "apps.actions.get" ? { action: await service.get(scope, owner, requestId, assertCurrent) }
             : operation === "apps.actions.list" ? { actions: await service.list(scope, owner, assertCurrent) }
-            : operation === "apps.actions.review" ? { review: await service.review(scope, owner, requestId, assertCurrent) }
-            : operation === "apps.actions.approve" ? { action: await service.approve(scope, owner, requestId, remoteStableId(input.reviewDigest, "App review", 64), assertCurrent) }
             : { action: await service.cancel(scope, owner, requestId, assertCurrent) };
           assertCurrent();
           if ((await getSpace(scope.spaceId)).spaceRoot !== space.spaceRoot) throw httpError(409, "This Space changed. Open the app again.");

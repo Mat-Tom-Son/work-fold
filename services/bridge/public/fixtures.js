@@ -133,27 +133,23 @@ export function buildFixture(name) {
   };
 }
 
-/** Inert UI-only action fixture. No desktop request or worker is involved. */
+/** Inert UI-only action fixture. No desktop request or worker is involved. A request runs as soon as it is accepted. */
 export function createFixtureAppActions() {
   const records = new Map(); let runs = 0;
   return async (app, operation, input) => {
     if (app.featureInstallationId !== "fixture-quote-board") throw new Error("Unknown fixture app.");
-    if (operation === "list") return { actions: [...records.values()].map(({ reviewDigest, inputJson, result, ...record }) => record) };
+    if (operation === "list") return { actions: [...records.values()].map(({ result, ...record }) => record) };
     const requestId = operation === "request" ? input.request.requestId : input.requestId;
     let record = records.get(requestId);
     if (operation === "request" && !record) {
-      record = { id: crypto.randomUUID(), requestId, title: "Save quote", action: "save-quote", status: "pending",
-        inputJson: JSON.stringify(input.request.input), reviewDigest: `fixture-review:${requestId}` };
+      const at = new Date().toISOString();
+      record = { id: crypto.randomUUID(), requestId, title: "Save quote", action: "save-quote", status: "running", createdAt: at, updatedAt: at, startedAt: at };
       records.set(requestId, record);
+      setTimeout(() => { if (record.status === "running") { record.status = "succeeded"; record.result = { saved: true, supplier: "North", runs: ++runs }; } }, 800);
     }
     if (!record) throw new Error("Unknown fixture request.");
-    if (operation === "review") return { review: structuredClone(record) };
-    if (operation === "approve") {
-      if (input.reviewDigest !== record.reviewDigest) throw new Error("Review changed.");
-      if (record.status === "pending") { record.status = "succeeded"; record.result = { saved: true, supplier: "North", runs: ++runs }; }
-    } else if (operation === "cancel" && record.status === "pending") record.status = "cancelled";
-    const { inputJson, reviewDigest, ...action } = record;
-    return { action: structuredClone(action) };
+    if (operation === "cancel" && record.status === "running") record.status = "cancelled";
+    return { action: structuredClone(record) };
   };
 }
 
@@ -163,6 +159,6 @@ export const fixtureAppEntry = `<!doctype html><html><head><meta name="viewport"
 <script>
 let request;
 document.getElementById("read").onclick=async()=>{const quote=await workFoldViewerApp.data.get("quotes:north");document.getElementById("result").textContent=quote.supplier+": $"+quote.unitPrice+" per unit, "+quote.days+" days"};
-document.getElementById("save").onclick=async()=>{request??=workFoldBrowserApp.actions.createRequest("save-quote",{supplier:"North",unitPrice:42,quantity:10});const action=await workFoldBrowserApp.actions.request(request);document.getElementById("result").textContent=action.status==="pending"?"Waiting for you":action.status};
+document.getElementById("save").onclick=async()=>{request??=workFoldBrowserApp.actions.createRequest("save-quote",{supplier:"North",unitPrice:42,quantity:10});const action=await workFoldBrowserApp.actions.request(request);document.getElementById("result").textContent=action.status};
 document.getElementById("status").onclick=async()=>{const action=request?await workFoldBrowserApp.actions.get(request.requestId):(await workFoldBrowserApp.actions.list())[0];document.getElementById("result").textContent=action?JSON.stringify(action):"No request yet"};
 </script></body></html>`;

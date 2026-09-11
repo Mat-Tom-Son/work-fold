@@ -98,7 +98,7 @@ test("offline and updated app views require an explicit fresh open and preserve 
   } finally { controller.destroy(); f.close(); }
 });
 
-test("apps can request and poll actions but only trusted parent controls can open and run them", async () => {
+test("apps can request, poll and stop actions; a request runs on acceptance and the trusted parent shows its status", async () => {
   const f = documentFixture();
   const calls: Array<{ operation: string; input: any }> = [];
   const records: any[] = [];
@@ -106,11 +106,13 @@ test("apps can request and poll actions but only trusted parent controls can ope
     actions: async (scope: any, operation: string, input: any) => {
       assert.equal(scope.featureInstallationId, app.featureInstallationId);
       calls.push({ operation, input });
-      if (operation === "request") { const action = { id: "receipt-one", requestId: input.request.requestId, title: "Save quote", status: "pending" }; records.push(action); return { action }; }
-      if (operation === "list") return { actions: structuredClone(records) };
-      if (operation === "review") return { review: { ...records[0], inputJson: JSON.stringify({ quote: "<img src=x onerror=alert(1)>", count: 10 }), reviewDigest: "exact-review" } };
-      if (operation === "approve") { assert.equal(input.reviewDigest, "exact-review"); records[0].status = "succeeded"; records[0].result = { saved: true }; return { action: records[0] }; }
-      return { action: records[0] };
+      if (operation === "request") {
+        const action = { id: "receipt-one", requestId: input.request.requestId, title: "Save quote", status: "running", startedAt: "2026-09-11T12:00:00.000Z" };
+        records.push(action); return { action };
+      }
+      if (operation === "list") return { actions: records.map(({ result, ...record }) => structuredClone(record)) };
+      if (operation === "cancel") { records[0].status = "cancelled"; return { action: structuredClone(records[0]) }; }
+      return { action: structuredClone(records[0]) };
     },
   });
   try {
@@ -123,53 +125,64 @@ test("apps can request and poll actions but only trusted parent controls can ope
     send({ type: "work-fold.browser-app.loaded", channel });
     for (const kind of ["actions.approve", "actions.review", "actions.invoke"]) {
       send({ type: "work-fold.browser-app.call", channel, callId: 1, call: { kind, requestId: "request-one", reviewDigest: "invented" } });
-      assert.equal(messages.at(-1).code, "APP_DENIED");
+      assert.equal(messages.at(-1).code, "APP_DENIED", "only request, get, list and cancel exist for an app frame");
     }
     assert.deepEqual(calls.map((call) => call.operation), ["list"]);
     send({ type: "work-fold.browser-app.call", channel, callId: 2, call: { kind: "actions.request", request: { requestId: "request-one", action: "save", input: {} } } });
     await flush(); await flush();
     assert.equal(calls.filter((call) => call.operation === "request").length, 1);
-    assert.equal(messages.at(-1).result.status, "pending");
+    assert.equal(messages.at(-1).result.status, "running", "the request runs as soon as it is accepted");
     assert.equal(Object.hasOwn(messages.at(-1).result, "reviewDigest"), false);
-    assert.equal(calls.some((call) => call.operation === "approve"), false);
     const region = document.querySelector(".browser-app-actions")!;
     assert.equal(region.closest("iframe"), null);
+    const labels = () => [...region.querySelectorAll("button")].map((button) => button.textContent);
     const click = (name: string) => {
-      const button = [...region.querySelectorAll("button")].find((item) => item.textContent === name); assert.ok(button); button.click();
+      const button = [...region.querySelectorAll("button")].find((item) => item.textContent === name); assert.ok(button, `expected a ${name} control`); button.click();
     };
-    click("Open"); await flush();
-    assert.match(region.querySelector("pre")!.textContent!, /<img src=x/);
-    assert.equal(region.querySelectorAll("img").length, 0, "app input stays escaped inside the trusted parent");
+    assert.equal(labels().includes("Run"), false, "nothing waits for a person to run it");
+    assert.equal(labels().includes("Open"), false);
+    click("View"); await flush();
+    assert.match(region.textContent!, /Running/);
     assert.equal(document.activeElement?.tagName, "H3");
-    click("Run"); await flush(); await flush();
-    assert.equal(calls.filter((call) => call.operation === "approve").length, 1);
+    assert.ok(labels().includes("Stop"));
+    assert.equal(region.querySelector("pre"), null, "the parent never renders app input");
+    records[0].status = "succeeded"; records[0].result = { saved: true, note: "<img src=x onerror=alert(1)>" };
+    click("Back"); await flush(); click("View"); await flush();
     assert.match(region.textContent!, /Done/); assert.match(region.querySelector("pre")!.textContent!, /"saved": true/);
+    assert.equal(region.querySelectorAll("img").length, 0, "app output stays escaped inside the trusted parent");
+    assert.equal(labels().includes("Stop"), false);
     send({ type: "work-fold.browser-app.call", channel, callId: 3, call: { kind: "actions.get", requestId: "request-one" } });
-    await flush(); assert.deepEqual(messages.at(-1).result.result, { saved: true });
+    await flush(); assert.deepEqual(messages.at(-1).result.result, records[0].result);
     const before = calls.length;
     send({ type: "work-fold.browser-app.call", channel, callId: 4, call: { kind: "actions.cancel", requestId: "request-one" } }, window);
     await flush(); assert.equal(calls.length, before, "another frame cannot cancel this app's request");
+    assert.equal(calls.some((call) => ["review", "approve"].includes(call.operation)), false);
   } finally { controller.destroy(); f.close(); }
 });
 
-test("a late run response cannot revive a disconnected view or replay on reconnect", async () => {
+test("a late result cannot revive a disconnected view and reconnect never replays a request", async () => {
   const f = documentFixture(); let connected = true; let runs = 0; let resolveRun!: () => void;
-  const record = { id: "receipt-one", requestId: "request-one", title: "Save quote", status: "pending" };
+  const record: any = { id: "receipt-one", requestId: "request-one", title: "Save quote", status: "running", startedAt: "2026-09-11T12:00:00.000Z" };
   const controller = createBrowserAppView({ online: () => connected, read: async () => entry,
     actions: async (_scope: any, operation: string) => {
       if (operation === "list") return { actions: [structuredClone(record)] };
-      if (operation === "review") return { review: { ...record, reviewDigest: "review-one", inputJson: '{"count":10}' } };
-      if (operation === "approve") {
-        runs++; record.status = "running";
-        await new Promise<void>((resolve) => { resolveRun = resolve; }); return { action: record };
+      if (operation === "get") return { action: structuredClone(record) };
+      if (operation === "request") {
+        runs++;
+        await new Promise<void>((resolve) => { resolveRun = resolve; }); return { action: structuredClone(record) };
       }
       throw new Error("Unexpected operation");
     },
   });
   try {
     await controller.open({ ...app, actions: true }); await flush();
-    const click = (label: string) => [...document.querySelectorAll<HTMLButtonElement>(".browser-app-actions button")].find((button) => button.textContent === label)!.click();
-    click("Open"); await flush(); click("Run"); await flush(); assert.equal(runs, 1);
+    const frame = document.querySelector("iframe")!; const messages: any[] = [];
+    frame.contentWindow!.postMessage = (message: any) => { messages.push(message); };
+    const send = (data: unknown) => window.dispatchEvent(new f.dom.window.MessageEvent("message", { data, source: frame.contentWindow as any }));
+    send({ type: "work-fold.browser-app.ready" }); const channel = messages[0].channel;
+    send({ type: "work-fold.browser-app.loaded", channel });
+    send({ type: "work-fold.browser-app.call", channel, callId: 1, call: { kind: "actions.request", request: { requestId: "request-one", action: "save", input: {} } } });
+    await flush(); assert.equal(runs, 1);
     connected = false; controller.connectionChanged(false); resolveRun(); await flush(); await flush();
     assert.equal(document.querySelectorAll("iframe").length, 0);
     assert.equal(document.querySelector(".browser-app-actions")!.textContent, "");

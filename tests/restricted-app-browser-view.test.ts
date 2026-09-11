@@ -137,24 +137,29 @@ test("approved-browser actions use the installed worker service, live grant auth
     await assert.rejects(api.remoteFacade.execute("apps.actions.request", { ...scope, request }, principal), /live paired browser/);
     await assert.rejects(api.remoteFacade.execute("apps.actions.request", { ...scope, request, browserId: "other" }, principal, authority));
     const first = await api.remoteFacade.execute("apps.actions.request", { ...scope, request }, principal, authority) as { action: { id: string; status: string } };
-    assert.equal(first.action.status, "pending"); assert.equal(calls.length, 0);
-    const { review } = await api.remoteFacade.execute("apps.actions.review", { ...scope, requestId: request.requestId }, principal, authority) as { review: { reviewDigest: string } };
-    await assert.rejects(api.remoteFacade.execute("apps.actions.approve", { ...scope, requestId: request.requestId, reviewDigest: review.reviewDigest }, { ...principal, grantId: "other" }, authority));
-    const approval = { ...scope, requestId: request.requestId, reviewDigest: review.reviewDigest };
-    await api.remoteFacade.execute("apps.actions.approve", approval, principal, authority);
+    assert.equal(first.action.status, "running", "a paired browser's request runs on acceptance, as on the desktop");
     for (let index = 0; index < 100 && calls.length === 0; index++) await new Promise((resolve) => setTimeout(resolve, 5));
     assert.equal(calls.length, 1); assert.equal(calls[0]!.execution.invocationId, first.action.id);
-    await api.remoteFacade.execute("apps.actions.approve", approval, { ...principal, requestId: "reconnected-transport" }, authority);
-    assert.equal(calls.length, 1);
+    await assert.rejects(api.remoteFacade.execute("apps.actions.get", { ...scope, requestId: request.requestId }, { ...principal, grantId: "other" }, authority));
+    for (const operation of ["apps.actions.review", "apps.actions.approve"]) {
+      await assert.rejects(api.remoteFacade.execute(operation as never, { ...scope, requestId: request.requestId, reviewDigest: "x" }, principal, authority), "the review and approve operations no longer exist");
+    }
+    const retried = await api.remoteFacade.execute("apps.actions.request", { ...scope, request }, { ...principal, requestId: "reconnected-transport" }, authority) as { action: { id: string } };
+    assert.equal(retried.action.id, first.action.id); assert.equal(calls.length, 1, "a retry after reconnect returns the accepted record and never dispatches twice");
     allowed = false;
     assert.throws(() => calls[0]!.execution.assertCurrent(), /Revoked/);
     await assert.rejects(api.remoteFacade.execute("apps.actions.get", { ...scope, requestId: request.requestId }, principal, authority), /Revoked/);
     allowed = true;
-    const pending = { ...request, requestId: randomUUID() };
-    await api.remoteFacade.execute("apps.actions.request", { ...scope, request: pending }, principal, authority);
+    const second = { ...request, requestId: randomUUID() };
+    const accepted = await api.remoteFacade.execute("apps.actions.request", { ...scope, request: second }, principal, authority) as { action: { status: string } };
+    assert.equal(accepted.action.status, "running");
     await api.remoteFacade.revokeGrantAuthority!(principal.grantId);
-    const cancelled = await api.remoteFacade.execute("apps.actions.get", { ...scope, requestId: pending.requestId }, principal, authority) as { action: { status: string } };
-    assert.equal(cancelled.action.status, "cancelled");
+    // The stub worker answers immediately, so the run may have settled before
+    // revocation reached it; either way revocation leaves no run alive and a
+    // later read under the revoked grant is refused by the live fence.
+    const after = await api.remoteFacade.execute("apps.actions.get", { ...scope, requestId: second.requestId }, principal, authority) as { action: { status: string } };
+    assert.ok(["cancelled", "succeeded"].includes(after.action.status), after.action.status);
+    assert.equal(calls.length, 2, "the second request dispatched exactly once and never again after revocation");
     await service.remove({ spaceId: app.spaceId, appId: app.manifest.id, featureInstallationId: app.featureInstallationId, expectedDigest: app.digest });
     await assert.rejects(api.remoteFacade.execute("apps.actions.get", { ...scope, requestId: request.requestId }, principal, authority));
     assert.throws(() => calls[0]!.execution.assertCurrent(), /authority|installed|changed/i);

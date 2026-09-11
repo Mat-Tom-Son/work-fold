@@ -52,7 +52,7 @@ export function createBrowserAppView({ read, online, resolve = async (app) => ap
       if (current !== generation) return;
       if (!fresh || fresh.spaceId !== target.spaceId || fresh.featureInstallationId !== target.featureInstallationId || fresh.appId !== target.appId) throw new Error("This app is no longer installed. Open Apps again.");
       selected = { ...target, ...fresh }; label();
-      dialog.querySelector("footer span").textContent = selected.actions && actions ? "Actions need your review" : "Read-only view";
+      dialog.querySelector("footer span").textContent = selected.actions && actions ? "Actions run on your desktop" : "Read-only view";
       if (!selected.webView) return unavailable("This app has no web view yet. Open it on your desktop.");
       const result = await call({ kind: "entry" }, current);
       if (current !== generation) return;

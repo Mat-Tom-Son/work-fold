@@ -19,8 +19,6 @@ export type WorkFoldRemoteOperation =
   | "apps.actions.request"
   | "apps.actions.get"
   | "apps.actions.list"
-  | "apps.actions.review"
-  | "apps.actions.approve"
   | "apps.actions.cancel";
 
 /**

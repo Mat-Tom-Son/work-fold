@@ -17,9 +17,10 @@ const read = async (relativePath: string) => await readFile(join(repositoryRoot,
  * "Reviewed" and "Unrestricted" are matched case-sensitively because they are
  * the retired authority-setting names; an ordinary sentence about a person
  * reviewing something is still allowed. Protocol identifiers that legitimately
- * survive — the pairing certificate fields, the stored grant status, and the
- * `apps.actions.approve` operation name — are neutralized by exact token so a
- * newly written person-facing "approve" cannot hide behind them.
+ * survive — the pairing certificate fields and the stored grant status — are
+ * neutralized by exact token so a newly written person-facing "approve" cannot
+ * hide behind them. Browser app actions run on request, so no approve
+ * operation survives there.
  */
 const retiredGateWords = /\bstaged\b|\bstaging\b|\bapprove[sd]?\b|\bapproval\b|\bapprovals\b|\bapproving\b|\bpolic(y|ies)\b|\bconsecrat/i;
 const retiredAuthorityNames = /\bReviewed\b|\bUnrestricted\b|authority mode|decision card|needs-you card/;
@@ -28,9 +29,6 @@ const surviving: Array<[string, string]> = [
   ["approvalCertificate", "pairingRecord"],
   ["approvalSignature", "pairingSignature"],
   ["acceptApproval", "acceptPairing"],
-  ["apps.actions.approve", "apps.actions.run"],
-  ['invoke("approve"', 'invoke("run"'],
-  ['operation === "approve"', 'operation === "run"'],
   ['"approved"', '"paired"'],
 ];
 
