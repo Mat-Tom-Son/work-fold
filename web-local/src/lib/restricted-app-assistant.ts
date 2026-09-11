@@ -60,9 +60,17 @@ export function restrictedAppAssistantResultOutcomeLabel(
 /**
  * Bounds are defaults, not caps: a trimmed result says which number it hit and
  * where a person can raise it (docs/receipts-not-gates.md, principle 6).
+ *
+ * `truncated` covers two bounds, and the ordinary one is the summary: every
+ * reply is cut at `summaryBytes` before the envelope ceiling is ever
+ * consulted, so naming only the 256 KB ceiling sent the reader to the wrong
+ * row. Both numbers are named, in the same spelling as the rows in Settings →
+ * The fold → Limits ("A result summary", "Chat result returned to the app").
  */
 export const restrictedAppAssistantResultTrimNote =
-  `\n… Trimmed to the ${restrictedAppAssistantLimits.resultBytes / 1024} KiB result limit in Settings → The fold → Limits. Open Chat for the full reply.`;
+  `\n… Trimmed to the ${restrictedAppAssistantLimits.summaryBytes / 1024} KB summary limit in Settings → The fold → Limits.`
+  + ` Details over the ${restrictedAppAssistantLimits.resultBytes / 1024} KB result limit are left out there too.`
+  + " Open Chat for the full reply.";
 
 /** Compact size for one deliverable a result named. */
 export function restrictedAppResultFileSize(sizeBytes: number): string {

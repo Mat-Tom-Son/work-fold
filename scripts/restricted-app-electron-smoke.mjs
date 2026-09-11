@@ -362,10 +362,13 @@ async function runSmoke() {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 350));
     assert.equal(shownNotifications.length, 1, "notification calls after handleAutomation returns are denied");
     assert.equal(await storage.get(storageOwner, "worker-storage-events"), 0);
-    // A worker subscribes, but only what it can act on reaches it: Check
-    // results are view-only, and tasks arrive only while it holds an operation.
+    // A worker subscribes, but only what it can act on reaches it. Nothing has
+    // been published yet, so these two zeros only say the worker was not told
+    // about work nobody announced; the positive case is proved further down,
+    // by publishing into a live worker operation (F30).
     assert.equal(await storage.get(storageOwner, "worker-checks-hints"), 0);
     assert.equal(await storage.get(storageOwner, "worker-tasks-hints"), 0);
+
     const suspendedRun = host.runAutomation(descriptor, automationEvent("2026-07-13T00:00:30.000Z", "scheduled", {
       principalId: descriptor.servicePrincipalId,
       kind: "service",
@@ -546,6 +549,33 @@ async function runSmoke() {
     for (const leaked of ["smoke.txt", "observed.txt", "exports/"]) {
       assert.ok(!JSON.stringify(filesHint).includes(leaked), "a hint carries ids and a revision, never a path");
     }
+
+    // The positive half of the worker's subscriptions (F30): publish into a
+    // live worker operation and let the worker report what reached it. Without
+    // this, the zeros recorded during the automation above prove nothing —
+    // nothing had been published when they were taken.
+    const workerProbe = host.invoke(descriptor, "hint-probe", { holdMs: 3_000 });
+    // Published while the worker still holds that operation, which is the only
+    // window in which it is eligible. A Check result is published into the same
+    // window and must reach it never.
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
+    host.publishAssistantActivity({
+      spaceId: descriptor.spaceId,
+      appId: descriptor.manifest.id,
+      featureInstallationId: descriptor.featureInstallationId,
+      taskIds: ["worker-task"],
+      receiptIds: [],
+    });
+    host.publishCheckResultsChanged({ spaceId: descriptor.spaceId, checkIds: ["smoke-check"] });
+    const workerHints = await workerProbe;
+    assert.equal(workerHints.workerTasksHints, 1, "a worker holding an operation receives its own Assistant task hint");
+    assert.equal(workerHints.workerChecksHints, 0, "Check results stay view-only, even for a worker holding an operation");
+    // Granted-root changes are the one hint a bounded worker operation cannot
+    // realistically see: a watch takes a silent baseline on its first poll and
+    // needs a second stable observation, which outlives an operation the host
+    // bounds at five seconds. The active-view lane above is where that hint is
+    // proved end to end.
+    assert.equal(workerHints.workerFilesHints, 0);
 
     host.syncAuthority([authorityOf(descriptor), authorityOf(peer)]);
     await host.invoke(peer, "signal", {});
@@ -914,15 +944,27 @@ globalThis.workFoldRestrictedApp.storage.onChanged(() => { workerStorageEvents +
 // operation, and it is never eligible for Check results at all.
 let workerTasksHints = 0;
 let workerChecksHints = 0;
+let workerFilesHints = 0;
 globalThis.workFoldRestrictedApp.tasks.onChanged(() => { workerTasksHints += 1; });
 globalThis.workFoldRestrictedApp.checks.onChanged(() => { workerChecksHints += 1; });
-globalThis.workFoldRestrictedApp.files.onChanged(() => {});
+globalThis.workFoldRestrictedApp.files.onChanged(() => { workerFilesHints += 1; });
 
 export async function handleAction(action, input) {
   if (action === "revocation-fence") {
     await globalThis.workFoldRestrictedApp.request({ destinationId: "late-effect", method: "POST", path: "/commit" });
     await globalThis.workFoldRestrictedApp.storage.set("revocation-fence", true);
     return true;
+  }
+  if (action === "hint-probe") {
+    // Held open on purpose: a worker is eligible for hints only while it holds
+    // an operation, so this is the window the host publishes into. It returns
+    // as soon as a task hint lands, and always well inside the host's
+    // invocation timeout.
+    const deadline = Date.now() + input.holdMs;
+    while (Date.now() < deadline && workerTasksHints === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return { workerTasksHints, workerFilesHints, workerChecksHints };
   }
   if (action === "instance") return { token: workerInstanceToken, value: await globalThis.workFoldRestrictedApp.storage.get("instance-value") };
   if (action === "signal") { await globalThis.workFoldRestrictedApp.storage.set("automation", { peerSignal: true }); return true; }
@@ -1037,6 +1079,16 @@ function smokeManifest(loopbackPort) {
       {
         name: "signal", description: "Write one installation-owned test value.", action: "signal",
         inputSchema: { type: "object", properties: {}, additionalProperties: false }, resultSchema: { type: "boolean" },
+      },
+      {
+        name: "hint-probe", description: "Hold one worker operation open and report the hints it received.", action: "hint-probe",
+        inputSchema: { type: "object", properties: { holdMs: { type: "number" } }, required: ["holdMs"], additionalProperties: false },
+        resultSchema: {
+          type: "object",
+          properties: { workerTasksHints: { type: "number" }, workerFilesHints: { type: "number" }, workerChecksHints: { type: "number" } },
+          required: ["workerTasksHints", "workerFilesHints", "workerChecksHints"],
+          additionalProperties: false,
+        },
       },
       {
         name: "instance", description: "Read this installation's private test value.", action: "instance",

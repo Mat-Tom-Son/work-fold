@@ -466,7 +466,11 @@ test("chat report, ask, answer, and handoff run through the act lane with conten
     const handedJson = JSON.parse(handed.stdout) as { data: { taskId: string; conversationId: string; copied: string[]; checkpointId: string; request: { rootId: string; depth: number } } };
     assert.deepEqual(handedJson.data.copied, ["draft.md"]);
     assert.ok(handedJson.data.checkpointId);
-    assert.equal(handedJson.data.request.rootId, rootId);
+    // The child really is under this root, but a Space-scoped verb hands back
+    // an opaque handle instead of the root's id: `requests show` reads a
+    // request by id, and the graph above a Space is not a Space's to read.
+    assert.equal(h.api.requests.byTaskId(handedJson.data.taskId)!.rootId, rootId);
+    assert.match(handedJson.data.request.rootId, /^parent-[0-9a-f]{16}$/);
     assert.equal(handedJson.data.request.depth, 1);
     assert.equal(existsSync(join(reviews.space.spaceRoot, "draft.md")), true);
     assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "ok"]);

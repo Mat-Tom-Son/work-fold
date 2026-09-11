@@ -258,6 +258,23 @@ export class RestrictedAppTaskService extends EventEmitter {
 
   async flush(): Promise<void> { await this.#queue.catch(() => undefined); }
 
+  /**
+   * The output shape pinned when this task was requested, found from the Chat
+   * turn that is running it (F29). `chat report` reads it so a mismatched
+   * report is refused while the Assistant's turn can still correct it, rather
+   * than only being stripped when the app reads the result. The pin lives on
+   * the receipt, so a code change mid-task cannot move it.
+   */
+  outputSchemaForTurn(input: { spaceId: string; conversationId: string; taskId: string }): RestrictedAppJsonSchema | null {
+    for (const record of this.#records) {
+      if (record.scope.spaceId !== input.spaceId || record.conversationId !== input.conversationId) continue;
+      if (!record.outputSchema) continue;
+      if (this.#ports.findTurn(record)?.turnId !== input.taskId) continue;
+      return structuredClone(record.outputSchema);
+    }
+    return null;
+  }
+
   #owned(scope: RestrictedAppTaskScope, requestId: string, ownership: RestrictedAppTaskOwnership = "revision"): RestrictedAppTaskReceipt {
     const record = this.#records.find((item) => item.requestId === requestId && matches(item.scope, scope, ownership));
     if (!record) throw new RestrictedAppTaskError("TASK_DENIED", "This Assistant request is unavailable to this app revision.");

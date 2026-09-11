@@ -169,9 +169,14 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
           ["Follow-up turns after work settles", String(requests.maxContinuationsPerRoot)],
           ["Model spending for one request", requests.providerBudgetUsd === null ? "No limit" : `$${formatNumber(requests.providerBudgetUsd)}`],
           ["A question the Assistant asks", kib(requests.maxQuestionTextBytes)],
+          ["An answer you give", kib(requests.maxAnswerTextBytes)],
           ["A result summary", kib(requests.maxResultSummaryBytes)],
           ["Result details", kib(requests.maxResultDataBytes)],
           ["Files one result may name", String(requests.maxResultFiles)],
+          ["Questions one request may hold", String(requests.maxQuestionsPerRequest)],
+          ["Results one request may hold", String(requests.maxResultsPerRequest)],
+          ["Turns one request may hold", String(requests.maxTurnsPerRequest)],
+          ["Actions one request may record", String(requests.maxActionsPerRequest)],
           ["Kept for", `${requests.retentionDays} days`],
         ]}
       />

@@ -3,6 +3,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { createElement } from "react";
 
+import {
+  workFoldRequestLimitMessage,
+  type WorkFoldRequestLimitName,
+} from "../src/local/requests/request-records.js";
 import { restrictedAppInferenceLimits } from "../src/shared/restricted-app-inference.js";
 import { restrictedAppAssistantLimits } from "../src/shared/restricted-app-tasks.js";
 import {
@@ -103,6 +107,51 @@ test("the Limits pane shows the assistant, routing, and automation numbers a ref
   assert.ok(text.includes(`A result summary${workFoldRequestLimits.maxResultSummaryBytes / 1024} KB`), "the summary bound is shown");
   assert.ok(text.includes(`Result details${workFoldRequestLimits.maxResultDataBytes / 1024} KB`), "the data bound is shown");
   assert.ok(text.includes(`Files one result may name${workFoldRequestLimits.maxResultFiles}`), "the file count is shown");
+});
+
+/**
+ * Every request refusal ends with "Settings → The fold → Limits shows this
+ * number." A bound whose refusal says that and whose number is not in the
+ * pane sends a person somewhere that does not answer them, which is exactly
+ * the gate-in-disguise principle 6 forbids. This pins one row per bound, so a
+ * new `WorkFoldRequestLimitName` cannot be added without one.
+ */
+test("every request bound whose refusal names the Limits section has a row in it", async (t) => {
+  const dom = await createDomHarness();
+  t.after(() => dom.cleanup());
+  await dom.render(createElement(FoldLimitsPane));
+  const text = dom.container.textContent ?? "";
+
+  const limits = workFoldRequestLimits;
+  const kb = (bytes: number): string => `${bytes / 1024} KB`;
+  const window = `${limits.deadlineMs / 3_600_000} hours`;
+  const rows: Record<WorkFoldRequestLimitName, string> = {
+    deadline: `How long one request stays open${window}`,
+    questionLifetime: `How long one request stays open${window}`,
+    childTasks: `Space turns one request may start${limits.maxChildRequestsPerRoot}`,
+    depth: `How far a request may hand work on${limits.maxDelegationDepth} levels`,
+    concurrentChildren: `Space turns running together${limits.maxConcurrentChildrenPerRoot}`,
+    continuations: `Follow-up turns after work settles${limits.maxContinuationsPerRoot}`,
+    providerBudget: "Model spending for one requestNo limit",
+    questionText: `A question the Assistant asks${kb(limits.maxQuestionTextBytes)}`,
+    answerText: `An answer you give${kb(limits.maxAnswerTextBytes)}`,
+    resultSummary: `A result summary${kb(limits.maxResultSummaryBytes)}`,
+    resultData: `Result details${kb(limits.maxResultDataBytes)}`,
+    resultFiles: `Files one result may name${limits.maxResultFiles}`,
+    questionsPerRequest: `Questions one request may hold${limits.maxQuestionsPerRequest}`,
+    resultsPerRequest: `Results one request may hold${limits.maxResultsPerRequest}`,
+    turnsPerRequest: `Turns one request may hold${limits.maxTurnsPerRequest}`,
+    actionsPerRequest: `Actions one request may record${limits.maxActionsPerRequest}`,
+  };
+
+  for (const [name, row] of Object.entries(rows) as Array<[WorkFoldRequestLimitName, string]>) {
+    assert.match(
+      workFoldRequestLimitMessage(name, 1),
+      /Settings → The fold → Limits shows this number\.$/,
+      `the ${name} refusal points at the Limits pane`,
+    );
+    assert.ok(text.includes(row), `the ${name} bound has a row reading "${row}"`);
+  }
 });
 
 test("the Limits pane links to Recently deleted rather than setting retention itself", async (t) => {

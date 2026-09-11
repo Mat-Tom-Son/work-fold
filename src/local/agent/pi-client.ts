@@ -1281,6 +1281,14 @@ export function buildTurnContextMessage(context: PiTurnContext): string {
       JSON.stringify({ spaceId: turn.spaceId, taskId: turn.taskId, requestId: turn.requestId }, null, 2),
       "Pass --space with that Space id and --task with that task id on chat report, chat ask, and chat handoff. A task id is accepted only while that exact turn is yours and running.",
     );
+    if (turn.answeredQuestionId) {
+      // The answer arrives as ordinary message text and a request may hold
+      // several open questions, so the host names which one this continues
+      // (docs/collaboration-contract.md, F27).
+      lines.push(
+        `This turn continues question ${turn.answeredQuestionId}: the message in this turn is that question's answer. Carry on the work that question stopped.`,
+      );
+    }
     if (turn.delegated) {
       lines.push(
         `Another request delegated this work. Refer to it as ${turn.delegated.parentHandle}; that handle is all you get, and no command takes it.`,

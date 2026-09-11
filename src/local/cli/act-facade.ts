@@ -812,9 +812,15 @@ export interface WorkFoldActFacade {
     checkpointId: string | null;
     request: WorkFoldActRequestRef;
   }>;
-  /** Management-scope reads of the request graph: recent roots, newest first. */
-  requestsList(): Promise<{ requests: WorkFoldActRequestSummary[]; truncated: boolean }>;
-  requestsShow(input: { request: string }): Promise<{ request: WorkFoldActRequestDetail }>;
+  /**
+   * Management-scope reads of the request graph: recent roots, newest first.
+   * `cwd` is the caller's directory, which resolves its scope the way
+   * `context` does; a caller inside a registered Space is refused by name,
+   * because the graph carries other Spaces' results and the fold's own
+   * assignment text (docs/collaboration-contract.md, F26).
+   */
+  requestsList(input?: { cwd?: string }): Promise<{ requests: WorkFoldActRequestSummary[]; truncated: boolean }>;
+  requestsShow(input: { request: string; cwd?: string }): Promise<{ request: WorkFoldActRequestDetail }>;
 
   /**
    * Chat lifecycle verbs (docs/fold-act-ledger.md). Each performs exactly one

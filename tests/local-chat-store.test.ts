@@ -553,3 +553,33 @@ test("chat listing rebuilds a previous-version cache after title semantics chang
   assert.equal((await listConversations(spaceRoot))[0]?.title, "New Chat");
   assert.equal(JSON.parse(await readFile(indexFile, "utf8")).version, 4);
 });
+
+test("listing a Space never deletes a Chat that is still being started", async (t) => {
+  const spaceRoot = await mkdtemp(join(tmpdir(), "workspace-chat-store-new-chat-survives-"));
+  t.after(() => rm(spaceRoot, { recursive: true, force: true }));
+
+  // A Chat exists from the moment it is created; its first user message lands
+  // a moment later, once the turn is reserved. Whoever lists Chats in that
+  // window — the rail, a routing chat hop's sibling Space, a handoff into
+  // another Space — must not make that turn fail as "Conversation not found."
+  const created = await createConversation(spaceRoot);
+  const transcript = join(conversationsDir(spaceRoot), `${created.id}.jsonl`);
+  assert.deepEqual(await listConversations(spaceRoot), [], "a Chat with no message yet is not listed");
+  assert.ok((await stat(transcript).catch(() => null)), "listing left the started Chat in place");
+
+  await appendMessage(spaceRoot, created.id, message("1", "Review the rain plan."));
+  const listed = await listConversations(spaceRoot);
+  assert.deepEqual(listed.map((entry) => entry.id), [created.id], "the Chat is listed once it carries a message");
+
+  // Housekeeping still reclaims a Chat somebody opened and walked away from.
+  const abandoned = await createConversation(spaceRoot);
+  const abandonedTranscript = join(conversationsDir(spaceRoot), `${abandoned.id}.jsonl`);
+  const longAgo = new Date(Date.now() - 10 * 60_000);
+  await utimes(abandonedTranscript, longAgo, longAgo);
+  assert.deepEqual(
+    (await listConversations(spaceRoot)).map((entry) => entry.id),
+    [created.id],
+    "an abandoned Chat is never listed",
+  );
+  assert.equal(await stat(abandonedTranscript).catch(() => null), null, "an abandoned Chat is reclaimed");
+});

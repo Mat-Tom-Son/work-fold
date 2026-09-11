@@ -100,6 +100,13 @@ export interface ChatMessageLanding {
   model: string;
 }
 
+/**
+ * How long a transcript with no person- or Assistant-authored message is left
+ * alone before listing treats it as abandoned and removes it. It only has to
+ * outlast the gap between creating a Chat and its first user message landing.
+ */
+const abandonedConversationGraceMs = 60_000;
+
 export async function listConversations(spaceRoot: string): Promise<ConversationSummary[]> {
   const files = new Set<string>();
   const dir = conversationsDir(spaceRoot);
@@ -126,7 +133,20 @@ export async function listConversations(spaceRoot: string): Promise<Conversation
     }
     const { messages, malformedLineCount } = await readConversationFile(spaceRoot, conversationId);
     if (!messages.some((message) => message.role !== "system")) {
-      if (malformedLineCount === 0) await unlink(existingConversationPath(spaceRoot, conversationId));
+      // A transcript carrying only system lines is either a Chat somebody
+      // opened and walked away from or one that is being started right now:
+      // `createConversation` writes the title line first, and the first user
+      // message lands a moment later, after the turn has been reserved. Both
+      // look identical here, so housekeeping waits until the transcript is old
+      // enough to be certainly abandoned. Removing it on sight deletes a Chat
+      // out from under the turn about to write into it — whoever happens to
+      // list Chats in that window (the rail, a routing chat hop's sibling, a
+      // handoff into another Space) would make that turn fail as
+      // "Conversation not found." Either way the Chat is left out of the
+      // listing below, so what a person sees is the same.
+      if (malformedLineCount === 0 && info && Date.now() - info.mtimeMs >= abandonedConversationGraceMs) {
+        await unlink(existingConversationPath(spaceRoot, conversationId)).catch(() => undefined);
+      }
       continue;
     }
     recomputed += 1;

@@ -120,6 +120,14 @@ interface RequestSettingsFile {
   continuationsEnabled: boolean;
 }
 
+/** What retention needs about a record the in-memory read cache no longer holds. */
+interface TrimmedRequestRef {
+  requestId: string;
+  rootId: string;
+  state: WorkFoldRequestRecord["state"];
+  settledAt: string | null;
+}
+
 export class WorkFoldRequestStore {
   readonly rootPath: string;
   readonly requestsPath: string;
@@ -131,6 +139,8 @@ export class WorkFoldRequestStore {
   readonly #retentionDays: number;
   readonly #providerBudgetUsd: number | null;
   readonly #records = new Map<string, WorkFoldRequestRecord>();
+  /** Records the read cache dropped; still on record, still subject only to retention. */
+  readonly #trimmed = new Map<string, TrimmedRequestRef>();
   readonly #byTask = new Map<string, string>();
   readonly #questions = new Map<string, WorkFoldQuestionRecord>();
   readonly #resultOwner = new Map<string, string>();
@@ -182,24 +192,62 @@ export class WorkFoldRequestStore {
       .map(copyRecord);
   }
 
-  /** Every record below `rootId`, the root itself excluded. */
-  descendants(rootId: string): WorkFoldRequestRecord[] {
-    return [...this.#records.values()]
-      .filter((record) => record.rootId === rootId && record.requestId !== rootId)
-      .map(copyRecord);
+  /**
+   * Every record whose root is `rootId`, the root itself excluded. This
+   * answers only for a ROOT id — a mid-graph id gets nothing back, because
+   * every record below a root carries the root's id, not its parent's. Use
+   * `subtree` for the graph below an arbitrary request.
+   */
+  rootDescendants(rootId: string): WorkFoldRequestRecord[] {
+    return this.#sorted(
+      [...this.#records.values()].filter((record) => record.rootId === rootId && record.requestId !== rootId),
+    ).map(copyRecord);
+  }
+
+  /**
+   * Every record below `requestId` at any depth, the request itself excluded,
+   * followed transitively through `childRequestIds` so a mid-graph request
+   * answers for its own branch. A stop, and the glance's rolled-up child
+   * turns, both need this rather than the root-only form.
+   */
+  subtree(requestId: string): WorkFoldRequestRecord[] {
+    const seen = new Set<string>([requestId]);
+    const found: WorkFoldRequestRecord[] = [];
+    const frontier = [requestId];
+    while (frontier.length) {
+      const current = frontier.shift()!;
+      const record = this.#records.get(current);
+      if (!record) continue;
+      for (const childId of record.childRequestIds) {
+        if (seen.has(childId)) continue;
+        seen.add(childId);
+        const child = this.#records.get(childId);
+        if (!child) continue;
+        found.push(child);
+        frontier.push(childId);
+      }
+    }
+    return this.#sorted(found).map(copyRecord);
   }
 
   latest(): WorkFoldRequestRecord | null {
-    let latest: WorkFoldRequestRecord | null = null;
-    for (const record of this.#records.values()) latest = record;
+    const records = this.#sorted([...this.#records.values()]);
+    const latest = records.at(-1);
     return latest ? copyRecord(latest) : null;
   }
 
-  latestForConversation(conversationId: string): WorkFoldRequestRecord | null {
-    let latest: WorkFoldRequestRecord | null = null;
-    for (const record of this.#records.values()) {
-      if (record.owner.conversationId === conversationId) latest = record;
-    }
+  /**
+   * The newest request on one Chat, within one owner scope. The conversation
+   * id alone is not identity: a Chat log travels with its folder, so a copied
+   * Space can hold the same conversation id under a different owner. Pass the
+   * Space that is asking (or nothing for the management scope) so a reply can
+   * never join another Space's request.
+   */
+  latestForConversation(conversationId: string, owner: { spaceId?: string } = {}): WorkFoldRequestRecord | null {
+    const records = this.#sorted([...this.#records.values()].filter((record) =>
+      record.owner.conversationId === conversationId
+      && (owner.spaceId ?? null) === (record.owner.spaceId ?? null)));
+    const latest = records.at(-1);
     return latest ? copyRecord(latest) : null;
   }
 
@@ -209,8 +257,20 @@ export class WorkFoldRequestStore {
     if (options.kind) records = records.filter((record) => record.kind === options.kind);
     if (options.rootId) records = records.filter((record) => record.rootId === options.rootId);
     if (options.spaceId) records = records.filter((record) => record.owner.spaceId === options.spaceId);
+    records = this.#sorted(records);
     if (options.limit !== undefined && records.length > options.limit) records = records.slice(-options.limit);
     return records.map(copyRecord);
+  }
+
+  /**
+   * Oldest first by creation, tie-broken by id. Iteration order of the record
+   * map is creation order only until a compaction rewrites the journal by
+   * `updatedAt`; sorting explicitly means "newest request" means the same
+   * thing before and after a restart.
+   */
+  #sorted(records: WorkFoldRequestRecord[]): WorkFoldRequestRecord[] {
+    return records.sort((left, right) =>
+      left.createdAt.localeCompare(right.createdAt) || left.requestId.localeCompare(right.requestId));
   }
 
   /** True while the named turn can still have work attributed to it. */
@@ -481,7 +541,9 @@ export class WorkFoldRequestStore {
     return this.#run(async () => {
       const record = this.#requireRecord(input.requestId);
       if (isWorkFoldRequestTerminalState(record.state)) {
-        throw new WorkFoldRequestLineageError("This request has already finished, so it cannot ask a question.");
+        // A request that ran out of time hit a bound, not a lineage rule, so
+        // the refusal names the number and where to see it (principle 6).
+        throw this.#terminalRefusal(record, "This request has already finished, so it cannot ask a question.");
       }
       this.#requireOwnTurn(record, input.taskId);
       if (record.questionIds.length >= workFoldRequestLimits.maxQuestionsPerRequest) {
@@ -639,7 +701,7 @@ export class WorkFoldRequestStore {
   assertCanAddChild(parentTaskId: string): void {
     const parent = this.#requireByTask(parentTaskId);
     if (isWorkFoldRequestTerminalState(parent.state)) {
-      throw new WorkFoldRequestLineageError("The request this work belongs to is stopping or has already finished.");
+      throw this.#terminalRefusal(parent, "The request this work belongs to is stopping or has already finished.");
     }
     if (parent.depth + 1 > workFoldRequestLimits.maxDelegationDepth) {
       throw workFoldRequestLimitError("depth", workFoldRequestLimits.maxDelegationDepth);
@@ -739,31 +801,54 @@ export class WorkFoldRequestStore {
    * Retention: a whole root graph leaves together, once every request in it
    * has settled and the newest settle is older than the retention window. A
    * root with work still outstanding below it is never removed.
+   *
+   * A record the read cache trimmed is still a family member: `#trimmed` keeps
+   * the three fields retention needs, so the cache bound can never leave a
+   * settled record on disk forever or take one away before its window.
    */
   purgeExpired(now?: Date): Promise<{ purged: number }> {
     return this.#run(async () => {
       const at = now ?? this.#now();
       const cutoff = at.getTime() - this.#retentionDays * 24 * 60 * 60 * 1000;
-      const roots = [...this.#records.values()].filter((record) => record.requestId === record.rootId);
-      const doomed: WorkFoldRequestRecord[] = [];
-      for (const root of roots) {
-        const family = [root, ...[...this.#records.values()].filter((record) => record.rootId === root.rootId && record.requestId !== root.requestId)];
-        const settledOut = family.every((record) =>
-          isWorkFoldRequestTerminalState(record.state) && record.settledAt !== null && Date.parse(record.settledAt) <= cutoff);
-        if (settledOut) doomed.push(...family);
+      const family = new Map<string, TrimmedRequestRef[]>();
+      for (const record of this.#records.values()) {
+        const entry = family.get(record.rootId) ?? [];
+        entry.push({ requestId: record.requestId, rootId: record.rootId, state: record.state, settledAt: record.settledAt });
+        family.set(record.rootId, entry);
       }
-      for (const record of doomed) {
-        for (const questionId of [...this.#questions.values()].filter((q) => q.requestId === record.requestId).map((q) => q.questionId)) {
+      for (const record of this.#trimmed.values()) {
+        const entry = family.get(record.rootId) ?? [];
+        entry.push(record);
+        family.set(record.rootId, entry);
+      }
+      const doomed: TrimmedRequestRef[] = [];
+      for (const members of family.values()) {
+        const settledOut = members.every((member) =>
+          isWorkFoldRequestTerminalState(member.state) && member.settledAt !== null && Date.parse(member.settledAt) <= cutoff);
+        if (settledOut) doomed.push(...members);
+      }
+      // The ids retention removes are the only ids a rewrite may drop; the
+      // journal is otherwise the authority over what is still on record.
+      const purgedRequests = new Set<string>();
+      const purgedQuestions = new Set<string>();
+      for (const member of doomed) {
+        for (const questionId of [...this.#questions.values()].filter((q) => q.requestId === member.requestId).map((q) => q.questionId)) {
           this.#questions.delete(questionId);
+          purgedQuestions.add(questionId);
         }
-        for (const ref of record.results) this.#resultOwner.delete(ref.resultId);
-        await rm(join(this.rootPath, "results", record.requestId), { recursive: true, force: true }).catch(() => undefined);
-        for (const turn of record.turns) this.#byTask.delete(turn.taskId);
-        this.#records.delete(record.requestId);
+        const record = this.#records.get(member.requestId);
+        if (record) {
+          for (const ref of record.results) this.#resultOwner.delete(ref.resultId);
+          for (const turn of record.turns) this.#byTask.delete(turn.taskId);
+        }
+        await rm(join(this.rootPath, "results", member.requestId), { recursive: true, force: true }).catch(() => undefined);
+        this.#records.delete(member.requestId);
+        this.#trimmed.delete(member.requestId);
+        purgedRequests.add(member.requestId);
       }
       if (doomed.length) {
-        await this.#compact("requests", true);
-        await this.#compact("questions", true);
+        await this.#compact("requests", true, purgedRequests);
+        await this.#compact("questions", true, purgedQuestions);
       }
       await this.#writeSettings({ ...this.#settings, lastPurgeAt: at.toISOString() });
       return { purged: doomed.length };
@@ -801,6 +886,21 @@ export class WorkFoldRequestStore {
     const record = requestId ? this.#records.get(requestId) : undefined;
     if (!record) throw new WorkFoldRequestLineageError("That task does not belong to a request on record.");
     return record;
+  }
+
+  /**
+   * The refusal for a request that is already terminal. A request that ran out
+   * of time, or that stopped at a configured bound, reached a limit rather
+   * than a lineage rule, so it refuses with the number and the Settings
+   * section every bound names (docs/receipts-not-gates.md, principle 6). A
+   * stopped or finished request keeps the plain lineage sentence.
+   */
+  #terminalRefusal(record: WorkFoldRequestRecord, lineage: string): Error {
+    if (record.limitHit?.limit === "providerBudget" && this.#providerBudgetUsd !== null) {
+      return workFoldRequestLimitError("providerBudget", this.#providerBudgetUsd);
+    }
+    if (record.state === "expired") return workFoldRequestLimitError("deadline", workFoldRequestLimits.deadlineMs);
+    return new WorkFoldRequestLineageError(lineage);
   }
 
   /** A verb may only speak for a turn of its own request. */
@@ -1068,7 +1168,8 @@ export class WorkFoldRequestStore {
    * than the app. The rotated generation is read only when the live journal
    * is absent, which is the crash window inside a compaction.
    */
-  async #readJournal(path: string): Promise<string[]> {
+  async #readJournal(path: string, options: { countDamaged?: boolean } = {}): Promise<string[]> {
+    const countDamaged = options.countDamaged ?? true;
     let text = await readFile(path, "utf8").catch((error: unknown) => {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw error;
@@ -1089,7 +1190,7 @@ export class WorkFoldRequestStore {
         JSON.parse(line);
       } catch {
         if (isLastNonEmpty) break;
-        this.#damaged += 1;
+        if (countDamaged) this.#damaged += 1;
         continue;
       }
       usable.push(line);
@@ -1112,6 +1213,13 @@ export class WorkFoldRequestStore {
     }
   }
 
+  /**
+   * The in-memory map is a bounded READ CACHE, never the record itself. Past
+   * the bound the oldest settled records leave memory; they stay in the
+   * journal, come back on the next start, and `#trimmed` keeps the three
+   * fields retention needs so they still leave on their own window rather
+   * than on a cache bound (docs/receipts-not-gates.md, principle 6).
+   */
   #trimMemory(): void {
     if (this.#records.size <= this.#maxRecords) return;
     const records = [...this.#records.values()]
@@ -1121,25 +1229,63 @@ export class WorkFoldRequestStore {
       for (const turn of record.turns) this.#byTask.delete(turn.taskId);
       for (const ref of record.results) this.#resultOwner.delete(ref.resultId);
       this.#records.delete(record.requestId);
+      this.#trimmed.set(record.requestId, {
+        requestId: record.requestId,
+        rootId: record.rootId,
+        state: record.state,
+        settledAt: record.settledAt,
+      });
     }
   }
 
   /**
-   * Rewrites a journal from memory when it outgrows its bound: temp file,
-   * rotate the live generation aside, rename into place, fsync the directory.
-   * `force` also drops the rotated generation, which retention needs so that
-   * purged text does not survive on disk.
+   * Rewrites a journal when it outgrows its bound: temp file, rotate the live
+   * generation aside, rename into place, fsync the directory.
+   *
+   * The rewrite reads the LIVE JOURNAL, not memory. A whole-record journal is
+   * latest-wins by id, so compaction's whole job is dropping superseded lines;
+   * the in-memory map is a bounded read cache (`#trimMemory`) and a record it
+   * no longer holds is still on record. Rebuilding from memory would make the
+   * cache bound erase settled requests years before retention, which is a
+   * bound with no name (docs/receipts-not-gates.md, principle 6). Records in
+   * memory are overlaid last so a lineage repair reaches disk.
+   *
+   * `purged` names the ids retention just removed; they are the only ids a
+   * rewrite drops, and `force` also removes the rotated generation so purged
+   * text does not survive on disk.
    */
-  async #compact(kind: "requests" | "questions", force: boolean): Promise<void> {
+  async #compact(kind: "requests" | "questions", force: boolean, purged?: ReadonlySet<string>): Promise<void> {
     const path = kind === "requests" ? this.requestsPath : this.questionsPath;
     if (!force) {
       const info = await stat(path).catch(() => null);
       if (!info || info.size <= this.#compactBytes) return;
     }
     this.#trimMemory();
-    const records: unknown[] = kind === "requests"
-      ? [...this.#records.values()].sort((left, right) => left.updatedAt.localeCompare(right.updatedAt))
-      : [...this.#questions.values()].sort((left, right) => left.updatedAt.localeCompare(right.updatedAt));
+    const idField = kind === "requests" ? "requestId" : "questionId";
+    const byId = new Map<string, { id: string; updatedAt: string; record: unknown }>();
+    for (const line of await this.#readJournal(path, { countDamaged: false })) {
+      let parsed: { [key: string]: unknown };
+      try {
+        parsed = JSON.parse(line) as { [key: string]: unknown };
+      } catch {
+        continue;
+      }
+      const id = parsed[idField];
+      const updatedAt = parsed.updatedAt;
+      if (typeof id !== "string" || typeof updatedAt !== "string") continue;
+      byId.set(id, { id, updatedAt, record: parsed });
+    }
+    const live: Iterable<{ requestId?: string; questionId?: string; updatedAt: string }> = kind === "requests"
+      ? this.#records.values()
+      : this.#questions.values();
+    for (const record of live) {
+      const id = kind === "requests" ? record.requestId! : record.questionId!;
+      byId.set(id, { id, updatedAt: record.updatedAt, record });
+    }
+    if (purged) for (const id of purged) byId.delete(id);
+    const records: unknown[] = [...byId.values()]
+      .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt) || left.id.localeCompare(right.id))
+      .map((entry) => entry.record);
     const tempPath = `${path}.tmp-${randomUUID()}`;
     await writeFile(tempPath, records.map((record) => JSON.stringify(record)).join("\n") + (records.length ? "\n" : ""), {
       encoding: "utf8",

@@ -8,6 +8,7 @@ import {
   ipcMain,
   session,
   WebContentsView,
+  type IpcMainEvent,
   type IpcMainInvokeEvent,
   type Rectangle,
   type Session,
@@ -83,6 +84,15 @@ const storageChangedChannel = "work-fold:restricted-app:storage-changed";
 const tasksChangedChannel = "work-fold:restricted-app:tasks-changed";
 const checksChangedChannel = "work-fold:restricted-app:checks-changed";
 const filesChangedChannel = "work-fold:restricted-app:files-changed";
+/**
+ * One-way notice from the preload when an app's first `files.onChanged`
+ * listener registers, and again when the last one goes away. `files.onChanged`
+ * is a preload-local registration, so without this the host cannot tell an app
+ * that subscribed from one that never called it — and would walk every granted
+ * root of every open view every two seconds on the chance someone is listening
+ * (docs/collaboration-contract.md, F30: views and workers subscribe).
+ */
+const filesSubscriptionChannel = "work-fold:restricted-app:files-subscribe";
 const checksChannel = "work-fold:restricted-app:checks";
 const assistantTasksChannel = "work-fold:restricted-app:assistant-tasks";
 const assistantInferChannel = "work-fold:restricted-app:assistant-infer";
@@ -292,6 +302,8 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
   readonly #hintLastEmittedAt = new Map<string, number>();
   readonly #hintRevisions = new Map<string, number>();
   readonly #fileWatches = new Map<string, RestrictedAppFileWatchEntry>();
+  /** webContents ids whose app currently holds at least one `files.onChanged` listener. */
+  readonly #filesSubscribers = new Set<number>();
   #filePollTimer?: NodeJS.Timeout;
   #filePollBusy = false;
   #suspended = false;
@@ -340,6 +352,21 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     ipcMain.handle(filesChannel, (event, value) => this.#handleFiles(event, value));
     ipcMain.handle(notificationsChannel, (event, value) => this.#handleNotification(event, value));
     ipcMain.handle(tabCommandChannel, (event, value) => this.#handleTabCommand(event, value));
+    ipcMain.on(filesSubscriptionChannel, (event, value) => this.#handleFilesSubscription(event, value));
+  }
+
+  /**
+   * A mount says whether it is listening for `files.onChanged`. Only an
+   * instance this host owns is heard, and the set is keyed by webContents id
+   * so a closed mount stops its watches with the rest of its state.
+   */
+  #handleFilesSubscription(event: IpcMainEvent, value: unknown): void {
+    const instance = this.#ownedInstance(event.sender, ipcFromMainFrame(event));
+    if (!instance) return;
+    const subscribed = typeof value === "object" && value !== null && (value as { subscribed?: unknown }).subscribed === true;
+    if (subscribed) this.#filesSubscribers.add(instance.webContentsId);
+    else this.#filesSubscribers.delete(instance.webContentsId);
+    this.#syncFileWatches();
   }
 
   syncAuthority(authorities: readonly RestrictedAppRuntimeAuthority[]): void {
@@ -740,6 +767,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     ipcMain.removeHandler(assistantInferChannel);
     ipcMain.removeHandler(notificationsChannel);
     ipcMain.removeHandler(tabCommandChannel);
+    ipcMain.removeAllListeners(filesSubscriptionChannel);
     for (const event of this.#pendingStorageEvents.values()) clearTimeout(event.timer);
     this.#pendingStorageEvents.clear();
     this.#storageLastEmittedAt.clear();
@@ -749,6 +777,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     this.#hintRevisions.clear();
     this.#stopFilePoll();
     this.#fileWatches.clear();
+    this.#filesSubscribers.clear();
     this.#notifications.dispose();
     for (const instance of this.#instances.values()) this.#advanceGeneration(instance.app.spaceId, instance.app.manifest.id, instance.app.featureInstallationId);
     await Promise.allSettled([...this.#launches.values()].map((item) => item.promise));
@@ -977,6 +1006,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
       const key = uiMountKey(instance.ownerWebContentsId, instance.mountId);
       if (this.#uiInstances.get(key) === instance) this.#uiInstances.delete(key);
       if (this.#instancesByWebContents.get(instance.webContentsId) === instance) this.#instancesByWebContents.delete(instance.webContentsId);
+      this.#filesSubscribers.delete(instance.webContentsId);
       instance.crashed = state === "crashed";
       instance.abortController.abort();
       if (!instance.parent.isDestroyed()) instance.parent.contentView.removeChildView(instance.view);
@@ -1480,16 +1510,22 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
   }
 
   /**
-   * One watch per granted root that at least one eligible mount could read,
-   * created without a baseline so the first observation is silent. A mount that
-   * becomes ineligible drops its watches, so nothing polls while no app can be
-   * told, and a view that becomes active again rebaselines rather than
-   * receiving a replay.
+   * One watch per granted root that at least one eligible, SUBSCRIBED mount
+   * could read, created without a baseline so the first observation is silent.
+   * A mount that becomes ineligible or drops its last listener drops its
+   * watches, so nothing polls while no app is listening, and a view that
+   * becomes active again rebaselines rather than receiving a replay.
+   *
+   * Eligibility alone is not enough to start a walk: a directory permission
+   * binds to the whole Space, so an open view that never called
+   * `files.onChanged` would otherwise cost a recursive metadata scan of the
+   * Space every poll interval for the life of the view.
    */
   #syncFileWatches(): void {
     const desired = new Map<string, Omit<RestrictedAppFileWatchEntry, "watch">>();
     if (!this.#closed && !this.#suspended) {
       for (const instance of this.#instancesByWebContents.values()) {
+        if (!this.#filesSubscribers.has(instance.webContentsId)) continue;
         if (!this.#eligibleForHint("files", instance)) continue;
         const scope = {
           spaceId: instance.app.spaceId,
@@ -1738,6 +1774,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
   #detach(instance: RestrictedAppInstance): void {
     if (this.#instances.get(instance.key) === instance) this.#instances.delete(instance.key);
     if (this.#instancesByWebContents.get(instance.webContentsId) === instance) this.#instancesByWebContents.delete(instance.webContentsId);
+    this.#filesSubscribers.delete(instance.webContentsId);
   }
 
   #assertOpen(): void {
@@ -1990,7 +2027,7 @@ function uiMountKey(ownerWebContentsId: number, mountId: string): string {
   return `${ownerWebContentsId}:${mountId}`;
 }
 
-function ipcFromMainFrame(event: IpcMainInvokeEvent): boolean {
+function ipcFromMainFrame(event: IpcMainInvokeEvent | IpcMainEvent): boolean {
   const frame = event.senderFrame;
   if (!frame) return false;
   const mainFrame = event.sender.mainFrame;

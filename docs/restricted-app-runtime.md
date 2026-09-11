@@ -610,9 +610,12 @@ No path and no byte crosses the bridge: the hint names the grant id. Polling
 rather than an OS watcher is deliberate, for the same reason the routing folder
 observer polls — it behaves the same on a synchronized drive as on a local
 disk, where watcher events are lossy. On such a drive a hint can arrive late
-rather than wrongly. Nothing polls while no eligible mount exists, sleep stops
-the poll and drops every baseline, and waking re-establishes baselines instead
-of announcing what happened while the machine was asleep.
+rather than wrongly. Nothing polls until an eligible mount has actually
+subscribed: `files.onChanged` registers in the preload, so the mount tells the
+host when its first listener arrives and when its last one goes, and a view
+that never calls it starts no walk at all. Sleep stops the poll and drops every
+baseline, and waking re-establishes baselines instead of announcing what
+happened while the machine was asleep.
 
 ## Bounded inference channel
 

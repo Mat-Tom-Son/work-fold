@@ -5,7 +5,12 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { PiConversationClient } from "../src/local/agent/pi-client.js";
-import { spaceOperationsGuideForScope, workFoldSpaceOperationsGuideHeading } from "../src/local/agent/space-operations-guide.js";
+import {
+  spaceOperationsGuideForScope,
+  workFoldSpaceOperationsGuide,
+  workFoldSpaceOperationsGuideHeading,
+  workFoldSpaceOperationsGuideMaxBytes,
+} from "../src/local/agent/space-operations-guide.js";
 
 /**
  * The operations guide reaches a Space Chat's real Pi session as a system
@@ -46,6 +51,29 @@ test("a Space Chat's system prompt carries Space instructions and then the opera
   // The guide is a session appendix; nothing new is written into the Space folder.
   const { readdir } = await import("node:fs/promises");
   assert.deepEqual(await readdir(spaceRoot), []);
+});
+
+/**
+ * What the guide teaches has to be what the host does. Two rules cost a Space
+ * Assistant a refused command or a false boundary if the text drifts:
+ * `chat answer` names the ASKING Space, not this one (src/local/server.ts
+ * refuses any other), and `chat wait` returns the destination turn's own
+ * closing reply — it is not a released-result filter.
+ */
+test("the guide teaches the two rules the host actually enforces", () => {
+  const guide = workFoldSpaceOperationsGuide();
+
+  // `--space` is this Space's id everywhere except `chat answer`.
+  assert.match(guide, /the one exception is `chat answer`/);
+  assert.match(guide, /chat answer --space <the Space that asked>/);
+  assert.match(guide, /Name the asking Space, never your own/);
+  assert.doesNotMatch(guide, /chat answer --space <id>/, "the answer verb never shows the caller's own id");
+
+  // `chat wait` does not promise a filter the built path does not apply.
+  assert.doesNotMatch(guide, /never its Chat/);
+  assert.match(guide, /finished gives you that turn's closing reply/);
+
+  assert.ok(Buffer.byteLength(guide, "utf8") <= workFoldSpaceOperationsGuideMaxBytes, "the guide stays inside its prompt budget");
 });
 
 function sessionAppendix(client: PiConversationClient): string[] {

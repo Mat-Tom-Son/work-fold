@@ -134,6 +134,13 @@ test("the local API composes a Space turn's context from acceptance, never from 
   const events: Array<{ spaceId: string; conversationId: string; taskId: string; spaceTurn?: PiSpaceTurnContext }> = [];
   let releaseManagement!: () => void;
   const managementGate = new Promise<void>((resolve) => { releaseManagement = resolve; });
+  // Space turns are held only while a case needs to act inside a running one.
+  const heldSpaceTurns: Array<{ taskId: string; release: () => void }> = [];
+  let holdSpaceTurns = false;
+  const releaseSpaceTurn = async (taskId: string): Promise<void> => {
+    await waitFor(() => heldSpaceTurns.some((turn) => turn.taskId === taskId));
+    heldSpaceTurns.splice(heldSpaceTurns.findIndex((turn) => turn.taskId === taskId), 1)[0]!.release();
+  };
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
@@ -142,7 +149,8 @@ test("the local API composes a Space turn's context from acceptance, never from 
     piRuntimeProvider: { async resolveRuntime() { return { agentDir: join(sandbox, "agent") }; } },
     async beforeAgentPrompt(event) {
       events.push(event);
-      if (event.spaceId === workFoldManagementScopeId) await managementGate;
+      if (event.spaceId === workFoldManagementScopeId) { await managementGate; return; }
+      if (holdSpaceTurns) await new Promise<void>((release) => heldSpaceTurns.push({ taskId: event.taskId, release }));
     },
   });
   try {
@@ -172,9 +180,33 @@ test("the local API composes a Space turn's context from acceptance, never from 
     assert.equal(undelegatedEvent.spaceTurn!.delegated, undefined);
     assert.equal(undelegatedEvent.spaceTurn!.requestId, api.requests.byTaskId(undelegated.taskId)!.requestId);
 
+    // A continuation names the question it answers in host-built context. The
+    // answer itself is an ordinary message, and a request may hold several
+    // open questions, so nothing else in the turn says which one this is
+    // (docs/collaboration-contract.md, F27).
+    holdSpaceTurns = true;
+    const asking = await api.actFacade.sendMessage({ space: space.id, newConversation: true, content: "/hold" });
+    const asked = await api.actFacade.chatAsk({ space: space.id, taskId: asking.taskId, question: "Which brief?", respondent: "person" });
+    await releaseSpaceTurn(asking.taskId);
+    await waitFor(() => api.requests.byTaskId(asking.taskId)!.turns[0]!.state !== "accepted"
+      && api.requests.byTaskId(asking.taskId)!.turns[0]!.state !== "running");
+    holdSpaceTurns = false;
+    const answered = await api.actFacade.chatAnswer({
+      space: space.id,
+      questionId: asked.question.questionId,
+      answer: "The 2026 one.",
+    });
+    await waitFor(() => events.some((event) => event.taskId === answered.continuation.taskId));
+    const continuation = events.find((event) => event.taskId === answered.continuation.taskId)!;
+    assert.equal(continuation.spaceTurn!.answeredQuestionId, asked.question.questionId);
+    assert.equal(continuation.spaceTurn!.requestId, api.requests.byTaskId(asking.taskId)!.requestId);
+    assert.equal(undelegatedEvent.spaceTurn!.answeredQuestionId, undefined, "an ordinary turn answers nothing");
+
     const managementEvent = events.find((event) => event.taskId === parent.taskId)!;
     assert.equal(managementEvent.spaceTurn, undefined, "the fold's own turn carries no Space identity block");
   } finally {
+    holdSpaceTurns = false;
+    for (const turn of heldSpaceTurns.splice(0)) turn.release();
     releaseManagement();
     await api.close();
   }

@@ -610,7 +610,11 @@ test("journey: a Space asks for help with no request above it, hands off to anot
     assert.equal(await readFile(join(drafts.spaceRoot, "drafts", "renewal.md"), "utf8"), draftBytes, "the source keeps its bytes");
     assert.equal(await readFile(join(reviews.spaceRoot, "renewal.md"), "utf8"), draftBytes);
     assert.equal((await listSpaceCheckpoints(reviews.spaceRoot)).length, reviewCheckpoints + 1, "the copy landed with a restore point");
-    assert.equal(handed.request.rootId, rootRequestId, "the new Chat is a child of the caller's root");
+    assert.equal(j.api.requests.byTaskId(handed.taskId)!.rootId, rootRequestId, "the new Chat is a child of the caller's root");
+    // The root id itself is not handed to a Space-scoped caller: `requests
+    // show` reads a request by id, so it comes back as the opaque handle no
+    // verb accepts (F9 as amended, F26).
+    assert.match(handed.request.rootId, /^parent-[0-9a-f]{16}$/);
     assert.equal(handed.request.depth, 1);
     assert.deepEqual(j.outcomes(), ["accepted", "ok"]);
     assert.equal(j.lastOk().spaceId, reviews.id, "the receipt names the Space the effect landed in");
@@ -637,7 +641,10 @@ test("journey: a Space asks for help with no request above it, hands off to anot
       outcome: "succeeded",
       files: [{ path: "review.md", bytes: reviewBytes }],
     });
-    assert.equal(reported.request.rootId, rootRequestId);
+    // The report's own request is the Reviews child, and the id above it is
+    // the origin Space's root, which a Space-scoped verb never hands back.
+    assert.equal(j.api.requests.byTaskId(handed.taskId)!.rootId, rootRequestId);
+    assert.match(reported.request.rootId, /^parent-[0-9a-f]{16}$/);
     assert.equal(
       j.prompts.filter((prompt) => prompt.spaceId === workFoldManagementScopeId).length,
       0,

@@ -1929,9 +1929,9 @@ async function runActCommand(
       }));
     }
     case "requests.list":
-      return toChecksJson(await facade.requestsList());
+      return toChecksJson(await facade.requestsList({ cwd: request.cwd }));
     case "requests.show":
-      return toChecksJson(await facade.requestsShow({ request: command.request! }));
+      return toChecksJson(await facade.requestsShow({ request: command.request!, cwd: request.cwd }));
     case "chats.list":
       return toJson(await facade.listConversations({ space: command.space! }));
     case "manage.send": {

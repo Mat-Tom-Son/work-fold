@@ -141,6 +141,15 @@ test("chat ask puts the task in waiting without suspending its turn, and chat an
     assert.equal(live.waiting?.questionId, asked.question.questionId);
     assert.equal(live.waiting?.question, "Which quarter?");
     assert.equal(live.request?.state, "waiting");
+
+    // Both fields are scoped to the named Space. A task id is easy to come by,
+    // and `waiting` carries the question text an Assistant wrote, so a caller
+    // naming a Space that does not own the task learns nothing about it
+    // (F9 as amended, F26).
+    const foreign = await api.actFacade.turnStatus({ space: reviews.space.id, taskId: child.taskId });
+    assert.equal(foreign.task.state, "unknown");
+    assert.equal(foreign.request, null);
+    assert.equal(foreign.waiting, null, "another Space's open question never reaches this caller");
     const parentView = await api.actFacade.manageTurnStatus({ taskId: root.taskId });
     assert.equal(parentView.waiting, null, "the fold asked nothing itself");
     assert.equal(parentView.requestGraph?.state, "working", "the fold's own turn is still running, so it is working, not waiting");
@@ -154,7 +163,18 @@ test("chat ask puts the task in waiting without suspending its turn, and chat an
     });
     assert.deepEqual(handed.copied, ["draft.md"]);
     assert.ok(handed.checkpointId, "the copy landed with a restore point in the destination");
-    assert.equal(handed.request.rootId, rootRecord.requestId, "the handoff is a child of the caller's root");
+    // The handoff IS a child of the fold's root, but a Space-scoped verb never
+    // hands that id back: `requests show` reads a request by id, so the real
+    // root id would put the fold's own content and every Space's result one
+    // taught command away. It is projected through the same opaque handle the
+    // Space turn context uses, which no verb accepts.
+    assert.equal(api.requests.byTaskId(handed.taskId)!.rootId, rootRecord.requestId, "the handoff is a child of the caller's root");
+    assert.notEqual(handed.request.rootId, rootRecord.requestId);
+    assert.match(handed.request.rootId, /^parent-[0-9a-f]{16}$/);
+    await assert.rejects(
+      () => api.actFacade.requestsShow({ request: handed.request.rootId }),
+      (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
+    );
     assert.equal(handed.request.depth, 2);
     await assert.rejects(
       () => api.actFacade.chatHandoff({ space: drafts.space.id, taskId: child.taskId, toSpace: drafts.space.id, message: "/hold", files: ["draft.md"] }),
@@ -339,6 +359,61 @@ test("a root Stop closes every open question below it, refuses a late answer, an
   }
 });
 
+test("a stop on a mid-graph request closes everything it handed on, not only itself", async (t) => {
+  const h = await collaborationHarness(t);
+  const api = await h.open();
+  h.held.add(workFoldManagementScopeId);
+  try {
+    const middle = await api.actFacade.createSpace({ name: "Middle" });
+    const leaf = await api.actFacade.createSpace({ name: "Leaf" });
+    h.held.add(middle.space.id);
+    h.held.add(leaf.space.id);
+
+    // fold -> Middle -> Leaf. `manage stop` takes any task id, and a request
+    // below a root records the ROOT's id, never its parent's, so a stop that
+    // only looked at the root's own family would close Middle and leave Leaf
+    // running with its question still open (F25).
+    const root = await api.actFacade.manageSend({ content: "/hold" });
+    const child = await api.actFacade.sendMessage({ space: middle.space.id, newConversation: true, content: "/hold", parentTaskId: root.taskId });
+    const handed = await api.actFacade.chatHandoff({
+      space: middle.space.id,
+      taskId: child.taskId,
+      toSpace: leaf.space.id,
+      message: "/hold",
+      files: [],
+    });
+    const asked = await api.actFacade.chatAsk({ space: leaf.space.id, taskId: handed.taskId, question: "Which ledger?", respondent: "person" });
+    const childRequestId = api.requests.byTaskId(child.taskId)!.requestId;
+    const leafRequestId = api.requests.byTaskId(handed.taskId)!.requestId;
+
+    const stopped = await api.actFacade.manageStop({ taskId: child.taskId });
+    assert.equal(stopped.taskId, child.taskId);
+    assert.equal(stopped.managementAborted, true, "the named request's own turn is cancelled");
+    assert.ok(stopped.children.some((item) => item.taskId === handed.taskId && item.spaceId === leaf.space.id),
+      "the stop reached the turn the mid-graph request handed on");
+    assert.equal(api.requests.question(asked.question.questionId)!.state, "cancelled");
+    assert.ok(api.requests.get(leafRequestId)!.stopRequestedAt, "the request below the stopped one is marked too");
+    await assert.rejects(
+      () => api.actFacade.chatAnswer({ space: leaf.space.id, questionId: asked.question.questionId, answer: "/hold" }),
+      conflict(/stopped/),
+    );
+
+    await h.release(handed.taskId);
+    await settled(api, leaf.space.id, handed.taskId);
+    await h.release(child.taskId);
+    await settled(api, middle.space.id, child.taskId);
+    assert.equal(api.requests.get(childRequestId)!.state, "stopped");
+    assert.equal(api.requests.get(leafRequestId)!.state, "stopped");
+    // Only the named request and the graph below it are stopped: the fold's
+    // own turn above it is untouched.
+    assert.equal((await api.actFacade.manageTurnStatus({ taskId: root.taskId })).task.state, "running");
+    assert.equal(api.requests.byTaskId(root.taskId)!.stopRequestedAt, null);
+  } finally {
+    h.releaseAll();
+    await api.close();
+  }
+});
+
 test("continuations can be turned off, the settle is still recorded, and a restart never starts one", async (t) => {
   const h = await collaborationHarness(t);
   let api = await h.open();
@@ -458,6 +533,79 @@ test("the fold is brought back at most four times per request; later settles are
     assert.equal(capped.continuationCount, 4);
     assert.equal(capped.state, "done");
     assert.equal((await api.actFacade.requestsShow({ request: rootRecord.requestId })).request.childRequests[0]!.resultRecords[0]!.envelope?.summary, "Fifth.");
+  } finally {
+    h.releaseAll();
+    await api.close();
+  }
+});
+
+test("an answer whose continuation could not start is recorded once and resumes on the next try", async (t) => {
+  const h = await collaborationHarness(t);
+  const api = await h.open();
+  try {
+    const space = await api.actFacade.createSpace({ name: "Recover" });
+    h.held.add(space.space.id);
+    const own = await api.actFacade.sendMessage({ space: space.space.id, newConversation: true, content: "/hold" });
+    const asked = await api.actFacade.chatAsk({ space: space.space.id, taskId: own.taskId, question: "Proceed?", respondent: "person" });
+    await h.release(own.taskId);
+    await settled(api, space.space.id, own.taskId);
+
+    // `chat answer` journals the answer and then starts its continuation, so
+    // "answered with no follow-up" is reachable — a turn that started in that
+    // Chat in between, or a crash across the pair. Recorded directly here,
+    // because both races are host-internal.
+    await api.requests.answer({ questionId: asked.question.questionId, answer: "Yes, Q3.", answeredBySpaceId: space.space.id });
+    const stranded = api.requests.question(asked.question.questionId)!;
+    assert.equal(stranded.state, "answered");
+    assert.equal(stranded.continuationTaskId, null, "the continuation never started");
+    assert.equal(api.requests.byTaskId(own.taskId)!.turns.length, 1);
+
+    // Sending the answer again picks up from exactly there rather than
+    // refusing it: one continuation, carrying the text already on record.
+    const resumed = await api.actFacade.chatAnswer({ space: space.space.id, questionId: asked.question.questionId, answer: "Ignored; the record stands." });
+    assert.equal(resumed.question.continuationTaskId, resumed.continuation.taskId);
+    assert.equal(resumed.question.answer, "Yes, Q3.");
+    const transcript = await spaceMessages(api, space.space.id, own.conversationId);
+    const answers = transcript.filter((message) => message.role === "user" && message.requestId === `answer-${asked.question.questionId}`);
+    assert.equal(answers.length, 1, "exactly one continuation message");
+    assert.equal(answers[0]!.content, "Yes, Q3.", "the Chat gets the answer the record holds");
+    assert.equal(api.requests.byTaskId(own.taskId)!.turns.length, 2);
+
+    // Once it has its continuation, a further answer is a second answer again.
+    await assert.rejects(
+      () => api.actFacade.chatAnswer({ space: space.space.id, questionId: asked.question.questionId, answer: "Actually Q4." }),
+      conflict(/already has an answer/),
+    );
+  } finally {
+    h.releaseAll();
+    await api.close();
+  }
+});
+
+test("the request graph is a management-scope read and is refused from inside a Space", async (t) => {
+  const h = await collaborationHarness(t);
+  const api = await h.open();
+  try {
+    const space = await api.actFacade.createSpace({ name: "Inside" });
+    const own = await api.actFacade.sendMessage({ space: space.space.id, newConversation: true, content: "/hold" });
+    await settled(api, space.space.id, own.taskId);
+    const requestId = api.requests.byTaskId(own.taskId)!.requestId;
+
+    // The fold and an outside harness read the graph; a caller whose own
+    // directory is a registered Space is inside that Space's scope, and the
+    // graph carries every Space's results (F9 as amended).
+    assert.ok((await api.actFacade.requestsList()).requests.length >= 1);
+    assert.equal((await api.actFacade.requestsShow({ request: requestId })).request.id, requestId);
+    for (const call of [
+      () => api.actFacade.requestsList({ cwd: space.space.spaceRoot }),
+      () => api.actFacade.requestsShow({ request: requestId, cwd: join(space.space.spaceRoot, "notes") }),
+    ]) {
+      await assert.rejects(call, (error: unknown) =>
+        error instanceof WorkFoldCliError
+        && error.code === "permissionDenied"
+        && /sits above Spaces/.test(error.message)
+        && /"Inside"/.test(error.message));
+    }
   } finally {
     h.releaseAll();
     await api.close();

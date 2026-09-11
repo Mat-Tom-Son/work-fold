@@ -587,9 +587,19 @@ function composeNeedsYou(input: {
         ref: { taskId: request.taskId, conversationId: request.conversationId, requestId: request.requestId, questionId: question.questionId },
       }));
     }
-    // The closing-question heuristic on a finished management reply, kept
-    // exactly where it was: only when no recorded question already asks.
-    if (personQuestions.length || request.phase !== "needs_you") continue;
+    // The closing-question heuristic on a FINISHED MANAGEMENT reply, and
+    // nothing else. Only a management request's phase comes from that
+    // heuristic; every other kind derives `needs_you` straight from state
+    // `waiting`, which a request also reaches on a question addressed to its
+    // parent Assistant — a question that belongs to that parent and never to
+    // the person (docs/fold-glance.md, F24/F27). A request that is still
+    // waiting has a recorded question somewhere, and that question's own
+    // record carries the item with its question id, so the generic form would
+    // only double-list it.
+    if (personQuestions.length
+      || request.kind !== "management"
+      || request.state === "waiting"
+      || request.phase !== "needs_you") continue;
     others.push(glanceItem({
       id: `management-requests:${request.requestId}`,
       at: request.endedAt ?? request.startedAt,

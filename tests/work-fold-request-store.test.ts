@@ -82,6 +82,7 @@ test("a root, a child, and the graph between them", async (t) => {
   assert.equal(request.state, "working");
   assert.equal(request.deadline, new Date(Date.parse(request.createdAt) + workFoldRequestLimits.deadlineMs).toISOString());
 
+  clock.advance(1_000);
   const child = await store.beginChild({
     parentTaskId: "task-1",
     kind: "space",
@@ -97,12 +98,126 @@ test("a root, a child, and the graph between them", async (t) => {
   assert.deepEqual(store.get(request.requestId)?.childRequestIds, [child.requestId]);
   assert.equal(store.byTaskId("task-2")?.requestId, child.requestId);
   assert.equal(store.byTaskId("task-1")?.requestId, request.requestId);
-  assert.deepEqual(store.descendants(request.requestId).map((item) => item.requestId), [child.requestId]);
+  assert.deepEqual(store.rootDescendants(request.requestId).map((item) => item.requestId), [child.requestId]);
   assert.equal(store.children(request.requestId).length, 1);
-  assert.equal(store.latestForConversation("chat-audits")?.requestId, child.requestId);
+  assert.equal(store.latestForConversation("chat-audits", { spaceId: "space-audits" })?.requestId, child.requestId);
   assert.equal(store.isAccepting("task-1"), true);
 
+  // A stop, and the glance's rolled-up child turns, ask about the graph below
+  // an arbitrary request; `rootDescendants` answers only for a root id.
+  clock.advance(1_000);
+  const grandchild = await store.beginChild({
+    parentTaskId: "task-2",
+    kind: "space",
+    owner: { spaceId: "space-ledger", spaceName: "Ledger", conversationId: "chat-ledger" },
+    surface: "cli",
+    taskId: "task-3",
+  });
+  // Oldest first by creation: the clock advanced between them, so this pins
+  // the order rather than whichever id the tie-break happened to prefer.
+  assert.deepEqual(store.subtree(request.requestId).map((item) => item.requestId), [child.requestId, grandchild.requestId]);
+  assert.deepEqual(store.subtree(child.requestId).map((item) => item.requestId), [grandchild.requestId]);
+  assert.deepEqual(store.rootDescendants(child.requestId), [], "a mid-graph id is not a root");
+  assert.deepEqual(store.subtree(grandchild.requestId), []);
+
   await store.flush();
+});
+
+test("a conversation id is not identity: the newest request on a Chat is scoped to its owner", async (t) => {
+  const root = await temporaryRoot(t);
+  const clock = clockFrom("2026-09-11T09:00:00.000Z");
+  const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
+
+  // Two registered Spaces can hold the same conversation id: a Chat log
+  // travels with its folder, so a duplicated folder brings its ids along.
+  const first = await store.beginRoot({
+    kind: "space",
+    owner: { spaceId: "space-one", spaceName: "One", conversationId: "chat-shared" },
+    surface: "renderer",
+    taskId: "task-one",
+  });
+  clock.advance(1_000);
+  const second = await store.beginRoot({
+    kind: "space",
+    owner: { spaceId: "space-two", spaceName: "Two", conversationId: "chat-shared" },
+    surface: "renderer",
+    taskId: "task-two",
+  });
+  clock.advance(1_000);
+  const management = await store.beginRoot({
+    kind: "management",
+    owner: { conversationId: "chat-shared" },
+    surface: "popover",
+    taskId: "task-fold",
+  });
+
+  assert.equal(store.latestForConversation("chat-shared", { spaceId: "space-one" })?.requestId, first.requestId);
+  assert.equal(store.latestForConversation("chat-shared", { spaceId: "space-two" })?.requestId, second.requestId);
+  assert.equal(store.latestForConversation("chat-shared")?.requestId, management.requestId);
+
+  await store.flush();
+});
+
+test("the newest request on a Chat stays the newest across a compaction and a restart", async (t) => {
+  const root = await temporaryRoot(t);
+  const clock = clockFrom("2026-09-11T09:00:00.000Z");
+  const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now, compactBytes: 1 });
+
+  const older = await store.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "task-older" });
+  clock.advance(1_000);
+  const newer = await store.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "task-newer" });
+  // The older request is touched last, so a journal sorted by update time
+  // rebuilds the map in the opposite order to creation.
+  clock.advance(1_000);
+  await store.settleTurn("task-newer", { status: "succeeded" });
+  clock.advance(1_000);
+  await store.settleTurn("task-older", { status: "succeeded" });
+  await store.flush();
+  assert.equal(store.latestForConversation("chat-fold")?.requestId, newer.requestId);
+
+  const reopened = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now, compactBytes: 1 });
+  assert.equal(reopened.latestForConversation("chat-fold")?.requestId, newer.requestId, "creation order, not journal order");
+  assert.equal(reopened.latest()?.requestId, newer.requestId);
+  assert.deepEqual(reopened.list({ kind: "management" }).map((item) => item.requestId), [older.requestId, newer.requestId]);
+  await reopened.flush();
+});
+
+test("a compaction keeps every record the journal holds, not only the ones in memory", async (t) => {
+  const root = await temporaryRoot(t);
+  const clock = clockFrom("2026-09-11T09:00:00.000Z");
+  // A tiny read cache plus an eager compaction: the combination that used to
+  // erase settled requests long before their retention window.
+  const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now, maxRecords: 2, compactBytes: 1 });
+
+  const ids: string[] = [];
+  for (let index = 0; index < 6; index += 1) {
+    const record = await store.beginRoot({
+      kind: "management",
+      owner: managementOwner,
+      surface: "popover",
+      taskId: `task-${index}`,
+    });
+    ids.push(record.requestId);
+    await store.settleTurn(`task-${index}`, { status: "succeeded" });
+    clock.advance(1_000);
+  }
+  await store.flush();
+
+  const reopened = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
+  for (const id of ids) {
+    assert.ok(reopened.get(id), `${id} is still on record after compaction`);
+  }
+  await reopened.flush();
+
+  // Retention, and only retention, takes them away — including the ones the
+  // read cache had dropped.
+  clock.advance((workFoldRequestLimits.retentionDays + 1) * 24 * 60 * 60 * 1000);
+  const purged = await store.purgeExpired();
+  assert.equal(purged.purged, ids.length);
+  await store.flush();
+  const afterPurge = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
+  for (const id of ids) assert.equal(afterPurge.get(id), null, `${id} left on its own window`);
+  await afterPurge.flush();
 });
 
 test("every bound a child turn can reach names its own number", async (t) => {
@@ -342,6 +457,43 @@ test("a request and its open questions run out of time together, and the refusal
   assert.equal(store.get(request.requestId)?.state, "expired");
   assert.equal(store.question(question.questionId)?.state, "expired");
   assert.equal(store.openQuestions().length, 0);
+
+  // A request that ran out of time hit a bound, so asking again — and handing
+  // work on — name the window and the section that shows it, rather than the
+  // generic "already finished" sentence a stop or a clean finish gets.
+  const askTooLate = await store.ask({ requestId: request.requestId, taskId: "task-1", respondent: "person", text: "Still there?" })
+    .then(() => null, (error: unknown) => error);
+  assert.ok(askTooLate instanceof WorkFoldRequestLimitError);
+  assert.equal(askTooLate.limit, "deadline");
+  assert.ok(askTooLate.message.includes("24-hour"));
+  assert.ok(askTooLate.message.includes(limitsSection));
+
+  const childTooLate = (() => {
+    try {
+      store.assertCanAddChild("task-1");
+      return null;
+    } catch (error) {
+      return error;
+    }
+  })();
+  assert.ok(childTooLate instanceof WorkFoldRequestLimitError);
+  assert.equal(childTooLate.limit, "deadline");
+  assert.ok(childTooLate.message.includes(limitsSection));
+
+  await store.flush();
+});
+
+test("a stopped request keeps the lineage sentence rather than naming a bound", async (t) => {
+  const root = await temporaryRoot(t);
+  const clock = clockFrom("2026-09-11T09:00:00.000Z");
+  const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
+
+  const request = await store.beginRoot({ kind: "space", owner: spaceOwner, surface: "renderer", taskId: "task-1" });
+  await store.markStopRequested(request.requestId);
+  const refused = await store.ask({ requestId: request.requestId, taskId: "task-1", respondent: "person", text: "Which ledger?" })
+    .then(() => null, (error: unknown) => error);
+  assert.ok(refused instanceof WorkFoldRequestLineageError);
+  assert.ok(!refused.message.includes(limitsSection));
 
   await store.flush();
 });

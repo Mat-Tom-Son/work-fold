@@ -38,6 +38,13 @@ export interface PiSpaceTurnContext {
   taskId: string;
   /** The durable request this turn belongs to (F25). */
   requestId: string;
+  /**
+   * The question this turn's message answers, when it is a continuation
+   * (F27). A request may hold several open questions at once, and the answer
+   * arrives as ordinary message text, so the link belongs in host-built
+   * context rather than only in the travelling transcript.
+   */
+  answeredQuestionId?: string;
   delegated?: PiSpaceTurnDelegation;
 }
 
@@ -45,6 +52,7 @@ export interface SpaceTurnContextInput {
   spaceId: string;
   taskId: string;
   requestId: string;
+  answeredQuestionId?: string;
   parentTaskId?: string;
   assignment?: string;
   assignmentIsThisMessage?: boolean;
@@ -63,6 +71,8 @@ export function buildSpaceTurnContext(input: SpaceTurnContextInput): PiSpaceTurn
   const taskId = requireId(input.taskId, "task id");
   const requestId = requireId(input.requestId, "request id");
   const context: PiSpaceTurnContext = { spaceId, taskId, requestId };
+  const answeredQuestionId = input.answeredQuestionId?.trim();
+  if (answeredQuestionId) context.answeredQuestionId = answeredQuestionId;
   const parentTaskId = input.parentTaskId?.trim();
   if (!parentTaskId) return context;
   const delegated: PiSpaceTurnDelegation = { parentHandle: spaceTurnParentHandle(parentTaskId, input.handleSalt) };

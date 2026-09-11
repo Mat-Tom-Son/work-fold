@@ -142,7 +142,7 @@ import {
 import { WorkFoldRequestStore } from "./requests/request-store.js";
 import { workFoldRequestLimits, workFoldRoutingDeclarationBounds } from "../shared/fold-limits.js";
 import { spaceOperationsGuideForScope } from "./agent/space-operations-guide.js";
-import { buildSpaceTurnContext, type PiSpaceTurnContext } from "./agent/space-turn-context.js";
+import { buildSpaceTurnContext, spaceTurnParentHandle, type PiSpaceTurnContext } from "./agent/space-turn-context.js";
 import type {
   WorkFoldRemoteFacade,
   WorkFoldRemoteOperation,
@@ -3372,11 +3372,13 @@ async function acceptConversationTurn(
       remoteRequestId: input.remotePrincipal.requestId,
     } : {}),
   };
+  let answeredQuestionIds: string[] = [];
   try {
     // Every accepted turn belongs to exactly one request record (F25). The
     // record is created before the user message lands so a refused child
     // never leaves a message behind; a failure here rolls back with the rest.
     const lineage = await recordAcceptedTurnRequest(state, space, conversationId, task.id, input, managementAttachments);
+    answeredQuestionIds = lineage.answers;
     await appendMessage(space.spaceRoot, conversationId, message);
     await state.turnStore.markRunning(task.id);
     await state.requests.markTurnRunning(task.id);
@@ -3398,6 +3400,7 @@ async function acceptConversationTurn(
     broadcast(state, turnKey, turnStateEvent(conversationId, false));
     throw requestRefusal(error);
   }
+  const answeredQuestionId = input.request?.answeringQuestionId ?? answeredQuestionIds[0];
   const turn = runAgentTurn(
     state,
     space.id,
@@ -3411,6 +3414,11 @@ async function acceptConversationTurn(
       ...(managementAttachments ? { managementAttachments } : {}),
       ...(input.request?.parentTaskId ? { parentTaskId: input.request.parentTaskId } : {}),
       ...(input.request?.assignment !== undefined ? { assignment: input.request.assignment } : {}),
+      // The continuation's own link to the question it answers (F27), built
+      // by the host rather than read back out of the travelling transcript:
+      // `chat answer` names the question, and a person's free-text reply
+      // answers whichever of this request's questions were waiting on them.
+      ...(answeredQuestionId ? { answeredQuestionId } : {}),
     },
   );
   state.activeTurnPromises.add(turn);
@@ -3472,7 +3480,7 @@ async function recordAcceptedTurnRequest(
   // whether the caller named the request it continues or not.
   const pending = input.request?.parentTaskId || input.request?.answeringQuestionId
     ? null
-    : pendingPersonQuestions(state, conversationId);
+    : pendingPersonQuestions(state, conversationId, management ? {} : { spaceId: space.id });
   const joinRequestId = input.request?.joinRequestId ?? pending?.requestId;
   const answers = pending && pending.requestId === joinRequestId ? pending.questionIds : [];
   const request: AcceptedTurnRequestInput | undefined = joinRequestId
@@ -3544,9 +3552,18 @@ async function recordAcceptedTurnRequest(
   return { record, answers };
 }
 
-/** The open questions addressed to the person on this Chat's newest request, if it is waiting on them. */
-function pendingPersonQuestions(state: LocalApiState, conversationId: string): { requestId: string; questionIds: string[] } | null {
-  const latest = state.requests.latestForConversation(conversationId);
+/**
+ * The open questions addressed to the person on this Chat's newest request,
+ * if it is waiting on them. Scoped to the owner: a conversation id lives in
+ * the Space folder and travels with it, so two registered Spaces can hold the
+ * same id and a reply must never join the other one's request.
+ */
+function pendingPersonQuestions(
+  state: LocalApiState,
+  conversationId: string,
+  owner: { spaceId?: string },
+): { requestId: string; questionIds: string[] } | null {
+  const latest = state.requests.latestForConversation(conversationId, owner);
   if (!latest || latest.state !== "waiting") return null;
   const open = state.requests.questions(latest.requestId)
     .filter((question) => question.state === "open" && question.respondent === "person");
@@ -5296,11 +5313,15 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       if (!taskId) throw new WorkFoldCliError("usage", "Provide --task <id>.");
       const task = turnStatusFor(state, space.id, taskId);
       const record = state.requests.byTaskId(taskId);
+      // Both fields are scoped to the named Space: a task id is easy to come
+      // by, and a question another Space's Assistant asked is that Space's
+      // content, never this caller's (F9 as amended, F26).
+      const owned = record !== null && record.owner.spaceId === space.id;
       return {
         space: toActSpaceRef(space),
         task,
-        waiting: waitingRefForTask(state, taskId),
-        request: record && record.owner.spaceId === space.id ? toActRequestRef(state, record) : null,
+        waiting: owned ? waitingRefForTask(state, taskId) : null,
+        request: owned ? toActRequestRefForSpace(state, record) : null,
       };
     },
     async turnResult(input) {
@@ -5322,6 +5343,19 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           ? await readReportDataFile(input.dataPath, input.cwd ?? space.spaceRoot)
           : input.data;
         const files = await resolveReportFiles(space, input.files);
+        // When an app asked for this work and declared a shape for the
+        // details, the report is checked against that shape here, while the
+        // turn is still running and can correct it (F29: validated when the
+        // request declared a schema). The app's own projection checks it
+        // again, so a report that got past this one can never reach the app
+        // as matching details.
+        const schema = record.kind === "app" && record.app
+          ? state.appAssistantTasks.outputSchemaForTurn({
+            spaceId: record.app.spaceId,
+            conversationId: record.owner.conversationId,
+            taskId,
+          })
+          : null;
         let result;
         try {
           result = await state.requests.recordResult({
@@ -5334,9 +5368,14 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
               ...(files.length ? { files } : {}),
               outcome: input.outcome,
             },
+            ...(schema ? { schema } : {}),
           });
         } catch (error) {
-          throw collaborationRefusal(error);
+          const refusal = collaborationRefusal(error);
+          if (refusal !== error) throw refusal;
+          // A shape the report does not fit is the Assistant's to correct, so
+          // it reads as a usage refusal naming the property, not a failure.
+          throw new WorkFoldCliError("usage", errorMessage(error), { cause: error });
         }
         await recordFacadeAction(state, input.parentTaskId, { command: "chat.report", space, taskId });
         publishControlHint(state, "spaces");
@@ -5345,7 +5384,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           taskId,
           resultId: result.resultId,
           result: result.envelope,
-          request: toActRequestRef(state, state.requests.get(record.requestId) ?? record),
+          request: toActRequestRefForSpace(state, state.requests.get(record.requestId) ?? record),
         };
       });
     },
@@ -5373,7 +5412,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           space: toActSpaceRef(space),
           taskId,
           question: toActQuestionRef(question),
-          request: toActRequestRef(state, state.requests.get(record.requestId) ?? record),
+          request: toActRequestRefForSpace(state, state.requests.get(record.requestId) ?? record),
           redirectedToPerson,
         };
       });
@@ -5392,11 +5431,23 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         }
         const record = state.requests.get(question.requestId);
         if (!record) throw new WorkFoldCliError("notFound", "The request that asked this question is no longer on record.");
-        // Every refusal is named before anything changes: a second answer,
-        // an expired question, a closed request, the wrong Space, a busy Chat.
-        if (question.state === "answered") throw new WorkFoldCliError("conflict", "That question already has an answer.");
+        // An answer is recorded before its continuation starts. Every fence
+        // acceptance applies is checked first, but a turn can still start in
+        // that Chat between the two, and a crash can land between them, so
+        // "answered with no follow-up" is a reachable state. Sending the same
+        // answer again resumes from exactly there — the recorded answer
+        // stands and its one continuation starts now — rather than refusing
+        // and leaving the answer with nowhere to go (F27: one accepted answer
+        // starts exactly one linked continuation).
+        const resuming = question.state === "answered" && question.continuationTaskId === null;
+        // Every other refusal is named before anything changes: a second
+        // answer, an expired question, a closed request, the wrong Space, a
+        // busy Chat.
+        if (question.state === "answered" && !resuming) {
+          throw new WorkFoldCliError("conflict", "That question already has an answer.");
+        }
         if (question.state === "cancelled") throw new WorkFoldCliError("conflict", "That request was stopped, so its question is closed.");
-        if (question.state === "expired" || Date.now() >= Date.parse(question.expiresAt)) {
+        if (!resuming && (question.state === "expired" || Date.now() >= Date.parse(question.expiresAt))) {
           throw new WorkFoldCliError("conflict", requestLimitRefusalMessage("questionLifetime"));
         }
         if (record.owner.spaceId !== space.id) {
@@ -5420,23 +5471,27 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         if (summary.snoozedUntil && Date.parse(summary.snoozedUntil) > Date.now()) {
           throw new WorkFoldCliError("conflict", "Resume this Chat before answering its question.");
         }
-        let answered: WorkFoldQuestionRecord;
-        try {
-          answered = await state.requests.answer({ questionId, answer, answeredBySpaceId: space.id });
-        } catch (error) {
-          throw collaborationRefusal(error);
+        let answered: WorkFoldQuestionRecord = question;
+        if (!resuming) {
+          try {
+            answered = await state.requests.answer({ questionId, answer, answeredBySpaceId: space.id });
+          } catch (error) {
+            throw collaborationRefusal(error);
+          }
         }
         // Journal-first: the question is answered; now exactly one linked
         // continuation turn, deduplicated by the turn store under a request
         // id derived from the question so a replay returns the same turn.
         // The transcript gets an ordinary user message — the question id
-        // stays in machine-local records (F25/F27). Should acceptance still
-        // fail here, the answer stays recorded and `requests show` shows the
-        // question answered with no follow-up turn; the error says so.
+        // stays in machine-local records (F25/F27). A resumed answer carries
+        // the text already on record, so the Chat and the record say the same
+        // thing. Should acceptance still fail here, the answer stays recorded
+        // and sending it again picks up exactly where this left off.
+        const delivered = resuming ? answered.answer ?? answer : answer;
         let accepted: Awaited<ReturnType<typeof acceptConversationTurn>>;
         try {
           accepted = await acceptConversationTurn(state, space, record.owner.conversationId, {
-            content: answer,
+            content: delivered,
             contextPaths: [],
             selectedPath: null,
             actorKind: "cli",
@@ -5446,7 +5501,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         } catch (error) {
           throw new WorkFoldCliError(
             "failure",
-            `The answer to question ${questionId} was recorded, but the Chat could not continue: ${errorMessage(error)}`,
+            `The answer to question ${questionId} is recorded, but the Chat could not continue: ${errorMessage(error)}. Send the same answer again to continue it.`,
             { cause: error },
           );
         }
@@ -5471,7 +5526,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           space: toActSpaceRef(space),
           question: toActQuestionRef(linked),
           continuation: { taskId, messageId: message.id, conversationId: record.owner.conversationId },
-          request: toActRequestRef(state, state.requests.get(record.requestId) ?? record),
+          request: toActRequestRefForSpace(state, state.requests.get(record.requestId) ?? record),
         };
       });
     },
@@ -5531,11 +5586,12 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           taskId: childTaskId,
           copied: copy.copied,
           checkpointId: copy.checkpointId,
-          request: toActRequestRef(state, child ?? record),
+          request: toActRequestRefForSpace(state, child ?? record),
         };
       });
     },
-    async requestsList() {
+    async requestsList(input) {
+      await assertRequestsAboveSpaces(input?.cwd);
       const roots = state.requests.list()
         .filter((record) => record.requestId === record.rootId)
         .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
@@ -5545,6 +5601,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       };
     },
     async requestsShow(input) {
+      await assertRequestsAboveSpaces(input.cwd);
       const requestId = input.request.trim();
       const record = requestId ? state.requests.get(requestId) : null;
       if (!record) {
@@ -7818,12 +7875,15 @@ async function stopManagementRequest(
   const scopeId = record.owner.spaceId ?? workFoldManagementScopeId;
   const ownTurn = record.turns.at(-1)!;
   const managementWasRunning = turnStatusFor(state, scopeId, ownTurn.taskId).state === "running";
-  const descendants = state.requests.descendants(record.requestId)
-    .filter((descendant) => descendant.owner.spaceId !== undefined);
+  // The whole graph below this request, not only a root's: `manage stop`
+  // takes any task id, so a mid-graph request must still close everything it
+  // handed on (docs/collaboration-contract.md, F25).
+  const descendants = state.requests.subtree(record.requestId);
   const runningChildren = descendants.flatMap((descendant) => {
+    if (descendant.owner.spaceId === undefined) return [];
     const turn = descendant.turns.at(-1)!;
-    return turnStatusFor(state, descendant.owner.spaceId!, turn.taskId).state === "running"
-      ? [{ taskId: turn.taskId, conversationId: descendant.owner.conversationId, spaceId: descendant.owner.spaceId!, requestId: descendant.requestId }]
+    return turnStatusFor(state, descendant.owner.spaceId, turn.taskId).state === "running"
+      ? [{ taskId: turn.taskId, conversationId: descendant.owner.conversationId, spaceId: descendant.owner.spaceId, requestId: descendant.requestId }]
       : [];
   });
   // A stop reaches everything still open under this request, not only the
@@ -9400,6 +9460,23 @@ function waitingRefForTask(state: LocalApiState, taskId: string): WorkFoldActWai
   };
 }
 
+/**
+ * The request reference a Space-scoped verb hands back to the caller.
+ *
+ * Identical to `toActRequestRef` except for one field: a delegated Space
+ * request's `rootId` is usually the FOLD's root request id, and
+ * `requests show` reads a request by id. Handing that id into a Space turn
+ * would put the fold's own content and other Spaces' results one taught
+ * command away — the same leak `space-turn-context.ts` withholds the parent
+ * request id to avoid — so it is projected through the same opaque handle no
+ * verb accepts. A Space's own root still names itself.
+ */
+function toActRequestRefForSpace(state: LocalApiState, record: WorkFoldRequestRecord): WorkFoldActRequestRef {
+  const ref = toActRequestRef(state, record);
+  if (record.owner.spaceId === undefined || record.rootId === record.requestId) return ref;
+  return { ...ref, rootId: spaceTurnParentHandle(record.rootId, state.spaceTurnHandleSalt) };
+}
+
 function toActRequestRef(state: LocalApiState, record: WorkFoldRequestRecord): WorkFoldActRequestRef {
   return {
     id: record.requestId,
@@ -9444,6 +9521,29 @@ function requestSummaryView(state: LocalApiState, record: WorkFoldRequestRecord)
     continuationCount: record.continuationCount,
     limitHit: record.limitHit,
   };
+}
+
+/**
+ * `requests list` and `requests show` are management-scope reads: the whole
+ * graph, including the fold's own assignment text and every Space's result
+ * envelope. A caller working inside a registered Space is inside that Space's
+ * scope, and what may reach a Space is its assignment, answers to its own
+ * questions, and payloads released to it — never the graph (F9 as amended,
+ * F26). The caller's directory resolves its scope exactly as `context` does,
+ * and the refusal names the boundary and the verbs that do belong to a Space.
+ */
+async function assertRequestsAboveSpaces(cwd: string | undefined): Promise<void> {
+  const candidate = cwd?.trim();
+  if (!candidate) return;
+  const resolved = resolve(candidate);
+  const containing = (await listSpaces())
+    .filter((space) => pathContainsPath(space.spaceRoot, resolved))
+    .sort((left, right) => resolve(right.spaceRoot).length - resolve(left.spaceRoot).length)[0];
+  if (!containing) return;
+  throw new WorkFoldCliError(
+    "permissionDenied",
+    `The request record sits above Spaces, and this ran inside "${containing.name}". Follow your own work with 'chat status' and 'chat wait', and report with 'chat report'.`,
+  );
 }
 
 /** `requests show`: the whole subtree, bounded by the depth and child limits the store already enforces. */
@@ -9606,7 +9706,8 @@ async function maybeStartRootContinuation(state: LocalApiState, rootId: string):
   const key = clientKey(workFoldManagementScopeId, root.owner.conversationId);
   if (state.runningTurns.has(key) || state.compactingConversations.has(key)) return;
   const baseline = root.turns.reduce((latest, turn) => (turn.settledAt && turn.settledAt > latest ? turn.settledAt : latest), "");
-  const descendants = state.requests.descendants(rootId);
+  // `rootId` here is a root by construction, so the root-only form is exact.
+  const descendants = state.requests.rootDescendants(rootId);
   if (descendants.some((descendant) => {
     const turn = descendant.turns.at(-1)!;
     return turn.state === "accepted" || turn.state === "running";
@@ -9782,9 +9883,11 @@ async function runAgentTurn(
     parentTaskId?: string;
     /** The assignment when it differs from this turn's message. */
     assignment?: string;
+    /** The question this turn's message answers, when it is a continuation (F27). */
+    answeredQuestionId?: string;
   } = {},
 ): Promise<void> {
-  const { managementAttachments, parentTaskId, assignment } = options;
+  const { managementAttachments, parentTaskId, assignment, answeredQuestionId } = options;
   const key = clientKey(spaceId, conversationId);
   let client: PiConversationClient | null = null;
   let promptStarted = false;
@@ -9818,6 +9921,7 @@ async function runAgentTurn(
         taskId,
         requestId: resolveTurnRequestId(state, taskId),
         handleSalt: state.spaceTurnHandleSalt,
+        ...(answeredQuestionId ? { answeredQuestionId } : {}),
         ...(parentTaskId ? { parentTaskId } : {}),
         ...(assignment !== undefined && assignment !== content ? { assignment } : {}),
         ...(parentTaskId && (assignment === undefined || assignment === content) ? { assignmentIsThisMessage: true } : {}),
@@ -11958,7 +12062,8 @@ const maxGlanceAutomationReceipts = 200;
 
 /**
  * The glance's live-registry source readers (docs/fold-glance.md): recorded
- * state only — the settled-turn records, the management-request registry, the
+ * state only — the settled-turn records, the durable request graph
+ * (docs/collaboration-contract.md, F25), the
  * chat store and History per registered Space, the Check service's status and
  * content-free settled runs, the act-receipts ledger, the routing receipts
  * journal, the publication grant records, and the
@@ -12059,18 +12164,28 @@ function createServerGlanceSources(state: LocalApiState): WorkFoldGlanceSourceRe
 }
 
 /**
- * Request records for the glance, with the same phase truth the act lane
- * reports. A management request's phase goes through the full view so the
- * closing-question heuristic still counts; every other kind maps its durable
- * state directly, because the glance must never open Space content.
+ * Request records for the glance, composed from the durable record alone.
+ *
+ * The glance recomposes on every call, from the popover, the main window, and
+ * every remote client, so this path stays cheap: a record already carries its
+ * state, its timestamps, its questions, and its results. The one thing it
+ * cannot carry is the closing-question heuristic — whether a finished
+ * management reply ended in a question — so a settled management request
+ * reads exactly one transcript message, cached per conversation across the
+ * composition. Nothing here opens Space content, stats a file, or builds the
+ * full `managementRequestView`, which stays for `manage status`,
+ * `/api/management/requests/:taskId`, and `management.request`.
  */
 async function glanceManagementRequestRecords(state: LocalApiState): Promise<WorkFoldGlanceManagementRequestRecord[]> {
   const records: WorkFoldGlanceManagementRequestRecord[] = [];
+  const transcripts = new Map<string, ChatMessage[]>();
   for (const record of state.requests.list({ limit: maxGlanceRequestRecords })) {
     const newestTurn = record.turns.at(-1)!;
-    const view = record.kind === "management" ? await managementRequestView(state, newestTurn.taskId) : null;
-    const phase = view?.phase ?? workFoldRequestStateToManagementPhase(record.state);
-    const descendants = state.requests.descendants(record.requestId);
+    const phase = workFoldRequestStateToManagementPhase(
+      record.state,
+      record.kind === "management" ? await managementReplyClosesWithQuestion(state, record, transcripts) : false,
+    );
+    const descendants = state.requests.subtree(record.requestId);
     const questions = state.requests.questions(record.requestId);
     records.push({
       requestId: record.requestId,
@@ -12081,7 +12196,7 @@ async function glanceManagementRequestRecords(state: LocalApiState): Promise<Wor
       ...(record.owner.spaceId ? { spaceId: record.owner.spaceId } : {}),
       phase,
       startedAt: record.createdAt,
-      endedAt: view ? view.endedAt : (record.settledAt ?? null),
+      endedAt: phase === "working" || phase === "handed_off" ? null : (record.settledAt ?? newestTurn.settledAt),
       childTaskIds: descendants.flatMap((descendant) => descendant.turns.map((turn) => turn.taskId)),
       openQuestions: questions
         .filter((question) => question.state === "open")
@@ -12091,6 +12206,31 @@ async function glanceManagementRequestRecords(state: LocalApiState): Promise<Wor
     });
   }
   return records;
+}
+
+/**
+ * The one fact the durable record cannot hold: did this management request's
+ * finished reply end in a question? Only a settled management request can, so
+ * a running one never reads a transcript at all, and the read is cached per
+ * conversation for the whole composition.
+ */
+async function managementReplyClosesWithQuestion(
+  state: LocalApiState,
+  record: WorkFoldRequestRecord,
+  transcripts: Map<string, ChatMessage[]>,
+): Promise<boolean> {
+  if (!isWorkFoldRequestTerminalState(record.state)) return false;
+  const newestTurn = record.turns.at(-1)!;
+  if (newestTurn.state !== "succeeded" && newestTurn.state !== "failed") return false;
+  const replyMessageId = newestTurn.messageId;
+  if (!replyMessageId) return false;
+  let messages = transcripts.get(record.owner.conversationId);
+  if (!messages) {
+    messages = await readConversation(workFoldManagementRoot(), record.owner.conversationId).catch(() => []);
+    transcripts.set(record.owner.conversationId, messages);
+  }
+  const message = messages.find((item) => item.id === replyMessageId);
+  return message ? managementReplyAsksQuestion(message.content) : false;
 }
 
 const maxGlanceRequestRecords = 2_048;

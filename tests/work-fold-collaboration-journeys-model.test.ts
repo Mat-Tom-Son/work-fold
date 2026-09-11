@@ -391,7 +391,10 @@ test("journey: an app's assistant task produces a deliverable, returns the one r
       "--message", "Check the comparison and say whether the figures hold.", "--file", "comparison.md", "--json",
     ]);
     assert.deepEqual(handed.copied, ["comparison.md"]);
-    assert.equal(handed.request.rootId, appRequest.rootId, "the second Space's Chat is a child of the app's request");
+    assert.equal(j.api.requests.byTaskId(handed.taskId)!.rootId, appRequest.rootId, "the second Space's Chat is a child of the app's request");
+    // A Space-scoped verb never hands back the id above the caller: it comes
+    // out as the opaque handle no verb accepts (F9 as amended, F26).
+    assert.match(handed.request.rootId, /^parent-[0-9a-f]{16}$/);
     assert.equal(handed.request.depth, 1);
     await waitFor(() => j.prompts.some((prompt) => prompt.taskId === handed.taskId), "the destination turn to prompt");
     await j.provider.waitForHolds(2);
@@ -414,7 +417,8 @@ test("journey: an app's assistant task produces a deliverable, returns the one r
       outcome: "succeeded",
       files: [{ path: "check.md", bytes: reviewBytes }],
     });
-    assert.equal(back.request.rootId, appRequest.rootId);
+    assert.match(back.request.rootId, /^parent-[0-9a-f]{16}$/);
+    assert.equal(j.api.requests.byTaskId(handed.taskId)!.rootId, appRequest.rootId);
     assert.deepEqual(
       Object.keys(back.result).filter((key) => key !== "data").sort(),
       Object.keys(reported.result).filter((key) => key !== "data").sort(),

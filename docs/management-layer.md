@@ -512,10 +512,14 @@ and gave Assistants a way to hand each other work. The changes a caller can
 observe:
 
 - New act verbs: `chat report`, `chat ask`, `chat answer`, and `chat handoff`,
-  Space-scoped and receipted, plus the Space-free management reads
-  `requests list|show`. They are available to the fold, a Space Assistant, an
-  app-requested task, and an outside harness on the same terms;
-  `work-fold help collaborate` documents them.
+  Space-scoped and receipted. They are available to the fold, a Space
+  Assistant, an app-requested task, and an outside harness on the same terms;
+  `work-fold help collaborate` documents them. `requests list|show` are the
+  Space-free **management-scope** reads of the graph and are the exception:
+  the graph carries every Space's results and the fold's own assignment text,
+  so a caller whose directory resolves to a registered Space — a Space
+  Assistant, or a harness working inside one — is refused by name. A Space
+  follows its own work with `chat status`, `chat wait`, and `chat report`.
 - `chat wait` and `manage wait` now settle on `waiting` as well as on a
   terminal state, exit 0, and name which happened. A shim that only broke out
   of `accepted`/`running` would sit on a question forever; the packaged Mac and

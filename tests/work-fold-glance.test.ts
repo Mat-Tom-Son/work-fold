@@ -188,6 +188,52 @@ test("needs-you carries questions, request questions, and due snoozes only", asy
   assert.ok(snapshot.needsYou.every((item) => item.ref?.conversationId || item.ref?.taskId), "every needs-you item points at the conversation or request that asked");
 });
 
+test("a question addressed to the parent Assistant never becomes a needs-you item", async () => {
+  // `chat ask --to parent` puts the asking request in state `waiting`, and a
+  // waiting state maps to phase `needs_you` — but that question belongs to
+  // the parent's Assistant, not to the person (docs/fold-glance.md, F24/F27).
+  // The root is waiting for the same reason and must stay quiet too.
+  const snapshot = await composeWorkFoldGlance({
+    now: new Date(composedAtIso),
+    spaces: [alpha],
+    sources: {
+      managementRequests: async () => [
+        {
+          requestId: "req-root", kind: "management", state: "waiting", taskId: "task-root", conversationId: "mgmt-1",
+          phase: "needs_you", startedAt: "2026-08-10T09:00:00.000Z", endedAt: null, childTaskIds: ["task-child"],
+          openQuestions: [], questionCount: 0, resultCount: 0,
+        },
+        {
+          requestId: "req-child", kind: "space", state: "waiting", taskId: "task-child", conversationId: "chat-child",
+          spaceId: alpha.id, phase: "needs_you", startedAt: "2026-08-10T09:05:00.000Z", endedAt: null, childTaskIds: [],
+          openQuestions: [{ questionId: "q-parent", respondent: "parent", askedAt: "2026-08-10T09:06:00.000Z" }],
+          questionCount: 1, resultCount: 0,
+        },
+      ],
+    },
+  });
+  assert.deepEqual(snapshot.needsYou, [], "nothing here is the person's to answer");
+
+  // The same shape with the question put to the person does produce exactly
+  // one item, and it carries the question id a surface reads by.
+  const personAsked = await composeWorkFoldGlance({
+    now: new Date(composedAtIso),
+    spaces: [alpha],
+    sources: {
+      managementRequests: async () => [
+        {
+          requestId: "req-child", kind: "space", state: "waiting", taskId: "task-child", conversationId: "chat-child",
+          spaceId: alpha.id, phase: "needs_you", startedAt: "2026-08-10T09:05:00.000Z", endedAt: null, childTaskIds: [],
+          openQuestions: [{ questionId: "q-person", respondent: "person", askedAt: "2026-08-10T09:06:00.000Z" }],
+          questionCount: 1, resultCount: 0,
+        },
+      ],
+    },
+  });
+  assert.equal(personAsked.needsYou.length, 1);
+  assert.equal(personAsked.needsYou[0]!.ref?.questionId, "q-person");
+});
+
 test("changes are bounded per kind and in total, newest first", async () => {
   const stamp = (index: number): string => `2026-08-10T10:${String(index).padStart(2, "0")}:00.000Z`;
   const perSource = workFoldGlanceChangesPerKindCap + 1;

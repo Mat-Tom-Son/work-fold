@@ -200,7 +200,9 @@ The launch baseline explicitly includes:
 
 - `desktop/src/management-popover.ts` and its preload;
 - `src/local/management-attachments.ts`;
-- `src/local/management-requests.ts`;
+- `src/local/management-requests.ts` (historical: the in-memory registry it
+  names was replaced by the durable request graph in
+  `src/local/requests/`, see [Collaboration contract](collaboration-contract.md), F25);
 - `web-local/popover.html` and `web-local/src/popover/`;
 - attachment, request, and management API tests;
 - menu-bar template icon generation and package verification; and

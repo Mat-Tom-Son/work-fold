@@ -100,7 +100,7 @@ report, a handoff outcome, and a routing chat hop produce:
 |---|---|
 | `summary` | text, at most 32 KiB, never split mid-character |
 | `outcome` | `succeeded`, `partial`, or `failed` — the Assistant's own account |
-| `truncated` | the envelope did not fit its ceiling and what the app holds is trimmed |
+| `truncated` | something was cut to fit a bound — the summary at 32 KiB, or the envelope at its 256 KiB ceiling — and what the app holds is the trimmed version |
 | `data` | present only for an action that declared `outputSchema`, and only when the reported value matches it |
 | `files` | Space-relative deliverables the Assistant named, each with `path`, `sha256`, and `sizeBytes` |
 
@@ -113,14 +113,18 @@ evidence and never becomes a deliverable list.
 Details that do not match the declared `outputSchema` — or details reported for
 an action that declared none — are left out, the outcome becomes `failed`, and
 the summary says so in a sentence naming the declared shape. The validation
-happens twice: once when the report is filed against the shape on the request
-record, and again when the result is projected to the app.
+happens twice: once when `chat report` is filed, against the shape pinned on
+the request receipt when the app asked — so the refusal names the property
+while the Assistant's turn can still correct it — and again when the result is
+projected to the app.
 
-The whole serialized envelope is bounded at 256 KiB. Over that, `data` is
-dropped first, then `files` are trimmed, then the summary, and `truncated`
-becomes true. **Apps → the app → Assistant requests** names that number and the
-Settings section where a person can raise it, and offers **Open Chat** for the
-full reply.
+The summary is bounded at 32 KiB on its own, before anything else is
+considered, and that is the bound an ordinary long reply reaches. The whole
+serialized envelope is then bounded at 256 KiB: over that, `data` is dropped
+first, then `files` are trimmed, then the summary. Either sets `truncated`.
+**Apps → the app → Assistant requests** names both numbers and the Settings
+section where a person can raise them, and offers **Open Chat** for the full
+reply.
 
 ## Knowing a task moved
 

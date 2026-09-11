@@ -223,6 +223,28 @@ test("the host pushes the three hints on their own channels, to the mounts each 
   // Sleep and wake rebaseline rather than replaying.
   assert.match(host, /for \(const entry of this\.#fileWatches\.values\(\)\) entry\.watch\.reset\(\);/);
 
+  // A granted-root walk starts only for a mount that actually subscribed.
+  // `files.onChanged` registers inside the preload, so the host cannot see it
+  // without being told; a directory grant binds to the whole Space, so an open
+  // view that never subscribed would otherwise cost a recursive metadata scan
+  // of that Space every poll interval for the life of the view.
+  for (const source of [host, preload]) {
+    assert.ok(source.includes('"work-fold:restricted-app:files-subscribe"'), "both sides name the subscription channel");
+  }
+  assert.match(preload, /noteFilesSubscription\(\);/);
+  assert.match(preload, /const subscribed = filesChangedListeners\.size > 0;\s*\n\s*if \(subscribed === filesSubscribed\) return;/);
+  assert.match(
+    host,
+    /if \(!this\.#filesSubscribers\.has\(instance\.webContentsId\)\) continue;\s*\n\s*if \(!this\.#eligibleForHint\("files", instance\)\) continue;/,
+    "subscription gates the watch, and eligibility still applies on top of it",
+  );
+  assert.match(host, /ipcMain\.on\(filesSubscriptionChannel,/);
+  assert.ok(
+    [...host.matchAll(/this\.#filesSubscribers\.delete\(instance\.webContentsId\);/g)].length >= 2,
+    "a mount that is destroyed or detached stops being a subscriber",
+  );
+  assert.match(host, /this\.#fileWatches\.clear\(\);\s*\n\s*this\.#filesSubscribers\.clear\(\);/);
+
   // The wires that make the hints reachable at all.
   assert.match(host, /publishAssistantActivity\(event: RestrictedAppAssistantActivity\): void/);
   assert.match(host, /publishCheckResultsChanged\(event: \{ spaceId: string; checkIds: readonly string\[\] \}\): void/);

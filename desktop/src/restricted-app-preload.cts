@@ -8,6 +8,7 @@ const storageChangedChannel = "work-fold:restricted-app:storage-changed";
 const tasksChangedChannel = "work-fold:restricted-app:tasks-changed";
 const checksChangedChannel = "work-fold:restricted-app:checks-changed";
 const filesChangedChannel = "work-fold:restricted-app:files-changed";
+const filesSubscriptionChannel = "work-fold:restricted-app:files-subscribe";
 const checksChannel = "work-fold:restricted-app:checks";
 const assistantTasksChannel = "work-fold:restricted-app:assistant-tasks";
 const assistantInferChannel = "work-fold:restricted-app:assistant-infer";
@@ -206,6 +207,25 @@ ipcRenderer.on(checksChangedChannel, (_event, value: unknown) => {
 });
 
 const filesChangedListeners = new Set<(event: FilesChangedEvent) => void>();
+
+/**
+ * Tells the host whether this app is listening for granted-root changes.
+ * Registration is preload-local, so without this notice the host cannot tell
+ * a subscribing app from one that never called `files.onChanged` — and a
+ * directory permission binds to the whole Space, so it would walk that Space
+ * on every poll for the life of the view. Sent only when the answer changes.
+ */
+let filesSubscribed = false;
+function noteFilesSubscription(): void {
+  const subscribed = filesChangedListeners.size > 0;
+  if (subscribed === filesSubscribed) return;
+  filesSubscribed = subscribed;
+  try {
+    ipcRenderer.send(filesSubscriptionChannel, { subscribed });
+  } catch {
+    // The host is gone; the watch it would have kept is gone with it.
+  }
+}
 ipcRenderer.on(filesChangedChannel, (_event, value: unknown) => {
   if (!value || typeof value !== "object") return;
   const candidate = value as { revision?: unknown; permissionIds?: unknown; truncated?: unknown };
@@ -268,7 +288,11 @@ const appBridge = Object.freeze({
     onChanged: (listener: (event: FilesChangedEvent) => void) => {
       if (typeof listener !== "function") throw new TypeError("File listener must be a function.");
       filesChangedListeners.add(listener);
-      return () => filesChangedListeners.delete(listener);
+      noteFilesSubscription();
+      return () => {
+        filesChangedListeners.delete(listener);
+        noteFilesSubscription();
+      };
     },
   }),
   notifications: Object.freeze({

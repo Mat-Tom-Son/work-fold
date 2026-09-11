@@ -126,6 +126,34 @@ test("a filed report carries its summary, its outcome, validated details and the
   assert.deepEqual((await f.service.get(scope, task.requestId)).result, result, "the envelope survives a restart intact");
 });
 
+test("the declared shape is findable from the running turn, so `chat report` can check it first", async (t) => {
+  const f = await fixture(t, { actions: [action, plainAction] });
+  const task = await f.file();
+  const turn = f.turns.get(task.id)!;
+
+  // `chat report` resolves the pinned shape from the turn it is reporting for,
+  // so a mismatched report is refused while the Assistant can still correct it
+  // (docs/collaboration-contract.md, F29 — validated at report time, and again
+  // when the result is projected to the app).
+  assert.deepEqual(
+    f.service.outputSchemaForTurn({ spaceId: scope.spaceId, conversationId: turn.conversationId, taskId: turn.turnId }),
+    outputSchema,
+  );
+  // The pin is per task, not per manifest: another Space, another Chat, and
+  // another turn id all answer nothing.
+  assert.equal(f.service.outputSchemaForTurn({ spaceId: "space-two", conversationId: turn.conversationId, taskId: turn.turnId }), null);
+  assert.equal(f.service.outputSchemaForTurn({ spaceId: scope.spaceId, conversationId: "chat-other", taskId: turn.turnId }), null);
+  assert.equal(f.service.outputSchemaForTurn({ spaceId: scope.spaceId, conversationId: turn.conversationId, taskId: "turn-other" }), null);
+
+  // An action that declared no shape has nothing to check against.
+  const plain = await f.file(plainAction.id);
+  const plainTurn = f.turns.get(plain.id)!;
+  assert.equal(
+    f.service.outputSchemaForTurn({ spaceId: scope.spaceId, conversationId: plainTurn.conversationId, taskId: plainTurn.turnId }),
+    null,
+  );
+});
+
 test("details that do not match the declared shape are dropped, said plainly, and the outcome is honest", async (t) => {
   const f = await fixture(t);
   const task = await f.file();

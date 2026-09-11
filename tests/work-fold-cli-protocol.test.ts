@@ -22,7 +22,11 @@ import {
   type WorkFoldCliActor,
   type WorkFoldCliKernel,
 } from "../src/local/cli/index.js";
-import { workFoldRequestLimitMessage } from "../src/local/requests/request-records.js";
+import {
+  workFoldQuestionIdPattern,
+  workFoldRequestIdPattern,
+  workFoldRequestLimitMessage,
+} from "../src/local/requests/request-records.js";
 import { workFoldRequestLimits, workFoldRoutingDeclarationBounds } from "../src/shared/fold-limits.js";
 
 test("CLI request and response schemas preserve the locked protocol fields", () => {
@@ -355,12 +359,12 @@ test("Routing help's complete authoring example passes the real proposal validat
 test("help collaborate's worked example parses through the real act parser", () => {
   const help = workFoldCliHelp("work-fold", "collaborate");
   const example = help.split("\n").filter((line) => line.startsWith("  $ work-fold "));
-  // send -> wait -> answer -> wait -> report -> requests show: the whole F27
+  // send -> wait -> answer -> report -> wait -> requests show: the whole F27
   // round trip, so a flag spelled one way in help and another in the parser
   // fails here instead of in someone's terminal.
   assert.equal(example.length, 6);
-  const parsed = example.map((line) => {
-    const argv = exampleArgv(line.slice("  $ work-fold ".length));
+  const argvs = example.map((line) => exampleArgv(line.slice("  $ work-fold ".length)));
+  const parsed = argvs.map((argv) => {
     if (argv[0] === "chat" && argv[1] === "wait") {
       // The wait loop runs inside the installed shim, not the host, so the
       // host parser refuses it on purpose and says where it lives.
@@ -369,7 +373,22 @@ test("help collaborate's worked example parses through the real act parser", () 
     }
     return parseWorkFoldCliActArgv(argv).name;
   });
-  assert.deepEqual(parsed, ["chat.send", "chat.wait", "chat.answer", "chat.wait", "chat.report", "requests.show"]);
+  assert.deepEqual(parsed, ["chat.send", "chat.wait", "chat.answer", "chat.report", "chat.wait", "requests.show"]);
+  // The lineage has to be runnable, not only parseable. An answer starts a
+  // NEW turn, so the report and the wait that follow it must not reuse the
+  // task id from the wait that came before it: the host refuses an older
+  // turn's id ("use the turn that is running now").
+  const taskOf = (argv: string[]): string | undefined => argv[argv.indexOf("--task") + 1];
+  const askedTask = taskOf(argvs[1]!);
+  assert.ok(askedTask);
+  for (const index of [3, 4]) {
+    assert.notEqual(taskOf(argvs[index]!), askedTask, "the continuation is its own turn, with its own task id");
+  }
+  assert.equal(taskOf(argvs[3]!), taskOf(argvs[4]!), "the report and the wait after it follow the same continuation");
+  // The example ids are the shapes the host actually mints, so an agent
+  // copying the shape does not build ids every verb rejects.
+  assert.match(argvs[2]![argvs[2]!.indexOf("--question") + 1]!, workFoldQuestionIdPattern);
+  assert.match(argvs[5]![argvs[5]!.indexOf("--request") + 1]!, workFoldRequestIdPattern);
   // The topic documents every verb the contract lists, in the contract's own
   // spelling, so an agent reading help sees the shape the parser accepts.
   for (const spelled of [

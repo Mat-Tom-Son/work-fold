@@ -93,7 +93,11 @@ be hidden by churn.
 `request-question` (one item per **open question** on a request whose
 respondent is the person, not one item per request phase — a request with
 two open questions contributes two items, and a question addressed to its
-parent Assistant belongs to that parent and never appears here),
+parent Assistant belongs to that parent and never appears here; one older
+form survives beside it, and only there: a **settled management request**
+whose own closing reply ends in a question mark contributes one item with no
+question id, because that question was asked in prose and was never
+recorded),
 `chat-question` (a Space Chat whose newest transcript message carries a
 recorded follow-up prompt, while Active and not running; it clears when the
 person replies, never merely because it was looked at), and `due-snooze`.
