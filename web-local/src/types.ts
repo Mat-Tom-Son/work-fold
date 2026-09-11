@@ -513,10 +513,10 @@ export interface RestrictedAppAutomation {
 }
 
 /**
- * The reviewed viewer surface for "an app at your address"
+ * The declared viewer surface for "an app at your address"
  * (docs/fold-publishing.md, rung 3): `entry` is the packaged document served
  * to link holders, `readable` the exact instance-owned collections viewers
- * may read. Reviewed, so it appears in review copy and the install decision.
+ * may read. Declared in the manifest, so it appears in the app's install copy.
  */
 export interface RestrictedAppViewerDeclaration {
   entry: string;

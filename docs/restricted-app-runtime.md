@@ -34,7 +34,13 @@ cannot confer identity or authority in work-fold.
 
 Apps may also declare [named Assistant requests](app-assistant-tasks.md).
 A request journals and starts its ordinary Space Chat in the same call; the
-caller can read only its own request's state and bounded reply.
+caller can read only its own request's state and bounded reply. The same
+document carries `assistant.infer`, the bounded model call with no tools and
+no transcript. Neither needs a grant beyond installation and both leave
+receipts naming the effective model and its usage; active views, workers
+holding a tool action, and named automation runs reach `assistant.request`,
+views and workers reach `assistant.infer`, and viewers and remote app views
+reach neither.
 
 `agent-app.json` is strict and versioned. It declares:
 
@@ -58,10 +64,10 @@ caller can read only its own request's state and bounded reply.
   instance-owned storage key prefixes viewers may read. The desktop viewer
   adapter refuses every read outside that declaration and every write, action,
   network, connection, notification, file, automation, OAuth, or host-UI call
-  regardless of it; exposure itself is a separate needs-you decision recorded
+  regardless of it; exposure itself is a separate receipted share recorded
   in [the fold](fold.md), and a reviewed update that widens the viewer surface
-  or changes the entry stages a fresh one. Declaring `viewer` grants nothing by
-  itself.
+  or changes the entry records a fresh exposure receipt. Declaring `viewer`
+  grants nothing by itself.
 
 Public destinations use `{ "kind": "public-https", "origin": "https://api.example.com" }`.
 Local development services use an explicit numeric target such as
@@ -152,17 +158,17 @@ service. work-fold does not launch or trust that developer process.
 
 ## Visible app host
 
-Approved browsers can separately open the reviewed `viewer` entry as a private
+Paired browsers can separately open the reviewed `viewer` entry as a private
 read-only view, including a Development preview. The declaration alone does
 not publish anything. That browser host uses two opaque frames and the same
 selected-data read implementation behind an exact-installation adapter; it
 exposes no native runtime, write, network, file, Check or Assistant authority.
-See [Space apps in approved browsers](fold-browser-apps.md).
+See [Space apps in paired browsers](fold-browser-apps.md).
 
 The trusted work-fold renderer owns only a placeholder rectangle and app
 identity. Electron main verifies the installed Runtime Instance, Feature
 Installation, exact revision, and seven-domain Authority Stamp, snapshots the
-staged package, and mounts a `WebContentsView` in the main window. Every mount
+installed package, and mounts a `WebContentsView` in the main window. Every mount
 gets a separate ephemeral session and origin.
 
 The view has Chromium sandboxing and context isolation enabled, with Node,
@@ -236,7 +242,7 @@ digest for grants, connections, automations, data operations, build provenance
 and changes. Domain controls also accept older unpinned callers only when the
 Space/app selector resolves uniquely; an ambiguous selector never chooses the
 first record. CLI `--app` accepts either a unique manifest id or an exact
-Feature Installation id, and resolved CLI/staged actions retain that pin through
+Feature Installation id, and resolved CLI actions retain that pin through
 execution. A stale removal reports nothing removed; other stale controls refuse
 to operate on a same-byte reinstall. Assistant tool names include a hash of the
 installation and complete tool name, keeping sibling actions distinct even when
@@ -275,8 +281,8 @@ for the latest missed occurrence after startup or resume; `"none"` skips missed
 occurrences. `overlap` is currently fixed to `"skip"`.
 
 One machine-wide `WorkFoldAutomationService` owns scheduling across every
-Space and restricted app. It uses a FIFO queue, at most two active jobs, and
-never overlaps the same named job. Scheduled, manual, skipped, cancelled, and
+Space and restricted app. It uses a FIFO queue, at most four active jobs by
+default (a generous bound, not a cap), and never overlaps the same named job. Scheduled, manual, skipped, cancelled, and
 failed attempts produce durable run receipts. The cadence anchor is persisted
 separately from one-off manual runs, so **Run now** does not shift the next
 scheduled occurrence. A manual run is allowed while its schedule is disabled,
@@ -341,7 +347,8 @@ Installation owner. The default limits are 5 MiB, 512 keys, 128 KiB per value,
 and bounded atomic transactions with revision checks. Legacy Workspace storage
 is never opened or adopted. Data created by work-fold survives renderer
 replacement and reviewed updates and is never
-placed in the Space. Removing a Development preview purges its namespace.
+placed in the Space. Removing a Development preview purges its namespace after
+a complete copy has been written into Recently deleted.
 Uninstalling a release-backed App Instance instead requires an explicit
 retain-or-purge choice: retained data loses all live Feature authority and can
 be purged later from App Studio. Removing either a source or target Space is
@@ -399,7 +406,7 @@ carries by declaration id, a chosen file root carries when the declaration is
 unchanged, automation states carry by id, run receipts carry (labelled with
 the revision they ran under), and connections carry only for destinations
 whose declaration is byte-identical. Removing or updating an app stops its UI
-views and worker before changing staged bytes.
+views and worker before changing installed bytes.
 
 App Studio is a separate Space-bound work tab for moving reviewed previews into
 the local release-backed lane. The shipped lifecycle is:
@@ -427,8 +434,9 @@ the local release-backed lane. The shipped lifecycle is:
    receipts across changed content; **reset** is the person's explicit choice
    to start over with the install defaults.
 6. Uninstall the whole App Instance with an explicit data disposition. Purge
-   queues namespace deletion; retain detaches the namespace from all execution
-   and exposes a later explicit purge action. Project source and separately
+   first writes a complete data copy into Recently deleted, then queues
+   namespace deletion; retain detaches the namespace from all execution and
+   exposes a later explicit purge action, which makes its own copy. Project source and separately
    selected ordinary Space files are never deleted.
 7. Delete an individual Release only after it is unused. The host refuses while
    an active App Instance, either side of a prepared install/update/rollback, or
@@ -455,7 +463,7 @@ The canonical Release store has a four-GiB aggregate byte quota in addition to
 per-envelope and object-count bounds. A new put measures owned regular-file
 bytes before it creates the digest directory; retrying an already verified
 digest stays idempotent even at the quota. Startup verifies every closed object
-once, passes compact verified projections into registry and staged-package
+once, passes compact verified projections into registry and installed-package
 validation before pruning orphans, and rechecks filesystem snapshots around the
 deletion boundary. Directory enumeration stops at the declared object bounds.
 After validation, a transient physical lock on an orphan is recorded as pending
@@ -494,8 +502,9 @@ worst-case terminal receipt, so a successful admission cannot create a result
 that the persistence format has no room to record.
 
 Update, removal, and permitted Space-removal registry transitions durably record every
-required credential, storage, and staged-package cleanup before making the old
-authority unreachable. Cleanup is idempotent and retried at startup and before
+required credential, storage, and package cleanup before making the old
+authority unreachable. Every path that purges data writes its recovery copy
+into Recently deleted first ([App data export and recovery](app-data-recovery.md)). Cleanup is idempotent and retried at startup and before
 later mutations. A cleanup failure therefore cannot reactivate an installation
 or make an already-committed authority change appear to have failed.
 
@@ -549,9 +558,12 @@ Optional reviewed Check-result slots map to machine-local exact Check id/digest
 selections on a Feature Installation. Their changes advance grant authority and
 stop stale views; the broker rechecks the native sender and its current effect
 lease after re-verification. A runtime request contains only a permission id.
-Workers and shared viewers have no Check-result lane. Installation starts with
-no selections; changed revisions reset them and exact unchanged release updates
-may retain them through the visible continuity plan. The existing Check service
+Workers and shared viewers have no Check-result lane. Installation binds a
+declared slot automatically when the owning Space has exactly one Check, and
+otherwise grants the slot and reports it as still needing the person's pick
+([Receipts, not gates](receipts-not-gates.md), F21); changed revisions reset
+the binding and exact unchanged release updates may retain it through the
+visible continuity plan. The existing Check service
 owns the bounded projection and never runs a sensor while reading. See
 [the authoring contract](restricted-app-authoring.md#selected-check-results).
 

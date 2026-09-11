@@ -692,7 +692,7 @@ body.drawer-locked { overflow: hidden; }
 .stop-icon { width: 18px; height: 18px; fill: currentColor; }
 .message.streaming .message-body::after { content: ""; display: inline-block; width: 2px; height: 1em; margin-left: 3px; vertical-align: -.12em; border-radius: 2px; background: var(--accent); animation: work-pulse 1s ease-in-out infinite; }
 .live-reply-limit { margin-top: 8px; color: var(--muted); font-size: 11px; }
-/* --- Needs you: decision cards, the questions from chats, the glance ------ */
+/* --- Needs you: the questions from chats and the glance ------------------ */
 
 .fold-home { display: grid; gap: 20px; margin: 0 0 22px; }
 .glance { display: grid; gap: 7px; }

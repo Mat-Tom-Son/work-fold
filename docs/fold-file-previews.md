@@ -1,9 +1,9 @@
 # File previews in the fold browser
 
-An approved browser can open a file from a Space's Files tree, a copied-file
+A paired browser can open a file from a Space's Files tree, a copied-file
 receipt, or a completed child task in the current fold request. The dialog shows the Space and relative path, with
-Close and Refresh. Review links open the exact staged decision in Needs you.
-Links come from host receipts, not inferred filenames in Assistant prose.
+Close and Refresh. Links come from host receipts, not inferred filenames in
+Assistant prose.
 
 Child-task links come from differences between the turn's full pre/post History
 checkpoints. The bounded machine-local turn journal retains checkpoint ids and
@@ -18,7 +18,7 @@ request archive. Another browser's aggregate task summary receives no paths.
 
 `spaces.list` advertises `capabilities.filePreview`; only a desktop with that
 capability receives `spaces.filePreview` with explicit `spaceId` and `path`.
-This is an approved-browser read through the existing signed encrypted lane.
+This is a paired-browser read through the existing signed encrypted lane.
 It neither publishes a file nor attaches it to a Chat, invokes a model, grants
 an app access, or changes the conversation target. Shared viewers cannot call
 it or load the management client.
@@ -40,6 +40,6 @@ asserting the file will remain unchanged.
 The browser keeps preview contents in memory, clears them on close, sign-out
 and detected disconnection, and rejects responses belonging to an older view.
 Reconnect asks for Refresh instead of silently replaying a read. These controls
-cannot erase a copy already seen or saved by an approved browser. No preview
+cannot erase a copy already seen or saved by a paired browser. No preview
 content is persisted at the bridge; existing bounded encrypted response handling
 and the hosted-client trust boundary still apply.

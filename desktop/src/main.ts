@@ -734,10 +734,10 @@ async function promptRemoteBrowserPairing(pairing: RemotePairingPrompt): Promise
   const unverifiedBrowserLabel = JSON.stringify(pairing.label);
   const options = {
     type: "question" as const,
-    title: "Approve remote browser",
-    message: "Approve this remote browser?",
+    title: "Confirm remote browser",
+    message: "Pair this remote browser?",
     detail: `Unverified browser-supplied label: ${unverifiedBrowserLabel}\n\nConfirm that this code also appears in the browser:\n\n${pairing.code}\n\nThis is a full-trust grant. The browser can ask work-fold to read or change files your account can access and run commands on this computer. Revoke it immediately if you do not recognize it.`,
-    buttons: ["Approve browser", "Decline"],
+    buttons: ["Pair browser", "Decline"],
     defaultId: 0,
     cancelId: 1,
     noLink: true,

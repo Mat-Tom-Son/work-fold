@@ -424,7 +424,7 @@ export class BridgeDatabase {
       [session.accountId, browserId, session.grantGeneration],
     );
     const grant = result.rows[0];
-    if (!grant) throw new BridgeDatabaseError("pairing_required", "Approve this browser from the work-fold desktop app.");
+    if (!grant) throw new BridgeDatabaseError("pairing_required", "Pair this browser from the work-fold desktop app.");
     const proof = canonicalizeJson({
       type: "work-fold.browser-bind.v1",
       accountId: session.accountId,
@@ -432,7 +432,7 @@ export class BridgeDatabase {
       challenge: session.loginChallenge,
     });
     if (!verifyP1363(grant.signing_public_jwk, proof, signature)) {
-      throw new BridgeDatabaseError("unauthorized", "This browser could not prove its approved identity.");
+      throw new BridgeDatabaseError("unauthorized", "This browser could not prove its paired identity.");
     }
     await this.#pool.query(
       "UPDATE bridge_sessions SET browser_grant_id = $1, login_challenge = $2 WHERE token_hash = $3",
@@ -468,7 +468,7 @@ export class BridgeDatabase {
       [session.accountId],
     );
     if (Number(pending.rows[0]?.count ?? 0) >= 10) {
-      throw new BridgeDatabaseError("pairing_limit", "Too many browser approvals are pending. Wait for one to expire or finish it first.");
+      throw new BridgeDatabaseError("pairing_limit", "Too many browser pairings are waiting. Finish one or wait for it to time out.");
     }
     await this.#pool.query("UPDATE bridge_pairings SET status = 'expired' WHERE session_token_hash = $1 AND status = 'pending'", [tokenHash(token)]);
     await this.#pool.query(
@@ -508,7 +508,7 @@ export class BridgeDatabase {
         [pairingId, account.id],
       );
       const pairing = result.rows[0];
-      if (!pairing) throw new BridgeDatabaseError("not_found", "That browser approval has expired.");
+      if (!pairing) throw new BridgeDatabaseError("not_found", "That browser pairing is no longer waiting.");
       if (!approved) {
         await client.query("UPDATE bridge_pairings SET status = 'declined', decided_at = NOW() WHERE id = $1", [pairingId]);
         await client.query("COMMIT");
@@ -516,7 +516,7 @@ export class BridgeDatabase {
       }
       assertApprovalCertificate(account, pairing, certificate);
       if (!verifyP1363(account.deviceSigningPublicJwk, canonicalizeJson(certificate), signature)) {
-        throw new BridgeDatabaseError("invalid_signature", "The desktop approval signature is invalid.");
+        throw new BridgeDatabaseError("invalid_signature", "The pairing signature from the desktop is invalid.");
       }
       const previous = await client.query(
         "SELECT id FROM bridge_browser_grants WHERE account_id = $1 AND browser_id = $2 FOR UPDATE",
@@ -613,7 +613,7 @@ export class BridgeDatabase {
   async acceptOperation(session, { requestId, operation, generation }, { recover = false } = {}) {
     if (!session?.browserGrantId || session.grantStatus !== "approved"
       || session.browserGrantGeneration !== session.grantGeneration || String(generation) !== String(session.grantGeneration)) {
-      throw new BridgeDatabaseError("pairing_required", "Approve this browser from the work-fold desktop app.");
+      throw new BridgeDatabaseError("pairing_required", "Pair this browser from the work-fold desktop app.");
     }
     assertStableId(requestId, "request id", 128);
     const id = randomUUID();
@@ -1035,10 +1035,10 @@ function assertApprovalCertificate(account, pairing, certificate) {
   };
   assertStableId(certificate?.grantId, "grant id", 128);
   if (typeof certificate?.approvedAt !== "string" || !Number.isFinite(Date.parse(certificate.approvedAt))) {
-    throw new BridgeDatabaseError("invalid_certificate", "The desktop approval certificate is invalid.");
+    throw new BridgeDatabaseError("invalid_certificate", "The pairing record from the desktop is invalid.");
   }
   if (canonicalizeJson(certificate) !== canonicalizeJson(expected)) {
-    throw new BridgeDatabaseError("invalid_certificate", "The desktop approval certificate does not match this browser.");
+    throw new BridgeDatabaseError("invalid_certificate", "The pairing record from the desktop does not match this browser.");
   }
 }
 

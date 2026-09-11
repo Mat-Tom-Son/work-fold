@@ -59,7 +59,7 @@ export function renderLanding(app) {
 
       <section class="landing-web-band" aria-labelledby="web-title"><div class="landing-section landing-web">
         <figure class="landing-phone-shot" data-reveal><img src="/screens/web-phone.png" width="375" height="812" loading="lazy" decoding="async" alt="The fold conversation in a phone browser, with its message composer." /></figure>
-        <div data-reveal><p class="landing-kicker">Optional web access · Private alpha</p><h2 id="web-title">Step away.<br />Stay in the conversation.</h2><p class="landing-body">Continue talking to the fold from an approved browser while your Mac is online. The work still happens on your computer.</p><p class="landing-body">Browser access is optional. You don’t need a work-fold account to use the desktop app.</p></div>
+        <div data-reveal><p class="landing-kicker">Optional web access · Private alpha</p><h2 id="web-title">Step away.<br />Stay in the conversation.</h2><p class="landing-body">Continue talking to the fold from a paired browser while your Mac is online. The work still happens on your computer.</p><p class="landing-body">Browser access is optional. You don’t need a work-fold account to use the desktop app.</p></div>
       </div></section>
 
       <section class="landing-section landing-start" aria-labelledby="start-title">

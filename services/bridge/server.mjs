@@ -238,7 +238,7 @@ async function handleRequest(state, request, response) {
 
   // The pages-* labels are the publishing ladder's viewer plane. They are
   // diverted before any personal-slug resolution so the management client,
-  // its sign-in, its cookies, and approved-browser keys can never co-locate
+  // its sign-in, its cookies, and paired-browser keys can never co-locate
   // with published viewer content on one origin.
   if (viewerPlaneHost(state, request) !== null) return handleViewerRequest(state, request, response, url, method);
 
@@ -350,12 +350,12 @@ async function handleRequest(state, request, response) {
     await state.database.assertCsrf(session, request.headers["x-work-fold-csrf"]);
     enforceRateLimit(state.rateLimits, `pairing:${session.accountId}`, 12, 15 * 60_000);
     enforceRateLimit(state.rateLimits, `pair:${account.id}:${clientIp(state, request)}`, 10, 60 * 60_000);
-    if (!state.devices.has(account.id)) throw httpError(409, "Your work-fold desktop must be online to approve this browser.");
+    if (!state.devices.has(account.id)) throw httpError(409, "Your work-fold desktop must be online to pair this browser.");
     const body = await readJsonBody(request, maximumJsonBodyBytes);
     const pairing = await state.database.createPairing(token, body);
     const device = state.devices.get(account.id);
     if (!device || !sendDevice(device.socket, { type: "pairing.request", pairing: devicePairingView(pairing) })) {
-      throw httpError(409, "Your work-fold desktop disconnected before it received the approval request.");
+      throw httpError(409, "Your work-fold desktop disconnected before it received the pairing request.");
     }
     return writeJson(response, 202, { pairing: browserPairingView(pairing) }, method, state, request);
   }
@@ -365,14 +365,14 @@ async function handleRequest(state, request, response) {
     const account = await requestedAccount(state, request, url);
     const { token } = await requireBrowserSession(state, request, account);
     const pairing = await state.database.pairingForSession(token, pairingMatch[1]);
-    if (!pairing) throw httpError(404, "That browser approval is no longer available.");
+    if (!pairing) throw httpError(404, "That browser pairing is no longer available.");
     return writeJson(response, 200, { pairing: browserPairingView(pairing) }, method, state, request);
   }
 
   if (url.pathname === "/api/events" && method === "GET") {
     const account = await requestedAccount(state, request, url);
     const { session } = await requireBrowserSession(state, request, account);
-    if (!validPairedSession(session)) throw httpError(403, "Approve this browser from the work-fold desktop app.");
+    if (!validPairedSession(session)) throw httpError(403, "Pair this browser from the work-fold desktop app.");
     return openEventStream(state, request, response, session.browserGrantId, account.id);
   }
 
@@ -381,7 +381,7 @@ async function handleRequest(state, request, response) {
     const account = await requestedAccount(state, request, url);
     const { session } = await requireBrowserSession(state, request, account);
     await state.database.assertCsrf(session, request.headers["x-work-fold-csrf"]);
-    if (!validPairedSession(session)) throw httpError(403, "Approve this browser from the work-fold desktop app.");
+    if (!validPairedSession(session)) throw httpError(403, "Pair this browser from the work-fold desktop app.");
     // One person's session at the hosted client's decimated refresh cadence
     // peaks near half this budget; the rest is headroom for sends, uploads,
     // decisions, resume bursts, and a second open tab sharing the session.
@@ -1690,7 +1690,7 @@ async function servePublicFile(state, request, pathname, response, method) {
       "content-type": contentType(candidate),
       "content-length": body.length,
       // These private-alpha assets are not fingerprinted. Revalidate them so a
-      // bridge rollout cannot leave an approved browser on stale client code.
+      // bridge rollout cannot leave a paired browser on stale client code.
       "cache-control": candidate.endsWith("index.html") ? "no-store" : "no-cache",
       ...securityHeaders(state, request),
       ...(requested === "browser-app-frame.html" ? {

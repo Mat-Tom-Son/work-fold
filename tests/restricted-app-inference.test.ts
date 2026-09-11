@@ -176,7 +176,10 @@ test("the machine-wide running cap holds across installations", async (t) => {
   const second = [f.service.infer(other, "view", { instructions: "Hold", input: "x" }), f.service.infer(other, "view", { instructions: "Hold", input: "x" })];
   await waitUntil(() => f.service.occupancy(other.featureInstallationId).waiting === 1);
   assert.deepEqual(f.service.occupancy(other.featureInstallationId), { running: 1, waiting: 1 });
-  assert.equal(f.calls.length, 3);
+  // The admitted call reaches the model only after its journal line lands.
+  await waitUntil(() => f.calls.length === 3, "the third admitted call never reached the model");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(f.calls.length, 3, "the waiting call must not start above the machine-wide cap");
   for (const settle of f.held.splice(0)) settle({ kind: "text", text: "done", truncated: false, model, usage: { inputTokens: 1, outputTokens: 1 } });
   await waitUntil(() => f.calls.length === 4);
   for (const settle of f.held.splice(0)) settle({ kind: "text", text: "done", truncated: false, model, usage: { inputTokens: 1, outputTokens: 1 } });

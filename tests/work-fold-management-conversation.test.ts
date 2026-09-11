@@ -88,67 +88,60 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /tools import-skill --scope personal\|space/);
     assert.match(managementContext, /apps release publish --space <id> --release <digest>/);
     assert.match(managementContext, /a local state transition — nothing is uploaded, hosted, or granted/);
-    assert.match(managementContext, /apps uninstall .* --purge-data.* stages a decision/);
+    assert.match(managementContext, /apps uninstall --space <id> --instance <id> --retain-data\|--purge-data/);
+    assert.match(managementContext, /The disposition flag is never defaulted/);
     assert.match(managementContext, /pages stage --space <id> --path "<space-path>" --title/);
     assert.match(managementContext, /pages status --publication <id>/);
     assert.match(managementContext, /pages narrow --publication <id> --serve-rate <per-minute>\|--byte-budget <bytes-per-day>/);
     assert.match(managementContext, /pages snapshot-off --publication <id>/);
-    assert.match(managementContext, /Widening back — re-exposing, raising a budget, turning snapshot on — is a fresh staged `pages stage`\./);
+    assert.match(managementContext, /Widening back — re-exposing, raising a budget, turning snapshot on — is a fresh `pages stage` with its own receipt\./);
     // Hosted-app exposure (docs/fold-publishing.md, rung 3) rides the same
-    // pages family: `pages stage-app` stages the decision, `--instance`
-    // accepts either installed-instance id, the pins resolve host-side from
-    // the reviewed manifest, one instance holds one exposure, and apps have
-    // no snapshot lane — asleep is the only offline state.
+    // pages family: `pages stage-app` shares on the call, `--instance` accepts
+    // either installed-instance id, the pins resolve host-side from the app's
+    // declared manifest, one instance holds one exposure, and apps have no
+    // snapshot lane — asleep is the only offline state.
     assert.match(managementContext, /pages stage-app --space <id> --instance <id>/);
     assert.match(managementContext, /accepts the App Instance id or, like `apps uninstall`, the Runtime Instance id/);
-    assert.match(managementContext, /resolve host-side from the reviewed manifest, never from your flags/);
+    assert.match(managementContext, /resolve host-side from the app's declared manifest, never from your flags/);
     assert.match(managementContext, /An instance holds at most one exposure/);
-    assert.match(managementContext, /re-exposing after a revoke is a fresh staged `pages stage-app`/);
+    assert.match(managementContext, /re-exposing after a revoke is a fresh `pages stage-app`/);
     assert.match(managementContext, /Apps take no `--snapshot` — an offline desktop is an honestly asleep app/);
-    // Staging `pages stage-app` joins the widen-power family list verbatim.
-    assert.match(managementContext, /`pages stage`, `pages stage-app`\)/);
-    // Publishing top-up (docs/fold-publishing.md): outward exposure is never
-    // policy-eligible, publication problems reach the person as glance change
-    // items with the precise reason, and Settings → The fold holds the
-    // person's own direct controls — the share link never rides the fold's
-    // lane.
-    assert.match(managementContext, /Standing policies never match outward exposure/);
+    // Publishing top-up (docs/fold-publishing.md): publication problems reach
+    // the person as glance change items with the precise reason, and
+    // Settings → The fold holds the person's own direct controls — the share
+    // link never rides the fold's lane.
     assert.match(managementContext, /Page problems surface through the glance/);
     assert.match(managementContext, /Share links are revealed only in Settings → The fold/);
     assert.match(managementContext, /never enter this lane's output or receipts/);
     assert.match(managementContext, /manage glance --json/);
-    // Staging etiquette (docs/fold-consecrations.md): every consequential
-    // act stages, then the response distinguishes Reviewed waiting, policy,
-    // and Unrestricted host execution. Setup-only authority stays local.
-    assert.match(managementContext, /Invoking one always returns a decision id/);
-    assert.match(managementContext, /staged\.autoApproval\.basis/);
-    assert.match(managementContext, /Expiry \(24 hours\) applies only to work that remains staged/);
-    assert.match(managementContext, /Denial is recorded, not retried\./);
-    assert.match(managementContext, /staged list --json/);
-    assert.match(managementContext, /staged show --id <id>/);
-    assert.match(managementContext, /staged cancel --id <id>/);
-    assert.match(managementContext, /Setup and root-authority controls have no act verb/);
-    assert.match(managementContext, /Reviewed\/Unrestricted selector/);
-    assert.match(managementContext, /cite policies/);
+    // Receipts, not gates (docs/receipts-not-gates.md, F19–F24): every verb
+    // runs on the first call and returns a receipt, destruction is reversible
+    // through History or Recently deleted, limits are named rather than
+    // hidden, needs-you is a question, and the setup surfaces have no verb.
+    assert.match(managementContext, /## Receipts, not gates/);
+    assert.match(managementContext, /Every verb runs on the first call and returns a receipt\./);
+    assert.match(managementContext, /Every destruction is reversible\./);
+    assert.match(managementContext, /moves into Recently deleted/);
+    assert.match(managementContext, /trash list --json/);
+    assert.match(managementContext, /trash restore --entry <id>/);
+    assert.match(managementContext, /30 days by default/);
+    assert.match(managementContext, /no verb empties Recently deleted early/);
+    assert.match(managementContext, /Limits are defaults, not gates\./);
+    assert.match(managementContext, /Needs you means a question\./);
+    assert.match(managementContext, /Setup stays with the person\./);
     assert.match(managementContext, /never gather, accept, or relay credentials/);
-    // Standing-policy top-up (docs/fold-consecrations.md §Standing policies):
-    // an exercised policy is reported from `staged.autoApproval`, and policy
-    // authoring exists only in Settings → The fold — the fold cites policies
-    // and must never claim it can write one.
-    assert.match(managementContext, /staged\.autoApproval/);
-    assert.match(managementContext, /person authored in Settings → The fold/);
-    assert.match(managementContext, /You may cite policies, never write them/);
-    // Approved remote browsers inherit the machine mode but cannot select it;
-    // automatic receipts preserve the initiating browser/grant identity.
-    assert.match(managementContext, /approved browsers inherit the desktop's setting/);
-    assert.match(managementContext, /surface `unrestricted` plus that browser and grant identity/);
-    assert.match(managementContext, /The browser cannot change the mode/);
-    // File grants keep reviewed folder choice and make the whole-Space scope
-    // explicit under Unrestricted.
-    assert.match(managementContext, /Reviewed-mode card/);
-    assert.match(managementContext, /Unrestricted mode deliberately grants the whole Space/);
+    // Reversible destruction reaches the file and Space verbs themselves.
+    assert.match(managementContext, /`files delete` always succeeds/);
+    assert.match(managementContext, /moves its folder into Recently deleted/);
+    // Apps come up able to work (F21) and are usable as tools (F22 lineage).
+    assert.match(managementContext, /Space apps come up able to work\./);
+    assert.match(managementContext, /a folder permission covers the whole Space/);
+    assert.match(managementContext, /apps list --space <id> --json/);
+    assert.match(managementContext, /apps invoke --space <id> --app <id> --tool <name> --input/);
+    assert.match(managementContext, /leave a copy in Recently deleted before removing live data/);
     // Help topics exist now, and the instructions cite them.
     assert.match(managementContext, /work-fold help <family>/);
+    assert.match(managementContext, /help trash/);
     // Routings: inert proposals, direct receipted enablement, the closed
     // placeholder set and the fold step, one-time v2 deferral, and no
     // cross-Space execution inside a portable Space Chat.
@@ -161,12 +154,14 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /routings enable --proposal/);
     assert.match(managementContext, /enabling the same declaration again changes nothing/);
     assert.match(managementContext, /Use version 4 for placeholders or a fold step/);
+    assert.match(managementContext, /Up to 16 ordered steps use four kinds/);
     assert.match(managementContext, /\{\{trigger\.summary\}\}/);
     assert.match(managementContext, /a message into a new thread of this management conversation/);
     assert.match(managementContext, /Anything else inside `\{\{ \}\}` is refused when you enable/);
     assert.match(managementContext, /routings show --routing <id>/);
     assert.match(managementContext, /routings receipts \[--routing <id>\]/);
     assert.match(managementContext, /routings sit above Spaces and take no `--space`/);
+    assert.match(managementContext, /Up to 8 routings run at once/);
     assert.match(managementContext, /A pure reminder performs no future Assistant work/);
     assert.match(managementContext, /For deferred work, resolve an unambiguous absolute time/);
     assert.match(managementContext, /finish the current turn/);
@@ -179,20 +174,36 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /never present a truncated section as complete/);
     assert.match(managementContext, /narration never advances a marker/);
     // Seen markers are per-surface — popover, main window, and one marker per
-    // approved remote browser grant — and narration advances none of them.
+    // paired remote browser grant — and narration advances none of them.
     assert.match(managementContext, /remote:<grantId>/);
     assert.match(managementContext, /not the popover's, not the main window's, not any remote grant's/);
     assert.match(managementContext, /Narration is on demand only\./);
-    // Report discipline covers every staged outcome without losing attachment
-    // accounting or the question-on-final-line rule.
-    assert.match(managementContext, /Read each staging result/);
+    // Needs-you is a question list, never work waiting to be let through (F24).
+    assert.match(managementContext, /needs-you items \(questions, due snoozes, and requests waiting on the person's answer\)/);
+    // Report discipline reads receipts and restore paths without losing
+    // attachment accounting or the question-on-final-line rule.
+    assert.match(managementContext, /Read each receipt before reporting/);
+    assert.match(managementContext, /say whether History or Recently deleted holds it/);
     assert.match(managementContext, /Account for every attached item by name/);
     assert.match(managementContext, /own final line ending with a question mark/);
+    // The fold is never taught a gate vocabulary (docs/receipts-not-gates.md
+    // acceptance: no user-facing copy says staged, approve, policy, Reviewed,
+    // or Unrestricted).
+    assert.doesNotMatch(
+      managementContext,
+      /\bstaged\b|\bstaging\b|standing polic|\bpolic(y|ies)\b|\bReviewed\b|\bUnrestricted\b|approv|\bdenial\b|\bdenied\b|decision id|autoApproval|needs-you card|\bcards?\b/i,
+      "the fold is never taught a gate vocabulary",
+    );
 
     // The manage-spaces Skill teaches the same surface and etiquette.
     const skillContent = await readFile(join(managementRoot, ".pi", "skills", "manage-spaces", "SKILL.md"), "utf8");
-    assert.match(skillContent, /Staged decision path:/);
-    assert.match(skillContent, /inspect `staged\.state` and `staged\.autoApproval`/);
+    assert.match(skillContent, /Every verb runs on the first call and returns a receipt/);
+    assert.match(skillContent, /## Tools, apps, and pages/);
+    assert.match(skillContent, /Space apps come up able to work/);
+    assert.match(skillContent, /a folder permission covers the whole Space/);
+    assert.match(skillContent, /apps invoke --space <id> --app <id> --tool <name> --input <json>/);
+    assert.match(skillContent, /leave a copy in Recently deleted first/);
+    assert.match(skillContent, /trash restore --entry <id>/);
     assert.match(skillContent, /Setup-only \(no act verb\)/);
     assert.match(skillContent, /Never delegate cross-Space work into a Space Chat/);
     assert.match(skillContent, /work-fold\.routing-proposal/);
@@ -201,34 +212,34 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(skillContent, /1 minute through 366 days ahead/);
     assert.match(skillContent, /routings enable --proposal/);
     assert.match(skillContent, /Version 4 adds the closed placeholder set and the `fold` step/);
+    assert.match(skillContent, /`chat`, `files`, `check`, or `fold`/);
     assert.match(skillContent, /routings list\|show\|run\|stop\|disable\|delete\|receipts/);
     assert.match(skillContent, /A pure reminder does no future Assistant work/);
     assert.match(skillContent, /Deferred work uses a version-2 `at` routing/);
     assert.match(skillContent, /finish the current turn/);
     assert.match(skillContent, /Never busy-wait/);
-    assert.match(skillContent, /enable it, report the receipt/);
+    assert.match(skillContent, /report the receipt/);
     assert.match(skillContent, /a routing's `fold` step is the only way you are ever scheduled/);
     assert.match(skillContent, /Run-now is a copy that does not consume the one-time slot/);
     assert.match(skillContent, /pages status\|revoke\|narrow\|snapshot-off --publication <id>/);
-    // The staged list teaches `pages stage-app` with its boundaries: either
+    // The pages line teaches `pages stage-app` with its boundaries: either
     // instance id, one exposure per instance, and no snapshot lane for apps.
     assert.match(skillContent, /`pages stage-app` \(an installed App Instance at the person's address — `--instance` accepts the App Instance id or the Runtime Instance id, one exposure per instance, and never `--snapshot`: apps have no sleep copy\)/);
     assert.match(skillContent, /manage glance --json/);
     assert.match(skillContent, /files move --space <id>/);
-    assert.match(skillContent, /waiting is not done, while a returned policy or Unrestricted execution outcome is/);
-    // The wave-4 teaching top-ups reach the Skill too: exercised-policy
-    // reporting and authoring boundary, decision surfaces with card-stated
-    // limits and per-grant markers, the file-grant folder choice, publication
-    // problems in the glance, and the help topics.
-    assert.match(skillContent, /staged\.autoApproval/);
-    assert.match(skillContent, /standing-policy authoring, and the root authority mode/);
-    assert.match(skillContent, /every approved browser inherits automatic execution/);
-    assert.match(skillContent, /becomes whole-Space access/);
+    assert.match(skillContent, /Read each receipt: executed is done, failed or refused is not/);
+    // Needs-you, paired-browser seen markers, publication problems in the
+    // glance, and the help topics reach the Skill too.
+    assert.match(skillContent, /never work waiting to be let through/);
     assert.match(skillContent, /remote:<grantId>/);
-    assert.match(skillContent, /main window's Needs-you flyout at decision time/);
     assert.match(skillContent, /glance change items with the precise reason/);
     assert.match(skillContent, /revealed only in Settings → The fold/);
     assert.match(skillContent, /work-fold help <family>/);
+    assert.doesNotMatch(
+      skillContent,
+      /\bstaged\b|\bstaging\b|standing polic|\bpolic(y|ies)\b|\bReviewed\b|\bUnrestricted\b|approv|\bdenial\b|\bdenied\b|decision id|autoApproval|needs-you (card|flyout)|\bcards?\b/i,
+      "the manage-spaces Skill is never taught a gate vocabulary",
+    );
 
     // Before any send there is no conversation to inspect.
     await assert.rejects(

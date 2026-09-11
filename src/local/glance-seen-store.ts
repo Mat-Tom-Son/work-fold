@@ -32,7 +32,7 @@ export interface WorkFoldGlanceSeenAdvanceResult {
   seenThrough: string | null;
 }
 
-/** The two desktop surfaces; approved remote browsers use `remote:<grantId>`. */
+/** The two desktop surfaces; paired remote browsers use `remote:<grantId>`. */
 export const WORKFOLD_GLANCE_BUILTIN_SURFACES = ["popover", "main-window"] as const;
 
 const remoteSurfacePrefix = "remote:";

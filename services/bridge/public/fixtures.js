@@ -163,6 +163,6 @@ export const fixtureAppEntry = `<!doctype html><html><head><meta name="viewport"
 <script>
 let request;
 document.getElementById("read").onclick=async()=>{const quote=await workFoldViewerApp.data.get("quotes:north");document.getElementById("result").textContent=quote.supplier+": $"+quote.unitPrice+" per unit, "+quote.days+" days"};
-document.getElementById("save").onclick=async()=>{request??=workFoldBrowserApp.actions.createRequest("save-quote",{supplier:"North",unitPrice:42,quantity:10});const action=await workFoldBrowserApp.actions.request(request);document.getElementById("result").textContent=action.status==="pending"?"Waiting for your review":action.status};
+document.getElementById("save").onclick=async()=>{request??=workFoldBrowserApp.actions.createRequest("save-quote",{supplier:"North",unitPrice:42,quantity:10});const action=await workFoldBrowserApp.actions.request(request);document.getElementById("result").textContent=action.status==="pending"?"Waiting for you":action.status};
 document.getElementById("status").onclick=async()=>{const action=request?await workFoldBrowserApp.actions.get(request.requestId):(await workFoldBrowserApp.actions.list())[0];document.getElementById("result").textContent=action?JSON.stringify(action):"No request yet"};
 </script></body></html>`;

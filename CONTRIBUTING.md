@@ -98,8 +98,8 @@ Windows packaging remains inactive and does not gate Mac work.
 ## Bugs, security, and license
 
 For a bug, include the app version, OS, expected behavior, actual behavior, and
-a small reproduction with non-private files. Use the
-[security policy](SECURITY.md) for vulnerabilities; keep keys, tokens, personal
+a small reproduction with non-private files. Follow
+[SECURITY.md](SECURITY.md) for vulnerabilities; keep keys, tokens, personal
 paths, and private content out of public reports.
 
 Contributions are distributed under the [MIT License](LICENSE).

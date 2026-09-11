@@ -339,7 +339,7 @@ function RemoteAccessPane() {
           <h3 id="remote-access-title">Your private web address</h3>
           <span className={`remote-access-state ${status?.connection ?? "stopped"}`}>{connectionLabel}</span>
         </div>
-        <p>Private alpha. Your fold — the same conversation your menu bar opens — from any browser you approve. Content is application-encrypted in transit, but the hosted work-fold client is part of the trusted authority boundary.</p>
+        <p>Private alpha. Your fold — the same conversation your menu bar opens — from any browser you pair. Content is application-encrypted in transit, but the hosted work-fold client is part of the trusted authority boundary.</p>
         {status?.url ? <code className="remote-access-url">{status.url}</code> : null}
         <div className="remote-access-actions">
           {status?.configured ? <button className="secondary-button" type="button" disabled={Boolean(busy) || !status.enabled} onClick={() => void run("open", async () => remote.open())}>Open address</button> : null}
@@ -360,14 +360,14 @@ function RemoteAccessPane() {
       </section>
 
       {status?.configured ? (
-        <section className="settings-section" aria-labelledby="approved-browsers-title">
-          <div className="settings-section-heading"><h3 id="approved-browsers-title">Approved browsers</h3><span>{status.approvedBrowsers.length}</span></div>
+        <section className="settings-section" aria-labelledby="paired-browsers-title">
+          <div className="settings-section-heading"><h3 id="paired-browsers-title">Paired browsers</h3><span>{status.approvedBrowsers.length}</span></div>
           <p>{remoteAccessSettings.pairedBrowserTrust}</p>
           {status.approvedBrowsers.length ? <div className="remote-browser-list">{status.approvedBrowsers.map((browser) => (
-            <div className="remote-browser-row" key={browser.id}><div><strong>{browser.label}</strong><small>Approved {new Date(browser.approvedAt).toLocaleDateString()}</small></div><button className="secondary-button" type="button" disabled={Boolean(busy)} onClick={() => void run(`revoke-${browser.id}`, () => remote.revokeBrowser(browser.id))}>Revoke</button></div>
-          ))}</div> : <div className="remote-browser-empty">No browser has been approved yet.</div>}
+            <div className="remote-browser-row" key={browser.id}><div><strong>{browser.label}</strong><small>Paired {new Date(browser.approvedAt).toLocaleDateString()}</small></div><button className="secondary-button" type="button" disabled={Boolean(busy)} onClick={() => void run(`revoke-${browser.id}`, () => remote.revokeBrowser(browser.id))}>Revoke</button></div>
+          ))}</div> : <div className="remote-browser-empty">No browser is paired yet.</div>}
           <div className="remote-access-danger-actions">
-            <button className="secondary-button danger" type="button" disabled={Boolean(busy) || !status.approvedBrowsers.length} onClick={() => { if (window.confirm("Revoke every approved browser? Each one will need desktop approval again.")) void run("revoke-all", () => remote.revokeAll()); }}>Revoke all browsers</button>
+            <button className="secondary-button danger" type="button" disabled={Boolean(busy) || !status.approvedBrowsers.length} onClick={() => { if (window.confirm("Remove every paired browser? Each one has to be paired again from this desktop.")) void run("revoke-all", () => remote.revokeAll()); }}>Remove all browsers</button>
             <button className="secondary-button danger" type="button" disabled={Boolean(busy)} onClick={() => { if (window.confirm("Remove this private address and all web access? This cannot be undone.")) void run("remove", () => remote.remove()); }}>Remove web access</button>
           </div>
         </section>
@@ -383,7 +383,7 @@ interface FoldPublicationView {
   spaceName?: string;
   /** Page slots only: the one designated Space-relative file. */
   relativePath?: string;
-  /** Hosted-app slots only: the consecrated exposure binding. */
+  /** Hosted-app slots only: the pinned exposure binding. */
   app?: {
     appInstanceId: string;
     releaseDigest: string;
@@ -428,8 +428,8 @@ function shortReleaseDigest(value: string): string {
  * transient on-demand composition against the viewer origin, and stop
  * sharing, budget cuts, and snapshot off are direct receipted acts on the
  * renderer session. Widening — a new page, raised budgets, snapshot on —
- * never happens here; it is staged through the fold and decided on a
- * needs-you card.
+ * does not start here; the fold shares a page, and every such change runs at
+ * once and leaves a receipt (docs/receipts-not-gates.md, F19).
  */
 function FoldPublicationsPane() {
   const remote = window.workFoldDesktop?.remoteAccess;

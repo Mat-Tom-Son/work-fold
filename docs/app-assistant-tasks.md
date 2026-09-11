@@ -177,3 +177,12 @@ so it may ask; the person sees what it asked for and what came back. The CLI
 and remote management facade gain no generic Assistant endpoint from this. The
 app bridge gets only request, list, get and cancel; the authenticated renderer
 owns Details, Open Chat and Stop.
+
+Traffic in the other direction has its own verbs: the fold sees an
+installation's declared tools, actions, grants, connections and automations
+with `work-fold apps list --space <id> --json` and calls one with
+`work-fold apps invoke --space <id> --app <id> --tool <name> --input <json>`,
+which runs through the app service with lineage and a receipt
+([Receipts, not gates](receipts-not-gates.md), F22; the verb rows are in the
+[act ledger](fold-act-ledger.md)). That is the fold reaching into an app, not
+an app reaching out of its Space.

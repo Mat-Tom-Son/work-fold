@@ -11,7 +11,7 @@ instruction to implement its contents.
 | Area | Read |
 |---|---|
 | Product and contributor workflow | [Product model](product-model.md), [Contributing](../CONTRIBUTING.md), [Development](development.md), [Architecture](architecture.md) |
-| The fold and authority | [Decision register](fold.md), [Management and CLI](management-layer.md), [Act ledger](fold-act-ledger.md), [Staged decisions and policies](fold-consecrations.md) |
+| The fold and receipts | [Decision register](fold.md), [Receipts, not gates](receipts-not-gates.md), [Management and CLI](management-layer.md), [Act ledger](fold-act-ledger.md), [Consecrations (superseded; threat-model residuals)](fold-consecrations.md) |
 | Checks and automation | [Checks](checks.md), [Routings](fold-routings.md), [The glance](fold-glance.md) |
 | Native Assistant capabilities | [Skills, Extensions, packages, and scopes](assistant-capabilities.md), [Pi resources](pi-resources.md), [Declarative Extension surfaces](extension-surfaces.md) |
 | Restricted Space apps | [Authoring](restricted-app-authoring.md), [Runtime](restricted-app-runtime.md), [App platform foundation](app-platform-foundation.md) |
@@ -55,11 +55,11 @@ viewer pages and app views are a separate shipped capability.
 |---|---|
 | [Checks expansion](checks-expansion.md) | Shipped decisions reconciled with remaining proposals; the Checks register wins |
 | [Next product directions](next-product-directions.md) | Proposed priorities for discussion, not accepted scope |
-| [Assistant collaboration and app AI primitives](assistant-collaboration-plan.md) | Verified 0.4.23 gap assessment and proposed task, result, question, app AI, and action contracts; not accepted scope |
-| [Receipts, not gates](receipts-not-gates.md) | Accepted 2026-09-10 direction: one authority mode, reversible destruction, apps that come up able to work; supersedes F3–F7 and F17 |
+| [Assistant collaboration and app AI primitives](assistant-collaboration-plan.md) | Verified 0.4.23 gap assessment and proposed task, result, question, app AI, and action contracts; amended for wave B by [Receipts, not gates](receipts-not-gates.md) |
+| [Receipts, not gates](receipts-not-gates.md) | Accepted 2026-09-10 direction and the specification the canonical documents now follow: one authority mode, reversible destruction, apps that come up able to work; supersedes F3–F7 and F17, narrows F8, F9, F18 |
 | [App platform exploration](app-platform-exploration.md) | Completed exploration; the accepted foundation wins |
 | [Runtime spike evidence](app-platform-runtime-spike-evidence.md) | Disposable experiment evidence, not production-service proof |
-| [Fold integration](fold-integration.md) | Promotion history and explicitly held decisions |
+| [Fold integration](fold-integration.md) | Promotion history (2026-08-11) with the 2026-09-10 supersessions marked |
 | [Appearance role inventory](customization-role-inventory.md) | Historical CSS census; re-audit current consumers before continuing migration |
 | [T3 Code audit](t3code-reference-audit.md) | Dated reference snapshot, not current product gaps |
 | [Rebrand launch plan](work-fold-rebrand-plan.md) | Historical clean-break launch evidence and original checklist |

@@ -56,11 +56,14 @@ export function isWorkFoldCliActRequest(request: WorkFoldCliBrokeredRequest): re
 /**
  * Dispatches a raw request document to the lane that owns its version.
  * Protocol v1 parsing stays byte-for-byte unchanged; unsupported versions
- * fail with v1's stable "Unsupported CLI protocol version" error.
+ * fail with v1's stable "Unsupported CLI protocol version" error. A request
+ * that declares the act lane at any version is answered by the act parser,
+ * so an older act shim hears the act version error rather than v1's
+ * unsupported-field complaint.
  */
 export function parseWorkFoldCliRequestEnvelope(value: unknown): WorkFoldCliBrokeredRequest {
   const record = objectRecord(value, "CLI request must be a JSON object.");
-  if (record.protocolVersion === WORKFOLD_CLI_ACT_PROTOCOL_VERSION) return parseWorkFoldCliActRequest(record);
+  if (record.protocolVersion === WORKFOLD_CLI_ACT_PROTOCOL_VERSION || record.lane === "act") return parseWorkFoldCliActRequest(record);
   return parseWorkFoldCliRequest(value);
 }
 

@@ -12,6 +12,12 @@ closed source inventory, the section and ordering rules, the marker
 contract, and the non-goals. The promotion record is
 [Fold integration](fold-integration.md).
 
+**Amended 2026-09-10** by [Receipts, not gates](receipts-not-gates.md) (F24):
+**Needs you** carries Assistant questions, due snoozes, and requests waiting
+on a person's answer, and nothing else. Nothing in the digest waits to be
+allowed, so no surface that renders it offers a control that allows an
+action.
+
 The glance is a small digest a person reads in a few seconds: what is
 running right now, what is waiting on them, what changed since they last
 looked, and where Checks stand. It is composed by app code from state the
@@ -42,7 +48,6 @@ product keeps for its own sake. The glance never causes a record to exist.
 | Act receipts | `WorkFoldCliActReceipts` journal (`src/local/cli/act-receipts.ts`) | Durable, rotation-bounded | Terminal `ok`/`error` records: command name, Space id, outcome, checkpoint id, parent task id |
 | Automation run receipts | `RestrictedAppAutomationRunReceipt` in `src/local/agent/restricted-app-service.ts` | Durable registry state | Named job, App Instance, outcome, timestamps |
 | Automation scheduler state | `WorkFoldAutomationService` | In-memory, app run | Active and pending named jobs, feeding "Running now" |
-| Staged acts and pending decisions | `src/local/fold-staged-acts.ts` | Durable | Pending decisions with category, staging surface, and expiry; recorded approvals and denials; policy-store changes |
 | Routing runs | `src/local/routings/routing-store.ts` | Durable | Running and settled routing runs with per-hop outcomes |
 | Viewer grants | `src/local/publications.ts` | Durable | Publication created/revoked events and page health (not-available, resting) |
 
@@ -69,25 +74,23 @@ routing runs. Ordered by `startedAt` ascending (longest-running first),
 tie-broken by id. Cap 16; overflow drops the newest, never the oldest — a
 long-running turn must not be hidden by churn.
 
-**Needs you** — only things structurally waiting on the person:
-`pending-decision` (every staged consecration awaiting its click, with
-category and expiry), `request-question` (management requests in
-`needs_you` phase), `chat-question` (a Space Chat whose newest transcript
-message carries a recorded follow-up prompt, while Active and not running;
-it clears when the person replies, never merely because it was looked at),
-and `due-snooze`. Ordered: pending decisions first by soonest expiry, then
-newest-first. Cap 16; overflow keeps pending decisions over everything else
-— an authority decision outranks a conversational question. A needs-you
-item never disappears because it was seen; only answering, deciding,
-expiry, or revocation removes it.
+**Needs you** — only things structurally waiting on the person's answer:
+`request-question` (management requests in `needs_you` phase),
+`chat-question` (a Space Chat whose newest transcript message carries a
+recorded follow-up prompt, while Active and not running; it clears when the
+person replies, never merely because it was looked at), and `due-snooze`.
+Nothing here is an action waiting to be allowed — needs-you means a question
+(decision F24). Ordered newest-first. Cap 16; overflow keeps the newest and
+states truncation. A needs-you item never disappears because it was seen;
+only answering, resuming, or revocation removes it.
 
 **Since you last looked** — settled and recorded changes, newest first:
 `checkpoint-saved`, `turn-settled`, `request-settled`, `chat-lifecycle`,
-`chat-renamed`, `check-run-settled`, `act-performed`, `decision-recorded`
-(approvals, denials, and expiries — including policy-approved acts, listed
-distinctly), `automation-run-settled`, `routing-run-settled`, and
-`viewer-grant-changed` (including page health: not-available and resting
-reach the person here with the precise reason viewers never see). Bounded
+`chat-renamed`, `check-run-settled`, `act-performed` (every receipted verb,
+including the ones that install code, widen a power, or delete),
+`automation-run-settled`, `routing-run-settled`, `viewer-grant-changed`, and
+`publication-state` (page health: not-available and resting reach the person
+here with the precise reason viewers never see). Bounded
 twice: at most 12 items per kind and 48 total. The `cursor` identifies the
 newest change item as `"<at>/<id>"`; surfaces render items newer than their
 own marker as new and older items quieter, and a **Show earlier**
@@ -109,7 +112,7 @@ and evidence stay in the Space's Checks work tab.
 
 One machine-local record (`glance-seen.json` under the state root,
 `src/local/glance-seen-store.ts`) maps active surface ids — `main-window`
-and `remote:<grantId>`, one marker per approved browser grant so two phones
+and `remote:<grantId>`, one marker per paired browser grant so two phones
 do not clear each other — to the cursor each surface has acknowledged.
 `popover` remains an accepted legacy id so existing state and an older
 renderer cannot corrupt the store, but the current popover neither fetches
@@ -145,17 +148,17 @@ receives push: the digest is pulled when a surface is visible and never
 recomputed in the background for nobody.
 
 **Not the popover.** The compact menu-bar surface is reserved for the live
-conversation, capture, and pending decisions. It has no **What's new**
+conversation and capture. It has no **What's new**
 footer, does not request `GET /api/management/glance`, and never advances a
 glance marker. Removing that presentation does not remove or clear any
 recorded state; the two reading surfaces below compose the same current
 digest when opened.
 
-**The remote client's Needs you screen.** The approved-browser client shows
-the same digest on its **Needs you** screen, below that screen's pending
-decision cards: the digest's needs-you items that are not pending decisions
-list there as **From chats**, then **Running now**, **Since you last
-looked**, and the Checks rows. The digest arrives through the
+**The remote client's Needs you screen.** The paired-browser client shows the
+same digest on its **Needs you** screen: the digest's needs-you questions and
+due snoozes list first as **From chats**, then **Running now**, **Since you
+last looked**, and the Checks rows. That screen carries no control that allows
+an action — there is nothing to allow. The digest arrives through the
 `management.glance`/`management.glanceSeen` operations — signed envelopes,
 no digest content persisted at the bridge, only the requesting grant's own
 marker in the projection, and the serialized digest bounded to 64 KB.
@@ -164,7 +167,7 @@ you** is the visible screen, under the same rendered-digest rule every
 surface follows. Desktop offline means no digest: the client shows its
 honest offline state rather than a stale digest presented as current.
 Viewers never receive the glance — rung 1 of
-[publishing](fold-publishing.md) is deliberately the approved-browser trust
+[publishing](fold-publishing.md) is deliberately the paired-browser trust
 and nothing weaker.
 
 **The main window.** The same digest as a compact panel reachable from the
@@ -230,6 +233,7 @@ The plan items shipped as follows:
 8. Remote surface — `src/local/remote-management.ts`, `desktop/src/remote-access.ts`, `services/bridge/`; `tests/desktop-remote-access.test.ts`, `tests/work-fold-remote-management.test.ts`, the bridge suite.
 9. Main-window panel — `web-local/src/components/chrome/GlancePanel.tsx`; `tests/web-ui-contract.test.ts`, `tests/frontend-interaction-contract.test.ts`.
 10. Documentation promotion — recorded in [Fold integration](fold-integration.md).
+11. Receipts-not-gates (2026-09-10, F24) — needs-you reduced to questions and due snoozes, the removed source and its change kind dropped, the remote screen's allow controls removed — `src/local/glance.ts`, `services/bridge/`; `tests/work-fold-glance.test.ts`, the bridge suite.
 
 ## Deliberately not in this design
 
@@ -238,7 +242,7 @@ The plan items shipped as follows:
   schedule lives in Spaces; above Spaces only declared deterministic glue
   runs unattended, and narration is neither.
 - **A viewer-facing glance.** Viewers are read-only strangers to the
-  management lane; the glance crosses only to approved browsers under the
+  management lane; the glance crosses only to paired browsers under the
   existing full-trust grant.
 - **Marker sync across machines.** Markers are machine-local like every
   other acknowledgement preference; a second computer has its own eyes.

@@ -318,7 +318,7 @@ async function startPairing() {
     return renderAuth({
       eyebrow: "Desktop offline",
       headline: `Open <span class="nobr">work-fold</span> to continue.`,
-      supporting: "The desktop app holds your conversation and approves new browsers.",
+      supporting: "The desktop app holds your conversation and pairs new browsers.",
       panel: `<button id="retry" class="primary">Try again</button>`,
     }, () => {
       const retry = document.querySelector("#retry");
@@ -371,16 +371,16 @@ async function startPairing() {
 
 function renderPairing(error = "") {
   renderAuth({
-    eyebrow: "Approve this browser once",
+    eyebrow: "Confirm this browser once",
     headline: `Match the code in <span class="nobr">work-fold</span>.`,
-    supporting: "After this approval, this browser stays signed in until you revoke it.",
+    supporting: "Once paired, this browser stays signed in until you remove it.",
     panel: `
-      <h2>Approve ${escapeHtml(browserLabel())}</h2>
+      <h2>Confirm ${escapeHtml(browserLabel())}</h2>
       <p>Confirm that the same six digits appear in the desktop prompt.</p>
       <div class="pairing-code" aria-label="Pairing code ${escapeHtml(state.pairingExpectedCode || "")}">${escapeHtml(state.pairingExpectedCode || "")}</div>
       ${error
         ? `<p class="form-error">${escapeHtml(error)}</p><button id="pairing-retry" class="primary" type="button">Try again</button>`
-        : `<div class="pairing-status"><span class="spinner" aria-hidden="true"></span><span>Waiting for approval…</span></div>`}
+        : `<div class="pairing-status"><span class="spinner" aria-hidden="true"></span><span>Waiting for your desktop…</span></div>`}
     `,
   }, () => {
     // A declined, expired, or failed pairing restarts with a fresh code in
@@ -405,7 +405,7 @@ async function pollPairing(pairingId, expectedCode) {
     if (state.pairingExpectedCode !== expectedCode) return;
     state.pairing = result.pairing;
     if (state.pairing.status === "pending") continue;
-    if (state.pairing.status !== "approved") return renderPairing("The desktop did not approve this browser. Refresh to try again.");
+    if (state.pairing.status !== "approved") return renderPairing("Your desktop did not pair this browser. Refresh to try again.");
     try {
       await acceptApproval(state.pairing, pairingId, expectedCode);
       state.session = await api("/api/auth/session");
@@ -424,7 +424,7 @@ async function acceptApproval(pairing, pairingId, expectedCode) {
     || certificate.generation !== state.session.grantGeneration
     || canonicalize(certificate.browserSigningPublicJwk) !== canonicalize(state.identity.signingPublicJwk)
     || canonicalize(certificate.browserEncryptionPublicJwk) !== canonicalize(state.identity.encryptionPublicJwk)) {
-    throw new Error("The desktop approval did not match this browser.");
+    throw new Error("The pairing from your desktop did not match this browser.");
   }
   const certificateCode = await pairingCodeForKeys({
     pairingId: certificate.pairingId,
@@ -432,13 +432,13 @@ async function acceptApproval(pairing, pairingId, expectedCode) {
     signingPublicJwk: certificate.browserSigningPublicJwk,
     encryptionPublicJwk: certificate.browserEncryptionPublicJwk,
   });
-  if (certificateCode !== expectedCode) throw new Error("The desktop approval did not match this browser.");
+  if (certificateCode !== expectedCode) throw new Error("The pairing from your desktop did not match this browser.");
   const valid = await verifyText(
     state.session.deviceSigningPublicJwk,
     canonicalize(certificate),
     pairing.approvalSignature,
   );
-  if (!valid) throw new Error("The desktop approval signature could not be verified.");
+  if (!valid) throw new Error("The pairing signature from your desktop could not be verified.");
   Object.assign(state.identity, {
     grantId: certificate.grantId,
     generation: certificate.generation,
@@ -1329,7 +1329,7 @@ async function sendPrompt() {
 
 function startNewChat() {
   if (state.sending || state.renameSaving) return;
-  // Already staging a new chat elsewhere in the app: this is navigation back
+  // Already opening a new chat elsewhere in the app: this is navigation back
   // to the door, not a second reset that would discard the draft.
   if (state.startingNewChat) {
     showContext("new");
@@ -2173,7 +2173,7 @@ async function receiveRemoteEvent(event) {
 
 async function remote(operation, input = {}, options = {}) {
   if (fixtureName) throw new Error("Fixture preview is inert; nothing is sent.");
-  if (!state.session?.paired || !state.identity?.grantId) throw new Error("This browser is not approved.");
+  if (!state.session?.paired || !state.identity?.grantId) throw new Error("This browser is not paired.");
   if (!state.session.desktopOnline) throw new Error("Your work-fold desktop is offline.");
   const requestId = crypto.randomUUID();
   const header = {
@@ -2453,7 +2453,7 @@ function browserLabel() {
 function browserName() {
   const ua = navigator.userAgent;
   // iOS third-party browsers carry their own tokens (CriOS/FxiOS/EdgiOS) and
-  // would otherwise all read "Safari" in the approval prompt.
+  // would otherwise all read "Safari" in the pairing prompt.
   if (ua.includes("EdgiOS/")) return "Edge";
   if (ua.includes("CriOS/")) return "Chrome";
   if (ua.includes("FxiOS/")) return "Firefox";

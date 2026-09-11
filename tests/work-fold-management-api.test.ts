@@ -486,7 +486,7 @@ test("renderer glance routes serve the digest without management readiness and a
     assert.deepEqual((afterSeen.glance as { seen: Record<string, string> }).seen, { popover: glance.cursor });
 
     // The renderer lane advances only the two desktop surfaces: remote
-    // markers move exclusively through the approved browser's signed
+    // markers move exclusively through the paired browser's signed
     // envelope, and malformed cursors are refused.
     for (const surface of ["remote:grant-1", "cli", 42]) {
       const refused = await postJson(api.origin, "/api/management/glance/seen", {

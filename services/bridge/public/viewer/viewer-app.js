@@ -6,7 +6,7 @@
 // storage, no cookies, and (because CSP 'self' never matches an opaque
 // origin) no network of its own. Every read the app makes rides this shell's
 // postMessage broker, which fetches only the closed viewer routes: the
-// reviewed entry, exact staged assets, and manifest-declared viewer-readable
+// declared entry, exact placed release assets, and manifest-declared viewer-readable
 // data. The desktop refuses everything else; this shell holds no other
 // capability to offer.
 

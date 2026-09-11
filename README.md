@@ -28,6 +28,8 @@ Each **Space** has its own Assistant and conversations. Your files stay ordinary
 
 As a project grows, ask for a custom **app** in its sidebar, add **Checks** to review chosen files, or set up a **routing** to run steps on a schedule or after selected files change. These are optional; start with a folder and a conversation.
 
+What the Assistant does happens right away and leaves a record you can read in the app. Nothing it deletes is gone for good: **History** keeps versions of your files, and anything History cannot keep waits in **Recently deleted** for 30 days. Sharing a page, an app's access, and anything running on a schedule can all be turned off afterwards.
+
 ## Try it
 
 1. [Download work-fold](https://www.work-fold.com/download/macos) for an Apple silicon Mac.

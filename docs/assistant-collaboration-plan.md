@@ -4,7 +4,25 @@
 > **Assessment date:** 2026-09-09.
 > **Source baseline:** `6830942`, package version `0.4.23`, initially clean checkout.
 > This document distinguishes shipped behavior from proposed contracts. It does
-> not amend the product model, F8/F9, root authority, or restricted-app grants.
+> not amend the product model, F8/F9, or restricted-app grants.
+
+> **Amended 2026-09-10** by [Receipts, not gates](receipts-not-gates.md)
+> (§"The collaboration primitives, amended"), which accepts this document as
+> the design for durable requests, typed results, questions, and declared
+> actions and builds it as the second wave, with these changes: no per-action
+> grants for app AI (F22 replaces the bounded-inference grant below with
+> availability at installation); questions need no schema, and a free-text
+> answer that continues the waiting task is the common case; budgets are
+> generous defaults in Settings → The fold → Limits, and hitting one stops the
+> request visibly and names the setting; waiting is a host state, so `chat
+> wait` and the fold's own turn never block on a child waiting for input; the
+> CLI harness is a participant, so report, question, result, and handoff are
+> act-lane verbs first; a result released to a destination the request already
+> named is delivered host-side without a fold model turn; and a Space turn gets
+> its task id, an opaque parent handle, and a compact operations guide, never
+> the fold transcript or the Space registry. Wherever the text below assumes a
+> grant, a review step, a held widening-power act, or an authority selector for
+> app AI, the record governs.
 
 The desired experience is that a person can ask for an outcome, the fold and
 Space Assistants can divide the work and exchange selected results, and custom
@@ -21,6 +39,11 @@ Agree the ownership, context, execution and authority semantics first, then
 derive implementation boundaries from them.
 
 ## Verified assessment
+
+Read this table as dated evidence: it records the `6830942` tree of
+2026-09-09, before [Receipts, not gates](receipts-not-gates.md) landed. Rows
+that describe a review step, a held act, or an authority selector describe
+what that tree did, not what ships now.
 
 | Earlier claim | Finding in the current tree |
 |---|---|
@@ -82,7 +105,7 @@ intended semantics, not currently callable methods:
 | Space Assistant | Execute its assignment; report, ask, or request a handoff under that request's authority. | Receive its own context and selected imports; no automatic global transcript/registry injection. | Invoke local app actions using current grants; retain native full-trust Pi behavior. |
 | Native app view | Request declared Assistant work through the appropriate authorization path. | Read only owned task results and granted resources. | Use granted bounded inference; publish declared actions to the Assistant. |
 | App worker/named job | No ambient management or arbitrary Assistant spawning. Repeated delegation, if added, needs its own explicit contract. | Use its invocation's granted data and result scope. | Bounded inference only when its declaration and current grants allow it; jobs stay Space-owned. |
-| Approved browser | Exercise the permitted management surface with its existing browser identity and authority. | Preserve browser ownership filtering and explicit resource admission. | Native app powers do not automatically become browser app powers; each adapter needs conformance evidence. |
+| Paired browser | Exercise the permitted management surface with its existing browser identity and authority. | Preserve browser ownership filtering and explicit resource admission. | Native app powers do not automatically become browser app powers; each adapter needs conformance evidence. |
 | Shared viewer | No work initiation or continuation authority. | Read only the published projection. | No inherited Assistant, model-use, or action power from possession of a viewing link. |
 
 For a waiting child, the state sequence should be explicit: its Pi turn settles,
@@ -174,8 +197,9 @@ model/app output must remain data rather than authority to launch new work.
 
 Represent a question with an id, originating task, intended respondent
 (person or parent), prompt, bounded answer schema, state, and expiry/cancel
-behavior. Keep informational answers distinct from authority decisions:
-answering a question must not approve code, grant power, or change root mode.
+behavior. Keep an answer an answer: replying to a question
+must not be the thing that installs code, widens a power, or changes setup.
+Those are their own receipted verbs, asked for on their own.
 
 The trusted desktop/fold surface presents the question. One accepted answer
 produces one attributed continuation, with a fresh turn request id and a link
@@ -237,13 +261,13 @@ declared routings. Do not expose the internal settle signal as a public bus.
 
 ## Product decisions required
 
-| Contract | Proposed decision |
-|---|---|
-| F9: cross-Space work never runs in a Space Chat | Preserve coordination above Spaces; explicitly permit host-mediated export/import of selected task payloads and upward requests. A machine-local mailbox alone does not prevent a model from repeating received private content in its portable reply. The destination release boundary must be explicit. |
-| F8: unattended agency lives in Spaces | Allow bounded continuations of a person-initiated collaboration request, if desired, while retaining the ban on scheduled or arbitrary event-driven fold conversations. This is a deliberate extension, not merely a polling optimization. |
-| Full-trust Assistant model | Keep it unless separately changed. Removing CLI hints or adding an actor label cannot fence a native Bash/read/write Assistant from same-user files or tokens. Hard isolation would require a separate runtime/security design. |
-| App Assistant authority | Introduce a separate bounded-inference grant under existing staged widening-power mechanics, respecting Reviewed/Unrestricted admission. Keep current one-off Assistant review semantics until repeated full-trust task authority is expressly designed. |
-| Preview update continuity | Preserve current safe defaults. Offer a concrete review of which previous grants to reissue to the newly reviewed digest. Unchanged permission names do not make changed code equivalent. Never carry pending task approvals forward. |
+| Contract | Proposed decision | Decided 2026-09-10 |
+|---|---|---|
+| F9: cross-Space work never runs in a Space Chat | Preserve coordination above Spaces; explicitly permit host-mediated export/import of selected task payloads and upward requests. A machine-local mailbox alone does not prevent a model from repeating received private content in its portable reply. The destination release boundary must be explicit. | Narrowed to a payload-admission rule: what may enter a Space Chat from above is its assignment, explicitly released payloads, and answers to its own questions. |
+| F8: unattended agency lives in Spaces | Allow bounded continuations of a person-initiated collaboration request, if desired, while retaining the ban on scheduled or arbitrary event-driven fold conversations. This is a deliberate extension, not merely a polling optimization. | Narrowed: a routing's declared `fold` step ships now; bounded continuations of a person-initiated request arrive with wave B. |
+| Full-trust Assistant model | Keep it unless separately changed. Removing CLI hints or adding an actor label cannot fence a native Bash/read/write Assistant from same-user files or tokens. Hard isolation would require a separate runtime/security design. | Kept, and made explicit: the ceremony this record removed was never that fence. |
+| App Assistant authority | Introduce a separate bounded-inference grant under existing staged widening-power mechanics, respecting Reviewed/Unrestricted admission. Keep current one-off Assistant review semantics until repeated full-trust task authority is expressly designed. | Superseded by F22: no grant. `assistant.request` and `assistant.infer` are available at installation, bounded, and receipted. |
+| Preview update continuity | Preserve current safe defaults. Offer a concrete review of which previous grants to reissue to the newly reviewed digest. Unchanged permission names do not make changed code equivalent. Never carry pending task approvals forward. | Superseded by F21: a code change carries forward connections whose destination declaration is byte-identical, automation enabled states by id, and run receipts; other powers follow the new declarations, and an explicit revocation persists by declaration id. |
 
 Promote agreed changes together into the owning product, management, fold,
 app-foundation, app-task and runtime contracts, plus security/privacy docs and

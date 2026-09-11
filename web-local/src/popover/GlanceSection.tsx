@@ -137,7 +137,7 @@ export function glanceIsEmpty(snapshot: GlanceSnapshotView): boolean {
 
 /**
  * The digest's sections in the recorded order — Needs you (Assistant
- * questions and due snoozes; nothing here is an approval), Running now, a
+ * questions and due snoozes; nothing here waits to be let through), Running now, a
  * compact Since you last looked, then the Checks rows. Bounds are
  * disclosure: every truncation flag and unavailable source is said out loud
  * instead of rendered as quiet.

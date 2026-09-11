@@ -4179,7 +4179,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
         case "apps.actions.review":
         case "apps.actions.approve":
         case "apps.actions.cancel": {
-          if (!authority) throw httpError(403, "App actions require a live approved browser.");
+          if (!authority) throw httpError(403, "App actions require a live paired browser.");
           const extra = operation === "apps.actions.request" ? ["request"] : operation === "apps.actions.list" ? []
             : operation === "apps.actions.approve" ? ["requestId", "reviewDigest"] : ["requestId"];
           assertRemoteKeys(input, ["spaceId", "appId", "featureInstallationId", "digest", "authorityDigest", ...extra]);

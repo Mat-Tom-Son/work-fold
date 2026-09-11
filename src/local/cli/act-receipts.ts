@@ -37,7 +37,7 @@ export interface WorkFoldCliActReceiptV1 {
 /**
  * Closed surface vocabulary for act receipts: the authenticated surface that
  * initiated an act — the act CLI, the menu-bar popover, the main window's
- * Settings acts, or an approved remote browser. `remote_web` matches the
+ * Settings acts, or a paired remote browser. `remote_web` matches the
  * provenance spelling already durable in conversation logs.
  */
 export const WORKFOLD_CLI_ACT_SURFACES = ["cli", "popover", "main-window", "remote_web"] as const;

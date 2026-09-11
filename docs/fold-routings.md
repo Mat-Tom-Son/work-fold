@@ -13,9 +13,15 @@ declaration and step contracts, the executor's failure semantics, the
 lifecycle and five-questions record, and the bounds. The promotion record is
 [Fold integration](fold-integration.md).
 
-The declaration contract accepts versions 1, 2, and 3. Version 2 added a
+**Amended 2026-09-10** by [Receipts, not gates](receipts-not-gates.md) (F23):
+enablement is one receipted call, `chat` and `fold` messages accept a closed
+set of host-resolved placeholders, a `fold` step kind exists, and the bounds
+rose to 16 steps per routing and 8 concurrent runs.
+
+The declaration contract accepts versions 1, 2, 3, and 4. Version 2 added a
 bounded one-time `at` trigger on 2026-09-01; version 3 adds explicit folder
-observation, shipped in September 2026.
+observation, shipped in September 2026; version 4 adds the closed placeholder
+set and the `fold` step, shipped with the receipts-not-gates build.
 Settings → The fold → Routings is the desktop management surface. The
 store schema is version 2; version-1 records load and are rewritten as
 version 2 on the next mutation, while newer schemas still fail closed.

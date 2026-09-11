@@ -1,5 +1,5 @@
 import { createBrowserAppActions } from "./browser-app-actions.js";
-/** Private app views use approved-browser authority, never a public share link. */
+/** Private app views use paired-browser authority, never a public share link. */
 export function createBrowserAppView({ read, online, resolve = async (app) => app, actions }) {
   const dialog = document.createElement("dialog");
   dialog.className = "browser-app-dialog";

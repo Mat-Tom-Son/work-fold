@@ -36,7 +36,7 @@ The translation is intentionally narrow. It does not justify replacing the shell
 - Preserve window size, position, maximized state, theme integration, and renderer recovery behavior.
 - On Windows, closing the window may hide work-fold to the system tray when the preference is enabled. On macOS, closing the last window keeps the application host alive and the Dock icon recreates the window. Explicit Quit exits cleanly on both. Close-to-tray remains Windows behavior: the macOS menu-bar item never changes what closing the last macOS window means.
 - The tray exposes clear **Your fold**, **Show**, and **Quit** actions and does not strand an invisible process.
-- Both platforms carry the management popover (**Your fold**): a macOS menu-bar item where left click opens the popover, right click opens the menu, and files or links dropped on the icon stage as reference chips; the Windows tray offers the same popover through its menu while click still opens the main window. The popover works with the main window closed, stages drops without sending, and its Stop names the management turn and every delegated Space turn it aborts.
+- Both platforms carry the management popover (**Your fold**): a macOS menu-bar item where left click opens the popover, right click opens the menu, and files or links dropped on the icon become reference chips; the Windows tray offers the same popover through its menu while click still opens the main window. The popover works with the main window closed, holds drops without sending, and its Stop names the management turn and every delegated Space turn it aborts.
 - Update status and commands remain available from both the platform-appropriate desktop menu and settings surface.
 
 ### Files and folders
@@ -45,7 +45,7 @@ The translation is intentionally narrow. It does not justify replacing the shell
 - Right-click actions are available throughout the file tree and use native desktop context behavior where appropriate.
 - Supported actions include open, reveal in Explorer/Finder, copy path, attach to chat, rename, move, upload/import, delete, and version history. File and folder creation controls should appear only when the corresponding workflow is implemented and verified.
 - Desktop drag-out, file opening, and reveal operations use safe Space-relative paths and never escape the Space root.
-- Destructive actions require clear confirmation and preserve recovery/history behavior where supported.
+- Delete moves content into History's undo window or Recently deleted; confirmations may remain, but nothing is permanent at the moment it happens and the Undo toast restores from whichever holds it.
 - Registering an existing folder as a Space never moves or converts user files. It maintains only the documented hidden `.work-fold/` identity and conversation layer; that layer, preserved legacy `.workspace/`, and native `.pi/` configuration never appear as ordinary Files. Legacy `.workspace/` content is never parsed or imported.
 
 ### Chat and navigation
@@ -60,16 +60,17 @@ The translation is intentionally narrow. It does not justify replacing the shell
 - The installed `work-fold` command resolves the terminal's current folder to the same Space model as the renderer, can report live Assistant/compaction tasks, and exposes compact capability metadata through stable JSON.
 - A headless CLI request must coexist with the running single-instance desktop app, return bounded stdout/stderr/exit status, and avoid opening or stealing focus from the interactive window.
 - Installer PATH integration must be reversible and must not modify shell profile files.
-- Pending needs-you decisions render as host-composed cards in the popover, an anchored main-window flyout, and the approved remote client; deciding one is never available from the CLI, and a card exists only for a real staged act. The glance renders on the remote client's **Needs you** screen, where it sits below that screen's decision cards and is acknowledged only while the screen is showing, and in a compact main-window panel. The popover stays focused on its always-visible, incrementally streaming conversation, one expanding composer whose action becomes **Stop** during active work, a clickable actual-model label, a text-only supported reasoning selector, and the exceptional decision disclosure; it neither fetches nor acknowledges the glance. None of these adds a rail destination, tab, in-window badge, or notification — the one exception is the optional menu-bar/tray attention dot for pending decisions, which ships only if the visual-acceptance pass admits it (see visual-design); with nothing pending, no control appears.
+- Settings → The fold carries Recently deleted (the entry list, Restore, Save a copy, Delete now, and the retention window) alongside Web access, Shared pages, and Routings; no authority selector or standing-rules section exists on any surface.
+- **Needs you** shows only Assistant questions and due snoozes — never an action waiting for approval — as a compact main-window panel and on the paired remote client's **Needs you** screen, where the glance sits beneath them and is acknowledged only while the screen is showing. The popover stays focused on its always-visible, incrementally streaming conversation, one expanding composer whose action becomes **Stop** during active work, a clickable actual-model label, and a text-only supported reasoning selector; it neither fetches nor acknowledges the glance. None of these adds a rail destination, tab, or notification; the main window may carry at most a questions-only indicator that opens those items — never an approval control — and with nothing to show, no control appears.
 
 ### Restricted Space apps
 
 - A reviewed restricted app belongs to exactly one Space and contributes its rail navigator without becoming a full-trust Pi Extension or silently inheriting another Space's identity.
 - App-requested work tabs are ordinary persistent Space-owned tabs. Restoring or activating one restores its owning Space, while removal or a reviewed-digest change cannot leave a stale executable view mounted.
-- Adding a preview, each network destination, each Space-file grant, each notification category, each stored connection, and each named automation remain separate, visible controls. Adding the preview grants none of them.
+- Adding a preview grants every destination, Space-file permission, notification category, and Check slot the package declares and enables its automations; each stays a separate visible control the person can narrow or re-allow, and a connection's secret is entered by the person once per destination.
 - Visible UI and optional worker execution use separate sandbox hosts. Direct networking, Node access, arbitrary navigation, and host powers outside an accepted UI/action/automation lifecycle remain denied.
 - Machine-local app storage survives a reviewed app update and an application update. Active visible app UI receives bounded invalidation hints; inactive views recover durable state when reopened instead of receiving queued hidden updates.
-- System notifications use only reviewed static copy during a separately enabled automation whose permission subset includes the granted category. Clicking one targets the exact owning Space and app, and revocation, suspend, app stop, removal, or shutdown closes outstanding authority and native handles.
+- System notifications use only reviewed static copy during an enabled automation whose permission subset includes the granted category. Clicking one targets the exact owning Space and app, and revocation, suspend, app stop, removal, or shutdown closes outstanding authority and native handles.
 
 ## Deliberately removed or replaced
 

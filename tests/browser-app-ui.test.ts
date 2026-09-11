@@ -98,7 +98,7 @@ test("offline and updated app views require an explicit fresh open and preserve 
   } finally { controller.destroy(); f.close(); }
 });
 
-test("apps can stage and poll actions but only trusted parent controls can review and approve", async () => {
+test("apps can request and poll actions but only trusted parent controls can open and run them", async () => {
   const f = documentFixture();
   const calls: Array<{ operation: string; input: any }> = [];
   const records: any[] = [];
@@ -137,9 +137,9 @@ test("apps can stage and poll actions but only trusted parent controls can revie
     const click = (name: string) => {
       const button = [...region.querySelectorAll("button")].find((item) => item.textContent === name); assert.ok(button); button.click();
     };
-    click("Review"); await flush();
+    click("Open"); await flush();
     assert.match(region.querySelector("pre")!.textContent!, /<img src=x/);
-    assert.equal(region.querySelectorAll("img").length, 0, "app input stays escaped inside trusted review");
+    assert.equal(region.querySelectorAll("img").length, 0, "app input stays escaped inside the trusted parent");
     assert.equal(document.activeElement?.tagName, "H3");
     click("Run"); await flush(); await flush();
     assert.equal(calls.filter((call) => call.operation === "approve").length, 1);
@@ -152,16 +152,16 @@ test("apps can stage and poll actions but only trusted parent controls can revie
   } finally { controller.destroy(); f.close(); }
 });
 
-test("a late approval response cannot revive a disconnected view or replay on reconnect", async () => {
-  const f = documentFixture(); let connected = true; let approvals = 0; let resolveApproval!: () => void;
+test("a late run response cannot revive a disconnected view or replay on reconnect", async () => {
+  const f = documentFixture(); let connected = true; let runs = 0; let resolveRun!: () => void;
   const record = { id: "receipt-one", requestId: "request-one", title: "Save quote", status: "pending" };
   const controller = createBrowserAppView({ online: () => connected, read: async () => entry,
     actions: async (_scope: any, operation: string) => {
       if (operation === "list") return { actions: [structuredClone(record)] };
       if (operation === "review") return { review: { ...record, reviewDigest: "review-one", inputJson: '{"count":10}' } };
       if (operation === "approve") {
-        approvals++; record.status = "running";
-        await new Promise<void>((resolve) => { resolveApproval = resolve; }); return { action: record };
+        runs++; record.status = "running";
+        await new Promise<void>((resolve) => { resolveRun = resolve; }); return { action: record };
       }
       throw new Error("Unexpected operation");
     },
@@ -169,13 +169,13 @@ test("a late approval response cannot revive a disconnected view or replay on re
   try {
     await controller.open({ ...app, actions: true }); await flush();
     const click = (label: string) => [...document.querySelectorAll<HTMLButtonElement>(".browser-app-actions button")].find((button) => button.textContent === label)!.click();
-    click("Review"); await flush(); click("Run"); await flush(); assert.equal(approvals, 1);
-    connected = false; controller.connectionChanged(false); resolveApproval(); await flush(); await flush();
+    click("Open"); await flush(); click("Run"); await flush(); assert.equal(runs, 1);
+    connected = false; controller.connectionChanged(false); resolveRun(); await flush(); await flush();
     assert.equal(document.querySelectorAll("iframe").length, 0);
     assert.equal(document.querySelector(".browser-app-actions")!.textContent, "");
-    connected = true; controller.connectionChanged(true); await flush(); assert.equal(approvals, 1);
+    connected = true; controller.connectionChanged(true); await flush(); assert.equal(runs, 1);
     document.querySelector<HTMLButtonElement>("[data-refresh]")!.click(); await flush(); await flush();
     assert.match(document.querySelector(".browser-app-actions")!.textContent!, /Running/);
-    assert.equal(approvals, 1, "reopening only reads the accepted action's status");
+    assert.equal(runs, 1, "reopening only reads the accepted action's status");
   } finally { controller.destroy(); f.close(); }
 });

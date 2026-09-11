@@ -285,10 +285,9 @@
   border-color: transparent;
 }
 
-/* Needs-you: conditional indicator in the bottom rail cluster plus its
-   anchored flyout (docs/fold-consecrations.md). Present only while decisions
-   pend — no pending decisions, no control — and deliberately not a rail
-   destination: the flyout is a small window-scope surface. */
+/* The bottom rail cluster's settings control. Needs-you lives in the glance
+   panel now: it carries questions and due snoozes, never a control that lets
+   work through (docs/receipts-not-gates.md, F24). */
 .app-shell .professional-space-rail .space-rail-settings-control {
   display: grid;
   gap: 4px;

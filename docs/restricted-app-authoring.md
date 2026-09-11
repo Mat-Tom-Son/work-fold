@@ -68,9 +68,10 @@ Use **Open App Studio** when the reviewed preview is ready to install as an App:
    target may contain the same Project’s Development preview, with separate
    data and controls. A different Project cannot contribute the same Feature id,
    and only one installed instance of this Project can be attached to that Space.
-5. Configure the Installed Release's destinations, file roots, notifications,
-   connections, and named automations in the Apps tab. None transfer from the
-   preview and all begin off.
+5. The Installed Release's declared destinations, file roots, notification
+   categories, Check slots, and named automations are on from install; connect
+   any secret-bearing destination and choose any exact file target in the Apps
+   tab. Connections do not copy from the preview.
 
 The v2 Release is a closed local artifact: it contains the prebuilt package
 bytes and declarations rather than a source-folder pointer or ambient Pi
@@ -129,7 +130,10 @@ app manifest, and 24 directory levels. `package.json` is limited to 64 KiB.
 For named Assistant work an app can start, see
 [App-requested Assistant work](app-assistant-tasks.md). Its `assistantActions`
 declarations are separate from `tools`: tools let the Assistant call an app;
-requests let the app hand a task to its Space's Assistant.
+requests let the app hand a task to its Space's Assistant. For a bounded model
+call with no Chat, no tools, and no transcript, use `assistant.infer` from the
+same document. Neither needs a declaration beyond `assistantActions` for
+requests, and neither needs a grant beyond installation.
 
 `agent-app.json` is closed and versioned; unknown fields fail review. This
 template exercises every current section:
@@ -269,8 +273,8 @@ person's current grants. Automations require a worker. Every notification
 declaration must be referenced by at least one automation. Notification title
 and description are reviewed, bounded, plain single-line text.
 
-`viewer` is optional and defines the read-only web view used privately by an
-approved browser or, after a separate exposure decision, by link holders at the
+`viewer` is optional and defines the read-only web view used privately by a
+paired browser or, after a separate receipted share, by link holders at the
 person's address ("an app at your address"). It is the complete
 viewer-readable surface: `entry` names the packaged document the viewer plane
 serves, and `readable` names up to sixteen exact instance-owned storage key
@@ -279,8 +283,8 @@ viewers may read. Everything else is refused for viewers desktop-side —
 storage writes, Assistant actions, network, connections, Space files,
 notifications, automations, OAuth, and host UI. Declaring `viewer` grants no
 audience: putting an installed App Instance at the person's address is a
-separate needs-you decision, and a reviewed update that widens `readable` or
-changes `entry` stages a fresh one. See [the fold](fold.md) and
+separate receipted share, and a reviewed update that widens `readable` or
+changes `entry` records a fresh exposure receipt. See [the fold](fold.md) and
 [Restricted app runtime](restricted-app-runtime.md).
 
 Network methods are limited to `GET`, `POST`, `PUT`, `PATCH`, and `DELETE`.
@@ -289,7 +293,7 @@ Public targets are exact HTTPS origins. Loopback targets are numeric
 redirects. A public destination resolving to several addresses may try `GET`
 requests in resolver order, so a dual-stack service stays reachable from a
 single-stack network; every candidate has already passed the same
-public-address check. Mutating requests use one approved address only because
+public-address check. Mutating requests use one resolved address only because
 retrying after an ambiguous connection failure could apply the same operation
 twice.
 
@@ -305,7 +309,7 @@ a header reviewed for one destination grants nothing to another.
 ## Visible UI and content policy
 
 For a private browser view, add the reviewed `viewer.entry` and `viewer.readable`
-declaration in the manifest template above and use `workFoldViewerApp` in that entry. Approved
+declaration in the manifest template above and use `workFoldViewerApp` in that entry. Paired
 browsers can open it from Spaces without publishing a share link; source-Space
 previews are supported too. Keep the web entry responsive and self-contained,
 and obtain packaged assets through `asset()`/`assetUrl()` instead of relative
@@ -313,7 +317,7 @@ URLs in the blob document. Declared worker actions can use the separate private
 request API below; shared viewers remain read-only. See
 [the browser view contract](fold-browser-apps.md).
 
-When a private approved browser opens a web view with declared worker tools,
+When a private paired browser opens a web view with declared worker tools,
 it also receives `workFoldBrowserApp.actions`. Feature-detect it because shared
 viewers and older hosts do not install this API:
 
@@ -323,7 +327,7 @@ if (actions) {
   // Keep this exact request for an uncertain retry; do not create another id.
   const request = actions.createRequest("save-quote", { supplier: "North", quantity: 10 });
   const receipt = await actions.request(request);
-  // Pending means the person must use Review → Run outside the app frame.
+  // Waiting means the person has not yet run it from the trusted parent.
   const current = await actions.get(receipt.requestId);
   if (current.status === "succeeded") showResult(current.result);
 }
@@ -335,7 +339,7 @@ request ids after reopening; use `get(requestId)` for a result and
 `createRequest` works in opaque frames where `crypto.randomUUID` may be absent.
 Inputs are schema-checked and limited to 16 KiB, results to 128 KiB. The normal
 worker executes with existing installed grants, not browser-chosen owners or
-new permissions. There is no app-facing review, approve, shell or grant API.
+new permissions. There is no app-facing shell or grant API.
 If a request times out, check its status or list existing requests before
 creating another. Stopped, failed or interrupted work may have completed
 earlier effects; do not describe these outcomes as rollback.
@@ -509,11 +513,13 @@ An optional `permissions.checks` array declares up to eight named choices:
 "checks": [{ "id": "quote-review", "title": "Quote review" }]
 ```
 
-The person selects an exact Check revision in **Apps → Review access → Check
-results**. This is a separate grant; declaring a slot grants no access. A
-selection includes status, finding details, Space-relative paths and quoted
-evidence from that Check. It grants no run, decision, correction, or general
-file authority, and does not enable or run the Check.
+The slot is granted on install. When the owning Space has exactly one Check,
+that Check is bound automatically; otherwise the slot is reported as still
+needing the person, who picks an exact Check revision in **Apps → Review
+access → Check results**. A selection includes status, finding details,
+Space-relative paths and quoted evidence from that Check. It grants no run,
+decision, correction, or general file authority, and does not enable or run
+the Check.
 
 ```js
 try {
@@ -537,6 +543,38 @@ Treat model findings as suggestions. A changed Check requires selecting it again
 Changed app bytes reset these grants; an exact unchanged Release update can
 retain them through its reviewed continuity plan. Revocation fences in-flight
 reads before results reach the app.
+
+### Assistant work and bounded inference
+
+Installation is the grant for both AI lanes
+([Receipts, not gates](receipts-not-gates.md), F22). `assistant.request`
+journals a declared `assistantActions` entry and starts a fresh ordinary Chat
+in the owning Space in the same call; `assistant.infer` asks the Space's
+configured model one bounded question with no tools, no files, and no
+transcript:
+
+```js
+const { text, truncated, model, usage } = await bridge.assistant
+  .infer({ instructions: "Name the cheapest quote.", input: quotesText });
+
+const { json } = await bridge.assistant.infer({
+  instructions: "Total the quotes.",
+  input: quotesText,
+  outputSchema: { type: "object", properties: { total: { type: "integer", minimum: 0 } },
+    required: ["total"], additionalProperties: false },
+});
+```
+
+`instructions` is the system prompt and `input` is delivered as untrusted
+data, so an app's own content cannot redirect the task. Without `outputSchema`
+the result is `{ text, truncated }`; with one — the same closed JSON Schema
+subset tool declarations use — it is `{ json }`, already validated. Active
+views, workers holding a tool action, and named automation runs reach
+`assistant.request`; views and workers reach `assistant.infer`; viewers and
+remote app views reach neither and get `INFER_UNAVAILABLE`. Both leave
+receipts naming the effective model and its usage. The full contract, bounds,
+and error codes are in
+[App-requested Assistant work](app-assistant-tasks.md).
 
 ## Worker tools and automations
 
@@ -762,7 +800,7 @@ normal tools. Overruns report their own bound —
 `STORAGE_FAILED`, and `INFER_FAILED` codes, and each message names the limit it
 hit.
 
-## Default-on lifecycle, narrowing, and denial handling
+## Lifecycle, narrowing, and denial handling
 
 Adding a digest as a Development preview, or installing a published Release
 Feature, makes its UI available with every declared destination, directory
@@ -781,11 +819,12 @@ defaults. Run receipts stay in the new revision's view labelled with the
 revision they ran under. New receipts bind the accepting Tenant, Runtime Instance, Feature
 Installation, canonical revision, Data Namespace, effective Principal,
 seven-domain authority, occurrence, and attempt. Legacy Workspace receipts are
-not imported. Removing a Development preview purges its app
-storage and connections. Uninstalling a release-backed App Instance removes its
-connections and makes its data unreachable in the same registry transition,
-then either retains the detached namespace or queues its physical purge as
-explicitly chosen. Cleanup is idempotent after interruption and never deletes
+not imported. Removing a Development preview writes a complete data copy into Recently
+deleted, then purges its app storage and connections. Uninstalling a
+release-backed App Instance removes its connections and makes its data
+unreachable in the same registry transition, then either retains the detached
+namespace or — after the same recovery copy — queues its physical purge as
+explicitly chosen ([App data export and recovery](app-data-recovery.md)). Cleanup is idempotent after interruption and never deletes
 Space files. Source edits do not change preview or Release bytes; propose and
 review a new digest.
 
@@ -830,7 +869,8 @@ The Connected inbox package includes a project-service panel. To test it:
    registered Space.
 2. Add that Space-relative package as a Local preview with
    `work-fold apps install-preview --space <id-or-name> --package examples/packages/restricted-connected-inbox`
-   (adjust the path if copied), then review the pending decision.
+   (adjust the path if copied). It is added at once; the Apps tab shows what
+   it can reach.
 3. From the repository root, start the companion process:
 
    ```powershell

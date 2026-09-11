@@ -7,6 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 
 import {
+  WORKFOLD_CLI_ACT_PROTOCOL_VERSION,
   WORKFOLD_CLI_PROTOCOL_VERSION,
   WorkFoldCliFileBroker,
   WorkFoldCliExitCode,
@@ -90,13 +91,21 @@ test("CLI broker turns stale, future, mismatched, malformed, and oversized reque
       },
       {
         id: randomUUID(),
-        value: { protocolVersion: 3, id: "placeholder", argv: [], cwd: root, createdAt: fixedNow.toISOString() },
+        value: { protocolVersion: WORKFOLD_CLI_ACT_PROTOCOL_VERSION + 1, id: "placeholder", argv: [], cwd: root, createdAt: fixedNow.toISOString() },
+        expectedExit: WorkFoldCliExitCode.protocolError,
+        expected: /protocol version/,
+      },
+      {
+        // A shim from before the act lane returned receipts instead of pending
+        // decisions is refused by version, never answered with a different result.
+        id: randomUUID(),
+        value: { protocolVersion: 2, lane: "act", id: "placeholder", argv: [], cwd: root, createdAt: fixedNow.toISOString(), actToken: "a".repeat(64) },
         expectedExit: WorkFoldCliExitCode.protocolError,
         expected: /protocol version/,
       },
       {
         id: randomUUID(),
-        value: { protocolVersion: 2, lane: "act", id: "placeholder", argv: [], cwd: root, createdAt: fixedNow.toISOString() },
+        value: { protocolVersion: WORKFOLD_CLI_ACT_PROTOCOL_VERSION, lane: "act", id: "placeholder", argv: [], cwd: root, createdAt: fixedNow.toISOString() },
         expectedExit: WorkFoldCliExitCode.protocolError,
         expected: /actToken/,
       },

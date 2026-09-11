@@ -39,10 +39,12 @@ test("control hints share one visible connection and requery after hiding/reopen
     await settle();
     assert.equal(connections.length, 2);
     unsubscribeFirst();
-    connections[1]!.controller.enqueue(new TextEncoder().encode('data: {"type":"decisions"}\n\n'));
+    // "decisions" was the pending-decision hint; with one authority mode it is
+    // just another unknown type and never reaches a listener.
+    connections[1]!.controller.enqueue(new TextEncoder().encode('data: {"type":"decisions"}\n\ndata: {"type":"apps"}\n\n'));
     await settle();
     assert.deepEqual(first, ["reset", "apps", "spaces"]);
-    assert.deepEqual(second, ["reset", "apps", "spaces", "decisions"]);
+    assert.deepEqual(second, ["reset", "apps", "spaces", "apps"]);
     unsubscribeSecond();
     assert.equal(connections[1]!.signal.aborted, true);
   } finally {

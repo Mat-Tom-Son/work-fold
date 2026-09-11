@@ -9,7 +9,7 @@ export function createBrowserAppActions({ element, execute, active }) {
   let detail;
   let error = "";
   let fingerprint = "";
-  const labels = { pending: "Needs review", running: "Running", succeeded: "Done", failed: "Failed", cancelled: "Stopped", interrupted: "Interrupted", expired: "Expired" };
+  const labels = { pending: "Waiting for you", running: "Running", succeeded: "Done", failed: "Failed", cancelled: "Stopped", interrupted: "Interrupted", expired: "Expired" };
   const live = (record) => record.status === "pending" || record.status === "running";
   const titleFor = (record) => String(record.title).replace(/[_-]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (letter) => letter.toUpperCase());
   const current = (version) => version === generation && app && active();
@@ -106,7 +106,7 @@ export function createBrowserAppActions({ element, execute, active }) {
     for (const record of records.slice(0, 8)) {
       const row = document.createElement("li");
       const label = document.createElement("span"); label.textContent = `${titleFor(record)} · ${labels[record.status] || "Unavailable"}`;
-      row.append(label, button(record.status === "pending" ? "Review" : "View", () => show(record.requestId))); list.append(row);
+      row.append(label, button(record.status === "pending" ? "Open" : "View", () => show(record.requestId))); list.append(row);
     }
     element.append(list);
   }
@@ -116,7 +116,7 @@ export function createBrowserAppActions({ element, execute, active }) {
     async call(call) {
       const kind = call?.kind;
       const method = { "actions.request": "request", "actions.get": "get", "actions.list": "list", "actions.cancel": "cancel" }[kind];
-      if (!method) throw new Error("This app cannot review or approve its own requests.");
+      if (!method) throw new Error("This app cannot run or cancel its own requests.");
       const fields = method === "list" ? ["kind"] : method === "request" ? ["kind", "request"] : ["kind", "requestId"];
       if (Object.keys(call).some((key) => !fields.includes(key)) || fields.some((key) => !Object.hasOwn(call, key))) throw new Error("Invalid app request.");
       const input = method === "list" ? {} : method === "request" ? { request: call.request } : { requestId: call.requestId };

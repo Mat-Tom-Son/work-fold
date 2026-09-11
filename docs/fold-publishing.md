@@ -17,13 +17,18 @@ key design decision, origin isolation, honest states, the mutation ledger,
 the viewer-safe broker table, and the bounds. The promotion record is
 [Fold integration](fold-integration.md).
 
+**Amended 2026-09-10** by [Receipts, not gates](receipts-not-gates.md) (F19):
+sharing is a prepared verb that executes on the call that asks for it and
+answers with a receipt. Nothing about a share is held, and revocation is the
+undo.
+
 The fold is the one door to all Spaces: material comes in through it, and
 pages go out through it. The ladder has three rungs, each reusing the trust
 machinery beneath it:
 
 | Rung | What a person gets | New trust surface |
 |---|---|---|
-| 1 | The glance on your phone | None — existing approved-browser grant |
+| 1 | The glance on your phone | None — existing paired-browser grant |
 | 2 | One file served as a rendered page at your address | The **viewer**: link-scoped, read-only, per-published-item |
 | 3 | A restricted-app Release served to viewers at your address | The same viewer class over a narrow, desktop-enforced broker subset |
 
@@ -36,9 +41,9 @@ silently stale.
 ## The viewer: a new audience class
 
 A **viewer** is anyone holding a share link — deliberately not a smaller
-kind of approved browser but a different species:
+kind of paired browser but a different species:
 
-| | Approved browser | Viewer |
+| | Paired browser | Viewer |
 |---|---|---|
 | Identity | Non-exportable P-256 keys, desktop-signed grant | None — possession of one link |
 | Scope | The whole management conversation, Space trees, explicit bounded file previews and private reviewed app views | Exactly one published item |
@@ -53,8 +58,8 @@ published item. Its properties, all load-bearing: **per-published-item**
 **read-only** (no viewer-reachable operation mutates anything; rung 3
 enforces this in the broker, not app code), **link-scoped** (the link is
 the whole credential; forwarding the link forwards the access — the
-intended semantics, stated plainly on the publish decision card; no viewer
-accounts, sessions, or cookies), **revocable** (revoking kills every copy
+intended semantics, stated plainly in the share receipt and
+in Settings → The fold; no viewer accounts, sessions, or cookies), **revocable** (revoking kills every copy
 of the link at once, desktop-first), and **receipted** (creating,
 rebinding, re-budgeting, and revoking are journaled acts; serving a page is
 a read — counted in bounded aggregate tallies the glance can show, never
@@ -66,50 +71,55 @@ authenticated actors; a viewer is an unauthenticated audience. Rung 3 never
 resolves a viewer to a Principal, never evaluates roles for one, and never
 lets one reach Principal- or role-owned data.
 
-## Publishing is a consecration
+## Sharing is a receipted, revocable widening
 
-**Creating outward viewer exposure is consecration 2 — widen a power.** The
-set of principals who can reach content the desktop serves widens from "you
-and browsers you approved by matched code" to "anyone holding a link" — a
-network destination in reverse: an ingress audience instead of an egress
-origin. The fold may **stage** a publication; a person approves it as a
-needs-you decision. Two verbs share the English word "publish" and must not
-share a ceremony: **Publish a Release** (App Studio) is a local state
-transition and stays a direct receipted verb; **serving to viewers** —
-activating a page slot, or exposing a hosted App Instance — is the
-consecration, and UI copy avoids the collision ("Share a page" / "Put this
-app at your address").
+**Creating outward viewer exposure widens a power.** The set of principals
+who can reach content the desktop serves widens from "you and the browsers
+you paired by matched code" to "anyone holding a link" — a network
+destination in reverse: an ingress audience instead of an egress origin.
+That widening is disclosed and undone, not gated: the share verb executes on
+the call that asks for it and answers with a receipt
+([Receipts, not gates](receipts-not-gates.md), F19). Two verbs share the
+English word "publish" and must not share a shape: **Publish a Release**
+(App Studio) is a local state transition; **serving to viewers** —
+activating a page slot, or exposing a hosted App Instance — is the outward
+widening, and UI copy avoids the collision ("Share a page" / "Put this app
+at your address").
+
+Sharing is a **prepared verb**: the host pins the Space id, the exact
+Space-relative path, the title, the budgets, and the snapshot flag (or, for
+an app, the App Instance id, the exact Release digest, the viewer entry, and
+the complete viewer-readable surface), journals the acceptance first, mints
+the slot and key, syncs the bridge, and returns the receipt at once. Every
+pin is rechecked at effect time, the act runs at most once, and a failure is
+never auto-retried.
 
 Consequences, consistent with the fold doctrine:
 
-- **Approved browsers inherit authority.** In Reviewed, a publish decision
-  may be approved from the desktop or any eligible approved browser. In
-  Unrestricted, a remote-originated staging request is consumed by the
-  desktop host and its receipt records `unrestricted` plus the exact browser
-  and grant. Revoking a browser still cancels its pending decisions.
-- **The setup-only boundary is untouched.** Publishing rides the existing Remote
-  access account. The fold cannot bootstrap an address in order to publish
-  to it: staging with no enrolled address fails with a typed `no-address`
-  state and no card appears. Setting up "your fold on the web" is a
-  person-only prerequisite.
-- **Not policy-eligible.** `publish.viewer.expose` is excluded from
-  standing policies in the policy schema itself — outward exposure is the
-  one category whose blast radius includes people who are not the person.
-  In Reviewed every new exposure takes a click; Unrestricted is the only
-  broader authority that can consume it automatically. Revocation, as
-  always, takes none.
-- **Narrowing never needs a click.** Revoking a publication, cutting its
-  budgets, and turning snapshot caching off are direct receipted verbs.
-  Widening — a new slot, a rebound source, raised budgets, snapshot on —
-  is a fresh consecration.
+- **Paired browsers use the same verbs.** A share asked for from a paired
+  browser runs through the same desktop host path as one asked for at the
+  desktop, and its receipt records the initiating browser and grant.
+  Revoking a browser refuses its in-flight remote operations; shares it
+  already made stand until they are revoked, like any other effect.
+- **The setup-only boundary is untouched.** Publishing rides the existing
+  Remote access account. The fold cannot bootstrap an address in order to
+  publish to it: sharing with no enrolled address fails, saying the page has
+  no address to be served at. Setting up "your fold on the web" is a
+  person-only prerequisite, and nothing a task needs waits behind it.
+- **Narrowing needs nothing.** Revoking a publication, cutting its budgets,
+  and turning snapshot caching off are direct receipted verbs that only
+  reduce exposure. Widening — a new slot, a rebound source, raised budgets,
+  snapshot on — is a fresh receipted share.
+- **Revocation is the undo.** Nothing published is permanent at the moment
+  it happens: one revoke kills every copy of the link at once,
+  desktop-first, regardless of who holds them.
 
 ## Rung 1 — the glance on your phone
 
 Rung 1 is not a publishing feature and introduces no viewer: it is
-[the glance](fold-glance.md) rendered on the approved remote client's
-**Needs you** screen. Same approved-browser grant, same envelope
-encryption, zero new audience — and its needs-you cards are where remote
-publish approvals surface.
+[the glance](fold-glance.md) rendered on the paired remote client's
+**Needs you** screen. Same paired-browser grant, same envelope encryption,
+zero new audience.
 
 ## Rung 2 — share a page
 
@@ -117,12 +127,12 @@ publish approvals surface.
 
 A **publication** binds: a **slot** (a high-entropy `publicationId`, the
 stable path segment of the share link); a **source** (one exact
-Space-relative file in one registered Space, designated explicitly at
-staging — never a folder, never a glob, never "the Space"); a **key** (a
+Space-relative file in one registered Space, designated explicitly in
+the share verb — never a folder, never a glob, never "the Space"); a **key** (a
 256-bit AES-GCM publication key generated desktop-side at activation,
 stored with the other Remote access material in operating-system-encrypted
-secure settings); a **title** (shown on the decision card, carried inside
-the encrypted payload — the bridge never stores it); and **budgets and
+secure settings); a **title** (shown in Settings and in
+the share receipt, carried inside the encrypted payload — the bridge never stores it); and **budgets and
 flags** (serve-rate and byte budgets, optional expiry, snapshot opt-in,
 default off).
 
@@ -137,7 +147,8 @@ The page a viewer sees is the **current** content of the designated file,
 rendered at serve time — a live page, not an upload, and the exposure
 statement: the person is exposing that file's evolving content, exactly as
 designating a file for a Check exposes it to a sensor. Content evolution is
-not a new consecration; changing **which** file backs the slot is. Rendered
+not a new share; changing **which** file backs the slot is a fresh receipted
+share. Rendered
 types are a closed set: Markdown and plain text (rendered desktop-side into
 one self-contained HTML body), PNG, JPEG, and PDF. Person-authored HTML and
 anything interactive is deferred to rung 3 — an app is the vehicle for
@@ -203,10 +214,11 @@ JavaScript, so an actively compromised bridge or hosted origin can serve a
 shell that exfiltrates `location.hash` and read pages fetched from then on
 — and, combined with stored snapshot ciphertext, pages cached earlier. This
 is the same first-load-web-trust class the alpha already accepts for the
-approved-browser client, with strictly smaller blast radius: a stolen
+paired-browser client, with strictly smaller blast radius: a stolen
 publication key opens one published page, never management authority.
 Separately, anyone who obtains a full link is a legitimate viewer until
-revocation — the meaning of link-scoped, and the publish card says so. A
+revocation — the meaning of link-scoped, and Settings and the share receipt
+say so. A
 public/full-trust release of publishing inherits the requirement already
 recorded for Remote access: a pinned client or an authority design that
 does not grant mutable first-load web code this power.
@@ -214,8 +226,8 @@ does not grant mutable first-load web code this power.
 ### Origin isolation is a hard requirement
 
 Published viewer content must not share origin, cookies, or keys with the
-approved-browser client, whose authority material is origin-scoped (the
-`__Host-` session cookie; the approved browser's non-exportable keys in
+paired-browser client, whose authority material is origin-scoped (the
+`__Host-` session cookie; the paired browser's non-exportable keys in
 IndexedDB for `<slug>.work-fold.com`). Structurally:
 
 - **Viewer origin:** `https://pages-<slug>.work-fold.com` — one extra label
@@ -261,12 +273,12 @@ IndexedDB for `<slug>.work-fold.com`). Structurally:
 By default the bridge retains viewer content only as an in-flight response
 buffer with a short expiry. Opting a publication into **snapshot caching**
 stores the latest served ciphertext (one bounded row per publication) so
-the page survives desktop sleep. The opt-in lives in the publish decision
-card and the publication's settings, labeled plainly: "Keep an encrypted
-copy at the relay so this page stays readable while your desktop sleeps.
-The relay stores it encrypted and cannot read it; anyone with the link
-still can." Turning it on is a widening (consecration); turning it off is a
-direct verb and deletes the stored row. After a successful live serve, the
+the page survives desktop sleep. The opt-in lives in the share verb's
+`--snapshot` flag and the publication's settings, labeled plainly: "Keep an
+encrypted copy at the relay so this page stays readable while your desktop
+sleeps. The relay stores it encrypted and cannot read it; anyone with the
+link still can." Turning it on is a widening and therefore a fresh receipted
+share; turning it off is a direct verb and deletes the stored row. After a successful live serve, the
 desktop refreshes the snapshot in the same device-frame exchange — a
 counter-tracked sync, not a separate receipted act. The residual-risk
 sentence above applies to snapshots verbatim.
@@ -328,17 +340,14 @@ it touches durable state (snapshot refresh).
 
 | Mutation | Kind | Journaled | Receipt contains | Revocation / undo | Mid-act failure | Replay prevention |
 |---|---|---|---|---|---|---|
-| Stage a page publication | Fold act (inert) | `accepted` before staging | Staged-decision id, Space id, relative path, title, budgets, snapshot flag | Staged act expires or is withdrawn; denial recorded | Nothing external exists; a lost stage is re-staged | Act-lane request ids, journal-first at-most-once |
-| Approve / deny the publish decision (page or hosted app) | Human click (desktop or approved browser) | Decision record | Decision, approving surface + browser grant id, staged-act digest | A denial is terminal; browser revocation cancels its pending decisions | Unclicked decisions expire | Decision ids single-use; the click binds the exact staged digest |
-| Activate publication | Host act after approval | Durable intent before key mint and bridge sync | `publicationId`, source, viewer origin and path — never the fragment key or the full link — budgets, bridge sync outcome | Revoke verb, any time | Two-phase: local record commits first; bridge slot creation retried by operation id; not presented as live until bridge confirms | Bridge slot upsert idempotent by operation id; startup recovery re-drives or cancels the intent |
-| Rebind source / raise budgets / snapshot on | Consecration (widen) | As stage + decision above | Old and new binding, old and new budgets | The previous binding's receipt chain is the undo reference; narrowing back is a direct verb | Same two-phase as activation | Same as activation |
-| Cut budgets / snapshot off | Direct verb | `accepted` before mutation | Old and new values; snapshot-deletion outcome | Raising again is a consecration | Bridge sync retried; local narrowing already effective | Operation-id idempotence |
+| Share a page | Prepared verb (widen) | `accepted` before the durable intent; key mint and bridge sync after | `publicationId`, Space id, relative path, title, budgets, snapshot flag, viewer origin and path — never the fragment key or the full link — bridge sync outcome, initiating surface and browser/grant when remote | Revoke verb, any time | Two-phase: the local record commits first; bridge slot creation is retried by operation id and the page is not presented as live until the bridge confirms | Act request-id at-most-once; bridge slot upsert idempotent by operation id; startup recovery re-drives or cancels the intent |
+| Rebind source / raise budgets / snapshot on | Prepared verb (widen) | As sharing above | Old and new binding, old and new budgets | The previous binding's receipt chain is the undo reference; narrowing back is a direct verb | Same two-phase as sharing | Same as sharing |
+| Cut budgets / snapshot off | Direct verb | `accepted` before mutation | Old and new values; snapshot-deletion outcome | Raising again is a fresh receipted share | Bridge sync retried; local narrowing already effective | Operation-id idempotence |
 | Revoke publication | Direct verb | `accepted` before mutation | `publicationId`, ordering outcomes, `bridgeCleanup: ok\|pending` | This is the undo; re-publishing mints a new slot, key, and link | Desktop-first; bridge cleanup retried until confirmed | Revocation is idempotent; a second revoke is a no-op receipt |
 | Snapshot refresh (serve-time) | Bounded sync, not an act | Not journaled; counter-tracked | — (aggregate counters only) | Snapshot off / revoke deletes the row | A failed refresh leaves the previous snapshot; staleness is visible in "as of" | Refresh carries the serve's content digest; the bridge keeps newest-wins by digest + timestamp |
-| Stage hosted-app exposure (rung 3) | Fold act (inert) | `accepted` before staging | Staged-decision id, App Instance id (or the prepared install operation id when staged with an install), exact Release digest, viewer entry, the complete viewer-readable surface, budgets | Staged act expires or is withdrawn; denial recorded | Nothing external exists; a lost stage is re-staged | Act-lane request ids, journal-first at-most-once |
-| Activate hosted-app exposure | Host act after approval | Durable intent before bridge slot creation (kind `app`) | `publicationId`, App Instance id, Release digest, viewer origin and path — never keys or full links — bridge sync outcome | Revoke verb, any time | Same two-phase as page activation | Same operation-id idempotence |
-| Widen a hosted app's viewer surface (update) | Consecration (widen) — a reviewed update that widens the viewer-readable surface or changes the viewer entry stages a fresh `publish.viewer.expose`; an unchanged viewer surface rides the normal update-review lane | As stage + decision above | Old and new viewer surface, old and new Release digests | Rolling the update back narrows again; narrowing is a direct verb | Same two-phase as activation | Same as activation |
-| Revoke hosted-app exposure | Direct verb | `accepted` before mutation | `publicationId`, ordering outcomes, `bridgeCleanup: ok\|pending` | This is the undo; the Instance keeps running locally without an audience, and re-exposing is a fresh consecration | Desktop-first; bridge cleanup retried until confirmed | Idempotent, as page revocation |
+| Put an app at your address (rung 3) | Prepared verb (widen) | `accepted` before the durable intent; bridge slot creation (kind `app`) after | `publicationId`, App Instance id, exact Release digest, viewer entry, the complete viewer-readable surface, budgets, viewer origin and path — never keys or full links — bridge sync outcome, initiating surface and browser/grant when remote | Revoke verb, any time | Same two-phase as sharing a page | Same act request-id and operation-id idempotence |
+| Widen a hosted app's viewer surface (update) | Prepared verb (widen) — a reviewed update that widens the viewer-readable surface or changes the viewer entry records a fresh exposure receipt; an unchanged viewer surface rides the normal update lane | As sharing above | Old and new viewer surface, old and new Release digests | Rolling the update back narrows again; narrowing is a direct verb | Same two-phase as sharing | Same as sharing |
+| Revoke hosted-app exposure | Direct verb | `accepted` before mutation | `publicationId`, ordering outcomes, `bridgeCleanup: ok\|pending` | This is the undo; the Instance keeps running locally without an audience, and re-exposing is a fresh receipted share | Desktop-first; bridge cleanup retried until confirmed | Idempotent, as page revocation |
 
 ## Rung 3 — an app at your address
 
@@ -348,10 +357,12 @@ through the same desktop → relay → viewer path as rung 2, and every power
 the app exercises is brokered desktop-side. It is the App platform's
 `host: local | hosted` distinction with the desktop as the host — no
 work-fold cloud runtime. Installing follows the existing App Studio
-two-phase prepare/activate operation plus the outward-exposure
-consecration; the decision card names the app, the exact Release digest,
-the viewer address, and the complete viewer-readable surface. All other
-powers start off, exactly as local installs behave.
+two-phase prepare/activate operation plus the outward-exposure share verb;
+the receipt names the app, the exact Release digest, the viewer address, and
+the complete viewer-readable surface. Every power the package declares is
+granted on install exactly as local installs behave
+([Receipts, not gates](receipts-not-gates.md), F21), but the viewer plane
+refuses everything outside the reviewed `viewer` declaration regardless.
 
 ### Which broker domains are viewer-safe
 
@@ -361,7 +372,7 @@ checked at effect time like every other broker:
 
 | Broker domain | Viewer-safe? | Rule |
 |---|---|---|
-| Reviewed static assets | Yes | Serve exact staged bytes of the installed Release revision, nothing else |
+| Reviewed static assets | Yes | Serve exact installed bytes of the Release revision, nothing else |
 | Storage / data **reads** | Narrowly | Only collections the reviewed manifest explicitly marks viewer-readable, and only **instance-owned** data. Principal-owned and role-owned data: never |
 | Storage / data **writes** | Never | Viewers mutate nothing |
 | Assistant actions | Never | Actions are mutations executed with the person's runtime |
@@ -375,12 +386,12 @@ checked at effect time like every other broker:
 
 The viewer-readable flag is the reviewed `viewer` declaration in
 `src/local/agent/restricted-app-manifest.ts`, so it appears in review copy
-and in the exposure consecration; a reviewed update that widens the
-viewer-readable surface or changes the viewer entry is a fresh
-outward-exposure consecration, while an update with an unchanged viewer
-surface rides the normal update-review lane. Rung 3 reuses the semantics
-the private hosted core already proves (identity tuples, effect-time
-authority stamps, default-off grants) and deliberately does not require the
+and in the exposure receipt; a reviewed update that widens the
+viewer-readable surface or changes the viewer entry is a fresh receipted
+exposure, while an update with an unchanged viewer surface rides the normal
+update lane. Rung 3 reuses the semantics the private hosted core already
+proves (identity tuples, effect-time authority stamps, declared grants) and
+deliberately does not require the
 foundation's full private hosted milestone — viewers are not authenticated
 Principals, so accounts, role realms, and a hosted data service stay out of
 scope. The real-Electron probe carries the viewer-scope denial cases
@@ -416,7 +427,16 @@ is online." Contract identifiers stay technical and unrenamed:
 `work-fold.viewer-page.v1`, `bridge_publications`, `viewer.fetch`,
 `publicationId`. The words "host," "hosting," and "website" do not appear
 in product copy; "publish" without qualification is reserved for App
-Studio's local Release transition.
+Studio's local Release transition. Copy never frames a share as something
+waiting to happen: the verb shares the page and says so, and **Stop
+sharing** is always one click away.
+<!-- verify: the CLI still spells the share verbs `pages stage` and
+`pages stage-app` (`src/local/cli/act-commands.ts`); the record's copy rule
+wants `pages share` / `pages share-app`, and this document follows the token
+that ships. -->
+The CLI act verbs are `pages stage|stage-app|list|status|revoke|narrow|
+snapshot-off`; `stage` there is the shipped token, not a holding state — it
+shares the page immediately and returns the receipt.
 
 ## Deliberately not in this design
 
@@ -436,8 +456,10 @@ Studio's local Release transition.
   anything richer is an app (rung 3).
 - **Publishing from routings.** No routing step may create or widen viewer
   exposure ([routings](fold-routings.md)); a routing may at most write
-  files that an already-consecrated publication serves.
-- **Standing-policy pre-approval of exposure**, per the decision above.
+  files that an already-shared publication serves.
+- **A gate on sharing.** Outward exposure is disclosed and revocable, not
+  held: reintroducing a hold, a confirmation state, or a standing rule on
+  any share verb is a register decision, not a UI tweak.
 
 ## Implementation record
 
@@ -447,7 +469,8 @@ The plan items shipped as follows (numbering preserved for references):
 2. Viewer plane at the bridge — host routing, the shell under `services/bridge/public/viewer/`, rate limits, `viewer.fetch` frames; the bridge suite and `services/bridge/metrics.test.mjs`.
 3. Desktop publication authority and serving — `src/local/publications.ts`, `desktop/src/remote-access.ts`, `desktop/src/settings.ts`; `tests/work-fold-publications.test.ts`, `tests/desktop-remote-access.test.ts`.
 4. Act verbs and receipts — `pages stage|stage-app|list|status|revoke|narrow|snapshot-off` in `src/local/cli/act-commands.ts` and `src/local/cli/act-facade.ts`; `tests/work-fold-cli-act-protocol.test.ts`, `tests/work-fold-act-facade.test.ts`.
-5. Desktop surfaces — publications list, share-link reveal, budget and snapshot controls, and revoke in Settings → The fold; needs-you publish cards; glance change items; `tests/fold-publication-settings.test.ts`, `tests/web-ui-contract.test.ts`, `tests/frontend-interaction-contract.test.ts`.
+5. Desktop surfaces — publications list, share-link reveal, budget and snapshot controls, and revoke in Settings → The fold; glance change items; `tests/fold-publication-settings.test.ts`, `tests/web-ui-contract.test.ts`, `tests/frontend-interaction-contract.test.ts`.
 6. Snapshot opt-in lane — push/delete in `desktop/src/remote-access.ts`, bridge storage, "as of" rendering, label copy.
 7. Rung 3 viewer surface — the `viewer` manifest declaration in `src/local/agent/restricted-app-manifest.ts`, the viewer adapter in `src/local/agent/restricted-app-viewer.ts`, opaque-origin iframe hosting in the shell, probe denial cases in `scripts/restricted-app-electron-smoke.mjs`; `tests/restricted-app-manifest.test.ts`, `tests/restricted-app-product-contract.test.ts`, `tests/work-fold-publications.test.ts`.
 8. Docs and canonical promotion — recorded in [Fold integration](fold-integration.md).
+9. Receipts, not gates (2026-09-10, F19) — sharing became a prepared verb that executes and receipts on the call that asks; the receipt's retired decision fields were dropped — `src/local/publications.ts`, `src/local/cli/act-receipts.ts`; `tests/work-fold-publications.test.ts`, `tests/work-fold-cli-act-receipts.test.ts`.

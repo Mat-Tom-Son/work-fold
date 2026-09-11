@@ -89,7 +89,7 @@ argument parsing or documentation.
 
 For a real distribution candidate, retain and report:
 
-- the version, architecture, source commit, and selected release policy;
+- the version, architecture, source commit, and selected release lane;
 - per-stage timings and the status/resume result;
 - Developer ID, hardened-runtime, notarization-staple, and Gatekeeper outcomes;
 - exact DMG, ZIP, blockmap, updater metadata, checksum, and manifest results;

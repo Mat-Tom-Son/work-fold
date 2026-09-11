@@ -12,6 +12,12 @@ reconciliations, the promotion record, and the items still held with their
 gates. Per its own governance it is not a register and shrinks to nothing
 once the held items land or are rejected.
 
+**Amended 2026-09-10.** The receipts-not-gates build
+([record](receipts-not-gates.md)) superseded reconciliations 1, 2, 5, 6, 7
+(the `decisions.*` part), 9, 11 (standing policies), 12 (cards), 13, 14, and
+15 below; they stay listed as history so a future change cannot resurrect
+them by accident. Held item V-2 is moot.
+
 ## What was applied where (2026-08-11)
 
 | Canonical document | Applied |
@@ -40,7 +46,7 @@ claimed by the canonical documents.
 
 | Held item | Gate |
 |---|---|
-| V-2 — the visual-design bullet admitting a menu-bar/tray attention dot while decisions pend | The visual-acceptance pass must accept the dot; it is not implemented and no acceptance is recorded. Until then the dot exists only as the pass-gated possibility U-3 names. |
+| V-2 — the visual-design bullet admitting a menu-bar/tray attention dot while decisions pend | Moot since 2026-09-10: no decisions pend. If a dot ever returns it may only mean an Assistant question or a due snooze is waiting, and it still needs the visual-acceptance pass. |
 | README walkthrough screenshots | Discharged 2026-08-23 and refreshed 2026-09-01. Current tracked walkthrough assets live under `services/bridge/public/screens/`; README names the exact files and the documentation contract test verifies them. |
 
 Two originally held items were discharged at ship time with the 0.3.0
@@ -52,15 +58,17 @@ PM-6's accepted-direction bullet.
 ## Cross-document reconciliations
 
 Cross-thread decisions recorded so no thread ships a variant. All fifteen
-are implemented in the build; they remain recorded here because they bind
-future changes across siblings.
+were implemented in the 2026-08-11 build; the ones still unmarked bind future
+changes across siblings, and the ones marked superseded stay here only so a
+later change cannot revive them by accident.
 
-1. **One decision-id spelling on receipts — `decisionId`.** The staged act
-   and its decision share one identity by construction (the decision request
-   id is derived from the staged-act id).
-2. **One surface vocabulary.** Wherever a surface is recorded, the closed set
-   is `cli`, `popover`, `main-window`, `remote_web`, `policy`, and
-   `unrestricted`. Glance
+1. *(superseded 2026-09-10)* **One decision-id spelling on receipts —
+   `decisionId`.** The staged act and its decision shared one identity by
+   construction. Receipts no longer carry `decisionId`; older lines that do
+   stay readable.
+2. *(superseded 2026-09-10)* **One surface vocabulary.** Surface vocabulary
+   is now `cli`, `popover`, `main-window`, `remote_web`; `policy` and
+   `unrestricted` are read-only history. Glance
    marker keys stay as designed — they key per-grant presentation state, not
    receipts.
 3. **`publish.viewer.expose` pins both shapes.** Page slots pin Space id,
@@ -69,16 +77,17 @@ future changes across siblings.
    the complete viewer-readable surface. Widenings pin old and new bindings.
 4. **`apps release publish` is a direct verb.** The App Studio transition is
    a local state change with no outward exposure; the outward act is the
-   separate `pages` consecration.
-5. **Decision TTL and caps are shared dials.** The 24-hour staged-act TTL and
-   the 32-pending cap are consecrations' dials; staged routing enablements
-   and staged publications inherit them.
-6. **Needs-you rendering is one card contract.** The popover stack, the
-   main-window flyout, and the remote client's Needs you screen render the
-   same host-composed card component contract; glance needs-you items
-   reference the same pending records and never a second store.
+   separate `pages` share verb (*amended 2026-09-10:* that share is a
+   prepared verb that executes and receipts on the call that asks).
+5. *(superseded 2026-09-10)* **Decision TTL and caps are shared dials.**
+   Nothing pends, so neither dial exists; routing enablement and page sharing
+   execute on the call that asks.
+6. *(superseded 2026-09-10)* **Needs-you rendering is one card contract.**
+   Needs you now carries Assistant questions and due snoozes only (F24), and
+   the popover renders none of it.
 7. **The remote operation vocabulary grows in coordinated waves,
-   allowlist-first at the bridge.** `decisions.list`/`decisions.decide`,
+   allowlist-first at the bridge.** `decisions.list`/`decisions.decide`
+   *(superseded 2026-09-10 — removed)*,
    `management.glance`/`management.glanceSeen`, and `viewer.fetch` plus the
    device publication routes each landed across
    `src/local/remote-management.ts`, `desktop/src/remote-access.ts`, and
@@ -88,34 +97,33 @@ future changes across siblings.
    terminal-persistence funnel and the restricted-app `onResult` funnel and
    is consumed only by the routing service; the glance reads stores on
    request. No other consumer may attach without a register decision.
-9. **Act protocol stays at version 2.** Threads extend argv, command tables,
-   and the facade; none changes the envelope in
-   `src/local/cli/act-protocol.ts`.
+9. *(superseded 2026-09-10)* **Act protocol stays at version 2.** The act
+   protocol version advanced to 3 when gated verbs began returning their
+   receipted result; the rule that ordinary threads extend argv, command
+   tables, and the facade without touching
+   `src/local/cli/act-protocol.ts` still holds.
 10. **The glance's source inventory is closed.** Any further source must
     amend [the glance](fold-glance.md)'s inventory table first; nothing
     feeds the digest by side effect.
 11. **The fold's Settings surface has one name: Settings → The fold**
-    (owner decision, 2026-08-10, F15 in [the fold](fold.md)), hosting
-    standing policies, routing management, and publication controls, with
-    "Your fold on the web" as its web-access subsection.
-12. **Popover copy and cards do not collide.** The two-state send button
-    ("Fold it in" with staged material, "Send" without) is composer copy;
-    needs-you cards carry their own Approve and Deny controls.
-13. **Policy-ineligible kinds are one closed list, owned by consecrations.**
-    Standing policies can never name a destroy-category kind,
-    `publish.viewer.expose`, or `routing.enable`; the policy store rejects
-    ineligible kinds and `tests/fold-policies.test.ts` covers the refusal.
-14. **No-restore-path deletion has one semantics.** `files delete` refuses
-    whenever any matched content lacks restore coverage, and the staged
-    `files destroy` consecration is the only path to such a deletion; no
-    lane may delete content the restore point cannot bring back without a
-    staged decision under the current authority mode.
-15. **Root authority is one inherited machine setting** (owner decision,
-    2026-08-31, F17 in [the fold](fold.md)). Reviewed retains cards and
-    standing policies. Unrestricted consumes every newly admitted staged act
-    through the desktop host, including remote-originated acts, and records
-    the initiating browser/grant. Only local Settings changes the mode;
-    existing pending cards are never drained by the switch.
+    (owner decision, 2026-08-10, F15 in [the fold](fold.md)). *Amended
+    2026-09-10:* it hosts Recently deleted, routing management, and
+    publication controls, with "Your fold on the web" as its web-access
+    subsection; the standing-policies section is gone.
+12. *(superseded 2026-09-10)* **Popover copy and cards do not collide.** The
+    two-state send button ("Fold it in" with reference chips attached, "Send"
+    without) is still composer copy; there are no cards to collide with.
+13. *(superseded 2026-09-10)* **Policy-ineligible kinds are one closed
+    list.** Standing policies are gone, so the list has no subject.
+14. *(superseded 2026-09-10)* **No-restore-path deletion has one
+    semantics.** `files delete` always succeeds; paths the safety checkpoint
+    cannot cover move into Recently deleted, and `files destroy` is
+    removed (F20).
+15. *(superseded 2026-09-10)* **Root authority is one inherited machine
+    setting** (owner decision, 2026-08-31, F17 in [the fold](fold.md)).
+    There is one authority mode and no setting to inherit; a
+    remote-originated act still records the initiating browser and grant on
+    its receipt.
 
 ## Governance
 

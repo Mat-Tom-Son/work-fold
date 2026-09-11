@@ -1,4 +1,4 @@
-# Space apps in approved browsers
+# Space apps in paired browsers
 
 The fold supports private app views in its Spaces
 screen. Apps appear above the selected Space's files. Opening one shows its
@@ -12,20 +12,19 @@ can be opened without first publishing a Release.
 
 ## Reviewed content and exact identity
 
-An approved installation in the current fold request also provides an app
-result link. The host derives it from the executed decision and installed
+An installation named in the current fold request also provides an app
+result link. The host derives it from the executed act receipt and installed
 proposal, or the completed Release activation. It pins the Space, app and
 Feature Installation instead of looking up a title. Opening resolves that same
 installation's current reviewed revision; a changed digest shows **Updated
 since this task**. Removal/reinstallation makes the old link unavailable.
-The completed app link replaces its obsolete Review decision button.
 
 The existing `viewer` declaration identifies the packaged entry and readable
 instance-owned data prefixes. It remains a maximum content declaration, not
 permission to publish. Both private app views and shared viewers use the same
 read implementation, `readRestrictedAppWebView`; their authority adapters are
-separate. The public adapter still requires a consecrated Release-backed
-publication. The private adapter requires an approved browser and pins the
+separate. The public adapter still requires a receipted Release-backed
+publication. The private adapter requires a paired browser and pins the
 Space, app, Feature Installation, revision and current authority digest.
 
 `spaces.list` advertises `capabilities.appViews`. The closed management lane

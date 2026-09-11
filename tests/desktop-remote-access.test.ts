@@ -662,7 +662,7 @@ function decryptTestResponse(
   return JSON.parse(Buffer.concat([decipher.update(encrypted.subarray(0, -16)), decipher.final()]).toString("utf8")) as Record<string, unknown>;
 }
 
-test("a maximum-size file preview crosses the approved browser encrypted transport", async () => {
+test("a maximum-size file preview crosses the paired browser encrypted transport", async () => {
   const browser = remoteTestBrowser("grant-preview");
   const settings = remoteTestSettings([browser]);
   const preview = { spaceId: "space-preview", path: "result.png", kind: "image", mediaType: "image/png", base64: Buffer.alloc(1024 * 1024, 7).toString("base64") };
@@ -1039,7 +1039,7 @@ test("local revocation still purges tasks and uploads when secure-settings mutat
   assert.deepEqual(events, ["remove", "management.stop", "purge"]);
 });
 
-test("pairing approval copy treats the browser label as unverified data", async () => {
+test("pairing copy treats the browser label as unverified data", async () => {
   const main = await readFile(new URL("../desktop/src/main.ts", import.meta.url), "utf8");
   const start = main.indexOf("async function promptRemoteBrowserPairing");
   const end = main.indexOf("\n}\n\nasync function configureRemoteAccess", start);
@@ -1047,7 +1047,8 @@ test("pairing approval copy treats the browser label as unverified data", async 
   assert.notEqual(end, -1);
   const prompt = main.slice(start, end);
 
-  assert.match(prompt, /message: "Approve this remote browser\?"/);
+  assert.match(prompt, /message: "Pair this remote browser\?"/);
+  assert.match(prompt, /buttons: \["Pair browser", "Decline"\]/);
   assert.match(prompt, /Unverified browser-supplied label/);
   assert.match(prompt, /JSON\.stringify\(pairing\.label\)/);
   assert.doesNotMatch(prompt, /message:\s*`[^`]*\$\{pairing\.label\}/);

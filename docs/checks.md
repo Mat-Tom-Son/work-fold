@@ -46,7 +46,8 @@ justifies promotion into the stable kernel and installed-CLI snapshots.
   or enabling it is an explicit, receipted act-lane mutation naming one Space.
 - Portable declarations live below `.work-fold/checks/`. They are code-free
   data and may contain only a sensor id and revision, typed parameters, bounded
-  target selectors, presentation metadata, and gate policy.
+  target selectors, and presentation metadata (a title and a severity). A Check
+  never holds other work back; it reports.
 - Declarations cannot embed executable code, shell commands, model names, provider credentials, connection data, or arbitrary expressions. The built-in text-review sensor admits one explicit review rubric as its bounded `criteria` parameter. This is a reviewed content criterion, not authority to run instructions or widen targets. The host owns the system prompt, submission schema, and transport. Other executable capabilities remain Pi-owned.
 - Registration discovers portable declarations but never enables them. The
   machine-local authorization store enables the exact digest of one declaration
@@ -292,7 +293,7 @@ are distinguished from provider failures. No automatic retry, coercion, partial
 admission, or raw-response logging is added. Changes to this prompt, schema, or
 validation change the sensor digest and require explicit re-enablement.
 
-Proposal review displays selected files and rubric before Try it or Turn on; enablement alone does not run the model. Existing declarations can be disabled or reviewed and re-enabled against their current digest. A routing can run an enabled Check after a folder changes; its folder trigger is a separate standing grant. A successful Check run may contain findings and is not an automatic publication gate.
+Proposal review displays selected files and rubric before Try it or Turn on; enablement alone does not run the model. Existing declarations can be disabled or reviewed and re-enabled against their current digest. A routing can run an enabled Check after a folder changes; that folder observation is a separate bounded declaration the person turns on with one receipted call ([routings](fold-routings.md)). A successful Check run may contain findings and is not an automatic publication gate.
 
 ## Fold-led setup and reviewed corrections
 
@@ -359,7 +360,10 @@ content-free status contract remains version 1.
 The desktop creates its shared Check service before the interactive API starts.
 `createDesktopCheckService` supplies a lazy in-process callback to that API's
 serialized fold-model reviewer. The renderer, CLI, and Routings use the same
-service and transport. Status reads do not start the API or a model, and the
+service and transport. A Space app's `assistant.infer` calls reuse this bounded
+model transport with their own instructions; they admit no evidence, produce no
+findings, are not Checks, and never become one
+([Receipts, not gates](receipts-not-gates.md), F18 as narrowed, F22). Status reads do not start the API or a model, and the
 callback is not exposed as an HTTP or remote command. Integration coverage
 uses this actual desktop composition for trials, live runs, and correction
 rechecks; injecting a synthetic reviewer into the service alone is insufficient
@@ -367,7 +371,9 @@ to prove packaged desktop wiring.
 
 ## Selected results in Space apps
 
-Restricted apps may declare named Check-result choices. A person maps each
+Restricted apps may declare named Check-result choices. Installing the app
+grants the slot and binds it automatically when that Space has exactly one
+Check; otherwise the slot is reported as still needing the person, who maps the
 choice to one exact declaration id/digest from that installation's Space in the
 Apps access controls. The runtime read projection uses the same Check service,
 operation reservation, registration/target checks, freshness and evidence

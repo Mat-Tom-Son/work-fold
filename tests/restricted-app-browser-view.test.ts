@@ -134,7 +134,7 @@ test("approved-browser actions use the installed worker service, live grant auth
     const installedPreview = await api.actFacade.appsInstallPreview({ space: space.id, packagePath: "app" });
     const app = (await service.list(space.id))[0]!; const scope = scopeFor(app);
     const request = { requestId: randomUUID(), requestedAt: new Date().toISOString(), action: "save", input: { quote: "North: $42" } };
-    await assert.rejects(api.remoteFacade.execute("apps.actions.request", { ...scope, request }, principal), /live approved browser/);
+    await assert.rejects(api.remoteFacade.execute("apps.actions.request", { ...scope, request }, principal), /live paired browser/);
     await assert.rejects(api.remoteFacade.execute("apps.actions.request", { ...scope, request, browserId: "other" }, principal, authority));
     const first = await api.remoteFacade.execute("apps.actions.request", { ...scope, request }, principal, authority) as { action: { id: string; status: string } };
     assert.equal(first.action.status, "pending"); assert.equal(calls.length, 0);

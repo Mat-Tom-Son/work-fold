@@ -16949,7 +16949,7 @@ textarea,
 .app-shell[data-theme="dark"] .settings-save-status { color: #8fe0c0; }
 .app-shell[data-theme="dark"] .settings-appearance-status { color: #94a3b8; }
 
-/* Settings → The fold → Standing policies (docs/fold-consecrations.md). */
+/* Shared Settings form controls and notices. */
 .settings-field select {
   width: 100%;
   min-height: 40px;
@@ -16971,43 +16971,6 @@ textarea,
   font-size: 0.72rem;
   font-weight: 500;
 }
-
-.settings-attestation-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border: 1px solid #ffd3a8;
-  border-radius: 8px;
-  padding: 10px 12px;
-  color: #8a4213;
-  background: #fff8ef;
-  font-size: 0.8rem;
-}
-
-.settings-attestation-banner .secondary-button { width: auto; min-height: 34px; flex: 0 0 auto; }
-
-.fold-policy-list .settings-actions { flex-wrap: wrap; }
-.fold-policy-list .settings-actions .secondary-button { min-width: 0; }
-
-.fold-policy-add {
-  display: grid;
-  gap: 10px;
-  border-top: 1px solid #e4e9ef;
-  padding-top: 12px;
-}
-
-/* The per-policy inline label/matcher editor, grouped under its row. */
-.fold-policy-edit {
-  display: grid;
-  gap: 10px;
-  margin: 0 10px 9px;
-  padding: 10px;
-  border: 1px dashed #e4e9ef;
-  border-radius: 8px;
-}
-
-.fold-policy-edit .settings-actions { justify-content: flex-end; }
 
 .fold-publication-list { display: grid; }
 .fold-publication-row { display: grid; gap: 6px; padding-bottom: 8px; }
@@ -17498,9 +17461,6 @@ textarea,
 
 .app-shell[data-theme="dark"] .settings-field select { color: #e5edf7; border-color: #3c4655; background: #202733; }
 .app-shell[data-theme="dark"] .settings-field small { color: #94a3b8; }
-.app-shell[data-theme="dark"] .settings-attestation-banner { color: #f0cb7a; border-color: #5f4d2b; background: #302817; }
-.app-shell[data-theme="dark"] .fold-policy-add { border-top-color: #303a48; }
-.app-shell[data-theme="dark"] .fold-policy-edit { border-color: #303a48; }
 
 .app-shell[data-theme="dark"] .library-tree { border-right-color: #343b47; }
 .app-shell[data-theme="dark"] .space-rail-account-button { color: rgba(255, 255, 255, 0.72); }

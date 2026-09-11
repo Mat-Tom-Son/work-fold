@@ -115,8 +115,8 @@ export interface RemoteAccountRemovalSteps {
 export interface RemoteViewerPageProvider {
   servePage(publicationId: string): Promise<WorkFoldViewerPageServeResult>;
   /**
-   * Rung 3 (docs/fold-publishing.md): one relayed viewer-app call — reviewed
-   * entry, staged asset, or viewer-readable data read — served through the
+   * Rung 3 (docs/fold-publishing.md): one relayed viewer-app call — declared
+   * entry, placed release asset, or viewer-readable data read — served through the
    * publication service's effect-time recheck and the desktop-enforced
    * viewer-safe broker subset. A desktop without the hook ignores
    * `viewer.app.fetch` frames, exactly like an older build, and the bridge
@@ -424,7 +424,7 @@ export class RemoteAccessClient {
         // this browser was revoked. Re-read authority at the commit point.
         const settings = await this.requireActiveSettings();
         if (this.#authorityVersion !== authorityVersion) {
-          throw new Error("Web access authority changed while this browser approval was open.");
+          throw new Error("Web access authority changed while this pairing was open.");
         }
         const replaced = settings.grants.find((item) => item.browserId === pairing.browserId) ?? null;
         if (replaced) {
