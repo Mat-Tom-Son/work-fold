@@ -24,6 +24,7 @@ const assets = registerHooks({
   },
 });
 const { CapabilitiesPane, CapabilityDetailsDialog } = await import("../web-local/src/components/panes/CapabilitiesPane.js");
+const { IncludedChromeSetup } = await import("../web-local/src/components/panes/IncludedChromeSetup.js");
 assets.deregister();
 type Item = Parameters<typeof CapabilityDetailsDialog>[0]["item"];
 function included(id: string): Item {
@@ -41,7 +42,7 @@ test("installed details keep metadata collapsed while setup, failures and contro
   globalThis.fetch = (async (_input, init) => {
     if (init?.method === "POST") {
       writes.push(JSON.parse(String(init.body)));
-      return Response.json({ status: { id: "chrome", state: "setup_required", detail: "Load the Chrome companion." }, revealPath: "/tmp/companion" });
+      return Response.json({ status: { id: "chrome", state: "setup_required", chrome: { state: "connecting", checkedAt: "2026-09-12T16:00:00.000Z", hasSelection: false } } });
     }
     return Response.json({ tools: [{ id: "chrome", state: "unknown", detail: "An obsolete explanation must not appear." }] });
   }) as typeof fetch;
@@ -54,10 +55,10 @@ test("installed details keep metadata collapsed while setup, failures and contro
   assert.match(technical.textContent!, /app\.asar/);
   assert.doesNotMatch(dom.container.textContent!, /None registered|Flags|Commands|Executable capability|obsolete explanation/);
   const button = (name: string) => [...dom.container.querySelectorAll("button")].find((item) => item.textContent === name)!;
-  await dom.act(() => button("Set up Chrome").click());
-  assert.deepEqual(writes, [{ spaceId: "workshop", id: "chrome", action: "prepare-companion" }]);
-  assert.match(dom.container.textContent!, /Load unpacked/);
-  assert.equal(button("Copy folder path").disabled, false);
+  await dom.act(() => button("Connect Chrome").click());
+  assert.deepEqual(writes, [{ spaceId: "workshop", id: "chrome", action: "connect-chrome" }]);
+  assert.match(dom.container.textContent!, /Connecting/);
+  assert.doesNotMatch(dom.container.textContent!, /Load unpacked|Developer mode|Copy folder path/);
   await dom.act(() => technical.querySelector("summary")!.click());
   assert.equal(technical.open, true);
   await dom.act(() => button("Turn off").click());
@@ -75,11 +76,11 @@ test("ready included tools need no repeated setup copy and MCP keeps connection 
       const body = JSON.parse(String(init?.body)); operations.push(body.operation);
       return Response.json({ sessionId: "owned-session", servers: [{ name: "Calendar", scope: "global", transport: "http", endpoint: "https://example.invalid/mcp", auth: "none", credential: "not_checked", revision: "one" }], ...(body.operation === "check" ? { probe: { state: "ready", detail: "A redundant success explanation." } } : {}) });
     }
-    return Response.json({ tools: includedToolDefinitions.map((tool) => ({ id: tool.id, state: "ready", detail: "A redundant success explanation." })) });
+    return Response.json({ tools: includedToolDefinitions.map((tool) => ({ id: tool.id, state: "ready", detail: "A redundant success explanation.", ...(tool.id === "chrome" ? { chrome: { state: "connected", checkedAt: "2026-09-12T16:00:00.000Z", hasSelection: true } } : {}) })) });
   }) as typeof fetch;
   for (const id of ["chrome", "computer", "documents", "web"]) {
     await dom.render(createElement(CapabilityDetailsDialog, { key: id, item: included(id), spaceId: "workshop", busy: false, onClose() {} }));
-    await dom.waitFor(() => dom.container.textContent!.includes("Ready"));
+    await dom.waitFor(() => dom.container.textContent!.includes(id === "chrome" ? "Connected" : "Ready"));
     assert.doesNotMatch(dom.container.textContent!, /redundant success explanation|Set up Chrome|Set up permissions/);
   }
   await dom.render(createElement(CapabilityDetailsDialog, { key: "mcp", item: included("mcp"), spaceId: "workshop", busy: false, onClose() {} }));
@@ -112,7 +113,7 @@ test("Installed separates cold readiness from native loading and keeps a newer s
     if (init?.method === "POST") {
       writes.push(JSON.parse(String(init.body)));
       if (failingCheck) return Response.json({ error: "Companion probe failed" }, { status: 503 });
-      return Response.json({ status: { id: "chrome", state: "ready", checkedAt: "2026-09-12T15:01:00.000Z", detail: "Authenticated companion responded." } });
+      return Response.json({ status: { id: "chrome", state: "ready", checkedAt: "2026-09-12T15:01:00.000Z", detail: "Authenticated companion responded.", chrome: { state: "connected", checkedAt: "2026-09-12T15:01:00.000Z", hasSelection: true } } });
     }
     if (String(input).includes("included-tools")) return failingCheck
       ? Response.json({ tools: [{ id: "chrome", state: "unknown", checkedAt: "2026-09-12T15:03:00.000Z", detail: "No current evidence" }] })
@@ -139,14 +140,14 @@ test("Installed separates cold readiness from native loading and keeps a newer s
   assert.match(dom.container.querySelector(".capability-technical-details")!.textContent!, /ExtensionLoadedEnabledYes/);
   const check = [...dom.container.querySelectorAll<HTMLButtonElement>(".included-tool-setup button")].find((button) => button.textContent === "Check")!;
   await dom.act(() => { check.click(); check.click(); });
-  await dom.waitFor(() => card("Chrome").textContent!.includes("Ready"));
+  await dom.waitFor(() => card("Chrome").textContent!.includes("Connected"));
   assert.deepEqual(writes, [{ spaceId: "first", id: "chrome", action: "check" }]);
   await dom.act(() => {
     for (const complete of summaryReads) complete(Response.json({ tools: [{ id: "chrome", state: "unknown", checkedAt: "2026-09-12T15:02:00.000Z", detail: "A snapshot taken while the earlier-started explicit probe was running" }] }));
   });
   await dom.settle();
-  assert.match(card("Chrome").textContent!, /Ready/);
-  assert.equal(dom.container.querySelector('.included-tool-status [role="status"]')!.textContent, "Ready");
+  assert.match(card("Chrome").textContent!, /Connected/);
+  assert.equal(dom.container.querySelector('.included-tool-status [role="status"]')!.textContent, "Connected");
   failingCheck = true;
   await dom.act(() => check.click());
   await dom.waitFor(() => dom.container.textContent!.includes("Companion probe failed"));
@@ -166,7 +167,7 @@ test("late readiness responses cannot cross Spaces or survive a closed setup own
   globalThis.fetch = (async (input, init) => {
     if (init?.method === "POST") return new Promise<Response>((resolve) => { completeCheck = resolve; });
     if (String(input).includes("spaceId=first")) return new Promise<Response>((resolve) => { completeOld = resolve; });
-    return Response.json({ tools: [{ id: "chrome", state: "setup_required", checkedAt: "2026-09-12T15:02:00.000Z", detail: "Load the companion." }] });
+    return Response.json({ tools: [{ id: "chrome", state: "setup_required", checkedAt: "2026-09-12T15:02:00.000Z", chrome: { state: "not_connected", checkedAt: "2026-09-12T15:02:00.000Z", hasSelection: false } }] });
   }) as typeof fetch;
   const props = { item: included("chrome"), busy: false, onClose() {}, onReadinessChange: (status: { state: string } | null) => { if (status) delivered.push(status.state); } };
   await dom.render(createElement(CapabilityDetailsDialog, { ...props, spaceId: "first" }));
@@ -179,8 +180,89 @@ test("late readiness responses cannot cross Spaces or survive a closed setup own
   });
   await dom.settle();
   assert.deepEqual(delivered, ["setup_required"]);
-  assert.equal(dom.container.querySelector('.included-tool-status [role="status"]')!.textContent, "Setup needed");
-  assert.match(dom.container.textContent!, /Load the companion/);
+  assert.equal(dom.container.querySelector('.included-tool-status [role="status"]')!.textContent, "Not connected");
+});
+
+test("Chrome Store setup observes the authenticated handshake and a refused disconnect preserves the selected connection", async (t) => {
+  const dom = await createDomHarness(); t.after(() => dom.cleanup());
+  const originalFetch = globalThis.fetch; t.after(() => { globalThis.fetch = originalFetch; });
+  const posts: Record<string, unknown>[] = [];
+  let connectionState = "not_connected";
+  let refuseWithSummary = false;
+  const snapshot = () => ({ id: "chrome", state: "ready", checkedAt: "2026-09-12T16:00:00.000Z", chrome: {
+    state: connectionState, checkedAt: "2026-09-12T16:00:00.000Z", hasSelection: connectionState === "connected" || connectionState === "busy",
+  } });
+  globalThis.fetch = (async (_input, init) => {
+    if (init?.method === "POST") {
+      const body = JSON.parse(String(init.body)); posts.push(body);
+      if (body.action === "disconnect-chrome" && refuseWithSummary) { connectionState = "busy"; return Response.json({ status: snapshot() }); }
+      if (body.action === "disconnect-chrome") return Response.json({ error: "Chrome is in use. Stop its work first.", code: "CHROME_BUSY" }, { status: 409 });
+      connectionState = "not_connected";
+      return Response.json({ status: snapshot() });
+    }
+    return Response.json({ tools: [snapshot()] });
+  }) as typeof fetch;
+  const button = (label: string) => [...dom.container.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === label)!;
+  await dom.render(createElement(IncludedChromeSetup, { spaceId: "first", enabled: true }));
+  await dom.waitFor(() => dom.container.textContent!.includes("Not connected"));
+  assert.deepEqual(posts, [], "opening setup reads status without registration or launch");
+  await dom.act(() => { button("Connect Chrome").click(); button("Connect Chrome")?.click(); });
+  await dom.waitFor(() => dom.container.textContent!.includes("In Chrome, choose Connect."));
+  assert.ok(button("Cancel"), "a successful Store opening starts observation even before a profile is selected");
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0]!.action, "connect-chrome");
+  assert.notEqual(dom.container.querySelector('[role="status"]')!.textContent, "Connected", "issuing a native lease does not establish browser readiness");
+  connectionState = "connected";
+  await dom.act(() => window.dispatchEvent(new Event("focus")));
+  await dom.waitFor(() => dom.container.querySelector('[role="status"]')!.textContent === "Connected");
+  assert.equal(posts.length, 1, "returning from Chrome observes the handshake without another Check action");
+  assert.ok(button("Disconnect")); assert.ok(button("Change profile"));
+  await dom.act(() => button("Disconnect").click());
+  await dom.waitFor(() => Boolean(dom.container.querySelector('[role="alert"]')));
+  await dom.waitFor(() => dom.container.querySelector('[role="status"]')!.textContent === "Connected");
+  assert.match(dom.container.querySelector('[role="alert"]')!.textContent!, /Chrome is in use/);
+  assert.deepEqual(posts.map(({ action }) => action), ["connect-chrome", "disconnect-chrome"]);
+  refuseWithSummary = true;
+  await dom.act(() => button("Disconnect").click());
+  await dom.waitFor(() => dom.container.querySelector('[role="status"]')!.textContent === "Chrome is in use");
+  assert.ok(button("Disconnect")); assert.ok(button("Change profile"), "a busy refusal does not clear the selected profile");
+  assert.match(dom.container.textContent!, /Stop Chrome work/);
+  assert.doesNotMatch(dom.container.textContent!, /Developer mode|Load unpacked|Copy folder path|token/i);
+});
+
+test("missing Store identity has no invented install link and closing setup never disconnects an accepted connection", async (t) => {
+  const dom = await createDomHarness(); t.after(() => dom.cleanup());
+  const originalFetch = globalThis.fetch; t.after(() => { globalThis.fetch = originalFetch; });
+  let state = "store_unavailable";
+  let completeConnect: ((value: Response) => void) | undefined;
+  const posts: string[] = [];
+  const delivered: string[] = [];
+  const snapshot = () => ({ id: "chrome", state: "unknown", checkedAt: "2026-09-12T16:00:00.000Z", chrome: { state, checkedAt: "2026-09-12T16:00:00.000Z", hasSelection: state === "connected" } });
+  globalThis.fetch = (async (_input, init) => {
+    if (init?.method === "POST") {
+      posts.push(JSON.parse(String(init.body)).action);
+      return new Promise<Response>((resolve) => { completeConnect = resolve; });
+    }
+    return Response.json({ tools: [snapshot()] });
+  }) as typeof fetch;
+  const props = { enabled: true, onStatusChange: (status: { chrome?: { state: string } } | null) => { if (status?.chrome) delivered.push(status.chrome.state); } };
+  await dom.render(createElement(IncludedChromeSetup, { ...props, spaceId: "first" }));
+  await dom.waitFor(() => dom.container.textContent!.includes("Chrome extension unavailable"));
+  assert.equal(dom.container.querySelectorAll("a").length, 0);
+  assert.equal([...dom.container.querySelectorAll("button")].some((button) => button.textContent === "Connect Chrome"), false);
+  state = "not_connected";
+  await dom.act(() => window.dispatchEvent(new Event("focus")));
+  await dom.waitFor(() => dom.container.textContent!.includes("Connect Chrome"));
+  await dom.act(() => [...dom.container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Connect Chrome")!.click());
+  await dom.render(null);
+  const before = delivered.length;
+  state = "connected";
+  await dom.act(() => completeConnect!(Response.json({ status: snapshot() })));
+  assert.equal(delivered.length, before, "a closed observer cannot publish a late result");
+  assert.deepEqual(posts, ["connect-chrome"], "closing setup must never issue Disconnect or undo accepted enrollment");
+  await dom.render(createElement(IncludedChromeSetup, { ...props, spaceId: "second" }));
+  await dom.waitFor(() => dom.container.querySelector('[role="status"]')!.textContent === "Connected");
+  assert.deepEqual(posts, ["connect-chrome"], "the connection survives a Space switch without another enrollment");
 });
 
 test("real detail CSS keeps long paths above tool lists and preserves scrolling at narrow and short sizes", { timeout: 60_000 }, async (t) => {

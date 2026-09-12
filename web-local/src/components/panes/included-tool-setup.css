@@ -5,6 +5,8 @@
 .included-tool-setup .professional-button { height: auto; max-width: 100%; min-height: 36px; padding-block: 8px; white-space: normal; line-height: 1.35; }
 .included-tool-status { justify-content: space-between; }
 .included-tool-status strong { font-size: 15px; }
+.included-chrome-actions { margin-top: 12px; }
+.included-chrome-actions:empty { display: none; }
 .included-tool-setup .included-tool-error { color: var(--ui-danger, #b13b3b); overflow-wrap: anywhere; }
 .included-tool-facts { font-size: 12px; margin-top: 16px; }
 .included-tool-facts div { display: grid; grid-template-columns: minmax(0, 125px) minmax(0, 1fr); gap: 12px; margin: 6px 0; }
@@ -16,8 +18,6 @@
 .included-tool-optional label { display: grid; gap: 6px; }
 .included-tool-optional input { min-width: 0; width: 100%; box-sizing: border-box; padding: 9px; border: 1px solid var(--border-color, #80808055); border-radius: 6px; background: transparent; color: inherit; }
 .included-tool-optional .included-tool-actions { margin-top: 10px; }
-.included-companion-path { min-width: 0; }
-.included-companion-path code { display: block; overflow-wrap: anywhere; white-space: normal; font-family: var(--work-fold-monospace-font, monospace); font-size: max(12px, calc(var(--work-fold-font-size, 15px) - 2px)); margin: 12px 0; }
 .included-mcp-list { list-style: none; margin: 14px 0; padding: 0; }
 .included-mcp-list li { padding: 14px 0; border-bottom: 1px solid var(--border-color, #80808035); }
 .included-mcp-list small, .included-mcp-list code { display: block; margin: 5px 0; overflow-wrap: anywhere; }
