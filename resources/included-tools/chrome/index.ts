@@ -3,7 +3,8 @@ import { chmod, copyFile, mkdir, readFile, readdir, rename, writeFile } from "no
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createChromeExtension, probeChromeConnection } from "pi-chrome/extensions/chrome-profile-bridge/index.ts";
+import { createChromeExtension, probeChromeConnection, startChromeConnection } from "pi-chrome/extensions/chrome-profile-bridge/index.ts";
+import type { ChromeHostFacilities } from "../../../src/shared/chrome-connection.js";
 import { hostContext } from "../host.ts";
 
 const require = createRequire(import.meta.url);
@@ -47,8 +48,30 @@ export async function probeIncludedChrome(config: IncludedChromeConfig) {
   return probeChromeConnection({ timeoutMs: 5_000, getCompanionToken: () => companionToken(config) });
 }
 
+function connectionOptions(host: ChromeHostFacilities) {
+  return {
+    getConnection: host.getChromeConnection,
+    onConnectionRevoked: host.onChromeConnectionRevoked,
+    reportConnectionObservation: host.reportChromeConnectionObservation,
+  };
+}
+
+/** Explicit/restored host connection, separate from inert Pi resource loading. */
+export async function startIncludedChromeConnection(host: ChromeHostFacilities) {
+  return startChromeConnection(connectionOptions(host));
+}
+
+export async function probeIncludedChromeConnection(host: ChromeHostFacilities) {
+  const result = await probeChromeConnection({ ...connectionOptions(host), timeoutMs: 5_000 });
+  if (result.state !== "ready") throw new Error(result.reason);
+  return result;
+}
+
 export default function chrome(pi: ExtensionAPI) {
   const host = hostContext(pi);
+  if (host?.getChromeConnection && host.onChromeConnectionRevoked && host.reportChromeConnectionObservation && host.beginChromeWork) {
+    return createChromeExtension({ embedded: true, ...connectionOptions(host as ChromeHostFacilities), beginWork: host.beginChromeWork })(pi);
+  }
   return createChromeExtension(host ? {
     embedded: true, companionPath: host.companionPath,
     // Reading a credential happens only when a native tool acquires a connection.

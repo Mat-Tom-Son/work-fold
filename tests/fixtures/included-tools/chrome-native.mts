@@ -47,7 +47,7 @@ try {
   assert.equal((await chrome.probeIncludedChrome(config)).state, "setup_required");
   const a = await makeSession("space-a"), b = await makeSession("space-b");
   await assert.rejects(stat(config.companionPath));
-  await assert.rejects(call(a.session, "chrome_tab", { action: "list" }), /Set up the Chrome companion/);
+  await assert.rejects(call(a.session, "chrome_tab", { action: "list" }), /Connect Chrome in Skills & Extensions/);
   await assert.rejects(fetch(url + "/status"));
   await chrome.prepareIncludedChromeCompanion(config);
   token = JSON.parse(await readFile(join(config.companionPath, "host-config.json"), "utf8")).token;

@@ -44,6 +44,9 @@ catalog/session mode and on-demand configuration callbacks. This context stays
 inside the full-trust native runtime; it is not a renderer or restricted-app
 API, and other native Extensions can use the same supported event bus.
 
+Chrome production distribution, native bootstrap ownership and independent update
+compatibility are defined in [Chrome extension distribution](chrome-extension-distribution.md).
+
 ## Live Extension interactions
 
 Native Pi `select`, `confirm`, `input` and `editor` calls appear inline in their
@@ -82,7 +85,7 @@ is not rendered as a desktop component.
 | Tool | Included implementation | Setup and supported boundary |
 |---|---|---|
 | Computer control | `@injaneity/pi-computer-use` 0.5.1; existing native observations/input coordination with reviewed helper lifecycle changes | Apple-silicon macOS helper built from source and included in the app signing lane. Accessibility and Screen Recording setup names the actual helper. Requested observations and actions, no continuous recorder. |
-| Chrome | `pi-chrome` 0.15.51; shared transport with independent Chat targets and embedded-host ownership | Prepare and load the supplied companion into the chosen Chrome profile. Local authenticated connection/version checks precede use. Signed-in account effects use that profile's authority; cleanup preserves user tabs. |
+| Chrome | `pi-chrome` 0.15.51; shared transport with independent Chat targets and embedded-host ownership | Install work-fold from the Chrome Web Store and choose Connect in the selected profile. Native bootstrap and authenticated protocol/capability checks precede use. Signed-in account effects use that profile's authority; cleanup preserves user tabs. |
 | Web | `pi-web-access` 0.29.0 pure search and readable-page functions through an additive native factory | DuckDuckGo search needs no key; optional Brave key is entered in tool setup. Explicit HTTP(S) reading, bounded output and cancellation. No automatic cookie/profile import, media service, global fetch replacement or hidden model call. Challenges and rate limits remain visible failures. |
 | Documents | Ordinary JavaScript worker, maintained document libraries and a standard document-work Skill | DOCX/XLSX/PPTX/PDF creation, spreadsheet read/write, PDF text extraction and selected page rendering using bundled dependencies. No separate Node/Python required. Office visual rendering uses the person's existing compatible apps; formulas are preserved, not recalculated; PDF text extraction is not OCR. |
 | Service connections | `pi-mcp-adapter` 2.33.0 using native MCP transport, discovery, schemas and cancellation | Configure HTTP or stdio servers in native Pi files. Trusted setup supports bearer credentials and loopback PKCE OAuth. Stdio commands need their own installed executable/runtime. Sampling is disabled for Pi 0.80.6 compatibility. No automatic imports from other applications. |
@@ -92,6 +95,18 @@ connections. Included does not mean every account is connected or every server
 starts. Factories stay cold during catalog inspection; credentials are read
 when an operation needs them. The document worker imports its libraries on
 requested execution or an explicit health check.
+
+The packaged Computer helper runs from a private, versioned directory outside
+the enclosing work-fold app bundle so macOS attributes its Screen Recording
+permission to `work-fold Computer`. On first requested setup or tool execution,
+the host copies the exact signed bundle, verifies its bytes and signature, and
+preserves its identity and icon. Catalog reads create no helper copy or process.
+An update creates a new version without replacing a running helper; the host
+still owns its launch, socket and shutdown. A Settings toggle alone does not
+prove capture works; readiness uses the actual helper's permission evidence.
+Changed helper bytes fail ordinary tool execution. Explicit Computer setup can
+repair them from the verified app copy after accepted work has stopped; the
+existing global capability fence holds through idle-helper shutdown and repair.
 
 Documents run full trust in a worker so Stop can terminate a synchronous loop.
 Each worker has a 512 MiB V8 heap limit to contain accidental allocation loops;

@@ -1,8 +1,9 @@
 diff --git a/docs/EMBEDDED-HOST.md b/docs/EMBEDDED-HOST.md
 new file mode 100644
+index 0000000..bf82458
 --- /dev/null
 +++ b/docs/EMBEDDED-HOST.md
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,130 @@
 +# Embedded-host integration patch
 +
 +Based on upstream pi-chrome 0.15.51 at commit
@@ -110,13 +111,45 @@ new file mode 100644
 +an output path. Full-page captures return at most 16 tiles and 16 MiB of decoded
 +image data; explicit exports retain image results. Native Pi session persistence
 +still records the model's tool-result images according to its normal session policy.
++
++
++## Published companion bootstrap
++
++An optional `getConnection` host callback replaces the file token with a host-owned
++`{connectionId, leaseToken, extensionOrigin, bridge:{major,minor,capabilities}}`.
++The exact native extension origin ends in `/`; HTTP compares its normalized origin.
++`onConnectionRevoked` fences every queue/result and drops the physical transport.
++`reportConnectionObservation` reports authenticated compatible polling only.
++`beginWork(connectionId)` holds the host's affected-work fence until `agent_end`
++or session disposal, including pauses between tool calls. The host must refuse
++profile changes while that work is active. These callbacks are optional; ordinary
++standalone Pi and manually prepared protocol2 companions retain their behavior.
++
++`startChromeConnection(options)` retains a transport for an explicitly selected
++connection even when no Pi session is using it; close releases only that owner.
++Factories/catalog reads remain cold. `probeChromeConnection(options)` sends only
++`tab.version`. Revocation never replays a command or silently transfers a turn.
++Protocol3 requires the exact selected origin, token and connection ID, then checks
++protocol/capabilities before dequeue. Companion version may update independently
++from the host package. The app distributes its static Store bootstrap separately;
++no per-user token is placed in that archive. Native messaging authenticates the
++extension ID, not the profile: selection and proof belong to the host bootstrap.
+diff --git a/extensions/chrome-profile-bridge/browser-extension/host-config.json b/extensions/chrome-profile-bridge/browser-extension/host-config.json
+new file mode 100644
+index 0000000..d49bbe1
+--- /dev/null
++++ b/extensions/chrome-profile-bridge/browser-extension/host-config.json
+@@ -0,0 +1 @@
++{"version":1,"mode":"standalone"}
 diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.js b/extensions/chrome-profile-bridge/browser-extension/service_worker.js
+index 8ba0e2d..89a01c3 100644
 --- a/extensions/chrome-profile-bridge/browser-extension/service_worker.js
 +++ b/extensions/chrome-profile-bridge/browser-extension/service_worker.js
-@@ -1,6 +1,49 @@
+@@ -1,6 +1,50 @@
  const BRIDGE_URL = "http://127.0.0.1:17318";
 +let companionConfig;
 +function loadCompanionConfig() {
++  if (globalThis.workFoldChrome) return globalThis.workFoldChrome.config();
 +  return companionConfig ??= fetch(chrome.runtime.getURL("host-config.json"))
 +  .then(async response => {
 +    if (!response.ok) throw new Error("Missing Chrome companion configuration. Reload the matching companion.");
@@ -128,11 +161,11 @@ diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.j
 +}
 +async function companionHeaders() {
 +  const config = await loadCompanionConfig();
-+  return config.mode === "embedded" ? { "x-pi-chrome-companion": config.token } : {};
++  return config.mode === "embedded" ? { "x-pi-chrome-companion": config.token, ...(config.connectionId ? { "x-pi-chrome-connection": config.connectionId } : {}) } : {};
 +}
  const CLIENT_NAME = `Pi Chrome Connector ${chrome.runtime.id}`;
  const POLL_ERROR_BACKOFF_MS = 2000;
-+const BRIDGE_PROTOCOL_VERSION = 2;
++const BRIDGE_PROTOCOL_VERSION = globalThis.workFoldChrome?.protocol.major ?? 2;
 +let activeCommand;
 +
 +function assertCommandActive() {
@@ -163,7 +196,7 @@ diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.j
  const DEFAULT_GROUP_COLOR = "blue";
  const PI_GROUP_RE = /^Pi(\b|\s*-)/i;
  const VALID_GROUP_COLORS = new Set(["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"]);
-@@ -124,10 +167,10 @@
+@@ -124,10 +168,10 @@ async function cleanupSessionTabs(sessionKey) {
      try {
        const tab = await chrome.tabs.get(tabId).catch(() => null);
        if (tab && record.created) {
@@ -176,7 +209,7 @@ diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.j
          ungroupedAdoptedTabs++;
        }
        tabs.delete(tabId);
-@@ -173,14 +216,14 @@
+@@ -173,14 +217,14 @@ function isPiChromeOwnedTarget(tabId, sessionKey) {
  async function createAutomationTarget(sessionKey, groupTitle) {
    const existingGroup = groupTitle ? await findGroupRecordByTitle(groupTitle) : null;
    if (existingGroup && typeof existingGroup.windowId === "number") {
@@ -193,7 +226,7 @@ diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.j
        const created = win && Array.isArray(win.tabs) ? win.tabs[0] : undefined;
        if (created && typeof created.id === "number") {
          automationTargets.set(sessionKey, { windowId: typeof win.id === "number" ? win.id : undefined, tabId: created.id });
-@@ -193,7 +236,7 @@
+@@ -193,7 +237,7 @@ async function createAutomationTarget(sessionKey, groupTitle) {
    }
    // Tab fallback: the tab lives in a pre-existing (user/shared) window we did NOT create, so we
    // must leave windowId unset — cleanup then closes only our tab, never the user's window.
@@ -202,7 +235,7 @@ diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.j
    automationTargets.set(sessionKey, { windowId: undefined, tabId: typeof tab.id === "number" ? tab.id : undefined });
    await persistAutomationTargets();
    return tab;
-@@ -230,7 +273,7 @@
+@@ -230,7 +274,7 @@ async function cleanupAutomationTarget(sessionKey) {
      try {
        // Never remove a whole window: users/other sessions can add tabs even between a
        // contents check and removal. Chrome closes empty windows when their last tab closes.
@@ -211,7 +244,7 @@ diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.j
        result.closedTabId = t.tabId;
      } catch {
        return result; // Keep ownership so cleanup can retry.
-@@ -295,7 +338,7 @@
+@@ -295,7 +339,7 @@ async function pageDebuggeeForTab(tabId) {
  async function debuggerAttachRaw(tabId, preferredDebuggee) {
    const debuggee = preferredDebuggee || { tabId };
    await withTimeout(
@@ -220,7 +253,7 @@ diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.j
      ATTACH_TIMEOUT_MS,
      `Chrome debugger attach to tab ${tabId}`,
      async () => {
-@@ -307,6 +350,8 @@
+@@ -307,6 +351,8 @@ async function debuggerAttachRaw(tabId, preferredDebuggee) {
  }
  
  async function attachDebugger(tabId) {
@@ -229,7 +262,7 @@ diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.j
    if (!chrome.debugger) throw new Error("chrome.debugger API unavailable; reload the extension to grant the new permission");
    if (attachedTabs.has(tabId)) {
      const entry = attachedTabs.get(tabId);
-@@ -421,7 +466,8 @@
+@@ -421,7 +467,8 @@ if (chrome.debugger && chrome.debugger.onDetach) {
    chrome.debugger.onDetach.addListener(({ tabId }, reason) => {
      if (tabId !== undefined) attachedTabs.delete(tabId);
      if (reason === "canceled_by_user") {
@@ -239,7 +272,7 @@ diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.j
      }
    });
  }
-@@ -436,12 +482,14 @@
+@@ -436,12 +483,14 @@ setInterval(() => {
  }, 5000);
  
  function cdpRaw(tabId, method, params) {
@@ -256,7 +289,7 @@ diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.j
    }), CDP_COMMAND_TIMEOUT_MS, `CDP ${method}`, async () => {
      attachedTabs.delete(tabId);
      try { await chrome.debugger.detach(debuggee); } catch {}
-@@ -449,7 +497,7 @@
+@@ -449,7 +498,7 @@ function cdpRaw(tabId, method, params) {
  }
  
  function executeScriptTimed(options, label) {
@@ -265,7 +298,7 @@ diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.j
  }
  
  // Wraps cdpRaw with one auto-recover on detached/closed sessions:
-@@ -499,7 +547,12 @@
+@@ -499,7 +548,12 @@ async function cdp(tabId, method, params) {
      return await cdpRaw(tabId, method, params);
    } catch (error) {
      const msg = String(error?.message || error);
@@ -279,15 +312,28 @@ diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.j
      const isForeignExtBlock = /Cannot access a chrome-extension:\/\/ URL of different extension/i.test(msg);
      if (isForeignExtBlock && /Input\./.test(method)) {
        // Foreign chrome-extension popup (autofill, password manager) is hijacking input.
-@@ -1138,17 +1191,11 @@
+@@ -1107,7 +1161,7 @@ function armKeepaliveAlarm() {
+ }
+ 
+ chrome.runtime.onInstalled.addListener(() => {
+-  chrome.action.setBadgeText({ text: "pi" });
++  chrome.action.setBadgeText({ text: globalThis.workFoldChrome ? "" : "pi" });
+   chrome.action.setBadgeBackgroundColor({ color: "#4f46e5" });
+   armKeepaliveAlarm();
+   void pollLoop();
+@@ -1138,17 +1192,14 @@ async function pollLoop() {
    polling = true;
    try {
      while (true) {
 -      const response = await fetch(`${BRIDGE_URL}/next?name=${encodeURIComponent(CLIENT_NAME)}`, {
-+      const response = await fetch(`${BRIDGE_URL}/next-v2?name=${encodeURIComponent(CLIENT_NAME)}&protocol=${BRIDGE_PROTOCOL_VERSION}&version=${encodeURIComponent(chrome.runtime.getManifest().version)}`, {
-         cache: "no-store",
-+        headers: await companionHeaders(),
+-        cache: "no-store",
++      const headers = await companionHeaders();
++      const compatibility = globalThis.workFoldChrome?.protocol;
++      const suffix = compatibility ? `&minor=${compatibility.minor}&capabilities=${encodeURIComponent(JSON.stringify(compatibility.capabilities))}` : "";
++      const response = await fetch(`${BRIDGE_URL}/next-v2?name=${encodeURIComponent(CLIENT_NAME)}&protocol=${BRIDGE_PROTOCOL_VERSION}&version=${encodeURIComponent(chrome.runtime.getManifest().version)}${suffix}`, {
++        cache: "no-store", headers,
        });
++      await globalThis.workFoldChrome?.response(response, headers["x-pi-chrome-connection"]);
        if (!response.ok) throw new Error(`bridge /next HTTP ${response.status}`);
 -      const expected = response.headers.get("x-pi-chrome-version");
 -      const ours = chrome.runtime.getManifest().version;
@@ -299,7 +345,7 @@ diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.j
        const payload = await response.json();
        if (payload.type === "command") await handleCommand(payload.command);
      }
-@@ -1160,23 +1207,41 @@
+@@ -1160,23 +1211,41 @@ async function pollLoop() {
  }
  
  async function handleCommand(command) {
@@ -350,22 +396,21 @@ diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.j
      body: JSON.stringify(result),
    });
  }
-@@ -1246,10 +1311,10 @@
+@@ -1246,10 +1315,10 @@ async function groupTab(tab, title, color) {
    if (typeof groupId !== "number" || groupId < 0) {
      const existing = await findGroupByTitle(tab.windowId, groupTitle);
      groupId = existing !== null
 -      ? await chrome.tabs.group({ groupId: existing, tabIds: [tab.id] })
 -      : await chrome.tabs.group({ tabIds: [tab.id] });
--  }
--  await chrome.tabGroups.update(groupId, { title: groupTitle, color: cleanGroupColor(color), collapsed: false });
 +      ? await checkedChromeCall(() => chrome.tabs.group({ groupId: existing, tabIds: [tab.id] }))
 +      : await checkedChromeCall(() => chrome.tabs.group({ tabIds: [tab.id] }));
-+  }
+   }
+-  await chrome.tabGroups.update(groupId, { title: groupTitle, color: cleanGroupColor(color), collapsed: false });
 +  await checkedChromeCall(() => chrome.tabGroups.update(groupId, { title: groupTitle, color: cleanGroupColor(color), collapsed: false }));
    const grouped = await chrome.tabs.get(tab.id);
    return { tab: await formatTab(grouped), group: await groupRecord(groupId) };
  }
-@@ -1262,7 +1327,7 @@
+@@ -1262,7 +1331,7 @@ async function dispatch(action, params) {
          extensionVersion: chrome.runtime.getManifest().version,
          bridgeUrl: BRIDGE_URL,
          userAgent: navigator.userAgent,
@@ -374,7 +419,7 @@ diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.j
        };
      case "tab.list": {
        const tabs = await chrome.tabs.query({});
-@@ -1281,13 +1346,13 @@
+@@ -1281,13 +1350,13 @@ async function dispatch(action, params) {
        const existingGroup = await findGroupRecordByTitle(groupTitle);
        const createParams = { url: params.url || "about:blank", active: foregroundRequested(params) };
        if (existingGroup && typeof existingGroup.windowId === "number") createParams.windowId = existingGroup.windowId;
@@ -390,7 +435,7 @@ diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.j
          throw error;
        }
      }
-@@ -1309,12 +1374,12 @@
+@@ -1309,12 +1378,12 @@ async function dispatch(action, params) {
      }
      case "tab.ungroup": {
        const tab = await getTabByParams(params, { createOwnedTarget: false });
@@ -405,7 +450,7 @@ diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.j
        return { closed: tab.id };
      }
      case "page.snapshot":
-@@ -1385,7 +1450,7 @@
+@@ -1385,7 +1454,7 @@ async function dispatch(action, params) {
          await registerInitScript(tab.id, params.initScript);
        }
        const wait = params.waitUntilLoad !== false ? waitForTabComplete(tab.id, params.timeoutMs || 15000) : Promise.resolve(undefined);
@@ -414,7 +459,7 @@ diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.j
        try {
          await wait;
        } finally {
-@@ -1483,6 +1548,8 @@
+@@ -1483,6 +1552,8 @@ async function getTabByParams(params, { createOwnedTarget = true } = {}) {
      }
    }
    if (!tab?.id) throw new Error("No matching Chrome tab found");
@@ -423,7 +468,7 @@ diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.j
    const url = tab.url || "";
    if (url.startsWith("chrome://") || url.startsWith("chrome-extension://") || url.startsWith("devtools://")) {
      throw new Error(`Chrome blocks extension automation on protected URL: tab=${tab.id} url=${url}`);
-@@ -1750,21 +1817,21 @@
+@@ -1750,21 +1821,21 @@ async function unregisterInitScript(tabId) {
    await cdp(tabId, "Page.removeScriptToEvaluateOnNewDocument", { identifier }).catch(() => undefined);
  }
  
@@ -449,7 +494,7 @@ diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.j
    });
  }
  
-@@ -1775,8 +1842,8 @@
+@@ -1775,8 +1846,8 @@ function foregroundRequested(params) {
  
  async function bringToFront(tab, params) {
    if (!foregroundRequested(params)) return tab;
@@ -461,6 +506,7 @@ diff --git a/extensions/chrome-profile-bridge/browser-extension/service_worker.j
  
  function waitForTabComplete(tabId, timeoutMs) {
 diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profile-bridge/index.ts
+index 1917956..096d971 100644
 --- a/extensions/chrome-profile-bridge/index.ts
 +++ b/extensions/chrome-profile-bridge/index.ts
 @@ -1,5 +1,6 @@
@@ -470,7 +516,7 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  import { existsSync, readFileSync, statSync } from "node:fs";
  import { mkdir, writeFile } from "node:fs/promises";
  import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-@@ -20,7 +21,7 @@
+@@ -20,7 +21,7 @@ import { dirname, join, resolve } from "node:path";
  type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
  
  type ToolTextResult = {
@@ -479,7 +525,7 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  	details?: Record<string, unknown>;
  };
  
-@@ -40,6 +41,7 @@
+@@ -40,6 +41,7 @@ type PendingCommand = {
  
  type BridgeResult = {
  	id: string;
@@ -487,7 +533,7 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  	ok: boolean;
  	result?: unknown;
  	error?: string;
-@@ -62,6 +64,8 @@
+@@ -62,6 +64,8 @@ const PI_CHROME_AUTH_KEY = "__piChromeProfileBridgeAuth__";
  const DEFAULT_HOST = process.env.PI_CHROME_BRIDGE_HOST ?? "127.0.0.1";
  const DEFAULT_PORT = Number(process.env.PI_CHROME_BRIDGE_PORT ?? "17318");
  const DEFAULT_TIMEOUT_MS = 30_000;
@@ -496,7 +542,7 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  const MAX_TEXT_CHARS = 30_000;
  const MAX_ELEMENTS = 80;
  const BACKGROUND_PARAM_DESCRIPTION = "If true, avoid explicit Chrome focus/tab activation for this call. /chrome background on (default) enforces this for every call and ignores false. Ask the user to run /chrome background off to allow foreground work.";
-@@ -259,7 +263,12 @@
+@@ -259,27 +263,32 @@ function summarizeActionResult(result: unknown): string | undefined {
  function readRequestBody(request: IncomingMessage): Promise<string> {
  	return new Promise((resolveBody, rejectBody) => {
  		const chunks: Buffer[] = [];
@@ -510,16 +556,47 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  		request.on("end", () => resolveBody(Buffer.concat(chunks).toString("utf8")));
  		request.on("error", rejectBody);
  	});
-@@ -271,7 +280,7 @@
+ }
+ 
+-function corsHeadersFor(request: IncomingMessage): Record<string, string> {
++function corsHeadersFor(request: IncomingMessage, expectedOrigin?: string): Record<string, string> {
+ 	const origin = String(request.headers.origin ?? "");
+-	if (!origin.startsWith("chrome-extension://")) return {};
++	if (!origin.startsWith("chrome-extension://") || (expectedOrigin && origin !== expectedOrigin)) return {};
  	return {
  		"access-control-allow-origin": origin,
  		"access-control-allow-methods": "GET,POST,OPTIONS",
 -		"access-control-allow-headers": "content-type",
-+		"access-control-allow-headers": "content-type,x-pi-chrome-companion",
++		"access-control-allow-headers": "content-type,x-pi-chrome-companion,x-pi-chrome-connection",
  		"access-control-expose-headers": "x-pi-chrome-version",
  		"vary": "origin",
  	};
-@@ -305,10 +314,14 @@
+ }
+ 
+-function isBrowserOriginAllowed(request: IncomingMessage): boolean {
++function isBrowserOriginAllowed(request: IncomingMessage, expectedOrigin?: string): boolean {
+ 	const origin = String(request.headers.origin ?? "");
+-	if (origin) return origin.startsWith("chrome-extension://");
++	if (origin) return expectedOrigin ? origin === expectedOrigin : origin.startsWith("chrome-extension://");
+ 	const secFetchSite = String(request.headers["sec-fetch-site"] ?? "");
+ 	return !secFetchSite || secFetchSite === "none" || secFetchSite === "same-origin";
+ }
+@@ -297,6 +306,14 @@ function sendJson(response: ServerResponse, status: number, body: unknown, extra
+ 	response.end(JSON.stringify(body));
+ }
+ 
++export type ChromeConnection = { connectionId: string; leaseToken: string; extensionOrigin: string; bridge: { major: number; minor: number; capabilities: string[] } };
++export type ChromeConnectionObservation = { connectionId: string; state: "connected" | "not_connected" | "update_app" | "update_extension" | "connection_error"; extensionVersion?: string };
++export type ChromeConnectionOptions = {
++ getConnection?: () => Promise<ChromeConnection | undefined>;
++ onConnectionRevoked?: (listener: () => void) => () => void;
++ reportConnectionObservation?: (observation: ChromeConnectionObservation) => void;
++};
++
+ class ChromeProfileBridge {
+ 	private server: Server | undefined;
+ 	private pending = new Map<string, PendingCommand>();
+@@ -305,12 +322,20 @@ class ChromeProfileBridge {
  	private lastSeenAt: number | undefined;
  	private clientName: string | undefined;
  	private mode: "server" | "client" | undefined;
@@ -531,19 +608,25 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  		private readonly host: string,
  		private readonly port: number,
 +		private readonly companionToken?: string,
++        private readonly connection?: ChromeConnection,
++        private readonly observe?: ChromeConnectionOptions["reportConnectionObservation"],
  	) {}
  
++    private get protocolVersion(): number { return this.connection?.bridge.major ?? BRIDGE_PROTOCOL_VERSION; }
++
  	get url(): string {
-@@ -325,6 +338,8 @@
+ 		return `http://${this.host}:${this.port}`;
+ 	}
+@@ -325,6 +350,8 @@ class ChromeProfileBridge {
  	status(): Record<string, unknown> {
  		return {
  			url: this.url,
-+			protocolVersion: BRIDGE_PROTOCOL_VERSION,
++			protocolVersion: this.protocolVersion,
 +			version: PI_CHROME_VERSION,
  			mode: this.mode ?? "starting",
  			connected: this.connected,
  			lastSeenAt: this.lastSeenAt,
-@@ -335,8 +350,10 @@
+@@ -335,8 +362,10 @@ class ChromeProfileBridge {
  	}
  
  	async start(): Promise<void> {
@@ -555,7 +638,7 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  	}
  
  	// Try to own the bridge port. On success we are the server; on EADDRINUSE another Pi
-@@ -355,11 +372,13 @@
+@@ -355,11 +384,13 @@ class ChromeProfileBridge {
  					resolveStart();
  				});
  			});
@@ -569,7 +652,7 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  			// Another Pi session already owns the bridge port. Use it as the shared
  			// machine-local broker so multiple Pi sessions can control Chrome at once.
  			this.mode = "client";
-@@ -377,13 +396,14 @@
+@@ -377,13 +408,14 @@ class ChromeProfileBridge {
  	}
  
  	stop(): void {
@@ -585,7 +668,7 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  		}
  		this.pending.clear();
  		this.queue = [];
-@@ -394,28 +414,42 @@
+@@ -394,28 +426,42 @@ class ChromeProfileBridge {
  		this.mode = undefined;
  	}
  
@@ -633,16 +716,18 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  			};
  			const timer = setTimeout(() => {
  				const entry = this.pending.get(id);
-@@ -442,7 +476,7 @@
+@@ -442,8 +488,9 @@ class ChromeProfileBridge {
  	private timeoutMessage(entry: PendingCommand | undefined, timeoutMs: number): string {
  		const pollAgeMs = this.lastSeenAt === undefined ? undefined : Date.now() - this.lastSeenAt;
  		if (entry?.deliveredAt) {
 -			return `Timed out after ${timeoutMs}ms: the Chrome extension received the command but never returned a result. The action may be long-running, or the result post failed. Run /chrome doctor; if it persists, reload 'Pi Chrome Connector' at chrome://extensions.`;
 +			return `Timed out after ${timeoutMs}ms: the Chrome extension received the command but never returned a result. ${UNCERTAIN_EFFECT} Run /chrome doctor to check connectivity.`;
  		}
++        if (this.connection && (pollAgeMs === undefined || pollAgeMs > 60_000)) return "Chrome is not connected. Open Chrome and check its work-fold extension.";
  		if (pollAgeMs === undefined || pollAgeMs > 60_000) {
  			return `Timed out after ${timeoutMs}ms: the Chrome extension is not polling (last seen ${pollAgeMs === undefined ? "never" : Math.round(pollAgeMs / 1000) + "s ago"}). Run /chrome onboard, then load the bundled browser-extension folder in your normal Chrome profile and keep that Chrome window open.`;
-@@ -459,10 +493,10 @@
+ 		}
+@@ -459,10 +506,10 @@ class ChromeProfileBridge {
  			else signal.addEventListener("abort", forwardAbort, { once: true });
  		}
  		try {
@@ -651,23 +736,22 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  				method: "POST",
  				headers: { "content-type": "application/json" },
 -				body: JSON.stringify({ action, params, timeoutMs }),
-+				body: JSON.stringify({ action, params, timeoutMs, protocolVersion: BRIDGE_PROTOCOL_VERSION }),
++				body: JSON.stringify({ action, params, timeoutMs, protocolVersion: this.protocolVersion }),
  				signal: controller.signal,
  			});
  			const payload = (await response.json().catch(() => ({}))) as { ok?: boolean; result?: unknown; error?: string };
-@@ -475,18 +509,14 @@
+@@ -475,18 +522,14 @@ class ChromeProfileBridge {
  			return payload.result;
  		} catch (error) {
  			if ((error as Error).name === "AbortError") {
 -				if (signal?.aborted) throw new Error("Chrome command aborted");
 -				throw new Error(`Timed out waiting for shared Chrome bridge owner after ${timeoutMs}ms`);
--			}
++				if (signal?.aborted) throw new Error(`Chrome command cancelled. ${UNCERTAIN_EFFECT}`);
++				throw new Error(`Timed out waiting for shared Chrome bridge owner after ${timeoutMs}ms. ${UNCERTAIN_EFFECT}`);
+ 			}
 -			// `fetch failed` / ECONNREFUSED means the Pi session that owned the bridge port is gone.
 -			// Try to take over the port ourselves and re-run the command locally instead of staying
 -			// stuck as a client pointed at a dead owner.
-+				if (signal?.aborted) throw new Error(`Chrome command cancelled. ${UNCERTAIN_EFFECT}`);
-+				throw new Error(`Timed out waiting for shared Chrome bridge owner after ${timeoutMs}ms. ${UNCERTAIN_EFFECT}`);
-+			}
 +			// A socket can close after Chrome performed a mutation. Promotion repairs the
 +			// next request only; this request is never replayed after an uncertain send.
  			if (this.isOwnerUnreachable(error)) {
@@ -681,11 +765,25 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  			}
  			throw error;
  		} finally {
-@@ -525,11 +555,19 @@
+@@ -516,20 +559,31 @@ class ChromeProfileBridge {
+ 
+ 	private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+ 		const url = new URL(request.url ?? "/", this.url);
+-		const corsHeaders = corsHeadersFor(request);
++		const corsHeaders = corsHeadersFor(request, this.connection ? this.connection.extensionOrigin.slice(0, -1) : undefined);
+ 		if (request.method === "OPTIONS") {
+-			if (!isBrowserOriginAllowed(request)) {
++			if (!isBrowserOriginAllowed(request, this.connection ? this.connection.extensionOrigin.slice(0, -1) : undefined)) {
+ 				sendJson(response, 403, { ok: false, error: "browser origin not allowed" });
+ 				return;
+ 			}
  			sendJson(response, 200, { ok: true }, corsHeaders);
  			return;
  		}
-+		if (this.companionToken) {
++		if (this.connection && request.method !== "OPTIONS" && request.headers["x-pi-chrome-connection"] !== this.connection.connectionId) {
++            sendJson(response, 403, { ok: false, error: "Chrome connection ownership required." }, corsHeaders); return;
++        }
++        if (this.companionToken) {
 +			// Embedded native tools call send() in process. HTTP never admits commands.
 +			if (url.pathname === "/command-v2") { sendJson(response, 403, { ok: false, error: "External Chrome commands are disabled." }); return; }
 +			const token = request.headers["x-pi-chrome-companion"];
@@ -702,7 +800,7 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  			if (!isLocalProcessRequest(request)) {
  				sendJson(response, 403, { ok: false, error: "Chrome commands are accepted only from local Pi processes" });
  				return;
-@@ -538,22 +576,43 @@
+@@ -538,24 +592,58 @@ class ChromeProfileBridge {
  				action?: string;
  				params?: Record<string, unknown>;
  				timeoutMs?: number;
@@ -731,24 +829,40 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  			return;
  		}
 -		if (request.method === "GET" && url.pathname === "/next") {
+-			if (!isBrowserOriginAllowed(request)) {
 +		if (request.method === "GET" && url.pathname === "/command-state-v2") {
-+			if (!isBrowserOriginAllowed(request)) { sendJson(response, 403, { ok: false }, corsHeaders); return; }
++			if (!isBrowserOriginAllowed(request, this.connection ? this.connection.extensionOrigin.slice(0, -1) : undefined)) { sendJson(response, 403, { ok: false }, corsHeaders); return; }
 +			const entry = this.pending.get(url.searchParams.get("id") ?? "");
-+			sendJson(response, 200, { protocolVersion: BRIDGE_PROTOCOL_VERSION, active: Boolean(entry?.deliveredAt) && (!this.companionToken || url.searchParams.get("epoch") === this.epoch), ...(this.companionToken ? { bridgeEpoch: this.epoch } : {}) }, corsHeaders);
++			sendJson(response, 200, { protocolVersion: this.protocolVersion, active: Boolean(entry?.deliveredAt) && (!this.companionToken || url.searchParams.get("epoch") === this.epoch), ...(this.companionToken ? { bridgeEpoch: this.epoch } : {}) }, corsHeaders);
 +			return;
 +		}
 +		if (request.method === "GET" && url.pathname === "/next-v2") {
- 			if (!isBrowserOriginAllowed(request)) {
++			if (!isBrowserOriginAllowed(request, this.connection ? this.connection.extensionOrigin.slice(0, -1) : undefined)) {
  				sendJson(response, 403, { ok: false, error: "browser origin not allowed" });
-+				return;
-+			}
-+			// Negotiate before dequeuing: an old companion must never receive a mutation.
-+			if (url.searchParams.get("protocol") !== String(BRIDGE_PROTOCOL_VERSION) || url.searchParams.get("version") !== readPiChromeVersion()) {
-+				sendJson(response, 409, { ok: false, protocolVersion: BRIDGE_PROTOCOL_VERSION, expectedExtensionVersion: readPiChromeVersion(), error: "Chrome companion update required" }, corsHeaders);
  				return;
  			}
++			// Negotiate before dequeuing: an old companion must never receive a mutation.
++            const version = url.searchParams.get("version") ?? "";
++            let capabilities: unknown;
++            try { capabilities = JSON.parse(url.searchParams.get("capabilities") ?? "[]"); } catch { capabilities = undefined; }
++            const compatible = this.connection
++                ? url.searchParams.get("protocol") === String(this.protocolVersion)
++                    && /^\d+\.\d+\.\d+(?:\.\d+)?$/.test(version) && version.length <= 64
++                    && Array.isArray(capabilities) && capabilities.length <= 16
++                    && capabilities.every(value => typeof value === "string" && value.length <= 64)
++                    && this.connection.bridge.capabilities.every(value => capabilities.includes(value))
++                : url.searchParams.get("protocol") === String(BRIDGE_PROTOCOL_VERSION) && version === readPiChromeVersion();
++            if (!compatible) {
++                const state = Number(url.searchParams.get("protocol")) > this.protocolVersion ? "update_app" : "update_extension";
++                if (this.connection) this.observe?.({ connectionId: this.connection.connectionId, state, extensionVersion: version });
++                sendJson(response, 409, { ok: false, state, protocolVersion: this.protocolVersion, expectedExtensionVersion: readPiChromeVersion(), error: "Chrome connection update required" }, corsHeaders);
++                return;
++            }
++            if (this.connection) this.observe?.({ connectionId: this.connection.connectionId, state: "connected", extensionVersion: version });
  			this.lastSeenAt = Date.now();
-@@ -573,9 +632,10 @@
+ 			this.clientName = url.searchParams.get("name") ?? undefined;
+ 			let aborted = false;
+@@ -573,9 +661,10 @@ class ChromeProfileBridge {
  			if (aborted) {
  				// Long-poll connection died before we could deliver. Requeue any command we pulled
  				// so the next live /next picks it up instead of dropping it on the floor.
@@ -760,16 +874,22 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  			// Mark the command as delivered so a later timeout can distinguish "extension never
  			// picked it up" from "extension is running it / failed to post a result".
  			if (command) {
-@@ -588,7 +648,7 @@
+@@ -588,19 +677,20 @@ class ChromeProfileBridge {
  				response,
  				200,
  				command
 -					? { type: "command", command, expectedExtensionVersion: currentVersion }
-+					? { type: "command", command: { ...command, protocolVersion: BRIDGE_PROTOCOL_VERSION, ...(this.companionToken ? { bridgeEpoch: this.epoch } : {}) }, expectedExtensionVersion: currentVersion }
++					? { type: "command", command: { ...command, protocolVersion: this.protocolVersion, ...(this.companionToken ? { bridgeEpoch: this.epoch } : {}) }, expectedExtensionVersion: currentVersion }
  					: { type: "none", expectedExtensionVersion: currentVersion },
  				{ ...corsHeaders, "x-pi-chrome-version": currentVersion },
  			);
-@@ -601,6 +661,7 @@
+ 			return;
+ 		}
+ 		if (request.method === "POST" && url.pathname === "/result") {
+-			if (!isBrowserOriginAllowed(request)) {
++			if (!isBrowserOriginAllowed(request, this.connection ? this.connection.extensionOrigin.slice(0, -1) : undefined)) {
+ 				sendJson(response, 403, { ok: false, error: "browser origin not allowed" });
+ 				return;
  			}
  			this.lastSeenAt = Date.now();
  			const result = JSON.parse(await readRequestBody(request)) as BridgeResult;
@@ -777,81 +897,94 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  			const pending = this.pending.get(result.id);
  			if (!pending) {
  				sendJson(response, 404, { ok: false, error: "unknown command id" }, corsHeaders);
-@@ -635,6 +696,86 @@
- 		});
+@@ -636,6 +726,100 @@ class ChromeProfileBridge {
  	}
  }
-+
+ 
 +// Embedders share only transport. Catalog construction acquires no lease and opens no port.
 +const SHARED_BRIDGE_KEY = Symbol.for("pi-chrome.shared-transport.v2");
-+type SharedTransport = { bridge: ChromeProfileBridge; leases: Set<symbol>; companionToken?: string };
-+function sharedBridge(host: string, port: number, getCompanionToken?: () => Promise<string | undefined>) {
-+	const state = globalThis as typeof globalThis & { [SHARED_BRIDGE_KEY]?: Map<string, SharedTransport> };
-+	const transports = state[SHARED_BRIDGE_KEY] ??= new Map();
-+	const key = `${host}:${port}`;
-+	const token = Symbol("pi-chrome-session");
-+	let transport: SharedTransport | undefined;
-+	let ended = false;
-+	const requests = new Map<AbortController, string | undefined>();
-+	const acquire = async () => {
-+		if (ended) throw new Error("Chrome session has ended.");
-+		if (!transport) {
-+			const companionToken = await getCompanionToken?.();
-+			if (getCompanionToken && !/^[a-f0-9]{64}$/.test(companionToken ?? "")) throw new Error("Set up the Chrome companion in Skills & Extensions before using Chrome tools.");
-+			if (ended) throw new Error("Chrome session has ended.");
-+			transport = transports.get(key);
-+			if (transport && transport.companionToken !== companionToken) throw new Error("This Chrome connection belongs to another profile.");
-+			if (!transport) { transport = { bridge: new ChromeProfileBridge(host, port, companionToken), leases: new Set(), companionToken }; transports.set(key, transport); }
-+			transport.leases.add(token);
-+		}
-+		await transport.bridge.start();
-+		if (ended) throw new Error("Chrome session has ended.");
-+		return transport.bridge;
-+	};
-+	return {
-+		get url() { return `http://${host}:${port}`; },
-+		get connected() { return transport?.bridge.connected ?? false; },
-+		get started() { return Boolean(transport); },
-+		status: () => transport?.bridge.status() ?? { url: `http://${host}:${port}`, mode: "idle", connected: false },
-+		start: async () => { await acquire(); },
-+		send: async (action: string, params: Record<string, unknown>, timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSignal) => {
-+			if (signal?.aborted) throw new Error("Chrome command cancelled before dispatch.");
-+			const controller = new AbortController();
-+			const abort = () => controller.abort();
-+			if (signal?.aborted) controller.abort();
-+			else signal?.addEventListener("abort", abort, { once: true });
-+			requests.set(controller, typeof params.sessionKey === "string" ? params.sessionKey : undefined);
-+			try { return await (await acquire()).send(action, params, timeoutMs, controller.signal); }
-+			finally { requests.delete(controller); signal?.removeEventListener("abort", abort); }
-+		},
-+		cancelSession: (sessionKey: string) => {
-+			for (const [controller, owner] of requests) if (owner === sessionKey) controller.abort();
-+			transport?.bridge.cancelSession(sessionKey);
-+		},
-+		stop: () => {
-+			ended = true;
-+			for (const controller of requests.keys()) controller.abort();
-+			if (!transport) return;
-+			transport.leases.delete(token);
-+			if (!transport.leases.size) { transport.bridge.stop(); transports.delete(key); }
-+			transport = undefined;
-+		},
-+	};
++type SharedTransport = { bridge: ChromeProfileBridge; leases: Set<symbol>; companionToken?: string; connectionId?: string };
++function sharedBridge(host: string, port: number, getCompanionToken?: () => Promise<string | undefined>, connectionOptions: ChromeConnectionOptions = {}) {
++ const state = globalThis as typeof globalThis & { [SHARED_BRIDGE_KEY]?: Map<string, SharedTransport> };
++ const transports = state[SHARED_BRIDGE_KEY] ??= new Map();
++ const key = `${host}:${port}`, token = Symbol("pi-chrome-session");
++ let transport: SharedTransport | undefined, ended = false, revision = 0;
++ let unsubscribe: (() => void) | undefined;
++ const requests = new Map<AbortController, string | undefined>();
++ const detach = () => {
++  if (!transport) return;
++  transport.leases.delete(token);
++  if (!transport.leases.size) { transport.bridge.stop(); if (transports.get(key) === transport) transports.delete(key); }
++  transport = undefined;
++ };
++ const revoked = () => {
++  revision++;
++  for (const controller of requests.keys()) controller.abort();
++  if (transport) { transport.bridge.stop(); if (transports.get(key) === transport) transports.delete(key); }
++  detach();
++ };
++ const acquire = async () => {
++  if (ended) throw new Error("Chrome session has ended.");
++  if (!unsubscribe && connectionOptions.onConnectionRevoked) unsubscribe = connectionOptions.onConnectionRevoked(revoked);
++  const before = revision;
++  const connection = await connectionOptions.getConnection?.();
++  if (connectionOptions.getConnection && !connection) throw new Error("Connect Chrome in Skills & Extensions before using Chrome tools.");
++  if (connection && !/^chrome-extension:\/\/[a-p]{32}\/$/.test(connection.extensionOrigin)) throw new Error("Invalid Chrome extension origin.");
++  const companionToken = connection?.leaseToken ?? await getCompanionToken?.();
++  if ((connectionOptions.getConnection || getCompanionToken) && !/^[a-f0-9]{64}$/.test(companionToken ?? "")) throw new Error("Connect Chrome in Skills & Extensions before using Chrome tools.");
++  if (ended || before !== revision) throw new Error("Chrome connection changed before dispatch.");
++  if (transport && (transport.companionToken !== companionToken || transport.connectionId !== connection?.connectionId)) { detach(); throw new Error("Chrome connection changed. Inspect the connected profile before continuing."); }
++  if (!transport) {
++   transport = transports.get(key);
++   if (transport && (transport.companionToken !== companionToken || transport.connectionId !== connection?.connectionId)) { transport = undefined; throw new Error("This Chrome connection belongs to another profile."); }
++   if (!transport) { transport = { bridge: new ChromeProfileBridge(host, port, companionToken, connection, connectionOptions.reportConnectionObservation), leases: new Set(), companionToken, connectionId: connection?.connectionId }; transports.set(key, transport); }
++   transport.leases.add(token);
++  }
++  const current = transport;
++  await current.bridge.start();
++  if (ended || before !== revision || current !== transport) throw new Error("Chrome connection changed before dispatch.");
++  return current.bridge;
++ };
++ return {
++  get url() { return `http://${host}:${port}`; },
++  get connected() { return transport?.bridge.connected ?? false; },
++  get started() { return Boolean(transport); },
++  status: () => transport?.bridge.status() ?? { url: `http://${host}:${port}`, mode: "idle", connected: false },
++  start: async () => { await acquire(); },
++  send: async (action: string, params: Record<string, unknown>, timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSignal) => {
++   if (signal?.aborted) throw new Error("Chrome command cancelled before dispatch.");
++   const controller = new AbortController(), abort = () => controller.abort();
++   if (signal?.aborted) controller.abort(); else signal?.addEventListener("abort", abort, { once: true });
++   requests.set(controller, typeof params.sessionKey === "string" ? params.sessionKey : undefined);
++   try { return await (await acquire()).send(action, params, timeoutMs, controller.signal); }
++   finally { requests.delete(controller); signal?.removeEventListener("abort", abort); }
++  },
++  cancelSession: (sessionKey: string) => { for (const [controller, owner] of requests) if (owner === sessionKey) controller.abort(); transport?.bridge.cancelSession(sessionKey); },
++  stop: () => { ended = true; for (const controller of requests.keys()) controller.abort(); unsubscribe?.(); unsubscribe = undefined; detach(); },
++ };
 +}
 +
-+export type ChromeExtensionOptions = { embedded?: boolean; host?: string; port?: number; companionPath?: string; getCompanionToken?: () => Promise<string | undefined> };
++/** App-owned listener, started only by an explicit or previously enabled connection. */
++export async function startChromeConnection(options: ChromeConnectionOptions & { host?: string; port?: number }) {
++ const bridge = sharedBridge(options.host ?? DEFAULT_HOST, options.port ?? DEFAULT_PORT, undefined, options);
++ try { await bridge.start(); return { close: () => bridge.stop() }; }
++ catch (error) { bridge.stop(); throw error; }
++}
++
++export type ChromeExtensionOptions = ChromeConnectionOptions & { embedded?: boolean; host?: string; port?: number; companionPath?: string; getCompanionToken?: () => Promise<string | undefined>; beginWork?: (connectionId: string) => () => void };
 +
 +/** Explicit, content-free connection check. Never creates, groups, or inspects a tab. */
-+export async function probeChromeConnection(options: { host?: string; port?: number; timeoutMs?: number; getCompanionToken?: () => Promise<string | undefined> } = {}) {
-+	const bridge = sharedBridge(options.host ?? DEFAULT_HOST, options.port ?? DEFAULT_PORT, options.getCompanionToken);
++export async function probeChromeConnection(options: ChromeConnectionOptions & { host?: string; port?: number; timeoutMs?: number; getCompanionToken?: () => Promise<string | undefined> } = {}) {
++	const bridge = sharedBridge(options.host ?? DEFAULT_HOST, options.port ?? DEFAULT_PORT, options.getCompanionToken, options);
 +	try {
 +		const result = await bridge.send("tab.version", {}, options.timeoutMs ?? 2500) as {
 +			extensionVersion?: string; capabilities?: { protocolVersion?: number; cancellation?: boolean };
 +		};
-+		if (result.extensionVersion !== PI_CHROME_VERSION || result.capabilities?.protocolVersion !== BRIDGE_PROTOCOL_VERSION || result.capabilities?.cancellation !== true) {
++        const connection = await options.getConnection?.();
++        if ((connection ? result.capabilities?.protocolVersion !== connection.bridge.major : result.extensionVersion !== PI_CHROME_VERSION || result.capabilities?.protocolVersion !== BRIDGE_PROTOCOL_VERSION) || result.capabilities?.cancellation !== true) {
 +			return { state: "setup_required" as const, reason: "Reload the matching Chrome companion in chrome://extensions.", version: result.extensionVersion };
 +		}
-+		return { state: "ready" as const, reason: "Chrome companion is connected.", version: result.extensionVersion, protocolVersion: BRIDGE_PROTOCOL_VERSION };
++		return { state: "ready" as const, reason: "Chrome companion is connected.", version: result.extensionVersion, protocolVersion: connection?.bridge.major ?? BRIDGE_PROTOCOL_VERSION };
 +	} catch (error) {
 +		return { state: "setup_required" as const, reason: `Connect the Chrome companion: ${(error as Error).message}` };
 +	} finally { bridge.stop(); }
@@ -861,10 +994,11 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
 +	return (pi: ExtensionAPI): void => registerChromeExtension(pi, options);
 +}
 +export default createChromeExtension();
- 
++
  const tabActionValues = ["list", "new", "activate", "close", "group", "ungroup", "version"] as const;
  const imageFormatValues = ["png", "jpeg"] as const;
-@@ -666,7 +807,8 @@
+ const waitForValues = ["selector", "expression"] as const;
+@@ -666,7 +850,8 @@ function StringEnum<T extends readonly [string, ...string[]]>(values: T) {
  	return Type.Union(values.map((value) => Type.Literal(value)) as [ReturnType<typeof Type.Literal>, ...ReturnType<typeof Type.Literal>[]]);
  }
  
@@ -874,7 +1008,7 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  	const instanceToken = Symbol("pi-chrome-instance");
  	const currentRoot = extensionRoot();
  	const globalState = globalThis as typeof globalThis & {
-@@ -674,7 +816,7 @@
+@@ -674,7 +859,7 @@ export default function (pi: ExtensionAPI): void {
  		[PI_CHROME_AUTH_KEY]?: { until: number | "indefinite" };
  	};
  	const alreadyLoaded = globalState[PI_CHROME_GLOBAL_KEY];
@@ -883,16 +1017,15 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  		console.warn(
  			`pi-chrome already loaded from ${alreadyLoaded.root} (v${alreadyLoaded.version}); skipping duplicate from ${currentRoot}.`,
  		);
-@@ -683,13 +825,14 @@
+@@ -683,13 +868,14 @@ export default function (pi: ExtensionAPI): void {
  	// pi-chrome <=0.15.19 set the singleton flag but did not clear it on reload.
  	// If the stale flag points at this same extension root, replace it instead of
  	// skipping the freshly reloaded extension.
 -	globalState[PI_CHROME_GLOBAL_KEY] = { version: PI_CHROME_VERSION, root: currentRoot, token: instanceToken };
--
--	const bridge = new ChromeProfileBridge(DEFAULT_HOST, DEFAULT_PORT);
 +	if (!embedded) globalState[PI_CHROME_GLOBAL_KEY] = { version: PI_CHROME_VERSION, root: currentRoot, token: instanceToken };
-+
-+	const bridge = embedded ? sharedBridge(options.host ?? DEFAULT_HOST, options.port ?? DEFAULT_PORT, options.getCompanionToken ?? (async () => undefined)) : new ChromeProfileBridge(options.host ?? DEFAULT_HOST, options.port ?? DEFAULT_PORT);
+ 
+-	const bridge = new ChromeProfileBridge(DEFAULT_HOST, DEFAULT_PORT);
++	const bridge = embedded ? sharedBridge(options.host ?? DEFAULT_HOST, options.port ?? DEFAULT_PORT, options.getConnection ? undefined : options.getCompanionToken ?? (async () => undefined), options) : new ChromeProfileBridge(options.host ?? DEFAULT_HOST, options.port ?? DEFAULT_PORT);
 +	const companionPath = () => options.companionPath ?? browserExtensionPath();
  	let backgroundEnabled = true;
 -	let chromeAuthorizedUntil: number | "indefinite" | undefined;
@@ -903,7 +1036,7 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  	if (persistedAuth) {
  		if (persistedAuth.until === "indefinite" || persistedAuth.until > Date.now()) {
  			chromeAuthorizedUntil = persistedAuth.until;
-@@ -698,6 +841,7 @@
+@@ -698,6 +884,7 @@ export default function (pi: ExtensionAPI): void {
  		}
  	}
  	const persistAuth = (): void => {
@@ -911,7 +1044,18 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  		if (chromeAuthorizedUntil === undefined) delete globalState[PI_CHROME_AUTH_KEY];
  		else globalState[PI_CHROME_AUTH_KEY] = { until: chromeAuthorizedUntil };
  	};
-@@ -764,6 +908,7 @@
+@@ -707,6 +894,10 @@ export default function (pi: ExtensionAPI): void {
+ 	let countdownInterval: NodeJS.Timeout | undefined;
+ 	// Remembered so bridge sends can tag tabs with this session's group even when ctx isn't handy.
+ 	let sessionCtx: ExtensionContext | undefined;
++    let releaseWork: (() => void) | undefined;
++    let workConnectionId: string | undefined;
++    const finishWork = () => { releaseWork?.(); releaseWork = undefined; workConnectionId = undefined; };
++    pi.on("agent_end", finishWork);
+ 
+ 	const clearAuthExpiryTimer = (): void => {
+ 		if (!authExpiryTimer) return;
+@@ -764,6 +955,7 @@ export default function (pi: ExtensionAPI): void {
  	// this in the background; shutdown must wait before tearing down the bridge.
  	const cleanupAutomationTargetBestEffort = async (timeoutMs = 2_000): Promise<void> => {
  		const sessionKey = sessionKeyFor(sessionCtx);
@@ -919,7 +1063,7 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  		if (sessionKey === undefined) return; // Never clean up an unscoped/default session.
  		const controller = new AbortController();
  		let timer: ReturnType<typeof setTimeout> | undefined;
-@@ -795,6 +940,7 @@
+@@ -795,6 +987,7 @@ export default function (pi: ExtensionAPI): void {
  	};
  
  	const authSummary = (): string => {
@@ -927,15 +1071,21 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  		if (chromeAuthorizedUntil === "indefinite") return "authorized indefinitely";
  		if (typeof chromeAuthorizedUntil === "number") {
  			const remainingMs = chromeAuthorizedUntil - Date.now();
-@@ -884,6 +1030,7 @@
+@@ -884,6 +1077,13 @@ export default function (pi: ExtensionAPI): void {
  
  	const authorizedBridgeSend = async (action: string, params: Record<string, unknown>, timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSignal): Promise<unknown> => {
  		requireChromeControlAuthorized();
++        if (options.getConnection) {
++            const connection = await options.getConnection();
++            if (!connection) throw new Error("Connect Chrome in Skills & Extensions before using Chrome tools.");
++            if (workConnectionId && workConnectionId !== connection.connectionId) throw new Error("Chrome connection changed during this turn.");
++            if (!releaseWork) { releaseWork = options.beginWork?.(connection.connectionId) ?? (() => {}); workConnectionId = connection.connectionId; }
++        }
 +		if (sessionKeyFor(sessionCtx) === undefined) throw new Error("Chrome needs an active Pi session before use.");
  		// Background on is a session policy, not a default that tool arguments can override.
  		// Apply it here so tab.new, chrome_launch(url), and tools without a background parameter
  		// cannot bypass it. Background off still permits per-call background:true.
-@@ -931,7 +1078,7 @@
+@@ -931,7 +1131,7 @@ export default function (pi: ExtensionAPI): void {
  
  	pi.on("session_start", async (_event, ctx) => {
  		sessionCtx = ctx;
@@ -944,7 +1094,7 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  		// Reestablish in-memory state after a /reload restored chromeAuthorizedUntil from globalThis.
  		if (chromeControlAuthorized()) {
  			activateChromeTools();
-@@ -948,11 +1095,13 @@
+@@ -948,11 +1148,14 @@ export default function (pi: ExtensionAPI): void {
  	pi.on("session_shutdown", async (event) => {
  		clearAuthExpiryTimer();
  		clearCountdownInterval();
@@ -955,20 +1105,38 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  		if (event?.reason !== "reload") await cleanupAutomationTargetBestEffort();
  		bridge.stop();
 -		if (globalState[PI_CHROME_GLOBAL_KEY]?.token === instanceToken) {
++        finishWork();
 +		if (!embedded && globalState[PI_CHROME_GLOBAL_KEY]?.token === instanceToken) {
  			delete globalState[PI_CHROME_GLOBAL_KEY];
  		}
  	});
-@@ -986,7 +1135,7 @@
+@@ -986,11 +1189,15 @@ Usage rules:
  7. If you hit a native file-picker or privileged browser prompt gate, tell the user; generic clicks/typing/CSP gates are handled by Chrome input.
  8. Run /chrome doctor when in doubt about connectivity or capabilities.
  </chrome-profile-bridge>`;
 -		return { systemPrompt: event.systemPrompt + primer };
-+		return { systemPrompt: event.systemPrompt + (embedded ? primer.replace(/1\. If a chrome_\* tool says Chrome control is locked[^\n]*/, "1. Chrome tools are enabled by installation. Missing companion setup is reported explicitly.") : primer) };
++		return { systemPrompt: event.systemPrompt + (embedded ? primer.replace(/1\. If a chrome_\* tool says Chrome control is locked[^\n]*/, "1. Chrome tools are enabled by installation. Missing companion setup is reported explicitly.").replace(/7\. If you hit a native file-picker[^\n]*/, "7. When browser scripting cannot reach a surface, consider available native Computer tools using fresh observations and the user’s authorization and constraints. A technical limitation differs from a permission or policy denial; respect actual denials and never blindly replay uncertain effects.") : primer) };
  	});
  
  	// Shared handlers, dispatched by the unified /chrome command below.
-@@ -1113,6 +1262,7 @@
+ 	const doctorHandler = async (ctx: ExtensionContext) => {
++        if (options.getConnection) {
++            const result = await probeChromeConnection(options);
++            ctx.ui.notify(result.reason, result.state === "ready" ? "info" : "warning"); return;
++        }
+ 			ctx.ui.notify("Checking pi-chrome…", "info");
+ 			const lines: string[] = [
+ 				`pi-chrome v${PI_CHROME_VERSION}`,
+@@ -1011,7 +1218,7 @@ Usage rules:
+ 				};
+ 				const latencyMs = Date.now() - started;
+ 				extensionAlive = true;
+-				if (version.extensionVersion && version.extensionVersion !== PI_CHROME_VERSION) {
++				if (!options.getConnection && version.extensionVersion && version.extensionVersion !== PI_CHROME_VERSION) {
+ 					versionMismatch = true;
+ 					lines.push(
+ 						`✗ The Chrome companion extension is on an old version (${version.extensionVersion}); this pi-chrome is ${PI_CHROME_VERSION}.`,
+@@ -1113,6 +1320,7 @@ Usage rules:
  	};
  
  	const authorizeHandler = async (ctx: ExtensionContext, args: string) => {
@@ -976,7 +1144,7 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  		const grant = parseAuthorizeArg(args);
  		if (!grant) {
  			ctx.ui.notify("Unknown authorize duration. Use minutes (15m, 30m, 45) or indefinite.", "warning");
-@@ -1122,13 +1272,14 @@
+@@ -1122,13 +1330,15 @@ Usage rules:
  	};
  
  	const revokeHandler = (ctx: ExtensionContext) => {
@@ -988,11 +1156,21 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  
  	const onboardHandler = async (ctx: ExtensionContext) => {
 -		const extensionPath = browserExtensionPath();
++        if (options.getConnection) { ctx.ui.notify("Choose Connect Chrome in Skills & Extensions, then Connect in the Chrome extension.", "info"); return; }
 +		const extensionPath = companionPath();
  		const proceed = await ctx.ui.confirm(
  			"Install the pi-chrome Chrome extension?",
  			`This opens Chrome's extensions page and reveals the folder pi-chrome needs you to load.\n\nWhen the windows open, in Chrome:\n  1. Turn on 'Developer mode' (top-right toggle).\n  2. Click 'Load unpacked' and choose the folder that just opened in Finder, or paste this path:\n     ${extensionPath}\n\nPress Enter to continue, or Esc to cancel.`,
-@@ -1293,6 +1444,8 @@
+@@ -1153,7 +1363,7 @@ Usage rules:
+ 		const parts: string[] = [];
+ 		try {
+ 			const version = (await bridge.send("tab.version", {}, 5_000)) as { extensionVersion?: string };
+-			if (version.extensionVersion && version.extensionVersion !== PI_CHROME_VERSION) {
++			if (!options.getConnection && version.extensionVersion && version.extensionVersion !== PI_CHROME_VERSION) {
+ 				parts.push(`⚠ Chrome extension v${version.extensionVersion} (pi-chrome v${PI_CHROME_VERSION}, reload extension)`);
+ 			} else {
+ 				parts.push(`✓ Chrome connected`);
+@@ -1293,6 +1503,8 @@ Usage rules:
  		},
  	});
  
@@ -1001,7 +1179,19 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  	function registerChromeTools(pi: ExtensionAPI): void {
  		if (chromeToolsRegistered) return;
  		chromeToolsRegistered = true;
-@@ -1311,6 +1464,8 @@
+@@ -1300,8 +1512,9 @@ Usage rules:
+ 	pi.registerTool({
+ 		name: "chrome_launch",
+ 		label: "Chrome Bridge Setup",
+-		description:
+-			"Start/check the local bridge used by the companion Chrome extension. This does not launch a separate Chrome profile; install the unpacked Chrome extension in your existing Chrome profile to connect.",
++		description: options.getConnection
++            ? "Check the connected Chrome profile. First-time setup uses Connect Chrome in Skills & Extensions and Connect in the Chrome extension. This never launches a separate profile."
++            : "Start/check the local bridge used by the companion Chrome extension. This does not launch a separate Chrome profile; install the unpacked Chrome extension in your existing Chrome profile to connect.",
+ 		promptSnippet: "Show instructions for connecting Pi to the user's existing Chrome profile via the companion extension.",
+ 		parameters: Type.Object({
+ 			port: Type.Optional(Type.Number({ description: "Ignored. The bundled Chrome extension polls 127.0.0.1:17318." })),
+@@ -1311,10 +1524,13 @@ Usage rules:
  			headless: Type.Optional(Type.Boolean({ description: "Ignored." })),
  		}),
  		async execute(_id, params, signal, _onUpdate, ctx): Promise<ToolTextResult> {
@@ -1010,7 +1200,12 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  			if (params.url && bridge.connected) {
  				const result = await authorizedBridgeSend("tab.new", { url: params.url }, DEFAULT_TIMEOUT_MS, signal);
  				return { content: [{ type: "text", text: `Chrome bridge connected; opened ${params.url}` }], details: { status: bridge.status(), result } };
-@@ -1325,11 +1480,11 @@
+ 			}
++        if (options.getConnection) return { content: [{ type: "text", text: bridge.connected ? "Chrome is connected." : "Choose Connect in the Chrome extension." }], details: { status: bridge.status() } };
+ 			return {
+ 				content: [
+ 					{
+@@ -1325,11 +1541,11 @@ Usage rules:
  							`1. Open chrome://extensions in the Chrome profile you normally use.\n` +
  							`2. Enable Developer mode.\n` +
  							`3. Click “Load unpacked”.\n` +
@@ -1024,7 +1219,7 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  			};
  		},
  	});
-@@ -1743,10 +1898,10 @@
+@@ -1743,10 +1959,10 @@ Usage rules:
  		name: "chrome_screenshot",
  		label: "Chrome Screenshot",
  		description:
@@ -1038,7 +1233,7 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  			format: Type.Optional(StringEnum(imageFormatValues)),
  			quality: Type.Optional(Type.Number({ minimum: 0, maximum: 100, description: "JPEG quality 0-100." })),
  			fullPage: Type.Optional(Type.Boolean({ description: "Capture full-page tiles plus a JSON manifest. Temporarily scrolls the target page; does not activate background tabs." })),
-@@ -1770,7 +1925,32 @@
+@@ -1770,7 +1986,32 @@ Usage rules:
  				dimensions?: { width: number; height: number; viewportHeight: number; dpr: number };
  				tiles?: Array<{ y: number; dataUrl: string }>;
  			};
@@ -1073,6 +1268,7 @@ diff --git a/extensions/chrome-profile-bridge/index.ts b/extensions/chrome-profi
  				// Stitch via PNG if format is png; otherwise we fall back to writing tile files and a
  				// manifest. We avoid pulling in an image library by writing each tile next to the main
 diff --git a/package.json b/package.json
+index 9f0af8c..186b8b1 100644
 --- a/package.json
 +++ b/package.json
 @@ -2,7 +2,7 @@
@@ -1085,9 +1281,10 @@ diff --git a/package.json b/package.json
  		"prepublishOnly": "node scripts/sync-manifest-version.js"
  	},
 diff --git a/test-suite/unit/background-policy.test.mjs b/test-suite/unit/background-policy.test.mjs
+index e78fa49..5503c77 100644
 --- a/test-suite/unit/background-policy.test.mjs
 +++ b/test-suite/unit/background-policy.test.mjs
-@@ -24,7 +24,7 @@
+@@ -24,7 +24,7 @@ function piHarness({ session = "alpha", send } = {}) {
    let authorized = true;
    const ctx = { key: `session:${session}`, title: `Pi Session: ${session}`, cwd: "/fixture", ui: { notify: (...args) => notices.push(args) } };
    const bridge = {
@@ -1096,7 +1293,7 @@ diff --git a/test-suite/unit/background-policy.test.mjs b/test-suite/unit/backgr
      async send(action, params, timeout, signal) {
        calls.push({ action, params: clone(params), timeout, signal });
        if (signal?.aborted) throw new Error("Chrome command aborted");
-@@ -37,7 +37,7 @@
+@@ -37,7 +37,7 @@ function piHarness({ session = "alpha", send } = {}) {
    };
    const Type = new Proxy({}, { get: () => (value = {}) => value });
    const sandbox = {
@@ -1105,7 +1302,7 @@ diff --git a/test-suite/unit/background-policy.test.mjs b/test-suite/unit/backgr
      Date,
      DEFAULT_HOST: "127.0.0.1", DEFAULT_PORT: 17318, DEFAULT_TIMEOUT_MS: 30000, MAX_ELEMENTS: 80,
      BACKGROUND_PARAM_DESCRIPTION: "background policy",
-@@ -53,7 +53,7 @@
+@@ -53,7 +53,7 @@ function piHarness({ session = "alpha", send } = {}) {
    };
    const registrations = indexSource.slice(indexSource.indexOf("function registerChromeTools(pi:"), indexSource.lastIndexOf("\n}"));
    vm.runInNewContext(stripTypeScriptTypes([
@@ -1115,22 +1312,24 @@ diff --git a/test-suite/unit/background-policy.test.mjs b/test-suite/unit/backgr
      section("const BACKGROUND_DESC:", "\n\tconst authorizeFor ="),
      registrations,
 diff --git a/test-suite/unit/chrome-command.test.mjs b/test-suite/unit/chrome-command.test.mjs
+index 3fb4462..b009496 100644
 --- a/test-suite/unit/chrome-command.test.mjs
 +++ b/test-suite/unit/chrome-command.test.mjs
-@@ -41,7 +41,7 @@
+@@ -41,7 +41,7 @@ function harness({ until, background = true, mode = "server", choices = [], send
      },
    };
    const sandbox = {
 -    Date: { now: () => now }, PI_CHROME_VERSION: version,
-+    Date: { now: () => now }, PI_CHROME_VERSION: version, embedded: false,
++    Date: { now: () => now }, PI_CHROME_VERSION: version, embedded: false, options: {},
      chromeAuthorizedUntil: until, backgroundEnabled: background,
      hostnameOf: (url) => new URL(url).hostname,
      bridge: {
 diff --git a/test-suite/unit/embedded-host.test.mjs b/test-suite/unit/embedded-host.test.mjs
 new file mode 100644
+index 0000000..8c35c46
 --- /dev/null
 +++ b/test-suite/unit/embedded-host.test.mjs
-@@ -0,0 +1,185 @@
+@@ -0,0 +1,235 @@
 +// Actual maintained factory and broker; fake Pi and an HTTP companion, never real Chrome.
 +import assert from 'node:assert/strict';
 +import fs from 'node:fs';
@@ -1156,7 +1355,7 @@ new file mode 100644
 +  Type:new Proxy({},{get:()=>value=>value}),...path,...fs,mkdir:fsp.mkdir,writeFile:fsp.writeFile,
 +  createServer(...a){starts++;return createServer(...a);},fetch:fetchImpl};
 + const javascript=stripTypeScriptTypes(source,{mode:'transform'}).replace(/^import .*;\n/gm,'').replace('export default createChromeExtension();','').replaceAll('export function ','function ').replaceAll('export async function ','async function ');
-+ vm.runInNewContext(javascript+'\nglobalThis.factory=createChromeExtension; globalThis.Bridge=ChromeProfileBridge;globalThis.probe=probeChromeConnection;',sandbox);
++ vm.runInNewContext(javascript+'\nglobalThis.factory=createChromeExtension; globalThis.Bridge=ChromeProfileBridge;globalThis.probe=probeChromeConnection;globalThis.startConnection=startChromeConnection;',sandbox);
 + return {sandbox,create:sandbox.factory,Bridge:sandbox.Bridge,starts:()=>starts};
 +}
 +function piHarness(){
@@ -1316,10 +1515,61 @@ new file mode 100644
 +  const shutdown=a.events.get('session_shutdown')({reason:'exit'});c=await next(url);await reply(url,c);await shutdown;
 + }finally{await fsp.rm(scratch,{recursive:true,force:true});}
 +});
++
++
++function storeFacilities() {
++ let connection = {connectionId:randomUUID(),leaseToken:TOKEN,extensionOrigin:'chrome-extension://'+'a'.repeat(32)+'/',bridge:{major:3,minor:0,capabilities:['cancellation','hard-background','profile-binding']}};
++ const listeners=new Set(),observations=[];let work=0;
++ return {options:{getConnection:async()=>connection,onConnectionRevoked:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},reportConnectionObservation:value=>observations.push(value),beginWork:id=>{assert.equal(id,connection.connectionId);work++;return()=>work--;}},observations,get connection(){return connection},work:()=>work,revoke(){connection=undefined;for(const fn of listeners)fn();},replace(){connection={connectionId:randomUUID(),leaseToken:'c'.repeat(64),extensionOrigin:'chrome-extension://'+'a'.repeat(32)+'/',bridge:{major:3,minor:0,capabilities:['cancellation','hard-background','profile-binding']}}}};
++}
++function storeFetch(url,facilities,options={}) {const c=facilities.connection;return fetch(url,{...options,headers:{origin:'chrome-extension://'+'a'.repeat(32),'x-pi-chrome-companion':c.leaseToken,'x-pi-chrome-connection':c.connectionId,...options.headers}});}
++function storeNextUrl(url,extra=''){return url+'/next-v2?protocol=3&minor=0&version=1.2.7&capabilities='+encodeURIComponent(JSON.stringify(['cancellation','hard-background','profile-binding']))+extra;}
++async function storeReply(url,f,c,result={}){const r=await storeFetch(url+'/result',f,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:c.id,bridgeEpoch:c.bridgeEpoch,ok:true,result})});assert.equal(r.status,200);}
++
++test('published companion negotiates independent version, exact origin/lease before dequeue and turn ownership across tool gaps',async()=>{
++ const h=moduleHarness(),f=storeFacilities(),port=await freePort(),url=`http://127.0.0.1:${port}`,a=piHarness(),b=piHarness();
++ h.create({embedded:true,port,...f.options})(a.pi);h.create({embedded:true,port,...f.options})(b.pi);assert.equal(h.starts(),0);
++ await a.events.get('session_start')({},a.ctx('storeA'));await b.events.get('session_start')({},b.ctx('storeB'));
++ const retained=await h.sandbox.startConnection({port,...f.options});assert.equal(h.starts(),1);
++ const first=a.call('chrome_tab',{action:'list'});await until(()=>f.work()===1);
++ for(const headers of [{origin:'chrome-extension://'+'b'.repeat(32)},{'x-pi-chrome-connection':randomUUID()},{'x-pi-chrome-companion':'e'.repeat(64)}]) assert.equal((await storeFetch(storeNextUrl(url),f,{headers})).status,403);
++ assert.equal((await storeFetch(storeNextUrl(url).replace('protocol=3','protocol=2'),f)).status,409);
++ assert.equal((await storeFetch(storeNextUrl(url).replace('profile-binding','absent-binding'),f)).status,409);
++ assert.equal((await storeFetch(url+'/status',f)).status,200);
++ let c=(await(await storeFetch(storeNextUrl(url),f)).json()).command;assert.equal(c.protocolVersion,3);await storeReply(url,f,c,[]);await first;
++ assert.equal(f.observations.at(-1).state,'connected');assert.equal(f.observations.at(-1).extensionVersion,'1.2.7');assert.equal(f.work(),1);
++ const second=b.call('chrome_tab',{action:'list'});c=(await(await storeFetch(storeNextUrl(url),f)).json()).command;await storeReply(url,f,c,[]);await second;assert.equal(f.work(),2);
++ await a.events.get('agent_end')();assert.equal(f.work(),1);await b.events.get('agent_end')();assert.equal(f.work(),0);
++ const check=h.sandbox.probe({port,...f.options});c=(await(await storeFetch(storeNextUrl(url),f)).json()).command;assert.equal(c.action,'tab.version');await storeReply(url,f,c,{extensionVersion:'1.2.7',capabilities:{protocolVersion:3,cancellation:true}});assert.equal((await check).protocolVersion,3);
++ await a.events.get('session_shutdown')({reason:'reload'});await b.events.get('session_shutdown')({reason:'reload'});assert.equal((await storeFetch(url+'/status',f)).status,200);retained.close();await assert.rejects(fetch(url+'/status'));
++});
++
++test('connection revocation aborts delivered work without replay and old sessions only reacquire a new connection on a later turn',async()=>{
++ const h=moduleHarness(),f=storeFacilities(),port=await freePort(),url=`http://127.0.0.1:${port}`,a=piHarness();h.create({embedded:true,port,...f.options})(a.pi);await a.events.get('session_start')({},a.ctx('revoked'));
++ const first=a.call('chrome_click',{selector:'#submit'}).catch(e=>e);await until(()=>h.starts()===1);const c=(await(await storeFetch(storeNextUrl(url),f)).json()).command;
++ f.revoke();assert.match(String(await first),/may already have happened/);await assert.rejects(fetch(url+'/status'));assert.equal(f.work(),1);
++ f.replace();await assert.rejects(a.call('chrome_tab',{action:'list'}),/changed during this turn/);await a.events.get('agent_end')();assert.equal(f.work(),0);
++ const second=a.call('chrome_tab',{action:'list'});await until(()=>h.starts()===2);const next=(await(await storeFetch(storeNextUrl(url),f)).json()).command;assert.notEqual(next.bridgeEpoch,c.bridgeEpoch);await storeReply(url,f,next,[]);await second;
++ const stale=await storeFetch(url+'/result',f,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:c.id,bridgeEpoch:c.bridgeEpoch,ok:true,result:{}})});assert.equal(stale.status,409);
++ await a.events.get('agent_end')();await a.events.get('session_shutdown')({reason:'reload'});
++});
++
++
++test('native host setup and primer teach production connection and composable observations, never manual loading',async()=>{
++ const h=moduleHarness(),f=storeFacilities(),port=await freePort(),url=`http://127.0.0.1:${port}`,a=piHarness();h.create({embedded:true,port,...f.options})(a.pi);await a.events.get('session_start')({},a.ctx('guidance'));
++ const primer=a.events.get('before_agent_start')({systemPrompt:'base'}).systemPrompt;
++ assert.match(primer,/native Computer tools using fresh observations/);assert.match(primer,/respect actual denials/);assert.match(primer,/never blindly replay uncertain effects/);
++ assert.doesNotMatch(a.tools.get('chrome_launch').description,/unpacked|Developer mode/);
++ await a.commands.get('chrome').handler('onboard',a.ctx('guidance'));assert.match(a.notices.at(-1),/Connect Chrome in Skills & Extensions/);assert.doesNotMatch(a.notices.join(' '),/unpacked|Developer mode/);
++ const launch=await a.call('chrome_launch');assert.doesNotMatch(JSON.stringify(launch),/extensionPath|unpacked|Developer mode/);
++ const doctor=a.commands.get('chrome').handler('doctor',a.ctx('guidance'));const c=(await(await storeFetch(storeNextUrl(url),f)).json()).command;assert.equal(c.action,'tab.version');await storeReply(url,f,c,{extensionVersion:'1.5.0',capabilities:{protocolVersion:3,cancellation:true}});await doctor;assert.match(a.notices.at(-1),/connected/);assert.doesNotMatch(a.notices.at(-1),/old version|reload/i);
++ await a.events.get('session_shutdown')({reason:'reload'});
++});
 diff --git a/test-suite/unit/session-cleanup.test.mjs b/test-suite/unit/session-cleanup.test.mjs
+index 7e3285f..7467986 100644
 --- a/test-suite/unit/session-cleanup.test.mjs
 +++ b/test-suite/unit/session-cleanup.test.mjs
-@@ -24,7 +24,8 @@
+@@ -24,9 +24,10 @@ function harness(send, sessionKey = "session:test") {
      AbortController, Promise,
      setTimeout(fn, ms) { const key = Symbol(); timers.set(key, { fn, ms }); return key; },
      clearTimeout(key) { timers.delete(key); },
@@ -1327,11 +1577,8 @@ diff --git a/test-suite/unit/session-cleanup.test.mjs b/test-suite/unit/session-
 +    embedded: false,
 +    bridge: { cancelSession() {}, send(...args) { events.push("send"); return send(...args); }, stop() { events.push("stop"); } },
      sessionCtx: {}, sessionKeyFor: () => sessionKey ?? undefined,
-     clearAuthExpiryTimer() {}, clearCountdownInterval() {},
+-    clearAuthExpiryTimer() {}, clearCountdownInterval() {},
++    clearAuthExpiryTimer() {}, clearCountdownInterval() {}, finishWork() {},
      globalState, PI_CHROME_GLOBAL_KEY: "loaded", instanceToken: token,
-diff --git a/extensions/chrome-profile-bridge/browser-extension/host-config.json b/extensions/chrome-profile-bridge/browser-extension/host-config.json
-new file mode 100644
---- /dev/null
-+++ b/extensions/chrome-profile-bridge/browser-extension/host-config.json
-@@ -0,0 +1 @@
-+{"version":1,"mode":"standalone"}
+     pi: { on(name, handler) { assert.equal(name, "session_shutdown"); shutdown = handler; } },
+   };

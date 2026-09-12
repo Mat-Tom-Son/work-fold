@@ -5,22 +5,37 @@
     "source": "https://github.com/tianrendong/pi-chrome/tree/4811ee616d2bbd5ead669a7e2f33a0bb14bd43ef",
     "license": "MIT",
     "patch": "pi-chrome-0.15.51.patch",
-    "sha256": "25bd3cf6370134c2690bd1c03c6f65795b6ca3acde492b32d98af65ea355c6f7",
+    "sha256": "8b6f1725923c89972eff7ec54f2ff9ccd37c9db368d32520c105356ae67bb5f3",
     "files": [
       {
         "path": "docs/EMBEDDED-HOST.md",
         "before": null,
-        "after": "5319a9c2024f89c2ac315476bdb68faeb5d50344d107560ff4217a6b2a117274"
+        "after": "9e7ee8398b20063deeedf0faf2043668d81a9eece25e409ee92ac3c147ebda3b"
+      },
+      {
+        "path": "extensions/chrome-profile-bridge/browser-extension/host-config.json",
+        "before": null,
+        "after": "8d778d2f9e23a0cfa8416c70a55e36397c8fcae664e477219f7858aa250e8d51"
+      },
+      {
+        "path": "extensions/chrome-profile-bridge/browser-extension/manifest.json",
+        "before": "357cc1bcf0e3949c8dbbda3fbef837c7ec64060e0d94b97967d7435bc78e8f0b",
+        "after": "357cc1bcf0e3949c8dbbda3fbef837c7ec64060e0d94b97967d7435bc78e8f0b"
       },
       {
         "path": "extensions/chrome-profile-bridge/browser-extension/service_worker.js",
         "before": "ac1e346d88aaa684d1998b17f899c4b50077d27f01eeb1a3393649013643ee3f",
-        "after": "c1700b8726864103f100554f1d3ae37f3ed38b6bfc50ec8df469ed7d38d6c399"
+        "after": "85c967f7c891675fb5e4ba37499aa4c4c7de1e22dd4bfe4dff19081e39e76d31"
+      },
+      {
+        "path": "extensions/chrome-profile-bridge/browser-extension/snapshot_injected.js",
+        "before": "25f9cb6c866846bca9a8b7c7f943e9c1ca1af82e5179b03e8a5550629e95bf9b",
+        "after": "25f9cb6c866846bca9a8b7c7f943e9c1ca1af82e5179b03e8a5550629e95bf9b"
       },
       {
         "path": "extensions/chrome-profile-bridge/index.ts",
         "before": "fc38900ea5f9d8e7bb8b1988ff6e172d49c24e50213f9c8905d689187728d187",
-        "after": "a9af3b69b3c3bffaea7980e01c739946805df56be1f87a4edbf01c00ac510a42"
+        "after": "77db230a977a1e98a9ff44df3a04e64411addd6db955499acb99db0ad9dcaad5"
       },
       {
         "path": "package.json",
@@ -35,22 +50,17 @@
       {
         "path": "test-suite/unit/chrome-command.test.mjs",
         "before": "d7dee056db789e12a5f887b176dc469cf32675bcc880921309d47246d9bbabed",
-        "after": "c6d2ff6c1b93c65d41cc4a1709b8f8b1b77ec52fbaa28c9404cd604d07a7469f"
+        "after": "3122802b7375d0892b25210675ddf16bc06efbc57ef66491836984b7d118d470"
       },
       {
         "path": "test-suite/unit/embedded-host.test.mjs",
         "before": null,
-        "after": "c7c97433b3580f16ae5ab886e88c1e79b69cab29cd946acb732f21f98fbb1734"
+        "after": "422bb60e922e6029ec8efd8a954e8282ae771196029ef6a7538fa336cb50da3c"
       },
       {
         "path": "test-suite/unit/session-cleanup.test.mjs",
         "before": "a19b3d47dfbb7415c973132017bc36d79a859373a561de6cb62080af797ccc87",
-        "after": "364f8737e6c71d80a300c2611316631fb8749bb66a7f605c46aabb1363ef8ae1"
-      },
-      {
-        "path": "extensions/chrome-profile-bridge/browser-extension/host-config.json",
-        "before": null,
-        "after": "8d778d2f9e23a0cfa8416c70a55e36397c8fcae664e477219f7858aa250e8d51"
+        "after": "2bf7a4749c8aaabf69cba450a905f96582c84a50b6e418c664e2a193e4db2702"
       }
     ]
   },

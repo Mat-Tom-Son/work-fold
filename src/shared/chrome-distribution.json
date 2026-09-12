@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "storeId": "ophmjbphcjmjcpcdpmfehbldiomkepgk",
+  "publicKey": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyZmiHc+2+ElmO/BTbQO+nGl7q2HHmPPJCCRYi+inOL7pDCeApx46blHFwPGyJVZFt2faJgriy4ZV59501PVJUwRY/+yxjdZI4b/Ixx6O+i0UBrPLfqdOLR4UFi2nfAOpq/MEkW3TTIv607U6yG/LAcoi76oCPNBuKiMKZO1mg78rL1nU3N6ndjLwosprXIWohRxX/2G97MgGsgizvEVtUVmHkpB9KTZMvnx6kbqtzYIhsdBOLHhFG57zXMZozpFhMTFzbQLOD4cTTgcL4qyqwv5oKZ1VcPTDFAz2oDQIPPjS9a1QVV3hfm1kKyIDpuss1dkz3HbvgCYd7ybOxEj0LQIDAQAB",
+  "extensionVersion": "1.0.0",
+  "nativeHostName": "com.work_fold.chrome",
+  "bootstrapVersion": 1,
+  "bridge": {
+    "major": 3,
+    "minor": 0,
+    "capabilities": [
+      "cancellation",
+      "hard-background",
+      "profile-binding"
+    ]
+  }
+}

@@ -1,6 +1,28 @@
 # Reviewed native integrations
 
-The manifest pins the upstream package version, source, license, every input/output file digest, and patch digest. `scripts/prepare-included-tools.mjs` refuses mixed or unknown source states and verifies the result. These are ordinary native Pi Extensions; `resources/included-tools` supplies the explicit host context through Pi's event bus. No separate extension format or protocol is introduced.
+The manifest pins the upstream package version, source, license, every input/output file digest, and patch digest. `scripts/prepare-included-tools.mjs` refuses mixed or unknown source states and verifies the result. These are ordinary native Pi Extensions; `resources/included-tools` supplies the explicit host context through Pi's event bus. No separate Pi package format or tool registry is introduced.
+
+## Chrome 0.15.51
+
+The optional embedded factory registers ordinary Pi tools per session and stays
+cold during catalog reads. Its shared loopback transport accepts optional native
+host connection callbacks, retains an app-owned connection independently of Pi
+sessions, and fences queued/dispatched commands on lease revocation. A turn holds
+the selected connection through gaps between tools. Protocol3 checks the exact
+HTTP extension origin, connection ID, credential and required capabilities
+before dequeue, independently of Store/package version. Native-origin paths end
+in `/`; HTTP Origin comparison trims that exact validated suffix rather than
+using Node's `URL.origin`, which is `null` for chrome-extension URLs.
+
+Store bootstrap and UI are packaged separately under the app-owned Chrome
+resource. They retain a local installation proof, expose only content-free
+status, resume only an explicitly connected profile, and serialize setup actions
+against stale status responses. The ordinary standalone and manually prepared
+protocol2 behavior remains available. Native-host onboarding and doctor use
+the trusted connection surface and bounded protocol check. Native screenshot
+results, session-owned cleanup, unknown-effect cancellation and no replay remain
+the upstream tool path. See [distribution](../../docs/chrome-extension-distribution.md)
+and the package's maintained `docs/EMBEDDED-HOST.md` for the additive interface.
 
 ## MCP 2.33.0
 

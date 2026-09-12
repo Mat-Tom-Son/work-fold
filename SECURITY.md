@@ -54,8 +54,16 @@ a hostile full-trust process. Included factories do not start connections,
 watchers or setup work during catalog inspection. Native third-party code can
 still execute its own factory during Pi loading.
 
-Chrome's prepared companion uses a local authentication secret and explicit
-connection checks; unauthenticated socket reachability is not readiness.
+Chrome's Store companion authenticates through an exact-origin native helper
+and an app-owned selected-installation proof. Native Messaging authenticates
+the extension ID, not the profile. The temporary HTTP lease stays in native
+runtime and service-worker memory; the public ZIP contains no user secret.
+HTTP polls/results require the selected origin, credential and connection ID,
+with protocol/capabilities checked before command delivery. Disconnect and
+profile changes refuse affected active work, then revoke stale queues/results
+at the accepted safe point. Readiness requires authenticated transport evidence;
+socket reachability and issuing a lease are insufficient. See
+[Chrome distribution](docs/chrome-extension-distribution.md).
 Computer setup names the actual helper identity for macOS permissions. Both
 return requested observations through Pi; neither provides continuous screen
 recording. External effects may survive Stop and are not made reversible by

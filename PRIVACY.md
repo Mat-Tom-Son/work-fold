@@ -81,8 +81,33 @@ explicitly prepared companion; account content and external actions carry
 that profile's normal permissions. Computer control captures selected native
 observations using macOS permissions granted to its helper.
 
-The Chrome companion's local authentication material stays under work-fold's
-application-data directory. Optional Brave credentials use the existing
+The Chrome extension's random installation ID and connection proof stay in
+trusted-only local extension storage, never Chrome sync. work-fold stores the
+selected installation and proof hash under its private application-data
+directory. A signed Native Messaging helper authenticates the exact extension
+ID and forwards setup requests to the running app; it does not identify the
+Chrome profile by itself. Temporary connection credentials stay in the browser
+service worker's memory and native host runtime, outside Chat and setup status.
+
+The Chrome extension can process requested tab URLs/titles, page text and
+structure, form inputs, screenshots, and page console/network observations.
+Depending on the page and task, these may contain identifiers, communications,
+authentication information, financial or health information, or location data.
+It sends the requested observations over authenticated localhost transport to
+the desktop Assistant. The desktop sends selected tool results to the model
+provider configured for that Chat and may retain them in local Pi sessions.
+Browser actions use the connected profile's existing website sessions. The
+extension does not continuously record browsing, sell data, serve advertising,
+or use data for credit decisions. Removing the extension removes its local
+connection storage; Disconnect revokes the desktop selection and current lease.
+Existing Chat/model-provider records follow their respective retention rules.
+
+All extension scripts are packaged. For requested page inspection and actions,
+the desktop can supply JavaScript evaluated in the targeted page through
+Chrome's Debugger API, not as extension service-worker or popup code. Chrome's
+own debugger and extension permission controls continue to apply.
+
+Optional Brave credentials use the existing
 machine-local Pi AuthStorage. Native MCP definitions use the configured Pi
 agent directory's `mcp.json` and a registered Space's `.pi/mcp.json`; project
 configuration can travel with its folder. Host-entered bearer and OAuth
