@@ -31,8 +31,8 @@ human setup are separate evidence.
 | A03 | Neighborhood Workshop | Plan a 16-person photo workshop using supplied brief and price list | Correct budget totals, assumptions labeled, editable workbook and one-page PDF linked in Chat | Passed after funding: correct workbook formulas/caches, three linked files, independently rendered one-page PDF |
 | A04 | Community Outreach + fold | Delegate an invitation draft from a workshop handoff; ask for missing time; answer once | Selected file reaches target; question and one continuation; no unrelated transcript leakage; fold gets result | Earlier graph/isolation passed; 0.4.30 candidate UI-first answer passed in 888 ms with one native continuation |
 | A05 | Tool Lab / MCP | Query local supply inventory, calculate shortages, handle disconnect and recovery | Native discovery/invocation, correct 4/40/8 shortages, useful failure, successful fresh retry | Passed: native discovery/invocation, 4/40/8 shortages, one failed call during synthetic outage, fresh successful retry after recovery |
-| A06 | Tool Lab / Chrome | Edit a synthetic registration form in a dedicated browser tab; verify final state; reconnect | Native Chrome observation/action, correct isolated tab, no duplicate submit on recovery | Setup needed: installed readiness check confirms companion is not connected |
-| A07 | Tool Lab / computer | Edit a disposable workshop note in TextEdit, save and verify; stop queued input | Native helper observation/action, correct file, permission failure/recovery, no extra input after Stop | Setup needed: installed helper reports Accessibility and Screen Recording not verified |
+| A06 | Tool Lab / Chrome | Edit a synthetic registration form in a dedicated browser tab; verify final state; reconnect | Native Chrome observation/action, correct isolated tab, no duplicate submit on recovery | Final Store bundle 1.0.0 connected; candidate 3186a09 submitted exactly once with matching receipt and screenshot; recovery remains under test |
+| A07 | Tool Lab / computer | Edit a disposable workshop note in TextEdit, save and verify; stop queued input | Native helper observation/action, correct file, permission failure/recovery, no extra input after Stop | Candidate 3186a09 reports Ready and emits screenshots; keyboard delivery failed the live document journey (S19) |
 | A08 | Tool Lab / documents | Detect and fix a deliberately clipped PDF heading and overlapping footer | Model receives images if supported; two renders; final source/image provenance matches; previews cleaned | Passed after manual recovery and evidence correction: two image paths, readable corrected PDF, matching hashes; initial allocation failure retained |
 | A09 | Two Chats | Run independent document jobs, stop one, switch tabs and reopen app | Stopped worker has no late write; sibling completes; files and task states survive restart without replay | 0.4.30 candidate overlap/Stop/sibling and restart passed; earlier failures retained |
 | A10 | Tool Lab / Space app | Build a small workshop notes app with a bounded inference action | App installs, saves a record, invokes app-owned inference, displays result and receipt | 0.4.30 candidate: one new inference, two Answered rows, zero Running; notes/summary survived restart without another call |
@@ -418,3 +418,67 @@ Earlier failed attempts remain intact. Subsequent Chrome onboarding and signed
 Computer-helper changes are outside frozen commit `8108655`; they require a
 new candidate and their own live acceptance. Final Chrome acceptance and public
 desktop release are not claimed here.
+
+## Final integration candidate
+
+Candidate `3186a09` passed the source suite with 1,514 passes, zero failures and
+one platform skip, then preparation, packaged native-tool probes, Developer ID
+signing, app notarization, stapling and signed-candidate verification. It remains
+an app-only candidate, separate from the installed 0.4.29 and public update feed.
+
+**S19 — Native keyboard delivery.** The final Computer setup check reported
+Ready with its verified, signed helper running outside the enclosing app bundle.
+The real DeepSeek test emitted five native screenshot results but could not open
+TextEdit's Go to Folder sheet reliably. Ref-targeted keyboard actions were sent
+to the process in the background without activating its window. Their delivery
+acknowledgments did not establish the requested UI change. The root reviewer
+stopped this attempt; the disposable note remained byte-for-byte unchanged.
+An independent CUA comparison raised the same window and sent Command-Shift-G;
+the GoToWindow sheet appeared immediately and was then cancelled. This is a
+failed document journey, not a readiness or screenshot failure. Repair and a
+fresh signed-candidate retest remain required. Tool ids, image counts and file
+hashes are retained in ignored
+`out/installed-acceptance/computer-candidate-3186a09-attempt1.json`.
+
+Commit `0b26bad` repairs the interactive keyboard path: default keyboard actions
+use one foreground HID delivery, while explicit background and AX-only policies
+remain non-foreground. Focusable semantic controls establish focus for a later
+keyboard action. Unknown results are not replayed. Maintained-patch digests,
+focused regression tests, the full suite and desktop preparation passed; the
+signed live retest is still required.
+
+**S20 — Chrome setup status.** Native Chrome controls installed the frozen Store
+bundle `1.0.0` and connected it successfully. The desktop's explicit Check still
+said Not connected even while native Chrome tools worked. The connection check
+cleared the latest observation and discarded a successful probe result; this is
+a desktop status defect, separate from browser transport. A focused repair is
+committed as `ed0aaed`; the actual-transport regression and independent review
+passed, including stale probe results after replacement, disconnect and quit.
+
+**Chrome form acceptance.** In candidate `3186a09`, DeepSeek opened its own tab,
+read case `a06c-a`, filled Casey Morgan / casey.morgan@example.invalid / two seats /
+afternoon, and submitted exactly once. Both the independently read fixture journal
+and native Chrome receipt showed receipt `6c6944df-b237-4964-93f3-1c34d5377442`,
+count one and all four correct values. A native tool screenshot reached Pi as an
+image result. The original unrelated `a06c-b` tab stayed active during automation
+and its submission count remained zero. Evidence is retained in ignored
+`out/installed-acceptance/chrome-candidate-3186a09.json`; this is developer-loaded
+Store-bundle acceptance, not proof of Google approval or Store installation.
+
+**S21 — Chrome reconnect.** After that task settled, the root used the native
+extension UI to Disconnect and Connect. The page changed from Not connected to
+Connecting, then back to Not connected. A new turn in the existing Chat could
+not open a fresh owned receipt tab: its native tool timed out after 30 seconds
+with "Chrome is not connected. Open Chrome and check its work-fold extension."
+The model made a second read-only list attempt with the same failure. The fixture
+remained at one submission. Recovery is failed and requires repair; it is not
+covered by the successful first connection or S20's status correction.
+
+The separate developer inspector exposed the actual Chat, provider, model,
+runtime folder, Pi version, system-prompt digest and dispatched tool names for
+this live request. Provenance had no false truncation warning; the deeply nested
+provider payload correctly reported its depth limit. Captures remain memory-only.
+
+The same pass found three remaining descriptive lines in the Add menu. Its
+source now contains only the three destination labels in a narrower menu;
+Settings and the previously completed appearance controls are unchanged.
