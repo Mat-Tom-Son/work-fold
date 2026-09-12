@@ -73,7 +73,7 @@ test("the fold uses ordinary chat geometry and one compact live line", async () 
   assert.match(popover, /\{request && activePhases\.has\(request\.phase\) \? \(\s*<div className="fold-tail">/);
   assert.match(popover, /\{activity \|\| "Thinking…"\}/);
   assert.match(popover, /<span className="working-elapsed">\{elapsedLabel\}<\/span>/);
-  assert.match(popover, /Working in \{request\.children\.filter\(\(child\) => child\.state === "running"\)\.length === 1 \? "a Space" : "Spaces"\}…/);
+  assert.match(popover, /Working in \{request\.children\.filter\(\(child\) => child\.state === "running"\)\.length === 1 \? "a folder" : "folders"\}…/);
   assert.match(popover, /className="working-line" role="status" aria-live="polite"/);
   assert.doesNotMatch(popover, /You can close your fold|item\$\{request\.attachments\.length/);
   assert.doesNotMatch(popover, /popover-message-role/);
@@ -117,7 +117,7 @@ test("the compact popover leaves the glance to the main window and approved web 
 
 test("Escape still hides the popover and the fold region stays live", async () => {
   const popover = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
-  assert.match(popover, /aria-label="Your fold" aria-live="polite"/);
+  assert.match(popover, /aria-label="work-fold agent chat" aria-live="polite"/);
   assert.match(popover, /if \(event\.key === "Escape"\) \{[\s\S]*?else bridge\?\.management\?\.hide\(\);/);
 });
 
@@ -132,17 +132,16 @@ test("the popover composer behaves like every other work-fold composer", async (
   assert.match(popover, /if \(event\.isComposing\) return;/);
   // The draft box grows with its content instead of scrolling in a fixed slit.
   assert.match(css, /field-sizing: content/);
-  // The composer is one aligned field: a compact one-line textarea that grows
-  // beside its action, never an absolutely positioned or second-row button.
+  // The compact circular action lives in the centered model/reasoning row.
   assert.match(popover, /className="composer-field"[\s\S]*rows=\{1\}[\s\S]*className=\{`composer-action\$\{requestRunning \? " composer-stop" : " primary"\}`\}/);
-  assert.match(css, /\.composer-field \{[\s\S]*display: flex;[\s\S]*align-items: flex-end;[\s\S]*gap: 6px;/);
-  assert.match(css, /\.composer-action \{[\s\S]*align-self: flex-end;[\s\S]*min-height: 32px;/);
+  assert.match(css, /\.composer-controls \{[\s\S]*align-items: center;/);
+  assert.match(css, /\.composer-action \{[\s\S]*width: 28px;[\s\S]*height: 28px;/);
   assert.doesNotMatch(css, /\.composer-action \{[\s\S]*position: absolute;/);
   assert.doesNotMatch(popover, /composer-footer/);
   // The same action becomes Stop while work is active; the composer remains
   // mounted as a safe draft area and sending is refused until the turn settles.
   assert.match(popover, /if \(requestRunning\) void stop\(\); else void send\(\);/);
-  assert.match(popover, /requestRunning\s*\? stopping \? "Stopping…" : "Stop"/);
+  assert.match(popover, /aria-label=\{requestRunning \? \(stopping \? "Stopping" : "Stop"\)/);
   assert.match(popover, /if \(!content \|\| sending \|\| loadingChat \|\| stopping \|\| \(currentRequest && activePhases\.has\(currentRequest\.phase\)\)\) return;/);
   // The transcript follows new entries only while pinned near the bottom, so
   // reading scrollback is never yanked away by the poll cadence — and a
@@ -191,12 +190,12 @@ test("the fold composer names its model and exposes real text-only reasoning con
   assert.match(css, /\.composer-thinking \{\s*flex: none;[\s\S]*?padding: 1px 14px 1px 6px;/);
 });
 
-test("the header exposes Open app and New chat directly", async () => {
+test("the header exposes the active chat title and New chat directly", async () => {
   const source = await readFile(resolve(rootDir, "web-local/src/popover/PopoverApp.tsx"), "utf8");
-  assert.match(source, /className="popover-open-app" type="button" onClick=\{\(\) => \{ void bridge\?\.management\?\.openMainWindow\(\); \}\}>Open app<\/button>/);
+  assert.match(source, /<h1 className="popover-chat-title">\{chatTitle\}<\/h1>/);
   assert.doesNotMatch(source, /<WorkFoldLockup className="popover-brand"/);
   assert.match(source, /className="popover-new-chat"/);
-  assert.match(source, /title="Start a new chat\. This chat stays saved on your desktop\."/);
+  assert.match(source, /aria-label="New chat"/);
   assert.match(source, />\s*<SquarePen aria-hidden="true" \/>\s*<span>New chat<\/span>/);
   assert.doesNotMatch(source, /popover-overflow-menu|aria-haspopup="menu"|Ellipsis|role="menuitem"/);
   assert.match(source, /startingNewChatRef\.current = id === null/);

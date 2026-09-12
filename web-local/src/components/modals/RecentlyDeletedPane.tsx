@@ -5,7 +5,7 @@ import { api, errorText } from "../../lib/api";
 import { recentlyDeletedSettings } from "../../ui-contract";
 
 /**
- * Settings → The fold → Recently deleted (docs/receipts-not-gates.md, F20).
+ * Settings → General → Recently deleted (docs/receipts-not-gates.md, F20).
  * Nothing work-fold destroys is gone at the moment it happens: History covers
  * ordinary deletion, and whatever it could not keep a copy of waits here until
  * its time runs out. This pane lists what is waiting, puts an item back, saves
@@ -50,7 +50,7 @@ export interface RecentlyDeletedResponse {
 const kindLabels: Record<RecentlyDeletedKind, string> = {
   file: "File",
   folder: "Folder",
-  space: "Space folder",
+  space: "Folder",
   "app-storage": "App data",
   "app-retained": "App data",
 };

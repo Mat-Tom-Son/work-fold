@@ -170,7 +170,7 @@
 /* Density changes row padding, not glyph scale or content hierarchy. */
 :root[data-appearance-palette] .app-shell :is(.file-row, .chat-space-row),
 :root[data-appearance-palette] .app-shell .settings-window .settings-tab,
-:root[data-appearance-palette] .popover :is(.popover-open-app, .popover-new-chat, .fold-chat-row) {
+:root[data-appearance-palette] .popover :is(.popover-new-chat, .fold-chat-row) {
   min-height: max(32px, var(--work-fold-list-height));
   padding-block: var(--work-fold-list-padding);
 }
@@ -181,8 +181,8 @@
 :root[data-appearance-palette] .app-shell .file-row:is(.draft-area, .is-ignored):not(.selected) { color: var(--ui-text-muted); }
 :root[data-appearance-palette] .app-shell .chat-space-row-title { color: var(--ui-text); }
 :root[data-appearance-palette] .app-shell .chat-space-row-time { color: var(--ui-text-muted); }
-:root[data-appearance-palette] .app-shell .settings-window :is(.settings-tab, .settings-field input, .settings-field select, .settings-section p, .settings-page-heading p, .context-meta-grid dt, .context-meta-grid dd) { font-size: max(13px, calc(var(--work-fold-font-size) - 2px)); }
-:root[data-appearance-palette] .popover :is(.popover-open-app, .popover-new-chat, .fold-chat-row) { font-size: max(12px, calc(var(--work-fold-font-size) - 2px)); }
+:root[data-appearance-palette] .app-shell .settings-window :is(.settings-tab, .settings-field input, .settings-field select, .settings-section p, .context-meta-grid dt, .context-meta-grid dd) { font-size: max(13px, calc(var(--work-fold-font-size) - 2px)); }
+:root[data-appearance-palette] .popover :is(.popover-new-chat, .fold-chat-row) { font-size: max(12px, calc(var(--work-fold-font-size) - 2px)); }
 :root[data-appearance-palette] .popover :is(.composer-model, .composer-thinking) { font-size: max(11px, calc(var(--work-fold-font-size) - 3px)); }
 
 :root[data-appearance-palette] .app-shell .send-button:not(.stop-send-button):not(:disabled) {
@@ -240,5 +240,5 @@
 @media (pointer: coarse) {
   :root[data-appearance-palette] .app-shell :is(.file-row, .chat-space-row),
   :root[data-appearance-palette] .app-shell .settings-window .settings-tab,
-  :root[data-appearance-palette] .popover :is(.popover-open-app, .popover-new-chat, .fold-chat-row) { min-height: max(44px, var(--work-fold-list-height)); }
+  :root[data-appearance-palette] .popover :is(.popover-new-chat, .fold-chat-row) { min-height: max(44px, var(--work-fold-list-height)); }
 }

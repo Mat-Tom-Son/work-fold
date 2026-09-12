@@ -308,7 +308,7 @@ test("an answer past the request's window is refused by name, and --to parent on
     clock = new Date(clock.getTime() + 25 * 60 * 60 * 1000);
     await assert.rejects(
       () => api.actFacade.chatAnswer({ space: space.space.id, questionId: asked.question.questionId, answer: "Yes" }),
-      conflict(/Settings → The fold → Limits/),
+      conflict(/Settings → General → Limits/),
     );
     assert.equal(api.requests.question(asked.question.questionId)!.state, "open", "a refused answer changes nothing; the sweep owns expiry");
     assert.equal(api.requests.byTaskId(own.taskId)!.turns.length, 1, "no continuation was started");

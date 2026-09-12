@@ -63,7 +63,7 @@ test("Settings preserves save feedback and explicit remote setup", async () => {
 });
 
 test("no surface offers an authority mode, a policy, or a decision card", () => {
-  // docs/receipts-not-gates.md, F19/F24: the Settings → The fold pane has no
+  // docs/receipts-not-gates.md, F19/F24: the Settings → General pane has no
   // Authority selector and no Standing policies section; the main window has
   // no needs-you rail control; the only needs-you surface is the glance's
   // questions list.
@@ -77,7 +77,7 @@ test("no surface offers an authority mode, a policy, or a decision card", () => 
 });
 
 test("the publications Settings section reveals links transiently and only narrows", () => {
-  // Settings → The fold → Pages your fold serves (docs/fold-publishing.md,
+  // Settings → General → Pages your fold serves (docs/fold-publishing.md,
   // plan item 5): the pane is a read-and-narrow surface over the renderer
   // session. The share link is composed on demand from the reveal route plus
   // the viewer origin, held only in pane state, and never persisted; every
@@ -213,7 +213,7 @@ test("new-Chat Space menu has deterministic roving keyboard navigation", () => {
 test("persistent Space menu has deterministic roving keyboard navigation", () => {
   assert.match(spaceChrome, /aria-controls=\{switcherId\}/);
   assert.match(spaceChrome, /onBlurCapture=/);
-  assert.match(spaceChrome, /aria-label="Space menu"/);
+  assert.match(spaceChrome, /aria-label="Folder menu"/);
   assert.match(spaceChrome, /nextMenuItemIndex\(currentIndex,\s*items\.length/);
   assert.match(spaceChrome, /event\.key !== "Escape"[\s\S]*?switchTriggerRef\.current\?\.focus\(\)/);
 });

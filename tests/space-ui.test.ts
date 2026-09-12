@@ -26,7 +26,7 @@ test("managed Space deletion names what moves and where it waits", () => {
   assert.match(copy, /every file and folder inside it/i);
   assert.match(copy, /Chats and History/i);
   assert.match(copy, /moves to Recently deleted/i);
-  assert.match(copy, /Settings → The fold/i);
+  assert.match(copy, /Settings → General/i);
   assert.match(copy, /put it back until its time runs out/i);
   assert.doesNotMatch(copy, /cannot be undone/i);
 });

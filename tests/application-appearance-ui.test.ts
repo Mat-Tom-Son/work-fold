@@ -33,7 +33,7 @@ test("appearance controls affect the shared document, preserve explicit Space ro
   assert.equal(document.documentElement.dataset.appearanceMessages, "quiet");
   await dom.act(() => Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Undo")!.click());
   assert.equal(document.documentElement.dataset.appearanceMessages, "tinted");
-  await dom.act(() => Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Customize this Space")!.click());
+  await dom.act(() => Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Customize this folder")!.click());
   assert.deepEqual(routes, ["space-owner"]);
 });
 

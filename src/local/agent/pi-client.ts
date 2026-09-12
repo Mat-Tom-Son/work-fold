@@ -513,7 +513,7 @@ export class PiConversationClient extends EventEmitter {
   async reviewCheck(input: WorkFoldModelCheckRequest): Promise<WorkFoldModelCheckResponse> {
     const session = await this.ensureSession();
     const model = session.model;
-    if (!model) throw new Error("Connect a model for the fold in Settings → Assistant before running model-backed Checks.");
+    if (!model) throw new Error("Choose a model for the work-fold agent in Settings → Agents before running model-backed Checks.");
     const reviewReasoning = session.getAvailableThinkingLevels().find((level) => level !== "off");
     const payload = JSON.stringify({ criteria: input.criteria, files: input.files.map(({ path, text, roles }) => ({ path, text, roles })) });
     if (payload.length / 2 + 6144 > model.contextWindow) throw new Error("These Check inputs exceed the selected model's bounded context allowance. Narrow the targets or select a larger-context fold model.");

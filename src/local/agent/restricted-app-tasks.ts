@@ -98,7 +98,7 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{1
 const statuses: RestrictedAppAssistantTask["status"][] = ["dispatching", "running", "waiting", "succeeded", "failed", "cancelled", "interrupted"];
 const live = new Set<RestrictedAppAssistantTask["status"]>(["dispatching", "running", "waiting"]);
 const maxFileBytes = 64 * 1024 * 1024;
-const limitsSection = "Settings → The fold → Limits";
+const limitsSection = "Settings → General → Limits";
 
 /**
  * An app request is journaled, then dispatched as an ordinary full-trust Space

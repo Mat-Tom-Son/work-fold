@@ -3,11 +3,12 @@ import { WorkRequest } from "../components/chat/WorkRequest";
 import { useApplicationAppearance } from "../hooks/useApplicationAppearance";
 import { useWorkRequest } from "../hooks/useWorkRequest";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ChevronRight, File, History, Link2, Search, SquarePen, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, ChevronRight, File, History, Link2, Search, Square, SquarePen, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { ApiError, api, createEventSource, errorText } from "../lib/api";
+import { groupChatsByRecency } from "../lib/chat-recency";
 import { WorkFoldLockup } from "../components/brand/WorkFoldBrand";
 import type { AssistantComposerState, ConversationRuntime, ChatStreamEvent, ExtensionUiRequest } from "../types";
 
@@ -91,7 +92,7 @@ interface FoldChat {
 }
 
 const fixtureChats: FoldChat[] = [
-  { id: "fixture-fold", title: "Catch up on my Spaces", updatedAt: "2026-09-11T19:30:00Z", requestState: "done" },
+  { id: "fixture-fold", title: "Catch up on my folders", updatedAt: "2026-09-11T19:30:00Z", requestState: "done" },
   { id: "fixture-plan", title: "Plan next week’s workshop", updatedAt: "2026-09-10T16:00:00Z", requestState: "waiting", needsAnswer: true },
   { id: "fixture-notes", title: "Organize the field notes", updatedAt: "2026-09-09T15:00:00Z", requestState: "done" },
 ];
@@ -114,7 +115,7 @@ const popoverFixtureMessages: ManagementMessage[] = [
     id: "fixture-assistant-1",
     role: "assistant",
     content: [
-      "Two Spaces moved forward:",
+      "Two folders moved forward:",
       "",
       "- **Launch plan** — the draft is ready and its Check passed.",
       "- **Field notes** — three duplicates need your choice.",
@@ -651,10 +652,10 @@ export function PopoverApp() {
     return (
       <div className="popover">
         <header className="popover-header">
-          <button className="popover-open-app" type="button" onClick={() => { void bridge?.management?.openMainWindow(); }}>Open app</button>
+          <h1 className="popover-chat-title">work-fold agent</h1>
         </header>
         <div className="card">
-          <p>Your fold is unavailable.</p>
+          <p>The work-fold agent is unavailable.</p>
           {unavailableReason ? <p className="muted small">{unavailableReason}</p> : null}
         </div>
       </div>
@@ -673,6 +674,7 @@ export function PopoverApp() {
   const visibleBanner = banner || (available === false ? unavailableReason : "");
   const backgroundChats = chats.filter((chat) => chat.id !== conversationId && (chat.requestState === "working" || chat.requestState === "handed_off"));
   const filteredChats = chats.filter((chat) => chat.title.toLocaleLowerCase().includes(historyQuery.trim().toLocaleLowerCase()));
+  const chatsByRecency = groupChatsByRecency(filteredChats);
   const navigationBusy = sending || stopping || workState.busy;
 
   const changeThinkingLevel = async (level: string) => {
@@ -706,18 +708,18 @@ export function PopoverApp() {
       onDrop={onDrop}
     >
       <header className="popover-header">
-        <button className="popover-open-app" type="button" onClick={() => { void bridge?.management?.openMainWindow(); }}>Open app</button>
+        <h1 className="popover-chat-title">{chatTitle}</h1>
         <div className="popover-header-actions">
           <button className="popover-new-chat" type="button" aria-expanded={historyOpen} aria-controls="fold-chat-history"
             onClick={() => { setHistoryOpen((open) => !open); void refreshConversation(); }}>
-            <History aria-hidden="true" /><span>Chats</span>
+            <History aria-hidden="true" /><span>Previous</span>
           </button>
           <button
             className="popover-new-chat"
             type="button"
+            aria-label="New chat"
             onClick={startNewChat}
             disabled={navigationBusy}
-            title="Start a new chat. This chat stays saved on your desktop."
           >
             <SquarePen aria-hidden="true" />
             <span>New chat</span>
@@ -733,7 +735,7 @@ export function PopoverApp() {
       ) : null}
 
       {historyOpen ? (
-        <section className="fold-chat-history" id="fold-chat-history" aria-label="Saved fold chats">
+        <section className="fold-chat-history" id="fold-chat-history" aria-label="Saved work-fold agent chats">
           <div className="fold-history-heading">
             <button type="button" className="fold-back" aria-label="Back to chat" onClick={() => { setHistoryOpen(false); window.setTimeout(() => composerRef.current?.focus(), 0); }}><ArrowLeft aria-hidden="true" /></button>
             <h1>Chats</h1><span>On this desktop</span>
@@ -742,12 +744,15 @@ export function PopoverApp() {
           {historyError ? <p className="error-line" role="alert">{historyError} <button type="button" onClick={() => void refreshConversation()}>Try again</button></p> : null}
           <div className="fold-chat-list">
             {draftsRef.current.get("new")?.text || draftsRef.current.get("new")?.staged.length ? <button className="fold-chat-row" type="button" disabled={navigationBusy} onClick={startNewChat}><span>New chat</span><small>Draft</small></button> : null}
-            {filteredChats.map((chat) => (
-              <button key={chat.id} className="fold-chat-row" type="button" aria-current={chat.id === conversationId ? "page" : undefined} disabled={navigationBusy} onClick={() => selectChat(chat.id)}>
-                <span>{chat.title || "Untitled chat"}</span>
-                <small><time dateTime={chat.updatedAt}>{chatDateLabel(chat.updatedAt)}</time>{chat.needsAnswer ? <em>Needs your answer</em> : chat.requestState === "working" || chat.requestState === "handed_off" ? <em>Working</em> : chat.archivedAt ? <em>Archived</em> : chat.snoozedUntil && Date.parse(chat.snoozedUntil) > now ? <em>Snoozed</em> : draftsRef.current.get(chat.id)?.text || draftsRef.current.get(chat.id)?.staged.length ? <em>Draft</em> : null}</small>
-              </button>
-            ))}
+            {chatsByRecency.map(([label, groupedChats]) => <section className="fold-chat-group" key={label} aria-label={label}>
+              <h2>{label}</h2>
+              {groupedChats.map((chat) => (
+                <button key={chat.id} className="fold-chat-row" type="button" aria-current={chat.id === conversationId ? "page" : undefined} disabled={navigationBusy} onClick={() => selectChat(chat.id)}>
+                  <span>{chat.title || "Untitled chat"}</span>
+                  <small><time dateTime={chat.updatedAt}>{chatDateLabel(chat.updatedAt)}</time>{chat.needsAnswer ? <em>Needs your answer</em> : chat.requestState === "working" || chat.requestState === "handed_off" ? <em>Working</em> : chat.archivedAt ? <em>Archived</em> : chat.snoozedUntil && Date.parse(chat.snoozedUntil) > now ? <em>Snoozed</em> : draftsRef.current.get(chat.id)?.text || draftsRef.current.get(chat.id)?.staged.length ? <em>Draft</em> : null}</small>
+                </button>
+              ))}
+            </section>)}
             {!filteredChats.length ? <p className="fold-history-empty">{historyQuery ? "No chats match your search." : "Your chats will appear here after you send a message."}</p> : null}
           </div>
         </section>
@@ -756,14 +761,12 @@ export function PopoverApp() {
       {backgroundChats.length ? <button type="button" className="fold-background-work" onClick={() => selectChat(backgroundChats[0].id)} disabled={navigationBusy}><span className="spinner" aria-hidden="true" /><span>{backgroundChats.length === 1 ? backgroundChats[0].title : `${backgroundChats.length} chats`} · Working</span><ChevronRight aria-hidden="true" /></button> : null}
 
       <div className="popover-chat" hidden={historyOpen}>
-      <h1 className="fold-chat-title" title={chatTitle}>{chatTitle}</h1>
-
       <section className="fold-section fold-section-conversation">
         <section
           className="popover-transcript"
           id="popover-conversation"
           ref={transcriptRef}
-          aria-label="Your fold" aria-live="polite"
+          aria-label="work-fold agent chat" aria-live="polite"
           tabIndex={-1}
           onScroll={(event) => {
             const target = event.currentTarget;
@@ -822,7 +825,7 @@ export function PopoverApp() {
                   {elapsedLabel ? <span className="working-elapsed">{elapsedLabel}</span> : null}
                 </p>
               ) : !workState.work ? (
-                <p className="working-line" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" /><span className="working-copy">Working in {request.children.filter((child) => child.state === "running").length === 1 ? "a Space" : "Spaces"}…</span></p>
+                <p className="working-line" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" /><span className="working-copy">Working in {request.children.filter((child) => child.state === "running").length === 1 ? "a folder" : "folders"}…</span></p>
               ) : null}
             </div>
           ) : null}
@@ -866,8 +869,7 @@ export function PopoverApp() {
                 className="composer-model"
                 type="button"
                 onClick={() => { void bridge?.management?.openAssistantSettings(); }}
-                aria-label={`Change the model used by The fold. Current model: ${managementModelLabel}`}
-                title="Change the model used by The fold"
+                aria-label={`Change the model used by the work-fold agent. Current model: ${managementModelLabel}`}
               >
                 <span>{managementModelLabel}</span>
               </button>
@@ -877,23 +879,22 @@ export function PopoverApp() {
                   value={composerThinking.thinkingLevel}
                   disabled={requestRunning}
                   onChange={(event) => { void changeThinkingLevel(event.target.value); }}
-                  aria-label={`Reasoning level for this fold chat: ${composerThinking.thinkingLevel}`}
-                  title={requestRunning ? "Reasoning can change between turns" : "Reasoning level for this fold chat"}
+                  aria-label={`Reasoning level for this work-fold agent chat: ${composerThinking.thinkingLevel}`}
                 >
                   {thinkingLevels.map((level) => <option key={level} value={level}>{formatThinkingLevel(level)}</option>)}
                 </select>
               ) : null}
+              <button
+                className={`composer-action${requestRunning ? " composer-stop" : " primary"}`}
+                type="button"
+                onClick={() => { if (requestRunning) void stop(); else void send(); }}
+                disabled={requestRunning ? stopping : sending || loadingChat || available === false || !text.trim()}
+                aria-label={requestRunning ? (stopping ? "Stopping" : "Stop") : (sending ? "Sending" : "Send message")}
+              >
+                {requestRunning ? <Square aria-hidden="true" /> : <ArrowUp aria-hidden="true" />}
+              </button>
             </div>
           </div>
-          <button
-            className={`composer-action${requestRunning ? " composer-stop" : " primary"}`}
-            onClick={() => { if (requestRunning) void stop(); else void send(); }}
-            disabled={requestRunning ? stopping : sending || loadingChat || available === false || !text.trim()}
-          >
-            {requestRunning
-              ? stopping ? "Stopping…" : "Stop"
-              : sending ? "Sending…" : staged.length ? "Fold it in" : "Send"}
-          </button>
         </div>
       </section>
       </div>
@@ -952,7 +953,7 @@ function DispositionTrail({ request }: { request: ManagementRequestView }) {
             {disposition.status === "placed"
               ? <>Copied {disposition.attachment.name} to {disposition.spaceName}{disposition.checkpointId ? <span className="muted small"> · restore point {shortId(disposition.checkpointId)}</span> : null}</>
               : disposition.status === "registered"
-                ? <>Registered {disposition.attachment.name} as the Space {disposition.spaceName}</>
+                ? <>Registered {disposition.attachment.name} as the folder {disposition.spaceName}</>
                 : disposition.status === "library"
                   ? <>Added {disposition.attachment.name} to your Library</>
                   : <>{disposition.attachment.name}: no recorded placement — see the reply below</>}
@@ -971,8 +972,8 @@ function DispositionTrail({ request }: { request: ManagementRequestView }) {
               {action.command === "chat.send"
                 ? <>Work in {action.spaceName}: {childStateLabel(state)}</>
                 : action.command === "spaces.create"
-                  ? <>Created the Space {action.spaceName}</>
-                  : <>Registered the Space {action.spaceName}</>}
+                  ? <>Created the folder {action.spaceName}</>
+                  : <>Registered the folder {action.spaceName}</>}
               {child?.error ? <span className="muted small"> · {child.error}</span> : null}
             </span>
           </li>

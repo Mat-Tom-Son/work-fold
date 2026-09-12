@@ -69,7 +69,7 @@ await bridge.assistant.cancel(request.requestId);
 
 The request envelope has exactly those four fields. JSON input is at most
 64 KiB; a larger input is refused with a message naming the limit and the
-Settings → The fold → Limits section. New requests must carry a canonical UTC
+Settings → General → Limits section. New requests must carry a canonical UTC
 timestamp within 15 minutes (at most one minute ahead for clock skew). A
 replayed envelope returns the same record; changing its input conflicts. The
 app cannot choose another Space or read arbitrary task or Chat ids. Shared
@@ -243,7 +243,7 @@ Bounds: instructions 16 KiB, input 256 KiB, schema 32 KiB, output 64 KiB by
 default and `maxOutputBytes` up to 256 KiB, four calls running and twelve
 waiting per installation, eight running machine-wide, and a 120-second budget
 covering time spent waiting for a slot. `limits.get().inference` publishes them
-and Settings → The fold → Limits shows them. Check runs still serialize their
+and Settings → General → Limits shows them. Check runs still serialize their
 model requests machine-wide; inference deliberately does not share that queue.
 
 Every refusal names what it hit: `INFER_INVALID`, `INFER_INPUT_TOO_LARGE`,

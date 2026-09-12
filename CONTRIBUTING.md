@@ -27,7 +27,7 @@ npm run local:dev
 
 Open **http://localhost:5173** for the browser development UI. The local API
 runs on port 4327. This is a live development host, so use test folders.
-Connect a model in **Settings → Assistant** when you want to try a real turn;
+Connect a model in **Settings → Agents** when you want to try a real turn;
 installing dependencies and running the automated checks need no provider key.
 
 For the native app, run `npm run desktop:smoke` instead. See
@@ -58,9 +58,9 @@ your change; `AGENTS.md` identifies the required ones.
 |---|---|
 | Files, Chats, navigation, or UI | `web-local/src/`, [Desktop interaction](docs/ui-parity.md) |
 | Filesystem, Assistant, or domain services | `src/local/`, [Architecture](docs/architecture.md) |
-| The fold, CLI, or shared task state | [Kernel](src/local/work-fold-kernel.ts), [CLI](src/local/cli/), [Management layer](docs/management-layer.md) |
-| Checks or cross-Space work | [Checks](docs/checks.md), [Routings](docs/fold-routings.md) |
-| Assistant-built Space apps | [App foundation](docs/app-platform-foundation.md), [Authoring](docs/restricted-app-authoring.md), [Runtime](docs/restricted-app-runtime.md) |
+| The work-fold agent, CLI, or shared task state | [Kernel](src/local/work-fold-kernel.ts), [CLI](src/local/cli/), [Management layer](docs/management-layer.md) |
+| Checks or cross-Folder work | [Checks](docs/checks.md), [Automations](docs/fold-routings.md) |
+| Worker-built Folder apps | [App foundation](docs/app-platform-foundation.md), [Authoring](docs/restricted-app-authoring.md), [Runtime](docs/restricted-app-runtime.md) |
 | Native desktop behavior | `desktop/src/`, [macOS builds](docs/macos-build.md) |
 | Landing page or web client | `services/bridge/public/`, [Bridge guide](services/bridge/README.md) |
 

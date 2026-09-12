@@ -153,7 +153,7 @@ export function SpaceSurfaceTabBar({
 
   function renderSurfaceTab(tab: SpaceSurfaceTab, grouped: boolean) {
     const tabSpace = spaces.find((item) => item.id === tab.spaceId);
-    const spaceName = tabSpace?.name ?? "Space";
+    const spaceName = tabSpace?.name ?? "Folder";
     const resolvedSpace = tabSpace ?? fallbackSpaceSummary(tab.spaceId, spaceName);
     const identity = spaceIdentityFor(resolvedSpace, spaceCustomizations);
     const Icon = identity.Icon;
@@ -227,7 +227,7 @@ export function SpaceSurfaceTabBar({
         {tabGroups.map((group) => {
           if (!group.spaceId) return group.tabs.map((tab) => renderSurfaceTab(tab, false));
           const tabSpace = spaces.find((item) => item.id === group.spaceId)
-            ?? fallbackSpaceSummary(group.spaceId, "Space");
+            ?? fallbackSpaceSummary(group.spaceId, "Folder");
           const identity = spaceIdentityFor(tabSpace, spaceCustomizations);
           return (
             <span className="surface-tab-group" role="presentation" key={group.spaceId}>
@@ -296,7 +296,7 @@ export function SpaceSurfaceTabBar({
                     title={`New Chat in ${item.name}`}
                   >
                     <span className="space-identity-icon"><SpaceIconGlyph icon={Icon} size={14} /></span>
-                    <span className="surface-tab-space-menu-copy"><strong>{item.name}</strong>{current ? <small>Current Space</small> : null}</span>
+                    <span className="surface-tab-space-menu-copy"><strong>{item.name}</strong>{current ? <small>Current folder</small> : null}</span>
                   </button>
                 );
               })}
@@ -312,7 +312,7 @@ export function SpaceSurfaceTabBar({
               >
                 <span className="surface-tab-menu-check" aria-hidden="true">{groupBySpace ? <Checkmark16Regular /> : null}</span>
                 <span className="surface-tab-space-menu-copy">
-                  <strong>Group by Space</strong>
+                  <strong>Group by folder</strong>
                 </span>
               </button>
             </div>

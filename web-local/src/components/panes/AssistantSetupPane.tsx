@@ -96,11 +96,11 @@ export function AssistantSetupPane(props: AssistantSetupProps) {
         <legend>Model defaults for</legend>
         {space ? <label className={scope === "space" ? "active" : ""}>
           <input type="radio" name="assistant-model-scope" value="space" checked={scope === "space"} onChange={() => changeScope("space")} />
-          <span>This Space<small>{space.name}</small></span>
+          <span>This worker<small>{space.name}</small></span>
         </label> : null}
         <label className={scope === "management" ? "active" : ""}>
           <input type="radio" name="assistant-model-scope" value="management" checked={scope === "management"} onChange={() => changeScope("management")} />
-          <span>The fold<small>Menu bar and web</small></span>
+          <span>work-fold agent<small>Menu bar and web</small></span>
         </label>
       </fieldset>
       <AssistantScopeSettings
@@ -175,7 +175,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
         ],
         catalogs: [{ provider: "openrouter", refreshable: true, source: "live" as const, refreshedAt: new Date().toISOString(), modelCount: 1 }],
         status: { ...status, configured: true, provider: "openrouter", model: "deepseek/deepseek-v4.1-flash" },
-        instructions: scope === "space" ? "Keep answers concise and test changes in this Space." : null,
+        instructions: scope === "space" ? "Keep answers concise and test changes in this folder." : null,
       } : await api<{ models: AgentModel[]; status: AgentStatus; catalogs: AgentModelCatalog[]; instructions: string | null }>(`/api/agent/models?${assistantScopeParams(scope, space)}`, { signal: controller.signal });
       if (controller.signal.aborted) return;
       applyLoadedSettings(result, true);
@@ -198,7 +198,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
   const subscriptionNote = oauthSupported ? providerSubscriptionNote(provider) : null;
   const catalog = catalogs.find((item) => item.provider === provider);
   const providerName = providerDisplayName(models, provider);
-  const scopeLabel = scope === "management" ? "The fold" : space?.name ?? "This Space";
+  const scopeLabel = scope === "management" ? "work-fold agent" : space?.name ?? "This worker";
   const modelChanged = !scopeStatus.configured || provider !== scopeStatus.provider || model !== scopeStatus.model;
   const instructionsChanged = instructions.trim() !== savedInstructions;
   const operationBusy = mutationBusy || refreshing;
@@ -428,9 +428,9 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
       {subscriptionNote ? <p className="assistant-provider-note">{subscriptionNote}</p> : null}
     </section>
     {scope === "space" ? <section className="assistant-settings-section" aria-labelledby="assistant-instructions-heading">
-      <div className="assistant-section-heading"><h3 id="assistant-instructions-heading">Space instructions</h3></div>
+      <div className="assistant-section-heading"><h3 id="assistant-instructions-heading">Worker instructions</h3></div>
       <form onSubmit={(event) => void saveInstructions(event)}>
-        <label className="professional-field assistant-instructions-field"><span className="sr-only">Space instructions</span><textarea value={instructions} maxLength={8000} rows={5} onChange={(event) => { setInstructions(event.target.value); editDraft((draft) => ({ ...draft, instructions: event.target.value.trim() === savedInstructions ? undefined : event.target.value })); setInstructionsFeedback(null); }}  /></label>
+        <label className="professional-field assistant-instructions-field"><span className="sr-only">Worker instructions</span><textarea value={instructions} maxLength={8000} rows={5} onChange={(event) => { setInstructions(event.target.value); editDraft((draft) => ({ ...draft, instructions: event.target.value.trim() === savedInstructions ? undefined : event.target.value })); setInstructionsFeedback(null); }}  /></label>
         <div className="assistant-form-actions"><button className="professional-button professional-button-secondary" type="submit" disabled={mutationBusy || !instructionsChanged}>{savingInstructions ? "Saving…" : "Save instructions"}</button><AssistantOperationStatus feedback={instructionsFeedback?.error || !instructionsChanged ? instructionsFeedback : null} hint={instructionsChanged ? "Unsaved changes" : undefined} /></div>
       </form>
     </section> : null}

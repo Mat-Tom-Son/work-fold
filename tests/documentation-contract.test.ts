@@ -40,7 +40,7 @@ test("README local links and screenshots resolve without duplicating the docs", 
   assert.doesNotMatch(readme, /output\/playwright\/work-fold-/);
 });
 
-test("canonical product docs keep Library and Assistant tools in Space-owned tabs", async () => {
+test("canonical product docs keep Library and Agent tools in Folder-owned tabs", async () => {
   const files = [
     "AGENTS.md",
     "docs/product-model.md",
@@ -51,11 +51,11 @@ test("canonical product docs keep Library and Assistant tools in Space-owned tab
   const contents = await Promise.all(files.map((file) => readFile(join(root, file), "utf8")));
   for (const content of contents) {
     assert.match(content, /Files[\s\S]*Chats[\s\S]*History/);
-    assert.match(content, /Library[\s\S]*Space-owned[\s\S]*tab/i);
+    assert.match(content, /Library[\s\S]*(?:Space|Folder)-owned[\s\S]*tab/i);
     assert.doesNotMatch(content, /primary (?:rail )?(?:navigation|surfaces?)[^\n.]{0,80}Files[^\n.]{0,20}Chats[^\n.]{0,20}Library[^\n.]{0,20}History/i);
   }
   const assistantCapabilities = await readFile(join(root, "docs/assistant-capabilities.md"), "utf8");
-  assert.match(assistantCapabilities, /one persistent Library tab per Space/i);
+  assert.match(assistantCapabilities, /one persistent Library tab per (?:Space|Folder)/i);
   assert.match(assistantCapabilities, /same passive personal collection/i);
 });
 

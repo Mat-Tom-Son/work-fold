@@ -27,7 +27,7 @@ import type { WorkFoldDurableTurnRecord } from "../src/local/agent/turn-store.js
  * refusal here has to name its number and the Settings section that shows it.
  */
 
-const limitsSection = "Settings → The fold → Limits";
+const limitsSection = "Settings → General → Limits";
 
 function clockFrom(start: string) {
   let current = Date.parse(start);

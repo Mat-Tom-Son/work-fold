@@ -161,6 +161,7 @@ export function FoldRoutingsPane() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [drafting, setDrafting] = useState(false);
   const [pending, setPending] = useState<string[]>([]);
   const [runWatches, setRunWatches] = useState<Record<string, { startedAt: number; runId?: string }>>({});
   const selectedIdRef = useRef<string | null>(null);
@@ -309,6 +310,26 @@ export function FoldRoutingsPane() {
     }
   }
 
+  async function openAutomationDraft(existing?: FoldRoutingDetailView): Promise<void> {
+    const openDraft = window.workFoldDesktop?.agent?.openFoldDraft;
+    if (!openDraft || drafting) {
+      setActionError("Open the work-fold agent in the desktop app to draft an automation.");
+      return;
+    }
+    setDrafting(true);
+    setActionError(null);
+    try {
+      const draft = existing
+        ? `Review the automation “${existing.title}” (id: ${existing.routingId}). Its current trigger is: ${triggerSummary(existing.trigger)}. Preserve it until I give a clear instruction to change it.`
+        : "Help me set up an automation. Ask what should happen, when, and which folders to use.";
+      await openDraft(draft);
+    } catch (caught) {
+      setActionError(errorText(caught));
+    } finally {
+      setDrafting(false);
+    }
+  }
+
   const status = data?.status;
   const routings = data?.routings ?? [];
   const storeUnavailable = Boolean(status?.storeDamaged);
@@ -317,13 +338,18 @@ export function FoldRoutingsPane() {
   return (
     <section className="settings-section fold-routings" aria-labelledby="fold-routings-title">
       <div className="settings-section-heading">
-        <h3 id="fold-routings-title">Routings</h3>
-        {data ? <span>{routings.length}</span> : null}
+        <h3 id="fold-routings-title">Automations</h3>
+        <span className="settings-section-heading-actions">
+          {data ? <span>{routings.length}</span> : null}
+          <button className="secondary-button" type="button" onClick={() => void openAutomationDraft()} disabled={drafting}>
+            {drafting ? "Opening…" : "New automation"}
+          </button>
+        </span>
       </div>
       {loadError ? <span className="settings-inline-error" role="alert">{loadError}</span> : null}
       {status?.storeDamaged ? (
         <span className="settings-inline-error" role="alert">
-          {status.storeDamageReason ?? "The routing records could not be read."} Nothing will run until they are recovered.
+          {status.storeDamageReason ?? "The automation records could not be read."} Nothing will run until they are recovered.
         </span>
       ) : null}
       {status?.journalDamaged ? (
@@ -334,11 +360,11 @@ export function FoldRoutingsPane() {
       {notice ? <span className="settings-save-status" role="status">{notice}</span> : null}
       {actionError ? <span className="settings-inline-error" role="alert">{actionError}</span> : null}
       {data && !routings.length ? (
-        <div className="fold-routings-empty">No routings yet. Ask the fold to set one up.</div>
+        <div className="fold-routings-empty">No automations yet.</div>
       ) : null}
       {routings.length ? (
         <div className="fold-routings-workbench">
-          <div className="fold-routing-list" role="listbox" aria-label="Routings">
+          <div className="fold-routing-list" role="listbox" aria-label="Automations">
             {routings.map((routing) => (
               <button
                 className={routing.routingId === selectedId ? "fold-routing-list-row selected" : "fold-routing-list-row"}
@@ -381,11 +407,14 @@ export function FoldRoutingsPane() {
                     <h4>{detail.title}</h4>
                     <span>{triggerSummary(detail.trigger)}</span>
                   </div>
-                  <RoutingHealth
-                    health={selectedSummary.health}
-                    running={Boolean(selectedSummary.activeRun)}
-                    starting={Boolean(runWatches[selectedSummary.routingId]) && !selectedSummary.activeRun}
-                  />
+                  <div className="fold-routing-inspector-actions">
+                    <RoutingHealth
+                      health={selectedSummary.health}
+                      running={Boolean(selectedSummary.activeRun)}
+                      starting={Boolean(runWatches[selectedSummary.routingId]) && !selectedSummary.activeRun}
+                    />
+                    <button className="secondary-button" type="button" onClick={() => void openAutomationDraft(detail)} disabled={drafting}>Edit with agent</button>
+                  </div>
                 </header>
 
                 {detail.health === "suspended" ? (
@@ -502,7 +531,7 @@ function RoutingActions({ routing, pending, storeUnavailable, wideningUnavailabl
             disabled={storeUnavailable || anyPending}
             onClick={() => onRun(`disable:${routing.routingId}`, async () => {
               await routingBridge().disable(routing.routingId);
-              return "Routing turned off";
+              return "Automation turned off";
             })}
           >
             {pending.includes(`disable:${routing.routingId}`) ? "Turning off…" : "Turn off"}
@@ -515,7 +544,7 @@ function RoutingActions({ routing, pending, storeUnavailable, wideningUnavailabl
             disabled={wideningUnavailable || anyPending}
             onClick={() => onRun(`enable:${routing.routingId}`, async () => {
               const result = await routingBridge().enable(routing.routingId);
-              return result.alreadyEnabled ? "Routing is already on" : "Routing turned on";
+              return result.alreadyEnabled ? "Automation is already on" : "Automation turned on";
             })}
           >
             {pending.includes(`enable:${routing.routingId}`) ? "Turning on…" : "Turn on"}
@@ -531,7 +560,7 @@ function RoutingActions({ routing, pending, storeUnavailable, wideningUnavailabl
               onRun(`delete:${routing.routingId}`, async () => {
                 await routingBridge().delete(routing.routingId);
                 onDeleted();
-                return "Routing deleted";
+                return "Automation deleted";
               });
             }}
           >
@@ -573,7 +602,7 @@ function RoutingResiduals({ steps }: { steps: FoldRoutingStepView[] }) {
   if (!handoffs.length && !hasChat) return null;
   return (
     <div className="fold-routing-residuals">
-      <h6>While this routing is on</h6>
+      <h6>While this automation is on</h6>
       <ul>
         {handoffs.map((handoff) => (
           <li key={`residual-${handoff.id}`}>
@@ -583,8 +612,8 @@ function RoutingResiduals({ steps }: { steps: FoldRoutingStepView[] }) {
         ))}
         {hasChat ? (
           <li key="residual-authority">
-            Each chat step&apos;s turn runs with whatever Assistant authority its Space holds at that moment, not the
-            authority it held when this routing was turned on.
+            Each worker turn uses the permissions its folder has at that moment, not the
+            permissions it had when this automation was turned on.
           </li>
         ) : null}
       </ul>
@@ -596,7 +625,7 @@ function RoutingStep({ step }: { step: FoldRoutingStepView }) {
   if (step.kind === "chat") {
     return (
       <li>
-        <div className="fold-routing-step-heading"><strong>Chat</strong><span>{spaceLabel(step.space)}</span></div>
+        <div className="fold-routing-step-heading"><strong>Worker</strong><span>{spaceLabel(step.space)}</span></div>
         <blockquote>{step.message}</blockquote>
       </li>
     );
@@ -612,7 +641,7 @@ function RoutingStep({ step }: { step: FoldRoutingStepView }) {
   if (step.kind === "fold") {
     return (
       <li>
-        <div className="fold-routing-step-heading"><strong>Message the fold</strong><span>Starts a new thread</span></div>
+        <div className="fold-routing-step-heading"><strong>Message work-fold agent</strong><span>Starts a new chat</span></div>
         <blockquote>{step.message}</blockquote>
       </li>
     );
@@ -680,8 +709,8 @@ function lastRunSummary(routing: FoldRoutingSummaryView): string {
 }
 
 function missingSpacesMessage(spaces: FoldRoutingSpaceRef[] | undefined): string {
-  if (!spaces?.length) return "A referenced Space is no longer available. Review the routing before turning it on again.";
-  return `${spaces.map(spaceLabel).join(", ")} ${spaces.length === 1 ? "is" : "are"} no longer available. Review the routing before turning it on again.`;
+  if (!spaces?.length) return "A referenced folder is no longer available. Review the automation before turning it on again.";
+  return `${spaces.map(spaceLabel).join(", ")} ${spaces.length === 1 ? "is" : "are"} no longer available. Review the automation before turning it on again.`;
 }
 
 function spaceLabel(space: FoldRoutingSpaceRef): string {
@@ -703,7 +732,7 @@ function outcomeLabel(outcome: FoldRoutingOutcome): string {
 function hopLabel(kind: FoldRoutingHistoryHopView["kind"]): string {
   if (kind === "chat") return "Chat";
   if (kind === "files") return "Copy files";
-  return kind === "fold" ? "Message the fold" : "Run Checks";
+  return kind === "fold" ? "Message work-fold agent" : "Run Checks";
 }
 
 function formatMinutes(minutes: number): string {

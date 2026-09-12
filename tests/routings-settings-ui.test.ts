@@ -20,17 +20,17 @@ const [settingsSource, paneSource, mainPreload, popoverPreload, desktopMain] = a
   readFile(new URL("../desktop/src/main.ts", import.meta.url), "utf8"),
 ]);
 
-test("The fold Settings includes Routings without introducing a builder", () => {
+test("General Settings includes Automations without introducing a builder", () => {
   assert.match(settingsSource, /type FoldSettingsSection = "access" \| "pages" \| "routings" \| "deleted" \| "limits";/);
-  assert.match(settingsSource, /"routings",\s*"Routings"/);
+  assert.match(settingsSource, /"routings",\s*"Automations"/);
   assert.match(settingsSource, /foldSection === "routings" \? <FoldRoutingsPane \/>/);
   assert.doesNotMatch(paneSource, /builder|cron|RRULE/i);
   // The two residuals `routings show` prints are mirrored here, so both
   // surfaces tell a person the same thing (docs/fold-routings.md).
-  assert.match(paneSource, /While this routing is on/);
+  assert.match(paneSource, /While this automation is on/);
   assert.match(paneSource, /Standing channel: whatever step \{handoff\.from\}/);
-  assert.match(paneSource, /Assistant authority its Space holds at that moment/);
-  assert.match(paneSource, /No routings yet\. Ask the fold to set one up\./);
+  assert.match(paneSource, /worker turn uses the permissions its folder has at that moment/);
+  assert.match(paneSource, /No automations yet\./);
   // receipts-not-gates: nothing in this pane asks for permission or names an
   // authority mode; turning a routing on is one receipted click.
   assert.doesNotMatch(paneSource, /staged|approve|policy|Reviewed|Unrestricted|\bcard\b|\bmode\b/i);
@@ -78,8 +78,8 @@ test("Routing actions are gated by enabled, disabled, suspended, and completed h
     for (const label of expectation.hidden) assert.ok(!labels.includes(label), `${expectation.health} hides ${label}`);
     assert.ok(
       [...dom.container.querySelectorAll(".fold-routing-step-heading strong")]
-        .some((heading) => heading.textContent?.trim() === "Message the fold"),
-      "a fold step reads as a message to the fold, not a Space",
+        .some((heading) => heading.textContent?.trim() === "Message work-fold agent"),
+      "a management step reads as a message to the work-fold agent",
     );
 
     await dom.cleanup();
@@ -129,6 +129,26 @@ test("Run a copy now invokes the preload bridge, never a network request", async
   assert.equal(calls.run, 1);
   await dom.waitFor(() => /Run requested/.test(dom.container.textContent ?? ""));
   assert.match(dom.container.textContent ?? "", /Run requested/);
+});
+
+test("New automation opens an unsent work-fold agent draft without running or enabling anything", async (t) => {
+  const dom = await createDomHarness();
+  t.after(() => dom.cleanup());
+  const calls = installRoutingBridge("disabled");
+  const drafts: string[] = [];
+  Object.assign(window.workFoldDesktop!, {
+    agent: { openFoldDraft: async (draft: string) => { drafts.push(draft); return true; } },
+  });
+  await dom.render(createElement(FoldRoutingsPane));
+  await dom.waitFor(() => [...dom.container.querySelectorAll<HTMLButtonElement>("button")]
+    .some((button) => button.textContent?.trim() === "New automation"));
+  const newAutomation = [...dom.container.querySelectorAll<HTMLButtonElement>("button")]
+    .find((button) => button.textContent?.trim() === "New automation");
+  assert.ok(newAutomation);
+  await dom.act(async () => { newAutomation.click(); });
+  await dom.waitFor(() => drafts.length === 1);
+  assert.equal(drafts[0], "Help me set up an automation. Ask what should happen, when, and which folders to use.");
+  assert.equal(calls.run, 0);
 });
 
 test("an admitted queued run stays visible until its exact history entry settles", async (t) => {

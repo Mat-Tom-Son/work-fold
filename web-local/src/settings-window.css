@@ -83,9 +83,6 @@
   scrollbar-gutter: stable;
 }
 
-.app-shell .settings-window .settings-page-heading { display: grid; gap: 6px; }
-.app-shell .settings-window .settings-page-heading h2 { margin: 0; color: var(--ui-text); font-family: inherit; font-size: 22px; font-weight: 650; letter-spacing: -0.035em; }
-.app-shell .settings-window .settings-page-heading p { margin: 0; color: var(--ui-text-muted); font-size: 13px; line-height: 1.55; }
 .app-shell .settings-window .settings-tab-panel { gap: 20px; }
 .app-shell .settings-window .settings-tab-panel[hidden] { display: none; }
 
@@ -153,7 +150,6 @@
   .app-shell .settings-window .settings-tabs { flex: 0 0 auto; flex-direction: row; flex-wrap: nowrap; gap: 4px; padding: 10px 14px; border-right: 0; border-bottom: 1px solid var(--ui-border); overflow-x: auto; overflow-y: hidden; scroll-padding-inline: 14px; }
   .app-shell .settings-window .settings-tab { flex: 0 0 auto; min-height: 34px; padding: 7px 10px; gap: 7px; white-space: nowrap; }
   .app-shell .settings-window .settings-content { padding: 22px 18px 28px; gap: 22px; }
-  .app-shell .settings-window .settings-page-heading h2 { font-size: 20px; }
   .app-shell .settings-window .settings-title { min-height: 52px; padding: 10px 14px 10px 18px; }
   .app-shell .settings-window .font-choice-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
   .app-shell .settings-window .update-settings-section { grid-template-columns: 1fr; justify-items: start; }

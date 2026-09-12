@@ -204,10 +204,10 @@ export function ChecksPane({
 
   async function askFold(check?: ChecksOverview["checks"][number]) {
     const draft = check
-      ? `Help me change ${JSON.stringify(check.title)} in Space ${JSON.stringify(space.name)} (${spaceId}). Keep the current Check unchanged while we review a new proposal. Check reference: ${check.id}.`
-      : `Help me set up a Check in Space ${JSON.stringify(space.name)} (${spaceId}).`;
+      ? `Help me change ${JSON.stringify(check.title)} in folder ${JSON.stringify(space.name)} (${spaceId}). Keep the current Check unchanged while we review a new proposal. Check reference: ${check.id}.`
+      : `Help me set up a Check in folder ${JSON.stringify(space.name)} (${spaceId}).`;
     try {
-      if (!window.workFoldDesktop?.agent?.openFoldDraft) throw new Error("Open the fold in the desktop app and ask it to set up a Check for this Space.");
+      if (!window.workFoldDesktop?.agent?.openFoldDraft) throw new Error("Open the work-fold agent in the desktop app and ask it to set up a Check for this folder.");
       await window.workFoldDesktop.agent.openFoldDraft(draft);
     } catch (caught) { setError(errorText(caught)); }
   }
@@ -363,7 +363,7 @@ export function ChecksPane({
           <h1>Checks</h1>
         </div>
         <div className="checks-header-actions">
-          <button type="button" className="professional-button professional-button-secondary" disabled={running} onClick={() => void askFold()}>Tell the fold what to check</button>
+          <button type="button" className="professional-button professional-button-secondary" disabled={running} onClick={() => void askFold()}>Tell the work-fold agent what to check</button>
           <button type="button" className="checks-manual-button" disabled={running} onClick={() => setConfiguring(!configuring)}>Set up manually</button>
           {status?.lastRunAt ? <span className="checks-last-run">Last run {formatTimeAgo(status.lastRunAt)}</span> : null}
           {runSubmitting ? (
@@ -526,7 +526,7 @@ function ChecksStatusLine({ status }: { status: ChecksOverview["status"] }) {
   } else {
     copy = status.configured
       ? "Checks are configured and run only when requested."
-      : "No Checks are configured for this Space.";
+      : "No Checks are configured for this folder.";
   }
   return <div className={`checks-status-line ${status.state}`}><span aria-hidden="true" /><p>{copy}</p></div>;
 }

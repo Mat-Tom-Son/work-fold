@@ -1165,8 +1165,8 @@ function registerIpc(): void {
   ipcMain.handle("work-fold:space:choose-folder", async (event) => {
     assertTrustedRenderer(event);
     const result = mainWindow
-      ? await dialog.showOpenDialog(mainWindow, { title: "Choose a folder to turn into a Space", properties: ["openDirectory", "createDirectory"] })
-      : await dialog.showOpenDialog({ title: "Choose a folder to turn into a Space", properties: ["openDirectory", "createDirectory"] });
+      ? await dialog.showOpenDialog(mainWindow, { title: "Choose a folder", properties: ["openDirectory", "createDirectory"] })
+      : await dialog.showOpenDialog({ title: "Choose a folder", properties: ["openDirectory", "createDirectory"] });
     const spaceRoot = result.filePaths[0];
     if (result.canceled || !spaceRoot) return null;
     return { path: spaceRoot, folderGrantId: createFolderGrant(spaceRoot) };
@@ -1492,8 +1492,8 @@ function buildApplicationMenuTemplate(): MenuItemConstructorOptions[] {
 function buildApplicationSubmenuTemplate(menuId: ApplicationMenuId): MenuItemConstructorOptions[] {
   if (menuId === "file") {
     const items: MenuItemConstructorOptions[] = [
-      { label: "New Space", accelerator: "CommandOrControl+N", click: () => sendRendererMenuCommand("new-space") },
-      { label: "Turn Folder into a Space...", accelerator: "CommandOrControl+O", click: () => sendRendererMenuCommand("open-local-folder") },
+      { label: "New Folder", accelerator: "CommandOrControl+N", click: () => sendRendererMenuCommand("new-space") },
+      { label: "Add Existing Folder...", accelerator: "CommandOrControl+O", click: () => sendRendererMenuCommand("open-local-folder") },
       ...(process.platform === "darwin" ? [{
         label: "Open Recent",
         role: "recentDocuments" as const,
@@ -1501,7 +1501,7 @@ function buildApplicationSubmenuTemplate(menuId: ApplicationMenuId): MenuItemCon
       }] : []),
       { type: "separator" },
       { id: "new-chat", label: "New Chat", accelerator: "CommandOrControl+Shift+N", enabled: rendererMenuState.spaceOpen, click: () => sendRendererMenuCommand("new-chat") },
-      { id: "refresh-space", label: "Refresh Space", accelerator: "CommandOrControl+R", enabled: rendererMenuState.spaceOpen, click: () => sendRendererMenuCommand("reload-space-state") },
+      { id: "refresh-space", label: "Refresh Folder", accelerator: "CommandOrControl+R", enabled: rendererMenuState.spaceOpen, click: () => sendRendererMenuCommand("reload-space-state") },
     ];
     if (process.platform !== "darwin") {
       items.push(
@@ -2101,7 +2101,7 @@ function createTrayIfSupported(): void {
   }
   tray = new Tray(icon);
   const menu = Menu.buildFromTemplate([
-    { label: "Your fold", click: () => { void toggleManagementPopover(); } },
+    { label: "work-fold agent", click: () => { void toggleManagementPopover(); } },
     { label: `Open ${productName}`, click: showWindow },
     { type: "separator" },
     { label: "Check for Updates...", click: () => sendRendererMenuCommand("check-for-updates") },
@@ -2127,7 +2127,7 @@ function createTrayIfSupported(): void {
   }
   updateTrayTooltip();
   // Warm the hidden popover renderer off the startup critical path so the
-  // first "Your fold" summon paints the ready surface immediately.
+  // first work-fold agent summon paints the ready surface immediately.
   setTimeout(() => {
     void ensureManagementPopover().then((popover) => popover.warm()).catch(() => {});
   }, 2_500);

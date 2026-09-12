@@ -1557,7 +1557,7 @@ export function ChatPanel({
     setAppProposalBusy(true);
     try {
       const app = await installRestrictedAppProposal(space.id, proposal.conversationId, proposal.id);
-      showToast({ text: `Added ${app.manifest.title} to this Space.`, tone: "success" });
+      showToast({ text: `Added ${app.manifest.title} to this folder.`, tone: "success" });
     } catch (caught) {
       setError(errorText(caught));
     } finally {
@@ -1785,7 +1785,7 @@ export function ChatPanel({
           ) : null}
           <textarea
             ref={composerTextareaRef}
-            aria-label="Message Assistant"
+            aria-label="Message worker"
             rows={2}
             value={draft}
             onChange={(event) => {
@@ -1846,7 +1846,7 @@ export function ChatPanel({
                 void sendMessage();
               }
             }}
-            placeholder={running && !pendingSendRef.current ? "Steer (Enter) · Queue (⌘Enter)" : "Message Assistant"}
+            placeholder={running && !pendingSendRef.current ? "Steer (Enter) · Queue (⌘Enter)" : "Message worker"}
           />
           <div className="composer-capability-bar">
             <button
@@ -1924,7 +1924,7 @@ function RestrictedAppAddedNotice({ proposal, busy, onOpen, onRetry, onDismiss }
     <aside className="capability-code-warning restricted-app-added-notice" role="status">
       <CircleCheck size={20} aria-hidden="true" />
       <div>
-        <strong>Added {title} to this Space.</strong>
+        <strong>Added {title} to this folder.</strong>
         {still.length ? <p>Still needs you: {still.join(" · ")}.</p> : <p>Every declared destination, folder, notification, and automation is on. Turn any of them off in Apps.</p>}
         <div className="restricted-app-task-actions">
           {onOpen ? <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={onOpen}>Open app</button> : null}
@@ -2106,7 +2106,7 @@ function ContextAttachmentPopover({ attachment, onClose }: { attachment: Context
           <dd>{formatBytes(attachment.sourceSizeBytes)}</dd>
         </div>
         <div>
-          <dt>Chat space</dt>
+          <dt>Chat context</dt>
           <dd>{chatSpaceLabel}</dd>
         </div>
       </dl>

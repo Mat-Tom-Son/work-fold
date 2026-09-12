@@ -171,10 +171,10 @@ function isLegacyPreferencesFile(value: unknown): value is LegacyAssistantModelP
 export function normalizeAssistantInstructions(value: string): string {
   const normalized = value.replace(/\r\n?/g, "\n").trim();
   if (normalized.length > maximumAssistantInstructionsLength) {
-    throw new Error(`Space instructions must be ${maximumAssistantInstructionsLength.toLocaleString()} characters or fewer.`);
+    throw new Error(`Worker instructions must be ${maximumAssistantInstructionsLength.toLocaleString()} characters or fewer.`);
   }
   if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(normalized)) {
-    throw new Error("Space instructions contain unsupported control characters.");
+    throw new Error("Worker instructions contain unsupported control characters.");
   }
   return normalized;
 }

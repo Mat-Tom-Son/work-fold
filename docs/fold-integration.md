@@ -36,7 +36,7 @@ them by accident. Held item V-2 is moot.
 
 The amendment blocks were verified against their anchors at application; the
 phrase "the fold's Settings section" no longer appeared in any block —
-reconciliation 11 below had already resolved it to **Settings → The fold**
+reconciliation 11 below had already resolved it to **Settings → General**
 in the drafted text.
 
 ## Held items and their gates
@@ -105,7 +105,7 @@ later change cannot revive them by accident.
 10. **The glance's source inventory is closed.** Any further source must
     amend [the glance](fold-glance.md)'s inventory table first; nothing
     feeds the digest by side effect.
-11. **The fold's Settings surface has one name: Settings → The fold**
+11. **The fold's Settings surface has one name: Settings → General**
     (owner decision, 2026-08-10, F15 in [the fold](fold.md)). *Amended
     2026-09-10:* it hosts Recently deleted, routing management, and
     publication controls, with "Your fold on the web" as its web-access

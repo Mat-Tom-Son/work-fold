@@ -94,7 +94,7 @@ test("opening an app task Chat closes its retained Apps dialog and restores shel
   // 32 KB before the 256 KB envelope ceiling is ever consulted. Both numbers
   // are named, in the spelling the Limits pane uses, so the person can find
   // the row the sentence sends them to (docs/receipts-not-gates.md, 6).
-  assert.match(summary, /Trimmed to the 32 KB summary limit in Settings → The fold → Limits\./);
+  assert.match(summary, /Trimmed to the 32 KB summary limit in Settings → General → Limits\./);
   assert.match(summary, /Details over the 256 KB result limit are left out there too\./);
   assert.doesNotMatch(summary, /KiB/, "the note spells its numbers the way the Limits rows do");
   assert.equal(

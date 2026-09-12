@@ -169,7 +169,7 @@ test("the act facade drives Space, conversation, and file-addition lifecycles wi
       (error: unknown) => error instanceof WorkFoldCliError && error.code === "failure",
     );
     const failedTail = await facade.conversationResult({ space: createdSpace.space.id, conversationId: conversation.conversation.id });
-    assert.match(failedTail.lastAssistant ?? "", /Settings → Assistant/);
+    assert.match(failedTail.lastAssistant ?? "", /Settings → Agents/);
     assert.equal(failedTail.messages.at(-1)?.interrupted, true);
     assert.doesNotMatch(JSON.stringify(failedTail), /No API key|node_modules|providers\.md/);
     await assert.rejects(

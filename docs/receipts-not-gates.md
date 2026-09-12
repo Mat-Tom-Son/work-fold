@@ -75,7 +75,7 @@ Narrowed earlier decisions:
 
 ### The fold's authority surfaces
 
-- Settings → The fold loses the Authority selector and the Standing policies
+- Settings → General loses the Authority selector and the Standing policies
   section. It gains Recently deleted (trash) and a Limits section for the
   defaults named in this record.
 - The Needs-you surfaces (main window, popover, web client) render questions
@@ -202,7 +202,7 @@ wave:
 - **Questions need no schema.** A free-text answer that continues the
   waiting task is the common case; a schema is an optional upgrade.
 - **Budgets are settings.** Deadline, depth, child count, and provider
-  budget are generous defaults in Settings → The fold → Limits. Hitting one
+  budget are generous defaults in Settings → General → Limits. Hitting one
   stops the request visibly and names the setting.
 - **Waiting is a host state.** `chat wait` and the fold's own turn never
   block on a child that is waiting for input; the child's task waits, the

@@ -39,7 +39,7 @@
  *   turn or by retention.
  * - Every write is bounded before it is appended; no caller text reaches a
  *   journal unbounded, and each bound refuses by name
- *   ("Settings → The fold → Limits").
+ *   ("Settings → General → Limits").
  * - Result payloads never enter the request journal. The journal carries the
  *   result id, its outcome, its receipt id, and how many files it named.
  * - A damaged middle line is skipped and counted, never thrown on: a request

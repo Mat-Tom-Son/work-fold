@@ -13,7 +13,7 @@ import { WorkFoldLockup, WorkFoldMark } from "../brand/WorkFoldBrand";
 export function OnboardingFlow({ onCreateSpace, onOpenFolder }: { onCreateSpace: () => void; onOpenFolder: () => void }) {
   return <main className="onboarding-flow">
     <section className="onboarding-choose" aria-labelledby="onboarding-title">
-      <div className="onboarding-menubar-scene" role="img" aria-label="The work-fold menu-bar icon opens your fold — a small place to drop files, folders, or links and tell work-fold what to do.">
+      <div className="onboarding-menubar-scene" role="img" aria-label="The work-fold menu-bar icon opens the work-fold agent — a small place to drop files, folders, or links and tell it what to do.">
         <div className="onboarding-menubar-strip">
           <div className="onboarding-menubar-menus" aria-hidden="true">
             <strong>work-fold</strong><span>File</span><span>Edit</span><span>View</span><span>Window</span><span>Help</span>
@@ -43,8 +43,8 @@ export function OnboardingFlow({ onCreateSpace, onOpenFolder }: { onCreateSpace:
       <div className="onboarding-identity">
         <WorkFoldLockup className="onboarding-brand" animated />
         <div className="onboarding-copy">
-          <h1 id="onboarding-title">Your fold lives in the menu bar.</h1>
-          <p>Click the fold—or drop something on it—from anywhere on your Mac.</p>
+          <h1 id="onboarding-title">The work-fold agent lives in the menu bar.</h1>
+          <p>Click it—or drop something on it—from anywhere on your Mac.</p>
         </div>
       </div>
 

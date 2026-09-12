@@ -93,14 +93,14 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.doesNotMatch(applicationSource, /Chat with Space|id="scope-name"|id="management-home"/);
   assert.match(applicationSource, /id="account-settings"[\s\S]*?id="account-menu"[\s\S]*?>Sign out</);
   // The shell: one sidebar (the desktop column and the phone drawer) holding
-  // New chat, the saved-chat list, and Spaces; then the screens —
+  // New chat, the saved-chat list, and a folder picker; then the screens —
   // New chat (heading plus composer), Chat (one transcript plus composer),
-  // and Spaces (Files and Apps, with an inline preview).
-  assert.match(applicationSource, /<aside id="drawer" class="sidebar"[\s\S]*?id="new-chat"[\s\S]*?class="sidebar-chats"[\s\S]*?data-nav-context="spaces"/);
+  // and the internal folder view (Files and Apps, with an inline preview).
+  assert.match(applicationSource, /<aside id="drawer" class="sidebar"[\s\S]*?id="new-chat"[\s\S]*?class="sidebar-chats"[\s\S]*?id="folder-picker-button"[\s\S]*?id="folder-picker"/);
   assert.match(applicationSource, /id="context-new"[\s\S]*?>What are we working on\?<[\s\S]*?id="new-composer-slot"/);
   assert.match(applicationSource, /id="context-chat"[\s\S]*?id="messages"[\s\S]*?id="chat-composer-slot"/);
   assert.doesNotMatch(applicationSource, /id="context-needs"|id="fold-home"/);
-  assert.match(applicationSource, /id="context-spaces"[\s\S]*?id="space-title" tabindex="-1">Spaces<[\s\S]*?id="workspace-pane"[\s\S]*?id="file-tree"/);
+  assert.match(applicationSource, /id="context-spaces"[\s\S]*?id="space-title" tabindex="-1">Folder<[\s\S]*?id="workspace-pane"[\s\S]*?id="file-tree"/);
   // The phone opens the same sidebar as a drawer from the top bar; there is
   // no bottom tab bar and no second icon rail.
   assert.match(applicationSource, /class="top-bar"[\s\S]*?id="menu-button"[\s\S]*?aria-controls="drawer"/);
@@ -165,8 +165,8 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.equal(manifest.status, 200);
   assert.match(manifest.headers.get("content-type"), /^application\/manifest\+json/);
   const manifestBody = await manifest.json();
-  assert.equal(manifestBody.name, "Your fold");
-  assert.equal(manifestBody.short_name, "Your fold");
+  assert.equal(manifestBody.name, "work-fold agent");
+  assert.equal(manifestBody.short_name, "work-fold");
   assert.equal(manifestBody.display, "standalone");
   assert.equal(manifestBody.start_url, "/");
   assert.deepEqual(

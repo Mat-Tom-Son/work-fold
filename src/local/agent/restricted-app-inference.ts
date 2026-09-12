@@ -64,7 +64,7 @@ export interface RestrictedAppInferenceParsedRequest {
   maxOutputBytes: number;
 }
 
-const limitsSection = "Settings → The fold → Limits";
+const limitsSection = "Settings → General → Limits";
 const maxJournalBytes = 1024 * 1024;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const surfaces: RestrictedAppInferenceSurface[] = ["view", "worker"];
@@ -578,7 +578,7 @@ function toInferenceError(error: unknown): RestrictedAppInferenceError {
   // Never let provider or transport text reach an app.
   return new RestrictedAppInferenceError(
     "INFER_FAILED",
-    "The model call did not complete. Check the Space's provider connection in Settings → Assistant, then try again.",
+    "The model call did not complete. Check the Space's provider connection in Settings → Agents, then try again.",
   );
 }
 

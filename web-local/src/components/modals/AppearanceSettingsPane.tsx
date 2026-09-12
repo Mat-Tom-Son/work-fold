@@ -50,10 +50,9 @@ export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace }: 
   return <div className="appearance-settings">
     <div className="appearance-settings-status-row">
       <p role="status">{appearance.error ?? appearance.notice ?? ""}</p>
-      <div className="appearance-settings-actions"><button type="button" disabled={!appearance.canUndo} onClick={store.undo}>Undo</button><button type="button" onClick={store.reset}>Reset</button></div>
     </div>
     <section className="appearance-settings-section" aria-labelledby="appearance-presets-title">
-      <h3 id="appearance-presets-title">Presets</h3>
+      <div className="appearance-settings-section-heading"><h3 id="appearance-presets-title">Presets</h3><div className="appearance-settings-actions"><button type="button" disabled={!appearance.canUndo} onClick={store.undo}>Undo</button><button type="button" onClick={store.reset}>Reset</button></div></div>
       <div className="appearance-settings-presets">
         {builtInAppearancePresets.map(({ name, ...patch }) => {
           const grounds = applicationPalettes[patch.palette][appearance.theme];
@@ -107,7 +106,7 @@ export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace }: 
       {appearance.presets.map((preset) => <div className="appearance-settings-saved" key={preset.name}><span>{preset.name}</span><div className="appearance-settings-actions"><button type="button" aria-label={`Apply ${preset.name}`} onClick={() => store.applyPreset(preset.preferences)}>Apply</button><button type="button" aria-label={`Export ${preset.name}`} onClick={() => runPreset(() => exportPreset(preset))}>Export</button><button type="button" aria-label={`Remove ${preset.name}`} onClick={() => runPreset(() => store.removePreset(preset.name))}>Remove</button></div></div>)}
       {presetError || appearance.presetsError ? <p className="appearance-settings-error" role="alert">{presetError ?? appearance.presetsError}</p> : null}
     </section>
-    {space && onCustomizeSpace ? <section className="appearance-settings-space"><div><h3>{space.name}</h3></div><button type="button" onClick={() => onCustomizeSpace(space.id)}>Customize this Space</button></section> : null}
+    {space && onCustomizeSpace ? <section className="appearance-settings-space"><div><h3>{space.name}</h3></div><button type="button" onClick={() => onCustomizeSpace(space.id)}>Customize this folder</button></section> : null}
   </div>;
 }
 

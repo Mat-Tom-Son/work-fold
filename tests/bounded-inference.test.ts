@@ -138,7 +138,7 @@ test("text inference marks a length stop as truncated and cuts oversize text on 
 
 test("provider failures and interruptions map to closed codes without provider text", async () => {
   const failed = fakeSession({ stopReason: "error", errorMessage: "PRIVATE PROVIDER DIAGNOSTICS", content: [{ type: "text", text: "partial" }] });
-  const failure = await rejectsWith(runBoundedInference(failed.session, request()), "INFER_FAILED", /provider connection in Settings → Assistant/);
+  const failure = await rejectsWith(runBoundedInference(failed.session, request()), "INFER_FAILED", /provider connection in Settings → Agents/);
   assert.ok(!failure.message.includes("PRIVATE"));
   const aborted = fakeSession({ stopReason: "aborted", content: [] });
   await rejectsWith(runBoundedInference(aborted.session, request()), "INFER_INTERRUPTED", /interrupted/);
@@ -155,7 +155,7 @@ test("provider failures and interruptions map to closed codes without provider t
 
 test("missing model and context overflow are refused before any provider call", async () => {
   const noModel = fakeSession({ content: [{ type: "text", text: "never" }] }, { model: null });
-  await rejectsWith(runBoundedInference(noModel.session, request()), "INFER_MODEL_UNAVAILABLE", /Connect a model for this Space in Settings → Assistant/);
+  await rejectsWith(runBoundedInference(noModel.session, request()), "INFER_MODEL_UNAVAILABLE", /Connect a model for this Folder in Settings → Agents/);
   assert.equal(noModel.calls.length, 0);
   const small = fakeSession({ content: [{ type: "text", text: "never" }] }, { model: { ...model, contextWindow: 1_000 } });
   await rejectsWith(runBoundedInference(small.session, request({ input: "x".repeat(4_000) })), "INFER_INPUT_TOO_LARGE", /context allowance of 1000 tokens/);

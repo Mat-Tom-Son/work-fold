@@ -49,10 +49,10 @@ test("Files is the first primary surface and Space actions live in the persisten
   assert.doesNotMatch(spaceChromeSource, /space-rail-space-selector|space-rail-space-copy/);
   assert.match(spaceChromeSource, /primaryItems\.map/);
   assert.match(spaceChromeSource, /<span>Use existing folder<\/span>/);
-  assert.match(spaceChromeSource, /<span>Create new Space<\/span>/);
-  assert.match(spaceChromeSource, /<span>Manage Spaces<\/span>/);
+  assert.match(spaceChromeSource, /<span>Create new folder<\/span>/);
+  assert.match(spaceChromeSource, /<span>Manage folders<\/span>/);
   assert.match(spaceChromeSource, /aria-current=\{activeMode === item\.mode \? "page" : undefined\}/, "the active icon-only destination must be announced");
-  assert.match(spaceChromeSource, /data-rail-tooltip=\{item\.title\}/, "icon-only destinations need visible hover and focus labels");
+  assert.match(spaceChromeSource, /aria-label=\{item\.ariaLabel\}/, "icon-only destinations need accessible names");
   assert.doesNotMatch(spaceChromeSource, /<span>Space<\/span>|space-rail-space-caret/);
   assert.doesNotMatch(primaryItems, /ChevronRight20Regular/);
 });
@@ -120,18 +120,18 @@ test("Skills, Extensions, and apps open as an on-demand Assistant tools work tab
   assert.doesNotMatch(spaceChromeSource, /Browse Skills &amp; Extensions|Manage Assistant tools|Build an app/);
   assert.equal((addMenu.match(/role="menuitem"/g) ?? []).length, 3);
   assert.match(appSource, /onOpenApps=\{\(\) => tabs\.openSpaceAppsSurfaceTab\(space\)\}/);
-  // Build with Assistant seeds a fresh Chat with starter text, caret at the end.
+  // Build with worker seeds a fresh Chat with starter text, caret at the end.
   assert.match(appSource, /function startAppBuildChat/);
   assert.match(appSource, /onBuildApp=\{\(\) => startAppBuildChat\(targetSpace\)\}/);
   assert.match(chatPanelSource, /textarea\.setSelectionRange\(end, end\)/);
   assert.match(surfaceTabsSource, /title: "Skills & Extensions"/);
   assert.match(capabilitiesSource, /<h1>Skills &amp; Extensions<\/h1>/);
   // Where a tool lives is one explicit decision in the review step, shown as
-  // the fold-above-Spaces hierarchy rather than a bare Personal/This Space toggle.
+  // the work-fold agent above folders hierarchy rather than a bare Personal/This folder toggle.
   assert.match(capabilitiesSource, /Where should it live\?/);
   assert.match(capabilitiesSource, /function ScopeHierarchyGlyph/);
-  assert.match(capabilitiesSource, /"Your fold"[\s\S]*"Here"/);
-  assert.match(capabilitiesSource, /"Everywhere"[\s\S]*This Space only/);
+  assert.match(capabilitiesSource, /"work-fold agent"[\s\S]*"Here"/);
+  assert.match(capabilitiesSource, /"Everywhere"[\s\S]*This folder only/);
   assert.doesNotMatch(capabilitiesSource, /Personal · everywhere|"Personal"/);
   // Catalog rows get a network-free identity tile and name where links go.
   assert.match(capabilitiesSource, /function CapabilityMonogram/);
@@ -144,7 +144,7 @@ test("Skills, Extensions, and apps open as an on-demand Assistant tools work tab
   assert.match(capabilitiesSource, /Installed[\s\S]*Discover/);
   assert.match(capabilitiesSource, /Search installed tools/);
   assert.match(capabilitiesSource, /Skills[\s\S]*Extensions/);
-  assert.match(capabilitiesSource, /Everywhere[\s\S]*This Space/);
+  assert.match(capabilitiesSource, /Everywhere[\s\S]*This folder/);
   assert.match(capabilitiesSource, /capabilities\/details\?id=/);
   assert.match(capabilitiesSource, /capabilities\/install/);
   assert.match(capabilitiesSource, /capabilities-view-tabs[\s\S]*?view === "installed" \? \([\s\S]*?capabilities-installed-panel/);
@@ -205,7 +205,7 @@ test("Skills, Extensions, and apps open as an on-demand Assistant tools work tab
 });
 
 test("Assistant configuration lives in Settings instead of the rail", () => {
-  assert.match(desktopSettingsSource, /id:\s*"assistant"[\s\S]*?label:\s*"Assistant"/);
+  assert.match(desktopSettingsSource, /id:\s*"assistant"[\s\S]*?label:\s*"Agents"/);
   assert.match(desktopSettingsSource, /<AssistantSetupPane[\s\S]*?embedded/);
   assert.match(appSource, /openSettings\("assistant", scope, true\)/);
   assert.match(appSource, /onOpenSettings\("assistant", "space", true\)/);
@@ -339,9 +339,7 @@ test("professional shell keeps compact navigation and the persistent Space ident
   assert.match(compactNavRule, /flex:\s*1\s+1\s+auto/);
   assert.match(compactNavRule, /overflow-x:\s*auto/, "narrow primary destinations must scroll instead of colliding with tools");
   assert.match(compactAccountRule, /flex:\s*0\s+0\s+auto/, "Shortcuts and Settings must remain reachable while destinations scroll");
-  const tooltipRule = cssRuleBody(shellCss, ".app-shell .professional-space-rail [data-rail-tooltip]::after");
-  assert.match(tooltipRule, /content:\s*attr\(data-rail-tooltip\)/);
-  assert.match(shellCss, /\[data-rail-tooltip\]:focus-visible::after/, "tooltips must work for sighted keyboard users");
+  assert.doesNotMatch(shellCss, /data-rail-tooltip/, "icon controls use accessible names without persistent hover labels");
   assert.match(spacesPaneRule, /scrollbar-gutter:\s*auto/, "the Spaces pane must not reserve a dead right-side gutter");
   assert.match(shellCss, /\.professional-space-rail \.space-rail-button svg,[\s\S]*?\{[\s\S]*?width:\s*24px;[\s\S]*?height:\s*24px;/);
 });
@@ -355,9 +353,9 @@ test("Space customization is visible, compact, and separate from structural chro
   assert.match(spaceChromeSource, /data-space-icon=\{itemIdentity\.iconName\}/);
   assert.match(spaceChromeSource, /space-appearance-preview/);
   assert.match(spaceChromeSource, /spaceLookOptions\.map/);
-  assert.match(spaceChromeSource, /aria-label="Curated Space looks"/);
+  assert.match(spaceChromeSource, /aria-label="Curated folder looks"/);
   assert.match(spaceChromeSource, /function SpaceNameEditor/);
-  assert.match(spaceChromeSource, /<span>Space name<\/span>/);
+  assert.match(spaceChromeSource, /<span>Folder name<\/span>/);
   assert.match(spaceChromeSource, /finally\s*\{\s*setSaving\(false\);\s*\}/);
   assert.doesNotMatch(spaceChromeSource, /Fine tune|Saved on this computer|Start with a balanced color pair|Shown in the Space menu and tabs/);
   assert.match(spaceChromeSource, /const spaceIconPageSize = 96/);
@@ -430,7 +428,7 @@ test("Space customization is visible, compact, and separate from structural chro
 test("Manage Spaces is a compact launcher into customization", () => {
   assert.doesNotMatch(spacePanesSource, /Where does this work live\?|Use an existing folder or create a clean one|professional-space-intro/);
   assert.doesNotMatch(spacePanesSource, /Turn it into a Space|Start with a clean folder|professional-space-action-copy/);
-  assert.match(spacePanesSource, /className="professional-space-actions" aria-label="Add a Space"/);
+  assert.match(spacePanesSource, /className="professional-space-actions" aria-label="Add a folder"/);
   const actionRule = cssRuleBody(surfacesCss, ".professional-space-actions");
   assert.match(actionRule, /grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
   assert.doesNotMatch(surfacesCss.slice(surfacesCss.indexOf("@container space-pane (max-width: 520px)")), /\.professional-space-actions,[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/);
@@ -459,7 +457,7 @@ test("the left header is inherited Space identity on every mode, not a surface t
   assert.match(spaceChromeSource, /<span className="sr-only">\{detail\}<\/span>/);
   assert.match(spaceChromeSource, /className="space-pane-switch-trigger"/);
   assert.match(spaceChromeSource, /aria-haspopup="menu"/);
-  assert.match(spaceChromeSource, /role="menu" aria-label="Space menu"/);
+  assert.match(spaceChromeSource, /role="menu" aria-label="Folder menu"/);
   assert.match(spaceChromeSource, /role="menuitem"/);
   assert.match(spaceChromeSource, /data-native-view-occluder="true"/);
   assert.match(spaceChromeSource, /aria-current=\{active \? "page" : undefined\}/);

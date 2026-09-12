@@ -69,7 +69,7 @@ export const workFoldRoutingAutomationOwnerId = "work-fold.routing";
 /**
  * Machine-wide concurrent routing runs by default; FIFO beyond it. A generous
  * default, not a cap. The number lives in the shared limits contract so
- * Settings → The fold → Limits shows exactly what this executor enforces.
+ * Settings → General → Limits shows exactly what this executor enforces.
  */
 export { workFoldRoutingMaxConcurrentRuns };
 

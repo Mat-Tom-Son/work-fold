@@ -295,7 +295,7 @@ default (a generous bound, not a cap), and never overlaps the same named job.
 That four is this document's number to own: it lives as
 `workFoldAutomationDefaultConcurrency` in `src/shared/fold-limits.ts`, is read
 by `src/local/agent/work-fold-automation-service.ts`, and is shown read-only
-in Settings → The fold → Limits. Scheduled, manual, skipped, cancelled, and
+in Settings → General → Limits. Scheduled, manual, skipped, cancelled, and
 failed attempts produce durable run receipts. The cadence anchor is persisted
 separately from one-off manual runs, so **Run now** does not shift the next
 scheduled occurrence. A manual run is allowed while its schedule is disabled,

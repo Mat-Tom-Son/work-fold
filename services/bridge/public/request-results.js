@@ -7,7 +7,7 @@ export function requestResultLinks(request) {
     if (typeof item?.spaceId === "string" && Array.isArray(item.copied)) {
       for (const path of item.copied.slice(0, 12)) {
         if (!safePath(path)) continue;
-        add(`file:${item.spaceId}:${path}`, { kind: "file", spaceId: item.spaceId, path, label: path.split("/").at(-1), spaceName: item.spaceName || "Space" });
+        add(`file:${item.spaceId}:${path}`, { kind: "file", spaceId: item.spaceId, path, label: path.split("/").at(-1), spaceName: item.spaceName || "Folder" });
       }
     }
     let hasAppResult = false;
@@ -24,7 +24,7 @@ export function requestResultLinks(request) {
   for (const child of (Array.isArray(request.children) ? request.children : []).slice(0, 200)) {
     if (typeof child?.spaceId !== "string" || !["succeeded", "failed", "aborted"].includes(child.state) || !Array.isArray(child.files)) continue;
     for (const path of child.files.slice(0, 12)) if (safePath(path)) add(`file:${child.spaceId}:${path}`,
-      { kind: "file", spaceId: child.spaceId, path, label: path.split("/").at(-1), spaceName: child.spaceName || "Space" });
+      { kind: "file", spaceId: child.spaceId, path, label: path.split("/").at(-1), spaceName: child.spaceName || "Folder" });
   }
   return [...links.values()];
 }

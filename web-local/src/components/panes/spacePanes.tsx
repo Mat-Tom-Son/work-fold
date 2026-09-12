@@ -66,21 +66,21 @@ export function SpacesPane({
   const spaceIdentityFor = useSpaceIdentityResolver();
   return (
     <div className="space-pane-content spaces-pane professional-surface professional-spaces">
-      <div className="professional-space-actions" aria-label="Add a Space">
+      <div className="professional-space-actions" aria-label="Add a folder">
         <button className="professional-space-action" type="button" onClick={onOpenFolder}>
           <span className="professional-space-action-icon" aria-hidden="true"><FolderOpen20Regular /></span>
           <strong>Existing folder</strong>
         </button>
         <button className="professional-space-action" type="button" onClick={onCreate}>
           <span className="professional-space-action-icon" aria-hidden="true"><FolderAdd20Regular /></span>
-          <strong>New Space</strong>
+          <strong>New folder</strong>
         </button>
       </div>
 
       <section className="space-pane-section professional-section-card">
         <div className="professional-section-heading">
-          <span>Your Spaces</span>
-          <strong>{formatItemCount(spaces.length, "Space")}</strong>
+          <span>Your folders</span>
+          <strong>{formatItemCount(spaces.length, "folder")}</strong>
         </div>
         <div className="space-switcher">
           {spaces.map((item) => {
@@ -95,14 +95,14 @@ export function SpacesPane({
                     type="button"
                     onClick={() => onCustomize(item)}
                     aria-label={`Customize ${item.name}`}
-                    title="Customize Space"
+                    title="Customize folder"
                   >
                     <span className="space-tab-icon space-identity-icon"><SpaceIconGlyph icon={identity.Icon} size={16} /></span>
                     <span className="space-tab-copy">
                       <strong>{item.name}</strong>
                       <span>{item.location.providerHint === "google-drive" ? "Google Drive" : item.location.storage === "linked" ? "Linked folder" : "Managed folder"}</span>
                     </span>
-                    {active ? <span className="active-dot" aria-label="Active Space"><Checkmark12Regular /></span> : null}
+                    {active ? <span className="active-dot" aria-label="Active folder"><Checkmark12Regular /></span> : null}
                   </button>
                   <span className="space-card-actions">
                     {onRemove ? (
@@ -111,7 +111,7 @@ export function SpacesPane({
                         type="button"
                         onClick={() => onRemove(item)}
                         aria-label={`${deletesFolder ? "Delete" : "Remove"} ${item.name}`}
-                        title={deletesFolder ? "Delete Space" : "Remove Space"}
+                        title={deletesFolder ? "Delete folder" : "Remove folder"}
                       >
                         <Delete16Regular />
                       </button>
@@ -324,9 +324,9 @@ export function ChatsPane({
           {renderChatList(space, currentList, true)}
         </section>
         {otherSpaceGroups.length ? (
-          <section className="chat-other-spaces" aria-label="Chats in other Spaces">
+          <section className="chat-other-spaces" aria-label="Chats in other folders">
             <div className="chat-other-spaces-heading">
-              <span>Other Spaces</span>
+              <span>Other folders</span>
               <small>{otherSpaceGroups.length}</small>
             </div>
             {otherSpaceGroups.map(({ item, list, status }) => {

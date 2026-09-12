@@ -1,5 +1,9 @@
 # work-fold remote bridge
 
+The remote client presents the management agent as the **work-fold agent**
+and registered Spaces as **Folders**. This service guide keeps the existing
+technical `management`, `space`, and `fold` protocol names.
+
 This service hosts the private-alpha web surface at
 `<name>.work-fold.com`. It is a relay to a person's running work-fold desktop,
 not a cloud copy of their Spaces or management conversation.

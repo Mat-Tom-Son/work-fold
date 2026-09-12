@@ -53,7 +53,7 @@ write a complete, sha256-sealed `work-fold.app-data` export into the
 machine-local Recently deleted store before any live data is removed
 ([Receipts, not gates](receipts-not-gates.md), F20). Clearing storage that
 holds nothing writes no copy: there is nothing to bring back. Each copy is
-machine-local, is kept for the retention window in Settings → The fold →
+machine-local, is kept for the retention window in Settings → General →
 Recently deleted (30 days by default), and records the Space, the app, its
 exact revision, the installation, the Data Namespace, and the receipt id of
 the act that produced it.

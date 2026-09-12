@@ -8,7 +8,7 @@ import { WorkFoldCliActReceipts } from "../src/local/cli/act-receipts.js";
 import { startLocalApi, type LocalApiHandle } from "../src/local/server.js";
 
 /**
- * Settings → The fold → Pages your fold serves over the running local API
+ * Settings → General → Pages your fold serves over the running local API
  * (docs/fold-publishing.md, plan item 5): the renderer-session routes list
  * grant records with budgets, tallies, and health notes; the reveal route
  * composes the secret link fragment transiently; and the narrowing verbs —

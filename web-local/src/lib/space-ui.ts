@@ -36,7 +36,7 @@ export function removeSpaceConfirmText(
   const folderOutcome = space.location.storage === "linked"
     ? `Remove ${space.name} from work-fold? The original folder and everything inside it will stay on your computer.`
     : `Delete ${space.name} from this computer? Its managed folder — every file and folder inside it, and its Chats and History — `
-      + "moves to Recently deleted in Settings → The fold, where you can put it back until its time runs out.";
+      + "moves to Recently deleted in Settings → General, where you can put it back until its time runs out.";
   if (!appStudio) return folderOutcome;
   const consequences: string[] = [];
   if (appStudio.project) {

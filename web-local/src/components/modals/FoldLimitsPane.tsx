@@ -15,7 +15,7 @@ import { api, errorText } from "../../lib/api";
 import { foldLimitsSettings } from "../../ui-contract";
 
 /**
- * Settings → The fold → Limits (docs/receipts-not-gates.md, F19 principle 6:
+ * Settings → General → Limits (docs/receipts-not-gates.md, F19 principle 6:
  * bounds are visible and named). Every app and routing refusal names this
  * section, so this pane is where those phrases resolve.
  *
@@ -168,12 +168,12 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
       <LimitRows
         rows={[
           ["How long one request stays open", hours(requests.deadlineMs)],
-          ["Space turns one request may start", String(requests.maxChildRequestsPerRoot)],
+          ["Worker turns one request may start", String(requests.maxChildRequestsPerRoot)],
           ["How far a request may hand work on", `${requests.maxDelegationDepth} levels`],
-          ["Space turns running together", String(requests.maxConcurrentChildrenPerRoot)],
+          ["Worker turns running together", String(requests.maxConcurrentChildrenPerRoot)],
           ["Follow-up turns after work settles", String(requests.maxContinuationsPerRoot)],
           ["Model spending for one request", requests.providerBudgetUsd === null ? "No limit" : `$${formatNumber(requests.providerBudgetUsd)}`],
-          ["A question the Assistant asks", kib(requests.maxQuestionTextBytes)],
+          ["A question an agent asks", kib(requests.maxQuestionTextBytes)],
           ["An answer you give", kib(requests.maxAnswerTextBytes)],
           ["A result summary", kib(requests.maxResultSummaryBytes)],
           ["Result details", kib(requests.maxResultDataBytes)],
@@ -190,9 +190,9 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
       <h4 id="fold-limits-routings-title">{foldLimitsSettings.routingsHeading}</h4>
       <LimitRows
         rows={[
-          ["Steps in one routing", String(routing.maxSteps)],
-          ["Routings on this computer", String(routing.maxRoutingsPerMachine)],
-          ["Routing runs at once", String(workFoldRoutingMaxConcurrentRuns)],
+          ["Steps in one automation", String(routing.maxSteps)],
+          ["Automations on this computer", String(routing.maxRoutingsPerMachine)],
+          ["Automation runs at once", String(workFoldRoutingMaxConcurrentRuns)],
           ["Message a step sends", kib(routing.maxChatMessageBytes)],
           ["Message after filled-in details", kib(routing.maxResolvedMessageBytes)],
           ["One filled-in detail", `${kib(routing.maxPlaceholderTextBytes)}, up to ${routing.maxPlaceholderListItems} items`],

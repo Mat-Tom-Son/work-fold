@@ -3013,7 +3013,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       return `Deleted ${kindLabel} ${terminalText(record.path)} in ${spaceLabel}.\n`
         + `It is in Recently deleted until ${terminalText(recovery.restoreBy)} because History could not keep a copy of `
         + `${uncovered.length} file${uncovered.length === 1 ? "" : "s"}: ${named}${more}.\n`
-        + `Put it back with 'trash restore --entry ${terminalText(recovery.entryId)}', or in Settings → The fold → Recently deleted.\n`;
+        + `Put it back with 'trash restore --entry ${terminalText(recovery.entryId)}', or in Settings → General → Recently deleted.\n`;
     }
     case "files.mkdir":
       return `Created folder ${terminalText(record.path)} in ${spaceLabel}.\n`;
@@ -3338,7 +3338,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
     case "pages.share": {
       const publication = (record.publication ?? {}) as Record<string, unknown>;
       return `Sharing "${terminalText(publication.title)}" (${terminalText(publication.relativePath)}) from ${spaceLabel} at ${terminalText(publication.viewerPath)}. `
-        + "Reveal the link in Settings → The fold.\n";
+        + "Reveal the link in Settings → General.\n";
     }
     case "pages.share-app": {
       const publication = (record.publication ?? {}) as Record<string, unknown>;

@@ -1,5 +1,16 @@
 # Documentation map
 
+## Current product language
+
+Current user-facing documentation uses **Folder** for the ordinary registered
+working folder, **Worker** for its AI assistant, **work-fold agent** for the
+management Worker above all Folders, and **Automation** for the deterministic
+cross-Folder feature formerly presented as Routings. Technical contracts keep
+their established identifiers (`space`, `fold`, `routing`, `work-fold
+routings`, and related paths, schemas, and API fields) until a separately
+designed domain migration. Historical release notes, dated evidence, quoted
+copy, and code examples retain the names they recorded.
+
 For a first checkout, start with [Contributing](../CONTRIBUTING.md) and
 [Development](development.md). Read [the product model](product-model.md) for product scope and
 [AGENTS.md](../AGENTS.md) for contributor rules. This map separates current
@@ -11,8 +22,8 @@ instruction to implement its contents.
 | Area | Read |
 |---|---|
 | Product and contributor workflow | [Product model](product-model.md), [Contributing](../CONTRIBUTING.md), [Development](development.md), [Architecture](architecture.md) |
-| The fold and receipts | [Decision register](fold.md), [Receipts, not gates](receipts-not-gates.md), [Collaboration contract](collaboration-contract.md), [Management and CLI](management-layer.md), [Act ledger](fold-act-ledger.md), [Consecrations (superseded; threat-model residuals)](fold-consecrations.md) |
-| Checks and automation | [Checks](checks.md), [Routings](fold-routings.md), [The glance](fold-glance.md) |
+| The work-fold agent and receipts | [Decision register](fold.md), [Receipts, not gates](receipts-not-gates.md), [Collaboration contract](collaboration-contract.md), [Management and CLI](management-layer.md), [Act ledger](fold-act-ledger.md), [Consecrations (superseded; threat-model residuals)](fold-consecrations.md) |
+| Checks and Automations | [Checks](checks.md), [Automations (technical routing contract)](fold-routings.md), [The glance](fold-glance.md) |
 | Native Assistant capabilities | [Skills, Extensions, packages, and scopes](assistant-capabilities.md), [Pi resources](pi-resources.md), [Declarative Extension surfaces](extension-surfaces.md) |
 | Restricted Space apps | [Authoring](restricted-app-authoring.md), [Runtime](restricted-app-runtime.md), [App platform foundation](app-platform-foundation.md) |
 | Web access and sharing | [Bridge operations](../services/bridge/README.md), [Publishing and viewers](fold-publishing.md), [Privacy](../PRIVACY.md), [Security](../SECURITY.md) |

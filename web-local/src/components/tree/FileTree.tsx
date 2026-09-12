@@ -16,7 +16,7 @@ export function FileTree({
   dropTargetFolderPath,
   checkAttentionPaths = new Set<string>(),
   searchQuery = "",
-  emptyText = "This Space is empty.",
+  emptyText = "This folder is empty.",
   emptyContent,
   level = 1,
   onToggleFolder,
@@ -133,7 +133,7 @@ export function FileTree({
   }
 
   return (
-    <div className="file-tree" role={level === 1 ? "tree" : "group"} aria-label={level === 1 ? "Files in this Space" : undefined}>
+    <div className="file-tree" role={level === 1 ? "tree" : "group"} aria-label={level === 1 ? "Files in this folder" : undefined}>
       {entries.map((entry) => {
         const folderLoading = entry.kind === "folder" && loadingFolderPaths.has(entry.path);
         const folderCollapsed = entry.kind === "folder" && (collapsedPaths.has(entry.path) || (treeEntryNeedsLazyChildren(entry) && !folderLoading));

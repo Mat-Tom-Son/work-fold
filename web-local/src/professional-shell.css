@@ -370,56 +370,6 @@
   background: var(--ui-surface-hover);
 }
 
-@media (min-width: 821px) {
-  .app-shell .professional-space-rail [data-rail-tooltip] {
-    position: relative;
-  }
-
-  .app-shell .professional-space-rail [data-rail-tooltip]::after {
-    content: attr(data-rail-tooltip);
-    position: absolute;
-    z-index: 100;
-    top: 50%;
-    left: calc(100% + 8px);
-    width: max-content;
-    max-width: 260px;
-    display: block;
-    padding: 6px 8px;
-    overflow: hidden;
-    color: var(--ui-tooltip-text);
-    background: var(--ui-tooltip-background);
-    border-radius: var(--ui-radius-sm);
-    box-shadow: var(--ui-shadow-menu);
-    font-size: 12px;
-    font-weight: 600;
-    line-height: 1.25;
-    text-align: left;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    transform: translateY(-50%) translateX(-2px);
-    transition: opacity 80ms ease, transform 80ms ease, visibility 0s linear 80ms;
-  }
-
-  .app-shell .professional-space-rail [data-rail-tooltip]:hover::after,
-  .app-shell .professional-space-rail [data-rail-tooltip]:focus-visible::after {
-    opacity: 1;
-    visibility: visible;
-    transform: translateY(-50%) translateX(0);
-    transition-delay: 320ms, 320ms, 320ms;
-  }
-
-  .app-shell .professional-space-rail [data-rail-tooltip]:focus-visible::after {
-    transition-delay: 40ms, 40ms, 40ms;
-  }
-
-  :root[data-desktop="true"] .app-shell .professional-space-rail [data-rail-tooltip]::after {
-    content: none;
-  }
-}
-
 .app-shell .space-layout .space-pane-header-wrap {
   height: 98px;
   flex: 0 0 98px;

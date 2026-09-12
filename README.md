@@ -5,7 +5,7 @@
   </picture>
 </p>
 
-<p align="center">An AI Assistant for the folders you work in.</p>
+<p align="center">Workers for the folders you work in.</p>
 
 <p align="center">
   <a href="https://www.work-fold.com/download/macos">Download for Mac</a> ·
@@ -20,21 +20,21 @@ work-fold is an open-source Mac app that brings your files, AI conversations, an
 
 For example: open a folder of vendor quotes, ask for a comparison, and have the Assistant write a decision brief beside the originals. Come back tomorrow and pick up the same conversation.
 
-## A folder is a Space
+## Folders and Workers
 
-Each **Space** has its own Assistant and conversations. Your files stay ordinary files, accessible in Finder and your existing tools.
+Each **Folder** has its own **Worker** and conversations. Your files stay ordinary files, accessible in Finder and your existing tools. A Folder is an ordinary folder you choose to work in; it is never converted into a proprietary container.
 
-**The fold** is the Assistant above your Spaces. Ask it what needs attention or have it coordinate work between projects, from the app or Mac menu bar. Hand a piece of work to one project's Assistant and it reports back here; if it needs something first it asks, and your answer picks the work up where it stopped.
+The **work-fold agent** is the Worker above your Folders. Ask it what needs attention or have it coordinate work between projects, from the app or Mac menu bar. Hand a piece of work to one Folder's Worker and it reports back here; if it needs something first it asks, and your answer picks the work up where it stopped.
 
-As a project grows, ask for a custom **app** in its sidebar, add **Checks** to review chosen files, or set up a **routing** to run steps on a schedule or after selected files change. These are optional; start with a folder and a conversation.
+As a project grows, ask for a custom **app** in its sidebar, add **Checks** to review chosen files, or set up an **Automation** to run fixed steps on a schedule or after selected files change. Automations are deterministic app-run steps, not a second kind of Worker or an open-ended agent scheduler. These are optional; start with a Folder and a conversation.
 
 What the Assistant does happens right away and leaves a record you can read in the app. Nothing it deletes is gone for good: **History** keeps versions of your files, and anything History cannot keep waits in **Recently deleted** for 30 days. Sharing a page, an app's access, and anything running on a schedule can all be turned off afterwards.
 
 ## Try it
 
 1. [Download work-fold](https://www.work-fold.com/download/macos) for an Apple silicon Mac.
-2. Connect your model provider in **Settings → Assistant**. Provider usage may cost money.
-3. Open an existing folder or create a Space, then start a Chat.
+2. Connect your model provider in **Settings → Agents**. Provider usage may cost money.
+3. Open an existing folder or create a Folder, then start a Chat.
 
 Files live on your computer. Content used by the Assistant goes to your chosen model provider. Optional web access is in private alpha and needs your Mac online. See [Privacy](PRIVACY.md) for details.
 

@@ -173,14 +173,14 @@ export async function runBoundedInference(
 ): Promise<BoundedInferenceOutcome> {
   const model = session.model;
   if (!model) {
-    throw new BoundedInferenceError("INFER_MODEL_UNAVAILABLE", "Connect a model for this Space in Settings → Assistant before apps can use it.");
+    throw new BoundedInferenceError("INFER_MODEL_UNAVAILABLE", "Connect a model for this Folder in Settings → Agents before apps can use it.");
   }
   const maxTokens = boundedInferenceMaxTokens(model, request.maxOutputBytes);
   const schemaText = request.outputSchema ? JSON.stringify(request.outputSchema) : "";
   if ((request.instructions.length + request.input.length + schemaText.length) / 2 + maxTokens > model.contextWindow) {
     throw new BoundedInferenceError(
       "INFER_INPUT_TOO_LARGE",
-      `This request exceeds the selected model's context allowance of ${model.contextWindow} tokens. Shorten the input or select a larger-context model for this Space.`,
+      `This request exceeds the selected model's context allowance of ${model.contextWindow} tokens. Shorten the input or select a larger-context model for this Folder.`,
     );
   }
   if (request.signal.aborted) throw interrupted();
@@ -263,7 +263,7 @@ function interrupted(): BoundedInferenceError {
 }
 
 function failed(): BoundedInferenceError {
-  return new BoundedInferenceError("INFER_FAILED", "The model call did not complete. Check the Space's provider connection in Settings → Assistant, then try again.");
+  return new BoundedInferenceError("INFER_FAILED", "The model call did not complete. Check the Folder's provider connection in Settings → Agents, then try again.");
 }
 
 function outputTooLarge(maxOutputBytes: number): BoundedInferenceError {

@@ -1,7 +1,7 @@
 {
-  "name": "Your fold",
-  "short_name": "Your fold",
-  "description": "One private address opens the same conversation your menu bar does, while your desktop is online.",
+  "name": "work-fold agent",
+  "short_name": "work-fold",
+  "description": "One private address opens the same work-fold agent conversation as your menu bar while your desktop is online.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

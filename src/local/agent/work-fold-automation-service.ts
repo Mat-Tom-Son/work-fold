@@ -4,7 +4,7 @@ import { workFoldAutomationDefaultConcurrency } from "../../shared/fold-limits.j
 
 export const workFoldAutomationMaxErrorLength = 300;
 
-/** Shared with Settings → The fold → Limits so the shown number is the enforced one. */
+/** Shared with Settings → General → Limits so the shown number is the enforced one. */
 const defaultMaxConcurrency = workFoldAutomationDefaultConcurrency;
 const defaultMaxRunResults = 500;
 const maximumTimerDelayMs = 2_147_483_647;

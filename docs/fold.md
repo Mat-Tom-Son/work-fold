@@ -1,4 +1,9 @@
-# The fold decision register
+# work-fold agent decision register
+
+> **Current presentation language.** The **work-fold agent** is the Worker
+> above all Folders. This decision register retains *the fold* where it names
+> its historical technical contract, routes, storage, CLI, and identifiers.
+> **Automations** is the visible name for the deterministic routing feature.
 
 > Request lifecycle consolidation: the [collaboration contract](collaboration-contract.md#completion-delivery-and-recovery)
 > governs completion across turns. Questions use `chat ask|answer` or `manage
@@ -14,7 +19,7 @@ invalidation while visible, so a CLI act appears without restarting;
 reconnecting re-reads current records, and these hints carry no grant and
 replay no action.
 
-**The fold** is the one user-facing name for work-fold's one management
+The **work-fold agent** is the one user-facing name for work-fold's one management
 surface in three coats: the **management conversation** above all Spaces, its
 **menu-bar/tray popover** ("Your fold"), and the **Remote access web client**
 ("Your fold on the web"). It is the one door to all Spaces: things come in
@@ -47,7 +52,7 @@ contract references retaining the detail canon does not carry:
 
 ## The doctrine in one paragraph
 
-The fold is god-mode with a ledger: every product verb executes on the call
+The work-fold agent has a ledger: every product verb executes on the call
 that asks for it, pinned, journaled before execution, and receipted after.
 There is one authority mode; nothing waits on a card, a standing rule, or a
 second click. Every destruction is reversible — History covers what it can

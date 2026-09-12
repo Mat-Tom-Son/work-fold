@@ -370,8 +370,33 @@ body.drawer-locked { overflow: hidden; }
 .sidebar-chats-item { display: none; }
 .sidebar-chats { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; margin: 0 -4px; padding: 0 4px; }
 .sidebar-foot { flex: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
-.presence-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; padding-left: 10px; }
-.presence { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: 12px; font-weight: 600; }
+.sidebar-footer-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sidebar-footer-actions .folder-picker-shell { flex: 1; min-width: 0; }
+.folder-picker-shell { position: relative; }
+.folder-picker {
+  position: absolute;
+  z-index: 70;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: min(300px, calc(100vw - 32px));
+  max-height: min(360px, 55dvh);
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.folder-picker[hidden] { display: none; }
+/* Component display rules must never override the semantic hidden state. */
+#desktop-presence[hidden] { display: none; }
+.folder-picker-label { margin: 6px 8px 5px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.folder-picker button { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 40px; padding: 8px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.folder-picker button:hover, .folder-picker button:focus-visible { background: var(--paper-deep); outline: none; }
+.folder-picker button[aria-current="true"] { font-weight: 650; }
+.folder-picker .file-glyph { width: 18px; height: 18px; }
+.folder-picker button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.presence { display: flex; align-items: center; gap: 8px; min-height: 32px; margin: 4px 10px 0; color: var(--muted); font-size: 12px; font-weight: 600; }
 .presence-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--muted); }
 .presence[data-online="true"] { color: var(--success); }
 .presence[data-online="true"] .presence-dot { background: var(--success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 14%, transparent); }
@@ -452,8 +477,8 @@ body.drawer-locked { overflow: hidden; }
 /* --- The sidebar's saved-chat list, grouped by the day it last moved ------ */
 
 .chat-list { min-width: 0; margin: 0; padding: 0; list-style: none; }
-.chat-group-heading { display: block; margin: 12px 0 2px; padding: 0 10px; color: var(--muted); font-size: 11px; font-weight: 720; letter-spacing: .09em; text-transform: uppercase; }
-.chat-list > li:first-child .chat-group-heading { margin-top: 4px; }
+.chat-group-heading { display: block; margin: 16px 0 2px; padding: 0 10px; color: var(--muted); font-size: 11px; font-weight: 720; letter-spacing: .09em; text-transform: uppercase; }
+.chat-list > li:first-child .chat-group-heading { margin-top: 16px; }
 .chat-button {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -851,7 +876,11 @@ button.file-main:focus-visible { outline: 2px solid var(--accent); outline-offse
   .app-shell[data-sidebar="collapsed"] .glyph-expand { display: block; }
   /* The groups dissolve so every item is one column of 44px targets. */
   .app-shell[data-sidebar="collapsed"] .sidebar-actions,
-  .app-shell[data-sidebar="collapsed"] .sidebar-foot { display: contents; }
+  .app-shell[data-sidebar="collapsed"] .sidebar-foot,
+  .app-shell[data-sidebar="collapsed"] .sidebar-footer-actions,
+  .app-shell[data-sidebar="collapsed"] .folder-picker-shell { display: contents; }
+  .app-shell[data-sidebar="collapsed"] .folder-picker { display: block; left: 54px; bottom: 8px; }
+  .app-shell[data-sidebar="collapsed"] .folder-picker[hidden] { display: none; }
   .app-shell[data-sidebar="collapsed"] .sidebar-chats-item { display: flex; }
   .app-shell[data-sidebar="collapsed"] .sidebar-item,
   .app-shell[data-sidebar="collapsed"] .rail-new-chat {
@@ -880,7 +909,7 @@ button.file-main:focus-visible { outline: 2px solid var(--accent); outline-offse
   }
   .rail-account .account-settings { width: 36px; height: 36px; }
   .app-shell[data-sidebar="collapsed"] .rail-account .account-settings { width: 44px; height: 44px; }
-  .app-shell[data-sidebar="collapsed"] .presence-row { margin-top: auto; padding: 6px 0 0; flex-direction: column; gap: 4px; justify-content: center; align-items: center; }
+  .app-shell[data-sidebar="collapsed"] .presence { margin: 4px 0 0; }
   .app-shell[data-sidebar="collapsed"] .rail-account .account-menu { left: 46px; right: auto; bottom: 0; }
 
   /* Names ride tooltips only while the rail hides them. */
@@ -906,10 +935,12 @@ button.file-main:focus-visible { outline: 2px solid var(--accent); outline-offse
     transition: opacity 120ms ease;
   }
   .app-shell[data-sidebar="collapsed"] .sidebar [data-tip]:focus-visible::after { opacity: 1; }
+  .app-shell[data-sidebar="collapsed"] .sidebar [data-tip][aria-expanded="true"]::after { opacity: 0; }
 }
 
 @media (min-width: 860px) and (hover: hover) {
   .app-shell[data-sidebar="collapsed"] .sidebar [data-tip]:hover::after { opacity: 1; }
+  .app-shell[data-sidebar="collapsed"] .sidebar [data-tip][aria-expanded="true"]:hover::after { opacity: 0; }
 }
 
 /* --- Behavioral affordances: boot splash, jump-to-latest, pending sends,
@@ -1010,7 +1041,7 @@ body { overscroll-behavior-y: none; }
   .context-chip button { min-width: 30px; min-height: 30px; }
 }
 
-/* Spaces: a directory, then one Space with browsable files and apps. */
+/* Folders: a picker, then one folder with browsable files and apps. */
 .workspace-pane[hidden], .space-files[hidden], .space-apps[hidden], .space-directory[hidden], .file-preview-inline[hidden] { display: none; }
 .space-workspace { height: 100%; min-height: 0; display: flex; flex-direction: column; padding: 24px 32px; gap: 20px; overflow-y: auto; }
 .space-workspace-header { flex: none; }

@@ -65,7 +65,7 @@ test("the management conversation runs above all Spaces on the shared turn machi
     const managementContext = catalog.contextFiles.find((file) => file.path.endsWith("AGENTS.md"))?.content ?? "";
     // The identity line names the fold while keeping "management conversation"
     // as the contract phrase in the same sentence.
-    assert.match(managementContext, /You are the fold — the management conversation for this computer's work-fold app\./);
+    assert.match(managementContext, /You are the work-fold agent — the management conversation for this computer's work-fold app\./);
     assert.match(managementContext, /Checks are optional, manual expectations/);
     assert.match(managementContext, /Never turn an ordinary request.*standing behavior/);
     assert.match(managementContext, /not-configured.*unknown, not clear/);
@@ -108,10 +108,10 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /Apps take no `--snapshot` — an offline desktop is an honestly asleep app/);
     // Publishing top-up (docs/fold-publishing.md): publication problems reach
     // the person as glance change items with the precise reason, and
-    // Settings → The fold holds the person's own direct controls — the share
+    // Settings → General holds the person's own direct controls — the share
     // link never rides the fold's lane.
     assert.match(managementContext, /Page problems surface through the glance/);
-    assert.match(managementContext, /Share links are revealed only in Settings → The fold/);
+    assert.match(managementContext, /Share links are revealed only in Settings → General/);
     assert.match(managementContext, /never enter this lane's output or receipts/);
     assert.match(managementContext, /manage glance --json/);
     // Receipts, not gates (docs/receipts-not-gates.md, F19–F24): every verb
@@ -200,7 +200,7 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /Never busy-wait, sleep, or poll in a loop for one\./);
     assert.match(managementContext, /when its children settle it brings their reports back here once/);
     assert.match(managementContext, /bounded at 4 per request by default/);
-    assert.match(managementContext, /turn them off in Settings → The fold → Limits/);
+    assert.match(managementContext, /turn them off in Settings → General → Limits/);
     assert.match(managementContext, /chat answer --space <id> --question <id> --answer "<text>" --parent-task <this-request-task-id> --json/);
     assert.match(managementContext, /A second answer, an answer to a question that has expired/);
     assert.match(managementContext, /work-fold manage ask --task/);
@@ -294,7 +294,7 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(skillContent, /never work waiting to be let through/);
     assert.match(skillContent, /remote:<grantId>/);
     assert.match(skillContent, /glance change items with the precise reason/);
-    assert.match(skillContent, /revealed only in Settings → The fold/);
+    assert.match(skillContent, /revealed only in Settings → General/);
     assert.match(skillContent, /work-fold help <family>/);
     assert.doesNotMatch(
       skillContent,

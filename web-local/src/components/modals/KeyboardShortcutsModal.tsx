@@ -13,7 +13,7 @@ function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
     {
       title: "Open surfaces",
       rows: [
-        { keys: [modifier, "T"], action: "Open a new Chat tab in the current Space." },
+        { keys: [modifier, "T"], action: "Open a new Chat tab in the current folder." },
         { keys: ["Ctrl", "Tab"], action: "Move to the next surface tab." },
         { keys: ["Ctrl", "Shift", "Tab"], action: "Move to the previous surface tab." },
         { keys: [modifier, "1–9"], action: "Jump to a surface tab by position; 9 is the last tab." },
@@ -47,7 +47,7 @@ function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
       title: "File search",
       rows: [
         { keys: ["Esc"], action: "Clear the file search field when it has text." },
-        { keys: [macOS ? "Option" : "Alt", "Drag"], action: `Drag a file out to ${macOS ? "Finder" : "File Explorer"}. Drag normally to move it inside the Space.` },
+        { keys: [macOS ? "Option" : "Alt", "Drag"], action: `Drag a file out to ${macOS ? "Finder" : "File Explorer"}. Drag normally to move it inside the folder.` },
       ],
     },
     {
@@ -62,10 +62,10 @@ function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
     shortcutGroups.splice(4, 0, {
       title: "Desktop File menu",
       rows: [
-        { keys: [modifier, "N"], action: "Create a new Space." },
-        { keys: [modifier, "O"], action: "Turn an existing folder into a Space." },
-        { keys: [modifier, "Shift", "N"], action: "Start a new Chat in the current Space." },
-        { keys: [modifier, "R"], action: "Refresh the current Space." },
+        { keys: [modifier, "N"], action: "Create a new folder." },
+        { keys: [modifier, "O"], action: "Add an existing folder." },
+        { keys: [modifier, "Shift", "N"], action: "Start a new Chat in the current folder." },
+        { keys: [modifier, "R"], action: "Refresh the current folder." },
         { keys: [modifier, ","], action: "Open Settings." },
         { keys: [modifier, "Shift", "S"], action: "Open Skills & Extensions." },
       ],

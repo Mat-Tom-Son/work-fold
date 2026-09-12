@@ -384,8 +384,8 @@ export function CapabilitiesPane({
     const confirmed = await requestConfirm({
       title: `Remove ${item.name}?`,
       body: item.scope === "project"
-        ? `The Skill folder is deleted from this Space's .pi/skills. The Assistant in ${space.name} stops using it with the next turn.`
-        : "The Skill folder is deleted from your Pi skills. Your fold and every Space stop using it with the next turn.",
+        ? `The Skill folder is deleted from this folder's .pi/skills. The worker in ${space.name} stops using it with the next turn.`
+        : "The Skill folder is deleted from your Pi skills. The work-fold agent and every worker stop using it with the next turn.",
       confirmLabel: "Remove Skill",
       tone: "danger",
     });
@@ -657,8 +657,8 @@ function CapabilityToolbar({
 }
 
 /**
- * One rung of the hierarchy: Personal tools serve the fold and every Space;
- * This Space tools live in its folder and travel with it.
+ * One rung of the hierarchy: Personal tools serve the work-fold agent and every worker;
+ * This folder's tools live in its folder and travel with it.
  */
 function ScopeGroup({ scope, spaceName, items, includedStatuses, hiddenByQuery, onSelect, onAdd }: {
   scope: AgentCapabilityScope;
@@ -676,7 +676,7 @@ function ScopeGroup({ scope, spaceName, items, includedStatuses, hiddenByQuery, 
       <div className="capabilities-scope-heading">
         <ScopeHierarchyGlyph scope={scope} />
         <div>
-          <h3 id={titleId}>{personal ? "Everywhere" : "This Space only"}</h3>
+          <h3 id={titleId}>{personal ? "Everywhere" : "This folder only"}</h3>
           {!personal ? <p>{spaceName}</p> : null}
         </div>
         <span className="capabilities-scope-count">{items.length}</span>
@@ -686,14 +686,14 @@ function ScopeGroup({ scope, spaceName, items, includedStatuses, hiddenByQuery, 
       ) : (
         <div className="capabilities-scope-empty">
           <p>{hiddenByQuery ? "Nothing here matches the search." : "Nothing here yet."}</p>
-          {!hiddenByQuery ? <button className="professional-button professional-button-secondary" type="button" onClick={onAdd}><Add16Regular />{personal ? "Add for everywhere" : "Add to this Space"}</button> : null}
+          {!hiddenByQuery ? <button className="professional-button professional-button-secondary" type="button" onClick={onAdd}><Add16Regular />{personal ? "Add for everywhere" : "Add to this folder"}</button> : null}
         </div>
       )}
     </section>
   );
 }
 
-/** The fold above, Spaces below; filled pills show where a tool is available. */
+/** The work-fold agent above, folders below; filled pills show where a tool is available. */
 function ScopeHierarchyGlyph({ scope, size = "small" }: { scope: AgentCapabilityScope; size?: "small" | "large" }) {
   const personal = scope === "global";
   const width = size === "large" ? 150 : 104;
@@ -711,9 +711,9 @@ function ScopeHierarchyGlyph({ scope, size = "small" }: { scope: AgentCapability
         <path d="M75 22 L75 38" />
         <path d="M75 22 L75 30 L131 30 L131 38" />
       </g>
-      {pill(44, 4, 62, "Your fold", personal, "fold")}
-      {pill(2, 38, 34, "Space", personal, "a")}
-      {pill(58, 38, 34, "Space", personal, "b")}
+      {pill(44, 4, 62, "work-fold agent", personal, "fold")}
+      {pill(2, 38, 34, "Folder", personal, "a")}
+      {pill(58, 38, 34, "Folder", personal, "b")}
       {pill(112, 38, 36, "Here", true, "here")}
     </svg>
   );
@@ -727,8 +727,8 @@ function ScopeChooser({ value, spaceName, disabled, onChange }: {
   onChange: (value: AgentCapabilityScope) => void;
 }) {
   const options: Array<{ scope: AgentCapabilityScope; title: string; detail: string }> = [
-    { scope: "global", title: "Everywhere", detail: "The fold and all Spaces" },
-    { scope: "project", title: "This Space only", detail: spaceName },
+    { scope: "global", title: "Everywhere", detail: "work-fold agent and all workers" },
+    { scope: "project", title: "This folder only", detail: spaceName },
   ];
   return (
     <fieldset className="capabilities-scope-chooser" disabled={disabled}>
@@ -1119,13 +1119,13 @@ function canRemoveSkill(item: InstalledCapability): boolean {
   return item.kind === "skill" && item.origin !== "package";
 }
 
-/** The two rungs of the hierarchy as people see them: Everywhere (the fold and every Space) or This Space. */
+/** The two rungs of the hierarchy as people see them: Everywhere (work-fold agent and every worker) or This folder. */
 function scopeLabel(scope: AgentCapabilityScope): string {
-  return scope === "project" ? "This Space" : "Everywhere";
+  return scope === "project" ? "This folder" : "Everywhere";
 }
 
 function scopeDescription(scope: AgentCapabilityScope): string {
-  return scope === "project" ? "this Space" : "your everywhere tools";
+  return scope === "project" ? "this folder" : "your everywhere tools";
 }
 
 function humanizeToolName(name: string): string {
@@ -1137,7 +1137,7 @@ function provenanceLabel(item: InstalledCapability): string {
   if (item.origin === "package") return "A Pi package";
   switch (item.source) {
     case "auto":
-      return item.scope === "project" ? "A folder in this Space" : "A folder in your Pi setup";
+      return item.scope === "project" ? "A folder in this folder" : "A folder in your Pi setup";
     case "settings":
       return "A path listed in Pi settings";
     case "cli":
@@ -1203,7 +1203,7 @@ function fixtureCatalog(): AgentCatalog {
     skills: [{ id: "trip-planner", name: "Trip planner", description: "Turns bookings and preferences into a practical itinerary.", path: "skills/trip-planner/SKILL.md", source: { source: "anthropics/skills", scope: "user", origin: "package", packageSource: "github:anthropics/skills" }, scope: "global", origin: "package", packageSource: "github:anthropics/skills", enabled: true, loaded: true, content: "---\nname: trip-planner\ndescription: Plan a trip\n---\n\n# Trip planner\n\nBuild an itinerary from confirmed details, preferences, and constraints." }],
     extensions: [{ id: "calendar", name: "Calendar helper", path: ".pi/extensions/calendar.ts", source: { source: ".pi/extensions/calendar.ts", scope: "project", origin: "top-level" }, scope: "project", origin: "top-level", enabled: true, loaded: true, commands: ["calendar"], tools: ["read_calendar"], flags: ["calendar-account"] }],
     tools: [
-      { name: "read", label: "Read files", description: "Read files in the current Space", source: "Pi", active: true, kind: "core", core: true, configurable: false, configurationScope: "chat" },
+      { name: "read", label: "Read files", description: "Read files in the current folder", source: "Pi", active: true, kind: "core", core: true, configurable: false, configurationScope: "chat" },
       { name: "write", label: "Write files", description: "Create and update files", source: "Pi", active: true, kind: "core", core: true, configurable: false, configurationScope: "chat" },
       { name: "read_calendar", label: "Read calendar", description: "Read connected calendar events", source: "Calendar helper", active: false, kind: "extension", core: false, configurable: false, configurationScope: "chat" },
     ],

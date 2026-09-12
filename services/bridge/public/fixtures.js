@@ -1,12 +1,12 @@
 // Canned local state for ?fixture=new|chat|needs|spaces QA previews (the
-// pattern set by the desktop renderer's ?fixture=space). Fixture mode is
+// pattern set by the desktop renderer's folder view). Fixture mode is
 // client-side only and inert against the real API: app.js refuses to attach
 // auth, open the event stream, or call fetch while a fixture is showing, so
 // nothing in this file can touch or confuse real state. Keep it small: just
 // enough recorded-state shapes to render every screen.
 
 const minutes = (count) => new Date(Date.now() - count * 60_000).toISOString();
-// Calendar days, so the sidebar's Today / Yesterday / Earlier groups are the
+// Calendar days, so the sidebar's date groups are the
 // same in a screenshot taken at any hour.
 const daysAgo = (count) => {
   const date = new Date();
@@ -46,7 +46,7 @@ export function buildFixture(name) {
     cursor: `${minutes(4)}/change-1`,
     seen: { [`remote:${grantId}`]: `${minutes(90)}/change-4` },
     running: [
-      { id: "run-1", spaceName: "Launch plan", headline: "Assistant turn running" },
+      { id: "run-1", spaceName: "Launch plan", headline: "Worker turn running" },
       { id: "run-2", spaceName: "Field notes", headline: "Check run in progress" },
     ],
     needsYou: [

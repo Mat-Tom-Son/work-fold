@@ -38,7 +38,7 @@ export const workFoldQuestionIdPattern = /^q-\d{14}-[0-9a-f]{8}$/;
 export const workFoldResultIdPattern = /^res-\d{14}-[0-9a-f]{8}$/;
 
 /** The one spelling every request refusal names, shared with the app-facing refusals. */
-export const workFoldRequestLimitsSection = "Settings → The fold → Limits";
+export const workFoldRequestLimitsSection = "Settings → General → Limits";
 
 const forbiddenTextPattern = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u;
 const maximumResultFilePathLength = 1_024;

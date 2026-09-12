@@ -1,5 +1,5 @@
 /**
- * The frozen bounds Settings → The fold → Limits presents, in the one place
+ * The frozen bounds Settings → General → Limits presents, in the one place
  * both the enforcing module and the read-only pane read them from.
  *
  * Bounds are defaults, not caps (docs/receipts-not-gates.md, principle 6):
@@ -61,7 +61,7 @@ export const workFoldTrashMaxRetentionDays = 365;
  * table; docs/receipts-not-gates.md principle 6). Every request the fold, a
  * Space Assistant, an app, a routing, or an outside harness starts is one
  * record with these bounds, and every refusal names the number plus
- * "Settings → The fold → Limits".
+ * "Settings → General → Limits".
  *
  * These are generous defaults so a runaway stops and envelopes stay sane, not
  * gates: nothing here ever waits for a person to click.

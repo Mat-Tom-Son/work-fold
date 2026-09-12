@@ -218,7 +218,7 @@ test("onboarding, loading, About, and the popover loading state use the work-fol
   assert.match(settings, /<WorkFoldLockup className="about-work-fold-brand"/);
   assert.match(popover, /<WorkFoldLockup className="popover-loading-brand" animated/);
   assert.doesNotMatch(popover, /<WorkFoldLockup className="popover-brand"/);
-  assert.match(popover, /className="popover-open-app"[\s\S]*?>Open app<\/button>/);
+  assert.match(popover, /<h1 className="popover-chat-title">\{chatTitle\}<\/h1>/);
 
   // Brand fonts ship with the renderer bundle.
   assert.match(mainEntry, /@fontsource-variable\/inter/);
@@ -226,7 +226,7 @@ test("onboarding, loading, About, and the popover loading state use the work-fol
   assert.match(constants, /detail: "Inter"/);
 
   assert.match(indexHtml, /<title>work-fold<\/title>/);
-  assert.match(popoverHtml, /<title>Your fold<\/title>/);
+  assert.match(popoverHtml, /<title>work-fold agent<\/title>/);
   for (const html of [indexHtml, popoverHtml]) {
     assert.match(html, /data:image\/png;base64,/, "the favicon must be the pack's 32px export as a data URI");
     assert.doesNotMatch(html, /data:image\/svg/, "no redrawn vector favicons");
@@ -240,14 +240,14 @@ test("the fold names the popover surface, tray entry, and two-state capture butt
     read("desktop/src/main.ts"),
   ]);
 
-  assert.match(popover, /Your fold is unavailable\./);
-  assert.match(popover, /aria-label="Your fold"/);
-  assert.match(popover, /staged\.length \? "Fold it in" : "Send"/);
+  assert.match(popover, /The work-fold agent is unavailable\./);
+  assert.match(popover, /aria-label="work-fold agent chat"/);
+  assert.match(popover, /aria-label=\{requestRunning \? \(stopping \? "Stopping" : "Stop"\)/);
   // work-fold stays the actor: imperative composer copy keeps the product as addressee.
   assert.match(popover, /Tell work-fold what to do/);
   assert.match(popover, /Reply to work-fold/);
 
-  assert.match(desktopMain, /\{ label: "Your fold", click: \(\) => \{ void toggleManagementPopover\(\); \} \}/);
+  assert.match(desktopMain, /\{ label: "work-fold agent", click: \(\) => \{ void toggleManagementPopover\(\); \} \}/);
   assert.match(desktopMain, /label: `Open \$\{productName\}`/);
   assert.match(desktopMain, /label: `Quit \$\{productName\}`/);
 

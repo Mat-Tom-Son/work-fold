@@ -13,6 +13,7 @@ import { createBrowserAppView } from "./browser-app.js";
 import { requestResultLinks } from "./request-results.js";
 import { assertPairingRelay, pairingCodeForKeys } from "./pairing-code.js";
 import { normalizeChatTitle, replaceHtmlIfChanged } from "./rendering.js";
+import { groupConversationsByDate } from "./date-groups.js";
 
 const app = document.querySelector("#app");
 const encoder = new TextEncoder();
@@ -46,7 +47,7 @@ const fixtureChrome = (() => {
   };
 })();
 
-// The conversation and Space screens of the client. One is visible at a time on every width; the
+// The conversation and folder screens of the client. One is visible at a time on every width; the
 // chrome around them differs (sidebar on desktop, top bar plus drawer on the
 // phone) but the screens themselves are the same.
 const contextNames = ["new", "chat", "spaces"];
@@ -161,7 +162,7 @@ function draftSpaceQuestion(spaceId, path = null) {
   startNewChat();
   const prompt = document.querySelector("#prompt");
   if (!prompt) return;
-  const reference = `I’d like to work ${path ? `on the file ${JSON.stringify(path)} in` : "in"} the Space ${JSON.stringify(space.name)} (Space ID: ${space.id}).`;
+  const reference = `I’d like to work ${path ? `on the file ${JSON.stringify(path)} in` : "in"} the folder ${JSON.stringify(space.name)} (Folder ID: ${space.id}).`;
   prompt.value = prompt.value ? `${prompt.value}\n\n${reference}\n\n` : `${reference}\n\n`;
   syncComposer(); saveComposerDraft(); persistDrafts();
   prompt.focus({ preventScroll: true });
@@ -270,7 +271,7 @@ function bootFixture(name) {
     state.conversations = state.conversations.map((chat) => chat.id === state.selectedConversationId ? { ...chat, title: "Kitchen budget", state: "idle" } : chat);
     state.messages = [
       { id: "work-user", role: "user", content: "Compare the supplier quotes and put together a budget for the kitchen refresh." },
-      { id: "work-assistant", role: "assistant", content: "I’ve asked the Assistant in Supplier quotes to check the totals. I’ll bring the comparison back here." },
+      { id: "work-assistant", role: "assistant", content: "I’ve asked the worker in Supplier quotes to check the totals. I’ll bring the comparison back here." },
     ];
     state.summary = { state: "idle", latestRequest: { phase: "needs_you", children: [], actions: [], dispositions: [] } };
   }
@@ -306,7 +307,7 @@ async function continueAuthenticated() {
 function renderAddressUnavailable() {
   if (!state.context.slug) return renderLanding(app);
   renderAuth({
-    eyebrow: "Your fold",
+    eyebrow: "work-fold agent",
     headline: "This address isn’t active.",
     supporting: `Check the address, or enable web access from the <span class="nobr">work-fold</span> desktop app.`,
     panel: "",
@@ -315,7 +316,7 @@ function renderAddressUnavailable() {
 
 function renderLogin(error = "") {
   renderAuth({
-    eyebrow: "Your fold",
+    eyebrow: "work-fold agent",
     headline: `Welcome back${state.context.slug ? `, ${escapeHtml(state.context.slug)}` : ""}.`,
     supporting: "Your desktop must be online.",
     panel: `
@@ -554,7 +555,7 @@ function parseLocationHash() {
     return { context: "chat", conversationId: conversationId || null };
   }
   if (raw === "needs") return { context: "chat", conversationId: state.selectedConversationId };
-  // `#files` was this screen's name before it was called Spaces; a link from
+  // `#files` remains an internal route for the folder screen; a link from
   // that window still lands where it meant to.
   if (raw === "files") return { context: "spaces", conversationId: null };
   return { context: contextNames.includes(raw) ? raw : "new", conversationId: null };
@@ -581,8 +582,8 @@ function onPopState() {
   showContext(requested.context, { fromHistory: true });
 }
 
-// --- The shell: conversations and Spaces ----------------------------------
-// New chat is the door; Chat holds the work and its questions; Spaces holds
+// --- The shell: conversations and folders ---------------------------------
+// New chat is the door; Chat holds the work and its questions; the folder view holds
 // browsable files and apps. The sidebar exists
 // once in the DOM: from 860px up it is the left column (expanded or collapsed
 // to an icon rail), and below that the same markup is the drawer behind ☰.
@@ -591,14 +592,14 @@ function renderApplication() {
   closeInlinePreview();
   // A rebuilt shell starts from no context so the next showContext call
   // re-toggles every section even when the name is unchanged (session reboot
-  // while browsing Spaces).
+  // while browsing folders).
   state.contextName = null;
   app.innerHTML = `
     <div class="app-shell" data-context="new" data-sidebar="${escapeAttribute(state.sidebarState)}" data-drawer="closed">
       <div id="drawer-scrim" class="drawer-scrim"></div>
       <aside id="drawer" class="sidebar" aria-label="Menu">
         <div class="sidebar-head">
-          <span class="sidebar-brand"><img src="/brand-mark.png" alt="" /><span>work-fold</span></span>
+          <span class="sidebar-brand"><img src="/brand-mark.png" alt="" /></span>
           <button id="sidebar-toggle" class="rail-item sidebar-toggle" type="button" aria-label="Hide menu" data-tip="Hide menu" aria-controls="drawer">
             <svg class="glyph-collapse" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v13H4Z" /><path d="M9.5 5.5v13" /><path d="m16 9.5-2.5 2.5 2.5 2.5" /></svg>
             <svg class="glyph-expand" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v13H4Z" /><path d="M9.5 5.5v13" /><path d="m13.5 9.5 2.5 2.5-2.5 2.5" /></svg>
@@ -620,12 +621,14 @@ function renderApplication() {
           <ul id="chats" class="chat-list"></ul>
         </div>
         <div class="sidebar-foot">
-          <button class="sidebar-item" type="button" data-nav-context="spaces" data-nav-current="spaces" data-tip="Spaces" aria-label="Spaces">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l1.8 2h9.2v9H3.5Z" /></svg>
-            <span class="sidebar-label">Spaces</span>
-          </button>
-          <div class="presence-row">
-            <p id="desktop-presence" class="presence"><span class="presence-dot" aria-hidden="true"></span><span id="desktop-presence-text"></span></p>
+          <div class="sidebar-footer-actions">
+            <div class="folder-picker-shell">
+            <button id="folder-picker-button" class="sidebar-item" type="button" data-tip="Folders" aria-label="Folders" aria-controls="folder-picker" aria-expanded="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l1.8 2h9.2v9H3.5Z" /></svg>
+              <span class="sidebar-label">Folders</span>
+            </button>
+            <div id="folder-picker" class="folder-picker" role="dialog" aria-label="Choose a folder" hidden></div>
+            </div>
             <div class="rail-account">
               <button id="account-settings" class="account-settings" type="button" aria-label="Settings" data-tip="Settings" aria-controls="account-menu" aria-expanded="false" data-account-toggle="account-menu">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
@@ -633,6 +636,7 @@ function renderApplication() {
               <div id="account-menu" class="account-menu" hidden><button type="button" data-logout="true">Sign out</button></div>
             </div>
           </div>
+          <p id="desktop-presence" class="presence" hidden><span class="presence-dot" aria-hidden="true"></span><span id="desktop-presence-text"></span></p>
         </div>
       </aside>
       <div class="app-main">
@@ -682,20 +686,18 @@ function renderApplication() {
             <section id="messages" class="messages" tabindex="0"><div class="message-stream"><div id="transcript-notice"></div><div id="message-rows"></div><div id="work-status"></div><div id="request-work"></div><div id="extension-questions"></div></div><button id="jump-latest" class="jump-latest" type="button" aria-label="Jump to newest" title="Jump to newest" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14m-5-5 5 5 5-5" /></svg></button></section>
             <footer class="composer-wrap" id="chat-composer-slot"></footer>
           </section>
-          <section id="context-spaces" class="context context-spaces" aria-label="Spaces" hidden>
+          <section id="context-spaces" class="context context-spaces" aria-label="Folders" hidden>
             <div class="space-workspace">
               <header class="space-workspace-header">
-                <button id="spaces-back" type="button" class="text-button" hidden>‹ All Spaces</button>
                 <div class="space-title-row">
-                  <h1 id="space-title" tabindex="-1">Spaces</h1>
+                  <h1 id="space-title" tabindex="-1">Folder</h1>
                   <button id="refresh-space" type="button" class="space-refresh" title="Refresh files and apps" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6a8 8 0 0 1 13.2 3M4.7 15a8 8 0 0 0 13.2 3" /></svg><span>Refresh</span></button>
                 </div>
               </header>
-              <div id="space-directory" class="space-directory"></div>
               <div id="workspace-pane" class="workspace-pane" hidden>
-                <nav class="space-views" aria-label="Space view"><button type="button" data-space-view="files" aria-pressed="true">Files</button><button type="button" data-space-view="apps" aria-pressed="false">Apps</button></nav>
-                <div id="space-files" class="space-files"><div id="file-tree" class="file-tree" aria-label="Space files"></div><div id="space-preview" class="space-preview"><p id="space-preview-empty">Select a file</p></div></div>
-                <section id="space-apps" class="space-apps" aria-label="Space apps" hidden></section>
+                <nav class="space-views" aria-label="Folder view"><button type="button" data-space-view="files" aria-pressed="true">Files</button><button type="button" data-space-view="apps" aria-pressed="false">Apps</button></nav>
+                <div id="space-files" class="space-files"><div id="file-tree" class="file-tree" aria-label="Folder files"></div><div id="space-preview" class="space-preview"><p id="space-preview-empty">Select a file</p></div></div>
+                <section id="space-apps" class="space-apps" aria-label="Folder apps" hidden></section>
               </div>
             </div>
           </section>
@@ -712,7 +714,7 @@ function renderApplication() {
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8.5 12.5 5.7-5.7a3 3 0 1 1 4.2 4.2l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.2-8.2" /></svg>
       </button>
       <input id="file-input" type="file" multiple hidden />
-      <textarea id="prompt" rows="1" maxlength="12000" placeholder="Message work-fold" aria-label="Message work-fold"${coarsePointer ? "" : " autofocus"}></textarea>
+      <textarea id="prompt" rows="1" maxlength="12000" placeholder="Message work-fold agent" aria-label="Message work-fold agent"${coarsePointer ? "" : " autofocus"}></textarea>
       <button class="send-button" type="submit" aria-label="Send message" aria-keyshortcuts="Enter" title="Send message" disabled>
         <svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-5 5 5-5 5 5" /></svg>
       </button>
@@ -771,10 +773,19 @@ function renderApplication() {
   for (const button of document.querySelectorAll("[data-logout]")) {
     button.addEventListener("click", () => void logout());
   }
-  document.addEventListener("click", () => closeAccountMenus());
+  document.addEventListener("click", (event) => {
+    closeAccountMenus();
+    const shell = event.target.closest?.(".folder-picker-shell");
+    if (!shell) closeFolderPicker();
+  });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Tab" && state.drawerOpen) return trapDrawerFocus(event);
     if (event.key !== "Escape") return;
+    if (document.querySelector("#folder-picker")?.hidden === false) {
+      event.preventDefault();
+      closeFolderPicker({ restoreFocus: true });
+      return;
+    }
     const openMenu = [...document.querySelectorAll(".account-menu")].find((menu) => menu.hidden === false);
     if (openMenu) {
       closeAccountMenus();
@@ -810,11 +821,14 @@ function renderApplication() {
     cancelChatRename();
   });
   document.querySelector("#stop-task")?.addEventListener("click", () => void stopCurrentTask());
-  document.querySelector("#spaces-back")?.addEventListener("click", () => void selectExplorerSpace(null));
   document.querySelector("#refresh-space")?.addEventListener("click", () => void refreshExplorerTree());
-  document.querySelector("#space-directory")?.addEventListener("click", (event) => {
+  document.querySelector("#folder-picker-button")?.addEventListener("click", () => toggleFolderPicker());
+  document.querySelector("#folder-picker")?.addEventListener("click", (event) => {
     const row = event.target.closest?.("[data-explore-space]");
-    if (row) void selectExplorerSpace(row.dataset.exploreSpace);
+    if (row) {
+      closeDrawer({ restoreFocus: false });
+      void selectExplorerSpace(row.dataset.exploreSpace);
+    }
   });
   for (const button of document.querySelectorAll("[data-space-view]")) button.addEventListener("click", () => {
     state.explorerTab = button.dataset.spaceView; renderWorkspace();
@@ -1028,7 +1042,7 @@ function renderMessages() {
     container.dataset.latestMessageId = latestVisible.id;
     if (container.dataset.rendered && previousMessageId && previousMessageId !== latestVisible.id) {
       const status = document.querySelector("#chat-status");
-      if (status) status.textContent = latestVisible.role === "assistant" ? "New reply from work-fold." : "Message sent.";
+      if (status) status.textContent = latestVisible.role === "assistant" ? "New reply from work-fold agent." : "Message sent.";
     }
   } else if (!latestVisible?.id && previousMessageId) {
     delete container.dataset.latestMessageId;
@@ -1600,21 +1614,7 @@ function renderConversations() {
 }
 
 function groupConversations(conversations) {
-  const startOfDay = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const today = startOfDay(new Date());
-  const yesterday = today - 86_400_000;
-  const groups = [
-    { label: "Today", conversations: [] },
-    { label: "Yesterday", conversations: [] },
-    { label: "Earlier", conversations: [] },
-  ];
-  for (const conversation of conversations) {
-    const updated = new Date(conversation.updatedAt);
-    const day = Number.isFinite(updated.getTime()) ? startOfDay(updated) : 0;
-    const bucket = day >= today ? 0 : day >= yesterday ? 1 : 2;
-    groups[bucket].conversations.push(conversation);
-  }
-  return groups.filter((group) => group.conversations.length);
+  return groupConversationsByDate(conversations);
 }
 
 async function selectConversation(conversationId) {
@@ -1688,7 +1688,7 @@ function renderConversationChrome() {
   if (renameForm) renameForm.hidden = !editing;
   if (renameInput) renameInput.disabled = state.renameSaving;
   for (const button of renameForm?.querySelectorAll("button") ?? []) button.disabled = state.renameSaving;
-  if (prompt) prompt.placeholder = "Message work-fold";
+  if (prompt) prompt.placeholder = "Message work-fold agent";
   const stop = document.querySelector("#stop-task");
   const send = document.querySelector(".send-button:not(.stop-button)");
   const running = Boolean(state.selectedConversationId && state.activeTasks.has(state.selectedConversationId));
@@ -1768,21 +1768,16 @@ function cancelChatRename({ restoreFocus = true } = {}) {
 }
 
 function renderWorkspace() {
-  const directory = document.querySelector("#space-directory");
   const pane = document.querySelector("#workspace-pane");
   const tree = document.querySelector("#file-tree");
   const selected = state.spaces.find((space) => space.id === state.explorerSpaceId);
   const hasSpace = Boolean(selected);
-  if (!directory || !pane || !tree) return;
-  directory.hidden = hasSpace; pane.hidden = !hasSpace;
-  document.querySelector("#spaces-back").hidden = !hasSpace;
+  if (!pane || !tree) return;
+  pane.hidden = !hasSpace;
   document.querySelector("#refresh-space").hidden = !hasSpace;
-  document.querySelector("#space-title").textContent = selected?.name ?? "Spaces";
-  if (!hasSpace) {
-    directory.setAttribute("aria-busy", String(!state.spacesLoaded));
-    replaceHtmlIfChanged(directory, state.spaces.length ? state.spaces.map((space) => `<button type="button" class="space-directory-row" data-explore-space="${escapeAttribute(space.id)}">${fileGlyph("folder")}<span>${escapeHtml(space.name)}</span><span aria-hidden="true">›</span></button>`).join("") : `<p class="file-empty">${state.spacesLoaded ? "No Spaces. Add one in the desktop app." : "Loading Spaces…"}</p>`);
-    return;
-  }
+  document.querySelector("#space-title").textContent = selected?.name ?? "Folder";
+  renderFolderPicker();
+  if (!hasSpace) return;
   document.querySelector("#space-files").hidden = state.explorerTab !== "files";
   document.querySelector("#space-apps").hidden = state.explorerTab !== "apps";
   for (const button of document.querySelectorAll("[data-space-view]")) button.setAttribute("aria-pressed", String(button.dataset.spaceView === state.explorerTab));
@@ -1791,7 +1786,7 @@ function renderWorkspace() {
   tree.setAttribute("aria-busy", String(state.treeStatus.get(`${spaceId}:`) === "loading"));
   const apps = state.spaceApps.get(spaceId);
   const appsPane = document.querySelector("#space-apps");
-  const appsStatus = !fixtureName && !state.appViewsAvailable ? "Update work-fold on your desktop to browse apps here." : apps === undefined ? "Loading apps…" : apps === null ? "Couldn’t load apps. Try Refresh." : "No apps in this Space.";
+  const appsStatus = !fixtureName && !state.appViewsAvailable ? "Update work-fold on your desktop to browse apps here." : apps === undefined ? "Loading apps…" : apps === null ? "Couldn’t load apps. Try Refresh." : "No apps in this folder.";
   if (replaceHtmlIfChanged(appsPane, apps?.length ? apps.map((app) => `<button type="button" class="space-app-row" data-open-app="${escapeAttribute(app.featureInstallationId)}"><span>${escapeHtml(app.title)}</span><small>${app.webView ? app.preview ? "Preview" : "Open app" : "Desktop only"}</small></button>`).join("") : `<p class="file-empty">${appsStatus}</p>`)) {
     for (const button of appsPane.querySelectorAll("[data-open-app]")) button.addEventListener("click", () => openBrowserApp(spaceId, button.dataset.openApp));
   }
@@ -1811,7 +1806,7 @@ function renderTreeRows(spaceId, entries, path, depth) {
   if (status === "loading" || (!status && !state.trees.has(key))) return `<div class="file-empty">Loading…</div>`;
   if (status === "error") return `<div class="file-empty error">Couldn’t load files. Try Refresh.</div>`;
   const truncated = state.treeTruncated.get(`${spaceId}:${path}`) === true;
-  if (!entries.length) return `<div class="file-empty">${path ? "This folder is empty." : "No visible files in this Space yet."}</div>`;
+  if (!entries.length) return `<div class="file-empty">${path ? "This folder is empty." : "No visible files in this folder yet."}</div>`;
   return `${truncated ? `<div class="tree-notice">First 500 items. Ignored files omitted.</div>` : ""}${entries.map((entry) => {
     const expanded = entry.kind === "folder" && state.expanded.has(`${spaceId}:${entry.path}`);
     const children = expanded ? state.trees.get(`${spaceId}:${entry.path}`) ?? [] : [];
@@ -1833,8 +1828,41 @@ async function selectExplorerSpace(spaceId) {
   state.explorerSpaceId = spaceId;
   try { if (spaceId) sessionStorage.setItem(explorerSpaceStorageKey, spaceId); else sessionStorage.removeItem(explorerSpaceStorageKey); } catch {}
   renderWorkspace();
-  document.querySelector("#space-title")?.focus({ preventScroll: true });
-  if (spaceId) await loadTree(spaceId, "");
+  closeFolderPicker();
+  if (spaceId) {
+    showContext("spaces", { moveFocus: false });
+    document.querySelector("#space-title")?.focus({ preventScroll: true });
+    await loadTree(spaceId, "");
+  }
+}
+
+function renderFolderPicker() {
+  const picker = document.querySelector("#folder-picker");
+  if (!picker) return;
+  picker.setAttribute("aria-busy", String(!state.spacesLoaded));
+  const content = state.spaces.length
+    ? `<p class="folder-picker-label">Folders</p>${state.spaces.map((space) => `<button type="button" data-explore-space="${escapeAttribute(space.id)}"${space.id === state.explorerSpaceId ? ' aria-current="true"' : ""}>${fileGlyph("folder")}<span>${escapeHtml(space.name)}</span></button>`).join("")}`
+    : `<p class="file-empty">${state.spacesLoaded ? "No folders yet. Add one in the desktop app." : "Loading folders…"}</p>`;
+  replaceHtmlIfChanged(picker, content);
+}
+
+function closeFolderPicker({ restoreFocus = false } = {}) {
+  const picker = document.querySelector("#folder-picker");
+  const trigger = document.querySelector("#folder-picker-button");
+  if (!picker || picker.hidden) return;
+  picker.hidden = true;
+  trigger?.setAttribute("aria-expanded", "false");
+  if (restoreFocus) trigger?.focus({ preventScroll: true });
+}
+
+function toggleFolderPicker() {
+  const picker = document.querySelector("#folder-picker");
+  const trigger = document.querySelector("#folder-picker-button");
+  if (!picker || !trigger) return;
+  const open = picker.hidden;
+  picker.hidden = !open;
+  trigger.setAttribute("aria-expanded", String(open));
+  if (open) picker.querySelector("button")?.focus({ preventScroll: true });
 }
 
 async function refreshExplorerTree() {
@@ -1884,7 +1912,7 @@ async function stopCurrentTask() {
 // this client neither reads nor acknowledges a feed it does not display.
 function updateContextTitle() {
   const title = document.querySelector("#top-bar-title");
-  if (title) title.textContent = state.contextName === "spaces" ? "Spaces" : "";
+  if (title) title.textContent = state.contextName === "spaces" ? "Folders" : "";
 }
 
 function cardTime(value) {
@@ -1985,17 +2013,18 @@ function formatBytes(value) {
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function assistantLabel() { return "work-fold"; }
+function assistantLabel() { return "work-fold agent"; }
 
-// The quiet presence line in the sidebar footer: the desktop is online or
-// offline, never an error page pretending otherwise.
+// Connectivity only appears when action is needed; an available desktop is
+// the normal condition and does not consume persistent sidebar space.
 function renderDesktopPresence() {
   const presence = document.querySelector("#desktop-presence");
   const text = document.querySelector("#desktop-presence-text");
   if (!presence || !text) return;
   const online = Boolean(state.session?.desktopOnline);
   presence.dataset.online = String(online);
-  const label = online ? "Desktop online" : "Desktop offline";
+  const label = online ? "" : "Desktop offline";
+  presence.hidden = online;
   if (text.textContent !== label) text.textContent = label;
   // In the collapsed rail only the dot is visible; its name rides the tooltip.
   if (presence.dataset.tip !== label) presence.dataset.tip = label;

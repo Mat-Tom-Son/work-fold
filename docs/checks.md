@@ -1,5 +1,9 @@
 # Checks decision register
 
+Current product copy calls a registered Space a **Folder**, its Assistant a
+**Worker**, and a deterministic routing an **Automation**. This technical
+register retains existing contract and identifier names.
+
 Checks let a person teach work-fold a small, durable expectation about files
 they deliberately designate. work-fold may then verify that expectation on
 request and explain current, evidence-backed problems. Checks are optional

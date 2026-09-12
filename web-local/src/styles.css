@@ -16982,11 +16982,26 @@ textarea,
 .fold-publication-snapshot-label { color: #5c6b81; font-size: 0.74rem; }
 .fold-publication-narrow { border-top: 1px dashed #e4e9ef; padding-top: 8px; }
 
-/* Settings → The fold → Routings. The list is the selector; the right side is
+/* Settings → General → Automations. The list is the selector; the right side is
    one plain inspector, so the operational surface stays dense without turning
    every fact or step into a card. */
 .fold-routings {
   gap: 10px;
+}
+
+.settings-section-heading-actions,
+.fold-routing-inspector-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.settings-section-heading-actions .secondary-button,
+.fold-routing-inspector-actions .secondary-button {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 0.72rem;
 }
 
 .fold-routings-empty {
@@ -17131,6 +17146,10 @@ textarea,
   min-width: 0;
   display: grid;
   gap: 3px;
+}
+
+.fold-routing-inspector-actions {
+  flex: 0 0 auto;
 }
 
 .fold-routing-inspector-header h4,

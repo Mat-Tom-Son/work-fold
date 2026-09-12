@@ -22,8 +22,8 @@ const [capabilities, apps, chat, spaceApp, spaceChrome, viewport, styles, profes
 ]);
 
 test("Apps product hierarchy starts with the Assistant and keeps local preview loading advanced", () => {
-  assert.match(apps, /Apps in this Space/);
-  assert.match(apps, /Build with Assistant/);
+  assert.match(apps, /Apps in this folder/);
+  assert.match(apps, /Build with worker/);
   assert.match(apps, /<details className="restricted-app-advanced"><summary>Advanced local preview/);
   assert.match(apps, /Add local preview…/);
   assert.doesNotMatch(capabilities, /Sandboxed app extension|onAddRestrictedApp/);
@@ -38,7 +38,7 @@ test("adding an app shows its declarations and enabled powers with narrowing in 
   assert.match(apps, /restricted-app-authority-list/);
   assert.match(apps, /On when added/);
   assert.doesNotMatch(apps, /Off when added|access off|approve|Reviewed|Unrestricted|staged/);
-  assert.match(apps, /Starts a Chat in this Space/);
+  assert.match(apps, /Starts a Chat in this folder/);
   // The reviewed viewer declaration (docs/fold-publishing.md, rung 3) is part
   // of review copy and the install decision: the group shows the viewer entry
   // and the complete viewer-readable surface, states that exposure is its own
@@ -77,12 +77,12 @@ test("Assistant tools owns access, connection, and lifecycle management without 
   assert.match(apps, /Revoke access/);
   assert.match(apps, /Replace connection/);
   assert.match(apps, /Disconnect/);
-  assert.match(apps, /Space files/);
+  assert.match(apps, /Folder files/);
   assert.match(apps, /Automations/);
   assert.match(apps, /Local app data/);
   assert.match(apps, /App access overview/);
   assert.match(apps, /onEnabledChange=\{\(enabled\) => void changeAutomation\(automation, enabled\)\}/);
-  assert.match(apps, /"Whole Space"/);
+  assert.match(apps, /"Whole folder"/);
   assert.match(apps, /Limit to folder/);
   // Removing a preview takes its data with it, and F20 makes that recoverable:
   // the confirm and the toast both say so rather than implying finality.
@@ -126,15 +126,10 @@ test("the Space menu occludes native restricted-app views from the first animati
   assert.match(viewport, /style\.display === "none" \|\| style\.visibility === "hidden"/);
 });
 
-test("rail tooltips use a topmost native overlay without blanking restricted app views", () => {
+test("rail controls omit hover tooltips without blanking restricted app views", () => {
   assert.doesNotMatch(viewport, /railTooltipOcclusionLeadMs|railTooltipTarget|data-rail-tooltip/);
-  assert.match(spaceChrome, /useNativeRailTooltips\(railRef\)/);
-  assert.match(spaceChrome, /window\.workFoldDesktop\?\.window\.railTooltip/);
-  assert.match(desktopPreload, /work-fold:window:rail-tooltip-show/);
-  assert.match(desktopMain, /railTooltipOverlay\?\.show\(value\)/);
-  assert.match(desktopMain, /host\.restrictedAppHost\.layoutUi[\s\S]*?railTooltipOverlay\?\.raise\(\)/);
-  assert.match(tooltipOverlay, /contentView\.addChildView\(this\.#view\)/);
-  assert.match(professionalShell, /:root\[data-desktop="true"\][\s\S]*?\[data-rail-tooltip\]::after[\s\S]*?content:\s*none/);
+  assert.doesNotMatch(spaceChrome, /useNativeRailTooltips|data-rail-tooltip/);
+  assert.match(spaceChrome, /aria-label=\{item\.ariaLabel\}/);
 });
 
 test("contributed app canvases share built-in spacing and native rounded corners", () => {
@@ -153,7 +148,7 @@ test("owning Chat shows the added-app receipt with a retry for failures and open
   assert.match(chat, /data\.proposal\.conversationId === conversationId/);
   assert.match(chat, /settled\.status === "installed" \|\| settled\.status === "failed"/);
   assert.match(chat, /function RestrictedAppAddedNotice/);
-  assert.match(chat, /Added \{title\} to this Space\./);
+  assert.match(chat, /Added \{title\} to this folder\./);
   assert.match(chat, /Still needs you:/);
   assert.match(chat, />Open app</);
   assert.match(chat, />Try again</);

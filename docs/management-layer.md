@@ -1,4 +1,10 @@
-# work-fold management layer
+# work-fold agent management layer
+
+The **work-fold agent** is the current product name for the management Worker
+above all Folders. This document deliberately keeps *management*, `fold`,
+`space`, and `routing` in technical contracts, commands, paths, schemas, and
+code identifiers. In the product, people see **Folders**, **Workers**, and
+**Automations**.
 
 > Request lifecycle consolidation: the [collaboration contract](collaboration-contract.md#completion-delivery-and-recovery)
 > governs completion across turns. Questions use `chat ask|answer` or `manage
@@ -47,7 +53,7 @@ selector extension, not a protocol-v1 inventory or authority change.
 
 work-fold now has a small management layer over its existing product model. It gives the renderer, command line, test harnesses, and future Assistant-facing adapters one semantic view of Spaces, running work, and Pi capabilities without creating another data store or agent framework.
 
-This is infrastructure, not another navigation item. **work-fold**, **Space**, **Files**, **Chats**, **Library**, **History**, and **Assistant tools** remain the user-facing nouns. The management layer makes their underlying state inspectable in a consistent, versioned form.
+This is infrastructure, not another navigation item. **work-fold**, **Folder**, **Files**, **Chats**, **Library**, **History**, and **Agent tools** remain the user-facing nouns. The management layer makes their underlying state inspectable in a consistent, versioned form.
 
 The development extension UI adapter treats the fold as its own valid scope.
 `GET /api/management/conversations/:id/extension-ui` and its Space equivalent
@@ -232,7 +238,7 @@ the Space it came from. `trash list` is content-free — ids, kinds, paths,
 sizes, and dates. `trash restore` puts one item back where it came from,
 renaming it when something else took the name, and app data whose app is gone
 is saved as a file with `--to <absolute-path>`. Nothing empties the store: the
-retention window in Settings → The fold → Recently deleted does, and a tree
+retention window in Settings → General → Recently deleted does, and a tree
 holding legacy `.workspace/` records is never erased.
 
 `work-fold manage …` talks to the **management conversation** — user-facing name: **the fold** — the one conversation above all Spaces. It reuses the same acceptance path, Pi runtime, kernel task records, and task-scoped outcome semantics as Space Chats under the dedicated scope id `work-fold-management` instead of a Space id. Its transcript lives in machine-local application state under the app profile's `management/` root — it describes this machine's registry, so it is deliberately not portable Space data. Its Pi session loads personal-scope Skills and Extensions plus exactly two app-materialized project resources — a management `AGENTS.md` context file and the `manage-spaces` Skill, rewritten on every start — and gets no user Space's `.pi` configuration, no restricted-app bridges, and no History checkpoints (History is a Space concept).
@@ -251,9 +257,9 @@ Every accepted management turn is a **request**. Its hidden turn context supplie
 
 `manage status --task` therefore reports a `request` object alongside the turn: per-attachment **dispositions** computed from recorded actions (`placed`, `registered`, or honestly `unrecorded`), recorded actions with restore-point ids, child turns with their own task states, the reply, and a **phase** — `working`, `needs_you` (an open question, or a reply whose final line asks one), `handed_off` (the management turn finished but a delegated Space turn still runs), `done`, `failed`, or `stopped`. The durable record's own `state` travels beside the phase (`partial` reads as `done` there and `expired` as `stopped`), with the request id, root id, kind, deadline, and bounded question and result references. Done requires both the management turn and every child to succeed; a failed or lost child fails the request, and an aborted child or accepted request-level stop stays stopped. A popover reply to `needs_you` joins the same request as a further turn — one record, one story — carrying the prior attachments and action trail without replaying those attachments into model context, and it is recorded as the answer to any open question that was waiting on the person. `manage stop --task` aborts the management turn and every turn still running anywhere under that request, withdraws its open questions, and names each turn it touched.
 
-The same request model backs the desktop's **menu-bar popover** (macOS menu-bar item; the Windows tray gains the same "Your fold" entry), which talks to `/api/management/*` local-API routes — send with attachments, summary, request status, request stop, transcript, per-conversation runtime and thinking-level changes, and the event stream — through the same acceptance path, conflict rules, and kernel task records as every other surface. The popover is deliberately a window, not a tab, so the Space-bound tab contract is untouched. Its transcript stays visible as a conventional compact chat: person messages are colored bubbles aligned right, Assistant replies are unboxed and aligned left, and redundant speaker labels and divider lines are absent. It follows streamed text while pinned near the bottom but respects deliberate scrollback. **Open app** plus **New chat** are direct header actions. The per-conversation stream renders replay-safe `turn_snapshot`, incremental `assistant_delta`, and final `assistant_message` text in place; when the request settles, the persisted transcript replaces that transient projection. The composer's model label uses one fixed bridge to show the main window's Assistant settings scoped to **The fold**; the adjacent text-only reasoning selector is hydrated from the fold's selected model before the first send, saves Pi's default for a future session, and writes the live Pi session once the conversation has one. The aligned action becomes **Stop** while the request is active, using the existing request-scoped stop route, while the text area remains available for drafting; one compact live line carries the current activity without displacing the transcript. Dropping onto the macOS menu-bar icon stages bounded references, while dragging over the popover temporarily turns the whole surface into the drop target; neither sends anything, and send is always an explicit act. Its sandboxed renderer has a dedicated preload exposing only the local API session, dropped-file path resolution, hide/show-main, open-fold-model-settings, and window-material actions — it does not inherit the main renderer's folder, restricted-app, update, general settings, or shell bridges.
+The same request model backs the desktop's **menu-bar popover** (macOS menu-bar item; the Windows tray gains the same "work-fold agent" entry), which talks to `/api/management/*` local-API routes — send with attachments, summary, request status, request stop, transcript, per-conversation runtime and thinking-level changes, and the event stream — through the same acceptance path, conflict rules, and kernel task records as every other surface. The popover is deliberately a window, not a tab, so the Space-bound tab contract is untouched. Its transcript stays visible as a conventional compact chat: person messages are colored bubbles aligned right, Assistant replies are unboxed and aligned left, and redundant speaker labels and divider lines are absent. It follows streamed text while pinned near the bottom but respects deliberate scrollback. The header shows the current chat title, with separate **Previous** and **New chat** actions. The per-conversation stream renders replay-safe `turn_snapshot`, incremental `assistant_delta`, and final `assistant_message` text in place; when the request settles, the persisted transcript replaces that transient projection. The composer's model label uses one fixed bridge to show the main window's **Agents** settings scoped to **work-fold agent**; the adjacent text-only reasoning selector is hydrated from the fold's selected model before the first send, saves Pi's default for a future session, and writes the live Pi session once the conversation has one. The aligned action becomes **Stop** while the request is active, using the existing request-scoped stop route, while the text area remains available for drafting; one compact live line carries the current activity without displacing the transcript. Dropping onto the macOS menu-bar icon stages bounded references, while dragging over the popover temporarily turns the whole surface into the drop target; neither sends anything, and send is always an explicit act. Its sandboxed renderer has a dedicated preload exposing only the local API session, dropped-file path resolution, hide/show-main, open-fold-model-settings, and window-material actions — it does not inherit the main renderer's folder, restricted-app, update, general settings, or shell bridges.
 
-The fold has one machine-local provider/model preference distinct from every Space preference. Settings → Assistant labels that scope **The fold**; the same choice governs this one management conversation in the menu-bar/tray popover and paired web client. Each registered Space may additionally keep bounded machine-local **Space instructions**, keyed by its portable identity and appended to subsequent Pi turns without changing portable `.work-fold/` or `.pi/` content. Provider credentials remain machine-wide Pi AuthStorage records rather than being duplicated per scope.
+The fold has one machine-local provider/model preference distinct from every Space preference. Settings → Agents labels that scope **work-fold agent**; the same choice governs this one management conversation in the menu-bar/tray popover and paired web client. Each registered Space may additionally keep bounded machine-local **Worker instructions**, keyed by its portable identity and appended to subsequent Pi turns without changing portable `.work-fold/` or `.pi/` content. Provider credentials remain machine-wide Pi AuthStorage records rather than being duplicated per scope.
 
 ### Durable requests, questions, and continuation
 
@@ -310,13 +316,13 @@ naming each settled child, its outcome, the files it chose, and any question
 still open beneath it. It is counted against the per-root bound; past that
 bound a settle is recorded rather than narrated. Continuations never follow a
 root Stop, a request that ran out of time or hit a bound, or a restart, and a
-person can turn them off in Settings → The fold → Limits.
+person can turn them off in Settings → General → Limits.
 
 Only the assignment text, the answer text, released report summaries, and
 copied files ever enter a Space Chat. The request graph itself, other Spaces'
 results, and the fold's transcript stay above Spaces.
 
-The bounds are generous defaults in Settings → The fold → Limits
+The bounds are generous defaults in Settings → General → Limits
 (`src/shared/fold-limits.ts`), and every refusal names the number it hit:
 
 | Limit | Default | On hit |
@@ -406,14 +412,15 @@ content, ciphertext, tokens, addresses, or network identifiers.
 The desktop does not expose its renderer token or tunnel arbitrary local HTTP.
 `WorkFoldRemoteFacade` is a closed semantic adapter with bounded saved-Chat
 listing, summary/transcript/rename/send/stop/watch operations for the management conversation,
-management request projection, Space-name listing, and bounded Space-relative
+management request projection, Folder-name listing, and bounded Folder-relative
 tree projection, explicit file previews, and exact-installation read-only
 [app views](fold-browser-apps.md). The browser-action foundation separately adds
-`apps.actions.request|get|list|review|approve|cancel` over declared installed
-worker actions; it requires a live host-only grant fence and journals exact
-review/acceptance before dispatch. App frames do not receive review or approval.
-The trusted parent owns Review, Run, Cancel and Stop; app code receives only
-request/status/cancel. The adapter strips absolute roots and attachment target paths, applies
+`apps.actions.request|get|list|cancel` over declared installed worker actions.
+The app's installed declaration and its current grant are the authority; the
+request executes immediately through the host's ordinary receipted path. There
+is no remote Review, Approve, or Run operation and no trusted-parent approval
+role. App frames receive only request/status/cancel. The adapter strips
+absolute roots and attachment target paths, applies
 the ordinary ignore policy to tree views, rejects traversal and unknown fields,
 and rechecks the locally encrypted grant immediately before execution.
 Dispatch and desktop-local authority mutations share one serialization fence;
@@ -603,7 +610,7 @@ Desktop and CLI History restores reserve affected Space work through completion 
 - The remote operation vocabulary lost `decisions.list` and `decisions.decide`. A web client that still asks for them gets the ordinary unknown-operation refusal, and the shipped client no longer asks.
 - New act verbs: `trash list|restore` over Recently deleted, `apps list|invoke` so the fold can see and call an installed app's declared tools, and `routings enable` in place of the old staging token. `files destroy` and the `staged list|show|cancel` family are gone.
 - `assistant.request` journals and dispatches a Space Chat in one call with no review state, and `assistant.infer` performs a bounded, tool-free model call on the same transport the Check reviewer uses under its own limiter. Installation is the grant for both ([App-requested Assistant work](app-assistant-tasks.md)).
-- Settings → The fold gained **Recently deleted**: the entry list, Restore, Save a copy, Delete now, and the retention window (default 30 days). The Authority selector and the standing-rules section are gone from every surface.
+- Settings → General gained **Recently deleted**: the entry list, Restore, Save a copy, Delete now, and the retention window (default 30 days). The Authority selector and the standing-rules section are gone from every surface.
 
 ### Collaboration contract (2026-09-11)
 
@@ -634,7 +641,7 @@ observe:
   the popover, the remote client, and the glance read.
 - A settle batch beneath an owning request can start one host-composed
   follow-up turn in that conversation, bounded per root and switchable off in
-  Settings → The fold → Limits. It follows only an explicit request; a declared routing fold step is the
+  Settings → General → Limits. It follows only an explicit request; a declared routing fold step is the
   separate trigger-driven entry.
 - Space turns receive their own hidden context — task id, request id, and, when
   delegated, an opaque parent handle and the assignment text — plus a compact

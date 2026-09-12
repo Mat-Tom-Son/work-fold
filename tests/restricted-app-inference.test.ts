@@ -162,7 +162,7 @@ test("four calls run at once per installation, the fifth waits, and a full queue
   const refused = await f.service.infer(scope, "view", { instructions: "Hold", input: "x" }).catch((error) => error);
   assert.equal(codeOf(refused), "INFER_BUSY");
   assert.match((refused as Error).message, /4 inference calls running and 2 waiting/);
-  assert.match((refused as Error).message, /Settings → The fold → Limits/);
+  assert.match((refused as Error).message, /Settings → General → Limits/);
   f.behave("reply");
   for (const settle of f.held.splice(0)) settle({ kind: "text", text: "done", truncated: false, model, usage: { inputTokens: 1, outputTokens: 1 } });
   assert.equal((await Promise.all(running)).length, 4);

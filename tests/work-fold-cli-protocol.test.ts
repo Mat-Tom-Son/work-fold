@@ -398,7 +398,7 @@ test("help collaborate's worked example parses through the real act parser", () 
   }
   // Bounds are visible where a person can change them, and a refusal names
   // the same place (docs/receipts-not-gates.md, principle 6).
-  assert.match(help, /Settings → The fold →/);
+  assert.match(help, /Settings → General →/);
   assert.match(help, /Nothing waits on someone clicking something\./);
   assert.doesNotMatch(help, /\bcard\b|\bmode\b|sandboxed/i);
 });
@@ -526,7 +526,7 @@ test("the act parser refuses malformed collaboration arguments with stable usage
     () => parseWorkFoldCliActArgv([
       "chat", "handoff", "--space", "space-1", "--task", "task-1", "--to-space", "space-2", "--message", "Take this.", ...tooManyFiles,
     ]),
-    new RegExp(`A handoff may copy at most ${handoffFileLimit} files\\. Settings → The fold → Limits shows this number\\.`),
+    new RegExp(`A handoff may copy at most ${handoffFileLimit} files\\. Settings → General → Limits shows this number\\.`),
   );
   const tooManyDeliverables = Array.from(
     { length: workFoldRequestLimits.maxResultFiles + 1 },

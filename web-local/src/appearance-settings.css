@@ -1,7 +1,9 @@
 .appearance-settings { min-width: 0; color: var(--ui-text); }
-.appearance-settings-status-row { display: flex; justify-content: space-between; align-items: start; gap: 12px; margin: 0 0 20px; }
+.appearance-settings-status-row { min-height: 0; margin: 0; }
 .appearance-settings-status-row p { margin: 7px 0 0; color: var(--ui-text-muted); font-size: .86em; line-height: 1.5; }
 .appearance-settings-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.appearance-settings-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.appearance-settings-section-heading h3 { margin: 0; }
 .appearance-settings button { min-height: 34px; border: 1px solid var(--ui-border); border-radius: 7px; padding: 6px 10px; background: var(--ui-surface); color: var(--ui-text); font: inherit; font-size: .86em; cursor: pointer; }
 .appearance-settings button:hover { background: var(--ui-surface-hover); border-color: var(--ui-border-strong); }
 .appearance-settings button:disabled { opacity: .45; cursor: default; }

@@ -1516,7 +1516,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     if (!body.spaceRoot?.trim()) throw badRequest("Choose a local folder to turn into a Space.");
     if (state.localFolderGrantProvider) {
       if (!body.folderGrantId || !await state.localFolderGrantProvider.consumeLocalFolderGrant({ spaceRoot: body.spaceRoot, grantId: body.folderGrantId })) {
-        throw forbidden("The folder selection expired. Choose the folder again to create the Space.");
+        throw forbidden("The folder selection expired. Choose the folder again to add it.");
       }
     } else if (state.appMode === "desktop") {
       throw forbidden("A folder must be selected in the desktop app before it can become a Space.");
@@ -2551,8 +2551,8 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   if (method === "POST" && url.pathname === "/api/agent/instructions") {
     const body = await readJsonBody<{ spaceId?: string; scope?: string; instructions?: unknown }>(state, req);
     const scope = await assistantModelScope(body.scope, body.spaceId);
-    if (scope.id === workFoldManagementScopeId) throw badRequest("Space instructions require a Space.");
-    if (typeof body.instructions !== "string") throw badRequest("Space instructions must be text.");
+    if (scope.id === workFoldManagementScopeId) throw badRequest("Worker instructions require a Folder.");
+    if (typeof body.instructions !== "string") throw badRequest("Worker instructions must be text.");
     let instructions: string;
     try {
       instructions = normalizeAssistantInstructions(body.instructions);
@@ -3399,7 +3399,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
 
-  // Settings → The fold → Recently deleted (docs/receipts-not-gates.md, F20).
+  // Settings → General → Recently deleted (docs/receipts-not-gates.md, F20).
   // Listing is a plain read; restoring, removing one item, and changing how
   // long items are kept are journaled acts with the main-window surface, like
   // every other trusted-Settings mutation. Nothing here empties the store.
@@ -3424,7 +3424,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     sendJson(res, updated.value);
     return;
   }
-  // Settings → The fold → Limits: the one adjustable request setting (F28).
+  // Settings → General → Limits: the one adjustable request setting (F28).
   // Turning follow-up turns off changes nothing about what is recorded; it
   // only stops the host from bringing the results back as a turn.
   if (url.pathname === "/api/settings/requests" && method === "GET") {
@@ -4186,7 +4186,7 @@ async function restoreTrashSpace(state: LocalApiState, entry: WorkFoldTrashEntry
     // registration failed, so say where it is instead of implying it is lost.
     throw new WorkFoldCliError(
       "conflict",
-      `The folder is back at ${restored.restoredPath}, but work-fold could not register it as a Space: ${errorMessage(error)} `
+      `The folder is back at ${restored.restoredPath}, but work-fold could not register it as a Folder: ${errorMessage(error)} `
         + "Use existing folder in Manage Spaces to finish bringing it back.",
       { cause: error },
     );
@@ -4223,7 +4223,7 @@ async function restoreTrashAppData(
     throw new WorkFoldCliError(
       "conflict",
       `${view.note ?? "This app's data has no app to go back into."} `
-        + "Save a copy from Settings → The fold → Recently deleted, or with 'trash restore --entry "
+        + "Save a copy from Settings → General → Recently deleted, or with 'trash restore --entry "
         + `${entry.id} --to <absolute-file-path>'.`,
     );
   }
@@ -5695,7 +5695,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           .find((model) => model.provider === input.provider.trim() && model.id === input.model.trim());
         if (!match) throw new WorkFoldCliError("usage", "The selected model is not available in this Space.");
         if (!match.authConfigured) {
-          throw new WorkFoldCliError("permissionDenied", "Connect this provider in Settings → Assistant before assigning its model.");
+          throw new WorkFoldCliError("permissionDenied", "Connect this provider in Settings → Agents before assigning its model.");
         }
         await setPiDefaultModel(
           space.spaceRoot,
@@ -5883,12 +5883,12 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
     async chatAnswer(input) { return chatAnswer(await resolveSpace(input.space), input); },
     async manageAsk(input) {
       const scope = managementScope(state);
-      const { space: _space, ...result } = await chatAsk({ id: scope.id, spaceRoot: scope.rootPath, name: "The fold" }, { ...input, respondent: "person" });
+      const { space: _space, ...result } = await chatAsk({ id: scope.id, spaceRoot: scope.rootPath, name: "work-fold agent" }, { ...input, respondent: "person" });
       return result;
     },
     async manageAnswer(input) {
       const scope = managementScope(state);
-      const { space: _space, ...result } = await chatAnswer({ id: scope.id, spaceRoot: scope.rootPath, name: "The fold" }, input);
+      const { space: _space, ...result } = await chatAnswer({ id: scope.id, spaceRoot: scope.rootPath, name: "work-fold agent" }, input);
       return result;
     },
     async chatHandoff(input) {
@@ -10824,7 +10824,7 @@ function assistantFailurePublicDetail(error: unknown): string {
     return `The model stopped responding${retrySummary}.`;
   }
   if (isAssistantSetupError(error)) {
-    return "The Assistant isn’t set up yet. Open Settings → Assistant to choose a provider and model, then try again.";
+    return "The Assistant isn’t set up yet. Open Settings → Agents to choose a provider and model, then try again.";
   }
   if (isPiTurnTimeoutError(error)) {
     return `${errorMessage(error)} Raise or clear that limit to let long turns finish.`;
@@ -10832,7 +10832,7 @@ function assistantFailurePublicDetail(error: unknown): string {
   if (/timed?\s*out|timeout/i.test(errorMessage(error))) {
     return "The Assistant took too long to respond. Try again when you’re ready.";
   }
-  return "The Assistant couldn’t complete this request. Try again. If it keeps happening, check Settings → Assistant.";
+  return "The Assistant couldn’t complete this request. Try again. If it keeps happening, check Settings → Agents.";
 }
 
 /** Preserve the actionable provider status without echoing its raw body, URLs or account data. */
@@ -10890,7 +10890,7 @@ function assistantEventForRenderer(event: PiChatEvent): Omit<PiChatEvent, "raw">
     return { ...safeEvent, message: assistantFailurePublicDetail(new Error(safeEvent.message)) };
   }
   if (safeEvent.type === "status" && isAssistantSetupError(safeEvent.message)) {
-    return { ...safeEvent, message: "Assistant setup is needed. Open Settings → Assistant." };
+    return { ...safeEvent, message: "Assistant setup is needed. Open Settings → Agents." };
   }
   return safeEvent;
 }

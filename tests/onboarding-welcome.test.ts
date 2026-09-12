@@ -14,10 +14,10 @@ test("first-run onboarding locates the always-available menu-bar surface", async
     read("web-local/src/App.tsx"),
   ]);
 
-  assert.match(source, /Your fold lives in the menu bar\./);
-  assert.match(source, /Click the fold—or drop something on it—from anywhere on your Mac\./);
+  assert.match(source, /The work-fold agent lives in the menu bar\./);
+  assert.match(source, /Click it—or drop something on it—from anywhere on your Mac\./);
   assert.match(source, /className="onboarding-menubar-scene" role="img"/);
-  assert.match(source, /opens your fold — a small place to drop files, folders, or links and tell work-fold what to do\./);
+  assert.match(source, /opens the work-fold agent — a small place to drop files, folders, or links and tell it what to do\./);
   assert.match(source, /<WorkFoldMark/);
   assert.match(source, /Drop files, folders, or links/);
   assert.match(source, /They wait here until you add an instruction\./);

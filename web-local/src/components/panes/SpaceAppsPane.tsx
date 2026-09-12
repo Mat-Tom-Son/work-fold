@@ -41,7 +41,7 @@ export function SpaceAppsPane({
           <h1>Apps in {space.name}</h1>
         </div>
         <div className="space-apps-actions">
-          <button className="professional-button professional-button-primary" type="button" onClick={onBuildApp}><Add16Regular />Build with Assistant</button>
+          <button className="professional-button professional-button-primary" type="button" onClick={onBuildApp}><Add16Regular />Build with worker</button>
         </div>
       </header>
       <section className="capabilities-panel">

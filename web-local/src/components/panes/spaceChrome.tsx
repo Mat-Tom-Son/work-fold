@@ -1,6 +1,6 @@
 import { useSpaceIdentityResolver } from "../../lib/space-appearance-context";
 import { restrictedAppRailMode, restrictedAppRailLabel } from "../../lib/restricted-app-navigation";
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import {
   ArrowDownload20Regular,
   ArrowClockwise20Regular,
@@ -75,15 +75,13 @@ function SpaceModeRail({
   const addAnchorRef = useRef<HTMLDivElement | null>(null);
   const addButtonRef = useRef<HTMLButtonElement | null>(null);
   const addMenuRef = useRef<HTMLDivElement | null>(null);
-  const railRef = useRef<HTMLElement | null>(null);
-  useNativeRailTooltips(railRef);
   const FilesIcon = activeMode === "files" ? DocumentFolder24Filled : DocumentFolder24Regular;
   const ChatsIcon = activeMode === "chats" ? ChatMultiple24Filled : ChatMultiple24Regular;
   const HistoryIcon = activeMode === "history" ? History24Filled : History24Regular;
-  const primaryItems: Array<{ mode: SpaceRailMode; label: string; ariaLabel: string; title: string; icon: ReactNode }> = [
-    { mode: "files", label: "Files", ariaLabel: "Files", title: "Files in this Space", icon: <FilesIcon className="fluent-rail-icon" /> },
-    { mode: "chats", label: "Chats", ariaLabel: "Chats", title: "Chats", icon: <ChatsIcon className="fluent-rail-icon" /> },
-    { mode: "history", label: "History", ariaLabel: "History", title: "Restore points and recent activity", icon: <HistoryIcon className="fluent-rail-icon" /> },
+  const primaryItems: Array<{ mode: SpaceRailMode; label: string; ariaLabel: string; icon: ReactNode }> = [
+    { mode: "files", label: "Files", ariaLabel: "Files", icon: <FilesIcon className="fluent-rail-icon" /> },
+    { mode: "chats", label: "Chats", ariaLabel: "Chats", icon: <ChatsIcon className="fluent-rail-icon" /> },
+    { mode: "history", label: "History", ariaLabel: "History", icon: <HistoryIcon className="fluent-rail-icon" /> },
   ];
 
   useEffect(() => {
@@ -123,7 +121,7 @@ function SpaceModeRail({
   }
 
   return (
-    <nav ref={railRef} className="space-mode-rail professional-space-rail" aria-label="work-fold navigation">
+    <nav className="space-mode-rail professional-space-rail" aria-label="work-fold navigation">
       <div className="space-rail-nav">
         {primaryItems.map((item) => (
           <button
@@ -136,7 +134,6 @@ function SpaceModeRail({
             onClick={() => onModeChange(item.mode)}
             aria-label={item.ariaLabel}
             aria-current={activeMode === item.mode ? "page" : undefined}
-            data-rail-tooltip={item.title}
           >
             <span className="space-rail-icon" aria-hidden="true">{item.icon}</span>
             <span className="space-rail-label">{item.label}</span>
@@ -155,7 +152,6 @@ function SpaceModeRail({
               onClick={() => onModeChange(mode)}
               aria-label={surface.title}
               aria-current={activeMode === mode ? "page" : undefined}
-              data-rail-tooltip={`${surface.title} · ${surface.scope === "project" ? "Pi Extension · This Space" : "Pi Extension · Everywhere"}`}
             >
               <span className="space-rail-icon" aria-hidden="true">
                 {contributedIcon
@@ -179,7 +175,6 @@ function SpaceModeRail({
               onClick={() => onModeChange(mode)}
               aria-label={label}
               aria-current={activeMode === mode ? "page" : undefined}
-              data-rail-tooltip={`${label} · App · This Space`}
             >
               <span className="space-rail-icon" aria-hidden="true">
                 {contributedIcon
@@ -204,7 +199,6 @@ function SpaceModeRail({
               aria-haspopup="menu"
               aria-expanded={addOpen}
               aria-controls="space-add-menu"
-              data-rail-tooltip={addOpen ? undefined : "Add or manage"}
             >
               <Add24Regular aria-hidden="true" />
               <span>Add</span>
@@ -222,7 +216,6 @@ function SpaceModeRail({
             type="button"
             onClick={onOpenKeyboardShortcuts}
             aria-label="Keyboard shortcuts"
-            data-rail-tooltip="Keyboard shortcuts"
           >
             <Keyboard24Regular aria-hidden="true" />
             <span>Shortcuts</span>
@@ -234,99 +227,6 @@ function SpaceModeRail({
       </div>
     </nav>
   );
-}
-
-function useNativeRailTooltips(railRef: RefObject<HTMLElement | null>): void {
-  useEffect(() => {
-    const tooltip = window.workFoldDesktop?.window.railTooltip;
-    const rail = railRef.current;
-    if (!tooltip || !rail) return;
-    let timer = 0;
-    let target: HTMLElement | null = null;
-
-    function hide(): void {
-      if (timer) window.clearTimeout(timer);
-      timer = 0;
-      target = null;
-      tooltip?.hide();
-    }
-
-    function schedule(nextTarget: HTMLElement, delay: number): void {
-      if (timer) window.clearTimeout(timer);
-      tooltip?.hide();
-      target = nextTarget;
-      timer = window.setTimeout(() => {
-        timer = 0;
-        if (target !== nextTarget || !nextTarget.isConnected) return;
-        const text = nextTarget.dataset.railTooltip?.trim();
-        if (!text) return;
-        tooltip?.show(nativeRailTooltipRequest(nextTarget, text));
-      }, delay);
-    }
-
-    function handlePointerOver(event: PointerEvent): void {
-      const nextTarget = railTooltipTarget(event.target);
-      if (!nextTarget || railTooltipTarget(event.relatedTarget) === nextTarget) return;
-      schedule(nextTarget, 320);
-    }
-
-    function handlePointerOut(event: PointerEvent): void {
-      const previousTarget = railTooltipTarget(event.target);
-      if (!previousTarget || railTooltipTarget(event.relatedTarget) === previousTarget) return;
-      hide();
-    }
-
-    function handleFocusIn(event: FocusEvent): void {
-      const nextTarget = railTooltipTarget(event.target);
-      if (nextTarget) schedule(nextTarget, 40);
-    }
-
-    function handleFocusOut(event: FocusEvent): void {
-      const previousTarget = railTooltipTarget(event.target);
-      if (!previousTarget || railTooltipTarget(event.relatedTarget) === previousTarget) return;
-      hide();
-    }
-
-    rail.addEventListener("pointerover", handlePointerOver);
-    rail.addEventListener("pointerout", handlePointerOut);
-    rail.addEventListener("pointerdown", hide, true);
-    rail.addEventListener("focusin", handleFocusIn);
-    rail.addEventListener("focusout", handleFocusOut);
-    window.addEventListener("blur", hide);
-    window.addEventListener("resize", hide);
-    return () => {
-      rail.removeEventListener("pointerover", handlePointerOver);
-      rail.removeEventListener("pointerout", handlePointerOut);
-      rail.removeEventListener("pointerdown", hide, true);
-      rail.removeEventListener("focusin", handleFocusIn);
-      rail.removeEventListener("focusout", handleFocusOut);
-      window.removeEventListener("blur", hide);
-      window.removeEventListener("resize", hide);
-      hide();
-    };
-  }, [railRef]);
-}
-
-function nativeRailTooltipRequest(target: HTMLElement, text: string) {
-  const rect = target.getBoundingClientRect();
-  const context = document.createElement("canvas").getContext("2d");
-  if (context) context.font = '600 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-  const measuredWidth = context?.measureText(text).width ?? text.length * 7;
-  const width = Math.ceil(Math.max(48, Math.min(260, measuredWidth + 16)));
-  const height = 28;
-  const x = Math.max(8, Math.min(window.innerWidth - width - 8, rect.right + 8));
-  const y = Math.max(8, Math.min(window.innerHeight - height - 8, rect.top + (rect.height - height) / 2));
-  return {
-    text,
-    bounds: { x, y, width, height },
-    theme: document.documentElement.dataset.theme === "dark" ? "dark" as const : "light" as const,
-  };
-}
-
-function railTooltipTarget(target: EventTarget | null): HTMLElement | null {
-  return target instanceof Element
-    ? target.closest<HTMLElement>(".professional-space-rail [data-rail-tooltip]")
-    : null;
 }
 
 function SpacePaneHeader({
@@ -421,7 +321,7 @@ function SpacePaneHeader({
       <div
         className={headerClassName}
         style={spaceIdentityStyle(identity)}
-        aria-label={switcherEnabled ? undefined : `Current Space: ${space.name}. ${detail}`}
+        aria-label={switcherEnabled ? undefined : `Current folder: ${space.name}. ${detail}`}
       >
         {identity.bannerImage ? (
           <span className="space-pane-banner-image" aria-hidden="true">
@@ -434,12 +334,12 @@ function SpacePaneHeader({
             ref={switchTriggerRef}
             className="space-pane-switch-trigger"
             type="button"
-            aria-label={`Current Space: ${space.name}. ${detail}. Switch Space`}
+            aria-label={`Current folder: ${space.name}. ${detail}. Switch folder`}
             aria-haspopup="menu"
             aria-expanded={switcherOpen}
             aria-controls={switcherId}
             onClick={toggleSwitcher}
-            title="Switch Space"
+            title="Switch folder"
           >
             {identityLockup}
             <ChevronDown20Regular className="space-pane-switch-caret" aria-hidden="true" />
@@ -510,7 +410,7 @@ function SpaceHeaderSwitcher({
   }
 
   return (
-    <div className="space-header-switcher professional-space-switcher" id={id} role="menu" aria-label="Space menu" data-native-view-occluder="true" ref={switcherRef} onKeyDown={handleMenuKeyDown}>
+    <div className="space-header-switcher professional-space-switcher" id={id} role="menu" aria-label="Folder menu" data-native-view-occluder="true" ref={switcherRef} onKeyDown={handleMenuKeyDown}>
       <div className="space-header-switcher-list">
         {[currentSpace, ...spaces
           .filter((item) => item.id !== currentSpace.id)
@@ -538,7 +438,7 @@ function SpaceHeaderSwitcher({
           );
         })}
       </div>
-      <div className="space-header-switcher-actions" aria-label="Space actions">
+      <div className="space-header-switcher-actions" aria-label="Folder actions">
         <button
           className="space-header-switcher-action"
           type="button"
@@ -561,7 +461,7 @@ function SpaceHeaderSwitcher({
           }}
         >
           <FolderAdd20Regular aria-hidden="true" />
-          <span>Create new Space</span>
+          <span>Create new folder</span>
         </button>
         <button
           className={managingSpaces ? "space-header-switcher-action space-header-switcher-manage active" : "space-header-switcher-action space-header-switcher-manage"}
@@ -574,7 +474,7 @@ function SpaceHeaderSwitcher({
           }}
         >
           <Apps24Regular aria-hidden="true" />
-          <span>Manage Spaces</span>
+          <span>Manage folders</span>
         </button>
       </div>
     </div>
@@ -602,7 +502,7 @@ function SpaceNameEditor({
     event.preventDefault();
     const nextName = name.trim();
     if (!nextName) {
-      setError("Enter a Space name.");
+      setError("Enter a folder name.");
       return;
     }
     if (nextName === space.name) {
@@ -630,7 +530,7 @@ function SpaceNameEditor({
     <div className="space-name-editor">
       <form className="space-name-form" onSubmit={(event) => void handleSubmit(event)}>
         <label>
-          <span>Space name</span>
+          <span>Folder name</span>
           <input
             value={name}
             maxLength={80}
@@ -641,7 +541,7 @@ function SpaceNameEditor({
               if (error) setError(null);
             }}
             onKeyDown={handleKeyDown}
-            aria-label={`Space name for ${space.name}`}
+            aria-label={`Folder name for ${space.name}`}
           />
         </label>
         <button className="space-name-save" type="submit" disabled={saving || !name.trim() || name.trim() === space.name}>
@@ -835,7 +735,7 @@ function SpaceAppearancePanel({
         <span className="space-appearance-label">
           <strong>Looks</strong>
         </span>
-        <div className="space-look-gallery" role="group" aria-label="Curated Space looks">
+        <div className="space-look-gallery" role="group" aria-label="Curated folder looks">
           {looks.map((look) => {
             const active = activeLook?.name === look.name;
             return (

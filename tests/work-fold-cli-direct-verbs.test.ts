@@ -180,7 +180,7 @@ test("pages share shares the page on the first call with receipts and no decisio
     await writeFile(join(space.space.spaceRoot, "notes.md"), "# Notes\n", "utf8");
     const human = await h.execute(["pages", "share", "--space", space.space.id, "--path", "notes.md", "--title", "Notes"]);
     assert.equal(human.exitCode, 0, human.stderr);
-    assert.match(human.stdout, /^Sharing "Notes" \(notes\.md\) from Fold Space \[[^\]]+\] at \/p\/[^.]+\. Reveal the link in Settings → The fold\.\n$/);
+    assert.match(human.stdout, /^Sharing "Notes" \(notes\.md\) from Fold Space \[[^\]]+\] at \/p\/[^.]+\. Reveal the link in Settings → General\.\n$/);
 
     // The pending-decision family, permanent deletion, and the retired holding
     // spellings of the routing and outward-exposure verbs are unknown commands.

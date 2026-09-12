@@ -96,9 +96,9 @@ test("fold history pins replies, preserves per-chat drafts, and ignores late rea
   delayOld = true;
   await openHistory(); await choose("Field notes");
   await dom.waitFor(() => finishOld !== null);
-  await click('[title="Start a new chat. This chat stays saved on your desktop."]');
+  await click('[aria-label="New chat"]');
   await dom.act(() => finishOld!());
-  assert.equal(dom.container.querySelector(".fold-chat-title")?.textContent, "New chat");
+  assert.equal(dom.container.querySelector(".popover-chat-title")?.textContent, "New chat");
   assert.equal(dom.container.querySelector('[role="alert"]'), null);
   assert.equal(dom.container.querySelector("textarea")?.value, "");
   assert.equal(dom.container.textContent?.includes("Transcript older"), false);
@@ -109,19 +109,19 @@ test("fold history pins replies, preserves per-chat drafts, and ignores late rea
   assert.equal(dom.container.querySelector("textarea")?.value, "Field draft");
   running = true;
   await openHistory(); await choose("Workshop plan");
-  await dom.waitFor(() => dom.container.querySelector(".composer-action")?.textContent === "Stop");
-  await click('[title="Start a new chat. This chat stays saved on your desktop."]');
+  await dom.waitFor(() => dom.container.querySelector('[aria-label="Stop"]'));
+  await click('[aria-label="New chat"]');
   assert.equal(dom.container.querySelector("textarea")?.value, "New draft");
   assert.ok(dom.container.querySelector(".fold-background-work"), "running Chat remains reachable");
   await click(".fold-background-work");
-  await dom.waitFor(() => dom.container.querySelector(".composer-action")?.textContent === "Stop");
+  await dom.waitFor(() => dom.container.querySelector('[aria-label="Stop"]'));
   await openHistory(); await dom.press("Escape");
   assert.equal(hidden, 0, "Escape closes history first");
   await dom.press("Escape"); assert.equal(hidden, 1);
 
   emptyDesktop = true; running = false;
   await dom.render(createElement(PopoverApp, { key: "empty-desktop" }));
-  await dom.waitFor(() => dom.container.querySelector(".fold-chat-title")?.textContent === "New chat");
+  await dom.waitFor(() => dom.container.querySelector(".popover-chat-title")?.textContent === "New chat");
   emptyDesktop = false; // Another surface starts a Chat before this draft sends.
   await input("textarea", "Start my own chat");
   await click(".composer-action");

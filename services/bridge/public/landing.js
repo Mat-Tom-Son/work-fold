@@ -18,12 +18,12 @@ export function renderLanding(app) {
       <section class="landing-hero" aria-labelledby="landing-title">
         <div class="landing-hero-copy">
           <h1 id="landing-title">work-fold</h1>
-          <p class="landing-promise">An AI Assistant for the folders you work in.</p>
+          <p class="landing-promise">An AI agent for the folders you work in.</p>
           <p class="landing-intro">Bring your files, conversations, and project tools together.<br class="landing-wide-break" /> An open-source Mac app for getting real work done.</p>
           <div class="landing-download-row"><a class="landing-download" href="/download/macos">Download for Mac <span aria-hidden="true">↓</span></a><span>Apple silicon · Bring your model provider</span></div>
         </div>
         <figure class="landing-hero-shot">
-          <a href="/screens/desktop-space.jpg" target="_blank" rel="noreferrer" aria-label="Open the full-size Space screenshot (new tab)"><img src="/screens/desktop-space.jpg" width="1440" height="900" fetchpriority="high" decoding="async" alt="Project files on the left; an Assistant comparing contractor estimates on the right." /></a>
+          <a href="/screens/desktop-space.jpg" target="_blank" rel="noreferrer" aria-label="Open the full-size folder screenshot (new tab)"><img src="/screens/desktop-space.jpg" width="1440" height="900" fetchpriority="high" decoding="async" alt="Project files on the left; a worker comparing contractor estimates on the right." /></a>
           <figcaption>Your files. Your conversation. One place to work.</figcaption>
         </figure>
       </section>
@@ -31,8 +31,8 @@ export function renderLanding(app) {
       <section id="how-it-works" class="landing-section landing-workflow" aria-labelledby="workflow-title">
         <div class="landing-section-head" data-reveal><p class="landing-kicker">Start with what you have</p><h2 id="workflow-title">A folder. A conversation.<br />Something done.</h2></div>
         <ol class="landing-steps" data-reveal>
-          <li><span>01</span><h3>Open a folder</h3><p>That’s a Space. Use an existing project or start fresh. Nothing gets moved or converted.</p></li>
-          <li><span>02</span><h3>Ask for what you need</h3><p>The Space’s Assistant can read, write, and work with files using the tools you give it.</p></li>
+          <li><span>01</span><h3>Open a folder</h3><p>Use an existing project or start fresh. Nothing gets moved or converted.</p></li>
+          <li><span>02</span><h3>Ask for what you need</h3><p>A worker can read, write, and work with files using the tools you give it.</p></li>
           <li><span>03</span><h3>Keep going</h3><p>Your files stay in the folder. Your conversations stay with the project. Pick up where you left off.</p></li>
         </ol>
         <div class="landing-example" data-reveal>
@@ -43,30 +43,30 @@ export function renderLanding(app) {
 
       <section class="landing-fold-band" aria-labelledby="fold-title">
         <div class="landing-section landing-fold">
-          <div data-reveal><p class="landing-kicker">Meet the fold</p><h2 id="fold-title">Many Spaces.<br />One place to ask.</h2><p class="landing-body">Each Space has its own Assistant. The fold is the Assistant that helps you manage all of them.</p><p class="landing-body">Ask what needs attention, send work to the right Space, or coordinate the next step between projects. Open it in the app or from your Mac’s menu bar.</p><p class="landing-prompt">“What’s ready, what’s waiting, and what should we do next?”</p></div>
-          <figure class="landing-fold-shot" data-reveal><img src="/screens/fold-popover.jpg" width="400" height="560" loading="lazy" decoding="async" alt="The fold in the Mac menu bar, reporting progress across two Spaces." /></figure>
+          <div data-reveal><p class="landing-kicker">work-fold agent</p><h2 id="fold-title">Many folders.<br />One place to ask.</h2><p class="landing-body">Each folder can have workers. The work-fold agent helps you manage them.</p><p class="landing-body">Ask what needs attention, send work to the right folder, or coordinate the next step between projects. Open it in the app or from your Mac’s menu bar.</p><p class="landing-prompt">“What’s ready, what’s waiting, and what should we do next?”</p></div>
+          <figure class="landing-fold-shot" data-reveal><img src="/screens/fold-popover.jpg" width="400" height="560" loading="lazy" decoding="async" alt="The work-fold agent in the Mac menu bar, reporting progress across two folders." /></figure>
         </div>
       </section>
 
       <section class="landing-section landing-grow" aria-labelledby="grow-title">
-        <div data-reveal><p class="landing-kicker">Go further when you need to</p><h2 id="grow-title">Make the Space<br />fit the work.</h2><p class="landing-body">Start with Chat. Ask the Assistant to help set up the rest.</p></div>
+        <div data-reveal><p class="landing-kicker">Go further when you need to</p><h2 id="grow-title">Make the folder<br />fit the work.</h2><p class="landing-body">Start with Chat. Ask a worker to help set up the rest.</p></div>
         <div class="landing-capabilities" data-reveal>
-          <details open><summary>Build a tool for your project <span>Apps</span></summary><p>Ask for a quote tracker, a review queue, or a small dashboard. Review the app and its access, then use it from your Space’s sidebar.</p></details>
-          <details><summary>Give your work another look <span>Checks</span></summary><p>Choose files and explain what to check. Review quoted findings, then ask the Space Assistant to help with a correction. Model reviews can miss things; you make the call.</p></details>
-          <details><summary>Connect the next steps <span>Routings</span></summary><p>Set up steps across Spaces, on a schedule or when selected files change. Review and enable the plan; your awake Mac runs it.</p></details>
+          <details open><summary>Build a tool for your project <span>Apps</span></summary><p>Ask for a quote tracker, a review queue, or a small dashboard. Review the app and its access, then use it from the folder’s sidebar.</p></details>
+          <details><summary>Give your work another look <span>Checks</span></summary><p>Choose files and explain what to check. Review quoted findings, then ask a worker to help with a correction. Model reviews can miss things; you make the call.</p></details>
+          <details><summary>Connect the next steps <span>Automations</span></summary><p>Ask for an automation across folders, on a schedule or when selected files change. Your awake Mac runs its enabled steps.</p></details>
         </div>
       </section>
 
       <section class="landing-web-band" aria-labelledby="web-title"><div class="landing-section landing-web">
-        <figure class="landing-phone-shot" data-reveal><img src="/screens/web-phone.png" width="375" height="812" loading="lazy" decoding="async" alt="The fold conversation in a phone browser, with its message composer." /></figure>
-        <div data-reveal><p class="landing-kicker">Optional web access · Private alpha</p><h2 id="web-title">Step away.<br />Stay in the conversation.</h2><p class="landing-body">Continue talking to the fold from a paired browser while your Mac is online. The work still happens on your computer.</p><p class="landing-body">Browser access is optional. You don’t need a work-fold account to use the desktop app.</p></div>
+        <figure class="landing-phone-shot" data-reveal><img src="/screens/web-phone.png" width="375" height="812" loading="lazy" decoding="async" alt="A work-fold agent conversation in a phone browser, with its message composer." /></figure>
+        <div data-reveal><p class="landing-kicker">Optional web access · Private alpha</p><h2 id="web-title">Step away.<br />Stay in the conversation.</h2><p class="landing-body">Continue talking to the work-fold agent from a paired browser while your Mac is online. The work still happens on your computer.</p><p class="landing-body">Browser access is optional. You don’t need a work-fold account to use the desktop app.</p></div>
       </div></section>
 
       <section class="landing-section landing-start" aria-labelledby="start-title">
         <div data-reveal><p class="landing-kicker">A few things to know</p><h2 id="start-title">Your files stay yours.</h2></div>
         <dl class="landing-facts" data-reveal>
           <div><dt>Ordinary folders</dt><dd>Keep using Finder, your editor, backup, and sync tools. You can still use your files without work-fold.</dd></div>
-          <div><dt>Your model provider</dt><dd>Connect a provider in Settings → Assistant. Content used by the Assistant goes to that provider, and usage may cost money.</dd></div>
+          <div><dt>Your model provider</dt><dd>Connect a provider in Settings → Agents. Content used by workers goes to that provider, and usage may cost money.</dd></div>
           <div><dt>Open source, still growing</dt><dd>Available for Apple silicon Macs. The project is actively evolving; feedback and contributions help shape what comes next.</dd></div>
         </dl>
       </section>

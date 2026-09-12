@@ -20,9 +20,9 @@ import { FoldLimitsPane } from "../web-local/src/components/modals/FoldLimitsPan
 import { createDomHarness } from "./support/dom.js";
 
 /**
- * Settings → The fold → Limits (docs/receipts-not-gates.md, F19 principle 6).
+ * Settings → General → Limits (docs/receipts-not-gates.md, F19 principle 6).
  * Bounds are defaults, not gates, and they are visible in Settings. Every
- * app-facing refusal names "Settings → The fold → Limits", so this suite pins
+ * app-facing refusal names "Settings → General → Limits", so this suite pins
  * that the section exists, that it is read-only, and that the numbers it shows
  * are the frozen constants the host enforces rather than retyped copies.
  */
@@ -39,7 +39,7 @@ test("the surface every limit message names is a real fold Settings section", ()
   for (const [label, source] of [["tasks", tasksSource], ["inference", inferenceSource]] as const) {
     assert.match(
       source,
-      /const limitsSection = "Settings → The fold → Limits";/,
+      /const limitsSection = "Settings → General → Limits";/,
       `${label} refusals still name the Limits section`,
     );
   }
@@ -91,8 +91,8 @@ test("the Limits pane shows the assistant, routing, and automation numbers a ref
     text.includes(`Short answers running on this computer${restrictedAppInferenceLimits.runningMachineWide}`),
     "the machine-wide inference bound is shown",
   );
-  assert.ok(text.includes(`Steps in one routing${workFoldRoutingDeclarationBounds.maxSteps}`), "the raised step default is shown");
-  assert.ok(text.includes(`Routing runs at once${workFoldRoutingMaxConcurrentRuns}`), "the raised run-slot default is shown");
+  assert.ok(text.includes(`Steps in one automation${workFoldRoutingDeclarationBounds.maxSteps}`), "the raised step default is shown");
+  assert.ok(text.includes(`Automation runs at once${workFoldRoutingMaxConcurrentRuns}`), "the raised run-slot default is shown");
   assert.ok(
     text.includes(`Automations running on this computer${workFoldAutomationDefaultConcurrency}`),
     "the automation concurrency default is shown",
@@ -100,9 +100,9 @@ test("the Limits pane shows the assistant, routing, and automation numbers a ref
 
   // The request bounds every collaboration refusal names (docs/collaboration-contract.md).
   assert.ok(text.includes(`How long one request stays open${workFoldRequestLimits.deadlineMs / 3_600_000} hours`), "the request window is shown");
-  assert.ok(text.includes(`Space turns one request may start${workFoldRequestLimits.maxChildRequestsPerRoot}`), "the child count is shown");
+  assert.ok(text.includes(`Worker turns one request may start${workFoldRequestLimits.maxChildRequestsPerRoot}`), "the child count is shown");
   assert.ok(text.includes(`How far a request may hand work on${workFoldRequestLimits.maxDelegationDepth} levels`), "the depth is shown");
-  assert.ok(text.includes(`Space turns running together${workFoldRequestLimits.maxConcurrentChildrenPerRoot}`), "the concurrency is shown");
+  assert.ok(text.includes(`Worker turns running together${workFoldRequestLimits.maxConcurrentChildrenPerRoot}`), "the concurrency is shown");
   assert.ok(text.includes(`Follow-up turns after work settles${workFoldRequestLimits.maxContinuationsPerRoot}`), "the continuation count is shown");
   assert.ok(text.includes("Model spending for one requestNo limit"), "no spending cap is shipped");
   assert.ok(text.includes(`A result summary${workFoldRequestLimits.maxResultSummaryBytes / 1024} KB`), "the summary bound is shown");
@@ -113,7 +113,7 @@ test("the Limits pane shows the assistant, routing, and automation numbers a ref
 });
 
 /**
- * Every request refusal ends with "Settings → The fold → Limits shows this
+ * Every request refusal ends with "Settings → General → Limits shows this
  * number." A bound whose refusal says that and whose number is not in the
  * pane sends a person somewhere that does not answer them, which is exactly
  * the gate-in-disguise principle 6 forbids. This pins one row per bound, so a
@@ -131,12 +131,12 @@ test("every request bound whose refusal names the Limits section has a row in it
   const rows: Record<WorkFoldRequestLimitName, string> = {
     deadline: `How long one request stays open${window}`,
     questionLifetime: `How long one request stays open${window}`,
-    childTasks: `Space turns one request may start${limits.maxChildRequestsPerRoot}`,
+    childTasks: `Worker turns one request may start${limits.maxChildRequestsPerRoot}`,
     depth: `How far a request may hand work on${limits.maxDelegationDepth} levels`,
-    concurrentChildren: `Space turns running together${limits.maxConcurrentChildrenPerRoot}`,
+    concurrentChildren: `Worker turns running together${limits.maxConcurrentChildrenPerRoot}`,
     continuations: `Follow-up turns after work settles${limits.maxContinuationsPerRoot}`,
     providerBudget: "Model spending for one requestNo limit",
-    questionText: `A question the Assistant asks${kb(limits.maxQuestionTextBytes)}`,
+    questionText: `A question an agent asks${kb(limits.maxQuestionTextBytes)}`,
     answerText: `An answer you give${kb(limits.maxAnswerTextBytes)}`,
     resultSummary: `A result summary${kb(limits.maxResultSummaryBytes)}`,
     resultData: `Result details${kb(limits.maxResultDataBytes)}`,
@@ -150,7 +150,7 @@ test("every request bound whose refusal names the Limits section has a row in it
   for (const [name, row] of Object.entries(rows) as Array<[WorkFoldRequestLimitName, string]>) {
     assert.match(
       workFoldRequestLimitMessage(name, 1),
-      /Settings → The fold → Limits shows this number\.$/,
+      /Settings → General → Limits shows this number\.$/,
       `the ${name} refusal points at the Limits pane`,
     );
     assert.ok(text.includes(row), `the ${name} bound has a row reading "${row}"`);

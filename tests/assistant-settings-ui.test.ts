@@ -180,7 +180,7 @@ test("saved credentials are readable status, with separate explicit connection a
   await ui.finish(write, { status: { ...status, provider: "anthropic", model: "claude" } });
   assert.equal(ui.dom.container.querySelector('input[type="password"]'), null);
   assert.match(ui.dom.container.textContent!, /Connected and model saved/);
-  assert.deepEqual([...ui.dom.container.querySelectorAll("h3")].map((item) => item.textContent), ["Model", "Connection", "Space instructions"]);
+  assert.deepEqual([...ui.dom.container.querySelectorAll("h3")].map((item) => item.textContent), ["Model", "Connection", "Worker instructions"]);
 });
 
 

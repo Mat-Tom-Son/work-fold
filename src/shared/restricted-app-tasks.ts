@@ -79,7 +79,7 @@ export interface RestrictedAppTaskDetail {
 
 /**
  * These bounds keep app input and delivery envelopes sane; they are not a
- * filesystem or tool sandbox for the Assistant. Settings → The fold → Limits
+ * filesystem or tool sandbox for the Assistant. Settings → General → Limits
  * presents these numbers, and every limit hit names that section.
  */
 export const restrictedAppAssistantLimits = Object.freeze({

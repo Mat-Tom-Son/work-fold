@@ -43,9 +43,9 @@ The persistent Space-header menu establishes the active root-folder entity and o
 - **Chats** — conversations associated with the selected Space, followed by collapsed groups for every other registered Space, including zero-count groups in the current view.
 - **History** — checkpoints and recoverable changes for the selected Space.
 - **Library** — reusable personal materials shared across Spaces, opened on demand as a persistent Space-owned tab whose explicit destination selector can copy to any registered Space.
-- **Assistant tools** — one on-demand Space-owned Installed/Discover work tab for Skills and Extensions, available personally or from a registered Space. Package provenance and lifecycle live here without becoming another rail destination.
+- **Agent tools** — one on-demand Space-owned Installed/Discover work tab for Skills and Extensions, available personally or from a registered Space. Package provenance and lifecycle live here without becoming another rail destination.
 
-Provider, model, and authentication configuration for the Pi-powered Assistant lives under **Settings → Assistant**.
+Provider, model, and authentication configuration for the Pi-powered Assistant lives under **Settings → Agents**.
 
 The concepts have deliberately different scopes and trust levels. Library materials are passive and personal. Skills influence how the Assistant works and may include scripts. Extensions execute code or reach other systems and therefore require stronger, explicit trust. Combining them in one management surface does not collapse those differences: type, provenance, scope, load state, diagnostics, and package contents remain visible. Making something available does not silently activate it or add it to a chat's context.
 

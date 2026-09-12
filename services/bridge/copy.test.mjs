@@ -11,14 +11,14 @@ async function clientSource(file) {
   return await readFile(new URL(`./public/${file}`, import.meta.url), "utf8");
 }
 
-test("remote client uses the fold vocabulary for its entry surfaces", async () => {
+test("remote client identifies the work-fold agent at its entry surfaces", async () => {
   const app = await clientSource("app.js");
 
   // Sign-in eyebrow.
-  assert.match(app, /eyebrow: "Your fold",\s*\n\s*headline: `Welcome back/);
+  assert.match(app, /eyebrow: "work-fold agent",\s*\n\s*headline: `Welcome back/);
 
   // Address-unavailable eyebrow and supporting line.
-  assert.match(app, /eyebrow: "Your fold",\s*\n\s*headline: "This address isn’t active\."/);
+  assert.match(app, /eyebrow: "work-fold agent",\s*\n\s*headline: "This address isn’t active\."/);
   assert.ok(app.includes('Check the address, or enable web access from the <span class="nobr">work-fold</span> desktop app.'));
 
   // The retired phrasings must not come back.
@@ -30,9 +30,9 @@ test("remote client uses the fold vocabulary for its entry surfaces", async () =
 test("remote client keeps the load-bearing copy exact", async () => {
   const app = await clientSource("app.js");
 
-  // work-fold stays the actor in the composer.
-  assert.ok(app.includes('placeholder="Message work-fold"'));
-  assert.ok(app.includes('prompt.placeholder = "Message work-fold"'));
+  // The work-fold agent stays the actor in the composer.
+  assert.ok(app.includes('placeholder="Message work-fold agent"'));
+  assert.ok(app.includes('prompt.placeholder = "Message work-fold agent"'));
 
   // Desktop-offline gate: it says the situation once, not four times.
   assert.ok(app.includes('eyebrow: "Desktop offline"'));
@@ -47,10 +47,10 @@ test("remote client keeps the load-bearing copy exact", async () => {
   assert.ok(app.includes("<span>Waiting for your desktop…</span>"));
 
   // The screens name themselves: the door asks the question, and Needs you
-  // and Spaces carry their own titles.
+  // and the folder view carries the selected folder title.
   assert.ok(app.includes('<h1 class="new-heading" tabindex="-1">What are we working on?</h1>'));
   assert.equal(app.includes('id="context-needs"'), false);
-  assert.ok(app.includes('<h1 id="space-title" tabindex="-1">Spaces</h1>'));
+  assert.ok(app.includes('<h1 id="space-title" tabindex="-1">Folder</h1>'));
 
   // The retired shell's copy is gone, not hidden: the Home heading and its
   // address line, the recent-chat tail, the back affordance, the composer
@@ -112,13 +112,14 @@ test("the remote client does not fetch or acknowledge a hidden activity feed", a
   assert.doesNotMatch(app, /id="fold-home"|Since you last looked|Nothing needs you right now/);
 });
 
-test("remote client navigation is one sidebar over conversations and Spaces", async () => {
+test("remote client navigation keeps folders in a compact picker", async () => {
   const app = await clientSource("app.js");
   const styles = await clientSource("app.css");
+  const dateGroups = await clientSource("date-groups.js");
 
   // Three screens, New chat as the door; the retired hashes land there too.
   assert.match(app, /const contextNames = \["new", "chat", "spaces"\];/);
-  // The Space browser is named for where it goes; `#files` still lands there.
+  // The internal folder browser retains its route; `#files` still lands there.
   assert.match(app, /if \(raw === "files"\) return \{ context: "spaces"/);
   assert.match(app, /contextNames\.includes\(raw\) \? raw : "new"/);
   assert.match(app, /requested === "home" \|\| requested === "chats"\) return "new"/);
@@ -134,10 +135,11 @@ test("remote client navigation is one sidebar over conversations and Spaces", as
   assert.equal(app.includes("tab-bar"), false);
   assert.equal(styles.includes(".tab-bar"), false);
 
-  // Expanded order: New chat, the grouped chat
-  // list, then Spaces, presence, and Settings in the footer.
-  assert.match(app, /id="new-chat"[\s\S]*?<ul id="chats"[\s\S]*?data-nav-context="spaces"[\s\S]*?id="desktop-presence"[\s\S]*?id="account-settings"/);
-  assert.match(app, /"Today"[\s\S]*?"Yesterday"[\s\S]*?"Earlier"/);
+  // Expanded order: New chat, the grouped chat list, a Folders picker, and
+  // Settings. Online presence stays out of the way; offline remains visible.
+  assert.match(app, /id="new-chat"[\s\S]*?<ul id="chats"[\s\S]*?id="folder-picker-button"[\s\S]*?id="folder-picker"[\s\S]*?id="account-settings"[\s\S]*?id="desktop-presence"/);
+  assert.ok(app.includes('import { groupConversationsByDate } from "./date-groups.js";'));
+  assert.match(dateGroups, /"Today"[\s\S]*?"Yesterday"[\s\S]*?"Earlier this week"[\s\S]*?"Last week"[\s\S]*?"Older"/);
   assert.ok(app.includes("No chats yet"));
   assert.ok(app.includes("Older chats hidden"));
 
@@ -150,7 +152,7 @@ test("remote client navigation is one sidebar over conversations and Spaces", as
   assert.match(styles, /\.app-shell\[data-sidebar="collapsed"\] \.sidebar \[data-tip\]::after \{\s*\n\s*content: attr\(data-tip\)/);
   assert.match(styles, /@media \(min-width: 860px\) and \(hover: hover\)[\s\S]*?\[data-tip\]:hover::after/);
   assert.match(styles, /\[data-tip\]:focus-visible::after/);
-  for (const name of ["New chat", "Chats", "Spaces", "Settings"]) {
+  for (const name of ["New chat", "Chats", "Folders", "Settings"]) {
     assert.ok(app.includes(`data-tip="${name}" aria-label="${name}"`) || app.includes(`aria-label="${name}" data-tip="${name}"`),
       `tooltip and accessible name disagree for ${name}`);
   }
@@ -175,6 +177,15 @@ test("remote client navigation is one sidebar over conversations and Spaces", as
 
   assert.ok(app.includes('id="request-work"'));
 
-  // Presence is a sidebar-footer line, honest in both directions.
-  assert.ok(app.includes('online ? "Desktop online" : "Desktop offline"'));
+  // Presence only appears for an offline desktop.
+  assert.ok(app.includes('const label = online ? "" : "Desktop offline"'));
+  assert.ok(app.includes("presence.hidden = online"));
+  assert.ok(app.includes("toggleFolderPicker"));
+  assert.ok(app.includes("closeFolderPicker"));
+  assert.ok(app.includes("Folder ID: ${space.id}"));
+  assert.match(styles, /\[data-tip\]\[aria-expanded="true"\]:hover::after \{ opacity: 0; \}/);
+  // Component layout rules use display values, so their semantic hidden
+  // states need explicit higher-specificity guards in both sidebar modes.
+  assert.match(styles, /#desktop-presence\[hidden\] \{ display: none; \}/);
+  assert.match(styles, /\.app-shell\[data-sidebar="collapsed"\] \.folder-picker\[hidden\] \{ display: none; \}/);
 });

@@ -97,13 +97,11 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
 
   const tabs: Array<{ id: SettingsPage; label: string; icon: React.ReactNode }> = [
     { id: "appearance", label: "Appearance", icon: <PaintBrush20Regular /> },
-    { id: "assistant", label: "Assistant", icon: <Sparkle20Regular /> },
-    { id: "remote", label: "The fold", icon: <Window20Regular /> },
+    { id: "assistant", label: "Agents", icon: <Sparkle20Regular /> },
+    { id: "remote", label: "General", icon: <Window20Regular /> },
     { id: "desktop", label: "Desktop", icon: <Laptop20Regular /> },
     { id: "about", label: "About", icon: <Info20Regular /> },
   ];
-  const selectedPage = tabs.find((tab) => tab.id === page)!;
-
   return (
     <div className="modal-backdrop settings-backdrop" role="presentation" onMouseDown={onClose}>
       <section ref={dialogRef} tabIndex={-1} className="settings-modal settings-window" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}>
@@ -133,7 +131,6 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
             ))}
           </div>
           <div className="settings-content" ref={contentRef}>
-            <header className="settings-page-heading"><h2>{selectedPage.label}</h2></header>
             {page === "appearance" ? (
               <div className="settings-tab-panel" id="settings-panel-appearance" role="tabpanel" aria-labelledby="settings-tab-appearance">
                 <AppearanceSettingsPane appearance={appearance} space={space} onCustomizeSpace={onCustomizeSpace} />
@@ -146,7 +143,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
             ) : null}
             {page === "remote" ? (
               <div className="settings-tab-panel" id="settings-panel-remote" role="tabpanel" aria-labelledby="settings-tab-remote">
-                <div className="settings-subtabs" role="tablist" aria-label="The fold settings">
+                <div className="settings-subtabs" role="tablist" aria-label="General settings">
                   {([[
                     "access",
                     "Web access",
@@ -155,7 +152,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
                     "Shared pages",
                   ], [
                     "routings",
-                    "Routings",
+                    "Automations",
                   ], [
                     "deleted",
                     "Recently deleted",
@@ -294,7 +291,7 @@ function RemoteAccessPane() {
   if (!remote) {
     return (
       <section className="settings-section" aria-labelledby="remote-access-title">
-        <div className="settings-section-heading"><h3 id="remote-access-title">Your fold on the web</h3></div>
+        <div className="settings-section-heading"><h3 id="remote-access-title">work-fold on the web</h3></div>
         <p>Set up web access in the desktop app.</p>
       </section>
     );
@@ -330,7 +327,7 @@ function RemoteAccessPane() {
       </section>
 
       <section className="settings-section" aria-labelledby="remote-address-settings-title">
-        <div className="settings-section-heading"><h3 id="remote-address-settings-title">{status?.configured ? "Change address or password" : "Set up your fold on the web"}</h3></div>
+        <div className="settings-section-heading"><h3 id="remote-address-settings-title">{status?.configured ? "Change address or password" : "Set up work-fold on the web"}</h3></div>
         <div className="remote-access-fields">
           <label className="settings-field"><span>Web address</span><div className="remote-slug-field"><input value={slug} autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="your-name" maxLength={32} disabled={Boolean(busy)} onChange={(event) => { setSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "")); setError(null); setNotice(null); }} /><span>.work-fold.com</span></div></label>
           <label className="settings-field"><span>{status?.configured ? "New password" : "Password"}</span><input type="password" value={password} autoComplete="new-password" minLength={8} maxLength={256} placeholder="At least 8 characters" disabled={Boolean(busy)} onChange={(event) => { setPassword(event.target.value); setError(null); setNotice(null); }} /></label>
@@ -404,7 +401,7 @@ function shortReleaseDigest(value: string): string {
 }
 
 /**
- * Settings → The fold → Pages your fold serves (docs/fold-publishing.md,
+ * Settings → General → Shared pages (docs/fold-publishing.md,
  * plan item 5). Reads and narrowing verbs only: revealing a link is a
  * transient on-demand composition against the viewer origin, and stop
  * sharing, budget cuts, and snapshot off are direct receipted acts on the

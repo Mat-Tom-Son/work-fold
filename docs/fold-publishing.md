@@ -59,7 +59,7 @@ published item. Its properties, all load-bearing: **per-published-item**
 enforces this in the broker, not app code), **link-scoped** (the link is
 the whole credential; forwarding the link forwards the access — the
 intended semantics, stated plainly in the share receipt and
-in Settings → The fold; no viewer accounts, sessions, or cookies), **revocable** (revoking kills every copy
+in Settings → General; no viewer accounts, sessions, or cookies), **revocable** (revoking kills every copy
 of the link at once, desktop-first), and **receipted** (creating,
 rebinding, re-budgeting, and revoking are journaled acts; serving a page is
 a read — counted in bounded aggregate tallies the glance can show, never
@@ -469,7 +469,7 @@ The plan items shipped as follows (numbering preserved for references):
 2. Viewer plane at the bridge — host routing, the shell under `services/bridge/public/viewer/`, rate limits, `viewer.fetch` frames; the bridge suite and `services/bridge/metrics.test.mjs`.
 3. Desktop publication authority and serving — `src/local/publications.ts`, `desktop/src/remote-access.ts`, `desktop/src/settings.ts`; `tests/work-fold-publications.test.ts`, `tests/desktop-remote-access.test.ts`.
 4. Act verbs and receipts — `pages share|share-app|list|status|revoke|narrow|snapshot-off` in `src/local/cli/act-commands.ts` and `src/local/cli/act-facade.ts`; `tests/work-fold-cli-act-protocol.test.ts`, `tests/work-fold-act-facade.test.ts`.
-5. Desktop surfaces — publications list, share-link reveal, budget and snapshot controls, and revoke in Settings → The fold; glance change items; `tests/fold-publication-settings.test.ts`, `tests/web-ui-contract.test.ts`, `tests/frontend-interaction-contract.test.ts`.
+5. Desktop surfaces — publications list, share-link reveal, budget and snapshot controls, and revoke in Settings → General; glance change items; `tests/fold-publication-settings.test.ts`, `tests/web-ui-contract.test.ts`, `tests/frontend-interaction-contract.test.ts`.
 6. Snapshot opt-in lane — push/delete in `desktop/src/remote-access.ts`, bridge storage, "as of" rendering, label copy.
 7. Rung 3 viewer surface — the `viewer` manifest declaration in `src/local/agent/restricted-app-manifest.ts`, the viewer adapter in `src/local/agent/restricted-app-viewer.ts`, opaque-origin iframe hosting in the shell, probe denial cases in `scripts/restricted-app-electron-smoke.mjs`; `tests/restricted-app-manifest.test.ts`, `tests/restricted-app-product-contract.test.ts`, `tests/work-fold-publications.test.ts`.
 8. Docs and canonical promotion — recorded in [Fold integration](fold-integration.md).

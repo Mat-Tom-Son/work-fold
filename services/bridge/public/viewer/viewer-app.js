@@ -197,7 +197,7 @@ function showStatus(root, text) {
 function stateMessage(state, slug) {
   if (state === "nothing-here") return "Nothing is published here.";
   if (state === "asleep") {
-    return `The app this page belongs to is served by ${slug ?? "its owner"}'s work-fold desktop, which is asleep right now. Try again later.`;
+    return `The app this page belongs to is served by ${slug ?? "its owner"}'s work-fold desktop, which is offline right now. Try again later.`;
   }
   if (state === "resting") return "This app has had a lot of visitors today. Try again later.";
   if (state === "not-available") return "This app isn't available right now.";

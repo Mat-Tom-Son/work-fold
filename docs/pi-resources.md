@@ -6,7 +6,7 @@ Start with [Assistant capabilities](assistant-capabilities.md) for the product c
 
 The [work-fold management layer](management-layer.md) reports this same native catalog through versioned read snapshots and the installed `work-fold capabilities list --json` command. That projection includes tools, packages, prompts, themes, commands, trust, scope, provenance, and diagnostics; it is not a second discovery path or an install/activation surface.
 
-In the product navigation, **Assistant tools** is the single Space-aware surface for Skills and Extensions. A Skill describes a reusable way of working; an Extension adds an executable capability or connection. Installed and Discover views retain the item type, source, scope, load state, diagnostics, and package lifecycle. Provider and model setup lives under **Settings → Assistant**.
+In the product navigation, **Agent tools** is the single Space-aware surface for Skills and Extensions. A Skill describes a reusable way of working; an Extension adds an executable capability or connection. Installed and Discover views retain the item type, source, scope, load state, diagnostics, and package lifecycle. Provider and model setup lives under **Settings → Agents**.
 
 ## Extensions
 

@@ -127,7 +127,7 @@ async function main() {
   const slug = viewerSlugFromHost(location.hostname);
   if (state === "nothing-here") return showStatus(root, "Nothing is published here.");
   if (state === "asleep") {
-    return showStatus(root, `This page is served by ${slug ?? "its owner"}'s work-fold desktop, which is asleep right now. Try again later.`);
+    return showStatus(root, `This page is served by ${slug ?? "its owner"}'s work-fold desktop, which is offline right now. Try again later.`);
   }
   if (state === "resting") return showStatus(root, "This page has had a lot of visitors today. Try again later.");
   if (state === "not-available") return showStatus(root, "This page isn't available right now.");
@@ -155,7 +155,7 @@ async function main() {
         ciphertext: result.page.ciphertext,
       });
       const capturedAt = new Date(result.page.capturedAt);
-      showBanner(`As of ${Number.isNaN(capturedAt.getTime()) ? result.page.capturedAt : capturedAt.toLocaleString()} — the desktop serving this page is asleep.`);
+      showBanner(`As of ${Number.isNaN(capturedAt.getTime()) ? result.page.capturedAt : capturedAt.toLocaleString()} — the desktop serving this page is offline.`);
       return renderPayload(root, payload);
     }
   } catch {

@@ -1,6 +1,12 @@
-# Routings: declared cross-Space glue
+# Automations: declared cross-Folder glue
 
-**Status: shipped contract reference.** Routings shipped with the fold build
+**Status: shipped contract reference.** **Automations** are the user-facing
+name for the shipped routing feature. The technical contract, identifiers,
+CLI verbs, and storage keep `routing`/`routings` for compatibility. An
+Automation is fixed, deterministic app work on a reviewed trigger; it is not
+an agent scheduler and does not create a second kind of Worker.
+
+The technical routing feature shipped with the work-fold agent build
 — `src/local/routings/` (declarations, store, settle signal, executor) and
 its suites are the implementation authority — and their decisions were
 promoted on 2026-08-11 into [the fold](fold.md) decision register (F8, F9,
@@ -22,17 +28,18 @@ The declaration contract accepts versions 1, 2, 3, and 4. Version 2 added a
 bounded one-time `at` trigger on 2026-09-01; version 3 adds explicit folder
 observation, shipped in September 2026; version 4 adds the closed placeholder
 set and the `fold` step, shipped with the receipts-not-gates build.
-Settings → The fold → Routings is the desktop management surface. The
+Settings → **General → Automations** is the desktop management surface. The
 store schema is version 3; version-1 and version-2 records load and are
 rewritten as version 3 on the next mutation, converting the grants an older
 build wrote, while newer schemas still fail closed.
 
-A **routing** is a machine-local, inert-until-enabled declaration of
-deterministic steps that move work between Spaces: start a Space Chat with a
-fixed message, copy files from one Space into another with a History restore
-point, run a Check, message the fold. It is executed by app code on the shared scheduler
-discipline, never by an open-ended Assistant conversation, and it is the
-only thing above Spaces that runs unattended. A routing is not a workflow
+A **Automation** is a machine-local, inert-until-enabled declaration of
+deterministic steps that move work between Folders: start a Folder Chat with a
+fixed message, copy files from one Folder into another with a History restore
+point, run a Check, or message the work-fold agent. It is executed by app code
+on the shared scheduler discipline, never by an open-ended Worker
+conversation, and it is the only thing above Folders that runs unattended. An
+Automation is not a workflow
 language: no conditions, no branching, no retries, no loops, no expression
 templating, and no model deciding which step runs next. Agentic work happens
 inside a Space Chat step, run by that Space's own Assistant with that Space's
@@ -76,7 +83,7 @@ recorded settle/schedule state, or explicitly granted bounded folder metadata ob
 
 **Folder changes (version 3)** use `{"kind":"files-changed","space":"<Space id>","watch":{"kind":"tree","path":"Incoming","recursive":true,"extensions":[".md",".txt"]},"debounceSeconds":5,"cooldownMinutes":1}`. The exact named folder must exist at enablement. The host observes matching ordinary files every two seconds, within 512 files, 2,000 visited entries, depth 16, and the existing target byte bounds. Metadata identities include size, nanosecond modification/change times, and inode; file contents are not read or sent anywhere by the observer. Symlinks and overlap with separately registered Spaces fail closed. The extension list and recursion are explicit; reserved metadata stays excluded.
 
-A fresh enable, restart, wake, or recovered observer error first establishes a baseline without firing. Changes must settle for the declared 2–120 seconds, with at least 1–1440 minutes between firings. Bursts coalesce into the latest snapshot, not a queue of events. An accepted run records its source Space, snapshot digest, and change count before any hop. Every launch rechecks the exact declaration grant; revocation invalidates in-flight scans. The observer reports starting/watching/paused/error state and errors in Settings → The fold → Routings.
+A fresh enable, restart, wake, or recovered observer error first establishes a baseline without firing. Changes must settle for the declared 2–120 seconds, with at least 1–1440 minutes between firings. Bursts coalesce into the latest snapshot, not a queue of events. An accepted run records its source Folder, snapshot digest, and change count before any hop. Every launch rechecks the exact declaration grant; revocation invalidates in-flight scans. The observer reports starting/watching/paused/error state and errors in Settings → General → Automations.
 
 All folder observers pause while any routing executes and establish fresh baselines afterward. This deliberately absorbs routing-generated edits and prevents cross-routing file loops. Changes made during that pause, while asleep, or while quit are **not replayed**. This is an awake-app convenience trigger, not a durable filesystem event bus. Keep a complete cross-Space sequence in one routing: wait for A's Chat, copy its created files, then run B's Chat or Check. There is no transcript relay or ambient context injection. Stop, disable, removal, shutdown, journaling, non-overlap, and FIFO limits use the existing executor paths.
 
@@ -400,7 +407,7 @@ The five questions, per mutation:
 
 ## Where routings live in the product
 
-Routings are managed in **Settings → The fold** (decision F15) — Assistant
+Automations are managed in **Settings → General → Automations** (decision F15) — Agent
 tools was rejected because a routing is not one Space's object, and a
 management work tab was rejected because it would spend the Space-bound tab
 contract's own deliberate design. The Settings section carries the list,

@@ -110,9 +110,9 @@ rules, which mirror the desktop's.
 | Apply appearance | Customize Space → Import proposal | none | direct verb (argued below) | `spaces appearance apply --space <id> --proposal <path>` | prior customization ref | `spaces appearance undo --space <id>` | proposal must parse as the typed `space-appearance` proposal; nothing else is accepted |
 | Reset appearance | Customize Space → Reset | none | direct verb | `spaces appearance reset --space <id>` | prior customization ref | `spaces appearance undo` | — |
 | Undo appearance | — (the desktop re-imports or resets instead) | none | direct verb | `spaces appearance undo --space <id>` | restored and displaced customization refs | apply the displaced ref again — undo is its own inverse | refused with a typed error when the receipt chain records no prior customization ref for that Space, including when the current appearance was last changed on the desktop rather than through a receipted act |
-| Inspect Space Assistant preferences | Settings → Assistant | none | direct verb (content-bearing act read) | `spaces assistant show --space <id>` | — | n/a | returns only connected model choices plus the current model and instruction text; provider credentials never enter the result |
-| Set the default model for new Chats | Settings → Assistant | none | direct verb | `spaces assistant model --space <id> --provider <id> --model <id>` | provider and model ids | choose the prior model again | selected model must exist and already have configured auth; fenced against active Assistant, compaction, or Check work; existing Chat sessions keep their session model |
-| Set or clear Space instructions | Settings → Assistant | none | direct verb | `spaces assistant instructions --space <id> (--instructions <text> \| --clear)` | updated character count or cleared marker — never text | set the prior text again or clear | bounded validated text; fenced against active Assistant, compaction, or Check work; applies to subsequent turns after scoped client invalidation |
+| Inspect Space Assistant preferences | Settings → Agents | none | direct verb (content-bearing act read) | `spaces assistant show --space <id>` | — | n/a | returns only connected model choices plus the current model and instruction text; provider credentials never enter the result |
+| Set the default model for new Chats | Settings → Agents | none | direct verb | `spaces assistant model --space <id> --provider <id> --model <id>` | provider and model ids | choose the prior model again | selected model must exist and already have configured auth; fenced against active Assistant, compaction, or Check work; existing Chat sessions keep their session model |
+| Set or clear Space instructions | Settings → Agents | none | direct verb | `spaces assistant instructions --space <id> (--instructions <text> \| --clear)` | updated character count or cleared marker — never text | set the prior text again or clear | bounded validated text; fenced against active Assistant, compaction, or Check work; applies to subsequent turns after scoped client invalidation |
 
 The desktop couples managed-Space removal with folder deletion in one
 confirm dialog; the ledger splits them. Unregistration is recoverable and
@@ -148,7 +148,7 @@ convenience.
 | Archive Chat | Chat actions popover | none | direct verb | `chat archive --space <id> --conversation <id>` | prior lifecycle state | `chat resume` | same as snooze |
 | Resume Chat | Popover "Resume now" / "Restore to Active", read-only banner | none | direct verb | `chat resume --space <id> --conversation <id>` | prior lifecycle state | re-archive or re-snooze | refused while turn/compaction runs |
 | Compact Chat | Composer `/compact` | none | direct verb | `chat compact --space <id> --conversation <id>` | kernel task id | none — compaction is additive summarization, not deletion | refused while a turn runs; registers the same kernel `compaction` task and capability-mutation fencing as the renderer |
-| Report a result | — (Space Assistant, app task, or outside harness) | act | direct verb | `chat report --space <id> --task <own-task-id> --summary <text> [--data <json-or-@path>] [--file <space-path>]... [--outcome …]` | outcome and file count — never the summary or data | none — a report is a record, not a mutation | `--task` must be the caller's own running turn; summary ≤ 32 KiB, data ≤ 256 KiB, ≤ 32 files, each a file inside the Space; refusals name Settings → The fold → Limits |
+| Report a result | — (Space Assistant, app task, or outside harness) | act | direct verb | `chat report --space <id> --task <own-task-id> --summary <text> [--data <json-or-@path>] [--file <space-path>]... [--outcome …]` | outcome and file count — never the summary or data | none — a report is a record, not a mutation | `--task` must be the caller's own running turn; summary ≤ 32 KiB, data ≤ 256 KiB, ≤ 32 files, each a file inside the Space; refusals name Settings → General → Limits |
 | Ask a question | — (the same callers) | act | direct verb | `chat ask --space <id> --task <own-task-id> --question <text> [--to person\|parent]` or `manage ask --task <own-task-id> --question <text>` | question id and respondent — never the text | none — the question stays on record; a root Stop closes it | `--to parent` on a root reaches the person and says so; the asking turn is never suspended; the request reads `waiting` |
 | Answer a question | Composer (free-text reply) | act | direct verb | `chat answer --space <id> --question <id> --answer <text>` or `manage answer --question <id> --answer <text>` | question id and the continuation task id — never the answer | none — one accepted answer, one linked continuation turn | refuses a second answer, an expired question, a stopped request, a Space that does not own the question, and a Chat whose turn or compaction is running (the question stays open); the turn store dedups the continuation under `answer-<question-id>` |
 | Hand work on | — (the same callers) | act | direct verb | `chat handoff --space <id> --task <own-task-id> --to-space <id> (--message <text> \| --message-file <path>) [--file <space-path>]...` | destination Space, new Chat, task, restore point, copy count | the destination's restore point (copies are additive, exactly `files add`'s path) | child-count, depth, and concurrency bounds checked before any copy; copy before acceptance so a refused copy never leaves a started Chat; same-Space handoff takes no `--file` |
@@ -157,7 +157,7 @@ convenience.
 
 | Verb | Human surface | Fold today | Target | Command shape | Receipt adds | Undo / revocation | Conflicts |
 |---|---|---|---|---|---|---|---|
-| List requests | Settings → The fold, the glance | act | direct verb (content-bearing act read) | `requests list` | — | n/a | newest 50 roots; `truncated` says when more exist; no `--space`, no lineage |
+| List requests | Settings → General, the glance | act | direct verb (content-bearing act read) | `requests list` | — | n/a | newest 50 roots; `truncated` says when more exist; no `--space`, no lineage |
 | Show a request | `manage status --task`, the glance | act | direct verb (content-bearing act read) | `requests show --request <id>` | — | n/a | the root and its subtree with questions (text), results (summary and data), turns, usage; the human form clamps, `--json` carries them whole |
 
 `chat wait` and `manage wait` stay shim-side polls and settle on either a
@@ -221,11 +221,11 @@ entry records its source Space, so the family takes no `--space`.
 
 | Verb | Human surface | Fold today | Target | Command shape | Receipt adds | Undo / revocation | Conflicts |
 |---|---|---|---|---|---|---|---|
-| List Recently deleted | Settings → The fold → Recently deleted | none | direct verb (content-bearing act read) | `trash list --json` | — | n/a | entries carry source Space id, original Space-relative path or folder, kind (`file`, `folder`, `space`, `app-storage`, `app-retained`), size, deleted-at, restore-by, and the producing receipt id |
+| List Recently deleted | Settings → General → Recently deleted | none | direct verb (content-bearing act read) | `trash list --json` | — | n/a | entries carry source Space id, original Space-relative path or folder, kind (`file`, `folder`, `space`, `app-storage`, `app-retained`), size, deleted-at, restore-by, and the producing receipt id |
 | Restore an entry | Recently deleted → Restore / Save a copy | none | direct verb | `trash restore --entry <id> [--to <absolute-path>]` | entry id, kind, restored path or Space id; the additive restore point for a file or folder | file/folder: its restore point; Space: `spaces delete`; app data: the app's own single recovery point | an occupied destination is collision-renamed, never overwritten (`stem (2).ext` / `name-2`); refused when the source Space is unregistered and the entry is not itself a Space, when the entry's portable Space identity is registered elsewhere, or when app data's installation is gone or changed — that data can only be saved as a file with `--to`, at an absolute path outside every Space and outside work-fold's own state |
 
 No verb empties Recently deleted. **Delete now** is a Settings-only action;
-retention (default 30 days, adjustable in Settings → The fold → Recently
+retention (default 30 days, adjustable in Settings → General → Recently
 deleted) is the only automatic purge, run on app start and daily while awake.
 Neither the purge nor **Delete now** ever erases an entry whose tree holds
 legacy `.workspace/` records: it is marked held and stays until the person
@@ -330,11 +330,11 @@ refused at parse time.
 
 | Verb | Human surface | Target |
 |---|---|---|
-| Configure a provider connection, API key, or provider OAuth | Settings → Assistant | **setup-only** (provider credentials) |
-| Remove or replace stored provider credential | Settings → Assistant | **setup-only** |
-| Remote access: create/change address, password, approve or revoke a browser, revoke generations, disable, delete | Settings → The fold ("Your fold on the web") | **setup-only** (fold-authority surface) |
+| Configure a provider connection, API key, or provider OAuth | Settings → Agents | **setup-only** (provider credentials) |
+| Remove or replace stored provider credential | Settings → Agents | **setup-only** |
+| Remote access: create/change address, password, approve or revoke a browser, revoke generations, disable, delete | Settings → General ("Your fold on the web") | **setup-only** (fold-authority surface) |
 | Act-token and pairing machinery: minting, scope, lifetime | none (app-owned) | **setup-only** |
-| Delete now (purge one Recently-deleted entry early) or change Limits | Settings → The fold | **desktop-only** (no act verb; nothing a task needs is behind it) |
+| Delete now (purge one Recently-deleted entry early) or change Limits | Settings → General | **desktop-only** (no act verb; nothing a task needs is behind it) |
 
 Approved remote browsers use the same verbs and receipts as the desktop;
 each remote-originated receipt records the browser and grant. They cannot
