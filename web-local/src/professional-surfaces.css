@@ -2793,8 +2793,8 @@
 .capability-dialog {
   width: min(720px, calc(100vw - 32px));
   max-height: min(820px, calc(100vh - 32px));
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   color: var(--ui-text);
   background: var(--ui-surface);
@@ -2808,20 +2808,41 @@
 }
 
 .capability-dialog .modal-title {
+  flex: 0 0 auto;
+  flex-direction: row;
+  min-width: 0;
+  align-items: flex-start;
   border-bottom: 1px solid var(--ui-border);
+}
+
+.capability-dialog .modal-title > div { min-width: 0; }
+.capability-dialog .modal-title h2 { overflow-wrap: anywhere; }
+.capability-dialog .modal-title .minimal-icon-button { flex: 0 0 auto; }
+
+.capability-dialog > form {
+  min-height: 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
 }
 
 .capability-dialog-body {
   min-width: 0;
-  display: grid;
-  align-content: start;
-  gap: 14px;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: block;
   padding: 18px;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
+.capability-dialog-body > * { min-width: 0; }
+.capability-dialog-body > * + * { margin-top: 18px; }
+
 .capability-dialog-footer {
+  flex: 0 0 auto;
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   padding: 12px 18px;
@@ -2984,6 +3005,20 @@
   gap: 12px;
 }
 
+.capability-technical-details { min-width: 0; border-top: 1px solid var(--ui-border); }
+.capability-technical-details > summary {
+  padding: 14px 0;
+  color: var(--ui-text-muted);
+  font-size: max(13px, calc(var(--work-fold-font-size, 15px) - 1px));
+  cursor: pointer;
+}
+.capability-technical-details > summary:focus-visible { outline: 2px solid var(--ui-focus, var(--ui-accent)); outline-offset: 2px; }
+.capability-technical-body { display: grid; gap: 18px; min-width: 0; }
+.capability-details-dialog .capability-review-facts { border: 0; border-radius: 0; overflow: visible; min-height: 0; }
+.capability-details-dialog .capability-review-facts > div { padding: 10px 0; background: transparent; }
+.capability-details-dialog .capability-review-facts :is(dt, dd) { font-size: max(12px, calc(var(--work-fold-font-size, 15px) - 2px)); line-height: 1.5; }
+.capability-details-dialog .capability-review-facts code { white-space: normal; overflow-wrap: anywhere; font-family: var(--work-fold-monospace-font, monospace); }
+
 .capability-string-list {
   display: grid;
   gap: 7px;
@@ -2995,14 +3030,17 @@
   gap: 5px;
 }
 
-.capability-string-list > div > span {
-  padding: 4px 7px;
+.capability-string-list > div > code {
+  max-width: 100%;
+  padding: 2px 0;
   color: var(--ui-text-muted);
-  background: var(--ui-surface-subtle);
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-sm);
-  font-size: 10px;
+  font-family: var(--work-fold-monospace-font, monospace);
+  font-size: max(12px, calc(var(--work-fold-font-size, 15px) - 2px));
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
+
+.capability-string-list > div { flex-direction: column; }
 
 .capability-string-list > p {
   color: var(--ui-text-subtle);

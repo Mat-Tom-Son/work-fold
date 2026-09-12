@@ -49,11 +49,11 @@ export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace }: 
   }
   return <div className="appearance-settings">
     <div className="appearance-settings-status-row">
-      <p role="status">{appearance.error ?? appearance.notice ?? "Changes save on this device"}</p>
+      <p role="status">{appearance.error ?? appearance.notice ?? ""}</p>
       <div className="appearance-settings-actions"><button type="button" disabled={!appearance.canUndo} onClick={store.undo}>Undo</button><button type="button" onClick={store.reset}>Reset</button></div>
     </div>
     <section className="appearance-settings-section" aria-labelledby="appearance-presets-title">
-      <div className="appearance-settings-heading"><h3 id="appearance-presets-title">Start with a look</h3><p>Choose a starting point, then make it yours.</p></div>
+      <h3 id="appearance-presets-title">Presets</h3>
       <div className="appearance-settings-presets">
         {builtInAppearancePresets.map(({ name, ...patch }) => {
           const grounds = applicationPalettes[patch.palette][appearance.theme];
@@ -71,7 +71,7 @@ export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace }: 
       <h3 id="appearance-color-title">Color</h3>
       <Choice label="Color mode" value={p.mode} onChange={(mode) => update({ mode })} options={[["system", "Device setting"], ["light", "Light"], ["dark", "Dark"]]} />
       <Choice label="Palette" value={p.palette} onChange={(palette) => update({ palette })} options={Object.entries(applicationPalettes).map(([value, palette]) => [value as ApplicationAppearance["palette"], palette.name])} />
-      <div className="appearance-settings-row"><div><span className="appearance-settings-label">Accent</span><small>Adjusted for readable text and controls.</small></div><div className="appearance-settings-accent">
+      <div className="appearance-settings-row"><div><span className="appearance-settings-label">Accent</span></div><div className="appearance-settings-accent">
         <select aria-label="Accent source" value={p.accent === "system" ? "system" : "custom"} onChange={(event) => { update({ accent: event.target.value === "system" ? "system" : applicationPalettes[p.palette].accent }); setAccentError(null); setAccentDraft(null); }}><option value="system">Device accent</option><option value="custom">Custom color</option></select>
         {p.accent !== "system" ? <><input type="color" aria-label="Choose accent color" value={p.accent} onChange={(event) => { update({ accent: event.target.value }); setAccentDraft(null); setAccentError(null); }} /><input className="appearance-accent-hex" aria-label="Accent hex color" maxLength={7} value={accentDraft ?? p.accent} onChange={(event) => setAccentDraft(event.target.value)} onBlur={() => { if (accentDraft === null) return; if (/^#[0-9a-f]{6}$/i.test(accentDraft)) { update({ accent: accentDraft }); setAccentDraft(null); setAccentError(null); } else setAccentError("Use a color such as #397451."); }} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} /></> : null}
       </div></div>
@@ -81,7 +81,7 @@ export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace }: 
       <h3 id="appearance-interface-title">Interface</h3>
       <Choice label="App font" value={p.font === "stable" && !fontOptions.some((option) => option.value === "stable") ? "default" : p.font} onChange={(font) => update({ font })} options={fontOptions.map((option) => [option.value, option.label])} />
       <Choice label="Text size" value={p.textSize} onChange={(textSize) => update({ textSize })} options={[["compact", "Compact · 14 px"], ["standard", "Standard · 15 px"], ["comfortable", "Comfortable · 16 px"], ["large", "Large · 18 px"]]} />
-      <Choice label="List density" detail="Space files and chat lists." value={p.density} onChange={(density) => update({ density })} options={[["compact", "Compact"], ["standard", "Standard"], ["spacious", "Spacious"]]} />
+      <Choice label="List density" value={p.density} onChange={(density) => update({ density })} options={[["compact", "Compact"], ["standard", "Standard"], ["spacious", "Spacious"]]} />
     </section>
     <section className="appearance-settings-section" aria-labelledby="appearance-reading-title">
       <h3 id="appearance-reading-title">Conversations</h3>
@@ -93,13 +93,13 @@ export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace }: 
       <Choice label="Code font" value={p.codeFont} onChange={(codeFont) => update({ codeFont })} options={[["system", "System monospace"], ["menlo", "Menlo"], ["consolas", "Consolas"]]} />
     </section>
     <section className="appearance-settings-section" aria-labelledby="appearance-accessibility-title">
-      <div className="appearance-settings-heading"><h3 id="appearance-accessibility-title">Comfort & accessibility</h3><p>Your device’s accessibility settings always apply.</p></div>
-      <Choice label="Contrast" detail={appearance.device.contrast ? "Higher contrast is enabled on your device." : undefined} value={p.contrast} onChange={(contrast) => update({ contrast })} options={[["system", "Device setting"], ["more", "Higher contrast"]]} />
-      <Choice label="Motion" detail={appearance.device.motion ? "Reduced motion is enabled on your device." : undefined} value={p.motion} onChange={(motion) => update({ motion })} options={[["system", "Device setting"], ["reduce", "Reduce motion"]]} />
-      <Choice label="Transparency" detail={appearance.device.transparency ? "Reduced transparency is enabled on your device." : undefined} value={p.transparency} onChange={(transparency) => update({ transparency })} options={[["system", "Device setting"], ["opaque", "Opaque surfaces"]]} />
+      <h3 id="appearance-accessibility-title">Accessibility</h3>
+      <Choice label="Contrast" detail={appearance.device.contrast ? "Enabled by your device" : undefined} value={p.contrast} onChange={(contrast) => update({ contrast })} options={[["system", "Device setting"], ["more", "Higher contrast"]]} />
+      <Choice label="Motion" detail={appearance.device.motion ? "Enabled by your device" : undefined} value={p.motion} onChange={(motion) => update({ motion })} options={[["system", "Device setting"], ["reduce", "Reduce motion"]]} />
+      <Choice label="Transparency" detail={appearance.device.transparency ? "Enabled by your device" : undefined} value={p.transparency} onChange={(transparency) => update({ transparency })} options={[["system", "Device setting"], ["opaque", "Opaque surfaces"]]} />
     </section>
     <section className="appearance-settings-section" aria-labelledby="appearance-saved-title">
-      <div className="appearance-settings-heading"><h3 id="appearance-saved-title">Your presets</h3><p>Save a look here, or share it as an appearance file.</p></div>
+      <h3 id="appearance-saved-title">Saved presets</h3>
       <form className="appearance-settings-save" onSubmit={(event) => { event.preventDefault(); runPreset(() => { store.savePreset(presetName); setPresetName(""); }); }}>
         <input aria-label="Preset name" placeholder="Name this look" maxLength={60} value={presetName} onChange={(event) => setPresetName(event.target.value)} /><button type="submit" disabled={!presetName.trim() || presetBusy}>Save preset</button><button type="button" disabled={presetBusy} onClick={() => fileRef.current?.click()}>{presetBusy ? "Importing…" : "Import"}</button>
         <input ref={fileRef} hidden type="file" accept=".json,application/json" aria-label="Import appearance preset" onChange={(event) => { void importFile(event.target.files?.[0]); event.currentTarget.value = ""; }} />
@@ -107,8 +107,7 @@ export function AppearanceSettingsPane({ appearance, space, onCustomizeSpace }: 
       {appearance.presets.map((preset) => <div className="appearance-settings-saved" key={preset.name}><span>{preset.name}</span><div className="appearance-settings-actions"><button type="button" aria-label={`Apply ${preset.name}`} onClick={() => store.applyPreset(preset.preferences)}>Apply</button><button type="button" aria-label={`Export ${preset.name}`} onClick={() => runPreset(() => exportPreset(preset))}>Export</button><button type="button" aria-label={`Remove ${preset.name}`} onClick={() => runPreset(() => store.removePreset(preset.name))}>Remove</button></div></div>)}
       {presetError || appearance.presetsError ? <p className="appearance-settings-error" role="alert">{presetError ?? appearance.presetsError}</p> : null}
     </section>
-    {space && onCustomizeSpace ? <section className="appearance-settings-space"><div><h3>{space.name}</h3><p>Give this Space its own color, icon, and banner.</p></div><button type="button" onClick={() => onCustomizeSpace(space.id)}>Customize this Space</button></section> : null}
-    <p className="appearance-settings-scope">Applies to this desktop and its menu-bar chat. The web fold keeps its browser appearance. Space colors and banners stay yours.</p>
+    {space && onCustomizeSpace ? <section className="appearance-settings-space"><div><h3>{space.name}</h3></div><button type="button" onClick={() => onCustomizeSpace(space.id)}>Customize this Space</button></section> : null}
   </div>;
 }
 

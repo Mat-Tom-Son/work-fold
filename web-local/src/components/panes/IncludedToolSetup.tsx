@@ -35,28 +35,28 @@ export function IncludedToolSetup({ spaceId, tool, enabled }: { spaceId: string;
     } catch (caught) { if (alive.current) setError(errorText(caught)); }
     finally { request.current = null; if (alive.current) setBusy(false); }
   }
-  const label = !enabled ? "Turned off" : status?.state === "ready" ? "Ready" : status?.state === "setup_required" ? "Setup needed" : status?.state === "unavailable" ? "Unavailable" : "Setup";
+  const label = !enabled ? "Turned off" : status?.state === "ready" ? "Ready" : status?.state === "setup_required" ? "Setup needed" : status?.state === "unavailable" ? "Unavailable" : "Not checked";
+  const needsSetup = enabled && status?.state !== "ready";
+  const requirement = enabled && status && ["setup_required", "unavailable"].includes(status.state) && !path ? status.detail : null;
   return <section className="included-tool-setup" aria-label={`${tool.title} setup`} aria-busy={busy}>
-    <div className="included-tool-status"><strong>{label}</strong>{tool.id !== "mcp" ? <button type="button" className="professional-button professional-button-secondary" disabled={busy || !enabled} onClick={() => void act("check")}>{busy ? "Checking…" : "Check setup"}</button> : null}</div>
-    <p role="status">{!enabled ? "Turn this Extension on to use it in new Assistant work." : status?.detail ?? "Readiness has not been checked."}</p>
-    {enabled && status && status.state !== "unknown" && tool.id !== "web" ? <small>Last checked {new Date(status.checkedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small> : null}
+    {tool.id !== "mcp" || !enabled ? <div className="included-tool-status"><strong role="status">{label}</strong>{tool.id !== "mcp" ? <button type="button" className="professional-button professional-button-secondary" disabled={busy || !enabled} onClick={() => void act(tool.id === "computer" ? "recheck" : "check")}>{busy ? "Checking…" : "Check"}</button> : null}</div> : null}
+    {requirement ? <p>{requirement}</p> : null}
     {error ? <p className="included-tool-error" role="alert">{error}</p> : null}
     {tool.id === "computer" ? <>
-      <p>macOS needs permission for <strong>work-fold Computer</strong> to see and operate apps. Requires macOS 14 or later.</p>
-      <div className="included-tool-actions">
-        <button className="professional-button professional-button-primary" type="button" disabled={busy || !enabled} onClick={() => void act("request-permissions")}>Set up permissions</button>
-        <button className="professional-button professional-button-secondary" type="button" disabled={busy || !enabled} onClick={() => void act("accessibility")}>Accessibility</button>
-        <button className="professional-button professional-button-secondary" type="button" disabled={busy || !enabled} onClick={() => void act("screen-recording")}>Screen Recording</button>
-        <button className="professional-button professional-button-secondary" type="button" disabled={busy || !enabled} onClick={() => void act("recheck")}>Recheck after changes</button>
-      </div>
-      {status?.facts ? <dl className="included-tool-facts">{Object.entries(status.facts).map(([key, value]) => <div key={key}><dt>{key === "accessibility" ? "Accessibility" : key === "screenRecording" ? "Screen Recording" : key}</dt><dd>{typeof value === "boolean" ? value ? "Allowed" : "Not verified" : value}</dd></div>)}</dl> : null}
+      {needsSetup ? <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={() => void act("request-permissions")}>Set up permissions</button> : null}
+      <details className="included-tool-optional"><summary>Permissions</summary>
+        <div className="included-tool-actions">
+          <button className="professional-button professional-button-secondary" type="button" disabled={busy || !enabled} onClick={() => void act("accessibility")}>Accessibility</button>
+          <button className="professional-button professional-button-secondary" type="button" disabled={busy || !enabled} onClick={() => void act("screen-recording")}>Screen Recording</button>
+        </div>
+        {status?.facts ? <dl className="included-tool-facts">{Object.entries(status.facts).map(([key, value]) => <div key={key}><dt>{key === "accessibility" ? "Accessibility" : key === "screenRecording" ? "Screen Recording" : key}</dt><dd>{typeof value === "boolean" ? value ? "Allowed" : "Not verified" : value}</dd></div>)}</dl> : null}
+      </details>
     </> : null}
-    {tool.id === "chrome" ? <>
-      <p>Add the included companion to your Chrome profile once. It lets the Assistant work with your signed-in sites.</p>
-      <button className="professional-button professional-button-primary" type="button" disabled={busy || !enabled} onClick={() => void act("prepare-companion")}>Set up Chrome</button>
-      {path ? <div className="included-companion-path"><p>In Chrome → Extensions, enable Developer mode, choose <strong>Load unpacked</strong>, then select this folder. If already installed, choose <strong>Reload</strong>.</p><code>{path}</code><button className="professional-button professional-button-secondary" type="button" onClick={() => void navigator.clipboard.writeText(path).catch((caught) => setError(errorText(caught)))}>Copy folder path</button></div> : null}
+    {tool.id === "chrome" && needsSetup ? <>
+      <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={() => void act("prepare-companion")}>Set up Chrome</button>
+      {path ? <div className="included-companion-path"><p>Chrome → Extensions → Developer mode → <strong>Load unpacked</strong>. Select this folder, or <strong>Reload</strong> the existing companion.</p><code>{path}</code><button className="professional-button professional-button-secondary" type="button" onClick={() => void navigator.clipboard.writeText(path).catch((caught) => setError(errorText(caught)))}>Copy folder path</button></div> : null}
     </> : null}
-    {tool.id === "web" ? <details className="included-tool-optional"><summary>Optional Brave Search connection</summary><p>Search already works with DuckDuckGo. Connect Brave Search to use its API instead.</p><form onSubmit={(event) => { event.preventDefault(); void act("connect-brave"); }}><label>Brave Search API key<input type="password" autoComplete="off" value={secret} onChange={(event) => setSecret(event.target.value)} disabled={busy} /></label><div className="included-tool-actions"><button type="submit" className="professional-button professional-button-primary" disabled={busy || !enabled || !secret.trim()}>Connect</button><button type="button" className="professional-button professional-button-secondary" disabled={busy} onClick={() => void act("disconnect-brave")}>Use DuckDuckGo</button></div></form></details> : null}
+    {tool.id === "web" ? <details className="included-tool-optional"><summary>Brave Search</summary><form onSubmit={(event) => { event.preventDefault(); void act("connect-brave"); }}><label>API key<input type="password" autoComplete="off" value={secret} onChange={(event) => setSecret(event.target.value)} disabled={busy} /></label><div className="included-tool-actions"><button type="submit" className="professional-button professional-button-primary" disabled={busy || !enabled || !secret.trim()}>Connect</button><button type="button" className="professional-button professional-button-secondary" disabled={busy} onClick={() => void act("disconnect-brave")}>Use DuckDuckGo</button></div></form></details> : null}
     {tool.id === "mcp" ? <IncludedMcpSetup spaceId={spaceId} enabled={enabled} /> : null}
   </section>;
 }
