@@ -688,12 +688,15 @@ function renderApplication() {
             <div class="space-workspace">
               <header class="space-workspace-header">
                 <button id="spaces-back" type="button" class="text-button" hidden>‹ All Spaces</button>
-                <div class="space-title-row"><h1 id="space-title" tabindex="-1">Spaces</h1><div class="space-actions"><button id="return-to-chat" type="button" class="quiet">Back to chat</button><button id="ask-space" type="button" class="primary" hidden>Ask the fold</button></div></div>
+                <div class="space-title-row">
+                  <h1 id="space-title" tabindex="-1">Spaces</h1>
+                  <button id="refresh-space" type="button" class="space-refresh" title="Refresh files and apps" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6a8 8 0 0 1 13.2 3M4.7 15a8 8 0 0 0 13.2 3" /></svg><span>Refresh</span></button>
+                </div>
                 <p id="space-description">Browse files and apps from your desktop.</p>
               </header>
               <div id="space-directory" class="space-directory"></div>
               <div id="workspace-pane" class="workspace-pane" hidden>
-                <nav class="space-views" aria-label="Space view"><button type="button" data-space-view="files" aria-pressed="true">Files</button><button type="button" data-space-view="apps" aria-pressed="false">Apps</button><button id="refresh-space" type="button" class="text-button">Refresh</button></nav>
+                <nav class="space-views" aria-label="Space view"><button type="button" data-space-view="files" aria-pressed="true">Files</button><button type="button" data-space-view="apps" aria-pressed="false">Apps</button></nav>
                 <div id="space-files" class="space-files"><div id="file-tree" class="file-tree" aria-label="Space files"></div><div id="space-preview" class="space-preview"><p id="space-preview-empty">Select a file to preview it here.</p></div></div>
                 <section id="space-apps" class="space-apps" aria-label="Space apps" hidden></section>
               </div>
@@ -811,8 +814,6 @@ function renderApplication() {
   });
   document.querySelector("#stop-task")?.addEventListener("click", () => void stopCurrentTask());
   document.querySelector("#spaces-back")?.addEventListener("click", () => void selectExplorerSpace(null));
-  document.querySelector("#return-to-chat")?.addEventListener("click", () => showContext(state.selectedConversationId && !state.startingNewChat ? "chat" : "new", { moveFocus: true }));
-  document.querySelector("#ask-space")?.addEventListener("click", () => draftSpaceQuestion(state.explorerSpaceId));
   document.querySelector("#refresh-space")?.addEventListener("click", () => void refreshExplorerTree());
   document.querySelector("#space-directory")?.addEventListener("click", (event) => {
     const row = event.target.closest?.("[data-explore-space]");
@@ -1778,8 +1779,7 @@ function renderWorkspace() {
   if (!directory || !pane || !tree) return;
   directory.hidden = hasSpace; pane.hidden = !hasSpace;
   document.querySelector("#spaces-back").hidden = !hasSpace;
-  document.querySelector("#ask-space").hidden = !hasSpace;
-  document.querySelector("#ask-space").disabled = state.sending || state.renameSaving;
+  document.querySelector("#refresh-space").hidden = !hasSpace;
   document.querySelector("#space-title").textContent = selected?.name ?? "Spaces";
   document.querySelector("#space-description").textContent = hasSpace ? "Files and apps in this Space. Ask the fold to work with them." : "Browse files and apps from your desktop.";
   if (!hasSpace) {
