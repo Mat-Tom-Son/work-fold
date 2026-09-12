@@ -288,12 +288,6 @@ export function RestrictedAppReviewDialog({ review, sourcePath, updating, busy, 
           </div>
           <span className="professional-status-badge enabled">On when added</span>
         </div>
-        <aside className="restricted-app-review-decision"><ShieldCheckmark20Regular aria-hidden="true" /><div><strong>Adds now</strong><p>{updating ? "Updates to this exact revision. Unchanged connections, automation settings, and run history carry over." : "Adds this exact revision to the Space with every declared destination, folder, notification, and automation on. Turn any of them off in Apps."}</p></div></aside>
-        <div className="restricted-app-review-included">
-          <Add16Regular aria-hidden="true" />
-          <div><strong>Added now</strong><p>An app destination and work tabs{review.manifest.tools.length ? ` · ${review.manifest.tools.length} Assistant ${review.manifest.tools.length === 1 ? "action" : "actions"}` : ""}</p></div>
-          <span className="professional-status-badge enabled">Included</span>
-        </div>
         <div className="restricted-app-review-heading"><div><h3>What this app can do</h3></div><span>{requestedAuthorityCount} declared</span></div>
         <ReviewDeclarations review={review} />
         <details className="restricted-app-package-details"><summary>Package details</summary><dl className="capability-review-facts"><div><dt>Source</dt><dd>{sourcePath}</dd></div><div><dt>Package</dt><dd>{review.packageName} {review.version}</dd></div><div><dt>Files</dt><dd>{review.fileCount} · {formatBytes(review.totalBytes)}</dd></div><div><dt>Browser entry</dt><dd>{review.manifest.runtime.entry}</dd></div><div><dt>Revision</dt><dd><code>{shortDigest(review.digest)}</code></dd></div></dl></details>

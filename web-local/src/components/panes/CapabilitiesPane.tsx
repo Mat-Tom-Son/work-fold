@@ -474,7 +474,7 @@ export function CapabilitiesPane({
             ) : null}
           />
           {!catalog ? <div className="professional-loading-row" role="status"><ArrowSync16Regular className="spin" />Loading Skills and Extensions</div> : null}
-          {catalog && !installedVisible && installedTotal ? <CapabilityEmpty title="No matching tools" detail="Change the search or filter to see more." /> : null}
+          {catalog && !installedVisible && installedTotal ? <CapabilityEmpty title="No matching tools" /> : null}
           {catalog ? (
             <div className="capabilities-scope-groups">
               <ScopeGroup
@@ -510,7 +510,7 @@ export function CapabilitiesPane({
       ) : (
         <section ref={discoverViewRef} id="capabilities-discover-panel" className="capabilities-view-content" role="tabpanel" aria-labelledby="capabilities-discover-tab" tabIndex={-1}>
           <div className="capabilities-view-heading">
-            <div><h2>From the Pi catalog</h2><p>{discoverTotal ? `${discoverTotal.toLocaleString()} Pi packages and first-party Skills.` : "Pi packages and first-party Skills."}</p></div>
+            <div><h2>Pi catalog</h2></div>
             <div className="capabilities-view-actions">{catalogHref ? <ExternalSourceLink href={catalogHref} label="Browse the catalog" /> : null}</div>
           </div>
           <CapabilityToolbar
@@ -750,7 +750,7 @@ function InstalledCapabilityCard({ item, onSelect }: { item: InstalledCapability
   return (
     <article className="capabilities-resource-card">
       <CapabilityMonogram name={item.name} kind={item.kind} />
-      <div className="capabilities-resource-copy"><div className="capabilities-resource-title"><strong>{item.name}</strong><span>{item.kind === "skill" ? "Skill" : "Extension"}</span></div><p>{item.description}</p>{item.kind === "extension" ? <small>{item.tools.length} tools · {item.commands.length} commands</small> : null}</div>
+      <div className="capabilities-resource-copy"><div className="capabilities-resource-title"><strong>{item.name}</strong><span>{item.kind === "skill" ? "Skill" : "Extension"}</span></div>{item.description ? <p>{item.description}</p> : null}{item.kind === "extension" ? <small>{item.tools.length} tools · {item.commands.length} commands</small> : null}</div>
       <div className="capabilities-resource-actions"><span className={`professional-status-badge ${item.status === "loaded" ? "enabled" : item.status === "error" ? "error" : ""}`}>{statusLabel(item.status)}</span><button className="professional-button professional-button-secondary" type="button" onClick={onSelect}>Details</button></div>
     </article>
   );
@@ -769,13 +769,12 @@ function DiscoverCapabilities({ items, total, loading, error, diagnostics, trunc
 }) {
   return (
     <div className="capabilities-discover-stack">
-      {total ? <p className="capabilities-results-summary">Showing {items.length.toLocaleString()} of {total.toLocaleString()} catalog entries</p> : null}
       {diagnostics.length ? <div className="professional-diagnostics" role="status">{diagnostics.map((message) => <span key={message}>{message}</span>)}</div> : null}
       {error ? <div className="inline-error" role="alert">{error}</div> : null}
-      {loading && !items.length ? <div className="professional-loading-row" role="status"><ArrowSync16Regular className="spin" />Loading the full Pi catalog. The first load can take about 20 seconds.</div> : null}
-      {items.length ? <div className="capabilities-discover-list">{items.map((item) => <DiscoverCapabilityCard key={item.id} item={item} busy={reviewingItemId === item.id} disabled={Boolean(reviewingItemId) || !canInstallDiscoverItem(item)} onInstall={() => onInstall(item)} />)}</div> : !loading && !error ? <CapabilityEmpty title="No catalog matches" detail="Try a broader search or a different item type." /> : null}
+      {loading && !items.length ? <div className="professional-loading-row" role="status"><ArrowSync16Regular className="spin" />Loading catalog…</div> : null}
+      {items.length ? <div className="capabilities-discover-list">{items.map((item) => <DiscoverCapabilityCard key={item.id} item={item} busy={reviewingItemId === item.id} disabled={Boolean(reviewingItemId) || !canInstallDiscoverItem(item)} onInstall={() => onInstall(item)} />)}</div> : !loading && !error ? <CapabilityEmpty title="No catalog matches" /> : null}
       {items.length < total ? <button className="professional-button professional-button-secondary capabilities-load-more" type="button" disabled={loading} onClick={onLoadMore}>{loading ? <ArrowSync16Regular className="spin" /> : null}Load more</button> : null}
-      {truncated && !loading ? <p className="capabilities-results-summary capabilities-window-note">These are npm's first {npmSearchWindowSize} matches. Searching for a name or keyword finds the rest.</p> : null}
+      {truncated && !loading ? <p className="capabilities-results-summary capabilities-window-note">First {npmSearchWindowSize} npm matches</p> : null}
     </div>
   );
 }
@@ -949,8 +948,8 @@ function CapabilityNotice({ icon, title, detail, action, tone = "neutral" }: { i
   return <aside className={`trust-banner professional-notice professional-notice-${tone}`}><span className="professional-notice-icon" aria-hidden="true">{icon}</span><div className="professional-notice-copy"><strong>{title}</strong>{detail ? <span>{detail}</span> : null}</div>{action ? <div className="professional-notice-action">{action}</div> : null}</aside>;
 }
 
-function CapabilityEmpty({ title, detail }: { title: string; detail: string }) {
-  return <div className="professional-empty-state capabilities-empty-state"><span className="professional-empty-icon" aria-hidden="true"><BookToolbox20Regular /></span><div><h2>{title}</h2><p>{detail}</p></div></div>;
+function CapabilityEmpty({ title }: { title: string }) {
+  return <div className="professional-empty-state capabilities-empty-state"><span className="professional-empty-icon" aria-hidden="true"><BookToolbox20Regular /></span><div><h2>{title}</h2></div></div>;
 }
 
 function normalizedCapabilities(catalog: AgentCatalog): InstalledCapability[] {
@@ -970,7 +969,7 @@ function normalizedCapabilities(catalog: AgentCatalog): InstalledCapability[] {
     items.push({
       id: `${resource.kind}:${source.scope}:${resource.path}`, kind: resource.kind === "skills" ? "skill" : "extension",
       ...(resource.included ? { included: resource.included } : {}),
-      name: resource.included?.title ?? name, description: resource.included?.description ?? (resource.enabled ? "Could not load. Open details for diagnostics." : "Turn on to make this available to the Assistant."),
+      name: resource.included?.title ?? name, description: resource.included?.description ?? "",
       path: resource.path, source: source.source, origin: source.origin, scope: productScope(source.scope),
       enabled: resource.enabled, loaded: false, status: resource.enabled ? "error" : "disabled", configurable: true,
       diagnostics: resourceDiagnostics(resource.path, undefined, catalog.diagnostics), tools: [], commands: [], flags: [],
@@ -1014,7 +1013,7 @@ function normalizeExtension(item: AgentExtension, catalogDiagnostics: AgentDiagn
     id: item.id || `extension:${source.scope}:${source.source}:${item.path}`,
     kind: "extension",
     name: item.name,
-    description: extensionSummary(item),
+    description: "",
     path: item.path,
     scope: productScope(item.scope ?? source.scope),
     origin: item.origin ?? source.origin,
@@ -1119,11 +1118,6 @@ function packageStatusLabel(item: AgentPackage): string {
 
 function capabilityTypeLabel(value: "skill" | "extension"): string {
   return value === "skill" ? "Skills" : "Extensions";
-}
-
-function extensionSummary(item: AgentExtension): string {
-  const parts = [item.tools.length ? `${item.tools.length} tools` : "", item.commands.length ? `${item.commands.length} commands` : "", item.flags?.length ? `${item.flags.length} flags` : ""].filter(Boolean);
-  return parts.length ? `Adds ${parts.join(", ")}.` : "Executable Pi Extension.";
 }
 
 function canInstallDiscoverItem(item: CapabilityDiscoverItem): boolean {

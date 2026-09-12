@@ -566,7 +566,7 @@ export function AppStudioPane({
                 ) : (
                   <div className="app-studio-empty-row">
                     <Box16Regular aria-hidden="true" />
-                    <div><strong>No development previews</strong><p>Build an app from the Apps tab.</p></div>
+                    <div><strong>No development previews</strong></div>
                   </div>
                 )}
                 <form className="app-studio-release-form" onSubmit={(event) => void prepareRelease(event)}>
@@ -992,9 +992,7 @@ function UpdatePlan({ operation }: { operation: LocalAppUpdateOperation }) {
           <strong>This plan cannot activate</strong>
           {operation.plan.blockedReasons.map((reason) => <p key={reason}>{reason}</p>)}
         </div>
-      ) : (
-        <p className="app-studio-authority-note"><ShieldCheckmark16Regular aria-hidden="true" />Exact eligible grants, connections, and jobs are listed by Feature. Anything marked Reset uses the install defaults.</p>
-      )}
+      ) : null}
     </div>
   );
 }

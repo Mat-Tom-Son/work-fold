@@ -30,17 +30,11 @@ test("Apps product hierarchy starts with the Assistant and keeps local preview l
   assert.doesNotMatch(apps, />Add app</);
 });
 
-test("adding an app states what it adds and that every declared power is on, with narrowing in Apps", () => {
-  const decision = apps.indexOf("Adds now");
-  const contribution = apps.indexOf("Added now");
-  const access = apps.indexOf("What this app can do");
-  assert.ok(decision >= 0 && contribution > decision && access > contribution);
+test("adding an app shows its declarations and enabled powers with narrowing in Apps", () => {
   assert.match(apps, /<ReviewDeclarations review=\{review\} \/>[\s\S]*?<details className="restricted-app-package-details"><summary>Package details/);
   assert.match(apps, /"Add app"/);
   assert.match(apps, /"Update app"/);
-  assert.match(apps, /every declared destination, folder, notification, and automation on/);
-  assert.match(apps, /Turn any of them off in Apps/);
-  assert.match(apps, /Unchanged connections, automation settings, and run history carry over/);
+  assert.match(apps, /Connections whose destination is unchanged, automation settings, and run history carry over/);
   assert.match(apps, /restricted-app-authority-list/);
   assert.match(apps, /On when added/);
   assert.doesNotMatch(apps, /Off when added|access off|approve|Reviewed|Unrestricted|staged/);
