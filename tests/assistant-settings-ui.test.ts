@@ -1,3 +1,4 @@
+import { logicalEventController } from "./support/local-events.js";
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import { createElement, StrictMode, type ComponentProps } from "react";
@@ -28,10 +29,10 @@ async function setup(t: TestContext) {
   const requests: Request[] = [];
   const eventStreams = new Set<ReadableStreamDefaultController<Uint8Array>>();
   globalThis.fetch = ((input, init = {}) => {
-    if (String(input) === "/api/management/control-events") return Promise.resolve(new Response(new ReadableStream<Uint8Array>({
+    if (String(input) === "/api/events") return Promise.resolve(new Response(new ReadableStream<Uint8Array>({
       start(controller) {
-        eventStreams.add(controller);
-        init.signal?.addEventListener("abort", () => { eventStreams.delete(controller); controller.close(); }, { once: true });
+        eventStreams.add(logicalEventController(controller, init));
+        init.signal?.addEventListener("abort", () => { eventStreams.clear(); controller.close(); }, { once: true });
       },
     })));
     return new Promise<Response>((resolve) => {

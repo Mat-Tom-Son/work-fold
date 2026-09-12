@@ -36,7 +36,7 @@ test("opening an app task Chat closes its retained Apps dialog and restores shel
   const running = { ...task, id: "task-two", requestId: "request-two", status: "running", model: undefined, usage: undefined, result: undefined };
   globalThis.fetch = async (input, options) => {
     const path = String(input);
-    if (path.includes("control-events")) return new Promise((_resolve, reject) => { options?.signal?.addEventListener("abort", () => reject(new DOMException("Closed", "AbortError")), { once: true }); });
+    if (path.endsWith("/api/events")) return new Promise((_resolve, reject) => { options?.signal?.addEventListener("abort", () => reject(new DOMException("Closed", "AbortError")), { once: true }); });
     let value: unknown;
     if (path.includes("assistant-tasks/request-one")) value = { detail: { task, instructions: "Compare quotes", inputJson: '"North $42"', conversationId: "chat-one" } };
     else if (path.includes("assistant-tasks")) value = { tasks: [task, running] };

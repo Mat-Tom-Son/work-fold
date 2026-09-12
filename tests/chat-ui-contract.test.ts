@@ -231,7 +231,7 @@ test("a new turn clears the prior idle stream snapshot before running becomes vi
   const sendMessage = chatPanel.match(/async function sendMessage\(contentOverride\?: string\) \{[\s\S]*?\n  async function steerMessage/)?.[0] ?? "";
   assert.match(sendMessage, /cancelStreamingFlush\(\);\s*\n\s*setStreamingAssistant\(""\);/);
   assert.ok(sendMessage.indexOf('setStreamingAssistant("");') < sendMessage.indexOf("setRunning(true);"));
-  assert.match(chatPanel, /typeof data\.text === "string" && \(!sendTransitioning \|\| data\.running === true\)/);
+  assert.match(chatPanel, /typeof data\.text === "string" && data\.running === true/);
   const admissionStart = localServer.match(/state\.runningTurns\.add\(turnKey\);[\s\S]*?const userMessageId/)?.[0] ?? "";
   assert.match(admissionStart, /state\.runningTurns\.add\(turnKey\);\s*\n[\s\S]*?resetChatEventTurn\(state, turnKey\);/);
   assert.doesNotMatch(admissionStart, /await /);

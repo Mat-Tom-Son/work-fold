@@ -1,3 +1,4 @@
+import { logicalEventController } from "./support/local-events.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { subscribeControlEvents } from "../web-local/src/lib/control-events.js";
@@ -14,7 +15,7 @@ test("control hints share one visible connection and requery after hiding/reopen
       start(controller) {
         const signal = init!.signal!;
         signal.addEventListener("abort", () => controller.close(), { once: true });
-        connections.push({ controller, signal });
+        connections.push({ controller: logicalEventController(controller, init), signal });
       },
     });
     return new Response(stream, { headers: { "content-type": "text/event-stream" } });
@@ -33,6 +34,7 @@ test("control hints share one visible connection and requery after hiding/reopen
     assert.deepEqual(second, first);
     document.visibilityState = "hidden";
     document.dispatchEvent(new Event("visibilitychange"));
+    await settle();
     assert.equal(connections[0]!.signal.aborted, true);
     document.visibilityState = "visible";
     document.dispatchEvent(new Event("visibilitychange"));
@@ -46,6 +48,7 @@ test("control hints share one visible connection and requery after hiding/reopen
     assert.deepEqual(first, ["reset", "apps", "spaces", "assistant"]);
     assert.deepEqual(second, ["reset", "apps", "spaces", "assistant", "apps"]);
     unsubscribeSecond();
+    await settle();
     assert.equal(connections[1]!.signal.aborted, true);
   } finally {
     unsubscribeFirst(); unsubscribeSecond();

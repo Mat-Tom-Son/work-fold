@@ -46,22 +46,26 @@ export function useWorkRequest(path: string | null) {
     pending.current = true; setBusy(true); setActionError(null);
     const owner = scope.current;
     if (action === "continue") delivery.current ??= `resume-${crypto.randomUUID()}`;
-    const current = ++generation.current;
+    ++generation.current;
     try {
       const result = await api<{ work: WorkRequestView }>(`/api/requests/${encodeURIComponent(work.requestId)}/${action}`, {
         method: "POST", body: { ...body, surface: window.workFoldDesktop?.management ? "popover" : "main-window", ...(action === "continue" ? { deliveryId: delivery.current } : {}) },
       });
       if (owner !== scope.current) return true;
-      if (current === generation.current) setWork(result.work);
+      // The action response already contains the accepted request state.
+      // Do not discard it because a poll started, or keep "Sending…" tied to
+      // a second GET: reads may be delayed while the continuation is running.
+      generation.current++;
+      setWork(result.work);
+      setError(null);
       delivery.current = null;
-      await refresh();
       return true;
     } catch (caught) {
       // Retain both the answer draft and continuation identity after a lost
       // response. Requery without hiding the failure message.
       if (owner !== scope.current) return false;
-      await refresh();
-      if (owner === scope.current) setActionError(errorText(caught));
+      setActionError(errorText(caught));
+      void refresh();
       return false;
     } finally { if (owner === scope.current) { pending.current = false; setBusy(false); } }
   };

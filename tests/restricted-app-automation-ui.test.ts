@@ -79,7 +79,7 @@ test("turning an automation back on acts on the click and leaves a receipt, with
   globalThis.fetch = (async (input: unknown, options?: { method?: string; signal?: AbortSignal }) => {
     const path = String(input);
     const method = (options?.method ?? "GET").toUpperCase();
-    if (path.includes("control-events")) {
+    if (path.endsWith("/api/events")) {
       return new Promise((_resolve, reject) => {
         options?.signal?.addEventListener("abort", () => reject(new DOMException("Closed", "AbortError")), { once: true });
       });

@@ -34,7 +34,12 @@ question drafts. Typing alone never sends an answer to the host or model.
 - Questions show their exact text and origin. An answer names that question;
   double submission cannot start another continuation. A saved answer whose
   delivery failed shows that saved answer and offers Continue with the saved answer. Ordinary replies in
-  the owning Chat continue to work.
+  the owning Chat continue to work. The accepted action response clears the
+  sending state immediately; it does not wait for another read or for the
+  continuation to finish. Before announcing a running turn, the host persists
+  its accepted message. The owning Chat re-reads that message on an external
+  turn start and retires the previous reply; an older transcript read cannot
+  settle or overwrite a newer turn.
 - Stop closes the selected request and its outstanding descendants, including
   waiting questions. It stays available between model turns. It does not stop
   independent work in the same Space.

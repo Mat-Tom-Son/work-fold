@@ -1,3 +1,5 @@
+import { createLocalEventSink, createLocalEventChannel, localEventTarget, parseLocalEventSubscriptions, type LocalEventSink } from "./local-event-stream.js";
+import { localEventStreamLimits, type LocalEventEnvelope } from "../shared/local-event-stream.js";
 import { createIncludedMcpSetup } from "./agent/included-mcp-setup.js";
 import { prepareResourceEnable, resourceEnableAdapter } from "./agent/resource-enable-act.js";
 import { listIncludedToolStatus, setupIncludedTool, shutdownIncludedToolHost, type IncludedSetupAction } from "./agent/included-tool-setup.js";
@@ -642,8 +644,9 @@ interface LocalApiState {
   requestSettleChain: Promise<void>;
   /** Per-launch salt behind the opaque parent handle a delegated Space turn sees (F26). */
   spaceTurnHandleSalt: string;
-  chatStreams: Map<string, Set<ServerResponse>>;
-  controlStreams: Set<ServerResponse>;
+  chatStreams: Map<string, Set<LocalEventSink>>;
+  controlStreams: Set<LocalEventSink>;
+  localEventStreams: Set<LocalEventSink>;
   /** In-process subscribers riding the same publish point as the SSE streams (remote watch). */
   chatEventListeners: Map<string, Set<(event: unknown) => void>>;
   chatEventLogs: Map<string, ChatEventLog>;
@@ -664,7 +667,7 @@ interface LocalApiState {
   checkRunReservations: Set<string>;
   spaceIdsByRoot: Map<string, string>;
   extensionRequests: Map<string, PiExtensionUiRequest>;
-  fileStreams: Set<() => void>;
+  fileStreams: Map<() => void, string>;
   /** In-process observers of turn-boundary History checkpoints (routing chat hops). */
   turnCheckpointListeners: Set<(event: TurnCheckpointEvent) => void>;
   activeTurns: number;
@@ -936,6 +939,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     spaceTurnHandleSalt: randomBytes(16).toString("hex"),
     chatStreams: new Map(),
     controlStreams: new Set(),
+    localEventStreams: new Set(),
     chatEventListeners: new Map(),
     chatEventLogs: new Map(),
     activeTurnIdsByKey: new Map(),
@@ -953,7 +957,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     checkRunReservations: new Set(),
     spaceIdsByRoot: new Map(),
     extensionRequests: new Map(),
-    fileStreams: new Set(),
+    fileStreams: new Map(),
     turnCheckpointListeners: new Set(),
     activeTurns: 0,
     acceptingTurns: true,
@@ -1239,7 +1243,8 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       unsubscribeAppCatalog();
       state.appAssistantTasks.off("changed", appTasksChanged);
       state.appInference.off("changed", appInferenceChanged);
-      for (const response of state.controlStreams) response.end();
+      for (const response of state.localEventStreams) response.close();
+      for (const response of state.controlStreams) response.close();
       extensionUi.off("request", requestListener);
       extensionUi.off("event", eventListener);
       extensionUi.off("settled", settledListener);
@@ -1251,8 +1256,8 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       // and the drained turn promises below carry any aborted chat hops to
       // their settled records.
       state.routings.close();
-      for (const streams of state.chatStreams.values()) for (const response of streams) response.end();
-      for (const close of [...state.fileStreams]) close();
+      for (const streams of state.chatStreams.values()) for (const response of streams) response.close();
+      for (const close of [...state.fileStreams.keys()]) close();
       // A settle evaluation in flight (F28) may be accepting a continuation
       // turn this instant; let it finish so that turn is in the drained set
       // below or was refused by the flag above, never left running unseen.
@@ -2401,7 +2406,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   const fileEventsMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/file-events$/);
   if (method === "GET" && fileEventsMatch) {
     const space = await getSpace(fileEventsMatch[1]);
-    await openSpaceFileStream(state, req, res, space.spaceRoot);
+    await openSpaceFileStream(state, createLocalEventSink(res), space.spaceRoot, fileEventsMatch[1]);
     return;
   }
 
@@ -2959,7 +2964,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   if (method === "GET" && eventsMatch) {
     const space = await getSpace(eventsMatch[1]);
     rememberSpaceRoot(state, space.id, space.spaceRoot);
-    openChatStream(state, req, res, eventsMatch[1], eventsMatch[2]);
+    openChatStream(state, createLocalEventSink(res), eventsMatch[1], eventsMatch[2], req.headers["last-event-id"]);
     return;
   }
   const messagesPostMatch = match(url.pathname, /^\/api\/spaces\/([^/]+)\/conversations\/([^/]+)\/messages$/);
@@ -3212,7 +3217,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   const managementEventsMatch = match(url.pathname, /^\/api\/management\/conversations\/([^/]+)\/events$/);
   if (managementEventsMatch && method === "GET") {
     assertManagementReadyForRoutes(state);
-    openChatStream(state, req, res, workFoldManagementScopeId, managementEventsMatch[1]);
+    openChatStream(state, createLocalEventSink(res), workFoldManagementScopeId, managementEventsMatch[1], req.headers["last-event-id"]);
     return;
   }
 
@@ -3237,16 +3242,63 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
 
+  // One renderer connection carries only its explicitly subscribed read streams.
+  // The same local session/origin authorization above protects this endpoint.
+  if (url.pathname === "/api/events" && method === "POST") {
+    if (state.localEventStreams.size >= 64) throw httpError(429, "Too many local event connections.");
+    const input = await readJsonBody<unknown>(state, req, localEventStreamLimits.bodyBytes);
+    let subscriptions: ReturnType<typeof parseLocalEventSubscriptions>;
+    try { subscriptions = parseLocalEventSubscriptions(input); }
+    catch (error) { throw badRequest(errorMessage(error)); }
+    if (state.localEventStreams.size >= 64) throw httpError(429, "Too many local event connections.");
+    const connection = createLocalEventSink(res);
+    state.localEventStreams.add(connection);
+    const heartbeat = setInterval(() => connection.heartbeat(), 15_000);
+    heartbeat.unref();
+    connection.onClose(() => { clearInterval(heartbeat); state.localEventStreams.delete(connection); });
+    await Promise.all(subscriptions.map(async (subscription) => {
+      const channel = createLocalEventChannel(connection, subscription.id);
+      try {
+        const target = localEventTarget(subscription.path)!;
+        if (target.kind === "control") {
+          if (state.controlStreams.size >= 64) throw httpError(429, "Too many control event connections.");
+          openControlEventStream(state, channel);
+        } else if (target.kind === "management") {
+          assertManagementReadyForRoutes(state);
+          if (!await readConversationSummary(workFoldManagementRoot(), target.conversationId)) throw notFound("Conversation not found.");
+          if (channel.closed) return;
+          openChatStream(state, channel, workFoldManagementScopeId, target.conversationId, subscription.lastEventId);
+        } else {
+          const space = await getSpace(target.spaceId);
+          if (channel.closed) return;
+          if (target.kind === "files") await openSpaceFileStream(state, channel, space.spaceRoot, target.spaceId);
+          else {
+            if (!await readConversationSummary(space.spaceRoot, target.conversationId)) throw notFound("Conversation not found.");
+            const registered = await getSpace(target.spaceId);
+            if (registered.spaceRoot !== space.spaceRoot) throw notFound("Space changed while opening this Chat.");
+            if (channel.closed) return;
+            rememberSpaceRoot(state, registered.id, registered.spaceRoot);
+            openChatStream(state, channel, target.spaceId, target.conversationId, subscription.lastEventId);
+          }
+        }
+        if (!channel.closed) connection.send({ subscriptionId: subscription.id, ready: true } satisfies LocalEventEnvelope);
+      } catch (error) {
+        const code = (error as { statusCode?: unknown })?.statusCode;
+        const status = typeof code === "number" && code >= 400 && code <= 599 ? code : 500;
+        if (!channel.closed) connection.send({ subscriptionId: subscription.id, error: {
+          status, message: status < 500 ? errorMessage(error) : "This local event stream is unavailable. Refresh to reconnect.",
+        } } satisfies LocalEventEnvelope);
+        channel.close();
+      }
+    }));
+    return;
+  }
+
   // Content-free control hints for the renderer: which registry changed, so
   // the surfaces requery instead of accumulating an event queue.
   if (url.pathname === "/api/management/control-events" && method === "GET") {
     if (state.controlStreams.size >= 64) throw httpError(429, "Too many control event connections.");
-    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
-    state.controlStreams.add(res);
-    res.write('data: {"type":"reset"}\n\n');
-    const heartbeat = setInterval(() => { if (!res.destroyed) res.write(": heartbeat\n\n"); }, 15_000);
-    heartbeat.unref();
-    res.on("close", () => { clearInterval(heartbeat); state.controlStreams.delete(res); });
+    openControlEventStream(state, createLocalEventSink(res));
     return;
   }
   // The glance (docs/fold-glance.md): the app-composed digest for the popover
@@ -3604,7 +3656,6 @@ async function acceptConversationTurn(
   const managementAttachments = space.id === workFoldManagementScopeId
     ? input.managementAttachments ?? []
     : undefined;
-  broadcast(state, turnKey, turnStateEvent(conversationId, true));
   const message = {
     id: durable.userMessageId,
     role: "user" as const,
@@ -3655,6 +3706,9 @@ async function acceptConversationTurn(
     throw requestRefusal(error);
   }
   const answeredQuestionId = input.request?.answeringQuestionId ?? answeredQuestionIds[0];
+  // A live surface may re-read the transcript on this transition. Publish it
+  // only after its accepted user message is durable, including answer turns.
+  broadcast(state, turnKey, turnStateEvent(conversationId, true));
   const turn = runAgentTurn(
     state,
     space.id,
@@ -12761,10 +12815,11 @@ async function readActReceiptJournal(state: LocalApiState): Promise<WorkFoldCliA
 }
 
 function closeSpaceStreams(state: LocalApiState, spaceId: string): void {
+  for (const [close, owner] of [...state.fileStreams]) if (owner === spaceId) close();
   const prefix = `${spaceId}:`;
   for (const [key, streams] of [...state.chatStreams]) {
     if (!key.startsWith(prefix)) continue;
-    for (const response of streams) response.end();
+    for (const response of streams) response.close();
     state.chatStreams.delete(key);
   }
 }
@@ -12815,8 +12870,8 @@ function publishTransientExtensionEvent(state: LocalApiState, scope: PiExtension
   const streams = state.chatStreams.get(streamKey(scopeId, scope.conversationId));
   for (const response of [...streams ?? []]) {
     try {
-      if (response.writableEnded || response.destroyed || response.writableLength > maxChatStreamQueuedBytes) {
-        response.end(); streams?.delete(response);
+      if (response.closed || response.queuedBytes > maxChatStreamQueuedBytes) {
+        response.close(); streams?.delete(response);
       } else writeSseData(response, event);
     } catch { streams?.delete(response); }
   }
@@ -12969,23 +13024,31 @@ async function configuredAssistantModelScope(
   return assistantModelScope(scope, spaceId);
 }
 
+function openControlEventStream(state: LocalApiState, sink: LocalEventSink): void {
+  if (sink.closed) return;
+  state.controlStreams.add(sink);
+  sink.send({ type: "reset" });
+  const heartbeat = setInterval(() => sink.heartbeat(), 15_000);
+  heartbeat.unref();
+  sink.onClose(() => { clearInterval(heartbeat); state.controlStreams.delete(sink); });
+}
+
 function openChatStream(
   state: LocalApiState,
-  req: IncomingMessage,
-  res: ServerResponse,
+  res: LocalEventSink,
   spaceId: string,
   conversationId: string,
+  lastEventId?: string | string[],
 ): void {
+  if (res.closed) return;
   const key = streamKey(spaceId, conversationId);
-  res.writeHead(200, {
-    "content-type": "text/event-stream; charset=utf-8",
-    "cache-control": "no-cache, no-transform",
-    connection: "keep-alive",
-    "x-accel-buffering": "no",
-  });
   writeSseData(res, { type: "status", conversationId, message: "Connected." });
   const log = chatEventLog(state, key);
-  const cursor = parseSseCursor(req.headers["last-event-id"]);
+  // The conflict reservation precedes persistence. A new subscriber must not
+  // mistake that reservation for a readable accepted message/answer.
+  const turnId = state.activeTurnIdsByKey.get(key);
+  const running = state.runningTurns.has(key) && Boolean(turnId && state.turnStore.get(turnId)?.userMessagePersisted);
+  const cursor = parseSseCursor(lastEventId);
   const firstRetainedId = log.events[0]?.id ?? log.nextId;
   const canReplay = cursor !== null && cursor >= firstRetainedId - 1 && cursor < log.nextId;
   if (canReplay) {
@@ -12995,16 +13058,16 @@ function openChatStream(
     writeSseData(res, {
       type: "turn_snapshot",
       conversationId,
-      running: state.runningTurns.has(key),
-      turnId: state.activeTurnIdsByKey.get(key) ?? null,
+      running,
+      turnId: running ? turnId ?? null : null,
       text: log.assistantText,
     }, snapshotId > 0 ? snapshotId : undefined);
   }
   // Keep the original handshake event for older local consumers while the
   // richer snapshot provides cursor/text reconciliation to newer renderers.
   const handshakeId = log.nextId - 1;
-  writeSseData(res, turnStateEvent(conversationId, state.runningTurns.has(key)), handshakeId > 0 ? handshakeId : undefined);
-  const streams = state.chatStreams.get(key) ?? new Set<ServerResponse>();
+  writeSseData(res, turnStateEvent(conversationId, running), handshakeId > 0 ? handshakeId : undefined);
+  const streams = state.chatStreams.get(key) ?? new Set<LocalEventSink>();
   streams.add(res);
   state.chatStreams.set(key, streams);
   const extensionScope = { conversationId, spaceRoot: spaceId === workFoldManagementScopeId
@@ -13012,19 +13075,18 @@ function openChatStream(
   writeSseData(res, { type: "extension_ui_snapshot", conversationId, requests: extensionSnapshot(state, extensionScope) });
   void state.restrictedAppProposals.list({ spaceId, conversationId }).then(async (proposals) => {
     for (const proposal of proposals) {
-      if (proposal.status !== "pending" || res.writableEnded) continue;
+      if (proposal.status !== "pending" || res.closed) continue;
       const current = await state.restrictedAppProposals.get(proposal.id);
-      if (!current || current.status !== "pending" || current.updatedAt !== proposal.updatedAt || res.writableEnded) continue;
-      res.write(`data: ${JSON.stringify({ type: "restricted_app_proposal", conversationId, proposal: rendererRestrictedAppProposal(current) })}\n\n`);
+      if (!current || current.status !== "pending" || current.updatedAt !== proposal.updatedAt || res.closed) continue;
+      res.send({ type: "restricted_app_proposal", conversationId, proposal: rendererRestrictedAppProposal(current) });
     }
   }).catch(() => undefined);
   const heartbeat = setInterval(() => {
     try {
-      if (res.writableLength > maxChatStreamQueuedBytes) res.end();
-      else res.write(": keepalive\n\n");
+      res.heartbeat();
     } catch { /* disconnected */ }
   }, 15_000);
-  req.on("close", () => {
+  res.onClose(() => {
     clearInterval(heartbeat);
     streams.delete(res);
     if (!streams.size) state.chatStreams.delete(key);
@@ -13033,20 +13095,14 @@ function openChatStream(
 
 async function openSpaceFileStream(
   state: LocalApiState,
-  req: IncomingMessage,
-  res: ServerResponse,
+  res: LocalEventSink,
   spaceRoot: string,
+  spaceId: string,
 ): Promise<void> {
-  res.writeHead(200, {
-    "content-type": "text/event-stream; charset=utf-8",
-    "cache-control": "no-cache, no-transform",
-    connection: "keep-alive",
-    "x-accel-buffering": "no",
-  });
   let recursive = true;
   let watcher: ReturnType<typeof watch>;
   const sendEvent = (event: unknown) => {
-    try { res.write(`data: ${JSON.stringify(event)}\n\n`); } catch { /* disconnected */ }
+    res.send(event);
   };
   const onChange = (eventType: string, fileName: string | Buffer | null) => {
     const rawName = Buffer.isBuffer(fileName) ? fileName.toString("utf8") : fileName ?? "";
@@ -13057,12 +13113,17 @@ async function openSpaceFileStream(
     const path = rawName.replace(/\\/g, "/").replace(/^\/+/, "");
     if (!path || isAlwaysHiddenSpaceEntry(basename(path))) return;
     void readSpaceIgnoreState(spaceRoot).then((ignoreState) => {
+      if (res.closed) return;
       if (isSpaceIgnored(path, ignoreState.patterns)) return;
       try { resolveSpacePath(spaceRoot, path); } catch { return; }
       sendEvent({ type: "file_event", eventType, path });
-    });
+    }).catch(() => { if (!res.closed) sendEvent({ type: "error", message: "File monitoring is unavailable. Refresh this Space to reconnect." }); });
   };
   const watchRoot = await canonicalSpaceWatchRoot(spaceRoot);
+  if (res.closed) return;
+  const registered = await getSpace(spaceId);
+  if (registered.spaceRoot !== spaceRoot) throw notFound("Space changed while opening file monitoring.");
+  if (res.closed) return;
   try {
     watcher = watch(watchRoot, { recursive: true }, onChange);
   } catch {
@@ -13071,7 +13132,7 @@ async function openSpaceFileStream(
   }
   sendEvent({ type: "ready", recursive });
   const heartbeat = setInterval(() => {
-    try { res.write(": keepalive\n\n"); } catch { /* disconnected */ }
+    res.heartbeat();
   }, 15_000);
   let closed = false;
   const close = () => {
@@ -13079,12 +13140,12 @@ async function openSpaceFileStream(
     closed = true;
     clearInterval(heartbeat);
     watcher.close();
-    if (!res.writableEnded) res.end();
+    if (!res.closed) res.close();
     state.fileStreams.delete(close);
   };
-  state.fileStreams.add(close);
+  state.fileStreams.set(close, spaceId);
   watcher.on("error", (error) => sendEvent({ type: "error", message: errorMessage(error) }));
-  req.on("close", close);
+  res.onClose(close);
 }
 
 async function sendSpaceRawFile(res: ServerResponse, spaceRoot: string, relativePath: string): Promise<void> {
@@ -13325,12 +13386,12 @@ function parseSseCursor(value: string | string[] | undefined): number | null {
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
-function writeSseEntry(response: ServerResponse, entry: ChatEventLogEntry): void {
+function writeSseEntry(response: LocalEventSink, entry: ChatEventLogEntry): void {
   writeSseData(response, entry.data, entry.id);
 }
 
-function writeSseData(response: ServerResponse, data: unknown, id?: number): void {
-  response.write(`${id !== undefined ? `id: ${id}\n` : ""}data: ${JSON.stringify(data)}\n\n`);
+function writeSseData(response: LocalEventSink, data: unknown, id?: number): void {
+  response.send(data, id);
 }
 
 function broadcast(state: LocalApiState, key: string, event: unknown): void {
@@ -13345,8 +13406,8 @@ function broadcast(state: LocalApiState, key: string, event: unknown): void {
   if (!streams) return;
   for (const response of [...streams]) {
     try {
-      if (response.writableEnded || response.destroyed || response.writableLength > maxChatStreamQueuedBytes) {
-        response.end();
+      if (response.closed || response.queuedBytes > maxChatStreamQueuedBytes) {
+        response.close();
         streams.delete(response);
         continue;
       }
@@ -13448,10 +13509,10 @@ function sendJson(res: ServerResponse, payload: unknown, status = 200): void {
 /** Content-free hints only. Reconnect always sends reset; no events are replayed. */
 function publishControlHint(state: LocalApiState, type: "apps" | "spaces" | "assistant"): void {
   for (const response of state.controlStreams) {
-    if (response.destroyed || response.writableEnded) continue;
+    if (response.closed) continue;
     // A slow renderer must reconnect and requery instead of accumulating a queue.
-    try { if (!response.write(`data: ${JSON.stringify({ type })}\n\n`)) response.destroy(); }
-    catch { response.destroy(); }
+    try { if (!response.send({ type })) response.close(); }
+    catch { response.close(); }
   }
 }
 

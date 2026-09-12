@@ -52,7 +52,7 @@ async function collaborationHarness(t: { after: (fn: () => unknown) => void }) {
   // host accepted a moment ago may reach the gate only after the last
   // release, and a held turn would keep `close()` waiting forever.
   let draining = false;
-  const open = (overrides: { requestStore?: WorkFoldRequestStore } = {}) => {
+  const open = (overrides: { requestStore?: WorkFoldRequestStore; turnStore?: WorkFoldTurnStore } = {}) => {
     draining = false;
     return startLocalApi({
       port: 0,
@@ -729,4 +729,108 @@ test("a routing stops at a question and an answer never replays later hops", asy
     assert.equal(api.requests.byTaskId(task.taskId)?.state, "done");
     assert.equal(existsSync(join(destination.spaceRoot, "Incoming", "notes.md")), false);
   } finally { h.releaseAll(); await api.close(); }
+});
+
+test("multiplexed Chat channels preserve snapshots and accepted-answer visibility while one continuation remains running", async (t) => {
+  const h = await collaborationHarness(t); const api = await h.open();
+  const controller = new AbortController();
+  let reading: Promise<void> | undefined;
+  try {
+    const space = (await api.actFacade.createSpace({ name: "Multiplex answer" })).space;
+    const sibling = (await api.actFacade.createSpace({ name: "Surviving file monitor" })).space;
+    h.held.add(space.id);
+    const first = await api.actFacade.sendMessage({ space: space.id, newConversation: true, content: "/hold" });
+    const asked = await api.actFacade.chatAsk({ space: space.id, taskId: first.taskId, question: "Which currency?", respondent: "person" });
+    await h.release(first.taskId); await settled(api, space.id, first.taskId);
+    const chatPath = `/api/spaces/${space.id}/conversations/${first.conversationId}`;
+    const subscriptions = Array.from({ length: 10 }, (_, index) => ({ id: `chat-${index}`, path: `${chatPath}/events` }));
+    const response = await fetch(`${api.origin}/api/events`, { method: "POST", headers: { "content-type": "application/json" }, signal: controller.signal,
+      body: JSON.stringify({ subscriptions: [...subscriptions, { id: "removed", path: "/api/spaces/space-0000000000000000/file-events" }, { id: "files", path: `/api/spaces/${space.id}/file-events` }, { id: "sibling-files", path: `/api/spaces/${sibling.id}/file-events` }, { id: "control", path: "/api/management/control-events" }] }),
+    });
+    assert.equal(response.status, 200);
+    const events: Array<{ subscriptionId: string; ready?: boolean; closed?: boolean; eventId?: string; error?: { status: number }; event?: { type?: string; running?: boolean } }> = [];
+    const transcriptReads: Array<Promise<Array<{ content: string }>>> = [];
+    const reader = response.body!.getReader();
+    reading = (async () => {
+      const decoder = new TextDecoder(); let buffer = "";
+      try { for (;;) {
+        const result = await reader.read(); if (result.done) return;
+        buffer += decoder.decode(result.value, { stream: true });
+        let boundary: number;
+        while ((boundary = buffer.indexOf("\n\n")) >= 0) {
+          const frame = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2);
+          if (!frame.startsWith("data: ")) continue;
+          const event = JSON.parse(frame.slice(6)); events.push(event);
+          if (event.subscriptionId === "chat-0" && event.event?.type === "turn_state" && event.event.running) {
+            transcriptReads.push(spaceMessages(api, space.id, first.conversationId));
+          }
+        }
+      } } catch (error) { if (!controller.signal.aborted) throw error; }
+      finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); }
+    })();
+    await waitFor(async () => events.filter((event) => event.ready).length === 13);
+    assert.equal(events.find((event) => event.subscriptionId === "removed" && event.error)?.error?.status, 404);
+    assert.equal(events.filter((event) => event.event?.type === "turn_snapshot").length, 10, "duplicate paths each receive their own snapshot");
+    const answered = await fetch(`${api.origin}/api/requests/${api.requests.byTaskId(first.taskId)!.requestId}/answer`, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ questionId: asked.question.questionId, answer: "/hold CAD", surface: "main-window" }), signal: AbortSignal.timeout(5000) });
+    assert.equal(answered.status, 200, await answered.clone().text());
+    const work = (await answered.json() as { work: { state: string } }).work;
+    assert.equal(work.state, "working", "answer acceptance does not await the held continuation");
+    await waitFor(async () => transcriptReads.length > 0);
+    assert.ok((await transcriptReads[0]!).some((message) => message.content.includes("/hold CAD")), "a running notification cannot precede its persisted accepted answer");
+    const record = api.requests.get(api.requests.byTaskId(first.taskId)!.requestId)!;
+    assert.equal(record.turns.length, 2);
+    const stopped = await fetch(`${api.origin}/api/requests/${record.requestId}/stop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ surface: "main-window" }), signal: AbortSignal.timeout(5000) });
+    assert.equal(stopped.status, 200, await stopped.clone().text());
+    assert.equal(api.requests.get(record.requestId)?.state, "stopped");
+    h.releaseAll();
+    await settled(api, space.id, record.turns.at(-1)!.taskId);
+    await api.actFacade.spacesUnregister({ space: space.id });
+    await waitFor(async () => events.filter((event) => event.closed && (event.subscriptionId.startsWith("chat-") || event.subscriptionId === "files")).length === 11);
+    await writeFile(join(sibling.spaceRoot, "surviving.txt"), "Synthetic sibling monitor still works");
+    await waitFor(async () => events.some((event) => event.subscriptionId === "sibling-files" && event.event?.type === "file_event"));
+  } finally { controller.abort(); await reading; h.releaseAll(); await api.close(); }
+});
+
+test("a reconnect during turn reservation waits for accepted-message persistence before announcing running", async (t) => {
+  const h = await collaborationHarness(t);
+  const turnStore = await WorkFoldTurnStore.create({ stateRoot: h.stateBase });
+  const accept = turnStore.accept.bind(turnStore);
+  let reserved: Awaited<ReturnType<typeof accept>> | undefined;
+  let releaseAcceptance: (() => void) | undefined;
+  turnStore.accept = async (input) => {
+    const result = await accept(input); reserved = result;
+    await new Promise<void>((resolve) => { releaseAcceptance = resolve; });
+    return result;
+  };
+  const api = await h.open({ turnStore });
+  const controller = new AbortController();
+  let sending: Promise<unknown> | undefined;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  try {
+    const space = (await api.actFacade.createSpace({ name: "Slow acceptance" })).space;
+    h.held.add(space.id);
+    sending = api.actFacade.sendMessage({ space: space.id, newConversation: true, content: "/hold Accepted after reservation" });
+    await waitFor(async () => Boolean(releaseAcceptance));
+    const conversationId = reserved!.record.conversationId;
+    const response = await fetch(`${api.origin}/api/events`, { method: "POST", headers: { "content-type": "application/json" }, signal: controller.signal,
+      body: JSON.stringify({ subscriptions: [{ id: "chat", path: `/api/spaces/${space.id}/conversations/${conversationId}/events` }] }),
+    });
+    reader = response.body!.getReader();
+    const first = new TextDecoder().decode((await reader.read()).value);
+    assert.match(first, /"type":"turn_snapshot".*"running":false/);
+    assert.doesNotMatch(first, /"running":true/);
+    assert.deepEqual((await spaceMessages(api, space.id, conversationId)).filter((message) => message.role === "user"), []);
+    releaseAcceptance!();
+    await sending;
+    let buffer = first;
+    while (!buffer.includes('"running":true')) {
+      const next = await reader.read(); assert.equal(next.done, false);
+      buffer += new TextDecoder().decode(next.value);
+    }
+    assert.ok((await spaceMessages(api, space.id, conversationId)).some((message) => message.content.includes("Accepted after reservation")));
+  } finally {
+    releaseAcceptance?.(); controller.abort(); await reader?.cancel().catch(() => undefined); reader?.releaseLock();
+    await sending; h.releaseAll(); await api.close();
+  }
 });

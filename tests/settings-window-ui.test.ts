@@ -88,7 +88,7 @@ test("an accepted Settings save retains its owner across page navigation", async
   let writes = 0;
   let finishSave!: (response: Response) => void;
   globalThis.fetch = (async (input, init) => {
-    if (String(input).endsWith("/control-events")) return new Response(new ReadableStream({ start(controller) {
+    if (String(input).endsWith("/api/events")) return new Response(new ReadableStream({ start(controller) {
       init?.signal?.addEventListener("abort", () => controller.close(), { once: true });
     } }));
     if (init?.method === "POST") {

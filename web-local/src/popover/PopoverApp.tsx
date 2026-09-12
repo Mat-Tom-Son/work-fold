@@ -311,6 +311,7 @@ export function PopoverApp() {
   useEffect(() => {
     if (!conversationId || popoverFixtureRequested) return;
     const stream = createEventSource(`/api/management/conversations/${encodeURIComponent(conversationId)}/events`);
+    let observedRunning = false;
     stream.onmessage = (raw) => {
       if (selectionRef.current !== conversationId) return;
       let event: ChatStreamEvent;
@@ -327,7 +328,11 @@ export function PopoverApp() {
         const tool = event.type === "tool" && typeof event.toolName === "string" ? event.toolName.trim() : "";
         if (message || tool) setActivity(message || tool);
       }
-      if (event.type === "turn_snapshot" && typeof event.text === "string") {
+      if (event.type === "turn_state" || event.type === "turn_snapshot") {
+        if (event.running === true && !observedRunning) replaceStreamingAssistant("");
+        observedRunning = event.running === true;
+      }
+      if (event.type === "turn_snapshot" && typeof event.text === "string" && event.running === true) {
         replaceStreamingAssistant(event.text);
       }
       if (event.type === "assistant_delta" && typeof event.text === "string") {

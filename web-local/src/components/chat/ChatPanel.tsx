@@ -237,6 +237,9 @@ export function ChatPanel({
   const activeThinkingPreviewIdRef = useRef<string | null>(null);
   const runtimePreviewIdRef = useRef(0);
   const spaceIdRef = useRef(space.id);
+  const messagesLoadGenerationRef = useRef(0);
+  const settlingTurnRef = useRef(false);
+  useEffect(() => () => { messagesLoadGenerationRef.current++; }, [space.id]);
   const eventStreamReadyConversationIdRef = useRef<string | null>(null);
   const pendingSendRef = useRef<PendingChatSend | null>(null);
   const postingPendingSendRef = useRef(false);
@@ -297,6 +300,7 @@ export function ChatPanel({
 
   useEffect(() => {
     spaceIdRef.current = space.id;
+    settlingTurnRef.current = false;
     clearRuntimePreviews();
     resetTurnArtifactTracking();
     pendingSendRef.current = null;
@@ -508,7 +512,7 @@ export function ChatPanel({
         // Reconcile messages that may have landed while Windows was asleep or
         // the renderer was disconnected. Runtime previews remain intact while
         // a turn is still active.
-        void loadMessages(conversationId, false);
+        void loadMessages(conversationId, false).catch(() => undefined);
       }
       openedOnce = true;
       if (pendingSendRef.current?.conversation.id === conversationId) void postPendingMessage();
@@ -545,7 +549,19 @@ export function ChatPanel({
       if (data.type === "turn_state" || data.type === "turn_snapshot") {
         const sendTransitioning = pendingSendRef.current?.conversation.id === conversationId
           || postingPendingSendRef.current;
-        if (data.type === "turn_snapshot" && typeof data.text === "string" && (!sendTransitioning || data.running === true)) {
+        const startingTurn = data.running === true && (!runningRef.current || settlingTurnRef.current);
+        if (startingTurn) {
+          // An answer or CLI message can start a turn without this composer's
+          // send path. Retire the last reply and any older transcript request.
+          messagesLoadGenerationRef.current++;
+          settlingTurnRef.current = false;
+          flushStreamingText();
+          setStreamingAssistant("");
+          clearRuntimePreviews();
+          resetTurnArtifactTracking();
+          if (!sendTransitioning) void loadMessages(conversationId, false).catch(() => undefined);
+        }
+        if (data.type === "turn_snapshot" && typeof data.text === "string" && data.running === true) {
           flushStreamingText();
           setStreamingAssistant(data.text);
         }
@@ -561,7 +577,7 @@ export function ChatPanel({
           // A reconnect can miss the terminal `done` frame. The server's
           // snapshot is authoritative, so settle from the persisted transcript.
           runningRef.current = false;
-          void loadMessages(conversationId, false, { settleStreamingTurn: true });
+          void loadMessages(conversationId, false, { settleStreamingTurn: true }).catch(() => undefined);
           void onAgentFinished();
           reportChatSettled(conversationId);
         }
@@ -638,7 +654,7 @@ export function ChatPanel({
         finishThinkingPreview();
         // Keep the streamed bubble on screen until the persisted transcript
         // arrives, then swap in one commit so the reply never blinks out.
-        void loadMessages(conversationId, false, { settleStreamingTurn: true });
+        void loadMessages(conversationId, false, { settleStreamingTurn: true }).catch(() => undefined);
         void onAgentFinished();
         reportChatSettled(conversationId);
       }
@@ -916,6 +932,8 @@ export function ChatPanel({
   }
 
   async function newConversation() {
+    messagesLoadGenerationRef.current++;
+    settlingTurnRef.current = false;
     if (fixtureMode) {
       cancelScriptPlayback();
       setConversation(null);
@@ -954,6 +972,7 @@ export function ChatPanel({
 
   async function switchConversation(selected: ConversationSummary) {
     if (fixtureMode) return;
+    settlingTurnRef.current = false;
     setConversation(selected);
     onConversationActivated?.(selected);
     setRunning(false);
@@ -1023,13 +1042,18 @@ export function ChatPanel({
     pinToBottom = false,
     options: { settleStreamingTurn?: boolean } = {},
   ): Promise<ChatMessage[]> {
-    const settleStreamingTurn = options.settleStreamingTurn ?? false;
+    // Reconnection may replace a pending settlement read. Its newer read
+    // must carry the same settlement until an actual new turn cancels it.
+    const settleStreamingTurn = options.settleStreamingTurn === true || settlingTurnRef.current;
+    if (settleStreamingTurn) settlingTurnRef.current = true;
+    const generation = ++messagesLoadGenerationRef.current;
     let keepSettledTurnArtifacts = false;
     let transcript: ChatMessage[] = [];
     try {
       if (fixtureMode) return [];
       const result = await api<{ messages: ChatMessage[] }>(`/api/spaces/${space.id}/conversations/${conversationId}`);
       transcript = result.messages.filter((message) => message.role !== "system");
+      if (generation !== messagesLoadGenerationRef.current) return transcript;
       if (settleStreamingTurn) {
         keepSettledTurnArtifacts = settledTurnHasNewAssistantMessage(
           turnPreviousAssistantMessageIdRef.current,
@@ -1055,8 +1079,12 @@ export function ChatPanel({
         setUserPinnedToBottom(true);
         scrollMessagesToBottom("auto");
       }
+    } catch (error) {
+      if (generation === messagesLoadGenerationRef.current) setError(errorText(error));
+      throw error;
     } finally {
-      if (settleStreamingTurn) {
+      if (settleStreamingTurn && generation === messagesLoadGenerationRef.current) {
+        settlingTurnRef.current = false;
         const hasPersistedWorkTrail = [...transcript].reverse()
           .find((message) => message.role === "assistant")
           ?.workTrail?.length;

@@ -84,7 +84,9 @@ export function useSpaceTree(space: SpaceSummary, onError: (message: string | nu
     source.onmessage = (event) => {
       try {
         const parsed = JSON.parse(event.data) as SpaceFileEvent;
-        if (parsed.type === "ready") return;
+        // File watchers have no replay cursor. Requery after every ready,
+        // including the first, to cover writes during opening or reconnect.
+        if (parsed.type === "ready") { scheduleRefresh(); return; }
         if (parsed.type === "error") return onError(parsed.message || "File monitoring paused. Refresh this Space to resume.");
         scheduleRefresh(parsed.path ? [parsed.path] : undefined);
       } catch (caught) { onError(errorText(caught)); }

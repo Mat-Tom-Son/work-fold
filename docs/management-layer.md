@@ -9,14 +9,28 @@
 > in this build; the continuation switch is configurable.
 
 
-The development desktop also exposes the authenticated renderer-only
-`GET /api/management/control-events` SSE endpoint. Its closed `reset`, `apps`,
-`spaces`, and `assistant` hints contain no content or authority and are not remote act
-verbs. Visible renderers share one connection and re-read the relevant service
-after a hint; reconnect sends reset without replay. The host caps connections,
-sends heartbeats, and disconnects backpressured clients instead of queuing
-unbounded updates. This keeps CLI-created Spaces and installed-app catalogs
-current in the existing UI; it is not a file watcher or workflow event bus.
+The desktop and local browser renderer share one authenticated
+`POST /api/events` SSE connection per renderer across Chat, management Chat,
+Space file-monitoring, and control subscriptions. The request carries at most
+128 uniquely identified subscriptions to exact supported local stream paths,
+within a 64 KiB body. Each Chat consumer keeps its own replay cursor, including
+two consumers of the same Chat. Changing subscriptions aborts and drains the
+old connection before its replacement opens; late frames cannot reach the new
+subscription generation. This keeps start, answer, and Stop requests out of
+Chromium's HTTP/1.1 connection limit even with many mounted background Chats.
+
+The underlying direct GET streams remain compatible. The closed `reset`,
+`apps`, `spaces`, and `assistant` control hints contain no content or authority;
+renderers re-read the relevant service after a hint and reset on reconnect.
+File watchers have no replay log and refresh Files after every ready signal,
+covering changes during reconnection. Chat replay retains its existing event
+log, transient Extension interaction snapshots, and proposal filtering.
+A removed or failed subscription closes independently; removing a Space also
+closes its file watchers. Parent disconnect disposes every child watcher and
+timer. The host caps physical connections, sends heartbeats, and bounds the
+aggregate queued output to 512 KiB. Origin and renderer-session checks still
+apply before admission. This is explicit renderer transport, not a model or
+workflow event bus, a new act verb, or arbitrary HTTP forwarding.
 Successful Assistant configuration mutations emit `assistant` after idle-client
 invalidation, whether initiated by Settings or the CLI. Empty Chat composers
 re-read the saved default; existing Pi sessions keep their own model. Settings

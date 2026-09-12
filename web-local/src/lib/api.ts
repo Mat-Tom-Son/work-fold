@@ -1,5 +1,7 @@
 import { apiGetRetryDelaysMs, eventStreamReconnectDelaysMs } from "../constants";
 import type { LocalEventStream } from "../types";
+import type { LocalEventEnvelope } from "../../../src/shared/local-event-stream";
+import { createLocalEventMultiplexer } from "./local-event-multiplexer";
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string, readonly code?: string) {
@@ -55,12 +57,30 @@ export async function apiForm<T>(path: string, body: FormData): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+const localEventMultiplexer = createLocalEventMultiplexer((subscriptions, receive, failed) => {
+  const connection = createDirectEventSource("/api/events", () => ({ method: "POST", body: { subscriptions: subscriptions() } }));
+  connection.source.onmessage = ({ data }) => {
+    try { receive(JSON.parse(data) as LocalEventEnvelope); }
+    catch (error) { failed(error); }
+  };
+  connection.source.onerror = failed;
+  return { close: connection.closeAndWait };
+});
+
 export function createEventSource(path: string): LocalEventStream {
+  if (/^\/api\/(?:management\/control-events|management\/conversations\/[^/]+\/events|spaces\/[^/]+\/(?:file-events|conversations\/[^/]+\/events))$/.test(path)) {
+    return localEventMultiplexer.subscribe(path);
+  }
+  return createDirectEventSource(path).source;
+}
+
+function createDirectEventSource(path: string, request?: () => { method: string; body: unknown }): { source: LocalEventStream; closeAndWait: () => Promise<void> } {
   let closed = false;
   let exhausted = false;
   let controller: AbortController | null = null;
   let reconnectTimer: number | null = null;
   let reconnectAttempts = 0;
+  let pendingRead: Promise<void> | null = null;
   const source: LocalEventStream = {
     onmessage: null,
     onopen: null,
@@ -92,10 +112,10 @@ export function createEventSource(path: string): LocalEventStream {
     if (closed) return;
     controller = new AbortController();
     const activeController = controller;
-    void readEventStream(path, activeController, source, () => {
+    pendingRead = readEventStream(path, activeController, source, () => {
       reconnectAttempts = 0;
       exhausted = false;
-    })
+    }, request?.())
       .then(() => {
         if (!closed && !activeController.signal.aborted) {
           scheduleReconnect(new Error("Local service event stream ended."));
@@ -133,7 +153,7 @@ export function createEventSource(path: string): LocalEventStream {
   window.addEventListener("focus", reviveOnWake);
   document.addEventListener("visibilitychange", reviveOnWake);
   connect();
-  return source;
+  return { source, closeAndWait: async () => { source.close(); await pendingRead; } };
 }
 
 export async function readEventStream(
@@ -141,10 +161,13 @@ export async function readEventStream(
   controller: AbortController,
   source: LocalEventStream,
   onOpen?: () => void,
+  request?: { method: string; body: unknown },
 ): Promise<void> {
   const response = await fetch(apiUrl(path), {
+    ...(request ? { method: request.method, body: JSON.stringify(request.body) } : {}),
     headers: await apiHeaders({
       accept: "text/event-stream",
+      ...(request ? { "content-type": "application/json" } : {}),
       ...(source.lastEventId ? { "last-event-id": source.lastEventId } : {}),
     }),
     signal: controller.signal,
@@ -181,6 +204,8 @@ export async function readEventStream(
     }
   } finally {
     if (inactivityTimer !== null) window.clearTimeout(inactivityTimer);
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
   }
 }
 
