@@ -1,5 +1,6 @@
 import { ExtensionQuestions } from "../components/chat/ExtensionQuestions";
 import { WorkRequest } from "../components/chat/WorkRequest";
+import { useApplicationAppearance } from "../hooks/useApplicationAppearance";
 import { useWorkRequest } from "../hooks/useWorkRequest";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ChevronRight, File, History, Link2, Search, SquarePen, X } from "lucide-react";
@@ -131,6 +132,7 @@ const popoverFixtureComposer: AssistantComposerState = {
 };
 
 export function PopoverApp() {
+  useApplicationAppearance({ fixtureMode: popoverFixtureRequested });
   const bridge = window.workFoldDesktop;
   const [available, setAvailable] = useState<boolean | null>(popoverFixtureRequested ? true : null);
   const [unavailableReason, setUnavailableReason] = useState<string>("");

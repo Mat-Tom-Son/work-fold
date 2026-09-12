@@ -1,3 +1,4 @@
+import { useSpaceIdentityResolver } from "../../lib/space-appearance-context";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useWorkRequest } from "../../hooks/useWorkRequest";
 import { WorkRequest, openWorkFile } from "./WorkRequest";
@@ -27,7 +28,7 @@ import {
 import { latestAssistantMessageId as findLatestAssistantMessageId, settledTurnHasNewAssistantMessage } from "../../lib/chat-turn-artifacts";
 import { dismissRestrictedAppProposal, installRestrictedAppProposal } from "../../lib/restricted-apps";
 import { resolveFixtureSpacePathCandidates } from "../../lib/space-path-links";
-import { spaceIdentityFor, spaceIdentityStyle, type SpaceIdentity } from "../../lib/space-identity";
+import { spaceIdentityStyle, type SpaceIdentity } from "../../lib/space-identity";
 import type { AgentCatalog, AgentCommand, AgentStatus, AssistantComposerState, ChatContextPathRequest,
   ChatDraftRequest, ChatLifecycleView, ChatMessage, ChatStreamEvent, ContextAttachment, ConversationRuntime, ConversationSummary, ExtensionUiRequest, PendingChatSend, RestrictedAppInstalled, RestrictedAppProposal, RuntimePreviewEntry, TreeEntry, SpaceCustomizationMap, SpaceFixtureConversation, SpaceSummary } from "../../types";
 import { ExtensionQuestions } from "./ExtensionQuestions";
@@ -186,9 +187,10 @@ export function ChatPanel({
   const [appProposalBusy, setAppProposalBusy] = useState(false);
   const appProposalVersionsRef = useRef(new Map<string, Pick<RestrictedAppProposal, "status" | "updatedAt">>());
   const emptyStateGreeting = useMemo(() => randomChatEmptyGreeting(), []);
+  const spaceIdentityFor = useSpaceIdentityResolver();
   const spaceIdentity = useMemo(
     () => spaceIdentityFor(space, spaceCustomizations),
-    [space, spaceCustomizations],
+    [space, spaceCustomizations, spaceIdentityFor],
   );
 
   useEffect(() => {

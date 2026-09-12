@@ -11,6 +11,7 @@ import "./popover.css";
 import "../../../services/bridge/public/work-request.css";
 import "../../../services/bridge/public/extension-questions.css";
 import "../components/chat/model-context-inspector.css";
+import "../application-appearance.css";
 import { PopoverApp } from "./PopoverApp";
 
 const platform = window.workFoldDesktop?.app.platform;

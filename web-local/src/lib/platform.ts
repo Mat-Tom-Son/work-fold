@@ -3,7 +3,7 @@ import type { AppTypographyFont } from "../types";
 type DesktopPlatform = NodeJS.Platform | undefined;
 
 function desktopPlatform(): DesktopPlatform {
-  return typeof window === "undefined" ? undefined : window.workFoldDesktop?.app.platform;
+  return typeof window === "undefined" ? undefined : window.workFoldDesktop?.app?.platform;
 }
 
 function isMacOS(platform: DesktopPlatform = desktopPlatform()): boolean {

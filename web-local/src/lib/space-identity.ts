@@ -5,6 +5,7 @@ import {
   secondaryAccentIdentity,
   type ResolvedSpaceAppearance,
   type SpaceAppearanceMode,
+  type ResolverGround,
 } from "../../../src/shared/space-appearance";
 import { maxSpaceBannerImageDataUrlLength, maxSpaceBannerImageFileBytes } from "../constants";
 import { spaceIconOptionFor, type SpaceIconOption } from "../space-icons";
@@ -86,7 +87,7 @@ interface SpaceIdentity {
   Icon: SpaceIconOption["Icon"];
 }
 
-function spaceIdentityFor(space: SpaceSummary, customizations: SpaceCustomizationMap): SpaceIdentity {
+function spaceIdentityFor(space: SpaceSummary, customizations: SpaceCustomizationMap, grounds?: Record<SpaceAppearanceMode, ResolverGround>): SpaceIdentity {
   const defaultColor = defaultSpaceColor(space.id);
   const custom = customizations[space.id] ?? {};
   const primaryIdentity = primaryAccentIdentity(custom, defaultColor.color);
@@ -102,6 +103,7 @@ function spaceIdentityFor(space: SpaceSummary, customizations: SpaceCustomizatio
     secondary: secondaryIdentity,
     bannerName,
     hasBannerImage: Boolean(bannerImage),
+    grounds,
   });
   return {
     color: colorOption.color,

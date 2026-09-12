@@ -51,11 +51,11 @@ test("in-tree dialogs are wired to the shared dialog contract", () => {
   }
 });
 
-test("Settings keeps automatic-save and explicit remote-setup copy", () => {
+test("Settings keeps automatic-save and explicit remote-setup copy", async () => {
   const settings = desktopDialogs[0] ?? "";
   // Credential visibility, removal, saves and stale responses are exercised
   // against the real form in assistant-settings-ui.test.ts.
-  assert.match(settings, /Changes save automatically/);
+  assert.match(await read("web-local/src/components/modals/AppearanceSettingsPane.tsx"), /Changes save on this device/);
   assert.match(settings, /settings-close-button/);
   assert.match(settings, /setCloseToTrayNotice\("Saved"\)/);
   assert.match(settings, /Private address created/);

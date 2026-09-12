@@ -8,7 +8,7 @@ import {
   type SpaceAppearanceState,
 } from "../../src/shared/space-appearance";
 
-import { defaultTypographyPreference, productName, textSizeValues, themePreferenceKey, typographyFontValues, typographyPreferenceKey, spaceCustomizationStorageKey, spacePathDragType } from "./constants";
+import { productName, spaceCustomizationStorageKey, spacePathDragType } from "./constants";
 import { deleteFolderConfirm } from "./ui-contract";
 import { ChatActionsPopover } from "./components/chat/ChatActionsPopover";
 import { ChatPanel } from "./components/chat/ChatPanel";
@@ -38,6 +38,8 @@ import { ChatsPane, HistoryPane, LibraryPane, SpacesPane, type AssistantModelSco
 import { FileContextMenu } from "./components/tree/FileContextMenu";
 import { FileTree, FileTreeLoadingState } from "./components/tree/FileTree";
 import type { SpaceUiFixture } from "./fixtures/space-fixture";
+import { useApplicationAppearance } from "./hooks/useApplicationAppearance";
+import { SpaceAppearanceProvider, useSpaceIdentityResolver } from "./lib/space-appearance-context";
 import { usePaneResize } from "./hooks/usePaneResize";
 import { useAssistantConfigurationRevision } from "./hooks/useAssistantConfigurationRevision";
 import { useBootstrapRefresh } from "./hooks/useBootstrapRefresh";
@@ -52,15 +54,15 @@ import { appBuildDraft, appChangeDraft, chatContextRequestForTab, chatDraftReque
 import { contributedSurfaces, resolveSurfaceForKey, surfaceMatchesTab } from "./lib/capability-surfaces";
 import { canOpenDirectly, hasNativeFiles, hasSpacePathDrag, nativeOpenLabel } from "./lib/file-actions";
 import { formatItemCount } from "./lib/format";
-import { readStoredJsonValue, readStoredValue, writeStoredJsonValue, writeStoredValue } from "./lib/storage";
-import { isMacOS, typographyFontForPlatform, spaceEntryNativePath } from "./lib/platform";
+import { readStoredJsonValue, writeStoredJsonValue } from "./lib/storage";
+import { isMacOS, spaceEntryNativePath } from "./lib/platform";
 import { resolveRestrictedAppOpenRequest, restrictedAppRailMode, restrictedAppRailLabel } from "./lib/restricted-app-navigation";
 import { getLocalAppStudio, getLocalAppSpaceRemovalImpact, prepareRestrictedAppChange } from "./lib/restricted-apps";
 import { collectLoadedFileEntries, findTreeEntry, isInsideFolder, moveTreeEntry, removeTreeEntries } from "./lib/tree";
 import { normalizeSpaceCustomizations } from "./lib/space-customization";
 import { spaceIdentityFor, spaceIdentityStyle } from "./lib/space-identity";
 import { removeSpaceConfirmText, surfacePanelDomId, surfaceTabDomId, spaceHeaderSourceBadgeLabel } from "./lib/space-ui";
-import type { AgentCatalog, AgentExtensionSurface, AppTheme, AppThemePreference, AppTypographyFont, AppTypographyPreference, BootstrapResponse, ChatActionsState, ChatContextPathRequest, ChatDraftRequest, ConversationSummary, DesktopUpdateStatus, FileContextMenuState, RestrictedAppInstalled, TreeEntry, SpaceCustomization, SpaceCustomizationMap, SpaceCustomizationPatch, SpacePane, SpaceRailMode, SpaceSummary } from "./types";
+import type { AgentCatalog, AgentExtensionSurface, AppTheme, AppThemePreference, BootstrapResponse, ChatActionsState, ChatContextPathRequest, ChatDraftRequest, ConversationSummary, DesktopUpdateStatus, FileContextMenuState, RestrictedAppInstalled, TreeEntry, SpaceCustomization, SpaceCustomizationMap, SpaceCustomizationPatch, SpacePane, SpaceRailMode, SpaceSummary } from "./types";
 import { ConfirmDialogHost, requestConfirm, showToast, ToastHost } from "./ui/feedback";
 import { spaceIconOptions } from "./space-icons";
 
@@ -68,7 +70,7 @@ const fixtureRequested = new URLSearchParams(window.location.search).get("fixtur
 const supportedSpaceIconNames = new Set(spaceIconOptions.flatMap((option) => [option.name, ...(option.aliases ?? [])]));
 
 interface DroppedUploadFile { file: File; relativePath: string }
-type DesktopActionCommand = "new-chat" | "reload-space-state" | "open-capabilities" | "open-skills" | "open-extensions" | "open-command-palette" | "close-tab";
+type DesktopActionCommand = "new-chat" | "reload-space-state" | "open-capabilities" | "open-skills" | "open-extensions" | "open-command-palette" | "close-tab" | "customize-space";
 interface PendingDelete {
   spaceId: string;
   path: string;
@@ -91,8 +93,10 @@ interface SpaceChecksControl {
 }
 
 export function App() {
-  const [theme, themePreference, setThemePreference] = useThemePreference();
-  const [typography, setTypography] = useTypographyPreference();
+  const appearance = useApplicationAppearance({ fixtureMode: fixtureRequested });
+  const theme = appearance.theme;
+  const themePreference = appearance.preferences.mode;
+  const setThemePreference = useCallback((mode: AppThemePreference) => appearance.store.update({ mode }), [appearance.store]);
   const [fixture, setFixture] = useState<SpaceUiFixture | null>(null);
   const [boot, setBoot] = useState<BootstrapResponse | null>(null);
   const [activeSpaceId, setActiveSpaceId] = useState(() => localStorage.getItem("work-fold.space.active") ?? "");
@@ -107,7 +111,7 @@ export function App() {
   const keyboardShortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
   const activeChecksControlRef = useRef<SpaceChecksControl | null>(null);
   const [pendingSpaceOpen, setPendingSpaceOpen] = useState<{ id: number; spaceId: string; view?: "checks" } | null>(null);
-  const [desktopAction, setDesktopAction] = useState<{ id: number; command: DesktopActionCommand | "open-checks" } | null>(null);
+  const [desktopAction, setDesktopAction] = useState<{ id: number; command: DesktopActionCommand | "open-checks"; spaceId?: string } | null>(null);
   const [updateStatus, setUpdateStatus] = useState<DesktopUpdateStatus | null>(null);
   const showDesktopTitleBar = window.workFoldDesktop?.app.platform === "win32";
 
@@ -133,7 +137,6 @@ export function App() {
   }, [activeSpaceId]);
 
   useScrollbarActivity();
-  useDesktopAccentColor();
 
   const refreshBootstrap = useBootstrapRefresh(!fixtureRequested, (result) => {
     setBoot(result);
@@ -292,10 +295,10 @@ export function App() {
 
   return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>
     {showDesktopTitleBar ? <DesktopTitleBar /> : null}
-    {activeSpace ? <SpaceView space={activeSpace} spaces={boot.spaces} agent={boot.agent} assistantConfigurationRevision={assistantConfigurationRevision} appearance={boot.appearance} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchSpace={(space) => setActiveSpaceId(space.id)} onRefreshBootstrap={refreshBootstrap} onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} onChecksControlChange={updateActiveChecksControl} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} /> : <OnboardingFlow onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} />}
+    {activeSpace ? <SpaceAppearanceProvider palette={appearance.preferences.palette}><SpaceView space={activeSpace} spaces={boot.spaces} agent={boot.agent} assistantConfigurationRevision={assistantConfigurationRevision} appearance={boot.appearance} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchSpace={(space) => setActiveSpaceId(space.id)} onRefreshBootstrap={refreshBootstrap} onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} onChecksControlChange={updateActiveChecksControl} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} /></SpaceAppearanceProvider> : <OnboardingFlow onCreateSpace={() => setCreateSpaceOpen(true)} onOpenFolder={() => void openFolder()} />}
     {error ? <div className="global-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="Dismiss"><X size={15} /></button></div> : null}
     {createSpaceOpen ? <CreateSpaceModal onClose={() => setCreateSpaceOpen(false)} onCreate={createSpace} /> : null}
-    {settingsOpen ? <DesktopSettingsModal theme={theme} themePreference={themePreference} onThemePreferenceChange={setThemePreference} typography={typography} onTypographyChange={setTypography} space={activeSpace} agentStatus={boot.agent} fixtureMode={Boolean(fixture)} initialPage={settingsInitialPage} initialAssistantScope={settingsAssistantScope} focusAssistantModel={settingsFocusAssistantModel} onAgentConfigured={(agent) => setBoot((current) => current ? { ...current, agent } : current)} onAssistantChanged={assistantConfigurationChanged} updateStatus={updateStatus} onUpdateAction={() => void runUpdateAction()} onClose={() => setSettingsOpen(false)} /> : null}
+    {settingsOpen ? <DesktopSettingsModal appearance={appearance} onCustomizeSpace={(spaceId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "customize-space", spaceId }); }} space={activeSpace} agentStatus={boot.agent} fixtureMode={Boolean(fixture)} initialPage={settingsInitialPage} initialAssistantScope={settingsAssistantScope} focusAssistantModel={settingsFocusAssistantModel} onAgentConfigured={(agent) => setBoot((current) => current ? { ...current, agent } : current)} onAssistantChanged={assistantConfigurationChanged} updateStatus={updateStatus} onUpdateAction={() => void runUpdateAction()} onClose={() => setSettingsOpen(false)} /> : null}
     {shortcutsOpen ? <KeyboardShortcutsModal onClose={closeKeyboardShortcuts} /> : null}
     <ConfirmDialogHost /><ToastHost />
   </div>;
@@ -308,7 +311,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   assistantConfigurationRevision: number;
   appearance?: SpaceAppearanceState;
   fixture: SpaceUiFixture | null;
-  desktopAction: { id: number; command: DesktopActionCommand | "open-checks" } | null;
+  desktopAction: { id: number; command: DesktopActionCommand | "open-checks"; spaceId?: string } | null;
   updateStatus: DesktopUpdateStatus | null;
   themePreference: AppThemePreference;
   onThemePreferenceChange: (theme: AppThemePreference) => void;
@@ -427,6 +430,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
     onChecksControlChange(control);
     return () => onChecksControlChange(null);
   }, [checks.resume, checks.suspend, onChecksControlChange, space.id]);
+  const spaceIdentityFor = useSpaceIdentityResolver();
   const identity = spaceIdentityFor(space, customizations);
   const surfaceCatalogKnown = Object.prototype.hasOwnProperty.call(surfaceCatalogs, space.id);
   const restrictedAppCatalogKnown = restrictedAppsState.knownSpaceIds.has(space.id);
@@ -567,6 +571,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
   useEffect(() => {
     if (!desktopAction) return;
     if (desktopAction.command === "open-checks") tabs.openChecksSurfaceTab(space);
+    else if (desktopAction.command === "customize-space") { const target = spaces.find((item) => item.id === desktopAction.spaceId); if (target) tabs.openAppearanceSurfaceTab(target); }
     else if (desktopAction.command === "new-chat") openChat(space, null);
     else if (desktopAction.command === "reload-space-state") void refreshSpaceState();
     else if (desktopAction.command === "open-capabilities" || desktopAction.command === "open-skills" || desktopAction.command === "open-extensions") tabs.openAssistantToolsSurfaceTab(space, "installed");
@@ -1605,21 +1610,6 @@ function extensionSurfaceIdForMode(mode: SpaceRailMode): string | null {
   return mode.startsWith("app:") && !mode.startsWith("app:restricted:") ? mode.slice(4) : null;
 }
 
-function useThemePreference(): [AppTheme, AppThemePreference, (value: AppThemePreference) => void] {
-  const [preference, setPreference] = useState<AppThemePreference>(() => { if (fixtureRequested) return "light"; const value = readStoredValue(themePreferenceKey); return value === "light" || value === "dark" || value === "system" ? value : "dark"; });
-  const [system, setSystem] = useState<AppTheme>(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-  const theme = preference === "system" ? system : preference;
-  useEffect(() => { const media = window.matchMedia?.("(prefers-color-scheme: dark)"); if (!media) return; const change = () => setSystem(media.matches ? "dark" : "light"); media.addEventListener("change", change); return () => media.removeEventListener("change", change); }, []);
-  useEffect(() => { document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme; window.workFoldDesktop?.window.setTheme(theme, preference); if (!fixtureRequested) writeStoredValue(themePreferenceKey, preference); }, [preference, theme]);
-  return [theme, preference, setPreference];
-}
-
-function useTypographyPreference(): [AppTypographyPreference, (update: Partial<AppTypographyPreference>) => void] {
-  const [value, setValue] = useState<AppTypographyPreference>(() => fixtureRequested ? defaultTypographyPreference : readStoredJsonValue(typographyPreferenceKey, (raw) => { const record = raw as Partial<AppTypographyPreference>; const font = typographyFontValues.includes(record.font as AppTypographyFont) ? record.font as AppTypographyFont : defaultTypographyPreference.font; return { font: typographyFontForPlatform(font), textSize: textSizeValues.includes(record.textSize as AppTypographyPreference["textSize"]) ? record.textSize as AppTypographyPreference["textSize"] : defaultTypographyPreference.textSize }; }, defaultTypographyPreference));
-  useEffect(() => { document.documentElement.dataset.workFoldFont = value.font; document.documentElement.dataset.workFoldTextSize = value.textSize; if (!fixtureRequested) writeStoredJsonValue(typographyPreferenceKey, value); }, [value]);
-  return [value, (update) => setValue((current) => ({ ...current, ...update }))];
-}
-
 function useScrollbarActivity() {
   useEffect(() => {
     if (isMacOS()) return;
@@ -1675,29 +1665,5 @@ function useScrollbarActivity() {
       document.removeEventListener("pointermove", pointerMove, true);
       document.removeEventListener("pointerleave", pointerLeave, true);
     };
-  }, []);
-}
-
-function useDesktopAccentColor() {
-  useEffect(() => {
-    const desktopWindow = window.workFoldDesktop?.window;
-    if (!desktopWindow) return;
-    let cancelled = false;
-    const apply = (color: string | null) => {
-      if (!color) {
-        document.documentElement.style.removeProperty("--space-accent");
-        document.documentElement.style.removeProperty("--ui-accent");
-        document.documentElement.style.removeProperty("--ui-accent-hover");
-        document.documentElement.style.removeProperty("--ui-accent-soft");
-      } else if (/^#[0-9a-f]{6}$/i.test(color)) {
-        document.documentElement.style.setProperty("--space-accent", color);
-        document.documentElement.style.setProperty("--ui-accent", color);
-        document.documentElement.style.setProperty("--ui-accent-hover", `color-mix(in srgb, ${color} 86%, black)`);
-        document.documentElement.style.setProperty("--ui-accent-soft", `color-mix(in srgb, ${color} 12%, transparent)`);
-      }
-    };
-    void desktopWindow.getAccentColor().then((color) => { if (!cancelled) apply(color); }).catch(() => {});
-    const unsubscribe = desktopWindow.onAccentColorChanged(apply);
-    return () => { cancelled = true; unsubscribe(); };
   }, []);
 }

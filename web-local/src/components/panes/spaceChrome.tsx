@@ -1,3 +1,4 @@
+import { useSpaceIdentityResolver } from "../../lib/space-appearance-context";
 import { restrictedAppRailMode, restrictedAppRailLabel } from "../../lib/restricted-app-navigation";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import {
@@ -40,7 +41,7 @@ import { spaceBannerOptions } from "../../constants";
 import { errorText } from "../../lib/api";
 import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
 import { normalizeSpaceCustomizations } from "../../lib/space-customization";
-import { normalizeSpaceColor, processSpaceBannerImageFile, spaceColorOptions, spaceIdentityFor, spaceIdentityStyle, type SpaceIdentity } from "../../lib/space-identity";
+import { normalizeSpaceColor, processSpaceBannerImageFile, spaceColorOptions, spaceIdentityStyle, type SpaceIdentity } from "../../lib/space-identity";
 import { spaceLookOptions } from "../../lib/space-looks";
 import { surfaceDomIdSuffix, spaceHeaderSourceBadgeLabel } from "../../lib/space-ui";
 import type { AssistantToolsView, CapabilitySurface, RestrictedAppInstalled, SpaceCustomization, SpaceCustomizationMap, SpaceCustomizationPatch, SpaceRailMode, SpaceSummary } from "../../types";
@@ -493,6 +494,7 @@ function SpaceHeaderSwitcher({
   managingSpaces: boolean;
   onClose: () => void;
 }) {
+  const spaceIdentityFor = useSpaceIdentityResolver();
   const switcherRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -674,6 +676,7 @@ function SpaceAppearancePanel({
   onUndoSpace: (spaceId: string) => void;
   onResetSpace: (spaceId: string) => void;
 }) {
+  const spaceIdentityFor = useSpaceIdentityResolver();
   const [iconSearchQuery, setIconSearchQuery] = useState("");
   const [iconPage, setIconPage] = useState(0);
   const [bannerUploadBusy, setBannerUploadBusy] = useState(false);
@@ -691,7 +694,7 @@ function SpaceAppearancePanel({
     identity: spaceIdentityFor(space, {
       [space.id]: { color: look.primary, color2: look.secondary, bannerName: look.bannerName },
     }),
-  })), [space]);
+  })), [space, spaceIdentityFor]);
   const activeLook = looks.find((look) => (
     !identity.bannerImage
     && identity.hasCustomSecondary

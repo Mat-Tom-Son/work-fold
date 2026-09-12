@@ -16,6 +16,8 @@ import "./professional-shell.css";
 import "./professional-surfaces.css";
 import "./professional-customization.css";
 import "./settings-window.css";
+import "./application-appearance.css";
+import "./appearance-settings.css";
 import { App } from "./App";
 import { ModelContextInspector } from "./components/chat/ModelContextInspector";
 

@@ -61,5 +61,13 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
       return () => ipcRenderer.removeListener("work-fold:management:staged", listener);
     },
   },
-  window: { material: windowMaterial },
+  window: {
+    material: windowMaterial,
+    getAccentColor: () => ipcRenderer.invoke("work-fold:window:accent-color"),
+    onAccentColorChanged: (callback: (color: string | null) => void) => {
+      const listener = (_event: unknown, color: unknown) => callback(typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color) ? color : null);
+      ipcRenderer.on("work-fold:window:accent-color-changed", listener);
+      return () => ipcRenderer.removeListener("work-fold:window:accent-color-changed", listener);
+    },
+  },
 });

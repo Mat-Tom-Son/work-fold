@@ -1,3 +1,4 @@
+import { useSpaceIdentityResolver } from "../../lib/space-appearance-context";
 import {
   useEffect,
   useRef,
@@ -29,7 +30,7 @@ import {
 import { api, apiForm, errorText } from "../../lib/api";
 import { aggregateChatActivityStatus, chatActivityKey, chatSnoozeTimeLabel, conversationLifecycleView, isRecentlyResurfaced } from "../../lib/chat-lifecycle";
 import { formatChatListTime, formatItemCount } from "../../lib/format";
-import { spaceIdentityFor, spaceIdentityStyle } from "../../lib/space-identity";
+import { spaceIdentityStyle } from "../../lib/space-identity";
 import type {
   ChatActivityStatus,
   ChatLifecycleView,
@@ -62,6 +63,7 @@ export function SpacesPane({
   onCustomize: (space: SpaceSummary) => void;
   onRemove?: (space: SpaceSummary) => void;
 }) {
+  const spaceIdentityFor = useSpaceIdentityResolver();
   return (
     <div className="space-pane-content spaces-pane professional-surface professional-spaces">
       <div className="professional-space-actions" aria-label="Add a Space">
@@ -146,6 +148,7 @@ export function ChatsPane({
   onActions: (space: SpaceSummary, conversation: ConversationSummary, event: React.MouseEvent<HTMLElement>) => void;
   activityStatuses: Record<string, ChatActivityStatus>;
 }) {
+  const spaceIdentityFor = useSpaceIdentityResolver();
   const [query, setQuery] = useState("");
   const [view, setView] = useState<ChatLifecycleView>("active");
   const [now, setNow] = useState(() => Date.now());

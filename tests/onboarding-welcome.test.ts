@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 
+import { defaultApplicationAppearance } from "../src/shared/application-appearance.js";
+
 const root = process.cwd();
 const read = (path: string) => readFile(join(root, path), "utf8");
 
@@ -25,7 +27,8 @@ test("first-run onboarding locates the always-available menu-bar surface", async
   assert.match(source, /One door to all your Spaces/);
   assert.ok(source.indexOf("onboarding-menubar-scene") < source.indexOf("onboarding-identity"), "the menu-bar scene should sit above the welcome identity");
   assert.ok(source.indexOf("onboarding-identity") < source.indexOf("onboarding-start"), "the welcome identity should separate the menu-bar scene from Space setup");
-  assert.match(app, /value === "light" \|\| value === "dark" \|\| value === "system" \? value : "dark"/);
+  assert.equal(defaultApplicationAppearance.mode, "dark");
+  assert.match(app, /useApplicationAppearance/);
 
   assert.match(source, /Start with a folder/);
   assert.match(source, /Use an existing folder/);

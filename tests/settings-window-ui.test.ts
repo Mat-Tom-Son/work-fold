@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createRequire, registerHooks } from "node:module";
 import test from "node:test";
 import { createElement, useState } from "react";
-import type { AgentStatus, AppThemePreference, AppTypographyPreference, SpaceSummary } from "../web-local/src/types.js";
+import type { AgentStatus, SpaceSummary } from "../web-local/src/types.js";
 import { createDomHarness } from "./support/dom.js";
 
 // The real modal includes brand artwork. Node needs only the asset URL; the
@@ -15,8 +15,13 @@ const assets = registerHooks({
   if (/\.(png|svg)$/.test(url)) return { format: "module", source: `export default ${JSON.stringify(url)};`, shortCircuit: true };
   return next(url, context);
 } });
-const { DesktopSettingsModal } = await import("../web-local/src/components/modals/DesktopSettingsModal.js");
+const { DesktopSettingsModal: SettingsModal } = await import("../web-local/src/components/modals/DesktopSettingsModal.js");
 assets.deregister();
+const { useApplicationAppearance } = await import("../web-local/src/hooks/useApplicationAppearance.js");
+function DesktopSettingsModal(props: Omit<Parameters<typeof SettingsModal>[0], "appearance">) {
+  const appearance = useApplicationAppearance({ fixtureMode: true });
+  return createElement(SettingsModal, { ...props, appearance });
+}
 
 const status: AgentStatus = { configured: true, ready: true, provider: "openrouter", model: "deepseek/deepseek-v4.1-flash", error: null, piVersion: "fixture" };
 const space = { id: "settings-test", name: "Workshop", spaceRoot: "/synthetic/workshop" } as SpaceSummary;
@@ -28,13 +33,9 @@ test("Settings navigation preserves Assistant edits, isolates tab groups and res
   window.matchMedia = (() => ({ matches: false, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
   function Screen() {
     const [open, setOpen] = useState(false);
-    const [theme, setTheme] = useState<AppThemePreference>("light");
-    const [typography, setTypography] = useState<AppTypographyPreference>({ font: "default", textSize: "standard" });
     return createElement("div", null,
       createElement("button", { id: "settings-opener", onClick: () => setOpen(true) }, "Settings"),
       open ? createElement(DesktopSettingsModal, {
-        theme: "light", themePreference: theme, onThemePreferenceChange: setTheme,
-        typography, onTypographyChange: (update) => setTypography((current) => ({ ...current, ...update })),
         space, agentStatus: status, fixtureMode: true, updateStatus: null,
         onAgentConfigured: () => {}, onClose: () => setOpen(false),
       }) : null);
@@ -98,8 +99,6 @@ test("an accepted Settings save retains its owner across page navigation", async
     return Response.json({ status, models: [{ provider: "openrouter", providerName: "OpenRouter", id: status.model, name: "DeepSeek Flash", authConfigured: true }], catalogs: [], instructions: "Original" });
   }) as typeof fetch;
   await dom.render(createElement(DesktopSettingsModal, {
-    theme: "light", themePreference: "light", onThemePreferenceChange: () => {},
-    typography: { font: "default", textSize: "standard" }, onTypographyChange: () => {},
     space, agentStatus: status, initialPage: "assistant", updateStatus: null,
     onAgentConfigured: () => {}, onClose: () => {},
   }));
@@ -128,8 +127,6 @@ test("opening Settings from a model label focuses the loaded selector only once"
   HTMLElement.prototype.scrollIntoView = () => {};
   window.matchMedia = (() => ({ matches: false, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
   await dom.render(createElement(DesktopSettingsModal, {
-    theme: "light", themePreference: "light", onThemePreferenceChange: () => {},
-    typography: { font: "default", textSize: "standard" }, onTypographyChange: () => {},
     space, agentStatus: status, fixtureMode: true, initialPage: "assistant", focusAssistantModel: true,
     updateStatus: null, onAgentConfigured: () => {}, onClose: () => {},
   }));

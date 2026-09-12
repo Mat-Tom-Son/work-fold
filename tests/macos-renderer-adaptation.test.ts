@@ -14,7 +14,7 @@ const [app, rendererMain, styles, customization, settings, shortcuts, restricted
   read("web-local/src/main.tsx"),
   read("web-local/src/styles.css"),
   read("web-local/src/professional-customization.css"),
-  read("web-local/src/components/modals/DesktopSettingsModal.tsx"),
+  read("web-local/src/components/modals/AppearanceSettingsPane.tsx"),
   read("web-local/src/components/modals/KeyboardShortcutsModal.tsx"),
   read("web-local/src/components/panes/RestrictedAppsSection.tsx"),
 ]);
@@ -36,7 +36,7 @@ test("typography ships the brand font everywhere and omits the Windows-only Sego
   // Inter is bundled, so the default stack no longer forks per platform.
   assert.match(styles, /--work-fold-font-family-default:\s*"Inter Variable"/);
   assert.doesNotMatch(styles, /:root\[data-platform="darwin"\][\s\S]{0,200}--work-fold-font-family-default/);
-  assert.match(settings, /<span>Device setting<\/span>/);
+  assert.match(settings, /"Device setting"/);
   assert.doesNotMatch(settings, /Match your device’s appearance/);
   assert.doesNotMatch(settings, /Match Windows/);
 });

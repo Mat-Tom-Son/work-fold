@@ -342,10 +342,12 @@ export function resolveSpaceAppearance(input: {
   enforcement?: SpaceAppearanceEnforcement;
   bannerName?: string;
   hasBannerImage?: boolean;
+  grounds?: Record<SpaceAppearanceMode, ResolverGround>;
 }): ResolvedSpaceAppearance {
   const enforcement = input.enforcement ?? "guided";
-  const light = resolveAccent(input.primary, defaultSpaceAppearanceGrounds.light, enforcement, input.secondary);
-  const dark = resolveAccent(input.primary, defaultSpaceAppearanceGrounds.dark, enforcement, input.secondary);
+  const grounds = input.grounds ?? defaultSpaceAppearanceGrounds;
+  const light = resolveAccent(input.primary, grounds.light, enforcement, input.secondary);
+  const dark = resolveAccent(input.primary, grounds.dark, enforcement, input.secondary);
   const uncertified: ResolvedSpaceAppearance["uncertified"] = [];
   if (input.bannerName && input.bannerName !== "none") uncertified.push("banner-gradient");
   if (input.hasBannerImage) uncertified.push("banner-image");

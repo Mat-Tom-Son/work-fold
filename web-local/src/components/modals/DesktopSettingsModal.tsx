@@ -11,17 +11,16 @@ import {
   Sparkle20Regular,
   Subtract20Regular,
   Window20Regular,
-  WeatherMoon20Regular,
-  WeatherSunny20Regular,
 } from "@fluentui/react-icons";
-import { textSizeOptions, typographyFontOptionsForPlatform } from "../../constants";
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { api, errorText } from "../../lib/api";
 import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
-import type { AgentStatus, AppTheme, AppThemePreference, AppTypographyPreference, DesktopUpdateStatus, SpaceSummary } from "../../types";
+import type { AgentStatus, DesktopUpdateStatus, SpaceSummary } from "../../types";
 import { foldPublicationsSettings, remoteAccessSettings } from "../../ui-contract";
 import { WorkFoldLockup } from "../brand/WorkFoldBrand";
 import { AssistantSetupPane, type AssistantModelScope } from "../panes/AssistantSetupPane";
+import type { ApplicationAppearanceController } from "../../hooks/useApplicationAppearance";
+import { AppearanceSettingsPane } from "./AppearanceSettingsPane";
 import { FoldLimitsPane } from "./FoldLimitsPane";
 import { FoldRoutingsPane } from "./FoldRoutingsPane";
 import { FoldRecentlyDeletedPane } from "./RecentlyDeletedPane";
@@ -29,12 +28,9 @@ import { FoldRecentlyDeletedPane } from "./RecentlyDeletedPane";
 export type SettingsPage = "appearance" | "assistant" | "remote" | "desktop" | "about";
 type FoldSettingsSection = "access" | "pages" | "routings" | "deleted" | "limits";
 
-export function DesktopSettingsModal({ theme, themePreference, onThemePreferenceChange, typography, onTypographyChange, space, agentStatus, fixtureMode = false, initialPage = "appearance", initialAssistantScope, focusAssistantModel = false, onAgentConfigured, onAssistantChanged, onClose, updateStatus, onUpdateAction }: {
-  theme: AppTheme;
-  themePreference: AppThemePreference;
-  onThemePreferenceChange: (theme: AppThemePreference) => void;
-  typography: AppTypographyPreference;
-  onTypographyChange: (update: Partial<AppTypographyPreference>) => void;
+export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agentStatus, fixtureMode = false, initialPage = "appearance", initialAssistantScope, focusAssistantModel = false, onAgentConfigured, onAssistantChanged, onClose, updateStatus, onUpdateAction }: {
+  appearance: ApplicationAppearanceController;
+  onCustomizeSpace?: (spaceId: string) => void;
   space: SpaceSummary | null;
   agentStatus: AgentStatus;
   fixtureMode?: boolean;
@@ -47,7 +43,6 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
   updateStatus: DesktopUpdateStatus | null;
   onUpdateAction?: () => void;
 }) {
-  const typographyFontOptions = typographyFontOptionsForPlatform(window.workFoldDesktop?.app.platform);
   const [narrowNavigation, setNarrowNavigation] = useState(() => window.matchMedia("(max-width: 700px)").matches);
   const [page, setPage] = useState<SettingsPage>(initialPage);
   const [assistantVisited, setAssistantVisited] = useState(initialPage === "assistant");
@@ -57,7 +52,6 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
   const [closeToTrayBusy, setCloseToTrayBusy] = useState(false);
   const [closeToTrayError, setCloseToTrayError] = useState<string | null>(null);
   const [closeToTrayNotice, setCloseToTrayNotice] = useState<string | null>(null);
-  const [appearanceNotice, setAppearanceNotice] = useState<string | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useModalDialog({ onClose, initialFocusRef: closeRef });
 
@@ -142,46 +136,7 @@ export function DesktopSettingsModal({ theme, themePreference, onThemePreference
             <header className="settings-page-heading"><h2>{selectedPage.label}</h2><p>{selectedPage.description}</p></header>
             {page === "appearance" ? (
               <div className="settings-tab-panel" id="settings-panel-appearance" role="tabpanel" aria-labelledby="settings-tab-appearance">
-                <p className="settings-save-status settings-appearance-status" role="status">{appearanceNotice ? <><Checkmark16Regular />{appearanceNotice}</> : "Changes save automatically"}</p>
-                <div className="settings-quick-grid">
-                  <section className="settings-section" aria-labelledby="appearance-theme-title">
-                    <div className="settings-section-heading"><h3 id="appearance-theme-title">Theme</h3></div>
-                    <div className="theme-segmented-control" role="radiogroup" aria-label="Color mode">
-                      <button className={themePreference === "system" ? "active" : ""} type="button" role="radio" aria-checked={themePreference === "system"} tabIndex={themePreference === "system" ? 0 : -1} aria-label={`Device setting, currently ${theme}`} onClick={() => { onThemePreferenceChange("system"); setAppearanceNotice("Saved"); }}>
-                        <Laptop20Regular /><span className="theme-choice-copy"><span>Device setting</span></span>
-                      </button>
-                      <button className={themePreference === "light" ? "active" : ""} type="button" role="radio" aria-checked={themePreference === "light"} tabIndex={themePreference === "light" ? 0 : -1} onClick={() => { onThemePreferenceChange("light"); setAppearanceNotice("Saved"); }}>
-                        <WeatherSunny20Regular /><span className="theme-choice-copy"><span>Light</span></span>
-                      </button>
-                      <button className={themePreference === "dark" ? "active" : ""} type="button" role="radio" aria-checked={themePreference === "dark"} tabIndex={themePreference === "dark" ? 0 : -1} onClick={() => { onThemePreferenceChange("dark"); setAppearanceNotice("Saved"); }}>
-                        <WeatherMoon20Regular /><span className="theme-choice-copy"><span>Dark</span></span>
-                      </button>
-                    </div>
-                  </section>
-                  <section className="settings-section typography-settings-section" aria-labelledby="appearance-typography-title">
-                    <div className="settings-section-heading"><h3 id="appearance-typography-title">Typography</h3></div>
-                    <div className="settings-choice-group">
-                      <span className="settings-choice-label">Font</span>
-                      <div className="font-choice-grid" role="radiogroup" aria-label="App font">
-                        {typographyFontOptions.map((option) => (
-                          <button className={typography.font === option.value ? "font-choice-button active" : "font-choice-button"} data-font-option={option.value} type="button" key={option.value} role="radio" aria-checked={typography.font === option.value} tabIndex={typography.font === option.value ? 0 : -1} onClick={() => { onTypographyChange({ font: option.value }); setAppearanceNotice("Saved"); }}>
-                            <span className="font-choice-sample" aria-hidden="true">Aa</span><span className="font-choice-copy"><strong>{option.label}</strong></span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="settings-choice-group">
-                      <span className="settings-choice-label">Text size</span>
-                      <div className="text-size-segmented-control" role="radiogroup" aria-label="Text size">
-                        {textSizeOptions.map((option) => (
-                          <button className={typography.textSize === option.value ? "active" : ""} type="button" key={option.value} role="radio" aria-checked={typography.textSize === option.value} tabIndex={typography.textSize === option.value ? 0 : -1} onClick={() => { onTypographyChange({ textSize: option.value }); setAppearanceNotice("Saved"); }}>
-                            <span>{option.label}</span><small>{option.detail}</small>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </section>
-                </div>
+                <AppearanceSettingsPane appearance={appearance} space={space} onCustomizeSpace={onCustomizeSpace} />
               </div>
             ) : null}
             {page === "assistant" || assistantVisited ? (

@@ -1,3 +1,4 @@
+import { useSpaceIdentityResolver } from "../../lib/space-appearance-context";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { Checkmark16Regular, ChevronDown16Regular, Dismiss12Regular } from "@fluentui/react-icons";
 
@@ -6,7 +7,7 @@ import { chatActivityKey } from "../../lib/chat-lifecycle";
 import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
 import { readStoredValue, writeStoredValue } from "../../lib/storage";
 import { groupSurfaceTabsBySpace } from "../../lib/surface-tab-groups";
-import { spaceIdentityFor, spaceIdentityStyle } from "../../lib/space-identity";
+import { spaceIdentityStyle } from "../../lib/space-identity";
 import { surfacePanelDomId, surfaceTabDomId } from "../../lib/space-ui";
 import type { ChatActivityStatus, ConversationSummary, SpaceCustomizationMap, SpaceSummary, SpaceSurfaceTab } from "../../types";
 import { FluentGlyph, NewChatIcon, SpaceIconGlyph } from "../chrome/common";
@@ -38,6 +39,7 @@ export function SpaceSurfaceTabBar({
   onNewChatInSpace: (space: SpaceSummary) => void;
   onChatActions: (space: SpaceSummary, conversation: ConversationSummary, event: ReactMouseEvent<HTMLElement>) => void;
 }) {
+  const spaceIdentityFor = useSpaceIdentityResolver();
   const [spaceMenuOpen, setSpaceMenuOpen] = useState(false);
   const [groupBySpace, setGroupBySpace] = useState(() => readStoredValue(groupSurfaceTabsStorageKey) === "true");
   const tabsRef = useRef<HTMLDivElement | null>(null);

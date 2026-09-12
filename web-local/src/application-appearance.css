@@ -1,0 +1,244 @@
+/* Shared application preferences, loaded after the desktop/popover styles.
+   Space identity roles remain local to their Space; application roles only
+   replace the retained fixed interface colors and typography. */
+:root[data-appearance-palette] {
+  color: var(--ui-text);
+  font-size: var(--work-fold-font-size);
+  --work-fold-accent: var(--ui-accent);
+  --work-fold-accent-soft: var(--ui-accent-soft);
+  --work-fold-readable-line-height: var(--work-fold-reading-leading);
+  --pop-bg: var(--ui-canvas);
+  --pop-surface: var(--ui-surface);
+  --pop-surface-2: var(--ui-surface-subtle);
+  --pop-text: var(--ui-text);
+  --pop-text-muted: var(--ui-text-muted);
+  --pop-border: var(--ui-border);
+  --pop-accent: var(--ui-accent);
+  --pop-accent-text: var(--ui-on-accent);
+  --pop-accent-bg: var(--ui-accent-soft);
+  --pop-accent-strong: var(--ui-accent);
+}
+
+:root[data-appearance-palette] body {
+  font-family: var(--work-fold-ui-font);
+  font-size: var(--work-fold-font-size);
+  color: var(--ui-text);
+}
+
+:root[data-appearance-palette][data-theme="light"] {
+  --pop-danger: #b3251f;
+  --pop-danger-border: #b3251f66;
+  --pop-success: #157a4e;
+  --pop-warning-bg: #fdf2d4;
+  --pop-warning-text: #7d5600;
+  --pop-success-bg: #e2f6ea;
+}
+:root[data-appearance-palette][data-theme="dark"] {
+  --pop-danger: #ff9b92;
+  --pop-danger-border: #ff9b9266;
+  --pop-success: #56d99a;
+  --pop-warning-bg: #3b300e;
+  --pop-warning-text: #f8c95c;
+  --pop-success-bg: #0b3b2a;
+}
+
+:root[data-appearance-palette] .app-shell {
+  --work-fold-chat-surface: var(--ui-surface);
+  --work-fold-chat-border: var(--ui-border);
+  color: var(--ui-text);
+}
+
+/* A text accent is not a button fill: its companion foreground was solved
+   specifically against the solid role, including arbitrary custom accents. */
+:root[data-appearance-palette] .app-shell :is(.primary-button, .professional-button-primary),
+:root[data-appearance-palette] .popover button.primary,
+:root[data-appearance-palette] :is(.app-shell, .popover) :is(.work-primary-button, .extension-answer) {
+  color: var(--ui-on-accent);
+  background: var(--ui-accent-solid);
+  border-color: var(--ui-accent-solid);
+}
+
+:root[data-appearance-palette] :is(.app-shell, .popover) :is(.work-request, .extension-question) {
+  --work-accent: var(--ui-accent);
+  --text-muted: var(--ui-text-muted);
+  --surface: var(--ui-surface);
+  --surface-hover: var(--ui-surface-hover);
+  --border: var(--ui-border);
+}
+
+:root[data-appearance-palette] .app-shell :is(.primary-button, .professional-button-primary):is(:hover, :focus-visible):not(:disabled),
+:root[data-appearance-palette] .popover button.primary:is(:hover, :focus-visible):not(:disabled) {
+  color: var(--ui-on-accent);
+  background: var(--ui-accent-solid);
+  border-color: var(--ui-accent-solid);
+  box-shadow: 0 0 0 2px var(--ui-accent-soft);
+  filter: none;
+}
+
+:root[data-appearance-palette] .capabilities-hierarchy-glyph g.active rect {
+  fill: var(--ui-accent-solid);
+  stroke: var(--ui-accent-solid);
+}
+:root[data-appearance-palette] .capabilities-hierarchy-glyph g.active text { fill: var(--ui-on-accent); }
+
+:root[data-appearance-palette] .app-shell :is(.right-rail, .chat-panel, .file-details-pane, .space-surface-body-empty) {
+  color: var(--ui-text);
+  background: var(--ui-surface);
+}
+:root[data-appearance-palette] .app-shell .chat-panel .composer { background: var(--ui-surface); }
+:root[data-appearance-palette] .app-shell :is(.composer-input-shell, .file-tree-search, .search-box, .context-menu, .composer-command-menu) {
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  border-color: var(--ui-border);
+}
+:root[data-appearance-palette] .app-shell :is(.composer textarea, .file-tree-search input, .search-box input, .file-details-title h2, .file-details-meta dd) { color: var(--ui-text); }
+:root[data-appearance-palette] .app-shell :is(.composer textarea, .file-tree-search input)::placeholder { color: var(--ui-text-muted); }
+:root[data-appearance-palette] .app-shell :is(.file-details-title p, .file-details-loading, .chat-empty-state, .chat-empty-state p) { color: var(--ui-text-muted); }
+:root[data-appearance-palette] .app-shell .chat-empty-state strong { color: var(--ui-text); }
+
+/* Reading is separate from control typography. Enlarged text reflows Markdown
+   and the composer without enlarging toolbars or clipping code/table overflow. */
+:root[data-appearance-palette] .app-shell .message-list {
+  padding-inline: max(20px, calc((100% - var(--work-fold-chat-measure)) / 2));
+}
+:root[data-appearance-palette] .app-shell .message.assistant { width: min(100%, var(--work-fold-chat-measure)); }
+:root[data-appearance-palette] .app-shell .message.user { max-width: min(88%, calc(var(--work-fold-chat-measure) * 0.82)); }
+:root[data-appearance-palette] .app-shell .composer-input-shell {
+  width: 100%;
+  max-width: var(--work-fold-chat-measure);
+  margin-inline: auto;
+}
+:root[data-appearance-palette] .app-shell .chat-panel .message-body,
+:root[data-appearance-palette] .popover .popover-message-body {
+  font-family: var(--work-fold-reading-font);
+  font-size: var(--work-fold-reading-size);
+  line-height: var(--work-fold-reading-leading);
+}
+:root[data-appearance-palette] .app-shell .chat-panel .message-body,
+:root[data-appearance-palette] .app-shell .chat-panel .message-body :is(h1, h2, h3, h4, h5, h6),
+:root[data-appearance-palette] .popover .popover-message.assistant { color: var(--ui-text); }
+:root[data-appearance-palette] .app-shell .chat-panel .message-body h1 { font-size: 1.4em; }
+:root[data-appearance-palette] .app-shell .chat-panel .message-body h2 { font-size: 1.25em; }
+:root[data-appearance-palette] .app-shell .chat-panel .message-body h3 { font-size: 1.12em; }
+:root[data-appearance-palette] .app-shell .chat-panel .message-body :is(h4, h5, h6) { font-size: 1em; }
+:root[data-appearance-palette] :is(.message-body, .popover-message-body) > :is(p, ul, ol, blockquote, .message-code-block, .message-table-scroll):not(:last-child) {
+  margin-bottom: var(--work-fold-paragraph-gap);
+}
+:root[data-appearance-palette] .app-shell .chat-panel .message-body blockquote { color: var(--ui-text-muted); }
+:root[data-appearance-palette] .app-shell .chat-panel .message-body table,
+:root[data-appearance-palette] .popover .popover-message-body table { font-size: 0.92em; }
+:root[data-appearance-palette] :is(.message-body, .popover-message-body) :is(code, pre),
+:root[data-appearance-palette] .app-shell :is(.file-preview-text, .markdown-preview pre, .markdown-preview code) {
+  font-family: var(--work-fold-monospace-font);
+}
+:root[data-appearance-palette] .app-shell .chat-panel .message-body :is(code, th, td, .message-table-scroll, .message-code-block, .space-file-link-code) { border-color: var(--ui-border); }
+:root[data-appearance-palette] .app-shell .chat-panel .message-body :is(code, th, .space-file-link-code),
+:root[data-appearance-palette] .app-shell .chat-panel .message-code-toolbar {
+  color: var(--ui-text);
+  background: var(--ui-surface-subtle);
+}
+:root[data-appearance-palette] .app-shell .chat-panel .message-code-toolbar > button { color: var(--ui-text-muted); }
+:root[data-appearance-palette] .app-shell .chat-panel .message-body .message-code-block pre { color: var(--ui-text); background: var(--ui-canvas); }
+:root[data-appearance-palette] .app-shell .chat-panel .message-body .message-code-block pre code { color: inherit; background: transparent; }
+:root[data-appearance-palette] .app-shell .composer textarea,
+:root[data-appearance-palette] .popover .composer textarea {
+  font-family: var(--work-fold-ui-font);
+  font-size: var(--work-fold-reading-size);
+  line-height: var(--work-fold-reading-leading);
+}
+
+/* Tinted keeps each Space's accent; quiet changes only message treatment,
+   never the Space icon, banner, selection, or saved identity. */
+:root[data-appearance-palette] .app-shell .message.user .message-surface {
+  background: var(--space-accent-soft-fill, var(--ui-accent-soft));
+  color: var(--space-accent-text-body, var(--ui-accent));
+  box-shadow: none;
+}
+:root[data-appearance-palette] .app-shell .chat-panel .message.user .message-body,
+:root[data-appearance-palette] .app-shell .chat-panel .message.user .message-body :is(h1, h2, h3, h4, h5, h6, a, code, .space-file-link),
+:root[data-appearance-palette] .app-shell .message.user :is(.message-image-external, .message-image-unavailable) { color: var(--space-accent-text-body, var(--ui-accent)); }
+:root[data-appearance-palette] .popover .popover-message.user { background: var(--ui-accent-soft); color: var(--ui-accent); }
+:root[data-appearance-palette][data-appearance-messages="quiet"] .app-shell .message.user .message-surface,
+:root[data-appearance-palette][data-appearance-messages="quiet"] .popover .popover-message.user {
+  background: var(--ui-surface-subtle);
+  color: var(--ui-text);
+}
+:root[data-appearance-palette][data-appearance-messages="quiet"] .app-shell .chat-panel .message.user .message-body,
+:root[data-appearance-palette][data-appearance-messages="quiet"] .app-shell .chat-panel .message.user .message-body :is(h1, h2, h3, h4, h5, h6, a, code, .space-file-link),
+:root[data-appearance-palette][data-appearance-messages="quiet"] .app-shell .message.user :is(.message-image-external, .message-image-unavailable) { color: var(--ui-text); }
+
+/* Density changes row padding, not glyph scale or content hierarchy. */
+:root[data-appearance-palette] .app-shell :is(.file-row, .chat-space-row),
+:root[data-appearance-palette] .app-shell .settings-window .settings-tab,
+:root[data-appearance-palette] .popover :is(.popover-open-app, .popover-new-chat, .fold-chat-row) {
+  min-height: max(32px, var(--work-fold-list-height));
+  padding-block: var(--work-fold-list-padding);
+}
+:root[data-appearance-palette] .app-shell .file-row { color: var(--ui-text); font-size: 0.9rem; }
+:root[data-appearance-palette] .app-shell .file-row:hover { background: var(--ui-surface-hover); }
+:root[data-appearance-palette] .app-shell .file-row.selected,
+:root[data-appearance-palette] .app-shell .file-row.selected:hover { color: var(--ui-text); background: var(--space-accent-soft-fill, var(--ui-accent-soft)); }
+:root[data-appearance-palette] .app-shell .file-row:is(.draft-area, .is-ignored):not(.selected) { color: var(--ui-text-muted); }
+:root[data-appearance-palette] .app-shell .chat-space-row-title { color: var(--ui-text); }
+:root[data-appearance-palette] .app-shell .chat-space-row-time { color: var(--ui-text-muted); }
+:root[data-appearance-palette] .app-shell .settings-window :is(.settings-tab, .settings-field input, .settings-field select, .settings-section p, .settings-page-heading p, .context-meta-grid dt, .context-meta-grid dd) { font-size: max(13px, calc(var(--work-fold-font-size) - 2px)); }
+:root[data-appearance-palette] .popover :is(.popover-open-app, .popover-new-chat, .fold-chat-row) { font-size: max(12px, calc(var(--work-fold-font-size) - 2px)); }
+:root[data-appearance-palette] .popover :is(.composer-model, .composer-thinking) { font-size: max(11px, calc(var(--work-fold-font-size) - 3px)); }
+
+:root[data-appearance-palette] .app-shell .send-button:not(.stop-send-button):not(:disabled) {
+  background: var(--space-accent-solid, var(--ui-accent-solid));
+  color: var(--space-on-accent-solid, var(--ui-on-accent));
+}
+:root[data-appearance-palette] .app-shell :is(button, input, select, textarea, [tabindex]):focus-visible,
+:root[data-appearance-palette] .app-shell .settings-window :is(button, input, select, textarea):focus-visible,
+:root[data-appearance-palette] .popover :is(button, input, select, textarea, [tabindex]):focus-visible {
+  outline-color: var(--ui-focus);
+}
+:root[data-appearance-palette] .app-shell .file-row:focus-visible { box-shadow: inset 0 0 0 2px var(--space-accent-border-state, var(--ui-focus)); }
+
+/* The hook combines explicit choices with OS preferences. These selectors also
+   cover a native vibrancy/Mica window without changing the native material. */
+:root[data-appearance-transparency="opaque"],
+:root[data-appearance-transparency="opaque"] :is(body, #root),
+:root[data-appearance-transparency="opaque"] .app-shell,
+:root[data-appearance-transparency="opaque"] .app-shell .space-layout { background: var(--ui-canvas); }
+:root[data-appearance-transparency="opaque"] .app-shell .space-layout .professional-space-rail { background: var(--ui-surface-subtle); }
+:root[data-appearance-transparency="opaque"] .app-shell .space-layout .space-mode-pane,
+:root[data-appearance-transparency="opaque"] .desktop-titlebar,
+:root[data-appearance-transparency="opaque"] .popover { background: var(--ui-surface); }
+:root[data-appearance-transparency="opaque"] :is(.context-menu, .composer-command-menu, .drop-overlay) { backdrop-filter: none; background: var(--ui-surface); }
+
+:root[data-appearance-contrast="more"] .app-shell :is(.message-time, .message-copy-button, .chat-space-row-actions),
+:root[data-appearance-contrast="more"] .popover .working-elapsed { opacity: 1; color: var(--ui-text-muted); }
+:root[data-appearance-contrast="more"] :is(button, input, select, textarea):focus-visible { outline-width: 3px; outline-style: solid; }
+
+:root[data-appearance-motion="reduce"] *,
+:root[data-appearance-motion="reduce"] *::before,
+:root[data-appearance-motion="reduce"] *::after {
+  scroll-behavior: auto !important;
+  transition-duration: 0.01ms !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-appearance-palette] *,
+  :root[data-appearance-palette] *::before,
+  :root[data-appearance-palette] *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+@media (forced-colors: active) {
+  :root[data-appearance-palette] :is(button, input, select, textarea):focus-visible { outline: 2px solid Highlight; }
+  :root[data-appearance-palette] :is(.message-surface, .popover-message.user, .composer-input-shell) { border: 1px solid CanvasText; }
+}
+
+@media (pointer: coarse) {
+  :root[data-appearance-palette] .app-shell :is(.file-row, .chat-space-row),
+  :root[data-appearance-palette] .app-shell .settings-window .settings-tab,
+  :root[data-appearance-palette] .popover :is(.popover-open-app, .popover-new-chat, .fold-chat-row) { min-height: max(44px, var(--work-fold-list-height)); }
+}
