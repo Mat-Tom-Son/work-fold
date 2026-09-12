@@ -57,7 +57,7 @@ index eec9992..5580d00 100644
  	});
  }
 diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
-index 0642385..180c16b 100644
+index 0642385..b2ea75f 100644
 --- a/native/macos/bridge.swift
 +++ b/native/macos/bridge.swift
 @@ -369,10 +369,12 @@ final class InputSuppressionGuard {
@@ -222,27 +222,52 @@ index 0642385..180c16b 100644
  			guard record.hasImage else {
  				throw BridgeFailure(message: "Coordinate targeting is unavailable for this outline-only root", code: "coordinate_unavailable_for_root")
  			}
-@@ -1942,14 +1954,18 @@ final class Bridge {
+@@ -1942,17 +1954,34 @@ final class Bridge {
  			Task { @MainActor in AgentCursor.shared.animate(to: point, above: record.windowId) }
  		}
  
 -		func focusTargetForPhysicalInput() {
 +		func focusTargetForPhysicalInput() throws {
-+            try checkRequestActive()
++			try checkRequestActive()
  			guard delivery == "hid" else { return }
- 			if let app = NSRunningApplication(processIdentifier: pid), !app.isActive {
- 				performed["activated"] = app.activate()
- 			}
- 			if let window = windowElement(pid: pid, windowId: record.windowId) {
-+				try checkRequestActive()
- 				_ = AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
-+				try checkRequestActive()
- 				_ = AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
-+				try checkRequestActive()
- 				performed["raised"] = AXUIElementPerformAction(window, kAXRaiseAction as CFString) == .success
- 			}
- 			usleep(20_000)
-@@ -1963,7 +1979,7 @@ final class Bridge {
+-			if let app = NSRunningApplication(processIdentifier: pid), !app.isActive {
+-				performed["activated"] = app.activate()
+-			}
+-			if let window = windowElement(pid: pid, windowId: record.windowId) {
+-				_ = AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
+-				_ = AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+-				performed["raised"] = AXUIElementPerformAction(window, kAXRaiseAction as CFString) == .success
+-			}
+-			usleep(20_000)
++			func selectedTargetWindow() -> Bool {
++				guard record.windowId > 0,
++					pidForWindowId(record.windowId) == pid,
++					NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
++					let window = windowElement(pid: pid, windowId: record.windowId),
++					let focusedWindow = copyAttribute(AXUIElementCreateApplication(pid), attribute: kAXFocusedWindowAttribute as CFString).flatMap(asAXElement)
++				else { return false }
++				return sameElement(focusedWindow, window)
++			}
++
++			try ForegroundInputPreflight.require(
++				preserveFocus: params["preserveFocus"] as? Bool ?? false,
++				isSelectedTarget: selectedTargetWindow,
++				focusTarget: {
++					if let app = NSRunningApplication(processIdentifier: pid), !app.isActive {
++						performed["activated"] = app.activate()
++					}
++					guard let window = windowElement(pid: pid, windowId: record.windowId) else { return }
++					performed["setMain"] = AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue) == .success
++					performed["setFocused"] = AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue) == .success
++					performed["raised"] = AXUIElementPerformAction(window, kAXRaiseAction as CFString) == .success
++				},
++				waitForFocus: { usleep(20_000) },
++				checkRequestActive: checkRequestActive
++			)
+ 		}
+ 
+ 		func preflight(_ point: CGPoint) throws {
+@@ -1963,7 +1992,7 @@ final class Bridge {
  				let role = stringAttribute(hit, attribute: kAXRoleAttribute as CFString) ?? ""
  				if role == "AXWindow" || role == "AXApplication" { preflightCapsUnknown = true; return }
  				if delivery == "hid" && attempt < 3 {
@@ -251,7 +276,16 @@ index 0642385..180c16b 100644
  					usleep(20_000)
  					continue
  				}
-@@ -1978,7 +1994,8 @@ final class Bridge {
+@@ -1972,13 +2001,17 @@ final class Bridge {
+ 		}
+ 
+ 		func executeCoordinates(_ point: CGPoint) throws {
++			guard policy != "ax_only" else {
++				throw BridgeFailure(message: "This action requires raw input, which strict headless mode does not allow.", code: "background_input_unsupported")
++			}
+ 			guard element != nil || record.hasImage else {
+ 				throw BridgeFailure(message: "Coordinate grounding is unavailable for this outline-only root", code: "coordinate_unavailable_for_root")
+ 			}
  			performed["grounding"] = "coordinates"
  			if delivery == "pid" { performed["verification"] = "caller_required" }
  			acquirePhysicalInputIfNeeded()
@@ -261,7 +295,7 @@ index 0642385..180c16b 100644
  			if delivery == "hid" { try preflight(point) }
  			switch action {
  			case "press", "click":
-@@ -2028,8 +2045,10 @@ final class Bridge {
+@@ -2028,8 +2061,10 @@ final class Bridge {
  				}
  			} else if supportsAction(element, action: kAXPressAction as CFString) {
  				let cursorPoint = try? coordinatePoint()
@@ -272,9 +306,13 @@ index 0642385..180c16b 100644
  					status = AXUIElementPerformAction(refreshed, kAXPressAction as CFString)
  				}
  				if status == .success {
-@@ -2046,12 +2065,14 @@ final class Bridge {
+@@ -2045,13 +2080,18 @@ final class Bridge {
+ 		} else if let element, action == "setText" {
  			let text = params["text"] as? String ?? ""
  			if hasAncestorRole(element, role: "AXWebArea") {
++				guard policy != "ax_only" else {
++					throw BridgeFailure(message: "Web text entry requires raw input, which strict headless mode does not allow.", code: "background_input_unsupported")
++				}
  				acquirePhysicalInputIfNeeded()
 -				focusTargetForPhysicalInput()
 +				try focusTargetForPhysicalInput()
@@ -290,7 +328,7 @@ index 0642385..180c16b 100644
  				} ?? false
  				if !selected {
  					try postKeyPress(keys: ["cmd", "a"], pid: pid, delivery: delivery)
-@@ -2067,9 +2088,11 @@ final class Bridge {
+@@ -2067,9 +2107,11 @@ final class Bridge {
  				return finish(["outcome": value == text ? "worked" : "didnt", "performed": performed, "evidence": ["value": value]])
  			}
  			var targetElement = element
@@ -302,9 +340,14 @@ index 0642385..180c16b 100644
  				status = AXUIElementSetAttributeValue(targetElement, kAXValueAttribute as CFString, text as CFTypeRef)
  			}
  			if status == .success {
-@@ -2085,11 +2108,12 @@ final class Bridge {
+@@ -2083,13 +2125,16 @@ final class Bridge {
+ 			}
+ 			try executeCoordinates(coordinatePoint())
  		} else if action == "typeText" {
- 			let preserveFocus = params["preserveFocus"] as? Bool ?? false
+-			let preserveFocus = params["preserveFocus"] as? Bool ?? false
++			guard policy != "ax_only" else {
++				throw BridgeFailure(message: "Text entry requires raw input, which strict headless mode does not allow.", code: "background_input_unsupported")
++			}
  			if let element {
 +				try checkRequestActive()
  				let focused = AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
@@ -312,11 +355,19 @@ index 0642385..180c16b 100644
  			}
  			acquirePhysicalInputIfNeeded()
 -			if delivery == "hid" && !preserveFocus { focusTargetForPhysicalInput() }
-+			if delivery == "hid" && !preserveFocus { try focusTargetForPhysicalInput() }
++			if delivery == "hid" { try focusTargetForPhysicalInput() }
  			let text = params["text"] as? String ?? ""
  			try postUnicodeText(text, pid: pid, delivery: delivery)
  			performed["grounding"] = "coordinates"
-@@ -2105,6 +2129,7 @@ final class Bridge {
+@@ -2100,11 +2145,14 @@ final class Bridge {
+ 				return finish(["outcome": changed ? "worked" : "didnt", "performed": performed, "evidence": ["value": afterValue, "valueChanged": changed]])
+ 			}
+ 		} else if action == "keypress" {
+-			let preserveFocus = params["preserveFocus"] as? Bool ?? false
++			guard policy != "ax_only" else {
++				throw BridgeFailure(message: "Keyboard input requires raw input, which strict headless mode does not allow.", code: "background_input_unsupported")
++			}
+ 			guard let keys = params["keys"] as? [String], !keys.isEmpty else {
  				throw BridgeFailure(message: "keypress requires keys", code: "invalid_args")
  			}
  			if let element {
@@ -324,7 +375,7 @@ index 0642385..180c16b 100644
  				let focused = AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
  				if focused == .success { performed["focused"] = true }
  				let normalizedKeys = keys.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-@@ -2114,7 +2139,8 @@ final class Bridge {
+@@ -2114,7 +2162,8 @@ final class Bridge {
  					let value = stringAttribute(element, attribute: kAXValueAttribute as CFString)
  				{
  					var range = CFRange(location: 0, length: (value as NSString).length)
@@ -334,16 +385,16 @@ index 0642385..180c16b 100644
  						AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, selection) == .success
  					{
  						performed["selectionGrounding"] = "ax"
-@@ -2122,7 +2148,7 @@ final class Bridge {
+@@ -2122,7 +2171,7 @@ final class Bridge {
  				}
  			}
  			acquirePhysicalInputIfNeeded()
 -			if delivery == "hid" && !preserveFocus { focusTargetForPhysicalInput() }
-+			if delivery == "hid" && !preserveFocus { try focusTargetForPhysicalInput() }
++			if delivery == "hid" { try focusTargetForPhysicalInput() }
  			try postKeyPress(keys: keys, pid: pid, delivery: delivery)
  			performed["grounding"] = "coordinates"
  		} else if let element, action == "scroll" {
-@@ -2186,6 +2212,7 @@ final class Bridge {
+@@ -2186,6 +2235,7 @@ final class Bridge {
  		var steps: [[String: Any]] = []
  		var stoppedAt: Int?
  		for (index, action) in actions.enumerated() {
@@ -351,7 +402,7 @@ index 0642385..180c16b 100644
  			var deferred = action
  			deferred["deferRootDelta"] = true
  			do {
-@@ -2193,6 +2220,7 @@ final class Bridge {
+@@ -2193,6 +2243,7 @@ final class Bridge {
  				steps.append(step)
  				if (step["outcome"] as? String) == "didnt" { stoppedAt = index; break }
  			} catch let failure as BridgeFailure {
@@ -359,7 +410,7 @@ index 0642385..180c16b 100644
  				steps.append(["outcome": "didnt", "error": ["code": failure.code, "message": failure.message]])
  				stoppedAt = index
  				break
-@@ -3123,6 +3151,7 @@ final class Bridge {
+@@ -3123,6 +3174,7 @@ final class Bridge {
  	}
  
  	private func captureWindow(windowId: UInt32) throws -> CapturedWindowImage {
@@ -367,7 +418,7 @@ index 0642385..180c16b 100644
  		if #available(macOS 14.0, *) {
  			let semaphore = DispatchSemaphore(value: 0)
  			let capturedImage = Box<CGImage?>(nil)
-@@ -3155,7 +3184,13 @@ final class Bridge {
+@@ -3155,7 +3207,13 @@ final class Bridge {
  				}
  			}
  
@@ -382,7 +433,7 @@ index 0642385..180c16b 100644
  				task.cancel()
  				if let payload = try cgWindowScreenshotFallback(windowId: windowId) {
  					return payload
-@@ -3308,7 +3343,10 @@ final class Bridge {
+@@ -3308,23 +3366,17 @@ final class Bridge {
  		optionalStringArg(request, "delivery") == "pid" ? "pid" : "hid"
  	}
  
@@ -394,16 +445,26 @@ index 0642385..180c16b 100644
  		if delivery == "pid" {
  			event.postToPid(pid)
  			return
-@@ -3317,7 +3355,7 @@ final class Bridge {
- 		// can ignore pid-targeted CGEvents even though postToPid reports success.
- 		// Keep the target app frontmost so the HID event is delivered to the intended
- 		// window, then post at the session event tap.
+ 		}
+-		// Post as a real foreground HID event. AppKit views with mouseDown handlers
+-		// can ignore pid-targeted CGEvents even though postToPid reports success.
+-		// Keep the target app frontmost so the HID event is delivered to the intended
+-		// window, then post at the session event tap.
 -		if let app = NSRunningApplication(processIdentifier: pid), !app.isActive {
-+		if !release, let app = NSRunningApplication(processIdentifier: pid), !app.isActive {
- 			if #available(macOS 14.0, *) {
- 				_ = app.activate()
- 			} else {
-@@ -3334,7 +3372,7 @@ final class Bridge {
+-			if #available(macOS 14.0, *) {
+-				_ = app.activate()
+-			} else {
+-				_ = app.activate(options: [.activateIgnoringOtherApps])
+-			}
+-			usleep(20_000)
+-		}
++		// Foreground input is preflighted before its first press. Releases always
++		// remain deliverable so a failed or cancelled request cannot leave a key or
++		// button held down.
+ 		event.post(tap: .cghidEventTap)
+ 	}
+ 
+@@ -3334,7 +3386,7 @@ final class Bridge {
  		guard let move = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) else {
  			throw BridgeFailure(message: "Failed to create mouse move event", code: "input_failed")
  		}
@@ -412,7 +473,7 @@ index 0642385..180c16b 100644
  	}
  
  	private func mouseButton(_ name: String) -> CGMouseButton {
-@@ -3393,9 +3431,9 @@ final class Bridge {
+@@ -3393,9 +3445,9 @@ final class Bridge {
  			}
  			down.setIntegerValueField(.mouseEventClickState, value: Int64(index))
  			up.setIntegerValueField(.mouseEventClickState, value: Int64(index))
@@ -424,7 +485,7 @@ index 0642385..180c16b 100644
  			if index < clickCount {
  				usleep(70_000)
  			}
-@@ -3412,14 +3450,20 @@ final class Bridge {
+@@ -3412,14 +3464,20 @@ final class Bridge {
  		guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: first, mouseButton: .left) else {
  			throw BridgeFailure(message: "Failed to create mouse down event", code: "input_failed")
  		}
@@ -447,7 +508,7 @@ index 0642385..180c16b 100644
  			usleep(8_000)
  		}
  
-@@ -3428,7 +3472,8 @@ final class Bridge {
+@@ -3428,7 +3486,8 @@ final class Bridge {
  		else {
  			throw BridgeFailure(message: "Failed to create mouse up event", code: "input_failed")
  		}
@@ -457,7 +518,7 @@ index 0642385..180c16b 100644
  	}
  
  	private func postScrollWheel(at point: CGPoint, deltaX: Int, deltaY: Int, pid: Int32, delivery: String = "hid") throws {
-@@ -3446,7 +3491,7 @@ final class Bridge {
+@@ -3446,7 +3505,7 @@ final class Bridge {
  			throw BridgeFailure(message: "Failed to create scroll event", code: "input_failed")
  		}
  		event.location = point
@@ -466,7 +527,7 @@ index 0642385..180c16b 100644
  	}
  
  	private func modifierFlag(_ key: String) -> CGEventFlags? {
-@@ -3536,8 +3581,8 @@ final class Bridge {
+@@ -3536,8 +3595,8 @@ final class Bridge {
  		}
  		down.flags = flags
  		up.flags = flags
@@ -477,7 +538,7 @@ index 0642385..180c16b 100644
  		usleep(8_000)
  	}
  
-@@ -3557,8 +3602,8 @@ final class Bridge {
+@@ -3557,8 +3616,8 @@ final class Bridge {
  			}
  			setUnicodeString(event: down, text: char)
  			setUnicodeString(event: up, text: char)
@@ -488,7 +549,7 @@ index 0642385..180c16b 100644
  			usleep(8_000)
  		}
  	}
-@@ -3571,9 +3616,9 @@ final class Bridge {
+@@ -3571,9 +3630,9 @@ final class Bridge {
  		else { throw BridgeFailure(message: "Failed to create unicode text event", code: "input_failed") }
  		setUnicodeString(event: down, text: text)
  		setUnicodeString(event: up, text: text)
@@ -500,15 +561,43 @@ index 0642385..180c16b 100644
  	}
  
  	/// Prefer physical key codes for characters represented by the US layout.
-diff --git a/Users/mat/Documents/dev/workspace/node_modules/@injaneity/pi-computer-use/native/macos/request_lifecycle.swift b/native/macos/request_lifecycle.swift
+diff --git a/native/macos/request_lifecycle.swift b/native/macos/request_lifecycle.swift
 new file mode 100644
-index 0000000..beb87e8
+index 0000000..2654bb6
 --- /dev/null
 +++ b/native/macos/request_lifecycle.swift
-@@ -0,0 +1,100 @@
+@@ -0,0 +1,128 @@
 +import Foundation
 +import ApplicationServices
 +import Darwin
++
++/// Foreground HID input is safe to start only after the observed target is
++/// still the selected window of the pinned process. The native bridge owns the
++/// platform-specific observation and focus work; this small policy primitive
++/// keeps the check-before-emission ordering testable without a live desktop.
++enum ForegroundInputPreflight {
++    static func require(
++        preserveFocus: Bool,
++        isSelectedTarget: () -> Bool,
++        focusTarget: () -> Void,
++        waitForFocus: () -> Void,
++        checkRequestActive: () throws -> Void
++    ) throws {
++        try checkRequestActive()
++        if isSelectedTarget() { return }
++        guard !preserveFocus else {
++            throw BridgeFailure(message: "Foreground input no longer has the selected target window. Observe again.", code: "focus_preflight_failed")
++        }
++
++        focusTarget()
++        for attempt in 0..<4 {
++            try checkRequestActive()
++            if isSelectedTarget() { return }
++            if attempt < 3 { waitForFocus() }
++        }
++        throw BridgeFailure(message: "Foreground input could not focus the selected target window. Observe again.", code: "focus_preflight_failed")
++    }
++}
 +
 +/// A request stays cancellable while waiting for a lock or emitting an input
 +/// sequence. Closing the caller's socket withdraws all not-yet-dispatched work.
@@ -606,12 +695,12 @@ index 0000000..beb87e8
 +        if Thread.isMainThread { remove() } else { DispatchQueue.main.sync(execute: remove) }
 +    }
 +}
-diff --git a/Users/mat/Documents/dev/workspace/node_modules/@injaneity/pi-computer-use/native/macos/request_lifecycle_tests.swift b/native/macos/request_lifecycle_tests.swift
+diff --git a/native/macos/request_lifecycle_tests.swift b/native/macos/request_lifecycle_tests.swift
 new file mode 100644
-index 0000000..043f535
+index 0000000..6a939c2
 --- /dev/null
 +++ b/native/macos/request_lifecycle_tests.swift
-@@ -0,0 +1,16 @@
+@@ -0,0 +1,32 @@
 +import Foundation
 +import Darwin
 +struct BridgeFailure: Error { let message: String; let code: String }
@@ -625,7 +714,23 @@ index 0000000..043f535
 +  var generation:UInt64=0
 +  let human=RequestExecutionGuard(socket:nil,inputGeneration:{generation});try human.check();generation+=1
 +  do{try human.check();preconditionFailure("human takeover accepted")}catch let e as BridgeFailure{precondition(e.code=="human_takeover")}
-+  print("PASS closed-peer cancellation and human generation withdrawal without screen capture or input")
++  var failedFocusAttempts=0,failedFocusEvents=0
++  do{
++   try ForegroundInputPreflight.require(preserveFocus:false,isSelectedTarget:{false},focusTarget:{failedFocusAttempts+=1},waitForFocus:{},checkRequestActive:{})
++   failedFocusEvents+=1;preconditionFailure("unfocused target accepted")
++  }catch let e as BridgeFailure{precondition(e.code=="focus_preflight_failed")}
++  precondition(failedFocusAttempts==1);precondition(failedFocusEvents==0)
++  var preservedFocusAttempts=0
++  do{
++   try ForegroundInputPreflight.require(preserveFocus:true,isSelectedTarget:{false},focusTarget:{preservedFocusAttempts+=1},waitForFocus:{},checkRequestActive:{})
++   preconditionFailure("lost preserved focus accepted")
++  }catch let e as BridgeFailure{precondition(e.code=="focus_preflight_failed")}
++  precondition(preservedFocusAttempts==0)
++  var selected=false,validFocusEvents=0
++  try ForegroundInputPreflight.require(preserveFocus:false,isSelectedTarget:{selected},focusTarget:{selected=true},waitForFocus:{},checkRequestActive:{})
++  validFocusEvents+=1
++  precondition(validFocusEvents==1)
++  print("PASS closed-peer cancellation and human generation withdrawal; foreground focus preflight rejects unselected targets without screen capture or input")
 + }
 +}
 diff --git a/package.json b/package.json
@@ -657,12 +762,12 @@ index b9657a4..c442dd4 100755
  	"agent_cursor_motion.swift",
  	"bridge.swift",
  ].map((file) => path.join(rootDir, "native", "macos", file));
-diff --git a/Users/mat/Documents/dev/workspace/node_modules/@injaneity/pi-computer-use/scripts/check-embedded.mjs b/scripts/check-embedded.mjs
+diff --git a/scripts/check-embedded.mjs b/scripts/check-embedded.mjs
 new file mode 100644
-index 0000000..b26ad74
+index 0000000..9ff6376
 --- /dev/null
 +++ b/scripts/check-embedded.mjs
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,107 @@
 +import assert from 'node:assert/strict';
 +import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 +import os from 'node:os';
@@ -744,7 +849,25 @@ index 0000000..b26ad74
 +  assert.equal(inputCalls.length,1,'explicit background keyboard input is delivered once');
 +  assert.equal(inputCalls[0].policy,'background','explicit background policy is never widened to foreground');
 +  assert.equal(inputCalls[0].params.delivery,'pid');
++  assert.equal(background.details.execution.backgroundFirst,true,'background traces identify their actual first delivery');
++  assert.equal(background.details.execution.steps[0].deliveryPolicy,'background');
 +  assert.equal(background.details.execution.escalatedToForeground,false);
++
++  inputCalls.length=0;
++  process.env.PI_COMPUTER_USE_DELIVERY_POLICY='foreground';
++  const explicitForeground=await inputRuntime.executeAct('input-foreground',{stateId:background.details.capture.stateId,actions:[{action:'keypress',ref:'@e2',keys:['Meta','Shift','g']}]},undefined,undefined,context);
++  assert.equal(inputCalls.length,1,'explicit foreground keyboard input is delivered once');
++  assert.equal(inputCalls[0].policy,'foreground');
++  assert.equal(explicitForeground.details.execution.backgroundFirst,false,'foreground traces do not claim a background first attempt');
++  assert.equal(explicitForeground.details.execution.steps[0].deliveryPolicy,'foreground');
++
++  inputCalls.length=0;
++  process.env.PI_COMPUTER_USE_DELIVERY_POLICY='ax_only';
++  const axOnly=await inputRuntime.executeAct('input-ax-only',{stateId:explicitForeground.details.capture.stateId,actions:[{action:'keypress',ref:'@e2',keys:['Meta','Shift','g']}]},undefined,undefined,context);
++  assert.equal(inputCalls.length,1,'explicit AX-only keyboard input is not silently widened');
++  assert.equal(inputCalls[0].policy,'ax_only');
++  assert.equal(axOnly.details.execution.backgroundFirst,false,'AX-only traces do not claim a background first attempt');
++  assert.equal(axOnly.details.execution.steps[0].deliveryPolicy,'ax_only');
 + } finally {
 +  if (previousPolicy === undefined) delete process.env.PI_COMPUTER_USE_DELIVERY_POLICY;
 +  else process.env.PI_COMPUTER_USE_DELIVERY_POLICY=previousPolicy;
@@ -752,7 +875,7 @@ index 0000000..b26ad74
 + }
 + console.log('PASS embedded catalog, factory isolation, exact targets, state/output ownership, keyboard focus/delivery, shared scheduler shutdown and concurrent configuration');
 +}finally{Object.assign(backend,original);await scheduler.close();await rm(root,{recursive:true,force:true})}
-diff --git a/Users/mat/Documents/dev/workspace/node_modules/@injaneity/pi-computer-use/scripts/check-helper-cancellation.mjs b/scripts/check-helper-cancellation.mjs
+diff --git a/scripts/check-helper-cancellation.mjs b/scripts/check-helper-cancellation.mjs
 new file mode 100644
 index 0000000..22b3f4e
 --- /dev/null
@@ -824,7 +947,7 @@ index 27decd0..66bed7c 100644
  		case "drag": return { action: operation, target, params: { path: path(action.path, env) }, establishesFocus: false, usesCurrentFocus: false, needsForeground: false };
  		case "moveMouse": return { action: operation, target, params: {}, establishesFocus: false, usesCurrentFocus: false, needsForeground: false };
 diff --git a/src/bridge.ts b/src/bridge.ts
-index a1f3a86..23bab3d 100644
+index a1f3a86..d40776e 100644
 --- a/src/bridge.ts
 +++ b/src/bridge.ts
 @@ -8,10 +8,10 @@ import path from "node:path";
@@ -952,7 +1075,14 @@ index a1f3a86..23bab3d 100644
  			const foreground = checked(await currentPlatformBackend.act(helperActRequest(target, action, "foreground"), { signal, timeoutMs }));
  			const trace = executionTraceFromAct(foreground, "foreground");
  			trace.backgroundFirst = true;
-@@ -1193,7 +1222,7 @@ async function helperAct(
+@@ -1188,12 +1217,12 @@ async function helperAct(
+ 			trace.backgroundAttempt = { outcome: "didnt", reason: "Background input produced no observable value change; a foreground retry was safe." };
+ 			return trace;
+ 		}
+-		const trace = executionTraceFromAct(result, "background");
+-		trace.backgroundFirst = true;
++		const trace = executionTraceFromAct(result, initialPolicy);
++		trace.backgroundFirst = initialPolicy === "background";
  		return trace;
  	} catch (error) {
  		const code = (error as Error & { code?: string })?.code;
@@ -970,6 +1100,15 @@ index a1f3a86..23bab3d 100644
  		.map((page) => ({
  			app: "Browser",
  			pid: 0,
+@@ -1825,7 +1854,7 @@ function aggregateExecutions(steps: ExecutionTrace[]): ExecutionTrace {
+ 		steps,
+ 		actionCount: steps.length,
+ 		rootDelta: steps.flatMap((step) => step.rootDelta ?? []),
+-		backgroundFirst: true,
++		backgroundFirst: steps[0]?.backgroundFirst ?? false,
+ 		escalatedToForeground: Boolean(fallback),
+ 		escalationReason: fallback?.escalationReason,
+ 		backgroundAttempt: fallback?.backgroundAttempt,
 @@ -2175,7 +2204,7 @@ async function performLaunchBrowser(params: LaunchBrowserParams, signal?: AbortS
  	if (requestedUrl && !/^https?:\/\//i.test(requestedUrl)) throw new Error("launch_browser.url must be an absolute HTTP(S) URL.");
  	const url = requestedUrl ?? "about:blank";
@@ -1509,8 +1648,431 @@ index b479f4f..65fa350 100644
  	}
  
  	get size(): number {
+diff --git a/native/macos/agent_cursor.swift b/native/macos/agent_cursor.swift
+new file mode 100644
+index 0000000..0efeac7
+--- /dev/null
++++ b/native/macos/agent_cursor.swift
+@@ -0,0 +1,159 @@
++import AppKit
++import SwiftUI
++
++/// Visual-only cursor; native action delivery remains authoritative.
++@MainActor
++final class AgentCursor {
++    typealias IdleHideScheduler = @MainActor (@escaping @MainActor () -> Void) -> Task<Void, Never>
++
++    static let shared = AgentCursor(scheduleIdleHide: scheduleDefaultIdleHide)
++
++    private var overlay: AgentCursorOverlayWindow?
++    private var idleHideTask: Task<Void, Never>?
++    private var idleGeneration: UInt = 0
++    private let scheduleIdleHide: IdleHideScheduler
++
++    init(scheduleIdleHide: @escaping IdleHideScheduler) {
++        self.scheduleIdleHide = scheduleIdleHide
++    }
++
++    func animate(to point: CGPoint, above windowId: UInt32) {
++        idleHideTask?.cancel()
++        idleHideTask = nil
++        idleGeneration &+= 1
++
++        let window = ensureWindow()
++        if !window.isVisible { window.orderFrontRegardless() }
++        window.order(.above, relativeTo: Int(windowId))
++
++        let renderer = AgentCursorRenderer.shared
++        if renderer.position.x < -100 {
++            let frame = NSScreen.main?.frame ?? .zero
++            renderer.setInitialPosition(CGPoint(
++                x: min(max(point.x - 140, frame.minX + 2), frame.maxX - 2),
++                y: min(max(point.y - 140, frame.minY + 2), frame.maxY - 2)
++            ))
++        }
++        renderer.moveTo(point: point)
++
++        let generation = idleGeneration
++        idleHideTask = scheduleIdleHide { [weak self, weak window] in
++            guard let self, let window else { return }
++            guard generation == idleGeneration, self.overlay === window else { return }
++
++            renderer.cancelAnimation()
++            window.orderOut(nil)
++            window.contentView = nil
++            window.close()
++            overlay = nil
++            idleHideTask = nil
++        }
++    }
++
++    private static func scheduleDefaultIdleHide(_ hide: @escaping @MainActor () -> Void) -> Task<Void, Never> {
++        Task { @MainActor in
++            try? await Task.sleep(for: .seconds(8))
++            guard !Task.isCancelled else { return }
++            hide()
++        }
++    }
++
++    private func ensureWindow() -> AgentCursorOverlayWindow {
++        if let overlay { return overlay }
++        let window = AgentCursorOverlayWindow(
++            contentRect: NSScreen.main?.frame ?? NSScreen.screens.first?.frame ?? .zero,
++            styleMask: .borderless,
++            backing: .buffered,
++            defer: false
++        )
++        window.contentView = NSHostingView(rootView: AgentCursorView())
++        overlay = window
++        return window
++    }
++}
++
++/// Main-display-only, click-through overlay that can never take focus.
++private final class AgentCursorOverlayWindow: NSWindow {
++    override var canBecomeKey: Bool { false }
++    override var canBecomeMain: Bool { false }
++
++    override init(contentRect: NSRect, styleMask: NSWindow.StyleMask, backing: NSWindow.BackingStoreType, defer flag: Bool) {
++        super.init(contentRect: contentRect, styleMask: styleMask, backing: backing, defer: flag)
++        isOpaque = false
++        backgroundColor = .clear
++        hasShadow = false
++        ignoresMouseEvents = true
++        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
++        isReleasedWhenClosed = false
++        hidesOnDeactivate = false
++    }
++}
++
++@MainActor
++private struct AgentCursorView: View {
++    @Bindable private var renderer = AgentCursorRenderer.shared
++
++    var body: some View {
++        TimelineView(.animation(minimumInterval: 1.0 / 120.0, paused: !renderer.isAnimating)) { context in
++            Canvas { graphics, _ in
++                renderer.tick(now: context.date.timeIntervalSinceReferenceDate)
++                drawCursor(in: graphics)
++            }
++            .ignoresSafeArea()
++            .allowsHitTesting(false)
++        }
++    }
++
++    private func drawCursor(in graphics: GraphicsContext) {
++        let point = renderer.position
++        guard point.x > -100 else { return }
++
++        let bloom = Color(nsColor: NSColor(red: 1, green: 0x78 / 255, blue: 0x18 / 255, alpha: 1))
++        let radius: CGFloat = 22
++        graphics.fill(
++            Path(ellipseIn: CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)),
++            with: .radialGradient(
++                Gradient(colors: [bloom.opacity(0.55), bloom.opacity(0.15), bloom.opacity(0)]),
++                center: point,
++                startRadius: 0,
++                endRadius: radius
++            )
++        )
++
++        let points = [
++            CGPoint(x: 14, y: 0),
++            CGPoint(x: -8, y: -9),
++            CGPoint(x: -3, y: 0),
++            CGPoint(x: -8, y: 9),
++        ]
++        var shape = Path()
++        for index in points.indices {
++            let previous = points[(index + points.count - 1) % points.count]
++            let current = points[index]
++            let next = points[(index + 1) % points.count]
++            let entry = CGPoint(x: current.x + (previous.x - current.x) * 0.16, y: current.y + (previous.y - current.y) * 0.16)
++            let exit = CGPoint(x: current.x + (next.x - current.x) * 0.16, y: current.y + (next.y - current.y) * 0.16)
++            if index == points.startIndex { shape.move(to: entry) } else { shape.addLine(to: entry) }
++            shape.addQuadCurve(to: exit, control: current)
++        }
++        shape.closeSubpath()
++
++        let transformed = shape.applying(
++            CGAffineTransform(translationX: point.x, y: point.y)
++                .rotated(by: CGFloat(renderer.heading + .pi))
++        )
++        graphics.fill(
++            transformed,
++            with: .linearGradient(
++                Gradient(colors: [
++                    Color(red: 1, green: 0xD0 / 255, blue: 0x76 / 255),
++                    Color(red: 1, green: 0x78 / 255, blue: 0x18 / 255),
++                    Color(red: 0xE8 / 255, green: 0x4A / 255, blue: 0x0C / 255),
++                ]),
++                startPoint: CGPoint(x: point.x + 14, y: point.y - 9),
++                endPoint: CGPoint(x: point.x - 8, y: point.y + 9)
++            )
++        )
++        graphics.stroke(transformed, with: .color(.white), lineWidth: 2)
++    }
++}
+diff --git a/native/macos/agent_cursor_motion.swift b/native/macos/agent_cursor_motion.swift
+new file mode 100644
+index 0000000..c682942
+--- /dev/null
++++ b/native/macos/agent_cursor_motion.swift
+@@ -0,0 +1,252 @@
++import CoreGraphics
++import Foundation
++import Observation
++
++/// Main-actor Dubins-path animation state consumed by the SwiftUI overlay.
++@Observable
++@MainActor
++final class AgentCursorRenderer {
++    static let shared = AgentCursorRenderer()
++
++    private(set) var position = CGPoint(x: -200, y: -200)
++    private(set) var heading: Double = .pi / 4
++    private(set) var isAnimating = false
++
++    private var path: PlannedPath?
++    private var spring: Spring?
++    private var distanceSoFar: Double = 0
++    private var lastFrameTime: CFTimeInterval?
++    private var springTarget: (point: CGPoint, heading: Double)?
++
++    func moveTo(point clickPoint: CGPoint) {
++        let endAngle = Double.pi / 4
++        let targetPoint = CGPoint(
++            x: clickPoint.x + CGFloat(cos(endAngle) * 16),
++            y: clickPoint.y + CGFloat(sin(endAngle) * 16)
++        )
++        path = planPath(
++            x0: Double(position.x), y0: Double(position.y), th0: heading + .pi,
++            x1: Double(targetPoint.x), y1: Double(targetPoint.y), th1: endAngle + .pi,
++            R: 80, endVisualHeading: endAngle, targetPoint: targetPoint)
++        spring = nil
++        springTarget = nil
++        distanceSoFar = 0
++        lastFrameTime = nil
++        isAnimating = true
++    }
++
++    func setInitialPosition(_ point: CGPoint) {
++        position = point
++        cancelAnimation()
++    }
++
++    func cancelAnimation() {
++        path = nil
++        spring = nil
++        springTarget = nil
++        distanceSoFar = 0
++        lastFrameTime = nil
++        isAnimating = false
++    }
++
++    func tick(now: CFTimeInterval) {
++        guard isAnimating else { return }
++        let previous = lastFrameTime ?? now
++        let dt = min(0.05, now - previous)
++        lastFrameTime = now
++
++        if let path {
++            let progress = min(1.0, distanceSoFar / max(path.length, 1))
++            let profile = 16 * progress * progress * (1 - progress) * (1 - progress)
++            let minimumSpeed = progress < 0.5 ? 300.0 : 200.0
++            let speed = minimumSpeed + (900 - minimumSpeed) * profile
++            distanceSoFar += speed * dt
++
++            if distanceSoFar >= path.length {
++                let endState = path.sample(at: path.length)
++                spring = Spring(
++                    ox: 0,
++                    oy: 0,
++                    vx: cos(endState.heading) * speed * 0.8,
++                    vy: sin(endState.heading) * speed * 0.8
++                )
++                springTarget = (path.targetPoint, path.endVisualHeading)
++                position = path.targetPoint
++                heading = path.endVisualHeading
++                self.path = nil
++                distanceSoFar = 0
++            } else {
++                let state = path.sample(at: distanceSoFar)
++                position = CGPoint(x: state.x, y: state.y)
++                heading = rotateToward(current: heading, desired: state.heading + .pi, maxStep: 14 * dt)
++            }
++        } else if var spring, let target = springTarget {
++            let substep = dt / 4
++            for _ in 0..<4 {
++                spring.vx += (-400 * spring.ox - 17 * spring.vx) * substep
++                spring.vy += (-400 * spring.oy - 17 * spring.vy) * substep
++                spring.ox += spring.vx * substep
++                spring.oy += spring.vy * substep
++            }
++            position = CGPoint(x: target.point.x + CGFloat(spring.ox), y: target.point.y + CGFloat(spring.oy))
++            heading = target.heading
++            if hypot(spring.ox, spring.oy) < 0.3 && hypot(spring.vx, spring.vy) < 2 {
++                position = target.point
++                self.spring = nil
++                springTarget = nil
++                lastFrameTime = nil
++                isAnimating = false
++            } else {
++                self.spring = spring
++            }
++        }
++    }
++
++    private func rotateToward(current: Double, desired: Double, maxStep: Double) -> Double {
++        var difference = desired - current
++        while difference > .pi { difference -= 2 * .pi }
++        while difference < -.pi { difference += 2 * .pi }
++        return current + max(-maxStep, min(maxStep, difference))
++    }
++}
++
++private struct Spring { var ox, oy, vx, vy: Double }
++
++struct DubinsPlannedPath {
++    enum Kind { case dubins, linear }
++    let kind: Kind
++    let length: Double
++    let endVisualHeading: Double
++    let targetPoint: CGPoint
++    let x0, y0, th0, R, seg1, seg2, seg3: Double
++    let types: [Character]
++    let x1, y1, th1: Double
++
++    struct State { let x, y, heading: Double }
++
++    func sample(at s: Double) -> State {
++        switch kind { case .linear: return sampleLinear(s); case .dubins: return sampleDubins(s) }
++    }
++
++    private func sampleLinear(_ s: Double) -> State {
++        let u = max(0, min(1, s / length))
++        var diff = th1 - th0
++        while diff > .pi  { diff -= 2 * .pi }
++        while diff < -.pi { diff += 2 * .pi }
++        return State(x: x0 + (x1 - x0) * u, y: y0 + (y1 - y0) * u, heading: th0 + diff * u)
++    }
++
++    private func sampleDubins(_ sIn: Double) -> State {
++        guard sIn > 0 else { return State(x: x0, y: y0, heading: th0) }
++        let L1 = seg1 * R, L2 = seg2 * R, L3 = seg3 * R
++        let s = min(sIn, L1 + L2 + L3)
++        var x = x0, y = y0, th = th0
++
++        func advance(length L: Double, type: Character) {
++            if type == "S" { x += cos(th) * L; y += sin(th) * L }
++            else {
++                let dth = L / R * (type == "L" ? 1.0 : -1.0)
++                let perp: Double = (type == "L") ? .pi / 2 : -.pi / 2
++                let cx = x + cos(th + perp) * R, cy = y + sin(th + perp) * R
++                let ang = atan2(y - cy, x - cx)
++                x = cx + cos(ang + dth) * R; y = cy + sin(ang + dth) * R; th += dth
++            }
++        }
++        if s <= L1 { advance(length: s, type: types[0]); return State(x: x, y: y, heading: th) }
++        advance(length: L1, type: types[0])
++        if s <= L1 + L2 { advance(length: s - L1, type: types[1]); return State(x: x, y: y, heading: th) }
++        advance(length: L2, type: types[1])
++        advance(length: s - L1 - L2, type: types[2])
++        return State(x: x, y: y, heading: th)
++    }
++}
++
++private typealias PlannedPath = DubinsPlannedPath
++
++private func mod2pi(_ x: Double) -> Double {
++    let tau = 2 * Double.pi; let r = x - tau * floor(x / tau); return r < 0 ? r + tau : r
++}
++
++private struct DubinsSolution { let t, p, q: Double; let types: [Character]; var length: Double { t + p + q } }
++
++private func dubinsLSL(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
++    let tmp0 = d + sin(a) - sin(b)
++    let p2 = 2 + d * d - 2 * cos(a - b) + 2 * d * (sin(a) - sin(b))
++    guard p2 >= 0 else { return nil }
++    let tmp1 = atan2(cos(b) - cos(a), tmp0)
++    return DubinsSolution(t: mod2pi(-a + tmp1), p: sqrt(p2), q: mod2pi(b - tmp1), types: ["L","S","L"])
++}
++private func dubinsRSR(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
++    let tmp0 = d - sin(a) + sin(b)
++    let p2 = 2 + d * d - 2 * cos(a - b) + 2 * d * (sin(b) - sin(a))
++    guard p2 >= 0 else { return nil }
++    let tmp1 = atan2(cos(a) - cos(b), tmp0)
++    return DubinsSolution(t: mod2pi(a - tmp1), p: sqrt(p2), q: mod2pi(-b + tmp1), types: ["R","S","R"])
++}
++private func dubinsLSR(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
++    let p2 = -2 + d * d + 2 * cos(a - b) + 2 * d * (sin(a) + sin(b))
++    guard p2 >= 0 else { return nil }
++    let p = sqrt(p2)
++    let tmp1 = atan2(-cos(a) - cos(b), d + sin(a) + sin(b)) - atan2(-2, p)
++    return DubinsSolution(t: mod2pi(-a + tmp1), p: p, q: mod2pi(-mod2pi(b) + tmp1), types: ["L","S","R"])
++}
++private func dubinsRSL(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
++    let p2 = d * d - 2 + 2 * cos(a - b) - 2 * d * (sin(a) + sin(b))
++    guard p2 >= 0 else { return nil }
++    let p = sqrt(p2)
++    let tmp1 = atan2(cos(a) + cos(b), d - sin(a) - sin(b)) - atan2(2, p)
++    return DubinsSolution(t: mod2pi(a - tmp1), p: p, q: mod2pi(b - tmp1), types: ["R","S","L"])
++}
++private func dubinsRLR(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
++    let tmp = (6 - d * d + 2 * cos(a - b) + 2 * d * (sin(a) - sin(b))) / 8
++    guard abs(tmp) <= 1 else { return nil }
++    let p = mod2pi(2 * .pi - acos(tmp))
++    let t = mod2pi(a - atan2(cos(a) - cos(b), d - sin(a) + sin(b)) + p / 2)
++    return DubinsSolution(t: t, p: p, q: mod2pi(a - b - t + p), types: ["R","L","R"])
++}
++private func dubinsLRL(_ d: Double, _ a: Double, _ b: Double) -> DubinsSolution? {
++    let tmp = (6 - d * d + 2 * cos(a - b) + 2 * d * (sin(b) - sin(a))) / 8
++    guard abs(tmp) <= 1 else { return nil }
++    let p = mod2pi(2 * .pi - acos(tmp))
++    let t = mod2pi(-a + atan2(-cos(a) + cos(b), d + sin(a) - sin(b)) + p / 2)
++    return DubinsSolution(t: t, p: p, q: mod2pi(mod2pi(b) - a - t + p), types: ["L","R","L"])
++}
++
++private func planPath(x0: Double, y0: Double, th0: Double,
++                      x1: Double, y1: Double, th1: Double,
++                      R: Double, endVisualHeading: Double,
++                      targetPoint: CGPoint) -> PlannedPath {
++    if let p = planDubins(x0: x0, y0: y0, th0: th0, x1: x1, y1: y1, th1: th1,
++                          R: R, endVisualHeading: endVisualHeading, targetPoint: targetPoint) {
++        return p
++    }
++    let D = max(1, hypot(x1 - x0, y1 - y0))
++    return PlannedPath(kind: .linear, length: D, endVisualHeading: endVisualHeading,
++                       targetPoint: targetPoint, x0: x0, y0: y0, th0: th0, R: R,
++                       seg1: 0, seg2: 0, seg3: 0, types: [], x1: x1, y1: y1, th1: th1)
++}
++
++private func planDubins(x0: Double, y0: Double, th0: Double,
++                        x1: Double, y1: Double, th1: Double,
++                        R: Double, endVisualHeading: Double,
++                        targetPoint: CGPoint) -> PlannedPath? {
++    let dx = x1 - x0, dy = y1 - y0, D = hypot(dx, dy)
++    guard D > 0.5 else { return nil }
++    let d = D / R, theta = mod2pi(atan2(dy, dx))
++    let a = mod2pi(th0 - theta), b = mod2pi(th1 - theta)
++    let solvers: [(Double, Double, Double) -> DubinsSolution?] = [
++        dubinsLSL, dubinsRSR, dubinsLSR, dubinsRSL, dubinsRLR, dubinsLRL,
++    ]
++    var best: DubinsSolution?; var bestLen = Double.infinity
++    for s in solvers {
++        if let sol = s(d, a, b), sol.length.isFinite, sol.length >= 0, sol.length < bestLen {
++            bestLen = sol.length; best = sol
++        }
++    }
++    guard let b = best else { return nil }
++    return PlannedPath(kind: .dubins, length: (b.t + b.p + b.q) * R,
++                       endVisualHeading: endVisualHeading, targetPoint: targetPoint,
++                       x0: x0, y0: y0, th0: th0, R: R,
++                       seg1: b.t, seg2: b.p, seg3: b.q, types: b.types,
++                       x1: x1, y1: y1, th1: th1)
++}
 diff --git a/docs/architecture.md b/docs/architecture.md
-index fd426dc..04437d3 100644
+index fd426dc..c1e2157 100644
 --- a/docs/architecture.md
 +++ b/docs/architecture.md
 @@ -106,9 +106,9 @@ delivery alone is never treated as semantic success.
@@ -1521,7 +2083,7 @@ index fd426dc..04437d3 100644
 +The bridge resolves model intent; the backend/helper owns grounding, preflight, delivery, and evidence. Accessibility capabilities choose an initial strategy but are not treated as proof that the intended result occurred. Clicks or presses on focusable controls establish foreground focus for following unscoped keyboard steps in the same transaction. In the normal interactive delivery mode, keypresses use one foreground HID delivery because application command handling belongs to the active key window and a pid-targeted event can be accepted without reaching it. Raw coordinates are tied to the image-bearing state that produced them. Web-backed editable controls use atomic keyboard events and web-backed buttons use pointer events so application state receives normal input events rather than only a changed AX value. A helper result reports `worked`, `didnt`, or `unknown`, including evidence and shallow root changes where available.
  
 -With `headless: true`, the background boundary is strict: Pi must never activate or raise an application, change the user's focused window, move the global cursor, post raw input, or display the agent cursor. With `headless: false` (the default), credible semantic activation may begin in the background, editable clicks preserve the focus they establish for following unscoped keyboard input, and keyboard input with a checked `didnt` result may retry in the foreground because the first attempt proved side-effect-free. Focus-preserving native keyboard requests must not raise or re-focus the window between semantic activation and HID delivery; canvas editors such as PowerPoint otherwise collapse an inner text editor back to placeholder selection. Ambiguous pointer outcomes are never replayed. With `cursor_overlay: true`, non-headless macOS background pointer actions enqueue a click-through agent cursor animation to the native grounded point without delaying delivery; foreground HID actions use only the physical cursor.
-+With `headless: true`, the background boundary is strict: Pi must never activate or raise an application, change the user's focused window, move the global cursor, post raw input, or display the agent cursor. With `headless: false` (the default), credible semantic activation may begin in the background, focusable clicks preserve the focus they establish for following unscoped keyboard input, and keyboard input with a checked `didnt` result may retry in the foreground because the first attempt proved side-effect-free. Normal interactive keypresses use foreground delivery directly and are never replayed after an `unknown` result. An explicit `PI_COMPUTER_USE_DELIVERY_POLICY=background` or `ax_only` retains that boundary and prohibits foreground escalation; `foreground` requests foreground delivery for the action. Focus-preserving native keyboard requests must not raise or re-focus the window between semantic activation and HID delivery; canvas editors such as PowerPoint otherwise collapse an inner text editor back to placeholder selection. Ambiguous pointer outcomes are never replayed. With `cursor_overlay: true`, non-headless macOS background pointer actions enqueue a click-through agent cursor animation to the native grounded point without delaying delivery; foreground HID actions use only the physical cursor.
++With `headless: true`, the background boundary is strict: Pi must never activate or raise an application, change the user's focused window, move the global cursor, post raw input, or display the agent cursor. Actions that require raw pointer or keyboard input fail before effect; direct AX value writes remain available where the platform supports them. With `headless: false` (the default), credible semantic activation may begin in the background, focusable clicks preserve the focus they establish for following unscoped keyboard input, and keyboard input with a checked `didnt` result may retry in the foreground because the first attempt proved side-effect-free. Normal interactive keypresses use foreground delivery directly and are never replayed after an `unknown` result. Before the first HID press, macOS confirms that the pinned process is frontmost and the selected native window still matches the observed window; failed focus fails before input. An explicit `PI_COMPUTER_USE_DELIVERY_POLICY=background` or `ax_only` retains that boundary and prohibits foreground escalation; `foreground` requests foreground delivery for the action. Focus-preserving native keyboard requests validate the selected window without raising or re-focusing it between semantic activation and HID delivery; canvas editors such as PowerPoint otherwise collapse an inner text editor back to placeholder selection. Ambiguous pointer outcomes are never replayed. With `cursor_overlay: true`, non-headless macOS background pointer actions enqueue a click-through agent cursor animation to the native grounded point without delaying delivery; foreground HID actions use only the physical cursor.
  
  The agent-facing `act_ui.headless` flag determines whether foreground execution is prohibited. Fallback-capable multi-action calls execute one checked action at a time, retain click-established focus, and stop on a checked `didnt`; strict-headless calls retain native transactional batching.
  

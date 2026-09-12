@@ -70,7 +70,7 @@
     "source": "https://github.com/injaneity/pi-computer-use/tree/4b8dbd7eaa13328ab1a8a4b55d0be0b077de7d62",
     "license": "MIT",
     "patch": "pi-computer-use-0.5.1.patch",
-    "sha256": "64619ea5885732363528a98cbb03bafc6e3681bf2dfeaadad9c85dc8123c384c",
+    "sha256": "9006de962c26b05d76c989d0043c93f570f03f225c0b86b3855c8d00988adba3",
     "files": [
       {
         "path": "extensions/computer-use.ts",
@@ -80,17 +80,17 @@
       {
         "path": "native/macos/bridge.swift",
         "before": "adb5a4eb6ada931a5cbc16761fec7dbe27a290900326a4142bd7f4097865a7ba",
-        "after": "a027d78bf413fd7007ae0b0032eac0f7899a334000c6826981b0ab9db3d12171"
+        "after": "0ff1ee150b1504245907c018f6ae06b5924970065823a4c424801aaac82f390f"
       },
       {
         "path": "native/macos/request_lifecycle.swift",
         "before": null,
-        "after": "a36a170d5e36476c97a2447fe62a88a7e89b25301288e4cf0dbec68ac240f9a1"
+        "after": "da097b782510be4c45eba30a54dad6997aeeb1041431981aa7dedb231ea246ea"
       },
       {
         "path": "native/macos/request_lifecycle_tests.swift",
         "before": null,
-        "after": "aa54d768634c36c58a6ca7d2065bcc7f1cd08a1af3c8a4673d376ecdcfaf6ca7"
+        "after": "d07d78f14f4965afa3a7805abdf19e54cfa19f9b1676d7109efb4493c0baf59c"
       },
       {
         "path": "package.json",
@@ -105,7 +105,7 @@
       {
         "path": "scripts/check-embedded.mjs",
         "before": null,
-        "after": "ab5998a83d1117055a0bb01051ab1cf712da312b1171d67ac9651236507c014e"
+        "after": "af4ac139446e560f765c4fa9d986b973748976fa107a1f7d85c1eaaa93f75bf1"
       },
       {
         "path": "scripts/check-helper-cancellation.mjs",
@@ -125,7 +125,7 @@
       {
         "path": "src/bridge.ts",
         "before": "4a206d8e714e910e00f83746524f8ffefaa72219966da89c3dde5af48213f34b",
-        "after": "e534c3124d6cb06f7205b848475658954f23b7ff4c1db3f625dc9bde6099cac7"
+        "after": "8d6b3127ecb650de601c63a0925baa75db0d100103b8712a665fb5e09b6ce826"
       },
       {
         "path": "src/config.ts",
@@ -165,7 +165,7 @@
       {
         "path": "docs/architecture.md",
         "before": "479a2b8870a6ef338f6a0771d52a29096f8baf1d66ac4b6753330a74f3e59101",
-        "after": "393ab5487640c56e7e7bcd3eac41f69812f2314144bc7c0af42914cc8a7feb0d"
+        "after": "2600289b0b6ab8eaff5e32c05ca7d60ea6b0b77ab030cffb5a1619201c4ee0d3"
       }
     ]
   },
