@@ -82,6 +82,12 @@ from their names. It observes again where the result can change the next
 decision. Independent reads may run concurrently; dependent mutations use the
 domain's concurrency and stale-state rules.
 
+Browser scripting and DOM access have technical limits. The Assistant may
+choose another available tool, such as native Computer control, when it fits
+the person's authorized task and constraints. Actual permission and policy
+denials still apply. Tool selection stays with the model; work-fold does not
+infer a fallback from a domain or error string.
+
 Verification must be useful and proportionate. Re-read a requested setting;
 reconcile a total; inspect relevant document pages and content. Visual quality,
 semantic correctness, and successful execution are distinct. After a relevant
