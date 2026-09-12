@@ -94,6 +94,8 @@ when an operation needs them. The document worker imports its libraries on
 requested execution or an explicit health check.
 
 Documents run full trust in a worker so Stop can terminate a synchronous loop.
+Each worker has a 512 MiB V8 heap limit to contain accidental allocation loops;
+native-library and external-buffer memory are outside that limit.
 Its provided libraries resolve from the shipped bundle; a script's own imports
 retain ordinary project-first resolution. Run metadata records library origins
 and versions, and failed tools retain bounded engine diagnostics.

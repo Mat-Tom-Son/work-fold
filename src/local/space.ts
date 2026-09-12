@@ -247,7 +247,7 @@ export async function renameSpace(spaceId: string, name: string): Promise<SpaceS
   assertId(spaceId);
   const normalizedName = normalizeSpaceName(name);
   return withRegistryMutation(async () => {
-    const registry = await readRegistry({ strict: true });
+    const registry = await readRegistry();
     const space = registry.spaces.find((item) => item.id === spaceId);
     if (!space || registry.pendingRemovals.some((intent) => intent.spaceId === spaceId)
       || !existsSync(space.spaceRoot)) throw notFound("Space not found.");
@@ -272,7 +272,7 @@ export async function beginSpaceRemoval(
   assertId(spaceId);
   const requestedDisposition = options.folderDisposition ?? "delete";
   return withRegistryOwnershipMutation(async () => {
-    const registry = await readRegistry({ strict: true });
+    const registry = await readRegistry();
     const existing = registry.pendingRemovals.find((intent) => intent.spaceId === spaceId);
     if (existing) {
       // An in-flight intent's folder authority is settled; converting a
@@ -322,7 +322,7 @@ export async function markSpaceRemovalAppStateRemoved(
 ): Promise<SpaceRemovalIntent> {
   assertId(spaceId);
   return withRegistryMutation(async () => {
-    const registry = await readRegistry({ strict: true });
+    const registry = await readRegistry();
     const intent = registry.pendingRemovals.find((item) => item.spaceId === spaceId);
     if (!intent) throw new Error("Space removal intent not found.");
     if (intent.phase === "app-state-removed") return structuredClone(intent);
@@ -333,7 +333,7 @@ export async function markSpaceRemovalAppStateRemoved(
 }
 
 export async function listPendingSpaceRemovals(): Promise<SpaceRemovalIntent[]> {
-  return (await readRegistry({ strict: true })).pendingRemovals.map((intent) => structuredClone(intent));
+  return (await readRegistry()).pendingRemovals.map((intent) => structuredClone(intent));
 }
 
 export async function finalizeSpaceRemoval(
@@ -342,7 +342,7 @@ export async function finalizeSpaceRemoval(
 ): Promise<SpaceRemovalResult> {
   assertId(spaceId);
   return withRegistryOwnershipMutation(async () => {
-    const registry = await readRegistry({ strict: true });
+    const registry = await readRegistry();
     const intent = registry.pendingRemovals.find((item) => item.spaceId === spaceId);
     if (!intent) throw new Error("Space removal intent not found.");
     if (intent.phase !== "app-state-removed") {
@@ -875,7 +875,7 @@ export async function sha256File(path: string): Promise<string> {
 
 async function registerSpace(input: Omit<SpaceSummary, "id" | "createdAt" | "updatedAt">): Promise<SpaceSummary> {
   return withRegistryOwnershipMutation(async () => {
-    const registry = await readRegistry({ strict: true });
+    const registry = await readRegistry();
     const spaceRoot = resolve(input.spaceRoot);
     const existing = registry.spaces.find((space) => samePath(space.spaceRoot, spaceRoot));
     if (existing) {
@@ -925,7 +925,7 @@ async function registerSpace(input: Omit<SpaceSummary, "id" | "createdAt" | "upd
 
 async function touchSpace(spaceRoot: string): Promise<void> {
   await withRegistryMutation(async () => {
-    const registry = await readRegistry({ strict: true });
+    const registry = await readRegistry();
     const space = registry.spaces.find((item) => samePath(item.spaceRoot, spaceRoot));
     if (!space || registry.pendingRemovals.some((intent) => intent.spaceId === space.id)) return;
     space.updatedAt = new Date().toISOString();
@@ -938,9 +938,8 @@ async function touchSpace(spaceRoot: string): Promise<void> {
   });
 }
 
-async function readRegistry(options: { strict?: boolean } = {}): Promise<SpaceRegistry> {
+async function readRegistry(): Promise<SpaceRegistry> {
   const file = spaceRegistryFile();
-  if (!existsSync(file)) return emptySpaceRegistry();
   try {
     const parsed = JSON.parse(await readFile(file, "utf8")) as Partial<SpaceRegistry>;
     if (!Array.isArray(parsed.spaces)) throw new Error("Space registry Spaces are invalid.");
@@ -968,8 +967,10 @@ async function readRegistry(options: { strict?: boolean } = {}): Promise<SpaceRe
       pendingRemovals,
     };
   } catch (error) {
-    if (options.strict) throw new Error("Space registry could not be read safely.", { cause: error });
-    return emptySpaceRegistry();
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return emptySpaceRegistry();
+    // An I/O failure or malformed registry is not evidence that the person has
+    // no Spaces. Keep the last rendered state and surface a retryable failure.
+    throw new Error("Space registry could not be read safely.", { cause: error });
   }
 }
 
@@ -1140,7 +1141,7 @@ async function withRegistryOwnershipMutation<T>(operation: () => Promise<T>): Pr
 /** Includes pending removals: their content is still separately owned. */
 export async function nestedRegisteredSpacePaths(spaceRoot: string): Promise<string[]> {
   const root = resolve(spaceRoot);
-  const registry = await readRegistry({ strict: true });
+  const registry = await readRegistry();
   return registry.spaces.filter((space) => !samePath(root, space.spaceRoot) && pathContains(root, space.spaceRoot))
     .map((space) => normalizeRelative(relative(root, space.spaceRoot)));
 }

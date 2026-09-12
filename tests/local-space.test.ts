@@ -48,6 +48,20 @@ after(async () => {
   await rm(sandbox, { recursive: true, force: true });
 });
 
+test("an unreadable registry never becomes an empty Space list", async () => {
+  await mkdir(stateRoot, { recursive: true });
+  const file = spaceRegistryFile();
+  const previous = await readFile(file).catch(() => null);
+  try {
+    await writeFile(file, "{ incomplete registry");
+    await assert.rejects(listSpaces(), /Space registry could not be read safely/);
+    assert.equal(await readFile(file, "utf8"), "{ incomplete registry", "reading leaves the recoverable file untouched");
+  } finally {
+    if (previous) await writeFile(file, previous);
+    else await rm(file, { force: true });
+  }
+});
+
 test("managed Spaces keep portable identity metadata inside a hidden .work-fold folder", async () => {
   const space = await createManagedSpace("Personal Space", contentRoot);
   const initialManifest = JSON.parse(await readFile(spaceManifestFile(space.spaceRoot), "utf8")) as Record<string, unknown>;

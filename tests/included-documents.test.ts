@@ -149,6 +149,27 @@ test("timeout terminates a synchronous loop and pre-abort does not execute", asy
   await assert.rejects(runDocumentScript({ ...setup, signal: AbortSignal.abort() }), /before execution/);
 });
 
+test("an allocation loop fails in its worker while a sibling and the host remain usable", { timeout: 30_000 }, async (t) => {
+  const runaway = await fixture(t, "export default()=>{const retained=[];while(true)retained.push(new Array(50000).fill(retained.length));};");
+  const sibling = await fixture(t, "import{writeFileSync}from'node:fs';export default({resolve})=>{writeFileSync(resolve('completed'),'sibling');return 42;};");
+  let ticks = 0;
+  const timer = setInterval(() => ticks++, 25);
+  try {
+    const failed = assert.rejects(runDocumentScript({ ...runaway, timeoutMs: 15_000 }), (error: Error & { code?: string }) => {
+      assert.equal(error.code, "ERR_WORKER_OUT_OF_MEMORY");
+      assert.match(error.message, /512 MiB JavaScript heap limit/);
+      assert.match(error.message, /files already written may remain/);
+      return true;
+    });
+    const completed = await runDocumentScript(sibling);
+    await failed;
+    assert.equal(completed.value, "42");
+    assert.equal(await readFile(join(sibling.cwd, "completed"), "utf8"), "sibling");
+    assert.ok(ticks > 0, "the main event loop continued during the failing script");
+    assert.equal((await probeIncludedDocuments()).state, "ready", "a fresh worker still operates after the failed run");
+  } finally { clearInterval(timer); }
+});
+
 test("output is bounded and omissions are explicit", async (t) => {
   const setup = await fixture(t, "export default ()=>{console.log('x'.repeat(100000));return 'y'.repeat(100000)};");
   const result = await runDocumentScript(setup);

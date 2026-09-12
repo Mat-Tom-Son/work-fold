@@ -8,6 +8,7 @@ export const DOCUMENT_LIMITS = Object.freeze({
   timeoutMs: 60_000, maxTimeoutMs: 120_000, scriptBytes: 1024 * 1024,
   textBytes: 64 * 1024, imageBytes: 2 * 1024 * 1024, totalImageBytes: 8 * 1024 * 1024,
   images: 4, pdfBytes: 64 * 1024 * 1024, pdfPages: 8, pagePixels: 4_000_000,
+  workerHeapMb: 512,
 });
 
 async function scriptSnapshot(script, cwd) {
@@ -32,7 +33,13 @@ function runWorker(data, { signal, timeoutMs = DOCUMENT_LIMITS.timeoutMs } = {})
     // are also real files; ordinary JS libraries and PDF assets stay archived.
     const workerUrl = new URL("./worker.mjs", import.meta.url);
     workerUrl.pathname = workerUrl.pathname.replace(/\.asar\//, ".asar.unpacked/");
-    const worker = new Worker(workerUrl, { workerData: { ...data, limits: DOCUMENT_LIMITS }, stdout: true, stderr: true, execArgv: [] });
+    const worker = new Worker(workerUrl, {
+      workerData: { ...data, limits: DOCUMENT_LIMITS }, stdout: true, stderr: true, execArgv: [],
+      // Keep an accidental allocation loop in one script from exhausting the
+      // interactive host before its timer or Stop can complete. This bounds
+      // V8's heap, not native/external allocations, and is not a sandbox.
+      resourceLimits: { maxOldGenerationSizeMb: DOCUMENT_LIMITS.workerHeapMb },
+    });
     let settled = false;
     let logs = "";
     let logBytes = 0;
@@ -73,7 +80,12 @@ function runWorker(data, { signal, timeoutMs = DOCUMENT_LIMITS.timeoutMs } = {})
       }
       void finish(error, message.result);
     });
-    worker.once("error", (error) => void finish(error));
+    worker.once("error", (error) => {
+      if (error.code === "ERR_WORKER_OUT_OF_MEMORY") {
+        error.message = `Document script exceeded its ${DOCUMENT_LIMITS.workerHeapMb} MiB JavaScript heap limit. This run stopped; files already written may remain. Inspect them and reduce the script's retained data before retrying.`;
+      }
+      void finish(error);
+    });
     worker.once("exit", (code) => { if (!settled) void finish(new Error(`Document worker exited (${code}) without a result. Inspect output files before retrying.`)); });
     if (signal?.aborted) stop();
   });
