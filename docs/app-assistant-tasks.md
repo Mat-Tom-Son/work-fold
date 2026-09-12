@@ -256,7 +256,10 @@ machine-local `restricted-apps/inference-receipts.jsonl` journal, recording the
 surface, byte sizes, the effective model, and its usage — never the app's
 content. The Apps tab lists the latest event for each call across code changes,
 with its limit applied to calls rather than journal lines. On startup, acceptance-only records receive an
-`INFER_INTERRUPTED` event without replay or a claim about provider completion. An
+`INFER_INTERRUPTED` event without replay or a claim about provider completion.
+Only successfully written events enter the live receipt list. If a completion
+cannot be recorded, its acceptance displays as Interrupted once the host no
+longer owns the call; unknown model usage is not filled in. An
 unreadable journal is moved aside and a fresh one starts: lost attribution
 never stops an app from working.
 

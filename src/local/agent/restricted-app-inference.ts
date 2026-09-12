@@ -282,6 +282,7 @@ export class RestrictedAppInferenceService extends EventEmitter {
   readonly #now: () => Date;
   readonly #limits: ResolvedInferenceLimits;
   readonly #limiter: RestrictedAppInferenceLimiter;
+  readonly #active = new Set<string>();
   #receipts: RestrictedAppInferenceReceipt[] = [];
   #journal: Promise<unknown> = Promise.resolve();
   #bytes = 0;
@@ -327,11 +328,14 @@ export class RestrictedAppInferenceService extends EventEmitter {
     const startedAt = this.#now().getTime();
     let release: (() => void) | undefined;
     let id: string | undefined;
+    let activeKey: string | undefined;
     try {
       release = await this.#limiter.acquire(scope.featureInstallationId, controller.signal);
       // Journal first, like every other effect: a call work-fold cannot record
       // does not run, and `id` means an accepted line landed.
       const receiptId = randomUUID();
+      activeKey = inferenceReceiptKey({ ...scope, id: receiptId });
+      this.#active.add(activeKey);
       try {
         await this.#append({
           v: 1,
@@ -406,6 +410,7 @@ export class RestrictedAppInferenceService extends EventEmitter {
       }
       throw failure;
     } finally {
+      if (activeKey) this.#active.delete(activeKey);
       clearTimeout(timer);
       options.signal?.removeEventListener("abort", forward);
       release?.();
@@ -426,7 +431,9 @@ export class RestrictedAppInferenceService extends EventEmitter {
         && receipt.featureInstallationId === scope.featureInstallationId
         && (ownership === "installation" || receipt.digest === scope.digest)))
       .slice(0, limit)
-      .map((receipt) => structuredClone(receipt));
+      .map((receipt) => structuredClone(receipt.outcome === "accepted" && !this.#active.has(inferenceReceiptKey(receipt))
+        ? { ...receipt, outcome: "error" as const, errorCode: "INFER_INTERRUPTED" as const }
+        : receipt));
   }
 
   async flush(): Promise<void> {
@@ -498,10 +505,11 @@ export class RestrictedAppInferenceService extends EventEmitter {
 
   async #append(receipt: RestrictedAppInferenceReceipt): Promise<void> {
     const line = `${JSON.stringify(receipt)}\n`;
-    this.#receipts.push(structuredClone(receipt));
-    if (this.#receipts.length > this.#limits.receipts) this.#receipts.splice(0, this.#receipts.length - this.#limits.receipts);
     const write = this.#journal.catch(() => undefined).then(async () => {
       await appendFile(this.#path, line, { mode: 0o600 });
+      // Readers and rotation see only written events, in journal order.
+      this.#receipts.push(structuredClone(receipt));
+      if (this.#receipts.length > this.#limits.receipts) this.#receipts.splice(0, this.#receipts.length - this.#limits.receipts);
       this.#bytes += Buffer.byteLength(line, "utf8");
       if (this.#bytes > maxJournalBytes) await this.#rotate();
     });
@@ -549,12 +557,16 @@ function latestInferenceReceipts(receipts: RestrictedAppInferenceReceipt[]): Res
   const current: RestrictedAppInferenceReceipt[] = [];
   for (let index = receipts.length - 1; index >= 0; index--) {
     const receipt = receipts[index]!;
-    const key = JSON.stringify([receipt.spaceId, receipt.appId, receipt.featureInstallationId, receipt.digest, receipt.id]);
+    const key = inferenceReceiptKey(receipt);
     if (seen.has(key)) continue;
     seen.add(key);
     current.push(receipt);
   }
   return current;
+}
+
+function inferenceReceiptKey(receipt: Pick<RestrictedAppInferenceReceipt, "spaceId" | "appId" | "featureInstallationId" | "digest" | "id">): string {
+  return JSON.stringify([receipt.spaceId, receipt.appId, receipt.featureInstallationId, receipt.digest, receipt.id]);
 }
 
 function toInferenceError(error: unknown): RestrictedAppInferenceError {

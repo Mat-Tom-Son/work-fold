@@ -1121,11 +1121,18 @@ test("app inference runs on the Space's configured model with no Chat and leaves
       api.origin,
       `${base}/mail-app/inference-receipts?${new URLSearchParams({ featureInstallationId: app.featureInstallationId, expectedDigest: app.digest })}`,
     )).receipts;
-    assert.equal(receipts.length, 6, "an accepted and a terminal line for each of the three calls");
-    assert.deepEqual(receipts.map((receipt) => receipt.outcome), ["error", "accepted", "ok", "accepted", "ok", "accepted"]);
-    const settled = receipts.find((receipt) => receipt.outcome === "ok")!;
-    assert.deepEqual(settled.model, { provider: "app-provider", id: "app-model" });
-    assert.equal(typeof (settled.usage as { inputTokens: number }).inputTokens, "number");
+    assert.equal(receipts.length, 3, "one current row for each call");
+    assert.equal(new Set(receipts.map((receipt) => receipt.id)).size, 3);
+    assert.deepEqual(receipts.map((receipt) => receipt.outcome), ["error", "ok", "ok"]);
+    assert.equal(receipts[0].errorCode, "INFER_OUTPUT_INVALID");
+    assert.deepEqual(receipts.slice(1).map((receipt) => receipt.id), [json.receiptId, text.receiptId]);
+    for (const settled of receipts.filter((receipt) => receipt.outcome === "ok")) {
+      assert.deepEqual(settled.model, { provider: "app-provider", id: "app-model" });
+      assert.equal(typeof (settled.usage as { inputTokens: number }).inputTokens, "number");
+      assert.equal(typeof (settled.usage as { outputTokens: number }).outputTokens, "number");
+    }
+    const journal = (await readFile(join(sandbox, "state", "restricted-apps", "inference-receipts.jsonl"), "utf8")).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    assert.deepEqual(journal.map((receipt) => receipt.outcome), ["accepted", "ok", "accepted", "ok", "accepted", "error"]);
     assert.equal(receipts.every((receipt) => JSON.stringify(receipt).includes("North $42") === false), true, "receipts record sizes, never app content");
 
     const stale = await fetch(`${api.origin}${base}/mail-app/inference-receipts?featureInstallationId=${app.featureInstallationId}`);

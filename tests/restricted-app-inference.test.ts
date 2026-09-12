@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -317,6 +317,45 @@ test("startup records interruption once for an acceptance without completion and
   await f.restart();
   assert.deepEqual(await f.lines(), recovered, "reconciliation does not repeat on the next launch");
   assert.equal(f.calls.length, 1);
+});
+
+test("a failed acceptance write publishes no receipt, emits no hint, and never calls the provider", async (t) => {
+  const f = await fixture(t);
+  await mkdir(f.path); // A deterministic append failure on every contributor OS.
+  const hints: unknown[] = [];
+  f.service.on("changed", (hint) => hints.push(hint));
+  await assert.rejects(f.service.infer(scope, "view", { instructions: "One", input: "1" }), (error) => codeOf(error) === "INFER_UNAVAILABLE");
+  assert.equal(f.calls.length, 0);
+  assert.deepEqual(await f.service.list(scope), []);
+  assert.deepEqual(hints, []);
+  assert.deepEqual(f.service.occupancy(scope.featureInstallationId), { running: 0, waiting: 0 });
+});
+
+test("a failed terminal write cannot leave a finished call Running or claim unrecorded usage", async (t) => {
+  const f = await fixture(t);
+  f.behave("hold");
+  let admission: ReturnType<typeof f.service.list> | undefined;
+  f.service.on("changed", (activity) => { if (!activity.terminal) admission = f.service.list(scope); });
+  const pending = f.service.infer(scope, "view", { instructions: "One", input: "1" }).catch((error) => error);
+  await waitUntil(() => f.calls.length === 1);
+  assert.equal((await admission)![0].outcome, "accepted", "ownership already exists when the acceptance is published");
+  assert.equal((await f.service.list(scope))[0].outcome, "accepted");
+  const acceptedJournal = `${f.path}.saved`;
+  await rename(f.path, acceptedJournal);
+  await mkdir(f.path);
+  f.held.shift()!({ kind: "text", text: "done", truncated: false, model, usage: { inputTokens: 1, outputTokens: 1 } });
+  assert.equal(codeOf(await pending), "INFER_FAILED");
+  const listed = await f.service.list(scope);
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].errorCode, "INFER_INTERRUPTED");
+  assert.equal(listed[0].model, undefined);
+  assert.equal(listed[0].usage, undefined);
+  assert.equal(inferenceReceiptOutcomeLabel(listed[0]), "Interrupted");
+  await rm(f.path, { recursive: true });
+  await rename(acceptedJournal, f.path);
+  await f.restart();
+  assert.equal(f.calls.length, 1);
+  assert.deepEqual((await f.lines()).map((row) => row.outcome), ["accepted", "error"]);
 });
 
 test("projection preserves revision and ownership pins even when journal IDs collide", async (t) => {
