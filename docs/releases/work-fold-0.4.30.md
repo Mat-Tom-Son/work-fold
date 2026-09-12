@@ -22,7 +22,7 @@ helper, with one selected browser profile and separate tabs for each Chat.
 Computer control uses a verified helper outside the main app bundle so macOS
 attributes Accessibility and Screen Recording permissions correctly. The helper
 carries the work-fold icon and recovers when macOS restarts it.
-Keyboard shortcuts verify the target window has focus before sending input.
+Keyboard shortcuts verify the target window and nested dialog focus before sending input.
 Chrome connection checks report the live state, and disconnecting closes the
 old connection so the same Chat can reconnect.
 The Chrome Store listing becomes available after Google's review and approval.

@@ -32,11 +32,11 @@ human setup are separate evidence.
 | A04 | Community Outreach + fold | Delegate an invitation draft from a workshop handoff; ask for missing time; answer once | Selected file reaches target; question and one continuation; no unrelated transcript leakage; fold gets result | Earlier graph/isolation passed; 0.4.30 candidate UI-first answer passed in 888 ms with one native continuation |
 | A05 | Tool Lab / MCP | Query local supply inventory, calculate shortages, handle disconnect and recovery | Native discovery/invocation, correct 4/40/8 shortages, useful failure, successful fresh retry | Passed: native discovery/invocation, 4/40/8 shortages, one failed call during synthetic outage, fresh successful retry after recovery |
 | A06 | Tool Lab / Chrome | Edit a synthetic registration form in a dedicated browser tab; verify final state; reconnect | Native Chrome observation/action, correct isolated tab, no duplicate submit on recovery | Store bundle 1.0.0: submission passed on 3186a09; repaired candidate 323e8b2 passed restart, Check, Disconnect/Connect, retained-Chat recovery and two-Chat implicit target isolation |
-| A07 | Tool Lab / computer | Edit a disposable workshop note in TextEdit, save and verify; stop queued input | Native helper observation/action, correct file, permission failure/recovery, no extra input after Stop | Candidate 2b5afc9 passed UI-only edit/save/image and foreground picker opening; nested modal keyboard focus exposed S24 and needs repair/retest |
+| A07 | Tool Lab / computer | Edit a disposable workshop note in TextEdit, save and verify; stop queued input | Native helper observation/action, correct file, permission failure/recovery, no extra input after Stop | Repaired signed candidate 38fe00a passed native edit/save/image and nested Chrome picker upload after explicit TextEdit fixture setup; native queued-input cancellation has automated coverage only |
 | A08 | Tool Lab / documents | Detect and fix a deliberately clipped PDF heading and overlapping footer | Model receives images if supported; two renders; final source/image provenance matches; previews cleaned | Passed after manual recovery and evidence correction: two image paths, readable corrected PDF, matching hashes; initial allocation failure retained |
 | A09 | Two Chats | Run independent document jobs, stop one, switch tabs and reopen app | Stopped worker has no late write; sibling completes; files and task states survive restart without replay | 0.4.30 candidate overlap/Stop/sibling and restart passed; earlier failures retained |
 | A10 | Tool Lab / Space app | Build a small workshop notes app with a bounded inference action | App installs, saves a record, invokes app-owned inference, displays result and receipt | 0.4.30 candidate: one new inference, two Answered rows, zero Running; notes/summary survived restart without another call |
-| A11 | Settings | Change scoped model, inspect connection, edit instructions, navigate every page | Scope correct after async loads/saves; credentials protected; no stale responses, clear errors | Passed in source DOM tests and native development app; see verification below |
+| A11 | Settings | Change scoped model, inspect connection, edit instructions, navigate every page | Scope correct after async loads/saves; credentials protected; no stale responses, clear errors | Passed in source DOM tests and native development app; signed candidate also verified scopes, native appearance import/export, undo and cold-restart persistence |
 | A12 | Settings | Keyboard, narrow window, light/dark, long model names and save/error states | No clipping or horizontal overflow; visible focus; correct tab navigation and focus return | Passed: CUA light/dark, 320/390/700/940 widths, keyboard focus and scrolling |
 
 Run dependent journeys sequentially. Start at most two live Chats concurrently
@@ -558,3 +558,43 @@ provider payload correctly reported its depth limit. Captures remain memory-only
 The same pass found three remaining descriptive lines in the Add menu. Its
 source now contains only the three destination labels in a narrower menu;
 Settings and the previously completed appearance controls are unchanged.
+
+
+**S24 repair and signed acceptance.** Commit `38fe00a` verifies bounded,
+cycle-checked modal ancestry and the focused input branch before native input.
+Coordinate actions still require the exact observed window; sibling modal
+windows cannot satisfy the check. The production decision is covered by native
+regressions and independent review. Source checks, the full suite (1,516 passed,
+zero failed, one platform skip), packaged native probes, signing, notarization
+and Gatekeeper verification passed for this candidate.
+
+The first fresh-model attempt spent time in Finder with offscreen, stale and
+invalidly grounded actions plus one conservative foreground rejection. The root
+stopped that attempt, launched TextEdit to its native Open panel as fixture
+setup, and continued the same Chat. This does not establish autonomous app
+launching. From that state, DeepSeek used only Computer and Chrome tools to open,
+edit and save the note, then select it in Chrome's native picker. Command-Shift-G,
+setting the nested Go To path and Return succeeded. Native Open selected the
+file, and Attach note was clicked once. The root independently checked the
+browser, saved bytes and fixture journal: receipt
+`86451a5c-ede5-415d-a4f6-c8295177b111`, count 1, `computer-note-5.txt`, 87 bytes,
+SHA-256 `ac7a12c259583e3f8d91d0e4b75d198692b7ac8e13acc3cad42ec184284787ff`.
+The text contains 12:30 PM, Camera and water, and confirmation for 20 people.
+Eight native image results reached Pi; no shell, file read/write/edit, document
+worker or direct upload tool was used. Native model-reported cost for the two
+attempts in that Chat was $0.1613, not an independent provider billing audit.
+Evidence is retained in ignored
+`out/installed-acceptance/computer-chrome-candidate-38fe00a.json`.
+
+This journey also verifies S22: `chrome_navigate` returned the actual owned tab
+id `1299530805` and URL in model-visible content. The frozen Store ZIP is unchanged.
+
+**Signed Settings smoke.** Candidate `2b5afc9` verified preset apply and Undo,
+saving a temporary QA Original preset, native export and import, and removal.
+The exported typed file was independently parsed. Candidate `38fe00a` restored
+the imported preset after cold launch; the root then removed only that temporary
+preset. Original appearance remained restored. Assistant scopes showed the
+correct Space versus fold context without changing provider credentials or the
+selected model. Fold, Desktop and About pages were visually checked; About
+reported 0.4.30, while the app-only candidate correctly reported no updater.
+Ignored evidence: `out/installed-acceptance/settings-candidate-2b5afc9.json`.
