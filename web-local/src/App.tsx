@@ -81,7 +81,7 @@ interface PendingDelete {
 /**
  * A delete always goes through (docs/receipts-not-gates.md, F20). `trash` is
  * present when History could not keep a copy of everything, so the entry is
- * waiting in Settings → General → Recently deleted instead of being gone.
+ * waiting in Settings → Desktop → Recently deleted instead of being gone.
  */
 interface DeleteLocalFileResult {
   trash?: { entryId: string; restoreBy: string; uncoveredCount: number };
@@ -806,7 +806,7 @@ function SpaceView({ space, spaces, agent, assistantConfigurationRevision, appea
             ? `${target.name} removed. The folder and its files remain on your computer.`
             : removal.trash
               ? `${target.name} was deleted. Its folder is in Recently deleted until `
-                + `${new Date(removal.trash.restoreBy).toLocaleDateString()}; Settings → General puts it back.`
+                + `${new Date(removal.trash.restoreBy).toLocaleDateString()}; Settings → Desktop puts it back.`
               : `${target.name} and its managed folder were deleted.`,
         tone: removal.cleanupPending ? "info" : "success",
       });

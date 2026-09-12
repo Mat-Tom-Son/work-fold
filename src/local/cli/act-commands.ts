@@ -25,7 +25,7 @@ import {
   workFoldRequestLimitsSection,
   type WorkFoldResultOutcome,
 } from "../requests/request-records.js";
-import { workFoldRequestLimits, workFoldRoutingDeclarationBounds } from "../../shared/fold-limits.js";
+import { workFoldRequestLimits } from "../../shared/fold-limits.js";
 import {
   WorkFoldCliError,
   WorkFoldCliExitCode,
@@ -555,12 +555,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     }
     return value;
   };
-  const collaborationFiles = (maximum: number, limit: "resultFiles" | null): string[] => {
-    if (fileValues.length > maximum) {
-      throw usageError(limit
-        ? workFoldRequestLimitMessage(limit, maximum)
-        : `A handoff may copy at most ${maximum} files. ${workFoldRequestLimitsSection} shows this number.`);
-    }
+  const collaborationFiles = (): string[] => {
     const files = fileValues.map((value) => boundedActPath("--file", value, "space-path"));
     if (new Set(files).size !== files.length) throw usageError("--file names the same path twice.");
     return files;
@@ -825,7 +820,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         space: requireSpace(),
         task: requireBoundedFlag("--task", "task-id"),
         summary: requireCollaborationText("--summary", "text", "resultSummary", workFoldRequestLimits.maxResultSummaryBytes),
-        files: collaborationFiles(workFoldRequestLimits.maxResultFiles, "resultFiles"),
+        files: collaborationFiles(),
         outcome: (rawOutcome ?? "succeeded") as WorkFoldResultOutcome,
         ...resultDataFlag(),
         ...(parentTaskId ? { parentTaskId } : {}),
@@ -889,7 +884,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         ...(messageFromPayload ? { messageFromPayload } : {}),
         // A handoff copies through the same additive, restore-pointed path a
         // routing files step uses, so it carries that step's own path bound.
-        files: collaborationFiles(workFoldRoutingDeclarationBounds.maxExactPathsPerFilesStep, null),
+        files: collaborationFiles(),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
     }
@@ -2696,11 +2691,11 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         // F28: a task waiting on an answer says so first, and says how to
         // answer it. The turn state below stays exactly what it is.
         const waiting = record.waiting as {
-          questionId?: string; respondent?: string; question?: string; askedAt?: string; expiresAt?: string;
+          questionId?: string; respondent?: string; question?: string; askedAt?: string; expiresAt?: string | null;
         } | null | undefined;
         const waitingLines = waiting
           ? [
-              `Task ${terminalText(task.taskId)} — waiting on ${waiting.respondent === "parent" ? "the request above it" : "you"} since ${terminalText(waiting.askedAt)} (until ${terminalText(waiting.expiresAt)})`,
+              `Task ${terminalText(task.taskId)} — waiting on ${waiting.respondent === "parent" ? "the request above it" : "you"} since ${terminalText(waiting.askedAt)}${waiting.expiresAt ? ` (until ${terminalText(waiting.expiresAt)})` : ""}`,
               `Question ${terminalText(waiting.questionId)}: ${clampLine(waiting.question)}`,
               ...(record.space && typeof record.space.id === "string"
                 ? [`Answer it with: work-fold chat answer --space ${terminalText(record.space.id)} --question ${terminalText(waiting.questionId)} --answer "<text>" --json`]
@@ -2738,11 +2733,11 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
     }
     case "manage.ask":
     case "chat.ask": {
-      const question = record.question as { questionId?: string; respondent?: string; expiresAt?: string } | undefined;
+      const question = record.question as { questionId?: string; respondent?: string; expiresAt?: string | null } | undefined;
       const to = record.redirectedToPerson
         ? "you (this request has nothing above it, so the question came to you instead)"
         : question?.respondent === "parent" ? "the request above this one" : "you";
-      return `Asked ${to}. Question ${terminalText(question?.questionId)}, open until ${terminalText(question?.expiresAt)}.\nTask ${terminalText(record.taskId)} is waiting.\n`;
+      return `Asked ${to}. Question ${terminalText(question?.questionId)}${question?.expiresAt ? `, open until ${terminalText(question.expiresAt)}` : ""}.\nTask ${terminalText(record.taskId)} is waiting.\n`;
     }
     case "manage.answer":
     case "chat.answer": {
@@ -3013,7 +3008,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       return `Deleted ${kindLabel} ${terminalText(record.path)} in ${spaceLabel}.\n`
         + `It is in Recently deleted until ${terminalText(recovery.restoreBy)} because History could not keep a copy of `
         + `${uncovered.length} file${uncovered.length === 1 ? "" : "s"}: ${named}${more}.\n`
-        + `Put it back with 'trash restore --entry ${terminalText(recovery.entryId)}', or in Settings → General → Recently deleted.\n`;
+        + `Put it back with 'trash restore --entry ${terminalText(recovery.entryId)}', or in Settings → Desktop → Recently deleted.\n`;
     }
     case "files.mkdir":
       return `Created folder ${terminalText(record.path)} in ${spaceLabel}.\n`;
@@ -3338,7 +3333,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
     case "pages.share": {
       const publication = (record.publication ?? {}) as Record<string, unknown>;
       return `Sharing "${terminalText(publication.title)}" (${terminalText(publication.relativePath)}) from ${spaceLabel} at ${terminalText(publication.viewerPath)}. `
-        + "Reveal the link in Settings → General.\n";
+        + "Reveal the link in Settings → Shared pages.\n";
     }
     case "pages.share-app": {
       const publication = (record.publication ?? {}) as Record<string, unknown>;
@@ -4325,7 +4320,7 @@ function renderRequestDetail(request: Record<string, WorkFoldCliJson> | null | u
   const where = request.spaceName ? `${terminalText(request.spaceName)} [${terminalText(request.spaceId)}]` : "the fold";
   const lines = [
     `${pad}Request ${terminalText(request.id)} — ${terminalText(request.kind)}, ${terminalText(request.state)} — ${where}, Chat ${terminalText(request.conversationId)}`,
-    `${pad}  started ${terminalText(request.createdAt)}, open until ${terminalText(request.deadline)}${request.settledAt ? `, settled ${terminalText(request.settledAt)}` : ""}${request.stopRequestedAt ? `, stopped ${terminalText(request.stopRequestedAt)}` : ""}`,
+    `${pad}  started ${terminalText(request.createdAt)}${request.deadline ? `, open until ${terminalText(request.deadline)}` : ""}${request.settledAt ? `, settled ${terminalText(request.settledAt)}` : ""}${request.stopRequestedAt ? `, stopped ${terminalText(request.stopRequestedAt)}` : ""}`,
     ...(typeof request.content === "string" && request.content.trim() ? [`${pad}  asked: ${clampLine(request.content)}`] : []),
     ...turns.map((turn) => `${pad}  turn ${terminalText(turn.taskId)} (${terminalText(turn.role)}) — ${terminalText(turn.state)}`),
     ...questions.map((question) =>

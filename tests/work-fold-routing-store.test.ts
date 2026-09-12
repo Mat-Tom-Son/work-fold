@@ -10,7 +10,6 @@ import {
 } from "../src/local/glance.js";
 import {
   normalizeWorkFoldRoutingDeclaration,
-  workFoldRoutingBounds,
   workFoldRoutingDigest,
 } from "../src/local/routings/routing-declarations.js";
 import {
@@ -160,17 +159,16 @@ test("an unwritable journal refuses enablement before any state changes", async 
   assert.equal(await stat(statePath).catch(() => null), null, "a refused enablement leaves no authority state behind");
 });
 
-test("the 32-routing machine bound applies to new ids at enablement, not to re-enablement", async (t) => {
+test("stores more than the former machine routing cap and reloads the saved declarations", async (t) => {
   const { sandbox, store } = await createSandbox("work-fold-routing-store-bound-");
   t.after(() => rm(sandbox, { recursive: true, force: true }));
 
-  for (let index = 0; index < workFoldRoutingBounds.maxRoutingsPerMachine; index += 1) {
+  for (let index = 0; index < 33; index += 1) {
     await store.enable(enableInput(declarationInput(`routing-bound-${String(index).padStart(4, "0")}`), `decision-${index}`));
   }
-  await assert.rejects(
-    () => store.enable(enableInput(declarationInput("routing-bound-overflow"), "decision-33")),
-    (error: unknown) => error instanceof WorkFoldRoutingStoreError && error.code === "BOUND_EXCEEDED",
-  );
+  assert.equal((await store.list()).length, 33);
+  const reloaded = await WorkFoldRoutingStore.create({ path: join(sandbox, "routings", "routings.json"), now: () => fixedNow });
+  assert.equal((await reloaded.list()).length, 33, "saved declarations beyond the former cap remain valid");
   const again = await store.enable(enableInput(declarationInput("routing-bound-0000"), "decision-again"));
   assert.equal(again.grants.length, 2, "re-enabling an existing routing never counts against the machine bound");
 });

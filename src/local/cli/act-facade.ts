@@ -227,7 +227,7 @@ export interface WorkFoldActManagementRequest {
   kind: WorkFoldRequestKind;
   rootId: string;
   state: WorkFoldRequestState;
-  deadline: string;
+  deadline: string | null;
   limitHit: WorkFoldRequestLimitHit | null;
   /** Bounded: ids and states, never the question text. */
   questions: Array<{
@@ -275,7 +275,7 @@ export interface WorkFoldActRequestRef {
   spaceId: string | null;
   spaceName: string | null;
   conversationId: string;
-  deadline: string;
+  deadline: string | null;
   openQuestions: number;
   children: number;
   results: number;
@@ -290,7 +290,7 @@ export interface WorkFoldActQuestionRef {
   text: string;
   state: "open" | "answered" | "expired" | "cancelled";
   askedAt: string;
-  expiresAt: string;
+  expiresAt: string | null;
   answer: string | null;
   answeredAt: string | null;
   /** The one linked follow-up turn an answer started, once it has. */
@@ -308,7 +308,7 @@ export interface WorkFoldActWaitingRef {
   respondent: "person" | "parent";
   question: string;
   askedAt: string;
-  expiresAt: string;
+  expiresAt: string | null;
 }
 
 export interface WorkFoldActRequestSummary extends WorkFoldActRequestRef {

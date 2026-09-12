@@ -213,18 +213,18 @@ test("version 2 admits explicit-offset one-time triggers and keeps their time-se
   ), /between 1 minute and 366 days/);
 });
 
-test("every bounds-table limit refuses at parse", () => {
-  assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
-    value.routing.steps = Array.from({ length: workFoldRoutingBounds.maxSteps + 1 }, (_, index) => ({
+test("routing declarations retain safety bounds without artificial count caps", () => {
+  assert.doesNotThrow(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
+    value.routing.steps = Array.from({ length: 17 }, (_, index) => ({
       id: `chat-${index}`,
       kind: "chat",
       space: manuscriptSpace,
       message: "Go.",
     }));
-  })), /between 1 and 16 steps/);
+  })));
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
     value.routing.steps = [];
-  })), /between 1 and 16 steps/);
+  })), /at least one step/);
   for (const intervalMinutes of [workFoldRoutingBounds.minIntervalMinutes - 1, workFoldRoutingBounds.maxIntervalMinutes + 1, 60.5]) {
     assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
       value.routing.trigger = { kind: "interval", intervalMinutes };
@@ -236,12 +236,12 @@ test("every bounds-table limit refuses at parse", () => {
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
     value.routing.steps[0].message = "   ";
   })), /empty/);
-  assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
+  assert.doesNotThrow(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
     value.routing.steps[1].from = {
       kind: "paths",
-      paths: Array.from({ length: workFoldRoutingBounds.maxExactPathsPerFilesStep + 1 }, (_, index) => `reports/file-${index}.md`),
+      paths: Array.from({ length: 26 }, (_, index) => `reports/file-${index}.md`),
     };
-  })), /between 1 and 25 exact file paths/);
+  })));
   assert.throws(() => normalizeWorkFoldRoutingProposal(mutated((value) => {
     value.routing.steps[1].from = { kind: "paths", paths: ["reports/a.md", "reports/a.md"] };
   })), /repeat a path/);

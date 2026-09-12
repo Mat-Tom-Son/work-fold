@@ -92,17 +92,17 @@ export function AssistantSetupPane(props: AssistantSetupProps) {
 
   return (
     <div className={embedded ? "assistant-settings-panel professional-assistant" : "space-pane-content assistant-pane professional-surface professional-assistant"}>
-      <fieldset className="assistant-scope-control">
+      {space ? <fieldset className="assistant-scope-control">
         <legend>Model defaults for</legend>
-        {space ? <label className={scope === "space" ? "active" : ""}>
+        <label className={scope === "space" ? "active" : ""}>
           <input type="radio" name="assistant-model-scope" value="space" checked={scope === "space"} onChange={() => changeScope("space")} />
           <span>This worker<small>{space.name}</small></span>
-        </label> : null}
+        </label>
         <label className={scope === "management" ? "active" : ""}>
           <input type="radio" name="assistant-model-scope" value="management" checked={scope === "management"} onChange={() => changeScope("management")} />
-          <span>work-fold agent<small>Menu bar and web</small></span>
+          <span>work-fold agent</span>
         </label>
-      </fieldset>
+      </fieldset> : <div className="assistant-singleton-scope">work-fold agent</div>}
       <AssistantScopeSettings
         {...props}
         key={JSON.stringify([scope, scope === "space" ? space?.id : null])}
@@ -391,8 +391,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
 
   return <>
     {externalChange ? <div className="assistant-external-change"><span>Saved settings have changed.</span><button className="assistant-refresh-models" type="button" disabled={operationBusy} onClick={() => { localRevision.current += 1; editDraft(() => ({})); setExternalChange(false); setLoading(true); setLoadAttempt((current) => current + 1); }}>Reload saved settings</button></div> : null}
-    <section className="assistant-settings-section" aria-labelledby="assistant-model-heading">
-      <div className="assistant-section-heading"><h3 id="assistant-model-heading">Model</h3><p>For new Chats</p></div>
+    <section className="assistant-settings-section" aria-labelledby="assistant-model-heading"><span className="sr-only" id="assistant-model-heading">Model</span>
       <form onSubmit={(event) => { event.preventDefault(); void configure("model"); }}>
         <div className="assistant-form-fields">
           <label className="professional-field"><span className="professional-field-label">Provider</span>
@@ -412,8 +411,7 @@ function AssistantScopeSettings({ space, status, scope, fixtureMode = false, act
         </div>
       </form>
     </section>
-    <section className="assistant-settings-section" aria-labelledby="assistant-connection-heading">
-      <div className="assistant-section-heading"><h3 id="assistant-connection-heading">Connection</h3><p>Shared on this computer</p></div>
+    <section className="assistant-settings-section" aria-labelledby="assistant-connection-heading"><span className="sr-only" id="assistant-connection-heading">Connection</span>
       <div className="assistant-connection-row">
         <div><strong>{providerName || "Choose a provider"}</strong><p>{assistantCredentialStatus(providerAuth) ?? "Not connected"}</p></div>
         {removableAuth ? <button className="professional-button professional-button-secondary" type="button" disabled={operationBusy} onClick={() => void removeCredential()}>{saving === "remove" ? "Removing…" : providerAuth?.authType === "oauth" ? "Disconnect account" : "Remove API key"}</button> : null}

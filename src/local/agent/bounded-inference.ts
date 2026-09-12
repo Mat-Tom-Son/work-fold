@@ -48,7 +48,6 @@ export interface BoundedInferenceContext {
 export interface BoundedInferenceStreamOptions {
   maxTokens: number;
   maxRetries: 0;
-  timeoutMs: number;
   signal: AbortSignal;
   reasoning?: ThinkingLevel;
 }
@@ -94,7 +93,6 @@ export interface BoundedInferenceRequest {
   input: string;
   outputSchema?: RestrictedAppJsonSchema;
   maxOutputBytes: number;
-  timeoutMs: number;
   signal: AbortSignal;
 }
 
@@ -173,7 +171,7 @@ export async function runBoundedInference(
 ): Promise<BoundedInferenceOutcome> {
   const model = session.model;
   if (!model) {
-    throw new BoundedInferenceError("INFER_MODEL_UNAVAILABLE", "Connect a model for this Folder in Settings → Agents before apps can use it.");
+    throw new BoundedInferenceError("INFER_MODEL_UNAVAILABLE", "Connect a model for this Folder in Settings → AI Models before apps can use it.");
   }
   const maxTokens = boundedInferenceMaxTokens(model, request.maxOutputBytes);
   const schemaText = request.outputSchema ? JSON.stringify(request.outputSchema) : "";
@@ -191,7 +189,6 @@ export async function runBoundedInference(
     const stream = await session.agent.streamFn(model, context, {
       maxTokens,
       maxRetries: 0,
-      timeoutMs: request.timeoutMs,
       signal: request.signal,
       ...(reasoning ? { reasoning } : {}),
     });
@@ -263,7 +260,7 @@ function interrupted(): BoundedInferenceError {
 }
 
 function failed(): BoundedInferenceError {
-  return new BoundedInferenceError("INFER_FAILED", "The model call did not complete. Check the Folder's provider connection in Settings → Agents, then try again.");
+  return new BoundedInferenceError("INFER_FAILED", "The model call did not complete. Check the Folder's provider connection in Settings → AI Models, then try again.");
 }
 
 function outputTooLarge(maxOutputBytes: number): BoundedInferenceError {

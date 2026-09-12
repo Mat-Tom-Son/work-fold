@@ -62,15 +62,15 @@ test("published limits are composed from the live brokers rather than restated",
     defaultOutputBytes: restrictedAppInferenceLimits.defaultOutputBytes,
     maxOutputBytes: restrictedAppInferenceLimits.maxOutputBytes,
     runningPerInstallation: restrictedAppInferenceLimits.runningPerInstallation,
-    timeoutMs: restrictedAppInferenceLimits.timeoutMs,
+    timeoutMs: null,
   });
   assert.deepEqual(limits.assistant, {
-    instructionsBytes: restrictedAppAssistantLimits.instructions,
+    instructionsBytes: null,
     inputBytes: restrictedAppAssistantLimits.inputBytes,
     resultBytes: restrictedAppAssistantLimits.resultBytes,
     summaryBytes: restrictedAppAssistantLimits.summaryBytes,
     dataBytes: restrictedAppAssistantLimits.dataBytes,
-    resultFiles: restrictedAppAssistantLimits.resultFiles,
+    resultFiles: null,
     runningPerInstallation: restrictedAppAssistantLimits.runningPerInstallation,
   });
   // The hint cadence is published for the same reason: a view designs its

@@ -64,7 +64,7 @@ export interface RestrictedAppInferenceParsedRequest {
   maxOutputBytes: number;
 }
 
-const limitsSection = "Settings → General → Limits";
+const limitsSection = "Settings → Desktop → Limits";
 const maxJournalBytes = 1024 * 1024;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const surfaces: RestrictedAppInferenceSurface[] = ["view", "worker"];
@@ -322,9 +322,6 @@ export class RestrictedAppInferenceService extends EventEmitter {
     const forward = () => controller.abort();
     options.signal?.addEventListener("abort", forward, { once: true });
     if (options.signal?.aborted) controller.abort();
-    const deadline = this.#now().getTime() + this.#limits.timeoutMs;
-    const timer = setTimeout(() => controller.abort(), this.#limits.timeoutMs);
-    if (typeof timer.unref === "function") timer.unref();
     const startedAt = this.#now().getTime();
     let release: (() => void) | undefined;
     let id: string | undefined;
@@ -354,14 +351,11 @@ export class RestrictedAppInferenceService extends EventEmitter {
         throw new RestrictedAppInferenceError("INFER_UNAVAILABLE", "work-fold could not record this inference call, so it did not run.");
       }
       id = receiptId;
-      const remaining = deadline - this.#now().getTime();
-      if (remaining <= 0) throw interrupted();
       const outcome = await this.#ports.infer(scope.spaceId, {
         instructions: request.instructions,
         input: request.input,
         ...(request.outputSchema ? { outputSchema: request.outputSchema } : {}),
         maxOutputBytes: request.maxOutputBytes,
-        timeoutMs: remaining,
         signal: controller.signal,
       });
       // Deliver only to the same installation, revision, and authority that asked.
@@ -411,7 +405,6 @@ export class RestrictedAppInferenceService extends EventEmitter {
       throw failure;
     } finally {
       if (activeKey) this.#active.delete(activeKey);
-      clearTimeout(timer);
       options.signal?.removeEventListener("abort", forward);
       release?.();
     }
@@ -578,7 +571,7 @@ function toInferenceError(error: unknown): RestrictedAppInferenceError {
   // Never let provider or transport text reach an app.
   return new RestrictedAppInferenceError(
     "INFER_FAILED",
-    "The model call did not complete. Check the Space's provider connection in Settings → Agents, then try again.",
+    "The model call did not complete. Check the Space's provider connection in Settings → AI Models, then try again.",
   );
 }
 

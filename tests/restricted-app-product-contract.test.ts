@@ -224,11 +224,11 @@ test("bounded inference reaches app views and workers over its own channel, and 
 test("host-bridge wait time never counts against the worker invocation deadline", async () => {
   const inference = await read("src/shared/restricted-app-inference.ts");
   // A real model call is essentially never under the five-second invocation
-  // deadline, and the published inference budget is two minutes. If the
+  // deadline. Inference has no fixed wall-clock budget. If the
   // deadline counted host-lane wait time, a worker awaiting `assistant.infer`
   // would have its renderer forcefully crashed and the action would fail with
   // APP_TIMEOUT — so the clock stops while a host call is in flight.
-  assert.match(inference, /timeoutMs: 120_000,/);
+  assert.doesNotMatch(inference, /timeoutMs:/);
   assert.match(desktopHost, /const defaultInvocationTimeoutMs = 5_000;/);
   assert.match(desktopHost, /hostCalls: \{ inFlight: number; idleSince: number \};/);
   assert.match(desktopHost, /async #throughHostLane<T>\(/);

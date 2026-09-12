@@ -173,7 +173,7 @@ function InterruptedTurn({ interruption }: { interruption: NonNullable<ChatMessa
     return (
       <section className="turn-interruption" role="status" aria-label="Assistant setup needed">
         <strong>Assistant setup needed</strong>
-        <span>Open Settings → Agents to choose a provider and model, then try again.</span>
+        <span>Open Settings → AI Models to choose a provider and model, then try again.</span>
       </section>
     );
   }

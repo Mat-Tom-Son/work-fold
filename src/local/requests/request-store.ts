@@ -20,7 +20,7 @@
  *
  * Why the split: a request record must stay small — ids, enums, counters — so
  * a whole-record append stays cheap, while one result envelope can reach 288
- * KB and a request may hold 64 of them. Questions get their own journal so an
+ * KB. Questions get their own journal so an
  * answer rewrites one small record instead of the whole request. The rotated
  * generation is read only when the live journal is missing, which is exactly
  * the crash window in the middle of a compaction.
@@ -37,9 +37,8 @@
  *   matches the acceptance path's own replay handling.
  * - A terminal request never moves again except by an explicitly joined new
  *   turn or by retention.
- * - Every write is bounded before it is appended; no caller text reaches a
- *   journal unbounded, and each bound refuses by name
- *   ("Settings → General → Limits").
+ * - Every payload is format- and byte-validated before it is appended; no
+ *   caller text reaches a journal unbounded.
  * - Result payloads never enter the request journal. The journal carries the
  *   result id, its outcome, its receipt id, and how many files it named.
  * - A damaged middle line is skipped and counted, never thrown on: a request
@@ -523,7 +522,7 @@ export class WorkFoldRequestStore {
     return this.#run(async () => {
       const requestId = this.#byTask.get(parentTaskId);
       const record = requestId ? this.#records.get(requestId) : undefined;
-      if (!record || record.actions.length >= workFoldRequestLimits.maxActionsPerRequest) return null;
+      if (!record) return null;
       await this.#writeRequest({ ...record, actions: [...record.actions, structuredClone(action)] });
       return record.requestId;
     });
@@ -545,9 +544,6 @@ export class WorkFoldRequestStore {
         throw this.#terminalRefusal(record, "This request has already finished, so it cannot ask a question.");
       }
       this.#requireOwnTurn(record, input.taskId);
-      if (record.questionIds.length >= workFoldRequestLimits.maxQuestionsPerRequest) {
-        throw workFoldRequestLimitError("questionsPerRequest", workFoldRequestLimits.maxQuestionsPerRequest);
-      }
       const at = this.#now().toISOString();
       const question = parseWorkFoldQuestionRecord({
         schema: workFoldQuestionRecordSchema,
@@ -573,7 +569,7 @@ export class WorkFoldRequestStore {
     });
   }
 
-  /** Exactly one answer per question, from the Space that was asked, inside the request's window. */
+  /** Exactly one answer per question, from the Space that was asked. */
   answer(input: { questionId: string; answer: string; answeredBySpaceId?: string }): Promise<WorkFoldQuestionRecord> {
     return this.#run(async () => {
       const question = this.#questions.get(input.questionId);
@@ -582,9 +578,7 @@ export class WorkFoldRequestStore {
       if (question.state === "cancelled") throw new WorkFoldRequestLineageError("This question was withdrawn when its request stopped.");
       // A refused answer changes nothing: `expireDue` owns the transition, so
       // the request keeps the open question that makes it run out of time.
-      if (question.state === "expired" || this.#now().getTime() >= Date.parse(question.expiresAt)) {
-        throw workFoldRequestLimitError("questionLifetime", workFoldRequestLimits.deadlineMs);
-      }
+      if (question.state === "expired") throw new WorkFoldRequestLineageError("That question has expired.");
       const record = this.#requireRecord(question.requestId);
       this.assertCanContinue(record.requestId);
       if (input.answeredBySpaceId !== undefined && record.owner.spaceId !== input.answeredBySpaceId) {
@@ -642,9 +636,6 @@ export class WorkFoldRequestStore {
     return this.#run(async () => {
       const record = this.#requireRecord(input.requestId);
       this.#requireOwnTurn(record, input.taskId);
-      if (record.results.length >= workFoldRequestLimits.maxResultsPerRequest) {
-        throw workFoldRequestLimitError("resultsPerRequest", workFoldRequestLimits.maxResultsPerRequest);
-      }
       const envelope: WorkFoldResultEnvelope = parseWorkFoldResultEnvelope(
         input.envelope,
         input.schema ? { schema: input.schema } : {},
@@ -699,18 +690,13 @@ export class WorkFoldRequestStore {
   /** Rechecked at acceptance, including every ancestor's stop and window. */
   assertCanContinue(requestId: string): void {
     let record: WorkFoldRequestRecord | null = this.#requireRecord(requestId);
-    if (record.turns.length >= workFoldRequestLimits.maxTurnsPerRequest) {
-      throw workFoldRequestLimitError("turnsPerRequest", workFoldRequestLimits.maxTurnsPerRequest);
-    }
     const seen = new Set<string>();
     while (record && !seen.has(record.requestId)) {
       seen.add(record.requestId);
       if (record.stopRequestedAt || record.state === "stopped" || record.limitHit) {
         throw this.#terminalRefusal(record, "This request or its parent stopped and cannot continue.");
       }
-      if (record.state === "expired" || this.#now().getTime() >= Date.parse(record.deadline)) {
-        throw workFoldRequestLimitError("deadline", workFoldRequestLimits.deadlineMs);
-      }
+      if (record.state === "expired") throw new WorkFoldRequestLineageError("This request has expired.");
       record = record.parentRequestId ? this.#requireRecord(record.parentRequestId) : null;
     }
   }
@@ -724,17 +710,6 @@ export class WorkFoldRequestStore {
     if (isWorkFoldRequestTerminalState(parent.state)) {
       throw this.#terminalRefusal(parent, "The request this work belongs to is stopping or has already finished.");
     }
-    if (parent.depth + 1 > workFoldRequestLimits.maxDelegationDepth) {
-      throw workFoldRequestLimitError("depth", workFoldRequestLimits.maxDelegationDepth);
-    }
-    const family = [...this.#records.values()].filter((record) => record.rootId === parent.rootId && record.requestId !== parent.rootId);
-    if (family.length >= workFoldRequestLimits.maxChildRequestsPerRoot) {
-      throw workFoldRequestLimitError("childTasks", workFoldRequestLimits.maxChildRequestsPerRoot);
-    }
-    const running = family.filter((record) => !isWorkFoldRequestTerminalState(record.state)).length;
-    if (running >= workFoldRequestLimits.maxConcurrentChildrenPerRoot) {
-      throw workFoldRequestLimitError("concurrentChildren", workFoldRequestLimits.maxConcurrentChildrenPerRoot);
-    }
   }
 
   /**
@@ -746,8 +721,7 @@ export class WorkFoldRequestStore {
       const record = this.#requireRecord(requestId);
       const root = this.#requireRecord(record.rootId);
       this.assertCanContinue(requestId);
-      if (root.continuationCount >= workFoldRequestLimits.maxContinuationsPerRoot
-        || (childTaskIds.length > 0 && childTaskIds.every((id) => record.deliveredChildTaskIds.includes(id)))) {
+      if (childTaskIds.length > 0 && childTaskIds.every((id) => record.deliveredChildTaskIds.includes(id))) {
         return { allowed: false, count: root.continuationCount };
       }
       for (const id of childTaskIds) {
@@ -842,12 +816,12 @@ export class WorkFoldRequestStore {
     });
   }
 
-  /** Closes every request whose window has passed, and the questions under it. */
+  /** Closes legacy requests whose persisted window has passed, and their questions. */
   expireDue(now?: Date): Promise<{ requests: number; questions: number }> {
     return this.#run(async () => {
       const at = now ?? this.#now();
       const targets = [...this.#records.values()]
-        .filter((record) => !isWorkFoldRequestTerminalState(record.state) && at.getTime() >= Date.parse(record.deadline))
+        .filter((record) => !isWorkFoldRequestTerminalState(record.state) && record.deadline !== null && at.getTime() >= Date.parse(record.deadline))
         .sort((left, right) => right.depth - left.depth);
       let requests = 0;
       let questions = 0;
@@ -962,7 +936,14 @@ export class WorkFoldRequestStore {
     if (record.limitHit?.limit === "providerBudget" && this.#providerBudgetUsd !== null) {
       return workFoldRequestLimitError("providerBudget", this.#providerBudgetUsd);
     }
-    if (record.state === "expired") return workFoldRequestLimitError("deadline", workFoldRequestLimits.deadlineMs);
+    if (record.state === "expired") {
+      const deadline = record.deadline ? Date.parse(record.deadline) : Number.NaN;
+      const createdAt = Date.parse(record.createdAt);
+      const legacyWindowMs = Number.isFinite(deadline) && Number.isFinite(createdAt)
+        ? Math.max(0, deadline - createdAt)
+        : 0;
+      return workFoldRequestLimitError("deadline", legacyWindowMs);
+    }
     return new WorkFoldRequestLineageError(lineage);
   }
 
@@ -989,7 +970,7 @@ export class WorkFoldRequestStore {
   }): WorkFoldRequestRecord {
     const createdAt = input.acceptedAt ?? this.#now().toISOString();
     const requestId = newId("req", createdAt);
-    const deadline = new Date(Date.parse(createdAt) + workFoldRequestLimits.deadlineMs).toISOString();
+    const deadline = null;
     const owner: WorkFoldRequestOwner = { conversationId: input.owner.conversationId };
     if (input.owner.spaceId !== undefined) owner.spaceId = input.owner.spaceId;
     if (input.owner.spaceName !== undefined) owner.spaceName = input.owner.spaceName;
@@ -1125,7 +1106,7 @@ export class WorkFoldRequestStore {
     let expired = 0;
     for (const question of [...this.#questions.values()]) {
       if (question.requestId !== requestId || !(question.state === "open" || (question.state === "answered" && question.continuationTaskId === null))) continue;
-      if (now.getTime() < Date.parse(question.expiresAt)) continue;
+      if (question.expiresAt === null || now.getTime() < Date.parse(question.expiresAt)) continue;
       await this.#writeQuestion({ ...question, state: "expired", updatedAt: now.toISOString() });
       expired += 1;
     }

@@ -195,7 +195,7 @@ export function FoldRoutingsPane() {
 
   useEffect(() => {
     let cancelled = false;
-    void routingBridge().list()
+    void Promise.resolve().then(() => routingBridge().list())
       .then((next) => {
         if (cancelled) return;
         setData(next);
@@ -221,10 +221,10 @@ export function FoldRoutingsPane() {
     setDetail(null);
     setHistory(emptyHistory);
     setDetailError(null);
-    void Promise.all([
+    void Promise.resolve().then(() => Promise.all([
       routingBridge().show(selectedId),
       routingBridge().history(selectedId),
-    ])
+    ]))
       .then(([nextDetail, nextHistory]) => {
         if (cancelled) return;
         setDetail(nextDetail.routing);
@@ -336,15 +336,11 @@ export function FoldRoutingsPane() {
   const wideningUnavailable = storeUnavailable || Boolean(status?.journalDamaged);
 
   return (
-    <section className="settings-section fold-routings" aria-labelledby="fold-routings-title">
-      <div className="settings-section-heading">
-        <h3 id="fold-routings-title">Automations</h3>
-        <span className="settings-section-heading-actions">
-          {data ? <span>{routings.length}</span> : null}
-          <button className="secondary-button" type="button" onClick={() => void openAutomationDraft()} disabled={drafting}>
-            {drafting ? "Opening…" : "New automation"}
-          </button>
-        </span>
+    <section className="settings-section fold-routings" aria-label="Automations">
+      <div className="settings-section-actions">
+        <button className="secondary-button" type="button" onClick={() => void openAutomationDraft()} disabled={drafting}>
+          {drafting ? "Opening…" : "New automation"}
+        </button>
       </div>
       {loadError ? <span className="settings-inline-error" role="alert">{loadError}</span> : null}
       {status?.storeDamaged ? (

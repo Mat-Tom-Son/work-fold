@@ -48,16 +48,16 @@ export interface RestrictedAppLimits {
     defaultOutputBytes: number;
     maxOutputBytes: number;
     runningPerInstallation: number;
-    timeoutMs: number;
+    timeoutMs: number | null;
   };
   /** `assistant.request`: a full-tools Chat in the owning Space. */
   assistant: {
-    instructionsBytes: number;
+    instructionsBytes: null;
     inputBytes: number;
     resultBytes: number;
     summaryBytes: number;
     dataBytes: number;
-    resultFiles: number;
+    resultFiles: null;
     runningPerInstallation: number;
   };
   /**
@@ -134,15 +134,15 @@ export function buildRestrictedAppLimits(source: RestrictedAppLimitsSource): Res
       defaultOutputBytes: restrictedAppInferenceLimits.defaultOutputBytes,
       maxOutputBytes: restrictedAppInferenceLimits.maxOutputBytes,
       runningPerInstallation: restrictedAppInferenceLimits.runningPerInstallation,
-      timeoutMs: restrictedAppInferenceLimits.timeoutMs,
+      timeoutMs: null,
     },
     assistant: {
-      instructionsBytes: restrictedAppAssistantLimits.instructions,
+      instructionsBytes: null,
       inputBytes: restrictedAppAssistantLimits.inputBytes,
       resultBytes: restrictedAppAssistantLimits.resultBytes,
       summaryBytes: restrictedAppAssistantLimits.summaryBytes,
       dataBytes: restrictedAppAssistantLimits.dataBytes,
-      resultFiles: restrictedAppAssistantLimits.resultFiles,
+      resultFiles: null,
       runningPerInstallation: restrictedAppAssistantLimits.runningPerInstallation,
     },
     subscriptions: {

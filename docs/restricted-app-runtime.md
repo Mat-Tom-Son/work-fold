@@ -5,8 +5,8 @@
 > ask|answer`; an accepted answer remains outstanding until linked. The fold,
 > Space and app owners receive bounded, recorded child-result deliveries.
 > App status/stop/usage follow the owned request, and task result reads expose
-> its selected envelope. Counts and transport sizes shown in Limits are fixed
-> in this build; the continuation switch is configurable.
+> its selected envelope. Transport fields and concurrent execution remain
+> bounded; requests and automations have no lifetime or declaration-count quota.
 
 
 work-fold has a second executable lane for apps an agent creates for a Space.
@@ -295,7 +295,7 @@ default (a generous bound, not a cap), and never overlaps the same named job.
 That four is this document's number to own: it lives as
 `workFoldAutomationDefaultConcurrency` in `src/shared/fold-limits.ts`, is read
 by `src/local/agent/work-fold-automation-service.ts`, and is shown read-only
-in Settings → General → Limits. Scheduled, manual, skipped, cancelled, and
+in Settings → Desktop → Limits. Scheduled, manual, skipped, cancelled, and
 failed attempts produce durable run receipts. The cadence anchor is persisted
 separately from one-off manual runs, so **Run now** does not shift the next
 scheduled occurrence. A manual run is allowed while its schedule is disabled,
@@ -647,6 +647,10 @@ a machine-local receipt journal that records the surface, byte sizes, the
 effective model, and its usage, never app content. The delivered result carries
 that line's `receiptId`, so the id a `tasks.onChanged` hint carries can be
 matched to the call the app made without reading anything back.
+
+Inference waits for an available scheduler slot without a host wall-clock
+budget. Once dispatched, provider transport, Stop, and authority revocation
+govern the exact in-flight call; this lane has no fixed 120-second timeout.
 
 The native bridge transfers asynchronous outcomes as plain data and constructs
 public Errors in the app's JavaScript world. This preserves `error.code`, which

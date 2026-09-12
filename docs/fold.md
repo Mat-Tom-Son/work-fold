@@ -10,8 +10,8 @@
 > ask|answer`; an accepted answer remains outstanding until linked. The fold,
 > Space and app owners receive bounded, recorded child-result deliveries.
 > App status/stop/usage follow the owned request, and task result reads expose
-> its selected envelope. Counts and transport sizes shown in Limits are fixed
-> in this build; the continuation switch is configurable.
+> its selected envelope. Transport fields and concurrent execution remain
+> bounded; requests and automations have no lifetime or declaration-count quota.
 
 
 In the development desktop, installed-app catalogs receive content-free host
@@ -130,7 +130,7 @@ their specification; F8 and F9 keep the narrowings that record relies on.
 | F25 | **Durable requests** (2026-09-11). Every accepted Assistant turn belongs to a machine-local request record. A management turn creates a root request; a `chat send --parent-task` creates a child request under it; a Space turn with no parent creates its own root. Records live under the state root (`requests/`), survive restart, are reconciled against the turn journal, and are never replayed. The in-memory management request registry is replaced by this store; `manage status` keeps its projection. | Turn acceptance, conflict rules, History checkpoints, and kernel task records stay where they are. Space transcripts carry nothing new. |
 | F26 | **Space turns get their own context** (2026-09-11). Every Space turn's hidden context names its task id and request id and, when delegated, an opaque parent handle and the assignment text. A compact operations guide is appended to the system prompt the way Space instructions are, describing the verbs below and the rule that cross-Space work goes through them. The fold transcript, the Space registry, and unselected results from other Spaces never enter a Space turn. | Nothing is written into the Space folder. `.pi/` and `.work-fold/` are untouched. |
 | F27 | **Report, ask, answer, handoff.** Space-scoped collaboration verbs and management-scoped `manage ask|answer`, receipted and journal-first: `chat report` attaches a result envelope to the caller's task; `chat ask` records a question and puts the task in `waiting`; `chat answer` and `manage answer` durably reserve one answer delivery and start exactly one linked continuation turn; `chat handoff` asks the host to start a new Chat in another Space with a message and copies of named files. Delivery is host-side: no fold model turn is needed to move a report, an answer, or a handoff. | The person's free-text Chat reply stays a supported way to answer. Routings remain the only unattended cross-Space glue on a trigger. |
-| F28 | **Waiting is a host state.** `chat wait` and `manage wait` return when the followed task reaches a terminal state or `waiting`, and say which. A parent turn never blocks on a child that is waiting for input; it finishes and reports the request as `waiting`. When an owning Chat is idle and its children have settled or asked questions, the host can start one continuation carrying undelivered direct-child reports. This applies to the fold, Space, app, CLI and routing requests, sharing one continuation budget per root. Delivery is recorded by child turn identity, never inferred from relative settle times. The person can turn continuations off in Settings → The fold → Limits. | No arbitrary event-driven fold turns. A continuation belongs to an explicit request; declared routing fold steps remain the only trigger-driven entry. |
+| F28 | **Waiting is a host state.** `chat wait` and `manage wait` return when the followed task reaches a terminal state or `waiting`, and say which. A parent turn never blocks on a child that is waiting for input; it finishes and reports the request as `waiting`. When an owning Chat is idle and its children have settled or asked questions, the host can start one continuation carrying undelivered direct-child reports. This applies to the fold, Space, app, CLI and routing requests. Delivery is recorded by child turn identity, never inferred from relative settle times. | No arbitrary event-driven fold turns. A continuation belongs to an explicit request; declared routing fold steps remain the only trigger-driven entry. |
 | F29 | **One result shape** (2026-09-11). A result envelope is `summary` (text, at most 32 KiB), optional `data` (JSON, at most 256 KiB, validated against a schema when the request declared one), optional `files` (Space-relative paths with digest and size), and `outcome` (`succeeded`, `partial`, or `failed`). Reports, app assistant tasks, handoff outcomes, and routing chat hops all produce it. | Existing `fileChanges` turn metadata stays as evidence; a report's `files` are the deliverables the Assistant chose. |
 | F30 | **Apps see their own work change.** `bridge.tasks.onChanged`, `bridge.checks.onChanged`, and `bridge.files.onChanged` deliver bounded hints for the app's own assistant tasks and inference receipts, its selected Checks, and its granted file roots. Active views subscribe; workers receive task/file hints during an operation, while Check access and hints remain view-only. Viewers do not subscribe. A hint carries ids and revisions, never content; the app re-reads. | Hints never start a model turn. The internal settle signal stays private. |
 
@@ -147,24 +147,24 @@ their specification; F8 and F9 keep the narrowings that record relies on.
 - **Recently deleted (the trash):** the machine-local store under the state
   root where every deletion History cannot cover goes — files, folders, a
   managed Space's folder, app storage and retained-data exports — with a
-  manifest per entry, restorable from Settings → The fold and
+  manifest per entry, restorable from Settings → Desktop and
   `work-fold trash list|restore`, purged only by retention (default 30
   days).
 - **Setup-only authority:** the three families with no model/CLI/remote
   verb: Remote access administration, act-token and pairing machinery,
   provider credentials — identity and secrets, never a mid-task wait.
-- **A routing:** a machine-local, inert-until-enabled declaration of at most
-  sixteen deterministic steps (`chat`, `files`, `check`, `fold`) on one
+- **A routing:** a machine-local, inert-until-enabled declaration of
+  deterministic steps (`chat`, `files`, `check`, `fold`) on one
   reviewed trigger, executed by app code with per-hop receipts; enabling it
   is one receipted call that pins the declaration digest.
 - **A request:** the machine-local record that owns one outcome — who asked,
-  the turns and Spaces it spans, its questions, its results, its usage, and
-  its deadline — living under the state root's `requests/` directory,
+  the turns and Spaces it spans, its questions, its results, and its usage —
+  living under the state root's `requests/` directory,
   reconciled against the turn journal after a restart and never replayed.
 - **A question:** a durable record of one Assistant asking the person or its
   parent for something. One accepted answer delivers exactly one
-  continuation turn in the asking Chat; a second answer, an answer to an
-  expired question, and an answer from a Space that does not own the
+  continuation turn in the asking Chat; a second answer, an answer after
+  Stop, and an answer from a Space that does not own the
   question are refused.
 - **A result envelope:** the one shape every report, app assistant task,
   handoff outcome, and routing chat hop produces — a summary, optional
@@ -174,7 +174,7 @@ their specification; F8 and F9 keep the narrowings that record relies on.
   `manage wait` return when the task they follow settles or starts waiting
   and say which; a parent turn finishes rather than sitting on a waiting
   child; and one continuation turn per settle batch carries the collected
-  reports back, within the request's limits.
+  reports back.
 - **The glance:** a deterministic digest — running work, needs-you questions
   and due snoozes, what changed since the person last looked, Check status —
   composed by app code from recorded state only.
@@ -202,7 +202,7 @@ their specification; F8 and F9 keep the narrowings that record relies on.
    it. While a request runs, the same aligned composer action reads **Stop**;
    it does not create a second action row.
 4. **"Your fold on the web"** is the user-facing name of the web-access
-   area inside **Settings → The fold** (decision F15). "Web access" is the
+   area inside **Settings → Web access**. "Web access" is the
    short operational form inside that area (toggle, danger actions, errors).
    "Remote access" survives wherever a document speaks contract or security
    posture.
@@ -221,7 +221,7 @@ their specification; F8 and F9 keep the narrowings that record relies on.
    card, approve, policy, mode, Reviewed, or Unrestricted. Needs you names
    questions and due snoozes. Recently deleted is the trash's name; Restore
    and Delete now are its actions; a limit that stops work names the setting
-   in Settings → The fold → Limits.
+   in Settings → Desktop → Limits.
 
 The shipped copy inventory is pinned by `tests/work-fold-brand.test.ts`
 (popover title, tray entry, two-state send button),

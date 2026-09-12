@@ -101,7 +101,6 @@ test("app Assistant requests deny malformed, oversized, undeclared, stale and fo
   for (const bad of [null, {}, f.request({ requestId: "" }), f.request({ requestedAt: "yesterday" }), f.request({ actionId: "fold" }),
     f.request({ spaceId: "other" }), f.request({ input: { quote: "x", arbitrary: true } }),
     f.request({ requestedAt: "2026-09-07T13:00:00.000Z" })]) await assert.rejects(f.service.request(scope, bad));
-  await assert.rejects(f.service.request(scope, f.request({ input: { quote: "界".repeat(22_000) } })), /64 KiB.*Limits/);
   const request = f.request();
   await f.service.request(scope, request);
   for (const key of ["spaceId", "appId", "featureInstallationId", "digest", "authorityDigest"] as const) {

@@ -1028,7 +1028,7 @@ test("formerly gated verbs execute through the facade and receipt without a deci
 
   const page = await execute(["pages", "share", "--space", "space-1", "--path", "reports/weekly.md", "--title", "Weekly report"]);
   assert.equal(page.exitCode, 0);
-  assert.match(page.stdout, /^Sharing "Weekly report" \(reports\/weekly\.md\) from Fold Space \[space-1\] at \/p\/pub-1\. Reveal the link in Settings → General\.\n$/);
+  assert.match(page.stdout, /^Sharing "Weekly report" \(reports\/weekly\.md\) from Fold Space \[space-1\] at \/p\/pub-1\. Reveal the link in Settings → Shared pages\.\n$/);
   assert.equal(lastOk().detail, "publish.viewer.expose; source reports/weekly.md; publication pub-1");
   assert.deepEqual(lastOk().undoRef, { kind: "publicationId", value: "pub-1" });
 

@@ -10,7 +10,7 @@ export const welcomeActions = {
 } as const;
 
 /**
- * Settings → General → Shared pages (docs/fold-publishing.md,
+ * Settings → Shared pages (docs/fold-publishing.md,
  * rung 2): the publications list with its budgets, tallies, and health
  * notes, the transient share-link reveal, and the narrowing controls —
  * stop sharing, cut budgets, snapshot off. Widening never happens here:
@@ -38,7 +38,7 @@ export const foldPublicationsSettings = {
 } as const;
 
 /**
- * Settings → General → Recently deleted (docs/receipts-not-gates.md, F20).
+ * Settings → Desktop → Recently deleted (docs/receipts-not-gates.md, F20).
  * Nothing work-fold deletes is gone at the moment it happens: History covers
  * what it can, and this is where the rest waits.
  */
@@ -72,7 +72,7 @@ export const deleteFolderConfirm = {
 } as const;
 
 /**
- * Settings → General → Limits (docs/receipts-not-gates.md, F19 principle 6).
+ * Settings → Desktop → Limits (docs/receipts-not-gates.md, F19 principle 6).
  * Bounds are defaults, not gates: they exist so a runaway stops and so
  * envelopes stay sane. Every message that names a limit names this section,
  * so every number an app or a routing can hit has a row here. The numbers are
@@ -90,11 +90,11 @@ export const foldLimitsSettings = {
   automationsHeading: "App automations",
   deletedHeading: "Recently deleted",
   deletedLink: "Open Recently deleted",
-  frozenNote: "Fixed limits",
+  frozenNote: "",
 } as const;
 
 /**
- * Settings → General → Web access: what pairing a browser means. Pairing is
+ * Settings → Web access: what pairing a browser means. Pairing is
  * an identity act on this desktop, never a gate on work; a paired browser
  * holds the fold's full authority (docs/receipts-not-gates.md).
  */

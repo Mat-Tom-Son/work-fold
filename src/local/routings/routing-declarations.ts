@@ -11,7 +11,7 @@ import { workFoldCheckTargetHardLimits } from "../checks/target-resolver.js";
 
 /**
  * Routing declarations are closed, typed, machine-local data: a declared
- * trigger plus at most sixteen deterministic steps by default that move work
+ * trigger plus deterministic steps that move work
  * between Spaces. They carry no prompts beyond the literal chat- and
  * fold-step message plus a closed set of host-filled placeholders, no
  * instructions, no source code, no shell commands, no model names, no
@@ -412,8 +412,8 @@ export async function readWorkFoldRoutingProposal(path: string): Promise<WorkFol
 function normalizeRoutingDefinition(value: unknown, version: WorkFoldRoutingContractVersion): WorkFoldRoutingDefinition {
   const record = objectRecord(value, "Routing definition must be a JSON object.");
   assertKeys(record, ["title", "trigger", "steps"], [], "Routing definition");
-  if (!Array.isArray(record.steps) || record.steps.length < 1 || record.steps.length > workFoldRoutingBounds.maxSteps) {
-    throw new Error(`Routing steps must contain between 1 and ${workFoldRoutingBounds.maxSteps} steps.`);
+  if (!Array.isArray(record.steps) || record.steps.length < 1) {
+    throw new Error("Routing steps must contain at least one step.");
   }
   const trigger = normalizeTrigger(record.trigger, version);
   const steps = record.steps.map((step, index) => normalizeStep(step, index, version));
@@ -602,8 +602,8 @@ function normalizeFilesSource(value: unknown, stepLabel: string): WorkFoldRoutin
   const record = objectRecord(value, `${label} must be a JSON object.`);
   if (record.kind === "paths") {
     assertKeys(record, ["kind", "paths"], [], label);
-    if (!Array.isArray(record.paths) || record.paths.length < 1 || record.paths.length > workFoldRoutingBounds.maxExactPathsPerFilesStep) {
-      throw new Error(`${label} paths must contain between 1 and ${workFoldRoutingBounds.maxExactPathsPerFilesStep} exact file paths.`);
+    if (!Array.isArray(record.paths) || record.paths.length < 1) {
+      throw new Error(`${label} paths must contain at least one exact file path.`);
     }
     const paths = record.paths.map((path, pathIndex) => normalizeWorkFoldCheckTargetPath(path, `${label} path ${pathIndex + 1}`));
     if (new Set(paths).size !== paths.length) throw new Error(`${label} paths repeat a path.`);

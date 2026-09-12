@@ -125,7 +125,7 @@ test("a bounded call reaches the transport unprompted and returns text with its 
   assert.deepEqual(delivered, { text: "echo:North $42", truncated: false, model, usage: { inputTokens: 3, outputTokens: 4 } });
   assert.equal(f.calls.length, 1);
   assert.equal(f.calls[0]?.instructions, "Summarize");
-  assert.equal((f.calls[0]?.timeoutMs ?? 0) > 0, true);
+  assert.equal("timeoutMs" in (f.calls[0] ?? {}), false);
   const receipts = await f.lines();
   assert.deepEqual(receipts.map((receipt) => receipt.outcome), ["accepted", "ok"]);
   assert.equal(receipts[0].id, receipts[1].id, "one call is one receipt identity");
@@ -162,7 +162,7 @@ test("four calls run at once per installation, the fifth waits, and a full queue
   const refused = await f.service.infer(scope, "view", { instructions: "Hold", input: "x" }).catch((error) => error);
   assert.equal(codeOf(refused), "INFER_BUSY");
   assert.match((refused as Error).message, /4 inference calls running and 2 waiting/);
-  assert.match((refused as Error).message, /Settings → General → Limits/);
+  assert.match((refused as Error).message, /Settings → Desktop → Limits/);
   f.behave("reply");
   for (const settle of f.held.splice(0)) settle({ kind: "text", text: "done", truncated: false, model, usage: { inputTokens: 1, outputTokens: 1 } });
   assert.equal((await Promise.all(running)).length, 4);
@@ -223,10 +223,14 @@ test("a transport failure becomes its own code and never carries provider text",
   assert.equal(receipts.at(-1).outcome, "error");
 });
 
-test("the total budget covers queue time and stops a call that never settles", async (t) => {
-  const f = await fixture(t, { timeoutMs: 60 });
+test("a call stays pending until the caller cancels it", async (t) => {
+  const f = await fixture(t);
   f.behave("hold");
-  const stopped = await f.service.infer(scope, "view", { instructions: "Hold", input: "x" }).catch((error) => error);
+  const controller = new AbortController();
+  const pending = f.service.infer(scope, "view", { instructions: "Hold", input: "x" }, { signal: controller.signal });
+  await waitUntil(() => f.calls.length === 1);
+  controller.abort();
+  const stopped = await pending.catch((error) => error);
   assert.equal(codeOf(stopped), "INFER_INTERRUPTED");
   assert.equal((await f.lines()).at(-1).errorCode, "INFER_INTERRUPTED");
 });

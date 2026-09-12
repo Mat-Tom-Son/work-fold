@@ -79,12 +79,10 @@ export interface RestrictedAppTaskDetail {
 
 /**
  * These bounds keep app input and delivery envelopes sane; they are not a
- * filesystem or tool sandbox for the Assistant. Settings → General → Limits
+ * filesystem or tool sandbox for the Assistant. Settings → Desktop → Limits
  * presents these numbers, and every limit hit names that section.
  */
 export const restrictedAppAssistantLimits = Object.freeze({
-  actions: 8,
-  instructions: 4_096,
   inputBytes: 65_536,
   /** The whole serialized result envelope. `data` is dropped, then `files` trimmed, then `summary`. */
   resultBytes: 262_144,
@@ -92,8 +90,6 @@ export const restrictedAppAssistantLimits = Object.freeze({
   summaryBytes: workFoldRequestLimits.maxResultSummaryBytes,
   /** F29's `data` bound; only an action that declared an output shape can reach it. */
   dataBytes: workFoldRequestLimits.maxResultDataBytes,
-  /** F29's deliverable-count bound. */
-  resultFiles: workFoldRequestLimits.maxResultFiles,
   records: 1_000,
   listItems: 50,
   /** Counts dispatching, running and waiting tasks for one installation. */

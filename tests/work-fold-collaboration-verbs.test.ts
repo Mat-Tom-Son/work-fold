@@ -289,7 +289,7 @@ test("chat ask puts the task in waiting without suspending its turn, and chat an
   }
 });
 
-test("an answer past the request's window is refused by name, and --to parent on a root reaches the person", async (t) => {
+test("a question remains answerable after 24 hours, and --to parent on a root reaches the person", async (t) => {
   const h = await collaborationHarness(t);
   let clock = new Date();
   const requestStore = await WorkFoldRequestStore.open({ rootPath: join(h.stateBase, "requests"), now: () => clock });
@@ -306,12 +306,10 @@ test("an answer past the request's window is refused by name, and --to parent on
     assert.equal((await api.actFacade.turnStatus({ space: space.space.id, taskId: own.taskId })).waiting?.questionId, asked.question.questionId);
 
     clock = new Date(clock.getTime() + 25 * 60 * 60 * 1000);
-    await assert.rejects(
-      () => api.actFacade.chatAnswer({ space: space.space.id, questionId: asked.question.questionId, answer: "Yes" }),
-      conflict(/Settings → General → Limits/),
-    );
-    assert.equal(api.requests.question(asked.question.questionId)!.state, "open", "a refused answer changes nothing; the sweep owns expiry");
-    assert.equal(api.requests.byTaskId(own.taskId)!.turns.length, 1, "no continuation was started");
+    const answered = await api.actFacade.chatAnswer({ space: space.space.id, questionId: asked.question.questionId, answer: "Yes" });
+    assert.ok(answered);
+    assert.equal(api.requests.question(asked.question.questionId)!.state, "answered");
+    assert.equal(api.requests.byTaskId(own.taskId)!.turns.length, 2, "an answer continues without a fixed lifetime");
   } finally {
     h.releaseAll();
     await api.close();
@@ -516,7 +514,7 @@ test("continuations can be turned off, the settle is still recorded, and a resta
   }
 });
 
-test("the fold is brought back at most four times per request; later settles are recorded, not narrated", async (t) => {
+test("the work-fold agent continues after more than four settle batches", async (t) => {
   const h = await collaborationHarness(t);
   const api = await h.open();
   h.held.add(workFoldManagementScopeId);
@@ -527,18 +525,18 @@ test("the fold is brought back at most four times per request; later settles are
     const rootRecord = api.requests.byTaskId(root.taskId)!;
     // Four follow-up turns already counted against this root.
     for (let index = 0; index < 4; index += 1) assert.equal((await api.requests.noteContinuation(rootRecord.requestId)).allowed, true);
-    assert.equal((await api.requests.noteContinuation(rootRecord.requestId)).allowed, false);
+    assert.equal((await api.requests.noteContinuation(rootRecord.requestId)).allowed, true);
     const child = await api.actFacade.sendMessage({ space: space.space.id, newConversation: true, content: "/hold", parentTaskId: root.taskId });
     await api.actFacade.chatReport({ space: space.space.id, taskId: child.taskId, summary: "Fifth.", files: [], outcome: "succeeded" });
     await h.release(root.taskId);
     await settled(api, workFoldManagementScopeId, root.taskId);
     await h.release(child.taskId);
     await settled(api, space.space.id, child.taskId);
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await waitFor(async () => api.requests.get(rootRecord.requestId)!.turns.length === 2);
     const capped = api.requests.get(rootRecord.requestId)!;
-    assert.equal(capped.turns.length, 1, "the fifth settle batch is not narrated");
-    assert.equal(capped.continuationCount, 4);
-    assert.equal(capped.state, "done");
+    assert.equal(capped.turns.length, 2, "later settle batches still start a follow-up");
+    assert.equal(capped.continuationCount, 6);
+    assert.equal(capped.state, "working");
     assert.equal((await api.actFacade.requestsShow({ request: rootRecord.requestId })).request.childRequests[0]!.resultRecords[0]!.envelope?.summary, "Fifth.");
   } finally {
     h.releaseAll();

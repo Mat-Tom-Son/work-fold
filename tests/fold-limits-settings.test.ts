@@ -20,9 +20,9 @@ import { FoldLimitsPane } from "../web-local/src/components/modals/FoldLimitsPan
 import { createDomHarness } from "./support/dom.js";
 
 /**
- * Settings → General → Limits (docs/receipts-not-gates.md, F19 principle 6).
+ * Settings → Desktop → Limits (docs/receipts-not-gates.md, F19 principle 6).
  * Bounds are defaults, not gates, and they are visible in Settings. Every
- * app-facing refusal names "Settings → General → Limits", so this suite pins
+ * app-facing refusal names "Settings → Desktop → Limits", so this suite pins
  * that the section exists, that it is read-only, and that the numbers it shows
  * are the frozen constants the host enforces rather than retyped copies.
  */
@@ -39,7 +39,7 @@ test("the surface every limit message names is a real fold Settings section", ()
   for (const [label, source] of [["tasks", tasksSource], ["inference", inferenceSource]] as const) {
     assert.match(
       source,
-      /const limitsSection = "Settings → General → Limits";/,
+      /const limitsSection = "Settings → Desktop → Limits";/,
       `${label} refusals still name the Limits section`,
     );
   }
@@ -78,7 +78,7 @@ test("the Limits pane shows the assistant, routing, and automation numbers a ref
   await dom.render(createElement(FoldLimitsPane));
   const text = dom.container.textContent ?? "";
 
-  assert.match(text, /Limits/);
+  assert.doesNotMatch(text, /How long one request stays open|Steps in one automation|Follow-up turns after work settles/);
   assert.ok(text.includes(`${restrictedAppAssistantLimits.inputBytes / 1024} KB`), "the 64 KB Chat request input bound is shown");
   assert.ok(text.includes(`${restrictedAppAssistantLimits.resultBytes / 1024} KB`), "the 256 KB Chat result bound is shown");
   assert.ok(
@@ -86,12 +86,10 @@ test("the Limits pane shows the assistant, routing, and automation numbers a ref
     "the four-running-per-app bound is shown",
   );
   assert.ok(text.includes(`${restrictedAppInferenceLimits.instructionsBytes / 1024} KB`), "the short-answer instruction bound is shown");
-  assert.ok(text.includes(`${restrictedAppInferenceLimits.timeoutMs / 1000} seconds`), "the short-answer time budget is shown");
   assert.ok(
     text.includes(`Short answers running on this computer${restrictedAppInferenceLimits.runningMachineWide}`),
     "the machine-wide inference bound is shown",
   );
-  assert.ok(text.includes(`Steps in one automation${workFoldRoutingDeclarationBounds.maxSteps}`), "the raised step default is shown");
   assert.ok(text.includes(`Automation runs at once${workFoldRoutingMaxConcurrentRuns}`), "the raised run-slot default is shown");
   assert.ok(
     text.includes(`Automations running on this computer${workFoldAutomationDefaultConcurrency}`),
@@ -99,21 +97,16 @@ test("the Limits pane shows the assistant, routing, and automation numbers a ref
   );
 
   // The request bounds every collaboration refusal names (docs/collaboration-contract.md).
-  assert.ok(text.includes(`How long one request stays open${workFoldRequestLimits.deadlineMs / 3_600_000} hours`), "the request window is shown");
-  assert.ok(text.includes(`Worker turns one request may start${workFoldRequestLimits.maxChildRequestsPerRoot}`), "the child count is shown");
-  assert.ok(text.includes(`How far a request may hand work on${workFoldRequestLimits.maxDelegationDepth} levels`), "the depth is shown");
   assert.ok(text.includes(`Worker turns running together${workFoldRequestLimits.maxConcurrentChildrenPerRoot}`), "the concurrency is shown");
-  assert.ok(text.includes(`Follow-up turns after work settles${workFoldRequestLimits.maxContinuationsPerRoot}`), "the continuation count is shown");
   assert.ok(text.includes("Model spending for one requestNo limit"), "no spending cap is shipped");
   assert.ok(text.includes(`A result summary${workFoldRequestLimits.maxResultSummaryBytes / 1024} KB`), "the summary bound is shown");
   assert.ok(text.includes(`Result details${workFoldRequestLimits.maxResultDataBytes / 1024} KB`), "the data bound is shown");
-  assert.ok(text.includes(`Files one result may name${workFoldRequestLimits.maxResultFiles}`), "the file count is shown");
   assert.ok(text.includes(`Pending Extension questions per Chat${workFoldExtensionUiLimits.pendingPerChat}`));
   assert.ok(text.includes(`An Extension answer or editor text${workFoldExtensionUiLimits.answerBytes / 1024} KB`));
 });
 
 /**
- * Every request refusal ends with "Settings → General → Limits shows this
+ * Every request refusal ends with "Settings → Desktop → Limits shows this
  * number." A bound whose refusal says that and whose number is not in the
  * pane sends a person somewhere that does not answer them, which is exactly
  * the gate-in-disguise principle 6 forbids. This pins one row per bound, so a
@@ -127,30 +120,19 @@ test("every request bound whose refusal names the Limits section has a row in it
 
   const limits = workFoldRequestLimits;
   const kb = (bytes: number): string => `${bytes / 1024} KB`;
-  const window = `${limits.deadlineMs / 3_600_000} hours`;
   const rows: Record<WorkFoldRequestLimitName, string> = {
-    deadline: `How long one request stays open${window}`,
-    questionLifetime: `How long one request stays open${window}`,
-    childTasks: `Worker turns one request may start${limits.maxChildRequestsPerRoot}`,
-    depth: `How far a request may hand work on${limits.maxDelegationDepth} levels`,
     concurrentChildren: `Worker turns running together${limits.maxConcurrentChildrenPerRoot}`,
-    continuations: `Follow-up turns after work settles${limits.maxContinuationsPerRoot}`,
     providerBudget: "Model spending for one requestNo limit",
     questionText: `A question an agent asks${kb(limits.maxQuestionTextBytes)}`,
     answerText: `An answer you give${kb(limits.maxAnswerTextBytes)}`,
     resultSummary: `A result summary${kb(limits.maxResultSummaryBytes)}`,
     resultData: `Result details${kb(limits.maxResultDataBytes)}`,
-    resultFiles: `Files one result may name${limits.maxResultFiles}`,
-    questionsPerRequest: `Questions one request may hold${limits.maxQuestionsPerRequest}`,
-    resultsPerRequest: `Results one request may hold${limits.maxResultsPerRequest}`,
-    turnsPerRequest: `Turns one request may hold${limits.maxTurnsPerRequest}`,
-    actionsPerRequest: `Actions one request may record${limits.maxActionsPerRequest}`,
   };
 
   for (const [name, row] of Object.entries(rows) as Array<[WorkFoldRequestLimitName, string]>) {
     assert.match(
       workFoldRequestLimitMessage(name, 1),
-      /Settings → General → Limits shows this number\.$/,
+      /Settings → Desktop → Limits shows this number\.$/,
       `the ${name} refusal points at the Limits pane`,
     );
     assert.ok(text.includes(row), `the ${name} bound has a row reading "${row}"`);

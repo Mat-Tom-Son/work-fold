@@ -123,11 +123,11 @@ collision handling require a later explicit design.
 
 The user should always be able to reveal a Space in the operating system, open its files with other applications, back it up normally, or synchronize it with a desktop sync tool. A Google Drive for desktop folder works because it is a local folder; that is not the same as direct Google Drive API integration.
 
-Settings uses one preferences window with **Appearance**, **Agents**,
-**General**, **Desktop**, and **About** navigation. General groups **Web
-access**, **Shared pages**, **Automations**, **Recently deleted**, and
-**Limits**. The navigation becomes a single horizontally scrollable row in
-narrow windows; keyboard selection brings the selected item into view. Agents
+Settings uses one preferences window with **Appearance**, **AI Models**,
+**Web access**, **Shared pages**, **Desktop**, and **About** navigation.
+Desktop groups **Automations**, **Recently deleted**, and **Limits**; updates
+live in About. The navigation becomes a single horizontally scrollable row in
+narrow windows; keyboard selection brings the selected item into view. AI Models
 settings separate model defaults, shared provider
 connections, and Space instructions. Unsaved model/instruction drafts survive
 page and scope changes while that window stays open; credentials are not cached

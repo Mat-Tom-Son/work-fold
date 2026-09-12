@@ -5,7 +5,7 @@ import { api, errorText } from "../../lib/api";
 import { recentlyDeletedSettings } from "../../ui-contract";
 
 /**
- * Settings → General → Recently deleted (docs/receipts-not-gates.md, F20).
+ * Settings → Desktop → Recently deleted (docs/receipts-not-gates.md, F20).
  * Nothing work-fold destroys is gone at the moment it happens: History covers
  * ordinary deletion, and whatever it could not keep a copy of waits here until
  * its time runs out. This pane lists what is waiting, puts an item back, saves
@@ -167,13 +167,9 @@ export function FoldRecentlyDeletedPane() {
   const retentionValue = retentionDraft ?? String(data?.retentionDays ?? 30);
 
   return (
-    <section className="settings-section" aria-labelledby="fold-recently-deleted-title">
-      <div className="settings-section-heading">
-        <h3 id="fold-recently-deleted-title">{recentlyDeletedSettings.heading}</h3>
-        {data ? <span>{entries.length} waiting</span> : null}
-      </div>
-      <div className="settings-actions">
-        <label htmlFor="fold-recently-deleted-retention">{recentlyDeletedSettings.retentionLabel}</label>
+    <section className="settings-section recently-deleted-pane" aria-label={recentlyDeletedSettings.heading}>
+      <div className="recently-deleted-retention">
+        <label htmlFor="fold-recently-deleted-retention">Keep for</label>
         <input
           id="fold-recently-deleted-retention"
           type="number"
@@ -183,7 +179,7 @@ export function FoldRecentlyDeletedPane() {
           disabled={!data || Boolean(busy)}
           onChange={(event) => setRetentionDraft(event.target.value)}
         />
-        <span>{recentlyDeletedSettings.retentionUnit}</span>
+        <span>days</span>
         <button
           className="secondary-button"
           type="button"
@@ -201,7 +197,7 @@ export function FoldRecentlyDeletedPane() {
           {recentlyDeletedSettings.damagedNote} ({data.damaged.map((item) => item.id).join(", ")})
         </span>
       ) : null}
-      {data && !entries.length ? <div className="remote-browser-empty">{recentlyDeletedSettings.empty}</div> : null}
+      {data && !entries.length ? <p className="recently-deleted-empty">{recentlyDeletedSettings.empty}</p> : null}
       {entries.length ? (
         <div className="remote-browser-list">
           {entries.map((entry) => {
@@ -220,7 +216,7 @@ export function FoldRecentlyDeletedPane() {
                   {entry.note ? <small>{entry.note}</small> : null}
                   {entry.held ? <small>{recentlyDeletedSettings.heldNote}</small> : null}
                 </div>
-                <div className="settings-actions">
+                <div className="settings-actions recently-deleted-row-actions">
                   {entry.restorable === "in-place" ? (
                     <button
                       className="secondary-button"

@@ -352,7 +352,7 @@ test("Routing help's complete authoring example passes the real proposal validat
     ["trigger.summary", "steps.adopt.createdFiles"],
   );
   const help = workFoldCliHelp("work-fold", "routings");
-  assert.match(help, /Up to 16 steps and/);
+  assert.doesNotMatch(help, /Up to 16 steps/);
   assert.doesNotMatch(help, /staged|approve|policy|Reviewed|Unrestricted|\bcard\b|\bmode\b/i);
 });
 
@@ -398,7 +398,7 @@ test("help collaborate's worked example parses through the real act parser", () 
   }
   // Bounds are visible where a person can change them, and a refusal names
   // the same place (docs/receipts-not-gates.md, principle 6).
-  assert.match(help, /Settings → General →/);
+  assert.match(help, /Settings → Desktop →/);
   assert.match(help, /Nothing waits on someone clicking something\./);
   assert.doesNotMatch(help, /\bcard\b|\bmode\b|sandboxed/i);
 });
@@ -520,25 +520,17 @@ test("the act parser refuses malformed collaboration arguments with stable usage
   assert.throws(overLongQuestion, (error) => error instanceof WorkFoldCliError
     && error.exitCode === WorkFoldCliExitCode.usage
     && error.message.startsWith(workFoldRequestLimitMessage("questionText", workFoldRequestLimits.maxQuestionTextBytes)));
-  const handoffFileLimit = workFoldRoutingDeclarationBounds.maxExactPathsPerFilesStep;
-  const tooManyFiles = Array.from({ length: handoffFileLimit + 1 }, (_, index) => ["--file", `notes/${index}.md`]).flat();
-  assert.throws(
-    () => parseWorkFoldCliActArgv([
-      "chat", "handoff", "--space", "space-1", "--task", "task-1", "--to-space", "space-2", "--message", "Take this.", ...tooManyFiles,
-    ]),
-    new RegExp(`A handoff may copy at most ${handoffFileLimit} files\\. Settings → General → Limits shows this number\\.`),
-  );
-  const tooManyDeliverables = Array.from(
-    { length: workFoldRequestLimits.maxResultFiles + 1 },
+  const manyHandoffFiles = Array.from({ length: 100 }, (_, index) => ["--file", `notes/${index}.md`]).flat();
+  assert.doesNotThrow(() => parseWorkFoldCliActArgv([
+    "chat", "handoff", "--space", "space-1", "--task", "task-1", "--to-space", "space-2", "--message", "Take this.", ...manyHandoffFiles,
+  ]));
+  const manyDeliverables = Array.from(
+    { length: 100 },
     (_, index) => ["--file", `drafts/${index}.md`],
   ).flat();
-  assert.throws(
-    () => parseWorkFoldCliActArgv([
-      "chat", "report", "--space", "space-1", "--task", "task-1", "--summary", "Done.", ...tooManyDeliverables,
-    ]),
-    (error) => error instanceof WorkFoldCliError
-      && error.message.startsWith(workFoldRequestLimitMessage("resultFiles", workFoldRequestLimits.maxResultFiles)),
-  );
+  assert.doesNotThrow(() => parseWorkFoldCliActArgv([
+    "chat", "report", "--space", "space-1", "--task", "task-1", "--summary", "Done.", ...manyDeliverables,
+  ]));
 });
 
 test("CLI help/version avoid kernel work and kernel failures map to stable exit codes", async () => {

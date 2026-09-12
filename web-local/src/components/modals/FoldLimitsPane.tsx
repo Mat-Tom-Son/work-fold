@@ -15,7 +15,7 @@ import { api, errorText } from "../../lib/api";
 import { foldLimitsSettings } from "../../ui-contract";
 
 /**
- * Settings → General → Limits (docs/receipts-not-gates.md, F19 principle 6:
+ * Settings → Desktop → Limits (docs/receipts-not-gates.md, F19 principle 6:
  * bounds are visible and named). Every app and routing refusal names this
  * section, so this pane is where those phrases resolve.
  *
@@ -106,15 +106,6 @@ function formatNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
-function seconds(milliseconds: number): string {
-  return `${formatNumber(milliseconds / 1000)} seconds`;
-}
-
-function hours(milliseconds: number): string {
-  const value = milliseconds / 3_600_000;
-  return `${formatNumber(value)} hour${value === 1 ? "" : "s"}`;
-}
-
 function LimitRows({ rows }: { rows: Array<[string, string]> }) {
   return (
     <dl className="context-meta-grid">
@@ -132,16 +123,12 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
   const requests = workFoldRequestLimits;
 
   return (
-    <section className="settings-section" aria-labelledby="fold-limits-title">
-      <div className="settings-section-heading">
-        <h3 id="fold-limits-title">{foldLimitsSettings.heading}</h3>
-        <span>{foldLimitsSettings.frozenNote}</span>
-      </div>
+    <section className="settings-section" aria-label={foldLimitsSettings.heading}>
+      <span className="settings-section-note">{foldLimitsSettings.frozenNote}</span>
 
       <h4 id="fold-limits-assistant-title">{foldLimitsSettings.assistantHeading}</h4>
       <LimitRows
         rows={[
-          ["Chat request instructions", kib(assistant.instructions)],
           ["Chat request input", kib(assistant.inputBytes)],
           ["Chat result returned to the app", kib(assistant.resultBytes)],
           ["Chat requests running per app", String(assistant.runningPerInstallation)],
@@ -151,7 +138,6 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
           ["Short answer result", `${kib(inference.defaultOutputBytes)} by default, up to ${kib(inference.maxOutputBytes)}`],
           ["Short answers running per app", `${inference.runningPerInstallation}, with ${inference.waitingPerInstallation} more waiting`],
           ["Short answers running on this computer", String(inference.runningMachineWide)],
-          ["Time one short answer may take", seconds(inference.timeoutMs)],
         ]}
       />
 
@@ -167,21 +153,12 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
       <h4 id="fold-limits-requests-title">{foldLimitsSettings.requestsHeading}</h4>
       <LimitRows
         rows={[
-          ["How long one request stays open", hours(requests.deadlineMs)],
-          ["Worker turns one request may start", String(requests.maxChildRequestsPerRoot)],
-          ["How far a request may hand work on", `${requests.maxDelegationDepth} levels`],
           ["Worker turns running together", String(requests.maxConcurrentChildrenPerRoot)],
-          ["Follow-up turns after work settles", String(requests.maxContinuationsPerRoot)],
           ["Model spending for one request", requests.providerBudgetUsd === null ? "No limit" : `$${formatNumber(requests.providerBudgetUsd)}`],
           ["A question an agent asks", kib(requests.maxQuestionTextBytes)],
           ["An answer you give", kib(requests.maxAnswerTextBytes)],
           ["A result summary", kib(requests.maxResultSummaryBytes)],
           ["Result details", kib(requests.maxResultDataBytes)],
-          ["Files one result may name", String(requests.maxResultFiles)],
-          ["Questions one request may hold", String(requests.maxQuestionsPerRequest)],
-          ["Results one request may hold", String(requests.maxResultsPerRequest)],
-          ["Turns one request may hold", String(requests.maxTurnsPerRequest)],
-          ["Actions one request may record", String(requests.maxActionsPerRequest)],
           ["Kept for", `${requests.retentionDays} days`],
         ]}
       />
@@ -190,13 +167,10 @@ export function FoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDelete
       <h4 id="fold-limits-routings-title">{foldLimitsSettings.routingsHeading}</h4>
       <LimitRows
         rows={[
-          ["Steps in one automation", String(routing.maxSteps)],
-          ["Automations on this computer", String(routing.maxRoutingsPerMachine)],
           ["Automation runs at once", String(workFoldRoutingMaxConcurrentRuns)],
           ["Message a step sends", kib(routing.maxChatMessageBytes)],
           ["Message after filled-in details", kib(routing.maxResolvedMessageBytes)],
           ["One filled-in detail", `${kib(routing.maxPlaceholderTextBytes)}, up to ${routing.maxPlaceholderListItems} items`],
-          ["Files one step may copy", String(routing.maxExactPathsPerFilesStep)],
         ]}
       />
 

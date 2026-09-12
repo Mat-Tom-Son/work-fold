@@ -98,7 +98,7 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{1
 const statuses: RestrictedAppAssistantTask["status"][] = ["dispatching", "running", "waiting", "succeeded", "failed", "cancelled", "interrupted"];
 const live = new Set<RestrictedAppAssistantTask["status"]>(["dispatching", "running", "waiting"]);
 const maxFileBytes = 64 * 1024 * 1024;
-const limitsSection = "Settings → General → Limits";
+const limitsSection = "Settings → Desktop → Limits";
 
 /**
  * An app request is journaled, then dispatched as an ordinary full-trust Space
@@ -384,7 +384,7 @@ export class RestrictedAppTaskService extends EventEmitter {
       }
     }
     const files = Array.isArray(report.files)
-      ? report.files.filter(isResultFile).slice(0, limits.resultFiles).map((file) => ({ path: file.path, sha256: file.sha256, sizeBytes: file.sizeBytes }))
+      ? report.files.filter(isResultFile).map((file) => ({ path: file.path, sha256: file.sha256, sizeBytes: file.sizeBytes }))
       : [];
     return withinResultCeiling({
       ...boundedSummary(summaryText),
@@ -663,7 +663,7 @@ function parseReceipt(value: unknown): RestrictedAppTaskReceipt {
     || !statuses.includes(value.status)
     || typeof value.actionId !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(value.actionId)
     || typeof value.title !== "string" || !value.title.length || value.title.length > 80
-    || typeof value.instructions !== "string" || !value.instructions.length || value.instructions.length > limits.instructions
+    || typeof value.instructions !== "string" || !value.instructions.length
     || typeof value.inputJson !== "string" || Buffer.byteLength(value.inputJson) > limits.inputBytes
     || !/^[a-f0-9]{64}$/.test(value.requestDigest)
     || Object.values(value.scope).some((item) => typeof item !== "string" || !item.length || item.length > 200)
@@ -691,7 +691,7 @@ function parseReceipt(value: unknown): RestrictedAppTaskReceipt {
       if (!value.outputSchema || !acceptedResultData(value.outputSchema, value.result.data)) invalid("The Assistant result details are invalid.");
     }
     if (Object.hasOwn(value.result, "files")) {
-      if (!Array.isArray(value.result.files) || value.result.files.length > limits.resultFiles
+      if (!Array.isArray(value.result.files)
         || !value.result.files.every((file: unknown) => isResultFile(file))) invalid("The Assistant result files are invalid.");
     }
     if (Buffer.byteLength(JSON.stringify(value.result) ?? "") > limits.resultBytes) invalid("The Assistant result is invalid.");

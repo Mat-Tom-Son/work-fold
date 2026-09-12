@@ -48,7 +48,7 @@ function fakeSession(reply: Reply, options: { levels?: readonly ("off" | "low" |
   return { session, calls };
 }
 function request(overrides: Partial<Parameters<typeof runBoundedInference>[1]> = {}) {
-  return { instructions: "Summarize the sales figures.", input: "North $42\nSouth $17", maxOutputBytes: 4096, timeoutMs: 5_000, signal: new AbortController().signal, ...overrides };
+  return { instructions: "Summarize the sales figures.", input: "North $42\nSouth $17", maxOutputBytes: 4096, signal: new AbortController().signal, ...overrides };
 }
 async function rejectsWith(promise: Promise<unknown>, code: string, pattern?: RegExp): Promise<BoundedInferenceError> {
   let caught: unknown;
@@ -78,7 +78,7 @@ test("text inference sends one untrusted user message on the configured stream p
   const options = calls[0]!.options!;
   assert.equal(options.signal, input.signal);
   assert.equal(options.maxRetries, 0);
-  assert.equal(options.timeoutMs, 5_000);
+  assert.equal("timeoutMs" in options, false);
   assert.equal(options.maxTokens, boundedInferenceMaxTokens(model, 4096));
   assert.equal(options.maxTokens, 2048);
   assert.equal("reasoning" in options, false);
@@ -138,7 +138,7 @@ test("text inference marks a length stop as truncated and cuts oversize text on 
 
 test("provider failures and interruptions map to closed codes without provider text", async () => {
   const failed = fakeSession({ stopReason: "error", errorMessage: "PRIVATE PROVIDER DIAGNOSTICS", content: [{ type: "text", text: "partial" }] });
-  const failure = await rejectsWith(runBoundedInference(failed.session, request()), "INFER_FAILED", /provider connection in Settings → Agents/);
+  const failure = await rejectsWith(runBoundedInference(failed.session, request()), "INFER_FAILED", /provider connection in Settings → AI Models/);
   assert.ok(!failure.message.includes("PRIVATE"));
   const aborted = fakeSession({ stopReason: "aborted", content: [] });
   await rejectsWith(runBoundedInference(aborted.session, request()), "INFER_INTERRUPTED", /interrupted/);
@@ -155,7 +155,7 @@ test("provider failures and interruptions map to closed codes without provider t
 
 test("missing model and context overflow are refused before any provider call", async () => {
   const noModel = fakeSession({ content: [{ type: "text", text: "never" }] }, { model: null });
-  await rejectsWith(runBoundedInference(noModel.session, request()), "INFER_MODEL_UNAVAILABLE", /Connect a model for this Folder in Settings → Agents/);
+  await rejectsWith(runBoundedInference(noModel.session, request()), "INFER_MODEL_UNAVAILABLE", /Connect a model for this Folder in Settings → AI Models/);
   assert.equal(noModel.calls.length, 0);
   const small = fakeSession({ content: [{ type: "text", text: "never" }] }, { model: { ...model, contextWindow: 1_000 } });
   await rejectsWith(runBoundedInference(small.session, request({ input: "x".repeat(4_000) })), "INFER_INPUT_TOO_LARGE", /context allowance of 1000 tokens/);
@@ -200,7 +200,7 @@ test("PiConversationClient.infer forwards the caller's signal and stop() interru
   const settled = fakeSession({ content: [{ type: "text", text: "done" }] });
   const direct = await PiConversationClient.prototype.infer.call(
     { ensureSession: async () => settled.session, boundedCalls: new Set() } as never,
-    { instructions: "Summarize.", input: "data", maxOutputBytes: 1024, timeoutMs: 1_000 },
+    { instructions: "Summarize.", input: "data", maxOutputBytes: 1024 },
   );
   assert.equal(direct.kind, "text");
   assert.ok(settled.calls[0]!.options!.signal instanceof AbortSignal);
@@ -213,7 +213,7 @@ test("PiConversationClient.infer forwards the caller's signal and stop() interru
   const caller = new AbortController();
   const forwardedCall = PiConversationClient.prototype.infer.call(
     { ensureSession: async () => forwarded.session, boundedCalls: new Set() } as never,
-    { instructions: "Summarize.", input: "data", maxOutputBytes: 1024, timeoutMs: 1_000, signal: caller.signal },
+    { instructions: "Summarize.", input: "data", maxOutputBytes: 1024, signal: caller.signal },
   );
   await new Promise((resolve) => setTimeout(resolve, 10));
   caller.abort();
@@ -222,7 +222,7 @@ test("PiConversationClient.infer forwards the caller's signal and stop() interru
   const stopped = fakeSession(waitForAbort);
   const client = new PiConversationClient("app-inference", tmpdir());
   (client as unknown as { ensureSession: () => Promise<unknown> }).ensureSession = async () => stopped.session;
-  const stoppedCall = client.infer({ instructions: "Summarize.", input: "data", maxOutputBytes: 1024, timeoutMs: 1_000 });
+  const stoppedCall = client.infer({ instructions: "Summarize.", input: "data", maxOutputBytes: 1024 });
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(stopped.calls.length, 1);
   await client.stop();

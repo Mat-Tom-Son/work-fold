@@ -113,21 +113,11 @@ test("every envelope bound refuses as a named limit, not as a generic failure", 
       && error.message.includes(workFoldRequestLimitsSection),
   );
 
-  const tooMany = Array.from(
-    { length: workFoldRequestLimits.maxResultFiles + 1 },
+  const manyFiles = Array.from(
+    { length: 100 },
     (_, index) => ({ path: `drafts/${index}.md`, sha256, sizeBytes: 1 }),
   );
-  assert.throws(
-    () => parseWorkFoldResultEnvelope({ summary: "Done.", outcome: "succeeded", files: tooMany }),
-    (error: unknown) => error instanceof WorkFoldRequestLimitError
-      && error.limit === "resultFiles"
-      && error.message.includes(String(workFoldRequestLimits.maxResultFiles)),
-  );
-  // The bound is a bound, not an off-by-one: the last allowed file passes.
-  assert.equal(
-    parseWorkFoldResultEnvelope({ summary: "Done.", outcome: "succeeded", files: tooMany.slice(1) }).files?.length,
-    workFoldRequestLimits.maxResultFiles,
-  );
+  assert.equal(parseWorkFoldResultEnvelope({ summary: "Done.", outcome: "succeeded", files: manyFiles }).files?.length, 100);
 });
 
 test("deliverables are Space-relative paths with a real content hash and size", () => {

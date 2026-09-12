@@ -196,14 +196,14 @@ test("deliverables are bounded and each entry must name a safe Space-relative pa
       { path: "/absolute.md", sha256: sha256("c"), sizeBytes: 1 },
       { path: "ok.md", sha256: "not-a-fingerprint", sizeBytes: 1 },
       { path: "ok.md", sha256: sha256("d"), sizeBytes: -1 },
-      ...Array.from({ length: restrictedAppAssistantLimits.resultFiles + 4 }, (_item, index) => ({
+      ...Array.from({ length: 100 }, (_item, index) => ({
         path: `exports/file-${index}.md`, sha256: sha256(`file-${index}`), sizeBytes: index,
       })),
     ],
   });
   f.settle(task.id, "ignored");
   const files = (await f.service.get(scope, task.requestId)).result!.files!;
-  assert.equal(files.length, restrictedAppAssistantLimits.resultFiles);
+  assert.equal(files.length, 100);
   assert.ok(files.every((file) => file.path.startsWith("exports/")), "nothing outside the Space survives");
 });
 

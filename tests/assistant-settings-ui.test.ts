@@ -87,7 +87,8 @@ test("obsolete scope reads and Strict Mode replay cannot overwrite the current t
   assert.equal(ui.dom.container.querySelector("textarea"), null);
   assert.doesNotMatch(ui.dom.container.textContent!, /Space id is required|Space not found/);
   assert.ok(ui.requests.every((request) => !request.path.endsWith("scope=space")));
-  assert.equal(ui.dom.container.querySelectorAll('input[name="assistant-model-scope"]').length, 1);
+  assert.equal(ui.dom.container.querySelectorAll('input[name="assistant-model-scope"]').length, 0);
+  assert.match(ui.dom.container.textContent!, /work-fold agent/);
 });
 
 test("model writes submit once, remain bound to the original Space and cannot finish into a replacement form", async (t) => {
@@ -180,7 +181,7 @@ test("saved credentials are readable status, with separate explicit connection a
   await ui.finish(write, { status: { ...status, provider: "anthropic", model: "claude" } });
   assert.equal(ui.dom.container.querySelector('input[type="password"]'), null);
   assert.match(ui.dom.container.textContent!, /Connected and model saved/);
-  assert.deepEqual([...ui.dom.container.querySelectorAll("h3")].map((item) => item.textContent), ["Model", "Connection", "Worker instructions"]);
+  assert.deepEqual([...ui.dom.container.querySelectorAll("h3")].map((item) => item.textContent), ["Worker instructions"]);
 });
 
 

@@ -8,8 +8,8 @@
 
 /**
  * Every bound an inference call can hit, in one place. Concurrency counts are
- * per installation unless named otherwise; `timeoutMs` is the whole budget for
- * one call, including any time spent waiting for a slot.
+ * per installation unless named otherwise. Provider transport, cancellation,
+ * and concurrency govern call duration; this lane has no host wall-clock cap.
  */
 export const restrictedAppInferenceLimits = Object.freeze({
   instructionsBytes: 16 * 1024,
@@ -20,7 +20,6 @@ export const restrictedAppInferenceLimits = Object.freeze({
   runningPerInstallation: 4,
   waitingPerInstallation: 12,
   runningMachineWide: 8,
-  timeoutMs: 120_000,
   receipts: 2_000,
   listItems: 50,
 });

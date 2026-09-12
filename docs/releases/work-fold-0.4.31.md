@@ -5,9 +5,16 @@ September 12, 2026
 Spaces are now called Folders, their assistants are Workers, and the management
 assistant is the work-fold agent. Routings appear as Automations. Existing
 folders, conversations, commands, and saved formats keep their identities.
+The empty window offers only Add existing folder and Create new folder.
 
-Settings uses Appearance, Agents, General, Desktop, and About, without repeating
-page titles above the controls. Rail hover tips no longer cover menus. New
+Settings gives Web access and Shared pages their own pages alongside Appearance,
+AI Models, Desktop, and About. Desktop keeps Automations, Recently deleted,
+and the remaining transport and concurrency limits without repeated headings or
+item counts. AI model choices live in Settings → AI Models; updates, version,
+and license details live in Settings → About. Requests and Automations no
+longer have artificial lifetime or declaration-count quotas, while concurrent
+work and transport bounds remain. Inference has no fixed 120-second host
+timeout. Deleted-item retention uses a compact control row. Rail hover tips no longer cover menus. New
 and existing Automations can open an unsent draft with the work-fold agent;
 running, enabling, and disabling still use the same recorded actions.
 

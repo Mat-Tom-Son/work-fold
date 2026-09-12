@@ -22,7 +22,8 @@ lifecycle and five-questions record, and the bounds. The promotion record is
 **Amended 2026-09-10** by [Receipts, not gates](receipts-not-gates.md) (F23):
 enablement is one receipted call, `chat` and `fold` messages accept a closed
 set of host-resolved placeholders, a `fold` step kind exists, and the bounds
-rose to 16 steps per routing and 8 concurrent runs.
+kept eight concurrent runs. Current behavior removes the former declaration,
+step, and exact-path count quotas.
 
 The declaration contract accepts versions 1, 2, 3, and 4. Version 2 added a
 bounded one-time `at` trigger on 2026-09-01; version 3 adds explicit folder
@@ -83,7 +84,7 @@ recorded settle/schedule state, or explicitly granted bounded folder metadata ob
 
 **Folder changes (version 3)** use `{"kind":"files-changed","space":"<Space id>","watch":{"kind":"tree","path":"Incoming","recursive":true,"extensions":[".md",".txt"]},"debounceSeconds":5,"cooldownMinutes":1}`. The exact named folder must exist at enablement. The host observes matching ordinary files every two seconds, within 512 files, 2,000 visited entries, depth 16, and the existing target byte bounds. Metadata identities include size, nanosecond modification/change times, and inode; file contents are not read or sent anywhere by the observer. Symlinks and overlap with separately registered Spaces fail closed. The extension list and recursion are explicit; reserved metadata stays excluded.
 
-A fresh enable, restart, wake, or recovered observer error first establishes a baseline without firing. Changes must settle for the declared 2–120 seconds, with at least 1–1440 minutes between firings. Bursts coalesce into the latest snapshot, not a queue of events. An accepted run records its source Folder, snapshot digest, and change count before any hop. Every launch rechecks the exact declaration grant; revocation invalidates in-flight scans. The observer reports starting/watching/paused/error state and errors in Settings → General → Automations.
+A fresh enable, restart, wake, or recovered observer error first establishes a baseline without firing. Changes must settle for the declared 2–120 seconds, with at least 1–1440 minutes between firings. Bursts coalesce into the latest snapshot, not a queue of events. An accepted run records its source Folder, snapshot digest, and change count before any hop. Every launch rechecks the exact declaration grant; revocation invalidates in-flight scans. The observer reports starting/watching/paused/error state and errors in Settings → Desktop → Automations.
 
 All folder observers pause while any routing executes and establish fresh baselines afterward. This deliberately absorbs routing-generated edits and prevents cross-routing file loops. Changes made during that pause, while asleep, or while quit are **not replayed**. This is an awake-app convenience trigger, not a durable filesystem event bus. Keep a complete cross-Space sequence in one routing: wait for A's Chat, copy its created files, then run B's Chat or Check. There is no transcript relay or ambient context injection. Stop, disable, removal, shutdown, journaling, non-overlap, and FIFO limits use the existing executor paths.
 
@@ -142,8 +143,7 @@ occurrence claim `{occurrenceId, slotAt, consumedAt, runId}`, then begins hop
 1. That claim moves the routing to `completed`; success, failure, Stop, or
 interruption do not re-arm it. Startup reconciles a crash between acceptance
 and claim by consuming the same deterministic occurrence and recording the
-run interrupted. Completed records remain visible until a person deletes
-them and keep counting against the 32-routing bound.
+run interrupted. Completed records remain visible until a person deletes them.
 
 **Manual run-now** (`work-fold routings run`) is a direct verb: available
 for every *enabled* routing, receipted, never a schedule mutation. Run-now
@@ -178,7 +178,7 @@ placeholder set.
 
 ### Steps
 
-Up to 16 steps by default, executed strictly in order. Four kinds:
+Steps execute strictly in declaration order. Four kinds:
 
 - **`chat`** — start a **new** conversation in the named Space with the
   fixed message, through the same acceptance path as
@@ -193,7 +193,7 @@ Up to 16 steps by default, executed strictly in order. Four kinds:
   names, and a targeted restore point that succeeds or fails together with
   the placement. Copy only — a routing never moves, renames, or deletes
   anything in the source Space. The source is an explicit list of exact
-  Space-relative paths (at most 25), one bounded tree selector reusing the
+  Space-relative paths, one bounded tree selector reusing the
   Check target contract and resolver discipline (tighten-only hard limits;
   symbolic links, `.work-fold/`, `.pi/`, preserved `.workspace/`, and
   nested registered Spaces rejected), or the declared created-files handoff
@@ -407,7 +407,7 @@ The five questions, per mutation:
 
 ## Where routings live in the product
 
-Automations are managed in **Settings → General → Automations** (decision F15) — Agent
+Automations are managed in **Settings → Desktop → Automations** (decision F15) — Agent
 tools was rejected because a routing is not one Space's object, and a
 management work tab was rejected because it would spend the Space-bound tab
 contract's own deliberate design. The Settings section carries the list,
@@ -429,13 +429,12 @@ decision, not assumed.
 
 ## Bounds
 
-Everything is bounded, enforced at declaration parse and again at
-execution:
+Declaration structure is validated at parse and execution. Transport,
+selection, and concurrent execution remain bounded; declarations have no
+machine-wide count, step-count, or exact-path-count quota.
 
 | Bound | Value | Source of the value |
 |---|---|---|
-| Routings per machine | 32 | Small on purpose — glue, not a job system |
-| Steps per routing | 16 | A generous default, visible in `help routings`; composition beyond it suggests a Space app or a human process |
 | Triggers per routing | 1 (plus always-available run-now) | This design |
 | Interval | 15–1440 minutes | `restrictedAppAutomationIntervalMinutes` |
 | Catch-up | `latest` only (one make-up run) | `WorkFoldAutomationService` |
@@ -443,7 +442,6 @@ execution:
 | One-time missed policy | `run` or `skip` | One bounded catch-up or one recorded non-run |
 | One-time occurrence | One scheduled/resume claim ever; completed retained until Delete | Durable completed health and deterministic occurrence id |
 | Concurrent routing runs | 8, FIFO, machine-wide | A generous default, not a cap |
-| Exact source paths per files step | 25 | `maxActFromPaths` |
 | Tree selector resolution | The Check target resolver's hard limits; tighten-only | `src/local/checks/target-resolver.ts` |
 | Created-files handoff | `maxFiles` and `maxTotalBytes` mandatory in the declaration | This design |
 | Chat and fold step message | 16 KiB | A fixed dispatch message, not a document |

@@ -22,12 +22,11 @@ import type { WorkFoldDurableTurnRecord } from "../src/local/agent/turn-store.js
  * The durable request graph (docs/collaboration-contract.md, F25).
  *
  * Every accepted turn belongs to one record; the records survive restart, are
- * reconciled against the turn journal, and are never replayed. Bounds are
- * defaults, not gates (docs/receipts-not-gates.md, principle 6), so every
- * refusal here has to name its number and the Settings section that shows it.
+ * reconciled against the turn journal, and are never replayed. Payload and
+ * provider-spending protections remain bounded; request graph work does not.
  */
 
-const limitsSection = "Settings → General → Limits";
+const limitsSection = "Settings → Desktop → Limits";
 
 function clockFrom(start: string) {
   let current = Date.parse(start);
@@ -80,7 +79,7 @@ test("a root, a child, and the graph between them", async (t) => {
   assert.equal(request.parentRequestId, null);
   assert.equal(request.parentTaskId, null);
   assert.equal(request.state, "working");
-  assert.equal(request.deadline, new Date(Date.parse(request.createdAt) + workFoldRequestLimits.deadlineMs).toISOString());
+  assert.equal(request.deadline, null);
 
   clock.advance(1_000);
   const child = await store.beginChild({
@@ -220,13 +219,15 @@ test("a compaction keeps every record the journal holds, not only the ones in me
   await afterPurge.flush();
 });
 
-test("every bound a child turn can reach names its own number", async (t) => {
+test("a request can grow past the former child and depth quotas", async (t) => {
   const root = await temporaryRoot(t);
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
 
   const breadth = await WorkFoldRequestStore.open({ rootPath: join(root, "breadth"), now: clock.now });
   await breadth.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "task-1" });
-  for (let index = 0; index < workFoldRequestLimits.maxChildRequestsPerRoot; index += 1) {
+  // 33 was previously refused as the 33rd child. The graph records every
+  // accepted child; execution capacity is scheduled elsewhere.
+  for (let index = 0; index <= 32; index += 1) {
     await breadth.beginChild({
       parentTaskId: "task-1",
       kind: "space",
@@ -234,24 +235,13 @@ test("every bound a child turn can reach names its own number", async (t) => {
       surface: "cli",
       taskId: `child-${index}`,
     });
-    await breadth.settleTurn(`child-${index}`, { status: "succeeded", messageId: `reply-${index}` });
   }
-  const tooMany = await breadth.beginChild({
-    parentTaskId: "task-1",
-    kind: "space",
-    owner: spaceOwner,
-    surface: "cli",
-    taskId: "child-over",
-  }).then(() => null, (error: unknown) => error);
-  assert.ok(tooMany instanceof WorkFoldRequestLimitError);
-  assert.equal(tooMany.limit, "childTasks");
-  assert.ok(tooMany.message.includes(String(workFoldRequestLimits.maxChildRequestsPerRoot)));
-  assert.ok(tooMany.message.includes(limitsSection));
-  assert.equal(breadth.byTaskId("child-over"), null);
+  assert.equal(breadth.children(breadth.byTaskId("task-1")!.requestId).length, 33);
 
   const deep = await WorkFoldRequestStore.open({ rootPath: join(root, "deep"), now: clock.now });
   await deep.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "deep-0" });
-  for (let level = 1; level <= workFoldRequestLimits.maxDelegationDepth; level += 1) {
+  // Five levels was previously refused after level four.
+  for (let level = 1; level <= 5; level += 1) {
     const record = await deep.beginChild({
       parentTaskId: `deep-${level - 1}`,
       kind: "space",
@@ -261,47 +251,9 @@ test("every bound a child turn can reach names its own number", async (t) => {
     });
     assert.equal(record.depth, level);
   }
-  const tooDeep = await deep.beginChild({
-    parentTaskId: `deep-${workFoldRequestLimits.maxDelegationDepth}`,
-    kind: "space",
-    owner: spaceOwner,
-    surface: "cli",
-    taskId: "deep-over",
-  }).then(() => null, (error: unknown) => error);
-  assert.ok(tooDeep instanceof WorkFoldRequestLimitError);
-  assert.equal(tooDeep.limit, "depth");
-  assert.ok(tooDeep.message.includes(String(workFoldRequestLimits.maxDelegationDepth)));
-  assert.ok(tooDeep.message.includes(limitsSection));
+  assert.equal(deep.byTaskId("deep-5")?.depth, 5);
 
-  const wide = await WorkFoldRequestStore.open({ rootPath: join(root, "wide"), now: clock.now });
-  await wide.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "task-1" });
-  for (let index = 0; index < workFoldRequestLimits.maxConcurrentChildrenPerRoot; index += 1) {
-    await wide.beginChild({ parentTaskId: "task-1", kind: "space", owner: spaceOwner, surface: "cli", taskId: `busy-${index}` });
-  }
-  const tooBusy = await wide.beginChild({
-    parentTaskId: "task-1",
-    kind: "space",
-    owner: spaceOwner,
-    surface: "cli",
-    taskId: "busy-over",
-  }).then(() => null, (error: unknown) => error);
-  assert.ok(tooBusy instanceof WorkFoldRequestLimitError);
-  assert.equal(tooBusy.limit, "concurrentChildren");
-  assert.ok(tooBusy.message.includes(String(workFoldRequestLimits.maxConcurrentChildrenPerRoot)));
-  assert.ok(tooBusy.message.includes(limitsSection));
-
-  // Settling one frees the slot: a bound stops a runaway, it does not queue a person behind a click.
-  await wide.settleTurn("busy-0", { status: "succeeded" });
-  const admitted = await wide.beginChild({
-    parentTaskId: "task-1",
-    kind: "space",
-    owner: spaceOwner,
-    surface: "cli",
-    taskId: "busy-again",
-  });
-  assert.equal(admitted.depth, 1);
-
-  await Promise.all([breadth.flush(), deep.flush(), wide.flush()]);
+  await Promise.all([breadth.flush(), deep.flush()]);
 });
 
 test("the state ladder decides the same facts the same way every time", () => {
@@ -435,7 +387,7 @@ test("questions take exactly one answer, from the Space that was asked, inside t
   await store.flush();
 });
 
-test("a request and its open questions run out of time together, and the refusal names the window", async (t) => {
+test("new requests stay answerable without a timer, while legacy deadlines remain readable", async (t) => {
   const root = await temporaryRoot(t);
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
@@ -445,43 +397,31 @@ test("a request and its open questions run out of time together, and the refusal
   await store.settleTurn("task-1", { status: "succeeded", messageId: "reply-1" });
   assert.equal(store.get(request.requestId)?.state, "waiting");
 
-  clock.advance(workFoldRequestLimits.deadlineMs + 1_000);
-  const tooLate = await store.answer({ questionId: question.questionId, answer: "The 2026 one." })
-    .then(() => null, (error: unknown) => error);
-  assert.ok(tooLate instanceof WorkFoldRequestLimitError);
-  assert.equal(tooLate.limit, "questionLifetime");
-  assert.ok(tooLate.message.includes("24-hour"));
-  assert.ok(tooLate.message.includes(limitsSection));
+  clock.advance(31 * 24 * 60 * 60 * 1_000);
+  assert.deepEqual(await store.expireDue(), { requests: 0, questions: 0 });
+  const answered = await store.answer({ questionId: question.questionId, answer: "The 2026 one." });
+  assert.equal(answered.state, "answered");
+  await store.joinTurn({ requestId: request.requestId, taskId: "answer-turn" });
+  assert.equal(store.byTaskId("answer-turn")?.requestId, request.requestId);
 
-  const due = await store.expireDue();
-  assert.equal(due.requests, 1);
-  assert.equal(store.get(request.requestId)?.state, "expired");
-  assert.equal(store.question(question.questionId)?.state, "expired");
-  assert.equal(store.openQuestions().length, 0);
-
-  // A request that ran out of time hit a bound, so asking again — and handing
-  // work on — name the window and the section that shows it, rather than the
-  // generic "already finished" sentence a stop or a clean finish gets.
-  const askTooLate = await store.ask({ requestId: request.requestId, taskId: "task-1", respondent: "person", text: "Still there?" })
-    .then(() => null, (error: unknown) => error);
-  assert.ok(askTooLate instanceof WorkFoldRequestLimitError);
-  assert.equal(askTooLate.limit, "deadline");
-  assert.ok(askTooLate.message.includes("24-hour"));
-  assert.ok(askTooLate.message.includes(limitsSection));
-
-  const childTooLate = (() => {
-    try {
-      store.assertCanAddChild("task-1");
-      return null;
-    } catch (error) {
-      return error;
-    }
-  })();
-  assert.ok(childTooLate instanceof WorkFoldRequestLimitError);
-  assert.equal(childTooLate.limit, "deadline");
-  assert.ok(childTooLate.message.includes(limitsSection));
-
+  // Older journal records can still carry a deadline. Preserve that format
+  // and its expiration behavior without assigning one to new work.
   await store.flush();
+  const path = join(root, "requests.jsonl");
+  const legacy = (await readFile(path, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .findLast((record) => record.requestId === request.requestId)!;
+  legacy.deadline = new Date(clock.now().getTime() - 1_000).toISOString();
+  await writeFile(path, `${JSON.stringify(legacy)}\n`, "utf8");
+  const reopened = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
+  assert.equal(reopened.get(request.requestId)?.deadline, legacy.deadline);
+  const due = await reopened.expireDue();
+  assert.equal(due.requests, 1);
+  assert.equal(reopened.get(request.requestId)?.state, "expired");
+
+  await reopened.flush();
 });
 
 test("a stopped request keeps the lineage sentence rather than naming a bound", async (t) => {
@@ -528,15 +468,6 @@ test("the result envelope keeps its shape, its sizes, and its Space-relative fil
   const refusals: Array<[unknown, string]> = [
     [{ summary: "s".repeat(workFoldRequestLimits.maxResultSummaryBytes + 1), outcome: "succeeded" }, "resultSummary"],
     [{ summary: "ok", data: { blob: "d".repeat(workFoldRequestLimits.maxResultDataBytes) }, outcome: "succeeded" }, "resultData"],
-    [{
-      summary: "ok",
-      outcome: "succeeded",
-      files: Array.from({ length: workFoldRequestLimits.maxResultFiles + 1 }, (_item, index) => ({
-        path: `reports/${index}.md`,
-        sha256: digest,
-        sizeBytes: 1,
-      })),
-    }, "resultFiles"],
   ];
   for (const [envelope, limit] of refusals) {
     const error = await store.recordResult({ requestId: request.requestId, taskId: "task-1", receiptId: "receipt-2", envelope })
@@ -545,6 +476,20 @@ test("the result envelope keeps its shape, its sizes, and its Space-relative fil
     assert.equal(error.limit, limit);
     assert.ok(error.message.includes(limitsSection));
   }
+
+  const manyFiles = await store.recordResult({
+    requestId: request.requestId,
+    taskId: "task-1",
+    receiptId: "receipt-many-files",
+    envelope: {
+      summary: "Every deliverable is recorded.",
+      outcome: "succeeded",
+      files: Array.from({ length: 65 }, (_item, index) => ({
+        path: `reports/${index}.md`, sha256: digest, sizeBytes: 1,
+      })),
+    },
+  });
+  assert.equal(store.get(request.requestId)?.results.find((item) => item.resultId === manyFiles.resultId)?.fileCount, 65);
 
   for (const path of ["../escape.md", "/etc/hosts", ".work-fold/space.json", ".pi/config.json", ".workspace/state.json"]) {
     await assert.rejects(
@@ -862,19 +807,16 @@ test("usage stays honest when a model carries no published rates", async (t) => 
   await store.flush();
 });
 
-test("follow-up turns are counted against the root and the bound names itself", async (t) => {
+test("follow-up deliveries are recorded without a per-request quota", async (t) => {
   const root = await temporaryRoot(t);
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
   const request = await store.beginRoot({ kind: "management", owner: managementOwner, surface: "popover", taskId: "task-1" });
 
-  for (let index = 1; index <= workFoldRequestLimits.maxContinuationsPerRoot; index += 1) {
+  // The fifth delivery used to be refused after four.
+  for (let index = 1; index <= 5; index += 1) {
     assert.deepEqual(await store.noteContinuation(request.requestId), { allowed: true, count: index });
   }
-  assert.deepEqual(
-    await store.noteContinuation(request.requestId),
-    { allowed: false, count: workFoldRequestLimits.maxContinuationsPerRoot },
-  );
   assert.equal(store.continuationsEnabled(), true);
   await store.setContinuationsEnabled(false);
   assert.equal(store.continuationsEnabled(), false);
@@ -882,11 +824,11 @@ test("follow-up turns are counted against the root and the bound names itself", 
 
   const reopened = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
   assert.equal(reopened.continuationsEnabled(), false);
-  assert.equal(reopened.get(request.requestId)?.continuationCount, workFoldRequestLimits.maxContinuationsPerRoot);
+  assert.equal(reopened.get(request.requestId)?.continuationCount, 5);
   await reopened.flush();
 });
 
-test("the action trail is bounded and only an explicitly named request is credited", async (t) => {
+test("the action trail keeps attribution past the former cutoff and only credits a named request", async (t) => {
   const root = await temporaryRoot(t);
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
   const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
@@ -896,11 +838,13 @@ test("the action trail is bounded and only an explicitly named request is credit
   assert.equal(await store.recordAction("task-unknown", { command: "files.add", at: clock.now().toISOString() }), null);
   assert.equal(await store.recordAction("task-1", { command: "library.add", at: clock.now().toISOString() }), request.requestId);
 
-  for (let index = store.get(request.requestId)!.actions.length; index < workFoldRequestLimits.maxActionsPerRequest; index += 1) {
+  // The 201st action was previously dropped from attribution.
+  for (let index = 1; index <= 200; index += 1) {
     await store.recordAction("task-1", { command: "files.move", at: clock.now().toISOString(), spaceId: "space-audits", spaceName: "Audits" });
   }
-  assert.equal(store.get(request.requestId)?.actions.length, workFoldRequestLimits.maxActionsPerRequest);
-  assert.equal(await store.recordAction("task-1", { command: "files.move", at: clock.now().toISOString() }), null);
+  assert.equal(store.get(request.requestId)?.actions.length, 201);
+  assert.equal(await store.recordAction("task-1", { command: "files.move", at: clock.now().toISOString() }), request.requestId);
+  assert.equal(store.get(request.requestId)?.actions.length, 202);
 
   // Recording an act never creates a child request; only `beginChild` does.
   assert.deepEqual(store.get(request.requestId)?.childRequestIds, []);
@@ -908,30 +852,17 @@ test("the action trail is bounded and only an explicitly named request is credit
   await store.flush();
 });
 
-test("every bound names its number and the Settings section that shows it", () => {
+test("remaining bounded payload and provider protections name their number", () => {
   const caps: Array<[WorkFoldRequestLimitName, number]> = [
-    ["deadline", workFoldRequestLimits.deadlineMs],
-    ["childTasks", workFoldRequestLimits.maxChildRequestsPerRoot],
-    ["depth", workFoldRequestLimits.maxDelegationDepth],
-    ["concurrentChildren", workFoldRequestLimits.maxConcurrentChildrenPerRoot],
-    ["continuations", workFoldRequestLimits.maxContinuationsPerRoot],
     ["providerBudget", 25],
-    ["questionLifetime", workFoldRequestLimits.deadlineMs],
     ["questionText", workFoldRequestLimits.maxQuestionTextBytes],
     ["answerText", workFoldRequestLimits.maxAnswerTextBytes],
     ["resultSummary", workFoldRequestLimits.maxResultSummaryBytes],
     ["resultData", workFoldRequestLimits.maxResultDataBytes],
-    ["resultFiles", workFoldRequestLimits.maxResultFiles],
-    ["questionsPerRequest", workFoldRequestLimits.maxQuestionsPerRequest],
-    ["resultsPerRequest", workFoldRequestLimits.maxResultsPerRequest],
-    ["turnsPerRequest", workFoldRequestLimits.maxTurnsPerRequest],
-    ["actionsPerRequest", workFoldRequestLimits.maxActionsPerRequest],
   ];
   for (const [limit, cap] of caps) {
     const message = workFoldRequestLimitMessage(limit, cap);
-    const shown = limit === "deadline" || limit === "questionLifetime"
-      ? String(Math.round(cap / 3_600_000))
-      : cap >= 1024 && limit.startsWith("result") || limit.endsWith("Text")
+    const shown = cap >= 1024 && limit.startsWith("result") || limit.endsWith("Text")
         ? String(Math.round(cap / 1024))
         : String(cap);
     assert.ok(message.includes(shown), `${limit} names its number`);
@@ -970,17 +901,18 @@ test("an accepted answer stays outstanding through restart until its continuatio
   assert.equal(store.get(root.requestId)?.state, "stopped");
 });
 
-test("recorded answers cannot restart a request after its window expires", async (t) => {
+test("a new request can continue after a formerly-expiring interval", async (t) => {
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
   const store = await WorkFoldRequestStore.open({ rootPath: await temporaryRoot(t), now: clock.now });
   const request = await store.beginRoot({ kind: "space", owner: spaceOwner, surface: "cli", taskId: "asker" });
   const question = await store.ask({ requestId: request.requestId, taskId: "asker", respondent: "person", text: "Which date?" });
   await store.settleTurn("asker", { status: "succeeded" });
   await store.answer({ questionId: question.questionId, answer: "Tomorrow" });
-  clock.advance(workFoldRequestLimits.deadlineMs);
+  clock.advance(31 * 24 * 60 * 60 * 1_000);
   await store.expireDue();
-  assert.equal(store.get(request.requestId)?.state, "expired");
-  await assert.rejects(store.joinTurn({ requestId: request.requestId, taskId: "late" }), WorkFoldRequestLimitError);
+  assert.notEqual(store.get(request.requestId)?.state, "expired");
+  await store.joinTurn({ requestId: request.requestId, taskId: "late" });
+  assert.equal(store.byTaskId("late")?.requestId, request.requestId);
 });
 
 

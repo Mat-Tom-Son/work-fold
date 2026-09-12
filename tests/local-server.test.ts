@@ -1116,7 +1116,7 @@ test("Assistant setup failures are sanitized, persisted, and survive an API rest
     });
     const beforeRestart = await json(`${firstApi.origin}${conversationPath}`) as any;
     const failedMessage = beforeRestart.messages.find((message: any) => message.interruption?.reason === "setup_error");
-    assert.match(failedMessage.content, /Settings → Agents/);
+    assert.match(failedMessage.content, /Settings → AI Models/);
     assert.equal(failedMessage.interruption.message, failedMessage.content);
     assert.doesNotMatch(JSON.stringify(beforeRestart), /\/Users\/example|node_modules|providers\.md|No API key found/);
 
@@ -1126,7 +1126,7 @@ test("Assistant setup failures are sanitized, persisted, and survive an API rest
     try {
       const afterRestart = await json(`${restartedApi.origin}${conversationPath}`) as any;
       const durableFailure = afterRestart.messages.find((message: any) => message.interruption?.reason === "setup_error");
-      assert.match(durableFailure.content, /Settings → Agents/);
+      assert.match(durableFailure.content, /Settings → AI Models/);
       assert.equal(afterRestart.messages.filter((message: any) => message.role !== "system").length, 2);
       assert.doesNotMatch(JSON.stringify(afterRestart), /\/Users\/example|node_modules|providers\.md|No API key found/);
     } finally {
@@ -1186,7 +1186,7 @@ test("Assistant setup diagnostics are sanitized before reaching renderer event s
     await waitFor(() => streamEvents.some((event) => event.type === "error"));
 
     const rendererEvents = JSON.stringify(streamEvents);
-    assert.match(rendererEvents, /Settings → Agents|Assistant setup is needed/);
+    assert.match(rendererEvents, /Settings → AI Models|Assistant setup is needed/);
     assert.doesNotMatch(rendererEvents, /No models available|No API key|\/Users\/|node_modules|providers\.md|models\.md/);
     streamController.abort();
     await pump;

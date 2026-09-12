@@ -22,7 +22,7 @@ test("Space navigation separates the active Space from its surfaces", () => {
 });
 
 test("publication controls preserve access, retention, and revocation consequences", () => {
-  // Settings → General → Pages your fold serves (docs/fold-publishing.md,
+  // Settings → Desktop → Pages your fold serves (docs/fold-publishing.md,
   // plan item 5): narrowing only — stop sharing, tighten budgets, snapshot
   // off. Widening is a fresh `pages share` through the fold, and the copy
   // says so instead of offering a control.
@@ -44,7 +44,7 @@ test("publication controls preserve access, retention, and revocation consequenc
 });
 
 test("Recently deleted says what is waiting, how long, and what work-fold never erases", () => {
-  // Settings → General → Recently deleted (docs/receipts-not-gates.md, F20):
+  // Settings → Desktop → Recently deleted (docs/receipts-not-gates.md, F20):
   // nothing work-fold destroys is gone at the moment it happens, and the copy
   // names the retention window and the clean-break rule instead of implying
   // permanence either way.

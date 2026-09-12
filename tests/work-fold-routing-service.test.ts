@@ -1669,26 +1669,23 @@ test("enabling an identical declaration again changes nothing and leaves the act
   assert.equal((await harness.journal()).find((line) => line.scope === "run" && line.outcome === "stopped")?.runId, "run-1");
 });
 
-test("the raised defaults are sixteen steps and eight concurrent runs", async (t) => {
+test("routing declarations accept more than the former sixteen-step default", async (t) => {
   const harness = await createHarness(t);
   assert.equal(workFoldRoutingMaxConcurrentRuns, 8);
-  assert.equal(workFoldRoutingBounds.maxSteps, 16);
 
-  const sixteen = Array.from({ length: 16 }, (_, index) => ({
+  const seventeen = Array.from({ length: 17 }, (_, index) => ({
     id: `hop-${index}`,
     kind: "chat",
     space: spaceA,
     message: `Step ${index}.`,
   }));
-  const enabled = await harness.enable(declarationInput("routing-sixteen-steps", { version: 4, steps: sixteen }));
-  assert.equal(enabled.declaration.steps.length, 16);
-  await assert.rejects(
-    () => harness.enable(declarationInput("routing-seventeen-steps", {
-      version: 4,
-      steps: [...sixteen, { id: "hop-16", kind: "chat", space: spaceA, message: "One too many." }],
-    }), "request-seventeen"),
-    /between 1 and 16 steps/,
-  );
+  const enabled = await harness.enable(declarationInput("routing-seventeen-steps", { version: 4, steps: seventeen }));
+  assert.equal(enabled.declaration.steps.length, 17);
+  const eighteen = await harness.enable(declarationInput("routing-eighteen-steps", {
+    version: 4,
+    steps: [...seventeen, { id: "hop-17", kind: "chat", space: spaceA, message: "Another step." }],
+  }), "request-eighteen");
+  assert.equal(eighteen.declaration.steps.length, 18);
 
   harness.ports.chatImpl = harness.ports.abortableChat;
   const routingIds = Array.from({ length: 9 }, (_, index) => `routing-slot-hold-${index}`);

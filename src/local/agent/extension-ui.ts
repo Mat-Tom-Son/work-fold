@@ -145,7 +145,7 @@ export function validateExtensionUiResponse(request: PiExtensionUiRequest, respo
     return;
   }
   if (!("value" in response) || typeof response.value !== "string") throw new Error("An Extension answer must be text.");
-  if (Buffer.byteLength(response.value, "utf8") > extensionUiLimits.answerBytes) throw new Error(`Extension answer exceeds the ${extensionUiLimits.answerBytes / 1024} KiB limit. See Settings → General → Limits.`);
+  if (Buffer.byteLength(response.value, "utf8") > extensionUiLimits.answerBytes) throw new Error(`Extension answer exceeds the ${extensionUiLimits.answerBytes / 1024} KiB limit. See Settings → Desktop → Limits.`);
   if (request.method === "select" && !request.options.includes(response.value)) throw new Error("Choose one of the Extension's options.");
 }
 
@@ -164,10 +164,10 @@ export class RoutedPiExtensionUiBridge extends EventEmitter implements PiExtensi
   request(request: PiExtensionUiRequest): Promise<PiExtensionUiResponse> {
     if (this.pending.has(request.id)) return Promise.reject(new Error("Extension request id is already pending."));
     if (this.pending.size >= extensionUiLimits.pendingTotal || [...this.pending.values()].filter((item) => scopeKey(item.request) === scopeKey(request)).length >= extensionUiLimits.pendingPerChat) {
-      return Promise.reject(new Error(`Too many pending Extension questions (${extensionUiLimits.pendingPerChat} per Chat, ${extensionUiLimits.pendingTotal} total). Settings → General → Limits shows these bounds.`));
+      return Promise.reject(new Error(`Too many pending Extension questions (${extensionUiLimits.pendingPerChat} per Chat, ${extensionUiLimits.pendingTotal} total). Settings → Desktop → Limits shows these bounds.`));
     }
     if (Buffer.byteLength(JSON.stringify(request), "utf8") > extensionUiLimits.requestBytes || (request.method === "select" && (!request.options.length || request.options.length > extensionUiLimits.options))) {
-      return Promise.reject(new Error(`Extension question exceeds the ${extensionUiLimits.requestBytes / 1024} KiB or ${extensionUiLimits.options} choices limit. See Settings → General → Limits.`));
+      return Promise.reject(new Error(`Extension question exceeds the ${extensionUiLimits.requestBytes / 1024} KiB or ${extensionUiLimits.options} choices limit. See Settings → Desktop → Limits.`));
     }
     return new Promise((resolve) => {
       const timeout = "timeout" in request && request.timeout && request.timeout > 0
@@ -192,7 +192,7 @@ export class RoutedPiExtensionUiBridge extends EventEmitter implements PiExtensi
   }
 
   setEditorText(scope: PiExtensionUiScope, value: string): void {
-    if (Buffer.byteLength(value, "utf8") > extensionUiLimits.answerBytes) throw new Error(`Extension editor exceeds the ${extensionUiLimits.answerBytes / 1024} KiB limit. See Settings → General → Limits.`);
+    if (Buffer.byteLength(value, "utf8") > extensionUiLimits.answerBytes) throw new Error(`Extension editor exceeds the ${extensionUiLimits.answerBytes / 1024} KiB limit. See Settings → Desktop → Limits.`);
     if (value) this.editorText.set(scopeKey(scope), value);
     else this.editorText.delete(scopeKey(scope));
   }

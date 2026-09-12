@@ -25,8 +25,8 @@ import { FoldLimitsPane } from "./FoldLimitsPane";
 import { FoldRoutingsPane } from "./FoldRoutingsPane";
 import { FoldRecentlyDeletedPane } from "./RecentlyDeletedPane";
 
-export type SettingsPage = "appearance" | "assistant" | "remote" | "desktop" | "about";
-type FoldSettingsSection = "access" | "pages" | "routings" | "deleted" | "limits";
+export type SettingsPage = "appearance" | "assistant" | "remote" | "web-access" | "shared-pages" | "general" | "desktop" | "about";
+type FoldSettingsSection = "routings" | "deleted" | "limits";
 
 export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agentStatus, fixtureMode = false, initialPage = "appearance", initialAssistantScope, focusAssistantModel = false, onAgentConfigured, onAssistantChanged, onClose, updateStatus, onUpdateAction }: {
   appearance: ApplicationAppearanceController;
@@ -47,7 +47,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
   const [page, setPage] = useState<SettingsPage>(initialPage);
   const [assistantVisited, setAssistantVisited] = useState(initialPage === "assistant");
   const contentRef = useRef<HTMLDivElement>(null);
-  const [foldSection, setFoldSection] = useState<FoldSettingsSection>("access");
+  const [foldSection, setFoldSection] = useState<FoldSettingsSection>("routings");
   const [closeToTray, setCloseToTray] = useState<{ supported: boolean; enabled: boolean } | null>(null);
   const [closeToTrayBusy, setCloseToTrayBusy] = useState(false);
   const [closeToTrayError, setCloseToTrayError] = useState<string | null>(null);
@@ -95,10 +95,12 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
     }
   }
 
-  const tabs: Array<{ id: SettingsPage; label: string; icon: React.ReactNode }> = [
+  const selectedPage = page === "remote" ? "web-access" : page === "general" ? "desktop" : page;
+  const tabs: Array<{ id: Exclude<SettingsPage, "remote">; label: string; icon: React.ReactNode }> = [
     { id: "appearance", label: "Appearance", icon: <PaintBrush20Regular /> },
-    { id: "assistant", label: "Agents", icon: <Sparkle20Regular /> },
-    { id: "remote", label: "General", icon: <Window20Regular /> },
+    { id: "assistant", label: "AI Models", icon: <Sparkle20Regular /> },
+    { id: "web-access", label: "Web access", icon: <Window20Regular /> },
+    { id: "shared-pages", label: "Shared pages", icon: <Window20Regular /> },
     { id: "desktop", label: "Desktop", icon: <Laptop20Regular /> },
     { id: "about", label: "About", icon: <Info20Regular /> },
   ];
@@ -115,13 +117,13 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
           <div className="settings-tabs" role="tablist" aria-label="Settings sections" aria-orientation={narrowNavigation ? "horizontal" : "vertical"}>
             {tabs.map((tab) => (
               <button
-                className={page === tab.id ? "settings-tab active" : "settings-tab"}
+                className={selectedPage === tab.id ? "settings-tab active" : "settings-tab"}
                 id={`settings-tab-${tab.id}`}
                 type="button"
                 role="tab"
-                aria-selected={page === tab.id}
+                aria-selected={selectedPage === tab.id}
                 aria-controls={`settings-panel-${tab.id}`}
-                tabIndex={page === tab.id ? 0 : -1}
+                tabIndex={selectedPage === tab.id ? 0 : -1}
                 key={tab.id}
                 onFocus={(event) => event.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" })}
                 onClick={() => setPage(tab.id)}
@@ -141,39 +143,28 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
                 <AssistantSetupPane active={page === "assistant"} space={space} status={agentStatus} fixtureMode={fixtureMode} embedded initialScope={initialAssistantScope} focusModelOnOpen={focusAssistantModel} onConfigured={onAgentConfigured} onAssistantChanged={onAssistantChanged} />
               </div>
             ) : null}
-            {page === "remote" ? (
-              <div className="settings-tab-panel" id="settings-panel-remote" role="tabpanel" aria-labelledby="settings-tab-remote">
-                <div className="settings-subtabs" role="tablist" aria-label="General settings">
-                  {([[
-                    "access",
-                    "Web access",
-                  ], [
-                    "pages",
-                    "Shared pages",
-                  ], [
-                    "routings",
-                    "Automations",
-                  ], [
-                    "deleted",
-                    "Recently deleted",
-                  ], [
-                    "limits",
-                    "Limits",
-                  ]] as Array<[FoldSettingsSection, string]>).map(([id, label]) => (
+            {selectedPage === "web-access" ? (
+              <div className="settings-tab-panel" id="settings-panel-web-access" role="tabpanel" aria-labelledby="settings-tab-web-access">
+                <RemoteAccessPane />
+              </div>
+            ) : null}
+            {selectedPage === "shared-pages" ? (
+              <div className="settings-tab-panel" id="settings-panel-shared-pages" role="tabpanel" aria-labelledby="settings-tab-shared-pages">
+                <FoldPublicationsPane />
+              </div>
+            ) : null}
+            {selectedPage === "desktop" ? (
+              <div className="settings-tab-panel" id="settings-panel-desktop" role="tabpanel" aria-labelledby="settings-tab-desktop">
+                <div className="settings-subtabs" role="tablist" aria-label="Desktop settings">
+                  {([["routings", "Automations"], ["deleted", "Recently deleted"], ["limits", "Limits"]] as Array<[FoldSettingsSection, string]>).map(([id, label]) => (
                     <button className={foldSection === id ? "active" : ""} type="button" role="tab" aria-selected={foldSection === id} tabIndex={foldSection === id ? 0 : -1} id={`fold-settings-tab-${id}`} aria-controls={`fold-settings-panel-${id}`} key={id} onClick={() => setFoldSection(id)}>{label}</button>
                   ))}
                 </div>
                 <div id={`fold-settings-panel-${foldSection}`} role="tabpanel" aria-labelledby={`fold-settings-tab-${foldSection}`} className="settings-fold-panel">
-                {foldSection === "access" ? <RemoteAccessPane /> : null}
-                {foldSection === "pages" ? <FoldPublicationsPane /> : null}
-                {foldSection === "routings" ? <FoldRoutingsPane /> : null}
-                {foldSection === "deleted" ? <FoldRecentlyDeletedPane /> : null}
-                {foldSection === "limits" ? <FoldLimitsPane onOpenRecentlyDeleted={() => setFoldSection("deleted")} /> : null}
+                  {foldSection === "routings" ? <FoldRoutingsPane /> : null}
+                  {foldSection === "deleted" ? <FoldRecentlyDeletedPane /> : null}
+                  {foldSection === "limits" ? <FoldLimitsPane onOpenRecentlyDeleted={() => setFoldSection("deleted")} /> : null}
                 </div>
-              </div>
-            ) : null}
-            {page === "desktop" ? (
-              <div className="settings-tab-panel" id="settings-panel-desktop" role="tabpanel" aria-labelledby="settings-tab-desktop">
                 {closeToTray?.supported ? (
                   <section className="settings-section" aria-labelledby="window-close-settings-title">
                     <div className="settings-section-heading"><h3 id="window-close-settings-title">Closing the window</h3>{closeToTrayBusy ? <span><ArrowClockwise20Regular className="spin" /> Updating</span> : closeToTrayNotice ? <span className="settings-save-status" role="status"><Checkmark16Regular />{closeToTrayNotice}</span> : null}</div>
@@ -188,10 +179,6 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
                     {closeToTrayError ? <span className="settings-inline-error" role="alert">{closeToTrayError}</span> : null}
                   </section>
                 ) : null}
-                <section className="settings-section update-settings-section" aria-labelledby="desktop-update-settings-title">
-                  <div><div className="settings-section-heading"><h3 id="desktop-update-settings-title">Updates</h3></div><p>{updateStatus?.message ?? "Updates require the desktop app."}</p>{updateStatus?.error ? <span className="settings-inline-error" role="alert">{updateStatus.error}</span> : null}{updateStatus?.phase === "downloading" && updateStatus.progressPercent !== null ? <progress max={100} value={updateStatus.progressPercent}>{Math.round(updateStatus.progressPercent)}%</progress> : null}</div>
-                  {onUpdateAction && updateStatus?.supported ? <button className="secondary-button" type="button" disabled={updateStatus.phase === "checking" || updateStatus.phase === "downloading" || updateStatus.phase === "installing"} onClick={onUpdateAction}><ArrowClockwise20Regular className={updateStatus.phase === "checking" || updateStatus.phase === "downloading" ? "spin" : undefined} />{settingsUpdateActionLabel(updateStatus)}</button> : null}
-                </section>
               </div>
             ) : null}
             {page === "about" ? (
@@ -199,6 +186,10 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, agen
                 <section className="settings-section">
                   <WorkFoldLockup className="about-work-fold-brand" />
                   <dl className="context-meta-grid"><div><dt>Version</dt><dd>{window.workFoldDesktop?.app.version ?? "Development"}</dd></div><div><dt>Storage</dt><dd>Local</dd></div><div><dt>License</dt><dd>MIT</dd></div></dl>
+                </section>
+                <section className="settings-section update-settings-section" aria-labelledby="desktop-update-settings-title">
+                  <div><div className="settings-section-heading"><h3 id="desktop-update-settings-title">Updates</h3></div><p>{updateStatus?.message ?? "Updates require the desktop app."}</p>{updateStatus?.error ? <span className="settings-inline-error" role="alert">{updateStatus.error}</span> : null}{updateStatus?.phase === "downloading" && updateStatus.progressPercent !== null ? <progress max={100} value={updateStatus.progressPercent}>{Math.round(updateStatus.progressPercent)}%</progress> : null}</div>
+                  {onUpdateAction && updateStatus?.supported ? <button className="secondary-button" type="button" disabled={updateStatus.phase === "checking" || updateStatus.phase === "downloading" || updateStatus.phase === "installing"} onClick={onUpdateAction}><ArrowClockwise20Regular className={updateStatus.phase === "checking" || updateStatus.phase === "downloading" ? "spin" : undefined} />{settingsUpdateActionLabel(updateStatus)}</button> : null}
                 </section>
               </div>
             ) : null}
@@ -401,7 +392,7 @@ function shortReleaseDigest(value: string): string {
 }
 
 /**
- * Settings → General → Shared pages (docs/fold-publishing.md,
+ * Settings → Shared pages (docs/fold-publishing.md,
  * plan item 5). Reads and narrowing verbs only: revealing a link is a
  * transient on-demand composition against the viewer origin, and stop
  * sharing, budget cuts, and snapshot off are direct receipted acts on the
@@ -508,11 +499,7 @@ function FoldPublicationsPane() {
   };
 
   return (
-    <section className="settings-section" aria-labelledby="fold-publications-title">
-      <div className="settings-section-heading">
-        <h3 id="fold-publications-title">{foldPublicationsSettings.heading}</h3>
-        {data ? <span>{data.status.activeCount} shared</span> : null}
-      </div>
+    <section className="settings-section" aria-label={foldPublicationsSettings.heading}>
       {loadError ? <span className="settings-inline-error" role="alert">{loadError}</span> : null}
       {data?.status.damaged ? (
         <span className="settings-inline-error" role="alert">

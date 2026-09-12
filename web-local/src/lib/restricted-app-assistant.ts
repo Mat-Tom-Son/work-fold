@@ -68,7 +68,7 @@ export function restrictedAppAssistantResultOutcomeLabel(
  * General → Limits ("A result summary", "Chat result returned to the app").
  */
 export const restrictedAppAssistantResultTrimNote =
-  `\n… Trimmed to the ${restrictedAppAssistantLimits.summaryBytes / 1024} KB summary limit in Settings → General → Limits.`
+  `\n… Trimmed to the ${restrictedAppAssistantLimits.summaryBytes / 1024} KB summary limit in Settings → Desktop → Limits.`
   + ` Details over the ${restrictedAppAssistantLimits.resultBytes / 1024} KB result limit are left out there too.`
   + " Open Chat for the full reply.";
 

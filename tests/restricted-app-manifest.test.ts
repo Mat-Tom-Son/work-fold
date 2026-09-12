@@ -7,9 +7,11 @@ test("named Assistant requests have reviewed static instructions and bounded typ
   const base = manifest();
   assert.deepEqual(parseRestrictedAppManifest({ ...base, assistantActions: [] }), parseRestrictedAppManifest(base));
   assert.equal(parseRestrictedAppManifest({ ...base, assistantActions: [action] }).assistantActions?.[0]?.instructions, action.instructions);
-  for (const actions of [[{ ...action, instructions: "x".repeat(4_097) }], [{ ...action, title: "Hidden\nreview" }],
+  assert.equal(parseRestrictedAppManifest({ ...base, assistantActions: [{ ...action, instructions: "x".repeat(4_097) }] }).assistantActions?.[0]?.instructions.length, 4_097);
+  assert.equal(parseRestrictedAppManifest({ ...base, assistantActions: Array.from({ length: 9 }, (_, index) => ({ ...action, id: `task-${index}` })) }).assistantActions?.length, 9);
+  for (const actions of [[{ ...action, title: "Hidden\nreview" }],
     [{ ...action, spaceId: "foreign" }], [{ ...action, standing: true }], [action, action],
-    Array.from({ length: 9 }, (_, index) => ({ ...action, id: `task-${index}` })), [{ ...action, inputSchema: { type: "object", additionalProperties: true } }]]) {
+    [{ ...action, inputSchema: { type: "object", additionalProperties: true } }]]) {
     assert.throws(() => parseRestrictedAppManifest({ ...base, assistantActions: actions }));
   }
 

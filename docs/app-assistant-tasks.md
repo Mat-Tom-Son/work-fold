@@ -68,10 +68,9 @@ await bridge.assistant.cancel(request.requestId);
 ```
 
 The request envelope has exactly those four fields. JSON input is at most
-64 KiB; a larger input is refused with a message naming the limit and the
-Settings → General → Limits section. New requests must carry a canonical UTC
-timestamp within 15 minutes (at most one minute ahead for clock skew). A
-replayed envelope returns the same record; changing its input conflicts. The
+64 KiB; a larger input is refused with a message naming the field. New
+requests carry a canonical UTC timestamp as part of their idempotency record.
+A replayed envelope returns the same record; changing its input conflicts. The
 app cannot choose another Space or read arbitrary task or Chat ids. Shared
 viewers and remote app views have no Assistant bridge. Private browser worker
 actions use their separate action lane, which runs a request on acceptance
@@ -169,9 +168,8 @@ refused with a message that names the limit and the Settings section. The
 receipts older than a day prune on the next submission, and their original
 timestamps can no longer submit fresh work. The journal caps at 1,000 receipts
 and 64 MiB and refuses more work rather than dropping live receipts. A result
-summary is bounded at 32 KiB, reported details at 256 KiB, deliverables at 32
-entries, and the whole envelope at 256 KiB; `limits.get()` publishes all four
-under `assistant`.
+summary is bounded at 32 KiB, reported details at 256 KiB, and the whole
+envelope at 256 KiB; `limits.get()` publishes these bounds under `assistant`.
 
 While any of an app's request Chats runs, capability changes for that Space
 (grant, revoke, install, update) wait with "Wait for affected Assistant work to
@@ -239,12 +237,13 @@ remote app view all get `INFER_UNAVAILABLE`. The installation, revision, and
 authority are pinned before the call and rechecked before the result is
 delivered.
 
-Bounds: instructions 16 KiB, input 256 KiB, schema 32 KiB, output 64 KiB by
-default and `maxOutputBytes` up to 256 KiB, four calls running and twelve
-waiting per installation, eight running machine-wide, and a 120-second budget
-covering time spent waiting for a slot. `limits.get().inference` publishes them
-and Settings → General → Limits shows them. Check runs still serialize their
-model requests machine-wide; inference deliberately does not share that queue.
+Bounds: input 256 KiB, schema 32 KiB, output 64 KiB by default and
+`maxOutputBytes` up to 256 KiB. Four calls run per installation
+and eight run machine-wide; later calls wait for a slot. There is no fixed
+120-second host timeout: provider transport, cancellation, and authority
+revocation govern a dispatched call. `limits.get().inference` publishes the
+effective values. Check runs still serialize their model requests machine-wide;
+inference deliberately does not share that queue.
 
 Every refusal names what it hit: `INFER_INVALID`, `INFER_INPUT_TOO_LARGE`,
 `INFER_MODEL_UNAVAILABLE`, `INFER_BUSY`, `INFER_OUTPUT_TOO_LARGE`,

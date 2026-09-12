@@ -329,11 +329,11 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
   assertUnique(checks.map((item) => item.id), "Restricted app Check permission id");
 
   const assistantActions = manifest.assistantActions === undefined ? []
-    : arrayValue(manifest.assistantActions, "Restricted app Assistant actions", 0, restrictedAppAssistantLimits.actions).map((value) => {
+    : arrayValue(manifest.assistantActions, "Restricted app Assistant actions", 0, null).map((value) => {
       const label = "Restricted app Assistant action";
       const action = objectValue(value, label, ["id", "title", "instructions", "inputSchema", "outputSchema"]);
       return { id: idValue(action.id, `${label} id`), title: notificationTextValue(action.title, `${label} title`, 80),
-        instructions: stringValue(action.instructions, `${label} instructions`, restrictedAppAssistantLimits.instructions),
+        instructions: stringValue(action.instructions, `${label} instructions`, null),
         inputSchema: parseJsonSchema(action.inputSchema, `${label} input schema`, 0),
         // Absent stays absent so an existing app's normalized manifest bytes,
         // and therefore its identity, do not move when this field is added.
@@ -924,17 +924,17 @@ function objectValue(
   return record;
 }
 
-function arrayValue(value: unknown, label: string, minimum: number, maximum: number): unknown[] {
-  if (!Array.isArray(value) || value.length < minimum || value.length > maximum) {
-    throw new Error(`${label} must contain between ${minimum} and ${maximum} items.`);
+function arrayValue(value: unknown, label: string, minimum: number, maximum: number | null): unknown[] {
+  if (!Array.isArray(value) || value.length < minimum || (maximum !== null && value.length > maximum)) {
+    throw new Error(maximum === null ? `${label} must be an array with at least ${minimum} items.` : `${label} must contain between ${minimum} and ${maximum} items.`);
   }
   return value;
 }
 
-function stringValue(value: unknown, label: string, maximum: number): string {
+function stringValue(value: unknown, label: string, maximum: number | null): string {
   if (typeof value !== "string") throw new Error(`${label} must be text.`);
   const text = value.trim();
-  if (!text || text.length > maximum) throw new Error(`${label} must contain between 1 and ${maximum} characters.`);
+  if (!text || (maximum !== null && text.length > maximum)) throw new Error(maximum === null ? `${label} must not be empty.` : `${label} must contain between 1 and ${maximum} characters.`);
   return text;
 }
 

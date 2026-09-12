@@ -108,10 +108,10 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /Apps take no `--snapshot` — an offline desktop is an honestly asleep app/);
     // Publishing top-up (docs/fold-publishing.md): publication problems reach
     // the person as glance change items with the precise reason, and
-    // Settings → General holds the person's own direct controls — the share
+    // Settings → Desktop holds the person's own direct controls — the share
     // link never rides the fold's lane.
     assert.match(managementContext, /Page problems surface through the glance/);
-    assert.match(managementContext, /Share links are revealed only in Settings → General/);
+    assert.match(managementContext, /Share links are revealed only in Settings → Shared pages/);
     assert.match(managementContext, /never enter this lane's output or receipts/);
     assert.match(managementContext, /manage glance --json/);
     // Receipts, not gates (docs/receipts-not-gates.md, F19–F24): every verb
@@ -126,7 +126,7 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /trash restore --entry <id>/);
     assert.match(managementContext, /30 days by default/);
     assert.match(managementContext, /no verb empties Recently deleted early/);
-    assert.match(managementContext, /Limits are defaults, not gates\./);
+    assert.doesNotMatch(managementContext, /Limits are defaults, not gates\./);
     assert.match(managementContext, /Needs you means a question\./);
     assert.match(managementContext, /Setup stays with the person\./);
     assert.match(managementContext, /never gather, accept, or relay credentials/);
@@ -159,7 +159,7 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /routings enable --proposal/);
     assert.match(managementContext, /enabling the same declaration again changes nothing/);
     assert.match(managementContext, /Use version 4 for placeholders or a fold step/);
-    assert.match(managementContext, /Up to 16 ordered steps use four kinds/);
+    assert.match(managementContext, /[Oo]rdered steps use four kinds/);
     assert.match(managementContext, /\{\{trigger\.summary\}\}/);
     assert.match(managementContext, /a message into a new thread of this management conversation/);
     assert.match(managementContext, /Anything else inside `\{\{ \}\}` is refused when you enable/);
@@ -199,15 +199,15 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(managementContext, /Never block on a waiting child\./);
     assert.match(managementContext, /Never busy-wait, sleep, or poll in a loop for one\./);
     assert.match(managementContext, /when its children settle it brings their reports back here once/);
-    assert.match(managementContext, /bounded at 4 per request by default/);
-    assert.match(managementContext, /turn them off in Settings → General → Limits/);
+    assert.doesNotMatch(managementContext, /bounded at 4 per request/);
+    assert.match(managementContext, /turn them off in Settings → Desktop → Limits/);
     assert.match(managementContext, /chat answer --space <id> --question <id> --answer "<text>" --parent-task <this-request-task-id> --json/);
-    assert.match(managementContext, /A second answer, an answer to a question that has expired/);
+    assert.match(managementContext, /A second answer, an answer after Stop/);
     assert.match(managementContext, /work-fold manage ask --task/);
     assert.match(managementContext, /Handoffs are host-routed\./);
     assert.match(managementContext, /A Space Chat receives only its own work\./);
     assert.match(managementContext, /its assignment, answers to its own questions, report summaries someone deliberately released to it, and copied files/);
-    assert.match(managementContext, /32 child tasks per request, 4 levels deep, 8 running at once/);
+    assert.match(managementContext, /Requests have no fixed lifetime, child-count, depth, or continuation-count quota/);
     assert.match(managementContext, /help collaborate/);
     // The trap this teaching exists to prevent: a sentence a model obeys
     // literally by sitting on a child instead of finishing its turn.
@@ -276,11 +276,11 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(skillContent, /Never block on a waiting or running child\./);
     assert.match(skillContent, /Never busy-wait, sleep, or poll in a loop\./);
     assert.match(skillContent, /the one follow-up turn it starts/);
-    assert.match(skillContent, /A second answer, an expired question, or a Space that does not own the question is refused/);
+    assert.match(skillContent, /A second answer, an answer after Stop, or a Space that does not own the question is refused/);
     assert.match(skillContent, /work-fold manage ask --task/);
     assert.match(skillContent, /asks for a handoff with `chat handoff`/);
-    assert.match(skillContent, /bounded at 4 per request by default/);
-    assert.match(skillContent, /32 child tasks per request, 4 levels deep, 8 running at once/);
+    assert.doesNotMatch(skillContent, /bounded at 4 per request/);
+    assert.match(skillContent, /Requests have no fixed lifetime, child-count, depth, or continuation-count quota/);
     assert.match(skillContent, /A Space Chat receives only its assignment, answers to its own questions, released report summaries, and copied files/);
     assert.match(skillContent, /A request is not done while a child is running, waiting, failed, lost, or stopped/);
     assert.match(skillContent, /help collaborate/);
@@ -294,7 +294,7 @@ test("the management conversation runs above all Spaces on the shared turn machi
     assert.match(skillContent, /never work waiting to be let through/);
     assert.match(skillContent, /remote:<grantId>/);
     assert.match(skillContent, /glance change items with the precise reason/);
-    assert.match(skillContent, /revealed only in Settings → General/);
+    assert.match(skillContent, /revealed only in Settings → Shared pages/);
     assert.match(skillContent, /work-fold help <family>/);
     assert.doesNotMatch(
       skillContent,

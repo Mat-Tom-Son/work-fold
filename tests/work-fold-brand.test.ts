@@ -171,7 +171,7 @@ test("the web surfaces ship the same pack exports", async () => {
   }
 });
 
-test("onboarding, loading, About, and the popover loading state use the work-fold lockup", async () => {
+test("the empty-folder actions, loading, About, and the popover loading state keep product identity intentional", async () => {
   const [brand, brandCss, onboarding, app, settings, popover, indexHtml, popoverHtml, foundation, popoverCss, mainEntry, constants] = await Promise.all([
     read("web-local/src/components/brand/WorkFoldBrand.tsx"),
     read("web-local/src/brand.css"),
@@ -211,9 +211,8 @@ test("onboarding, loading, About, and the popover loading state use the work-fol
     assert.doesNotMatch(css, /#(c84f30|d95735|f08363|f3f0e9|252321|1b1a18)/i, `${name} still carries the pre-rebrand palette`);
   }
 
-  assert.match(onboarding, /<WorkFoldLockup className="onboarding-brand" animated/);
-  assert.match(onboarding, /<WorkFoldMark \/>/);
-  assert.doesNotMatch(onboarding, />W<|space-wordmark|onboarding-kicker/);
+  assert.match(onboarding, /Add existing folder/);
+  assert.match(onboarding, /Create new folder/);
   assert.match(app, /<WorkFoldLoadingState message=/);
   assert.match(settings, /<WorkFoldLockup className="about-work-fold-brand"/);
   assert.match(popover, /<WorkFoldLockup className="popover-loading-brand" animated/);

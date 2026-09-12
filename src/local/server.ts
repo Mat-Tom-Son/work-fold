@@ -3399,7 +3399,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
 
-  // Settings → General → Recently deleted (docs/receipts-not-gates.md, F20).
+  // Settings → Desktop → Recently deleted (docs/receipts-not-gates.md, F20).
   // Listing is a plain read; restoring, removing one item, and changing how
   // long items are kept are journaled acts with the main-window surface, like
   // every other trusted-Settings mutation. Nothing here empties the store.
@@ -3424,7 +3424,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     sendJson(res, updated.value);
     return;
   }
-  // Settings → General → Limits: the one adjustable request setting (F28).
+  // Settings → Desktop → Limits: the one adjustable request setting (F28).
   // Turning follow-up turns off changes nothing about what is recorded; it
   // only stops the host from bringing the results back as a turn.
   if (url.pathname === "/api/settings/requests" && method === "GET") {
@@ -4223,7 +4223,7 @@ async function restoreTrashAppData(
     throw new WorkFoldCliError(
       "conflict",
       `${view.note ?? "This app's data has no app to go back into."} `
-        + "Save a copy from Settings → General → Recently deleted, or with 'trash restore --entry "
+        + "Save a copy from Settings → Desktop → Recently deleted, or with 'trash restore --entry "
         + `${entry.id} --to <absolute-file-path>'.`,
     );
   }
@@ -5510,7 +5510,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         throw new WorkFoldCliError("conflict", "That question already has an answer.");
       }
       if (question.state === "cancelled") throw new WorkFoldCliError("conflict", "That request was stopped, so its question is closed.");
-      if (!resuming && (question.state === "expired" || Date.now() >= Date.parse(question.expiresAt))) {
+      if (!resuming && (question.state === "expired" || (question.expiresAt !== null && Date.now() >= Date.parse(question.expiresAt)))) {
         throw new WorkFoldCliError("conflict", requestLimitRefusalMessage("questionLifetime"));
       }
       if ((record.owner.spaceId ?? workFoldManagementScopeId) !== space.id) {
@@ -5695,7 +5695,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           .find((model) => model.provider === input.provider.trim() && model.id === input.model.trim());
         if (!match) throw new WorkFoldCliError("usage", "The selected model is not available in this Space.");
         if (!match.authConfigured) {
-          throw new WorkFoldCliError("permissionDenied", "Connect this provider in Settings → Agents before assigning its model.");
+          throw new WorkFoldCliError("permissionDenied", "Connect this provider in Settings → AI Models before assigning its model.");
         }
         await setPiDefaultModel(
           space.spaceRoot,
@@ -5968,7 +5968,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       if (!record) {
         throw new WorkFoldCliError("notFound", `Request not found. Requests are kept for ${state.requests.retentionDays()} days.`);
       }
-      return { request: await requestDetailView(state, record, 0) };
+      return { request: await requestDetailView(state, record) };
     },
     async chatRename(input) {
       assertManagementParentAccepting(state, input.parentTaskId);
@@ -9839,7 +9839,7 @@ function collaborationRefusal(error: unknown): unknown {
 }
 
 function requestLimitRefusalMessage(limit: "questionLifetime" | "deadline"): string {
-  return workFoldRequestLimitMessage(limit, workFoldRequestLimits.deadlineMs);
+  return "This request has expired.";
 }
 
 /**
@@ -9852,7 +9852,7 @@ function waitingRefForTask(state: LocalApiState, taskId: string): WorkFoldActWai
   if (!record) return null;
   const now = Date.now();
   const open = state.requests.questions(record.requestId)
-    .filter((question) => (question.state === "open" || (question.state === "answered" && question.continuationTaskId === null)) && now < Date.parse(question.expiresAt))
+    .filter((question) => (question.state === "open" || (question.state === "answered" && question.continuationTaskId === null)) && (question.expiresAt === null || now < Date.parse(question.expiresAt)))
     .sort((left, right) => left.askedAt.localeCompare(right.askedAt));
   const question = open[0];
   if (!question) return null;
@@ -9952,8 +9952,10 @@ async function assertRequestsAboveSpaces(cwd: string | undefined): Promise<void>
   );
 }
 
-/** `requests show`: the whole subtree, bounded by the depth and child limits the store already enforces. */
-async function requestDetailView(state: LocalApiState, record: WorkFoldRequestRecord, depth: number): Promise<WorkFoldActRequestDetail> {
+/** `requests show`: the complete subtree, rejecting damaged cycles. */
+async function requestDetailView(state: LocalApiState, record: WorkFoldRequestRecord, ancestors = new Set<string>()): Promise<WorkFoldActRequestDetail> {
+  if (ancestors.has(record.requestId)) throw new Error("Request graph contains a cycle.");
+  const path = new Set(ancestors).add(record.requestId);
   const reads = await state.requests.results(record.requestId);
   const resultRecords: WorkFoldActRequestResult[] = record.results.map((ref) => {
     const read = reads.find((candidate) => (candidate.state === "ok" ? candidate.record.resultId : candidate.resultId) === ref.resultId);
@@ -9969,9 +9971,9 @@ async function requestDetailView(state: LocalApiState, record: WorkFoldRequestRe
     };
   });
   const childRequests: WorkFoldActRequestDetail[] = [];
-  if (depth < workFoldRequestLimits.maxDelegationDepth) {
+  if (state.requests.children(record.requestId).length) {
     for (const child of state.requests.children(record.requestId)) {
-      childRequests.push(await requestDetailView(state, child, depth + 1));
+      childRequests.push(await requestDetailView(state, child, path));
     }
   }
   return {
@@ -10113,7 +10115,7 @@ async function requestPresentation(state: LocalApiState, record: WorkFoldRequest
   for (const item of family) {
     for (const question of state.requests.questions(item.requestId)) {
       if (question.respondent !== "person" || !(question.state === "open" || (question.state === "answered" && !question.continuationTaskId))) continue;
-      if (Date.now() >= Date.parse(question.expiresAt)) continue;
+      if ((question.expiresAt !== null && Date.now() >= Date.parse(question.expiresAt))) continue;
       questionCount++;
       if (question.state === "answered") savedAnswerCount++;
       // A page of exact questions, not truncated question text. After an
@@ -10180,7 +10182,7 @@ async function requestPresentation(state: LocalApiState, record: WorkFoldRequest
       if (read?.state !== "ok") continue;
       for (const file of read.record.envelope.files ?? []) {
         const key = `${child.owner.spaceId}:${file.path}`;
-        if (seen.has(key) || files.length >= workFoldRequestLimits.maxResultFiles) continue;
+        if (seen.has(key)) continue;
         if (remote && !await isRemoteFileVisible(child.owner.spaceId, file.path)) continue;
         seen.add(key); files.push({ ...file, spaceId: child.owner.spaceId, spaceName: child.owner.spaceName ?? "Space" });
       }
@@ -10824,7 +10826,7 @@ function assistantFailurePublicDetail(error: unknown): string {
     return `The model stopped responding${retrySummary}.`;
   }
   if (isAssistantSetupError(error)) {
-    return "The Assistant isn’t set up yet. Open Settings → Agents to choose a provider and model, then try again.";
+    return "The Assistant isn’t set up yet. Open Settings → AI Models to choose a provider and model, then try again.";
   }
   if (isPiTurnTimeoutError(error)) {
     return `${errorMessage(error)} Raise or clear that limit to let long turns finish.`;
@@ -10832,7 +10834,7 @@ function assistantFailurePublicDetail(error: unknown): string {
   if (/timed?\s*out|timeout/i.test(errorMessage(error))) {
     return "The Assistant took too long to respond. Try again when you’re ready.";
   }
-  return "The Assistant couldn’t complete this request. Try again. If it keeps happening, check Settings → Agents.";
+  return "The Assistant couldn’t complete this request. Try again. If it keeps happening, check Settings → AI Models.";
 }
 
 /** Preserve the actionable provider status without echoing its raw body, URLs or account data. */
@@ -10890,7 +10892,7 @@ function assistantEventForRenderer(event: PiChatEvent): Omit<PiChatEvent, "raw">
     return { ...safeEvent, message: assistantFailurePublicDetail(new Error(safeEvent.message)) };
   }
   if (safeEvent.type === "status" && isAssistantSetupError(safeEvent.message)) {
-    return { ...safeEvent, message: "Assistant setup is needed. Open Settings → Agents." };
+    return { ...safeEvent, message: "Assistant setup is needed. Open Settings → AI Models." };
   }
   return safeEvent;
 }
@@ -12835,7 +12837,7 @@ function sameExtensionScope(left: PiExtensionUiScope, right: PiExtensionUiScope)
 
 function remoteExtensionRequests(state: LocalApiState, record: WorkFoldRequestRecord): Array<Record<string, unknown>> {
   const taskId = record.turns.at(-1)?.taskId;
-  if (!taskId || record.owner.spaceId || record.stopRequestedAt || record.state === "expired" || Date.now() >= Date.parse(record.deadline) || state.cancelledTurnTasks.has(taskId)
+  if (!taskId || record.owner.spaceId || record.stopRequestedAt || record.state === "expired" || (record.deadline !== null && Date.now() >= Date.parse(record.deadline)) || state.cancelledTurnTasks.has(taskId)
       || state.activeTurnIdsByKey.get(streamKey(workFoldManagementScopeId, record.owner.conversationId)) !== taskId) return [];
   return [...state.extensionRequests.values()].filter((request) => request.taskId === taskId
     && sameExtensionScope(request, { spaceRoot: workFoldManagementRoot(), conversationId: record.owner.conversationId })

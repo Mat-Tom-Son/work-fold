@@ -36,10 +36,10 @@ The replacement principle is **receipts, not gates**:
 5. **The only human-only surfaces are not work.** Entering a secret,
    pairing a browser, and enrolling a remote address establish identity or
    secrets. No task ever needs them mid-flight, so they never block a task.
-6. **Bounds are visible and named.** Limits stop runaway work and keep
-   transport envelopes bounded. Counts and sizes are fixed in this build;
-   Settings shows their values. The continuation switch and trash retention
-   are configurable. Every limit hit names the limit.
+6. **Transport and execution bounds are visible and named.** Byte envelopes,
+   concurrent work, and cancellation boundaries keep the runtime reliable.
+   Requests and declarations have no lifetime or count quota. Every enforced
+   bound names the field or scheduler state that applies.
 7. **One shape for everyone.** The fold, a Space Assistant, an app, a
    routing, and an outside harness on the CLI use the same verbs, the same
    receipts, the same result and question shapes. A feature that needs its
@@ -56,7 +56,7 @@ retained there as history with a "superseded by F19" note.
 | F20 | **Reversible destruction.** `files delete` always succeeds: History covers what it can, and every path the safety checkpoint cannot cover is moved into the machine-local trash. `files destroy` is removed. `spaces delete` moves the managed folder into the trash and unregisters it. App storage clear, retained-data purge, and uninstall-with-purge write a recovery export into the trash before removing live data. Trash entries are restorable from Settings → Recently deleted and from `work-fold trash list|restore`, and are purged only by retention (default 30 days, adjustable). | The clean-break rule for legacy `.workspace/` trees, History's own capture limits, and the rule that `.work-fold/`, `.pi/`, and `.workspace/` are never valid file endpoints. |
 | F21 | **Apps come up able to work.** Installing a preview or a release grants every declared network destination, file permission (a directory permission binds to the whole Space), notification category, and Check-result slot, and enables every declared automation. A code change carries forward connections whose destination declaration is byte-identical, automation enabled states by id, and run receipts. Proposing an app from a Space Chat installs its local preview immediately; the proposal record is the receipt. `apps grant`, `apps revoke`, `apps disconnect`, and `apps automation disable` remain as the person's narrowing controls. | Secrets stay person-entered on the trusted surface, once per destination. The sandbox, brokers, declared destinations, and credential isolation of app code are unchanged: they bound generated code, not the Assistant. |
 | F22 | **Apps use the AI runtime without a click.** `assistant.request` dispatches a fresh full-tools Chat in the owning Space immediately and is available to active views, workers, and named automations. A new `assistant.infer` operation performs a bounded model call on the Space's configured model with no tools, no transcript, and optional schema-validated JSON output, available to views and workers. Neither needs a grant beyond installation. Both leave receipts with the effective model and usage. Viewers and remote app views get neither. | Full Assistant work and bounded inference stay distinct operations with distinct powers. Model selection stays with the person per Space and for the fold. |
-| F23 | **Cross-Space glue runs on request, not on ceremony.** `routings stage` becomes `routings enable`, a direct receipted verb that pins the declaration digest. Chat-step messages accept a closed set of host-resolved placeholders for the triggering event and earlier steps' created files. A `fold` step kind sends a message into the management conversation, so a person can put the fold on a cadence deliberately. Run slots and step counts are raised to generous defaults. | Routing-caused settles still never fire triggers, observers still pause during routing work, and the files step is still additive and restore-pointed. Those are loop guards and recovery, not gates. |
+| F23 | **Cross-Space glue runs on request, not on ceremony.** `routings stage` becomes `routings enable`, a direct receipted verb that pins the declaration digest. Chat-step messages accept a closed set of host-resolved placeholders for the triggering event and earlier steps' created files. A `fold` step kind sends a message into the management conversation, so a person can put the fold on a cadence deliberately. Run slots bound concurrent work; declarations have no fixed step-count quota. | Routing-caused settles still never fire triggers, observers still pause during routing work, and the files step is still additive and restore-pointed. Those are loop guards and recovery, not gates. |
 | F24 | **Needs-you means questions.** The glance's needs-you section carries Assistant questions, due snoozes, and requests waiting on a person's answer. Nothing there is an approval. Approved browsers see the same. | The glance stays a deterministic digest with no model call. |
 
 Narrowed earlier decisions:
@@ -75,9 +75,9 @@ Narrowed earlier decisions:
 
 ### The fold's authority surfaces
 
-- Settings → General loses the Authority selector and the Standing policies
-  section. It gains Recently deleted (trash) and a Limits section for the
-  defaults named in this record.
+- Settings exposes Web access and Shared pages directly. Settings → Desktop
+  contains Automations, Recently deleted (trash), and the remaining transport
+  and concurrency limits.
 - The Needs-you surfaces (main window, popover, web client) render questions
   and due snoozes only. Decision cards, approve/deny controls, and the
   no-self-approval and Personal-scope-desktop-only rules are deleted.
@@ -149,8 +149,8 @@ Narrowed earlier decisions:
   bounded and recorded on the hop receipt.
 - New step kind `fold` with a message, sent into the management
   conversation as a new thread through the same acceptance path.
-- Defaults: 16 steps, 8 concurrent runs. `help routings` and the fold's
-  instructions are updated.
+- Concurrent routing runs remain FIFO and machine-wide; routing declarations
+  have no step-count or machine-count quota.
 
 ### The fold's taught behavior
 
@@ -201,9 +201,9 @@ wave:
   inference grant with installation-level availability.
 - **Questions need no schema.** A free-text answer that continues the
   waiting task is the common case; a schema is an optional upgrade.
-- **Budgets are settings.** Deadline, depth, child count, and provider
-  budget are generous defaults in Settings → General → Limits. Hitting one
-  stops the request visibly and names the setting.
+- **Requests stay durable until they settle or Stop.** They have no built-in
+  deadline, delegation-depth, child-count, or continuation-count quota.
+  Concurrent execution and transport fields remain bounded.
 - **Waiting is a host state.** `chat wait` and the fold's own turn never
   block on a child that is waiting for input; the child's task waits, the
   parent's turn yields, and one accepted answer continues exactly once.

@@ -888,8 +888,51 @@ textarea,
   min-height: calc(100dvh - var(--desktop-titlebar-height));
 }
 
+/* Empty folder list: let the two available actions speak for themselves. */
+.onboarding-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.onboarding-folder-action {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 0 16px;
+  color: #1d2738;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(122, 133, 152, 0.3);
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(14, 35, 66, 0.05);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 650;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.onboarding-folder-action svg { color: var(--work-fold-accent); }
+
+.onboarding-folder-action:hover,
+.onboarding-folder-action:focus-visible {
+  background: color-mix(in srgb, var(--work-fold-accent-soft) 54%, rgba(255, 255, 255, 0.9));
+  border-color: color-mix(in srgb, var(--work-fold-accent) 48%, rgba(122, 133, 152, 0.3));
+}
+
+.onboarding-folder-action:focus-visible {
+  outline: 2px solid var(--work-fold-accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 480px) {
+  .onboarding-actions { grid-template-columns: minmax(0, 1fr); }
+}
+
 .onboarding-choose {
-  width: min(1060px, 100%);
+  width: min(520px, 100%);
   display: grid;
   gap: 18px;
   justify-items: center;
@@ -13319,6 +13362,18 @@ textarea,
   box-shadow: none;
 }
 
+.app-shell[data-theme="dark"] .onboarding-folder-action {
+  color: #e9eef7;
+  background: rgba(21, 31, 46, 0.96);
+  border-color: rgba(148, 163, 190, 0.24);
+}
+
+.app-shell[data-theme="dark"] .onboarding-folder-action:hover,
+.app-shell[data-theme="dark"] .onboarding-folder-action:focus-visible {
+  background: rgba(35, 48, 68, 0.94);
+  border-color: rgba(30, 160, 255, 0.5);
+}
+
 @media (max-width: 720px) {
   .app-shell[data-theme="dark"] .onboarding-choice-card + .onboarding-choice-card {
     border-top: 1px solid rgba(148, 163, 190, 0.18);
@@ -16915,6 +16970,14 @@ textarea,
 .remote-browser-row small,
 .remote-browser-empty { color: #667085; font-size: 0.76rem; }
 .remote-browser-empty { border: 1px dashed #d8e0e8; border-radius: 8px; padding: 12px; text-align: center; }
+.recently-deleted-pane { display: grid; gap: 14px; }
+.recently-deleted-retention { display: flex; align-items: center; justify-content: flex-start; gap: 7px; color: #667085; font-size: 0.82rem; white-space: nowrap; }
+.recently-deleted-retention label { flex: 0 0 auto; color: #344054; font-weight: 650; }
+.recently-deleted-retention input { flex: 0 0 58px; width: 58px; min-width: 58px; min-height: 32px; padding: 5px 7px; border: 1px solid #d0d7e1; border-radius: 6px; background: #fff; color: #24324a; font: inherit; }
+.recently-deleted-retention span { flex: 0 0 auto; }
+.recently-deleted-retention .secondary-button { flex: 0 0 auto; width: auto; min-width: 0; min-height: 32px; padding: 5px 10px; font-size: 0.8rem; }
+.recently-deleted-empty { margin: 0; padding: 3px 0; color: #667085; font-size: 0.82rem; }
+.recently-deleted-row-actions { justify-content: flex-start; }
 .global-error { position: fixed; z-index: 300; right: 18px; bottom: 18px; left: 92px; display: flex; align-items: center; gap: 10px; padding: 11px 13px; border: 1px solid #f3b8bf; border-radius: 8px; color: #8f2430; background: #fff2f3; box-shadow: 0 12px 34px rgba(28, 39, 55, 0.18); }
 .global-error > span { flex: 1; }
 .global-error button { display: grid; place-items: center; border: 0; background: transparent; color: inherit; }
@@ -16934,6 +16997,15 @@ textarea,
 .app-shell[data-theme="dark"] .settings-section > p,
 .app-shell[data-theme="dark"] .remote-browser-row small,
 .app-shell[data-theme="dark"] .remote-browser-empty { color: #94a3b8; }
+.app-shell[data-theme="dark"] .recently-deleted-retention { color: #94a3b8; }
+.app-shell[data-theme="dark"] .recently-deleted-retention label { color: #d5deeb; }
+.app-shell[data-theme="dark"] .recently-deleted-retention input { border-color: #3c4655; background: #202733; color: #e5edf7; }
+.app-shell[data-theme="dark"] .recently-deleted-empty { color: #94a3b8; }
+@media (max-width: 420px) {
+  .recently-deleted-retention { gap: 6px; }
+  .recently-deleted-retention .secondary-button { flex: 0 0 auto; }
+  .recently-deleted-row-actions .secondary-button { flex: 0 1 auto; min-width: 0; }
+}
 .app-shell[data-theme="dark"] .remote-access-url,
 .app-shell[data-theme="dark"] .remote-slug-field > span,
 .app-shell[data-theme="dark"] .remote-access-state { color: #cbd5e1; border-color: #3c4655; background: #202733; }

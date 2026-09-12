@@ -64,13 +64,10 @@ test("Settings navigation preserves Assistant edits, isolates tab groups and res
 
   const content = document.querySelector<HTMLElement>(".settings-content")!;
   content.scrollTop = 250;
-  await click("settings-tab-remote");
+  await click("settings-tab-web-access");
   assert.equal(content.scrollTop, 0, "a newly selected settings page starts at its heading");
-  document.getElementById("fold-settings-tab-access")!.focus();
-  await dom.press("ArrowRight");
-  assert.equal(document.activeElement?.id, "fold-settings-tab-pages");
-  assert.equal(document.getElementById("settings-tab-remote")?.getAttribute("aria-selected"), "true");
-  assert.equal(document.getElementById("fold-settings-panel-pages")?.getAttribute("aria-labelledby"), "fold-settings-tab-pages");
+  assert.equal(document.getElementById("settings-tab-web-access")?.getAttribute("aria-selected"), "true");
+  assert.equal(document.getElementById("settings-panel-web-access")?.getAttribute("aria-labelledby"), "settings-tab-web-access");
 
   await dom.press("Escape");
   await dom.settle();

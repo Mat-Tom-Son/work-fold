@@ -21,7 +21,9 @@ const [settingsSource, paneSource, mainPreload, popoverPreload, desktopMain] = a
 ]);
 
 test("General Settings includes Automations without introducing a builder", () => {
-  assert.match(settingsSource, /type FoldSettingsSection = "access" \| "pages" \| "routings" \| "deleted" \| "limits";/);
+  assert.match(settingsSource, /type FoldSettingsSection = "routings" \| "deleted" \| "limits";/);
+  assert.match(settingsSource, /id: "web-access", label: "Web access"/);
+  assert.match(settingsSource, /id: "shared-pages", label: "Shared pages"/);
   assert.match(settingsSource, /"routings",\s*"Automations"/);
   assert.match(settingsSource, /foldSection === "routings" \? <FoldRoutingsPane \/>/);
   assert.doesNotMatch(paneSource, /builder|cron|RRULE/i);
@@ -392,3 +394,13 @@ function installSwitchingRoutingBridge(): {
     resolveLateA: () => resolveLateA(detail("routing-a")),
   };
 }
+
+
+test("missing desktop bridge leaves Automations readable instead of crashing Settings", async (t) => {
+  const dom = await createDomHarness();
+  t.after(() => dom.cleanup());
+  await dom.render(createElement(FoldRoutingsPane));
+  await dom.waitFor(() => Boolean(dom.container.querySelector('[role="alert"]')));
+  assert.match(dom.container.textContent ?? "", /available in the desktop app/);
+  assert.ok(dom.container.querySelector("button"), "Settings remains interactive");
+});

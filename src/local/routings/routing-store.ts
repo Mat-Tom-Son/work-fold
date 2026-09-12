@@ -548,8 +548,7 @@ export class WorkFoldRoutingStore {
    * Commits an enablement receipt: the declaration write and the grant commit
    * are one logical operation (one atomic state write), so a failure leaves
    * prior state intact — never undeclared or digest-mismatched authority.
-   * Re-enabling an existing routing id records a fresh grant; the 32-routing
-   * machine bound applies to new ids at exactly this door.
+   * Re-enabling an existing routing id records a fresh grant.
    */
   async enable(input: WorkFoldRoutingEnableInput): Promise<WorkFoldRoutingRecord> {
     return await this.#mutate(async () => {
@@ -576,12 +575,6 @@ export class WorkFoldRoutingStore {
       const now = admissionTime.toISOString();
       const draft = structuredClone(this.#file);
       const existing = draft.routings.find((candidate) => candidate.declaration.id === declaration.id);
-      if (!existing && draft.routings.length >= workFoldRoutingBounds.maxRoutingsPerMachine) {
-        throw new WorkFoldRoutingStoreError(
-          "BOUND_EXCEEDED",
-          `This machine already holds ${workFoldRoutingBounds.maxRoutingsPerMachine} routings; delete one before enabling another. Routings are glue, not a job system.`,
-        );
-      }
       const grant: WorkFoldRoutingGrant = { digest, enabledAt: now, ...grantRef };
       const record: WorkFoldRoutingRecord = {
         declaration,
@@ -1005,9 +998,6 @@ async function loadRoutingStoreFile(
   }
   const legacyGrants = record.schemaVersion !== WORKFOLD_ROUTING_STORE_SCHEMA_VERSION;
   if (!Array.isArray(record.routings)) return damaged("does not list its routings");
-  if (record.routings.length > workFoldRoutingBounds.maxRoutingsPerMachine) {
-    return damaged(`holds more than ${workFoldRoutingBounds.maxRoutingsPerMachine} routings`);
-  }
   const routings: WorkFoldRoutingRecord[] = [];
   const ids = new Set<string>();
   for (const [index, candidate] of record.routings.entries()) {

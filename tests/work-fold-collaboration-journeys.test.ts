@@ -331,7 +331,7 @@ test("journey: the fold delegates to a Space, the Space asks once, one answer co
     assert.doesNotMatch(JSON.stringify(j.records), /currency/i, "a receipt never carries the question text");
 
     // 4. F28: the host says which, on the status document, while the turn runs.
-    const waitingStatus = await j.ok<{ task: { state: string }; waiting: { questionId: string; requestId: string; respondent: string; question: string; askedAt: string; expiresAt: string } | null; request: RequestRef }>([
+    const waitingStatus = await j.ok<{ task: { state: string }; waiting: { questionId: string; requestId: string; respondent: string; question: string; askedAt: string; expiresAt: string | null } | null; request: RequestRef }>([
       "chat", "status", "--space", quotes.id, "--task", child.taskId, "--json",
     ]);
     assert.equal(waitingStatus.task.state, "running");
@@ -340,7 +340,7 @@ test("journey: the fold delegates to a Space, the Space asks once, one answer co
     assert.equal(waitingStatus.waiting?.requestId, childRequestId);
     assert.equal(waitingStatus.waiting?.respondent, "person");
     assert.equal(waitingStatus.waiting?.question, "Which currency should the totals use?");
-    assert.ok(Date.parse(waitingStatus.waiting!.expiresAt) > Date.parse(waitingStatus.waiting!.askedAt));
+    assert.equal(waitingStatus.waiting!.expiresAt, null, "new work has no forced answer deadline");
     assert.equal(waitingStatus.request?.state, "waiting");
     // The blocking loop belongs to the installed shim; the host keeps failing
     // an old one loudly rather than holding a broker request open.

@@ -725,10 +725,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.professional-assistant .assistant-singleton-scope { padding: 2px 0 10px; color: var(--ui-text); font-size: 0.9rem; font-weight: 650; }
 
 .professional-assistant .assistant-settings-section {
   min-width: 0;
-  padding: 22px 0;
+  padding: 14px 0;
   border-top: 1px solid var(--ui-border);
 }
 

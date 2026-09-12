@@ -38,7 +38,7 @@ export const workFoldQuestionIdPattern = /^q-\d{14}-[0-9a-f]{8}$/;
 export const workFoldResultIdPattern = /^res-\d{14}-[0-9a-f]{8}$/;
 
 /** The one spelling every request refusal names, shared with the app-facing refusals. */
-export const workFoldRequestLimitsSection = "Settings → General → Limits";
+export const workFoldRequestLimitsSection = "Settings → Desktop → Limits";
 
 const forbiddenTextPattern = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u;
 const maximumResultFilePathLength = 1_024;
@@ -290,10 +290,10 @@ export interface WorkFoldRequestRecord {
   createdAt: string;
   updatedAt: string;
   settledAt: string | null;
-  /** `createdAt` plus the request deadline. */
-  deadline: string;
+  /** A legacy request window, or `null` for work that does not expire on a timer. */
+  deadline: string | null;
   state: WorkFoldRequestState;
-  /** Bounded; `turns[0].role` is always `origin`. */
+  /** `turns[0].role` is always `origin`. */
   turns: WorkFoldRequestTurnRef[];
   childRequestIds: string[];
   questionIds: string[];
@@ -330,7 +330,7 @@ export interface WorkFoldQuestionRecord {
   askedAt: string;
   updatedAt: string;
   /** A question lives exactly as long as its request. */
-  expiresAt: string;
+  expiresAt: string | null;
   state: "open" | "answered" | "expired" | "cancelled";
   answer: string | null;
   answeredAt: string | null;
@@ -442,7 +442,7 @@ export function workFoldRequestLimitError(limit: WorkFoldRequestLimitName, cap: 
 
 export interface WorkFoldRequestStateInput {
   stopRequestedAt: string | null;
-  deadline: string;
+  deadline: string | null;
   now: Date;
   /** This request's own turns, in acceptance order. */
   turnStates: readonly WorkFoldRequestTurnState[];
@@ -493,7 +493,7 @@ export function computeWorkFoldRequestState(input: WorkFoldRequestStateInput): W
     || input.openQuestions > 0
     || input.openDescendantQuestions > 0
     || input.childStates.some((state) => state === "working" || state === "waiting" || state === "handed_off");
-  const deadlineAt = Date.parse(input.deadline);
+  const deadlineAt = input.deadline ? Date.parse(input.deadline) : Number.NaN;
   if (outstanding && Number.isFinite(deadlineAt) && input.now.getTime() >= deadlineAt) return "expired";
 
   if (input.openQuestions > 0) return "waiting";
@@ -604,9 +604,9 @@ function nonNegativeInteger(value: unknown, label: string): number {
   return value;
 }
 
-function stringArray(value: unknown, label: string, maxItems: number): string[] {
+function stringArray(value: unknown, label: string, maxItems?: number): string[] {
   if (!Array.isArray(value)) throw new Error(`${label} must be a list.`);
-  if (value.length > maxItems) throw new Error(`${label} holds more than ${maxItems} entries.`);
+  if (maxItems !== undefined && value.length > maxItems) throw new Error(`${label} holds more than ${maxItems} entries.`);
   return value.map((item, index) => {
     if (typeof item !== "string" || !item.length || item.length > maximumResultFilePathLength) {
       throw new Error(`${label} entry ${index + 1} is invalid.`);
@@ -748,7 +748,7 @@ export function parseWorkFoldRequestRecord(value: unknown): WorkFoldRequestRecor
   if (ownerRecord.spaceName !== undefined) owner.spaceName = boundedText(ownerRecord.spaceName, `${label} Space name`, 1_024);
 
   const turns = Array.isArray(record.turns) ? record.turns.map(parseTurnRef) : null;
-  if (!turns || !turns.length || turns.length > workFoldRequestLimits.maxTurnsPerRequest) {
+  if (!turns || !turns.length) {
     throw new Error(`${label} turns are invalid.`);
   }
   if (turns[0]!.role !== "origin") throw new Error(`${label} does not start with its own turn.`);
@@ -774,29 +774,29 @@ export function parseWorkFoldRequestRecord(value: unknown): WorkFoldRequestRecor
     createdAt: isoDate(record.createdAt, `${label} creation time`),
     updatedAt: isoDate(record.updatedAt, `${label} update time`),
     settledAt: nullableIsoDate(record.settledAt, `${label} settle time`),
-    deadline: isoDate(record.deadline, `${label} window`),
+    deadline: nullableIsoDate(record.deadline, `${label} window`),
     state: enumValue(
       record.state,
       ["working", "waiting", "handed_off", "done", "partial", "failed", "stopped", "expired"] as const,
       `${label} state`,
     ),
     turns,
-    childRequestIds: stringArray(record.childRequestIds, `${label} child ids`, workFoldRequestLimits.maxChildRequestsPerRoot)
+    childRequestIds: stringArray(record.childRequestIds, `${label} child ids`)
       .map((id) => {
         if (!workFoldRequestIdPattern.test(id)) throw new Error(`${label} child id is invalid.`);
         return id;
       }),
-    questionIds: stringArray(record.questionIds, `${label} question ids`, workFoldRequestLimits.maxQuestionsPerRequest)
+    questionIds: stringArray(record.questionIds, `${label} question ids`)
       .map((id) => {
         if (!workFoldQuestionIdPattern.test(id)) throw new Error(`${label} question id is invalid.`);
         return id;
       }),
-    results: Array.isArray(record.results) && record.results.length <= workFoldRequestLimits.maxResultsPerRequest
+    results: Array.isArray(record.results)
       ? record.results.map(parseResultRef)
       : (() => { throw new Error(`${label} results are invalid.`); })(),
     usage: parseUsage(record.usage),
     continuationCount: nonNegativeInteger(record.continuationCount, `${label} follow-up count`),
-    deliveredChildTaskIds: stringArray(record.deliveredChildTaskIds ?? [], `${label} delivered children`, workFoldRequestLimits.maxContinuationsPerRoot * workFoldRequestLimits.maxChildRequestsPerRoot),
+    deliveredChildTaskIds: stringArray(record.deliveredChildTaskIds ?? [], `${label} delivered children`),
     continuationState: record.continuationState === null || record.continuationState === undefined ? null
       : enumValue(record.continuationState, ["pending", "failed"] as const, `${label} continuation`),
     stopRequestedAt: nullableIsoDate(record.stopRequestedAt, `${label} stop time`),
@@ -808,7 +808,7 @@ export function parseWorkFoldRequestRecord(value: unknown): WorkFoldRequestRecor
     attachments: Array.isArray(record.attachments) && record.attachments.length <= maxManagementAttachments
       ? record.attachments.map((item, index) => parseWorkFoldAttachmentRef(item, `${label} attachment ${index + 1}`))
       : (() => { throw new Error(`${label} attachments are invalid.`); })(),
-    actions: Array.isArray(record.actions) && record.actions.length <= workFoldRequestLimits.maxActionsPerRequest
+    actions: Array.isArray(record.actions)
       ? record.actions.map((item, index) => parseWorkFoldRequestAction(item, `${label} action ${index + 1}`))
       : (() => { throw new Error(`${label} actions are invalid.`); })(),
     continuedFromTaskId: record.continuedFromTaskId === null || record.continuedFromTaskId === undefined
@@ -886,7 +886,7 @@ export function parseWorkFoldQuestionRecord(value: unknown): WorkFoldQuestionRec
     text: boundedText(record.text, `${label} text`, workFoldRequestLimits.maxQuestionTextBytes, "questionText"),
     askedAt: isoDate(record.askedAt, `${label} time`),
     updatedAt: isoDate(record.updatedAt, `${label} update time`),
-    expiresAt: isoDate(record.expiresAt, `${label} window`),
+    expiresAt: nullableIsoDate(record.expiresAt, `${label} window`),
     state: enumValue(record.state, ["open", "answered", "expired", "cancelled"] as const, `${label} state`),
     answer: record.answer === null || record.answer === undefined
       ? null
@@ -930,9 +930,6 @@ export function parseWorkFoldResultEnvelope(
   }
   if (record.files !== undefined) {
     if (!Array.isArray(record.files)) throw new Error(`${label} files must be a list.`);
-    if (record.files.length > workFoldRequestLimits.maxResultFiles) {
-      throw workFoldRequestLimitError("resultFiles", workFoldRequestLimits.maxResultFiles);
-    }
     envelope.files = record.files.map((item, index) => parseResultFileRef(item, `${label} file ${index + 1}`));
   }
   return envelope;

@@ -33,7 +33,7 @@ What the Assistant does happens right away and leaves a record you can read in t
 ## Try it
 
 1. [Download work-fold](https://www.work-fold.com/download/macos) for an Apple silicon Mac.
-2. Connect your model provider in **Settings → Agents**. Provider usage may cost money.
+2. Connect your model provider in **Settings → AI Models**. Provider usage may cost money.
 3. Open an existing folder or create a Folder, then start a Chat.
 
 Files live on your computer. Content used by the Assistant goes to your chosen model provider. Optional web access is in private alpha and needs your Mac online. See [Privacy](PRIVACY.md) for details.

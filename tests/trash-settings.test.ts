@@ -9,7 +9,7 @@ import { WorkFoldCliActReceipts } from "../src/local/cli/act-receipts.js";
 import { startLocalApi, type LocalApiHandle } from "../src/local/server.js";
 
 /**
- * Settings → General → Recently deleted over the running local API
+ * Settings → Desktop → Recently deleted over the running local API
  * (docs/receipts-not-gates.md, F20). A delete never refuses for lack of
  * coverage: the entry moves here and comes back on request. A deleted managed
  * Space folder comes back with its portable identity, its Chats, and its
