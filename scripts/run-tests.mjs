@@ -2,6 +2,7 @@ import { readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const testsDir = join(rootDir, "tests");
@@ -29,6 +30,13 @@ const files = entries
 
 if (!files.length) {
   throw new Error(`No test files found in ${testsDir}`);
+}
+
+// Electron downloads its binary on first require. Resolve it once before the
+// parallel macOS ASAR suites start, so a clean npm ci cannot make their first
+// launches race a concurrent extraction of the same binary.
+if (process.platform === "darwin") {
+  createRequire(import.meta.url)("electron");
 }
 
 const child = spawn(process.execPath, [tsxCli, "--test", ...files], {

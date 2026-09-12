@@ -1154,9 +1154,16 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   }
   // Retention is background work, as for Recently deleted: nothing a task
   // needs sits behind it, and it never runs twice in one day.
-  void state.requests.purgeExpiredIfDue().catch((error: unknown) => {
-    console.warn(`work-fold could not tidy its request records at startup: ${errorMessage(error)}`);
-  });
+  const retentionTasks = new Set<Promise<unknown>>();
+  const trackRetention = (operation: Promise<unknown>, failure: string): void => {
+    const task = operation.catch((error: unknown) => {
+      console.warn(`${failure}: ${errorMessage(error)}`);
+    });
+    retentionTasks.add(task);
+    void task.then(() => retentionTasks.delete(task));
+  };
+  const drainRetention = () => Promise.allSettled([...retentionTasks]);
+  trackRetention(state.requests.purgeExpiredIfDue(), "work-fold could not tidy its request records at startup");
 
   const requestListener = (request: PiExtensionUiRequest) => routeExtensionRequest(state, request);
   const eventListener = (event: PiExtensionUiEvent) => routeExtensionEvent(state, event);
@@ -1175,22 +1182,21 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       sendError(response, error);
     }
   });
-  await listen(server, requestedPort, host);
+  try {
+    await listen(server, requestedPort, host);
+  } catch (error) {
+    await drainRetention();
+    throw error;
+  }
   const remoteUploadPruneTimer = setInterval(() => {
-    void pruneRemoteManagementUploads(workFoldManagementRoot()).catch((error) => {
-      console.warn(`work-fold could not prune expired remote uploads: ${errorMessage(error)}`);
-    });
+    trackRetention(pruneRemoteManagementUploads(workFoldManagementRoot()), "work-fold could not prune expired remote uploads");
     // Retention runs "daily while awake": the store compares its own durable
     // lastPurgeAt, so sleeping past a deadline purges within the hour and
     // never twice in one day.
-    void state.trash.purgeExpiredIfDue().catch((error: unknown) => {
-      console.warn(`work-fold could not clean Recently deleted: ${errorMessage(error)}`);
-    });
+    trackRetention(state.trash.purgeExpiredIfDue(), "work-fold could not clean Recently deleted");
     // Requests past their window close, and settled graphs older than the
     // retention window leave, on the same cadence.
-    void state.requests.expireDue().then(() => state.requests.purgeExpiredIfDue()).catch((error: unknown) => {
-      console.warn(`work-fold could not tidy its request records: ${errorMessage(error)}`);
-    });
+    trackRetention(state.requests.expireDue().then(() => state.requests.purgeExpiredIfDue()), "work-fold could not tidy its request records");
   }, 60 * 60 * 1_000);
   remoteUploadPruneTimer.unref();
   try {
@@ -1198,6 +1204,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   } catch (error) {
     clearInterval(remoteUploadPruneTimer);
     await closeServer(server).catch(() => undefined);
+    await drainRetention();
     throw error;
   }
   extensionUi.on("request", requestListener);
@@ -1223,6 +1230,9 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     trash,
     close: async () => {
       state.acceptingTurns = false;
+      // Withdraw the cadence before any await; already-admitted filesystem
+      // cleanup remains owned until the close promise settles below.
+      clearInterval(remoteUploadPruneTimer);
       state.modelContextInspector.setEnabled(false);
       await closeMcpSetups(state);
       const browserActionsClosed = state.browserAppActions.close();
@@ -1230,7 +1240,6 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       state.appAssistantTasks.off("changed", appTasksChanged);
       state.appInference.off("changed", appInferenceChanged);
       for (const response of state.controlStreams) response.end();
-      clearInterval(remoteUploadPruneTimer);
       extensionUi.off("request", requestListener);
       extensionUi.off("event", eventListener);
       extensionUi.off("settled", settledListener);
@@ -1261,6 +1270,9 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       await browserActionsClosed;
       await state.restrictedApps.close();
       await closeServer(server);
+      // In particular, startup request retention may still be writing its
+      // durable lastPurgeAt even when no Assistant turn has ever run.
+      await drainRetention();
     },
   };
 }
